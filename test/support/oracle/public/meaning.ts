@@ -129,7 +129,7 @@ import {
 } from "#test/support/oracle/reference/values.ts"
 
 /** The schema as the reference reads it. */
-const referenceSchema = (s: ProgramSchema): GenSchema => ({
+export const referenceSchema = (s: ProgramSchema): GenSchema => ({
 	name: generatedSchemaName,
 	relations: Arr.map(s.relations, (r): GenRelation => ({
 		name: r.name,
@@ -1127,7 +1127,7 @@ const meaningOf = (
 }
 
 /** The case's facts as the reference takes them: each stored fact in the spelling that stored it. */
-const factsOf = (c: ProgramCase): GenFacts => Rec.fromEntries(c.facts)
+export const factsOf = (c: ProgramCase): GenFacts => Rec.fromEntries(c.facts)
 
 /**
  * A query read's parameters as the reference binds them: each scalar one's value, and each relation parameter's facts

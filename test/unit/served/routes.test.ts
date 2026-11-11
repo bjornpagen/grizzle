@@ -2,8 +2,10 @@
  * Every read a login serves carries exactly the footprint its program reads and the key its delivered rows prove:
  * what generate records so that no runtime, HTTP layer, client or OpenAPI document derives either again.
  *
- * Over generated public schemas (test/support/oracle/public), each extended by a drawn law level (laws.ts), and logins
- * drawn over them (test/support/served-login.ts), each login compiled as generate compiles it (adapter/served/compile.ts
+ * Over generated public schemas (test/support/oracle/public), each extended by a drawn law level (laws.ts) holding a
+ * materialized view, and live logins drawn over them (test/support/served-login.ts liveLoginGen), whose first role
+ * reads that view and, wherever a field may carry a claim, reads through its query entry at a key a parameter binds (a
+ * world relation its plan inlines), each login compiled as generate compiles it (adapter/served/compile.ts
  * snapshotCompiled, then servedEntryOf) and its file read back from the JSON value its text parses to:
  *
  * - Footprint: each read member's served footprint is the one the program's base-level IR climbs to
@@ -46,15 +48,18 @@ import {
 	drawnLogin,
 	drawnSchema,
 	type DrawnSchema,
-	loginGen,
+	liveLoginGen,
 	type RoleShape,
-	rolesOf
+	rolesOf,
+	worldReadName
 } from "#test/support/served-login.ts"
 import { climbedFootprint, installedFootprint } from "#test/support/served-routes.ts"
 
 type Feature =
 	| "a table a read routes by a parameter"
 	| "a table a read reads table-wide"
+	| "a materialized view a read reads"
+	| "a read through a query entry"
 	| "a set read keyed narrower than its heading"
 	| "an ordered read"
 	| "a paged read"
@@ -204,6 +209,12 @@ const routesAndKeys = (
 					installedFootprint(climbed, role.compiled.artifacts.names),
 					`${member.name}: its footprint is the tables it reads, each routed by the fields its parameters fix\n${printed()}`
 				)
+				if (climbed.views.size > 0) {
+					note("a materialized view a read reads")
+				}
+				if (member.name === worldReadName(0, "entry")) {
+					note("a read through a query entry")
+				}
 				for (const routes of climbed.tables.values()) {
 					note(
 						routes.size > 0
@@ -237,6 +248,8 @@ describe("a login's served reads", () => {
 							[
 								"a table a read routes by a parameter",
 								"a table a read reads table-wide",
+								"a materialized view a read reads",
+								"a read through a query entry",
 								"a set read keyed narrower than its heading",
 								"an ordered read",
 								"a paged read"
@@ -253,7 +266,7 @@ describe("a login's served reads", () => {
 					([sketch, level], notes) =>
 						Effect.suspend(() => {
 							const schema = drawnSchema(notes.draw(resolveCase(sketch)), level)
-							return routesAndKeys(schema, level, notes.draw(loginGen(schema)), notes.note)
+							return routesAndKeys(schema, level, notes.draw(liveLoginGen(schema)), notes.note)
 						})
 				)
 			)

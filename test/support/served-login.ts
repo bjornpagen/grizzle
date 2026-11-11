@@ -54,6 +54,10 @@ import type { ProgramCase, Root } from "#test/support/oracle/public/program.ts"
  *   call's;
  * - and its workload's reads, some of the case's queries, an ordered one read whole or paged.
  *
+ * A login of the live suites (liveLoginGen) holds besides, in its first role, constructed rather than drawn: the query
+ * entry, and a read through it, `Mine`'s facts at the key a parameter binds; and a read of the law level's materialized
+ * view (laws.ts Laws view).
+ *
  * Each draw is a choice among the case's own relations, fields and queries: the counts are the case's. The number of
  * roles is a search budget.
  */
@@ -111,12 +115,19 @@ interface ReadShape {
 	readonly paged: boolean
 }
 
+/**
+ * A read of the role's own world a live login's first role holds (liveLoginGen): through its query entry, its facts at
+ * the key a parameter binds, or of the law level's materialized view.
+ */
+export type WorldRead = "entry" | "view"
+
 /** A role of a drawn login (see the header). */
 export interface RoleShape {
 	readonly writes: ReadonlyArray<string>
 	readonly entry: Option.Option<EntryShape>
 	readonly changes: ReadonlyArray<ChangeShape>
 	readonly reads: ReadonlyArray<ReadShape>
+	readonly worldReads: ReadonlyArray<WorldRead>
 }
 
 /** The name of the query entry a role writes through, and of the login every case draws. */
@@ -158,6 +169,19 @@ const claimFields = (drawn: DrawnSchema): ReadonlyArray<FieldAt> =>
 	)
 
 /** A query entry over a relation of the schema with a field a claim may carry, or none where no relation has one. */
+const heldEntryGen =
+	(drawn: DrawnSchema): Gen<Option.Option<EntryShape>> =>
+	(source) => {
+		const [first, ...rest] = claimFields(drawn)
+		if (first === undefined) {
+			return Option.none()
+		}
+		const key = source.draw(element([first, ...rest]))
+		const held = source.draw(element([first, ...rest]))
+		return Option.some({ target: key.relation, key: key.field, held })
+	}
+
+/** A query entry drawn or not, as heldEntryGen draws it where it is drawn. */
 const entryGen =
 	(drawn: DrawnSchema): Gen<Option.Option<EntryShape>> =>
 	(source) => {
@@ -171,9 +195,9 @@ const entryGen =
 	}
 
 const roleGen =
-	(drawn: DrawnSchema): Gen<RoleShape> =>
+	(drawn: DrawnSchema, held: Gen<Option.Option<EntryShape>>): Gen<RoleShape> =>
 	(source) => {
-		const entry = source.draw(entryGen(drawn))
+		const entry = source.draw(held)
 		const writes = source.draw(
 			subarray(
 				Arr.filter(
@@ -197,16 +221,33 @@ const roleGen =
 			...read,
 			paged: read.query.delivery.kind === "ordered" && source.draw(boolean)
 		}))
-		return { writes, entry, changes, reads }
+		return { writes, entry, changes, reads, worldReads: [] }
 	}
 
 /** The roles of a login over the drawn schema, one or more (see the header). */
 export const loginGen =
 	(drawn: DrawnSchema): Gen<Arr.NonEmptyReadonlyArray<RoleShape>> =>
 	(source) => [
-		source.draw(roleGen(drawn)),
-		...source.draw(array(roleGen(drawn), { min: 0, max: 1 }))
+		source.draw(roleGen(drawn, entryGen(drawn))),
+		...source.draw(array(roleGen(drawn, entryGen(drawn)), { min: 0, max: 1 }))
 	]
+
+/**
+ * The roles of a live suite's login (see the header): its first role holds the query entry wherever a field of the
+ * schema may carry a claim, and reads through it and the law level's view; every other role as loginGen draws it.
+ */
+export const liveLoginGen =
+	(drawn: DrawnSchema): Gen<Arr.NonEmptyReadonlyArray<RoleShape>> =>
+	(source) => {
+		const first = source.draw(roleGen(drawn, heldEntryGen(drawn)))
+		return [
+			{
+				...first,
+				worldReads: Option.isSome(first.entry) ? ["entry", "view"] : ["view"]
+			},
+			...source.draw(array(roleGen(drawn, entryGen(drawn)), { min: 0, max: 1 }))
+		]
+	}
 
 /** A value context(...) built, as the library recognizes one. */
 const isContext = (value: unknown): value is AnyContext => contextDescOf(value) !== undefined
@@ -280,7 +321,67 @@ const roleOf = (drawn: DrawnSchema, shape: RoleShape, place: number) => {
 			read.paged ? Reflect.apply(paged, undefined, [query]) : query
 		] as const
 	})
-	return { value: made, programs: Rec.fromEntries([...changes, ...reads]) }
+	const worldReads = Arr.flatMap(shape.worldReads, (world) =>
+		Arr.map(
+			worldReadOf(drawn, shape, made, world),
+			(query) => [worldReadName(place, world), query] as const
+		)
+	)
+	return { value: made, programs: Rec.fromEntries([...changes, ...reads, ...worldReads]) }
+}
+
+/** The name of a role's read of its own world (WorldRead), by the role's place. */
+export const worldReadName = (place: number, world: WorldRead): string =>
+	`${roleName(place)}${world}`
+
+/** The parameter a read through the query entry binds its key to. */
+const entryKeyParam = "mineKey"
+
+/**
+ * A role's read of its own world: through its query entry, every fact of `Mine` whose key field is the parameter
+ * `mineKey`, typed as the field (none for a role with no entry); or every fact of the law level's view.
+ */
+const worldReadOf = (
+	drawn: DrawnSchema,
+	shape: RoleShape,
+	made: ReturnType<typeof role>,
+	world: WorldRead
+): ReadonlyArray<unknown> => {
+	switch (world) {
+		case "view": {
+			const view = drawn.laws.view.value
+			return [
+				queryOver(drawn.laws.schema).rule((r: RuleValue) => {
+					const fact = varsOver(view, "fact")
+					return r.match(view, fact).find(fact)
+				})
+			]
+		}
+		case "entry":
+			return Option.match(shape.entry, {
+				onNone: () => [],
+				onSome: (entry) => {
+					const mine = made.relations[entryName]
+					return [
+						queryOver(made).rule((r: RuleValue) => {
+							const fact = varsOver(mine, "fact")
+							return r
+								.match(mine, fact)
+								.where(
+									r.eq(
+										fact[entry.key],
+										r.param(
+											entryKeyParam,
+											descriptorOf(drawn, { relation: entry.target, field: entry.key })
+										)
+									)
+								)
+								.find(fact)
+						})
+					]
+				}
+			})
+	}
 }
 
 /** The login of a case's drawn roles: each role's workload holding its programs, a role of none holding no workload. */

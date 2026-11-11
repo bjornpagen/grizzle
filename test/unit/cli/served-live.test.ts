@@ -4,8 +4,9 @@
  * materialized derived relation one reads, and nothing else, so the change source an installation installs from it
  * signals every change a served read routes and none no read routes.
  *
- * Over generated public schemas (test/support/oracle/public), each extended by a drawn law level, and logins drawn over
- * them (test/support/served-login.ts), each configured and drafted as `grizzle generate` drafts it (cli/generate.ts
+ * Over generated public schemas (test/support/oracle/public), each extended by a drawn law level holding a
+ * materialized view, and live logins drawn over them (test/support/served-login.ts liveLoginGen), whose first role reads
+ * that view and through its query entry, each configured and drafted as `grizzle generate` drafts it (cli/generate.ts
  * draftSchema, then servedFiles): the union of the served files' read footprints, each installed table, view and column
  * named back as the drafted snapshot's theory names it (its relation's ident, its field's column), is the drafted
  * snapshot's live plan, and snapshot.json writes that plan.
@@ -13,9 +14,8 @@
  * The oracle is the served files themselves: the routes a running layer reads, never program/workload/compile.ts
  * livePlanOf.
  *
- * Plant (~/.cache/grizzle-release/LIVE-ROUTES/plants): live-route-dropped.patch leaves each table's first routed
- * field out of the live plan. The generated schemas hold no materialized derived relation, so the plan's views are
- * held to the served files by no case here.
+ * Plants (~/.cache/grizzle-release/LIVE-ROUTES/plants): live-route-dropped.patch leaves each table's first routed
+ * field out of the live plan; live-views-dropped.patch leaves every materialized derived relation out of it.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
@@ -46,13 +46,14 @@ import {
 	type DrawnSchema,
 	drawnLogin,
 	drawnSchema,
-	loginGen,
+	liveLoginGen,
 	type RoleShape
 } from "#test/support/served-login.ts"
 
 type Feature =
 	| "a footprint table routed by a field"
 	| "a footprint table read table-wide"
+	| "a materialized view a read reads"
 	| "a relation two reads read"
 
 const file = `${repoRoot}app/grizzle.config.ts`
@@ -111,6 +112,7 @@ const unionOf = (
 			reads.set(named.relation, (reads.get(named.relation) ?? 0) + 1)
 			if (named.kind === "view") {
 				views.add(named.relation)
+				note("a materialized view a read reads")
 				continue
 			}
 			const fields = tables.get(named.relation) ?? new Set<string>()
@@ -227,6 +229,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("an installation's live
 						[
 							"a footprint table routed by a field",
 							"a footprint table read table-wide",
+							"a materialized view a read reads",
 							"a relation two reads read"
 						],
 						{ cases: 24, sense: notesOnly }
@@ -241,7 +244,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("an installation's live
 				([sketch, level], notes) =>
 					Effect.suspend(() => {
 						const schema = drawnSchema(notes.draw(resolveCase(sketch)), level)
-						return liveIsTheUnion(schema, level, notes.draw(loginGen(schema)), notes.note)
+						return liveIsTheUnion(schema, level, notes.draw(liveLoginGen(schema)), notes.note)
 					})
 			)
 		)

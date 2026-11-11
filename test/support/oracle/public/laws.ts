@@ -11,16 +11,14 @@ import {
 import { Roster } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { bits, closedId, contract, generated, pg, uuid } from "#compiler/public/fields.ts"
-import {
-	type AnyClosed,
-	type AnyRelation,
-	check,
-	closed,
-	relation,
-	type Statement,
-	schema
-} from "#compiler/public/schema.ts"
+import { check, closed, relation, type Statement } from "#compiler/public/schema.ts"
+import { queryOver, varsOver } from "#compiler/query/build/query.ts"
+import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { type Owned, rostersOf } from "#compiler/schema/own.ts"
+import { materializedDerived } from "#compiler/schema/relation.ts"
+import { schema } from "#compiler/schema/schema.ts"
+import type { AnyDerived } from "#compiler/types/derived/derived.ts"
+import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type BuiltSchema, generatedSchemaName } from "#test/support/oracle/public/build.ts"
 import type { ProgramSchema } from "#test/support/oracle/public/program.ts"
@@ -40,7 +38,9 @@ import { upTo } from "#test/support/up-to.ts"
  *   its closed id (a code key) or by both;
  * - a counter relation of a second checked contract's field and an integer, perhaps with a generated column over the
  *   contract's base value, and perhaps a table CHECK on the integer;
- * - the two contracts of one definition, whose one domain then types both relations' columns, or of two.
+ * - the two contracts of one definition, whose one domain then types both relations' columns, or of two;
+ * - a materialized derived relation over the case's first relation, each of its facts as it is, which a read of the level
+ *   reads as a materialized view and a refresh alone changes.
  *
  * Every count is a search budget.
  */
@@ -97,10 +97,14 @@ export interface LevelRelation {
 	readonly fields: Readonly<Record<string, unknown>>
 }
 
-/** The case's schema extended by its law level: the extension, the level's relations, and the codes it is installed under. */
+/**
+ * The case's schema extended by its law level: the extension, the level's stored relations, its materialized view, and
+ * the codes it is installed under.
+ */
 export interface Laws {
 	readonly schema: ReturnType<typeof extendedOf>
 	readonly relations: ReadonlyArray<LevelRelation>
+	readonly view: { readonly name: string; readonly value: AnyDerived }
 	/** The installation's codes over `owned`, the extension owned: every roster's first, the level's with its holes. */
 	readonly codes: (owned: Owned) => Codebook
 }
@@ -108,9 +112,9 @@ export interface Laws {
 const extendedOf = (
 	built: BuiltSchema,
 	name: string,
-	relations: Readonly<Record<string, AnyRelation | AnyClosed>>,
+	relations: Readonly<Record<string, AnyRelation | AnyClosed | AnyDerived>>,
 	statements: ReadonlyArray<Statement>
-) => schema.extend(built.schema, name, relations, statements)
+) => schema.extend(built.schema, name, relations, statements, [])
 
 /** The level `level` over the case's schema `s`, built over its values `built` (see the header). */
 export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): Laws => {
@@ -144,10 +148,21 @@ export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): L
 				spare: generated(pg.integer, Compute.base(r.tally))
 			}))
 		: relation(counterName, counterFields, ["id"])
+	const viewName = fresh("LawView", taken)
+	const [first] = s.relations
+	const read = built.relation(first)
+	const View = materializedDerived(
+		viewName,
+		queryOver(built.schema).rule((r: RuleValue) => {
+			const fact = varsOver(read, "fact")
+			return r.match(read, fact).find(fact)
+		}),
+		[]
+	)
 	const value = extendedOf(
 		built,
 		fresh(`${generatedSchemaName}Laws`, taken),
-		{ [kindName]: Kind, [holderName]: Holder, [counterName]: Counter },
+		{ [kindName]: Kind, [holderName]: Holder, [counterName]: Counter, [viewName]: View },
 		level.check ? [check("BaseNotNegative", Counter, (x) => x.ge(x.base, 0))] : []
 	)
 	return {
@@ -156,6 +171,7 @@ export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): L
 			{ name: holderName, value: Holder, fields: Holder.fields },
 			{ name: counterName, value: Counter, fields: Counter.fields }
 		],
+		view: { name: viewName, value: View },
 		codes: (owned) => {
 			const declared = rostersOf(owned)
 			return succeeded(
