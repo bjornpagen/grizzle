@@ -1126,13 +1126,19 @@ class Resolver {
 			return byAnchor ? { missing: "unresolvable", waitOn: resource } : { missing: "unresolvable" }
 		}
 
-		const node = nodeAt(target.member.value, target.pointer)
-		const isBooleanSchema = isSchema && target.member.line !== "3.0" && Predicate.isBoolean(node)
-		if (node !== undefined && (isObject(node) || isBooleanSchema)) {
-			return this.foundAt(root, target, node, isSchema && Str.startsWith("/")(fragment))
-		}
+		const booleanSchemas = isSchema && target.member.line !== "3.0"
 
-		return { missing: "unresolvable", target: keyAt(target) }
+		return Option.match(
+			Option.filter(
+				nodeAt(target.member.value, target.pointer),
+				(node) => isObject(node) || (booleanSchemas && Predicate.isBoolean(node))
+			),
+			{
+				onNone: (): Lookup => ({ missing: "unresolvable", target: keyAt(target) }),
+				onSome: (node) =>
+					this.foundAt(root, target, node, isSchema && Str.startsWith("/")(fragment))
+			}
+		)
 	}
 
 	/**
@@ -1318,13 +1324,13 @@ class Resolver {
 		})
 
 		const member = this.byDocument.get(target.document)
-		const node = member === undefined ? undefined : nodeAt(member.value, target.pointer)
-		if (member !== undefined && node !== undefined) {
+		const node = member === undefined ? Option.none() : nodeAt(member.value, target.pointer)
+		if (member !== undefined && Option.isSome(node)) {
 			this.stack.push({
 				base: member.base,
 				kind: site.kind,
 				member,
-				node,
+				node: node.value,
 				pointer: target.pointer,
 				via: siteKey
 			})
@@ -1681,7 +1687,7 @@ const componentByUri = (resolution: Resolution, name: string): Option.Option<Can
 			)
 		: undefined
 
-	return pointer !== undefined && nodeAt(resolution.value, pointer) !== undefined
+	return pointer !== undefined && Option.isSome(nodeAt(resolution.value, pointer))
 		? Option.some({ document: resolution.document, pointer })
 		: Option.none()
 }
@@ -1697,7 +1703,7 @@ export const implicitComponent = (
 	name: string
 ): Option.Option<CanonicalKey> => {
 	const pointer = formatPointer(["components", section, name])
-	if (nodeAt(resolution.value, pointer) !== undefined) {
+	if (Option.isSome(nodeAt(resolution.value, pointer))) {
 		return Option.some({ document: resolution.document, pointer })
 	}
 

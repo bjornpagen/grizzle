@@ -323,7 +323,7 @@ const at = (code: Code, pointer: string): Finding => ({ code, pointer })
 const mappingResolves = (resolution: Resolution, value: string): boolean =>
 	Option.match(implicitComponent(resolution, "schemas", value), {
 		onNone: () => false,
-		onSome: (key) => isObject(nodeAt(resolution.value, key.pointer))
+		onSome: (key) => Option.exists(nodeAt(resolution.value, key.pointer), isObject)
 	})
 
 /**
@@ -985,15 +985,12 @@ const operationsOf = (resolution: Resolution, item: PathItem): readonly Operatio
 			: []
 
 	return Arr.flatMap([...fixed, ...extra], ({ additional, method, pointer }) =>
-		Option.match(
-			Option.filter(Option.fromUndefinedOr(nodeAt(resolution.value, pointer)), isObject),
-			{
-				onNone: (): readonly Operation[] => [],
-				onSome: (node) => [
-					{ additional, id: stringMember(node, "operationId"), item, method, node, pointer }
-				]
-			}
-		)
+		Option.match(Option.filter(nodeAt(resolution.value, pointer), isObject), {
+			onNone: (): readonly Operation[] => [],
+			onSome: (node) => [
+				{ additional, id: stringMember(node, "operationId"), item, method, node, pointer }
+			]
+		})
 	)
 }
 
@@ -1130,7 +1127,7 @@ const schemeNode = (resolution: Resolution, name: string): Option.Option<JsonObj
 	Option.flatMap(implicitComponent(resolution, "securitySchemes", name), (key) =>
 		Option.flatMap(
 			Option.flatMap(Option.fromUndefinedOr(resolution.documents.get(key.document)), (document) =>
-				Option.fromUndefinedOr(nodeAt(document, key.pointer))
+				nodeAt(document, key.pointer)
 			),
 			(node) => Option.map(locate(resolution, key, node), (place) => place.node)
 		)

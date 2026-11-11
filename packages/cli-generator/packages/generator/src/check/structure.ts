@@ -187,22 +187,19 @@ const operationsOf = (resolution: Resolution, item: PathItem): readonly Operatio
 			: []
 
 	return Arr.flatMap([...fixed, ...additional], (entry) =>
-		Option.match(
-			Option.filter(Option.fromUndefinedOr(nodeAt(resolution.value, entry.pointer)), isObject),
-			{
-				onNone: (): readonly Operation[] => [],
-				onSome: (node) => [
-					{
-						additional: entry.additional,
-						id: stringMember(node, "operationId"),
-						item,
-						method: entry.additional ? entry.name : Str.toUpperCase(entry.name),
-						node,
-						pointer: entry.pointer
-					}
-				]
-			}
-		)
+		Option.match(Option.filter(nodeAt(resolution.value, entry.pointer), isObject), {
+			onNone: (): readonly Operation[] => [],
+			onSome: (node) => [
+				{
+					additional: entry.additional,
+					id: stringMember(node, "operationId"),
+					item,
+					method: entry.additional ? entry.name : Str.toUpperCase(entry.name),
+					node,
+					pointer: entry.pointer
+				}
+			]
+		})
 	)
 }
 

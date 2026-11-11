@@ -104,7 +104,7 @@ export const locate = (
 			? Option.some(node)
 			: Option.flatMap(
 					Option.fromUndefinedOr(resolution.documents.get(target.document)),
-					(document) => Option.fromUndefinedOr(nodeAt(document, target.pointer))
+					(document) => nodeAt(document, target.pointer)
 				)
 
 	return Option.map(Option.filter(value, isObject), (object) => ({

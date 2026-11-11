@@ -1,7 +1,7 @@
 import nodeFs from "node:fs"
 import os from "node:os"
 import nodePath from "node:path"
-import { Effect, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 import { afterAll, describe, expect, test } from "vitest"
 import { DocumentUri } from "#model/brands.ts"
 import { nodeAt } from "#model/json-tree.ts"
@@ -141,8 +141,8 @@ describe("a schema $ref to the document root", () => {
 		})
 	}
 
-	test("nodeAt on a pointer that does not parse returns undefined, not the root", () => {
-		expect(nodeAt({ a: 1 }, "no-slash")).toBeUndefined()
-		expect(nodeAt({ a: 1 }, "/a")).toBe(1)
+	test("nodeAt on a pointer that does not parse returns None, not the root", () => {
+		expect(nodeAt({ a: 1 }, "no-slash")).toEqual(Option.none())
+		expect(nodeAt({ a: 1 }, "/a")).toEqual(Option.some(1))
 	})
 })

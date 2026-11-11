@@ -1,5 +1,5 @@
 import { NodeCrypto, NodeFileSystem, NodePath } from "@effect/platform-node"
-import { Array as Arr, Effect, FileSystem, Layer, Order, Path, Schema, pipe } from "effect"
+import { Array as Arr, Effect, FileSystem, Layer, Option, Order, Path, Schema, pipe } from "effect"
 import { describe, expect, test } from "vitest"
 import { generate } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
@@ -17,8 +17,11 @@ type Entry = readonly [string, Json]
 
 const members = (...entries: readonly Entry[]): Json => Object.fromEntries(entries)
 
-const entriesOf = (value: Json | undefined): readonly Entry[] =>
-	isObject(value) ? Object.entries(value) : []
+const entriesOf = (value: Option.Option<Json>): readonly Entry[] =>
+	Option.match(Option.filter(value, isObject), {
+		onNone: () => [],
+		onSome: (object) => Object.entries(object)
+	})
 
 const withEntries = (value: Json, change: (entries: readonly Entry[]) => readonly Entry[]): Json =>
 	isObject(value) ? Object.fromEntries(change(Object.entries(value))) : value
@@ -205,7 +208,9 @@ const reverseTwin = (source: Json): Json =>
 	)
 
 const pathKeys = (source: Json): readonly string[] =>
-	entriesOf(entriesOf(source).find(([key]) => key === "paths")?.[1]).map(([key]) => key)
+	entriesOf(
+		Option.fromUndefinedOr(entriesOf(Option.some(source)).find(([key]) => key === "paths")?.[1])
+	).map(([key]) => key)
 
 const config = JSON.stringify({
 	binName: "canon",

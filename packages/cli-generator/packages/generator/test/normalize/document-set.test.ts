@@ -1,4 +1,4 @@
-import { Effect, Option, Predicate, Schema } from "effect"
+import { Effect, Option, Predicate, Record, Schema } from "effect"
 import { describe, expect, test } from "vitest"
 import { AuthorConfig } from "#model/author-config.ts"
 import { DocumentUri } from "#model/brands.ts"
@@ -98,13 +98,17 @@ const encoded = (api: Api): Json =>
 	Schema.decodeUnknownSync(Schema.Json)(Schema.encodeSync(Api)(api))
 
 // The stored `$defs` of the model's schema document.
-const defsOf = (model: Json): JsonObject => {
-	const schemas = isObject(model) ? model.schemas : undefined
-	const document = isObject(schemas) ? schemas.document : undefined
-	const defs = isObject(document) ? document.$defs : undefined
+const memberOf = (value: Option.Option<Json>, name: string): Option.Option<Json> =>
+	Option.flatMap(Option.filter(value, isObject), (object) => Record.get(object, name))
 
-	return isObject(defs) ? defs : {}
-}
+const defsOf = (model: Json): JsonObject =>
+	Option.getOrElse(
+		Option.filter(
+			memberOf(memberOf(memberOf(Option.some(model), "schemas"), "document"), "$defs"),
+			isObject
+		),
+		(): JsonObject => ({})
+	)
 
 // The operations with every schema reference replaced by the stored schema it names and every
 // origin dropped, so the two documents compare by meaning rather than by where each element sits.

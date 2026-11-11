@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 8429,
+		"total": 8426,
 		"files": {
 			"packages/generator/src/emit/api.ts": 125,
 			"packages/generator/src/emit/cli.ts": 123,
@@ -142,7 +142,7 @@
 			"packages/generator/test/normalize/deep-chain.test.ts": 4,
 			"packages/generator/test/normalize/deep-object-nested.test.ts": 8,
 			"packages/generator/test/normalize/docs.test.ts": 2,
-			"packages/generator/test/normalize/document-set.test.ts": 21,
+			"packages/generator/test/normalize/document-set.test.ts": 18,
 			"packages/generator/test/normalize/dynamic-parameter.test.ts": 2,
 			"packages/generator/test/normalize/errors.test.ts": 7,
 			"packages/generator/test/normalize/form-body.test.ts": 13,
@@ -267,12 +267,11 @@
 		}
 	},
 	"superlint": {
-		"total": 159,
+		"total": 155,
 		"files": {
 			"packages/generator/src/emit/api.ts": 8,
 			"packages/generator/src/emit/cli.ts": 16,
 			"packages/generator/src/emit/readme.ts": 2,
-			"packages/generator/src/model/json-tree.ts": 3,
 			"packages/generator/src/runtime-src/runtime/auth.ts": 1,
 			"packages/generator/src/runtime-src/runtime/client.ts": 1,
 			"packages/generator/src/runtime-src/runtime/input.ts": 4,
@@ -308,7 +307,6 @@
 			"packages/generator/test/names/positional-collision.test.ts": 1,
 			"packages/generator/test/naming-extensions.test.ts": 1,
 			"packages/generator/test/normalize/bodies.test.ts": 1,
-			"packages/generator/test/normalize/canonical-order.test.ts": 1,
 			"packages/generator/test/normalize/errors.test.ts": 2,
 			"packages/generator/test/normalize/operations.test.ts": 1,
 			"packages/generator/test/normalize/schemas.test.ts": 4,

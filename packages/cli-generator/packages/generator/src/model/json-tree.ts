@@ -10,19 +10,18 @@ export type JsonObject = Readonly<Record<string, Json>>
 /**
  * Whether a JSON value is an object (not an array, not null).
  */
-export const isObject = (value: Json | undefined): value is JsonObject => Predicate.isObject(value)
+export const isObject = (value: Json): value is JsonObject => Predicate.isObject(value)
 
 /**
  * Whether a JSON value is an array.
  */
-export const isArray = (value: Json | undefined): value is readonly Json[] =>
-	Arr.isArray<Json | undefined>(value)
+export const isArray = (value: Json): value is readonly Json[] => Arr.isArray<Json>(value)
 
 /**
- * The node at `pointer`, or undefined when the pointer is malformed or names no node.
+ * The node at `pointer`, `None` when the pointer is malformed or names no node.
  */
-export const nodeAt = (root: Json, pointer: string): Json | undefined =>
-	Result.getOrUndefined(evaluatePointerResult(root, pointer))
+export const nodeAt = (root: Json, pointer: string): Option.Option<Json> =>
+	Result.getSuccess(evaluatePointerResult(root, pointer))
 
 /**
  * The own member `name` of a value when the value is an object and the member is a string.
