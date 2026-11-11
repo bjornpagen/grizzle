@@ -416,7 +416,7 @@ export default defineGate({
 							", "
 						)}) ` +
 						`SELECT ${digestOf("g")}, 0, 0 FROM pg_catalog.generate_series(${from}, ${from + n - 1}) AS g`
-					const governed = ["Work", "Wanted", "Leased", "Done", "Refused"]
+					const governed = ["Work", "Wanted", "Leased", "Done", "Denied"]
 					for (const t of governed) {
 						yield* owner(`ALTER TABLE ${fx.table(t)} DISABLE TRIGGER USER`)
 					}

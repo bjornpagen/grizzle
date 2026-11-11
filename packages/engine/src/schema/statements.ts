@@ -31,7 +31,7 @@ import {
 	ownedEntry,
 	ownValue,
 	queryHeadingOf,
-	refusedAt,
+	builderRefusal,
 	requireName
 } from "#compiler/schema/protocol.ts"
 
@@ -212,7 +212,7 @@ const keyRef = (
 	}
 	const rel = namedRelation(value, label)
 	if (rel.kind === "derived") {
-		throw refusedAt(
+		throw builderRefusal(
 			label,
 			"alternatives relate stored relations: a derived relation's rows are its definition's, which no write draws"
 		)
@@ -493,11 +493,11 @@ const admitAlternatives = (
 		throw malformed(label, "an arm map from handles to key descriptors")
 	}
 	if (Object.keys(arms).length === 0) {
-		throw refusedAt(label, "alternatives takes at least one arm")
+		throw builderRefusal(label, "alternatives takes at least one arm")
 	}
 	for (const h of Object.keys(arms)) {
 		if (!rosterDesc.handles.includes(h)) {
-			throw refusedAt(`${label} arm ${h}`, "an arm is keyed by a handle of its roster")
+			throw builderRefusal(`${label} arm ${h}`, "an arm is keyed by a handle of its roster")
 		}
 	}
 	const armDescs: Array<ArmDesc> = []
@@ -508,7 +508,7 @@ const admitAlternatives = (
 		}
 		const armKey = keyRef(arm, `${label} arm ${h}`)
 		if (armKey.rel.name === parentRel.name) {
-			throw refusedAt(`${label} arm ${h}`, "an arm is a relation other than its parent")
+			throw builderRefusal(`${label} arm ${h}`, "an arm is a relation other than its parent")
 		}
 		if (armKey.fields.length !== parentKey.fields.length) {
 			throw malformed(
@@ -520,7 +520,7 @@ const admitAlternatives = (
 	}
 	const [first, ...rest] = armDescs
 	if (first === undefined) {
-		throw refusedAt(label, "alternatives takes at least one arm")
+		throw builderRefusal(label, "alternatives takes at least one arm")
 	}
 	const armList: readonly [ArmDesc, ...Array<ArmDesc>] = [first, ...rest]
 	Object.freeze(armList)
@@ -565,7 +565,7 @@ export const finBuilder = <O, const N extends string>(owner: O, count: N): Fin<O
 const slotsOf = (value: unknown, label: string): SlotsDesc => {
 	const fin = finOf(value, label)
 	if (fin.owner.kind !== "relation") {
-		throw refusedAt(
+		throw builderRefusal(
 			label,
 			"a family counts by an ordinary relation's drawn count: a closed relation's count numbers the slots of its key"
 		)
@@ -577,7 +577,7 @@ const slotsOf = (value: unknown, label: string): SlotsDesc => {
 const memberSide = (value: unknown, label: string): SideDesc => {
 	const side = sideOf(value, `${label} member`)
 	if (side.selection.conjuncts.length > 0) {
-		throw refusedAt(
+		throw builderRefusal(
 			label,
 			"a family's member side is a relation, never a selection: its members are every fact of the relation"
 		)

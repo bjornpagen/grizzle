@@ -6,7 +6,7 @@ import {
 	type PreconditionKind,
 	prose,
 	type ProseTag,
-	refused
+	ruleRefused
 } from "#compiler/core/errors.ts"
 import { ExprId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
@@ -2044,7 +2044,7 @@ class Lowering<R extends Refs> {
 	param(param: ParamRef<R>, at: SourceLoc): Lowered {
 		const params = this.env.params
 		if (params.kind === "none") {
-			throw new Refusal(refused(at, "a schema predicate reads no parameter"))
+			throw new Refusal(ruleRefused(at, "a schema predicate reads no parameter"))
 		}
 		const { spec, type } = unwrap(params.lower(param, at))
 		const entry = this.env.emit(spec)

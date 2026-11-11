@@ -1,6 +1,6 @@
 import { sameContent } from "#compiler/core/canonical.ts"
 import type { LoginRule, RoleRule } from "#compiler/core/causes.ts"
-import { CompileError, refused } from "#compiler/core/errors.ts"
+import { CompileError, ruleRefused } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -313,7 +313,7 @@ export const admitRole = (
 		const draft = derivedDraftOf(value)
 		const kind = ownedKind(value)
 		if (draft?.storage === "live") {
-			throw refused(
+			throw ruleRefused(
 				builderLoc(at, []),
 				"a whole entry is a relation PostgreSQL stores: a role reads a live derived relation through the relations its definition reads"
 			)
@@ -330,7 +330,7 @@ export const admitRole = (
 				held === undefined ||
 				!sameContent(wholeOf(held, at), own)
 			) {
-				throw refused(
+				throw ruleRefused(
 					builderLoc(at, []),
 					"a whole entry is a relation of the base under its own name"
 				)
@@ -348,7 +348,7 @@ export const admitRole = (
 		if (carried !== undefined) {
 			const carriedEntry = ownedEntry(carried, "schema")
 			if (carriedEntry === undefined || !isLevelOf(carriedEntry.content, baseEntry.content)) {
-				throw refused(builderLoc(at, []), "a query entry is a query over the role's base")
+				throw ruleRefused(builderLoc(at, []), "a query entry is a query over the role's base")
 			}
 		}
 		if (query.stage.kind === "order") {

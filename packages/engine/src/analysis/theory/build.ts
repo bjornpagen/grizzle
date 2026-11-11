@@ -1,11 +1,11 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import {
-	type Breach,
+	type RuleBreach,
 	breachReason,
 	CompileError,
 	type ProseTag,
 	prose,
-	refused,
+	ruleRefused,
 	resourceBound
 } from "#compiler/core/errors.ts"
 import { type LawId, makeIdSupply } from "#compiler/core/ids.ts"
@@ -62,13 +62,13 @@ export function refuse(tag: ProseTag, loc: SourceLoc, capability: string): never
 }
 
 /** Throws the refusal of `breach` at `loc`, a rule the types name too or one in its own words. */
-export function refuseBreach(loc: SourceLoc, breach: Breach): never {
+export function refuseBreach(loc: SourceLoc, breach: RuleBreach): never {
 	throw new Refusal(CompileError.make(breachReason(loc, breach)))
 }
 
 /** Throws the refusal at `loc` for `rule`, a rule the types name too. */
 export function refuseNamed(loc: SourceLoc, rule: Refused): never {
-	throw new Refusal(refused(loc, rule))
+	throw new Refusal(ruleRefused(loc, rule))
 }
 
 const plainCarriers: ReadonlyArray<PlainCarrier> = [

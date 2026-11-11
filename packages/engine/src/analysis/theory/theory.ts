@@ -30,7 +30,7 @@ import {
 } from "#compiler/analysis/theory/spelling.ts"
 import { checkDefinition, checkQuery } from "#compiler/check/index.ts"
 import { catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
-import { type CompileError, refused } from "#compiler/core/errors.ts"
+import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
 import {
 	type Identity,
 	identifierOf,
@@ -658,7 +658,7 @@ class Builder {
 				{ field: FieldId(b, g.name), type: g.type }
 			)
 			if (problem !== undefined) {
-				throw new Refusal(refused(loc, refusal))
+				throw new Refusal(ruleRefused(loc, refusal))
 			}
 		}
 		for (const k of kept) {

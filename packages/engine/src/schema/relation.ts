@@ -73,7 +73,7 @@ import {
 	ownedKind,
 	ownValue,
 	queryDescOf,
-	refusedAt,
+	builderRefusal,
 	requireName,
 	requireNames
 } from "#compiler/schema/protocol.ts"
@@ -223,11 +223,11 @@ export const accumulatedField = <F extends FieldBase>(
 	const valueType: Refused =
 		"an accumulated field is of a value type: no span, vector or field of a writing of its own"
 	if (writingOf(type).kind !== "caller") {
-		throw refusedAt("accumulated", valueType)
+		throw builderRefusal("accumulated", valueType)
 	}
 	const described = describedField(type, "accumulated type")
 	if (described.desc.kind === "span" || described.desc.kind === "vector") {
-		throw refusedAt("accumulated", valueType)
+		throw builderRefusal("accumulated", valueType)
 	}
 	const literal = literalFor(described.desc, start, "accumulated start", rosterHandlesOf(type))
 	const value: AccumulatedField<F> = Object.freeze({
@@ -340,7 +340,7 @@ const keyListedOnce = (key: unknown, label: string): void => {
 			(f) => f
 		) !== undefined
 	) {
-		throw refusedAt(label, "a key lists each field once")
+		throw builderRefusal(label, "a key lists each field once")
 	}
 }
 
@@ -492,7 +492,7 @@ const admitGenerated = <G>(
 	const fields: Record<string, FieldDecl> = { ...writtenDecls(descriptors, described, label) }
 	for (const [field, value] of Object.entries(generated)) {
 		if (Object.hasOwn(fields, field)) {
-			throw refusedAt(
+			throw builderRefusal(
 				`${label} generated field ${field}`,
 				"a generated field is named apart from the relation's written fields"
 			)
@@ -749,7 +749,7 @@ const closedRows = (
 			continue
 		}
 		if (!sameContent(earlier, literals)) {
-			throw refusedAt(
+			throw builderRefusal(
 				`${label} rows ${defined(written.get(earlier), "the row's index")} and ${i}`,
 				"two facts of one relation share a key with different values; a key names one fact"
 			)
@@ -927,7 +927,7 @@ export const bitsOf = <C extends AnyRoster>(
 			throw malformed(label, `handles of ${roster.name}; ${JSON.stringify(h)} is none`)
 		}
 		if (members.has(h)) {
-			throw refusedAt(label, "a set lists each of its handles once")
+			throw builderRefusal(label, "a set lists each of its handles once")
 		}
 		members.add(h)
 	}
@@ -1048,7 +1048,7 @@ export const finOf = (
 	readonly slots: SlotsDesc
 } => {
 	if (!hasProperties(value) || value["kind"] !== "fin") {
-		throw refusedAt(label, "a family's slots are fin(owner, count), the owner's count")
+		throw builderRefusal(label, "a family's slots are fin(owner, count), the owner's count")
 	}
 	const owner = namedRelation(value["owner"], `${label} owner`)
 	if (owner.kind !== "relation" && owner.kind !== "closedRelation") {

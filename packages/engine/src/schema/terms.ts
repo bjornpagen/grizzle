@@ -30,7 +30,7 @@ import {
 	malformed,
 	predicateValue,
 	type PredicateValue,
-	refusedAt
+	builderRefusal
 } from "#compiler/schema/protocol.ts"
 
 export interface RowTerm extends Built {
@@ -374,7 +374,7 @@ const foreign = (what: string): ForeignInput =>
 
 /** A parameter, which a schema predicate never reads: a rule the types name too. */
 const parameterInput = new ForeignInput((label) =>
-	refusedAt(label, "a schema predicate reads no parameter")
+	builderRefusal(label, "a schema predicate reads no parameter")
 )
 
 /**

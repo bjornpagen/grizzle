@@ -166,7 +166,7 @@ export interface Admitted extends DeclaredName {
 	readonly converted: string
 }
 
-export interface Refused extends DeclaredName {
+export interface RefusedName extends DeclaredName {
 	/** The production conversion's reason. */
 	readonly reason: string
 }
@@ -187,7 +187,7 @@ export const admittedNames: ReadonlyArray<Admitted> = Arr.flatMap(
 )
 
 /** The candidates it refuses, with its reasons. */
-export const refusedNames: ReadonlyArray<Refused> = Arr.flatMap(
+export const refusedNames: ReadonlyArray<RefusedName> = Arr.flatMap(
 	classified,
 	({ candidate, parsed }) => (parsed.ok ? [] : [{ ...candidate, reason: parsed.error }])
 )

@@ -24,7 +24,7 @@
  *   is frozen, carries its Description under a non-enumerable `desc`, and is registered here, so ownership trusts
  *   exactly the values the builders made and a JavaScript look-alike is decoded strictly.
  */
-import { type CompileError, malformedDescription, refused } from "#compiler/core/errors.ts"
+import { type CompileError, malformedDescription, ruleRefused } from "#compiler/core/errors.ts"
 import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
@@ -72,8 +72,8 @@ export const malformed = (label: string, what: string): CompileError =>
 	malformedDescription(builderLoc(label, []), what)
 
 /** A builder's refusal of the user's call for a rule the types name too, `refusal`, at `label` and the call site. */
-export const refusedAt = (label: string, refusal: Refused): CompileError =>
-	refused(builderLoc(label, []), refusal)
+export const builderRefusal = (label: string, refusal: Refused): CompileError =>
+	ruleRefused(builderLoc(label, []), refusal)
 
 /** The throwing form of a Result, for builders. */
 export const orThrow = <A>(result: Result.Result<A, CompileError>): A => {
@@ -116,7 +116,7 @@ export const requireNames = (
 			throw malformed(label, `${what}: field names that are nonempty storable strings`)
 		}
 		if (seen.has(item)) {
-			throw refusedAt(label, repeated)
+			throw builderRefusal(label, repeated)
 		}
 		seen.add(item)
 	}

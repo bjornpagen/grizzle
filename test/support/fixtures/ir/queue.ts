@@ -44,7 +44,7 @@ const Slot = f.contract("Slot", f.integer, ge(value, literal(0)))
 const SeatNo = f.contract("SeatNo", f.integer, ge(value, literal(0)))
 const Instant = f.contract("Instant", f.bigint, undefined)
 
-const Standing = closed("Standing", ["wanted", "leased", "done", "refused"])
+const Standing = closed("Standing", ["wanted", "leased", "done", "denied"])
 const Kind = closed("Kind", ["render", "transcode"])
 const Resource = closed("Resource", ["gpu", "cpu"])
 const Outcome = closed("Outcome", ["succeeded", "failed"])
@@ -75,7 +75,7 @@ const Leased = relation(
 	["key"]
 )
 const Done = relation("Done", { key: Digest, outcome: f.closedId("Outcome") }, ["key"])
-const Refused = relation("Refused", { key: Digest, reason: f.closedId("Reason") }, ["key"])
+const Denied = relation("Denied", { key: Digest, reason: f.closedId("Reason") }, ["key"])
 const Seat = relation("Seat", { resource: f.closedId("Resource"), seat: SeatNo }, [
 	"resource",
 	"seat"
@@ -83,14 +83,14 @@ const Seat = relation("Seat", { resource: f.closedId("Resource"), seat: SeatNo }
 
 export const Queue: SchemaDesc = decodedSchema({
 	name: "Queue",
-	relations: [Standing, Kind, Resource, Outcome, Reason, Work, Wanted, Leased, Done, Refused, Seat],
+	relations: [Standing, Kind, Resource, Outcome, Reason, Work, Wanted, Leased, Done, Denied, Seat],
 	statements: [
 		mutable("Work"),
 		alternatives(Work, "standing", Standing, {
 			wanted: Wanted,
 			leased: Leased,
 			done: Done,
-			refused: Refused
+			denied: Denied
 		}),
 		key(on("Leased", ["resource", "seat"])),
 		contained(on("Leased", ["resource", "seat"]), on("Seat", ["resource", "seat"]))

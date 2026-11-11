@@ -30,7 +30,7 @@ export const Digest = contract("Digest", str.regex("^[0-9a-f]{64}$"))
 export const Slot = contract("Slot", pg.integer, (x) => x.ge(0))
 export const SeatNo = contract("SeatNo", pg.integer, (x) => x.ge(0))
 
-export const Standing = closed("Standing", ["wanted", "leased", "done", "refused"])
+export const Standing = closed("Standing", ["wanted", "leased", "done", "denied"])
 
 /**
  * The largest epoch a claim advances. An epoch counts one item's claims from 0, each claim one past the last, so only
@@ -61,7 +61,7 @@ export const Leased = relation(
 	["key"]
 )
 export const Done = relation("Done", { key: Digest, outcome: closedId(Outcome) }, ["key"])
-export const Refused = relation("Refused", { key: Digest, reason: closedId(Reason) }, ["key"])
+export const Denied = relation("Denied", { key: Digest, reason: closedId(Reason) }, ["key"])
 export const Seat = relation("Seat", { resource: closedId(Resource), seat: SeatNo }, [
 	"resource",
 	"seat"
@@ -95,7 +95,7 @@ export const Queue = schema(
 		Wanted,
 		Leased,
 		Done,
-		Refused,
+		Denied,
 		Seat
 	},
 	[
@@ -104,7 +104,7 @@ export const Queue = schema(
 			wanted: Wanted,
 			leased: Leased,
 			done: Done,
-			refused: Refused
+			denied: Denied
 		}),
 		candidateKey(on(Leased, "resource", "seat")),
 		contained(on(Leased, "resource", "seat"), on(Seat, "resource", "seat"))
@@ -126,7 +126,7 @@ export type QueueNamed<N extends string> = Schema<
  */
 export const queueWorlds = (installed: QueueNamed<string>) => {
 	const worker = role(installed, "worker", wholeEntriesOf(installed), {
-		write: ["Work", "Wanted", "Leased", "Done", "Refused"]
+		write: ["Work", "Wanted", "Leased", "Done", "Denied"]
 	})
 	const enqueuer = role(installed, "enqueuer", wholeEntriesOf(installed), {
 		write: ["Work", "Wanted"]

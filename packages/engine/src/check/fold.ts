@@ -1,10 +1,10 @@
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import {
-	type Breach,
-	broken,
+	type RuleBreach,
+	proseBreach,
 	compileReasonText,
 	malformedDescription,
-	named
+	namedBreach
 } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -45,7 +45,7 @@ export const foldPlane: Refused =
 	"a fold's accumulators and ends are of its plane's type: another integer width, numeric typmod or contract is another type"
 
 /**
- * Why a fold's fields are not its monoid's, as the rule they break (Breach), or undefined when they are. In order:
+ * Why a fold's fields are not its monoid's, as the rule they break (RuleBreach), or undefined when they are. In order:
  *
  * - its step value: present exactly when the monoid reads one (count reads none), of a carrier the monoid admits;
  * - its monoid: a commutative one over a counted family, whose order is hidden, so concat folds only a sequence, and
@@ -59,62 +59,66 @@ export const foldPlane: Refused =
  *   monoid's identity on the plane, plane by plane. The step's values, and so the running values, need not lie in an
  *   accumulator's pattern or byte bound: its column's domain refuses one outside it, an outcome on that pattern's rule.
  */
-export const foldRule = (monoid: MonoidSpec, fold: FoldTyping): Breach | undefined => {
+export const foldRule = (monoid: MonoidSpec, fold: FoldTyping): RuleBreach | undefined => {
 	const x = fold.step
 	if (monoid.step === "none" && x !== undefined) {
-		return broken(
+		return proseBreach(
 			`a ${monoid.name} fold steps by one, so its step side names no value after its group; it names ${x.name}`
 		)
 	}
 	if (monoid.step === "value" && x === undefined) {
-		return broken(`a ${monoid.name} fold steps by a value: its step side names it after its group`)
+		return proseBreach(
+			`a ${monoid.name} fold steps by a value: its step side names it after its group`
+		)
 	}
 	if (x !== undefined && !monoid.admits(x.type)) {
-		return named(
+		return namedBreach(
 			"the monoid admits the step value's type: sum an exact number, or and twos a set, max an ordered value with a least one, concat a text"
 		)
 	}
 	if (fold.order === "counted" && !monoid.commutative) {
-		return named(
+		return namedBreach(
 			"a fold over a counted family combines in a commutative monoid: concat folds an ordered family or a tree"
 		)
 	}
 	if (!monoid.commutative && fold.pairs.length === 0) {
-		return named(
+		return namedBreach(
 			"a concat fold names its (before, after) pair after its value: its law reads each member's running value"
 		)
 	}
 	if (fold.order === "counted" && fold.pairs.length > 0) {
-		return named("a fold over a counted family hides its accumulators: name the step's value alone")
+		return namedBreach(
+			"a fold over a counted family hides its accumulators: name the step's value alone"
+		)
 	}
 	if (fold.pairs.length !== 0 && fold.pairs.length !== monoid.planes) {
-		return broken(
+		return proseBreach(
 			`a ${monoid.name} fold's step names no accumulator or one (before, after) pair per plane, ${monoid.planes}; it names ${fold.pairs.length}`
 		)
 	}
 	const [firstEnd] = fold.ends
 	if (firstEnd === undefined || fold.ends.length !== monoid.planes) {
-		return named("a fold's end names one accumulated field of the owner per plane")
+		return namedBreach("a fold's end names one accumulated field of the owner per plane")
 	}
 	const plane = x?.type ?? firstEnd.type
 	if (!monoid.admits(plane)) {
-		return broken(
+		return proseBreach(
 			`a ${monoid.name} fold's end of a carrier it admits; ${firstEnd.name} is ${typeLabel(firstEnd.type)}`
 		)
 	}
 	const identity = monoid.identity(plane)
-	const accumulator = (f: LawField, i: number): Breach | undefined => {
+	const accumulator = (f: LawField, i: number): RuleBreach | undefined => {
 		if (!sameEnteredType(f.type, plane)) {
-			return named(foldPlane)
+			return namedBreach(foldPlane)
 		}
 		if (f.writing.kind !== "accumulated") {
-			return broken(
+			return proseBreach(
 				`a fold's accumulator is an accumulated field, filled on the host; ${f.name} is written by ${f.writing.kind}`
 			)
 		}
 		const start = defined(identity[i], "a monoid's identity holds one value per plane")
 		if (!canonicalEquals(f.writing.start, start, everyProperty)) {
-			return broken(
+			return proseBreach(
 				`a fold's accumulator starts at its monoid's identity; ${f.name} starts elsewhere`
 			)
 		}

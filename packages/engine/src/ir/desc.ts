@@ -10,7 +10,7 @@ import {
 	omitSourceLocs,
 	toJson
 } from "#compiler/core/canonical.ts"
-import { type CompileError, refused } from "#compiler/core/errors.ts"
+import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
@@ -2597,7 +2597,10 @@ export const sideOver = (
 	return repeated === undefined
 		? Result.ok(Object.freeze({ relation, terms: Object.freeze(terms), selection }))
 		: Result.err(
-				refused(SourceLoc("side description", ["terms", repeated]), "a side lists each term once")
+				ruleRefused(
+					SourceLoc("side description", ["terms", repeated]),
+					"a side lists each term once"
+				)
 			)
 }
 

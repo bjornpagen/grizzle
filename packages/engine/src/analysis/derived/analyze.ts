@@ -9,7 +9,7 @@ import { type AdmittedQuery, checkDefinition } from "#compiler/check/index.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
-import { type CompileError, derivedRefused, refused } from "#compiler/core/errors.ts"
+import { type CompileError, derivedRefused, ruleRefused } from "#compiler/core/errors.ts"
 import {
 	type DeclaredName,
 	DeclaredNamespace,
@@ -104,7 +104,7 @@ const obstacleRefusals: {
 } = {
 	attachment: (at, relation) => derivedRefused(at, { kind: "attachment", relation }),
 	headingGroups: (at) =>
-		refused(
+		ruleRefused(
 			at,
 			"a derived definition has one heading: a materialized view stores one heading group"
 		)
@@ -213,7 +213,7 @@ export const analyzedDefinition = (
 	}
 	const heading = root.heading
 	if (!isNonEmpty(heading)) {
-		return Result.err(refused(at, "a derived definition has at least one field"))
+		return Result.err(ruleRefused(at, "a derived definition has at least one field"))
 	}
 	return Result.map(declaredHeading(relation, heading, at), (declared) => ({
 		checked,

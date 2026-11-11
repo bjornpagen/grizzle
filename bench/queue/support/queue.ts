@@ -20,7 +20,7 @@ import {
 	type QueueShaped,
 	Leased,
 	queueQueries,
-	Refused,
+	Denied,
 	Seat,
 	SeatNo,
 	Slot,
@@ -49,7 +49,7 @@ const workStanding = alternatives(QueueWork, "standing", Standing, {
 	wanted: Wanted,
 	leased: Leased,
 	done: Done,
-	refused: Refused
+	denied: Denied
 })
 
 /** The queue schema, Work mutable. */
@@ -76,7 +76,7 @@ export const immutableQueueSchema = (name: string) =>
  */
 export const queueBenchWorlds = (s: Parameters<typeof fullWorld>[0]) => {
 	const worker = role(s, "worker", heldRelations(s), {
-		write: ["Work", "Wanted", "Leased", "Done", "Refused"]
+		write: ["Work", "Wanted", "Leased", "Done", "Denied"]
 	})
 	const enqueuer = role(s, "enqueuer", heldRelations(s), { write: ["Work", "Wanted"] })
 	const operator = role(s, "operator", heldRelations(s), { write: ["Seat"] })

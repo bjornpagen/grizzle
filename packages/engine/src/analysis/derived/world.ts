@@ -3,7 +3,7 @@ import { type InheritedKey, inheritedKeys } from "#compiler/analysis/logical/der
 import type { AdmittedQuery } from "#compiler/check/index.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
 import { compareText } from "#compiler/core/canonical.ts"
-import { type CompileError, refused } from "#compiler/core/errors.ts"
+import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -94,7 +94,7 @@ export const analyzeWorld = (
 	const keys = isNonEmpty(inherited) ? inherited : wholeHeadingKey(props.whole(), declared)
 	if (keys === undefined) {
 		return Result.err(
-			refused(
+			ruleRefused(
 				entry.loc,
 				"a derived definition has one heading: a materialized view stores one heading group"
 			)

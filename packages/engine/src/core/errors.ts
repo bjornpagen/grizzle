@@ -653,18 +653,18 @@ const unstatedKeyText = (
  * What a rule finds broken, before where: a rule the types name too, `refusal` (Refused), or one in the rule's own
  * words, `what` (MalformedDescription).
  */
-export type Breach =
+export type RuleBreach =
 	| { readonly kind: "named"; readonly refusal: Refused }
 	| { readonly kind: "prose"; readonly what: string }
 
 /** A breach of a rule the types name too. */
-export const named = (refusal: Refused): Breach => ({ kind: "named", refusal })
+export const namedBreach = (refusal: Refused): RuleBreach => ({ kind: "named", refusal })
 
 /** A breach of a rule in its own words. */
-export const broken = (what: string): Breach => ({ kind: "prose", what })
+export const proseBreach = (what: string): RuleBreach => ({ kind: "prose", what })
 
 /** The reason a breach found at `at` is. */
-export const breachReason = (at: SourceLoc, breach: Breach): CompileReason =>
+export const breachReason = (at: SourceLoc, breach: RuleBreach): CompileReason =>
 	breach.kind === "named"
 		? { _tag: "Refused", at, refusal: breach.refusal }
 		: { _tag: "MalformedDescription", at, what: breach.what }
@@ -796,7 +796,7 @@ const relocated = (reason: CompileReason, path: Path): CompileReason =>
 		: { ...reason, at: prefixedLoc(path, reason.at) }
 
 /** The user's schema or program value, refused at `at` for `refusal`, a rule the types name too. */
-export const refused = (at: SourceLoc, refusal: Refused): CompileError =>
+export const ruleRefused = (at: SourceLoc, refusal: Refused): CompileError =>
 	new CompileError({ _tag: "Refused", at, refusal })
 
 /** The user's schema or program value, malformed at `at`: `what` is the rule it breaks. */
