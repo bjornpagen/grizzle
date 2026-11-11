@@ -34,9 +34,20 @@ export const emitText = (statement: SqlStatement, nameMap: NameMap): EmittedSql 
 export const emitCatalog = (statement: CatalogStatement): EmittedText =>
 	emitted(printCatalogStatement(statement))
 
-/** The plan request of an emitted statement: EXPLAIN (FORMAT JSON) before its text, the one text composed of another. */
+/**
+ * The estimate-only plan request of an emitted statement: EXPLAIN (FORMAT JSON, VERBOSE) before its text, one of the two
+ * texts composed of another. VERBOSE has PostgreSQL name the schema of every relation a node scans or writes, which
+ * the relation's own name alone leaves ambiguous across an installation's levels.
+ */
 export const explainOf = (statement: EmittedText): EmittedText =>
-	emitted(`EXPLAIN (FORMAT JSON) ${statement}`)
+	emitted(`EXPLAIN (FORMAT JSON, VERBOSE) ${statement}`)
+
+/**
+ * The executed plan request of an emitted statement: EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE) before its text, which runs
+ * the statement and reports each node's actual times, rows, loops and buffers beside its estimates (explainOf).
+ */
+export const explainAnalyzeOf = (statement: EmittedText): EmittedText =>
+	emitted(`EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE) ${statement}`)
 
 /** `nameMap` is the statement's generated-name map, from its NameSupply (naming.ts emptyNameMap when it has none). */
 export const emit = (

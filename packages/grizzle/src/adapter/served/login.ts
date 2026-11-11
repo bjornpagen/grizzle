@@ -50,12 +50,12 @@ import {
 } from "#compiler/plan/common.ts"
 import { keyQuery, templateFor } from "#compiler/plan/read.ts"
 import {
+	type CompileFacts,
 	type PlanBasis,
 	planBasis,
 	type RoleProgram,
 	type Slice,
 	sliceOf,
-	type SnapshotDerived,
 	within
 } from "#compiler/plan/serve.ts"
 
@@ -159,7 +159,7 @@ export const layerOver = (
 export const artifactsUnder = (
 	base: Owned,
 	codes: Codebook,
-	derived: SnapshotDerived,
+	derived: CompileFacts,
 	slice: Slice
 ): Engine.Result<LayerArtifacts, CompileError> =>
 	layerOver(slice, (sliced) =>

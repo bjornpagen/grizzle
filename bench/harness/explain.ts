@@ -29,7 +29,7 @@ import type { SqlError } from "#test/support/pg.ts"
  *
  * EXPLAIN ANALYZE executes the statement: an explained write writes. Deferred constraint triggers wait for the end of
  * the transaction and never appear here; COMMIT is timed separately (transaction.ts). EXPLAIN ANALYZE
- * belongs to bench/ alone: the library's db.explain never runs it.
+ * runs here for a write: a member's explain runs only a read under EXPLAIN ANALYZE, in a READ ONLY transaction.
  */
 export class MalformedPlan extends Data.TaggedError("MalformedPlan")<{
 	readonly message: string

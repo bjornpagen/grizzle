@@ -6,8 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, pipe, String as Str } from "effect"
-import { variantOf } from "#adapter/db/handles.ts"
-import { explainMember } from "#adapter/served/explain.ts"
+import { memberExplains, variantOf } from "#adapter/db/handles.ts"
 import type { Plan } from "#adapter/types/db.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import {
@@ -46,7 +45,7 @@ import { upTo } from "#test/support/up-to.ts"
  * its apply binds it, and the form it sends is run under EXPLAIN ANALYZE in a transaction that is rolled back. The
  * plan's contract, not its text: for a small set, Entry is read by index only and at most k + 1 rows per parent; for a
  * large one, in one scan, once. The rows the insert returns are, in both forms, the first two entries of each named
- * account, which the loaded facts fix. explainMember explains the form an application sends: the whole-relation form
+ * account, which the loaded facts fix. its explain explains the form an application sends: the whole-relation form
  * ranks Entry's rows (a WindowAgg node, row_number) and the LATERAL form does not.
  *
  * Features: the LATERAL form for few parents and the whole-relation form for many. Plant:
@@ -156,9 +155,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const entry = names.relation("Entry").name
 						const parentsOf = (size: Readonly<{ min: number; max: number }>) =>
 							increasing(0, accounts - 1, size)
-						return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, load }) =>
+						return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, loadWithTables }) =>
 							Effect.gen(function* () {
-								const members = yield* load({ latest })
+								const { members, tables } = yield* loadWithTables({ latest })
 								const loaded = member(members, "latest")
 								if (loaded.kind !== "change") {
 									throw new Error("no ChangeSet")
@@ -255,17 +254,20 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												"the first two entries of each named account"
 											)
 											const scans = scansOf(ran.plan, entry)
-											/** explainMember plans the insert as the application sends it. */
-											const explained = yield* explainMember(ctx, loaded, {
-												kind: "params",
-												params: { accounts: Arr.map(parents, (n) => ({ id: uid(n) })) }
+											/** Its explain plans the insert as the application sends it. */
+											const explains = memberExplains(ctx, tables, loaded)
+											if (explains.kind !== "params") {
+												return assert.fail("a ChangeSet of no array member explains with its parameters")
+											}
+											const explained = yield* explains.explain({
+												accounts: Arr.map(parents, (n) => ({ id: uid(n) }))
 											})
-											const ranks = Arr.some(explained, (plan) => ranked(plan))
+											const ranks = Arr.some(explained, (statement) => ranked(statement.plan))
 											if (parents.length <= threshold) {
 												assert.equal(
 													ranks,
 													false,
-													"explainMember plans the LATERAL form for few parents"
+													"its explain plans the LATERAL form for few parents"
 												)
 												assert.equal(
 													sent.text,
@@ -291,7 +293,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												assert.equal(
 													ranks,
 													true,
-													"explainMember plans the whole-relation form for many parents"
+													"its explain plans the whole-relation form for many parents"
 												)
 												assert.deepEqual(
 													Arr.map(scans, (n) => n.actualLoops),

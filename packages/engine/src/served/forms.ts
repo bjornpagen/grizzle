@@ -15,6 +15,7 @@ import type { Isolation } from "#compiler/core/isolation.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Prepared } from "#compiler/core/prepared.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
+import type { InstalledNames } from "#compiler/deploy/snapshot/types.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import type { ConstraintLaws, PageFill, ParamDecl } from "#compiler/ir/products.ts"
 import type { CompletedOrder, Heading, HeadingColumn } from "#compiler/ir/rel.ts"
@@ -40,7 +41,7 @@ import type {
 	ServedSpine
 } from "#compiler/served/read.ts"
 import type { EmittedText, ObjectName } from "#compiler/sql/ast.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
+import type { AboveLaw, Law } from "#compiler/types/changeset/changeset.ts"
 import type { ParamValue } from "#compiler/types/core/phantom.ts"
 
 /**
@@ -91,6 +92,13 @@ export type ServedFile = {
 	readonly closed: ClosedTable
 	/** What the login's refusals may name of the levels above its base, which a refusal names by its level. */
 	readonly above: ServedAbove
+	/**
+	 * The installed tables and materialized views of the relations the login's statements read and write, its
+	 * footprint (adapter served/compile.ts), each with every index PostgreSQL holds on it and the reasons the
+	 * installation holds each (deploy/snapshot/types.ts InstalledNames): what an explain names a plan's relations and
+	 * indexes by, cut by generate from the snapshot's.
+	 */
+	readonly tables: InstalledNames
 	/** The login's roles, in the login's declared order. */
 	readonly roles: ReadonlyArray<ServedRoleForm>
 }
@@ -126,7 +134,7 @@ export interface ServedSession {
 export interface ServedAbove {
 	readonly schemas: ReadonlyArray<string>
 	readonly constraints: ConstraintLaws
-	readonly laws: ReadonlyMap<LawId, Law>
+	readonly laws: ReadonlyMap<LawId, AboveLaw>
 }
 
 /** The directory, beside snapshot.json, that holds a schema's served files. */

@@ -1,15 +1,9 @@
-import { Array as Arr, Effect, Option } from "effect"
-import { openServed } from "#adapter/db/served.ts"
+import { Effect } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
-import { type OpenError, type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { type ServedRefusal, snapshotServedEntry } from "#adapter/served/compile.ts"
-import { explainMember as explainLoaded, type MemberCall } from "#adapter/served/explain.ts"
 import { builtLogin, ownLoginOver } from "#adapter/served/login.ts"
-import type { OpenOptions, Plan } from "#adapter/types/db.ts"
-import type { DbLayerService, ServedRole } from "#adapter/types/layer.ts"
 import {
 	type AnyLogin,
-	type AnyRole,
 	type AnyWorkload,
 	malformedDescription,
 	ownBuilt,
@@ -18,7 +12,6 @@ import {
 } from "#compiler/plan/common.ts"
 
 export type { ServedRefusal, WorkloadPlace } from "#adapter/served/compile.ts"
-export type { MemberCall } from "#adapter/served/explain.ts"
 
 /** The refusal of the login's compile itself, at the login. */
 const atLogin = (error: ServedRefusal["error"]): ServedRefusal => ({
@@ -57,33 +50,4 @@ export const compileServed = (
 			snapshot
 		)
 		return trustedJson<unknown>(entry.text)
-	})
-
-/**
- * explainMember(role, member, call, options): the estimate-only plan of every statement the member `member` of the
- * role's served workload runs for `call`, its parameters, beside each call's facts for a ChangeSet that holds array
- * members, as its handle takes them (served/explain.ts MemberCall), on a Db of the role opened with `options` through its
- * login's layer:
- * EXPLAIN (FORMAT JSON), never ANALYZE, in one transaction of the role that is rolled back (adapter/served/explain.ts).
- * A read, a key and a paged member plan their rows' statements; a ChangeSet plans the variant the Db's claims select, its
- * carriers created and analyzed empty at their places.
- */
-export const explainMember = <R extends AnyRole, P>(
-	role: ServedRole<R, P>,
-	member: keyof P & string,
-	call: MemberCall,
-	options: OpenOptions<R>
-): Effect.Effect<ReadonlyArray<Plan>, ReadError | OpenError, DbLayerService<R>> =>
-	Effect.gen(function* () {
-		const { ctx, role: loaded } = yield* openServed(role, options)
-		const found = Arr.findFirst(loaded.members, (m) => m.name === member)
-		if (Option.isNone(found)) {
-			return yield* new ReadFailure({
-				reason: malformedDescription(
-					SourceLoc("explainMember", [member]),
-					`a member of role ${loaded.name}'s served workload`
-				)
-			})
-		}
-		return yield* explainLoaded(ctx, found.value, call)
 	})

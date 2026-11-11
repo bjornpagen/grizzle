@@ -5,7 +5,11 @@ import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import type { ServedSnapshot, SnapshotDerived } from "#compiler/deploy/snapshot/types.ts"
+import type {
+	InstalledNames,
+	ServedSnapshot,
+	SnapshotDerived
+} from "#compiler/deploy/snapshot/types.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import { rosterCodebook } from "#compiler/ir/codes.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
@@ -55,6 +59,7 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 	const closed = derived["closed"]
 	const fkCycles = derived["fkCycles"]
 	const textDomains = derived["textDomains"]
+	const tables = derived["tables"]
 	if (!isRecord(closed)) {
 		return Result.err(underived(["derived", "closed"]))
 	}
@@ -64,10 +69,14 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 	if (!isRecord(textDomains)) {
 		return Result.err(underived(["derived", "textDomains"]))
 	}
+	if (!isRecord(tables)) {
+		return Result.err(underived(["derived", "tables"]))
+	}
 	return Result.ok({
 		closed: new Map(Object.entries(trusted<Readonly<Record<string, NamedClosed>>>(closed))),
 		fkCycles: trusted<FkCycles>(fkCycles),
-		textDomains: trusted<TextDomainNames>(new Map(Object.entries(textDomains)))
+		textDomains: trusted<TextDomainNames>(new Map(Object.entries(textDomains))),
+		tables: trusted<InstalledNames>(tables)
 	})
 }
 
@@ -81,8 +90,8 @@ const revived = (value: unknown, path: Path): Result.Result<unknown, CompileErro
  * is verified where it is drafted, checked and migrated from (readSnapshot): its recorded fingerprint; every level's
  * schema and recorded fingerprint, and the laws of each level above `level`, their canonical tags revived (`fromJson`);
  * its constraint-to-law map and its rosters' codes, revived; and the installation's derived runtime facts
- * (SnapshotDerived), each closed relation's constants as readers address them and the foreign key graph's cycles, which
- * hold names and numbers alone, so their JSON form is their value. Nothing else of it is read: the laws of `level` and
+ * (SnapshotDerived), each closed relation's constants as readers address them, the foreign key graph's cycles and the
+ * installed tables and their indexes, which hold names and numbers alone, so their JSON form is their value. Nothing else of it is read: the laws of `level` and
  * the levels below it are the layer's own artifacts', and manifest.json, the rest of the snapshot, is generate's,
  * check's, drift's and migrate's.
  */

@@ -530,7 +530,7 @@ export class UnreadableAnswer extends Data.TaggedError("UnreadableAnswer")<{
 }
 
 /**
- * db.explain of a ChangeSet whose input `law` rejects before any SQL: two facts of one relation input share a key and
+ * A change member's explain of a call whose input `law` rejects before any SQL: two facts of one relation input share a key and
  * differ in payload.
  */
 export class LawRejected extends Data.TaggedError("LawRejected")<{ readonly law: Law }> {

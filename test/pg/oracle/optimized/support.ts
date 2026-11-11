@@ -1,6 +1,5 @@
 import { exact, ordered } from "@grizzle/testing/oracle"
 import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
-import { decodePlan } from "#adapter/explain/plan.ts"
 import { type PlanLabel, planEdges, planNodeTypes } from "#bench/harness/explain.ts"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import { appendAll } from "#compiler/core/array.ts"
@@ -40,8 +39,8 @@ import {
 import type { DeliveredPart, SentStatement } from "#compiler/lower/shapes/index.ts"
 import { type FusedAttachment, fusedElement } from "#compiler/runtime/lower/fused.ts"
 
-import { canonicalTextOf, type Json } from "#compiler/core/canonical.ts"
-import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
+import { canonicalTextOf } from "#compiler/core/canonical.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import { explainOf } from "#compiler/sql/emit.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { admitGenerated } from "#test/support/compile.ts"
@@ -271,17 +270,10 @@ export interface PlanShape {
 }
 
 /**
- * The EXPLAIN cell as grizzle's own driver hands it to db.explain: json text. The test client parses json columns, so
- * the plan is spelled back as text before the runtime's reader sees it.
- */
-const asDriverText = (cell: unknown): string => jsonText(trusted<Json>(cell))
-
-/**
  * The plan PostgreSQL chooses for each of `statements`, under the settings and with the parameter values the statements
- * run with, planned as db.explain plans a statement: its own EXPLAIN statement (sql/emit.ts explainOf),
- * estimate-only, sent as a statement of its own, whose one cell db.explain's decoder reads as a Plan
- * and the plan readers read as node types and edges (bench/harness/explain.ts planNodeTypes and planEdges). A
- * statement PostgreSQL refuses to plan, or a plan db.explain does not decode, fails the case.
+ * run with, planned as a member's explain plans a statement: its own EXPLAIN statement (sql/emit.ts explainOf),
+ * estimate-only, sent as a statement of its own, whose one cell the plan readers read as node types and edges
+ * (bench/harness/explain.ts planNodeTypes and planEdges). A statement PostgreSQL refuses to plan fails the case.
  */
 const explainStatements = (
 	session: PgConnection,
@@ -309,10 +301,6 @@ const explainStatements = (
 				)
 			}
 			const [cell] = row
-			const plan = decodePlan(asDriverText(cell))
-			if (Result.isFailure(plan)) {
-				return yield* failure("explain", name, `statement ${i}: ${plan.failure}`)
-			}
 			plans.push({
 				nodes: planNodeTypes(cell),
 				edges: Arr.map(planEdges(cell), (e) => ({
@@ -931,7 +919,7 @@ const runDifferential = (
 						)
 					}
 					/**
-					 * Every statement a form sent, each text planned once: db.explain plans whichever form an
+					 * Every statement a form sent, each text planned once: a member's explain plans whichever form an
 					 * execution's inputs select.
 					 */
 					const sent = new Map<string, SentStatement>()
@@ -1087,7 +1075,7 @@ export const typedPlants = (
  * 4. every optimized run is compared with the conservative run relation by relation as raw output-function text
  *    multisets (test/support/oracle/compare.ts), its repeated rows are counted, and the order of every ordered
  *    delivery is compared too;
- * 5. every statement an optimized form sent is planned as db.explain plans it, each text once, and its plan is read as
+ * 5. every statement an optimized form sent is planned as a member's explain plans it, each text once, and its plan is read as
  *    the plan features the suites note.
  *
  * Relation parameters are deduplicated on entry: the runtime normalizes a relation input

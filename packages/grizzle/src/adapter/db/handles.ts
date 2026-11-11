@@ -11,7 +11,10 @@ import {
 import { dbChangeFrame, type ServedDbContext } from "#adapter/db/context.ts"
 import {
 	type CompiledOps,
+	type ExplainOps,
+	explainsOf,
 	factsCompiled,
+	type MemberExplains,
 	refreshHandle,
 	type ServedOps,
 	typedCompiled
@@ -34,6 +37,7 @@ import { hostParams, readKeyValues, unreadableArguments } from "#adapter/reader/
 import { executionInputs } from "#adapter/reader/relations.ts"
 import { programFlight, programGetFlight, type ReadProgram } from "#adapter/reader/run.ts"
 import { runRefresh } from "#adapter/refresh/run.ts"
+import { explainChange, explainRead, explainReadAnalyzed } from "#adapter/served/explain.ts"
 import {
 	type LoadedChange,
 	type LoadedMember,
@@ -52,6 +56,7 @@ import type {
 } from "#compiler/plan/common.ts"
 import type { Page } from "#compiler/plan/read.ts"
 import { getRefusal, malformedDescription, SourceLoc } from "#compiler/plan/runtime.ts"
+import type { InstalledNames } from "#compiler/plan/serve.ts"
 
 /**
  * A served Db's workload handles: each program its layer loaded for the Db's role (served/load.ts LoadedMember), run on
@@ -287,23 +292,91 @@ export const memberOps = (ctx: ServedDbContext, member: LoadedMember): ServedOps
 	memberOpsOn(poolExecutor(ctx), ctx, member)
 
 /**
- * The record of a Db's workload handles: each member's operations (memberOps), typed, under its name: a refresh's its one
- * operation (refreshHandle), a change's that takes each call's facts its facts handle (factsCompiled), every other
- * member's its program's (typedCompiled).
+ * A read member's explains (types/db ReadExplain) for each call's parameters, a key's for its values, read once at the
+ * boundary as its get reads them, its plans named by the login's served tables `installed`.
+ */
+const readExplains = (
+	ctx: ServedDbContext,
+	installed: InstalledNames,
+	read: LoadedRead,
+	keyed: (values: ParamMap) => Result.Result<ParamMap, ReadFailure>
+): ExplainOps => ({
+	explain: (params) =>
+		Result.match(keyed(params), {
+			onFailure: Effect.fail,
+			onSuccess: (bound) => explainRead(ctx, installed, read, bound)
+		}),
+	explainAnalyze: (params) =>
+		Result.match(keyed(params), {
+			onFailure: Effect.fail,
+			onSuccess: (bound) => explainReadAnalyzed(ctx, installed, read, bound)
+		})
+})
+
+/** A read's parameters, which its handle reads as they are. */
+const asParams = (params: ParamMap): Result.Result<ParamMap, ReadFailure> => Result.succeed(params)
+
+/**
+ * A loaded member's explains over a Db's context, by its kind: a read's, a paged member's and a key's estimate and
+ * analyze its rows' statement (readExplains); a change's estimates its variant for the Db's claims, with each call's
+ * facts where it holds array members (served/explain.ts explainChange); a refresh, whose REFRESH has no plan, has none.
+ */
+export const memberExplains = (
+	ctx: ServedDbContext,
+	installed: InstalledNames,
+	member: LoadedMember
+): MemberExplains => {
+	switch (member.kind) {
+		case "read":
+		case "paged":
+			return { kind: "read", ops: readExplains(ctx, installed, member.read, asParams) }
+		case "key":
+			return {
+				kind: "read",
+				ops: readExplains(ctx, installed, member.read, (values) =>
+					readKeyValues(member.fields, values, unreadableArguments())
+				)
+			}
+		case "change": {
+			const change = variantOf(ctx, member.variants)
+			return change.call.kind === "facts"
+				? {
+						kind: "facts",
+						explain: (facts, params) =>
+							explainChange(ctx, installed, member.name, change, { kind: "facts", facts, params })
+					}
+				: {
+						kind: "params",
+						explain: (params) =>
+							explainChange(ctx, installed, member.name, change, { kind: "params", params })
+					}
+		}
+		case "refresh":
+			return { kind: "none" }
+	}
+}
+
+/**
+ * The record of a Db's workload handles: each member's operations (memberOps), typed, under its name, beside its
+ * explains (memberExplains), named by the login's served tables `installed`: a refresh's its one operation
+ * (refreshHandle), a change's that takes each call's facts its facts handle (factsCompiled), every other member's its
+ * program's (typedCompiled).
  */
 export const servedHandles = (
 	ctx: ServedDbContext,
-	members: ReadonlyArray<LoadedMember>
+	members: ReadonlyArray<LoadedMember>,
+	installed: InstalledNames
 ): object => {
 	const handles: Record<string, object> = {}
 	for (const member of members) {
 		const served = memberOps(ctx, member)
+		const explains = memberExplains(ctx, installed, member)
 		handles[member.name] =
 			served.kind === "facts"
-				? factsCompiled(served.ops)
+				? Object.freeze({ ...factsCompiled(served.ops), ...explainsOf(explains) })
 				: member.kind === "refresh"
 					? refreshHandle(served.ops)
-					: typedCompiled(served.ops)
+					: Object.freeze({ ...typedCompiled(served.ops), ...explainsOf(explains) })
 	}
 	return Object.freeze(handles)
 }

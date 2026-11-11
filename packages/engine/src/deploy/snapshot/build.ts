@@ -31,7 +31,9 @@ import {
 } from "#compiler/deploy/ledger/ledger.ts"
 import { installed, type ManifestObject } from "#compiler/deploy/snapshot/objects.ts"
 import {
+	type CompileFacts,
 	type DeploySnapshot,
+	type InstalledNames,
 	manifestFileName,
 	type SnapshotContent,
 	type SnapshotDerived,
@@ -71,7 +73,7 @@ import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import { namedIdent } from "#compiler/physical/obligations/graph.ts"
 import { levelChain, own, type Owned } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
+import type { ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import type { OwnerFunction } from "#compiler/sql/constants.ts"
 
 /** Entries in the code-unit order of their keys. */
@@ -519,23 +521,88 @@ const unwrapCompiled = <A>(result: Result.Result<A, CompileError>): A => {
 	return result.value
 }
 
-/** The installation's derived runtime facts, which snapshot.json records beside the snapshot's content (SnapshotDerived):
- * each closed relation's constants as readers address them, the installation's plan's, and the foreign key graph's
- * cycles, its law model's, which planned them from every law. */
-export const derivedOf = (installation: Installation): SnapshotDerived =>
-	derivedFacts(installation.owned, installation.closed, installation.laws)
+/** An installed table's indexes as installedNamesOf gathers them, by name. */
+interface GatheredTable {
+	readonly relation: string
+	readonly indexes: Map<string, ReadonlyArray<PhysicalReason>>
+}
+
+/** The record of `entries` in code-unit order of their keys, each value mapped by `value`. */
+const keyOrdered = <A, B>(
+	entries: Iterable<readonly [string, A]>,
+	value: (a: A) => B
+): Readonly<Record<string, B>> =>
+	Object.fromEntries(
+		[...entries].toSorted(([a], [b]) => compareStrings(a, b)).map(([k, a]) => [k, value(a)] as const)
+	)
 
 /**
- * The derived runtime facts of an installation of `owned` whose closed relations' constants are named as `closed` names
+ * Every table and materialized view the installation installs, as a plan names it (InstalledNames): each stored
+ * relation's table and each materialized derived relation's view, under its declared name, by the installation's names
+ * (physical/ddl/names.ts InstallNames relation), and on each, every index its manifest installs, read through the one
+ * view of a manifest object (objects.ts installed): a created index by its CREATE INDEX, a primary key's, a unique
+ * key's and an exclusion constraint's by its constraint, each with the reasons the manifest records. An index on any
+ * other table is a defect of the installation's compile.
+ */
+const installedNamesOf = (installation: Installation): InstalledNames => {
+	const schemas = new Map<string, Map<string, GatheredTable>>()
+	const relations = [
+		...Object.values(installation.laws.theory.relations).flatMap((t) =>
+			t.kind === "relation" ? [t.name] : []
+		),
+		...Object.values(installation.owned.relations).flatMap((o) =>
+			o.kind === "derived" && o.view.kind !== "live" ? [o.name] : []
+		)
+	]
+	for (const relation of relations) {
+		const table = installation.names.relation(relation)
+		const tables = schemas.get(table.schema) ?? new Map<string, GatheredTable>()
+		tables.set(table.name, { relation, indexes: new Map() })
+		schemas.set(table.schema, tables)
+	}
+	const index = (table: ObjectName, name: string, reasons: ReadonlyArray<PhysicalReason>): void => {
+		const on = schemas.get(table.schema)?.get(table.name)
+		if (on === undefined) {
+			throw defect(`the index ${name} is on a relation's table or materialized view, not ${table.name}`)
+		}
+		on.indexes.set(name, reasons)
+	}
+	for (const o of installation.manifest.objects) {
+		const v = installed(o)
+		switch (v.kind) {
+			case "index":
+			case "uniqueIndex":
+				index(v.create.table, v.create.name, o.reasons)
+				break
+			case "primaryKey":
+			case "unique":
+				index(v.table, v.name, o.reasons)
+				break
+			default:
+				break
+		}
+	}
+	return keyOrdered(schemas, (tables) =>
+		keyOrdered(tables, (t) => ({ relation: t.relation, indexes: keyOrdered(t.indexes, (r) => r) }))
+	)
+}
+
+/** The installation's derived runtime facts, which snapshot.json records beside the snapshot's content (SnapshotDerived):
+ * each closed relation's constants as readers address them, the installation's plan's, the foreign key graph's
+ * cycles, its law model's, which planned them from every law, and every table and materialized view it installs with
+ * its indexes (installedNamesOf). */
+export const derivedOf = (installation: Installation): SnapshotDerived => ({
+	...derivedFacts(installation.owned, installation.closed, installation.laws),
+	tables: installedNamesOf(installation)
+})
+
+/**
+ * The compile facts of an installation of `owned` whose closed relations' constants are named as `closed` names
  * them, under its law model `model` (derivedOf): what a level's artifacts compile under besides its codes, from a
  * snapshot (adapter/served/login.ts artifactsUnder) or, before the snapshot is written, from the basis the installation
  * is compiled over, so both read the same facts.
  */
-export const derivedFacts = (
-	owned: Owned,
-	closed: ClosedNames,
-	model: LawModel
-): SnapshotDerived => ({
+export const derivedFacts = (owned: Owned, closed: ClosedNames, model: LawModel): CompileFacts => ({
 	closed,
 	fkCycles: model.fkCycles,
 	textDomains: storedTextDomains(owned, model.theory)
@@ -837,7 +904,18 @@ const closedForm = (c: NamedClosed): SnapshotForm => ({
 const derivedForm = (d: SnapshotDerived): SnapshotForm => ({
 	closed: Object.fromEntries([...d.closed].map(([name, c]) => [name, closedForm(c)] as const)),
 	fkCycles: d.fkCycles,
-	textDomains: Object.fromEntries([...d.textDomains].toSorted(([a], [b]) => compareStrings(a, b)))
+	textDomains: Object.fromEntries([...d.textDomains].toSorted(([a], [b]) => compareStrings(a, b))),
+	tables: Object.fromEntries(
+		Object.entries(d.tables).map(([schema, tables]) => [
+			schema,
+			Object.fromEntries(
+				Object.entries(tables).map(([name, t]) => [
+					name,
+					{ relation: t.relation, indexes: Object.fromEntries(Object.entries(t.indexes)) }
+				])
+			)
+		])
+	)
 })
 
 const levelsForm = <S>(levels: ReadonlyArray<SnapshotLevel>, units: Units<S>): FormOf<S> =>

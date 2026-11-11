@@ -173,6 +173,12 @@ export type TypeRef =
 export const closedSearchPath = ["pg_catalog", "pg_temp"] as const
 
 /**
+ * The session's own temporary schema as a statement names it, and as EXPLAIN (VERBOSE) names the schema of a temporary
+ * table the session created: a write's carriers live there (write/program/staged.ts).
+ */
+export const temporarySchema = "pg_temp"
+
+/**
  * The spellings of a double no persisted number holds: JSON has no NaN or infinity, and canonical JSON writes -0 as 0.
  */
 const floatSpecials = ["NaN", "Infinity", "-Infinity", "-0"] as const

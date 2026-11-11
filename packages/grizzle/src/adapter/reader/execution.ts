@@ -57,7 +57,7 @@ import type {
 } from "#compiler/plan/serve.ts"
 
 /**
- * One statement execution and the Rows it delivers: what reads, read-backs, pages and db.explain share.
+ * One statement execution and the Rows it delivers: what reads, read-backs, pages and a member's explain share.
  *
  * A statement runs in one of two forms: as lowered, or as its whole-relation variant when a per-execution choice
  * selects it. Each form is its lowered statement, the spec emitted from it and its placeholders as an execution binds

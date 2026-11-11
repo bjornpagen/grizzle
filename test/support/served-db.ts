@@ -11,6 +11,7 @@ import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { DbLayerOf, ServedLogin, ServedRole } from "#adapter/types/layer.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
+import type { InstalledNames } from "#compiler/plan/serve.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import type { AnyLogin, AnyLoginRole, AnyRole } from "#compiler/public/schema.ts"
 import { servedFile } from "#compiler/served/json.ts"
@@ -101,13 +102,21 @@ export interface ServedDb {
 	readonly load: (
 		programs: Readonly<Record<string, unknown>>
 	) => Effect.Effect<ReadonlyMap<string, LoadedMember>, ServedRefusal | OpenError>
+	/** `load`'s members, beside the installed tables the login's file names them by, which its explains read. */
+	readonly loadWithTables: (programs: Readonly<Record<string, unknown>>) => Effect.Effect<
+		{
+			readonly members: ReadonlyMap<string, LoadedMember>
+			readonly tables: InstalledNames
+		},
+		ServedRefusal | OpenError
+	>
 	readonly serve: (
 		programs: Readonly<Record<string, unknown>>
 	) => Effect.Effect<ReadonlyMap<string, ServedOps<unknown>>, ServedRefusal | OpenError>
 }
 
 /** The operations `load` and `serve` give over one served Db's context (ServedDb). */
-export type ServedOn = Pick<ServedDb, "load" | "serve">
+export type ServedOn = Pick<ServedDb, "load" | "loadWithTables" | "serve">
 
 /** The members of the role `role` of a loaded login, by its name in the login. */
 const roleMembers = (
@@ -181,19 +190,24 @@ export const withServedDb = <A, E, R>(
  */
 const servedOn = (snapshot: unknown, role: AnyLoginRole, ctx: ServedDbContext): ServedOn => {
 	const login = role.login
-	const load: ServedDb["load"] = (programs) =>
+	const loadWithTables: ServedDb["loadWithTables"] = (programs) =>
 		Effect.gen(function* () {
 			const json = yield* Effect.suspend(() =>
 				compileServed(login, snapshot, [workload(role.role, programs)])
 			)
 			const loaded = yield* Effect.fromResult(loadServed(servedFile(json), login.name))
-			return new Map(
-				Arr.map(roleMembers(loaded.roles, role.role.name), (m): readonly [string, LoadedMember] => [
-					m.name,
-					m
-				])
-			)
+			return {
+				members: new Map(
+					Arr.map(
+						roleMembers(loaded.roles, role.role.name),
+						(m): readonly [string, LoadedMember] => [m.name, m]
+					)
+				),
+				tables: loaded.tables
+			}
 		})
+	const load: ServedDb["load"] = (programs) =>
+		Effect.map(loadWithTables(programs), (loaded) => loaded.members)
 	const serve: ServedDb["serve"] = (programs) =>
 		Effect.map(
 			load(programs),
@@ -205,7 +219,7 @@ const servedOn = (snapshot: unknown, role: AnyLoginRole, ctx: ServedDbContext): 
 					])
 				)
 		)
-	return { load, serve }
+	return { load, loadWithTables, serve }
 }
 
 /**

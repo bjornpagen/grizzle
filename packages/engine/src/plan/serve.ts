@@ -27,7 +27,10 @@ export {
 export { servedSnapshot } from "#compiler/deploy/snapshot/served.ts"
 export { rosterCodebook } from "#compiler/ir/codes.ts"
 export {
+	type CompileFacts,
 	type DeploySnapshot,
+	type InstalledNames,
+	type InstalledTable,
 	manifestFileName,
 	type ServedSnapshot,
 	type SnapshotDerived,

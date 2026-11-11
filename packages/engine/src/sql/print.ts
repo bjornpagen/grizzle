@@ -69,6 +69,7 @@ import {
 	type TriggerEvent,
 	type TypeRef,
 	tableConstraints,
+	temporarySchema,
 	type Update,
 	type Using,
 	type WindowSpec,
@@ -120,7 +121,6 @@ const statementTextLoc = SourceLoc("SQL statement text", [])
  */
 export const quoteIdent = (name: string): string => `"${name.replaceAll('"', '""')}"`
 
-export const printObjectName = (name: ObjectName): string =>
 /**
  * A role of the installation where a statement names it: psql's identifier variable `:"<stem>"`, the role's stem, which
  * `grizzle generate` commits, the one way a statement prints an installation's role. Migrate fills it with the role the
@@ -137,6 +137,7 @@ export const databaseVariable = "DBNAME"
  * database, and migrate fills it with its connection's (sql/variables.ts resolveVariables). */
 const printDatabase = (): string => `:${quoteIdent(databaseVariable)}`
 
+export const printObjectName = (name: ObjectName): string =>
 	`${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
 
 /** Each isolation level as BEGIN ISOLATION LEVEL spells it. */
@@ -172,7 +173,7 @@ const printCatalogType = (name: CatalogTypeName): string => {
 
 /** A table by its schema: a carrier's is pg_temp, the session's own temporary schema. */
 export const printTableName = (table: TableName): string =>
-	printObjectName(typeof table === "string" ? { schema: "pg_temp", name: table } : table)
+	printObjectName(typeof table === "string" ? { schema: temporarySchema, name: table } : table)
 
 /** closedSearchPath as a SET clause spells it. */
 const printedSearchPath = closedSearchPath.map(quoteIdent).join(", ")
@@ -1592,8 +1593,8 @@ export const looksLikeLiteralPack = (statement: string): boolean =>
 export const printCommentTarget = (on: CommentTarget): string => {
 	switch (on.kind) {
 		case "SCHEMA":
-		case "ROLE":
 			return `SCHEMA ${quoteIdent(on.name)}`
+		case "ROLE":
 			return `ROLE ${printRole(on.name)}`
 		case "TABLE":
 		case "VIEW":

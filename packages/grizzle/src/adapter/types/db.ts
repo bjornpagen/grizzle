@@ -30,6 +30,7 @@ import type {
 	ParamArg,
 	ParamValue,
 	Phantom,
+	PhysicalReason,
 	ReadsContext,
 	RefreshListOf,
 	Refusal,
@@ -89,7 +90,7 @@ type WithinWriteList<R, W> = [W] extends [WriteListOf<R>]
 	: Refusal<"a ChangeSet writes only relations its role's write list names">
 
 /**
- * Reads, the opened database, and its write, refresh and explain operations. packages/grizzle/src/adapter implements Db
+ * Reads, the opened database, and its write and refresh operations. packages/grizzle/src/adapter implements Db
  * (db/open.ts, db/db.ts, reader/); the declarations here are its types.
  *
  * A program's parameters are inferred from the program alone: each `params` argument is NoInfer<P>, so P is the
@@ -101,7 +102,7 @@ type WithinWriteList<R, W> = [W] extends [WriteListOf<R>]
  * handles, compiled once when the layer was built. Every reader
  * accepts a query over R or over any level below it (AtLevel): Query is invariant in its schema, and a
  * full role holds its base among its levels, so a query written over the base is a query over the full role.
- * db.apply, compile and explain accept a ChangeSet over any level the same way. Every program matches only the
+ * db.apply and compile accept a ChangeSet over any level the same way. Every program matches only the
  * contexts R's relations read (WithinRoleContexts), whose facts the Db's claims hold.
  *
  * Every read sees a lawful committed snapshot and delivers the query's heading: the records its decoder assembles
@@ -137,38 +138,13 @@ export interface DbOf<R, P> extends QueryReader<R> {
 	refresh(
 		...relations: Arr.NonEmptyReadonlyArray<RefreshListOf<R>>
 	): Effect.Effect<void, ApplyError>
-	explain<
-		L,
-		Head,
-		Ev extends Evidence,
-		P,
-		IHead,
-		Hc extends Carriers,
-		W extends string,
-		Reads,
-		Cx extends string,
-		Arms extends UnionArms,
-		C,
-		const Arg
-	>(
-		program: C &
-			(
-				| Query<L, Head, Ev, P, IHead, Hc, Cx, Arms>
-				| Ordered<L, Head, Ev, P, IHead, Hc, Cx, Arms>
-				| ChangeSet<L, P, W, Reads, Cx>
-			) &
-			AtLevel<R, L> &
-			WithinRoleContexts<R, Cx> &
-			PlannedStrata<C>,
-		params: NoInfer<ParamArg<P>> & Arg & NoInfer<OnlyParams<Arg, P>>
-	): Effect.Effect<ReadonlyArray<Plan>, ReadError>
 }
 
 /** The schema a query, ordered query or ChangeSet is over. */
 type ProgramSchema<X> = X extends Phantom<{ readonly schema: Invariant<infer L> }> ? L : never
 /**
- * Every reader, apply and explain accept a program over S or over any level below it, L, and refuse one over any other
- * schema by name.
+ * Every reader and apply accept a program over S or over any level below it, L, and refuse one over any other schema
+ * by name.
  */
 type AtLevel<S, L> = [L] extends [LevelsOf<S>]
 	? unknown
@@ -325,13 +301,13 @@ type CompiledArg<X> = X extends KeyTarget ? GetArg<X> : ParamArg<ParamsOf<X>>
 type OnlyArg<Arg, X> = X extends KeyTarget ? unknown : OnlyParams<Arg, ParamsOf<X>>
 
 /**
- * A program compiled once, by db.compile or at startup as a workload program (`db.workload`), run with each call's
- * parameters, over records A (its rows, its read-backs, or a key's relation's facts). Exactly the operations its
+ * The operations of a program X compiled once, run with each call's parameters, over records A (its rows, its
+ * read-backs, or a key's relation's facts), whatever role compiled it: none reads the role. Exactly the operations its
  * program allows typecheck: execute for a query or ordered query, get for one proved at most one row per parameter
- * binding and for a key, page for an ordered query, apply for a ChangeSet. A page's cursors are for the compiled
- * query X.
+ * binding and for a key, page for an ordered query, apply for a ChangeSet. A page's cursors are for the compiled query
+ * X.
  */
-export interface Compiled<S, X, A> extends Phantom<{ readonly schema: Invariant<S> }> {
+export interface ProgramHandle<X, A> {
 	execute<const Arg>(
 		params: NoInfer<CompiledArg<X>> & ReadOp<X> & Arg & NoInfer<OnlyArg<Arg, X>>
 	): Effect.Effect<QueryResult<A>, ReadError>
@@ -346,6 +322,14 @@ export interface Compiled<S, X, A> extends Phantom<{ readonly schema: Invariant<
 		params: NoInfer<CompiledArg<X>> & ApplyOp<X> & Arg & NoInfer<OnlyArg<Arg, X>>
 	): Effect.Effect<ApplyOutcome<A>, ApplyError>
 }
+
+/**
+ * A program compiled once, by db.compile or at startup as a workload program (`db.workload`), for a Db of S: its
+ * operations (ProgramHandle), and S, which makes a handle of one Db's program no handle of another schema's.
+ */
+export interface Compiled<S, X, A>
+	extends ProgramHandle<X, A>,
+		Phantom<{ readonly schema: Invariant<S> }> {}
 
 /**
  * The records a program's handle delivers, as the program's own type states them (Delivering): a query's rows, a
@@ -367,21 +351,81 @@ export interface FactsApply<X, A> {
 }
 
 /**
+ * A served read member's plans, a query's, an ordered query's, a paged member's or a key's, for each call's parameters
+ * or a key's values, as its execute and get take them: the statement its execute and get send (a paged member's pages
+ * send others, which no explain plans), planned by PostgreSQL for those values in one SERIALIZABLE READ ONLY
+ * transaction of the Db's role that is rolled back. `explain` asks for PostgreSQL's estimates alone and runs nothing;
+ * `explainAnalyze` runs the statement under EXPLAIN ANALYZE and reports what each node did beside its estimates.
+ */
+export interface ReadExplain<X> {
+	explain<const Arg>(
+		params: NoInfer<CompiledArg<X>> & Arg & NoInfer<OnlyArg<Arg, X>>
+	): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError>
+	explainAnalyze<const Arg>(
+		params: NoInfer<CompiledArg<X>> & Arg & NoInfer<OnlyArg<Arg, X>>
+	): Effect.Effect<ReadonlyArray<ExecutedStatement>, ReadError>
+}
+
+/**
+ * A served change member's plans for each call's parameters, as its apply takes them: the estimates of every statement
+ * its apply sends, in one transaction of the Db's role at SERIALIZABLE that is rolled back, so it writes nothing. A
+ * ChangeSet's statements are never run under EXPLAIN ANALYZE: a write rolled back still advances its serial fields'
+ * sequences, which no rollback undoes.
+ */
+export interface ChangeExplain<X> {
+	explain<const Arg>(
+		params: NoInfer<CompiledArg<X>> & Arg & NoInfer<OnlyArg<Arg, X>>
+	): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError>
+}
+
+/**
+ * A served change member's plans, for a ChangeSet X that holds array members (ArraysOf): each call's facts and
+ * parameters, as its apply takes them (FactsApply), on which each statement's binding depends; otherwise ChangeExplain's.
+ */
+export interface FactsExplain<X> {
+	explain<const F, const Arg>(
+		facts: F & NoInfer<FactsCheck<F, ArraysOf<X>>>,
+		params: NoInfer<CompiledArg<X>> & Arg & NoInfer<OnlyArg<Arg, X>>
+	): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError>
+}
+
+/**
  * A Db's workload handles: each program of P under its name, compiled for R. A paged member's handle pages its ordered
  * query; any other member's has no page, since the layer compiled no page template for it. A change member whose
- * ChangeSet holds array members applies with each call's facts and parameters (FactsApply); every other applies with
- * its parameters alone.
+ * ChangeSet holds array members applies and explains with each call's facts and parameters (FactsApply, FactsExplain);
+ * every other change member with its parameters alone (ChangeExplain). A read member explains its statement's
+ * estimates or runs it under EXPLAIN ANALYZE (ReadExplain); a refresh member, whose REFRESH has no plan, explains none.
  */
 export type WorkloadHandles<R, P> = {
 	readonly [K in keyof P]: P[K] extends Refresh<unknown>
 		? RefreshHandle
-		: P[K] extends Paged<infer O>
-			? Compiled<R, O, RecordsOf<O>>
-			: [keyof ArraysOf<P[K]>] extends [never]
-				? Omit<Compiled<R, P[K], RecordsOf<P[K]>>, "page">
-				: Omit<Compiled<R, P[K], RecordsOf<P[K]>>, "page" | "apply"> &
-						FactsApply<P[K], RecordsOf<P[K]>>
+		: MemberHandle<P[K]> & Phantom<{ readonly schema: Invariant<R> }>
 }
+
+/**
+ * The operations a served member of program X offers, whatever login serves X and whatever role it runs on: exactly
+ * the operations a Db's workload handle of X gives (WorkloadHandles), without the role, which none of them reads, and
+ * X itself, so a handle of one program is no handle of another, whatever operations the two share. Every
+ * `db.workload.<name>` whose program is X is one, under any login whose workload serves X, a login over a level and one
+ * over its extension alike, so a function over one served program takes any login's handle of it. A refresh member's
+ * handle is its one operation (RefreshHandle), which every refresh member's is.
+ */
+export type MemberHandle<X> =
+	X extends Refresh<unknown>
+		? RefreshHandle
+		: ProgramOperations<X> & Phantom<{ readonly program: Invariant<X> }>
+
+/** The operations of a served member of program X, no refresh, by its program's kind (MemberHandle). */
+type ProgramOperations<X> =
+	X extends Paged<infer O>
+		? ProgramHandle<O, RecordsOf<O>> & ReadExplain<O>
+		: X extends AnyChangeSet
+			? [keyof ArraysOf<X>] extends [never]
+				? Omit<ProgramHandle<X, RecordsOf<X>>, "page"> & ChangeExplain<X>
+				: Omit<ProgramHandle<X, RecordsOf<X>>, "page" | "apply"> &
+						FactsApply<X, RecordsOf<X>> &
+						FactsExplain<X>
+			: Omit<ProgramHandle<X, RecordsOf<X>>, "page"> & ReadExplain<X>
 
 /**
  * A refresh member's handle (refresh(relations) in a workload): its one operation brings its materialized derived relations to
@@ -449,12 +493,81 @@ export interface QueryResult<Head> {
 	readonly collect: Effect.Effect<ReadonlyArray<Head>, ReadError>
 }
 
-/** An estimate-only plan, one per emitted statement in execution order; never EXPLAIN ANALYZE. */
+/**
+ * Why the installation holds an index, as its snapshot's manifest records it: a law it serves, by the law's identity
+ * (LawId, a RefusedLaw's `id`); the workload's access, the login's programs' and the roles' write filters'; a derived
+ * relation's key, by the laws the proof of that key rests on; or the enforcement of a declaration, in words.
+ */
+export type IndexReason = PhysicalReason
+
+/** An index a plan node reads through: its PostgreSQL name, and every reason the installation holds it. */
+export interface PlanIndex {
+	readonly name: string
+	readonly serves: ReadonlyArray<IndexReason>
+}
+
+/**
+ * What a plan node reads or writes, as the login's served file names the installation, never parsed back from
+ * PostgreSQL's names:
+ * - `relation`: a relation's table or a materialized derived relation's view, by the relation's declared name, read
+ *   whole or by a bitmap (Seq Scan, Bitmap Heap Scan), or written (Insert, Update, Delete, Merge);
+ * - `index`: a relation read through one of its indexes (Index Scan, Index Only Scan, Bitmap Index Scan);
+ * - `carrier`: a temporary table the explained ChangeSet itself created and filled for its statements;
+ * - `none`: no relation, as a join, a sort, an aggregate or a scan of a CTE, a function or VALUES reads none.
+ */
+export type PlanTarget =
+	| { readonly kind: "none" }
+	| { readonly kind: "relation"; readonly relation: string }
+	| { readonly kind: "index"; readonly relation: string; readonly index: PlanIndex }
+	| { readonly kind: "carrier" }
+
+/**
+ * One node of PostgreSQL's plan of a statement: its node type as PostgreSQL names it ("Index Scan", "Hash Join", ...),
+ * what it reads (PlanTarget), the planner's estimated startup and total cost, rows and row width, and its children in
+ * PostgreSQL's order. Every other member PostgreSQL reports is dropped, so a Plan is one shape across server versions.
+ */
 export interface Plan {
 	readonly node: string
+	readonly on: PlanTarget
 	readonly startupCost: number
 	readonly totalCost: number
 	readonly rows: number
 	readonly width: number
 	readonly children: ReadonlyArray<Plan>
+}
+
+/**
+ * A node of a plan EXPLAIN ANALYZE ran: a Plan's members, then what the node did, its actual time to its first row
+ * and to its last in milliseconds, the rows it returned and the loops it ran, each per loop as PostgreSQL averages
+ * them, and the shared buffers it found in memory and read in. A node the run never reached ran no loop.
+ */
+export interface ExecutedPlan extends Omit<Plan, "children"> {
+	readonly actual: {
+		readonly startupMs: number
+		readonly totalMs: number
+		readonly rows: number
+		readonly loops: number
+	}
+	readonly buffers: { readonly sharedHit: number; readonly sharedRead: number }
+	readonly children: ReadonlyArray<ExecutedPlan>
+}
+
+/**
+ * One statement a member sends, planned: the name its text is prepared under on every session (grizzle_ and its
+ * SHA-256 in base32, as pg_prepared_statements and pg_stat_statements show it), and its plan's root node. A
+ * statement's plan is PostgreSQL's custom plan for the call's values, which a session plans for the statement's first
+ * executions; a session that has run it often may run a generic plan instead.
+ */
+export interface StatementPlan {
+	readonly statement: string
+	readonly plan: Plan
+}
+
+/** One statement a read member sends, run under EXPLAIN ANALYZE: its name, its planning and execution times in
+ * milliseconds, and its executed plan's root node. */
+export interface ExecutedStatement {
+	readonly statement: string
+	readonly planningMs: number
+	readonly executionMs: number
+	readonly plan: ExecutedPlan
 }

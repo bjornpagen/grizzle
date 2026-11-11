@@ -144,8 +144,7 @@ const servedDb = <R, P>(workload: WorkloadHandles<R, P>): DbOf<R, P> => {
 		page: unread,
 		compile: () => Effect.fail(outsideWorkload()),
 		apply: unapplied,
-		refresh: unapplied,
-		explain: unread
+		refresh: unapplied
 	}
 }
 
@@ -172,7 +171,8 @@ const servedDb = <R, P>(workload: WorkloadHandles<R, P>): DbOf<R, P> => {
  *    refined field where a statement reads it, by its field's domain.
  *
  * The Db's workload handles (`db.workload`) are built here over the programs the layer loaded for the role, each
- * ChangeSet's for the contexts the Db's claims hold a fact of.
+ * ChangeSet's for the contexts the Db's claims hold a fact of, each explain naming its plans by the login's installed
+ * tables.
  */
 export const openServed = Effect.fn("openServed")(function* <R extends AnyRole, P>(
 	role: ServedRole<R, P>,
@@ -190,7 +190,7 @@ export const openServed = Effect.fn("openServed")(function* <R extends AnyRole, 
 		pool: sessions.pool,
 		isolation: held.isolation
 	}
-	const handles: object = servedHandles(ctx, held.members)
+	const handles: object = servedHandles(ctx, held.members, login.tables)
 	if (
 		!isWorkloadOf<R, P>(
 			handles,

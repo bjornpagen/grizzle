@@ -253,7 +253,7 @@ export const optimizedShrink: ShrinkBudget = { kind: "bounded", candidates: 240 
  *
  * A case passes when every optimized form (the program, each per-execution variant, the VALUES transport) delivers
  * exactly the conservative run's raw text set in every statement, repeats no row, and keeps the order of every
- * ordered delivery, and when db.explain's EXPLAIN plans every statement those forms sent; the conservative baseline
+ * ordered delivery, and when a member's explain's EXPLAIN plans every statement those forms sent; the conservative baseline
  * itself must repeat no row. Every parent key set a form reads without DISTINCT, the lowering's claim that its parent's
  * keys make it a set (lower/conservative/keys.ts), holds no repeated value on its columns in the rows the form delivers
  * for its parent (support.ts keySetRepeats): a claim that fails there fails the case even where no child of the
@@ -262,7 +262,7 @@ export const optimizedShrink: ShrinkBudget = { kind: "bounded", candidates: 240 
  *
  * Explores the draw's cases through the differential property, each sketch resolved to its case in the property, each
  * outcome's features noted through its case. Every case also plans each statement its optimized forms sent as
- * db.explain plans it, which fails the case where PostgreSQL refuses it, and the plan's shape joins the features, so
+ * a member's explain plans it, which fails the case where PostgreSQL refuses it, and the plan's shape joins the features, so
  * the residual risk counts the plans the population likely never met.
  */
 export const differential = <S>(

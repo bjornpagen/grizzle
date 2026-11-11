@@ -5,7 +5,8 @@ import {
 	type BuiltLogin,
 	type LayerRole,
 	loginChangesOver,
-	plannedLoginRoles
+	plannedLoginRoles,
+	workloadSlice
 } from "#adapter/served/login.ts"
 import { servedFileOf } from "#adapter/served/project.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
@@ -51,13 +52,15 @@ export interface ServedRefusal {
 }
 
 /**
- * A login's workload compiled: the login, the snapshot it compiled under, read over the login's base's level, and every
- * role of it with its programs, in the login's order.
+ * A login's workload compiled: the login, the snapshot it compiled under, read over the login's base's level, every
+ * role of it with its programs, in the login's order, and its footprint: the declared names of the relations its
+ * programs read and write (schema/reach.ts Slice names, its writes among them, login.ts workloadSlice).
  */
 export interface CompiledServed {
 	readonly login: LoginDesc
 	readonly snapshot: ServedSnapshot
 	readonly roles: ReadonlyArray<LayerRole>
+	readonly footprint: ReadonlySet<string>
 }
 
 const atLogin = (error: CompileError | UnservedMember): ServedRefusal => ({
@@ -87,7 +90,8 @@ export const atRole = (refused: ChangeRefused): ServedRefusal => ({
  * installation's artifacts exactly as over its slice's, so no law model is compiled for the login. Its ChangeSets are
  * the login's change compile's, `changes`, compiled once over the same artifacts at the level each role's writes run
  * at, its certificate's (program/workload/change.ts loginChanges, program/isolation/certification.ts), which its
- * served form records (login.ts LayerRole `isolation`). A role's refusals are cut to what its programs' writes can raise (served/project.ts).
+ * served form records (login.ts LayerRole `isolation`). A role's refusals are cut to what its programs' writes can raise,
+ * and the snapshot's installed tables to the login's footprint (served/project.ts).
  * generate and check both compile from the snapshot.json text the draft lays out, so the drafted snapshot and the
  * committed one are one input, and a login compiles to one served file.
  */
@@ -106,7 +110,8 @@ const compileServed = Effect.fn("compileServed")(function* (
 		plannedLoginRoles(login.login, changes, layer, lawsAbove(served)),
 		atRole
 	)
-	return { login: login.login.desc, snapshot: served, roles }
+	const footprint = yield* Effect.mapError(workloadSlice(login.login, login.owned), atRole)
+	return { login: login.login.desc, snapshot: served, roles, footprint: footprint.names }
 })
 
 /**

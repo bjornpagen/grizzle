@@ -33,6 +33,8 @@ import {
 } from "#compiler/plan/migration.ts"
 import { servedRead, servedReadBacks } from "#compiler/plan/read.ts"
 import {
+	type InstalledNames,
+	type InstalledTable,
 	ledgerStatements,
 	type ServedAbove,
 	type ServedChange,
@@ -58,6 +60,26 @@ export interface CompiledLogin {
 	readonly login: LoginDesc
 	readonly snapshot: ServedSnapshot
 	readonly roles: ReadonlyArray<LayerRole>
+	/** The declared names of the relations its programs read and write (served/compile.ts CompiledServed). */
+	readonly footprint: ReadonlySet<string>
+}
+
+/**
+ * The installed tables and materialized views of the relations in `footprint` (deploy/snapshot/types.ts InstalledNames),
+ * each with every index PostgreSQL holds on it, by schema and name: what an explain of the login's members names a plan
+ * by. The planner may scan any of a footprint table's indexes, whatever level's law or access asked for it, and no
+ * table outside the footprint: a relation the statements name, read through a role's views, stands for the base
+ * relations its entry reads, and a derived one for what its definition reads (schema/reach.ts sliceOf).
+ */
+const tablesOf = (installed: InstalledNames, footprint: ReadonlySet<string>): InstalledNames => {
+	const out: Record<string, Readonly<Record<string, InstalledTable>>> = {}
+	for (const [schema, tables] of Rec.toEntries(installed)) {
+		const kept = Arr.filter(Rec.toEntries(tables), ([, table]) => footprint.has(table.relation))
+		if (Arr.isReadonlyArrayNonEmpty(kept)) {
+			out[schema] = Rec.fromEntries(kept)
+		}
+	}
+	return out
 }
 
 /** A rows form's read, served: its template, its Description's spine, and its decoder's form. */
@@ -289,6 +311,7 @@ export const servedFileOf = (
 			matchers: servedMatchers(roles),
 			closed: closedOfLogin(compiled.roles),
 			above: servedAbove(lawsAbove(snapshot)),
+			tables: tablesOf(snapshot.derived.tables, compiled.footprint),
 			roles
 		}
 	})

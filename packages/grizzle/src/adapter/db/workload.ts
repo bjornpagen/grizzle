@@ -3,11 +3,16 @@ import { changeHandle, type ChangeForm } from "#adapter/apply/index.ts"
 import type { DbContext } from "#adapter/db/context.ts"
 import { changeOps, readOps, refreshOps, rowsOps } from "#adapter/db/db.ts"
 import { type CompiledOps, refreshHandle, typedCompiled } from "#adapter/db/ops.ts"
-import type { ReadError } from "#adapter/errors/execution.ts"
+import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { poolExecutor } from "#adapter/reader/executor.ts"
 import { readKeyValues, unreadableArguments } from "#adapter/reader/params.ts"
 import { type ReadForm, readHandle, type RowsForm, rowsHandle } from "#adapter/reader/reader.ts"
-import type { NonEmptyReadonlyArray, ParamMap } from "#compiler/plan/common.ts"
+import {
+	malformedDescription,
+	type NonEmptyReadonlyArray,
+	type ParamMap,
+	SourceLoc
+} from "#compiler/plan/common.ts"
 import type { ServedRefreshTarget } from "#compiler/plan/serve.ts"
 
 /**
@@ -72,28 +77,57 @@ const variantOf = (ctx: DbContext, variants: ChangeVariants): ChangeForm<unknown
 }
 
 /**
+ * An explain of a program the layer compiled in process, refused before any SQL: an explain names a plan's tables by
+ * the login's served file (served/explain.ts), which no layer compiled in process holds.
+ */
+const unservedExplain = (): Effect.Effect<never, ReadError> =>
+	Effect.fail(
+		new ReadFailure({
+			reason: malformedDescription(
+				SourceLoc("explain", []),
+				"a member of a served login's workload, whose served file names the tables a plan reads"
+			)
+		})
+	)
+
+/** A read's explains on a layer compiled in process: each refused (unservedExplain). */
+const unservedReadExplains = { explain: unservedExplain, explainAnalyze: unservedExplain }
+
+/** A change's explain on a layer compiled in process: refused (unservedExplain). */
+const unservedChangeExplain = { explain: unservedExplain }
+
+/**
  * The record of a Db's workload handles: each program the layer compiled for the Db's role, under its name, its
  * operations db.compile's (db.ts CompiledOps), run on the Db's pool. A ChangeSet runs its variant for the Db's claims.
+ * Its explains are refused (unservedExplain).
  */
 export const workloadHandles = (ctx: DbContext, forms: ReadonlyArray<WorkloadForm>): object => {
 	const handles: Record<string, object> = {}
 	for (const w of forms) {
 		switch (w.kind) {
 			case "read":
-				handles[w.name] = typedCompiled(rowsOps(rowsHandle(poolExecutor(ctx), w.form, alwaysLive)))
+				handles[w.name] = Object.freeze({
+					...typedCompiled(rowsOps(rowsHandle(poolExecutor(ctx), w.form, alwaysLive))),
+					...unservedReadExplains
+				})
 				break
 			case "paged":
-				handles[w.name] = typedCompiled(
-					readOps(readHandle(ctx, poolExecutor(ctx), w.form, alwaysLive))
-				)
+				handles[w.name] = Object.freeze({
+					...typedCompiled(readOps(readHandle(ctx, poolExecutor(ctx), w.form, alwaysLive))),
+					...unservedReadExplains
+				})
 				break
 			case "key":
-				handles[w.name] = typedCompiled(keyOps(ctx, w.fields, w.form))
+				handles[w.name] = Object.freeze({
+					...typedCompiled(keyOps(ctx, w.fields, w.form)),
+					...unservedReadExplains
+				})
 				break
 			case "change":
-				handles[w.name] = typedCompiled(
-					changeOps(changeHandle(ctx, variantOf(ctx, w.variants), alwaysLive))
-				)
+				handles[w.name] = Object.freeze({
+					...typedCompiled(changeOps(changeHandle(ctx, variantOf(ctx, w.variants), alwaysLive))),
+					...unservedChangeExplain
+				})
 				break
 			case "refresh":
 				handles[w.name] = refreshHandle(refreshOps(ctx, w.targets))

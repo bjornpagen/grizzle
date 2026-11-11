@@ -1,54 +1,231 @@
-import { Array as Arr, Result } from "effect"
+import { Option, Record as Rec, Result } from "effect"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { temporaryRefusal } from "#adapter/errors/failures.ts"
-import type { Plan } from "#adapter/types/db.ts"
+import type { ExecutedPlan, ExecutedStatement, Plan, PlanTarget } from "#adapter/types/db.ts"
 import { asReadFailure, type FlightFailure } from "#adapter/wire/batch.ts"
 import type { ExecutionPart } from "#compiler/plan/change.ts"
-import { trustedJson } from "#compiler/plan/common.ts"
+import { temporarySchema, trustedJson } from "#compiler/plan/common.ts"
+import type { InstalledNames, InstalledTable } from "#compiler/plan/serve.ts"
 
 /**
- * Reading PostgreSQL's EXPLAIN (FORMAT JSON) as the public Plan.
+ * Reading PostgreSQL's EXPLAIN (FORMAT JSON, VERBOSE) as the public Plan, and EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE) as
+ * the public ExecutedPlan.
  *
- * `EXPLAIN (FORMAT JSON) <statement>` returns one row of one json column: an array holding one object whose "Plan" is
- * the root node. Each node has "Node Type", "Startup Cost", "Total Cost", "Plan Rows", "Plan Width" and, when it has
- * children, "Plans". The Plan keeps exactly those, recursively, and drops every other field PostgreSQL reports
- * ("Relation Name", "Index Cond", ...), so the typed plan is the same across server minor versions. No EXPLAIN here
- * is ever ANALYZE, so no node carries actual times or rows: the library never runs EXPLAIN ANALYZE. The EXPLAIN statement of
- * one emitted statement is the engine's (sql/emit.ts explainOf): estimate-only, never executing the statement.
+ * Either answers one row of one json column: an array holding one object whose "Plan" is the root node, beside, for an
+ * ANALYZE, the statement's "Planning Time" and "Execution Time". Each node has "Node Type", "Startup Cost", "Total
+ * Cost", "Plan Rows", "Plan Width" and, when it has children, "Plans"; a node that scans or writes a relation names it
+ * ("Relation Name", and under VERBOSE its "Schema"), and a node that reads an index names the index ("Index Name"), whose
+ * schema is its table's. An ANALYZE node adds what it did: "Actual Startup Time", "Actual Total Time", "Actual Rows",
+ * "Actual Loops", and its buffers, "Shared Hit Blocks" and "Shared Read Blocks", which PostgreSQL 19 reports under
+ * ANALYZE unasked. A plan keeps exactly those and drops every other member, so it is one shape across server versions.
+ *
+ * What a node reads is named by the login's served file (served/forms.ts ServedFile tables), never parsed from
+ * PostgreSQL's names: its table by schema and name, an index by name among its table's, a Bitmap Index Scan's, which
+ * names no relation, among the table of its nearest ancestor that names one, its Bitmap Heap Scan. A table in the
+ * session's temporary schema is the explained ChangeSet's own carrier. A table or index the file does not name is a
+ * plan the explain cannot read, refused like an answer that is no plan.
  */
 
-/** One plan node as PostgreSQL prints it, read for only the members the Plan keeps. A leaf prints no "Plans". */
-interface PlanNode {
+/** A node as PostgreSQL prints it, read for the members a Plan keeps; a relation, a schema or an index it does not name
+ * is absent. */
+interface PrintedNode {
 	readonly "Node Type": string
 	readonly "Startup Cost": number
 	readonly "Total Cost": number
 	readonly "Plan Rows": number
 	readonly "Plan Width": number
-	readonly Plans?: ReadonlyArray<PlanNode>
+	readonly "Relation Name"?: string
+	readonly Schema?: string
+	readonly "Index Name"?: string
+}
+
+/** A node of an estimate-only EXPLAIN. A leaf prints no "Plans". */
+interface EstimatedNode extends PrintedNode {
+	readonly Plans?: ReadonlyArray<EstimatedNode>
+}
+
+/** A node of an EXPLAIN ANALYZE: an estimated node's members, and what it did. */
+interface ExecutedNode extends PrintedNode {
+	readonly "Actual Startup Time": number
+	readonly "Actual Total Time": number
+	readonly "Actual Rows": number
+	readonly "Actual Loops": number
+	readonly "Shared Hit Blocks": number
+	readonly "Shared Read Blocks": number
+	readonly Plans?: ReadonlyArray<ExecutedNode>
 }
 
 /** EXPLAIN (FORMAT JSON)'s one value: one object holding the root node. */
-type Explained = readonly [{ readonly Plan: PlanNode }]
+type EstimatedAnswer = readonly [{ readonly Plan: EstimatedNode }]
 
-const toPlan = (node: PlanNode): Plan =>
-	Object.freeze({
-		node: node["Node Type"],
-		startupCost: node["Startup Cost"],
-		totalCost: node["Total Cost"],
-		rows: node["Plan Rows"],
-		width: node["Plan Width"],
-		children: Object.freeze(node.Plans === undefined ? [] : Arr.map(node.Plans, toPlan))
-	})
+/** EXPLAIN (ANALYZE, FORMAT JSON)'s one value: one object holding the root node and the statement's times. */
+type ExecutedAnswer = readonly [
+	{
+		readonly Plan: ExecutedNode
+		readonly "Planning Time": number
+		readonly "Execution Time": number
+	}
+]
+
+/** The value of `record` at its own key `key`, none where it holds none. */
+const own = <V>(record: Readonly<Record<string, V>>, key: string): V | undefined =>
+	Option.getOrUndefined(Rec.get(record, key))
 
 /**
- * The Plan of one EXPLAIN (FORMAT JSON) answer's first cell, its json text, the only form the driver hands over (every
- * cell is raw text): PostgreSQL's answer to grizzle's own statement, parsed once and trusted. An answer with no row is
+ * What a node reads, and the table its descendants' Bitmap Index Scans read from: the one it names, a carrier none, or,
+ * for a node that names no table, its parent's.
+ */
+interface Reading {
+	readonly on: PlanTarget
+	readonly heap: InstalledTable | undefined
+}
+
+const nothing: PlanTarget = { kind: "none" }
+const carrier: PlanTarget = { kind: "carrier" }
+
+/** The index `name` of `table`, as a target, or why none is. */
+const indexOn = (table: InstalledTable, name: string): Result.Result<PlanTarget, string> => {
+	const serves = own(table.indexes, name)
+	return serves === undefined
+		? Result.fail(`the index ${name}, which the served file names on no table of ${table.relation}`)
+		: Result.succeed({ kind: "index", relation: table.relation, index: { name, serves } })
+}
+
+/** What `node` reads, under the table `heap` its nearest ancestor naming one reads, by `installed` (see the header). */
+const readingOf = (
+	node: PrintedNode,
+	heap: InstalledTable | undefined,
+	installed: InstalledNames
+): Result.Result<Reading, string> => {
+	const relation = node["Relation Name"]
+	const index = node["Index Name"]
+	if (relation === undefined) {
+		if (index === undefined) {
+			return Result.succeed({ on: nothing, heap })
+		}
+		return heap === undefined
+			? Result.fail(`the index ${index}, under no table the served file names`)
+			: Result.map(indexOn(heap, index), (on) => ({ on, heap }))
+	}
+	const schema = node.Schema
+	if (schema === temporarySchema) {
+		return index === undefined
+			? Result.succeed({ on: carrier, heap: undefined })
+			: Result.fail(`the index ${index} of a temporary table`)
+	}
+	const tables = schema === undefined ? undefined : own(installed, schema)
+	const table = tables === undefined ? undefined : own(tables, relation)
+	if (table === undefined) {
+		return Result.fail(`the table ${relation}, which the served file does not name`)
+	}
+	return index === undefined
+		? Result.succeed({ on: { kind: "relation", relation: table.relation }, heap: table })
+		: Result.map(indexOn(table, index), (on) => ({ on, heap: table }))
+}
+
+/** Each of `nodes` read by `read` under `heap`, in order, or the first refusal. */
+const childrenOf = <N, P>(
+	nodes: ReadonlyArray<N> | undefined,
+	heap: InstalledTable | undefined,
+	read: (node: N, heap: InstalledTable | undefined) => Result.Result<P, string>
+): Result.Result<ReadonlyArray<P>, string> => {
+	const out: Array<P> = []
+	for (const node of nodes ?? []) {
+		const child = read(node, heap)
+		if (Result.isFailure(child)) {
+			return Result.fail(child.failure)
+		}
+		out.push(child.success)
+	}
+	return Result.succeed(Object.freeze(out))
+}
+
+/** An estimated node and its descendants as a Plan, under `heap`. */
+const toPlan = (
+	node: EstimatedNode,
+	heap: InstalledTable | undefined,
+	installed: InstalledNames
+): Result.Result<Plan, string> =>
+	Result.flatMap(readingOf(node, heap, installed), (reading) =>
+		Result.map(
+			childrenOf(node.Plans, reading.heap, (child, under) => toPlan(child, under, installed)),
+			(children): Plan =>
+				Object.freeze({
+					node: node["Node Type"],
+					on: reading.on,
+					startupCost: node["Startup Cost"],
+					totalCost: node["Total Cost"],
+					rows: node["Plan Rows"],
+					width: node["Plan Width"],
+					children
+				})
+		)
+	)
+
+/** An executed node and its descendants as an ExecutedPlan, under `heap`. */
+const toExecuted = (
+	node: ExecutedNode,
+	heap: InstalledTable | undefined,
+	installed: InstalledNames
+): Result.Result<ExecutedPlan, string> =>
+	Result.flatMap(readingOf(node, heap, installed), (reading) =>
+		Result.map(
+			childrenOf(node.Plans, reading.heap, (child, under) => toExecuted(child, under, installed)),
+			(children): ExecutedPlan =>
+				Object.freeze({
+					node: node["Node Type"],
+					on: reading.on,
+					startupCost: node["Startup Cost"],
+					totalCost: node["Total Cost"],
+					rows: node["Plan Rows"],
+					width: node["Plan Width"],
+					actual: Object.freeze({
+						startupMs: node["Actual Startup Time"],
+						totalMs: node["Actual Total Time"],
+						rows: node["Actual Rows"],
+						loops: node["Actual Loops"]
+					}),
+					buffers: Object.freeze({
+						sharedHit: node["Shared Hit Blocks"],
+						sharedRead: node["Shared Read Blocks"]
+					}),
+					children
+				})
+		)
+	)
+
+/**
+ * The Plan of one EXPLAIN (FORMAT JSON, VERBOSE) answer's first cell, its json text, the only form the driver hands
+ * over (every cell is raw text): PostgreSQL's answer to grizzle's own statement, parsed once and trusted, its nodes
+ * named by `installed`. An answer with no row, and a plan reading a table or index `installed` does not name, are
  * refused.
  */
-export const decodePlan = (cell: string | undefined): Result.Result<Plan, string> =>
+export const decodePlan = (
+	cell: string | undefined,
+	installed: InstalledNames
+): Result.Result<Plan, string> =>
 	cell === undefined
 		? Result.fail("an EXPLAIN that answered no row")
-		: Result.succeed(toPlan(trustedJson<Explained>(cell)[0].Plan))
+		: toPlan(trustedJson<EstimatedAnswer>(cell)[0].Plan, undefined, installed)
+
+/**
+ * The executed plan and the times of one EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE) answer's first cell, read as
+ * decodePlan reads an estimate.
+ */
+export const decodeExecuted = (
+	cell: string | undefined,
+	installed: InstalledNames
+): Result.Result<Omit<ExecutedStatement, "statement">, string> => {
+	if (cell === undefined) {
+		return Result.fail("an EXPLAIN ANALYZE that answered no row")
+	}
+	const [answer] = trustedJson<ExecutedAnswer>(cell)
+	return Result.map(toExecuted(answer.Plan, undefined, installed), (plan) => ({
+		planningMs: answer["Planning Time"],
+		executionMs: answer["Execution Time"],
+		plan
+	}))
+}
 
 /**
  * An explain's flight failure as its ReadError: a temporary table the role may not create, refused at the statement of

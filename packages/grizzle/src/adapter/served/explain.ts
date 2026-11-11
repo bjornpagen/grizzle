@@ -1,75 +1,91 @@
 import { Array as Arr, Effect, Result, type Scope } from "effect"
 import { type HostCall, hostInputs, sessionTransport, valuesFailure } from "#adapter/apply/run.ts"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { variantOf } from "#adapter/db/handles.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { LawRejected, UnreadableAnswer } from "#adapter/errors/failures.ts"
-import { decodePlan, explainFailure } from "#adapter/explain/plan.ts"
+import { decodeExecuted, decodePlan, explainFailure } from "#adapter/explain/plan.ts"
 import { hostParams } from "#adapter/reader/params.ts"
 import { executionInputs } from "#adapter/reader/relations.ts"
 import { programStatement } from "#adapter/reader/run.ts"
-import {
-	type ChangeCall,
-	type LoadedChange,
-	type LoadedMember,
-	type LoadedRead
-} from "#adapter/served/load.ts"
-import type { Plan } from "#adapter/types/db.ts"
+import type { ChangeCall, LoadedChange, LoadedRead } from "#adapter/served/load.ts"
+import type { ExecutedStatement, StatementPlan } from "#adapter/types/db.ts"
 import {
 	type BatchOutcome,
 	type BatchStatement,
 	oneShotStatement,
+	type PreparedStatement,
 	preparedStatement,
 	runFramed,
-	runFramedTwice,
 	type Transaction
 } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import type { Chunks, ExecutionPart } from "#compiler/plan/change.ts"
 import {
 	type CompileError,
-	type EmittedText,
 	type EncodingFailure,
+	explainAnalyzeOf,
 	explainOf,
 	malformedDescription,
-	type Param,
 	type ParamMap,
 	SourceLoc
 } from "#compiler/plan/common.ts"
+import { defect } from "#compiler/plan/runtime.ts"
+import type { InstalledNames } from "#compiler/plan/serve.ts"
 
 /**
- * One statement a member would run: planned by EXPLAIN (FORMAT JSON) with its placeholder texts, or, for a carrier's
- * CREATE TEMPORARY TABLE and an ANALYZE, which have no plan, run as it is; with what it does (write/program/staged.ts
- * ExecutionPart), a read's and every planned one's `statement`.
+ * Explaining a served member: the statements it sends for one call, each planned by PostgreSQL over its served text and
+ * that call's values, decoded into a typed plan whose nodes name what they read by the login's served file
+ * (explain/plan.ts), in one transaction of the Db's role that is rolled back.
+ *
+ * Each planned statement is sent as its EXPLAIN, PostgreSQL's unnamed statement over the served statement's text
+ * (sql/emit.ts explainOf), with the parameters the application binds to the named prepared statement, and is reported
+ * under that statement's name. A carrier's CREATE TEMPORARY TABLE and an ANALYZE, which have no plan, run as the
+ * application runs them, so every statement after them plans against the carrier.
  */
-interface Explained {
-	readonly statement: BatchStatement
-	readonly planned: boolean
-	readonly part: ExecutionPart
-}
 
-const planned = (sql: EmittedText, params: ReadonlyArray<Param>): Explained => ({
-	statement: oneShotStatement(explainOf(sql), params),
-	planned: true,
+/** One statement an explain sends: planned, for the served statement it names, or run as it is, with what it does. */
+type Explained =
+	| {
+			readonly kind: "planned"
+			readonly statement: BatchStatement
+			readonly name: PreparedStatement["text"]["name"]
+			readonly part: ExecutionPart
+	  }
+	| { readonly kind: "run"; readonly statement: BatchStatement; readonly part: ExecutionPart }
+
+/** How a statement is planned: PostgreSQL's estimates alone, or the statement run under EXPLAIN ANALYZE. */
+type Planning = typeof explainOf
+
+/** The served statement `served` planned by `planning`, under its name. */
+const planned = (served: PreparedStatement, planning: Planning): Explained => ({
+	kind: "planned",
+	statement: oneShotStatement(planning(served.text.sql), served.params),
+	name: served.text.name,
 	part: "statement"
 })
 
-/** A read's EXPLAINs in a read-only transaction, a ChangeSet's in a read-write one; either rolled back, never committed. */
+/**
+ * A read's EXPLAINs in a read-only transaction, a ChangeSet's in a read-write one, each SERIALIZABLE and rolled back,
+ * never committed.
+ */
 const readFrame: Transaction = { access: "readOnly", isolation: "serializable", end: "ROLLBACK" }
 const changeFrame: Transaction = { access: "readWrite", isolation: "serializable", end: "ROLLBACK" }
 
-/** The Plan of each planned statement of `explained`, one outcome each in order (UnreadableAnswer at an index whose
- * answer is no plan). */
-const decodedPlans = (
+/**
+ * The plan of each planned statement of `explained` by `decode`, one outcome each in order, under the statement's
+ * name: a planned statement whose answer `decode` refuses is UnreadableAnswer at its index.
+ */
+const decodedPlans = <P>(
 	explained: ReadonlyArray<Explained>,
-	outcomes: ReadonlyArray<BatchOutcome>
-): Result.Result<ReadonlyArray<Plan>, ReadFailure> => {
-	const plans: Array<Plan> = []
+	outcomes: ReadonlyArray<BatchOutcome>,
+	decode: (name: string, cell: string | undefined) => Result.Result<P, string>
+): Result.Result<ReadonlyArray<P>, ReadFailure> => {
+	const plans: Array<P> = []
 	for (const [index, [e, outcome]] of Arr.zip(explained, outcomes).entries()) {
-		if (!e.planned) {
+		if (e.kind === "run") {
 			continue
 		}
-		const plan = decodePlan(outcome.rows[0]?.[0])
+		const plan = decode(e.name, outcome.rows[0]?.[0])
 		if (Result.isFailure(plan)) {
 			return Result.fail(
 				new ReadFailure({ reason: new UnreadableAnswer({ index, fate: "rolledBack" }) })
@@ -81,14 +97,15 @@ const decodedPlans = (
 }
 
 /**
- * Sends the statements `made` makes for the session it leases from the context's pool, in one flight on that session,
- * and decodes the Plan of each planned one.
+ * Sends the statements `made` makes for the session it leases from the context's pool, in one flight on that session
+ * in `frame`, and decodes the plan of each planned one by `decode`.
  */
-const plansOf = Effect.fn("plansOf")(function* (
+const plansOf = Effect.fn("plansOf")(function* <P>(
 	ctx: ServedDbContext,
 	frame: Transaction,
-	made: (session: Session) => Result.Result<ReadonlyArray<Explained>, ReadFailure>
-): Effect.fn.Return<ReadonlyArray<Plan>, ReadError, Scope.Scope> {
+	made: (session: Session) => Result.Result<ReadonlyArray<Explained>, ReadFailure>,
+	decode: (name: string, cell: string | undefined) => Result.Result<P, string>
+): Effect.fn.Return<ReadonlyArray<P>, ReadError, Scope.Scope> {
 	const session = yield* Effect.mapError(ctx.pool.lease, (reason) => new ReadFailure({ reason }))
 	const statements = yield* Effect.fromResult(made(session))
 	const outcomes = yield* Effect.mapError(
@@ -99,61 +116,66 @@ const plansOf = Effect.fn("plansOf")(function* (
 		),
 		(failure) => explainFailure(statements, failure)
 	)
-	return yield* Effect.fromResult(decodedPlans(statements, outcomes))
+	return yield* Effect.fromResult(decodedPlans(statements, outcomes, decode))
 }, Effect.scoped)
+
+/** A read member's one statement for `params`, planned by `planning`, its inputs readied as its execute readies them. */
+const readStatement = (
+	read: LoadedRead,
+	params: ParamMap,
+	planning: Planning
+): Effect.Effect<Explained, ReadError> =>
+	Effect.gen(function* () {
+		const values = yield* hostParams(read.params, params)
+		const inputs = yield* Effect.mapError(
+			Effect.fromResult(executionInputs(read.codecs, values)),
+			(reason) => new ReadFailure({ reason })
+		)
+		const statement = yield* Effect.mapError(
+			programStatement(read.program, inputs),
+			(reason) => new ReadFailure({ reason })
+		)
+		return planned(statement, planning)
+	})
 
 /**
- * Sends `first`, then the statements `second` makes from `first`'s outcomes for the session it leases, in one
- * transaction of two flights on that session, and decodes the Plan of each planned one across both.
+ * A read member's statement for `params`, the one its execute and get send, its estimates planned in one rolled-back
+ * read-only transaction (see the header).
  */
-const plansAfter = Effect.fn("plansAfter")(function* (
+export const explainRead = (
 	ctx: ServedDbContext,
-	frame: Transaction,
-	first: ReadonlyArray<Explained>,
-	second: (
-		session: Session,
-		outcomes: ReadonlyArray<BatchOutcome>
-	) => Result.Result<ReadonlyArray<Explained>, ReadFailure>
-): Effect.fn.Return<ReadonlyArray<Plan>, ReadError, Scope.Scope> {
-	const session = yield* Effect.mapError(ctx.pool.lease, (reason) => new ReadFailure({ reason }))
-	let explained: ReadonlyArray<Explained> = first
-	const outcomes = yield* Effect.mapError(
-		runFramedTwice(
-			session,
-			{ ...frame, prologue: ctx.prologue },
-			Arr.map(first, (e) => e.statement),
-			(read) =>
-				Effect.fromResult(
-					Result.map(second(session, read), (made) => {
-						explained = [...first, ...made]
-						return Arr.map(made, (e) => e.statement)
-					})
-				)
-		),
-		(failure) => (failure._tag === "ReadFailure" ? failure : explainFailure(explained, failure))
-	)
-	return yield* Effect.fromResult(decodedPlans(explained, outcomes))
-}, Effect.scoped)
-
-/** A read member's statements for `params`, each planned, in one rolled-back read-only transaction. */
-const explainRead = Effect.fn("explainRead")(function* (
-	ctx: ServedDbContext,
+	installed: InstalledNames,
 	read: LoadedRead,
 	params: ParamMap
-): Effect.fn.Return<ReadonlyArray<Plan>, ReadError> {
-	const values = yield* hostParams(read.params, params)
-	const inputs = yield* Effect.mapError(
-		Effect.fromResult(executionInputs(read.codecs, values)),
-		(reason) => new ReadFailure({ reason })
+): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError> =>
+	Effect.flatMap(readStatement(read, params, explainOf), (statement) =>
+		plansOf(
+			ctx,
+			readFrame,
+			() => Result.succeed([statement]),
+			(name, cell) => Result.map(decodePlan(cell, installed), (plan) => ({ statement: name, plan }))
+		)
 	)
-	const statement = yield* Effect.mapError(
-		programStatement(read.program, inputs),
-		(reason) => new ReadFailure({ reason })
+
+/**
+ * A read member's statement for `params` run under EXPLAIN ANALYZE in one rolled-back read-only transaction: what each
+ * node did beside its estimates, and the statement's planning and execution times.
+ */
+export const explainReadAnalyzed = (
+	ctx: ServedDbContext,
+	installed: InstalledNames,
+	read: LoadedRead,
+	params: ParamMap
+): Effect.Effect<ReadonlyArray<ExecutedStatement>, ReadError> =>
+	Effect.flatMap(readStatement(read, params, explainAnalyzeOf), (statement) =>
+		plansOf(
+			ctx,
+			readFrame,
+			() => Result.succeed([statement]),
+			(name, cell) =>
+				Result.map(decodeExecuted(cell, installed), (executed) => ({ statement: name, ...executed }))
+		)
 	)
-	return yield* plansOf(ctx, readFrame, () =>
-		Result.succeed([planned(statement.text.sql, statement.params)])
-	)
-})
 
 /**
  * A member's call as explain plans it, as its handle takes it (types/db WorkloadHandles): its parameters, and, for a
@@ -172,7 +194,7 @@ const hostCallOf = (
 	reads: ChangeCall,
 	call: MemberCall
 ): Result.Result<HostCall, EncodingFailure | CompileError> => {
-	const at = SourceLoc("explainMember", [name])
+	const at = SourceLoc("explain", [name])
 	switch (reads.kind) {
 		case "facts":
 			return call.kind === "facts"
@@ -199,124 +221,74 @@ const hostCallOf = (
  * A change member's program for `call`, each statement planned against empty carriers, rolled back: its write
  * statements, then its read-backs' (change.reads), each read-back's statement as apply's flight sends it behind the
  * writes (apply/readback.ts readBackFlight), over the same inputs, in the artifact's order; a riding read-back's is a
- * part of the write statement it rides, planned with it.
+ * part of the write statement it rides, planned with it. A served write's statements all go in its one flight
+ * (runtime/write/bind.ts servedFlights), so a flight that reads before it writes is a defect of the file's load.
  */
-const explainChange = Effect.fn("explainChange")(function* (
+export const explainChange = (
 	ctx: ServedDbContext,
+	installed: InstalledNames,
 	name: string,
 	change: LoadedChange,
 	call: MemberCall
-): Effect.fn.Return<ReadonlyArray<Plan>, ReadError> {
-	const entry = change.entry
-	const inputs = yield* Effect.mapError(
-		Effect.flatMap(Effect.fromResult(hostCallOf(name, change.call, call)), (host) =>
-			hostInputs(entry, host)
-		),
-		(reason) => new ReadFailure({ reason })
-	)
-	if (inputs.kind === "rejected") {
-		return yield* new ReadFailure({ reason: new LawRejected({ law: inputs.refused.law }) })
-	}
-	const readBacks = yield* Effect.mapError(
-		Effect.forEach(
-			Arr.flatMap(change.reads.runs.runs, (run) => (run.kind === "sent" ? [run] : [])),
-			(run) => programStatement(run.program, inputs)
-		),
-		(reason) => new ReadFailure({ reason })
-	)
-	const backs = Arr.map(readBacks, (s) => planned(s.text.sql, s.params))
-	const skip = inputs.bound.skip
-	const explainedOf = (
-		chunks: Chunks,
-		session: Session
-	): Result.Result<ReadonlyArray<Explained>, ReadFailure> => {
-		const transport = sessionTransport(session)
-		const statements: Array<Explained> = []
-		for (const s of entry.program.flight.statements) {
-			if (skip.has(s.index)) {
-				continue
-			}
-			const executions = chunks(s, transport)
-			if (!executions.ok) {
-				return Result.fail(new ReadFailure({ reason: valuesFailure(executions.error) }))
-			}
-			for (const execution of executions.value) {
-				statements.push(
-					execution.part === "create" || execution.part === "analyze"
-						? {
-								statement: preparedStatement(execution.text, execution.params),
-								planned: false,
-								part: execution.part
-							}
-						: planned(execution.text.sql, execution.params)
-				)
-			}
+): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError> =>
+	Effect.gen(function* () {
+		const entry = change.entry
+		const inputs = yield* Effect.mapError(
+			Effect.flatMap(Effect.fromResult(hostCallOf(name, change.call, call)), (host) =>
+				hostInputs(entry, host)
+			),
+			(reason) => new ReadFailure({ reason })
+		)
+		if (inputs.kind === "rejected") {
+			return yield* new ReadFailure({ reason: new LawRejected({ law: inputs.refused.law }) })
 		}
-		return Result.succeed(Arr.appendAll(statements, backs))
-	}
-	const flights = inputs.bound.flights
-	if (flights.kind === "write") {
-		return yield* plansOf(ctx, changeFrame, (session) => explainedOf(flights.chunks, session))
-	}
-	const reads = Arr.flatMap(flights.reads, (r): ReadonlyArray<Explained> => [
-		planned(r.sql, r.params),
-		{ statement: oneShotStatement(r.sql, r.params), planned: false, part: "statement" }
-	])
-	return yield* plansAfter(ctx, changeFrame, reads, (session, outcomes) => {
-		const rows = Arr.flatMap(outcomes, (outcome, at) => (at % 2 === 1 ? [outcome.rows] : []))
-		const filled = flights.writes(rows)
-		return filled.ok
-			? explainedOf(filled.value.chunks, session)
-			: Result.fail(
-					new ReadFailure({
-						reason:
-							filled.error._tag === "GeneratedRejection"
-								? new LawRejected({ law: filled.error.law })
-								: valuesFailure(filled.error)
-					})
-				)
-	})
-})
-
-/**
- * The estimate-only plan of every statement a loaded member runs for `call` (MemberCall), on a session of `ctx`'s pool:
- * EXPLAIN (FORMAT JSON), never ANALYZE, in one transaction of the Db's role that is rolled back. A read, a key and a paged
- * member plan their rows' statements; a ChangeSet plans the variant the Db's claims select, its carriers created and
- * analyzed empty at their places, then its read-backs behind its writes, and a plan that reads before it writes plans
- * its reads, runs them, and plans the writes it fills from their rows, and the read-backs, in a second flight of the
- * same transaction: one plan per plannable statement its apply sends, in the order it sends them. Each planned
- * statement is sent as its EXPLAIN, a longer text than the one the application sends, so a statement whose text fits the
- * session's message bound only without EXPLAIN's prefix is refused here at stage resource, where the application sends it.
- */
-export const explainMember = (
-	ctx: ServedDbContext,
-	member: LoadedMember,
-	call: MemberCall
-): Effect.Effect<ReadonlyArray<Plan>, ReadError> => {
-	switch (member.kind) {
-		case "read":
-		case "key":
-		case "paged":
-			return call.kind === "params"
-				? explainRead(ctx, member.read, call.params)
-				: Effect.fail(
-						new ReadFailure({
-							reason: malformedDescription(
-								SourceLoc("explainMember", [member.name]),
-								"a call's parameters alone, for a read"
-							)
-						})
-					)
-		case "change":
-			return explainChange(ctx, member.name, variantOf(ctx, member.variants), call)
-		case "refresh":
-			return Effect.fail(
-				new ReadFailure({
-					reason: malformedDescription(
-						SourceLoc("explainMember", [member.name]),
-						"a member whose statements EXPLAIN plans: a refresh runs REFRESH MATERIALIZED VIEW, which has no plan"
-					)
-				})
+		const readBacks = yield* Effect.mapError(
+			Effect.forEach(
+				Arr.flatMap(change.reads.runs.runs, (run) => (run.kind === "sent" ? [run] : [])),
+				(run) => programStatement(run.program, inputs)
+			),
+			(reason) => new ReadFailure({ reason })
+		)
+		const backs = Arr.map(readBacks, (s) => planned(s, explainOf))
+		const skip = inputs.bound.skip
+		const flights = inputs.bound.flights
+		if (flights.kind === "read") {
+			return yield* Effect.die(
+				defect(`a served write ${name} whose flight reads before it writes, which no served file holds`)
 			)
-	}
-}
+		}
+		const explainedOf = (
+			chunks: Chunks,
+			session: Session
+		): Result.Result<ReadonlyArray<Explained>, ReadFailure> => {
+			const transport = sessionTransport(session)
+			const statements: Array<Explained> = []
+			for (const s of entry.program.flight.statements) {
+				if (skip.has(s.index)) {
+					continue
+				}
+				const executions = chunks(s, transport)
+				if (!executions.ok) {
+					return Result.fail(new ReadFailure({ reason: valuesFailure(executions.error) }))
+				}
+				for (const execution of executions.value) {
+					statements.push(
+						execution.part === "create" || execution.part === "analyze"
+							? {
+									kind: "run",
+									statement: preparedStatement(execution.text, execution.params),
+									part: execution.part
+								}
+							: planned(preparedStatement(execution.text, execution.params), explainOf)
+					)
+				}
+			}
+			return Result.succeed(Arr.appendAll(statements, backs))
+		}
+		return yield* plansOf(
+			ctx,
+			changeFrame,
+			(session) => explainedOf(flights.chunks, session),
+			(statement, cell) => Result.map(decodePlan(cell, installed), (plan) => ({ statement, plan }))
+		)
+	})

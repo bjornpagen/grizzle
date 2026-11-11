@@ -5,7 +5,8 @@ import type {
 } from "#adapter/types/db.ts"
 
 /**
- * Public barrel: Db, QueryReader, Compiled, ApplyOutcome, QueryResult, Plan and the page types.
+ * Public barrel: Db, QueryReader, Compiled, ApplyOutcome, QueryResult, the explain types (StatementPlan, Plan and
+ * their parts) and the page types.
  * packages/grizzle/src/index.ts re-exports it.
  *
  * `Db` is both the value Db.open lives on and the type of an opened database. The types are the public shapes of
@@ -32,13 +33,24 @@ export type ApplyOutcome<Reads> = ApplyOutcomeOf<Reads>
 
 export type {
 	AtMostOneRow,
+	ChangeExplain,
 	CompilableProgram,
 	Compiled,
 	CompileTarget,
+	ExecutedPlan,
+	ExecutedStatement,
 	FactsApply,
+	FactsExplain,
+	IndexReason,
+	MemberHandle,
 	Plan,
+	PlanIndex,
+	PlanTarget,
 	ProgramDecoding,
+	ProgramHandle,
 	QueryReader,
 	QueryResult,
+	ReadExplain,
+	StatementPlan,
 	WorkloadHandles
 } from "#adapter/types/db.ts"

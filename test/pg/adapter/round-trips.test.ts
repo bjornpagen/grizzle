@@ -24,7 +24,8 @@
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): round-trips-read-write.patch (a read's transaction opened READ
  * WRITE), round-trips-commit-flight.patch (a call's COMMIT sent in a flight of its own),
- * round-trips-refresh-frame.patch (a refresh opened READ ONLY).
+ * round-trips-refresh-frame.patch (a refresh opened READ ONLY); ~/.cache/grizzle-release/EXPLAIN/plants/rollback-dropped.patch
+ * (an explain's transaction committed).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -34,13 +35,14 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { memberOps } from "#adapter/db/handles.ts"
+import { memberExplains, memberOps } from "#adapter/db/handles.ts"
+import type { MemberExplains } from "#adapter/db/ops.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
-import { explainMember } from "#adapter/served/explain.ts"
 import type { CursorError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
+import type { ParamMap } from "#compiler/plan/common.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { arm, query, v } from "#compiler/public/query.ts"
@@ -113,6 +115,10 @@ const derivedFixture = (name: string) => {
 	})
 	return { StudentWeekly, Reports, refresher, server: login(Reports, "server", [refresher]) }
 }
+
+/** A read member's estimate-only explain of `params` (types/db ReadExplain): a member of another kind is a defect of the test. */
+const readExplained = (explains: MemberExplains, params: ParamMap) =>
+	explains.kind === "read" ? explains.ops.explain(params) : assert.fail("a read member explains as a read")
 
 const readCallKinds = ["execute", "get", "explain", "page"] as const
 
@@ -328,9 +334,9 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 							parts: "several parts"
 						}
 					} as const
-					return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, load }) =>
+					return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, loadWithTables }) =>
 						Effect.gen(function* () {
-							const loaded = yield* load({
+							const { members: loaded, tables } = yield* loadWithTables({
 								oneRelation: reads.automaticTasksFor,
 								headingGroups: payloads,
 								fusedAttachments: reads.taskCards,
@@ -397,10 +403,10 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 													: call.kind === "get"
 														? ops("task").get({ id: call.present ? t1 : tMissing })
 														: call.kind === "explain"
-															? explainMember(context, member(loaded, target.member), {
-																	kind: "params",
-																	params: target.params
-																})
+															? readExplained(
+																	memberExplains(context, tables, member(loaded, target.member)),
+																	target.params
+																)
 															: ops(call.page).page(
 																	{ account: a1 },
 																	Option.match(anchor, {
@@ -466,9 +472,9 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 						.insert(W.TaskNote, [])
 						.put(W.TaskNote, [])
 						.delete(W.TaskNote, [])
-					return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, load }) =>
+					return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, loadWithTables }) =>
 						Effect.gen(function* () {
-							const loaded = yield* load({
+							const { members: loaded, tables } = yield* loadWithTables({
 								plain,
 								/**
 								 * A read-back that attaches an alternatives arm, computing its parents' rows after the writes.
@@ -534,14 +540,9 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 												notes.note("nothing to write")
 											}
 											if (call.kind === "explain") {
-												const seen = yield* observe(
-													tap,
-													explainMember(context, change, {
-														kind: "facts",
-														facts: called,
-														params: {}
-													})
-												)
+												const explains = memberExplains(context, tables, change)
+												assertVariant(explains, "kind", "facts", "a write member explains with its call's facts")
+												const seen = yield* observe(tap, explains.explain(called, {}))
 												assertFlight(
 													"explain of a change member",
 													seen.window,

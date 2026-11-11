@@ -1,28 +1,34 @@
 /**
- * Explain on PostgreSQL 19: one estimate-only Plan per statement the call it explains would emit, nothing executed,
- * and each refusal at its stage before any session is leased. Every program is a workload member of the login's served
- * file, explained as explainMember explains it (adapter/served/explain.ts) with the call it would run.
+ * Explain on PostgreSQL 19: a served member's explain (adapter/served/explain.ts, through its handle's operations,
+ * adapter/db/handles.ts memberExplains) plans exactly the named prepared statements the call it explains would send,
+ * each under its served name, decodes each plan into the typed Plan whose every node names what it reads by the login's
+ * served file, writes nothing, and refuses each call the host refuses at its stage before any session is leased.
  *
- * The oracle of "one plan per statement" is the call itself: each case runs on a Db whose pool of one session is
- * tapped (test/support/wire-tap.ts), explains the program, then runs it, and the plans must number exactly the
- * statements that run sent which have a plan, every Execute on the wire but a carrier's CREATE TEMPORARY TABLE and its
- * ANALYZE (utility statements PostgreSQL never plans). As properties:
+ * The oracle of "the statements the call sends" is the call itself: each case runs on a Db whose pool of one session is
+ * tapped (test/support/wire-tap.ts), explains the program, then runs it, and the plans must be exactly the statements
+ * that run sent which have a plan, every Execute on the wire but a carrier's CREATE TEMPORARY TABLE and its ANALYZE
+ * (utility statements PostgreSQL never plans), in order: each plan under the name its statement was bound by, and each
+ * EXPLAIN explain sent over exactly that statement's served text (sql/emit.ts explainOf). The oracle of what a node
+ * reads is the catalog and the installation's names: a relation of the member's footprint, the relations its program
+ * names (schema/walk.ts queryUses for a read; the Shop relations a ChangeSet writes and reads back), and an index the
+ * catalog holds on that relation's table (physical/ddl/names.ts InstallNames relation). As properties:
  *
  * - a read drawn over the worked example's Work (a plain read, a heterogeneous union, fused attachments, nested
- *   pipelined attachments, a relation parameter of drawn ids), each a served member, is explained one plan per
- *   statement its execute sends;
+ *   pipelined attachments, a relation parameter of drawn ids), each a served member, is explained, and analyzed under
+ *   EXPLAIN ANALYZE, one plan per statement its execute sends, under its name, over its text, every node reading within
+ *   the footprint;
  * - a ChangeSet drawn over the Shop fixture (one or two strata of generated additions, inserts, puts and deletes,
  *   with or without read-backs of delta.added and delta.removed, one joining a delta carrier with a stored relation), a
  *   change member whose first stratum's rows are the call's facts and whose second's are query members over the call's
- *   relation parameters, is explained one plan per plannable statement its apply sends, in a transaction that is
- *   rolled back: no fact written, no identity sequence advanced, which EXPLAIN ANALYZE would have done; a read-back
- *   joining a delta carrier plans the empty, analyzed carrier at one row, as the apply does;
+ *   relation parameters, is explained one plan per plannable statement its apply sends, under its name, over its text,
+ *   in a transaction that is rolled back: no fact written, no identity sequence advanced, which EXPLAIN ANALYZE would
+ *   have done; a read-back joining a delta carrier plans the empty, analyzed carrier at one row, as the apply does;
  * - a served ChangeSet inserting a box with its parts nested, each part's body a drawn share of the session's message
  *   bound, within it or past it, on a session whose bound is planted at the longest Parse message of the texts explain
  *   sends of the write, each planned one as its EXPLAIN (test/support/staged.ts explainedTextBound), as a server whose
  *   bound is below the protocol's holds it: explain plans it exactly where the application of the same call on the
  *   same session writes it, each cutting its executions under the session's bound (apply/run.ts sessionTransport);
- * - every Plan is estimate-only: node type, costs, rows and width, nothing else;
+ * - every Plan holds exactly its public fields, its estimates finite, and an ExecutedPlan its actuals beside them;
  * - drawn notes over Work, or a ChangeSet over a schema no role of the Db holds, are refused as a model of the host's
  *   refusals says: a ChangeSet over no level of the role's schema where its workload is built, MalformedDescription, a
  *   same-key pair host normalization refuses ReadError{encode}, each found before a session is leased, and any other
@@ -34,7 +40,16 @@
  * must turn the reads' and the ChangeSets' properties red;
  * ~/.cache/grizzle-release/BR08/plants/explain-change-leases-first.patch, a ChangeSet's explain leasing a session
  * before its host checks, the refusals'; ~/.cache/grizzle-release/BR08/plants/explain-uncut-by-session-bound.patch,
- * explain's executions cut by no session bound, the session bound's.
+ * explain's executions cut by no session bound, the session bound's;
+ * ~/.cache/grizzle-release/EXPLAIN/plants/index-wrong-relation.patch, an index node naming another relation than the one
+ * whose table holds the index, the reads' and the ChangeSets'; ~/.cache/grizzle-release/EXPLAIN/plants/unprepared-statement.patch,
+ * each plan reported under its unnamed EXPLAIN's own name rather than the served statement's, the reads' and the
+ * ChangeSets'; ~/.cache/grizzle-release/EXPLAIN/plants/change-analyzed.patch, a ChangeSet's statements run under EXPLAIN
+ * ANALYZE, the ChangeSets' (its serial field's sequence advanced). ~/.cache/grizzle-release/EXPLAIN/plants/rollback-dropped.patch,
+ * explain's transactions committed, leaves the database's state as a ROLLBACK does, since an estimate-only explain runs
+ * nothing but a carrier's CREATE TEMPORARY TABLE ... ON COMMIT DROP and its ANALYZE and an analyzed read runs READ ONLY,
+ * so no state here witnesses it: test/pg/adapter/round-trips.test.ts, which reads each explain's transaction off the
+ * wire, kills it.
  */
 import { layer } from "@effect/vitest"
 import { assertInstanceOf } from "@effect/vitest/utils"
@@ -53,18 +68,20 @@ import {
 	Record as Rec,
 	Result as EffectResult
 } from "effect"
-import { memberOps, variantOf } from "#adapter/db/handles.ts"
+import { memberExplains, memberOps, variantOf } from "#adapter/db/handles.ts"
+import type { MemberExplains } from "#adapter/db/ops.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
-import { explainMember } from "#adapter/served/explain.ts"
-import type { Plan } from "#adapter/types/db.ts"
+import type { ExecutedPlan, Plan, PlanTarget, StatementPlan } from "#adapter/types/db.ts"
 import type { Prologue } from "#adapter/wire/batch.ts"
 import type { Session, SessionPool } from "#adapter/wire/session.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
+import { queryInput } from "#compiler/program/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, drawn as drawnField, natural, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
+import { queryUses } from "#compiler/schema/walk.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { Item, Seat, Shop, Stock, uuidOf } from "#test/pg/reads/shop.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -95,12 +112,35 @@ import { regex } from "arkregex"
 const Elsewhere = schema("Elsewhere", { TaskNote: W.TaskNote }, [])
 
 /** Every node of a plan tree, depth first. */
-const nodes = (plan: Plan): ReadonlyArray<Plan> => [plan, ...Arr.flatMap(plan.children, nodes)]
+const nodes = <N extends { readonly children: ReadonlyArray<N> }>(plan: N): ReadonlyArray<N> => [
+	plan,
+	...Arr.flatMap(plan.children, (child) => nodes(child))
+]
 
-/** A Plan carries exactly its public fields, recursively, each estimate a finite number. */
-const estimateOnly = (plan: Plan): void => {
-	unorderedEqual(Rec.keys(plan), ["children", "node", "rows", "startupCost", "totalCost", "width"])
+/** The members a node's target holds by its kind, so a target holds exactly its kind's. */
+const targetKeys: { readonly [K in PlanTarget["kind"]]: ReadonlyArray<string> } = {
+	none: ["kind"],
+	relation: ["kind", "relation"],
+	index: ["index", "kind", "relation"],
+	carrier: ["kind"]
+}
+
+/** A Plan node carries exactly its public fields, each estimate a finite number, and a target of its kind's members. */
+const planShape = (plan: Plan, keys: ReadonlyArray<string>, extra: ReadonlyArray<string>): void => {
+	const target: Readonly<Record<string, unknown>> = plan.on
+	const targetHeld: ReadonlyArray<string> = Rec.keys(target)
+	unorderedEqual(keys, [
+		"children",
+		"node",
+		"on",
+		"rows",
+		"startupCost",
+		"totalCost",
+		"width",
+		...extra
+	])
 	assert.equal(typeof plan.node, "string")
+	unorderedEqual(targetHeld, targetKeys[plan.on.kind])
 	assert.deepEqual(
 		Arr.filter(
 			[plan.startupCost, plan.totalCost, plan.rows, plan.width],
@@ -108,9 +148,109 @@ const estimateOnly = (plan: Plan): void => {
 		),
 		[]
 	)
-	for (const child of plan.children) {
-		estimateOnly(child)
+}
+
+/** An estimate-only Plan: every node of exactly a Plan's fields (planShape). */
+const estimateOnly = (plan: Plan): void => {
+	for (const node of nodes(plan)) {
+		planShape(node, Rec.keys(node), [])
 	}
+}
+
+/** An executed plan: every node a Plan's fields and its actuals and buffers, each a finite number. */
+const executedShape = (plan: ExecutedPlan): void => {
+	for (const node of nodes(plan)) {
+		planShape({ ...node, children: [] }, Rec.keys(node), ["actual", "buffers"])
+		assert.deepEqual(
+			Arr.filter(
+				[
+					node.actual.startupMs,
+					node.actual.totalMs,
+					node.actual.rows,
+					node.actual.loops,
+					node.buffers.sharedHit,
+					node.buffers.sharedRead
+				],
+				(n) => !Number.isFinite(n)
+			),
+			[]
+		)
+	}
+}
+
+/** A catalog index's place: its table's schema and name, and its own name. */
+const indexKey = (schema: string, table: string, index: string): string =>
+	`${schema}\u0000${table}\u0000${index}`
+
+/** Every index the database holds, by indexKey: the catalog, read apart from the served file. */
+const catalogIndexes = Effect.gen(function* () {
+	const s = yield* Substrate
+	const rows = yield* s.admin.queryValues(
+		`SELECT n.nspname, t.relname, i.relname
+		   FROM pg_catalog.pg_index x
+		   JOIN pg_catalog.pg_class i ON i.oid = x.indexrelid
+		   JOIN pg_catalog.pg_class t ON t.oid = x.indrelid
+		   JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace`,
+		[]
+	)
+	return new Set(Arr.map(rows, (row) => indexKey(String(row[0]), String(row[1]), String(row[2]))))
+})
+
+/**
+ * Every node of `plan` reads within `footprint`, the relations the member's program names, and each index node an index
+ * the catalog holds on its relation's table, the table the installation's names give that relation.
+ */
+const readsWithin = (
+	plan: Plan,
+	footprint: ReadonlySet<string>,
+	tableOf: (relation: string) => { readonly schema: string; readonly name: string },
+	indexes: ReadonlySet<string>
+): void => {
+	for (const node of nodes(plan)) {
+		const on = node.on
+		if (on.kind === "relation" || on.kind === "index") {
+			assert.ok(footprint.has(on.relation), `${on.relation}, a relation of the footprint`)
+		}
+		if (on.kind === "index") {
+			const table = tableOf(on.relation)
+			assert.ok(
+				indexes.has(indexKey(table.schema, table.name, on.index.name)),
+				`the index ${on.index.name} on ${on.relation}'s table ${table.schema}.${table.name}`
+			)
+		}
+	}
+}
+
+/** The relations a read program names: its query's, through each of its attachments (schema/walk.ts queryUses). */
+const footprintOf = (program: unknown): ReadonlySet<string> => {
+	const input = queryInput(program)
+	return input.ok ? queryUses(input.value.desc).relations : assert.fail("a read member's query")
+}
+
+/** A read member's explains: a read's two (types/db ReadExplain). */
+const readExplains = (explains: MemberExplains) =>
+	explains.kind === "read" ? explains.ops : assert.fail("a read member explains as a read")
+
+/**
+ * Each plan is of the statement the call sent at its place, under that statement's name, and explain sent an EXPLAIN of
+ * exactly that statement's served text.
+ */
+const ofTheServed = (
+	plans: ReadonlyArray<Pick<StatementPlan, "statement">>,
+	sent: ReadonlyArray<Executed>,
+	explained: ReadonlyArray<Executed>,
+	planning: (text: string) => string
+): void => {
+	assert.deepEqual(
+		Arr.map(plans, (p) => p.statement),
+		Arr.map(sent, (e) => e.name),
+		"one plan per statement, under its served name"
+	)
+	assert.deepEqual(
+		Arr.map(explained, (e) => e.text),
+		Arr.map(sent, (e) => planning(e.text)),
+		"an EXPLAIN of each served statement's text"
+	)
 }
 
 /** A tapped pool of one session for `credentials`, warmed so a window holds one call's traffic. */
@@ -129,12 +269,28 @@ const tappedPool = (credentials: Credentials) =>
 		return { pool, tap }
 	})
 
+/** The EXPLAIN of a served statement's text, as explain sends it: estimates alone, in JSON, naming each relation's schema. */
+const estimating = (text: string): string => `EXPLAIN (FORMAT JSON, VERBOSE) ${text}`
+
+/** The EXPLAIN ANALYZE of a served statement's text, as explainAnalyze sends it. */
+const analyzing = (text: string): string => `EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE) ${text}`
+
+/** A statement a window executed: the name it was bound by, and its text. */
+interface Executed {
+	readonly name: string
+	readonly text: string
+}
+
 /**
- * The statements with a plan a window sent: every Execute but a utility statement's and the prologue's two, which fence
- * and enter the Db's role and are no statements of the call's, each Execute naming its statement by its Bind, whose
- * text is the Parse of that name the session last sent, in this window or an earlier one.
+ * The statements with a plan a window sent, in order: every Execute but a utility statement's and the prologue's two,
+ * which fence and enter the Db's role and are no statements of the call's, each Execute naming its statement by its
+ * Bind, whose text is the Parse of that name the session last sent, in this window or an earlier one.
  */
-const plannedStatements = (tap: Tap, window: WireWindow, prologue: Prologue): number => {
+const plannedStatements = (
+	tap: Tap,
+	window: WireWindow,
+	prologue: Prologue
+): ReadonlyArray<Executed> => {
 	const parsed = new Map<string, string>()
 	for (const message of tap.since(0).frontend) {
 		if (message.type === "P") {
@@ -142,7 +298,7 @@ const plannedStatements = (tap: Tap, window: WireWindow, prologue: Prologue): nu
 		}
 	}
 	let bound = ""
-	let count = 0
+	const out: Array<Executed> = []
 	for (const message of window.frontend) {
 		if (message.type === "P") {
 			parsed.set(message.name, message.text)
@@ -160,10 +316,10 @@ const plannedStatements = (tap: Tap, window: WireWindow, prologue: Prologue): nu
 			!regex("^\\s*CREATE\\b", "i").test(text) &&
 			!regex("^\\s*ANALYZE\\b", "i").test(text)
 		) {
-			count++
+			out.push({ name: bound, text })
 		}
 	}
-	return count
+	return out
 }
 
 /** The traffic of `effect`, and its value. */
@@ -346,8 +502,8 @@ const budget = {
 	caseHang
 } as const
 
-layer(Substrate.layer)("db.explain", (it) => {
-	it.effect("explains a drawn read one estimate-only plan per statement its execute sends", (ctx) =>
+layer(Substrate.layer)("workload explain", (it) => {
+	it.effect("explains and analyzes a drawn read: its execute's statements, by name and text, read within its footprint", (ctx) =>
 		searched(
 			ctx,
 			Effect.gen(function* () {
@@ -383,17 +539,20 @@ layer(Substrate.layer)("db.explain", (it) => {
 								),
 						"array"
 					)
-				return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, load }) =>
+				const indexes = yield* catalogIndexes
+				const tableOf = (relation: string) => o.installed.installation.names.relation(relation)
+				return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, loadWithTables }) =>
 					Effect.gen(function* () {
 						const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
 						const context = { ...ctx, pool }
-						const members = yield* load({
+						const programs = {
 							plainRead: W.automaticBudget,
 							union: W.taskPayloads,
 							fused: W.taskCards,
 							nested: accountTasks,
 							relationParameter: W.tasksById
-						})
+						}
+						const { members, tables } = yield* loadWithTables(programs)
 						const reads = {
 							"a plain read": { member: "plainRead", params: () => ({}) },
 							"a union": { member: "union", params: () => ({}) },
@@ -416,7 +575,7 @@ layer(Substrate.layer)("db.explain", (it) => {
 							{
 								oracle: {
 									kind: "second-implementation",
-									name: "the execution of the same call on a tapped session: one plan per plannable statement it sent"
+									name: "the execution of the same call on a tapped session: one plan per plannable statement it sent, under its name, over its text; and the catalog's indexes of the footprint's tables"
 								},
 								...budget,
 								suite: "reads/explain queries",
@@ -430,10 +589,9 @@ layer(Substrate.layer)("db.explain", (it) => {
 									const read = reads[c.read]
 									const params = read.params(c.pick)
 									const program = member(members, read.member)
-									const plans = yield* explainMember(context, program, {
-										kind: "params",
-										params
-									})
+									const explains = readExplains(memberExplains(context, tables, program))
+									const plans = yield* observe(tap, explains.explain(params))
+									const analyzed = yield* observe(tap, explains.explainAnalyze(params))
 									const executed = yield* observe(
 										tap,
 										Effect.flatMap(
@@ -441,13 +599,30 @@ layer(Substrate.layer)("db.explain", (it) => {
 											(result) => result.collect
 										)
 									)
-									assert.equal(
-										plans.length,
-										plannedStatements(tap, executed.window, context.prologue),
-										"one plan per statement"
+									const sent = plannedStatements(tap, executed.window, context.prologue)
+									ofTheServed(
+										plans.value,
+										sent,
+										plannedStatements(tap, plans.window, context.prologue),
+										estimating
 									)
-									for (const plan of plans) {
-										estimateOnly(plan)
+									ofTheServed(
+										analyzed.value,
+										sent,
+										plannedStatements(tap, analyzed.window, context.prologue),
+										analyzing
+									)
+									const footprint = footprintOf(programs[read.member])
+									for (const plan of plans.value) {
+										estimateOnly(plan.plan)
+										readsWithin(plan.plan, footprint, tableOf, indexes)
+									}
+									for (const plan of analyzed.value) {
+										executedShape(plan.plan)
+										assert.ok(
+											Number.isFinite(plan.planningMs) && Number.isFinite(plan.executionMs),
+											"an analyzed statement's times"
+										)
 									}
 									notes.note(c.read)
 								})
@@ -459,7 +634,7 @@ layer(Substrate.layer)("db.explain", (it) => {
 	)
 
 	it.effect(
-		"explains a drawn ChangeSet one estimate-only plan per plannable statement its apply sends, executing nothing",
+		"explains a drawn ChangeSet: its apply's plannable statements, by name and text, within its footprint, executing nothing",
 		(ctx) =>
 			searched(
 				ctx,
@@ -507,7 +682,11 @@ layer(Substrate.layer)("db.explain", (it) => {
 							const { id, label, qty } = v(Stock, "stock")
 							return r.match(rows, { id, label, qty }).find({ id, label, qty })
 						})
-					return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, load }) =>
+					const indexes = yield* catalogIndexes
+					const tableOf = (relation: string) => o.installed.installation.names.relation(relation)
+					/** The relations every drawn ChangeSet writes and reads back. */
+					const footprint: ReadonlySet<string> = new Set(["Seat", "Item", "Stock"])
+					return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, loadWithTables }) =>
 						Effect.gen(function* () {
 							const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
 							const context = { ...ctx, pool }
@@ -515,7 +694,7 @@ layer(Substrate.layer)("db.explain", (it) => {
 								{
 									oracle: {
 										kind: "second-implementation",
-										name: "the application of the same call on a tapped session: one plan per plannable statement it sent, and the state before it unchanged by the explain"
+										name: "the application of the same call on a tapped session: one plan per plannable statement it sent, under its name, over its text, and the state before it unchanged by the explain; and the catalog's indexes of the footprint's tables"
 									},
 									...budget,
 									/** Nothing executed: no fact written, the sequence not advanced. */
@@ -642,22 +821,26 @@ layer(Substrate.layer)("db.explain", (it) => {
 														puts: second.puts,
 														deletes: second.deletes
 													}
-										const loaded = yield* load({ changes })
-										const change = member(loaded, "changes")
+										const loaded = yield* loadWithTables({ changes })
+										const change = member(loaded.members, "changes")
+										const explains = memberExplains(context, loaded.tables, change)
+										assertVariant(
+											explains,
+											"kind",
+											"facts",
+											"a ChangeSet of array members explains with its call's facts"
+										)
 										const before = yield* state()
-										const plans = yield* explainMember(context, change, {
-											kind: "facts",
-											facts,
-											params
-										})
+										const plans = yield* observe(tap, explains.explain(facts, params))
 										const after = yield* state()
 										assert.deepEqual(
 											exactValue(after, before),
 											Option.none(),
 											"explain executes nothing"
 										)
-										for (const plan of plans) {
-											estimateOnly(plan)
+										for (const plan of plans.value) {
+											estimateOnly(plan.plan)
+											readsWithin(plan.plan, footprint, tableOf, indexes)
 										}
 										const ops = memberOps(context, change)
 										assertVariant(
@@ -667,10 +850,11 @@ layer(Substrate.layer)("db.explain", (it) => {
 											"a ChangeSet of array members takes its call's facts"
 										)
 										const applied = yield* observe(tap, Effect.result(ops.ops.apply(facts, params)))
-										assert.equal(
-											plans.length,
+										ofTheServed(
+											plans.value,
 											plannedStatements(tap, applied.window, context.prologue),
-											"one plan per statement"
+											plannedStatements(tap, plans.window, context.prologue),
+											estimating
 										)
 										if (applied.value._tag === "Failure") {
 											notes.note("a refused apply")
@@ -680,9 +864,12 @@ layer(Substrate.layer)("db.explain", (it) => {
 										}
 										if (c.readBack === "stock joined") {
 											/** The empty, analyzed carrier, planned at one row as the apply plans it. */
-											const readBack = defined(plans.at(-1), "a read-back plan")
+											const readBack = defined(plans.value.at(-1), "a read-back plan")
 											nonEmpty(
-												Arr.filter(nodes(readBack), (n) => n.node === "Seq Scan" && n.rows === 1),
+												Arr.filter(
+													nodes(readBack.plan),
+													(n) => n.node === "Seq Scan" && n.on.kind === "carrier" && n.rows === 1
+												),
 												"the read-back plans its carrier at one row"
 											)
 											notes.note("a read-back joining a stored relation")
@@ -711,13 +898,13 @@ layer(Substrate.layer)("db.explain", (it) => {
 						o.installed,
 						o.server.roles.app,
 						{},
-						({ ctx, load }) =>
+						({ ctx, loadWithTables }) =>
 							Effect.gen(function* () {
 								/** The notes member, each call's facts; a ChangeSet over Elsewhere is refused where its workload is built. */
-								const loaded = yield* load({
+								const loaded = yield* loadWithTables({
 									notes: ChangeSet.empty(o.schema).insert(W.TaskNote, [])
 								})
-								const notesMember = member(loaded, "notes")
+								const notesMember = member(loaded.members, "notes")
 								/** The explain over a pool that counts its leases: every refusal is found on the host. */
 								const leases = { count: 0 }
 								const counting = {
@@ -729,6 +916,10 @@ layer(Substrate.layer)("db.explain", (it) => {
 											return ctx.pool.lease
 										})
 									}
+								}
+								const notesExplains = memberExplains(counting, loaded.tables, notesMember)
+								if (notesExplains.kind !== "facts") {
+									return assert.fail("a ChangeSet of array members explains with its call's facts")
 								}
 								const tasks = [t2, t4, tMissing] as const
 								return yield* explore(
@@ -772,17 +963,13 @@ layer(Substrate.layer)("db.explain", (it) => {
 												return
 											}
 											const explained = yield* Effect.result(
-												explainMember(counting, notesMember, {
-													kind: "facts",
-													facts: { insert: { TaskNote: facts } },
-													params: {}
-												})
+												notesExplains.explain({ insert: { TaskNote: facts } }, {})
 											)
 											switch (expected) {
 												case "explained": {
 													assertVariant(explained, "_tag", "Success", "a ChangeSet the host admits")
 													for (const plan of explained.success) {
-														estimateOnly(plan)
+														estimateOnly(plan.plan)
 													}
 													break
 												}
@@ -820,10 +1007,12 @@ layer(Substrate.layer)("db.explain", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const o = yield* installed(Boxes, {}, { label: "boxes", extensions: [], programs: {} })
-					return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx: served, load }) =>
+					return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx: served, loadWithTables }) =>
 						Effect.gen(function* () {
-							const members = yield* load({ boxes: ChangeSet.empty(o.schema).insert(Box, []) })
-							const boxes = member(members, "boxes")
+							const loaded = yield* loadWithTables({
+								boxes: ChangeSet.empty(o.schema).insert(Box, [])
+							})
+							const boxes = member(loaded.members, "boxes")
 							if (boxes.kind !== "change") {
 								return assert.fail("a ChangeSet loads as a change member")
 							}
@@ -834,6 +1023,10 @@ layer(Substrate.layer)("db.explain", (it) => {
 							const handle = memberOps(bound, boxes)
 							if (handle.kind !== "facts") {
 								return assert.fail("a ChangeSet with array members loads as a facts handle")
+							}
+							const explains = memberExplains(bound, loaded.tables, boxes)
+							if (explains.kind !== "facts") {
+								return assert.fail("a ChangeSet with array members explains with its call's facts")
 							}
 							let next = 0
 							return yield* explore(
@@ -873,9 +1066,7 @@ layer(Substrate.layer)("db.explain", (it) => {
 												]
 											}
 										}
-										const explained = yield* Effect.result(
-											explainMember(bound, boxes, { kind: "facts", facts, params: {} })
-										)
+										const explained = yield* Effect.result(explains.explain(facts, {}))
 										const applied = yield* Effect.result(handle.ops.apply(facts, {}))
 										assert.equal(
 											EffectResult.isSuccess(explained),
@@ -884,7 +1075,7 @@ layer(Substrate.layer)("db.explain", (it) => {
 										)
 										if (EffectResult.isSuccess(explained)) {
 											for (const plan of explained.success) {
-												estimateOnly(plan)
+												estimateOnly(plan.plan)
 											}
 										}
 									})

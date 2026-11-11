@@ -951,8 +951,8 @@ type AppendsMet<St> = St extends readonly [infer H extends Stratum, ...infer T]
 	: true
 
 /**
- * What compiling a ChangeSet requires of its strata, which db.apply, db.compile, db.explain and a workload check where
- * they compile it: every append to an immutable owner's family beside an insert of the owner in its stratum.
+ * What compiling a ChangeSet requires of its strata, which db.apply, db.compile and a workload check where they compile
+ * it: every append to an immutable owner's family beside an insert of the owner in its stratum.
  */
 export type AppendsBeside<St> =
 	AppendsMet<St> extends true

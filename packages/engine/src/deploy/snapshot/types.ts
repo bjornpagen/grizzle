@@ -4,6 +4,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type {
 	ConstraintLaws,
 	InstallationManifest,
+	PhysicalReason,
 	Snapshot,
 	WorkloadAccess
 } from "#compiler/ir/products.ts"
@@ -189,12 +190,10 @@ export interface ServedSnapshot {
 }
 
 /**
- * The facts snapshot.json records beside the snapshot's content for DbLayer.make, derived from the installation's
- * compile and no part of the content its fingerprint digests, so they change no fingerprint and no database's ledger:
- * `grizzle generate` writes them from the compile it drafts from (build.ts derivedOf), and the layer reads them instead
- * of compiling them again.
+ * The derived facts a level's artifacts compile under besides its codes (build.ts derivedFacts), which a login over a
+ * lower level reads before the installation is compiled as well as after (adapter/served/login.ts artifactsUnder).
  */
-export interface SnapshotDerived {
+export interface CompileFacts {
 	/**
 	 * Each closed relation's constants as readers address them, by the relation's declared name, rosters aside: every
 	 * function by its identifier, its key's layout and its payload's radices under the installation's codes
@@ -215,6 +214,36 @@ export interface SnapshotDerived {
 	 * types no field its slice does not read.
 	 */
 	readonly textDomains: TextDomainNames
+}
+
+/**
+ * An installed table or materialized view as a plan names it: the declared name of the relation it stores, a stored
+ * relation's or a materialized derived relation's, and each index PostgreSQL holds on it, by the index's name, with the
+ * reasons the installation's manifest records for it (ir/products.ts PhysicalReason). A primary key's, a unique key's
+ * and an exclusion constraint's index is named by its constraint, which PostgreSQL names the index after, and a created
+ * index by its CREATE INDEX.
+ */
+export interface InstalledTable {
+	readonly relation: string
+	readonly indexes: Readonly<Record<string, ReadonlyArray<PhysicalReason>>>
+}
+
+/**
+ * Tables and materialized views of an installation as EXPLAIN (VERBOSE) names them, by their PostgreSQL schema, then by
+ * their own name (InstalledTable).
+ */
+export type InstalledNames = Readonly<Record<string, Readonly<Record<string, InstalledTable>>>>
+
+/**
+ * The facts snapshot.json records beside the snapshot's content for DbLayer.make, derived from the installation's
+ * compile and no part of the content its fingerprint digests, so they change no fingerprint and no database's ledger:
+ * `grizzle generate` writes them from the compile it drafts from (build.ts derivedOf), and the served compile reads them
+ * instead of compiling them again: the facts a level's artifacts compile under (CompileFacts), and every table and
+ * materialized view the installation installs with its indexes (`tables`), which a login's served file cuts to its
+ * own statements' (adapter/served/project.ts) and an explain names a plan's relations and indexes by.
+ */
+export interface SnapshotDerived extends CompileFacts {
+	readonly tables: InstalledNames
 }
 
 /** A snapshot without its fingerprint: what the fingerprint is computed over. */

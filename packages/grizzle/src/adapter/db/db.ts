@@ -8,7 +8,6 @@ import {
 import type { DbContext } from "#adapter/db/context.ts"
 import { type CompiledOps, typedCompiled } from "#adapter/db/ops.ts"
 import { type ApplyError, type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
-import { explain } from "#adapter/explain/index.ts"
 import { poolExecutor } from "#adapter/reader/executor.ts"
 import {
 	type CompiledRead,
@@ -24,7 +23,6 @@ import type {
 	Compiled,
 	CompileTarget,
 	DbOf,
-	Plan,
 	ProgramDecoding,
 	WorkloadHandles
 } from "#adapter/types/db.ts"
@@ -32,7 +30,6 @@ import { isChangeSetValue } from "#compiler/plan/change.ts"
 import {
 	type CompileError,
 	malformedDescription,
-	type ParamMap,
 	type RowDecoder,
 	SourceLoc
 } from "#compiler/plan/common.ts"
@@ -119,8 +116,8 @@ const programDecoder = <A>(program: ProgramDecoding<A>): RowDecoder<A> =>
 
 /**
  * The runtime operations of the Db over one context, which its methods dispatch to: the reader of its reads,
- * db.compile's compilation of a program through its decoder, and the refresh and explain operations, each taking a
- * program as a JavaScript caller's value is. Tests build it over an opened Db's context for what the typed Db refuses
+ * db.compile's compilation of a program through its decoder, and the refresh operation, each taking a program as a
+ * JavaScript caller's value is. Tests build it over an opened Db's context for what the typed Db refuses
  * (test/support/runtime-db.ts).
  */
 interface Runtime<S> {
@@ -133,10 +130,6 @@ interface Runtime<S> {
 	readonly refresh: (
 		relations: Arr.NonEmptyReadonlyArray<unknown>
 	) => Effect.Effect<void, ApplyError>
-	readonly explain: (
-		program: unknown,
-		params: ParamMap
-	) => Effect.Effect<ReadonlyArray<Plan>, ReadError>
 }
 
 /** The runtime of the Db over `ctx` (see Runtime). */
@@ -159,8 +152,7 @@ export const runtimeOf = <S>(ctx: DbContext): Runtime<S> => {
 	return {
 		reader,
 		compileTyped,
-		refresh: (relations) => Effect.suspend(() => refresh(ctx, relations)),
-		explain: (program, params) => Effect.suspend(() => explain(ctx, program, params))
+		refresh: (relations) => Effect.suspend(() => refresh(ctx, relations))
 	}
 }
 
@@ -172,8 +164,8 @@ export const runtimeOf = <S>(ctx: DbContext): Runtime<S> => {
  *
  * - workload holds the handles of the login's workload programs over R, compiled once by the layer (workload.ts);
  * - compile(program) compiles a query or ordered query through the reader, a ChangeSet through the write runtime;
- * - apply and explain are the write and explain runtime (../apply, ../explain), and refresh the
- *   derived-relation runtime (../refresh). The Db dispatches to each on a fixed path.
+ * - apply is the write runtime (../apply), and refresh the derived-relation runtime (../refresh). The Db dispatches to
+ *   each on a fixed path.
  *
  * Every operation reads the one DbContext Db.open built (context.ts). The Db value is built under the public type
  * Db<R, P>: each method is implemented under its signature, so its program argument has its precise type, and
@@ -204,8 +196,7 @@ export const makeDb = <R, P>(ctx: DbContext, workload: WorkloadHandles<R, P>): D
 					? apply(ctx, changes, changes.reads, params)
 					: compileFailure(notAChangeSet())
 			),
-		refresh: (...relations) => runtime.refresh(relations),
-		explain: (program, params) => runtime.explain(program, params)
+		refresh: (...relations) => runtime.refresh(relations)
 	}
 	return db
 }

@@ -37,6 +37,7 @@ import {
 	servedRunnable
 } from "#compiler/plan/runtime.ts"
 import type {
+	InstalledNames,
 	ServedChange,
 	ServedFile,
 	ServedMember,
@@ -155,7 +156,7 @@ export interface LoadedRole {
 /**
  * A served login, loaded: its declared name and its base's, the PostgreSQL role every session of its pool logs in as,
  * the fingerprint every Db's prologue guards the ledger with, the prologue's two texts, its sessions' startup options and
- * control texts, and its roles in the login's order.
+ * control texts, its roles in the login's order, and its installed tables (`tables`).
  */
 export interface LoadedLogin {
 	readonly login: string
@@ -166,6 +167,8 @@ export interface LoadedLogin {
 	/** What every session of the login's pool sends that no program states (wire/session.ts makePool). */
 	readonly session: ServedSession
 	readonly roles: Arr.NonEmptyReadonlyArray<LoadedRole>
+	/** The installed tables its statements read and write, with their indexes, which its explains name plans by. */
+	readonly tables: InstalledNames
 }
 
 /** A read's decoder bound to `layouts` under `bind`, its refusal a defect of the compile that wrote the file. */
@@ -397,6 +400,7 @@ export const loadServed = (file: ServedFile, name: string): Result.Result<Loaded
 			fingerprint: file.fingerprint,
 			prologue: file.prologue,
 			session: file.session,
-			roles
+			roles,
+			tables: file.tables
 		}
 	})
