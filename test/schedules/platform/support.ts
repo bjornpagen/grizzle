@@ -1030,17 +1030,17 @@ const textRows = (
 		Order.String
 	)
 
-/**
- * Where the committed state, read back as the owner, differs from the model's state: the relations a race writes,
- * compared as text tuples, or undefined when they agree.
- */
-const committedDifference = (
+/** The committed state as read back as the owner: each relation a race writes, in load order, its rows in `textRows`'s
+ * form. */
+type CommittedRows = ReadonlyMap<RelationName, ReadonlyArray<string>>
+
+const committedRows = (
 	i: RaceInstall,
 	env: ExploreEnv,
-	written: ReadonlySet<RelationName>,
-	model: State
-): Effect.Effect<string | undefined, SqlError> =>
+	written: ReadonlySet<RelationName>
+): Effect.Effect<CommittedRows, SqlError> =>
 	Effect.gen(function* () {
+		const rows = new Map<RelationName, ReadonlyArray<string>>()
 		for (const relation of loadOrder) {
 			if (!written.has(relation)) {
 				continue
@@ -1062,15 +1062,36 @@ const committedDifference = (
 				),
 				Order.String
 			)
-			const want = textRows(i.names, relation, rowsIn(model, relation))
-			const missing = Arr.filter(want, (x) => !got.includes(x))
-			const extra = Arr.filter(got, (x) => !want.includes(x))
-			if (missing.length > 0 || extra.length > 0 || got.length !== want.length) {
-				return `${relation} committed differs from the model: missing [${Arr.join(missing, " / ")}], unexpected [${Arr.join(extra, " / ")}]`
-			}
+			rows.set(relation, got)
 		}
-		return undefined
+		return rows
 	})
+
+/** Where committed rows differ from the model's state, relation by relation, or undefined where they agree. */
+const differenceFrom = (
+	names: Names,
+	committed: CommittedRows,
+	model: State
+): string | undefined => {
+	for (const [relation, got] of committed) {
+		const want = textRows(names, relation, rowsIn(model, relation))
+		const missing = Arr.filter(want, (x) => !got.includes(x))
+		const extra = Arr.filter(got, (x) => !want.includes(x))
+		if (missing.length > 0 || extra.length > 0 || got.length !== want.length) {
+			return `${relation} committed differs from the model: missing [${Arr.join(missing, " / ")}], unexpected [${Arr.join(extra, " / ")}]`
+		}
+	}
+	return undefined
+}
+
+/** Where the committed state, read back as the owner, differs from the model's state (`differenceFrom`). */
+const committedDifference = (
+	i: RaceInstall,
+	env: ExploreEnv,
+	written: ReadonlySet<RelationName>,
+	model: State
+): Effect.Effect<string | undefined, SqlError> =>
+	Effect.map(committedRows(i, env, written), (rows) => differenceFrom(i.names, rows, model))
 
 /** The relations a set of relations reaches through the laws: closed under every law whose relations it meets. */
 const reach = (relations: Iterable<RelationName>): ReadonlySet<RelationName> => {
@@ -1345,16 +1366,23 @@ const describeObserved = (o: Observed): string =>
 			? `aborted with ${o.sqlstate}`
 			: o.kind
 
+/** A refusal's own order's end: any state, a refusal committing nothing (`explain`). */
+const endsAnywhere = (): undefined => undefined
+
 /**
  * The serial orders that explain a run: one of the transactions that committed (accepted or no-change), respecting real
- * time, in which the model decides each as observed, with the states it passes; and for each refusal, a serial order of
- * the committed transactions with the refusal placed where the model refuses it by a law it named, and the state
- * there. A refusal commits nothing, so each is explained by an order of its own. Undefined order: why none exists, with
- * each order's first mismatch.
+ * time, in which the model decides each as observed and which ends at the committed state (`differs`, where a state
+ * differs from it), with the states it passes; and for each refusal, a serial order of the committed transactions with
+ * the refusal placed where the model refuses it by a law it named, and the state there. Several orders may decide every
+ * transaction as observed and end at different states, two puts of one key accepted in either order, so the search
+ * judges each complete order's end and backtracks past one that differs. A refusal commits nothing, so each is
+ * explained by an order of its own, which may end anywhere. Undefined order: why none exists, with each order's first
+ * mismatch.
  */
 const explain = (
 	initial: State,
-	ran: ReadonlyArray<Ran>
+	ran: ReadonlyArray<Ran>,
+	differs: (end: State) => string | undefined
 ):
 	| {
 			readonly order: ReadonlyArray<number>
@@ -1363,9 +1391,10 @@ const explain = (
 	  }
 	| string => {
 	const misses = new Set<string>()
-	/** An order of all of `placed` in which the model decides each as observed. */
+	/** An order of all of `placed` in which the model decides each as observed, ending at a state `ends` admits. */
 	const orderOf = (
-		placed: ReadonlyArray<Ran>
+		placed: ReadonlyArray<Ran>,
+		ends: (end: State) => string | undefined
 	): { readonly order: ReadonlyArray<Ran>; readonly states: ReadonlyArray<State> } | undefined => {
 		const search = (
 			order: ReadonlyArray<Ran>,
@@ -1375,7 +1404,17 @@ const explain = (
 			| undefined => {
 			const at = defined(states[states.length - 1], "the state at the end of the order")
 			if (order.length === placed.length) {
-				return { order, states }
+				const difference = ends(at)
+				if (difference === undefined) {
+					return { order, states }
+				}
+				misses.add(
+					`[${Arr.join(
+						Arr.map(order, (r) => `#${r.id}`),
+						", "
+					)}] ends where the committed state does not: ${difference}`
+				)
+				return undefined
 			}
 			for (const next of placed) {
 				if (order.includes(next)) {
@@ -1410,13 +1449,13 @@ const explain = (
 		ran,
 		(r) => r.observed.kind === "accepted" || r.observed.kind === "no-change"
 	)
-	const explained = orderOf(committed)
+	const explained = orderOf(committed, differs)
 	if (explained === undefined) {
 		return `no serial order explains the committed transactions:\n  ${Arr.join([...misses], "\n  ")}`
 	}
 	const refusals = new Map<number, State>()
 	for (const r of Arr.filter(ran, (x) => x.observed.kind === "refused")) {
-		const found = orderOf([...committed, r])
+		const found = orderOf([...committed, r], endsAnywhere)
 		if (found === undefined) {
 			return `no serial order explains the refusal of #${r.id}:\n  ${Arr.join([...misses], "\n  ")}`
 		}
@@ -1602,20 +1641,14 @@ const runRace = (i: RaceInstall, race: Race, c: Case<RaceFeature>) =>
 						if (typeof ran === "string") {
 							return refusedJudgment(ran)
 						}
-						const explained = explain(initial, ran)
+						const committed = yield* committedRows(i, i.rig.env, written)
+						const explained = explain(initial, ran, (end) =>
+							differenceFrom(i.names, committed, end)
+						)
 						if (typeof explained === "string") {
 							return refusedJudgment(explained)
 						}
 						const e: ExplainedRun = { ran, ...explained }
-						const differs = yield* committedDifference(i, i.rig.env, written, committedOf(e))
-						if (differs !== undefined) {
-							return refusedJudgment(
-								`${differs}\n  serial order ${Arr.join(
-									Arr.map(e.order, (x) => `#${x}`),
-									", "
-								)}`
-							)
-						}
 						const judged = race.judge(e)
 						if (judged.departure !== undefined) {
 							return refusedJudgment(
