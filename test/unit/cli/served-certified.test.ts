@@ -15,7 +15,7 @@ import { isolationTrigger } from "#compiler/physical/ddl/isolation.ts"
 import { grantedPrivileges } from "#compiler/physical/ddl/roles.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { login, wholeEntriesOf } from "#compiler/public/schema.ts"
+import { type AnyLogin, login, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { role } from "#compiler/schema/world.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
@@ -350,9 +350,16 @@ layer(NodeServices.layer, { excludeTestServices: true })("a role's isolation lev
 									}
 								}
 							}
-							assert.equal(
-								served.certification.length,
-								c.direct.kind === "none" ? 2 : 3,
+							const logins: ReadonlyArray<AnyLogin> = [app, ...psql]
+							assert.deepEqual(
+								Arr.sort(
+									Arr.map(served.certification, (r) => `${r.login}.${r.role}`),
+									Str.Order
+								),
+								Arr.sort(
+									Arr.flatMap(logins, (l) => Arr.map(Rec.keys(l.roles), (r) => `${l.name}.${r}`)),
+									Str.Order
+								),
 								"a certificate for each role of each login"
 							)
 						})

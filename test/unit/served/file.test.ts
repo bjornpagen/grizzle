@@ -6,7 +6,7 @@ import { array, constant, element, int, oneOf } from "@grizzle/testing/gen"
 import { agree, exact, set, structuralHash } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
-import { float } from "@grizzle/testing/values"
+import { float, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Result as Answered,
@@ -488,9 +488,6 @@ const component = oneOf<number>([
 	element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])
 ])
 
-/** The account the scoring read-back's other parameter binds. */
-const account = "00000000-0000-4000-8000-000000000000"
-
 /** Search's artifacts, which every bound vector's ChangeSet compiles under. */
 const searchArtifacts = ok(testArtifacts(Search, testCompile), "Search's artifacts", () => "Search")
 
@@ -512,10 +509,11 @@ const boundTrip = (
 	at: number,
 	later: number,
 	pick: number,
+	account: string,
 	note: (feature: BoundFeature) => void
 ) =>
 	Effect.gen(function* () {
-		const printed = () => Formatter.format({ components, at, later })
+		const printed = () => Formatter.format({ components, at, later, account })
 		const buffer = Float32Array.from(components)
 		const bound = Float32Array.from(components, (x) => (x === 0 ? 0 : x))
 		const changes = changeSetOver
@@ -716,7 +714,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("a served file", (it) =
 									),
 									source.draw(int(0, documentDimensions - 1)),
 									source.draw(float(-float32Max, float32Max)),
-									source.draw(int(0, 1_000_000))
+									source.draw(int(0, 1_000_000)),
+									source.draw(uuid(4))
 								] as const
 						),
 						literal: Formatter.format,
@@ -735,7 +734,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("a served file", (it) =
 						kept: [
 							{
 								note: "a vector bound with NaN and written finite after: its bind read it with no text",
-								sketch: [[Number.NaN, 0, 0, 0], 0, 0, 0],
+								sketch: [[Number.NaN, 0, 0, 0], 0, 0, 0, "00000000-0000-4000-8000-000000000000"],
 								draws: "",
 								reaches: [
 									"a vector that is not finite refused",
@@ -749,8 +748,11 @@ layer(NodeServices.layer, { excludeTestServices: true })("a served file", (it) =
 						steerEvery: 16,
 						caseHang
 					},
-					([components, at, later, pick], notes) =>
-						boundTrip(components, at, later, pick, notes.note).pipe(Effect.scoped, Effect.orDie)
+					([components, at, later, pick, account], notes) =>
+						boundTrip(components, at, later, pick, account, notes.note).pipe(
+							Effect.scoped,
+							Effect.orDie
+						)
 				)
 			)
 	)

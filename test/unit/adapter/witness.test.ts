@@ -6,14 +6,18 @@ import {
 	boolean,
 	constant,
 	element,
+	filter,
 	type Gen,
 	int,
+	map,
 	oneOf,
+	string,
+	unicodeScalar,
 	weighted
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
-import { uuid as uuidValue } from "@grizzle/testing/values"
+import { bigint, uuid as uuidValue } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -52,13 +56,13 @@ import { Compute } from "#compiler/public/compute.ts"
 import { bits, closedId, contract, generated, pg, uuid } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import type { ConcurrentChangeTag } from "#compiler/runtime/write/refusal.ts"
+import { type ConcurrentChangeTag, changeTag, keyTag } from "#compiler/runtime/write/refusal.ts"
 import type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
 import type { Refuser, StatementAt } from "#compiler/runtime/write/witness.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import type { KeyHost, Law, RefusingObject, Witness } from "#compiler/types/changeset/changeset.ts"
-import { awkwardCode, Clubs } from "#test/pg/laws/outcomes/schemas.ts"
+import { Clubs } from "#test/pg/laws/outcomes/schemas.ts"
 import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
@@ -158,18 +162,19 @@ interface KeyValue {
 }
 
 /**
- * Texts a text key field draws: quotes, backslashes, a comma and a bracket, which the DETAIL's encoding escapes, and
- * characters outside ASCII.
+ * The characters a DETAIL's encoding (write/refusal.ts) escapes or delimits its key texts by: a JSON string's quote,
+ * escape and control characters, and the list's comma and brackets.
  */
-const keyTexts = [
-	"plain",
-	'a "quoted" one',
-	"a \\ backslash",
-	"é 😀",
-	" spaced ",
-	"line\nbreak",
-	awkwardCode
-] as const
+const delimiters: Arr.NonEmptyReadonlyArray<string> = ['"', "\\", "\n", "\t", ",", "[", "]"]
+
+/**
+ * A text a DETAIL carries: any scalar values, the encoding's delimiters among them as often as any other, its length a
+ * search budget.
+ */
+const detailText: Gen<string> = string(oneOf([unicodeScalar, element(delimiters)]), {
+	min: 0,
+	max: 8
+})
 
 /**
  * A value of a key field of `type` and its text, for the carriers the installations' keys hold, or undefined for a
@@ -185,18 +190,22 @@ const keyValueGen = (artifacts: SchemaArtifacts, field: LawField): Gen<KeyValue>
 			}
 		case "int8":
 			return (source) => {
-				const n = source.draw(int(-1_000_000, 1_000_000))
-				return { text: String(n), value: BigInt(n) }
+				const n = source.draw(bigint(-(2n ** 63n), 2n ** 63n - 1n))
+				return { text: String(n), value: n }
 			}
 		case "int2":
+			return (source) => {
+				const n = source.draw(int(-(2 ** 15), 2 ** 15 - 1))
+				return { text: String(n), value: n }
+			}
 		case "int4":
 			return (source) => {
-				const n = source.draw(int(-30_000, 30_000))
+				const n = source.draw(int(-(2 ** 31), 2 ** 31 - 1))
 				return { text: String(n), value: n }
 			}
 		case "text":
 			return (source) => {
-				const text = source.draw(element(keyTexts))
+				const text = source.draw(detailText)
 				return { text, value: text }
 			}
 		case "code": {
@@ -262,7 +271,7 @@ interface OriginSketch {
 /** What the report's DETAIL holds. */
 type DetailSketch =
 	| { readonly kind: "none" }
-	| { readonly kind: "prose" }
+	| { readonly kind: "prose"; readonly text: string }
 	| {
 			readonly kind: "a refusal"
 			readonly relation: number
@@ -439,7 +448,14 @@ const changeGen: Gen<DetailSketch> = (inner) => ({
 
 const detailGen: Gen<DetailSketch> = oneOf<DetailSketch>([
 	constant({ kind: "none" }),
-	constant({ kind: "prose" }),
+	map(
+		filter(
+			detailText,
+			(text) => !Str.startsWith(`${keyTag}[`)(text) && !Str.startsWith(`${changeTag}[`)(text),
+			8
+		),
+		(text): DetailSketch => ({ kind: "prose", text })
+	),
 	refusalGen,
 	changeGen
 ])
@@ -1007,7 +1023,7 @@ describe("a server error at a write", () => {
 									case "none":
 										return undefined
 									case "prose":
-										return "Failing row contains (North, 7, secret payload, 0)."
+										return d.text
 									case "a refusal": {
 										const relation = defined(stored[d.relation % stored.length], "a relation")
 										const fields = Arr.map(key, (kv) => ({
