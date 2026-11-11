@@ -546,8 +546,8 @@ text match. A type batch's population judges its requirements on `floorPopulatio
 - **The protocol tap** (`test/support/wire-tap.ts`): a session whose every message, both ways, a test reads off the
   wire, on grizzle's public transport: its sockets are in memory, its server end answers the SSLRequest and terminates
   verify-full TLS with the tap's own CA (`test/support/memory-tls.ts`), and the tap carries the plaintext over its own
-  verified TLS to the cluster. The wire suite (`test/pg/adapter/suites/batch-parity.ts`) holds a flight to one round trip, atomicity, its
-  failures and cancellation, and the round-trip suite (`test/pg/adapter/suites/round-trips.ts`) holds every public
+  verified TLS to the cluster. The wire suite (`test/pg/adapter/batch-parity.test.ts`) holds a flight to one round trip, atomicity, its
+  failures and cancellation, and the round-trip suite (`test/pg/adapter/round-trips.test.ts`) holds every public
   call to one round trip.
 - **Stopped searches** (`test/pg/substrate/stopped.test.ts`): a search whose cases allocate drawn schemas, roles and
   sessions is stopped by its deadline's cut, its hang guard or an interruption, wherever its cases stand. Once it
