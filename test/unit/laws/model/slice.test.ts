@@ -20,7 +20,9 @@
  *   rules that read a written relation, and the written relations with their keys and unique objects;
  * - the installation's natives: every native of the slice's model is one the whole model holds, by its name and its
  *   definition apart from the laws it discharges, so a login's served compile names no constraint, column or index the
- *   installation lacks, whatever choice a whole-schema decision (a fixed target's reference) made;
+ *   installation lacks: a whole-schema decision, a fixed target's reference, is the whole schema's recorded choice,
+ *   read and never recomputed; and a UNIQUE a key implies reports that key's law first, as the installation's does,
+ *   whether the slice plans the key or not (keyLawsOf);
  * - what the slice compiles: the natives a write of it can raise, of its written relations and the foreign keys into
  *   them, in the whole model's order, names, laws and descriptions; every constraint a write of the slice can raise
  *   naming the whole model's laws in the witness, and every law over a written relation, which a write statement's
@@ -52,7 +54,8 @@
  * Plants (~/.cache/grizzle-release/BR03/plants): slice-coupling-one-step (a slice's writes closed under family coupling
  * one step only, so a chain's far end is left out) and slice-lowered-rule-unplanned (a rule over a query lowered to
  * foreign keys into a named relation's selected side left unplanned, so the slice lacks that relation's selection key)
- * for the slice; live-derived-by-name-admitted (a definition matching a live derived relation by name admitted) for
+ * and slice-recomputes-reference-choice (a slice compile chooses each fixed target's reference over its own closure in
+ * place of the whole schema's recorded choice, so it plans a native the installation lacks) for the slice; live-derived-by-name-admitted (a definition matching a live derived relation by name admitted) for
  * the second.
  *
  * Features: SliceFeature, the shapes and laws each case reached; a direct and a nested match for the second.
@@ -826,15 +829,40 @@ const plannedOver = (
 	)
 
 /**
+ * Each key law of a law model by the relation it keys: every primary key, declared key and key over a projected side,
+ * the keys a generated UNIQUE may imply (laws/model/model.ts #implyingKey).
+ */
+const keyLawsOf = (model: LawModel): ReadonlyMap<LawId, string> =>
+	new Map([
+		...Arr.map(model.theory.primaryKeys, (pk) => [pk.law.id, pk.relation.name] as const),
+		...Arr.flatMap(model.theory.laws, (law): ReadonlyArray<readonly [LawId, string]> =>
+			law.detail.kind === "key"
+				? [[law.id, law.detail.relation]]
+				: law.detail.kind === "projectedKey"
+					? [[law.id, law.detail.side.relation]]
+					: []
+		)
+	])
+
+/**
  * A native discharging only the laws of `planned`, in its order, a constraint described by the first of them, the law
- * it reports when nothing narrows it.
+ * it reports when nothing narrows it; but a UNIQUE whose first law is a key of its own relation, a key that implies it,
+ * which the slice's model places first whether it plans that key or not, so its constraint reports the key's law as the
+ * installation's does.
  */
 const dischargingOnly = (
 	n: NamedNative,
 	planned: ReadonlySet<LawId>,
+	keyLaws: ReadonlyMap<LawId, string>,
 	described: (law: LawId) => OwnLaw
 ): NamedNative => {
-	const [head, ...rest] = Arr.filter(n.object.lawIds, (l) => planned.has(l))
+	const [reported] = n.object.lawIds
+	const implying =
+		n.object.kind === "Unique" && keyLaws.get(reported) === n.object.relation.name ? [reported] : []
+	const [head, ...rest] = Arr.dedupe([
+		...implying,
+		...Arr.filter(n.object.lawIds, (l) => planned.has(l))
+	])
 	const first = defined(head, "a planned law of the native")
 	const lawIds: Arr.NonEmptyReadonlyArray<LawId> = [first, ...rest]
 	switch (n.namespace) {
@@ -865,9 +893,10 @@ const heldOver = (
 		Arr.map(whole.theoryLaws, (l) => [l.law, l.described] as const)
 	)
 	const described = (law: LawId): OwnLaw => defined(laws.get(law), `${law} is described`)
+	const keyLaws = keyLawsOf(whole.laws)
 	const plannedNatives = Arr.flatMap(whole.laws.natives, (n) =>
 		Arr.some(n.object.lawIds, (l) => planned.has(l))
-			? [{ whole: n, held: dischargingOnly(n, planned, described) }]
+			? [{ whole: n, held: dischargingOnly(n, planned, keyLaws, described) }]
 			: []
 	)
 	const keys = selectionKeysOf(Arr.map(plannedNatives, (p) => p.held))
