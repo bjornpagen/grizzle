@@ -1,3 +1,22 @@
+/**
+ * What a definition reads and what inputs it needs (schema/walk.ts queryUses) through an import: the import's bound
+ * parameters are the binding's, so an importer needs exactly its own parameters, the import's parameters its binding
+ * leaves open (every one, when it matches the import itself), and the parameters its binding expressions use; it
+ * reads its own relations and the import's.
+ *
+ * Property: over drawn imports and importers (a schema of two relations of three uuid fields; an import over one of
+ * them whose second and third fields are each left free, bound to a variable or to a parameter named from a pool of
+ * three; an importer over one of them that matches the import itself or binds each of the import's parameters to a
+ * variable, a parameter of its own from the same pool, a literal, or nothing, and perhaps a parameter of its own in
+ * a condition), queryUses' inputs and relations are exactly the rule's, each compared as a set.
+ *
+ * Oracle: the rule above, stated over the sketch (expectedInputs).
+ *
+ * Plant: walk-bound-input-kept (queryUses keeps every input of a bound import, its bound parameters included).
+ *
+ * Features: an input bound to a variable, to an importer's parameter, to a literal, or left open; the import matched
+ * itself; an importer's parameter named as an import's; a parameterless importer of a parameterized import.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -14,18 +33,6 @@ import { queryUses } from "#compiler/schema/walk.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
-/**
- * What a definition reads and what inputs it needs (`queryUses`) through an import: the import's bound parameters are
- * the binding's, so an importer needs exactly its own parameters, the import's parameters its binding leaves open
- * (every one, when it matches the import itself), and the parameters its binding expressions use; it reads its own
- * relations and the import's.
- *
- * Each case draws a schema of two relations of three uuid fields, an import over one of them whose second and third
- * fields are each left free, bound to a variable or to a parameter named from a pool of three, an importer over one of
- * them that matches the import itself or binds each of the import's parameters to a variable, a parameter of its own
- * from the same pool, a literal, or nothing, and perhaps a parameter of its own in a condition. Oracle: the rule above,
- * stated over the sketch.
- */
 type Binding =
 	| { readonly kind: "open" }
 	| { readonly kind: "variable" }

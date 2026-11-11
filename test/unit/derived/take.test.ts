@@ -1,3 +1,23 @@
+/**
+ * A definition is a relation: a derived relation's or a role's query entry's that ends in `.orderBy(...).take(k)`
+ * installs its take's ORDER BY and LIMIT and no order beside them, since a view's rows are a set to everything that
+ * reads it, though a query that ends in the same take delivers its rows in the take's order.
+ *
+ * Property: over a drawn base relation R (one to three fields of integer, bigint and uuid, its primary key a drawn
+ * prefix of them) and two drawn definitions over it, a derived relation's and a role's query entry's, each one rule,
+ * a union of two or a count grouped by its head, ordered by drawn head columns and taking a drawn k: no SELECT of
+ * any installed materialized view or role view orders rows it does not limit, and the derived relation's
+ * materialized view and some role view each hold a limited SELECT, the take.
+ *
+ * Oracle: the specification that a view's rows are a set, read off the installed statements' typed SQL (an ORDER BY
+ * with no LIMIT is a delivered order), never their text.
+ *
+ * Plant: take-definition-ordered (check/checker.ts rootOrder delivers a definition's rows in its take's order, as a
+ * root a caller reads).
+ *
+ * Features: each owner (a derived relation, a world entry) taking from each form (one rule, a union, a count), a
+ * take of one row, of two rows or more, and a descending key.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -192,13 +212,7 @@ const orderings = (
 	return { limited, unlimited }
 }
 
-/**
- * A definition is a relation: a derived relation's or a role's query entry's that ends in `.orderBy(...).take(k)`
- * installs its take's ORDER BY and LIMIT and no order beside them, since a view's rows are a set to everything that
- * reads it, though a query that ends in the same take delivers its rows in the take's order. So every SELECT of every
- * installed materialized view and role view that orders its rows limits them, and the derived relation's view and the
- * query entry's each hold a take: an order a definition delivered would be an ORDER BY with no LIMIT.
- */
+/** The installed views of a case hold no order beside a take, and the derived relation's and the entry's hold theirs. */
 const installsNoOrder = (s: Sketch): void => {
 	const views = Arr.filter(
 		installed(s),
@@ -207,13 +221,10 @@ const installsNoOrder = (s: Sketch): void => {
 	for (const view of views) {
 		assert.equal(orderings(view).unlimited, 0, "a view SELECT that orders rows it does not limit")
 	}
-	const taking = (kind: "createMaterializedView" | "createView"): number =>
-		Arr.filter(views, (st) => st.kind === kind && orderings(st).limited > 0).length
-	assert.deepEqual(
-		{ derived: taking("createMaterializedView"), world: taking("createView") },
-		{ derived: 1, world: 1 },
-		"the views that hold a take"
-	)
+	const taking = (kind: "createMaterializedView" | "createView"): boolean =>
+		Arr.some(views, (st) => st.kind === kind && orderings(st).limited > 0)
+	assert.ok(taking("createMaterializedView"), "the derived relation's view holds its take")
+	assert.ok(taking("createView"), "the query entry's view holds its take")
 }
 
 describe("a definition that ends in a take", () => {

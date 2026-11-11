@@ -1,3 +1,42 @@
+/**
+ * Key inheritance for derived relations: a derived relation needs no declared key and admits none. Its keys are the
+ * keys its definition proves, each in heading order, narrowest first and then by heading position, none implied by a
+ * narrower one; the whole heading when nothing narrower is proven; and for a definition of at most one fact its first
+ * representable column. Each becomes a unique index, so each must fit PostgreSQL's B-tree entry and column limits, and
+ * a definition a materialized view cannot store is refused.
+ *
+ * - Key rules: over the derived oracle's generated schemas (drawn levels, aggregates, take forms), every relation's
+ *   keys keep those rules, a level is one above the derived relations it reads, and queries over a relation see its
+ *   keys. Oracle: the rules as a checker (keyRules). Plant: derived-one-fact-last-column (a definition of one fact is
+ *   keyed by its last representable column). Features: the whole heading, at most one fact, a level over a derived
+ *   relation.
+ * - Join keys: over generated joins of relations keyed by primary and candidate keys, each matched once, their heads
+ *   in a drawn order, every key the view indexes is a minimal set of head columns whose closure, under each relation's
+ *   keys bound whole, holds the head, and the keys the view states, each key's factors chosen among its alternatives,
+ *   are exactly those minimal sets. Oracle: the closure of the head's variables, a second implementation. Plant:
+ *   derived-keys-no-alternatives (no factor's alternatives are listed). Features: JoinFeature, and two pairs of them.
+ * - Product keys: over products of relations keyed by either of two fields, through projections, joins, several rules
+ *   and a level above, the view indexes one unique index per alternative of a factor and states exactly its minimal
+ *   keys. Oracle: the minimal sets by closure and their finest product partition, found by brute force. Plant:
+ *   derived-keys-first-factor-alternatives (only the first factor's alternatives are listed). Features:
+ *   ProductFeature, and two pairs of them.
+ * - Storable: over generated definitions of one relation of drawn field types (uuid, integer, bounded and wildcard
+ *   text, vectors of drawn dimensions): a plain head in a drawn order, possibly empty; a grouped count; a global
+ *   aggregate; a head with an attachment; a union of two heading groups; and a head of a drawn number of integer
+ *   columns around INDEX_MAX_KEYS. The model: the spine's obstacle, then the empty heading, then the key the
+ *   definition proves (the primary key when the head or the group holds it, the group, the head, or the first
+ *   representable column of one fact) refused at the first whose unique index layout faults, as wholeHeading,
+ *   inheritedKey or oneFact with that fault, and admitted with exactly those keys otherwise. Oracle: that model, a
+ *   specification. Plant: derived-key-fault-kind-swapped (a faulting key refused under the other kind). Features:
+ *   each refusal kind and fault, admitted, and one fact keyed past its first column. The faults themselves (unbounded
+ *   text, B-tree entry bytes, column count) are the representability suite's, against PostgreSQL's own sizes.
+ * - Named key: every view of a relation keyed by its id that names the id one to three times, beside its other field
+ *   or not, and a level reading the view whole, state each name as a key alone. Oracle: every name of the key is one
+ *   column of every row, each a key alone. Plant: derived-keys-no-alternatives. Features: one, two and three names.
+ *
+ * That the keys are sound, a refreshed view never holding two facts under one, is the refresh oracle's, whose views
+ * are refreshed concurrently over their unique indexes.
+ */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore, sketched } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -51,31 +90,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { nonEmptyArgumentsOf } from "#test/support/list.ts"
 import { checkedIn } from "#test/support/policy.ts"
 import { descOf, regex, wildcard } from "#test/unit/schema/support.ts"
-
-/**
- * Key inheritance for derived relations: a derived relation needs no declared key and admits none.
- * Its keys are the keys its definition proves, each in heading order, narrowest first and then by heading position,
- * none implied by a narrower one; the whole heading when nothing narrower is proven; and for a definition of at most one
- * fact its first representable column. Each becomes a unique index, so each must fit PostgreSQL's B-tree entry and
- * column limits, and a definition a materialized view cannot store is refused.
- *
- * - Over the derived oracle's generated schemas (drawn levels, aggregates, take forms): every relation's keys keep
- *   those rules, a level is one above the derived relations it reads, and queries over a relation see its keys.
- * - Over generated joins of relations keyed by primary and candidate keys, each matched once, their heads in a drawn
- *   order: every key the view indexes is a minimal set of head columns whose closure, under each relation's keys bound
- *   whole, holds the head, in the head's order, and the keys the view states, each key's factors chosen among its
- *   alternatives, are exactly those minimal sets.
- * - Over generated definitions of one relation of drawn field types (uuid, integer, bounded and wildcard text, vectors
- *   of drawn dimensions): a plain head in a drawn order, possibly empty; a grouped count; a global aggregate; a head
- *   with an attachment; a union of two heading groups; and a head of a drawn number of integer columns around
- *   INDEX_MAX_KEYS. The model: the spine's obstacle, then the empty heading, then the key the definition proves (the
- *   primary key when the head or the group holds it, the group, the head, or the first representable column of one
- *   fact) refused at the first whose unique index layout faults, as wholeHeading, inheritedKey or oneFact with that
- *   fault, and admitted with exactly those keys otherwise. The faults themselves (unbounded text, B-tree entry bytes,
- *   column count) are the representability suite's, against PostgreSQL's own sizes.
- *
- * That the keys are sound, a refreshed view never holding two facts under one, is the refresh oracle's, whose views
- * are refreshed concurrently over their unique indexes. */
 
 type KeyFeature =
 	| "several keys"
@@ -1401,7 +1415,10 @@ describe("derived relation keys", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "proven keys in heading order, narrowest first, none implied by another, the whole heading only alone, one fact by its first representable column, a level one above what it reads"
+						},
 						suite: "unit/derived/keys",
 						draw: drawn(caseSketchGen),
 						literal: Formatter.format,

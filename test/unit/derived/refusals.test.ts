@@ -1,3 +1,30 @@
+/**
+ * Runtime refusals for derived relations in descriptions TypeScript did not check (the type tests refuse each at the
+ * type level): a JavaScript caller, or a SchemaDesc decoded from data, meets the same rules at construction or at
+ * ownership, before any definition is read, and so at every entry that installs or analyzes a schema.
+ *
+ * - Statements over derived relations: each case draws a law of a drawn shape (a key over drawn fields, mutable, a
+ *   check, a containment in either or both directions, a family whose member or owner or both are derived, an
+ *   alternatives arm) over the worked example's Reports level with a second derived relation beside AccountBudget, each
+ *   slot drawn among the derived relations or the base's sides of its type, at least one derived. Mutable, a family
+ *   and an alternatives arm name rows grizzle writes, which a derived relation's definition states, so ownership
+ *   refuses each (MalformedDescription) at every entry. A key, a check and a containment are rules over the
+ *   definition, which ownership owns and the analysis of derived relations reads, and AccountBudget's definition
+ *   aggregates, which no rule reads, so the entry that compiles the laws refuses each, by the named refusal the types
+ *   name too. Oracle: that rule, restated per law shape. Plant: derived-law-relation-admitted (ownership admits a
+ *   statement writing a derived relation's rows). Features: each law shape, a law naming both derived relations, a
+ *   containment out of and into a derived relation.
+ * - Unwritable definitions: levels, parameters and contexts an unchecked description can still write down are refused
+ *   as MalformedDescription, a materialized view reading no parameter and holding no session. Each case draws a schema
+ *   of the derived oracle (drawn levels and definitions over drawn base relations), which ownership admits, and one
+ *   mutation of a drawn derived relation of it: moved into the root schema, joined by a twin of its level that reads
+ *   it, given a drawn parameter in its first arm's condition, or given a drawn context's match there; where the
+ *   mutation has a control without the defect (the twin a level up, the condition over a literal), ownership admits
+ *   the control. The builder refuses a parameterized definition at construction. Oracle: a derived relation stands
+ *   above the root, reads only lower levels, reads no parameter and matches no context. Plant:
+ *   derived-definition-parameter-admitted (ownership admits a definition that reads one parameter). Features: each
+ *   mutation.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, sketched } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -55,25 +82,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { ownedInput } from "#test/support/policy.ts"
 
-/** Runtime refusals for descriptions TypeScript did not check (the type tests refuse each at the type level): a
- * JavaScript caller, or a SchemaDesc decoded from data, meets the same rules at construction or at ownership, before any
- * definition is read, and so at every entry that installs or analyzes a schema.
- *
- * - A statement over a derived relation is refused alike at every entry that reads it. Each case draws a law of a
- *   drawn shape (a key over drawn fields, mutable, a check, a containment in either or both directions, a family whose
- *   member or owner or both are derived, an alternatives arm) over the worked example's Reports level with a second
- *   derived relation beside AccountBudget, each slot drawn among the derived relations or the base's sides of its
- *   type, at least one derived. Mutable, a family and an alternatives arm name rows grizzle writes, which a derived
- *   relation's definition states, so ownership refuses each (MalformedDescription) at every entry. A key, a check and a
- *   containment are rules over the definition, which ownership owns and the analysis of derived relations reads, and
- *   AccountBudget's definition aggregates, which no rule reads, so the entry that compiles the laws refuses each
- *   (UnsupportedLawFamily).
- * - Levels, parameters and contexts an unchecked description can still write down are refused as
- *   MalformedDescription, a materialized view reading no parameter and holding no session. Each case draws a schema of
- *   the derived oracle (drawn levels and definitions over drawn base relations), which ownership admits, and one
- *   mutation of a drawn derived relation of it: moved into the root schema, joined by a twin of its level that reads
- *   it, given a drawn parameter in its first arm's condition, or given a drawn context's match there. The builder
- *   refuses a parameterized definition at construction. */
 const refusal = (r: Result.Result<unknown, CompileError>): CompileError => {
 	if (r.ok) {
 		throw new Error("expected a refusal")

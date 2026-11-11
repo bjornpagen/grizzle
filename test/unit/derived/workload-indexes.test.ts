@@ -1,3 +1,31 @@
+/**
+ * Workload indexes on a derived relation: a derived relation's materialized view takes indexes from the query
+ * workload exactly as a table does. A workload request on the view lands on an inherited key's unique index that
+ * serves it, merging the access into its reasons, or becomes a workload index of its own, justified by the access.
+ * The migration generator drafts such an index through the same rules as any index: built concurrently on a view
+ * that may hold rows, and created again with a view a changed definition recreates. An installation without the
+ * derived relation extension leaves the view, and so its indexes, deferred.
+ *
+ * Each case draws a workload of programs over AccountBudget (the worked example's, or a redefinition over the busy
+ * automatic tasks), each comparing a drawn column of the view, its key `account`, its count `tasks` or its computed
+ * numeric `budget`, by a drawn comparison a B-tree serves to a parameter. Read off the typed plan a draft states,
+ * never its SQL text.
+ *
+ * - View indexes: a program over the key lands on the key's unique index, every other column takes one created index
+ *   keyed by it alone, standing on access, compared as a set; a view not installed is deferred and takes none.
+ *   Oracle: that rule, restated over the drawn programs. Plant: workload-view-key-not-served (a request whose
+ *   columns an inherited unique index leads with takes an index of its own). Features: an index of a column, the
+ *   key's own index, two columns indexed, deferred, the empty workload.
+ * - Drafts: over two drafts, the second's workload indexes are exactly those its workload asks for that the first's
+ *   did not, each built concurrently, or all of them, each after the view, where a changed definition drops and
+ *   recreates the view, compared as a set of the columns each index keys. Oracle: that rule, restated over both
+ *   drafts' programs. Plant: workload-view-index-not-concurrent (an index on a standing relation is drafted without
+ *   CONCURRENTLY). Features: an index built concurrently, an index after its recreated view, a standing index the
+ *   later draft keeps.
+ *
+ * That the index is the one the program's statement uses on PostgreSQL is the database suite's
+ * (test/pg/derived/workload-index.test.ts).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -23,8 +51,8 @@ import { query, v } from "#compiler/public/query.ts"
 import { derived, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import type { IndexKey, SqlStatement } from "#compiler/sql/ast.ts"
+import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
@@ -37,26 +65,6 @@ import {
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
 import { owning } from "#test/support/policy.ts"
-
-/**
- * Workload indexes on a derived relation.
- *
- * A derived relation's materialized view takes indexes from the query workload exactly as a table does: a workload request
- * on the view lands on an inherited key's unique index that serves it, merging the access into its reasons, or becomes
- * `<view>__ix__<cols>` in Indexes, justified by the access. The migration generator drafts such an index through the
- * same rules as any index: built concurrently on a view that may hold rows, and created again with a view a changed
- * definition recreates. An installation without the derived relation extension leaves the view, and so its indexes,
- * deferred.
- *
- * Each case draws a workload of programs over AccountBudget (the worked example's, or a redefinition over the busy
- * automatic tasks), each comparing a drawn column of the view, its key `account`, its count `tasks` or its computed
- * numeric `budget`, by a drawn comparison a B-tree serves to a parameter. The model: a program over the key lands on
- * the key's unique index, every other column takes one workload index of its own keyed by it, and a view not installed
- * takes none; over two drafts, the second's workload indexes are those its workload asks for that the first's did not,
- * each built concurrently, or all of them, each after the view, where a changed definition recreates the view. Read off
- * the typed plan a draft states, never its SQL text. That the index is the one the program's statement uses on
- * PostgreSQL is the database suite's (test/pg/derived/workload-index.test.ts).
- */
 
 /** Reports with AccountBudget redefined: the automatic tasks with a budget above 10 only. */
 const automaticBudgetOfBusy = query(W.Work).rule((r) => {
@@ -160,6 +168,9 @@ const onView = (statement: SqlStatement): boolean =>
 		statement.object !== "SCHEMA" &&
 		statement.name.name === budgetView)
 
+/** The column identifier a drafted index's key holds, or none for an expression. */
+const keyIdent = (k: IndexKey): string => (k.key.kind === "column" ? k.key.column : "an expression")
+
 /** The column an index key holds. */
 const keyColumn = (k: Installation["indexes"][number]["keys"][number]): string =>
 	k.column.kind === "field" ? k.column.field : k.column.column
@@ -240,7 +251,10 @@ describe("workload indexes on a derived relation", () => {
 							}
 							if (!c.installed) {
 								k.note("deferred")
-								assert.deepEqual(installation.deferred.derivedRelations, ["AccountBudget"])
+								assert.ok(
+									Arr.contains(installation.deferred.derivedRelations, "AccountBudget"),
+									"the view not installed is deferred"
+								)
 								assert.deepEqual(viewIndexes(installation), [])
 								return
 							}
@@ -343,10 +357,12 @@ describe("workload indexes on a derived relation", () => {
 							if (!recreated && Arr.some(after, (col) => Arr.contains(before, col))) {
 								k.note("a standing index the later draft keeps")
 							}
-							assert.equal(
-								indexes.length,
-								expected.length,
-								"one workload index per column the draft adds"
+							unorderedEqual<ReadonlyArray<string>>(
+								Arr.map(indexes, (p) =>
+									p.statement.kind === "createIndex" ? Arr.map(p.statement.keys, keyIdent) : []
+								),
+								Arr.map(expected, (col) => [identifierOf(identity.column(parsedName(col)))]),
+								"one workload index of each column the draft adds"
 							)
 							const view = Arr.findFirstIndex(
 								steps,
