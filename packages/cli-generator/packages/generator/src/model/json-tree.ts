@@ -5,9 +5,7 @@ import type { Json } from "#model/pointer.ts"
 /**
  * A JSON object value.
  */
-export interface JsonObject {
-	readonly [key: string]: Json
-}
+export type JsonObject = Readonly<Record<string, Json>>
 
 /**
  * Whether a JSON value is an object (not an array, not null).

@@ -1,5 +1,6 @@
-import { Effect, Option, Schema } from "effect"
-import { refuse } from "#load/budget.ts"
+import { regex } from "arkregex"
+import { Array as Arr, Effect, Option, Schema, String as Str } from "effect"
+import { refuse, wholeInput } from "#load/budget.ts"
 import type { LoadLimits, LoadRefusal, Position } from "#load/budget.ts"
 import { byteOffset } from "#load/offset.ts"
 import type { DocumentUri } from "#model/brands.ts"
@@ -51,7 +52,14 @@ const decodeKey = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.String
  */
 const unescapeKey = (raw: string): string => Option.getOrElse(decodeKey(`"${raw}"`), () => raw)
 
-const numberToken = /^-?(?<int>[0-9]+)(?:\.(?<frac>[0-9]+))?(?:[eE](?<exp>[+-]?[0-9]+))?$/u
+const numberToken = regex(
+	"^-?(?<int>[0-9]+)(?:\\.(?<frac>[0-9]+))?(?:[eE](?<exp>[+-]?[0-9]+))?$",
+	"u"
+)
+
+const leadingZeros = regex("^0+", "u")
+
+const trailingZeros = regex("0+$", "u")
 
 interface Decimal {
 	readonly digits: string
@@ -69,11 +77,11 @@ const decimalOf = (token: string): Decimal | undefined => {
 	}
 
 	const fraction = groups.frac ?? ""
-	const all = `${groups.int ?? ""}${fraction}`.replace(/^0+/u, "")
-	const digits = all.replace(/0+$/u, "")
+	const all = Str.replace(leadingZeros, "")(`${groups.int}${fraction}`)
+	const digits = Str.replace(trailingZeros, "")(all)
 	const exponent = Number(groups.exp ?? "0") - fraction.length + (all.length - digits.length)
 
-	return digits === "" ? { digits: "", exponent: 0 } : { digits, exponent }
+	return Str.isEmpty(digits) ? { digits: "", exponent: 0 } : { digits, exponent }
 }
 
 const sameDecimal = (left: Decimal, right: Decimal): boolean =>
@@ -147,7 +155,7 @@ const valueContext = (frame: Frame | undefined): Context => {
 }
 
 const pointerOf = (frames: readonly Frame[]): string =>
-	formatPointer(frames.map((frame) => (frame.array ? String(frame.index) : frame.key)))
+	formatPointer(Arr.map(frames, (frame) => (frame.array ? `${frame.index}` : frame.key)))
 
 const stringEnd = (text: string, start: number): number => {
 	let end = start + 1
@@ -162,7 +170,7 @@ const stringEnd = (text: string, start: number): number => {
 const tokenEnd = (text: string, start: number): number => {
 	let end = start
 
-	while (end < text.length && !",:{}[] \t\n\r".includes(text[end] ?? "")) {
+	while (end < text.length && !Str.includes(text[end] ?? "")(",:{}[] \t\n\r")) {
 		end += 1
 	}
 
@@ -232,9 +240,9 @@ const string = (state: State): void => {
 	if (top === undefined || top.array || !top.expectKey) {
 		spend(state)
 	} else {
-		const raw = state.text.slice(state.cursor + 1, end)
+		const raw = Str.slice(state.cursor + 1, end)(state.text)
 
-		top.key = raw.includes("\\") ? unescapeKey(raw) : raw
+		top.key = Str.includes("\\")(raw) ? unescapeKey(raw) : raw
 
 		if (top.keys.has(top.key)) {
 			record(state, "DOC-14/duplicate-key", state.cursor)
@@ -253,7 +261,7 @@ const token = (state: State): void => {
 
 	if (
 		valueContext(state.frames.at(-1)).data &&
-		isUnsafeNumber(state.text.slice(state.cursor, end))
+		isUnsafeNumber(Str.slice(state.cursor, end)(state.text))
 	) {
 		record(state, "DOC-14/unsafe-integer", state.cursor)
 	}
@@ -288,7 +296,7 @@ const scan = (text: string, limits: LoadLimits): Scan => {
 			separator(state, char)
 		} else if (char === '"') {
 			string(state)
-		} else if (" \t\n\r".includes(char)) {
+		} else if (Str.includes(char)(" \t\n\r")) {
 			state.cursor += 1
 		} else {
 			token(state)
@@ -302,22 +310,13 @@ const scan = (text: string, limits: LoadLimits): Scan => {
 	return state.finding === undefined ? {} : { finding: state.finding }
 }
 
-const codePointCount = (text: string): number => {
-	let count = 0
-
-	for (const _char of text) {
-		count += 1
-	}
-
-	return count
-}
+const codePointCount = (text: string): number => Arr.fromIterable(text).length
 
 const locate = (text: string, index: number, byteBase: number): Position => {
-	const before = text.slice(0, index)
-	const lines = before.split("\n")
+	const lines = Str.split(Str.slice(0, index)(text), "\n")
 
 	return {
-		column: codePointCount(lines.at(-1) ?? "") + 1,
+		column: codePointCount(Arr.lastNonEmpty(lines)) + 1,
 		line: lines.length,
 		offset: byteOffset(text, index, byteBase)
 	}
@@ -341,18 +340,18 @@ export const parseStrictJson: (
 	const scanned = scan(text, limits)
 
 	if (scanned.limit !== undefined) {
-		return yield* refuse(document, scanned.limit)
+		return yield* refuse(document, scanned.limit, wholeInput)
 	}
 
 	const value = yield* decodeJson(text).pipe(
-		Effect.catchTag("SchemaError", () => refuse(document, "DOC-14/invalid-json"))
+		Effect.catchTag("SchemaError", () => refuse(document, "DOC-14/invalid-json", wholeInput))
 	)
 	const { finding } = scanned
 
 	if (finding !== undefined) {
 		return yield* refuse(document, finding.code, {
 			pointer: finding.pointer,
-			position: locate(text, finding.index, byteBase)
+			position: Option.some(locate(text, finding.index, byteBase))
 		})
 	}
 

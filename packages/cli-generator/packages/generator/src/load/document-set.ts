@@ -1,7 +1,16 @@
-import { Array as Arr, Effect, FileSystem, Option, Order, Path, Schema } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	FileSystem,
+	Option,
+	Order,
+	Path,
+	Schema,
+	String as Str
+} from "effect"
 import type { Digest } from "effect/crypto"
 import {
-	defaultLimits,
+	defaultLoadLimits,
 	LoadRefusal,
 	readFileBounded,
 	readMemberBounded,
@@ -74,13 +83,11 @@ const isDocumentUri = Schema.is(DocumentUri)
  * Splits `<uri>=<path>` at the first `=`. A value with no `=` yields a pair with an empty path,
  * which the loader then refuses as unreadable.
  */
-export const parseDocumentPair = (value: string): DocumentPair => {
-	const split = value.indexOf("=")
-
-	return split === -1
-		? { path: "", uri: value }
-		: { path: value.slice(split + 1), uri: value.slice(0, split) }
-}
+export const parseDocumentPair = (value: string): DocumentPair =>
+	Option.match(Str.indexOf("=")(value), {
+		onNone: () => ({ path: "", uri: value }),
+		onSome: (split) => ({ path: Str.slice(split + 1)(value), uri: Str.slice(0, split)(value) })
+	})
 
 /**
  * Refuses `pair` with `code`. The diagnostic's document is the pair's URI when it is absolute, and
@@ -107,7 +114,7 @@ const refusePair = Effect.fnUntraced(function* refusePair(
 		specSection: "https://spec.openapis.org/oas/v3.2.1.html#establishing-the-base-uri"
 	})
 
-	return yield* new LoadRefusal({ diagnostic })
+	return yield* LoadRefusal.make({ diagnostic })
 })
 
 /**
@@ -115,11 +122,15 @@ const refusePair = Effect.fnUntraced(function* refusePair(
  */
 export const duplicateUri = (pair: DocumentPair) => refusePair("REF-16/duplicate-uri", pair)
 
+const encodeDiagnostic = Schema.encodeEffect(Diagnostic)
+
 const withPath = (refusal: LoadRefusal, path: string): Effect.Effect<never, LoadRefusal> =>
-	makeDiagnostic({ ...Schema.encodeSync(Diagnostic)(refusal.diagnostic), hint: path }).pipe(
+	encodeDiagnostic(refusal.diagnostic).pipe(
+		Effect.orDie,
+		Effect.flatMap((encoded) => makeDiagnostic({ ...encoded, hint: path })),
 		Effect.flatMap((diagnostic) =>
 			Effect.fail(
-				new LoadRefusal(
+				LoadRefusal.make(
 					refusal.offset === undefined ? { diagnostic } : { diagnostic, offset: refusal.offset }
 				)
 			)
@@ -149,7 +160,7 @@ const sameResource = (uri: string, known: string): boolean =>
  */
 const isDuplicate = ({ documents, entry }: Loading, uri: Document): boolean =>
 	(entry !== undefined && uri !== entry && sameResource(uri, entry)) ||
-	[...documents.keys()].some((known) => sameResource(uri, known))
+	Arr.some(Arr.fromIterable(documents.keys()), (known) => sameResource(uri, known))
 
 /**
  * Whether one more document under `uri` overflows the budget. The entry always holds a slot: its
@@ -163,17 +174,32 @@ const overflows = ({ documents, entry }: Loading, uri: string): boolean => {
 }
 
 /**
+ * How a pair's file is read: as a path the operator named, or as a member a trust boundary
+ * admitted, which `verify` checks once it is open.
+ */
+type ReadPair = (
+	pair: DocumentPair,
+	document: Document
+) => Effect.Effect<Uint8Array, LoadRefusal, FileSystem.FileSystem>
+
+const readOperatorPair: ReadPair = (pair, document) =>
+	readFileBounded(pair.path, defaultLoadLimits, document)
+
+const readAdmittedPair =
+	(verify: VerifyOpened): ReadPair =>
+	(pair, document) =>
+		readMemberBounded(pair.path, defaultLoadLimits, document, verify)
+
+/**
  * Reads, parses and hashes the file of `pair` under `document`; a refusal names the pair's path.
  */
 const readMember = Effect.fnUntraced(
 	function* readMember(
 		pair: DocumentPair,
 		document: Document,
-		verify?: VerifyOpened
+		read: ReadPair
 	): Effect.fn.Return<SetMember, LoadRefusal, FileSystem.FileSystem | Digest.Digest> {
-		const bytes = yield* verify === undefined
-			? readFileBounded(pair.path, defaultLimits, document)
-			: readMemberBounded(pair.path, defaultLimits, document, verify)
+		const bytes = yield* read(pair, document)
 		const loaded = yield* loadBytes(bytes, { document })
 		const sha256 = yield* sha256Hex(bytes)
 
@@ -190,7 +216,7 @@ const readMember = Effect.fnUntraced(
 const loadPair = Effect.fnUntraced(function* loadPair(
 	loading: Loading,
 	pair: DocumentPair,
-	verify?: VerifyOpened
+	read: ReadPair
 ): Effect.fn.Return<void, LoadRefusal, FileSystem.FileSystem | Path.Path | Digest.Digest> {
 	const uri = decodeUri(pair.uri)
 
@@ -206,7 +232,7 @@ const loadPair = Effect.fnUntraced(function* loadPair(
 		return yield* refusePair("REF-16/document-limit", pair)
 	}
 
-	const member = yield* readMember(pair, uri.value, verify)
+	const member = yield* readMember(pair, uri.value, read)
 
 	loading.documents.set(uri.value, member)
 
@@ -299,7 +325,11 @@ const preloadFile = Effect.fnUntraced(function* preloadFile(
 	const path = yield* Path.Path
 	const uri = (yield* path.toFileUrl(real).pipe(Effect.orDie)).href
 
-	yield* loadPair(loading, { path: real, uri }, sameCheckedFile(path, realRoot, real))
+	yield* loadPair(
+		loading,
+		{ path: real, uri },
+		readAdmittedPair(sameCheckedFile(path, realRoot, real))
+	)
 })
 
 const preloadRoot = Effect.fnUntraced(function* preloadRoot(
@@ -313,7 +343,7 @@ const preloadRoot = Effect.fnUntraced(function* preloadRoot(
 	const seenFiles = new Set<string>()
 	let visited = 0
 
-	const isSpecName = (name: string) => refRootExtensions.has(path.extname(name).toLowerCase())
+	const isSpecName = (name: string) => refRootExtensions.has(Str.toLowerCase(path.extname(name)))
 
 	type Step = Effect.Effect<void, LoadRefusal, FileSystem.FileSystem | Path.Path | Digest.Digest>
 
@@ -370,7 +400,7 @@ const preloadRoot = Effect.fnUntraced(function* preloadRoot(
 				Effect.flatMap((consider) =>
 					consider
 						? resolveUnderRoot(realRoot, path.relative(realRoot, entry)).pipe(
-								Effect.map(Option.some),
+								Effect.asSome,
 								Effect.catchIf(
 									(refusal) => !specNamed && refusal.diagnostic.code === "REF-16/outside-root",
 									() => Effect.succeedNone
@@ -421,12 +451,12 @@ const preloadRoot = Effect.fnUntraced(function* preloadRoot(
  */
 export const makeDocumentSet = Effect.fnUntraced(function* makeDocumentSet(
 	pairs: readonly DocumentPair[],
-	options: DocumentSetOptions = {}
+	options: DocumentSetOptions
 ): Effect.fn.Return<DocumentSet, LoadRefusal, FileSystem.FileSystem | Path.Path | Digest.Digest> {
 	const loading: Loading = { documents: new Map(), entry: options.entry }
 
 	for (const pair of pairs) {
-		yield* loadPair(loading, pair)
+		yield* loadPair(loading, pair, readOperatorPair)
 	}
 
 	if (options.refRoot !== undefined) {

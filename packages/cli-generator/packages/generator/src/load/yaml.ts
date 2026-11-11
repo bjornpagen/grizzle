@@ -1,5 +1,4 @@
-/* oxlint-disable unicorn/throw-new-error -- Schema.TaggedError<Self>()(tag, fields) declares a class; nothing is thrown */
-import { Effect, Record, Schema } from "effect"
+import { Array as Arr, Effect, Option, Predicate, Record, Schema } from "effect"
 import { isAlias, isScalar, isSeq, LineCounter, parseAllDocuments } from "yaml"
 import type {
 	Alias,
@@ -10,7 +9,7 @@ import type {
 	YAMLMap,
 	YAMLSeq
 } from "yaml"
-import { refuse } from "#load/budget.ts"
+import { refuse, wholeInput } from "#load/budget.ts"
 import type { LoadCode, LoadLimits, LoadRefusal, Position } from "#load/budget.ts"
 import { byteOffset } from "#load/offset.ts"
 import type { DocumentUri } from "#model/brands.ts"
@@ -31,17 +30,21 @@ interface Failure {
 /**
  * The one throwing seam: `yaml`'s parser, which can throw on pathological input (design 13.1 R7).
  */
-class YamlParserFault extends Schema.TaggedError<YamlParserFault>()("YamlParserFault", {
+class YamlParserFault extends Schema.TaggedError<
+	YamlParserFault,
+	{ readonly brand: unique symbol }
+>()("YamlParserFault", {
 	cause: Schema.Defect()
 }) {}
 
 const jsonTags: ReadonlySet<string> = new Set(
-	["bool", "float", "int", "map", "null", "seq", "str"].map((name) => `tag:yaml.org,2002:${name}`)
+	Arr.map(
+		["bool", "float", "int", "map", "null", "seq", "str"],
+		(name) => `tag:yaml.org,2002:${name}`
+	)
 )
 
 const isJsonScalar = Schema.is(Schema.Union([Schema.String, Schema.Boolean, Schema.Null]))
-
-const isNumber = Schema.is(Schema.Number)
 
 const isFinite = Schema.is(Schema.Finite)
 
@@ -89,9 +92,9 @@ const scalarOf = (walk: Walk, node: Scalar.Parsed): Built => {
 
 	if (!hasJsonTag(node.tag)) {
 		fail(walk, "DOC-14/yaml-non-json-tag", node)
-	} else if (isNumber(value) && !isFinite(value)) {
+	} else if (Predicate.isNumber(value) && !isFinite(value)) {
 		fail(walk, "DOC-14/yaml-non-finite", node)
-	} else if (isNumber(value) || isJsonScalar(value)) {
+	} else if (Predicate.isNumber(value) || isJsonScalar(value)) {
 		return leaf(value)
 	} else {
 		fail(walk, "DOC-14/yaml-non-json-tag", node)
@@ -226,7 +229,7 @@ const build = (walk: Walk, node: ParsedNode | null, depth: number): Built => {
 	return built
 }
 
-const errorCodes = new Map<string, LoadCode>([
+const errorCodes: ReadonlyMap<string, LoadCode> = new Map([
 	["DUPLICATE_KEY", "DOC-14/duplicate-key"],
 	["NON_STRING_KEY", "DOC-14/yaml-non-string-key"],
 	["TAG_RESOLVE_FAILED", "DOC-14/yaml-non-json-tag"]
@@ -290,14 +293,6 @@ const locate = (
 	}
 }
 
-const refuseYaml = (
-	document: Document,
-	code: LoadCode,
-	pointer: string,
-	position?: Position
-): Effect.Effect<never, LoadRefusal> =>
-	refuse(document, code, position === undefined ? { pointer } : { pointer, position })
-
 /**
  * Strict YAML 1.2 (design 3.1): `yaml`'s core schema with unique, string keys and no merge, then a
  * walk that builds the JSON value and refuses what the parser accepts but JSON cannot hold.
@@ -313,7 +308,7 @@ export const parseStrictYaml = (
 	const lineCounter = new LineCounter()
 
 	return Effect.try({
-		catch: (cause) => new YamlParserFault({ cause }),
+		catch: (cause) => YamlParserFault.make({ cause }),
 		try: () =>
 			parseAllDocuments(text, {
 				lineCounter,
@@ -325,7 +320,7 @@ export const parseStrictYaml = (
 			})
 	}).pipe(
 		Effect.matchEffect({
-			onFailure: () => refuseYaml(document, "DOC-14/invalid-yaml", ""),
+			onFailure: () => refuse(document, "DOC-14/invalid-yaml", wholeInput),
 			onSuccess: (documents) => {
 				const outcome = interpret(documents, limits)
 
@@ -335,12 +330,12 @@ export const parseStrictYaml = (
 
 				const { code, index, pointer } = outcome.failure
 
-				return refuseYaml(
-					document,
-					code,
+				return refuse(document, code, {
 					pointer,
-					index === undefined ? undefined : locate(text, lineCounter, index, byteBase)
-				)
+					position: Option.map(Option.fromUndefinedOr(index), (at) =>
+						locate(text, lineCounter, at, byteBase)
+					)
+				})
 			}
 		})
 	)

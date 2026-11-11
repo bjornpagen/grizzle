@@ -16,7 +16,10 @@ export interface LoadLimits {
 	readonly maxNodes: number
 }
 
-export const defaultLimits: LoadLimits = {
+/**
+ * The limits every document a run loads is read under.
+ */
+export const defaultLoadLimits: LoadLimits = {
 	maxBytes: 64 * 1024 * 1024,
 	maxDepth: 256,
 	maxNodes: 10_000_000
@@ -44,10 +47,12 @@ export type LoadCode = keyof typeof messages
 /**
  * The loader refused its input. `offset` is a byte offset into the input when one is known.
  */
-// oxlint-disable-next-line unicorn/throw-new-error -- Schema.TaggedError<Self>()(tag, fields) declares a class; nothing is thrown
-export class LoadRefusal extends Schema.TaggedError<LoadRefusal>()("LoadRefusal", {
+export class LoadRefusal extends Schema.TaggedError<
+	LoadRefusal,
+	{ readonly brand: unique symbol }
+>()("LoadRefusal", {
 	diagnostic: Diagnostic,
-	offset: Schema.optionalKey(Schema.Number)
+	offset: Schema.optionalKey(Schema.Natural)
 }) {}
 
 /**
@@ -59,10 +64,19 @@ export interface Position {
 	readonly offset: number
 }
 
-export interface RefusalDetail {
-	readonly pointer?: string
-	readonly position?: Position
+/**
+ * Where a refusal points: the pointer of the value refused, and its place in the input when the
+ * parser knows one.
+ */
+export interface RefusalSite {
+	readonly pointer: string
+	readonly position: Option.Option<Position>
 }
+
+/**
+ * The site of a refusal of the input as a whole.
+ */
+export const wholeInput: RefusalSite = { pointer: "", position: Option.none() }
 
 const diagnosticFields = (
 	document: Document,
@@ -86,22 +100,22 @@ const diagnosticFields = (
 export const refuse = (
 	document: Document,
 	code: LoadCode,
-	detail: RefusalDetail = {}
+	site: RefusalSite
 ): Effect.Effect<never, LoadRefusal> => {
-	const fields = diagnosticFields(document, code, detail.pointer ?? "")
-	const { position } = detail
-	const input: DiagnosticInput =
-		position === undefined ? fields : { ...fields, column: position.column, line: position.line }
+	const fields = diagnosticFields(document, code, site.pointer)
 
-	return makeDiagnostic(input).pipe(
-		Effect.flatMap((diagnostic) =>
-			Effect.fail(
-				new LoadRefusal(
-					position === undefined ? { diagnostic } : { diagnostic, offset: position.offset }
+	return Option.match(site.position, {
+		onNone: () =>
+			makeDiagnostic(fields).pipe(
+				Effect.flatMap((diagnostic) => Effect.fail(LoadRefusal.make({ diagnostic })))
+			),
+		onSome: (position) =>
+			makeDiagnostic({ ...fields, column: position.column, line: position.line }).pipe(
+				Effect.flatMap((diagnostic) =>
+					Effect.fail(LoadRefusal.make({ diagnostic, offset: position.offset }))
 				)
 			)
-		)
-	)
+	})
 }
 
 /**
@@ -115,11 +129,11 @@ export const readStreamBounded = (
 	stream.pipe(
 		Stream.limitBytes<PlatformError.PlatformError | LoadRefusal, never>(
 			ByteSize.bytes(limits.maxBytes),
-			() => Stream.fromEffect(refuse(document, "DOC-14/too-large"))
+			() => Stream.fromEffect(refuse(document, "DOC-14/too-large", wholeInput))
 		),
 		Stream.runCollect,
 		Effect.map(Bytes.concat),
-		Effect.catchTag("PlatformError", () => refuse(document, "DOC-14/unreadable"))
+		Effect.catchTag("PlatformError", () => refuse(document, "DOC-14/unreadable", wholeInput))
 	)
 
 /**
@@ -133,6 +147,11 @@ export type VerifyOpened = (
 const chunkSize = 64 * 1024
 
 /**
+ * One read of a handle: the chunks it yields, and the handle again while bytes remain.
+ */
+type Page = readonly [chunks: readonly Uint8Array[], next: Option.Option<FileSystem.File>]
+
+/**
  * The handle's bytes, chunk by chunk, until end of file.
  */
 const handleStream = (
@@ -142,8 +161,8 @@ const handleStream = (
 		handle.readAlloc(chunkSize).pipe(
 			Effect.map(
 				Option.match({
-					onNone: () => [[], Option.none()] as const,
-					onSome: (chunk) => [[chunk], Option.some(handle)] as const
+					onNone: (): Page => [[], Option.none()],
+					onSome: (chunk): Page => [[chunk], Option.some(handle)]
 				})
 			)
 		)
@@ -155,11 +174,11 @@ const checkRegular = (
 	document: Document
 ): Effect.Effect<void, LoadRefusal> => {
 	if (info.type !== "File") {
-		return refuse(document, "DOC-14/unreadable")
+		return refuse(document, "DOC-14/unreadable", wholeInput)
 	}
 
 	return ByteSize.toBigInt(info.size) > BigInt(limits.maxBytes)
-		? refuse(document, "DOC-14/too-large")
+		? refuse(document, "DOC-14/too-large", wholeInput)
 		: Effect.void
 }
 
@@ -196,7 +215,7 @@ const readOpened = Effect.fnUntraced(function* readBounded(
 	verify: VerifyAgainst
 ): Effect.fn.Return<Uint8Array, LoadRefusal, FileSystem.FileSystem | Scope.Scope> {
 	const fs = yield* FileSystem.FileSystem
-	const unreadable = () => refuse(document, "DOC-14/unreadable")
+	const unreadable = () => refuse(document, "DOC-14/unreadable", wholeInput)
 
 	const before = yield* fs.stat(path).pipe(Effect.catchTag("PlatformError", unreadable))
 
@@ -229,10 +248,10 @@ export const readFileBounded = Effect.fnUntraced(function* readOperatorPath(
 	const fs = yield* FileSystem.FileSystem
 	const real = yield* fs
 		.realPath(path)
-		.pipe(Effect.catchTag("PlatformError", () => refuse(document, "DOC-14/unreadable")))
+		.pipe(Effect.catchTag("PlatformError", () => refuse(document, "DOC-14/unreadable", wholeInput)))
 
 	return yield* readOpened(real, limits, document, (before, opened) =>
-		sameFile(before, opened) ? Effect.void : refuse(document, "DOC-14/unreadable")
+		sameFile(before, opened) ? Effect.void : refuse(document, "DOC-14/unreadable", wholeInput)
 	)
 })
 

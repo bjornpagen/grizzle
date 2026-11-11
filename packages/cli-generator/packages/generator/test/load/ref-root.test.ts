@@ -273,7 +273,7 @@ describe("document set: --ref-root", () => {
 			spellings.map((pair) =>
 				Effect.runPromise(
 					Effect.flip(
-						makeDocumentSet([pair]).pipe(
+						makeDocumentSet([pair], {}).pipe(
 							Effect.flatMap((set) => setMembers(entry, set)),
 							Effect.provide(layer)
 						)

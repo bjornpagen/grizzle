@@ -15,10 +15,10 @@ import { Argument, CliError, Command, Flag } from "effect/cli"
 import { checkSpecText } from "#check/index.ts"
 import { generate, otherDocumentPathItems, setMembers, versionRefused } from "#generate.ts"
 import type { GenerateError, GenerateInput, GenerateResult, SpecSource } from "#generate.ts"
-import { readFileBounded, readStreamBounded } from "#load/budget.ts"
+import { defaultLoadLimits, readFileBounded, readStreamBounded } from "#load/budget.ts"
 import { makeDocumentSet, parseDocumentPair } from "#load/document-set.ts"
 import type { DocumentSet } from "#load/document-set.ts"
-import { defaultLimits, loadBytes } from "#load/index.ts"
+import { loadBytes } from "#load/index.ts"
 import type { LoadRefusal } from "#load/index.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { isDocumentRefusal, sortDiagnostics } from "#model/diagnostic.ts"
@@ -286,8 +286,8 @@ const check = (spec: Spec, documents: DocumentSet) =>
 			)
 		const bytes = yield* (
 			spec.source._tag === "File"
-				? readFileBounded(spec.source.path, defaultLimits, document)
-				: readStreamBounded(spec.source.stream, defaultLimits, document)
+				? readFileBounded(spec.source.path, defaultLoadLimits, document)
+				: readStreamBounded(spec.source.stream, defaultLoadLimits, document)
 		).pipe(Effect.catch(loadRefused))
 		const loaded = yield* loadBytes(bytes, { document }).pipe(Effect.catch(loadRefused))
 		const { diagnosis, line } = yield* Effect.all({

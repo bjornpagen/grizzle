@@ -9,14 +9,15 @@ import {
 } from "node:fs"
 import path from "node:path"
 import { NodeFileSystem } from "@effect/platform-node"
-import { ByteSize, Effect, FileSystem, Schema } from "effect"
+import { ByteSize, Effect, FileSystem, Option, Schema } from "effect"
 import { afterEach, describe, expect, test } from "vitest"
 import {
-	defaultLimits,
+	defaultLoadLimits,
 	LoadRefusal,
 	readFileBounded,
 	readMemberBounded,
-	refuse
+	refuse,
+	wholeInput
 } from "#load/budget.ts"
 import type { VerifyOpened } from "#load/budget.ts"
 import { DocumentUri } from "#model/brands.ts"
@@ -46,9 +47,9 @@ const document = Schema.decodeUnknownSync(DocumentUri)("https://example.com/doc.
 const read = (
 	file: string,
 	verify: VerifyOpened = () => Effect.void,
-	maxBytes = defaultLimits.maxBytes
+	maxBytes = defaultLoadLimits.maxBytes
 ) =>
-	readMemberBounded(file, { ...defaultLimits, maxBytes }, document, verify).pipe(
+	readMemberBounded(file, { ...defaultLoadLimits, maxBytes }, document, verify).pipe(
 		Effect.provide(NodeFileSystem.layer)
 	)
 
@@ -120,7 +121,7 @@ describe("readMemberBounded", () => {
 
 		writeFileSync(file, "{}")
 
-		const error = await refusal(read(file, () => refuse(document, "DOC-14/unreadable")))
+		const error = await refusal(read(file, () => refuse(document, "DOC-14/unreadable", wholeInput)))
 
 		expect(error.diagnostic.code).toBe("DOC-14/unreadable")
 	})
@@ -139,7 +140,7 @@ const readOperator = (file: string, hook?: (path: string) => void) =>
 				})
 		}
 
-		return yield* readFileBounded(file, defaultLimits, document).pipe(
+		return yield* readFileBounded(file, defaultLoadLimits, document).pipe(
 			Effect.provideService(FileSystem.FileSystem, hooked)
 		)
 	}).pipe(Effect.provide(NodeFileSystem.layer))
@@ -189,11 +190,13 @@ describe("LoadRefusal", () => {
 			Effect.flip(
 				refuse(document, "DOC-14/invalid-json", {
 					pointer: "/a",
-					position: { column: 3, line: 2, offset: 7 }
+					position: Option.some({ column: 3, line: 2, offset: 7 })
 				})
 			)
 		)
-		const bare = await Effect.runPromise(Effect.flip(refuse(document, "DOC-14/unreadable")))
+		const bare = await Effect.runPromise(
+			Effect.flip(refuse(document, "DOC-14/unreadable", wholeInput))
+		)
 
 		expect(located).toBeInstanceOf(LoadRefusal)
 		expect(located._tag).toBe("LoadRefusal")

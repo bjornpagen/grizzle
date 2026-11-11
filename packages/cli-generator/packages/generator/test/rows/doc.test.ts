@@ -360,7 +360,7 @@ const inProcess = async ({ entry, file, set = {} }: Case): Promise<Generated> =>
 	const outDir = nodePath.join(dir, "out")
 	const exit = await Effect.runPromiseExit(
 		Effect.gen(function* generateCase() {
-			const documents = yield* makeDocumentSet(pairs)
+			const documents = yield* makeDocumentSet(pairs, {})
 
 			return yield* generate(
 				{

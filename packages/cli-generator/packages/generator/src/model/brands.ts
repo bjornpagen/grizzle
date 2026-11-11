@@ -121,21 +121,22 @@ export const MethodToken = pattern(tokenPattern).pipe(
 export const SafeText = pattern(safeTextPattern).pipe(Schema.brand("SafeText"))
 
 /**
+ * Source text made safe whatever its length: removes exactly the characters of the categories
+ * `SafeText` rejects, so the result is always `SafeText`.
+ */
+export const stripUnsafeText = (text: string): typeof SafeText.Type =>
+	SafeText.make(Str.replaceAll(unsafeCharacter, "")(text))
+
+/**
  * The most code points one piece of source prose keeps in help and the report.
  */
 const maxProseLength = 2000
 
 /**
- * Source prose made help-safe: removes exactly the characters of the categories `SafeText` rejects,
- * then keeps the first `maxProseLength` code points, so the result is always `SafeText`.
+ * Source prose made help-safe: `stripUnsafeText`, then the first `maxProseLength` code points.
  */
 export const sanitizeProse = (text: string): typeof SafeText.Type =>
-	SafeText.make(
-		Arr.join(
-			Arr.take(Arr.fromIterable(Str.replaceAll(unsafeCharacter, "")(text)), maxProseLength),
-			""
-		)
-	)
+	SafeText.make(Arr.join(Arr.take(Arr.fromIterable(stripUnsafeText(text)), maxProseLength), ""))
 
 /**
  * An absolute URI with ASCII characters only.

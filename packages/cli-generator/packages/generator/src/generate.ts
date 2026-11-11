@@ -13,10 +13,10 @@ import { emitScaffold } from "#emit/index.ts"
 import { PackageEmitError } from "#emit/package.ts"
 import type { EmittedFile } from "#emit/package.ts"
 import type { PrinterError } from "#emit/printer.ts"
-import { readFileBounded, readStreamBounded } from "#load/budget.ts"
+import { defaultLoadLimits, readFileBounded, readStreamBounded } from "#load/budget.ts"
 import { duplicateUri } from "#load/document-set.ts"
 import type { DocumentSet } from "#load/document-set.ts"
-import { defaultLimits, loadBytes } from "#load/index.ts"
+import { loadBytes } from "#load/index.ts"
 import type { LoadRefusal } from "#load/index.ts"
 import { decodeAuthorConfig } from "#model/author-config.ts"
 import type { AuthorConfig } from "#model/author-config.ts"
@@ -165,8 +165,8 @@ const readSpec = (
 	input: GenerateInput
 ): Effect.Effect<Uint8Array, LoadRefusal, FileSystem.FileSystem> =>
 	input.source._tag === "File"
-		? readFileBounded(input.source.path, defaultLimits, input.document)
-		: readStreamBounded(input.source.stream, defaultLimits, input.document)
+		? readFileBounded(input.source.path, defaultLoadLimits, input.document)
+		: readStreamBounded(input.source.stream, defaultLoadLimits, input.document)
 
 const readConfig = (
 	config: GenerateConfig
@@ -176,7 +176,7 @@ const readConfig = (
 	FileSystem.FileSystem
 > =>
 	Effect.gen(function* read() {
-		const bytes = yield* readFileBounded(config.path, defaultLimits, config.document)
+		const bytes = yield* readFileBounded(config.path, defaultLoadLimits, config.document)
 		const loaded = yield* loadBytes(bytes, { document: config.document })
 
 		return { bytes, json: loaded.value }

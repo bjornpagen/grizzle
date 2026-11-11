@@ -1,13 +1,19 @@
-import { Effect } from "effect"
+import { Effect, Option, String as Str } from "effect"
 import type { FileSystem, PlatformError, Stream } from "effect"
-import { defaultLimits, readFileBounded, readStreamBounded, refuse } from "#load/budget.ts"
+import {
+	defaultLoadLimits,
+	readFileBounded,
+	readStreamBounded,
+	refuse,
+	wholeInput
+} from "#load/budget.ts"
 import type { LoadLimits, LoadRefusal } from "#load/budget.ts"
 import { parseStrictJson } from "#load/json.ts"
 import { parseStrictYaml } from "#load/yaml.ts"
 import type { DocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
 
-export { defaultLimits, LoadRefusal } from "#load/budget.ts"
+export { LoadRefusal } from "#load/budget.ts"
 
 export type { LoadLimits } from "#load/budget.ts"
 
@@ -24,12 +30,17 @@ export interface Loaded {
 	readonly value: Json
 }
 
-const limitsOf = (options: LoadOptions): LoadLimits => ({ ...defaultLimits, ...options.limits })
+const limitsOf = (options: LoadOptions): LoadLimits => ({ ...defaultLoadLimits, ...options.limits })
 
 const hasBom = (bytes: Uint8Array): boolean =>
 	bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
 
 const decoder = new TextDecoder("utf-8", { fatal: true })
+
+/**
+ * The text of UTF-8 bytes, `None` when they are not valid UTF-8.
+ */
+const decodeUtf8 = Option.liftThrowable((bytes: Uint8Array): string => decoder.decode(bytes))
 
 /**
  * Loads one document from bytes already read. The first non-whitespace character picks the
@@ -43,21 +54,20 @@ export const loadBytes = Effect.fn("load.loadBytes")(function* loadBytes(
 	const { document } = options
 
 	if (bytes.length > limits.maxBytes) {
-		return yield* refuse(document, "DOC-14/too-large")
+		return yield* refuse(document, "DOC-14/too-large", wholeInput)
 	}
 
-	return yield* Effect.try(() => decoder.decode(bytes)).pipe(
-		Effect.catch(() => refuse(document, "DOC-14/invalid-encoding")),
-		Effect.flatMap((text) =>
-			text.trimStart().startsWith("{")
+	return yield* Option.match(decodeUtf8(bytes), {
+		onNone: () => refuse(document, "DOC-14/invalid-encoding", wholeInput),
+		onSome: (text) =>
+			Str.startsWith("{")(Str.trimStart(text))
 				? parseStrictJson(text, limits, document, hasBom(bytes) ? 3 : 0).pipe(
 						Effect.map((value): Loaded => ({ document, format: "json", value }))
 					)
 				: parseStrictYaml(text, limits, document, hasBom(bytes) ? 3 : 0).pipe(
 						Effect.map((value): Loaded => ({ document, format: "yaml", value }))
 					)
-		)
-	)
+	})
 })
 
 /**
