@@ -10,7 +10,7 @@
  * - The routes are the members: httpRoutes lists exactly `POST /<login>/<role>/<program>` for each member of each role
  *   the served file holds, and nothing else.
  * - The handler dispatches by them: a drawn request line, a route's mutated (another method, a query, a segment
- *   renamed, added or dropped, a trailing slash), answers `route` exactly when no member names it.
+ *   renamed, added or dropped, a trailing slash) or its own, answers `route` exactly when no member names it.
  * - A route's call is refused in its order, before any SQL: a request naming no wire digest is an `input`, one naming
  *   another form `stale`; an Authorization header that is no bearer token, or none where the role reads a context, is
  *   `tokenRefused`; a body that is no JSON is an `input`.
@@ -138,27 +138,41 @@ const mutationGen: Gen<Mutation> = (source) => {
 	}
 }
 
+/**
+ * One probe of a login of `routes` routes: a call of a route; a drawn request line, a route's under a drawn method and
+ * a drawn mutation of its target; or a route's own line, sent as a drawn line is, with no header naming its wire.
+ */
+const probeGen =
+	(routes: number): Gen<Probe> =>
+	(source) => {
+		const route = source.draw(int(0, routes - 1))
+		switch (source.draw(element(["route", "line", "own line"] as const))) {
+			case "route":
+				return {
+					kind: "route",
+					route,
+					wire: source.draw(element(["named", "absent", "other"] as const)),
+					authorization: source.draw(element(["bearer", "none", "basic"] as const))
+				}
+			case "line":
+				return {
+					kind: "line",
+					route,
+					method: source.draw(
+						element(["POST", "GET", "PUT", "DELETE", "PATCH", "OPTIONS"] as const)
+					),
+					target: source.draw(mutationGen)
+				}
+			case "own line":
+				return { kind: "line", route, method: "POST", target: { kind: "same" } }
+		}
+	}
+
 /** Between one and eight probes of a login of `routes` routes. */
 const probesGen =
 	(routes: number): Gen<ReadonlyArray<Probe>> =>
 	(source) =>
-		Arr.map(Arr.range(1, source.draw(int(1, 8))), (): Probe =>
-			source.draw(element(["route", "line"] as const)) === "route"
-				? {
-						kind: "route",
-						route: source.draw(int(0, routes - 1)),
-						wire: source.draw(element(["named", "absent", "other"] as const)),
-						authorization: source.draw(element(["bearer", "none", "basic"] as const))
-					}
-				: {
-						kind: "line",
-						route: source.draw(int(0, routes - 1)),
-						method: source.draw(
-							element(["POST", "GET", "PUT", "DELETE", "PATCH", "OPTIONS"] as const)
-						),
-						target: source.draw(mutationGen)
-					}
-		)
+		Arr.map(Arr.range(1, source.draw(int(1, 8))), () => source.draw(probeGen(routes)))
 
 /** What every route's request line starts with: its method and the space after it. */
 const routeMethod = "POST "
