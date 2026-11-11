@@ -1,3 +1,19 @@
+/**
+ * GiST span indexes on PostgreSQL 19: every Allen mask and pointIn the search draws reads its span relation through the
+ * GiST the installation holds for it, in both artifacts, at each data size.
+ *
+ * Booking's span key is a primary WITHOUT OVERLAPS over (room, during); Visit's GiST over (room, during) is the access
+ * index the engine creates for a workload read. Each case draws a predicate (one disjunct, a union, pointIn, or an
+ * endpoint in the window), a window and a room, reads each relation by room or across rooms, and EXPLAINs each
+ * artifact's statement with sequential and plain index scans disabled: the plan reads the relation's GiST, named at the
+ * naming door, and scans no relation sequentially. The conservative artifact keeps an endpoint in the window as
+ * written, which no index drives, so only the optimized one is judged there.
+ *
+ * Features: each relation, predicate kind and prefix, and each data size.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): gist-access-btree.patch (the access index over a span created as a
+ * B-tree).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -259,7 +275,10 @@ FROM generate_series(0, ${size.rooms * size.perRoom - 1}) AS i`,
 					const installs = new Map(installedSizes)
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "postgresql",
+								name: "PostgreSQL's plan with sequential and plain index scans disabled reads the relation's GiST"
+							},
 							suite: "spans/allen-gist",
 							draw: drawn(planSketchGen),
 							literal: Formatter.format,

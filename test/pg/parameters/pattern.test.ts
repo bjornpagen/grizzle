@@ -7,6 +7,8 @@
  * whether or not the installation holds its domain. The oracle restates each pattern over the drawn text: a case some
  * value of which is outside its pattern is refused at bind, EncodingFailure with reason refinedValue, before any SQL;
  * every other case delivers exactly the values it bound.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): regex-complete-unchecked-param.patch.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

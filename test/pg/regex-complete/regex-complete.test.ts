@@ -1,3 +1,28 @@
+/**
+ * Refinement validation sites on PostgreSQL 19.
+ *
+ * One schema, installed by the fresh-install compiler under a fresh schema name, carries a slug pattern, a
+ * language-equivalent spelling of it, a contract bounding length with Compute.charLength over the wildcard, and a
+ * closed relation whose payload is a slug. Against it:
+ *
+ * - a parameter is checked against its pattern or contract where the reader binds it (adapter/reader/relations.ts
+ *   executionInputs): a value outside them is refused with the codec fault refinedValue before any SQL is sent, and a
+ *   value inside them matches exactly its rows, under generic and custom plans and unprepared, in both artifacts, also
+ *   where the query emits the parameter, a fused attachment's child emits it inside its array, or a union's arm emits
+ *   it beside an arm that stores it; each forced plan is checked against pg_prepared_statements;
+ * - a scalar parameter's and a relation parameter's refined values alike, a relation parameter's refined column, which
+ *   the optimized delivery casts to its domain in the output list (lower/shapes/refined), included;
+ * - a Compute.cast into a refinement no value of its operand is proved to satisfy is refused by compilation
+ *   (PartialOperation, precondition language), so no read raises 23514 on a delivered row;
+ * - a refined write is refused before commit, by grizzle's compiled insert and by a direct SQL writer alike, with
+ *   PostgreSQL's 23514 naming the domain's constraint;
+ * - closed payloads are validated by PostgreSQL at installation, and the migration generate drafts and the snapshot
+ *   admission derives hold the same validation; a refined query literal is validated wherever it is delivered.
+ *
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): regex-complete-unchecked-param.patch (a scalar parameter's refinement
+ * not checked at bind).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -84,29 +109,7 @@ import { ownerSession, Substrate, worldSession } from "#test/support/substrate/s
 import { outputRows, paramText } from "#test/support/wire.ts"
 import { oracleWorld } from "#test/support/worlds.ts"
 
-/**
- * Refinement validation sites on PostgreSQL 19.
- *
- * One schema, installed by the fresh-install compiler under a fresh schema name, carries a slug pattern, a
- * language-equivalent spelling of it, a contract bounding length with Compute.charLength over the wildcard, and a
- * closed relation whose payload is a slug. Against it:
- *
- * - a parameter is checked against its pattern or contract where the reader binds it (adapter/reader/relations.ts
- *   executionInputs): a value outside them is refused with the codec fault refinedValue before any SQL is sent, and a
- *   value inside them matches exactly its rows, under generic and custom plans and unprepared, in both artifacts, also
- *   where the query emits the parameter, a fused attachment's child emits it inside its array, or a union's arm emits
- *   it beside an arm that stores it; each forced plan is checked against pg_prepared_statements;
- * - a scalar parameter's and a relation parameter's refined values alike, a relation parameter's refined column, which
- *   the optimized delivery casts to its domain in the output list (lower/shapes/refined), included;
- * - a Compute.cast into a refinement no value of its operand is proved to satisfy is refused by compilation
- *   (PartialOperation, precondition language), so no read raises 23514 on a delivered row;
- * - a refined write is refused before commit, by grizzle's compiled insert and by a direct SQL writer alike, with
- *   PostgreSQL's 23514 naming the domain's constraint;
- * - closed payloads are validated by PostgreSQL at installation, and the migration generate drafts and the snapshot
- *   admission derives hold the same validation; a refined query literal is validated wherever it is delivered.
- *
- * The slug, and a spelling of the same language (domain identity is the canonical pattern).
- */
+/** The slug, and a spelling of the same language (domain identity is the canonical pattern). */
 const Slug = str.regex("^[a-z][a-z0-9-]*$")
 const SlugAgain = str.regex("^[a-z](?:[a-z0-9]|-)*$")
 const Prose = str.regex("^.*$", "su")

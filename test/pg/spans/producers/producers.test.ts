@@ -1,3 +1,16 @@
+/**
+ * Span producers on PostgreSQL 19: intersection and difference of spans as rule heads and sources.
+ *
+ * - Correlated: a difference producer correlated to an outer binding inside a LATERAL source, on drawn fact sets,
+ *   delivers for each Left fact exactly the pieces of its span minus its group's Right spans, by brute force.
+ * - Generated: span queries with producers, in both artifacts, agree with each other and with the span reference
+ *   evaluator, and a head carrying the bound tuple beside its piece delivers each piece once.
+ *
+ * Features: each correlated outcome; each producer kind and tuple shape, with rows.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): producers-difference-adjacent.patch (a difference's pieces merged
+ * across an adjacent Right span).
+ */
 import { layer } from "@effect/vitest"
 import { drawn } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"

@@ -11,6 +11,9 @@
  * at most N bytes, by TextEncoder; otherwise the domain's CHECK refuses it with SQLSTATE 23514. The analysis agrees:
  * the field's type bounds its bytes at the lesser of the pattern's bound and N and its code points at the lesser of
  * the pattern's and N, and the host's membership (scalar/regex/patterns.ts ProgramPatterns) answers as PostgreSQL does.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): bytes-bound-codepoints.patch (str.bytes bounding code points, not
+ * UTF-8 bytes).
  */
 import { layer } from "@effect/vitest"
 import { type Case as SearchCase, drawn, explore } from "@grizzle/testing/explore"
@@ -241,7 +244,10 @@ const checkBatch = (batch: ReadonlyArray<BytesCase>, note: SearchCase<BytesFeatu
 
 const bytesSearch = explore(
 	{
-		oracle: { kind: "unstated" },
+		oracle: {
+			kind: "specification",
+			name: "ECMAScript membership of the pattern and TextEncoder's byte length: stored exactly when both hold"
+		},
 		suite: "text/bytes",
 		draw: drawn(array(caseGen, { min: cases, max: cases })),
 		literal: Formatter.format,

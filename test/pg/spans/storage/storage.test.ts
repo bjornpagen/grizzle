@@ -1,17 +1,23 @@
+/**
+ * Span storage on PostgreSQL 19: what a span column admits and stores, and how a span parameter binds.
+ *
+ * - Shape: drawn literals of every spelling (bounded, empty, unbounded on either side or both, and spellings beside a
+ *   type's limits) are stored as their canonical half-open span, refused by the shape CHECK when empty or unbounded,
+ *   or refused as invalid literals, as the host canonicalization says.
+ * - Width: a span of a fixed declared width is accepted exactly when its width is the declared one, at int4's limits
+ *   too, the width checked in numeric.
+ * - Contract endpoints: a span over a contract is refused, under the contract's law, exactly when an endpoint breaks
+ *   the contract's predicate, near its bounds and at bigint's limits.
+ * - Parameters: a span parameter binds as its canonical text, and lower, upper and width read every stored span the
+ *   window meets, exactly, a width past bigint's range among them; an empty or reversed window is refused by its codec.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): storage-shape-allows-empty.patch (the shape CHECK dropping its
+ * isempty clause), storage-width-int4.patch (the width checked in int4, which overflows at the limits).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import {
-	array,
-	boolean,
-	constant,
-	element,
-	filter,
-	type Gen,
-	int,
-	map,
-	oneOf
-} from "@grizzle/testing/gen"
+import { array, boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
@@ -102,16 +108,23 @@ const endpointGen = (limits: { readonly min: bigint; readonly max: bigint }): Ge
 		bigint(limits.min, limits.max)
 	])
 
-/** A nonempty span of two distinct drawn endpoints, the lesser its start. */
-const spanOf = (endpoint: Gen<bigint>): Gen<HalfOpen> =>
-	map(
-		filter(
-			(source): readonly [bigint, bigint] => [source.draw(endpoint), source.draw(endpoint)],
-			([a, b]) => a !== b,
-			10
-		),
-		([a, b]): HalfOpen => (a < b ? { lo: a, hi: b } : { lo: b, hi: a })
-	)
+/**
+ * A nonempty span of two drawn int8 endpoints, the lesser its start, built rather than filtered: two equal endpoints `a`
+ * span [a, a + 1), or [a - 1, a) at int8's greatest value.
+ */
+const spanOf =
+	(endpoint: Gen<bigint>): Gen<HalfOpen> =>
+	(source) => {
+		const a = source.draw(endpoint)
+		const b = source.draw(endpoint)
+		return a < b
+			? { lo: a, hi: b }
+			: b < a
+				? { lo: b, hi: a }
+				: a < int8.max
+					? { lo: a, hi: a + 1n }
+					: { lo: a - 1n, hi: a }
+	}
 
 /** What every property's exploration shares. */
 const exploration = {
@@ -271,7 +284,10 @@ layer(Substrate.layer)("span storage", (it) => {
 					}
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "the host canonicalization of each literal: stored canonical, refused by the shape CHECK, or invalid"
+							},
 							suite: "spans/storage/shape",
 							draw: drawn(arb),
 							kept: [],
@@ -353,7 +369,10 @@ layer(Substrate.layer)("span storage", (it) => {
 					const arb: Gen<HalfOpen> = (source) => source.draw(placed(source.draw(widths)))
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "the declared width checked in numeric: a span of exactly that width, and no other"
+							},
 							suite: "spans/storage/width",
 							draw: drawn(arb),
 							kept: [],
@@ -431,7 +450,10 @@ layer(Substrate.layer)("span storage", (it) => {
 					const arb = spanOf(endpoint)
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "the contract's predicate on each endpoint, the contract's law named for the first it refuses"
+							},
 							suite: "spans/storage/endpoints",
 							draw: drawn(arb),
 							kept: [],
@@ -519,7 +541,10 @@ layer(Substrate.layer)("span storage", (it) => {
 					})
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the host's lower, upper and width of every stored span the window meets"
+							},
 							suite: "spans/storage/bound",
 							draw: drawn(arb),
 							kept: [],

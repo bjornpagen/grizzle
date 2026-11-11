@@ -1,3 +1,20 @@
+/**
+ * A compiled template's deferred-key hazard on PostgreSQL 19.
+ *
+ * The worked example's Work schema is installed by the fresh-install compiler under a fresh schema name. TaskNote
+ * matched to Task on its deferred foreign key may drop the Task match in a snapshot template only (R03). Inside a write
+ * transaction whose drawn writes make the deferred key temporarily false (an orphan note inserted, a note's task
+ * removed) beside notes removed and added, the transaction-context template and a snapshot template's conservative
+ * artifact, which rests on no evidence, deliver exactly the notes whose task the transaction holds. Each artifact's statements run as the
+ * runtime runs them: the executable texts, placeholders filled by the statement's own encoders, every result column cast
+ * to text by the statement itself.
+ *
+ *
+ * The oracle is a model of the transaction's notes: exactly those whose task the transaction holds.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): templates-drop-match.patch (the Task match dropped in the
+ * transaction-context template too).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -43,17 +60,6 @@ import { owning } from "#test/support/policy.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
-/**
- * A compiled template's deferred-key hazard on PostgreSQL 19.
- *
- * The worked example's Work schema is installed by the fresh-install compiler under a fresh schema name. TaskNote
- * matched to Task on its deferred foreign key may drop the Task match in a snapshot template only (R03). Inside a write
- * transaction whose drawn writes make the deferred key temporarily false (an orphan note inserted, a note's task
- * removed) beside notes removed and added, the transaction-context template and a snapshot template's conservative
- * artifact, which rests on no evidence, deliver exactly the notes whose task the transaction holds. Each artifact's statements run as the
- * runtime runs them: the executable texts, placeholders filled by the statement's own encoders, every result column cast
- * to text by the statement itself.
- */
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 const A = id(0x1001)

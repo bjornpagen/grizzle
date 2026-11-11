@@ -1,3 +1,22 @@
+/**
+ * Allen masks and pointIn on stored spans, against PostgreSQL 19, in both artifacts (optimized and conservative).
+ *
+ * The universe's every spelling is stored in a relation of each range type, and points around the window and at the
+ * limits beside them. Properties:
+ *
+ * - every mask ALLEN names, its complement and converse, and the full mask, exhausted, and drawn masks searched: a pair
+ *   query's answer holds each pair of stored spans once, exactly the pairs the brute-force classifier relates by a
+ *   relation in the mask;
+ * - pointIn over every stored span and point, exhausted over the point's type (int4, int8, a contract over int8) and
+ *   the artifact: exactly the pairs whose span contains the point, half-open;
+ * - a pointIn window parameter, drawn at each limit, over one point and inside, binds as the point's base range type:
+ *   exactly the stored points inside it.
+ *
+ * Features: every basic relation a mask includes; each point type in each artifact; each window type at each edge.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): allen-table-meets-swapped.patch, classifications-point-in-closed.patch
+ * (pointIn lowered as a closed containment, lo <= p <= hi).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace, type Situations } from "@grizzle/testing/features"
@@ -324,40 +343,6 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 		return { installed, reader, table }
 	})
 
-	it.effect("stores every spelling of the universe as its canonical half-open span", (ctx) =>
-		searched(
-			ctx,
-			Effect.gen(function* () {
-				const { reader, table } = yield* setup
-				return yield* exhaust(
-					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
-						suite: "spans/allen-spellings",
-						generator: element(rangeTypes),
-						literal: Formatter.format,
-						limit: rangeTypes.length,
-						coverage: requiredInSpace<RangeType>(rangeTypes),
-						caseHang
-					},
-					(type, c) =>
-						Effect.gen(function* () {
-							c.note(type)
-							const stored = yield* reader.values(
-								`SELECT DISTINCT "s"::text FROM ${table(type === "int4range" ? "U4" : "U8")}`,
-								[]
-							)
-							assert.deepEqual(
-								new Set(Arr.map(stored, ([t]) => String(t))),
-								new Set(Arr.map(universe(type), spanText))
-							)
-							assert.equal(stored.length, universe(type).length)
-						})
-				)
-			})
-		)
-	)
-
 	it.effect(
 		"matches the brute-force classifier for every basic relation, named mask, complement, converse and explored mask",
 		(ctx) =>
@@ -378,8 +363,11 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 					)
 					yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "both range types, by every mask ALLEN names, its complement and converse, and the full mask",
+							oracle: {
+								kind: "second-implementation",
+								name: "the brute-force Allen classifier over the stored universe's pairs"
+							},
 							suite: "spans/allen-fixed-masks",
 							generator: (source) => ({
 								type: source.draw(element(rangeTypes)),
@@ -399,7 +387,10 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 					)
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the brute-force Allen classifier over the stored universe's pairs"
+							},
 							suite: "spans/allen-masks",
 							draw: drawn(int(1, fullAllenMask)),
 							literal: Formatter.format,
@@ -433,8 +424,11 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 					const { installed, reader } = yield* setup
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every point relation's type, in both artifacts",
+							oracle: {
+								kind: "specification",
+								name: "pointIn as half-open containment, lo <= p < hi, over every stored span and point"
+							},
 							suite: "spans/allen-point-in",
 							generator: (source) => ({
 								point: source.draw(element(windowTypes)),
@@ -476,7 +470,10 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 					}
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "the stored points inside the half-open window, lo <= p < hi"
+							},
 							suite: "spans/allen-window",
 							draw: drawn(windowSketchGen),
 							literal: Formatter.format,

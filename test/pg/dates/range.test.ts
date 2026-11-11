@@ -8,6 +8,9 @@
  * over the drawn day: a day inside it is stored and reads back through grizzle as the CalendarDate its text spells;
  * every other is refused with 23514 under the column's range CHECK, and stores nothing. grizzle reads the column through
  * a member of the full world's served workload.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): dates-range-year-zero.patch (the date column's range CHECK starting at
+ * year 0).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

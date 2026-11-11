@@ -1,17 +1,32 @@
+/**
+ * The cursor codec against PostgreSQL 19: boundary values captured
+ * from decoded database output survive the token exactly, and the decoded boundary, bound as the seek predicate's
+ * cast parameter, splits PostgreSQL's own order exactly where the captured row sits.
+ *
+ * For each carrier, each case's drawn batch beside the carrier's edge values (-0, NaN, the infinities, exact decimals,
+ * int8 extremes and supplementary-plane text where admitted) is sent through a recordset and read back in PostgreSQL's
+ * ORDER BY, with each row's count of rows at or before it. Each decoded row value becomes a cursor, the cursor is
+ * decoded, and its parameter text is bound as `$2::type` in `v < $2`, `v = $2` and `v > $2`: the three counts must be
+ * exactly PostgreSQL's own split around that row, so a cursor after it continues at the next distinct value and nothing
+ * is skipped or repeated. The host order of the decoded values agrees with PostgreSQL's (scalar/values compareValues).
+ *
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): cursor-negative-zero.patch (a cursor's double written without its
+ * sign at -0).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage } from "@grizzle/testing/features"
 import {
 	array,
+	codePoint,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
 	oneOf,
 	string,
-	unicodeScalar,
 	weighted
 } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -28,7 +43,6 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { anyNumeric, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { toReal } from "#compiler/scalar/values/float.ts"
 import { type Carrier, type CarrierHost, compareValues } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -48,18 +62,6 @@ import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/su
 import { outputText, paramText } from "#test/support/wire.ts"
 import { decimalGen } from "#test/unit/values/support.ts"
 
-/**
- * The cursor codec against PostgreSQL 19: boundary values captured
- * from decoded database output survive the token exactly, and the decoded boundary, bound as the seek predicate's
- * cast parameter, splits PostgreSQL's own order exactly where the captured row sits.
- *
- * For each carrier, each case's drawn batch beside the carrier's edge values (-0, NaN, the infinities, exact decimals,
- * int8 extremes and supplementary-plane text where admitted) is sent through a recordset and read back in PostgreSQL's
- * ORDER BY, with each row's count of rows at or before it. Each decoded row value becomes a cursor, the cursor is
- * decoded, and its parameter text is bound as `$2::type` in `v < $2`, `v = $2` and `v > $2`: the three counts must be
- * exactly PostgreSQL's own split around that row, so a cursor after it continues at the next distinct value and nothing
- * is skipped or repeated. The host order of the decoded values agrees with PostgreSQL's (scalar/values compareValues).
- */
 interface Case {
 	readonly label: string
 	readonly type: ScalarType
@@ -67,8 +69,11 @@ interface Case {
 	readonly edge: ReadonlyArray<unknown>
 }
 
-/** A code point PostgreSQL stores as it is: any Unicode scalar value but NUL, as a binary string draws them. */
-const storedCodePoint: Gen<string> = filter(unicodeScalar, (c) => c !== "\u0000", 2)
+/**
+ * A code point PostgreSQL stores as it is, any Unicode scalar value but NUL, built rather than filtered: below the
+ * surrogates, or above them, the supplementary planes among them, each half as often.
+ */
+const storedCodePoint: Gen<string> = oneOf([codePoint(0x01, 0xd7ff), codePoint(0xe000, 0x10_ffff)])
 
 /**
  * Texts of up to six code points, well-formed and without NUL: the order's cases (a shared prefix, a
@@ -165,7 +170,7 @@ const cases: Arr.NonEmptyReadonlyArray<Case> = [
 	{
 		label: "real",
 		type: plainType("float4"),
-		values: filter(anyReal, (x) => toReal(x).ok, 100),
+		values: anyReal,
 		edge: [-0, Number.NaN, Number.POSITIVE_INFINITY, 2 ** -149, Math.fround(0.1)]
 	},
 	{
@@ -314,7 +319,10 @@ layer(Substrate.layer)("the cursor codec against PostgreSQL's order", (it) => {
 				const { db, names } = yield* setup
 				return yield* explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "postgresql",
+							name: "PostgreSQL's ORDER BY, and its split of each carrier's rows around a decoded boundary"
+						},
 						suite: "cursor/codec",
 						draw: drawn(batches),
 						literal: Formatter.format,

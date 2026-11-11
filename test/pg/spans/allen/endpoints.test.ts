@@ -1,3 +1,21 @@
+/**
+ * Endpoint spellings of span relations on PostgreSQL 19: the optimized artifact's normal form of a predicate over
+ * spans' endpoints (lower, upper, a computed span, the window parameter) selects exactly what PostgreSQL selects for the
+ * predicate as spelled.
+ *
+ * - Exhausted: every endpoint predicate over a pair of spans, its negation, and every two of them joined, on each range
+ *   type, over facts at the window and at the type's limits.
+ * - Searched: generated trees of span predicates, Allen formulas beside endpoint predicates over the same pair, the
+ *   window parameter, comparisons within one span, predicates over no span, negations, and two pairs alike but for
+ *   their computed span.
+ *
+ * The oracle is PostgreSQL evaluating the predicate as spelled, over the same facts and parameters.
+ *
+ * Features: each type rewritten, and selecting every fact, none and some; each tree shape above.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): endpoints-upper-inclusive.patch (the normal form reading a span's
+ * upper bound as inclusive).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -697,8 +715,11 @@ layer(Substrate.layer)("endpoint spellings of span relations on PostgreSQL 19", 
 					const db = yield* s.session({ ...ownerSession(), label: "owner" })
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every endpoint predicate over a pair, its negation and every two of them joined, on each range type",
+							oracle: {
+								kind: "postgresql",
+								name: "the predicate as spelled, evaluated by PostgreSQL over the same facts"
+							},
 							suite: "spans/endpoint-normal-form",
 							generator: exhaustiveCases,
 							literal: Formatter.format,

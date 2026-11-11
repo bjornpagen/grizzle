@@ -1,3 +1,25 @@
+/**
+ * Regex membership across the three engines.
+ *
+ * For each family of semantic edges (non-ASCII digits, the four line terminators, anchors, negated classes, the empty
+ * string, escapes), an exploration draws batches of randomized strings over the family's alphabet and generated
+ * patterns, and every batch meets every handwritten and generated admitted pattern of the family; four answers must
+ * agree on every pair:
+ *
+ * 1. ECMAScript's `new RegExp(source, flags).test`, the development-only oracle;
+ * 2. the host NFA, which the compiler uses for its own constants;
+ * 3. PostgreSQL 19's `~` with the translated ARE, under pg_c_utf8;
+ * 4. the installed enforcement itself: the compiler's domain DDL (finite IN, ARE CHECK, or no domain at all for a
+ *    tautology), asked through pg_input_is_valid, which evaluates the domain's CHECK constraints.
+ *
+ * The file also holds that every admitted pattern compiles inside the limits of PostgreSQL's regex compiler: the largest
+ * pattern the limits admit along drawn shapes, and generated nested quantifiers. The refusal of unadmitted constructs
+ * is test/unit/text/parse.test.ts's, and that the limits judge the printed ARE whatever its spelling is
+ * test/unit/text/lowering.test.ts's.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): differential-dollar-anchor.patch (the ARE translation of `$` matching
+ * before a final line terminator).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore, sketched } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -53,25 +75,6 @@ import {
 	walkTape
 } from "#test/unit/text/generators.ts"
 
-/**
- * Regex membership across the three engines.
- *
- * For each family of semantic edges (non-ASCII digits, the four line terminators, anchors, negated classes, the empty
- * string, escapes), an exploration draws batches of randomized strings over the family's alphabet and generated
- * patterns, and every batch meets every handwritten and generated admitted pattern of the family; four answers must
- * agree on every pair:
- *
- * 1. ECMAScript's `new RegExp(source, flags).test`, the development-only oracle;
- * 2. the host NFA, which the compiler uses for its own constants;
- * 3. PostgreSQL 19's `~` with the translated ARE, under pg_c_utf8;
- * 4. the installed enforcement itself: the compiler's domain DDL (finite IN, ARE CHECK, or no domain at all for a
- *    tautology), asked through pg_input_is_valid, which evaluates the domain's CHECK constraints.
- *
- * The file also holds that every admitted pattern compiles inside the limits of PostgreSQL's regex compiler: the largest
- * pattern the limits admit along drawn shapes, and generated nested quantifiers. The refusal of unadmitted constructs
- * is test/unit/text/parse.test.ts's, and that the limits judge the printed ARE whatever its spelling is
- * test/unit/text/lowering.test.ts's.
- */
 /** What refuses a pattern past the limits: the limit of PostgreSQL's regex compiler it crosses, or another refusal. */
 type EdgeRefusal = RegexSpaceMeasure["kind"] | "another refusal"
 
@@ -516,7 +519,10 @@ layer(Substrate.layer)(
 						ctx,
 						explore(
 							{
-								oracle: { kind: "unstated" },
+								oracle: {
+									kind: "second-implementation",
+									name: "ECMAScript's RegExp membership, against the host NFA, PostgreSQL's ~ and the installed domain"
+								},
 								suite: `text/differential/${family.name}`,
 								draw: sketched(familySketch, familyCase),
 								literal: Formatter.format,
@@ -613,7 +619,10 @@ layer(Substrate.layer)(
 					const db = yield* s.session(ownerSession())
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "postgresql",
+								name: "PostgreSQL 19's regex compiler, which compiles every admitted pattern"
+							},
 							suite: "text/differential/nested",
 							draw: drawn(nestedPattern),
 							literal: Formatter.format,

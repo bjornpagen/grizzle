@@ -1,6 +1,21 @@
+/**
+ * The span reference (test/support/oracle/spans) and the span generators, on the host and against PostgreSQL 19.
+ *
+ * - Intersection and difference, exhausted over every ordered pair of the nonempty half-open spans over [-3, 8]: the
+ *   maximal runs of the point sets a ∩ b and a ∖ b, and overlaps exactly when the intersection holds a point.
+ * - Packing, over drawn lists of small spans: the maximal runs of the union of their point sets.
+ * - The generators construct admissible schemas, decodable queries and lawful facts: every relation keyed, every key
+ *   laid out, every fact inside its endpoint's range and its relation's laws.
+ * - The reference agrees with handwritten SQL on generated span cases, on PostgreSQL.
+ *
+ * Features: how two spans meet; no spans, spans merged and kept apart; each generated query shape and relation.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): reference-difference-closed.patch (the reference's difference keeping
+ * the subtracted span's lower bound).
+ */
 import { describe, it, layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -83,6 +98,9 @@ const smallSpanGen: Gen<HalfOpen> = (source) => {
 	return { lo: BigInt(lo), hi: BigInt(Math.min(8, lo + length)) }
 }
 
+/** What a pack's input reached: no spans, spans the pack merges, or spans it keeps apart. */
+type PackFeature = "no spans" | "spans merged" | "spans kept apart"
+
 /** How two spans of the window meet: apart, or sharing points with b inside a, b covering a, or neither. */
 type PairFeature = "apart" | "split by b" | "covered by b" | "cut at one end"
 
@@ -142,11 +160,17 @@ describe("the span reference on the host", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "the maximal runs of the union of the spans' point sets"
+					},
 					suite: "spans/coverage-host",
 					draw: drawn(array(smallSpanGen, { min: 0, max: 6 })),
 					literal: Formatter.format,
-					coverage: noCoverage,
+					coverage: required<PackFeature>(["no spans", "spans merged", "spans kept apart"], {
+						cases: 200,
+						sense: notesOnly
+					}),
 					kept: [],
 					runs: 2000,
 					shrink: completeShrink,
@@ -154,11 +178,16 @@ describe("the span reference on the host", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				(spans) =>
+				(spans, c) =>
 					Effect.sync(() => {
-						assert.deepEqual(
-							texts(spanPack(spans)),
-							texts(runs(new Set(Arr.flatMap(spans, points))))
+						const packed = runs(new Set(Arr.flatMap(spans, points)))
+						assert.deepEqual(texts(spanPack(spans)), texts(packed))
+						c.note(
+							spans.length === 0
+								? "no spans"
+								: packed.length < spans.length
+									? "spans merged"
+									: "spans kept apart"
 						)
 					})
 			)
@@ -271,7 +300,10 @@ describe("the span generators", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "the schema's ownership and key layout rules, and each relation's laws over its facts"
+					},
 					suite: "spans/generators",
 					draw: drawn(spanCaseGen(defaultSpanCaseLimits)),
 					literal: Formatter.format,

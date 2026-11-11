@@ -15,6 +15,9 @@
  * spanCoverage): that harness's host model spells a span's ends as JavaScript numbers
  * (test/support/laws/model.ts Span), which hold no int8 limit exactly and no date, so the limits can be stated only
  * here, as int8range and daterange literals.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): selected-coverage-closed-upper.patch (the PERIOD foreign key's range
+ * law column built with an inclusive upper bound).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

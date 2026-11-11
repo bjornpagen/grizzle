@@ -1,3 +1,12 @@
+/**
+ * Generated span queries against the span reference evaluator, in both artifacts: an Allen filter, an Allen join and
+ * pointIn, over every endpoint kind (integer, bigint, a contract, date), Left and Right each span-keyed or not, each
+ * answer the reference's as a set of rows with no repeat.
+ *
+ * Features: each query kind over each endpoint kind.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): allen-table-meets-swapped.patch.
+ */
 import { layer } from "@effect/vitest"
 import { drawn } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
