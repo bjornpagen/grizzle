@@ -81,7 +81,7 @@ export const stringLiteral = (value: string): string => literal(value, false)
  * Prints a string literal with every code unit above U+007E escaped, so the formatter never reads
  * it as an identifier name. Used for quoted object keys.
  */
-export const asciiStringLiteral = (value: string): string => literal(value, true)
+const asciiStringLiteral = (value: string): string => literal(value, true)
 
 /**
  * One space between words; printable ASCII without * _ ` # < > [ ] { } | \ @ ~; no word starts

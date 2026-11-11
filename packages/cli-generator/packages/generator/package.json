@@ -47,6 +47,7 @@
 		"@effect/vitest": "catalog:",
 		"@superstarter/devtools": "workspace:*",
 		"@superstarter/testing": "workspace:*",
+		"oxfmt": "catalog:",
 		"vitest": "catalog:"
 	}
 }

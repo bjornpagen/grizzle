@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 8215,
+		"total": 8045,
 		"files": {
 			"packages/generator/src/emit/api.ts": 125,
 			"packages/generator/src/emit/cli.ts": 123,
@@ -60,7 +60,6 @@
 			"packages/generator/test/emit/pattern-properties.test.ts": 13,
 			"packages/generator/test/emit/phdr.test.ts": 34,
 			"packages/generator/test/emit/positional-body.test.ts": 22,
-			"packages/generator/test/emit/printer.test.ts": 170,
 			"packages/generator/test/emit/querystring-encoding.test.ts": 28,
 			"packages/generator/test/emit/readme-proxy.test.ts": 33,
 			"packages/generator/test/emit/readme-runtime.test.ts": 49,
@@ -265,7 +264,7 @@
 		}
 	},
 	"superlint": {
-		"total": 102,
+		"total": 99,
 		"files": {
 			"packages/generator/src/emit/api.ts": 8,
 			"packages/generator/src/emit/cli.ts": 14,
@@ -285,7 +284,6 @@
 			"packages/generator/test/emit/index.test.ts": 1,
 			"packages/generator/test/emit/multipart-transfer-encoding.test.ts": 1,
 			"packages/generator/test/emit/nsfx.test.ts": 1,
-			"packages/generator/test/emit/printer.test.ts": 3,
 			"packages/generator/test/emit/querystring-encoding.test.ts": 1,
 			"packages/generator/test/emit/s30-fixes.test.ts": 3,
 			"packages/generator/test/emit/sequential-body.test.ts": 1,
@@ -319,7 +317,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 4273,
+		"total": 4234,
 		"files": {
 			"packages/generator/src/emit/api.ts": 110,
 			"packages/generator/src/emit/cli.ts": 149,
@@ -377,7 +375,6 @@
 			"packages/generator/test/emit/pattern-properties.test.ts": 6,
 			"packages/generator/test/emit/phdr.test.ts": 14,
 			"packages/generator/test/emit/positional-body.test.ts": 7,
-			"packages/generator/test/emit/printer.test.ts": 39,
 			"packages/generator/test/emit/querystring-encoding.test.ts": 14,
 			"packages/generator/test/emit/readme-proxy.test.ts": 12,
 			"packages/generator/test/emit/readme-runtime.test.ts": 21,

@@ -536,16 +536,81 @@ const isNumberList = (elements: readonly Expr[]): boolean =>
 	elements.length > 1 && Arr.every(elements, (element) => element._tag === "Number")
 
 /**
- * Values that move below `=` or `:` when they do not fit after it.
+ * The widest identifier or string literal the formatter calls a short call argument: a quarter of the line.
+ */
+const shortArgumentWidth = lineWidth / 4
+
+/**
+ * A call argument the formatter calls short (measured): a string literal or an identifier no wider than a quarter of
+ * the line, `undefined`, a number, a boolean, or an empty object or array literal.
+ */
+const isShortArgument = (expr: Expr): boolean =>
+	(expr._tag === "Identifier" && expr.name.length <= shortArgumentWidth) ||
+	(expr._tag === "String" && stringLiteral(expr.value).length <= shortArgumentWidth) ||
+	expr._tag === "Undefined" ||
+	expr._tag === "Number" ||
+	expr._tag === "Boolean" ||
+	(expr._tag === "Object" && expr.entries.length === 0) ||
+	(expr._tag === "Array" && expr.elements.length === 0)
+
+/**
+ * A chain the formatter cannot break well (measured): member accesses and calls down to an identifier, each call
+ * taking no argument or one short one, and `import()` of a short specifier, so it moves the chain below `=` or `:`
+ * whole instead of breaking it.
+ */
+const isPoorChain = (expr: Expr): boolean => {
+	if (expr._tag === "DynamicImport") {
+		return stringLiteral(expr.from).length <= shortArgumentWidth
+	}
+
+	if (expr._tag === "Member") {
+		return isPoorChain(expr.object) || expr.object._tag === "Identifier"
+	}
+
+	if (expr._tag !== "Call") {
+		return false
+	}
+
+	const [only] = expr.args
+	const shortArgs =
+		expr.args.length === 0 ||
+		(expr.args.length === 1 && only !== undefined && isShortArgument(only))
+
+	return shortArgs && (expr.callee._tag === "Identifier" || isPoorChain(expr.callee))
+}
+
+/**
+ * Values that move below `=` or `:` when they do not fit after it: strings, `undefined`, negative numbers, paths and
+ * chains the formatter cannot break well.
  */
 const movesWhenLong = (expr: Expr): boolean =>
 	expr._tag === "String" ||
 	expr._tag === "Undefined" ||
 	(expr._tag === "Number" && expr.value < 0) ||
-	isPath(expr)
+	isPath(expr) ||
+	isPoorChain(expr)
 
 const flatPair = (left: string | undefined, separator: string, right: string | undefined) =>
 	left === undefined || right === undefined ? undefined : `${left}${separator}${right}`
+
+/**
+ * Arguments the formatter breaks one per line whatever their width, its function-composition rule (measured): two or
+ * more of them, of which two are arrow functions or one is a call that takes an arrow function. A `new` expression
+ * taking an arrow and an arrow inside an object or array literal do not count.
+ */
+const isComposition = (args: readonly Expr[]): boolean =>
+	args.length > 1 &&
+	(Arr.filter(args, (arg) => arg._tag === "Arrow").length > 1 ||
+		Arr.some(
+			args,
+			(arg) => arg._tag === "Call" && Arr.some(arg.args, (inner) => inner._tag === "Arrow")
+		))
+
+/**
+ * An argument list printed on one line, which composition arguments never are.
+ */
+const flatArgs = (args: readonly Expr[]): string | undefined =>
+	isComposition(args) ? undefined : flatList(Arr.map(args, flat), "(", ")")
 
 const flat = (expr: Expr): string | undefined =>
 	Match.valueTags(expr, {
@@ -557,8 +622,7 @@ const flat = (expr: Expr): string | undefined =>
 			return flatPair(arrowHead(fn), " ", fn.body._tag === "Object" ? `(${body})` : body)
 		},
 		Boolean: (literal) => String(literal.value),
-		Call: (invocation) =>
-			flatPair(flat(invocation.callee), "", flatList(Arr.map(invocation.args, flat), "(", ")")),
+		Call: (invocation) => flatPair(flat(invocation.callee), "", flatArgs(invocation.args)),
 		Conditional: (choice) =>
 			flatPair(
 				flatPair(flat(choice.test), " ? ", flat(choice.consequent)),
@@ -569,11 +633,7 @@ const flat = (expr: Expr): string | undefined =>
 		Identifier: (name) => name.name,
 		Member: (access) => flatPair(flat(access.object), ".", access.name),
 		New: (construct) =>
-			flatPair(
-				`new ${flat(construct.callee) ?? ""}`,
-				"",
-				flatList(Arr.map(construct.args, flat), "(", ")")
-			),
+			flatPair(`new ${flat(construct.callee) ?? ""}`, "", flatArgs(construct.args)),
 		Number: (literal) => numberText(literal.value),
 		Object: (literal) => {
 			const entries = Arr.map(sortEntries(literal.entries), ([key, value]) =>
@@ -613,19 +673,70 @@ const fillLines = (items: readonly string[], indent: number): readonly string[] 
 }
 
 /**
- * A conditional moves below `=` or `:` when its test does not fit after it.
+ * A value the formatter cannot break, so its first line is all of it: one of `movesWhenLong`, an empty object or
+ * array literal, or a `new` expression without arguments.
  */
-const movesConditional = (expr: Expr, place: Place): boolean =>
-	expr._tag === "Conditional" && !fitsFlat(flat(expr.test), { ...place, tail: 0 })
+const isUnbreakable = (expr: Expr): boolean =>
+	movesWhenLong(expr) ||
+	(expr._tag === "Object" && expr.entries.length === 0) ||
+	(expr._tag === "Array" && expr.elements.length === 0) ||
+	(expr._tag === "New" && expr.args.length === 0)
+
+/**
+ * The text of a breakable value up to the first point the formatter can break it: a literal's opening bracket, a call's
+ * or `new` expression's head up to its `(` (an inner call's for a chain), an arrow's `(` or, without parameters, its
+ * head, a conditional's test (its first line when the test can break), and `left +` of a sum.
+ */
+const firstLine = (expr: Expr): Option.Option<string> =>
+	Match.valueTags(expr, {
+		Array: () => Option.some("["),
+		Arrow: (fn) =>
+			Option.some(fn.params.length > 0 ? "(" : `${arrowHead(fn)}${headTail(fn) > 0 ? " (" : ""}`),
+		Boolean: () => Option.none(),
+		Call: (invocation) => {
+			const { callee } = invocation
+			if (callee._tag === "Member" && callee.object._tag === "Call") {
+				return firstLine(callee.object)
+			}
+
+			return callee._tag === "Call"
+				? firstLine(callee)
+				: Option.map(Option.fromUndefinedOr(flat(callee)), (text) => `${text}(`)
+		},
+		Conditional: (choice) =>
+			isUnbreakable(choice.test) || choice.test._tag === "Number" || choice.test._tag === "Boolean"
+				? Option.fromUndefinedOr(flat(choice.test))
+				: firstLine(choice.test),
+		DynamicImport: () => Option.none(),
+		Identifier: () => Option.none(),
+		Member: () => Option.none(),
+		New: (construct) =>
+			Option.map(Option.fromUndefinedOr(flat(construct.callee)), (text) => `new ${text}(`),
+		Number: () => Option.none(),
+		Object: () => Option.some("{"),
+		Plus: (sum) => Option.map(Option.fromUndefinedOr(flat(sum.left)), (text) => `${text} +`),
+		String: () => Option.none(),
+		Undefined: () => Option.none()
+	})
+
+/**
+ * Whether the formatter moves a value below `=` or `:` and lays it out there (measured, its fluid assignment layout): a
+ * non-negative number or a boolean never moves; a value it cannot break moves when it does not fit whole; any other
+ * value moves when its first line does not fit.
+ */
+const movesBelow = (expr: Expr, place: Place): boolean => {
+	if (expr._tag === "Boolean" || (expr._tag === "Number" && expr.value >= 0)) {
+		return false
+	}
+
+	return isUnbreakable(expr)
+		? !fitsFlat(flat(expr), place)
+		: Option.exists(firstLine(expr), (head) => !fits(head, { ...place, tail: 0 }))
+}
 
 const renderProperty = (key: string, value: Expr, indent: number, render: Render): string => {
 	const place = { column: indent + textWidth(key) + 2, indent, tail: 1 }
-	const text = flat(value)
-	if (movesWhenLong(value) && textWidth(key) >= 5 && !fitsFlat(text, place)) {
-		return `${key}:\n${pad(indent + 2)}${text ?? ""}`
-	}
-
-	if (textWidth(key) >= 5 && movesConditional(value, place)) {
+	if (textWidth(key) >= 5 && movesBelow(value, place)) {
 		const inner = indent + 2
 
 		return `${key}:\n${pad(inner)}${render(value, { column: inner, indent: inner, tail: 1 })}`
@@ -738,14 +849,14 @@ const renderHugged = (expr: Expr, indent: number, render: Render): string => {
 
 const renderArgs = (args: readonly Expr[], place: Place, render: Render): string => {
 	const flats = Arr.map(args, flat)
-	const flatText = flatList(flats, "(", ")")
-	if (flatText !== undefined && fits(flatText, place)) {
+	const flatText = flatArgs(args)
+	if (flatText !== undefined && (args.length === 0 || fits(flatText, place))) {
 		return flatText
 	}
 
 	const last = args.at(-1)
 	const leading = flats.slice(0, -1)
-	if (last !== undefined && canHug(args) && Arr.every(leading, isDefined)) {
+	if (last !== undefined && !isComposition(args) && canHug(args) && Arr.every(leading, isDefined)) {
 		const prefix = `(${Arr.join(
 			Arr.map(leading, (text) => `${text}, `),
 			""
@@ -1034,7 +1145,10 @@ const breaksWhenWide = (type: TypeExpr): boolean =>
 		TypeLiteral: () => false,
 		TypeReadonlyArray: (array) => breaksWhenWide(array.element),
 		TypeRef: (reference) => reference.args.length > 1 || Arr.some(reference.args, breaksWhenWide),
-		TypeUnion: (union) => union.members.length > 1 || Arr.some(union.members, breaksWhenWide)
+		TypeUnion: (union) =>
+			isHuggedUnion(union)
+				? Arr.some(union.members, breaksWhenWide)
+				: union.members.length > 1 || Arr.some(union.members, breaksWhenWide)
 	})
 
 const unbreakable = (line: string, type: TypeExpr | undefined, subject: string): Issue =>
@@ -1058,6 +1172,20 @@ const unionMembers = (type: TypeExpr): readonly TypeExpr[] =>
 	type._tag === "TypeUnion" ? Arr.flatMap(type.members, unionMembers) : [type]
 
 /**
+ * A union of one type reference and `null` alone, which the formatter keeps on its line however long it is (measured);
+ * a keyword, literal or array beside `null` does not hug.
+ */
+const isHuggedUnion = (type: TypeExpr): boolean => {
+	const members = unionMembers(type)
+
+	return (
+		members.length === 2 &&
+		Arr.some(members, (part) => part._tag === "TypeKeyword" && part.keyword === "null") &&
+		Arr.some(members, (part) => part._tag === "TypeRef")
+	)
+}
+
+/**
  * A union that does not fit on its line, as `vp fmt` prints it: `head` ends the line, then each
  * member starts a line one level deeper than `indent` with `| `, and the last member ends with
  * `;`. A member that `vp fmt` would break further is refused.
@@ -1077,7 +1205,7 @@ const brokenUnion = (head: string, type: TypeExpr, indent: number, subject: stri
 }
 
 const isLongUnion = (line: string, type: TypeExpr): boolean =>
-	textWidth(line) > lineWidth && unionMembers(type).length > 1
+	textWidth(line) > lineWidth && unionMembers(type).length > 1 && !isHuggedUnion(type)
 
 const succeedUnless = (failure: Issue, text: () => string): Effect.Effect<string, PrinterError> =>
 	Option.match(failure, {
@@ -1095,20 +1223,12 @@ const constBody = (statement: Extract<Statement, { readonly _tag: "Const" }>, he
 	const asConst = statement.asConst === true
 	const tail = asConst ? " as const;" : ";"
 	const place = { column: textWidth(head) + 1, indent: 0, tail: tail.length }
-	const text = flat(value)
-	const moves =
-		movesWhenLong(value) || (asConst && (value._tag === "Number" || value._tag === "Boolean"))
-	if (movesConditional(value, place)) {
-		return `${head}\n  ${render(value, { column: 2, indent: 2, tail: tail.length })}${tail}`
-	}
+	const literal = value._tag === "Number" || value._tag === "Boolean"
+	const moves = movesBelow(value, place) || (asConst && literal && !fitsFlat(flat(value), place))
 
-	if (textWidth(head) > lineWidth && value._tag !== "Number" && value._tag !== "Boolean") {
-		return `${head}\n  ${render(value, { column: 2, indent: 2, tail: tail.length })}${tail}`
-	}
-
-	const body = moves && !fitsFlat(text, place) ? `\n  ${text ?? ""}` : ` ${render(value, place)}`
-
-	return `${head}${body}${tail}`
+	return moves
+		? `${head}\n  ${render(value, { column: 2, indent: 2, tail: tail.length })}${tail}`
+		: `${head} ${render(value, place)}${tail}`
 }
 
 const printConst = (statement: Extract<Statement, { readonly _tag: "Const" }>) => {
@@ -1170,7 +1290,7 @@ const printTypeAlias = (alias: Extract<Statement, { readonly _tag: "TypeAlias" }
 		? brokenUnion(head, alias.type, 0, alias.name)
 		: {
 				failure: unbreakable(line, alias.type, alias.name),
-				text: textWidth(line) > lineWidth ? moved : line
+				text: textWidth(line) > lineWidth && !isHuggedUnion(alias.type) ? moved : line
 			}
 
 	return succeedUnless(layout.failure, () => withDoc(alias.doc, layout.text))
@@ -1222,7 +1342,7 @@ const importLine = (entry: Import): string => {
 
 	const names = Arr.sort(Arr.dedupe(entry.names), Order.String)
 	const line = `import ${kind}{ ${Arr.join(names, ", ")} } from ${from};`
-	if (textWidth(line) <= lineWidth) {
+	if (textWidth(line) <= lineWidth || names.length < 2) {
 		return line
 	}
 
@@ -1271,9 +1391,16 @@ const jsonAlwaysBroken = (values: readonly Schema.Json[]): boolean =>
 	Arr.some(values, (value) => isNonEmptyJsonObject(value)) ||
 	(values.length > 1 && Arr.every(values, (value) => isLongJsonArray(value)))
 
+/**
+ * A JSON scalar as the formatter prints it: its JSON text, a number with no `+` in its exponent (measured: oxfmt
+ * writes `1e+21` as `1e21`).
+ */
+const jsonScalarText = (value: boolean | number | string | null): string =>
+	Predicate.isNumber(value) ? numberText(value) : jsonTextOf(value)
+
 const jsonFlat = (value: Schema.Json): string | undefined => {
 	if (isJsonScalar(value)) {
-		return jsonTextOf(value)
+		return jsonScalarText(value)
 	}
 
 	if (isJsonArray(value)) {
@@ -1300,7 +1427,7 @@ const jsonArrayLines = (
 	const comma = (index: number) => (index === lastIndex ? "" : ",")
 	if (values.length > 1 && Arr.every(values, Predicate.isNumber)) {
 		return fillLines(
-			Arr.map(values, (item, index) => `${jsonTextOf(item)}${comma(index)}`),
+			Arr.map(values, (item, index) => `${numberText(item)}${comma(index)}`),
 			indent
 		)
 	}
@@ -1337,7 +1464,7 @@ const jsonObjectLines = (
  */
 const renderJson: RenderJson = (value, place) => {
 	if (isJsonScalar(value)) {
-		return jsonTextOf(value)
+		return jsonScalarText(value)
 	}
 
 	const text = jsonFlat(value)
@@ -1379,7 +1506,15 @@ const packageKeys: readonly string[] = [
 
 const knownPackageKeys: ReadonlySet<string> = new Set(packageKeys)
 
-const dependencyKeys: ReadonlySet<string> = new Set(["dependencies", "devDependencies"])
+/**
+ * The maps the formatter sorts by key inside `package.json` (measured): the dependency maps, `bin` and `engines`.
+ */
+const sortedKeys: ReadonlySet<string> = new Set([
+	"bin",
+	"dependencies",
+	"devDependencies",
+	"engines"
+])
 
 const sortedMap = (value: Schema.Json): Schema.Json =>
 	isJsonScalar(value) || isJsonArray(value)
@@ -1390,23 +1525,23 @@ const unsupportedPackageJson = (subject: string) =>
 	Effect.fail(PrinterError.make({ reason: "unsupported-package-json", subject }))
 
 /**
- * The manifest's members in the `docs/printer.md` key order, its dependency maps sorted by package
- * name.
+ * The manifest's members in the `docs/printer.md` key order, its dependency maps, `bin` and `engines`
+ * sorted by key.
  */
 const orderedManifest = (manifest: Schema.JsonObject): Schema.JsonObject =>
 	Record.fromEntries(
 		Arr.flatMap(packageKeys, (key) =>
 			Option.match(Record.get<string, Schema.Json>(manifest, key), {
 				onNone: () => [],
-				onSome: (value) => [[key, dependencyKeys.has(key) ? sortedMap(value) : value] as const]
+				onSome: (value) => [[key, sortedKeys.has(key) ? sortedMap(value) : value] as const]
 			})
 		)
 	)
 
 /**
  * Prints `package.json` in the layout the formatter keeps for it: `JSON.stringify(value, null, 2)`
- * plus a final newline, top-level keys in the `docs/printer.md` order, dependency maps sorted by
- * package name. Fails on a top-level key outside that order.
+ * plus a final newline, top-level keys in the `docs/printer.md` order, the dependency maps, `bin`
+ * and `engines` sorted by key. Fails on a top-level key outside that order.
  */
 export const printPackageJson = (manifest: JsonValue): Effect.Effect<string, PrinterError> => {
 	if (isJsonScalar(manifest) || isJsonArray(manifest)) {

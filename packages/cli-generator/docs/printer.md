@@ -7,15 +7,17 @@ the same commit.
 
 ## Conformance
 
-- The conformance check is `vp fmt --check` with the repository's pins: `vite-plus` 1.0.0, which
-  runs `oxfmt` 0.70.0, under the `fmt` block of `vite.config.ts`.
-- Printed output is a fixed point: `vp fmt` run twice on a golden fixture or corpus output changes
-  no byte. The rules below are written to stay inside the syntax subset where that holds (design
-  §3.6, R9).
-- Generated TypeScript must also pass `vp lint --type-aware` and `tsc --noEmit`. The lint rules that
-  constrain layout are named where they apply.
-- When `vp fmt --check` and this file disagree, the check wins. Fix this file and the printer in the
-  same commit. A `vite-plus` pin bump that changes any rule below is a printer change (R9).
+- The conformance check is oxfmt 0.76.0 with its defaults (two-space indent, semicolons, double
+  quotes, trailing commas, width 100, `package.json` keys sorted) and one option set: `jsdoc:
+  { commentLineStrategy: "multiline", lineWrappingStyle: "balance" }`. `test/emit/printer.test.ts`
+  formats every module, JSON value and manifest it generates through oxfmt's `format` with exactly
+  these options, and requires the output to be the input.
+- Printed output is a fixed point: formatting it changes no byte. The rules below are written to
+  stay inside the syntax subset where that holds (design §3.6, R9).
+- Generated TypeScript must also pass `tsc --noEmit`. The lint rules that constrain layout are named
+  where they apply.
+- When the formatter and this file disagree, the formatter wins. Fix this file and the printer in
+  the same commit. An oxfmt pin bump that changes any rule below is a printer change (R9).
 
 ## Lines
 
@@ -40,6 +42,9 @@ the same commit.
   `type` specifiers (lint `import/consistent-type-specifier-style`).
 - One statement per specifier and kind. Named specifiers are sorted by name in UTF-16 code-unit
   order. Aliases are not used.
+- A named import is flat when its line ends at or before column 100. Otherwise it breaks one name
+  per line, `import {`, each name and `,` one level deeper, then `} from "s";`. A named import of
+  one name never breaks, however long its line (measured).
 - Order: package specifiers (not starting with `.`) first, then relative specifiers. Within each
   group, sort by specifier in code-unit order. For one specifier, the `import type` statement comes
   before the value statement. The block has no blank lines.
@@ -57,9 +62,10 @@ the same commit.
   time, so mixed objects are expected: `{ "200": [], default: [] }`.
 - The key `__proto__` is always the computed key `["__proto__"]`, which defines an own property. A
   bare or quoted `__proto__` sets the prototype instead. It sorts by its name, `__proto__`.
-- A quoted key escapes every non-ASCII code unit as `\u` and four uppercase hex digits. The formatter
-  unquotes a quoted key whose text is a Unicode identifier name, so `"café"` would become `café`, but
-  it keeps a key that holds an escape quoted (measured). Escaping keeps every quoted key quoted.
+- A quoted key escapes every non-ASCII code unit as `\u` and four uppercase hex digits. The
+  formatter unquotes a quoted key whose text is a Unicode identifier name, so `"café"` would become
+  `café`, but it keeps a key that holds an escape quoted (measured). Escaping keeps every quoted key
+  quoted.
 - Interface members follow the same key rules and are also sorted.
 
 ## Strings
@@ -74,9 +80,9 @@ the same commit.
   printer fences any printed statement that holds `${` followed later by `}` in a
   `/* oxlint-disable no-template-curly-in-string -- ... */` and `/* oxlint-enable ... */` pair, so
   a statement that spans several lines stays covered.
-- Printable non-ASCII stays literal, so non-ASCII help text reads as written (R10). `vp fmt` keeps
-  every `\uXXXX` escape and every literal character as written (measured on samples from U+007F to
-  U+FFFF, including U+2028, U+2029, bidi controls and lone surrogates).
+- Printable non-ASCII stays literal, so non-ASCII help text reads as written (R10). The formatter
+  keeps every `\uXXXX` escape and every literal character as written (measured on samples from
+  U+007F to U+FFFF, including U+2028, U+2029, bidi controls and lone surrogates).
 - Quote choice follows the formatter: double quotes, unless the value contains more `"` than `'`.
   Then the literal is single-quoted, each `'` is written `\'`, each `"` is written bare, and every
   other escape is the same as above. On a tie, double quotes are used.
@@ -87,15 +93,15 @@ the same commit.
 
 ## Layout
 
-Columns are display columns, counted the way `vp fmt` counts them: a code point that is East Asian
-Wide or Fullwidth (CJK ideographs, kana, Hangul syllables, fullwidth forms) or an emoji with default
-emoji presentation counts two columns, a combining mark (Unicode Mn or Me) counts zero, and every
-other code point counts one, whatever its UTF-16 length. Measured on U+4E2D, U+FF21 and U+1F600 (two
-columns), U+0301 (zero), and U+00E9, U+00A0, U+E000 and U+0378 (one). So `中` is one code unit and two
-columns, `😀` is two code units and two columns, and `e` followed by U+0301 is two code units and one
-column. The printer's table of wide code points covers the Wide and Fullwidth blocks and the emoji
-presentation property; a rare code point it classifies differently shows up as a `vp fmt --check`
-failure.
+Columns are display columns, counted the way the formatter counts them: a code point that is East
+Asian Wide or Fullwidth (CJK ideographs, kana, Hangul syllables, fullwidth forms) or an emoji with
+default emoji presentation counts two columns, a combining mark (Unicode Mn or Me) counts zero, and
+every other code point counts one, whatever its UTF-16 length. Measured on U+4E2D, U+FF21 and
+U+1F600 (two columns), U+0301 (zero), and U+00E9, U+00A0, U+E000 and U+0378 (one). So `中` is one
+code unit and two columns, `😀` is two code units and two columns, and `e` followed by U+0301 is two
+code units and one column. The printer's table of wide code points covers the Wide and Fullwidth
+blocks and the emoji presentation property; a rare code point it classifies differently shows up as
+a formatter failure.
 
 A form is printed flat when its whole line, printed with the form flat, ends at or before
 column 100. The line runs to the next line break the layout emits, so closing brackets, `,`, `;` and
@@ -103,13 +109,14 @@ column 100. The line runs to the next line break the layout emits, so closing br
 per line, indented one level, each followed by `,`. Flat lists have no trailing comma.
 
 A long identifier is an unbreakable token: a name, key or type name whose line is past column 100
-stays on its line, because `vp fmt` leaves it there. Two moves apply, both the ones `vp fmt` makes.
-A `const` whose head (`export const <name>: <Type> =`) is past column 100 puts its value on the next
-line, indented 2, except a non-negative number or boolean, which stays on the head line. A type
-alias whose line is past column 100 puts its type on the next line, unless the type is a union,
-which breaks by the union rule below. Any other type with several union members or type arguments
-is one `vp fmt` breaks across lines, and the printer does not: a line past column 100 holding one
-is refused with `unbreakable-line`.
+stays on its line, because the formatter leaves it there. Two moves apply, both the ones the
+formatter makes. A `const` whose head (`export const <name>: <Type> =`) is past column 100 puts its
+value on the next line, indented 2, except a non-negative number or boolean, which stays on the head
+line (the assignment rule below, since no first line fits there). A type alias whose line is past
+column 100 puts its type on the next line, unless the type is a union, which breaks by the union
+rule below. Any other type with several union members or type arguments is one the formatter breaks
+across lines, and the printer does not: a line past column 100 holding one is refused with
+`unbreakable-line`.
 
 - **Object literal.** `{}` when empty. Flat: `{ a: 1, b: 2 }`. Broken: `{`, one property per line,
   `}`. The formatter keeps an object broken whenever its first key starts a new line, so a broken
@@ -121,21 +128,27 @@ is refused with `unbreakable-line`.
   `=`, then each member starts a line one level deeper than the field or alias with `| `, and the
   last member ends with `;` (measured). This holds however long the key or name is. A member line
   past column 100 is refused by the rule above when the member itself has several union members or
-  type arguments.
+  type arguments. A union of one type reference and `null` alone never breaks: it stays on its line
+  whatever its width, as in the domain module (measured); a keyword, literal or array beside `null`
+  does not hug.
 - **Array literal.** `[]` when empty. Flat when it fits, otherwise broken. One case is always
   broken: two or more elements that are all object literals, or all array literals, with more than
   one entry each, such as `[["a", "b"], ["c", "d"]]`. An array of number literals, possibly signed,
   that does not fit is filled instead: as many elements per line as fit, separated by `, `, with `,`
   after the last.
-- **Call arguments.** Flat: `f(a, b)`. If the last argument is an object literal, an array literal
-  or an arrow function, the other arguments are flat, and the text up to that argument's opening
-  (`{`, `[` or `=>`) fits, the last argument hugs: it opens on the call's line and is printed
-  broken, and `)` follows its close. Otherwise all arguments are broken. A hugged arrow whose body
-  moved to the next line ends with `,` and puts `)` on its own line. Measured details: an object or
-  array literal hugs only when it is not empty; an arrow hugs only when its body is an object
-  literal, an array literal or a call, and then its opening runs to the body's `({` or `[` when the
-  body is a literal; the last argument does not hug when the argument before it is the same kind of
-  form, or when it is an array of number literals and other arguments precede it.
+- **Call arguments.** Two or more arguments of which two are arrow functions, or one is a call that
+  takes an arrow function, are always broken, whatever their width: `f(g(() => x), y)` prints one
+  argument per line (the formatter's function-composition rule, measured). A `new` expression taking
+  an arrow, or an arrow inside an object or array literal, does not count. Otherwise, flat:
+  `f(a, b)`. If the last argument is an object literal, an array literal or an arrow function, the
+  other arguments are flat, and the text up to that argument's opening (`{`, `[` or `=>`) fits, the
+  last argument hugs: it opens on the call's line and is printed broken, and `)` follows its close.
+  Otherwise all arguments are broken. A hugged arrow whose body moved to the next line ends with `,`
+  and puts `)` on its own line. Measured details: an object or array literal hugs only when it is
+  not empty; an arrow hugs only when its body is an object literal, an array literal or a call, and
+  then its opening runs to the body's `({` or `[` when the body is a literal; the last argument does
+  not hug when the argument before it is the same kind of form, or when it is an array of number
+  literals and other arguments precede it.
 - **Arrow function.** Parameters are always parenthesized: `(flags) =>`, `() =>`. Bodies are
   expressions, never blocks. An object or array literal body stays on the `=>` line (an object body
   in parentheses). Any other body stays on the `=>` line only when it fits flat; otherwise it starts
@@ -151,27 +164,41 @@ is refused with `unbreakable-line`.
   `.pipe(args)`, where `Head` is a capitalized namespace identifier such as `Flag`, `Effect` or
   `Command`. A call group is `.name` with the call parentheses after it, curried calls included, as
   in `HttpClientRequest.make("PATCH")(url)`. `.pipe(` never starts a line. Each argument list breaks
-  by the call rule, so `).pipe(` appears when the head breaks.
-- **Assignment and property values.** The value starts on the same line as `=` or `:`. A string,
-  identifier, member access, `undefined` or negative number that does not fit moves to the next
-  line, indented one level, even when it still does not fit there. A property whose printed key is
-  under 5 columns never moves its value, and a positive number or boolean never moves (measured).
-  An `as const` value moves when a number or boolean before it does not fit.
+  by the call rule, so `).pipe(` appears when the head breaks. The first call group takes one string
+  literal, one object literal, or two or more arguments, as the emitters write it; an empty first
+  group or a lone other argument is outside the subset, because the formatter then applies
+  member-chain rules this file does not state (measured).
+- **Assignment and property values.** The value starts on the same line as `=` or `:` when its first
+  line fits there, and otherwise moves to the next line, indented one level, where it is laid out,
+  even when it still does not fit (measured: the formatter's fluid assignment layout). A value the
+  formatter cannot break is its own first line: a string, an identifier or member access,
+  `undefined`, a negative number, an empty object or array literal, a `new` expression without
+  arguments, `import()` of a short specifier, and a poorly breakable chain, a call of a path,
+  possibly curried, taking no argument or one short argument (a string literal or an identifier no
+  wider than 25 columns, `undefined`, a number, a boolean, or an empty literal). The first line of
+  any other value ends where the formatter can first break it: after `{` or `[`, after a call's or
+  `new` expression's `(`, after an arrow's `(` (its whole head when it has no parameters), after a
+  conditional's test (or the test's own first line when the test can break), and after `left +`. A
+  property whose printed key is under 5 columns never moves its value, and a non-negative number or
+  a boolean never moves (measured). An `as const` value moves when a number or boolean before it
+  does not fit.
 - **Binary `+`.** Only two operands, and only as a call argument. Broken: `left +` ends the line and
   the right operand starts the next, one level deeper than `left`.
 - **Conditional.** Flat: `test ? consequent : alternate`. Broken: the test stays on its line, then
-  `? consequent` and `: alternate` each start a line one level deeper. A branch that does not fit
-  is laid out two columns past its `? ` or `: ` line's indent, so a broken call's arguments sit
-  three levels deeper and its `)` two levels deeper. As a `const` value, or a property value whose
-  printed key is 5 columns or more, the conditional stays on the `=` or `:` line when its test fits
-  there; otherwise it moves to the next line, indented one level, and is laid out there (flat when
-  it fits). As a call argument it is one of the broken arguments. Operands are never conditionals
+  `? consequent` and `: alternate` each start a line one level deeper. A branch that does not fit is
+  laid out two columns past its `? ` or `: ` line's indent, so a broken call's arguments sit three
+  levels deeper and its `)` two levels deeper. As a `const` value, or a property value whose printed
+  key is 5 columns or more, the conditional moves below `=` or `:` by the assignment rule, its first
+  line being its test (a number or boolean test included) or, for a test that can break, the test's
+  first line. As a call argument it is one of the broken arguments. Operands are never conditionals
   or arrow functions, and an arrow body is never a conditional: the formatter parenthesizes those.
-- **New expression.** `new Path(args)` for a constructor path such as `Set`, `Map` or `Foo.Bar`.
-  The arguments follow the call rule, hugging included: `new Set([` opens a broken array. No
-  arguments print as `new Path()`. A regular expression is the new expression of Strings.
-- **Top-level call statement.** A call alone as a statement, such as `NodeRuntime.runMain(program);`,
-  laid out by the call rule from column 0. No other expression is a statement.
+- **New expression.** `new Path(args)` for a constructor path such as `Set`, `Map` or `Foo.Bar`. The
+  arguments follow the call rule, hugging included: `new Set([` opens a broken array. No arguments
+  print as `new Path()`, and an empty argument list never breaks, in a call or a `new` expression,
+  however long its line (measured). A regular expression is the new expression of Strings.
+- **Top-level call statement.** A call alone as a statement, such as
+  `NodeRuntime.runMain(program);`, laid out by the call rule from column 0. No other expression is a
+  statement.
 
 The subset is exactly the forms above plus: `export const`, unexported `const`, `export interface`,
 `export type` with a flat type or a long union, `as const`, property access, and string, number,
@@ -202,7 +229,7 @@ through `textWidth` in `src/emit/printer.ts`. Code outside the grammar it parses
     type's first line break fits. Otherwise the type starts on the next line, indented one level.
   - An index signature parameter breaks as `[`, `x: string`, `]` when the member does not fit.
 - `effect` is pinned at an exact version, and the printer depends on the text format of
-  `toCodeDocument`. An `effect` pin bump is a printer change, like a `vite-plus` pin bump (R9):
+  `toCodeDocument`. An `effect` pin bump is a printer change, like an oxfmt pin bump (R9):
   rerun both conformance inputs in the same commit.
 
 ## JSDoc
@@ -212,7 +239,8 @@ through `textWidth` in `src/emit/printer.ts`. Code outside the grammar it parses
   rewrites it to the multi-line form (`jsdoc.commentLineStrategy: "multiline"`).
 - Text is one paragraph, filled greedily: a word goes on the current line when the line, with
   indentation and the `*` prefix, still ends at or before column 100. A word longer than that stands
-  alone on its line.
+  alone on its line. The lines after such a word are outside this file: oxfmt 0.76 sometimes wraps
+  them a column early (measured), so template text keeps every word within a line.
 - JSDoc text is generator-owned. It comes from fixed generator templates, and identifiers placed
   into them are folded names. Text is printable ASCII, starts with an uppercase letter, separates
   words with one space, contains none of ``* _ ` # < > [ ] { } | \ @ ~``, and has no word that
@@ -231,7 +259,7 @@ through `textWidth` in `src/emit/printer.ts`. Code outside the grammar it parses
 
 ## JSON
 
-Every JSON file the generator or the corpus tools write uses this layout. `vp fmt --check` rejects
+Every JSON file the generator or the corpus tools write uses this layout. The formatter rejects
 `JSON.stringify(v, null, 2)` output that holds a short array (`delivery/m1.md` §3).
 
 - Indent 2 spaces, LF, one final newline, `:` followed by one space, no trailing commas.
@@ -244,19 +272,22 @@ Every JSON file the generator or the corpus tools write uses this layout. `vp fm
   `[["a"], ["b"]]` stay flat. An array of numbers that does not fit is filled, as many per line as
   fit, with no comma after the last. Empty: `[]`.
 - Strings are `JSON.stringify` output. JSON files need no `\uXXXX` escaping of printable non-ASCII.
+  Numbers are `JSON.stringify` output with no `+` in an exponent, `1e21` for `1e+21`, as the
+  formatter prints them (measured).
 - `package.json` is the exception. The formatter prints it in the `JSON.stringify(v, null, 2)`
   layout, every array broken, and sorts its top-level keys. The generator writes it as that layout
   plus a final newline, with top-level keys in this order: `name`, `version`, `private`,
-  `description`, `license`, `bin`, `files`, `type`, `exports`, `scripts`, `dependencies`,
-  `devDependencies`, `engines`, `packageManager`. Dependency maps are sorted by package name. Other
-  maps keep the generator's order. A top-level key outside this list is refused.
+  `description`, `license`, `bin`, `files`, `type`, `imports`, `exports`, `scripts`, `dependencies`,
+  `devDependencies`, `engines`, `packageManager`. The dependency maps, `bin` and `engines` are
+  sorted by key, as the formatter sorts them (measured). Other maps keep the generator's order. A
+  top-level key outside this list is refused.
 
 ## Decisions for the Mind
 
 - **R10, ASCII escaping: decided** (memo `a4543497`). Printable non-ASCII stays literal in string
   literals, and only the escape set is escaped (see Strings). The ASCII-only alternative escaped
   every non-ASCII code unit, which made non-ASCII help text unreadable in source. Both pass
-  `vp fmt --check`; this was a readability choice. Quoted object keys still escape non-ASCII, because
+  the formatter; this was a readability choice. Quoted object keys still escape non-ASCII, because
   the formatter would otherwise unquote them (see Object keys).
 - **JSDoc carries no spec prose: decided** (memo `a4543497`). JSDoc text comes only from generator
   templates and is checked against the JSDoc alphabet (see JSDoc). Design §3.6 once routed source
