@@ -373,9 +373,9 @@ layer(Substrate.layer)("Db.open", (it) => {
 												{
 													day: read.value.day,
 													ratio: read.value.ratio,
-													blob: Array.from(read.value.blob)
+													blob: Arr.fromIterable(read.value.blob)
 												},
-												{ day: stamp.day, ratio: stamp.ratio, blob: Array.from(stamp.blob) },
+												{ day: stamp.day, ratio: stamp.ratio, blob: Arr.fromIterable(stamp.blob) },
 												"the stamp reads back as stored, whatever the login's stored output styles"
 											)
 											k.note("Stamps read")
