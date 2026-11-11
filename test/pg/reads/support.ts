@@ -166,9 +166,10 @@ export type FixtureInstall<P extends Readonly<Record<string, unknown>>> = Pick<
 }
 
 /**
- * Installs `fixture` under a fresh schema, loads `facts`, rebuilds the fixture under the installed name, and serves its
- * full world's login, whose workload holds `options.programs`: a program of its own the compile refuses is a defect of
- * the test. The fixture is a schema value whose relations sit under their own names and whose statements name only its
+ * Installs `fixture` under a fresh schema with its full world's login, whose workload holds `options.programs`, as
+ * generate installs a login, so the installation's live source routes every read the programs serve; loads `facts`,
+ * rebuilds the fixture under the installed name, and serves that login: a program of its own the compile refuses is a
+ * defect of the test. The fixture is a schema value whose relations sit under their own names and whose statements name only its
  * relations and read back from their names as themselves, as schema(...) checked when it was built.
  */
 export const installed = <
@@ -193,7 +194,7 @@ export const installed = <
 			ambient: ordinarySession,
 			label: options.label,
 			extensions: options.extensions,
-			logins: [fullWorld(fixture, {}).server]
+			logins: [fullWorld(fixture, options.programs).server]
 		})
 		yield* load(done, facts)
 		const rebuilt = schema<string, R, St>(done.schema, fixture.relations, fixture.statements)
