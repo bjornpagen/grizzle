@@ -19,6 +19,7 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { assert, defined, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
+import type { FixtureSchema } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { owning } from "#test/support/policy.ts"
@@ -61,10 +62,10 @@ import {
  */
 
 const installWith = (
-	schema: unknown,
+	schema: FixtureSchema,
 	physical: WorkloadPhysical
 ): Result.Result<Installation, CompileError> => {
-	const owned = owning(schemaDescOf(schema))
+	const owned = owning(schema)
 	return compileInstallation(owned, withWorkload(installOptions(owned, "grizzle_owner"), physical))
 }
 
@@ -354,7 +355,7 @@ const programsOf = (
 const installOf = (
 	c: InstallCase
 ): {
-	readonly schema: unknown
+	readonly schema: FixtureSchema
 	readonly physical: WorkloadPhysical
 	readonly refusal: Option.Option<CompileReasonTag>
 } => {

@@ -56,6 +56,7 @@ import { type OwnedLogin, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import type { FixtureSchema } from "#test/support/compile.ts"
 import { closed, f, field, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { aliasGroups } from "#test/support/kernel/dict.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -314,7 +315,7 @@ const heldOf = (box: Box, dimension: Dimension, at: "start" | "target"): Readonl
 
 /** What a box drafts at one state: its schema and its logins. */
 interface Subject {
-	readonly desc: unknown
+	readonly desc: FixtureSchema
 	readonly logins: ReadonlyArray<OwnedLogin>
 }
 

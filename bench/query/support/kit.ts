@@ -61,14 +61,14 @@ import { printStatement, quoteIdent } from "#compiler/sql/print.ts"
 import type { AnyLogin, AnyRole } from "#compiler/types/schema/world.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import {
+	inputArtifacts,
 	installedCodes,
 	partSelects,
 	partStatement,
 	programAsts,
 	schemaInputOf,
-	type TestNaming,
-	testArtifacts,
 	testCompile,
+	type TestNaming,
 	workloadOver
 } from "#test/support/compile.ts"
 import {
@@ -393,7 +393,7 @@ export const compile = <S>(
 	 * its artifacts are computed once, under the installed schema's names, as a DbLayer computes them.
 	 */
 	const artifacts = unwrap(
-		testArtifacts(reading, fixture.naming),
+		inputArtifacts(reading, fixture.naming),
 		"the role's artifacts under the installed schema"
 	)
 	const start = performance.now()

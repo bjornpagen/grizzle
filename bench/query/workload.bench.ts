@@ -36,7 +36,6 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
@@ -183,7 +182,7 @@ export default defineGate({
 			)
 			/** The installation compiled with regionAccounts removed, against each program's own indexes. */
 			const removed = "regionAccounts" satisfies keyof typeof programs
-			const owned = owning(schemaDescOf(Workload))
+			const owned = owning(Workload)
 			/** The index objects of the installation with the workload of `kept` alone, by ident, and those its access stands on. */
 			const installedWith = Effect.fn("installedWith")(function* (
 				kept: Readonly<Record<string, unknown>>

@@ -30,7 +30,7 @@ import { quoteIdent } from "#compiler/sql/print.ts"
 import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
-import { deployedWorkloadOver, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { deployedWorkloadOver, inputArtifacts, testCompile } from "#test/support/compile.ts"
 import { type Installed, installedOf } from "#test/support/install-migrate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -151,12 +151,13 @@ export const workloadOf = (
 	const owned = Arr.map(version.logins, (l) =>
 		succeeded(ownLogin(defined(loginDescOf(l), `login ${l.name}, built by login(...)`)))
 	)
+	const input = succeeded(parseSchemaInput(version.schema))
 	const plan = succeeded(
 		compileWorkload(
 			Arr.map(version.logins, (l) => ({ login: l.name, workloads: l.workload })),
-			succeeded(parseSchemaInput(version.schema)),
+			input,
 			{
-				artifacts: succeeded(testArtifacts(version.schema, testCompile)),
+				artifacts: succeeded(inputArtifacts(input, testCompile)),
 				roles: Arr.flatMap(owned, (l) => l.roles)
 			}
 		)

@@ -10,7 +10,13 @@ import {
 } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { compileTemplate, installationSql, paramTexts, testCompile } from "#test/support/compile.ts"
+import {
+	compileTemplate,
+	type FixtureSchema,
+	installationSql,
+	paramTexts,
+	testCompile
+} from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { oracleOwnedLogin } from "#test/support/oracle/install/real.ts"
@@ -37,7 +43,7 @@ export interface SpanInstallOptions {
 
 /** The schema's installation under `schema`, as `owner` names it. */
 const compileSpans = (
-	desc: unknown,
+	desc: FixtureSchema,
 	schema: string,
 	owner: string,
 	options: SpanInstallOptions
@@ -64,7 +70,7 @@ const compileSpans = (
  * every result column already cast to text by the template, so a run is the server's raw texts.
  */
 export const installSpans = (
-	desc: unknown,
+	desc: FixtureSchema,
 	options: SpanInstallOptions
 ): Effect.Effect<InstalledSpans, SqlError | TransactionRolledBack, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
@@ -89,7 +95,7 @@ export const compileSpanQuery = (q: unknown, schemaIdent: string): OracleTemplat
 /** A query description over `schemaDesc` compiled for the installed schema. */
 export const compileSpanDesc = (
 	q: unknown,
-	schemaDesc: unknown,
+	schemaDesc: FixtureSchema | undefined,
 	schemaIdent: string
 ): OracleTemplate =>
 	succeeded(

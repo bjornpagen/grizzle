@@ -13,7 +13,12 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { Select } from "#compiler/sql/ast.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
-import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
+import {
+	compileTemplate,
+	type FixtureSchema,
+	programAsts,
+	testCompile
+} from "#test/support/compile.ts"
 import { affine } from "#test/support/growth.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -90,7 +95,7 @@ const matchAll = (
 const attached = (
 	n: number,
 	width: number
-): { readonly query: QueryValue; readonly schema: unknown } => {
+): { readonly query: QueryValue; readonly schema: FixtureSchema } => {
 	const fields = childFields(width)
 	const root = keyedRelation("Root", [], ["rank"])
 	const kids = upTo(n, (i) => keyedRelation(`Kid${i}`, ["parent"], fields))

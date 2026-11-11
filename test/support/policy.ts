@@ -13,6 +13,7 @@ import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { parseSchemaInput, type SchemaInput } from "#compiler/program/schema.ts"
 import { type Owned, own, ownRole } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
+import type { FixtureSchema } from "#test/support/compile.ts"
 import {
 	decodedMember,
 	decodedReadBack,
@@ -29,10 +30,12 @@ import {
  *
  * The owned reality of a schema value, a role's base, or a SchemaDesc, as the compiler's boundary parses it.
  */
-export const ownedInput = (schema: unknown): Result.Result<Owned, CompileError> =>
-	Result.flatMap(parseSchemaInput(schema), (input) =>
-		own(input.kind === "role" ? input.desc.base : input.desc)
-	)
+export const ownedInput = (schema: FixtureSchema): Result.Result<Owned, CompileError> =>
+	Result.flatMap(parseSchemaInput(schema), ownInput)
+
+/** The owned reality of a parsed schema input: a role's base, or the schema itself (ownedInput). */
+export const ownInput = (input: SchemaInput): Result.Result<Owned, CompileError> =>
+	own(input.kind === "role" ? input.desc.base : input.desc)
 
 /** The value of a step the test states must succeed; its refusal, thrown, is a defect of the test. */
 const orThrow = <A>(result: Result.Result<A, CompileError>): A => {
@@ -42,16 +45,16 @@ const orThrow = <A>(result: Result.Result<A, CompileError>): A => {
 	return result.value
 }
 
-export const owning = (schema: unknown): Owned => orThrow(ownedInput(schema))
+export const owning = (schema: FixtureSchema): Owned => orThrow(ownedInput(schema))
 
 /** The SchemaDesc of a schema value, a role's base, an owned schema or a SchemaDesc, as the compiler's boundary parses it. */
-export const schemaDescIn = (schema: unknown): Result.Result<SchemaDesc, CompileError> =>
+export const schemaDescIn = (schema: FixtureSchema): Result.Result<SchemaDesc, CompileError> =>
 	Result.map(parseSchemaInput(schema), (input) =>
 		input.kind === "role" ? input.desc.base : input.desc
 	)
 
 /** The checked schema an input's queries are checked against: a role's, over its base, or reality's. */
-const checkedInput = (input: SchemaInput): Result.Result<CheckedSchema, CompileError> =>
+export const checkedInput = (input: SchemaInput): Result.Result<CheckedSchema, CompileError> =>
 	input.kind === "role"
 		? Result.flatMap(ownRole(input.desc), (role) =>
 				Result.flatMap(checkedSchema(role.base, everySlice(role.base)), (base) =>
@@ -61,10 +64,10 @@ const checkedInput = (input: SchemaInput): Result.Result<CheckedSchema, CompileE
 		: Result.flatMap(own(input.desc), (owned) => checkedSchema(owned, everySlice(owned)))
 
 /** The checked schema of a schema value, or the compiler's refusal of it: its derived relations' analysis among them. */
-export const checkedIn = (schema: unknown): Result.Result<CheckedSchema, CompileError> =>
+export const checkedIn = (schema: FixtureSchema): Result.Result<CheckedSchema, CompileError> =>
 	Result.flatMap(parseSchemaInput(schema), checkedInput)
 
-export const checking = (schema: unknown): CheckedSchema => orThrow(checkedIn(schema))
+export const checking = (schema: FixtureSchema): CheckedSchema => orThrow(checkedIn(schema))
 
 /**
  * An authored query description checked as a compilation checks a caller's Description: decoded at the boundary,

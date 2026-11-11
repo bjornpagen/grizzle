@@ -68,7 +68,7 @@ import { queryOver as queryBuilt, varsOver } from "#compiler/query/build/query.t
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, type FixtureSchema, testCompile } from "#test/support/compile.ts"
 import { sameIdentity } from "#test/support/kernel/identity.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { isDrawn, isSpan } from "#test/support/laws/model.ts"
@@ -425,7 +425,7 @@ class SessionReference extends Reference {
 }
 
 /** The checked DAG of a query over a schema, as the runtime compiles it. */
-const checkedDag = (query: unknown, over: unknown): RootedDag =>
+const checkedDag = (query: unknown, over: FixtureSchema | undefined): RootedDag =>
 	succeeded(compileTemplate(query, over, testCompile), "the query compiles").programs.checked.dag
 
 /**

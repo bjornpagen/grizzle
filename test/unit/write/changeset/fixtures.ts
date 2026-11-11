@@ -20,7 +20,7 @@ import {
 	type WriteFrontend
 } from "#compiler/write/frontend/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { AutomaticTask, ManualTask, Task, Work } from "#test/support/fixtures/api/work.ts"
 import { checking } from "#test/support/policy.ts"
 
@@ -48,7 +48,7 @@ export const parsedOf = (value: unknown): ParsedChangeSet => {
 
 /** The front end's options as compileWrite states them for reality over `schemaValue`: every context's fact held, and the
  * keys of its views as its artifacts know them. */
-const frontendOptions = (schemaValue: unknown): FrontendOptions => {
+const frontendOptions = (schemaValue: FixtureSchema): FrontendOptions => {
 	const artifacts = succeeded(testArtifacts(schemaValue, testCompile))
 	return {
 		claims: { kind: "every" },
@@ -60,10 +60,10 @@ const frontendOptions = (schemaValue: unknown): FrontendOptions => {
 }
 
 /** The codes a fresh installation of `schemaValue` holds: what its codecs encode a closed id or a set under. */
-export const codesOf = (schemaValue: unknown): Codebook =>
+export const codesOf = (schemaValue: FixtureSchema): Codebook =>
 	succeeded(testArtifacts(schemaValue, testCompile)).names.codes
 
-export const compiled = (schemaValue: unknown, value: unknown): WriteFrontend =>
+export const compiled = (schemaValue: FixtureSchema, value: unknown): WriteFrontend =>
 	succeeded(compileChangeSet(checking(schemaValue), descOf(value), frontendOptions(schemaValue)))
 
 export const uuidOf = (n: number): Uuid =>

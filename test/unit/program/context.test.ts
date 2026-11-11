@@ -10,7 +10,7 @@ import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, type FixtureSchema, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import { AutomaticTask, Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -108,7 +108,7 @@ const sketchGen: Gen<Sketch> = weighted<Sketch>([
 /** One read of one program over the schema it reads, `undefined` for a planted program's own. */
 interface Compiled {
 	readonly program: unknown
-	readonly schema: unknown
+	readonly schema: FixtureSchema | undefined
 	readonly read: Read
 	readonly what: string
 }

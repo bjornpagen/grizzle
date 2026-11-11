@@ -90,7 +90,7 @@ import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickGen, pickIndex, pickSpan } from "#test/support/pick.ts"
-import { ownedInput } from "#test/support/policy.ts"
+import { ownInput } from "#test/support/policy.ts"
 import {
 	bareContract,
 	charLengthAtMost,
@@ -106,6 +106,7 @@ import {
 } from "#test/unit/schema/support.ts"
 
 import { regex as arkregex } from "arkregex"
+import { parseSchemaInput } from "#compiler/program/schema.ts"
 const postgresIndexMaxKeys = 32
 /** BTMaxItemSize for the default 8192-byte block (nbtree.h), restated. */
 const postgresBtreeMaxItem = 2704
@@ -119,7 +120,7 @@ const utf8 = new TextEncoder()
 const utf8Bytes = (text: string): number => utf8.encode(text).length
 
 /** The ownership of a schema value at the schema door. */
-const ownValue = (value: unknown) => ownedInput(value)
+const ownValue = (value: unknown) => Result.flatMap(parseSchemaInput(value), ownInput)
 
 const ownOne = (r: AnyRelation | AnyClosed, statements: ReadonlyArray<Statement>) =>
 	ownValue(schema("Keys", { [r.name]: r }, statements, []))

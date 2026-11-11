@@ -80,6 +80,8 @@ import type { Cte, OperandSelect, Select } from "#compiler/sql/ast.ts"
 import { col, cteRef, provedCore, select, target } from "#compiler/sql/build.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
+import type { AnySchema } from "#compiler/types/schema/schema.ts"
+import type { AnyRole } from "#compiler/types/schema/world.ts"
 import type { CompiledWrite, CompileWriteOptions } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
@@ -150,18 +152,27 @@ export const codebookFor = (
 		: Result.map(ownedOf(input), (owned) => firstCodebook(rostersOf(owned)))
 
 /**
- * The artifacts of `schema`, parsed once as the runtime parses it (parseSchemaInput, idempotent on a parsed input),
- * under the test's naming: its declared levels' own schemas, or every level renamed under the allocation
- * `naming.installation` names (allocatedDesc), as the real-install harness installs it.
+ * A schema value a test hands the compiler, before it is parsed: one the schema builders made (schema(...),
+ * schema.extend(...)), a role, an owned schema, or a Description. The compiler's door parses it once (program/schema.ts
+ * parseSchemaInput); a parsed SchemaInput is never one, and goes to inputArtifacts.
+ */
+export type FixtureSchema = AnySchema | AnyRole | Owned | EngineSchemaDesc<object>
+
+/**
+ * The artifacts of `schema`, parsed once as the runtime parses it (parseSchemaInput), under the test's naming
+ * (inputArtifacts).
  */
 export const testArtifacts = (
-	schema: unknown,
+	schema: FixtureSchema,
 	naming: TestNaming
 ): Result.Result<SchemaArtifacts, CompileError> =>
 	Result.flatMap(parseSchemaInput(schema), (input) => inputArtifacts(input, naming))
 
-/** The artifacts of a parsed schema input under `naming` (testArtifacts). */
-const inputArtifacts = (
+/**
+ * The artifacts of a parsed schema input under `naming`: its declared levels' own schemas, or every level renamed under
+ * the allocation `naming.installation` names (allocatedDesc), as the real-install harness installs it.
+ */
+export const inputArtifacts = (
 	input: SchemaInput,
 	naming: TestNaming
 ): Result.Result<SchemaArtifacts, CompileError> =>
@@ -239,7 +250,7 @@ export const allocatedLevels = (
  * A schema value parsed as the compiler's entry points take it, a test's fixture schema among them; a value that does
  * not parse fails the test.
  */
-export const schemaInputOf = (schema: unknown): SchemaInput => {
+export const schemaInputOf = (schema: FixtureSchema): SchemaInput => {
 	const parsed = parseSchemaInput(schema)
 	if (!parsed.ok) {
 		throw new Error(`a schema value: ${parsed.error.message}`)
@@ -253,14 +264,31 @@ export const schemaInputOf = (schema: unknown): SchemaInput => {
  */
 export const compileTemplate = (
 	query: unknown,
-	schema: unknown,
+	schema: FixtureSchema | undefined,
 	options: TestCompileOptions
 ): Result.Result<OracleTemplate, CompileError> =>
-	Result.flatMap(templateSource(query, schema), (source) =>
-		Result.flatMap(testArtifacts(source.schema, options), (artifacts) =>
+	Result.flatMap(parsedSchema(schema), (input) => compileInputTemplate(query, input, options))
+
+/**
+ * The template of `query` over the parsed schema input `input` (undefined: the query's own schema), as compileTemplate
+ * compiles it: for a schema value a test parsed at its own boundary, a value the compiler's door may refuse.
+ */
+export const compileInputTemplate = (
+	query: unknown,
+	input: SchemaInput | undefined,
+	options: TestCompileOptions
+): Result.Result<OracleTemplate, CompileError> =>
+	Result.flatMap(inputSource(query, input), (source) =>
+		Result.flatMap(inputArtifacts(source.schema, options), (artifacts) =>
 			templateOver(source, artifacts, options)
 		)
 	)
+
+/** A fixture schema parsed once at the compiler's door, or none for a query read over its own. */
+const parsedSchema = (
+	schema: FixtureSchema | undefined
+): Result.Result<SchemaInput | undefined, CompileError> =>
+	schema === undefined ? Result.ok(undefined) : parseSchemaInput(schema)
 
 /**
  * The template of `query` over `schema`, as compileTemplate compiles it, against `artifacts`: the artifacts of the
@@ -269,7 +297,7 @@ export const compileTemplate = (
  */
 export const compileTemplateOver = (
 	query: unknown,
-	schema: unknown,
+	schema: FixtureSchema | undefined,
 	artifacts: SchemaArtifacts,
 	options: TestCompileOptions
 ): Result.Result<OracleTemplate, CompileError> =>
@@ -280,18 +308,16 @@ export const compileTemplateOver = (
 /** The query and the schema it reads, `schema` parsed as the compiler's boundary parses a caller's. */
 const templateSource = (
 	query: unknown,
-	schema: unknown
-): Result.Result<Parameters<typeof compileQuery>[0], CompileError> => {
-	const named = schema === undefined ? Result.ok(undefined) : parseSchemaInput(schema)
-	if (!named.ok) {
-		return named
-	}
-	const input = queryInput(query)
-	if (!input.ok) {
-		return input
-	}
-	return querySchema(input.value, named.value)
-}
+	schema: FixtureSchema | undefined
+): Result.Result<Parameters<typeof compileQuery>[0], CompileError> =>
+	Result.flatMap(parsedSchema(schema), (input) => inputSource(query, input))
+
+/** The query and the schema it reads, over the parsed schema input `input` (undefined: the query's own). */
+const inputSource = (
+	query: unknown,
+	input: SchemaInput | undefined
+): Result.Result<Parameters<typeof compileQuery>[0], CompileError> =>
+	Result.flatMap(queryInput(query), (parsed) => querySchema(parsed, input))
 
 /** A query's template against the artifacts of the schema it reads, its lowering checked. */
 const templateOver = (
@@ -335,13 +361,22 @@ export const realityWrite = (artifacts: SchemaArtifacts): CompileWriteOptions =>
  */
 export const compileTestWorkload = (
 	logins: ReadonlyArray<LoginWorkloads>,
-	schema: unknown,
+	schema: FixtureSchema,
 	naming: TestNaming
 ): Result.Result<WorkloadPlan, CompileError> =>
-	Result.flatMap(parseSchemaInput(schema), (input) =>
-		Result.flatMap(inputArtifacts(input, naming), (artifacts) =>
-			compileWorkload(logins, input, { artifacts, roles: [] })
-		)
+	Result.flatMap(parseSchemaInput(schema), (input) => compileInputWorkload(logins, input, naming))
+
+/**
+ * Logins' workloads planned over the parsed schema input `input` (compileTestWorkload): for a schema value a test
+ * parsed at its own boundary, a value the compiler's door may refuse.
+ */
+export const compileInputWorkload = (
+	logins: ReadonlyArray<LoginWorkloads>,
+	input: SchemaInput,
+	naming: TestNaming
+): Result.Result<WorkloadPlan, CompileError> =>
+	Result.flatMap(inputArtifacts(input, naming), (artifacts) =>
+		compileWorkload(logins, input, { artifacts, roles: [] })
 	)
 
 /**
@@ -439,14 +474,14 @@ export interface Declared {
 export const declaredOf = (
 	template: QueryTemplate,
 	query: unknown,
-	schema: unknown,
+	schema: FixtureSchema | undefined,
 	naming: TestNaming
 ): Declared => {
 	const named = schema === undefined ? Result.ok(undefined) : parseSchemaInput(schema)
 	const codes = Result.flatMap(named, (parsed) =>
 		Result.flatMap(queryInput(query), (input) =>
 			Result.flatMap(querySchema(input, parsed), (source) =>
-				Result.flatMap(parseSchemaInput(source.schema), (input) => codebookFor(input, naming.codes))
+				codebookFor(source.schema, naming.codes)
 			)
 		)
 	)

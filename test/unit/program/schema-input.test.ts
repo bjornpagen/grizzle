@@ -27,10 +27,13 @@ import { own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { assert, defined, nonEmpty, refusalLoc, succeeded } from "#test/support/assert.ts"
 import {
+	compileInputTemplate,
+	compileInputWorkload,
 	compileTemplate,
 	compileTestWorkload,
+	type FixtureSchema,
+	inputArtifacts,
 	schemaInputOf,
-	testArtifacts,
 	testCompile
 } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
@@ -100,7 +103,7 @@ const refusal = <A>(result: Result.Result<A, CompileError>, what: string): Compi
 /** A schema of the fixtures and one query built over it, reading a relation it declares. */
 interface Subject {
 	readonly label: string
-	readonly schema: object
+	readonly schema: FixtureSchema
 	readonly query: object
 }
 
@@ -111,7 +114,11 @@ const readOf = (value: object, relation: { readonly name: string }): object =>
 		return r.match(relation, vars).find(vars)
 	})
 
-const subject = (label: string, value: object, relation: { readonly name: string }): Subject => ({
+const subject = (
+	label: string,
+	value: FixtureSchema,
+	relation: { readonly name: string }
+): Subject => ({
 	label,
 	schema: value,
 	query: readOf(value, relation)
@@ -289,7 +296,7 @@ const sqlOf = (template: OracleTemplate) => ({
 	conservative: Arr.map(template.conservative, (s) => s.sql)
 })
 
-const compiledOrThrow = (query: unknown, named: unknown, what: string): OracleTemplate => {
+const compiledOrThrow = (query: unknown, named: FixtureSchema, what: string): OracleTemplate => {
 	const compiled = compileTemplate(query, named, testCompile)
 	if (!compiled.ok) {
 		throw new Error(`${what} does not compile: ${compiled.error.message}`)
@@ -313,7 +320,7 @@ const contentChanges: Arr.NonEmptyReadonlyArray<ContentChange> = [
 interface Root {
 	readonly subject: Subject
 	readonly relation: { readonly name: string }
-	readonly renamed: (name: string) => object
+	readonly renamed: (name: string) => FixtureSchema
 }
 
 const roots: Arr.NonEmptyReadonlyArray<Root> = [
@@ -335,7 +342,7 @@ type Db =
 			readonly kind: "renamed"
 			readonly name: string
 			readonly feature: IdentifierFeature
-			readonly schema: object
+			readonly schema: FixtureSchema
 	  }
 	| { readonly kind: "changed"; readonly change: ContentChange; readonly schema: unknown }
 
@@ -434,7 +441,7 @@ const changedCases: Arr.NonEmptyReadonlyArray<ContentCase> = nonEmpty(
 				defined(schemaDescOf(built.subject.schema), `the description of ${built.subject.label}`)
 			),
 			({ change, desc }): ReadonlyArray<ContentCase> =>
-				testArtifacts(desc, testCompile).ok
+				Result.flatMap(parseSchemaInput(desc), (input) => inputArtifacts(input, testCompile)).ok
 					? [{ built, db: { kind: "changed", change, schema: desc } }]
 					: []
 		)
@@ -585,14 +592,21 @@ describe("a level is its content, not its name", () => {
 							assert.equal(
 								refusal(
 									Result.flatMap(queryInput(query), (input) =>
-										querySchema(input, schemaInputOf(db.schema))
+										Result.flatMap(parseSchemaInput(db.schema), (schema) =>
+											querySchema(input, schema)
+										)
 									),
 									what
 								).reason._tag,
 								"MalformedDescription"
 							)
 							assert.equal(
-								refusal(compileTemplate(query, db.schema, testCompile), what).reason._tag,
+								refusal(
+									Result.flatMap(parseSchemaInput(db.schema), (input) =>
+										compileInputTemplate(query, input, testCompile)
+									),
+									what
+								).reason._tag,
 								"MalformedDescription"
 							)
 						})
@@ -723,7 +737,12 @@ describe("a schema the decoder refuses", () => {
 							/** A broken schema's refusals, by the schema parser and by the workload compiled against it. */
 							const refusalsOf = (value: unknown, what: string): ReadonlyArray<CompileError> => [
 								refusal(parseSchemaInput(value), `parsing ${what}`),
-								refusal(compileTestWorkload(logins, value, testCompile), `a workload over ${what}`)
+								refusal(
+									Result.flatMap(parseSchemaInput(value), (input) =>
+										compileInputWorkload(logins, input, testCompile)
+									),
+									`a workload over ${what}`
+								)
 							]
 							if (broken.kind === "live") {
 								const parsed = parseSchemaInput(broken.value)

@@ -58,7 +58,7 @@ import { everySlice } from "#compiler/schema/reach.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
 	buildPred,
@@ -554,7 +554,7 @@ type RoundingPosition = (typeof roundingPositions)[number]
  */
 const roundingSchemas = (
 	term: (r: Row) => unknown
-): ReadonlyArray<readonly [RoundingPosition, unknown]> => {
+): ReadonlyArray<readonly [RoundingPosition, FixtureSchema]> => {
 	const pred = (r: Row): unknown => C.le(term(r), C.literal(pg.numeric(3, 1), Decimal.of("0.5")))
 	const asInteger = (r: Row): unknown =>
 		C.cond(pred(r), C.literal(pg.integer, 1), C.literal(pg.integer, 0))

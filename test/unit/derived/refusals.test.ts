@@ -46,6 +46,7 @@ import type {
 } from "#compiler/ir/desc.ts"
 import { withDerivedRelations } from "#compiler/physical/derived/objects.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -80,7 +81,10 @@ import {
 import { ReportsDesc, WorkDesc } from "#test/support/fixtures/ir/work.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
-import { ownedInput } from "#test/support/policy.ts"
+import { ownedInput, ownInput } from "#test/support/policy.ts"
+
+/** The ownership of a generated value at the schema door: parsed there once, then owned. */
+const ownedAtDoor = (value: unknown) => Result.flatMap(parseSchemaInput(value), ownInput)
 
 const refusal = (r: Result.Result<unknown, CompileError>): CompileError => {
 	if (r.ok) {
@@ -631,12 +635,12 @@ describe("derived relation refusals", () => {
 					({ gen, mutation }, c) =>
 						Effect.sync(() => {
 							c.note(mutation.kind)
-							assert.ok(ownedInput(gen.value).ok, "the generated schema is admitted")
+							assert.ok(ownedAtDoor(gen.value).ok, "the generated schema is admitted")
 							const { defective, control } = mutated(gen, mutation)
-							const reason = refusal(ownedInput(defective)).reason
+							const reason = refusal(ownedAtDoor(defective)).reason
 							assert.equal(reason._tag, "MalformedDescription", mutation.kind)
 							if (Option.isSome(control)) {
-								const admitted = ownedInput(control.value)
+								const admitted = ownedAtDoor(control.value)
 								assert.ok(admitted.ok, admitted.ok ? "" : admitted.error.message)
 							}
 							if (mutation.kind === "a parameterized definition") {

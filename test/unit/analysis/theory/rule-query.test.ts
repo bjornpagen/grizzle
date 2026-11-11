@@ -81,14 +81,14 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { assert } from "#test/support/assert.ts"
-import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 /**
  * A schema's artifacts with its laws' violation queries written, each rule over a query's checked against the checked
  * schema (laws/model/violations.ts theoryViolations), as generate writes them into the snapshot.
  */
-const compiledOf = (schema: unknown): Result.Result<SchemaArtifacts, CompileError> =>
+const compiledOf = (schema: FixtureSchema): Result.Result<SchemaArtifacts, CompileError> =>
 	Result.flatMap(testArtifacts(schema, testCompile), (artifacts) =>
 		Result.map(theoryViolations(artifacts.laws.checked, artifacts.laws.theory), () => artifacts)
 	)

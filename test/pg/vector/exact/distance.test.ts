@@ -73,7 +73,13 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { normTolerance } from "#test/pg/vector/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, contains, defined, lacks, nonEmpty } from "#test/support/assert.ts"
-import { compileTemplate, paramTexts, scalarsOnly, testCompile } from "#test/support/compile.ts"
+import {
+	compileTemplate,
+	type FixtureSchema,
+	paramTexts,
+	scalarsOnly,
+	testCompile
+} from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
@@ -313,7 +319,7 @@ const expectNormAgrees = (v: Vector, native: number, label: string): void => {
 }
 
 /** The template of `q` as `role` reads it, under the installation's schema name. */
-const compiled = (q: unknown, role: unknown, schema: string): OracleTemplate => {
+const compiled = (q: unknown, role: FixtureSchema, schema: string): OracleTemplate => {
 	const r = compileTemplate(q, role, {
 		...testCompile,
 		installation: identity.schema(parsedSchemaName(schema))

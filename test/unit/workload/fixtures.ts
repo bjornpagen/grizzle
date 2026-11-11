@@ -5,7 +5,7 @@ import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
+import { compileTestWorkload, type FixtureSchema, testCompile } from "#test/support/compile.ts"
 import * as Sp from "#test/support/fixtures/api/spans.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 
@@ -131,7 +131,7 @@ export const fixtureLogin = "server"
  * login's workloads.
  */
 export const planOf = (
-	schemaValue: unknown,
+	schemaValue: FixtureSchema,
 	programs: Readonly<Record<string, unknown>>
 ): WorkloadPlan => {
 	const r = compileTestWorkload(

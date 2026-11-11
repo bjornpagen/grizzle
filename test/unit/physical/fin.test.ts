@@ -71,6 +71,7 @@ import {
 	succeeded,
 	throwsRefused
 } from "#test/support/assert.ts"
+import type { FixtureSchema } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownedInput } from "#test/support/policy.ts"
 
@@ -235,7 +236,7 @@ const schemaOf = (d: Declaration) => {
 }
 
 /** A schema value's installation, its refusal on the way included. */
-const compiled = (value: unknown) =>
+const compiled = (value: FixtureSchema) =>
 	Result.flatMap(ownedInput(value), (owned) =>
 		compileInstallation(owned, installOptions(owned, "owner"))
 	)

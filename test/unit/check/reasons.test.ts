@@ -76,6 +76,7 @@ import {
 import { Lab, Qty } from "#test/unit/check/schemas.ts"
 
 import { regex } from "arkregex"
+import type { FixtureSchema } from "#test/support/compile.ts"
 /**
  * What a check must answer: a refusal for a reason at exactly the decoded location of the offending declaration, a
  * refusal for a reason below every declaration, located, or the checked result.
@@ -455,7 +456,7 @@ type FaultFeature = CorruptedFeature<FaultRule> | "admitted as a read-back"
 
 /** A planted Description read at a boundary, against the case's schema. */
 const readAt = (
-	schema: unknown,
+	schema: FixtureSchema,
 	desc: LocatedQuery,
 	boundary: Boundary
 ): Result.Result<unknown, CompileError> => {

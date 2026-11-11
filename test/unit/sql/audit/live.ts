@@ -32,7 +32,12 @@ import {
 	tree
 } from "#test/pg/laws/projections/schemas.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { admitGenerated, installedCodes, testArtifacts } from "#test/support/compile.ts"
+import {
+	admitGenerated,
+	type FixtureSchema,
+	installedCodes,
+	testArtifacts
+} from "#test/support/compile.ts"
 import * as payroll from "#test/support/fixtures/ir/payroll.ts"
 import * as queue from "#test/support/fixtures/ir/queue.ts"
 import * as work from "#test/support/fixtures/ir/work.ts"
@@ -225,7 +230,7 @@ const failure = (what: string, e: CompileError): Error =>
  * relations, with the one full role a generated schema runs as in its login (oracleLogin), so its roles, views,
  * policies and grants are audited too.
  */
-const installationOf = (desc: unknown, codes: Codebook): Installation => {
+const installationOf = (desc: FixtureSchema, codes: Codebook): Installation => {
 	const owned = owning(desc)
 	const login = ownLogin(oracleLogin(owned.desc))
 	if (!login.ok) {
@@ -242,7 +247,7 @@ const installationOf = (desc: unknown, codes: Codebook): Installation => {
 }
 
 /** A fresh installation's codes for a fixture schema: each roster's handles numbered by position. */
-const freshCodes = (desc: unknown): Codebook => firstCodebook(rostersOf(owning(desc)))
+const freshCodes = (desc: FixtureSchema): Codebook => firstCodebook(rostersOf(owning(desc)))
 
 const logicalQuery = (c: QueryCase): LogicalQuery => ({
 	dag: c.query.dag,
@@ -363,7 +368,7 @@ const gauges = schema("Gauges", { Gauge }, [
 	)
 ])
 
-const fixtureSchemas: Arr.NonEmptyReadonlyArray<readonly [string, unknown]> = [
+const fixtureSchemas: Arr.NonEmptyReadonlyArray<readonly [string, FixtureSchema]> = [
 	["shop v1", shopV1],
 	["shop v2", shopV2],
 	["shop v3", shopV3],
@@ -375,7 +380,7 @@ const fixtureSchemas: Arr.NonEmptyReadonlyArray<readonly [string, unknown]> = [
 	["Reports", work.ReportsDesc],
 	["Payroll", payroll.PayrollDesc],
 	["Queue", queue.Queue],
-	...Arr.flatMap([false, true], (mutable): ReadonlyArray<readonly [string, unknown]> => [
+	...Arr.flatMap([false, true], (mutable): ReadonlyArray<readonly [string, FixtureSchema]> => [
 		[`staffing, mutable ${mutable}`, staffing({ mutable })],
 		[`rota, mutable ${mutable}`, rota({ mutable })],
 		[`tree, mutable ${mutable}`, tree({ mutable })],
@@ -482,7 +487,7 @@ interface Dictionary {
 	readonly drafted: Arr.NonEmptyReadonlyArray<Live>
 }
 
-const installedEntry = ([name, desc]: readonly [string, unknown]): Live => ({
+const installedEntry = ([name, desc]: readonly [string, FixtureSchema]): Live => ({
 	label: `the installation of ${name}`,
 	statements: twinned(
 		installationOf(desc, freshCodes(desc)).statements,

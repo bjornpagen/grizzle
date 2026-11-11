@@ -21,7 +21,13 @@ import { queryValueDesc } from "#compiler/query/build/query.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { defined } from "#test/support/assert.ts"
-import { lowerAligned, partQueries, partRecursive, programAsts } from "#test/support/compile.ts"
+import {
+	type FixtureSchema,
+	lowerAligned,
+	partQueries,
+	partRecursive,
+	programAsts
+} from "#test/support/compile.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
@@ -195,7 +201,7 @@ export const hostNormalized = <C extends QueryCase>(c: C): C => {
  * their checked headings' column order, with the containments given, and the query checked and normalized.
  */
 export const publicCase = (input: {
-	readonly schema: unknown
+	readonly schema: FixtureSchema
 	/** The schema's declared name. */
 	readonly name: string
 	readonly relations: ReadonlyArray<string>

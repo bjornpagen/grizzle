@@ -28,7 +28,7 @@ import {
 import { closedConstantsOf } from "#test/support/catalog/installed.ts"
 import { type Catalog, readCatalog } from "#test/support/catalog/read.ts"
 import type { ErasureExpectation } from "#test/support/catalog/verify.ts"
-import { installationSql } from "#test/support/compile.ts"
+import { type FixtureSchema, installationSql } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
@@ -102,7 +102,7 @@ export const installedRoleOf = (
  * Installs `desc` with `logins` under a fresh schema and reads its catalog.
  */
 export const installed = (
-	desc: unknown,
+	desc: FixtureSchema,
 	label: string,
 	logins: ReadonlyArray<OwnedLogin>
 ): Effect.Effect<InstalledFixture, SqlError | TransactionRolledBack, Substrate | Scope.Scope> =>

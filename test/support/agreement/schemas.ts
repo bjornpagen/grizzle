@@ -31,7 +31,7 @@ import {
 } from "#compiler/ir/desc.ts"
 import type { Heading as Columns } from "#compiler/ir/rel.ts"
 import { contractOf, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
-import type { SchemaArtifacts } from "#compiler/program/schema.ts"
+import { parseSchemaInput, type SchemaArtifacts } from "#compiler/program/schema.ts"
 import { bits, closedId, Decimal, Money, Vector } from "#compiler/public/fields.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -92,7 +92,13 @@ import type { Statement } from "#compiler/types/schema/statements.ts"
 import { changeSetDesc, changeSetOver } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, defined } from "#test/support/assert.ts"
-import { compileTemplate, realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import {
+	compileTemplate,
+	inputArtifacts,
+	realityWrite,
+	testArtifacts,
+	testCompile
+} from "#test/support/compile.ts"
 import { floatOf } from "#test/support/descriptors.ts"
 import { admitContract, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 import { messageOf } from "#test/support/message.ts"
@@ -2891,7 +2897,9 @@ const building = (build: () => unknown): Verdict => engineVerdict(catchCompileEr
 /** A build, then a compilation of what it built: the first refusal of either. */
 const compiling = (build: () => unknown): Verdict =>
 	engineVerdict(
-		Result.flatMap(catchCompileError(build), (built) => testArtifacts(built, testCompile))
+		Result.flatMap(catchCompileError(build), (built) =>
+			Result.flatMap(parseSchemaInput(built), (input) => inputArtifacts(input, testCompile))
+		)
 	)
 
 /**

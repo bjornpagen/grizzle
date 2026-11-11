@@ -65,6 +65,7 @@ import {
 	worldNames
 } from "#compiler/physical/ddl/names.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { sameLaw } from "#compiler/public/changeset.ts"
 import type {
 	AnyRelation,
@@ -85,7 +86,7 @@ import type { AlternativesBase } from "#compiler/types/schema/statements.ts"
 import { allocatedLevels } from "#test/support/compile.ts"
 import type { AuthoredStatementDesc, SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
-import { ownedInput } from "#test/support/policy.ts"
+import { ownedInput, ownInput } from "#test/support/policy.ts"
 
 /**
  * What a test names production identifiers of: a public schema value or a desc fixture, as the schema boundary
@@ -508,7 +509,9 @@ const ownedAtItsLevel = (
 	desc: unknown
 ): Result.Result<Owned, CompileError> => {
 	const below = bare.extends === undefined ? undefined : ownedAtItsLevel(bare.extends, desc)
-	return below?.ok === true ? below : ownedInput({ ...bare, statements: [desc] })
+	return below?.ok === true
+		? below
+		: Result.flatMap(parseSchemaInput({ ...bare, statements: [desc] }), ownInput)
 }
 
 /**

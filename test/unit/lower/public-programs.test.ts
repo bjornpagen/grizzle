@@ -57,7 +57,7 @@ import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
@@ -95,7 +95,7 @@ type Lowered =
 			readonly optimized: Result.Result<OptimizedProgram, CompileError>
 	  }
 
-const lowered = (schemaValue: unknown, read: unknown): Lowered => {
+const lowered = (schemaValue: FixtureSchema, read: unknown): Lowered => {
 	const artifacts = succeeded(testArtifacts(schemaValue, testCompile))
 	const input = succeeded(queryInput(read))
 	const checked = checkQuery(checking(schemaValue), input.desc, checkOptions("query"))
@@ -135,7 +135,7 @@ const lowered = (schemaValue: unknown, read: unknown): Lowered => {
  * optimized lowering builds that breaks a rule is the defect the validator raises, which fails with `context`.
  */
 const lowersValid = (
-	schemaValue: unknown,
+	schemaValue: FixtureSchema,
 	read: unknown,
 	n: Case<IdentityFeature>,
 	context: () => string
@@ -223,7 +223,9 @@ const plantedGen: Gen<PlantedRead> = oneOf<PlantedRead>([
 ])
 
 /** A planted read and the schema it is built over. */
-const plantedRead = (p: PlantedRead): { readonly schema: unknown; readonly read: unknown } => {
+const plantedRead = (
+	p: PlantedRead
+): { readonly schema: FixtureSchema; readonly read: unknown } => {
 	if (p.kind === "child") {
 		return {
 			schema: Routes,

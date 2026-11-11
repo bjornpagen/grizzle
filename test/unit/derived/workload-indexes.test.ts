@@ -53,7 +53,7 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { IndexKey, SqlStatement } from "#compiler/sql/ast.ts"
 import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
-import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
+import { compileTestWorkload, type FixtureSchema, testCompile } from "#test/support/compile.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -124,7 +124,10 @@ const programsOf = (
 ): Readonly<Record<string, unknown>> =>
 	Rec.fromEntries(Arr.map(programs, (p, i) => [`program${i}`, programOf(p, redefined)] as const))
 
-const planOf = (schemaValue: unknown, programs: Readonly<Record<string, unknown>>): WorkloadPlan =>
+const planOf = (
+	schemaValue: FixtureSchema,
+	programs: Readonly<Record<string, unknown>>
+): WorkloadPlan =>
 	succeeded(
 		compileTestWorkload(
 			[{ login: "server", workloads: [workload(schemaValue, programs)] }],

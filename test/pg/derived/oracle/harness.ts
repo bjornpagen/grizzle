@@ -16,6 +16,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assertVariant } from "#test/support/assert.ts"
+import type { FixtureSchema } from "#test/support/compile.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
@@ -125,7 +126,7 @@ const compileFailed = (e: CompileError): OracleFixtureFailed =>
 /** Installs `declared` (the schema built under any name) with `facts` and `logins`, each a login value or a LoginDesc
  * over the declared schema ([] for none). */
 export const installDerived = (
-	declared: unknown,
+	declared: FixtureSchema,
 	facts: Facts,
 	label: string,
 	logins: ReadonlyArray<LoginSource>

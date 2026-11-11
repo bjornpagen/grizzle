@@ -79,7 +79,7 @@ import {
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { argumentsOf } from "#test/support/list.ts"
-import { ownedInput } from "#test/support/policy.ts"
+import { ownInput } from "#test/support/policy.ts"
 import {
 	bareContract,
 	rawClosedId,
@@ -91,6 +91,8 @@ import {
 } from "#test/unit/schema/support.ts"
 
 import { regex as arkregex } from "arkregex"
+import * as Result from "#compiler/core/result.ts"
+import { parseSchemaInput } from "#compiler/program/schema.ts"
 
 /** The handles of Kind, a roster. */
 const kindHandles = ["Automatic", "Manual"] as const
@@ -141,7 +143,7 @@ const wordGen = matching(arkregex("^[A-Z][a-z]{1,7}$"))
 const undeclaredWordGen = matching(arkregex("^[A-Z][a-z]{1,7}[0-9]$"))
 
 /** The ownership of a value at the schema door: a built schema, or a description decoded there. */
-const ownValue = (value: unknown) => ownedInput(value)
+const ownValue = (value: unknown) => Result.flatMap(parseSchemaInput(value), ownInput)
 
 const descOf = (s: unknown): SchemaDesc =>
 	defined(schemaDescOf(s), "a schema built by schema(...) or schema.extend(...)")

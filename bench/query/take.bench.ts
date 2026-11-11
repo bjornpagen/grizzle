@@ -81,7 +81,7 @@ import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import { printStatement } from "#compiler/sql/print.ts"
-import { testArtifacts } from "#test/support/compile.ts"
+import { inputArtifacts } from "#test/support/compile.ts"
 import { ledgerPrologue } from "#test/support/flight/model.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { labeledStatements } from "#test/support/oracle/compare.ts"
@@ -505,7 +505,7 @@ export default defineGate({
 					what: `LabReports' schema input: ${reportsInput.error.message}`
 				})
 			}
-			const reportArtifacts = testArtifacts(reportsInput.value, reports.naming)
+			const reportArtifacts = inputArtifacts(reportsInput.value, reports.naming)
 			if (!reportArtifacts.ok) {
 				throw new GateSetupError({
 					what: `LabReports' artifacts: ${reportArtifacts.error.message}`

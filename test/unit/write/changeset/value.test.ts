@@ -64,7 +64,7 @@ import {
 } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import { assert, defined, throwsRefused } from "#test/support/assert.ts"
-import { schemaInputOf } from "#test/support/compile.ts"
+import { type FixtureSchema, schemaInputOf } from "#test/support/compile.ts"
 import { Employer, Payroll, Reporting } from "#test/support/fixtures/api/payroll.ts"
 import {
 	Account,
@@ -1621,12 +1621,12 @@ const malformed = (f: () => unknown): CompileError => throwsRefused(f, "Malforme
  * of no level, a role, and a role built again of one content or under another name. */
 interface LevelSubject {
 	readonly label: string
-	readonly schema: object
+	readonly schema: FixtureSchema
 	readonly relation: { readonly name: string }
 }
 
 /** A role over Work holding two of its relations, built by `name`. */
-const writerRole = (name: string): object => role(Work, name, { Task, TaskNote })
+const writerRole = (name: string): FixtureSchema => role(Work, name, { Task, TaskNote })
 
 const levelSubjects: Arr.NonEmptyReadonlyArray<LevelSubject> = [
 	{ label: "Work", schema: Work, relation: Account },
@@ -1640,9 +1640,9 @@ const levelSubjects: Arr.NonEmptyReadonlyArray<LevelSubject> = [
  * its last statement removed. */
 interface LevelRoot {
 	readonly label: string
-	readonly renamed: (name: string) => object
-	readonly relationAdded: object
-	readonly statementRemoved: object
+	readonly renamed: (name: string) => FixtureSchema
+	readonly relationAdded: FixtureSchema
+	readonly statementRemoved: FixtureSchema
 }
 const levelRoots: Arr.NonEmptyReadonlyArray<LevelRoot> = [
 	{
@@ -1663,11 +1663,19 @@ const levelRoots: Arr.NonEmptyReadonlyArray<LevelRoot> = [
  * its last statement removed, the role built again, or the role under a drawn name. */
 type Named =
 	| { readonly kind: "fixture"; readonly subject: LevelSubject }
-	| { readonly kind: "renamed"; readonly feature: IdentifierFeature; readonly schema: object }
-	| { readonly kind: "relation added"; readonly schema: object }
-	| { readonly kind: "statement removed"; readonly schema: object }
-	| { readonly kind: "role rebuilt"; readonly schema: object }
-	| { readonly kind: "role renamed"; readonly feature: IdentifierFeature; readonly schema: object }
+	| {
+			readonly kind: "renamed"
+			readonly feature: IdentifierFeature
+			readonly schema: FixtureSchema
+	  }
+	| { readonly kind: "relation added"; readonly schema: FixtureSchema }
+	| { readonly kind: "statement removed"; readonly schema: FixtureSchema }
+	| { readonly kind: "role rebuilt"; readonly schema: FixtureSchema }
+	| {
+			readonly kind: "role renamed"
+			readonly feature: IdentifierFeature
+			readonly schema: FixtureSchema
+	  }
 
 /** Where a hostile value sat in bind's map, or that the map was live throughout. */
 type BindFeature = "a live map" | `${WildKind} as the map` | `${WildKind} as a fact`

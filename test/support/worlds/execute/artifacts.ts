@@ -17,7 +17,12 @@ import { queryDescOf } from "#compiler/schema/protocol.ts"
 import type { ServedFile, ServedMember } from "#compiler/served/forms.ts"
 import { servedSource } from "#compiler/served/read.ts"
 import { defined } from "#test/support/assert.ts"
-import { compileTemplate, type TestCompileOptions, testArtifacts } from "#test/support/compile.ts"
+import {
+	compileTemplate,
+	type FixtureSchema,
+	type TestCompileOptions,
+	testArtifacts
+} from "#test/support/compile.ts"
 import { conservativePageRuntime } from "#test/support/conservative.ts"
 import { factKeySet, sameFact } from "#test/support/worlds/model/host.ts"
 import type { HostFact } from "#test/support/worlds/model/types.ts"
@@ -252,7 +257,7 @@ export const sidedMembers = (
 	file: ServedFile,
 	role: string,
 	queries: ReadonlyMap<string, unknown>,
-	schema: unknown,
+	schema: FixtureSchema,
 	options: TestCompileOptions
 ): Result.Result<SidedMembers, CompileError> =>
 	Result.flatMap(toResult(testArtifacts(schema, options)), (artifacts) => {

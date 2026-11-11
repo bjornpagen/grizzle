@@ -76,9 +76,10 @@ import { defined, succeeded } from "#test/support/assert.ts"
 import {
 	codebookFor,
 	compileTemplateOver,
-	type TestCompileOptions,
+	type FixtureSchema,
 	testArtifacts,
-	testCompile
+	testCompile,
+	type TestCompileOptions
 } from "#test/support/compile.ts"
 import { admittedNames, refusedNames } from "#test/support/kernel/dict.ts"
 import { argumentsOf } from "#test/support/list.ts"
@@ -3091,7 +3092,8 @@ const schemaOf = (spec: QuerySpec): "Agree" | "Rollup" =>
 		: "Agree"
 
 /** The schema value a query is built over. */
-const schemaValue = (spec: QuerySpec): unknown => (schemaOf(spec) === "Rollup" ? Rollup : Agree)
+const schemaValue = (spec: QuerySpec): FixtureSchema =>
+	schemaOf(spec) === "Rollup" ? Rollup : Agree
 
 /**
  * The artifacts of Agree, Rollup and the role views a case reads through (Reader over Agree, Reporter over Rollup),

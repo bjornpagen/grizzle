@@ -42,6 +42,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { cleared, type Seat, seatOf } from "#test/pg/fin/installed.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import type { FixtureSchema } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { attempt, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -285,7 +286,7 @@ const ledSeats = (flags: ReadonlyArray<boolean>): ReadonlyArray<ReadonlyArray<st
 
 /** Each row's schema and the relations it declares. */
 const schemas: Readonly<
-	Record<Row, Readonly<{ schema: unknown; relations: Arr.NonEmptyReadonlyArray<string> }>>
+	Record<Row, Readonly<{ schema: FixtureSchema; relations: Arr.NonEmptyReadonlyArray<string> }>>
 > = {
 	"at most one": { schema: atMostOne, relations: ["Club", "Seat"] },
 	"at least one": { schema: atLeastOne, relations: ["Club", "Seat"] },

@@ -42,7 +42,7 @@ import { type AmbientOwner, type AmbientSession, ambientOwner } from "#test/supp
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { checkInstallation } from "#test/support/catalog/installed.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
-import { installationSql } from "#test/support/compile.ts"
+import { type FixtureSchema, installationSql } from "#test/support/compile.ts"
 import { paths, repoRoot } from "#test/support/files.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -463,7 +463,7 @@ export const installedSchemas = (installation: Installation): Arr.NonEmptyReadon
  * noDeclarations for none), which its codes are drafted under too.
  */
 export interface InstallVersion {
-	readonly schema: unknown
+	readonly schema: FixtureSchema
 	readonly logins: ReadonlyArray<LoginSource>
 	readonly declarations: Declarations
 }
@@ -612,7 +612,7 @@ export const installMigratedThrough = (
  * (compileInstallation), with the logins and extensions of `options`.
  */
 export const installMigrated = (
-	schema: unknown,
+	schema: FixtureSchema,
 	options: MigratedOptions
 ): Effect.Effect<
 	Installed,

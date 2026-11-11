@@ -19,6 +19,7 @@ import { constraintLaw } from "#compiler/ir/products.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import type { FixtureSchema } from "#test/support/compile.ts"
 import { type Installed, installMigrated } from "#test/support/install-migrate.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import {
@@ -168,7 +169,7 @@ const schemaLabelOf = (label: string): string => {
  * reads its catalog. `relations` names every stored relation of the schema a suite writes or reads.
  */
 export const seatOf = (
-	schema: unknown,
+	schema: FixtureSchema,
 	relations: Arr.NonEmptyReadonlyArray<string>,
 	label: string
 ): Effect.Effect<Seat, CompileError | SqlError | TransactionRolledBack, Substrate | Scope.Scope> =>

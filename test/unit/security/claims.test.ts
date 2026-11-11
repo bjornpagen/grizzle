@@ -47,9 +47,9 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { parseSchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { owning } from "#test/support/policy.ts"
+import { ownInput } from "#test/support/policy.ts"
 import { buildInstall } from "#test/support/worlds/execute/build.ts"
 import { docsBase, docsInstall } from "#test/support/worlds/model/bases/docs.ts"
 import { claimsText, payloadFacts } from "#test/support/worlds/model/session/claims.ts"
@@ -74,7 +74,7 @@ const memberContexts: ReadonlyArray<TypedContext> = (() => {
 		throw new Error("the member role did not parse as a role")
 	}
 	const artifacts = schemaArtifacts(input.value, {
-		codes: firstCodebook(rostersOf(owning(role)))
+		codes: firstCodebook(rostersOf(succeeded(ownInput(input.value), "the member role's base")))
 	})
 	if (!artifacts.ok) {
 		throw new Error(`the member role did not compile: ${artifacts.error.message}`)

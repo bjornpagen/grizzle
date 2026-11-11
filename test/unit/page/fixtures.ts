@@ -2,19 +2,18 @@ import { Result } from "effect"
 import { toResult } from "#adapter/engine.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isRecord } from "#compiler/core/record.ts"
 import {
 	compilePage,
 	type PageArtifact,
 	type PageTemplate,
 	statedOrderOf
 } from "#compiler/lower/shapes/page/compile.ts"
-import { type QueryTemplate, queryInput } from "#compiler/program/compile.ts"
+import { type QueryTemplate, queryInput, querySchema } from "#compiler/program/compile.ts"
 import { closedId, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { compileTemplate, type TestCompileOptions, testArtifacts } from "#test/support/compile.ts"
+import { compileTemplate, inputArtifacts, type TestCompileOptions } from "#test/support/compile.ts"
 import { conservativePage } from "#test/support/conservative.ts"
 
 const Title = str.regex("^.+$", "su")
@@ -180,10 +179,10 @@ export const compiledPageResult = (
 		const template = yield* toResult(
 			compileTemplate(ordered, undefined, { ...options, read: "page" })
 		)
-		const artifacts = yield* toResult(
-			testArtifacts(isRecord(ordered) ? ordered["schema"] : undefined, options)
-		)
-		const { desc } = yield* toResult(queryInput(ordered))
+		const parsed = yield* toResult(queryInput(ordered))
+		const source = yield* toResult(querySchema(parsed, undefined))
+		const artifacts = yield* toResult(inputArtifacts(source.schema, options))
+		const desc = parsed.desc
 		const stated = yield* toResult(statedOrderOf(desc, SourceLoc("query", [])))
 		const input = {
 			checked: template.programs.checked,

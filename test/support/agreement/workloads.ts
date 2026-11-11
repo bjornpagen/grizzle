@@ -35,7 +35,12 @@ import {
 	Writer,
 	writerTasks
 } from "#test/support/agreement/workload-schema.ts"
-import { compileTemplate, compileTestWorkload, testCompile } from "#test/support/compile.ts"
+import {
+	compileTemplate,
+	compileTestWorkload,
+	type FixtureSchema,
+	testCompile
+} from "#test/support/compile.ts"
 import {
 	identifiers,
 	preludeAt,
@@ -72,7 +77,7 @@ import {
 const schemaNames = ["Work", "Reports", "Writer", "Reader", "Clerk", "Other"] as const
 type SchemaName = (typeof schemaNames)[number]
 
-const workloadSchemas: { readonly [S in SchemaName]: object } = {
+const workloadSchemas: { readonly [S in SchemaName]: FixtureSchema } = {
 	Work,
 	Reports,
 	Writer,
@@ -82,7 +87,7 @@ const workloadSchemas: { readonly [S in SchemaName]: object } = {
 }
 
 /** The schema a workload over each of the drawn schemas is planned over: a role's base, or the schema itself. */
-const plannedOver: { readonly [S in SchemaName]: object } = {
+const plannedOver: { readonly [S in SchemaName]: FixtureSchema } = {
 	Work,
 	Reports,
 	Writer: Work,
@@ -251,7 +256,10 @@ const namedPrograms = (spec: WorkloadSpec): ReadonlyArray<readonly [string, Prog
  * the role, a key through its lookup query over the role. A ChangeSet's writes the workload compiler already holds to
  * the role's write list.
  */
-const roleReads = (built: unknown, roleValue: object): Result.Result<unknown, CompileError> => {
+const roleReads = (
+	built: unknown,
+	roleValue: FixtureSchema
+): Result.Result<unknown, CompileError> => {
 	const state = workloadState(built)
 	if (state === undefined) {
 		throw new Error("workload() keeps the state of every value it builds")

@@ -19,6 +19,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { succeeded } from "#test/support/assert.ts"
+import type { FixtureSchema } from "#test/support/compile.ts"
 import { schemaDescIn } from "#test/support/policy.ts"
 
 export const A = relation(
@@ -366,7 +367,7 @@ export type History = (typeof histories)[number]
 export type Order = "fresh" | History
 
 /** The version a history migrates from to the schema of `shape` under `name`. */
-export const firstVersion = (history: History, shape: Shape, name: string): unknown => {
+export const firstVersion = (history: History, shape: Shape, name: string): FixtureSchema => {
 	switch (history) {
 		case "aboveLater":
 			return rootOf(name)

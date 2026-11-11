@@ -65,6 +65,7 @@ import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, refusalLoc } from "#test/support/assert.ts"
+import type { FixtureSchema } from "#test/support/compile.ts"
 import { normalizeDag } from "#test/support/dag.ts"
 import { fromQueryDescription, queryFromDesc } from "#test/support/describe.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -438,7 +439,7 @@ interface Live {
 	readonly relation: Stored
 	readonly stored: ReadonlyArray<Stored>
 	/** The schema value the read is built over, whose checked form types a member's head literals. */
-	readonly schema: unknown
+	readonly schema: FixtureSchema
 }
 
 /**
@@ -1265,7 +1266,7 @@ const rewrites: ReadonlyArray<Rewrite> = [
 const admitted = (
 	boundary: Rewrite["boundary"],
 	value: Json,
-	schema: unknown,
+	schema: FixtureSchema,
 	label: string
 ): void => {
 	switch (boundary) {
@@ -1287,7 +1288,7 @@ const admitted = (
 /** Every rewrite of a live description at every site, admitted by its boundary. */
 const admitsRewrites = (
 	description: Json,
-	schema: unknown,
+	schema: FixtureSchema,
 	stored: ReadonlyArray<Stored>,
 	note: Case<Feature>["note"]
 ): void => {
@@ -1303,7 +1304,7 @@ const admitsRewrites = (
 const refusedAt = (
 	boundary: Refusal["boundary"],
 	value: unknown,
-	schema: unknown,
+	schema: FixtureSchema,
 	relation: Stored
 ): Result.Result<unknown, CompileError> => {
 	switch (boundary) {

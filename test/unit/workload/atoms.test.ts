@@ -12,7 +12,7 @@ import { queryInput } from "#compiler/program/compile.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { checking, checkOptions } from "#test/support/policy.ts"
+import { checkedInput, checkOptions } from "#test/support/policy.ts"
 import { Sp } from "#test/unit/workload/fixtures.ts"
 
 /**
@@ -34,7 +34,11 @@ const filterAtoms = (q: unknown) => {
 		return assert.fail("a built query carries its schema")
 	}
 	const dag = succeeded(
-		checkQuery(checking(input.schema), input.desc, checkOptions("query")),
+		checkQuery(
+			succeeded(checkedInput(input.schema), "the query's schema checks"),
+			input.desc,
+			checkOptions("query")
+		),
 		"the query checks"
 	).dag
 	return Arr.flatMap(topoOrder(dag), (n) =>

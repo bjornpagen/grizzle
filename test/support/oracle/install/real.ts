@@ -40,7 +40,7 @@ import {
 } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
-import { allocatedDesc, installationSql } from "#test/support/compile.ts"
+import { allocatedDesc, type FixtureSchema, installationSql } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { foreignKeyColumns, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -212,7 +212,7 @@ const valueKind = (t: ScalarType, codes: Codebook): ValueKind => {
 }
 
 /** The installation keeps the emission discipline (oracle/verify checkedStatements). */
-const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
+const build = (input: FixtureSchema, options: RealPlanOptions): RealInstallPlan => {
 	const ownership = ownedInput(input)
 	if (!ownership.ok) {
 		throw ownership.error
@@ -499,7 +499,7 @@ const contractInfo = (installation: Installation, contract: string): Option.Opti
 
 /** The plan of `input` on the real installer, or the first refusal. */
 export const planRealInstall = (
-	input: unknown,
+	input: FixtureSchema,
 	options: RealPlanOptions
 ): Result.Result<RealInstallPlan, CompileError> => {
 	try {
@@ -600,7 +600,7 @@ const installRealPlan = (
  * enables login for every login role. The schema and its roles are dropped when the scope closes.
  */
 export const installRealSchema = (
-	input: unknown,
+	input: FixtureSchema,
 	options: RealInstallOptions
 ): Effect.Effect<
 	InstalledRealSchema,

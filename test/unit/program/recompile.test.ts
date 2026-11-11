@@ -9,7 +9,7 @@ import { Array as Arr, Effect, Formatter, Option } from "effect"
 import * as Result from "#compiler/core/result.ts"
 import { type QueryTemplate, queryInput } from "#compiler/program/compile.ts"
 import { type ExecutionRequest, templateFor } from "#compiler/program/template.ts"
-import { schemaInputOf, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { inputArtifacts, schemaInputOf, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import { caseGen } from "#test/support/oracle/public/generate.ts"
@@ -84,7 +84,7 @@ describe("compiling again", () => {
 							const built = buildSchema(c.schema)
 							const schema = built.schema
 							const input = schemaInputOf(schema)
-							const artifacts = testArtifacts(input, testCompile)
+							const artifacts = inputArtifacts(input, testCompile)
 							const asDb = (query: unknown) =>
 								Result.flatMap(artifacts, (a) =>
 									Result.flatMap(queryInput(query), (q) => templateFor(q, input, a, request))

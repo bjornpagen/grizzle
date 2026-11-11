@@ -39,7 +39,12 @@ import {
 	Tone,
 	Tuning
 } from "#test/support/agreement/compute-schema.ts"
-import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
+import {
+	compileTemplate,
+	type FixtureSchema,
+	testArtifacts,
+	testCompile
+} from "#test/support/compile.ts"
 import { messageOf } from "#test/support/message.ts"
 import { preludeAt, type PreludeAt, preludeFrom, preludeProgram } from "#test/support/prelude.ts"
 
@@ -1947,7 +1952,7 @@ const bytesSchemaText = (spec: Extract<CaseSpec, { readonly kind: "bytes" }>): s
 }
 
 /** The engine's reading of a byte guard case: the same schema, built by the public constructors and Compute's core. */
-const bytesSchema = (spec: Extract<CaseSpec, { readonly kind: "bytes" }>): unknown => {
+const bytesSchema = (spec: Extract<CaseSpec, { readonly kind: "bytes" }>): FixtureSchema => {
 	const target = str.bytes(spec.target, str.regex("^.*$", "su"))
 	const guard = spec.guard
 	return schema(
@@ -2001,7 +2006,7 @@ const digestSchemaText = (spec: Extract<CaseSpec, { readonly kind: "digest" }>):
 }
 
 /** The engine's reading of a digest case: the same schema, built by the public constructors and Compute's core. */
-const digestSchema = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): unknown => {
+const digestSchema = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): FixtureSchema => {
 	const target = spec.target.field
 	return schema(
 		"Digests",
@@ -2167,7 +2172,7 @@ const closedSchemaText = (spec: Extract<CaseSpec, { readonly kind: "closed" }>):
 /**
  * The engine's reading of a closed read's case: the same schema, built by the public constructors and Compute's core.
  */
-const closedSchema = (spec: Extract<CaseSpec, { readonly kind: "closed" }>): unknown => {
+const closedSchema = (spec: Extract<CaseSpec, { readonly kind: "closed" }>): FixtureSchema => {
 	const guard = spec.guard
 	const target = Cell.fields[spec.to]
 	return schema(

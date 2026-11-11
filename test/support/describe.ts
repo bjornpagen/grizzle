@@ -15,6 +15,7 @@ import {
 } from "#compiler/query/build/query.ts"
 import { described, isOrdered, type QueryState, stageHeading } from "#compiler/query/build/state.ts"
 import { type Level, levelOf } from "#compiler/schema/level.ts"
+import type { FixtureSchema } from "#test/support/compile.ts"
 import { checkedIn } from "#test/support/policy.ts"
 
 /** A payload its carrier parsed, or MalformedDescription where its grammar admits no such payload. */
@@ -86,7 +87,7 @@ export const queryFromDesc = (
  */
 export const queryFromDescription = (
 	description: unknown,
-	schema: unknown
+	schema: FixtureSchema
 ): Result.Result<QueryValue | OrderedValue, CompileError> =>
 	Result.flatMap(fromQueryDescription(description), (desc) =>
 		Result.flatMap(

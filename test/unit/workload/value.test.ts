@@ -39,7 +39,7 @@ import {
 	throwsRefused,
 	unorderedEqual
 } from "#test/support/assert.ts"
-import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
+import { compileTestWorkload, type FixtureSchema, testCompile } from "#test/support/compile.ts"
 import { queryFromDescription } from "#test/support/describe.ts"
 import { schemaNameGenOtherThan } from "#test/support/kernel/dict.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -91,7 +91,7 @@ interface Program {
  * A schema value, the name its WorkloadDesc records (an extension's own), and programs over it or one of its levels.
  */
 interface Workloads {
-	readonly schema: unknown
+	readonly schema: FixtureSchema
 	readonly name: string
 	readonly programs: ReadonlyArray<Program>
 }
@@ -693,7 +693,7 @@ const writtenTwice = query(W.Work).rule((r) => {
 })
 
 /** The programs whose fingerprints are compared, with the schema each is written over; the twins are one program. */
-const fingerprinted = nonEmpty<Program & { readonly over: unknown }>(
+const fingerprinted = nonEmpty<Program & { readonly over: FixtureSchema }>(
 	[
 		...Arr.map(boardPrograms, (p) => ({ ...p, over: Board })),
 		{ ...namedQuery("the twin", writtenOnce), over: W.Work },
