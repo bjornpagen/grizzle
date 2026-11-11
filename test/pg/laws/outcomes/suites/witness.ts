@@ -1,16 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import {
-	characterOf,
-	element,
-	filter,
-	type Gen,
-	int,
-	map,
-	oneOf,
-	string
-} from "@grizzle/testing/gen"
+import { characterOf, element, type Gen, int, map, oneOf, string } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { bigint, uuid } from "@grizzle/testing/values"
@@ -158,6 +149,10 @@ interface ClubKey {
 	readonly code: string
 }
 
+/**
+ * A club's key, never the stored club's: its code is `alpha`, which the code alphabet (codeCharacters, with no l, p or
+ * h) cannot spell, so every drawn key is fresh by construction.
+ */
 const clubKeyGen: Gen<ClubKey> = (source) => ({
 	region: source.draw(regionGen),
 	number: source.draw(numberGen),
@@ -195,56 +190,47 @@ type NativeCase =
 			readonly code: string
 	  }
 
-/** How many draws a fresh value's filter tries: a stored value is drawn about never. */
-const freshAttempts = 10
+/**
+ * A member id no stored member holds, its first hex digit `lead`: every stored member's id (`member`) begins with 0, so
+ * an id led by another digit is fresh, and two leads give two ids that differ.
+ */
+const freshIdGen = (lead: "e" | "f"): Gen<Uuid> =>
+	map(uuid(4), (text) =>
+		succeeded(Uuid.parse(`${lead}${Str.slice(1)(text)}`), "a version 4 uuid's text")
+	)
 
-/** A club key no stored club holds. */
-const freshClubGen = filter(
-	clubKeyGen,
-	(k) => !(k.region === "North" && k.number === 1n && k.code === "alpha"),
-	freshAttempts
-)
-/** A member id no stored member holds, and an email none holds. */
-const freshIdGen = filter(
-	map(uuid(4), (text) => succeeded(Uuid.parse(text), "a version 4 uuid's text")),
-	(id) => id !== member(1) && id !== member(2),
-	freshAttempts
-)
-const freshEmailGen = filter(
-	matching(regex("^[a-z]{1,12}@example\\.org$")),
-	(e) => e !== "ann@example.org" && e !== "ben@example.org",
-	freshAttempts
-)
+/**
+ * An email no stored member holds, at `domain`: a local part of four letters or more, where the stored emails' are
+ * three, so every drawn email is fresh, and two domains give two emails that differ.
+ */
+const freshEmailGen = (domain: "org" | "net"): Gen<string> =>
+	matching(regex(`^[a-z]{4,12}@example\\.${domain}$`))
 
 const nativeCaseGen: Gen<NativeCase> = oneOf<NativeCase>([
 	(source) => ({
 		kind: "a candidate key",
-		id: source.draw(freshIdGen),
+		id: source.draw(freshIdGen("f")),
 		email: source.draw(element(["ann@example.org", "ben@example.org"] as const))
 	}),
 	(source) => ({
 		kind: "a selected side's UNIQUE",
-		id: source.draw(freshIdGen),
-		email: source.draw(freshEmailGen)
+		id: source.draw(freshIdGen("f")),
+		email: source.draw(freshEmailGen("org"))
 	}),
-	(source) => {
-		const id = source.draw(freshIdGen)
-		const email = source.draw(freshEmailGen)
-		return {
-			kind: "a selected side's UNIQUE within one input",
-			club: source.draw(freshClubGen),
-			ids: [id, source.draw(filter(freshIdGen, (other) => other !== id, freshAttempts))],
-			emails: [email, source.draw(filter(freshEmailGen, (other) => other !== email, freshAttempts))]
-		}
-	},
+	(source) => ({
+		kind: "a selected side's UNIQUE within one input",
+		club: source.draw(clubKeyGen),
+		ids: [source.draw(freshIdGen("f")), source.draw(freshIdGen("e"))],
+		emails: [source.draw(freshEmailGen("org")), source.draw(freshEmailGen("net"))]
+	}),
 	(source) => ({
 		kind: "a table CHECK",
-		club: source.draw(freshClubGen),
+		club: source.draw(clubKeyGen),
 		seats: source.draw(oneOf([element([0, int4Min]), int(int4Min, 0)]))
 	}),
 	(source) => ({
 		kind: "a contract domain",
-		club: source.draw(freshClubGen),
+		club: source.draw(clubKeyGen),
 		seats: source.draw(oneOf([element([501, int4Max]), int(501, int4Max)]))
 	}),
 	(source) => ({
@@ -257,8 +243,8 @@ const nativeCaseGen: Gen<NativeCase> = oneOf<NativeCase>([
 	}),
 	(source) => ({
 		kind: "a text refinement domain another relation shares",
-		id: source.draw(freshIdGen),
-		email: source.draw(freshEmailGen),
+		id: source.draw(freshIdGen("f")),
+		email: source.draw(freshEmailGen("org")),
 		code: source.draw(codeGen(21, 40))
 	})
 ])

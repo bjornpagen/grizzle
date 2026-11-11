@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, filter, type Gen, int } from "@grizzle/testing/gen"
+import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
@@ -21,7 +21,7 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -131,12 +131,33 @@ const rowGen: Gen<Row> = (source) => ({
 	parts: source.draw(array(int(-2, 2), { min: 0, max: 3 }))
 })
 
-/** A cell no rule refuses, as one stored before the write is: most drawn cells. */
-const lawfulGen: Gen<Row> = filter(
-	rowGen,
-	(row) => !Arr.some(rules, (rule) => breaks(rule, row)),
-	64
+/** The weights a part draws, and every list of none to three of them: rowGen's parts. */
+const weights = [-2, -1, 0, 1, 2] as const
+const listsOf = (length: number): ReadonlyArray<ReadonlyArray<number>> =>
+	length === 0
+		? [[]]
+		: Arr.flatMap(listsOf(length - 1), (list) => Arr.map(weights, (w) => [...list, w]))
+
+/**
+ * Every cell of rowGen's box no rule refuses, enumerated once from the box (every kind, `a` from -1 to 1, every parts
+ * list), so a stored cell is drawn among lawful cells alone, never drawn and discarded.
+ */
+const lawfulRows = nonEmpty(
+	Arr.filter(
+		Arr.flatMap(kinds, (kind) =>
+			Arr.flatMap([-1, 0, 1], (a) =>
+				Arr.flatMap([0, 1, 2, 3], (length) =>
+					Arr.map(listsOf(length), (parts): Row => ({ a, kind, parts }))
+				)
+			)
+		),
+		(row) => !Arr.some(rules, (rule) => breaks(rule, row))
+	),
+	"the lawful cells of the box"
 )
+
+/** A cell no rule refuses, as one stored before the write is. */
+const lawfulGen: Gen<Row> = element(lawfulRows)
 
 /**
  * A cell stored before the write, which the write inserts again, an exact repeat: alone, so no read of the write looks
