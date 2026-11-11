@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { filter, map } from "@grizzle/testing/gen"
+import { map } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -171,17 +171,10 @@ layer(Substrate.layer)("the UNION ALL feedback mutant of the optimized lowering"
 						origin: "any",
 						exists: "any",
 						oneOrMore: "any",
+						minBound: 2,
 						maxBound: 4
 					})
-					/** Walks need at least two hops to meet at the bottom of a diamond. */
-					const generator = map(
-						filter(
-							recursiveCaseGen(limits),
-							(c) => c.parts.form !== "walks" || c.parts.bound >= 2,
-							100
-						),
-						withEncodedParams
-					)
+					const generator = map(recursiveCaseGen(limits), withEncodedParams)
 					return oracleCheck(
 						drawn(generator),
 						{

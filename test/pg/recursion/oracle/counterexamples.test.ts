@@ -1,11 +1,11 @@
 import { layer } from "@effect/vitest"
 import { drawn } from "@grizzle/testing/explore"
 import { type Coverage, noCoverage, required } from "@grizzle/testing/features"
-import { filter, type Gen } from "@grizzle/testing/gen"
+import type { Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Data, Effect, Formatter } from "effect"
 import {
 	bagRecursion,
 	type CaseLowering,
@@ -20,8 +20,7 @@ import {
 } from "#test/pg/recursion/oracle/support.ts"
 import {
 	defaultRecursiveLimits,
-	edgePairs,
-	type GenGraph,
+	type EndChoice,
 	type GraphLimits,
 	type RecursiveCase,
 	type RecursiveFeature,
@@ -109,34 +108,12 @@ const withoutGraph = <A extends { readonly graph: unknown }>(a: A): Omit<A, "gra
 	return rest
 }
 
-/**
- * The hop distance of every vertex from vertex 0 (unreached vertices absent), over forward edges.
- *
- * The iteration visits the vertices pushed while it runs.
- */
-const distances = (graph: GenGraph): ReadonlyMap<number, number> => {
-	const out = new Map<number, number>([[0, 0]])
-	const queue = [0]
-	for (const v of queue) {
-		const d = out.get(v)
-		if (d === undefined) {
-			throw new Error(`vertex ${v} queued without its distance`)
-		}
-		for (const [a, b] of edgePairs(graph)) {
-			if (a === v && !out.has(b)) {
-				out.set(b, d + 1)
-				queue.push(b)
-			}
-		}
-	}
-	return out
-}
-
 /** Result predicates over closures of vertex 0 along forward edges, no step predicate, negation or second relation. */
 const resultLimits = (
 	consumer: "endFilter" | "endNe" | "originFilter",
 	shapes: GraphLimits["shapes"],
-	forms: RecursiveLimits["forms"]
+	forms: RecursiveLimits["forms"],
+	end: EndChoice
 ): RecursiveLimits => ({
 	...defaultRecursiveLimits,
 	graph: {
@@ -158,11 +135,9 @@ const resultLimits = (
 	consumers: [consumer],
 	oneOrMore: false,
 	leftLinear: false,
-	viaSecond: false
+	viaSecond: false,
+	end
 })
-
-/** The vertex index a case's result predicate names. */
-const endIndex = (c: RecursiveCase): number => c.parts.endPick % (c.graph.n + 1)
 
 class NotKilled extends Data.TaggedError("NotKilled")<{ readonly message: string }> {}
 
@@ -197,12 +172,6 @@ interface Kills {
 /** The `about` of a population whose every case is the kind it is about. */
 const everyCase: Kills["about"] = { holds: () => true, otherwise: "" }
 
-/**
- * How many draws a population's precondition gets before its case is discarded: each draw is a whole case sketch,
- * cheap beside the run, and every precondition here holds for a fair share of the generator's cases.
- */
-const attempts = 100
-
 const killsEvery = (generator: Gen<RecursiveCase>, kills: Kills) =>
 	oracleCheck(
 		drawn(generator),
@@ -210,7 +179,7 @@ const killsEvery = (generator: Gen<RecursiveCase>, kills: Kills) =>
 			suite: kills.suite,
 			oracle: {
 				kind: "second-implementation",
-				name: "the conservative lowering's raw text sets, beside each invalid rewrite"
+				name: "the conservative lowering's raw text sets, which each invalid rewrite must break as its population states"
 			},
 			literal: Formatter.format,
 			coverage: kills.coverage,
@@ -277,15 +246,10 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 						origin: "any",
 						exists: "any",
 						oneOrMore: "any",
+						minBound: 2,
 						maxBound: 4
 					})
-					/** Walks need at least two hops to meet at the bottom of a diamond. */
-					const generator = filter(
-						recursiveCaseGen(limits),
-						(c) => c.parts.form !== "walks" || c.parts.bound >= 2,
-						attempts
-					)
-					return yield* killsEvery(generator, {
+					return yield* killsEvery(recursiveCaseGen(limits), {
 						suite: "recursion/kills-diamond",
 						runs: 300,
 						mutant: feedbackUnionAllMutant,
@@ -314,7 +278,7 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 							shapes: ["chain", "tree"],
 							kinds: vertexKinds,
 							minVertices: 2,
-							parallel: "always",
+							parallel: "at the root",
 							contained: true,
 							second: false,
 							blocked: false,
@@ -326,40 +290,7 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 						origin: "any",
 						maxBound: 4
 					})
-					/** The repeated edge must lie within the walk's bound from the root. */
-					const generator = filter(
-						recursiveCaseGen(limits),
-						(c) => {
-							const depth = (v: number): number =>
-								Option.match(
-									Arr.findFirst(c.graph.edges, (e) => e.to === v),
-									{
-										onNone: () => 0,
-										onSome: (into) => 1 + depth(into.from)
-									}
-								)
-							const repeated = Arr.findFirst(
-								c.graph.edges,
-								(e, i) =>
-									!Option.contains(
-										Arr.findFirstIndex(c.graph.edges, (f) => f.from === e.from && f.to === e.to),
-										i
-									)
-							)
-							if (Option.isNone(repeated)) {
-								return false
-							}
-							const repeatedEdge = repeated.value
-							/**
-							 * Seeded with hops 0 at the root or hops 1 at its successors, a walk crosses an edge that leaves a vertex
-							 * at depth d at hops d + 1 either way.
-							 */
-							const hopsToIt = depth(repeatedEdge.from) + 1
-							return c.parts.form !== "walks" || hopsToIt <= c.parts.bound
-						},
-						attempts
-					)
-					return yield* killsEvery(generator, {
+					return yield* killsEvery(recursiveCaseGen(limits), {
 						suite: "recursion/kills-parallel",
 						runs: 200,
 						mutant: bagRecursion,
@@ -400,7 +331,7 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 							suite: "recursion/parallel-edges-control",
 							oracle: {
 								kind: "second-implementation",
-								name: "the conservative lowering's raw text sets, beside each invalid rewrite"
+								name: "the conservative lowering's raw text sets, which the erased edge identity matches where no edge is parallel"
 							},
 							literal: Formatter.format,
 							coverage: noCoverage,
@@ -425,27 +356,10 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 					const limits = resultLimits(
 						"endFilter",
 						["chain", "tree", "diamond"],
-						["reach", "walks", "pairs"]
+						["reach", "walks", "pairs"],
+						{ kind: "reached", root: 0 }
 					)
-					/** Seeded on a successor of the root, the rewritten pair closure differs only if it can walk on. */
-					const generator = filter(
-						recursiveCaseGen(limits),
-						(c) => {
-							const v = endIndex(c)
-							const d = distances(c.graph).get(v)
-							if (d === undefined || d === 0) {
-								return false
-							}
-							if (c.parts.form === "walks") {
-								return d <= c.parts.bound
-							}
-							return (
-								c.parts.form !== "pairs" || d > 1 || Arr.some(edgePairs(c.graph), ([a]) => a === v)
-							)
-						},
-						attempts
-					)
-					return yield* killsEvery(generator, {
+					return yield* killsEvery(recursiveCaseGen(limits), {
 						suite: "recursion/kills-end-filter",
 						runs: 200,
 						mutant: rebuiltAs("endFilterIntoSeed"),
@@ -475,17 +389,10 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const limits = resultLimits("endNe", ["chain"], ["reach", "pairs"])
-					/** Vertex v of the chain lies before its end; a pair closure from 0 never reaches dst = 0 at all. */
-					const generator = filter(
-						recursiveCaseGen(limits),
-						(c) => {
-							const v = endIndex(c)
-							return v <= c.graph.n - 2 && (c.parts.form !== "pairs" || v >= 1)
-						},
-						attempts
-					)
-					return yield* killsEvery(generator, {
+					const limits = resultLimits("endNe", ["chain"], ["reach", "pairs"], {
+						kind: "before the chain's end"
+					})
+					return yield* killsEvery(recursiveCaseGen(limits), {
 						suite: "recursion/kills-end-ne",
 						runs: 200,
 						mutant: rebuiltAs("neFilterIntoStep"),
