@@ -15,6 +15,11 @@
  *
  * The oracle is the definition equality stated over the case's choices, never read from the installation. The box: 3
  * bases × 2 predicates, squared, exhausted (36 cases).
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): domain-dedup-named-by-contract.patch (a contract's domain is named by
+ * its contract as well as its definition).
+ *
+ * Features: a shared domain, two domains, a shared checked domain, and a base shared with predicates apart.
  */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
@@ -152,8 +157,11 @@ describe("contract domains by definition (W6.Q10)", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "two contracts, each over integer, bigint or wildcard text, with no predicate or VALUE >= 0",
+					oracle: {
+						kind: "specification",
+						name: "two contracts share a domain exactly when their bases and predicates are equal"
+					},
 					suite: "unit/physical/domain-dedup",
 					generator: pairGen,
 					literal: Formatter.format,

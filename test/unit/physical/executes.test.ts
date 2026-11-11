@@ -15,7 +15,14 @@
  * writes the source and holds no relation with a set over the selector's roster holds no USAGE on the domain, so only
  * the cast reaches the live-codes constant its CHECK calls. A check's set value is cast into its own field's domain,
  * which its writer holds, and a closed id selector's column and handle are smallint, so neither reaches one alone.
- * Planted bug: the installer's reachability stops following a statement's types, and every seed fails.
+ *
+ * Oracle: a second implementation of the reach (test/support/executes.ts reachableConstants), restated over the
+ * installation's statements, sharing no code with the installer's call tracking.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): executes-written-tables-unread.patch (a role's reach skips the tables
+ * it writes, reading its views alone).
+ *
+ * Features: a constant only a written table's casts reach, a role that writes nothing, and two roles.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -56,7 +63,10 @@ describe("the EXECUTE grants of a role", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the constants a role's statements evaluate, restated over the installation (reachableConstants)"
+						},
 						suite: "unit/physical/executes",
 						draw: drawn(executesWorldGen),
 						literal: Formatter.format,

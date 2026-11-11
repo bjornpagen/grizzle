@@ -1,11 +1,47 @@
+/**
+ * The index request engine's own contract (physical/indexes/engine.ts), judged from its plan alone. Over drawn requests
+ * on a schema with a plain table, a span key's GiST index and a reverse lookup, in a drawn order:
+ *
+ * - every request lands on exactly one planned index, of its relation;
+ * - a created index is never unique;
+ * - the plan is the same whatever order the requests arrive in;
+ * - a request the engine cannot create, planted alone with drawn columns (an entry beyond its method's limit, more than
+ *   INDEX_MAX_KEYS columns, an expression key), is refused as a key is;
+ * - created indexes have distinct names, and a B-tree and a GiST request on one drawn column list install as two.
+ *
+ * Whether the index a request lands on serves it, and whether a created index is needed, is PostgreSQL's to judge in the
+ * database suites: nothing here states which index serves which request.
+ *
+ * Oracle: the engine's contract stated over the requests: one index each, the arrival order's metamorphic invariance,
+ * and the refusal each planted request names.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): indexes-unique-created.patch (a created index is unique),
+ * indexes-name-without-method.patch (an index is named as a B-tree whatever its method).
+ *
+ * Features: served by an installed or a created index, several requests on one created index, a GiST key serving a
+ * B-tree probe, an ordered and a range request, each planted refusal, two methods on one column list, and two indexes on
+ * one column list.
+ */
 import { describe, it } from "@effect/vitest"
 import { explore, type Kept, sketched } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	shuffled,
+	weighted
+} from "@grizzle/testing/gen"
+import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { regex } from "arkregex"
+import { Array as Arr, Effect, Equivalence, Formatter, Option, Order } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import { defaultOpclass, type NativeColumn } from "#compiler/ir/law.ts"
@@ -16,6 +52,7 @@ import {
 	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
+import { indexMaxKeys } from "#compiler/schema/representability.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { contained, f, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { lawNamesOf, wild } from "#test/support/kernel/naming.ts"
@@ -25,20 +62,7 @@ import { owner, requesting } from "#test/unit/physical/fixtures.ts"
 
 /** Event: a plain table under its primary key, with a vector column an HNSW request keys. Booking: a span key, so a GiST
  * index whose leading room column btree_gist serves by equality. Deposit: the reverse lookup of its reference to Line on
- * line, which its primary key (account, line) cannot serve.
- *
- * The index request engine's own contract, judged from its plan alone. Over drawn requests
- * on a schema with a plain table, a span key's GiST index and a reverse lookup, in a drawn order:
- *
- * - every request lands on exactly one planned index;
- * - a created index is never unique;
- * - the plan is the same whatever order the requests arrive in;
- * - a request the engine cannot create (an entry beyond its method's limit, more than INDEX_MAX_KEYS columns, an
- *   expression key) is refused as a key is;
- * - created indexes have distinct names, and a B-tree and a GiST request on one column list install as two.
- *
- * Whether the index a request lands on serves it, and whether a created index is needed, is PostgreSQL's to judge
- * in the database suites: nothing here states which index serves which request. */
+ * line, which its primary key (account, line) cannot serve. */
 const Indexed: SchemaDesc = {
 	name: "Indexed",
 	relations: [
@@ -189,10 +213,64 @@ const requestOf = (s: RequestSketch, i: number): IndexRequest => {
 			}
 }
 
-/** A request the engine cannot create, planted beside the drawn ones, or two requests on one column list by two access
- * methods, which it installs as two indexes of two names. */
-type Broken = "an unrepresentable entry" | "too many keys" | "an expression key"
-type Planted = "none" | Broken | "a B-tree and a GiST index on one column list"
+/** Event's columns a B-tree or GiST request keys by equality, none of them text or a vector. */
+const eventColumns: Arr.NonEmptyReadonlyArray<string> = [
+	"tenant",
+	"account",
+	"created",
+	"unrelated",
+	"id"
+]
+
+/**
+ * A request planted alone, in place of the drawn ones: one the engine cannot create (a B-tree key over a text column,
+ * whose entry no limit bounds, after drawn columns; more keys than INDEX_MAX_KEYS; an expression key, a name no column
+ * holds), each refused as a key is; or two requests on one drawn column list by two access methods, which it installs
+ * as two indexes of two names.
+ */
+type Planted =
+	| { readonly kind: "none" }
+	| { readonly kind: "an unrepresentable entry"; readonly before: ReadonlyArray<string> }
+	| { readonly kind: "too many keys"; readonly keys: ReadonlyArray<string> }
+	| { readonly kind: "an expression key"; readonly expr: string }
+	| {
+			readonly kind: "a B-tree and a GiST index on one column list"
+			readonly columns: ReadonlyArray<string>
+	  }
+
+type Broken = Extract<
+	Planted["kind"],
+	"an unrepresentable entry" | "too many keys" | "an expression key"
+>
+
+const plantedGen: Gen<Planted> = weighted<Planted>([
+	[3, constant({ kind: "none" })],
+	[
+		1,
+		map(shuffled(eventColumns, { min: 0, max: 2 }), (before) => ({
+			kind: "an unrepresentable entry",
+			before
+		}))
+	],
+	[
+		1,
+		map(
+			array(element(eventColumns), {
+				min: indexMaxKeys.value + 1,
+				max: indexMaxKeys.value + 4
+			}),
+			(keys) => ({ kind: "too many keys", keys })
+		)
+	],
+	[1, map(matching(regex("^e[0-9]{1,3}$")), (expr) => ({ kind: "an expression key", expr }))],
+	[
+		1,
+		map(shuffled(eventColumns, { min: 1, max: eventColumns.length }), (columns) => ({
+			kind: "a B-tree and a GiST index on one column list",
+			columns
+		}))
+	]
+])
 
 const access = (keys: ReadonlyArray<string>, method: "btree" | "gist"): IndexRequest => ({
 	relation: "Event",
@@ -203,22 +281,17 @@ const access = (keys: ReadonlyArray<string>, method: "btree" | "gist"): IndexReq
 })
 
 const plantedRequests = (planted: Planted): ReadonlyArray<IndexRequest> => {
-	switch (planted) {
+	switch (planted.kind) {
 		case "none":
 			return []
 		case "an unrepresentable entry":
-			return [access(["body"], "btree")]
+			return [access([...planted.before, "body"], "btree")]
 		case "too many keys":
-			return [
-				access(
-					Array.from({ length: 33 }, () => "tenant"),
-					"btree"
-				)
-			]
+			return [access(planted.keys, "btree")]
 		case "an expression key":
-			return [access(["e12"], "btree")]
+			return [access([planted.expr], "btree")]
 		case "a B-tree and a GiST index on one column list":
-			return [access(["unrelated"], "btree"), access(["unrelated"], "gist")]
+			return [access(planted.columns, "btree"), access(planted.columns, "gist")]
 	}
 }
 
@@ -227,6 +300,9 @@ const expectedRefusal: Readonly<Record<Broken, CompileReasonTag>> = {
 	"too many keys": "UnrepresentableKey",
 	"an expression key": "UnsupportedOperation"
 }
+
+/** Whether two lists of key columns are one, column for column. */
+const sameColumns = Arr.makeEquivalence(Equivalence.String)
 
 /** A planned index key's field, or its law column's identifier. */
 const keyField = (k: PlannedIndex["keys"][number]): string =>
@@ -260,17 +336,7 @@ interface EngineSketch {
 const engineGen: Gen<EngineSketch> = (source) => ({
 	requests: source.draw(array(requestGen, { min: 0, max: 6 })),
 	arrival: source.draw(array(int(0, 2 ** 31 - 1), { min: 6, max: 6 })),
-	planted: source.draw(
-		element<Planted>([
-			"none",
-			"none",
-			"none",
-			"an unrepresentable entry",
-			"too many keys",
-			"an expression key",
-			"a B-tree and a GiST index on one column list"
-		])
-	)
+	planted: source.draw(plantedGen)
 })
 
 /** The keys of a request on a relation's columns, by their positions in `columns`, each ascending or descending. */
@@ -319,7 +385,7 @@ const engineKept: ReadonlyArray<Kept<EngineSketch, IndexFeature>> = [
 				)
 			],
 			arrival: [0, 1, 2, 3, 4, 5],
-			planted: "none"
+			planted: { kind: "none" }
 		},
 		draws: "",
 		reaches: ["two indexes on one column list"]
@@ -334,7 +400,10 @@ describe("the index request engine", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "one index per request, invariance under arrival order, and each planted request's refusal"
+						},
 						suite: "unit/physical/index-engine",
 						draw: sketched(engineGen, (x) => x),
 						literal: Formatter.format,
@@ -364,12 +433,12 @@ describe("the index request engine", () => {
 					({ requests: sketches, arrival, planted }, c) =>
 						Effect.sync(() => {
 							const requests = Arr.map(sketches, requestOf)
-							if (planted === "a B-tree and a GiST index on one column list") {
+							if (planted.kind === "a B-tree and a GiST index on one column list") {
 								const created = Arr.filter(
 									succeeded(install(plantedRequests(planted))).indexes,
 									(x) =>
 										x.index.kind === "created" &&
-										Arr.every(x.keys, (k) => keyField(k) === "unrelated")
+										sameColumns(Arr.map(x.keys, keyField), planted.columns)
 								)
 								assert.deepEqual(
 									Arr.sort(
@@ -379,12 +448,12 @@ describe("the index request engine", () => {
 									["btree", "gist"]
 								)
 								assert.equal(new Set(Arr.map(created, (x) => x.index.name)).size, 2, "two names")
-								c.note(`${planted} installed`)
+								c.note(`${planted.kind} installed`)
 								return
 							}
-							if (planted !== "none") {
-								c.note(`${planted} refused`)
-								refused(install(plantedRequests(planted)), expectedRefusal[planted])
+							if (planted.kind !== "none") {
+								c.note(`${planted.kind} refused`)
+								refused(install(plantedRequests(planted)), expectedRefusal[planted.kind])
 								return
 							}
 							/** Created indexes are distinct objects of distinct names (identity.accessIndex). */

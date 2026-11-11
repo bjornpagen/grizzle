@@ -1,3 +1,21 @@
+/**
+ * The obligation graph (physical/obligations/graph.ts):
+ *
+ * - **Install order:** its order keeps every edge, refined by the phase order, ties broken by the kinds' rank and then
+ *   by the identity each object's name was minted from, never by the name: of every order of the objects that keeps
+ *   each edge, the least by (phase, kind rank, identity) position by position, whatever order the objects arrived in;
+ *   the manifest holds the objects in that order and every edge once, by its two ends' identities; and two
+ *   installations of one graph, whose hashed names differ by their digests, order it alike.
+ * - **Reasons:** an object's reasons, its own then each it is given later, are kept each once, in the order first given.
+ *
+ * Oracles: a second implementation of the order, enumerating every order of at most six objects and taking the least;
+ * the reasons given, deduplicated in order.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): graph-ties-by-digest.patch (hashed names tie by their digests'
+ * text), graph-later-reasons-first.patch (reasons given later come before an object's own).
+ *
+ * Features: an order of several phases, a dependency against identity order; a reason given twice, reasons added later.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -27,12 +45,6 @@ import { parsedName, parsedSchemaName, wild } from "#test/support/kernel/naming.
 import { caseHang } from "#test/support/limits.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 
-/** The obligation graph. Its install order keeps every edge, refined by the phase order,
- * ties broken by the kinds' rank and then by the identity each object's name was minted from, never by the name: of
- * every order of the objects that keeps each edge, the least by (phase, kind rank, identity) position by position,
- * whatever order the objects arrived in, and one order for two installations of one graph, whose hashed names differ by
- * their digests. The oracle enumerates every order of at most six objects. An object's reasons, its own then each it
- * is given later, are kept each once, in the order first given. */
 const kinds = [
 	"schema",
 	"constant",
@@ -234,7 +246,10 @@ describe("the obligation graph", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "every order of the objects that keeps each edge, the least by phase, kind rank and identity"
+					},
 					suite: "unit/physical/obligation-order",
 					draw: drawn(graphGen),
 					literal: Formatter.format,
@@ -406,7 +421,10 @@ describe("the obligation graph", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "the reasons given, each once, in the order first given"
+					},
 					suite: "unit/physical/obligation-reasons",
 					draw: drawn((source) => ({
 						own: source.draw(array(element(reasonPool), { min: 0, max: 3 })),

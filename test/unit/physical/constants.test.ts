@@ -3,27 +3,35 @@
  * holes and growth drawn by construction (test/support/closed/generate.ts), a relation typed by every roster's closed
  * id and by a set over some of them, a closed relation keyed by a roster, and roles that read or write it.
  *
- * - **One domain per roster:** exactly one CREATE DOMAIN over smallint names each roster's domain, with exactly one
- *   CHECK, which calls exactly one function: the roster's names constant. A roster some set is typed over has its bits
- *   domain over bit(n), n every code minted rounded up to whole hex digits, whose one CHECK calls its live-codes
- *   constant, whose body is one hex literal, the live codes' bits with every hole and padding bit 0, and calls nothing.
- * - **The range proof:** the roster domain's CHECK, evaluated on the host by an interpreter written here, admits exactly
- *   the live codes among -1 to one past every code minted, and never the mixed-radix alias 400.
- * - **The names constant is the codes:** its `'{…}'::name[]` literal, read back by an array-literal reader written
- *   here (PostgreSQL's array_in rules: double-quoted elements, backslash escapes), is the roster's names in code order,
- *   a hole the empty name, every awkward handle (`NULL`, a comma, a quote, a backslash, braces, spaces, 63 bytes)
- *   intact, and never empty.
+ * - **A roster's domain admits exactly its live codes:** one CREATE DOMAIN over smallint per roster, whose CHECKs,
+ *   evaluated on the host by an interpreter written here, admit exactly the live codes among -1 to one past every code
+ *   minted, and never 400, the mixed-radix alias a former encoding admitted.
+ * - **A set's domain admits exactly sets of live codes:** a bits domain exactly where a set is typed over the roster,
+ *   over bit(n), n every code minted rounded up to whole hex digits, whose CHECKs, evaluated likewise, admit the empty
+ *   set, each live code alone, every live code together, and no set holding a hole's or a padding position.
+ * - **The names constant is the codes:** each names constant the roster domain's CHECKs read, its `'{…}'::name[]`
+ *   literal read back by an array-literal reader written here (PostgreSQL's array_in rules: double-quoted elements,
+ *   backslash escapes), is the roster's names in code order, a hole the empty name, every awkward handle (`NULL`, a
+ *   comma, a quote, a backslash, braces, spaces, 63 bytes) intact.
  * - **Names are content (metamorphic):** two installations whose codes are equal name every constant alike whatever
- *   else differs; a roster that loses a handle to a hole names its names constant anew.
+ *   else differs; a roster that loses a handle to a hole reads other names, from a constant named anew.
  * - **The EXECUTE rule, as a checker over the installed AST:** every role is granted EXECUTE on every function a
  *   statement it runs calls, through function bodies: the CHECK of each domain it holds USAGE on, the CREATE TABLE of
  *   each table it writes, each of its views, and each closed relation's constants, which its queries read; and on no
- *   other function of the installation's constants.
+ *   other function of the installation's constants. (test/unit/physical/executes.test.ts states the rule over worlds
+ *   of contracts and laws, which hold no closed relation; this file's closed relation keeps that clause judged.)
  * - **Decoded columns:** every closed-id column of every role view is followed by exactly one `<field>_name`
- *   column, the names constant's element at the code plus one, cast to text; a set has none.
+ *   column; a set has none.
  *
- * Oracles: the codes model's codec (codebookFor) for the names; the rules restated over the statements, sharing no code
- * with the installer's call tracking. Features: (role kind, uses a domain, reads a view) and the hole and set shapes.
+ * Oracles: the codes model's codec (codebookFor) for the names and live codes; a host interpreter of the domains'
+ * CHECKs and an array-literal reader, sharing no code with the installer; the EXECUTE rule restated over the
+ * statements, sharing no code with the installer's call tracking.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): constants-hole-admitted.patch (a roster's domain admits a hole's code),
+ * constants-live-padding.patch (a roster's live constant sets its padding bits).
+ *
+ * Features: a roster with a hole, one a set is typed over, one with an awkward handle; a closed relation with an open
+ * payload and one with a closed payload.
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -56,7 +64,7 @@ import { installationsOf } from "#compiler/schema/own.ts"
 import { fullRoleDesc, type Owned, ownLogin } from "#compiler/schema/own.ts"
 import type { Expr, FunctionName, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
+import { setText, textOfHex, wholeDigits } from "#test/support/closed/bit-text.ts"
 import {
 	codebookOfStates,
 	codecFor,
@@ -231,10 +239,10 @@ const callsIn = (schema: string, node: unknown): ReadonlySet<string> =>
 		})
 	)
 
-type Constants = ReadonlyMap<
-	string,
-	Extract<SqlStatement, { readonly kind: "createConstant" | "packConstant" }>
->
+/** A constant the installation creates: a function returning one literal, or a closed relation's pack. */
+type InstalledConstant = Extract<SqlStatement, { readonly kind: "createConstant" | "packConstant" }>
+
+type Constants = ReadonlyMap<string, InstalledConstant>
 
 /** Every constant the installation creates, by its function's identifier. */
 const constantsOf = (i: Installation): Constants =>
@@ -326,88 +334,159 @@ const readArray = (text: string): ReadonlyArray<string | null> => {
 	return out
 }
 
-/** The text of a constant's body, a text literal cast to the constant's type; none for another body. */
-const literalText = (e: Expr): string | undefined =>
-	e.kind === "literal" && e.value.kind === "text" ? e.value.value : undefined
+type CreateDomain = Extract<SqlStatement, { readonly kind: "createDomain" }>
 
-/** A roster's domain, the one names constant its CHECK reads, and the names that constant holds, read back. */
-const rosterObjects = (i: Installation, s: RosterState) => {
-	const schema = i.names.schema
-	const domainName = i.names.rosterDomain(s.closed).name
+/** The one CREATE DOMAIN of `name`, which no installation creates twice. */
+const domainNamed = (i: Installation, name: string, what: string): CreateDomain => {
 	const domains = Arr.filter(
 		i.statements,
-		(st): st is Extract<SqlStatement, { readonly kind: "createDomain" }> =>
-			st.kind === "createDomain" && st.name.name === domainName
+		(st): st is CreateDomain => st.kind === "createDomain" && st.name.name === name
 	)
-	assert.equal(domains.length, 1, `one domain for roster ${s.closed}`)
-	const domain = defined(domains[0])
+	assert.equal(domains.length, 1, `one domain for ${what}`)
+	return defined(domains[0])
+}
+
+/**
+ * A value a domain CHECK's terms take on the host, by PostgreSQL's rules for the terms these CHECKs are made of: an
+ * integer, a name, an array of names, a bit string as its text of 0s and 1s, a truth value, or NULL.
+ */
+type HostValue =
+	| { readonly kind: "int"; readonly value: number }
+	| { readonly kind: "text"; readonly value: string }
+	| { readonly kind: "names"; readonly value: ReadonlyArray<string | null> }
+	| { readonly kind: "bits"; readonly value: string }
+	| { readonly kind: "bool"; readonly value: boolean }
+	| { readonly kind: "null" }
+
+const nullValue: HostValue = { kind: "null" }
+
+/** A constant's value as its body states it: an array literal's names, or a bit string's bits. */
+const constantValueOf = (c: InstalledConstant): HostValue => {
+	if (c.kind === "createConstant" && c.body.kind === "literal") {
+		const value = c.body.value
+		if (value.kind === "text") {
+			return { kind: "names", value: readArray(value.value) }
+		}
+		if (value.kind === "bits") {
+			return { kind: "bits", value: textOfHex(value.hex) }
+		}
+	}
+	throw new Error(`a constant a domain CHECK reads: ${c.kind}`)
+}
+
+/**
+ * A domain CHECK's term evaluated on the host at VALUE = `value`, by PostgreSQL's rules for the terms it is made of:
+ * a literal, VALUE, a constant's call, a cast (which changes no value here), a subscript counted from 1 (NULL past
+ * either end), `+`, `&` of two bit strings of one length, and `=` and `<>`, NULL where an operand is. Its own
+ * interpreter, sharing no code with the installer, so a CHECK is judged by what it admits, whatever its shape.
+ */
+const evaluate = (e: Expr, value: HostValue, constants: Constants, schema: string): HostValue => {
+	const recur = (x: Expr): HostValue => evaluate(x, value, constants, schema)
+	switch (e.kind) {
+		case "literal":
+			switch (e.value.kind) {
+				case "int":
+					return { kind: "int", value: Number(e.value.value) }
+				case "text":
+					return { kind: "text", value: e.value.value }
+				case "bits":
+					return { kind: "bits", value: textOfHex(e.value.hex) }
+				case "bool":
+					return { kind: "bool", value: e.value.value }
+				default:
+					throw new Error(`a literal a domain CHECK holds: ${e.value.kind}`)
+			}
+		case "domainValue":
+			return value
+		case "call":
+			if (e.fn.kind === "qualified" && e.fn.schema === schema) {
+				return constantValueOf(defined(constants.get(e.fn.name), `the constant ${e.fn.name}`))
+			}
+			throw new Error("a call of no constant of the installation")
+		case "cast":
+			return recur(e.expr)
+		case "subscript": {
+			const array = recur(e.array)
+			const index = recur(e.index)
+			return array.kind === "names" && index.kind === "int"
+				? Option.match(Option.fromNullishOr(array.value[index.value - 1]), {
+						onNone: () => nullValue,
+						onSome: (name): HostValue => ({ kind: "text", value: name })
+					})
+				: nullValue
+		}
+		case "binary": {
+			const l = recur(e.left)
+			const r = recur(e.right)
+			if (l.kind === "null" || r.kind === "null") {
+				return nullValue
+			}
+			if (e.op === "+" && l.kind === "int" && r.kind === "int") {
+				return { kind: "int", value: l.value + r.value }
+			}
+			if (
+				e.op === "&" &&
+				l.kind === "bits" &&
+				r.kind === "bits" &&
+				l.value.length === r.value.length
+			) {
+				return {
+					kind: "bits",
+					value: Arr.join(
+						Arr.map(Str.split(l.value, ""), (bit, at) =>
+							bit === "1" && r.value[at] === "1" ? "1" : "0"
+						),
+						""
+					)
+				}
+			}
+			if ((e.op === "=" || e.op === "<>") && l.kind === r.kind && l.kind !== "names") {
+				const equal = l.value === r.value
+				return { kind: "bool", value: e.op === "=" ? equal : !equal }
+			}
+			throw new Error(`a ${l.kind} ${e.op} ${r.kind} a domain CHECK holds`)
+		}
+		default:
+			throw new Error(`a term a domain CHECK holds: ${e.kind}`)
+	}
+}
+
+/** Whether a domain admits VALUE = `value`: every one of its CHECKs is TRUE there. */
+const admits = (d: CreateDomain, value: HostValue, constants: Constants, schema: string): boolean =>
+	Arr.every(d.constraints, (c) => {
+		const judged = evaluate(c.predicate, value, constants, schema)
+		return judged.kind === "bool" && judged.value
+	})
+
+/** The names constants a domain's CHECKs read: every constant they call whose body is an array of names. */
+const namesRead = (
+	d: CreateDomain,
+	constants: Constants,
+	schema: string
+): ReadonlyMap<string, ReadonlyArray<string | null>> =>
+	new Map(
+		Arr.flatMap([...callsIn(schema, d.constraints)], (fn) => {
+			const read = constantValueOf(defined(constants.get(fn), `the constant ${fn}`))
+			return read.kind === "names" ? [[fn, read.value] as const] : []
+		})
+	)
+
+/**
+ * A roster's domain, the codes it admits from one below 0 to one past every code minted and at 400, the mixed-radix
+ * alias, and the names constants its CHECKs read.
+ */
+const rosterObjects = (i: Installation, s: RosterState) => {
+	const schema = i.names.schema
+	const constants = constantsOf(i)
+	const domain = domainNamed(i, i.names.rosterDomain(s.closed).name, `roster ${s.closed}`)
 	assert.ok(
 		domain.base.kind === "builtin" && domain.base.name === "smallint",
 		"a roster domain over smallint"
 	)
-	assert.equal(domain.constraints.length, 1, "a roster domain's one CHECK")
-	const calls = [...callsIn(schema, domain.constraints)]
-	assert.equal(calls.length, 1, "a roster domain's CHECK reads one constant")
-	const namesFunction = defined(calls[0])
-	const names = defined(constantsOf(i).get(namesFunction), "the names constant is installed")
-	const text = names.kind === "createConstant" ? literalText(names.body) : undefined
-	const read = readArray(defined(text, "a names constant's body is its array literal"))
-	/** The codes the CHECK admits, from one below 0 to one past every code minted, and the alias 400. */
-	const admitted = Arr.filter([...Arr.range(-1, read.length), 400], (code) => {
-		const constraint = defined(domain.constraints[0])
-		return evaluate(constraint.predicate, code, () => read) === 1
-	})
-	return { namesFunction, names: read, admitted }
-}
-
-/** A value a domain CHECK's terms take on the host: an integer, a name, a constant's names, or NULL. */
-type HostValue = number | string | ReadonlyArray<string | null> | null
-
-/**
- * A roster domain's CHECK evaluated on the host at VALUE = `code`, by PostgreSQL's rules for the terms it is made of: an
- * integer literal, a text literal, VALUE, `+`, a names constant's call, a subscript counted from 1 (NULL past either
- * end), and `<>`, NULL where an operand is. Its own interpreter, sharing no code with the installer, so the CHECK's
- * shape is judged by what it admits: a code is admitted exactly when the CHECK is TRUE.
- */
-const evaluate = (
-	e: Expr,
-	code: number,
-	names: (fn: string) => ReadonlyArray<string | null>
-): HostValue => {
-	if (e.kind === "literal") {
-		return e.value.kind === "int"
-			? Number(e.value.value)
-			: e.value.kind === "text"
-				? e.value.value
-				: null
-	}
-	if (e.kind === "domainValue") {
-		return code
-	}
-	if (e.kind === "call") {
-		return e.fn.kind === "qualified" ? names(e.fn.name) : null
-	}
-	if (e.kind === "subscript") {
-		const array = evaluate(e.array, code, names)
-		const index = evaluate(e.index, code, names)
-		return typeof array === "object" && array !== null && typeof index === "number"
-			? (array[index - 1] ?? null)
-			: null
-	}
-	if (e.kind === "binary") {
-		const l = evaluate(e.left, code, names)
-		const r = evaluate(e.right, code, names)
-		if (l === null || r === null) {
-			return null
-		}
-		if (e.op === "+" && typeof l === "number" && typeof r === "number") {
-			return l + r
-		}
-		if (e.op === "<>" && typeof l === "string" && typeof r === "string") {
-			return l === r ? 0 : 1
-		}
-	}
-	throw new Error(`a term the roster CHECK holds: ${e.kind}`)
+	const admitted = Arr.filter([...Arr.range(-1, s.slots.length), 400], (code) =>
+		admits(domain, { kind: "int", value: code }, constants, schema)
+	)
+	return { names: namesRead(domain, constants, schema), admitted }
 }
 
 /** What each role holds, read from the grants the installation states. */
@@ -483,8 +562,6 @@ type ConstantsFeature =
 	| "a roster with a hole"
 	| "a roster a set is typed over"
 	| "a roster with an awkward handle"
-	| "a role that writes and holds a domain"
-	| "a role that only reads a view"
 	| "a closed relation with an open payload"
 	| "a closed relation with a closed payload"
 
@@ -492,8 +569,6 @@ const features: Arr.NonEmptyReadonlyArray<ConstantsFeature> = [
 	"a roster with a hole",
 	"a roster a set is typed over",
 	"a roster with an awkward handle",
-	"a role that writes and holds a domain",
-	"a role that only reads a view",
 	"a closed relation with an open payload",
 	"a closed relation with a closed payload"
 ]
@@ -519,8 +594,6 @@ const noteWorld = (w: World, c: Case<ConstantsFeature>): void => {
 			? "a closed relation with an open payload"
 			: "a closed relation with a closed payload"
 	)
-	c.note("a role that writes and holds a domain")
-	c.note("a role that only reads a view")
 }
 
 /** The world with roster 0's first live handle removed, leaving its code a hole: its names change, nothing else's. */
@@ -548,13 +621,16 @@ const withHole = (
 
 describe("roster and closed constants", () => {
 	it.effect(
-		"one domain per roster over its names constant, names that are content, EXECUTE by rule, decoded view columns",
+		"domains that admit exactly the live codes, names that are content, EXECUTE by rule, decoded view columns",
 		(ctx) =>
 			searched(
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the codes model's codec, a host interpreter of the domains' CHECKs, and the EXECUTE rule"
+						},
 						suite: "unit/physical/constants",
 						draw: drawn(worldGen),
 						literal: Formatter.format,
@@ -577,21 +653,26 @@ describe("roster and closed constants", () => {
 
 							for (const [at, s] of states(w).entries()) {
 								const { names, admitted } = rosterObjects(i, s)
+								const live = Arr.flatMap(s.slots, (slot, code) =>
+									slot.kind === "live" ? [code] : []
+								)
 								assert.deepEqual(
 									admitted,
-									Arr.flatMap(s.slots, (slot, code) => (slot.kind === "live" ? [code] : [])),
+									live,
 									`roster ${s.closed}'s domain admits exactly its live codes`
 								)
-								assert.deepEqual(
-									names,
-									codecFor(s).names,
-									`roster ${s.closed}'s names in code order`
-								)
-								assert.ok(names.length > 0, "a names constant holds one name at least")
+								assert.ok(names.size > 0, `roster ${s.closed}'s domain reads its names`)
+								for (const read of names.values()) {
+									assert.deepEqual(
+										read,
+										codecFor(s).names,
+										`roster ${s.closed}'s names in code order`
+									)
+								}
 								const bitsName = i.names.bitsDomain(s.closed).name
 								const bits = Arr.filter(
 									i.statements,
-									(st): st is Extract<SqlStatement, { readonly kind: "createDomain" }> =>
+									(st): st is CreateDomain =>
 										st.kind === "createDomain" && st.name.name === bitsName
 								)
 								assert.equal(
@@ -599,28 +680,30 @@ describe("roster and closed constants", () => {
 									w.sets[at] === true || at === 0 ? 1 : 0,
 									"a bits domain exactly where a set is typed: Tags' over the first roster, Item's where drawn"
 								)
+								const width = wholeDigits(s.slots.length)
 								for (const d of bits) {
 									assert.ok(
-										d.base.kind === "builtin" &&
-											d.base.name === "bit" &&
-											d.base.length === wholeDigits(s.slots.length),
+										d.base.kind === "builtin" && d.base.name === "bit" && d.base.length === width,
 										"bit(n), n every code minted rounded up to whole hex digits"
 									)
-									const checks = [...callsIn(schema, d.constraints)]
-									assert.equal(checks.length, 1, "a bits domain's CHECK reads one constant, live()")
-									const live = defined(constants.get(defined(checks[0])), "live() is installed")
-									const liveCodes = Arr.flatMap(s.slots, (slot, code) =>
-										slot.kind === "live" ? [code] : []
-									)
-									assert.deepEqual(
-										live.kind === "createConstant" &&
-											live.body.kind === "literal" &&
-											live.body.value.kind === "bits"
-											? live.body.value.hex
-											: undefined,
-										hexOfText(setText(s.slots.length, liveCodes)),
-										"live() is the hex literal of the live codes, every hole and padding bit 0"
-									)
+									const probes = [
+										[],
+										...Arr.map(Arr.range(0, width - 1), (code) => [code]),
+										live,
+										Arr.range(0, width - 1)
+									]
+									for (const members of probes) {
+										assert.equal(
+											admits(
+												d,
+												{ kind: "bits", value: setText(s.slots.length, members) },
+												constants,
+												schema
+											),
+											Arr.every(members, (code) => Arr.contains(live, code)),
+											`roster ${s.closed}'s bits domain admits exactly sets of its live codes: ${Formatter.format(members)}`
+										)
+									}
 								}
 							}
 
@@ -701,14 +784,15 @@ describe("roster and closed constants", () => {
 							if (holed !== undefined) {
 								const changed = installationOf(owning(holed.schema), holed.codes)
 								const before = defined(states(w)[0])
+								const was = rosterObjects(i, before).names
+								const now = rosterObjects(changed, before).names
 								assert.notDeepEqual(
-									rosterObjects(changed, before).names,
-									rosterObjects(i, before).names,
+									[...now.values()],
+									[...was.values()],
 									"a hole changes the names"
 								)
-								assert.notEqual(
-									rosterObjects(changed, before).namesFunction,
-									rosterObjects(i, before).namesFunction,
+								assert.ok(
+									Arr.every([...now.keys()], (fn) => !was.has(fn)),
 									"a hole names the names constant anew"
 								)
 							}

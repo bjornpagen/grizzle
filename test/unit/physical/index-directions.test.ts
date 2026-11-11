@@ -1,3 +1,23 @@
+/**
+ * Access indexes over one column list in several directions (physical/access): a B-tree serves its order forward and
+ * its exact reverse backward, so an access index's identity is its columns and its direction vector's class under
+ * reversal. Each drawn case is a workload of ordered programs over one relation's columns (a, b, id), every order
+ * stated in full, each in a drawn direction vector, optionally behind an equality on g, whose direction within the seek
+ * is free. The installation:
+ *
+ * - succeeds, so no two indexes share an identifier;
+ * - creates one access index on the relation per class of the drawn vectors under reversal, its order keys a, b and
+ *   id, after g where every program is prefixed, in a vector of that class, whichever of the two;
+ * - names distinct classes distinctly;
+ * - serves each program's ordered request from the index of its class, as its vector or its exact reverse.
+ *
+ * Oracle: the classes, computed from the drawn vectors by reversal alone.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): index-directions-no-reversal.patch (a vector and its exact reverse
+ * install two indexes).
+ *
+ * Features: an exact reverse pair, a mixed vector, an all-descending vector, two classes, and a prefix.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -13,25 +33,11 @@ import { workload } from "#compiler/program/workload/value.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
 
-/** Access indexes over one column list in several directions ().
- *
- * A B-tree serves its order forward and its exact reverse backward, so an access index's identity is its columns and a
- * direction vector canonical under reversal: the vector whose first key ascends. Each drawn case is a workload of
- * ordered programs over one relation's columns (a, b, id), every order stated in full, each in a drawn direction
- * vector, optionally behind an equality on g, whose direction within the seek is free. The installation:
- *
- * - succeeds, so no two indexes share an identifier;
- * - creates one access index on the relation per class of the drawn vectors under reversal, so a vector and its exact
- *   reverse are one index, and its keys are the class's canonical vector: the first ascends;
- * - names distinct classes distinctly;
- * - serves each program's ordered request from the index of its class, as its vector or its exact reverse.
- *
- * Oracle: the classes, computed from the drawn vectors by reversal alone. */
 /** A direction vector over the order's three columns, a, b and id, in that order. */
 type Vector = readonly [Direction, Direction, Direction]
 
@@ -43,8 +49,15 @@ const reversed = (vector: Vector): Vector => [
 	opposite(vector[1]),
 	opposite(vector[2])
 ]
-/** The class's canonical vector: the first key ascends. */
+/** The class's key: the one of a vector and its exact reverse whose first key ascends, whichever an index states. */
 const canonical = (vector: Vector): Vector => (vector[0] === "asc" ? vector : reversed(vector))
+
+/** An index's three order keys' directions as a vector. */
+const vectorOf = (dirs: ReadonlyArray<Direction>): Vector => [
+	defined(dirs[0], "an order key on a"),
+	defined(dirs[1], "an order key on b"),
+	defined(dirs[2], "an order key on id")
+]
 const text = (vector: ReadonlyArray<Direction>): string => Arr.join(vector, " ")
 
 /** The program ordering T by `vector`, behind an equality on g when `prefixed`. */
@@ -85,13 +98,16 @@ type DirectionFeature =
 
 describe("access indexes over one column list in several directions", () => {
 	it.effect(
-		"install one index per class under reversal, canonical and distinctly named, serving each order forward or backward",
+		"install one index per class under reversal, distinctly named, serving each order forward or backward",
 		(ctx) =>
 			searched(
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the drawn vectors' classes under reversal"
+						},
 						suite: "unit/physical/index-directions",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
@@ -148,10 +164,13 @@ describe("access indexes over one column list in several directions", () => {
 							/** The order columns, behind g when prefixed: g's direction is free, so it follows the first ascending key. */
 							const orderKeys = (index: (typeof created)[number]) =>
 								index.keys.slice(prefixed ? 1 : 0)
+							/** The class of an index's order keys under reversal. */
+							const classOf = (index: (typeof created)[number]): string =>
+								text(canonical(vectorOf(Arr.map(orderKeys(index), (k) => k.dir))))
 							assert.deepEqual(
-								new Set(Arr.map(created, (index) => text(Arr.map(orderKeys(index), (k) => k.dir)))),
+								new Set(Arr.map(created, classOf)),
 								classes,
-								"one index per class, its keys the canonical vector"
+								"one index per class, its keys a vector of the class"
 							)
 							assert.equal(created.length, classes.size, "no class installs twice")
 							assert.equal(
@@ -160,7 +179,6 @@ describe("access indexes over one column list in several directions", () => {
 								"distinct names"
 							)
 							for (const index of created) {
-								assert.equal(index.keys[0]?.dir, "asc", "the first key ascends")
 								assert.deepEqual(
 									Arr.map(orderKeys(index), (k) =>
 										k.column.kind === "field" ? k.column.field : k.column.column
@@ -180,7 +198,7 @@ describe("access indexes over one column list in several directions", () => {
 									)
 								)
 								assert.deepEqual(
-									Arr.map(served, (index) => text(Arr.map(orderKeys(index), (k) => k.dir))),
+									Arr.map(served, classOf),
 									[text(canonical(vector))],
 									`${text(vector)} is served by its class's index`
 								)
