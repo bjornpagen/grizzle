@@ -1,6 +1,31 @@
+/**
+ * The scalar registry (scalar/registry.ts): capabilities, the ScalarType of a FieldDesc under every environment, a
+ * reading's content, literal operands and describeField's admission.
+ *
+ * - Capabilities: every descriptor's are its carrier's, a serial's and a contract's their base's. Oracle: the carrier's
+ *   capability set, which the catalog suite holds to PostgreSQL's.
+ * - Fixtures: every ScalarType another suite's fixture exports is the registry's own build of its FieldDesc. Oracle: the
+ *   registry's build, a second implementation of each hand-built fixture type.
+ * - Kinds and environments: scalarTypeOf of a descriptor's Description agrees with the descriptor's own ScalarType;
+ *   a closedId's roster resolves through the environment, an unknown one refused; a text's metadata is read off the
+ *   language its Description carries; a contract's predicate table comes from the environment. Oracles: the
+ *   descriptor's own type; the drawn roster; the patterns' carried text; the checker's predicate table.
+ * - Content: two readings are canonically equal exactly when their contents are, under any environments. Oracle: the
+ *   readings' contents compared apart.
+ * - Literal operands: each carrier's literal is the one its host kind states, and every other value is refused by its
+ *   fault, never thrown.
+ * - describeField reads every descriptor a builder made, and refuses a look-alike, the undeclared numeric builder and
+ *   every wild value as malformed, at describeField, span and closedId, never throwing.
+ *
+ * Features: as each search names them; for the roster environment, a roster resolved and an unknown roster refused;
+ * for text, each language kind; for the predicate table, a bound below, at and above zero.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): registry-closed-id-bits-caps (a closed id given the bits carrier's
+ * capabilities) and registry-wild-value-throws (a value that is no record thrown at, not refused).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore, sketched } from "@grizzle/testing/explore"
-import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -9,8 +34,8 @@ import {
 	type Gen,
 	int,
 	map,
-	oneOf,
-	uniqueArray
+	uniqueArray,
+	weighted
 } from "@grizzle/testing/gen"
 import {
 	type Drawn,
@@ -290,8 +315,11 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every ScalarType the IR, conservative-lowering, codec and cursor fixtures export, every plain type and the wildcard text",
+						oracle: {
+							kind: "second-implementation",
+							name: "the registry's own build of each fixture type's FieldDesc"
+						},
 						suite: "unit/scalar/fixtures-are-registry",
 						generator: element(fixtureTypes),
 						literal: Formatter.format,
@@ -370,7 +398,10 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the drawn roster, under its declared name alone"
+						},
 						suite: "unit/scalar/roster-env",
 						draw: drawn((source) => ({
 							name: source.draw(matching(regex("^[A-Z][a-z]{1,6}$"))),
@@ -385,7 +416,10 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 							)
 						})),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<"a roster resolved" | "an unknown roster refused">(
+							["a roster resolved", "an unknown roster refused"],
+							{ cases: 100, sense: notesOnly }
+						),
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
@@ -393,8 +427,9 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					({ name, other, handles }) =>
+					({ name, other, handles }, c) =>
 						Effect.sync(() => {
+							c.note("a roster resolved")
 							const listed = nonEmpty(handles, "a drawn roster of at least one handle")
 							const held = Roster.of(parsedName(name), listed)
 							const env = {
@@ -410,6 +445,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 								held
 							)
 							if (other !== name) {
+								c.note("an unknown roster refused")
 								refused(
 									scalarTypeOf({ kind: "closedId", roster: other }, env, SourceLoc("field", [])),
 									"MalformedDescription"
@@ -427,7 +463,10 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the text the patterns and their language carry (carriedText)"
+						},
 						suite: "unit/scalar/text-env",
 						draw: drawn((source) => ({
 							patterns: source.draw(patternsGen(["^.*$", "^[a-z]*$", "^.+$", ""])),
@@ -435,7 +474,10 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 							env: source.draw(readingEnvGen)
 						})),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<`language ${TextLanguage["kind"]}`>(
+							["language every", "language refined"],
+							{ cases: 100, sense: notesOnly }
+						),
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
@@ -443,8 +485,9 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					({ patterns, language, env }) =>
+					({ patterns, language, env }, c) =>
 						Effect.sync(() => {
+							c.note(`language ${language.kind}`)
 							const typed = succeeded(
 								scalarTypeOf(
 									{ kind: "text", patterns, bytes: undefined, language },
@@ -463,14 +506,20 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "the checker's predicate table over the base"
+					},
 					suite: "unit/scalar/predicate-env",
 					draw: drawn((source) => ({
 						name: source.draw(matching(regex("^[A-Z][a-z]{1,8}$"))),
 						bound: source.draw(bigint(-100n, 100n))
 					})),
 					literal: Formatter.format,
-					coverage: noCoverage,
+					coverage: required<"a bound below zero" | "a bound of zero" | "a bound above zero">(
+						["a bound below zero", "a bound of zero", "a bound above zero"],
+						{ cases: 50, sense: notesOnly }
+					),
 					kept: [],
 					runs: 50,
 					shrink: completeShrink,
@@ -478,8 +527,15 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				({ name, bound }) =>
+				({ name, bound }, c) =>
 					Effect.sync(() => {
+						c.note(
+							bound < 0n
+								? "a bound below zero"
+								: bound === 0n
+									? "a bound of zero"
+									: "a bound above zero"
+						)
 						const Branded = contractDescriptor(name, pgDescriptors.bigint, (v: ScalarTerm) =>
 							v.ge(bound)
 						)
@@ -537,42 +593,57 @@ const endpointGen = map(
 	(type) => ({ kind: "pg", type }) as const
 )
 
-const readingDescGen: Gen<FieldDesc> = oneOf([
-	pgGen,
-	(source) => ({
-		kind: "numeric" as const,
-		precision: source.draw(element([9, 10])),
-		scale: source.draw(element([2, 3]))
-	}),
-	constant<FieldDesc>({ kind: "uuid" }),
-	(source) => ({
-		kind: "text" as const,
-		patterns: source.draw(patternsGen(["^.*$", "^[a-z]*$"])),
-		bytes: undefined,
-		language: source.draw(languageGen)
-	}),
-	map(element(["Kind", "Mode"]), (roster): FieldDesc => ({ kind: "closedId", roster })),
-	map(element(["Kind", "Mode"]), (roster): FieldDesc => ({ kind: "bits", roster })),
-	map(element([3, 4]), (dimensions): FieldDesc => ({ kind: "vector", dimensions })),
-	(source) => ({
-		kind: "span" as const,
-		endpoint: source.draw(endpointGen),
-		width: source.draw(element([undefined, 2n, 3n]))
-	}),
-	(source) => ({
-		kind: "contract" as const,
-		name: source.draw(element(["Cents", "Euros"])),
-		base: source.draw(endpointGen),
-		predicate: undefined,
-		facts: []
-	}),
-	(source) => ({
-		kind: "contract" as const,
-		name: source.draw(element(["Cents", "Euros"])),
-		base: source.draw(constant<FieldDesc>({ kind: "pg", type: "bigint" })),
-		predicate: nonNegative,
-		facts: []
-	})
+const readingDescGen: Gen<FieldDesc> = weighted([
+	[1, pgGen],
+	[
+		1,
+		(source) => ({
+			kind: "numeric" as const,
+			precision: source.draw(element([9, 10])),
+			scale: source.draw(element([2, 3]))
+		})
+	],
+	[1, constant<FieldDesc>({ kind: "uuid" })],
+	[
+		1,
+		(source) => ({
+			kind: "text" as const,
+			patterns: source.draw(patternsGen(["^.*$", "^[a-z]*$"])),
+			bytes: undefined,
+			language: source.draw(languageGen)
+		})
+	],
+	[1, map(element(["Kind", "Mode"]), (roster): FieldDesc => ({ kind: "closedId", roster }))],
+	[1, map(element(["Kind", "Mode"]), (roster): FieldDesc => ({ kind: "bits", roster }))],
+	[1, map(element([3, 4]), (dimensions): FieldDesc => ({ kind: "vector", dimensions }))],
+	[
+		1,
+		(source) => ({
+			kind: "span" as const,
+			endpoint: source.draw(endpointGen),
+			width: source.draw(element([undefined, 2n, 3n]))
+		})
+	],
+	[
+		1,
+		(source) => ({
+			kind: "contract" as const,
+			name: source.draw(element(["Cents", "Euros"])),
+			base: source.draw(endpointGen),
+			predicate: undefined,
+			facts: []
+		})
+	],
+	[
+		1,
+		(source) => ({
+			kind: "contract" as const,
+			name: source.draw(element(["Cents", "Euros"])),
+			base: source.draw(constant<FieldDesc>({ kind: "pg", type: "bigint" })),
+			predicate: nonNegative,
+			facts: []
+		})
+	]
 ])
 
 /**
@@ -609,21 +680,28 @@ const patternsGen =
  * A language a text Description may carry: every admitted value, or a refined one by a drawn key, enforced as a
  * regex with drawn bounds or none, or as a finite list of members with their bounds.
  */
-const languageGen: Gen<TextLanguage> = oneOf<TextLanguage>([
-	constant<TextLanguage>({ kind: "every" }),
-	(source) => {
-		const key = RegexKey(source.draw(element(["k1", "k2"])))
-		const bounds = source.draw(
-			element<TextBounds | undefined>([undefined, { length: 4, bytes: 8 }, { length: 8, bytes: 8 }])
-		)
-		return source.draw(boolean)
-			? { kind: "refined", key, check: { kind: "regex", ares: ["^x$"], bounds } }
-			: {
-					kind: "refined",
-					key,
-					check: { kind: "finite", members: ["x", "yy"], bounds: { length: 2, bytes: 2 } }
-				}
-	}
+const languageGen: Gen<TextLanguage> = weighted<TextLanguage>([
+	[1, constant<TextLanguage>({ kind: "every" })],
+	[
+		1,
+		(source) => {
+			const key = RegexKey(source.draw(element(["k1", "k2"])))
+			const bounds = source.draw(
+				element<TextBounds | undefined>([
+					undefined,
+					{ length: 4, bytes: 8 },
+					{ length: 8, bytes: 8 }
+				])
+			)
+			return source.draw(boolean)
+				? { kind: "refined", key, check: { kind: "regex", ares: ["^x$"], bounds } }
+				: {
+						kind: "refined",
+						key,
+						check: { kind: "finite", members: ["x", "yy"], bounds: { length: 2, bytes: 2 } }
+					}
+		}
+	]
 ])
 
 /**
@@ -792,7 +870,10 @@ describe("scalarTypeOf builds each type from its content", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "the readings' contents, compared apart from their text"
+							},
 							suite: "unit/scalar/content",
 							/** Two environments and up to eight readings under them, each Description read under both. */
 							draw: drawn(
@@ -970,11 +1051,14 @@ const int8Values = bigint(-(2n ** 63n), 2n ** 63n - 1n)
 const vectorCase: LiteralCase = {
 	carrier: "vector(2)",
 	type: scalarOf(pgDescriptors.vector(2)),
-	live: oneOf<unknown>([
-		map(array(element([1, 2, 0, -3, 0.5, Number.NaN]), { min: 1, max: 3 }), (xs) =>
-			Float32Array.from(xs)
-		),
-		constant([1])
+	live: weighted<unknown>([
+		[
+			1,
+			map(array(element([1, 2, 0, -3, 0.5, Number.NaN]), { min: 1, max: 3 }), (xs) =>
+				Float32Array.from(xs)
+			)
+		],
+		[1, constant([1])]
 	]),
 	/** A Float32Array of the type's dimensions, the literal its finite components' canonical payload. */
 	judge: (value) => {
@@ -995,74 +1079,95 @@ const literalCases: Arr.NonEmptyReadonlyArray<LiteralCase> = [
 	{
 		carrier: "int2",
 		type: scalarOf(pgDescriptors.smallint),
-		live: oneOf<unknown>([int(-32768, 32767), element<unknown>([-0, 0.5, 1e300, 1n])]),
+		live: weighted<unknown>([
+			[1, int(-32768, 32767)],
+			[1, element<unknown>([-0, 0.5, 1e300, 1n])]
+		]),
 		judge: integerJudge
 	},
 	{
 		carrier: "int4",
 		type: scalarOf(pgDescriptors.integer),
-		live: oneOf<unknown>([
-			int(-(2 ** 31), 2 ** 31 - 1),
-			element<unknown>([-0, 1.5, 2 ** 53, Number.NaN, Number.POSITIVE_INFINITY, 1n])
+		live: weighted<unknown>([
+			[1, int(-(2 ** 31), 2 ** 31 - 1)],
+			[1, element<unknown>([-0, 1.5, 2 ** 53, Number.NaN, Number.POSITIVE_INFINITY, 1n])]
 		]),
 		judge: integerJudge
 	},
 	{
 		carrier: "int8",
 		type: scalarOf(pgDescriptors.bigint),
-		live: oneOf<unknown>([int8Values, constant(1)]),
+		live: weighted<unknown>([
+			[1, int8Values],
+			[1, constant(1)]
+		]),
 		judge: bigintJudge
 	},
 	{
 		carrier: "numeric",
 		type: scalarOf(pgDescriptors.numeric(9, 2)),
-		live: oneOf<unknown>([
-			numericText,
-			element<unknown>(["1.50", "1e", "0x10", " 1", "NaN", Decimal.of("0.062"), 2n, 1])
+		live: weighted<unknown>([
+			[1, numericText],
+			[1, element<unknown>(["1.50", "1e", "0x10", " 1", "NaN", Decimal.of("0.062"), 2n, 1])]
 		]),
 		judge: numericJudge
 	},
 	{
 		carrier: "float4",
 		type: scalarOf(pgDescriptors.real),
-		live: oneOf<unknown>([
-			double(-Number.MAX_VALUE, Number.MAX_VALUE),
-			element<unknown>([Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN, -0, "1"])
+		live: weighted<unknown>([
+			[1, double(-Number.MAX_VALUE, Number.MAX_VALUE)],
+			[
+				1,
+				element<unknown>([Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN, -0, "1"])
+			]
 		]),
 		judge: floatJudge
 	},
 	{
 		carrier: "float8",
 		type: scalarOf(pgDescriptors["double precision"]),
-		live: oneOf<unknown>([
-			double(-Number.MAX_VALUE, Number.MAX_VALUE),
-			element<unknown>([Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN, -0, "1"])
+		live: weighted<unknown>([
+			[1, double(-Number.MAX_VALUE, Number.MAX_VALUE)],
+			[
+				1,
+				element<unknown>([Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN, -0, "1"])
+			]
 		]),
 		judge: floatJudge
 	},
 	{
 		carrier: "money",
 		type: scalarOf(pgDescriptors.money),
-		live: oneOf<unknown>([map(int8Values, (n) => Money.of(n)), constant(5n)]),
+		live: weighted<unknown>([
+			[1, map(int8Values, (n) => Money.of(n))],
+			[1, constant(5n)]
+		]),
 		judge: (value) => (value instanceof Money ? literalOf(value) : faultOf("moneyType"))
 	},
 	{
 		carrier: "bool",
 		type: scalarOf(pgDescriptors.boolean),
-		live: oneOf<unknown>([boolean, constant(0)]),
+		live: weighted<unknown>([
+			[1, boolean],
+			[1, constant(0)]
+		]),
 		judge: (value) => (typeof value === "boolean" ? literalOf(value) : faultOf("boolType"))
 	},
 	{
 		carrier: "uuid",
 		type: scalarOf(uuidDescriptor),
-		live: oneOf<unknown>([
-			uuid(4),
-			map(uuid(4), (u) => Str.toUpperCase(u)),
-			element([
-				"not-a-uuid",
-				"a0eebc999c0b4ef8bb6d6bb9bd380a11",
-				"{a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11}"
-			])
+		live: weighted<unknown>([
+			[1, uuid(4)],
+			[1, map(uuid(4), (u) => Str.toUpperCase(u))],
+			[
+				1,
+				element([
+					"not-a-uuid",
+					"a0eebc999c0b4ef8bb6d6bb9bd380a11",
+					"{a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11}"
+				])
+			]
 		]),
 		/** The canonical lowercase spelling of the hyphenated form. */
 		judge: (value) =>
@@ -1091,29 +1196,38 @@ const literalCases: Arr.NonEmptyReadonlyArray<LiteralCase> = [
 	{
 		carrier: "span over int4",
 		type: scalarOf(spanDescriptor(pgDescriptors.integer)),
-		live: oneOf<unknown>([
-			(source) => ({
-				start: source.draw(int(-(2 ** 31), 2 ** 31 - 1)),
-				end: source.draw(int(-(2 ** 31), 2 ** 31 - 1))
-			}),
-			element<unknown>([
-				{ start: 1.5, end: 3 },
-				{ start: 1, end: 2 ** 53 },
-				{ start: 1n, end: 2n },
-				{ start: 1, end: 2, x: 3 }
-			])
+		live: weighted<unknown>([
+			[
+				1,
+				(source) => ({
+					start: source.draw(int(-(2 ** 31), 2 ** 31 - 1)),
+					end: source.draw(int(-(2 ** 31), 2 ** 31 - 1))
+				})
+			],
+			[
+				1,
+				element<unknown>([
+					{ start: 1.5, end: 3 },
+					{ start: 1, end: 2 ** 53 },
+					{ start: 1n, end: 2n },
+					{ start: 1, end: 2, x: 3 }
+				])
+			]
 		]),
 		judge: spanJudge(isSafeInteger)
 	},
 	{
 		carrier: "span over int8",
 		type: scalarOf(spanDescriptor(pgDescriptors.bigint)),
-		live: oneOf<unknown>([
-			(source) => ({ start: source.draw(int8Values), end: source.draw(int8Values) }),
-			element<unknown>([
-				{ start: 1, end: 2 },
-				{ start: 1n, end: 2n, x: 3n }
-			])
+		live: weighted<unknown>([
+			[1, (source) => ({ start: source.draw(int8Values), end: source.draw(int8Values) })],
+			[
+				1,
+				element<unknown>([
+					{ start: 1, end: 2 },
+					{ start: 1n, end: 2n, x: 3n }
+				])
+			]
 		]),
 		judge: spanJudge(isBigInt)
 	},
@@ -1121,7 +1235,10 @@ const literalCases: Arr.NonEmptyReadonlyArray<LiteralCase> = [
 	{
 		carrier: "contract Cents",
 		type: scalarOf(contractDescriptor("Cents", pgDescriptors.bigint)),
-		live: oneOf<unknown>([int8Values, constant(1)]),
+		live: weighted<unknown>([
+			[1, int8Values],
+			[1, constant(1)]
+		]),
 		judge: bigintJudge
 	}
 ]
@@ -1134,7 +1251,7 @@ describe("literalDescFor: literal operands adopt the base's host type", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "specification", name: "each carrier's host kind, judged per carrier" },
 						suite: "unit/scalar/literal-desc",
 						/**
 						 * Planted: a live vector of two finite components at vector(2), which the drawn buffers are a few times
@@ -1151,9 +1268,9 @@ describe("literalDescFor: literal operands adopt the base's host type", () => {
 									carrier,
 									source.draw(
 										lsw<unknown>({
-											live: oneOf<unknown>([
-												carrier.live,
-												(again) => again.draw(again.draw(element(others)).live)
+											live: weighted<unknown>([
+												[1, carrier.live],
+												[1, (again) => again.draw(again.draw(element(others)).live)]
 											]),
 											stale: Option.none(),
 											wild: WILD_KINDS
@@ -1272,36 +1389,52 @@ const descriptors: Arr.NonEmptyReadonlyArray<object> = [
  * A descriptor (live, a look-alike or wild) for describeField and span, or a closed relation (live Kind, or wild) for
  * closedId.
  */
-const boundaryCaseGen: Gen<readonly [Drawn<object, NoDescriptor>, Boundary]> = oneOf([
-	(source) =>
-		[
-			source.draw(
-				lsw<object, NoDescriptor>({
-					live: element(descriptors),
-					stale: Option.some(
-						oneOf([
-							map(element(descriptors), (field): Stale<object, NoDescriptor> => ({
-								value: { ...field },
-								from: "look-alike"
-							})),
-							constant<Stale<object, NoDescriptor>>({
-								value: pgDescriptors.numeric,
-								from: "numeric builder"
-							})
-						])
-					),
-					wild: WILD_KINDS
-				})
-			),
-			source.draw(element<Boundary>(["describeField", "span"]))
-		] as const,
-	(source) =>
-		[
-			source.draw(
-				lsw<object, NoDescriptor>({ live: constant(Kind), stale: Option.none(), wild: WILD_KINDS })
-			),
-			source.draw(constant<Boundary>("closedId"))
-		] as const
+const boundaryCaseGen: Gen<readonly [Drawn<object, NoDescriptor>, Boundary]> = weighted([
+	[
+		1,
+		(source) =>
+			[
+				source.draw(
+					lsw<object, NoDescriptor>({
+						live: element(descriptors),
+						stale: Option.some(
+							weighted([
+								[
+									1,
+									map(element(descriptors), (field): Stale<object, NoDescriptor> => ({
+										value: { ...field },
+										from: "look-alike"
+									}))
+								],
+								[
+									1,
+									constant<Stale<object, NoDescriptor>>({
+										value: pgDescriptors.numeric,
+										from: "numeric builder"
+									})
+								]
+							])
+						),
+						wild: WILD_KINDS
+					})
+				),
+				source.draw(element<Boundary>(["describeField", "span"]))
+			] as const
+	],
+	[
+		1,
+		(source) =>
+			[
+				source.draw(
+					lsw<object, NoDescriptor>({
+						live: constant(Kind),
+						stale: Option.none(),
+						wild: WILD_KINDS
+					})
+				),
+				source.draw(constant<Boundary>("closedId"))
+			] as const
+	]
 ])
 
 describe("describeField", () => {
@@ -1312,7 +1445,10 @@ describe("describeField", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a descriptor a builder made, against every look-alike and wild value"
+						},
 						suite: "unit/scalar/describe-field",
 						draw: drawn(boundaryCaseGen),
 						literal: Formatter.format,

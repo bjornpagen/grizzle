@@ -4,11 +4,10 @@ import {
 	type Gen,
 	int,
 	map,
-	oneOf,
 	option,
 	uniqueArray,
-	type Weighted,
-	weighted
+	weighted,
+	type Weighted
 } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import { bigint } from "@grizzle/testing/values"
@@ -161,8 +160,14 @@ const widthGen = (carrier: "range4" | "range8"): Gen<Option.Option<number | bigi
 	const [, int8Greatest] = integerRanges.int8
 	return option(
 		carrier === "range4"
-			? oneOf<number | bigint>([int(1, 3), int(Number(int4Greatest) - 2, Number(int4Greatest))])
-			: oneOf<number | bigint>([bigint(1n, 3n), bigint(int8Greatest - 2n, int8Greatest)])
+			? weighted<number | bigint>([
+					[1, int(1, 3)],
+					[1, int(Number(int4Greatest) - 2, Number(int4Greatest))]
+				])
+			: weighted<number | bigint>([
+					[1, bigint(1n, 3n)],
+					[1, bigint(int8Greatest - 2n, int8Greatest)]
+				])
 	)
 }
 
@@ -203,19 +208,25 @@ export const endpointGen = (depth: number): Gen<DescriptorSketch> =>
 const numericGen: Gen<DescriptorSketch> = (source) => ({
 	kind: "numeric",
 	precision: source.draw(
-		oneOf([int(1, 6), int(numericMaxPrecision.value - 2, numericMaxPrecision.value)])
+		weighted([
+			[1, int(1, 6)],
+			[1, int(numericMaxPrecision.value - 2, numericMaxPrecision.value)]
+		])
 	),
 	scale: source.draw(
-		oneOf([
-			int(-2, 6),
-			int(numericMinScale.value, numericMinScale.value + 2),
-			int(numericMaxScale.value - 2, numericMaxScale.value)
+		weighted([
+			[1, int(-2, 6)],
+			[1, int(numericMinScale.value, numericMinScale.value + 2)],
+			[1, int(numericMaxScale.value - 2, numericMaxScale.value)]
 		])
 	)
 })
 
 const vectorGen: Gen<DescriptorSketch> = map(
-	oneOf([int(1, 4), int(vectorMaxDimensions.value - 2, vectorMaxDimensions.value)]),
+	weighted([
+		[1, int(1, 4)],
+		[1, int(vectorMaxDimensions.value - 2, vectorMaxDimensions.value)]
+	]),
 	(dimensions): DescriptorSketch => ({ kind: "vector", dimensions })
 )
 

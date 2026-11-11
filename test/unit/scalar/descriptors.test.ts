@@ -1,16 +1,31 @@
+/**
+ * The scalar descriptors (scalar/pg.ts, scalar/registry.ts describeField, schema/relation.ts closedId, contracts and
+ * spans), each held to its own definition:
+ *
+ * - alias identity and distinct types: two spellings are one descriptor exactly when they name one type and one
+ *   writing, and two descriptors one type exactly when their parts name one; a descriptor's Description decodes to
+ *   itself, keys in order. Oracle: the sketches' own parts (test/unit/scalar/support.ts), a specification.
+ * - typmods: numeric(p, s), float(p) and vector(n) admit exactly what PostgreSQL's rules admit, at every integer near
+ *   their bounds and every wild argument, and refuse every other argument and arity as MalformedDescription. Oracle:
+ *   PostgreSQL's published rules, restated from the published limits (binary32Precision, binary64Precision,
+ *   vectorMaxDimensions, the integer carriers' ranges).
+ * - spans: a span's width is admitted exactly when it is positive and of its endpoint's base type, and a span's
+ *   endpoint is one of the span carriers' endpoints.
+ * - closed ids: closedId names the roster, keeps the closed relation and its declared handle order, one identity per
+ *   roster and another per name; and every forgery of a closed relation, each named by the one rule it breaks, is
+ *   refused.
+ *
+ * Features: as each search names them: the alias and type outcomes, every kind of sketch, admitted and refused, every
+ * wild kind, each forgery; for closed ids, one handle and several, two names and one.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): descriptors-float-real-past-24 (float(25) selecting real),
+ * descriptors-vector-dims-past-max (a vector of one dimension past pgvector's admitted) and
+ * descriptors-repeated-handle-admitted (a roster's repeated handle admitted).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
-import {
-	array,
-	constant,
-	type Gen,
-	int,
-	oneOf,
-	option,
-	uniqueArray,
-	weighted
-} from "@grizzle/testing/gen"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { array, constant, type Gen, int, option, uniqueArray, weighted } from "@grizzle/testing/gen"
 import {
 	type Broken,
 	corrupted,
@@ -32,7 +47,12 @@ import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { binary64Precision } from "#compiler/ir/carriers.ts"
+import {
+	binary32Precision,
+	binary64Precision,
+	integerRanges,
+	vectorMaxDimensions
+} from "#compiler/ir/carriers.ts"
 import { decodeDesc, type FieldDesc } from "#compiler/ir/desc.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import {
@@ -70,6 +90,9 @@ import {
 	spellings,
 	typeKeyOf
 } from "#test/unit/scalar/support.ts"
+
+/** int4's greatest value, the greatest width an integer endpoint's span admits. */
+const int4Greatest = Number(integerRanges.int4[1])
 
 /** Every object's keys in order, at every depth. */
 const keyOrder = (value: unknown): unknown =>
@@ -288,7 +311,10 @@ describe("typmod validation", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the numeric typmod rule restated (numericTypmodOf)"
+						},
 						suite: "unit/scalar/descriptors-7239021",
 						draw: drawn(
 							(source) =>
@@ -371,7 +397,13 @@ describe("typmod validation", () => {
 				explore(
 					{
 						suite: "unit/scalar/float-typmod",
-						draw: drawn(lsw<number>({ live: int(-4, 59), stale: Option.none(), wild: WILD_KINDS })),
+						draw: drawn(
+							lsw<number>({
+								live: int(-4, binary64Precision.value + 6),
+								stale: Option.none(),
+								wild: WILD_KINDS
+							})
+						),
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
@@ -396,14 +428,16 @@ describe("typmod validation", () => {
 						Effect.sync(() => {
 							c.note(drawnFeature(drawnPrecision))
 							const precision = passed(drawnPrecision)
-							if (!isInteger(precision) || precision < 1 || precision > 53) {
+							if (!isInteger(precision) || precision < 1 || precision > binary64Precision.value) {
 								c.note("refused")
 								throwsRefused(() => floatOf(precision), "MalformedDescription")
 							} else {
 								c.note("admitted")
 								assert.equal(
 									floatOf(precision),
-									precision <= 24 ? pgDescriptors.real : pgDescriptors["double precision"]
+									precision <= binary32Precision.value
+										? pgDescriptors.real
+										: pgDescriptors["double precision"]
 								)
 							}
 						})
@@ -416,14 +450,17 @@ describe("typmod validation", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "pgvector's dimensions, an integer from 1 to vectorMaxDimensions"
+					},
 					suite: "unit/scalar/vector-dims",
 					draw: drawn(
 						(source) =>
 							[
 								source.draw(
 									lsw<number>({
-										live: int(-2, 16_002),
+										live: int(-2, vectorMaxDimensions.value + 2),
 										stale: Option.none(),
 										wild: WILD_KINDS
 									})
@@ -461,7 +498,7 @@ describe("typmod validation", () => {
 							extra.length === 0 &&
 							isInteger(dimensions) &&
 							dimensions >= 1 &&
-							dimensions <= 16000
+							dimensions <= vectorMaxDimensions.value
 						) {
 							c.note("admitted")
 							admitVectorDimensions(dimensions, [])
@@ -485,23 +522,26 @@ describe("typmod validation", () => {
 				 */
 				const admits: { readonly [C in "range4" | "range8"]: (width: number | bigint) => boolean } =
 					{
-						range4: (w) => isInteger(w) && w >= 1 && w <= 2 ** 31 - 1,
-						range8: (w) => typeof w === "bigint" && w >= 1n && w <= 2n ** 63n - 1n
+						range4: (w) => isInteger(w) && w >= 1 && w <= int4Greatest,
+						range8: (w) => typeof w === "bigint" && w >= 1n && w <= integerRanges.int8[1]
 					}
 				/** Widths of both host kinds around 0 and around each endpoint type's maximum. */
-				const widths = oneOf<number | bigint>([
-					int(-2, 2),
-					int(2 ** 31 - 3, 2 ** 31 + 1),
-					bigint(-2n, 2n),
-					bigint(2n ** 63n - 3n, 2n ** 63n + 1n),
-					bigint(2n ** 31n - 3n, 2n ** 31n + 1n),
-					int(2 ** 53 - 3, 2 ** 53 - 1)
+				const widths = weighted<number | bigint>([
+					[1, int(-2, 2)],
+					[1, int(int4Greatest - 2, int4Greatest + 2)],
+					[1, bigint(-2n, 2n)],
+					[1, bigint(integerRanges.int8[1] - 2n, integerRanges.int8[1] + 2n)],
+					[1, bigint(integerRanges.int4[1] - 2n, integerRanges.int4[1] + 2n)],
+					[1, int(Number.MAX_SAFE_INTEGER - 2, Number.MAX_SAFE_INTEGER)]
 				])
 				yield* searched(
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "the README's widths: a positive integer within the endpoint's base type"
+							},
 							suite: "unit/scalar/span-width",
 							draw: drawn(
 								(source) =>
@@ -650,12 +690,17 @@ describe("closedId", () => {
 			)
 		)
 
+	type ClosedIdFeature = "one handle" | "several handles" | "two names" | "one name twice"
+
 	it.effect("names the roster, keeps the closed relation, and keeps declared handle order", (ctx) =>
 		searched(
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "the roster of the drawn name and handles, in declared order (Roster.of)"
+					},
 					suite: "unit/scalar/closed-id",
 					draw: drawn((source) => ({
 						name: source.draw(matching(regex("^[A-Z][a-z]{1,8}$"))),
@@ -670,7 +715,10 @@ describe("closedId", () => {
 						)
 					})),
 					literal: Formatter.format,
-					coverage: noCoverage,
+					coverage: required<ClosedIdFeature>(
+						["one handle", "several handles", "two names", "one name twice"],
+						{ cases: 100, sense: notesOnly }
+					),
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
@@ -678,8 +726,10 @@ describe("closedId", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				({ name, other, handles }) =>
+				({ name, other, handles }, c) =>
 					Effect.sync(() => {
+						c.note(handles.length === 1 ? "one handle" : "several handles")
+						c.note(other === name ? "one name twice" : "two names")
 						const [first, ...rest] = handles
 						const listed: Arr.NonEmptyReadonlyArray<string> = [defined(first, "a handle"), ...rest]
 						const roster = closed(name, listed)
@@ -783,7 +833,10 @@ describe("closedId", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "the one rule of a closed relation each forgery breaks"
+					},
 					suite: "unit/scalar/closed-id-forgeries",
 					draw: drawn((source) => source.draw(corrupted(source.draw(closedGen), forgeries))),
 					literal: Formatter.format,

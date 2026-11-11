@@ -1,7 +1,39 @@
+/**
+ * The lexical forms of scalar/lexical.ts, each held to three oracles:
+ *
+ * - **its second definition:** every form is a pattern (formSource), which str.regex, Compute.matches and the inclusion
+ *   proof read, and a scan (lexicalValue), which the host evaluator reads; the host NFA's membership of a text in the
+ *   pattern (scalar/regex/nfa.ts) must be exactly the scan's;
+ * - **the specification as a checker:** each candidate is built from the parts XML Schema's lexical space spells
+ *   (sign, digits either side of a point, exponent; year, month, day), and whether it is a member, and the value it
+ *   names, follow from those parts alone: an integer in its carrier's range; a decimal's significant digits against
+ *   the typmod; a double's value as ECMAScript's StringToNumber reads it, correctly rounded for the at most 20
+ *   significant digits a candidate has; a double's text of any digits by the IEEE 754 conversion written from its
+ *   definition (test/support/oracle/evaluate/double-text.ts); a date's validity and day number as the proleptic
+ *   Gregorian calendar of ECMAScript's Date gives them;
+ * - **the inclusion walk's own refutation:** a pattern pair the walk calls included admits no walk of the inner
+ *   pattern's NFA outside the outer's language, and a refuted pair's witness is a member of the inner and not of the
+ *   outer, both judged by the host NFA, an implementation apart from the canonical DFAs the walk reads.
+ *
+ * Candidates are members by construction, near every boundary a form draws (the carriers' ranges, the typmod's
+ * digits, the exponent bound, leap days, year 0000 and 10000), and named corruptions of them.
+ *
+ * A parse's lexical precondition, of an integer, a decimal, a double's text and a boolean, is proved exactly when the
+ * operand's language is inside the form, by its type or by a matches guard, and a decimal's exactly when its bytes are
+ * within the form's besides; a refusal names the remedy. A drawn pattern the text analysis refuses is no case of them,
+ * and is given up, counted, never passed.
+ *
+ * Features: every shape of candidate; every lexical kind; an included and a refuted pair; each route admitted and
+ * refused, a decimal's refused by its language and by its bytes.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): lexical-boolean-form-yes (the boolean form's pattern admitting "yes",
+ * which its scan does not), lexical-inclusion-always-included (every pair the walk reaches called included) and
+ * lexical-decimal-remedy-octets-off (a decimal's remedy a byte past the form's).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, constant, element, type Gen, int, map, oneOf, weighted } from "@grizzle/testing/gen"
+import { array, constant, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -43,26 +75,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { checkedIn } from "#test/support/policy.ts"
 import { patternOver, walkGen } from "#test/unit/text/generators.ts"
 
-/**
- * The lexical forms of scalar/lexical.ts, each held to three oracles:
- *
- * - **its second definition:** every form is a pattern (formSource), which str.regex, Compute.matches and the inclusion
- *   proof read, and a scan (lexicalValue), which the host evaluator reads; the host NFA's membership of a text in the
- *   pattern (scalar/regex/nfa.ts) must be exactly the scan's;
- * - **the specification as a checker:** each candidate is built from the parts XML Schema's lexical space spells
- *   (sign, digits either side of a point, exponent; year, month, day), and whether it is a member, and the value it
- *   names, follow from those parts alone: an integer in its carrier's range; a decimal's significant digits against
- *   the typmod; a double's value as ECMAScript's StringToNumber reads it, correctly rounded for the at most 20
- *   significant digits a candidate has; a double's text of any digits by the IEEE 754 conversion written from its
- *   definition (test/support/oracle/evaluate/double-text.ts); a date's validity and day number as the proleptic
- *   Gregorian calendar of ECMAScript's Date gives them;
- * - **the inclusion walk's own refutation:** a pattern pair the walk calls included admits no walk of the inner
- *   pattern's NFA outside the outer's language, and a refuted pair's witness is a member of the inner and not of the
- *   outer, both judged by the host NFA, an implementation apart from the canonical DFAs the walk reads.
- *
- * Candidates are members by construction, near every boundary a form draws (the carriers' ranges, the typmod's
- * digits, the exponent bound, leap days, year 0000 and 10000), and named corruptions of them.
- */
 const nfaOf = (source: string): Nfa => buildNfa(succeeded(parsePattern(source, "u")))
 
 const roundDouble = (negative: boolean, num: bigint, den: bigint): number =>
@@ -180,15 +192,21 @@ type InclusionFeature = "included" | "refuted" | "bounded"
  */
 const alphabet: Arr.NonEmptyReadonlyArray<number> = [0x30, 0x31, 0x39, 0x2d, 0x2e, 0x65]
 
-const pairGen: Gen<{ readonly inner: string; readonly outer: string }> = oneOf([
-	(source) => ({
-		inner: source.draw(patternOver(alphabet)),
-		outer: source.draw(patternOver(alphabet))
-	}),
-	(source) => ({
-		inner: source.draw(patternOver(alphabet)),
-		outer: formSource(source.draw(targetGen(admittedMaxPrecision)))
-	})
+const pairGen: Gen<{ readonly inner: string; readonly outer: string }> = weighted([
+	[
+		1,
+		(source) => ({
+			inner: source.draw(patternOver(alphabet)),
+			outer: source.draw(patternOver(alphabet))
+		})
+	],
+	[
+		1,
+		(source) => ({
+			inner: source.draw(patternOver(alphabet)),
+			outer: formSource(source.draw(targetGen(admittedMaxPrecision)))
+		})
+	]
 ])
 
 describe("language inclusion", () => {
@@ -227,11 +245,11 @@ describe("language inclusion", () => {
 						}
 					},
 					({ inner, outer, walks }, run) =>
-						Effect.sync(() => {
+						Effect.gen(function* () {
 							const a = parsePattern(inner, "u")
 							const b = parsePattern(outer, "u")
 							if (!a.ok || !b.ok) {
-								return
+								return yield* run.assume(false)
 							}
 							const innerNfa = buildNfa(a.value)
 							const outerNfa = buildNfa(b.value)
@@ -382,9 +400,9 @@ describe("a parse's lexical precondition", () => {
 						}
 					},
 					({ pattern, target: [target, build], route }, run) =>
-						Effect.sync(() => {
+						Effect.gen(function* () {
 							if (!analyzeText([{ source: pattern, flags: "u" }], SourceLoc("str.regex", [])).ok) {
-								return
+								return yield* run.assume(false)
 							}
 							const verdict = inclusion([nfaOf(pattern)], [nfaOf(formSource(target))]).kind
 							const checked = checkedIn(schema("Lexical", { R: build(pattern, route) }, []))
@@ -500,13 +518,13 @@ describe("a decimal's parse", () => {
 						}
 					},
 					({ pattern, route, bound }, run) =>
-						Effect.sync(() => {
+						Effect.gen(function* () {
 							const analyzed = analyzeText(
 								[{ source: pattern, flags: "u" }],
 								SourceLoc("str.regex", [])
 							)
 							if (!analyzed.ok) {
-								return
+								return yield* run.assume(false)
 							}
 							const verdict = inclusion([nfaOf(pattern)], [nfaOf(decimalText.source)]).kind
 							const check = analyzed.value.check
