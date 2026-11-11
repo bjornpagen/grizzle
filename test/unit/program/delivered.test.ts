@@ -5,15 +5,7 @@ import { constant, type Gen, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Effect,
-	Formatter,
-	Option,
-	pipe,
-	Result as Answered,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, Result as Answered, String as Str } from "effect"
 import { rowOptions } from "#adapter/engine.ts"
 import { readProgram } from "#adapter/reader/run.ts"
 import type { AttachmentLayout, BindContext, Layout } from "#compiler/core/decoder.ts"
@@ -33,7 +25,16 @@ import { bindGroups } from "#compiler/schema/record.ts"
 import { servedSource } from "#compiler/served/read.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
 import type { Decoders } from "#compiler/types/query/query.ts"
-import { assert, defined, refusalLoc, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import {
+	assert,
+	deepEquals,
+	defined,
+	type Place,
+	placeOf,
+	refusalLoc,
+	succeeded,
+	unorderedEqual
+} from "#test/support/assert.ts"
 import {
 	codebookFor,
 	compileTemplate,
@@ -151,12 +152,15 @@ const ok = <A>(r: Result.Result<A, CompileError>, what: string, c: ProgramCase):
 	return r.value
 }
 
-/** A binding's refusal, which must be CompileError MalformedDescription at a delivered field: its location. */
+/** The place a binding refuses at the delivered field `key`: the record's key, as its binder locates it. */
+const deliveredField = (key: string): Place => ({ label: `delivered field ${key}`, path: [] })
+
+/** A binding's refusal, which must be CompileError MalformedDescription at a delivered field: its place. */
 const refusedAt = (
 	r: Result.Result<unknown, CompileError>,
 	what: string,
 	c: ProgramCase
-): string | undefined => {
+): Place | undefined => {
 	if (r.ok) {
 		return undefined
 	}
@@ -170,11 +174,12 @@ const refusedAt = (
 		"MalformedDescription",
 		`${what}: ${error.message}\n${printCase(c)}`
 	)
+	const place = placeOf(refusalLoc(error))
 	assert.ok(
-		pipe(formatLoc(refusalLoc(error)), Str.startsWith("delivered field ")),
+		place.path.length === 0 && Str.startsWith("delivered field ")(place.label),
 		`${what}: refused at ${formatLoc(refusalLoc(error))}, no delivered field\n${printCase(c)}`
 	)
-	return formatLoc(refusalLoc(error))
+	return place
 }
 
 /**
@@ -247,7 +252,7 @@ const binds = (
 	decoders: Decoders<unknown, unknown>,
 	read: Compiled,
 	what: string
-): string | undefined => {
+): Place | undefined => {
 	const outcomes = Arr.map(read.layouts, (program) => {
 		const [first, ...rest] = program.layouts
 		if (first === undefined) {
@@ -476,9 +481,9 @@ const restatedReads = (
 			const provable = Arr.some(proved, (d) => sameDelivery(d, delivery))
 			if (breaks(delivery, counts)) {
 				assert.ok(!provable, `the language proves ${what}, which the facts break\n${printCase(c)}`)
-				assert.equal(
+				assert.deepEqual(
 					refused,
-					`delivered field ${attachment.name}`,
+					deliveredField(attachment.name),
 					`${what} over children the facts give ${Arr.join(
 						Arr.map(counts, (n) => String(n)),
 						", "
@@ -494,8 +499,8 @@ const restatedReads = (
 				note(`${delivery.kind} the program proves: bound`)
 			} else {
 				assert.ok(
-					refused === undefined || refused === `delivered field ${attachment.name}`,
-					`${what} is refused at ${refused}, not at its own field\n${printCase(c)}`
+					refused === undefined || deepEquals(refused, deliveredField(attachment.name)),
+					`${what} is refused at ${Formatter.format(refused)}, not at its own field\n${printCase(c)}`
 				)
 			}
 		}
@@ -611,7 +616,11 @@ const rebuiltRead = (
 	)
 	const rebuilt = ok(queryFromDescription(description, value), "the Description is refused", c)
 	const refused = binds(c, rebuilt, compiled(c, value, rebuilt), "the rebuilt query")
-	assert.equal(refused, "delivered field query", `the rebuilt query's rows bind\n${printCase(c)}`)
+	assert.deepEqual(
+		refused,
+		deliveredField("query"),
+		`the rebuilt query's rows bind\n${printCase(c)}`
+	)
 	note("rebuilt: refused")
 	if (
 		!(
@@ -630,9 +639,9 @@ const rebuiltRead = (
 	}
 	const union = query(value).rule(importing(rebuilt)).rule(importing(original))
 	const beside = binds(c, union, compiled(c, value, union), "a union beside a rebuilt arm")
-	assert.equal(
+	assert.deepEqual(
 		beside,
-		"delivered field query",
+		deliveredField("query"),
 		`a union beside a rebuilt arm binds\n${printCase(c)}`
 	)
 	note("rebuilt arm beside a typed arm: refused")
