@@ -561,18 +561,6 @@ export const distinctCore = (
 	having: undefined
 })
 
-/**
- * SELECT [DISTINCT] <targets> [FROM <from>] [WHERE <where>]: DISTINCT exactly when `distinct`, over at least one
- * target, and otherwise a plain core the physical analysis proved unique (`certified`), its caller's decision.
- */
-export const distinctCoreWhen = (
-	distinct: boolean,
-	targets: NonEmptyReadonlyArray<Target>,
-	from: ReadonlyArray<FromItem>,
-	where: Expr | undefined
-): SetCore =>
-	distinct ? distinctCore(targets, from, where) : provedCore("certified", targets, from, where)
-
 /** SELECT DISTINCT ON (<on>) <targets> [FROM <from>] [WHERE <where>]: at least one key and one target. */
 export const distinctOnCore = (
 	on: NonEmptyReadonlyArray<Expr>,

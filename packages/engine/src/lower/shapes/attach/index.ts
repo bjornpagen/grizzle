@@ -41,12 +41,13 @@ import {
 	cast,
 	conjunction,
 	countStar,
-	distinctCoreWhen,
+	distinctCore,
 	gt,
 	keyedSet,
 	lit,
 	ne,
 	row,
+	provedCore,
 	select,
 	simpleSelect,
 	target,
@@ -95,13 +96,11 @@ const childRows = (
 	const env: Env = new Map<NodeId, ColumnMap>(spine.map((n) => [n.id, parentMap]))
 	const source = cx.sourceAs(child, env, lateral)
 	const where = correlationEqualities(cx, attach, child.heading, source.map, parentMap)
+	const targets = headingTargets(child.heading, source.map)
 	return select(
-		distinctCoreWhen(
-			!facts.childUniquePerParent(attach),
-			headingTargets(child.heading, source.map),
-			[source.item],
-			conjunction(where)
-		)
+		facts.childUniquePerParent(attach).kind === "unproved"
+			? distinctCore(targets, [source.item], conjunction(where))
+			: provedCore("certified", targets, [source.item], conjunction(where))
 	)
 }
 
@@ -367,24 +366,23 @@ export const pipelinedAttachment = (
 		folded === undefined
 			? correlationEqualities(cx, attach, child.heading, source.map, parentMap)
 			: []
-	const distinct = !facts.childUniquePerParent(attach)
+	const childUnique = facts.childUniquePerParent(attach)
 	const order = attachmentOrder(
 		attach,
 		parentColumns,
-		distinct || attach.order === undefined
+		childUnique.kind === "unproved" || attach.order === undefined
 			? partialOrder
 			: orderIsTotal(facts, attach.child, attach.order, child.heading)
 	)
 	const from = [parent.item, source.item]
-	const body = distinctCoreWhen(
-		distinct,
-		concatNonEmpty(
-			keys.map((k) => target(k.expr)),
-			headingTargets(child.heading, source.map)
-		),
-		from,
-		conjunction(where)
+	const targets = concatNonEmpty(
+		keys.map((k) => target(k.expr)),
+		headingTargets(child.heading, source.map)
 	)
+	const body =
+		childUnique.kind === "unproved"
+			? distinctCore(targets, from, conjunction(where))
+			: provedCore("certified", targets, from, conjunction(where))
 	return {
 		query: { ...select(body), orderBy: order(parentMap, source.map) },
 		rows: select(body),

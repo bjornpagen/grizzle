@@ -21,16 +21,17 @@ import {
 	refuse
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
+import type { ShapeFacts, Unique } from "#compiler/lower/shapes/share/physical.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Expr, OrderItem } from "#compiler/sql/ast.ts"
 import {
 	asc,
 	conjunction,
-	distinctCoreWhen,
+	distinctCore,
 	exists,
 	lit,
 	notExists,
+	provedCore,
 	select,
 	simpleSelect,
 	target,
@@ -58,20 +59,22 @@ const traceOf = (node: NodeOf<"ApproximateNearest">, at: string): ApproximateTra
 }
 
 /**
- * The shape's DISTINCT before the bound: owed unless the facts prove the source's rows, as realized, unique; the
- * placement realizes a source it cannot prove unique `distinct`, and that DISTINCT is this statement's.
- * `members` are the source's nodes this statement realizes itself: the projection and the filters and negations over
- * it, any of which the placement may have realized `distinct`.
+ * The proof that the shape owes no DISTINCT before the bound: the facts' proof that the source's rows, as realized, are
+ * unique, where no node this statement realizes is realized `distinct`; none otherwise, and the DISTINCT is this
+ * statement's. The placement realizes a source it cannot prove unique `distinct`. `members` are the source's nodes
+ * this statement realizes itself: the projection and the filters and negations over it, any of which the placement may
+ * have realized `distinct`.
  */
-const deduplicates = (
+const uniqueSource = (
 	facts: ShapeFacts,
 	node: NodeOf<"ApproximateNearest">,
 	members: ReadonlyArray<RelNode>
-): boolean =>
+): Unique | undefined =>
 	facts.realization(node.source) === "distinct" ||
 	facts.realization(node) === "distinct" ||
-	members.some((member) => facts.realization(member) === "distinct") ||
-	!facts.unique(node.source)
+	members.some((member) => facts.realization(member) === "distinct")
+		? undefined
+		: facts.unique(node.source)
 
 /**
  * The order columns after the distance: with a proved key, the fewest leading heading columns that determine one; with
@@ -82,11 +85,11 @@ const deduplicates = (
 const tieColumns = (
 	facts: ShapeFacts,
 	node: NodeOf<"ApproximateNearest">,
-	distinct: boolean,
+	unique: Unique | undefined,
 	constant: ReadonlySet<string>
 ): ReadonlyArray<string> => {
 	const rest = node.heading.map((c) => c.name).filter((c) => c !== node.score && !constant.has(c))
-	if (distinct) {
+	if (unique === undefined) {
 		return rest
 	}
 	const chosen: Array<string> = []
@@ -214,20 +217,24 @@ export const approximateLowerer =
 		}
 		const expr = (name: string): Expr => columnIn(outputs, name)
 		const where = eligibility(cx, env, trace, outputs, at)
-		const distinct = deduplicates(facts, node, [projection, ...trace.upper])
+		const unique = uniqueSource(facts, node, [projection, ...trace.upper])
 		const constant = new Set(
 			projection.out.filter((o) => o.expr.deps.nodes.length === 0).map((o) => o.name)
 		)
 		const orderBy: ReadonlyArray<OrderItem> = [
 			asc(distance),
-			...tieColumns(facts, node, distinct, constant).map((c) => asc(expr(c)))
+			...tieColumns(facts, node, unique, constant).map((c) => asc(expr(c)))
 		]
-		certify(facts, node, distinct ? "deduplicated" : "indexed")
+		certify(facts, node, unique === undefined ? "deduplicated" : "indexed")
 		const targets = isNonEmpty(node.heading)
 			? mapNonEmpty(node.heading, (c) => target(expr(c.name)))
 			: unitTargets
 		return {
-			...select(distinctCoreWhen(distinct, targets, [input.item], conjunction(where))),
+			...select(
+				unique === undefined
+					? distinctCore(targets, [input.item], conjunction(where))
+					: provedCore("certified", targets, [input.item], conjunction(where))
+			),
 			orderBy,
 			limit: cx.boundExpr({ kind: "literal", k: node.take })
 		}

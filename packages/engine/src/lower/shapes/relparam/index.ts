@@ -38,7 +38,7 @@ export const inputSetLowerer =
 	(node, cx) => {
 		const { item, map } = inputSetSource(node, cx)
 		const targets = headingTargets(node.heading, map)
-		if (facts.realization(node) === "distinct" && !facts.unique(node)) {
+		if (facts.realization(node) === "distinct" && facts.unique(node) === undefined) {
 			return distinctSelect(targets, [item], [])
 		}
 		return select(provedCore("input", targets, [item], undefined))

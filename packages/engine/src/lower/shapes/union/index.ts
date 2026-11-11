@@ -26,7 +26,6 @@ import {
 	asSetArm,
 	core,
 	distinctCore,
-	distinctCoreWhen,
 	operandSelect,
 	operandUnionAll,
 	provedCore,
@@ -62,7 +61,11 @@ const armBody = (
 type ArmForm = "union" | "certified" | "operand"
 
 const armForm = (facts: ShapeFacts, union: NodeOf<"Union">): ArmForm =>
-	facts.realization(union) === "distinct" ? "union" : facts.unique(union) ? "certified" : "operand"
+	facts.realization(union) === "distinct"
+		? "union"
+		: facts.unique(union) === undefined
+			? "operand"
+			: "certified"
 
 /**
  * arm1 <op> arm2 <op> ..., left-associated, under `form`: one set operation, each nested set operation a parenthesized
@@ -186,12 +189,9 @@ export const armBoundedUnion = (
 	 */
 	const bounded = (arm: (typeof arms)[number][number]): Select => ({
 		...select(
-			distinctCoreWhen(
-				facts.keyedBy(arm.node, columns) === undefined,
-				arm.targets,
-				[arm.source.item],
-				undefined
-			)
+			facts.keyedBy(arm.node, columns) === undefined
+				? distinctCore(arm.targets, [arm.source.item], undefined)
+				: provedCore("certified", arm.targets, [arm.source.item], undefined)
 		),
 		orderBy: orderItemsOf(order, union.heading, arm.delivered, { leading: [], total, fixed: [] }),
 		limit: k
@@ -215,17 +215,17 @@ export const groupRows = (
 	const [only, ...others] = g.arms
 	if (others.length === 0) {
 		const source = cx.source(only, env)
+		const targets = headingTargets(g.heading, source.map)
 		return select(
-			distinctCoreWhen(
-				!facts.unique(only),
-				headingTargets(g.heading, source.map),
-				[source.item],
-				undefined
-			)
+			facts.unique(only) === undefined
+				? distinctCore(targets, [source.item], undefined)
+				: provedCore("certified", targets, [source.item], undefined)
 		)
 	}
 	const form: ArmForm =
-		facts.realization(union) === "plain" && facts.unique(union) ? "certified" : "union"
+		facts.realization(union) === "plain" && facts.unique(union) !== undefined
+			? "certified"
+			: "union"
 	return select(
 		setBodyOf(
 			chain(

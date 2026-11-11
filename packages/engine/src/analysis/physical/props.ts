@@ -78,9 +78,6 @@ export interface PhysicalProps {
 	readonly realization: Realization
 }
 
-/** Whether the fragment's whole heading identifies a row physically. */
-export const isUnique = (props: PhysicalProps): boolean => props.uniqueness.kind !== "none"
-
 /**
  * Whether `columns` identify a row of the fragment: then the fragment has at most one row per value of `columns`
  * ("K determines B ... exactly one contribution for each B"), on what, and the canonical minimal key among them.

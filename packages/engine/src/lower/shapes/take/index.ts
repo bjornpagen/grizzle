@@ -41,7 +41,6 @@ import {
 	conjunction,
 	derived,
 	distinctCore,
-	distinctCoreWhen,
 	distinctOnCore,
 	keyedSet,
 	le,
@@ -606,10 +605,11 @@ const armBoundable = (cx: LowerContext, node: NodeOf<"Take">): NodeOf<"Union"> |
 export const takeLowerer =
 	(facts: ShapeFacts): NodeLowerer<"Take"> =>
 	(node, cx, env) => {
-		const distinct = !facts.unique(node.input) || facts.realization(node) === "distinct"
-		const total = distinct
-			? partialOrder
-			: orderIsTotal(facts, node.input, node.order, node.heading)
+		const unique = facts.realization(node) === "distinct" ? undefined : facts.unique(node.input)
+		const total =
+			unique === undefined
+				? partialOrder
+				: orderIsTotal(facts, node.input, node.order, node.heading)
 		const union = armBoundable(cx, node)
 		const { input, scope } =
 			union === undefined
@@ -638,12 +638,14 @@ export const takeLowerer =
 		})
 		return {
 			...select(
-				distinctCoreWhen(
-					distinct,
-					headingTargets(node.heading, input.map),
-					[input.item],
-					conjunction(where)
-				)
+				unique === undefined
+					? distinctCore(headingTargets(node.heading, input.map), [input.item], conjunction(where))
+					: provedCore(
+							"certified",
+							headingTargets(node.heading, input.map),
+							[input.item],
+							conjunction(where)
+						)
 			),
 			orderBy,
 			limit: cx.boundExpr(node.bound)
@@ -704,7 +706,7 @@ const rowNumberPerGroup = (cx: LowerContext, facts: ShapeFacts, spec: PerGroupSp
 	let input = spec.input
 	let filters = spec.filters
 	const unique = facts.unique(node.input)
-	if (!unique) {
+	if (unique === undefined) {
 		const deduplicated = select(
 			distinctCore(headingTargets(node.heading, input.map), [input.item], conjunction(filters))
 		)
@@ -714,7 +716,10 @@ const rowNumberPerGroup = (cx: LowerContext, facts: ShapeFacts, spec: PerGroupSp
 	const ranked = { ...spec, input }
 	const orderBy = orderItemsOf(node.order, node.heading, input.map, {
 		leading: [],
-		total: unique ? orderIsTotal(facts, node.input, node.order, node.heading) : partialOrder,
+		total:
+			unique === undefined
+				? partialOrder
+				: orderIsTotal(facts, node.input, node.order, node.heading),
 		fixed: spec.partition
 	})
 	const rank = {

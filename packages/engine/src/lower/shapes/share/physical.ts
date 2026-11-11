@@ -1,12 +1,32 @@
 import type { PhysicalAnalysis } from "#compiler/analysis/physical/analyze.ts"
 import { consumerIn } from "#compiler/analysis/physical/consumers.ts"
-import type { Identification } from "#compiler/analysis/physical/fds.ts"
-import { isUnique, keyedBy, type Realization } from "#compiler/analysis/physical/props.ts"
+import type { Identification, Justification } from "#compiler/analysis/physical/fds.ts"
+import { keyedBy, type Realization, type Uniqueness } from "#compiler/analysis/physical/props.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { Cardinality } from "#compiler/ir/cardinality.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { KeySet, NodeOf, RelNode } from "#compiler/ir/rel.ts"
+
+/**
+ * The physical analysis's proof that a node's rows, as realized, are unique on its whole heading: a key it proves of
+ * the plain form, or the node's own realized elimination (analysis/physical/props.ts Uniqueness).
+ */
+export type Unique = Exclude<Uniqueness, { readonly kind: "none" }>
+
+/**
+ * Why an attachment's child rows are unique per parent binding: the obligation of its observing child edge discharged
+ * by a key of the child (analysis/physical/analyze.ts Obligation), or a child edge that does not observe, the child's
+ * realization absorbing repeats; or nothing proves it.
+ */
+export type ChildUniqueness =
+	| { readonly kind: "discharged"; readonly proof: Justification }
+	| { readonly kind: "absorbed" }
+	| { readonly kind: "unproved" }
+
+const unprovedChild: ChildUniqueness = Object.freeze({ kind: "unproved" })
+
+const absorbedChild: ChildUniqueness = Object.freeze({ kind: "absorbed" })
 
 /**
  * The physical facts every shape lowering reads.
@@ -28,8 +48,8 @@ export interface ShapeFacts {
 	readonly context: TemplateContext
 	/** A node's own set boundary: `distinct` where the placement realized exact elimination at it. */
 	readonly realization: (node: RelNode) => Realization
-	/** Whether a node's rows, as realized, are physically unique on its whole heading. */
-	readonly unique: (node: RelNode) => boolean
+	/** The proof that a node's rows, as realized, are physically unique on its whole heading, where there is one. */
+	readonly unique: (node: RelNode) => Unique | undefined
 	/**
 	 * The physical analysis's proof that `columns` determine a key of the node's rows, where they do: then one evaluation
 	 * of the node has at most one row per value of `columns`, and an order over them is total over it. A node that reads
@@ -38,8 +58,8 @@ export interface ShapeFacts {
 	readonly keyedBy: (node: RelNode, columns: KeySet) => Identification | undefined
 	/** The node's maximum cardinality, where the analysis knows one. */
 	readonly maxCard: (node: RelNode) => Cardinality
-	/** Whether an attachment's child rows are unique per parent binding. */
-	readonly childUniquePerParent: (attach: NodeOf<"Attach">) => boolean
+	/** Why an attachment's child rows are unique per parent binding, or that nothing proves it. */
+	readonly childUniquePerParent: (attach: NodeOf<"Attach">) => ChildUniqueness
 	/** Compiling a derived-relation definition, which always wants every group (R20). */
 	readonly derivedDefinition: boolean
 	/** Where a shape records the certificate of the form it selected. */
@@ -68,9 +88,12 @@ export const shapeFactsFromPlan = (
 	options: AnalysisFactsOptions
 ): ShapeFacts => {
 	const analysis = plan.analysis
-	/** The attachments of the analyzed DAG, by label, and those whose child edge observes or is discharged. */
+	/**
+	 * The attachments of the analyzed DAG, by label, those whose child edge observes, and the proof of each one whose
+	 * obligation is discharged.
+	 */
 	const analyzed = new Set<NodeId>(analysis.order.map((node) => node.id))
-	const childUnique = new Set<NodeId>()
+	const childProof = new Map<NodeId, Justification>()
 	const childObserved = new Set<NodeId>()
 	for (const o of analysis.obligations) {
 		const attach = consumerIn(o.edge.consumer, "child")
@@ -79,7 +102,7 @@ export const shapeFactsFromPlan = (
 		}
 		childObserved.add(attach.id)
 		if (o.discharged) {
-			childUnique.add(attach.id)
+			childProof.set(attach.id, o.proof)
 		}
 	}
 	/** The analysis reads every node of the DAG the shapes lower (analysis/physical analyzePhysical). */
@@ -87,15 +110,26 @@ export const shapeFactsFromPlan = (
 	return {
 		context: analysis.context,
 		realization: (node) => analysis.of(node).realization,
-		unique: (node) => isUnique(propsOf(node)),
+		unique: (node) => {
+			const uniqueness = propsOf(node).uniqueness
+			return uniqueness.kind === "none" ? undefined : uniqueness
+		},
 		keyedBy: (node, columns) => keyedBy(propsOf(node), columns),
 		maxCard: (node) => propsOf(node).maxCard,
 		/**
 		 * A child edge that observes and is discharged proves the child unique per parent; a child edge that does not
 		 * observe (the child is realized distinct, absorbing repeats) proves it too.
 		 */
-		childUniquePerParent: (attach) =>
-			analyzed.has(attach.id) && (childUnique.has(attach.id) || !childObserved.has(attach.id)),
+		childUniquePerParent: (attach) => {
+			const proof = childProof.get(attach.id)
+			if (!analyzed.has(attach.id)) {
+				return unprovedChild
+			}
+			if (proof !== undefined) {
+				return { kind: "discharged", proof }
+			}
+			return childObserved.has(attach.id) ? unprovedChild : absorbedChild
+		},
 		derivedDefinition: options.derivedDefinition,
 		certify: options.certify
 	}

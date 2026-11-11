@@ -394,7 +394,7 @@ const optimizedKit = <F extends PageFill>(
 		 */
 		rows: (node) => {
 			const lowered = cx.lower(node, emptyEnv)
-			return facts.unique(node) ? lowered : withBoundary(cx, node, lowered)
+			return facts.unique(node) === undefined ? withBoundary(cx, node, lowered) : lowered
 		},
 		group: (plan, g) =>
 			filtered(cx, plan, groupRows(cx, plan.union, g, emptyEnv, facts), g.heading, false),

@@ -503,7 +503,7 @@ const realized =
 	(node, cx, env) => {
 		const query = lower(node, cx, env)
 		return facts.realization(node) === "plain"
-			? withoutBoundary(query, facts.unique(node) ? "certified" : "operand")
+			? withoutBoundary(query, facts.unique(node) === undefined ? "operand" : "certified")
 			: withBoundary(cx, node, query)
 	}
 

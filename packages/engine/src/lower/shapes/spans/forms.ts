@@ -32,7 +32,11 @@ export const optimizedProducerForm = (node: NodeOf<"Produce">, facts: ShapeFacts
 
 /** The produced rows of an intersection or a difference, as the placement realized the node. */
 const producedRows = (node: NodeOf<"Produce">, facts: ShapeFacts): ProducedRows =>
-	facts.realization(node) === "distinct" ? "distinct" : facts.unique(node) ? "certified" : "operand"
+	facts.realization(node) === "distinct"
+		? "distinct"
+		: facts.unique(node) === undefined
+			? "operand"
+			: "certified"
 
 /**
  * A pack's contributions: keyed where its span is a column of its input and the input is keyed by the carried columns
