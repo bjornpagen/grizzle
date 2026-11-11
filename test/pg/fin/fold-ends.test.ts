@@ -15,7 +15,7 @@ import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write
 import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, deepEquals, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
-import { type Answer, answered, writeOnce } from "#test/support/calls.ts"
+import { type WriteAnswer, answered, writeOnce } from "#test/support/calls.ts"
 import {
 	type Breaking,
 	type Broken,
@@ -714,7 +714,7 @@ const judgeRefused = (
 	s: FoldSchema,
 	w: Write,
 	broken: Arr.NonEmptyReadonlyArray<Broken>,
-	outcome: Answer<WrittenOutcome>
+	outcome: WriteAnswer<WrittenOutcome>
 ): ReadonlyArray<Broken> => {
 	if (outcome.kind !== "refused") {
 		return assert.fail(

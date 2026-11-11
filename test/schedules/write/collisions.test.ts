@@ -54,7 +54,7 @@ import { key, lawsByStatement, login, on, relation, role, schema } from "#compil
 import { workload } from "#compiler/public/workload.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { assert, deepEquals, defined } from "#test/support/assert.ts"
-import { type Answer, answered } from "#test/support/calls.ts"
+import { type WriteAnswer, answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
@@ -342,10 +342,10 @@ const doubleStarts: ReadonlyArray<Kept<Collision, CollisionFeature>> = [
 ]
 
 /** What a call answered: its outcome, or the failure it met. */
-type Ran = Result.Result<Answer<WriteOutcome<unknown>>, CallError>
+type Ran = Result.Result<WriteAnswer<WriteOutcome<unknown>>, CallError>
 
 /** A relation's added count in an accepted outcome, none where it adds none. */
-const addedTo = (outcome: Answer<WriteOutcome<unknown>>, relation: string): bigint =>
+const addedTo = (outcome: WriteAnswer<WriteOutcome<unknown>>, relation: string): bigint =>
 	outcome.kind === "accepted"
 		? Option.getOrElse(
 				Option.map(

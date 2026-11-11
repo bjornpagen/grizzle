@@ -95,8 +95,6 @@ export type WriteOutcome =
 	  }
 	| { readonly kind: "outside-world"; readonly relation: string }
 
-export type Artifact = "optimized" | "conservative"
-
 /** Whether a run's tables carry planner statistics: analyzed after each case's facts are loaded, or never analyzed. */
 export type Statistics = "analyzed" | "none"
 

@@ -131,7 +131,7 @@ import {
 	Zed
 } from "#test/schedules/write/support.ts"
 import { deepEquals, defined } from "#test/support/assert.ts"
-import { type Answer, answered, writeOnce } from "#test/support/calls.ts"
+import { type WriteAnswer, answered, writeOnce } from "#test/support/calls.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -1139,7 +1139,7 @@ class RaceFailed extends Data.TaggedError("RaceFailed")<{ readonly message: stri
 /** What a grizzle write's retried call answered, its law read back to its LawId through the installation's laws. */
 const answerOf = (
 	reported: (refused: IdentifiedLaw) => LawId,
-	r: Result.Result<Retried<Answer<WrittenOutcome>>, CallError>
+	r: Result.Result<Retried<WriteAnswer<WrittenOutcome>>, CallError>
 ): { readonly refused: ReadonlyArray<TransientTag>; readonly answer: GrizzleAnswer } => {
 	if (Result.isFailure(r)) {
 		return { refused: [], answer: { kind: "failed", what: r.failure.kind } }
@@ -1151,7 +1151,7 @@ const answerOf = (
 /** A write's answer as the model judges it: a refusal names its one law, so a refusal naming several is a failure. */
 const grizzleAnswer = (
 	reported: (refused: IdentifiedLaw) => LawId,
-	value: Answer<WrittenOutcome>
+	value: WriteAnswer<WrittenOutcome>
 ): GrizzleAnswer => {
 	switch (value.kind) {
 		case "refused": {
@@ -1678,7 +1678,7 @@ interface InserterAnswer {
 
 const inserterAnswerOf = (
 	reported: (refused: IdentifiedLaw) => LawId,
-	r: Result.Result<Answer<WrittenOutcome>, CallError>
+	r: Result.Result<WriteAnswer<WrittenOutcome>, CallError>
 ): InserterAnswer => {
 	if (Result.isFailure(r)) {
 		return {

@@ -68,7 +68,7 @@ import {
 	viewOf
 } from "#test/support/platform/generate.ts"
 
-import { type Answer, answered } from "#test/support/calls.ts"
+import { type WriteAnswer, answered } from "#test/support/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
 	decideSet,
@@ -149,7 +149,7 @@ type Decided =
 	| { readonly kind: "refused"; readonly laws: Arr.NonEmptyReadonlyArray<LawId> }
 	| { readonly kind: "outsideWorld"; readonly relation: string }
 
-const decided = (outcome: Answer<WriteOutcome<unknown>>): Decided => {
+const decided = (outcome: WriteAnswer<WriteOutcome<unknown>>): Decided => {
 	switch (outcome.kind) {
 		case "refused":
 			return {

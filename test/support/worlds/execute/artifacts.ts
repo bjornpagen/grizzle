@@ -12,6 +12,7 @@ import { queryDescOf } from "#compiler/schema/protocol.ts"
 import type { ServedFile, ServedMember } from "#compiler/served/forms.ts"
 import { servedSource } from "#compiler/served/read.ts"
 import { defined } from "#test/support/assert.ts"
+import { readOnce } from "#test/support/calls.ts"
 import {
 	compileTemplate,
 	type FixtureSchema,
@@ -19,7 +20,6 @@ import {
 	testArtifacts
 } from "#test/support/compile.ts"
 import { conservativePageRuntime } from "#test/support/conservative.ts"
-import { readOnce } from "#test/support/calls.ts"
 import { flown, readThrough } from "#test/support/read-calls.ts"
 import { factKeySet, sameFact } from "#test/support/worlds/model/host.ts"
 import type { HostFact } from "#test/support/worlds/model/types.ts"
@@ -363,10 +363,11 @@ export const onceAgrees = <E>(
 ): Effect.Effect<boolean> =>
 	Effect.gen(function* () {
 		const flight = readerOf(member, (statements) => flown(ctx, statements))
-		const viaFlight = yield* Effect.orDie(read(flight))
+		const viaFlight = yield* read(flight)
 		const once = readOnce(memberCalls(ctx, member))
-		const viaOnce = yield* Effect.orDie(
-			read({ fields: flight.fields, read: (input) => Effect.orDie(once(input)) })
-		)
+		const viaOnce = yield* read({
+			fields: flight.fields,
+			read: (input) => Effect.orDie(once(input))
+		})
 		return sameDelivery(viaFlight, viaOnce)
-	})
+	}).pipe(Effect.orDie)

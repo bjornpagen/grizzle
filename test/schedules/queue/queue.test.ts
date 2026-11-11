@@ -41,7 +41,7 @@ import type { ServedRefusal } from "#adapter/public/compile.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
-import { type Answer, answered } from "#test/support/calls.ts"
+import { type WriteAnswer, answered } from "#test/support/calls.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import * as Q from "#test/support/fixtures/api/queue.ts"
 import { kA, kB, kG, queueFacts } from "#test/support/fixtures/golden/queue.ts"
@@ -135,12 +135,12 @@ type QueueFeature =
 	| "two writes in flight together"
 	| "a write refused"
 	| `refused: ${TransientTag}`
-	| `${QueueWrite["kind"]} ${Answer<WriteOutcome<unknown>>["kind"]}`
+	| `${QueueWrite["kind"]} ${WriteAnswer<WriteOutcome<unknown>>["kind"]}`
 
 /** The features one explained run reached (see QueueFeature). */
 const featuresOf =
 	(race: QueueRace) =>
-	(e: Explained<Answer<WriteOutcome<unknown>>>): ReadonlyArray<QueueFeature> => {
+	(e: Explained<WriteAnswer<WriteOutcome<unknown>>>): ReadonlyArray<QueueFeature> => {
 		const waited = Arr.some(
 			e.run.moves,
 			(m) => (m.session === "g" || m.session === "h") && m.observed._tag === "Waited"
@@ -212,7 +212,7 @@ const runRace = (
 		const leasedColumn = (field: "key" | "resource" | "seat" | "epoch" | "expires") =>
 			names.column(Q.Leased, field)
 		const gpu = names.code(Q.Resource, "gpu")
-		const blocker: RaceTxn<Answer<WriteOutcome<unknown>>> =
+		const blocker: RaceTxn<WriteAnswer<WriteOutcome<unknown>>> =
 			race.blocker.kind === "locks"
 				? {
 						kind: "direct",
@@ -266,7 +266,7 @@ const runRace = (
 						const writeOf = (
 							session: "g" | "h",
 							db: typeof one
-						): RaceTxn<Answer<WriteOutcome<unknown>>> => {
+						): RaceTxn<WriteAnswer<WriteOutcome<unknown>>> => {
 							const write = race[session]
 							return {
 								kind: "grizzle",

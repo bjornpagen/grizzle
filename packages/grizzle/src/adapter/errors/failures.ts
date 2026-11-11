@@ -230,7 +230,6 @@ export class LayerReleased extends Data.TaggedError("LayerReleased") {
 	}
 }
 
-
 /**
  * Why no session was acquired: a connection attempt's refusal, or a released layer. The wait for a session has no
  * deadline of grizzle's: an interruption, the caller's own timeout among them, ends it.

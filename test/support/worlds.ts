@@ -109,7 +109,8 @@ export type FullWorld<
  * The token of a payload's `text`, as every door reads a token (adapter/db/token.ts parseToken, a token68): the text's
  * UTF-8 bytes in base64url (RFC 4648 section 5), as a JWT's segments are, so Db.open and an HTTP call accept it alike.
  */
-export const tokenText = (text: string): string => Buffer.from(utf8.encode(text)).toString("base64url")
+export const tokenText = (text: string): string =>
+	Buffer.from(utf8.encode(text)).toString("base64url")
 
 /**
  * The bytes a base64url text spells (RFC 4648 section 5, unpadded), or none for a text that is no canonical base64url:

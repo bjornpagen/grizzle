@@ -594,15 +594,14 @@ const artifactOf = <SP, SA>(
 			)
 		}
 	}
-	/** Lowered in the order of pageVariants, each with a fresh kit. */
-	return {
-		requests: {
-			first: plainOf("first"),
-			after: anchoredOf("after"),
-			last: plainOf("last"),
-			before: anchoredOf("before")
-		}
+	/** The variants, lowered in the order of pageVariants, each with a fresh kit. */
+	const requests: PageArtifact["requests"] = {
+		first: plainOf("first"),
+		after: anchoredOf("after"),
+		last: plainOf("last"),
+		before: anchoredOf("before")
 	}
+	return { requests }
 }
 
 /**

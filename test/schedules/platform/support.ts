@@ -33,7 +33,7 @@ import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/s
 import { workload } from "#compiler/public/workload.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
-import { type Answer as CallAnswer, answered } from "#test/support/calls.ts"
+import { type WriteAnswer as CallAnswer, answered } from "#test/support/calls.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import {
 	sameIdentity,

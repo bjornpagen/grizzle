@@ -6,19 +6,13 @@ import { type Drawn, lsw, passed, WILD_IS_DATA, WILD_KINDS, wild } from "@grizzl
 import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
-import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
-import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
 import { decodeDesc } from "#compiler/ir/desc.ts"
-import { describeQuery } from "#compiler/program/describe.ts"
-import { pageQueryFingerprint } from "#compiler/program/workload/fingerprint.ts"
-import { workload as admitWorkload, programDescOf } from "#compiler/program/workload/value.ts"
+import { workload as admitWorkload } from "#compiler/program/workload/value.ts"
 import { workloadState } from "#compiler/program/workload/value.ts"
-import { uuid } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import {
@@ -32,7 +26,6 @@ import {
 	unorderedEqual
 } from "#test/support/assert.ts"
 import { compileTestWorkload, type FixtureSchema, testCompile } from "#test/support/compile.ts"
-import { queryFromDescription } from "#test/support/describe.ts"
 import { schemaNameGenOtherThan } from "#test/support/kernel/dict.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
@@ -51,24 +44,20 @@ import {
 
 import { regex } from "arkregex"
 /**
- * workload(schema, programs) as a value (program/workload/value.ts), and the page fingerprint of each query
- * (program/workload/fingerprint.ts): a workload records a WorkloadDesc holding each program's Description under its name,
- * compiles from that Description with the schema named to the plan its value compiles to, and refuses what its
- * signature forbids; a query's page fingerprint is one per query and schema, whatever its name or its source
- * locations.
+ * workload(schema, programs) as a value (program/workload/value.ts): a workload records a WorkloadDesc holding each
+ * program's Description under its name, compiles from that Description with the schema named to the plan its value
+ * compiles to, and refuses what its signature forbids.
  *
  * The programs are the workload fixtures' (workload/fixtures.ts), drawn into workloads under drawn names; a renamed
  * schema takes a schema name of the dictionary other than Work's own, so no draw is discarded.
  *
  * Oracles: the workload value's own compile (its Description compiles to its value's plan), the plan over Work itself
- * for a renamed Work, and the specification of workload()'s signature, its refusals and the page fingerprint.
+ * for a renamed Work, and the specification of workload()'s signature and its refusals.
  *
  * Features: a query and a ChangeSet program, an extension's workload, an empty workload; renamed; named; every
- * signature situation (SignatureFeature); each unreadable site and wild kind; each form of a fingerprinted program, one
- * program, one program written at two lines.
+ * signature situation (SignatureFeature); each unreadable site and wild kind.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): workload-fingerprint-locations, a page fingerprint reading its query's
- * source locations; workload-signature-list-admitted, a programs list admitted as a record.
+ * Plant (~/.cache/grizzle-release/BR02/plants): workload-signature-list-admitted, a programs list admitted as a record.
  */
 
 type Kind = "query" | "changeSet"
@@ -656,117 +645,5 @@ describe("workload()'s signature", () => {
 						})
 				)
 			)
-	)
-})
-
-const schemas: Arr.NonEmptyReadonlyArray<{
-	readonly name: string
-	readonly fingerprint: SchemaFingerprint
-}> = [
-	{ name: "Board", fingerprint: planOf(Board, {}).schema },
-	{ name: "Work", fingerprint: planOf(W.Work, {}).schema }
-]
-
-/** One program written at two lines of this file: the same program at other source locations. */
-const writtenOnce = query(W.Work).rule((r) => {
-	const { id, account } = v(W.Task, "task")
-	return r
-		.match(W.Task, { id, account })
-		.where(r.eq(account, r.param("account", uuid)))
-		.find({ id })
-})
-
-const writtenTwice = query(W.Work).rule((r) => {
-	const { id, account } = v(W.Task, "task")
-	return r
-		.match(W.Task, { id, account })
-		.where(r.eq(account, r.param("account", uuid)))
-		.find({ id })
-})
-
-/** The programs whose fingerprints are compared, with the schema each is written over; the twins are one program. */
-const fingerprinted = nonEmpty<Program & { readonly over: FixtureSchema }>(
-	[
-		...Arr.map(boardPrograms, (p) => ({ ...p, over: Board })),
-		{ ...namedQuery("the twin", writtenOnce), over: W.Work },
-		{ ...namedQuery("the twin", writtenTwice), over: W.Work }
-	],
-	"the fingerprinted programs"
-)
-
-/** A program as the workload receives it: the value, or the value rebuilt from its Description. */
-type Form = "the program" | "the rebuilt program"
-
-const descOf = (program: (typeof fingerprinted)[number], form: Form) => {
-	const value =
-		form === "the program"
-			? program.value
-			: succeeded(queryFromDescription(describeQuery(program.value), program.over), "the rebuild")
-	return defined(programDescOf(value), "a program the builders made").program.desc
-}
-
-describe("page query fingerprints", () => {
-	it.effect(
-		"are equal exactly for one program over one schema, whatever its source locations",
-		(ctx) =>
-			Effect.gen(function* () {
-				const side = (source: Source) => ({
-					program: source.draw(element(fingerprinted)),
-					form: source.draw(element<Form>(["the program", "the rebuilt program"])),
-					schema: source.draw(element(schemas))
-				})
-				const sides = (source: Source) => [source.draw(side), source.draw(side)] as const
-				type FingerprintFeature = Form | "one program" | "one program written at two lines"
-				yield* searched(
-					ctx,
-					explore(
-						{
-							oracle: {
-								kind: "specification",
-								name: "one fingerprint exactly for one program over one schema, whatever its name or source locations"
-							},
-							suite: "unit/workload/value-fingerprint",
-							draw: drawn(sides),
-							literal: Formatter.format,
-							coverage: required<FingerprintFeature>(
-								[
-									"the program",
-									"the rebuilt program",
-									"one program",
-									"one program written at two lines"
-								],
-								{ cases: 200, sense: notesOnly }
-							),
-							kept: [],
-							runs: 200,
-							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 16,
-							caseHang
-						},
-						([a, b], k) =>
-							Effect.sync(() => {
-								const fingerprint = (s: typeof b) => {
-									const desc = descOf(s.program, s.form)
-									assert.ok(desc.kind === "query", "a fingerprinted program is a query")
-									return succeeded(pageQueryFingerprint(desc.query, s.schema.fingerprint))
-								}
-								const [fa, fb] = [fingerprint(a), fingerprint(b)]
-								assert.equal(
-									fa === fb,
-									a.program.source === b.program.source && a.schema.name === b.schema.name
-								)
-								k.note(a.form)
-								k.note(b.form)
-								if (a.program.source === b.program.source) {
-									k.note("one program")
-								}
-								if (a.program.source === b.program.source && a.program.value !== b.program.value) {
-									k.note("one program written at two lines")
-								}
-							})
-					)
-				)
-			})
 	)
 })

@@ -22,11 +22,7 @@ import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
 import type { ServedWire } from "#compiler/live/member.ts"
 import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
 import type { PageRequestProgram } from "#compiler/lower/shapes/page/compile.ts"
-import type {
-	PageComparator,
-	PageVariant,
-	VariantFill
-} from "#compiler/lower/shapes/page/seek.ts"
+import type { PageComparator, PageVariant, VariantFill } from "#compiler/lower/shapes/page/seek.ts"
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import type { ClosedTable } from "#compiler/runtime/write/fill.ts"

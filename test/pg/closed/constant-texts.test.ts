@@ -70,7 +70,7 @@ import { str } from "#compiler/public/text.ts"
 import type { Predicate, Term } from "#compiler/types/core/phantom.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
-import { type Answer, answered } from "#test/support/calls.ts"
+import { type WriteAnswer, answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -545,7 +545,7 @@ const namesLaw = (law: Law, relation: string): boolean => {
 
 /** Holds a write's outcome to the model's verdict: accepted where lawful, else refused by `relation`'s one law. */
 const verdict = (
-	applied: Result.Result<Answer<WriteOutcome<unknown>>, unknown>,
+	applied: Result.Result<WriteAnswer<WriteOutcome<unknown>>, unknown>,
 	relation: string,
 	lawful: boolean,
 	where: string

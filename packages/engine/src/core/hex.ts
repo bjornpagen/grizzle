@@ -29,7 +29,7 @@ const ascii = new TextDecoder()
  * What begins a bit string's text as bit's input function reads it, hex digits following: `X`, as the SQL constant
  * X'…' begins.
  */
-export const bitInputPrefix = "X"
+const bitInputPrefix = "X"
 
 /**
  * A bit string's text as bit's input function reads it, `X` then its hex digits: a set's parameter text and array
@@ -55,7 +55,7 @@ export const setBit = (digits: Uint8Array, position: number): void => {
 }
 
 /** Whether bit `bit` of one digit's value, 0 its most significant, is 1. */
-export const digitHolds = (value: number, bit: number): boolean => (value & (firstBit >> bit)) !== 0
+const digitHolds = (value: number, bit: number): boolean => (value & (firstBit >> bit)) !== 0
 
 /** Bit `position` of `digits`, a position within them: 0 or 1. */
 export const bitAt = (digits: Uint8Array, position: number): number =>
@@ -93,7 +93,7 @@ export const hexOfBitText = (text: string): string => {
  * The value of one hex digit's character, by its UTF-16 code unit: 0-9 and A-F alone, the one spelling grizzle writes,
  * so a lowercase digit, which PostgreSQL would read as the same bits, is none.
  */
-export const digitValue = (code: number): number | undefined => {
+const digitValue = (code: number): number | undefined => {
 	if (code >= 0x30 && code <= 0x39) {
 		return code - 0x30
 	}

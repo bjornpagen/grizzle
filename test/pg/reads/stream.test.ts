@@ -25,13 +25,14 @@ import { type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Stream } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Stream, String as Str } from "effect"
 import { readCallOf } from "#adapter/db/handles.ts"
 import { type DecodedRow, type ReadCall, readStream, setEvents } from "#adapter/reader/stream.ts"
 import type { SetEvent } from "#compiler/live/index.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -40,7 +41,7 @@ import { member, withServedDb } from "#test/support/served-db.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const Note = relation("Note", { id: pg.integer, body: pg.text }, ["id"])
+const Note = relation("Note", { id: pg.integer, body: str.regex("^[a-z]*$") }, ["id"])
 const Notes = schema("Notes", { Note }, [])
 
 /**
@@ -66,10 +67,8 @@ const caseGen: Gen<Case> = (source) => ({
 /** The row of id `id` in a case of `width`: its text a letter of its own, `width` times. */
 const rowOf = (id: number, width: number): { readonly id: number; readonly body: string } => ({
 	id,
-	body: String.fromCharCode(97 + (id % 26)).repeat(width)
+	body: Str.repeat(width)(String.fromCharCode(97 + (id % 26)))
 })
-
-type StreamFeature = "a read of tens of rows across several socket reads"
 
 /** What a consumer of a read's events saw: their kinds in order, its upserts' rows, and the decode count at the first. */
 interface Seen {
@@ -107,9 +106,12 @@ layer(Substrate.layer, { excludeTestServices: true })("a read's rows", (it) => {
 							suite: "pg/reads/stream",
 							draw: drawn(caseGen),
 							literal: Formatter.format,
-							coverage: required<StreamFeature>(
+							coverage: required<"a read of tens of rows across several socket reads">(
 								["a read of tens of rows across several socket reads"],
-								{ cases: 12, sense: notesOnly }
+								{
+									cases: 12,
+									sense: notesOnly
+								}
 							),
 							kept: [],
 							runs: 12,

@@ -91,7 +91,7 @@ import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, assertVariant, succeeded } from "#test/support/assert.ts"
-import { type Answer, answered, readOnce } from "#test/support/calls.ts"
+import { type WriteAnswer, answered, readOnce } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -601,7 +601,7 @@ type Head =
 	| { readonly kind: "read"; readonly rows: Result.Result<ReadonlyArray<unknown>, CallError> }
 
 const verdict = (
-	applied: Result.Result<Answer<WrittenOutcome>, unknown>,
+	applied: Result.Result<WriteAnswer<WrittenOutcome>, unknown>,
 	broken: ReadonlyArray<string>,
 	where: string
 ): void => {

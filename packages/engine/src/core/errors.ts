@@ -991,4 +991,3 @@ export class EncodingFailure extends Error {
 		return new EncodingFailure(fields)
 	}
 }
-

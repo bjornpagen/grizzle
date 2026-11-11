@@ -21,7 +21,7 @@ export const lastCalendarDate: CalendarDate = "9999-12-31"
  *
  * @formatConstant ISO 8601's extended calendar date YYYY-MM-DD
  */
-export const dateTextLength = 10
+const dateTextLength = 10
 
 /**
  * The offsets of the two hyphens in a calendar date's text, and of its month and its day.

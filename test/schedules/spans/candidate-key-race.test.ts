@@ -51,7 +51,7 @@ import { key, login, on, relation, role, schema } from "#compiler/public/schema.
 import { workload } from "#compiler/public/workload.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { threeKeys, twoKeys } from "#test/schedules/write/support.ts"
-import { type Answer, answered } from "#test/support/calls.ts"
+import { type WriteAnswer, answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -127,7 +127,7 @@ type BookingFeature =
 	| "the apply waited"
 	| "the apply refused"
 	| `refused: ${TransientTag}`
-	| `the apply answered ${Answer<WriteOutcome<unknown>>["kind"]}`
+	| `the apply answered ${WriteAnswer<WriteOutcome<unknown>>["kind"]}`
 	| `${"direct" | "blocker"} ${"committed" | "rolled back" | "aborted" | "failed"}`
 
 /** A span: where it starts, and its width. */
@@ -213,7 +213,7 @@ const spanText = (b: Booked) => `[${b.during.start},${b.during.end})`
 const values = (b: Booked) => `(${b.id}, ${b.room}, '${spanText(b)}', ${b.ref})`
 
 /** The features one explained run reached (see BookingFeature). */
-const featuresOf = (e: Explained<Answer<WriteOutcome<unknown>>>): ReadonlyArray<BookingFeature> => {
+const featuresOf = (e: Explained<WriteAnswer<WriteOutcome<unknown>>>): ReadonlyArray<BookingFeature> => {
 	const waited = Arr.some(e.run.moves, (m) => m.session === "app" && m.observed._tag === "Waited")
 	return [
 		...(waited ? ["the apply waited" as const] : []),
@@ -275,7 +275,7 @@ const runRace = (
 		)
 		const insert = (b: Booked) =>
 			`INSERT INTO ${booking} (${Arr.join(listed, ", ")}) VALUES ${values(b)}`
-		const blocker: ReadonlyArray<RaceTxn<Answer<WriteOutcome<unknown>>>> =
+		const blocker: ReadonlyArray<RaceTxn<WriteAnswer<WriteOutcome<unknown>>>> =
 			race.blocker.kind === "none"
 				? []
 				: [
@@ -286,7 +286,7 @@ const runRace = (
 							end: race.blocker.end
 						}
 					]
-		const apply: RaceTxn<Answer<WriteOutcome<unknown>>> = {
+		const apply: RaceTxn<WriteAnswer<WriteOutcome<unknown>>> = {
 			kind: "grizzle",
 			session: "app",
 			label: `apply ${race.how}`,

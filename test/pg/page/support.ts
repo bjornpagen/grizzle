@@ -29,7 +29,7 @@ import { mergeComparator } from "#test/support/merge.ts"
  *
  * A paged member's input: its parameters, no facts, and the window of `size` rows from `anchor`.
  */
-export const windowInput = (params: unknown, anchor: Anchor, size: number) => ({
+const windowInput = (params: unknown, anchor: Anchor, size: number) => ({
 	params,
 	facts: {},
 	window: { anchor, size }
@@ -109,7 +109,7 @@ export const pageTemplate = (member: LoadedMember, codes: Codebook): TestPage =>
 }
 
 /** The page's completed order over records holding its order's columns: negative when the first comes first. */
-export const pageOrder = (compiled: TestPage): ((a: unknown, b: unknown) => number) => {
+const pageOrder = (compiled: TestPage): ((a: unknown, b: unknown) => number) => {
 	const types: Record<string, ScalarType> = {}
 	for (const c of compiled.runtime.page.heading) {
 		types[c.name] = c.type

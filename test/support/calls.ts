@@ -31,19 +31,19 @@ export const oneOf = <Row, E, R>(
 	})
 
 /** The refusals a write's answer holds beside its outcome: the laws', and a fact outside the world relation. */
-export type Refusal = CallErrorOf<"refused"> | CallErrorOf<"outsideWorld">
+export type WriteRefusal = CallErrorOf<"refused"> | CallErrorOf<"outsideWorld">
 
-/** A write's answer as a test reads it: its outcome, or the refusal it ended with (Refusal). */
-export type Answer<O> = O | Refusal
+/** A write's answer as a test reads it: its outcome, or the refusal it ended with (WriteRefusal). */
+export type WriteAnswer<O> = O | WriteRefusal
 
-const isRefusal = (error: CallError): error is Refusal =>
+const isRefusal = (error: CallError): error is WriteRefusal =>
 	error.kind === "refused" || error.kind === "outsideWorld"
 
-/** A write's answer (Answer): its refusal moved into the value, every other CallError still its failure. */
+/** A write's answer (WriteAnswer): its refusal moved into the value, every other CallError still its failure. */
 export const answered = <O, R>(
 	write: Effect.Effect<O, CallError, R>
-): Effect.Effect<Answer<O>, CallError, R> =>
-	Effect.catchIf(write, isRefusal, (refusal) => Effect.succeed<Answer<O>>(refusal))
+): Effect.Effect<WriteAnswer<O>, CallError, R> =>
+	Effect.catchIf(write, isRefusal, (refusal) => Effect.succeed<WriteAnswer<O>>(refusal))
 
 /** A read member's once over its rows, from its untyped calls: a write member here is a defect of the test. */
 export const readOnce =

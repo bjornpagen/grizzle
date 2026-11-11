@@ -158,7 +158,7 @@ export const refreshMember = <Rs extends NonEmptyReadonlyArray<unknown>>(
  * One program value, its Description and the schema it was written over, when it is a query, ordered query, paged
  * ordered query or ChangeSet value; undefined otherwise.
  */
-export const programDescOf = (program: unknown): ProgramFound | undefined => {
+const programDescOf = (program: unknown): ProgramFound | undefined => {
 	const pagedQuery = hasProperties(program) ? pagedValues.get(program) : undefined
 	if (pagedQuery !== undefined) {
 		return queryFound((desc) => ({ kind: "paged", value: pagedQuery, desc }), pagedQuery)

@@ -41,7 +41,7 @@ import { Db } from "#adapter/public/db.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
 import { defined } from "#test/support/assert.ts"
-import { type Answer, answered } from "#test/support/calls.ts"
+import { type WriteAnswer, answered } from "#test/support/calls.ts"
 import { closedField } from "#test/support/closed/stored.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import * as P from "#test/support/fixtures/api/payroll.ts"
@@ -84,7 +84,7 @@ type LeaveFeature =
 	| "the insert waited"
 	| "the insert refused"
 	| `refused: ${TransientTag}`
-	| `the insert answered ${Answer<WriteOutcome<unknown>>["kind"]}`
+	| `the insert answered ${WriteAnswer<WriteOutcome<unknown>>["kind"]}`
 	| `the writer ${"committed" | "rolled back" | "aborted" | "failed"}`
 
 const reasons = ["vacation", "sick", "unpaid"] as const
@@ -151,7 +151,7 @@ const raceGen: Gen<LeaveRace> = (source) => {
 const instantOf = (days: number) => Instant(t0 + BigInt(days) * day)
 
 /** The features one explained run reached (see LeaveFeature). */
-const featuresOf = (e: Explained<Answer<WriteOutcome<unknown>>>): ReadonlyArray<LeaveFeature> => {
+const featuresOf = (e: Explained<WriteAnswer<WriteOutcome<unknown>>>): ReadonlyArray<LeaveFeature> => {
 	const waited = Arr.some(e.run.moves, (m) => m.session === "g" && m.observed._tag === "Waited")
 	return [
 		...(waited ? ["the insert waited" as const] : []),

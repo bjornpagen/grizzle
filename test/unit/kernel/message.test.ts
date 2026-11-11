@@ -187,7 +187,6 @@ const artifacts: Arr.NonEmptyReadonlyArray<Artifact> = [
 	"folder",
 	"meta",
 	"ledger",
-	"cursor",
 	"canonical",
 	"fingerprint"
 ]
