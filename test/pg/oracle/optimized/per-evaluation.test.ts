@@ -2,7 +2,8 @@
  * The optimized lowering against the conservative lowering on the optimizer's population with the per-evaluation shapes
  * (gen/case.ts perEvaluationGenConfig): correlated takes, correlated variables and lateral constants reading an earlier
  * source, shared right sides, beside the nested attachment chains every attach root may draw, each level under its own
- * per-parent take. Its facts hold within one evaluation of a correlated subtree only. Each case runs under a plan
+ * per-parent take, among them a child that reads its parent with an attachment of its own, whose key set reads children
+ * keyed within one parent only. Its facts hold within one evaluation of a correlated subtree only. Each case runs under a plan
  * perturbation drawn with it (test/support/oracle/perturb.ts), under the optimized artifact compiled for the `snapshot`
  * context against the installation's own evidence catalog, in every per-execution form, against the conservative
  * lowering (support.ts). Its escaped counterexamples are kept cases replayed before its streams (perEvaluationKept). No
@@ -43,16 +44,20 @@ import {
 	plainRegion,
 	Q
 } from "#test/unit/lower/conservative/fixtures.ts"
+import { acrossParentsCase, withinOneParentCase } from "#test/unit/lower/dedup/cases.ts"
 
 /**
  * What the per-evaluation population must reach: a take correlated per outer row, a region reading an outer column, an
- * attachment nested below another's child, and a per-parent take over an attachment.
+ * attachment nested below another's child, a per-parent take over an attachment, a correlated child under a nested
+ * attachment, and a parent key set read without DISTINCT, whose parent rows the differential holds to its claim.
  */
 const perEvaluationRequired = [
 	"correlated take",
 	"correlated region",
 	"nested attachment",
 	"per-parent take over an attachment",
+	"a correlated child under a nested attachment",
+	"a key set read without DISTINCT",
 	"nonempty"
 ] as const satisfies ReadonlyArray<OptimizedFeature>
 
@@ -70,6 +75,11 @@ const perEvaluationRequired = [
  *   alone, and pushdown.semiGroup moved the semi-join below the group, which then read itself ("an acyclic DAG: the node reaches itself
  *   through its inputs"). R0 (k, a, b) groups into (a, b) = (1, 2), (2, 3)
  *   twice and (3, 5); the semi-join keeps the groups whose a is some group's b, all but (1, 2).
+ *
+ * Beside them, the page/generated-optimized counterexample at TEST_SEED=28094260 and its twin
+ * (test/unit/lower/dedup/cases.ts): a take of one row per parent with an attachment nested below it, whose key set over
+ * a holds a key within one parent only and repeats a = 0 across the two parents unless it deduplicates, and the same
+ * attachment paired on the column that fixes the parent too, whose key set is proved across parents and read as it is.
  */
 const keyed = (name: string, columns: ReadonlyArray<string>): GenRelation => ({
 	name,
@@ -187,6 +197,18 @@ const perEvaluationKept: ReadonlyArray<Kept<QueryCase, OptimizedFeature>> = [
 		reaches: ["nonempty"],
 		draws: "",
 		sketch: selfSemiJoinCase()
+	},
+	{
+		note: "page/generated-optimized, TEST_SEED=28094260: a nested key set over children keyed within one parent only",
+		reaches: ["a correlated child under a nested attachment", "nonempty"],
+		draws: "",
+		sketch: withinOneParentCase()
+	},
+	{
+		note: "the TEST_SEED=28094260 case paired on the column that fixes the parent: a nested key set read as it is",
+		reaches: ["a correlated child under a nested attachment", "a key set read without DISTINCT"],
+		draws: "",
+		sketch: acrossParentsCase()
 	}
 ]
 

@@ -47,6 +47,7 @@ import { printObjectName } from "#compiler/sql/print.ts"
 import { admitGenerated } from "#test/support/compile.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
 import { strictArrayText } from "#test/support/kernel/strict.ts"
+import { keySetRepeats, keySetSites } from "#test/support/key-sets.ts"
 import { messageOf } from "#test/support/message.ts"
 import {
 	canonicalRows,
@@ -734,6 +735,11 @@ export interface DifferentialOutcome {
 		readonly comparison: Comparison
 	}>
 	readonly fusedAttachments: number
+	/**
+	 * Every parent key set an optimized form read without DISTINCT whose parent rows repeat a key on its columns
+	 * (test/support/key-sets.ts keySetRepeats), each under its form: none where every such set's proof holds.
+	 */
+	readonly keySetRepeats: ReadonlyArray<string>
 }
 
 /** Whether every optimized run equals the conservative run, repeats no row, and keeps every delivery order. */
@@ -894,11 +900,26 @@ const runDifferential = (
 					)
 					const optimized: Array<OptimizedRun> = []
 					let fusedAttachments = 0
+					const keySets = keySetSites(optimizedProgram)
+					const repeats: Array<string> = []
 					for (const f of forms) {
 						const label = formLabel(f.form)
 						const run = yield* executeSent(session, optimizedProgram, f.statement, label, (slot) =>
 							slotValue(c, slot)
 						)
+						const partRows = new Map(
+							Arr.map(run.statements, (s, i) => [s.statement, run.rows[i] ?? []] as const)
+						)
+						const rowsOf = (part: DeliveredPart): ReadonlyArray<RawRow> => {
+							const rows = partRows.get(part)
+							if (rows === undefined) {
+								throw new Error(`${label}: no rows of the part answering ${part.answer}`)
+							}
+							return rows
+						}
+						for (const repeat of keySetRepeats(keySets, rowsOf, names.codes)) {
+							repeats.push(`${label}: ${repeat}`)
+						}
 						const d = yield* delivered(optimizedDag, run, label, optimizedOrdered, names.codes)
 						fusedAttachments = Math.max(fusedAttachments, d.fusedAttachments)
 						const comparison = compareRead(baselineRead, readRun(d.run))
@@ -948,7 +969,8 @@ const runDifferential = (
 						optimized,
 						plans,
 						others: otherRuns,
-						fusedAttachments
+						fusedAttachments,
+						keySetRepeats: repeats
 					} satisfies DifferentialOutcome
 				}).pipe(Effect.ensuring(Effect.ignore(session.query("ROLLBACK", []))))
 			})

@@ -26,6 +26,7 @@ import {
 	printDifferential
 } from "#test/pg/oracle/optimized/support.ts"
 import { parameterNames } from "#test/support/kernel/dict.ts"
+import { correlatedChildUnderNestedAttachment, keySetSites } from "#test/support/key-sets.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { queryExprs } from "#test/support/oracle/gen/query.ts"
 import {
@@ -43,8 +44,8 @@ type OptimizedFormKind = OptimizedForm["kind"]
 /**
  * What an optimized differential's case reaches: the certificate rules its optimized artifact rests on, the optimized
  * forms that ran, fused and pipelined attachments, heading groups, computed terms, a conservative run that delivered a
- * row, a relation parameter named from the parameter-name dictionary, and the shapes of the plans its statements were
- * given.
+ * row, a parent key set read without DISTINCT, the per-evaluation shapes, a relation parameter named from the
+ * parameter-name dictionary, and the shapes of the plans its statements were given.
  */
 export type OptimizedFeature =
 	| CertificateRule
@@ -57,6 +58,8 @@ export type OptimizedFeature =
 	| "nested attachment"
 	| "nested attachment two deep"
 	| "per-parent take over an attachment"
+	| "a correlated child under a nested attachment"
+	| "a key set read without DISTINCT"
 	| "correlated take"
 	| "correlated region"
 	| "take over a union"
@@ -104,14 +107,17 @@ const computes = (dag: RelDag): boolean =>
 /**
  * What a query evaluates per outer row, the per-evaluation facts a lowering must qualify: the deepest chain of
  * attachments, each the child of the one above it; whether a take correlated per parent bounds a subtree that holds an
- * attachment; whether any take is correlated; whether a region copies an outer column into a variable of its own; and
- * whether a take bounds a union, whose arms each deliver their own first rows.
+ * attachment; whether an attachment's child that reads its parent holds an attachment of its own, whose parent key set
+ * reads children keyed within one parent only (test/support/key-sets.ts correlatedChildUnderNestedAttachment); whether
+ * any take is correlated; whether a region copies an outer column into a variable of its own; and whether a take bounds
+ * a union, whose arms each deliver their own first rows.
  */
 const evaluationShapes = (
 	dag: RelDag
 ): {
 	readonly depth: number
 	readonly perParentTake: boolean
+	readonly correlatedChild: boolean
 	readonly correlatedTake: boolean
 	readonly correlatedRegion: boolean
 	readonly boundedUnion: boolean
@@ -139,6 +145,7 @@ const evaluationShapes = (
 			nodes,
 			(n) => n.kind === "Take" && n.correlation.length > 0 && depth.of(n.input) > 0
 		),
+		correlatedChild: correlatedChildUnderNestedAttachment(dag),
 		correlatedTake: Arr.some(nodes, (n) => n.kind === "Take" && n.correlation.length > 0),
 		correlatedRegion: Arr.some(nodes, (n) => n.kind === "MatchRegion" && n.correlated.length > 0),
 		boundedUnion: Arr.some(nodes, (n) => n.kind === "Take" && n.input.kind === "Union")
@@ -170,6 +177,9 @@ const outcomeFeatures = (o: DifferentialOutcome): ReadonlyArray<OptimizedFeature
 	if (Arr.some(flight(o.optimizedProgram.roots), (s) => s.role.kind === "attachment")) {
 		features.add("pipelined attachment")
 	}
+	if (Arr.some(keySetSites(o.optimizedProgram), (site) => !site.deduplicates)) {
+		features.add("a key set read without DISTINCT")
+	}
 	if (o.optimizedProgram.delivery.kind === "headingGroups") {
 		features.add("heading groups")
 	}
@@ -185,6 +195,9 @@ const outcomeFeatures = (o: DifferentialOutcome): ReadonlyArray<OptimizedFeature
 	}
 	if (shapes.perParentTake) {
 		features.add("per-parent take over an attachment")
+	}
+	if (shapes.correlatedChild) {
+		features.add("a correlated child under a nested attachment")
 	}
 	if (shapes.correlatedTake) {
 		features.add("correlated take")
@@ -236,12 +249,15 @@ export const optimizedShrink: ShrinkBudget = { kind: "bounded", candidates: 240 
 
 /**
  * The differential property every optimized suite runs, and the features it notes: optimized and conservative raw sets
- * equal, and no repeated row in the optimized output.
+ * equal, no repeated row in the optimized output, and no repeated key under a key set read without DISTINCT.
  *
  * A case passes when every optimized form (the program, each per-execution variant, the VALUES transport) delivers
  * exactly the conservative run's raw text set in every statement, repeats no row, and keeps the order of every
  * ordered delivery, and when db.explain's EXPLAIN plans every statement those forms sent; the conservative baseline
- * itself must repeat no row. A failing case shrinks and is reported in printable form with both programs' SQL and the
+ * itself must repeat no row. Every parent key set a form reads without DISTINCT, the lowering's claim that its parent's
+ * keys make it a set (lower/conservative/keys.ts), holds no repeated value on its columns in the rows the form delivers
+ * for its parent (support.ts keySetRepeats): a claim that fails there fails the case even where no child of the
+ * repeated key shows it. A failing case shrinks and is reported in printable form with both programs' SQL and the
  * optimized certificates.
  *
  * Explores the draw's cases through the differential property, each sketch resolved to its case in the property, each
@@ -267,6 +283,11 @@ export const differential = <S>(
 				}
 				if (!agrees(o)) {
 					return yield* new PropertyFailed({ report: printDifferential(o) })
+				}
+				if (o.keySetRepeats.length > 0) {
+					return yield* new PropertyFailed({
+						report: `${Arr.join(o.keySetRepeats, "\n")}\n${printDifferential(o)}`
+					})
 				}
 			})
 		)

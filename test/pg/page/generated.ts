@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { type Case, drawn } from "@grizzle/testing/explore"
+import { type Case, drawn, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -72,6 +72,7 @@ import { sentSql } from "#test/support/flight/scripted.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { strictReader } from "#test/support/kernel/strict.ts"
+import { correlatedChildUnderNestedAttachment } from "#test/support/key-sets.ts"
 import { mergeComparator } from "#test/support/merge.ts"
 import { messageOf } from "#test/support/message.ts"
 import { canonicalCell } from "#test/support/oracle/compare.ts"
@@ -101,6 +102,7 @@ import { headingRecord } from "#test/support/statement-rows.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { outputRows } from "#test/support/wire.ts"
 import { Q } from "#test/unit/lower/conservative/fixtures.ts"
+import { withinOneParentCase } from "#test/unit/lower/dedup/cases.ts"
 
 /**
  * Why a case pages nothing: a column without an admitted order, a baseline lowering that refuses the query, a
@@ -123,9 +125,9 @@ const pageSizes = [1, 2, 3, 4, 5, 6, 7] as const
 type PageSize = (typeof pageSizes)[number]
 
 /**
- * What a case reached: the node kinds of its query, the shapes of its template, the size of its D, the lookahead row
- * a page drops, a per-execution form, a caller's float -0 among a relation parameter's rows, the page size of each traversal, and
- * its skip.
+ * What a case reached: the node kinds of its query, the shapes of its template, a correlated child under a nested
+ * attachment (test/support/key-sets.ts), the size of its D, the lookahead row a page drops, a per-execution form, a
+ * caller's float -0 among a relation parameter's rows, the page size of each traversal, and its skip.
  */
 type PageFeature =
 	| "Group"
@@ -137,6 +139,7 @@ type PageFeature =
 	| "Difference"
 	| "heading groups"
 	| "attachments"
+	| "a correlated child under a nested attachment"
 	| "unit"
 	| "mixed directions"
 	| "row comparison"
@@ -164,6 +167,7 @@ const situations: Arr.NonEmptyReadonlyArray<PageFeature> = [
 	"Difference",
 	"heading groups",
 	"attachments",
+	"a correlated child under a nested attachment",
 	"lookahead parent with children",
 	"key prefix",
 	"mixed directions",
@@ -1276,6 +1280,9 @@ const coverage = (
 	) {
 		note("attachments")
 	}
+	if (correlatedChildUnderNestedAttachment(query.dag)) {
+		note("a correlated child under a nested attachment")
+	}
 	if (compiled.artifact.requests.first.program.statement.forms.kind === "chosen") {
 		note("per-execution form")
 	}
@@ -1357,13 +1364,38 @@ const negativeZeroRelation = (o: OrderedCase): boolean =>
  * columns hold no proved key is refused by the page compiler and skipped, as are the other rare skips
  * the lowering suite names. Every case notes what it reached (PageFeature), a skip its reason (PageSkip), and the
  * population must reach every required feature, among them a per-execution form, a relation parameter holding a
- * float -0, which the runtime passes as the caller's one zero, and a traversal of at least 200 pages.
+ * float -0, which the runtime passes as the caller's one zero, a traversal of at least 200 pages, and a correlated
+ * child under a nested attachment, the shape where a key within one parent must not stand for a key across parents
+ * (lower/conservative/keys.ts). Its escaped counterexample is kept (pageKept) and replays before its streams.
  *
  * A case whose traversals at its drawn sizes would take more requests than the request bound is skipped, its D, sizes
  * and request count logged.
  */
 /** The artifact a run of the suite pages through: the page compiler's, or the page oracle's baseline. */
 type PageArtifactName = "optimized" | "conservative"
+
+/**
+ * The suite's escaped counterexample, kept: page/generated-optimized at TEST_SEED=28094260 (its rotating stream's case
+ * 872, test/unit/lower/dedup/cases.ts withinOneParentCase), ordered by its one column and paged two rows at a time, so a
+ * page delivers both parents whose children, a take of one row each, share the key a = 0 of the attachment nested below
+ * them. The optimized artifact read that attachment's key set without DISTINCT, as if a key within one parent held
+ * across parents, and its statement delivered each child of 0 twice, rows the reader refused.
+ */
+const pageKept: ReadonlyArray<Kept<OrderedCase, PageFeature>> = [
+	{
+		note: "page/generated-optimized, TEST_SEED=28094260: a nested key set over children keyed within one parent only",
+		sketch: {
+			c: withinOneParentCase(),
+			rotate: 0,
+			dirs: Arr.makeBy(8, () => false),
+			stated: 0,
+			size: { forward: 2, backward: 2 },
+			negativeZero: false
+		},
+		draws: "",
+		reaches: ["attachments", "a correlated child under a nested attachment"]
+	}
+]
 
 export const generatedSuite = (artifact: PageArtifactName): void => {
 	/**
@@ -1599,7 +1631,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 									suite: `page/generated-${artifact}`,
 									literal: Formatter.format,
 									coverage: required<PageFeature>(situations, { cases: 2_000, sense: notesOnly }),
-									kept: [],
+									kept: pageKept,
 									runs: 2_000,
 									shrink: completeShrink,
 									perturb: "all"
