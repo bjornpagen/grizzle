@@ -139,10 +139,10 @@ export const shapedFacts = (
 export const conservativeShapeFacts = (overrides: Partial<ShapeFacts>): ShapeFacts => ({
 	context: "snapshot",
 	realization: () => "distinct",
-	unique: () => false,
+	unique: () => undefined,
 	keyedBy: () => undefined,
 	maxCard: () => unbounded,
-	childUniquePerParent: () => false,
+	childUniquePerParent: () => ({ kind: "unproved" }),
 	derivedDefinition: false,
 	certify: () => {},
 	...overrides
