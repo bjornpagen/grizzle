@@ -87,10 +87,11 @@ import { lawNamesOf } from "#test/support/kernel/naming.ts"
 import { violations } from "#test/support/laws/model.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
+	BOX_RULES,
 	type BoxCase,
 	boxGen,
 	SPAN_BOX_CASES,
-	type SpanBoxCase,
+	SPAN_BOX_RULES,
 	spanBoxGen,
 	type Explored,
 	exploredGen,
@@ -150,13 +151,11 @@ import {
 
 const relations = RELATIONS
 
-/** A schema compiled once per suite: both readings and the native model's installation. */
+/** A schema compiled: both readings, and the native model's installation of its law model. */
 interface Installed {
 	readonly schema: Compiled
 	readonly installation: NativeInstallation
 }
-
-const installations = new Map<string, Installed>()
 
 /** The installation of `laws` over `declared`, both readings and the native model's, compiled under `label`. */
 const install = (label: string, declared: Relations, laws: ReadonlyArray<Law>): Installed => {
@@ -170,19 +169,21 @@ const install = (label: string, declared: Relations, laws: ReadonlyArray<Law>): 
 	return { schema, installation: installation.success }
 }
 
-/** The installation of `laws` over `declared`, compiled once under `label`. */
-const installedOf = (label: string, declared: Relations, laws: ReadonlyArray<Law>): Installed => {
-	const known = installations.get(label)
-	if (known !== undefined) {
-		return known
-	}
-	const made = install(label, declared, laws)
-	installations.set(label, made)
-	return made
+/** The installation of the laws `rules` state over the suite's relations, compiled for the case or box carrying it. */
+const installRules = (rules: ReadonlyArray<Rule>): Installed =>
+	install(Arr.join(Arr.map(rules, ruleText), " + "), relations, Arr.flatMap(rules, lawsOf))
+
+/** A rule of the box with its installation, compiled once before the box is enumerated. */
+interface RuleEntry {
+	readonly rule: Rule
+	readonly installed: Installed
 }
 
-const installedRules = (rules: ReadonlyArray<Rule>): Installed =>
-	installedOf(Arr.join(Arr.map(rules, ruleText), " + "), relations, Arr.flatMap(rules, lawsOf))
+/** A span rule of the span box with its installation, compiled once before the box is enumerated. */
+interface SpanEntry {
+	readonly rule: SpanRule
+	readonly installed: Installed
+}
 
 /** A statement of a transaction as the suite writes it: an INSERT of rows, or a DELETE of rows equal to these. */
 interface Write {
@@ -469,7 +470,8 @@ const judgePut = <F extends string>(
 
 type RuleFeature = RuleKind | Verdict
 
-const boxLiteral = (b: BoxCase): string => `${ruleText(b.rule)}: ${Formatter.format(b.state)}`
+const boxLiteral = (b: BoxCase<RuleEntry>): string =>
+	`${ruleText(b.entry.rule)}: ${Formatter.format(b.state)}`
 
 /** The box's size, counted by the library's own enumeration. */
 const BOX_CASES = 15_016
@@ -492,13 +494,10 @@ const LEMMA_ORACLE: Oracle = {
 	name: "the family model's run of each transaction and its constraints (test/support/families/mutate.ts, theorem.ts)"
 }
 
-const spanInstalled = (r: SpanRule): Installed =>
-	installedOf(spanRuleText(r), SPAN_RELATIONS, spanLawsOf(r))
-
 type SpanFeature = SpanRuleKind | Verdict
 
-const spanLiteral = (b: SpanBoxCase): string =>
-	`${spanRuleText(b.rule)}: ${Formatter.format(b.state)}`
+const spanLiteral = (b: BoxCase<SpanEntry>): string =>
+	`${spanRuleText(b.entry.rule)}: ${Formatter.format(b.state)}`
 
 type ExploredFeature = RuleKind | Verdict | Variant
 
@@ -558,8 +557,9 @@ const FIN_LAWS: ReadonlyArray<readonly [Constraint, Law]> = [
 	]
 ]
 
-const finInstalled = (): Installed =>
-	installedOf(
+/** The fin lemma's installation, compiled once by each suite that judges it, before its search. */
+const finInstallation = (): Installed =>
+	install(
 		"the fin lemma",
 		FIN,
 		Arr.map(FIN_LAWS, ([, law]) => law)
@@ -1151,29 +1151,33 @@ describe("the native constraints grizzle installs", () => {
 	it.effect(
 		"accept every state of a rule's box exactly when its laws hold, each broken law refused by its own constraint, in every order a writer sends",
 		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/laws/native/box",
-						generator: boxGen,
-						literal: boxLiteral,
-						limit: BOX_CASES,
-						box: "every rule of the partial-projection lowering with each of its selections, over every state of at most two Owner rows and three of every other relation, each varying the fields its laws read over two or three values",
-						oracle: HOST_ORACLE,
-						coverage: requiredInSpace<RuleFeature>([...RULE_KINDS, ...VERDICTS, "a put"]),
-						caseHang
-					},
-					(b, c) =>
-						Effect.sync(() => {
-							c.note(b.rule.rule)
-							const installed = installedRules([b.rule])
-							const broken = judgeState(installed, relations, b.state, c)
-							judgeWrites(installed, relations, b.state, broken.size === 0, c)
-							if (broken.size === 0) {
-								judgePuts(installed, relations, b.state, c)
-							}
-						})
+			Effect.suspend(() =>
+				searched(
+					ctx,
+					exhaust(
+						{
+							suite: "unit/laws/native/box",
+							generator: boxGen(
+								Arr.map(BOX_RULES, (rule): RuleEntry => ({ rule, installed: installRules([rule]) }))
+							),
+							literal: boxLiteral,
+							limit: BOX_CASES,
+							box: "every rule of the partial-projection lowering with each of its selections, over every state of at most two Owner rows and three of every other relation, each varying the fields its laws read over two or three values",
+							oracle: HOST_ORACLE,
+							coverage: requiredInSpace<RuleFeature>([...RULE_KINDS, ...VERDICTS, "a put"]),
+							caseHang
+						},
+						(b, c) =>
+							Effect.sync(() => {
+								c.note(b.entry.rule.rule)
+								const installed = b.entry.installed
+								const broken = judgeState(installed, relations, b.state, c)
+								judgeWrites(installed, relations, b.state, broken.size === 0, c)
+								if (broken.size === 0) {
+									judgePuts(installed, relations, b.state, c)
+								}
+							})
+					)
 				)
 			)
 	)
@@ -1215,7 +1219,7 @@ describe("the native constraints grizzle installs", () => {
 					},
 					(e, c) =>
 						Effect.sync(() => {
-							const installed = installedRules(e.rules)
+							const installed = installRules(e.rules)
 							for (const variant of e.applied) {
 								c.note(variant)
 							}
@@ -1236,101 +1240,105 @@ describe("the native constraints grizzle installs", () => {
 	it.effect(
 		"hold the fin lemma's laws exactly as the family theorem's constraints, over every state of one owner's first four slots",
 		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/laws/native/fin-box",
-						generator: finBoxGen,
-						literal: Formatter.format,
-						limit: FIN_BOX_CASES,
-						box: "no owner or an owner of count 0 to 3, over its first four slots, each holding no row, one or two, every copy the count",
-						oracle: FAMILY_ORACLE,
-						coverage: requiredInSpace<FinFeature>([
-							"the theorem holds",
-							"breach twice",
-							"breach orphan",
-							"breach beyond",
-							"breach gap",
-							"violates key",
-							"violates bound",
-							"violates copy",
-							"violates last",
-							"violates closure",
-							"refused by ForeignKey",
-							"refused by TableCheck",
-							"refused by Unique",
-							"refused at commit",
-							"refused at a statement",
-							"a removal"
-						]),
-						caseHang
-					},
-					(stored, c) =>
-						Effect.sync(() => {
-							const installed = finInstalled()
-							judgeFamily(installed, stored, c)
-							const state = finState(stored)
-							judgeWrites(installed, FIN, state, brokenIn(installed, state).size === 0, c)
-						})
-				)
-			)
-	)
-
-	it.effect(
-		"hold the fin lemma's laws on every state a family program's statements leave, lawful, breaking and misordered",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/laws/native/fin-programs",
-						draw: drawn(programs),
-						oracle: FAMILY_ORACLE,
-						literal: Formatter.format,
-						coverage: required<FinFeature>(
-							[
+			Effect.suspend(() => {
+				const installed = finInstallation()
+				return searched(
+					ctx,
+					exhaust(
+						{
+							suite: "unit/laws/native/fin-box",
+							generator: finBoxGen,
+							literal: Formatter.format,
+							limit: FIN_BOX_CASES,
+							box: "no owner or an owner of count 0 to 3, over its first four slots, each holding no row, one or two, every copy the count",
+							oracle: FAMILY_ORACLE,
+							coverage: requiredInSpace<FinFeature>([
 								"the theorem holds",
 								"breach twice",
 								"breach orphan",
 								"breach beyond",
 								"breach gap",
-								"violates identity",
 								"violates key",
 								"violates bound",
 								"violates copy",
 								"violates last",
-								"violates closure"
-							],
-							{ cases: 400, sense: notesOnly }
-						),
-						kept: [],
-						runs: 300,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
-					},
-					(p, c) => {
-						const installed = finInstalled()
-						const every = (before: Families, statements: ReadonlyArray<FamilyStatement>) =>
+								"violates closure",
+								"refused by ForeignKey",
+								"refused by TableCheck",
+								"refused by Unique",
+								"refused at commit",
+								"refused at a statement",
+								"a removal"
+							]),
+							caseHang
+						},
+						(stored, c) =>
 							Effect.sync(() => {
-								for (const stored of Arr.scan(statements, storedOf(before), applied)) {
-									judgeFamily(installed, stored, c)
-								}
+								judgeFamily(installed, stored, c)
+								const state = finState(stored)
+								judgeWrites(installed, FIN, state, brokenIn(installed, state).size === 0, c)
 							})
-						return runProgram(
-							machineOf(p.shape, p.families, p.forms),
-							realOf({
-								lawful: (_form, m, before) => every(before, m.statements),
-								breaking: (_form, m, before) => every(before, m.statements),
-								misordered: (m, before) => every(before, m.statements)
-							}),
-							p.steps
-						)
-					}
+					)
 				)
-			)
+			})
+	)
+
+	it.effect(
+		"hold the fin lemma's laws on every state a family program's statements leave, lawful, breaking and misordered",
+		(ctx) =>
+			Effect.suspend(() => {
+				const installed = finInstallation()
+				return searched(
+					ctx,
+					explore(
+						{
+							suite: "unit/laws/native/fin-programs",
+							draw: drawn(programs),
+							oracle: FAMILY_ORACLE,
+							literal: Formatter.format,
+							coverage: required<FinFeature>(
+								[
+									"the theorem holds",
+									"breach twice",
+									"breach orphan",
+									"breach beyond",
+									"breach gap",
+									"violates identity",
+									"violates key",
+									"violates bound",
+									"violates copy",
+									"violates last",
+									"violates closure"
+								],
+								{ cases: 400, sense: notesOnly }
+							),
+							kept: [],
+							runs: 300,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang
+						},
+						(p, c) => {
+							const every = (before: Families, statements: ReadonlyArray<FamilyStatement>) =>
+								Effect.sync(() => {
+									for (const stored of Arr.scan(statements, storedOf(before), applied)) {
+										judgeFamily(installed, stored, c)
+									}
+								})
+							return runProgram(
+								machineOf(p.shape, p.families, p.forms),
+								realOf({
+									lawful: (_form, m, before) => every(before, m.statements),
+									breaking: (_form, m, before) => every(before, m.statements),
+									misordered: (m, before) => every(before, m.statements)
+								}),
+								p.steps
+							)
+						}
+					)
+				)
+			})
 	)
 	it.effect(
 		"hold grizzle's own families, ordered and counted, as the family theorem's constraints, over every state of one owner's first four slots",
@@ -1425,39 +1433,46 @@ describe("the native constraints grizzle installs", () => {
 	it.effect(
 		"accept every state of a span rule's box exactly when its laws hold: keys WITHOUT OVERLAPS over fields and law columns, and PERIOD foreign keys from and into selected sides",
 		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/laws/native/span-box",
-						generator: spanBoxGen,
-						literal: spanLiteral,
-						limit: SPAN_BOX_CASES,
-						box: "every span rule over at most two rows of Visit and of Shift, each varying the fields its laws read, its owner over two values and its span over two adjacent halves and their whole",
-						oracle: HOST_ORACLE,
-						coverage: requiredInSpace<SpanFeature>([
-							...SPAN_RULE_KINDS,
-							"accepted",
-							"refused",
-							"refused by WithoutOverlaps",
-							"refused by PeriodForeignKey",
-							"refused at a statement",
-							"refused at commit",
-							"a put",
-							"a removal"
-						]),
-						caseHang
-					},
-					(b, c) =>
-						Effect.sync(() => {
-							c.note(b.rule.rule)
-							const installed = spanInstalled(b.rule)
-							const broken = judgeState(installed, SPAN_RELATIONS, b.state, c)
-							judgeWrites(installed, SPAN_RELATIONS, b.state, broken.size === 0, c)
-							if (broken.size === 0) {
-								judgePuts(installed, SPAN_RELATIONS, b.state, c)
-							}
-						})
+			Effect.suspend(() =>
+				searched(
+					ctx,
+					exhaust(
+						{
+							suite: "unit/laws/native/span-box",
+							generator: spanBoxGen(
+								Arr.map(SPAN_BOX_RULES, (rule): SpanEntry => ({
+									rule,
+									installed: install(spanRuleText(rule), SPAN_RELATIONS, spanLawsOf(rule))
+								}))
+							),
+							literal: spanLiteral,
+							limit: SPAN_BOX_CASES,
+							box: "every span rule over at most two rows of Visit and of Shift, each varying the fields its laws read, its owner over two values and its span over two adjacent halves and their whole",
+							oracle: HOST_ORACLE,
+							coverage: requiredInSpace<SpanFeature>([
+								...SPAN_RULE_KINDS,
+								"accepted",
+								"refused",
+								"refused by WithoutOverlaps",
+								"refused by PeriodForeignKey",
+								"refused at a statement",
+								"refused at commit",
+								"a put",
+								"a removal"
+							]),
+							caseHang
+						},
+						(b, c) =>
+							Effect.sync(() => {
+								c.note(b.entry.rule.rule)
+								const installed = b.entry.installed
+								const broken = judgeState(installed, SPAN_RELATIONS, b.state, c)
+								judgeWrites(installed, SPAN_RELATIONS, b.state, broken.size === 0, c)
+								if (broken.size === 0) {
+									judgePuts(installed, SPAN_RELATIONS, b.state, c)
+								}
+							})
+					)
 				)
 			)
 	)

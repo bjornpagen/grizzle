@@ -196,7 +196,7 @@ const rankedById: Phi = { kind: "fields", op: "eq", left: "id", right: "rank" }
  * Each rule with the selections the box draws it with: a boolean field, comparisons, connectives, BETWEEN and IN, a
  * target fixed beyond its terms to a value, to its own id, or to both.
  */
-const BOX_RULES: NonEmptyReadonlyArray<Rule> = [
+export const BOX_RULES: NonEmptyReadonlyArray<Rule> = [
 	{ rule: "a key over fields" },
 	...Arr.map(
 		[
@@ -276,25 +276,25 @@ const BOX_RULES: NonEmptyReadonlyArray<Rule> = [
 	{ rule: "natural fields" }
 ]
 
-/** A box case: one rule, with its selections, and one state of its box. */
-export interface BoxCase {
-	readonly rule: Rule
+/** A box case: one rule's entry, the rule with what a suite carries for it, and one state of its box. */
+export interface BoxCase<E> {
+	readonly entry: E
 	readonly state: State
 }
 
-export const boxGen: Gen<BoxCase> = (source) => {
-	const rule = source.draw(element(BOX_RULES))
-	return { rule, state: source.draw(boxStateGen(boxOf(rule))) }
-}
-
-/** A span box case: one span rule, with its selection, and one state of its box. */
-export interface SpanBoxCase {
-	readonly rule: SpanRule
-	readonly state: State
-}
+/**
+ * Every case of the box over `entries`, one per rule of BOX_RULES with what the suite carries for it (its
+ * installation): each entry, then each state of its rule's box.
+ */
+export const boxGen =
+	<E extends { readonly rule: Rule }>(entries: NonEmptyReadonlyArray<E>): Gen<BoxCase<E>> =>
+	(source) => {
+		const entry = source.draw(element(entries))
+		return { entry, state: source.draw(boxStateGen(boxOf(entry.rule))) }
+	}
 
 /** Each span rule with its selection, a boolean field. */
-const SPAN_BOX_RULES: NonEmptyReadonlyArray<SpanRule> = [
+export const SPAN_BOX_RULES: NonEmptyReadonlyArray<SpanRule> = [
 	{ rule: "a span key" },
 	{ rule: "a span key over a selected side", phi: live },
 	{ rule: "a coverage" },
@@ -314,13 +314,16 @@ const spanBoxesOf = (laws: ReadonlyArray<Law>): ReadonlyArray<RelationBox> =>
 	}))
 
 /**
- * Every state of a span rule's box: at most two rows of Visit and of Shift, each varying the fields its laws read,
- * owner over two values and the span over two adjacent halves and their whole.
+ * Every case of the span box over `entries`, one per rule of SPAN_BOX_RULES with what the suite carries for it (its
+ * installation): each entry, then each state of its rule's box, at most two rows of Visit and of Shift, each varying
+ * the fields its laws read, owner over two values and the span over two adjacent halves and their whole.
  */
-export const spanBoxGen: Gen<SpanBoxCase> = (source) => {
-	const rule = source.draw(element(SPAN_BOX_RULES))
-	return { rule, state: source.draw(boxStateGen(spanBoxesOf(spanLawsOf(rule)))) }
-}
+export const spanBoxGen =
+	<E extends { readonly rule: SpanRule }>(entries: NonEmptyReadonlyArray<E>): Gen<BoxCase<E>> =>
+	(source) => {
+		const entry = source.draw(element(entries))
+		return { entry, state: source.draw(boxStateGen(spanBoxesOf(spanLawsOf(entry.rule)))) }
+	}
 
 /** The comparisons a selection draws, the simplest first. */
 const OPS: NonEmptyReadonlyArray<CompareOp> = ["eq", "ne", "lt", "le", "gt", "ge"]
