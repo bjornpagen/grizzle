@@ -91,7 +91,8 @@ import { withLayer } from "#test/support/with-layer.ts"
  * startup variables a login's sessions cannot override; the README's order of Db.open's stages and their reasons.
  *
  * Plants (~/.cache/grizzle-release/BR04/plants): layer-zero-timer-admitted.patch (a timer's delay of 0 is admitted),
- * layer-login-refuses-options.patch (a login's layer is refused under PGOPTIONS too).
+ * layer-login-refuses-options.patch (a login's layer is refused under PGOPTIONS too), layer-transport-path-lost.patch
+ * (a transport setting's refusal names it as the block's own).
  *
  * Features: each config shape and each fault's setting; each environment's verdict; each token outcome.
  */

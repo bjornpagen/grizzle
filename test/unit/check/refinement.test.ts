@@ -16,7 +16,8 @@
  * are restated; which payload kinds carry a CHECK.
  *
  * Plants (~/.cache/grizzle-release/BR04/plants): refinement-wildcard-guarantees-language.patch (the wildcard guarantees
- * every language), refinement-unchecked-contract-constant.patch (a brand-only contract's cells are listed).
+ * every language), refinement-site-key-overreads.patch (a site's key holds its row's first payload cell),
+ * refinement-unchecked-contract-constant.patch (a brand-only contract's cells are listed).
  *
  * Features: one language, two languages, the wildcard, a contract, one or two typmods and another carrier; each union
  * shape; a refined cell, an unrefined one and no row.

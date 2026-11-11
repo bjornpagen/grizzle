@@ -16,7 +16,8 @@
  * Oracle: a second implementation of the fault, the grid's cells row-major read off the test oracle's bits of each
  * literal (test/support/closed/bit-text.ts), sharing no code with the engine's decoder.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): literal-pack-later-cell.patch (where two literals hold different cells
+ * Plants (~/.cache/grizzle-release/BR04/plants): literal-pack-statement-from-zero.patch (a finding counts its file's
+ * statements from 0), literal-pack-later-cell.patch (where two literals hold different cells
  * first, the later is named), literal-pack-unchecked.patch (check finds only a literal pack off its printed form).
  *
  * Features: either constant changed; a cell changed or a padding bit set.

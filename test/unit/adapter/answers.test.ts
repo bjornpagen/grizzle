@@ -50,7 +50,8 @@ import { contained, on, relation, schema } from "#compiler/public/schema.ts"
  *   first min(size, n) of n increasing rows and the lookahead n > size.
  *
  * Plants (~/.cache/grizzle-release/BR04/plants): answers-second-child-taken.patch (a second child under an Option or
- * one is taken silently), answers-repeat-delivered.patch (a statement's answer holding a row twice is delivered),
+ * one is taken silently), answers-missing-child-misnamed.patch (a missing one child is named as a second one's law),
+ * answers-repeat-delivered.patch (a statement's answer holding a row twice is delivered),
  * answers-page-lookahead-at-size.patch (a page of exactly its size counts a lookahead).
  *
  * Features: each delivery, a defect, a proof that does not license the reader; each statement kind with a repeat
