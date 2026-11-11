@@ -7,7 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { rowOptions } from "#adapter/engine.ts"
-import { pageEdges } from "#adapter/page/execute.ts"
+import { windowIntake } from "#adapter/page/execute.ts"
 import type { SentRuns } from "#adapter/reader/execution.ts"
 import { deliveredRows, readProgram } from "#adapter/reader/run.ts"
 import { compiledPageRuntime } from "#adapter/served/forms.ts"
@@ -44,18 +44,17 @@ import { contained, on, relation, schema } from "#compiler/public/schema.ts"
  *   set, so its answer holding one row twice, under the column types' equality (1.5 and 1.50 alike), is
  *   UnreadableAnswer at that statement, and an answer that is a set is stitched exactly. Oracle: a model of the delivered
  *   set, the generated rows themselves, which are distinct by construction until the case plants a repeat.
- * - A page's candidates (page/execute.ts pageEdges): the rows a request fetches strictly increase under its fetch order,
- *   so the lookahead counts distinct rows; an equal tuple, a step back, or a row past the statement's LIMIT, the size
- *   and its one lookahead row, is UnreadableAnswer at the rows statement. Oracle: the request's contract, edges the
- *   first min(size, n) of n increasing rows and the lookahead n > size.
+ * - A window's rows (page/execute.ts windowIntake): the rows a window fetches strictly increase under its fetch order;
+ *   an equal tuple, a step back, or a row past the statement's LIMIT, the window's size, is UnreadableAnswer at the rows
+ *   statement. Oracle: the window's contract, the first min(size, n) of n increasing rows.
  *
  * Plants (~/.cache/grizzle-release/BR04/plants): answers-second-child-taken.patch (a second child under an Option or
  * one is taken silently), answers-missing-child-misnamed.patch (a missing one child is named as a second one's law),
- * answers-repeat-delivered.patch (a statement's answer holding a row twice is delivered),
- * answers-page-lookahead-at-size.patch (a page of exactly its size counts a lookahead).
+ * answers-repeat-delivered.patch (a statement's answer holding a row twice is delivered);
+ * ~/.cache/grizzle-release/LIVE-WATCH/plants/answers-window-past-size.patch (a window delivers a row past its size).
  *
  * Features: each delivery, a defect, a proof that does not license the reader; each statement kind with a repeat
- * planted or none; each way a page's candidates fail.
+ * planted or none; each way a window's rows fail.
  */
 import { statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { bindGroups, named, record } from "#compiler/schema/record.ts"
@@ -502,7 +501,7 @@ interface PageCase {
 	readonly plant: PagePlant
 }
 
-/** Up to four tasks of distinct (priority, id), a page size, and what the case plants among the rows. */
+/** Up to four tasks of distinct (priority, id), a window's size, and what the case plants among the rows. */
 const pageCases: Gen<PageCase> = (source) => ({
 	priorities: source.draw(array(int(0, 2), { min: 0, max: 4 })),
 	size: source.draw(int(1, 4)),
@@ -514,7 +513,7 @@ const pageCases: Gen<PageCase> = (source) => ({
 /** A planted answer's refusal. */
 type PageRefusal = "an equal tuple refused" | "a step back refused" | "a row past its limit refused"
 
-type PageFeature = "an edge per row" | "a lookahead" | PageRefusal
+type PageFeature = "a short window" | "a full window" | PageRefusal
 
 /** The rows a case answers its statement with: the fetched rows as the server sends them, or a plant among them. */
 type PageAnswer =
@@ -525,24 +524,22 @@ type PageAnswer =
 			readonly rows: ReadonlyArray<ReadonlyArray<string>>
 	  }
 
-describe("a page's candidates", () => {
+describe("a window's rows", () => {
 	it.effect(
-		"strictly increase in the fetch order and stop at the LIMIT, so an equal tuple, a step back or a row past the LIMIT is UnreadableAnswer, never a counted row",
+		"strictly increase in the fetch order and stop at the LIMIT, so an equal tuple, a step back or a row past the LIMIT is UnreadableAnswer, never a delivered row",
 		(ctx) =>
 			Effect.gen(function* () {
 				const compiled = succeeded(compiledPageResult(ascendingTasks, testCompile))
 				const desc = succeeded(queryInput(ascendingTasks)).desc
 				const codes = succeeded(codebookFor(schemaInputOf(Paging), firstCodes))
-				const runtime = succeeded(
-					compiledPageRuntime({
-						page: { ...compiled.page, artifact: compiled.baseline },
-						params: compiled.query.params,
-						query: "unit/adapter/answers-page",
-						generation: { schema: "answers", extensions: {} },
-						spine: servedSpine(desc),
-						codes
-					})
-				)
+				const runtime = compiledPageRuntime({
+					page: { ...compiled.page, artifact: compiled.baseline },
+					params: compiled.query.params,
+					query: "unit/adapter/answers-page",
+					generation: { schema: "answers", extensions: {} },
+					spine: servedSpine(desc),
+					codes
+				})
 				const program = runtime.artifact.requests.first
 				const rows = defined(program.records[0], "the rows part")
 				const heading = statementOutput(rows.part.role, rows.part.heading, rows.part.fused).heading
@@ -552,15 +549,15 @@ describe("a page's candidates", () => {
 						{
 							oracle: {
 								kind: "specification",
-								name: "edges the first min(size, n) of n increasing rows, and the lookahead n > size"
+								name: "a window the first min(size, n) of n increasing rows"
 							},
 							suite: "unit/adapter/answers-page",
 							draw: drawn(pageCases),
 							literal: Formatter.format,
 							coverage: required<PageFeature>(
 								[
-									"an edge per row",
-									"a lookahead",
+									"a short window",
+									"a full window",
 									"an equal tuple refused",
 									"a step back refused",
 									"a row past its limit refused"
@@ -591,7 +588,7 @@ describe("a page's candidates", () => {
 												? -1
 												: 1
 								)
-								const tasks = ordered.slice(0, size + 1)
+								const tasks = ordered.slice(0, size)
 								const textsOf = (t: { readonly priority: number; readonly id: string }) =>
 									Arr.map(heading, (col) =>
 										col.name === "priority"
@@ -603,7 +600,7 @@ describe("a page's candidates", () => {
 								const fetched = Arr.map(tasks, textsOf)
 								const [first, second] = fetched
 								const answer: PageAnswer =
-									plant === "an equal tuple" && first !== undefined && fetched.length <= size
+									plant === "an equal tuple" && first !== undefined && fetched.length < size
 										? {
 												kind: "planted",
 												refusal: "an equal tuple refused",
@@ -615,25 +612,32 @@ describe("a page's candidates", () => {
 													refusal: "a step back refused",
 													rows: [second, first, ...fetched.slice(2)]
 												}
-											: plant === "a row past its limit" && ordered.length > size + 1
+											: plant === "a row past its limit" && ordered.length > size
 												? {
 														kind: "planted",
 														refusal: "a row past its limit refused",
-														rows: Arr.map(ordered.slice(0, size + 2), textsOf)
+														rows: Arr.map(ordered.slice(0, size + 1), textsOf)
 													}
 												: { kind: "fetched", rows: fetched }
-								const edges = pageEdges(program, [outputRows(answer.rows)], size)
+								const delivered: Array<unknown> = []
+								const intake = windowIntake(program, size, (row) => {
+									delivered.push(row)
+								})
+								for (const row of outputRows(answer.rows)) {
+									intake.take(row)
+								}
+								const ended = intake.end()
 								if (answer.kind === "planted") {
 									c.note(answer.refusal)
-									assert.ok(Result.isFailure(edges), `${answer.refusal}: delivered`)
-									assert.equal(edges.failure._tag, "UnreadableAnswer")
-									assert.equal(edges.failure.index, 0, "at the request's one statement")
+									assert.ok(Result.isFailure(ended), `${answer.refusal}: delivered`)
+									assert.equal(ended.failure._tag, "UnreadableAnswer")
+									assert.equal(ended.failure.index, 0, "at the window's one statement")
+									assert.equal(delivered.length, 0, `${answer.refusal}: a row delivered before it`)
 									return
 								}
-								const page = Result.getOrThrow(edges)
-								c.note(page.lookahead ? "a lookahead" : "an edge per row")
-								assert.equal(page.edges.length, Math.min(size, fetched.length))
-								assert.equal(page.lookahead, fetched.length > size)
+								assert.ok(Result.isSuccess(ended), "an answer of increasing rows refused")
+								c.note(fetched.length < size ? "a short window" : "a full window")
+								assert.equal(delivered.length, Math.min(size, ordered.length))
 							})
 					)
 				)

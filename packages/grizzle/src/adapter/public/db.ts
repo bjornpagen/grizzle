@@ -7,7 +7,9 @@ import type { DbOf } from "#adapter/types/db.ts"
  * `Db` is both the value Db.open lives on and the type of an opened database. The types are the public shapes of
  * packages/grizzle/src/adapter/types/db.ts; the value is the adapter's (packages/grizzle/src/adapter/db/served.ts). No
  * driver type appears here. A call's input, value and events, and the CallError every failure is, are the live event
- * model's (engine live/index.ts: Input, ValueOf, EventOf, CallError).
+ * model's (engine live/index.ts), re-exported here: Input and InputOf, a paged member's Window and Anchor, ValueOf (a
+ * read's KeyedSet or KeyedList, a write's WriteOutcome or Refreshed), EventOf and each shape's events, and CallError.
+ * A row's key keeps its own type unnamed here: the authoring API's Key is the key(...) statement.
  */
 import { DbValue } from "#adapter/db/served.ts"
 
@@ -15,6 +17,24 @@ export type { NoTokenOptions, OpenOptions, TokenOptions } from "#adapter/types/d
 
 export const Db: typeof DbValue = DbValue
 export type Db<R, P> = DbOf<R, P>
+
+export type {
+	Anchor,
+	CallError,
+	CallErrorKind,
+	EventOf,
+	Input,
+	InputOf,
+	KeyedList,
+	KeyedSet,
+	ListEvent,
+	Refreshed,
+	SetEvent,
+	ValueOf,
+	Window,
+	WriteEvent,
+	WriteOutcome
+} from "#compiler/live/index.ts"
 
 export type {
 	ChangeExplain,

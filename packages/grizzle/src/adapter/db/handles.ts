@@ -43,7 +43,7 @@ import type {
 	LoadedRead,
 	LoadedVariants
 } from "#adapter/served/load.ts"
-import type { ApplyOutcome } from "#adapter/types/db.ts"
+import type { ApplyOutcome, ExecutedStatement, StatementPlan } from "#adapter/types/db.ts"
 import { takenRows } from "#adapter/wire/batch.ts"
 import {
 	type CallError,
@@ -470,30 +470,43 @@ export const memberCalls = (ctx: ServedDbContext, member: LoadedMember): ServedC
 }
 
 /**
- * A read member's explains, of the call its input parses to by `parse`, its plans named by the login's served tables
- * `installed` (served/explain.ts).
+ * A served member's explains, by what it is: a read's, a key's and a paged member's estimate and analyze the statement
+ * its once sends, of the call its input parses to; a change's estimates every statement its once sends; a refresh,
+ * whose REFRESH has no plan, has none. Each is named by the login's served tables (served/explain.ts).
  */
+export type MemberExplains =
+	| {
+			readonly kind: "read"
+			readonly explain: (input: unknown) => Effect.Effect<ReadonlyArray<StatementPlan>, ReadError>
+			readonly explainAnalyze: (
+				input: unknown
+			) => Effect.Effect<ReadonlyArray<ExecutedStatement>, ReadError>
+	  }
+	| {
+			readonly kind: "change"
+			readonly explain: (input: unknown) => Effect.Effect<ReadonlyArray<StatementPlan>, ReadError>
+	  }
+	| { readonly kind: "refresh" }
+
+/** A read member's explains, of the call its input parses to by `parse`. */
 const readExplains = (
 	ctx: ServedDbContext,
 	installed: ServedTables,
 	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
-): object => ({
-	explain: (input: unknown) =>
+): MemberExplains => ({
+	kind: "read",
+	explain: (input) =>
 		Effect.flatMap(parse(input), (parsed) => explainRead(ctx, installed, parsed.call)),
-	explainAnalyze: (input: unknown) =>
+	explainAnalyze: (input) =>
 		Effect.flatMap(parse(input), (parsed) => explainReadAnalyzed(ctx, installed, parsed.call))
 })
 
-/**
- * A loaded member's explains over a Db's context, by its kind: a read's, a key's and a paged member's estimate and
- * analyze the statement its once sends (readExplains); a change's estimates its variant for the Db's claims; a
- * refresh, whose REFRESH has no plan, has none.
- */
-const memberExplains = (
+/** A loaded member's explains over a Db's context, named by the login's served tables `installed` (MemberExplains). */
+export const memberExplains = (
 	ctx: ServedDbContext,
 	installed: ServedTables,
 	member: LoadedMember
-): object => {
+): MemberExplains => {
 	switch (member.kind) {
 		case "read":
 			return readExplains(ctx, installed, parseRead(member.read))
@@ -504,7 +517,8 @@ const memberExplains = (
 		case "change": {
 			const change = variantOf(ctx, member.variants)
 			return {
-				explain: (input: unknown) =>
+				kind: "change",
+				explain: (input) =>
 					Effect.flatMap(
 						Effect.mapError(
 							Effect.fromResult(changeInput(change, input)),
@@ -514,6 +528,18 @@ const memberExplains = (
 					)
 			}
 		}
+		case "refresh":
+			return { kind: "refresh" }
+	}
+}
+
+/** The members a handle holds of its member's explains, each its own call. */
+const explainsOf = (explains: MemberExplains): object => {
+	switch (explains.kind) {
+		case "read":
+			return { explain: explains.explain, explainAnalyze: explains.explainAnalyze }
+		case "change":
+			return { explain: explains.explain }
 		case "refresh":
 			return {}
 	}
@@ -534,7 +560,7 @@ export const servedHandles = (
 		handles[member.name] = Object.freeze({
 			once: calls.once,
 			watch: calls.watch,
-			...memberExplains(ctx, installed, member)
+			...explainsOf(memberExplains(ctx, installed, member))
 		})
 	}
 	return Object.freeze(handles)

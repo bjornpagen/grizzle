@@ -1,24 +1,13 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import {
-	codePoint,
-	constant,
-	element,
-	type Gen,
-	int,
-	map,
-	oneOf,
-	string,
-	weighted
-} from "@grizzle/testing/gen"
+import { codePoint, constant, element, type Gen, int, string, weighted } from "@grizzle/testing/gen"
 import {
 	type Drawn,
 	type DrawnFeature,
 	drawnFeature,
 	lsw,
 	passed,
-	WILD_IS_DATA,
 	WILD_KINDS,
 	type WildKind
 } from "@grizzle/testing/lsw"
@@ -26,84 +15,67 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { absurd, Array as Arr, Effect, Formatter, Option, Result } from "effect"
-import { ReadFailure } from "#adapter/errors/execution.ts"
-import type { RequestFault } from "#adapter/errors/failures.ts"
-import { pageRequest } from "#adapter/page/request.ts"
-import { CursorError } from "#compiler/core/errors.ts"
+import { windowedInput } from "#adapter/db/input.ts"
+import type { CallInputFault } from "#adapter/errors/failures.ts"
+import type { PageCall } from "#adapter/page/execute.ts"
+import { windowCall } from "#adapter/page/window.ts"
+import { scalarCodec } from "#compiler/codec/scalar.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { assert, failed, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
-/** The fault a page request's refusal names, at stage request; none for any other read failure. */
-const requestFault = (failure: ReadFailure): RequestFault | undefined =>
-	failure.stage === "request" && failure.reason._tag === "PageRequestRefused"
-		? failure.reason.fault
-		: undefined
-
 /**
- * The public boundary: every value a JavaScript caller can hand a page request or a schema door is parsed once, and a
- * value the types refuse is a typed refusal from the vocabulary, never a defect.
+ * The public boundary: every value a JavaScript caller can hand a paged member's input or a schema door is parsed once,
+ * and a value the types refuse is a typed refusal from the vocabulary, never a defect.
  *
- * The oracle is the contract README "Reading" states, restated here: a page request is exactly { first }, { first, after }, { last } or
- * { last, before }, its size a safe integer of at least 1 with no upper bound, its anchor a string; a refused shape is a ReadFailure
- * at stage `request` with fault `requestShape`, a refused size one with `requestSize`, a non-string anchor CursorError
- * `cursorType`. The request is read as data before any of its fields is judged, so a value in it that is not data (a
- * refusing proxy, a getter: WILD_IS_DATA) refuses its shape wherever it sits. A schema door takes a value
- * schema(...)
- * built, and refuses anything else as a MalformedDescription. The caller's code runs at most once at a boundary: an
- * accessor is refused without being called.
+ * The oracle is the contract README "Reading" states, restated here: a paged member's input is exactly
+ * `{ params, facts, window }`, its window exactly `{ anchor, size }`, its size a safe integer of at least 1 with no upper
+ * bound, its anchor exactly `{ kind: "start" }`, `{ kind: "end" }`, `{ kind: "after", key }` or
+ * `{ kind: "before", key }`, and an anchored kind's key a list of one value per comparator of the page's completed
+ * order, each a value its comparator's codec admits (the one comparator here a text). A refusal is CallInputRefused, its
+ * fault naming where it sits: `envelope` for the input, `window`, `size`, and `anchor` for the anchor and its key. Each
+ * level is read once, through its own properties' descriptors, so a value in it that is not data (a refusing proxy, a
+ * getter: WILD_IS_DATA) is refused where it sits, its code never run: an accessor is refused without being called. A
+ * schema door takes a value schema(...) built, and refuses anything else as a MalformedDescription.
  *
- * Values are drawn live and wild (lsw): a live request is valid by construction, its size up to the largest safe
- * integer; a wild one is any value JavaScript can pass, in place of the whole request or of one of its fields. A page
- * request has no earlier state, so none is stale. A valid request whose size or anchor is an accessor returning its
- * valid value is refused for its shape, its getter never called: a reader that called it would admit the request.
+ * Values are drawn live and wild (lsw): a live window is valid by construction, its size up to the largest safe
+ * integer; a wild one is any value JavaScript can pass, in place of the whole window or of one of its fields. A window
+ * has no earlier state, so none is stale. A valid input one of whose fields is an accessor returning its valid value is
+ * refused at that field's record, its getter never called: a reader that called it would admit the input.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): boundary-page-size-zero.patch (a page of size 0 is admitted).
+ * Plants (~/.cache/grizzle-release/BR04/plants): boundary-page-size-zero.patch (a page of size 0 is admitted), applied
+ * to page/window.ts isWindowSize.
  *
- * Features: each live request shape, each wild kind at each site, and each schema door's live and wild values.
+ * Features: each live anchor kind, each wild kind at each site, each fault, each accessor; and each schema door's live
+ * and wild values.
  */
-type Direction = "first" | "last"
+type AnchorKind = "start" | "end" | "after" | "before"
 
-/** A valid request: its direction, its size, and its anchor when it has one. */
-interface Request {
-	readonly direction: Direction
+/** A valid window: its anchor's kind, its size, and an anchored kind's key, one text. */
+interface Window {
+	readonly kind: AnchorKind
 	readonly size: number
-	readonly anchor: { readonly kind: "none" } | { readonly kind: "token"; readonly token: string }
+	readonly key: string
 }
 
-const anchorKey = (d: Direction): "after" | "before" => (d === "first" ? "after" : "before")
+/** The one comparator's codec: a text's, whose encoder is the key's own reader. */
+const textCodec = scalarCodec(wildcardText, emptyCodebook)
 
-/** The README's page size: a safe integer of at least 1. */
-const isPageSizeSpec = (value: unknown): boolean =>
+const keyed = (kind: AnchorKind): boolean => kind === "after" || kind === "before"
+
+/** The page template each anchor kind runs. */
+const variants = { start: "first", end: "last", after: "after", before: "before" } as const
+
+/** The README's window size: a safe integer of at least 1. */
+const isWindowSizeSpec = (value: unknown): boolean =>
 	typeof value === "number" && Number.isSafeInteger(value) && value >= 1
 
-/** What a request holding a wild value answers: admitted, a refused shape or size, or a non-string anchor. */
-type WildVerdict = "admitted" | RequestFault | "cursorType"
-
-/**
- * The verdict on a wild value at `site`: one that is not data refuses the request's shape wherever it sits; a wild
- * request is refused for its shape; a size is judged by the size's rule, a number the limit admits being a size; an
- * anchor that is a string (a lone surrogate, a NUL) is one the cursor codec validates later, and any other is the
- * cursor's refusal.
- */
-const wildVerdict = (site: WildSite, data: boolean, value: unknown): WildVerdict => {
-	if (!data) {
-		return "requestShape"
-	}
-	switch (site) {
-		case "whole":
-			return "requestShape"
-		case "size":
-			return isPageSizeSpec(value) ? "admitted" : "requestSize"
-		case "anchor":
-			return typeof value === "string" ? "admitted" : "cursorType"
-	}
-}
-
-/** Every wild kind but `anything`, which may draw a valid request itself. */
-const pageWildKinds = [
+/** Every wild kind but `anything`, which may draw a valid window itself. */
+const windowWildKinds = [
 	"null",
 	"undefined",
 	"negative-zero",
@@ -119,60 +91,64 @@ const pageWildKinds = [
 	"throwing-getter"
 ] as const satisfies ReadonlyArray<WildKind>
 
-const requestValue = (r: Request): Readonly<Record<string, unknown>> =>
-	r.anchor.kind === "none"
-		? { [r.direction]: r.size }
-		: { [r.direction]: r.size, [anchorKey(r.direction)]: r.anchor.token }
+const anchorValue = (w: Window): Readonly<Record<string, unknown>> =>
+	keyed(w.kind) ? { kind: w.kind, key: [w.key] } : { kind: w.kind }
 
-/** A page size: small, any safe integer, or the largest. */
+const windowValue = (w: Window): Readonly<Record<string, unknown>> => ({
+	anchor: anchorValue(w),
+	size: w.size
+})
+
+/** A window size: small, any safe integer, or the largest. */
 const sizeGen: Gen<number> = weighted([
 	[3, int(1, 7)],
 	[1, int(1, Number.MAX_SAFE_INTEGER)],
 	[1, constant(Number.MAX_SAFE_INTEGER)]
 ])
 
-const requestGen: Gen<Request> = (source) => ({
-	direction: source.draw(element<Direction>(["first", "last"])),
+const windowGen: Gen<Window> = (source) => ({
+	kind: source.draw(element<AnchorKind>(["start", "end", "after", "before"])),
 	size: source.draw(sizeGen),
-	anchor: source.draw(
-		oneOf<Request["anchor"]>([
-			constant({ kind: "none" }),
-			map(string(codePoint(0x20, 0x7e), { min: 0, max: 10 }), (token) => ({
-				kind: "token",
-				token
-			}))
-		])
-	)
+	key: source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 10 }))
 })
 
-/** Where a wild value goes: the whole request, its size, or its anchor. */
-type WildSite = "whole" | "size" | "anchor"
+/** Where a wild value goes: the whole window, its size, its anchor, or its key's one value. */
+type WildSite = "window" | "size" | "anchor" | "key"
 
-/** The field of a valid request an accessor stands in for, returning the field's valid value when it is called. */
-type AccessorField = "size" | "anchor"
+/** The field an accessor stands in for, returning the field's valid value when it is called. */
+type AccessorField = "window" | "size" | "anchor" | "kind" | "key"
+
+/** The fault an accessor at each field is refused with: the record that holds it. */
+const accessorFaults: { readonly [F in AccessorField]: CallInputFault } = {
+	window: "envelope",
+	size: "window",
+	anchor: "window",
+	kind: "anchor",
+	key: "anchor"
+}
 
 /**
- * A case: a live or wild value at a site of a request; or a valid request one of whose fields is an accessor, which a
+ * A case: a live or wild value at a site of a window; or a valid input one of whose fields is an accessor, which a
  * reader that judged it by calling it would admit.
  */
-type PageCase =
+type WindowCase =
 	| {
 			readonly kind: "drawn"
 			readonly site: WildSite
-			readonly base: Request
-			readonly drawn: Drawn<Request, never>
+			readonly base: Window
+			readonly drawn: Drawn<Window, never>
 	  }
-	| { readonly kind: "accessor"; readonly base: Request; readonly field: AccessorField }
+	| { readonly kind: "accessor"; readonly base: Window; readonly field: AccessorField }
 
-const pageCaseGen: Gen<PageCase> = weighted<PageCase>([
+const windowCaseGen: Gen<WindowCase> = weighted<WindowCase>([
 	[
 		8,
 		(source) => ({
 			kind: "drawn",
-			site: source.draw(element<WildSite>(["whole", "size", "anchor"])),
-			base: source.draw(requestGen),
+			site: source.draw(element<WildSite>(["window", "size", "anchor", "key"])),
+			base: source.draw(windowGen),
 			drawn: source.draw(
-				lsw<Request>({ live: requestGen, stale: Option.none(), wild: pageWildKinds })
+				lsw<Window>({ live: windowGen, stale: Option.none(), wild: windowWildKinds })
 			)
 		})
 	],
@@ -180,68 +156,145 @@ const pageCaseGen: Gen<PageCase> = weighted<PageCase>([
 		1,
 		(source) => ({
 			kind: "accessor",
-			base: source.draw(requestGen),
-			field: source.draw(element<AccessorField>(["size", "anchor"]))
+			base: source.draw(windowGen),
+			field: source.draw(element<AccessorField>(["window", "size", "anchor", "kind", "key"]))
 		})
 	]
 ])
 
-/**
- * The request a case's accessor stands in: the valid request with `field` an enumerable getter returning its value,
- * counting its calls.
- */
-const withAccessor = (
-	base: Request,
-	field: AccessorField
-): { readonly request: object; readonly calls: () => number } => {
-	let calls = 0
-	const key = field === "size" ? base.direction : anchorKey(base.direction)
-	const value = field === "size" ? base.size : base.anchor.kind === "token" ? base.anchor.token : ""
-	const request = { ...requestValue(base) }
-	Object.defineProperty(request, key, {
+/** `record` with `key` an enumerable getter returning `value`, counting its calls in `counter`. */
+const getterAt = (
+	record: Readonly<Record<string, unknown>>,
+	key: string,
+	value: unknown,
+	counter: { calls: number }
+): object => {
+	const copy = { ...record }
+	Object.defineProperty(copy, key, {
 		enumerable: true,
 		get: () => {
-			calls++
+			counter.calls++
 			return value
 		}
 	})
-	return { request, calls: () => calls }
+	return copy
 }
 
-/** The value a drawn case hands pageRequest. */
-const pageInput = (c: Extract<PageCase, { readonly kind: "drawn" }>): unknown => {
+/**
+ * The input a case's accessor stands in: the valid input with `field` an enumerable getter returning its value,
+ * counting its calls. The key's accessor is its list's one element; the kind's and the key's are of an anchored kind.
+ */
+const withAccessor = (
+	base: Window,
+	field: AccessorField
+): { readonly input: object; readonly calls: () => number } => {
+	const counter = { calls: 0 }
+	const w: Window = field === "key" || field === "kind" ? { ...base, kind: "after" } : base
+	const anchor = anchorValue(w)
+	const window = windowValue(w)
+	const envelope = { params: {}, facts: {} }
+	const at = (): object => {
+		switch (field) {
+			case "window":
+				return getterAt(envelope, "window", window, counter)
+			case "size":
+				return { ...envelope, window: getterAt(window, "size", w.size, counter) }
+			case "anchor":
+				return { ...envelope, window: getterAt(window, "anchor", anchor, counter) }
+			case "kind":
+				return {
+					...envelope,
+					window: { ...window, anchor: getterAt(anchor, "kind", w.kind, counter) }
+				}
+			case "key": {
+				const key: Array<unknown> = []
+				Object.defineProperty(key, 0, {
+					enumerable: true,
+					get: () => {
+						counter.calls++
+						return w.key
+					}
+				})
+				return { ...envelope, window: { ...window, anchor: { kind: w.kind, key } } }
+			}
+		}
+	}
+	return { input: at(), calls: () => counter.calls }
+}
+
+/** The window a drawn case hands its member: a live one, or the base with the wild value at its site. */
+const windowInput = (c: Extract<WindowCase, { readonly kind: "drawn" }>): unknown => {
 	const d = c.drawn
 	if (d.kind !== "wild") {
-		return requestValue(d.value)
+		return windowValue(d.value)
 	}
 	const value = passed(d)
 	switch (c.site) {
-		case "whole":
+		case "window":
 			return value
 		case "size":
-			return { [c.base.direction]: value }
+			return { anchor: anchorValue(c.base), size: value }
 		case "anchor":
-			return { [c.base.direction]: c.base.size, [anchorKey(c.base.direction)]: value }
+			return { anchor: value, size: c.base.size }
+		case "key":
+			return {
+				anchor: { kind: keyed(c.base.kind) ? c.base.kind : "after", key: [value] },
+				size: c.base.size
+			}
 	}
 }
 
-type PageFeature =
+/** What a window holding a wild value answers: admitted, or the fault that refuses it. */
+type WildVerdict = "admitted" | CallInputFault
+
+/**
+ * The verdict on a wild value at `site`: a wild window is no record of an anchor and a size; a size is judged by the
+ * size's rule; a wild anchor is no anchor; a key's value is the anchor's refusal where its comparator's codec refuses
+ * it, the codec being that value's own reader.
+ */
+const wildVerdict = (site: WildSite, value: unknown): WildVerdict => {
+	switch (site) {
+		case "window":
+			return "window"
+		case "size":
+			return isWindowSizeSpec(value) ? "admitted" : "size"
+		case "anchor":
+			return "anchor"
+		case "key":
+			return typeof value === "string" && textCodec.encode(value).ok ? "admitted" : "anchor"
+	}
+}
+
+/** A paged member's input's window read as its call reads it: its envelope, then its window. */
+const callOf = (input: unknown): Result.Result<PageCall, { readonly fault: CallInputFault }> =>
+	Result.flatMap(windowedInput(input), (read) => windowCall(read.window, [textCodec]))
+
+type WindowFeature =
 	| DrawnFeature<never>
+	| `anchor ${AnchorKind}`
 	| `site ${WildSite}`
-	| "refused request"
-	| "refused cursorType"
+	| `refused at ${CallInputFault}`
 	| `an accessor at the ${AccessorField}, refused uncalled`
 
-const pageFeatures: Arr.NonEmptyReadonlyArray<PageFeature> = [
+const windowFeatures: Arr.NonEmptyReadonlyArray<WindowFeature> = [
 	"live",
-	...Arr.map(pageWildKinds, (k: WildKind): PageFeature => `wild ${k}`),
-	"site whole",
+	...Arr.map(windowWildKinds, (k: WildKind): WindowFeature => `wild ${k}`),
+	"anchor start",
+	"anchor end",
+	"anchor after",
+	"anchor before",
+	"site window",
 	"site size",
 	"site anchor",
-	"refused request",
-	"refused cursorType",
+	"site key",
+	"refused at window",
+	"refused at size",
+	"refused at anchor",
+	"an accessor at the window, refused uncalled",
 	"an accessor at the size, refused uncalled",
-	"an accessor at the anchor, refused uncalled"
+	"an accessor at the anchor, refused uncalled",
+	"an accessor at the kind, refused uncalled",
+	"an accessor at the key, refused uncalled"
 ]
 
 /** A built schema, the one value a schema door admits. */
@@ -250,7 +303,7 @@ const Shop = schema("BoundaryShop", { Item }, [])
 
 describe("the public boundary", () => {
 	it.effect(
-		"answers every page request by the README's contract, and refuses every other value with a typed refusal",
+		"answers every paged member's window by the README's contract, and refuses every other value with a typed refusal",
 		(ctx) =>
 			searched(
 				ctx,
@@ -258,12 +311,12 @@ describe("the public boundary", () => {
 					{
 						oracle: {
 							kind: "specification",
-							name: "README Reading's page request: its four shapes, a size of at least 1, a string anchor"
+							name: "README Reading's window: its four anchors, a size of at least 1, a key its comparators' codecs admit"
 						},
-						suite: "unit/adapter/boundary-page",
-						draw: drawn(pageCaseGen),
+						suite: "unit/adapter/boundary-window",
+						draw: drawn(windowCaseGen),
 						literal: Formatter.format,
-						coverage: required<PageFeature>(pageFeatures, { cases: 2_000, sense: notesOnly }),
+						coverage: required<WindowFeature>(windowFeatures, { cases: 2_000, sense: notesOnly }),
 						kept: [],
 						runs: 2_000,
 						shrink: completeShrink,
@@ -274,47 +327,39 @@ describe("the public boundary", () => {
 					(c, k) =>
 						Effect.sync(() => {
 							if (c.kind === "accessor") {
-								const { request, calls } = withAccessor(c.base, c.field)
-								const refusal = failed(pageRequest(request))
-								assert.ok(refusal instanceof ReadFailure, String(refusal))
-								assert.equal(requestFault(refusal), "requestShape")
+								const { input, calls } = withAccessor(c.base, c.field)
+								const refusal = failed(callOf(input))
+								assert.equal(refusal.fault, accessorFaults[c.field])
 								assert.equal(calls(), 0, "the caller's getter never runs")
 								k.note(`an accessor at the ${c.field}, refused uncalled`)
 								return
 							}
 							k.note(drawnFeature(c.drawn))
-							if (c.drawn.kind === "wild") {
-								k.note(`site ${c.site}`)
-							}
-							const result = pageRequest(pageInput(c))
+							const result = callOf({ params: {}, facts: {}, window: windowInput(c) })
 							const d = c.drawn
 							if (d.kind === "live") {
 								const admitted = succeeded(result)
-								const r = d.value
-								const variant = r.anchor.kind === "none" ? r.direction : anchorKey(r.direction)
-								assert.equal(admitted.variant, variant)
-								assert.equal(admitted.size, r.size)
+								const w = d.value
+								k.note(`anchor ${w.kind}`)
+								assert.equal(admitted.variant, variants[w.kind])
+								assert.equal(admitted.size, w.size)
+								assert.deepEqual(
+									"boundary" in admitted ? admitted.boundary : [],
+									keyed(w.kind) ? [succeeded(textCodec.encode(w.key))] : []
+								)
 								return
 							}
 							if (d.kind === "stale") {
 								return absurd(d.from)
 							}
-							const verdict = wildVerdict(c.site, WILD_IS_DATA[d.wild.kind], passed(d))
+							k.note(`site ${c.site}`)
+							const verdict = wildVerdict(c.site, passed(d))
 							if (verdict === "admitted") {
 								succeeded(result)
 								return
 							}
-							assert.ok(Result.isFailure(result), "a wild value is refused")
-							const failure = result.failure
-							if (verdict === "cursorType") {
-								assert.ok(failure instanceof CursorError, String(failure))
-								assert.equal(failure.reason._tag, "cursorType")
-								k.note("refused cursorType")
-								return
-							}
-							assert.ok(failure instanceof ReadFailure, String(failure))
-							assert.equal(requestFault(failure), verdict)
-							k.note("refused request")
+							assert.equal(failed(result).fault, verdict)
+							k.note(`refused at ${verdict}`)
 						})
 				)
 			)
