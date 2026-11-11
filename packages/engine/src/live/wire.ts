@@ -28,23 +28,19 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { validateText } from "#compiler/core/text.ts"
-import {
-	binary32LeastExponent,
-	binary32Max,
-	moneyFractionDigits,
-	uuidGroups
-} from "#compiler/ir/carriers.ts"
+import { binary32Max, moneyFractionDigits, uuidGroups } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, convertDate, dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import {
+	admittedText,
+	alternation,
 	amounts,
 	anchored,
 	base64Texts,
 	calendarDates,
 	decimals,
-	admittedText,
 	integers,
-	alternation,
+	integersBelow,
 	uuidSpelling
 } from "#compiler/live/pattern.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -225,15 +221,8 @@ const floatOfWord = (word: FloatSpecialName): number =>
 const isFloatWord = (json: unknown): json is FloatSpecialName =>
 	json === "NaN" || json === "Infinity" || json === "-Infinity"
 
-/**
- * The magnitude past which a JSON number no longer rounds to a finite binary32, 2^128 - 2^103, the midpoint between
- * binary32's greatest value and 2^128, which ties to the even 2^128, infinity; and the magnitude at or below which a
- * nonzero number rounds to zero, 2^(emin - p), half the least subnormal, which ties to the even zero.
- */
-const binary32Edges = {
-	greatest: binary32Max.value,
-	least: 2 ** binary32LeastExponent.value
-} as const
+/** The greatest magnitude of a binary32 number: a float4's, and a vector component's, JSON number. */
+const binary32Greatest = binary32Max.value
 
 /** A float's schema: a JSON number from `-most` to `most`, or a word naming a float no JSON number holds. */
 const floatSchema = (most: number, gaps: ReadonlyArray<SchemaGap>): WireSchema =>
@@ -639,7 +628,7 @@ export const carrierWire: CarrierWires = {
 		is: isDecimal
 	},
 	float4: {
-		schema: () => floatSchema(binary32Edges.greatest, ["binary32"]),
+		schema: () => floatSchema(binary32Greatest, ["binary32"]),
 		encode: floatJson,
 		parse: realOf,
 		decode: trustedFloat,
@@ -775,8 +764,8 @@ export const carrierWire: CarrierWires = {
 					type: "array",
 					items: {
 						type: "number",
-						minimum: -binary32Edges.greatest,
-						maximum: binary32Edges.greatest
+						minimum: -binary32Greatest,
+						maximum: binary32Greatest
 					},
 					minItems: spec.dimensions,
 					maxItems: spec.dimensions
@@ -813,7 +802,7 @@ export const carrierWire: CarrierWires = {
 		is: isVector
 	},
 	exactInteger: {
-		schema: (spec) => spelled(decimals(spec.digits, 0).replace(String.raw`(?:\.0+)?`, "")),
+		schema: (spec) => spelled(integersBelow(spec.digits)),
 		encode: (value) => value.toString(),
 		parse: (json, spec) =>
 			bigIntegerOf(json, (value) => (value < 0n ? -value : value) < 10n ** BigInt(spec.digits)),

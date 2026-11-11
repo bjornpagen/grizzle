@@ -18,6 +18,7 @@
 		"partitionByNewline": true
 	},
 	"ignorePatterns": [
+		"test/support/openapi/oas-3.2-schema-2025-09-17.json",
 		"pnpm-lock.yaml",
 		"dist/**",
 		"*.md",

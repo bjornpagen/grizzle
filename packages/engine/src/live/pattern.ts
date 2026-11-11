@@ -107,6 +107,10 @@ export const integers = (min: bigint, max: bigint): string =>
 		...(min < 0n ? [`-${naturals(1n, -min)}`] : [])
 	])
 
+/** The spellings of the integers below 10^`count` in magnitude, as JSON writes an integer, "-0" among them. */
+export const integersBelow = (count: number): string =>
+	`-?${alternation(["0", `[1-9]${atMostDigits(count - 1)}`])}`
+
 /**
  * A decimal's spelling, as the wire's decimal grammar writes it: an optional minus sign, an integer part as JSON writes
  * one, and an optional fraction of at least one digit; never an exponent.
