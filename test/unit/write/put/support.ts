@@ -104,7 +104,7 @@ export const mutableCrewChangeSet = (): ChangeSetValue => ChangeSet.empty(Mutabl
 
 /** How a test compiles a put of the Shop: which contexts the Db holds a fact of, every one for reality. shopCompile
  * states that, and a test spreads it with what it changes. */
-export type ShopCompile = Pick<CompileWriteOptions, "claims">
+type ShopCompile = Pick<CompileWriteOptions, "claims">
 export const shopCompile: ShopCompile = { claims: { kind: "every" } }
 
 /** A Shop's write compiler, and its write oracle's baseline of a write it compiled. */

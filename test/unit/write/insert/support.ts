@@ -5,8 +5,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
 
-/** Shared fixtures for the write lowering tests: the installed names of a schema, and the checked relations of the worked
- * example's Work schema. */
+/** The installed names of a schema whose one level is installed as `schema`, as the write lowering tests compile under. */
 export const writeNamesOf = (schemaValue: unknown, schema: string): WriteNames => {
 	const owned = owning(schemaValue)
 	return succeeded(
