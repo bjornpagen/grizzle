@@ -28,8 +28,10 @@ export interface SchemeNormalization {
 	readonly checkRefused: ReadonlySet<string>
 	readonly diagnostics: readonly Diagnostic[]
 	readonly schemes: readonly SecurityScheme[]
-	// The author-supplied requirement (D-OQ3 (b)), carried here so every policy built from these
-	// schemes applies it where the spec declares no security.
+	/**
+	 * The author-supplied requirement (D-OQ3 (b)), carried here so every policy built from these
+	 * schemes applies it where the spec declares no security.
+	 */
 	readonly supplied:
 		| {
 				readonly document: typeof DocumentUri.Type
@@ -52,18 +54,24 @@ export interface PolicyNormalization {
 interface Finding {
 	readonly anchor: string
 	readonly code: string
-	// The document the finding points into when it is not the spec (an author config finding).
+	/**
+	 * The document the finding points into when it is not the spec (an author config finding).
+	 */
 	readonly document?: typeof DocumentUri.Type
 	readonly element: string
 	readonly hint?: string
 	readonly message: string
 	readonly pointer: string
-	// Each related site; one without a document points into the spec.
+	/**
+	 * Each related site; one without a document points into the spec.
+	 */
 	readonly related?: readonly {
 		readonly document?: typeof DocumentUri.Type
 		readonly pointer: string
 	}[]
-	// Element scope unless the finding refuses the whole document.
+	/**
+	 * Element scope unless the finding refuses the whole document.
+	 */
 	readonly scope?: "document"
 }
 
@@ -208,8 +216,10 @@ const apiKeyRows = new Map([
 	["query", "SSC-13"]
 ])
 
-// One flow's help-only data, sanitized; a URL is present only when the spec gives it (design 9 I3).
-// `deviceAuthorizationUrl` belongs to the 3.2 `deviceAuthorization` flow and is read only there.
+/**
+ * One flow's help-only data, sanitized; a URL is present only when the spec gives it (design 9 I3).
+ * `deviceAuthorizationUrl` belongs to the 3.2 `deviceAuthorization` flow and is read only there.
+ */
 interface FlowHelp {
 	authorizationUrl?: string
 	deviceAuthorizationUrl?: string
@@ -244,8 +254,10 @@ const flowHelp = (kind: string, flow: typeof FlowNode.Type): FlowHelp => {
 	return help
 }
 
-// The help-only flows of an `oauth2` node by flow kind, or none when a known flow is malformed.
-// Unknown flow names carry nothing a help line needs and are skipped.
+/**
+ * The help-only flows of an `oauth2` node by flow kind, or none when a known flow is malformed.
+ * Unknown flow names carry nothing a help line needs and are skipped.
+ */
 const flowsOf = (fields: SchemeFields): Option.Option<Readonly<Record<string, FlowHelp>>> => {
 	const flows: Record<string, FlowHelp> = {}
 	for (const [kind, json] of Object.entries(fields.flows ?? {})) {
@@ -264,8 +276,10 @@ const flowsOf = (fields: SchemeFields): Option.Option<Readonly<Record<string, Fl
 	return Option.some(flows)
 }
 
-// The modelled kind and inventory row of a scheme node, or undefined when the type is unknown or
-// an `oauth2` flow is malformed. `oauth2MetadataUrl` is a 3.2 field and is recorded only on 3.2.
+/**
+ * The modelled kind and inventory row of a scheme node, or undefined when the type is unknown or
+ * an `oauth2` flow is malformed. `oauth2MetadataUrl` is a 3.2 field and is recorded only on 3.2.
+ */
 const kindOf = (
 	fields: SchemeFields,
 	line: Line
@@ -300,7 +314,6 @@ const kindOf = (
 			: { kind: { flows: flows.value, ...metadata, type: "oauth2Token" }, row: "SSC-18" }
 	}
 
-	// An openIdConnect node without its discovery URL is malformed and stays unmodelled.
 	return fields.type === "openIdConnect" && fields.openIdConnectUrl !== undefined
 		? {
 				kind: { openIdConnectUrl: sanitize(fields.openIdConnectUrl), type: "oidcToken" },
@@ -403,8 +416,10 @@ const modelFields = (name: string, site: Site, fields: Option.Option<SchemeField
 		: { findings: acquisitionFindings(node, pointer), scheme: decoded.value }
 }
 
-// Models one scheme node. An author-supplied scheme is judged by the same rules as a declared one;
-// only the document its findings and origin name differs.
+/**
+ * Models one scheme node. An author-supplied scheme is judged by the same rules as a declared one;
+ * only the document its findings and origin name differs.
+ */
 const modelScheme = (name: string, site: Site, fields: Option.Option<SchemeFields>): Built => {
 	const built = modelFields(name, site, fields)
 
@@ -453,8 +468,10 @@ interface Added {
 	readonly names: readonly string[]
 }
 
-// The schemes `security.add` contributes, in config order. A collision with a declared name is a
-// document-scope refusal and the added scheme is dropped.
+/**
+ * The schemes `security.add` contributes, in config order. A collision with a declared name is a
+ * document-scope refusal and the added scheme is dropped.
+ */
 const addedSchemes = (
 	declared: ReadonlySet<string>,
 	author: AuthorSecurity | undefined,
@@ -483,7 +500,9 @@ const addedSchemes = (
 	return { built, names: entries.map(([name]) => name) }
 }
 
-// The codes check raises at a requirement name that reaches no scheme (src/check/grammar.ts).
+/**
+ * The codes check raises at a requirement name that reaches no scheme (src/check/grammar.ts).
+ */
 const unresolvedCodes: ReadonlySet<string> = new Set([
 	"SEC-09/unresolved-scheme",
 	"SEC-10/unresolved-scheme"
@@ -518,7 +537,6 @@ export const normalizeSecuritySchemes = Effect.fnUntraced(function* normalizeSec
 	const built = names.map((name): Built => {
 		const pointer = formatPointer(["components", "securitySchemes", name])
 
-		// SEC-10 is already refused by resolve; the scheme is never modelled or given credentials.
 		return refused.has(pointer) ? { findings: [] } : buildScheme(resolution, name, pointer)
 	})
 	const extra = addedSchemes(new Set(names), author, resolution.line)
@@ -548,7 +566,6 @@ export const normalizeSecuritySchemes = Effect.fnUntraced(function* normalizeSec
 		supplied,
 		unusable: [
 			...names.filter((_, index) => built[index]?.scheme === undefined),
-			// An added name that collides keeps meaning the declared scheme, so it is never unusable.
 			...extra.names.filter(
 				(name, index) => !names.includes(name) && extra.built[index]?.scheme === undefined
 			)
@@ -561,14 +578,18 @@ interface Scope {
 	readonly unusable: ReadonlySet<string>
 }
 
-// The author requirement reaches every scheme; a spec requirement reaches only the spec's (AS-1).
+/**
+ * The author requirement reaches every scheme; a spec requirement reaches only the spec's (AS-1).
+ */
 interface Lookup {
 	readonly author: Scope
 	readonly spec: Scope
 }
 
-// Built once per SchemeNormalization (memoized by identity), so a requirement entry costs one map
-// probe.
+/**
+ * Built once per SchemeNormalization (memoized by identity), so a requirement entry costs one map
+ * probe.
+ */
 const lookupOf = memoize((schemes: SchemeNormalization): Lookup => ({
 	author: {
 		declared: new Map(schemes.schemes.map((scheme) => [scheme.name, scheme])),
@@ -584,8 +605,10 @@ const lookupOf = memoize((schemes: SchemeNormalization): Lookup => ({
 	}
 }))
 
-// A 3.2 requirement name that is not a component name resolves as a URI inside the set. The result
-// is the component name it reaches, or undefined when it reaches nothing that is a component.
+/**
+ * A 3.2 requirement name that is not a component name resolves as a URI inside the set. The result
+ * is the component name it reaches, or undefined when it reaches nothing that is a component.
+ */
 const uriComponentName = (resolution: Resolution, name: string): string | undefined => {
 	if (resolution.line !== "3.2") {
 		return undefined
@@ -608,7 +631,9 @@ interface Source {
 	readonly rows: readonly string[]
 }
 
-// Operation `security` replaces the root list; with neither the policy is undeclared (design 6.5).
+/**
+ * Operation `security` replaces the root list; with neither the policy is undeclared (design 6.5).
+ */
 const effectiveList = (
 	resolution: Resolution,
 	operation: string | undefined
@@ -642,13 +667,17 @@ interface Named {
 	readonly name: string
 	readonly pointer: string
 	readonly resolved: string
-	// The entries come from the author config, which check never reads.
+	/**
+	 * The entries come from the author config, which check never reads.
+	 */
 	readonly supplied: boolean
 	readonly unusable: ReadonlySet<string>
 }
 
-// The refusal of a requirement name that names no usable scheme, or None when check already raised
-// the one diagnostic for it; either way its alternative is dropped.
+/**
+ * The refusal of a requirement name that names no usable scheme, or None when check already raised
+ * the one diagnostic for it; either way its alternative is dropped.
+ */
 const nameRefusal = (resolution: Resolution, named: Named): Option.Option<Finding> => {
 	const { name, resolved } = named
 	const pointer = childPointer(named.pointer, name)
@@ -676,8 +705,10 @@ const nameRefusal = (resolution: Resolution, named: Named): Option.Option<Findin
 	})
 }
 
-// Whether a scheme writes the one `Authorization` header (design 6.5 Conflicting Authorization
-// schemes): http basic or bearer, oauth2, openIdConnect, or an apiKey header named Authorization.
+/**
+ * Whether a scheme writes the one `Authorization` header (design 6.5 Conflicting Authorization
+ * schemes): http basic or bearer, oauth2, openIdConnect, or an apiKey header named Authorization.
+ */
 const setsAuthorization = ({ kind }: SecurityScheme): boolean => {
 	if (kind.type === "apiKey") {
 		return kind.in === "header" && kind.name.toLowerCase() === "authorization"
@@ -686,8 +717,10 @@ const setsAuthorization = ({ kind }: SecurityScheme): boolean => {
 	return kind.type === "http" || kind.type === "oauth2Token" || kind.type === "oidcToken"
 }
 
-// The refusal of an alternative whose schemes write the `Authorization` header more than once, so
-// that every scheme cannot be satisfied (SEC-05); undefined when at most one writes it.
+/**
+ * The refusal of an alternative whose schemes write the `Authorization` header more than once, so
+ * that every scheme cannot be satisfied (SEC-05); undefined when at most one writes it.
+ */
 const conflictRefusal = (
 	schemes: ReadonlyMap<string, SecurityScheme>,
 	pointer: string
@@ -710,8 +743,10 @@ const conflictRefusal = (
 			}
 }
 
-// `supplied`: the entries come from the author config, so they alone reach the added schemes and
-// normalize reports their undeclared names itself.
+/**
+ * `supplied`: the entries come from the author config, so they alone reach the added schemes and
+ * normalize reports their undeclared names itself.
+ */
 const judge = (
 	resolution: Resolution,
 	schemes: SchemeNormalization,
@@ -774,7 +809,9 @@ export const normalizeSecurityPolicy = Effect.fnUntraced(function* normalizeSecu
 	operation?: string
 ): Effect.fn.Return<PolicyNormalization> {
 	const spec = effectiveList(resolution, operation)
-	// `security.add` applies as if declared, only where the spec declares no security (D-OQ10).
+	/**
+	 * `security.add` applies as if declared, only where the spec declares no security (D-OQ10).
+	 */
 	const supplied =
 		spec === undefined && schemes.supplied !== undefined
 			? {

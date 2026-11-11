@@ -11,7 +11,9 @@ export interface HeaderMarks {
 	readonly required: boolean
 }
 
-// A mark that is absent or not a boolean reads as false without discarding its sibling.
+/**
+ * A mark that is absent or not a boolean reads as false without discarding its sibling.
+ */
 const Mark = Schema.Boolean.pipe(
 	Schema.catchDecoding(() => Effect.succeed(Option.some(false))),
 	Schema.withDecodingDefaultKey(Effect.succeed(false))

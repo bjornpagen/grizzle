@@ -1,6 +1,8 @@
 import { safeTextCategories } from "#model/brands.ts"
 
-// Controls, format characters, U+2028, U+2029 and lone surrogates; LF and TAB are kept.
+/**
+ * Controls, format characters, U+2028, U+2029 and lone surrogates; LF and TAB are kept.
+ */
 const unsafeText = new RegExp(`(?![\\n\\t])[${safeTextCategories}]`, "gu")
 
 /**

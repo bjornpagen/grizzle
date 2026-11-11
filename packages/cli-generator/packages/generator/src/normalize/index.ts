@@ -39,7 +39,9 @@ export interface Normalization {
 
 export type NormalizeError = OperationsError | SchemaBudgetExceeded | SchemaImportDefect
 
-// The root `servers` site, a constant, decoded once.
+/**
+ * The root `servers` site, a constant, decoded once.
+ */
 const serversPointer = JsonPointer.make("/servers")
 
 const Described = Schema.Struct({
@@ -105,7 +107,9 @@ const tagOf = (entry: Json): readonly PlainTag[] => {
 	return [tag]
 }
 
-// Tags in document order; an entry that is not a Tag Object with a name is not read here.
+/**
+ * Tags in document order; an entry that is not a Tag Object with a name is not read here.
+ */
 const tagsOf = (entries: readonly Json[] | undefined): readonly PlainTag[] =>
 	(entries ?? []).flatMap(tagOf)
 

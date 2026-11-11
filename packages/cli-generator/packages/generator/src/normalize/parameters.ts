@@ -30,7 +30,6 @@ export interface ParameterSite {
  * What normalizing one Parameter Object produced. `Refused` keeps `required` so the operation
  * assembly can raise a refused required parameter to operation scope.
  */
-// oxlint-disable-next-line no-redeclare -- Data.taggedEnum pairs a type and its constructors under one name
 export type ParameterOutcome = Data.TaggedEnum<{
 	Implemented: { readonly diagnostics: readonly Diagnostic[]; readonly parameter: Parameter }
 	Ignored: { readonly diagnostics: readonly Diagnostic[] }
@@ -46,7 +45,6 @@ export const ParameterOutcome = Data.taggedEnum<ParameterOutcome>()
  * The site is not a Parameter Object the earlier stages could have passed: validation, resolution
  * or the structure checks should have stopped it.
  */
-// oxlint-disable-next-line unicorn/throw-new-error -- Schema.TaggedError<Self>()(tag, fields) declares a class; nothing is thrown
 export class ParameterNotReadable extends Schema.TaggedError<ParameterNotReadable>()(
 	"ParameterNotReadable",
 	{
@@ -94,7 +92,9 @@ const ParameterObject = Schema.Struct({
 	required: Schema.optionalKey(Schema.Boolean),
 	schema: Schema.optionalKey(Schema.Unknown),
 	style: Schema.optionalKey(Schema.Literals(styleNames)),
-	// Any value decodes; only `true` marks the value sensitive, so a malformed mark never refuses.
+	/**
+	 * Any value decodes; only `true` marks the value sensitive, so a malformed mark never refuses.
+	 */
 	"x-sensitive": Schema.optionalKey(Schema.Unknown)
 })
 
@@ -106,8 +106,10 @@ const rules: Record<Line, string> = { "3.0": "oas-3.0", "3.1": "oas-3.1", "3.2":
 
 const ignoredHeaders: ReadonlySet<string> = new Set(["accept", "authorization", "content-type"])
 
-// One row per legal (location, style, explode, allowReserved) of design 6.1; deepObject and the
-// cookie rows are decided by `deepObjectRow` and `decideCookie`.
+/**
+ * One row per legal (location, style, explode, allowReserved) of design 6.1; deepObject and the
+ * cookie rows are decided by `deepObjectRow` and `decideCookie`.
+ */
 const styleTable: readonly (readonly [string, StyleName, boolean, boolean, string])[] = [
 	["path", "matrix", false, false, "STY-01"],
 	["path", "matrix", true, false, "STY-02"],
@@ -137,8 +139,10 @@ const styleTable: readonly (readonly [string, StyleName, boolean, boolean, strin
 	["header", "simple", true, false, "STY-32"]
 ]
 
-// The style table's row by its `[location, style, explode, allowReserved]` key; a lookup builds a
-// fresh key, compared structurally.
+/**
+ * The style table's row by its `[location, style, explode, allowReserved]` key; a lookup builds a
+ * fresh key, compared structurally.
+ */
 const rowOf = HashMap.fromIterable<
 	readonly [location: string, style: string, explode: boolean, allowReserved: boolean],
 	string
@@ -149,7 +153,9 @@ const rowOf = HashMap.fromIterable<
 	])
 )
 
-// The rows whose style table says no value type fits (design 6.1; inventory "refused").
+/**
+ * The rows whose style table says no value type fits (design 6.1; inventory "refused").
+ */
 const explodeNotApplicable: ReadonlySet<string> = new Set(["STY-18", "STY-20", "STY-22", "STY-24"])
 
 const cookieStyles: Record<Line, readonly StyleName[]> = {
@@ -263,7 +269,6 @@ interface ContentPlan {
 	readonly schemaKey: string
 }
 
-// oxlint-disable-next-line no-redeclare -- Data.taggedEnum pairs a type and its constructors under one name
 type Decision = Data.TaggedEnum<{
 	Build: { readonly findings: readonly Finding[]; readonly plan: ContentPlan | StylePlan }
 	Ignore: { readonly findings: readonly Finding[] }
@@ -294,9 +299,11 @@ const cookieFormMultiple = refusal(
 	"Use a primitive schema, or style: cookie in 3.2"
 )
 
-// STY-33, 34, 36 and 38 build; STY-35, 37 and 39 are refused for good, and so is any form cookie
-// over an array or object, whatever explode is (PRM-34, Appendix D). A 3.2 explode false form
-// cookie reports its STY row alone.
+/**
+ * STY-33, 34, 36 and 38 build; STY-35, 37 and 39 are refused for good, and so is any form cookie
+ * over an array or object, whatever explode is (PRM-34, Appendix D). A 3.2 explode false form
+ * cookie reports its STY row alone.
+ */
 const decideCookie = (
 	line: Line,
 	plan: Omit<StylePlan, "kind" | "row">,
@@ -318,9 +325,11 @@ const decideCookie = (
 	})
 }
 
-// In the entry document, official-schema validation (VAL-02 to VAL-04) refuses a style its
-// location does not define before this runs; a parameter in another document-set member, which is
-// not schema-validated, reaches this refusal.
+/**
+ * In the entry document, official-schema validation (VAL-02 to VAL-04) refuses a style its
+ * location does not define before this runs; a parameter in another document-set member, which is
+ * not schema-validated, reaches this refusal.
+ */
 const styleLocation = refusal(
 	"STY-40/style-location",
 	"style-values",
@@ -380,8 +389,10 @@ const compoundNested = refusal(
 	"Flatten the parameter, or set nonStandard.deepObjectBrackets in the author config to send the bracket convention"
 )
 
-// PRM-27 (style-values): deepObject is defined only for an object; a schema that also admits a
-// value that is not an object would generate a flag the runtime refuses for every value.
+/**
+ * PRM-27 (style-values): deepObject is defined only for an object; a schema that also admits a
+ * value that is not an object would generate a flag the runtime refuses for every value.
+ */
 const nonObjectSchema = refusal(
 	"PRM-27/non-object-schema",
 	"style-values",
@@ -428,9 +439,11 @@ const cookieName = refusal(
 	"Use a name made of RFC 9110 token characters"
 )
 
-// In the entry document, official-schema validation (VAL-04) refuses these fields on a querystring
-// parameter before this runs; a parameter in another document-set member, which is not
-// schema-validated, reaches this refusal.
+/**
+ * In the entry document, official-schema validation (VAL-04) refuses these fields on a querystring
+ * parameter before this runs; a parameter in another document-set member, which is not
+ * schema-validated, reaches this refusal.
+ */
 const querystringSchemaFields = refusal(
 	"STY-45/querystring-schema-fields",
 	"fixed-fields-for-use-with-schema",
@@ -439,10 +452,14 @@ const querystringSchemaFields = refusal(
 	"Describe the query string with exactly one content entry"
 )
 
-// An RFC 6265 cookie-name is an RFC 9110 token.
+/**
+ * An RFC 6265 cookie-name is an RFC 9110 token.
+ */
 const isCookieName = Schema.is(CookieName)
 
-// The rows a content-based parameter's serialization rests on, by location.
+/**
+ * The rows a content-based parameter's serialization rests on, by location.
+ */
 const contentRows = (location: Location): readonly string[] => {
 	if (location === "querystring") {
 		return ["STY-42", "STY-43"]
@@ -451,7 +468,9 @@ const contentRows = (location: Location): readonly string[] => {
 	return location === "header" || location === "cookie" ? ["PRM-24"] : ["PRM-23"]
 }
 
-// The style table defines spaceDelimited and pipeDelimited for an array or object only.
+/**
+ * The style table defines spaceDelimited and pipeDelimited for an array or object only.
+ */
 const delimitedStyles: ReadonlySet<StyleName> = new Set(["pipeDelimited", "spaceDelimited"])
 
 const primitiveNotApplicableFinding = (row: string): Finding =>
@@ -508,7 +527,9 @@ const decideContent = (node: ParameterNode, content: Content): Decision => {
 	})
 }
 
-// Whether the line's text gives allowReserved a meaning for this location and style.
+/**
+ * Whether the line's text gives allowReserved a meaning for this location and style.
+ */
 const honorsAllowReserved = (node: ParameterNode, style: StyleName, line: Line): boolean => {
 	if (node.in === "query") {
 		return true
@@ -551,7 +572,6 @@ const styleNotices = (
  * or a member union neither switch defines (`PRM-27/compound-nested`). `Covered`: every branch is
  * covered and a scalar one by the scalar switch; `nested` when the bracket switch covers one.
  */
-// oxlint-disable-next-line no-redeclare -- Data.taggedEnum pairs a type and its constructors under one name
 export type ScalarCover = Data.TaggedEnum<{
 	Covered: { readonly nested: boolean }
 	Strict: Record<never, never>
@@ -582,9 +602,11 @@ interface Traits {
 	readonly scalars: ScalarCover
 }
 
-// The style table's applicability checks (design 6.1): explode true where no value type fits,
-// a delimited style over a primitive, and deepObject over a schema that admits non-objects
-// (PRM-27). Query parameters and form Encoding entries (design 6.3) share them.
+/**
+ * The style table's applicability checks (design 6.1): explode true where no value type fits,
+ * a delimited style over a primitive, and deepObject over a schema that admits non-objects
+ * (PRM-27). Query parameters and form Encoding entries (design 6.3) share them.
+ */
 const inapplicable = (
 	row: string,
 	style: StyleName,
@@ -601,9 +623,11 @@ const inapplicable = (
 	return style === "deepObject" && traits.nonObject ? nonObjectSchema : undefined
 }
 
-// Which deepObject switches send a value, or none when an uncovered nested branch refuses it
-// (PRM-27/compound-nested): under the scalar switch the branch walk decides; otherwise the strict
-// nested test, which the bracket switch marks instead of refusing.
+/**
+ * Which deepObject switches send a value, or none when an uncovered nested branch refuses it
+ * (PRM-27/compound-nested): under the scalar switch the branch walk decides; otherwise the strict
+ * nested test, which the bracket switch marks instead of refusing.
+ */
 interface Marks {
 	readonly nested: boolean
 	readonly scalars: boolean
@@ -652,8 +676,10 @@ const decideStyle = (node: ParameterNode, line: Line, traits: Traits): Decision 
 		return refuse(styleLocation)
 	}
 
-	// PRM-27: a deepObject over a schema that admits non-objects is refused, bracket switch or not,
-	// unless the scalar switch's branch walk decides it (design 6.1 Scalar switch).
+	/**
+	 * PRM-27: a deepObject over a schema that admits non-objects is refused, bracket switch or not,
+	 * unless the scalar switch's branch walk decides it (design 6.1 Scalar switch).
+	 */
 	const cover = deepRow === undefined ? strictCover : traits.scalars
 	const blocked = inapplicable(
 		row,
@@ -730,9 +756,11 @@ const decideName = (node: ParameterNode): Decision | undefined => {
 	return node.in === "cookie" && !isCookieName(node.name) ? refuse(cookieName) : undefined
 }
 
-// A parameter's one content entry: its media type and the schema key of its media type object.
-// A `querystring` form entry's Encoding Objects are decided by the body form rules (design 6.1), in
-// the operation assembly.
+/**
+ * A parameter's one content entry: its media type and the schema key of its media type object.
+ * A `querystring` form entry's Encoding Objects are decided by the body form rules (design 6.1), in
+ * the operation assembly.
+ */
 interface Content {
 	readonly mediaType: string
 	readonly schemaKey: Option.Option<string>
@@ -740,7 +768,9 @@ interface Content {
 
 type Media = Option.Option<Content>
 
-// STY-45: a querystring is content only.
+/**
+ * STY-45: a querystring is content only.
+ */
 const usesSchemaFields = (node: ParameterNode): boolean =>
 	node.schema !== undefined ||
 	node.style !== undefined ||
@@ -763,7 +793,9 @@ const decide = (node: ParameterNode, line: Line, media: Media, traits: Traits): 
 	})
 }
 
-// What the earlier stages guarantee; a violation means one of them let something through.
+/**
+ * What the earlier stages guarantee; a violation means one of them let something through.
+ */
 const contractReason = (
 	node: ParameterNode,
 	line: Line
@@ -772,7 +804,9 @@ const contractReason = (
 		return "line-mismatch"
 	}
 
-	// A querystring with schema is refused as STY-45, not stopped here.
+	/**
+	 * A querystring with schema is refused as STY-45, not stopped here.
+	 */
 	const both = node.schema !== undefined && node.content !== undefined
 	if (
 		(node.schema === undefined && node.content === undefined) ||
@@ -788,7 +822,9 @@ const contractReason = (
 	return node.in === "path" && node.required !== true ? "path-not-required" : undefined
 }
 
-// A content entry's media type object, which 3.2 lets be a reference: its schema key.
+/**
+ * A content entry's media type object, which 3.2 lets be a reference: its schema key.
+ */
 const mediaContent = (
 	resolution: Resolution,
 	mediaType: string,
@@ -823,7 +859,6 @@ const toDiagnostics = (
 ): Effect.Effect<readonly Diagnostic[]> => {
 	const wire = sanitize(wireName)
 
-	// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method
 	return Effect.forEach(findings, (finding) =>
 		diagnosticOf({
 			code: finding.code,
@@ -889,7 +924,9 @@ const MemberSchemas = Schema.Struct({
 export const typeNames = (type: string | readonly string[] | undefined): readonly string[] =>
 	type === undefined ? [] : Arr.ensure(type)
 
-// The type names the schema at `key` declares, through `$ref`; none when it declares no type.
+/**
+ * The type names the schema at `key` declares, through `$ref`; none when it declares no type.
+ */
 const typesAt = (resolution: Resolution, key: CanonicalKey): Effect.Effect<readonly string[]> =>
 	nodeIn(resolution, follow(resolution, key)).pipe(
 		Effect.flatMap(Schema.decodeUnknownEffect(TypedSchema)),
@@ -903,7 +940,9 @@ const typesAt = (resolution: Resolution, key: CanonicalKey): Effect.Effect<reado
 export const compound = (types: readonly string[]): boolean =>
 	types.some((name) => name === "array" || name === "object")
 
-// Whether a cookie's schema, through `$ref`, declares an array or object type (PRM-34).
+/**
+ * Whether a cookie's schema, through `$ref`, declares an array or object type (PRM-34).
+ */
 const carriesMultiple = (resolution: Resolution, source: Source): Effect.Effect<boolean> => {
 	if (source.node.in !== "cookie" || source.node.schema === undefined) {
 		return Effect.succeed(false)
@@ -912,9 +951,11 @@ const carriesMultiple = (resolution: Resolution, source: Source): Effect.Effect<
 	return typesAt(resolution, childKey(source.target, "schema")).pipe(Effect.map(compound))
 }
 
-// Whether a deepObject query parameter's schema, through `$ref`, is an array or declares a
-// property or `additionalProperties` schema of an object or array type (PRM-27). An untyped
-// member is not nested.
+/**
+ * Whether a deepObject query parameter's schema, through `$ref`, is an array or declares a
+ * property or `additionalProperties` schema of an object or array type (PRM-27). An untyped
+ * member is not nested.
+ */
 const nestsDeeply = Effect.fnUntraced(function* nestsDeeply(
 	resolution: Resolution,
 	source: Source
@@ -955,9 +996,11 @@ const CompositionSchema = Schema.Struct({
 	properties: Schema.optionalKey(Schema.Unknown)
 })
 
-// One `objectOnly` walk: each resolved schema is decided once (`memo`), a schema already on the
-// current path is a cycle, and every schema decided is charged to the call's node budget. `arrays`
-// says whether an array counts with the objects, as it does for PRM-27, whose nested test refuses it.
+/**
+ * One `objectOnly` walk: each resolved schema is decided once (`memo`), a schema already on the
+ * current path is a cycle, and every schema decided is charged to the call's node budget. `arrays`
+ * says whether an array counts with the objects, as it does for PRM-27, whose nested test refuses it.
+ */
 interface ObjectWalk {
 	readonly arrays: boolean
 	readonly budget: Budget
@@ -972,9 +1015,11 @@ const walkOf = (limits: SchemaLimits, arrays: boolean): ObjectWalk => ({
 	path: new Set()
 })
 
-// What one resolved schema says on its own about admitting only objects (and arrays, when the walk
-// counts them): a declared type list must name nothing else; an untyped schema is an object when it
-// declares `properties`, except that its anyOf and oneOf members, when it has any, decide with it.
+/**
+ * What one resolved schema says on its own about admitting only objects (and arrays, when the walk
+ * counts them): a declared type list must name nothing else; an untyped schema is an object when it
+ * declares `properties`, except that its anyOf and oneOf members, when it has any, decide with it.
+ */
 interface OwnVerdict {
 	readonly members: readonly CanonicalKey[]
 	readonly only: boolean
@@ -1003,9 +1048,11 @@ const ownVerdict = Effect.fnUntraced(function* ownVerdict(
 	return { members, only: members.length > 0 || declared.properties !== undefined }
 })
 
-// Whether the schema at `key`, through `$ref`, admits only objects: its own verdict, or every
-// anyOf and oneOf member's. A cycle or a spent budget fails closed (not object-only); a result
-// reached through either is false, so memoizing it is sound.
+/**
+ * Whether the schema at `key`, through `$ref`, admits only objects: its own verdict, or every
+ * anyOf and oneOf member's. A cycle or a spent budget fails closed (not object-only); a result
+ * reached through either is false, so memoizing it is sound.
+ */
 const objectOnly = Effect.fnUntraced(function* admitsOnlyObjects(
 	resolution: Resolution,
 	key: CanonicalKey,
@@ -1038,11 +1085,13 @@ const objectOnly = Effect.fnUntraced(function* admitsOnlyObjects(
 	return only
 })
 
-// The value traits of one schema site, through `$ref`, that the style table's applicability checks
-// read (`inapplicable`): `primitive` when it declares types and none of them is an array or object
-// (an untyped schema is not primitive), and, for a `deepObject` value only, `nonObject` when it
-// admits a value that is not an object (PRM-27). `limits` bounds that walk, which fails closed. No
-// schema has neither trait. Parameters and form Encoding entries share it.
+/**
+ * The value traits of one schema site, through `$ref`, that the style table's applicability checks
+ * read (`inapplicable`): `primitive` when it declares types and none of them is an array or object
+ * (an untyped schema is not primitive), and, for a `deepObject` value only, `nonObject` when it
+ * admits a value that is not an object (PRM-27). `limits` bounds that walk, which fails closed. No
+ * schema has neither trait. Parameters and form Encoding entries share it.
+ */
 const valueTraits = Effect.fnUntraced(function* valueTraits(
 	resolution: Resolution,
 	schema: CanonicalKey | undefined,
@@ -1059,13 +1108,17 @@ const valueTraits = Effect.fnUntraced(function* valueTraits(
 	return { nonObject, primitive: types.length > 0 && !compound(types) }
 })
 
-// A parameter's own schema site, or `undefined` for a `content` parameter.
+/**
+ * A parameter's own schema site, or `undefined` for a `content` parameter.
+ */
 const schemaOf = (source: Source): CanonicalKey | undefined =>
 	source.node.schema === undefined ? undefined : childKey(source.target, "schema")
 
-// Whether a styled parameter's value is an object (design 6.1): its schema, through `$ref`, admits
-// only objects, by `type: object`, by `properties` with no type, or by anyOf and oneOf members that
-// all do. Emit reads it to take the value as JSON.
+/**
+ * Whether a styled parameter's value is an object (design 6.1): its schema, through `$ref`, admits
+ * only objects, by `type: object`, by `properties` with no type, or by anyOf and oneOf members that
+ * all do. Emit reads it to take the value as JSON.
+ */
 const objectValued = (
 	resolution: Resolution,
 	source: Source,
@@ -1079,15 +1132,19 @@ const objectValued = (
 	return objectOnly(resolution, childKey(target, "schema"), walkOf(limits, false))
 }
 
-// One branch of a `deepObject` schema (design 6.1 Scalar switch): an object with scalar members
-// (`flat`, the standard rule), an object with nested members or an array (`nested`, the bracket
-// switch's), a scalar (`scalar`, the scalar switch's), an object with a member whose union mixes
-// objects with other values (`mixed`, which neither switch defines), or anything else (`other`:
-// `null`, untyped, unresolved, a cycle or a spent budget).
+/**
+ * One branch of a `deepObject` schema (design 6.1 Scalar switch): an object with scalar members
+ * (`flat`, the standard rule), an object with nested members or an array (`nested`, the bracket
+ * switch's), a scalar (`scalar`, the scalar switch's), an object with a member whose union mixes
+ * objects with other values (`mixed`, which neither switch defines), or anything else (`other`:
+ * `null`, untyped, unresolved, a cycle or a spent budget).
+ */
 type Branch = "flat" | "mixed" | "nested" | "other" | "scalar"
 
-// One branch walk: each resolved schema is classified once (`memo`), a schema already on the
-// current path is a cycle, and every schema classified is charged to the call's node budget.
+/**
+ * One branch walk: each resolved schema is classified once (`memo`), a schema already on the
+ * current path is a cycle, and every schema classified is charged to the call's node budget.
+ */
 interface BranchWalk {
 	readonly budget: Budget
 	readonly memo: Map<string, ReadonlySet<Branch>>
@@ -1104,7 +1161,9 @@ const BranchSchema = Schema.Struct({
 	type: Schema.optionalKey(Schema.Union([Schema.String, Schema.Array(Schema.String)]))
 })
 
-// The `enum` or `const` values of a scalar branch: strings, numbers and booleans.
+/**
+ * The `enum` or `const` values of a scalar branch: strings, numbers and booleans.
+ */
 const ScalarValues = Schema.NonEmptyArray(
 	Schema.Union([Schema.String, Schema.Number, Schema.Boolean])
 )
@@ -1113,9 +1172,11 @@ const decodeScalarValues = Schema.decodeUnknownOption(ScalarValues)
 
 const scalarTypes: ReadonlySet<string> = new Set(["boolean", "integer", "number", "string"])
 
-// What one resolved schema declares on its own, before any member is walked: the branches it
-// settles (`kinds`), the anyOf and oneOf members whose branches it is the union of (`union`), and
-// the members of its object branch (`object`), when it has one.
+/**
+ * What one resolved schema declares on its own, before any member is walked: the branches it
+ * settles (`kinds`), the anyOf and oneOf members whose branches it is the union of (`union`), and
+ * the members of its object branch (`object`), when it has one.
+ */
 interface OwnBranches {
 	readonly kinds: readonly Branch[]
 	readonly object?: readonly CanonicalKey[]
@@ -1124,7 +1185,9 @@ interface OwnBranches {
 
 const settled = (kinds: readonly Branch[]): OwnBranches => ({ kinds, union: [] })
 
-// The property and additionalProperties member sites of an object branch at `home`.
+/**
+ * The property and additionalProperties member sites of an object branch at `home`.
+ */
 const memberSites = (resolution: Resolution, home: CanonicalKey) =>
 	nodeIn(resolution, home).pipe(
 		Effect.flatMap(Schema.decodeUnknownEffect(MemberSchemas)),
@@ -1137,7 +1200,9 @@ const memberSites = (resolution: Resolution, home: CanonicalKey) =>
 		])
 	)
 
-// The branches of a `type` list, the object branch's members read once for `object`.
+/**
+ * The branches of a `type` list, the object branch's members read once for `object`.
+ */
 const typedBranches = Effect.fnUntraced(function* typedBranches(
 	resolution: Resolution,
 	home: CanonicalKey,
@@ -1164,10 +1229,12 @@ const typedBranches = Effect.fnUntraced(function* typedBranches(
 		: settled(kinds)
 })
 
-// One resolved schema's own branches: an anyOf or oneOf beside no constraint of its own is the union
-// of its members' branches (beside `type`, `enum`, `const` or `properties` it fails closed); an
-// `enum` or `const` of strings, numbers and booleans is a scalar branch; then the `type` list, or
-// an untyped schema with `properties` (an object).
+/**
+ * One resolved schema's own branches: an anyOf or oneOf beside no constraint of its own is the union
+ * of its members' branches (beside `type`, `enum`, `const` or `properties` it fails closed); an
+ * `enum` or `const` of strings, numbers and booleans is a scalar branch; then the `type` list, or
+ * an untyped schema with `properties` (an object).
+ */
 const ownBranches = Effect.fnUntraced(function* ownBranches(
 	resolution: Resolution,
 	home: CanonicalKey
@@ -1180,9 +1247,10 @@ const ownBranches = Effect.fnUntraced(function* ownBranches(
 		return settled(["other"])
 	}
 
-	// The index signature lets `Record.has` test a key the struct declares optional.
+	/**
+	 * The index signature lets `Record.has` test a key the struct declares optional.
+	 */
 	const declared: Record.ReadonlyRecord<string, unknown> & typeof BranchSchema.Type = decoded.value
-	// A 3.0 `nullable: true` admits `null`, which neither switch sends.
 	if (resolution.line === "3.0" && declared.nullable === true) {
 		return settled(["other"])
 	}
@@ -1211,9 +1279,11 @@ const ownBranches = Effect.fnUntraced(function* ownBranches(
 	return yield* typedBranches(resolution, home, declared)
 })
 
-// How a member of an object branch nests: its declared type is an object or array (`nested`, as
-// the strict nested test reads it), it is an anyOf or oneOf union (`union`, walked), or neither
-// (`flat`: an untyped member is scalar, as it is today).
+/**
+ * How a member of an object branch nests: its declared type is an object or array (`nested`, as
+ * the strict nested test reads it), it is an anyOf or oneOf union (`union`, walked), or neither
+ * (`flat`: an untyped member is scalar, as it is today).
+ */
 const memberNesting = Effect.fnUntraced(function* memberNesting(
 	resolution: Resolution,
 	member: CanonicalKey
@@ -1230,8 +1300,10 @@ const memberNesting = Effect.fnUntraced(function* memberNesting(
 	return composed.anyOf === undefined && composed.oneOf === undefined ? "flat" : "union"
 })
 
-// A member union holding objects nests (`nested`); objects beside other values is `mixed`; a
-// union with no object is a scalar member (`flat`).
+/**
+ * A member union holding objects nests (`nested`); objects beside other values is `mixed`; a
+ * union with no object is a scalar member (`flat`).
+ */
 const unionMember = (kinds: ReadonlySet<Branch>): Branch => {
 	const objects = kinds.has("flat") || kinds.has("mixed") || kinds.has("nested")
 	if (kinds.has("mixed") || (objects && (kinds.has("scalar") || kinds.has("other")))) {
@@ -1241,7 +1313,9 @@ const unionMember = (kinds: ReadonlySet<Branch>): Branch => {
 	return objects ? "nested" : "flat"
 }
 
-// An object branch from its members' kinds: `mixed` over `nested` over `flat`.
+/**
+ * An object branch from its members' kinds: `mixed` over `nested` over `flat`.
+ */
 const objectBranch = (members: readonly Branch[]): Branch => {
 	if (members.includes("mixed")) {
 		return "mixed"
@@ -1250,8 +1324,10 @@ const objectBranch = (members: readonly Branch[]): Branch => {
 	return members.includes("nested") ? "nested" : "flat"
 }
 
-// The branches the schema at `key` admits, through `$ref`. A cycle or a spent budget is `other`,
-// which refuses the entry, so memoizing a result reached through either is sound.
+/**
+ * The branches the schema at `key` admits, through `$ref`. A cycle or a spent budget is `other`,
+ * which refuses the entry, so memoizing a result reached through either is sound.
+ */
 const branchesOf = Effect.fnUntraced(function* branches(
 	resolution: Resolution,
 	key: CanonicalKey,
@@ -1326,7 +1402,9 @@ export const scalarCover = Effect.fnUntraced(function* scalarCover(
 	return ScalarCover.Covered({ nested })
 })
 
-// The scalar switch's decision for a deepObject query parameter; `Strict` for any other.
+/**
+ * The scalar switch's decision for a deepObject query parameter; `Strict` for any other.
+ */
 const scalarsOf = (
 	resolution: Resolution,
 	site: ParameterSite,
@@ -1396,7 +1474,6 @@ const serializationOf = (
 	objectValue: boolean
 ) => {
 	if (plan.kind === "content") {
-		// The operation assembly fills a `querystring` form entry's rules (design 6.1).
 		return {
 			encoding: [],
 			kind: plan.kind,
@@ -1467,7 +1544,9 @@ const build = Effect.fnUntraced(function* build(
 	}).pipe(Effect.orDie)
 })
 
-// The schema sites a parameter carries: its `schema`, or its one content entry's `schema`.
+/**
+ * The schema sites a parameter carries: its `schema`, or its one content entry's `schema`.
+ */
 const schemaSitesOf = (resolution: Resolution, source: Source): readonly CanonicalKey[] => {
 	const { node, target } = source
 	if (node.schema !== undefined) {
@@ -1490,11 +1569,13 @@ const MarkedSchema = Schema.Struct({
 
 const branchKeys = ["allOf", "anyOf", "oneOf"] as const
 
-// Whether the schema at `key` carries `x-sensitive: true` on any node the password reading walks
-// (names `isPassword`): each node of its `$ref` chain with its sibling keywords, each `allOf`
-// member and each `anyOf` or `oneOf` branch. A node already on the walk is not read twice, so a
-// cycle ends; past the node budget the answer is yes, so a secret never prints by exhaustion. An
-// unreadable node is not marked.
+/**
+ * Whether the schema at `key` carries `x-sensitive: true` on any node the password reading walks
+ * (names `isPassword`): each node of its `$ref` chain with its sibling keywords, each `allOf`
+ * member and each `anyOf` or `oneOf` branch. A node already on the walk is not read twice, so a
+ * cycle ends; past the node budget the answer is yes, so a secret never prints by exhaustion. An
+ * unreadable node is not marked.
+ */
 const schemaMarked = Effect.fnUntraced(function* marked(
 	resolution: Resolution,
 	key: CanonicalKey,
@@ -1543,8 +1624,10 @@ interface SensitiveMark {
 	readonly sensitive?: true
 }
 
-// The `sensitive` mark of a Parameter or Header Object: present when `x-sensitive: true` sits on
-// the object itself or anywhere `schemaMarked` walks its schema. `limits.maxNodes` bounds the walk.
+/**
+ * The `sensitive` mark of a Parameter or Header Object: present when `x-sensitive: true` sits on
+ * the object itself or anywhere `schemaMarked` walks its schema. `limits.maxNodes` bounds the walk.
+ */
 const sensitiveOf = Effect.fnUntraced(function* sensitiveOf(
 	resolution: Resolution,
 	source: Source,
@@ -1607,9 +1690,6 @@ export const normalizeParameter = Effect.fnUntraced(function* normalizeParameter
 	}
 
 	if (schemaSitesOf(resolution, source).some((at) => appliesDynamicKeyword(resolution, at))) {
-		// The schema store refuses the keyword at element scope where it sits (SCH-05, 06, 65, 66);
-		// the value cannot be checked without it, so the parameter is refused with no second
-		// diagnostic, as a body is, and a required one raises its operation.
 		return ParameterOutcome.Refused({ diagnostics: [], required: source.node.required ?? false })
 	}
 
@@ -1626,14 +1706,15 @@ export const normalizeParameter = Effect.fnUntraced(function* normalizeParameter
 	})
 })
 
-// A Header Object is a Parameter Object without `name` and `in` (HDR-01).
+/**
+ * A Header Object is a Parameter Object without `name` and `in` (HDR-01).
+ */
 const HeaderObject = Schema.Struct(Struct.omit(ParameterObject.fields, ["in", "name"]))
 
 /**
  * How one encoding part header is typed and sent: as a header parameter of its name would be, or
  * `Unsupported` with the reason the header parameter path cannot carry it.
  */
-// oxlint-disable-next-line no-redeclare -- Data.taggedEnum pairs a type and its constructors under one name
 export type PartHeaderOutcome = Data.TaggedEnum<{
 	Typed: {
 		readonly schema: { readonly key: string }

@@ -30,8 +30,10 @@ interface Finding {
 	readonly row: Row
 }
 
-// The Objects that can hold informational elements. An informational Object (example, link,
-// callback) is recorded and not walked, because its record accounts for its parts.
+/**
+ * The Objects that can hold informational elements. An informational Object (example, link,
+ * callback) is recorded and not walked, because its record accounts for its parts.
+ */
 type Walked =
 	| "encoding"
 	| "externalDocs"
@@ -163,8 +165,10 @@ class Walk {
 		}
 	}
 
-	// A map of names to elements of one informational kind: one record per entry, or one record at
-	// the map when it is empty, so a declared but empty map is still accounted for.
+	/**
+	 * A map of names to elements of one informational kind: one record per entry, or one record at
+	 * the map when it is empty, so a declared but empty map is still accounted for.
+	 */
 	informativeMap(row: Row, value: Json | undefined, pointer: string): void {
 		if (!isObject(value)) {
 			return
@@ -199,7 +203,9 @@ class Walk {
 		}
 	}
 
-	// A Reference Object's other members are ignored (REF rows), so nothing below it is read here.
+	/**
+	 * A Reference Object's other members are ignored (REF rows), so nothing below it is read here.
+	 */
 	visit(kind: Walked, value: Json | undefined, pointer: string): void {
 		if (!isObject(value) || Predicate.isString(value.$ref)) {
 			return

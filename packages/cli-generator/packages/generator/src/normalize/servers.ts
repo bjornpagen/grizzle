@@ -545,7 +545,9 @@ export const effectiveServers = (levels: ServerLevels, context: ServersContext):
 	return normalizeLevel(levels.root, "root", context)
 }
 
-// One `acceptedOrigins` entry: its origin, or the diagnostic that refuses it.
+/**
+ * One `acceptedOrigins` entry: its origin, or the diagnostic that refuses it.
+ */
 const acceptedOrigin = (
 	entry: string,
 	index: number,

@@ -166,15 +166,19 @@ const methodRows: ReadonlyMap<string, string> = new Map([
 	["TRACE", "PTH-21"]
 ])
 
-// Methods whose request body 3.0 says consumers ignore and 3.1+ leaves undecided (OPR-10, OPR-11).
+/**
+ * Methods whose request body 3.0 says consumers ignore and 3.1+ leaves undecided (OPR-10, OPR-11).
+ */
 const bodylessMethods: ReadonlySet<string> = new Set(["GET", "HEAD", "DELETE", "OPTIONS", "TRACE"])
 
 const nodeAt = (resolution: Resolution, pointer: string): Option.Option<Json> =>
 	nodeOption(resolution, { document: resolution.document, pointer })
 
-// The path item at a use site, followed through its Reference Object to the end of the chain. A
-// path item in another document of the set is not read here: the sites of its operations would sit
-// in that document, and assembly walks the entry's sites only.
+/**
+ * The path item at a use site, followed through its Reference Object to the end of the chain. A
+ * path item in another document of the set is not read here: the sites of its operations would sit
+ * in that document, and assembly walks the entry's sites only.
+ */
 const locate = (resolution: Resolution, use: string): Option.Option<Located> => {
 	const reference = referenceAt(resolution, use)
 	if (reference !== undefined && reference.target.document !== resolution.document) {
@@ -228,7 +232,6 @@ const operationsOfItem = (
 		const fields = node.pipe(Option.flatMap((found) => decodeOption(OperationFields, found)))
 		const method = decodeOption(MethodToken, entry.token)
 
-		// A key the check stage refused (PTH-07, PTH-23, PTH-24) is not read: its diagnostic exists.
 		return Option.isSome(node) && Option.isSome(fields) && Option.isSome(method)
 			? [
 					{
@@ -246,8 +249,10 @@ const operationsOfItem = (
 	})
 }
 
-// An operation's use site under `/paths`: the path key, then the method or its
-// `additionalOperations` entry. Unlike `pointer`, it is unique when path items share a target.
+/**
+ * An operation's use site under `/paths`: the path key, then the method or its
+ * `additionalOperations` entry. Unlike `pointer`, it is unique when path items share a target.
+ */
 const useSite = (key: string, raw: RawOperation): string => {
 	const item = childPointer("/paths", key)
 
@@ -256,9 +261,11 @@ const useSite = (key: string, raw: RawOperation): string => {
 		: childPointer(item, raw.method.toLowerCase())
 }
 
-// The entry document's operations in canonical order (design 3.7): every operation sits in the
-// entry document, so the order is its use-site pointer token by token. Member order of `paths`,
-// a path item and `additionalOperations` is not semantic and never reaches a later stage.
+/**
+ * The entry document's operations in canonical order (design 3.7): every operation sits in the
+ * entry document, so the order is its use-site pointer token by token. Member order of `paths`,
+ * a path item and `additionalOperations` is not semantic and never reaches a later stage.
+ */
 const rawOperations = (resolution: Resolution): readonly RawOperation[] => {
 	const keys = decodeOption(PathsRoot, resolution.value).pipe(
 		Option.map((root) => Object.keys(root.paths ?? {})),
@@ -289,8 +296,10 @@ const rawOperations = (resolution: Resolution): readonly RawOperation[] => {
 	).map((entry) => entry.raw)
 }
 
-// A parameter's identity: its `in` and name (a header name lowercased), or, for an entry that
-// cannot be read, its own pointer. Compared structurally with `Equal.equals`.
+/**
+ * A parameter's identity: its `in` and name (a header name lowercased), or, for an entry that
+ * cannot be read, its own pointer. Compared structurally with `Equal.equals`.
+ */
 type ParameterKey = { readonly in: string; readonly name: string } | { readonly unreadable: string }
 
 interface ParameterEntry {
@@ -299,14 +308,15 @@ interface ParameterEntry {
 	readonly pointer: string
 }
 
-// A parameter's identity, read from the document of the set its reference chain ends in.
+/**
+ * A parameter's identity, read from the document of the set its reference chain ends in.
+ */
 const parameterKey = (resolution: Resolution, pointer: string): ParameterKey => {
 	const target = follow(resolution, { document: resolution.document, pointer })
 	const identity = nodeOption(resolution, target).pipe(
 		Option.flatMap((node) => decodeOption(ParameterIdentity, node))
 	)
 
-	// An unreadable entry gets a key of its own so `normalizeParameter` reports it.
 	return Option.match(identity, {
 		onNone: () => ({ unreadable: pointer }),
 		onSome: (found) => ({
@@ -333,8 +343,10 @@ interface Merged {
 	readonly overridden: boolean
 }
 
-// Path item entries in document order, an operation entry with the same key replacing its path
-// item entry in place, and the operation's other entries after them (design 2.2, SR:G3).
+/**
+ * Path item entries in document order, an operation entry with the same key replacing its path
+ * item entry in place, and the operation's other entries after them (design 2.2, SR:G3).
+ */
 const mergeEntries = (
 	itemEntries: readonly ParameterEntry[],
 	operationEntries: readonly ParameterEntry[]
@@ -374,9 +386,11 @@ const operationInfo = (raw: RawOperation): DiagnosticOperationValue =>
 		? { method: raw.method, path: raw.path }
 		: { method: raw.method, operationId: raw.fields.operationId, path: raw.path }
 
-// A 3.2 `querystring` parameter's form content takes Encoding Objects as for bodies (design 6.1):
-// the body form rules decide them, and the parameter carries the rules, or is refused with their
-// diagnostics when they refuse the content, as a form body alternative would be dropped.
+/**
+ * A 3.2 `querystring` parameter's form content takes Encoding Objects as for bodies (design 6.1):
+ * the body form rules decide them, and the parameter carries the rules, or is refused with their
+ * diagnostics when they refuse the content, as a form body alternative would be dropped.
+ */
 const withFormRules = Effect.fnUntraced(function* withFormRules(
 	shared: Shared,
 	site: ParameterSite,
@@ -412,19 +426,18 @@ const withFormRules = Effect.fnUntraced(function* withFormRules(
 		return ParameterOutcome.Refused({ diagnostics, required: parameter.required })
 	}
 
-	// Each spread feeds a class constructor, which checks the fields and gives back the class.
-	// oxlint-disable-next-line typescript/no-misused-spread -- rebuilt through the constructor
 	const filled = new ContentSerialization({ ...serialization, encoding: decided.encoding })
 
 	return ParameterOutcome.Implemented({
 		diagnostics,
-		// oxlint-disable-next-line typescript/no-misused-spread -- rebuilt through the constructor
 		parameter: new ParameterEntity({ ...parameter, serialization: filled })
 	})
 })
 
-// One merged entry's outcome, read through the shared cache: a path item parameter is the item's
-// element, not one operation's, so it is read once.
+/**
+ * One merged entry's outcome, read through the shared cache: a path item parameter is the item's
+ * element, not one operation's, so it is read once.
+ */
 const parameterOutcome = Effect.fnUntraced(function* parameterOutcome(
 	shared: Shared,
 	raw: RawOperation,
@@ -456,7 +469,6 @@ const assembleParameters = Effect.fnUntraced(function* assembleParameters(
 	raw: RawOperation,
 	merged: Merged
 ): Effect.fn.Return<Assembled, BodyNodeBudget | BodyNotReadable | ParameterNotReadable> {
-	// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method
 	const outcomes = yield* Effect.forEach(merged.entries, (entry) =>
 		parameterOutcome(shared, raw, entry)
 	)
@@ -523,7 +535,9 @@ const assembleBody = Effect.fnUntraced(function* assembleBody(
 		}
 	}
 
-	// The author config's bracket switch reaches the body as it reaches the parameters.
+	/**
+	 * The author config's bracket switch reaches the body as it reaches the parameters.
+	 */
 	const { nonStandard } = shared.context.config
 	const site: Types.Mutable<BodySite> = { openapi: shared.context.openapi, operation, pointer }
 	if (nonStandard !== undefined) {
@@ -617,7 +631,9 @@ interface NamingRead<A> {
 	readonly value: A | undefined
 }
 
-// The keys each source names a group and a method by (design 4.4 Naming extensions).
+/**
+ * The keys each source names a group and a method by (design 4.4 Naming extensions).
+ */
 const namingKeys = {
 	fern: { group: "x-fern-sdk-group-name", method: "x-fern-sdk-method-name" },
 	forge: { group: "x-forge-group-name", method: "x-forge-method-name" }
@@ -625,7 +641,9 @@ const namingKeys = {
 
 const aliasesKey = "x-forge-aliases"
 
-// A dotted group, split at `.`; the empty string splits to no segments.
+/**
+ * A dotted group, split at `.`; the empty string splits to no segments.
+ */
 const DottedGroup = Schema.String.pipe(
 	Schema.decodeTo(Schema.Array(Schema.String), {
 		decode: SchemaGetter.split({ separator: "." }),
@@ -633,8 +651,10 @@ const DottedGroup = Schema.String.pipe(
 	})
 )
 
-// A group is a dotted string, split at `.`, or an array whose elements are kept whole; no segment
-// may be empty. Any other shape is unusable.
+/**
+ * A group is a dotted string, split at `.`, or an array whose elements are kept whole; no segment
+ * may be empty. Any other shape is unusable.
+ */
 const groupSegments = (value: Json): Option.Option<Arr.NonEmptyReadonlyArray<string>> =>
 	decodeOption(DottedGroup, value).pipe(
 		Option.orElse(() => decodeOption(Schema.Array(Schema.String), value)),
@@ -647,8 +667,10 @@ const methodName = (value: Json): Option.Option<string> =>
 
 const invalid = (pointer: string): NamingNotice => ({ code: "EXT-01/naming-invalid", pointer })
 
-// One source's hint from the object at `pointer`; a present key with an unusable value is dropped
-// with a notice at that key.
+/**
+ * One source's hint from the object at `pointer`; a present key with an unusable value is dropped
+ * with a notice at that key.
+ */
 const hintOf = (
 	holder: JsonObject,
 	pointer: string,
@@ -687,9 +709,11 @@ const hintOf = (
 	return { notices, value: hint }
 }
 
-// An alias names a command by its own keys only: it is usable when its Forge keys, else its Fern
-// keys, give both a group and a method, or else when it has its own `operationId`. It never takes
-// the operation's `operationId`. An `x-forge-aliases` inside it is not read.
+/**
+ * An alias names a command by its own keys only: it is usable when its Forge keys, else its Fern
+ * keys, give both a group and a method, or else when it has its own `operationId`. It never takes
+ * the operation's `operationId`. An `x-forge-aliases` inside it is not read.
+ */
 const aliasOf = (
 	element: Json,
 	pointer: string,
@@ -730,8 +754,10 @@ const aliasOf = (
 	return { notices, value: alias }
 }
 
-// `x-forge-aliases` must be an array holding at least one usable alias; otherwise it is treated as
-// absent with one notice at the array.
+/**
+ * `x-forge-aliases` must be an array holding at least one usable alias; otherwise it is treated as
+ * absent with one notice at the array.
+ */
 const aliasesOf = (
 	holder: JsonObject,
 	pointer: string
@@ -755,8 +781,10 @@ const aliasesOf = (
 		: { notices: [invalid(arrayPointer), ...notices], value: undefined }
 }
 
-// The naming extensions of an Operation Object (design 4.4, D-NAME4). Only the five naming keys
-// are read; every extension stays recorded as EXT-01 by `collectInformational`.
+/**
+ * The naming extensions of an Operation Object (design 4.4, D-NAME4). Only the five naming keys
+ * are read; every extension stays recorded as EXT-01 by `collectInformational`.
+ */
 const namingOf = (raw: RawOperation): NamingRead<Types.Mutable<typeof Naming.Encoded>> => {
 	const forge = hintOf(raw.node, raw.pointer, "forge")
 	const fern = hintOf(raw.node, raw.pointer, "fern")
@@ -783,9 +811,11 @@ interface Assembly {
 	readonly operation?: Operation
 }
 
-// An operation refused whole sends nothing, so none of its elements is sent in the bracket
-// convention or as a scalar pair: their notices go with it (design 8.5 rule 7, option A), as a
-// refused form alternative's do in the body assembly. `nonStandard` reads generated operations only.
+/**
+ * An operation refused whole sends nothing, so none of its elements is sent in the bracket
+ * convention or as a scalar pair: their notices go with it (design 8.5 rule 7, option A), as a
+ * refused form alternative's do in the body assembly. `nonStandard` reads generated operations only.
+ */
 const withoutAuthorChoiceNotices = (diagnostics: readonly Diagnostic[]): readonly Diagnostic[] =>
 	diagnostics.filter((diagnostic) => !authorChoiceCodes.has(diagnostic.code))
 
@@ -809,7 +839,6 @@ const assembleOne = Effect.fnUntraced(function* assembleOne(
 	const servers = yield* effectiveServersOf(shared, raw)
 	const site = { operation: operationInfo(raw), pointer: raw.pointer }
 	const naming = namingOf(raw)
-	// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method
 	const namingNotices = yield* Effect.forEach(naming.notices, (found) =>
 		diagnose(shared, found.code, { operation: site.operation, pointer: found.pointer })
 	)
@@ -856,7 +885,6 @@ const assembleOne = Effect.fnUntraced(function* assembleOne(
 	}
 
 	const fields: Record<string, unknown> = Record.filter(
-		// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Record.filter(record, predicate), not an array method
 		{
 			body: body.body,
 			deprecated: raw.fields.deprecated ?? false,
@@ -874,7 +902,6 @@ const assembleOne = Effect.fnUntraced(function* assembleOne(
 		Predicate.isNotUndefined
 	)
 
-	// An empty operationId is not a name; naming reports it (OPR-06).
 	if (raw.fields.operationId !== undefined && raw.fields.operationId !== "") {
 		fields.operationId = raw.fields.operationId
 	}
@@ -884,7 +911,9 @@ const assembleOne = Effect.fnUntraced(function* assembleOne(
 	return { diagnostics, operation }
 })
 
-// A diagnostic's identity for `distinctDiagnostics`: a fresh array, compared element by element.
+/**
+ * A diagnostic's identity for `distinctDiagnostics`: a fresh array, compared element by element.
+ */
 const identityKey = (diagnostic: Diagnostic) => [
 	diagnostic.code,
 	diagnostic.document,

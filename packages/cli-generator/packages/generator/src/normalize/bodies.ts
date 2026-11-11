@@ -73,7 +73,6 @@ export interface BodySite {
  * survived; `Refused` means none did, and keeps `required` so the operation assembly can raise the
  * refusal to operation scope.
  */
-// oxlint-disable-next-line no-redeclare -- Data.taggedEnum pairs a type and its constructors under one name
 export type BodyOutcome = Data.TaggedEnum<{
 	Implemented: { readonly body: Body; readonly diagnostics: readonly Diagnostic[] }
 	Refused: { readonly diagnostics: readonly Diagnostic[]; readonly required: boolean }
@@ -88,7 +87,6 @@ export const BodyOutcome = Data.taggedEnum<BodyOutcome>()
  * The site is not a Request Body Object the earlier stages could have passed: validation or
  * resolution should have stopped it.
  */
-// oxlint-disable-next-line unicorn/throw-new-error -- Schema.TaggedError<Self>()(tag, fields) declares a class; nothing is thrown
 export class BodyNotReadable extends Schema.TaggedError<BodyNotReadable>()("BodyNotReadable", {
 	pointer: Schema.String,
 	reason: Schema.Literals(["media-type-not-an-object", "not-a-request-body"])
@@ -97,7 +95,6 @@ export class BodyNotReadable extends Schema.TaggedError<BodyNotReadable>()("Body
 /**
  * Schema inspection visited more nodes than the node budget allows.
  */
-// oxlint-disable-next-line unicorn/throw-new-error -- Schema.TaggedError<Self>()(tag, fields) declares a class; nothing is thrown
 export class BodyNodeBudget extends Schema.TaggedError<BodyNodeBudget>()("BodyNodeBudget", {
 	diagnostic: Diagnostic
 }) {}
@@ -123,7 +120,9 @@ interface EncodingNode {
 	readonly style?: StyleName
 }
 
-// Encoding Objects nest, so the codec is recursive; the rules cap the depth at one level.
+/**
+ * Encoding Objects nest, so the codec is recursive; the rules cap the depth at one level.
+ */
 const EncodingObject: Schema.Codec<EncodingNode> = Schema.Struct({
 	allowReserved: Schema.optionalKey(Schema.Boolean),
 	contentType: Schema.optionalKey(Schema.String),
@@ -161,8 +160,10 @@ const MediaTypeObject = Schema.Struct({
 
 type MediaNode = typeof MediaTypeObject.Type
 
-// Only what the part rules read of a schema; a boolean schema decodes to nothing. `required` and
-// the compositions are `Unknown` so a malformed value never hides the node's other members.
+/**
+ * Only what the part rules read of a schema; a boolean schema decodes to nothing. `required` and
+ * the compositions are `Unknown` so a malformed value never hides the node's other members.
+ */
 const SchemaNode = Schema.Struct({
 	additionalProperties: Schema.optionalKey(Schema.Unknown),
 	allOf: Schema.optionalKey(Schema.Array(Schema.Unknown)),
@@ -206,9 +207,10 @@ const ndjsonTypes: ReadonlySet<string> = new Set([
 	"application/x-ndjson"
 ])
 
-// The codec follows the media type alone (design 2.2); a range such as `*/*` is raw bytes until the
-// operator names a concrete type.
-// Differs from responses.ts codecOf on `text/*` and `+json-seq` by design; want 546a83f5 unifies.
+/**
+ * The codec follows the media type alone (design 2.2); a media range is raw bytes until the operator
+ * names a concrete type. It differs from the response codec on `text/*` and `+json-seq` by design.
+ */
 const codecOf = (base: string): Codec => {
 	if (base === formUrlencoded) {
 		return "form"
@@ -285,11 +287,15 @@ const notice = (
 	at: CanonicalKey
 ): Finding => ({ anchor, at, code, element, message, severity: "notice" })
 
-// A refusal whose part, rule or key leaves its media alternative with nothing to send.
+/**
+ * A refusal whose part, rule or key leaves its media alternative with nothing to send.
+ */
 const dropping = (finding: Finding): Finding => ({ ...finding, drops: true })
 
-// A refusal that drops a whole alternative is reported at that media type, its own keyword first
-// in `related`, so the report names what was dropped and coverage credits it.
+/**
+ * A refusal that drops a whole alternative is reported at that media type, its own keyword first
+ * in `related`, so the report names what was dropped and coverage credits it.
+ */
 const anchorDrops = (home: CanonicalKey, findings: readonly Finding[]): readonly Finding[] =>
 	findings.map((finding) =>
 		finding.drops === true
@@ -297,9 +303,11 @@ const anchorDrops = (home: CanonicalKey, findings: readonly Finding[]): readonly
 			: finding
 	)
 
-// A dropping refusal of an optional property whose alternative stays is refused at `field` scope,
-// anchored at the property's Encoding entry, its own keyword first in `related` (design 8.5 rule 4),
-// and names the property by `wire`.
+/**
+ * A dropping refusal of an optional property whose alternative stays is refused at `field` scope,
+ * anchored at the property's Encoding entry, its own keyword first in `related` (design 8.5 rule 4),
+ * and names the property by `wire`.
+ */
 const fieldRefusal = (entry: CanonicalKey, finding: Finding, wire: string): Finding => {
 	const kept = Struct.omit(finding, ["drops"])
 	const field: Finding = { ...kept, at: entry, scope: "field", wire }
@@ -311,8 +319,6 @@ const fieldRefusal = (entry: CanonicalKey, finding: Finding, wire: string): Find
 
 const sorted = (rows: readonly string[]): readonly string[] =>
 	Arr.sort(Arr.dedupe(rows), Order.String)
-
-// --- Schema inspection (design 6.3, MED-27: only `$ref` and `allOf` are followed) ---
 
 interface Located {
 	readonly at: CanonicalKey
@@ -326,8 +332,10 @@ const nodeAt = (resolution: Resolution, at: CanonicalKey): Effect.Effect<SchemaN
 		Effect.orElseSucceed((): SchemaNodeValue => ({}))
 	)
 
-// What one body spends on schema inspection: every visit of an `allOf` member is charged to
-// `budget`, the resolution limits' node budget (design 9 I5).
+/**
+ * What one body spends on schema inspection: every visit of an `allOf` member is charged to
+ * `budget`, the resolution limits' node budget (design 9 I5).
+ */
 interface Walk {
 	readonly budget: Budget
 	readonly resolution: Resolution
@@ -347,8 +355,10 @@ const budgetFailure = (walk: Walk): Effect.Effect<never, BodyNodeBudget> =>
 		specSection: specSectionUrl(walk.resolution.line, "reference-object")
 	}).pipe(Effect.flatMap((diagnostic) => Effect.fail(new BodyNodeBudget({ diagnostic }))))
 
-// The schema and its `allOf` members in document order, each distinct schema once, so a graph
-// that reuses members costs its size and a cycle ends at the first repeat.
+/**
+ * The schema and its `allOf` members in document order, each distinct schema once, so a graph
+ * that reuses members costs its size and a cycle ends at the first repeat.
+ */
 const flatten = Effect.fnUntraced(function* flatten(
 	walk: Walk,
 	start: CanonicalKey
@@ -401,7 +411,9 @@ interface Members {
 
 const noMembers: Members = { items: undefined, prefixItems: [], properties: [] }
 
-// The declared properties (document order, first definition wins) and item schemas of a schema.
+/**
+ * The declared properties (document order, first definition wins) and item schemas of a schema.
+ */
 const membersOf = Effect.fnUntraced(function* membersOf(
 	walk: Walk,
 	schema: CanonicalKey
@@ -421,7 +433,6 @@ const membersOf = Effect.fnUntraced(function* membersOf(
 	const prefix = firstLocated(nodes, (node) => node.prefixItems)
 	const items = firstLocated(nodes, (node) => node.items)
 
-	// `items: false` admits no item beyond `prefixItems`, so it has no item schema.
 	return {
 		items: items === undefined || items.value === false ? undefined : childKey(items.at, "items"),
 		prefixItems:
@@ -448,8 +459,10 @@ interface Requirement {
 	readonly sure: boolean
 }
 
-// Keywords that can make a property required on a path `membersOf` does not follow; `then` and
-// `else` apply only under `if`.
+/**
+ * Keywords that can make a property required on a path `membersOf` does not follow; `then` and
+ * `else` apply only under `if`.
+ */
 const unresolved = ["anyOf", "dependentRequired", "dependentSchemas", "if", "not", "oneOf"] as const
 
 const requiredStrings = Schema.decodeUnknownOption(Schema.Array(Schema.String))
@@ -462,8 +475,10 @@ const requirementOf = Effect.fnUntraced(function* requirementOf(
 	const done = new Set<string>()
 	const path = new Set<string>()
 	let sure = true
-	// A schema already on the path is a cycle, and a reference `settle` left unfollowed is not
-	// resolved: either leaves the walk unsure. A schema reached twice otherwise is read once.
+	/**
+	 * A schema already on the path is a cycle, and a reference `settle` left unfollowed is not
+	 * resolved: either leaves the walk unsure. A schema reached twice otherwise is read once.
+	 */
 	const visit = Effect.fnUntraced(function* member(
 		start: CanonicalKey
 	): Effect.fn.Return<void, BodyNodeBudget> {
@@ -579,8 +594,10 @@ const scalarDefault = (line: Line, name: string, facts: Facts): Default =>
 
 type ArrayDefault = (line: Line, facts: Facts) => Default
 
-// A type list ignores `null` unless it is the only member, and a list whose members disagree is
-// treated as untyped.
+/**
+ * A type list ignores `null` unless it is the only member, and a list whose members disagree is
+ * treated as untyped.
+ */
 const defaultOfTypes = (line: Line, facts: Facts, arrayDefault: ArrayDefault): Default => {
 	const named = facts.type.filter((name) => name !== "null")
 	const names = named.length === 0 ? facts.type : named
@@ -597,8 +614,10 @@ const defaultOfTypes = (line: Line, facts: Facts, arrayDefault: ArrayDefault): D
 
 const nestedArrayDefault: ArrayDefault = () => ({ row: "ENC-23", type: "application/json" })
 
-// An array is typed by its items (ENC-23), except in 3.2, where an array is `application/json`
-// unless it is a top-level property under encoding by name, which is encoded per item (ENC-24).
+/**
+ * An array is typed by its items (ENC-23), except in 3.2, where an array is `application/json`
+ * unless it is a top-level property under encoding by name, which is encoded per item (ENC-24).
+ */
 const arrayDefault =
 	(byName: boolean): ArrayDefault =>
 	(line, facts) => {
@@ -610,11 +629,11 @@ const arrayDefault =
 		return { row: "ENC-24", type: byName ? items : "application/json" }
 	}
 
-// ENC-17 to ENC-26: the default contentType of a part from the schema of its value.
+/**
+ * ENC-17 to ENC-26: the default contentType of a part from the schema of its value.
+ */
 const defaultFor = (line: Line, facts: Facts, input: RuleInput): Default =>
 	defaultOfTypes(line, facts, arrayDefault(input.target.kind === "property" && input.depth === 0))
-
-// --- Encoding rules ---
 
 type Target =
 	| { readonly kind: "position"; readonly index: number }
@@ -679,7 +698,9 @@ interface Context {
 	readonly walk: Walk
 }
 
-// A label as a message quotes it: sanitized, then written as a JSON string.
+/**
+ * A label as a message quotes it: sanitized, then written as a JSON string.
+ */
 const quoted = (text: string): string => pipe(text, sanitize, JSON.stringify)
 
 const targetLabel = (target: Target): string =>
@@ -773,8 +794,10 @@ const invalidContentType = (input: RuleInput): Finding =>
 		)
 	)
 
-// D-SCH3: an object part typed as XML would need serialization from its schema and XML Object,
-// which is refused. A scalar part typed as XML is the operator's own text, sent as given.
+/**
+ * D-SCH3: an object part typed as XML would need serialization from its schema and XML Object,
+ * which is refused. A scalar part typed as XML is the operator's own text, sent as given.
+ */
 const schemaDrivenXml = (input: RuleInput): Finding =>
 	dropping(
 		refusal(
@@ -789,8 +812,10 @@ const schemaDrivenXml = (input: RuleInput): Finding =>
 
 const isXmlType = (range: string): boolean => codecOf(mediaEssence(range)) === "xml"
 
-// Whether the part's schema is an object: typed `object`, or untyped with declared properties,
-// found through `$ref` and `allOf`.
+/**
+ * Whether the part's schema is an object: typed `object`, or untyped with declared properties,
+ * found through `$ref` and `allOf`.
+ */
 const isObjectPart = Effect.fnUntraced(function* isObjectPart(
 	walk: Walk,
 	schema: CanonicalKey | undefined,
@@ -815,7 +840,9 @@ interface Typing {
 	readonly serialization: PlainSerialization | undefined
 }
 
-// ENC-02, ENC-12, ENC-13 and the ENC-17 to ENC-26 table: how the part's type is decided.
+/**
+ * ENC-02, ENC-12, ENC-13 and the ENC-17 to ENC-26 table: how the part's type is decided.
+ */
 const typingOf = Effect.fnUntraced(function* typingOf(
 	ctx: Context,
 	input: RuleInput,
@@ -875,7 +902,9 @@ const typingOf = Effect.fnUntraced(function* typingOf(
 	}
 })
 
-// A multipart part's typing: as `typingOf`, and an object part typed as XML is refused (XML-01).
+/**
+ * A multipart part's typing: as `typingOf`, and an object part typed as XML is refused (XML-01).
+ */
 const partTypingOf = Effect.fnUntraced(function* partTypingOf(
 	ctx: Context,
 	input: RuleInput,
@@ -908,17 +937,21 @@ interface Headers {
 
 const writerOwnedCode = "ENC-03/writer-owned-header"
 
-// Headers the multipart writer writes itself (design 6.3): `Content-Transfer-Encoding` always, and
-// `Content-Disposition`, with the part name RFC 7578 requires, under `multipart/form-data`.
+/**
+ * Headers the multipart writer writes itself (design 6.3): `Content-Transfer-Encoding` always, and
+ * `Content-Disposition`, with the part name RFC 7578 requires, under `multipart/form-data`.
+ */
 const writerOwned = (name: string, formData: boolean): boolean => {
 	const folded = name.toLowerCase()
 
 	return folded === "content-transfer-encoding" || (formData && folded === "content-disposition")
 }
 
-// ENC-03, ENC-11: part headers, each typed and serialized as a header parameter (HDR-01). A
-// `Content-Type` entry is ignored, a header the writer owns gets no flag, and a bad name or a header
-// the header parameter path cannot carry refuses the part.
+/**
+ * ENC-03, ENC-11: part headers, each typed and serialized as a header parameter (HDR-01). A
+ * `Content-Type` entry is ignored, a header the writer owns gets no flag, and a bad name or a header
+ * the header parameter path cannot carry refuses the part.
+ */
 const headersOf = Effect.fnUntraced(function* headersOf(
 	ctx: Context,
 	input: RuleInput,
@@ -1018,9 +1051,11 @@ const positionalEntries = (node: EncodingNode, actual: CanonicalKey): readonly N
 		target: { index, kind: "position" }
 	}))
 
-// The nested rules' entries: by name (HT:B16, ENC-07), every property of the part's schema in
-// property order, its Encoding Object or else the default table, then each encoding key that names
-// no property; by position, each `prefixEncoding` entry.
+/**
+ * The nested rules' entries: by name (HT:B16, ENC-07), every property of the part's schema in
+ * property order, its Encoding Object or else the default table, then each encoding key that names
+ * no property; by position, each `prefixEncoding` entry.
+ */
 const nestedEntries = (
 	node: EncodingNode,
 	actual: CanonicalKey,
@@ -1104,9 +1139,11 @@ const nestedRows = (node: EncodingNode): readonly string[] => [
 	...(node.itemEncoding === undefined ? [] : ["ENC-09"])
 ]
 
-// ENC-07 to ENC-09, ENC-16: one nested level by name and by position, the nested `itemEncoding`
-// the rule of every position after the nested `prefixEncoding` (HT:B16); a deeper level is
-// refused.
+/**
+ * ENC-07 to ENC-09, ENC-16: one nested level by name and by position, the nested `itemEncoding`
+ * the rule of every position after the nested `prefixEncoding` (HT:B16); a deeper level is
+ * refused.
+ */
 const nestingOf = Effect.fnUntraced(function* nestingOf(
 	ctx: Context,
 	input: RuleInput,
@@ -1167,8 +1204,6 @@ const nestingOf = Effect.fnUntraced(function* nestingOf(
 	}
 })
 
-// --- Transfer encoding (design 6.3: ENC-37 to ENC-39) ---
-
 type Transfer = "base64"
 
 interface TransferResult {
@@ -1190,17 +1225,23 @@ const transferAnchor = (line: Line): string =>
 		? "content-transfer-encoding-and-contentencoding"
 		: "encoding-multipart-media-types"
 
-// Transfer encodings are case-insensitive tokens (RFC 2045 6.1).
+/**
+ * Transfer encodings are case-insensitive tokens (RFC 2045 6.1).
+ */
 const isBase64 = (value: string): boolean => value.toLowerCase() === "base64"
 
-// The identity encodings of RFC 2045 6.2: the part is not transformed.
+/**
+ * The identity encodings of RFC 2045 6.2: the part is not transformed.
+ */
 const identityEncodings: ReadonlySet<string> = new Set(["7bit", "8bit", "binary"])
 
 const isIdentity = (value: string): boolean => identityEncodings.has(value.toLowerCase())
 
-// What one schema declares: 3.0 `format: byte` (ENC-38), 3.1+ `contentEncoding` (ENC-37). base64
-// has a writer; an identity encoding sends the part raw, as a 3.0 `format: binary` part is, with no
-// Content-Transfer-Encoding line of its own. Any other `contentEncoding` refuses the part.
+/**
+ * What one schema declares: 3.0 `format: byte` (ENC-38), 3.1+ `contentEncoding` (ENC-37). base64
+ * has a writer; an identity encoding sends the part raw, as a 3.0 `format: binary` part is, with no
+ * Content-Transfer-Encoding line of its own. Any other `contentEncoding` refuses the part.
+ */
 const declaredTransfer = (line: Line, label: string, facts: Facts): TransferResult | undefined => {
 	if (line === "3.0") {
 		return facts.format === "byte" ? base64Transfer("ENC-38") : undefined
@@ -1232,8 +1273,10 @@ const declaredTransfer = (line: Line, label: string, facts: Facts): TransferResu
 			}
 }
 
-// A part's transfer encoding, from its schema or, for a repeated part, its items. A nested part
-// has no field to hold one, so it is refused rather than sent unencoded.
+/**
+ * A part's transfer encoding, from its schema or, for a repeated part, its items. A nested part
+ * has no field to hold one, so it is refused rather than sent unencoded.
+ */
 const transferOf = (ctx: Context, input: RuleInput, facts: Facts): TransferResult => {
 	const label = targetLabel(input.target)
 	const found =
@@ -1269,11 +1312,15 @@ const TransferHeaderSchema = Schema.Struct({
 const transferHeaderOf = (node: EncodingNode): string | undefined =>
 	Object.keys(node.headers ?? {}).find((name) => name.toLowerCase() === "content-transfer-encoding")
 
-// A header schema keyword admits base64 when it is absent or lists it among its string values.
+/**
+ * A header schema keyword admits base64 when it is absent or lists it among its string values.
+ */
 const admitsBase64 = (values: readonly string[] | undefined): boolean =>
 	values === undefined || values.some(isBase64)
 
-// ENC-39: a declared Content-Transfer-Encoding header whose schema rules out the part's base64.
+/**
+ * ENC-39: a declared Content-Transfer-Encoding header whose schema rules out the part's base64.
+ */
 const transferConflict = Effect.fnUntraced(function* transferConflict(
 	ctx: Context,
 	input: RuleInput,
@@ -1311,8 +1358,10 @@ const transferConflict = Effect.fnUntraced(function* transferConflict(
 	)
 })
 
-// A nesting part's rules on its rule: `nested` is present whenever the part nests, so an item rule
-// alone still marks it, and `nestedItem` holds the nested `itemEncoding`'s rule (ENC-09).
+/**
+ * A nesting part's rules on its rule: `nested` is present whenever the part nests, so an item rule
+ * alone still marks it, and `nestedItem` holds the nested `itemEncoding`'s rule (ENC-09).
+ */
 const withNesting = (rule: PlainRule, nesting: Nesting): void => {
 	if (nesting.nested.length > 0 || nesting.item !== undefined) {
 		rule.nested = nesting.nested
@@ -1323,7 +1372,9 @@ const withNesting = (rule: PlainRule, nesting: Nesting): void => {
 	}
 }
 
-// One Encoding Object, or the table default of a part that has none, as a rule (design 2.2).
+/**
+ * One Encoding Object, or the table default of a part that has none, as a rule (design 2.2).
+ */
 const buildRule = Effect.fnUntraced(function* buildRule(
 	ctx: Context,
 	input: RuleInput,
@@ -1347,7 +1398,6 @@ const buildRule = Effect.fnUntraced(function* buildRule(
 		transfer.encoding === undefined || headers.headers === undefined || transferHeader === undefined
 			? undefined
 			: yield* transferConflict(ctx, input, transferHeader)
-	// A conflict refuses the part, so it sends no header and the writer-owned notices are moot.
 	if (conflict !== undefined) {
 		const kept = headers.findings.filter(({ code }) => code !== writerOwnedCode)
 
@@ -1355,8 +1405,10 @@ const buildRule = Effect.fnUntraced(function* buildRule(
 	}
 
 	const nesting = yield* nestingOf(ctx, input, node, buildAll)
-	// ENC-40: a style the writer sends is name and raw value under `text/plain`; any other style
-	// refuses the part alone, and the rule keeps its style so the names plan gives it no flag.
+	/**
+	 * ENC-40: a style the writer sends is name and raw value under `text/plain`; any other style
+	 * refuses the part alone, and the rule keeps its style so the names plan gives it no flag.
+	 */
 	const styled = typing.serialization
 	const pairs = styled !== undefined && sendsFormPairs(styled)
 	const findings = [
@@ -1394,7 +1446,9 @@ const buildRule = Effect.fnUntraced(function* buildRule(
 	return { findings, rule }
 })
 
-// Builds the rules in order and stops at the first refusal.
+/**
+ * Builds the rules in order and stops at the first refusal.
+ */
 const buildAll: BuildAll = Effect.fnUntraced(function* all(
 	ctx: Context,
 	inputs: readonly RuleInput[]
@@ -1413,8 +1467,6 @@ const buildAll: BuildAll = Effect.fnUntraced(function* all(
 
 	return { findings, refused: false, rules }
 })
-
-// --- Media alternatives ---
 
 interface PlainAlternative {
 	readonly codec: Codec
@@ -1439,9 +1491,9 @@ const stopAlternative = (...findings: readonly Finding[]): AlternativeResult => 
 	findings
 })
 
-// Every line reports `SCH-13`. The slice named `S30-24/multipart-extra-fields` for 3.0; the
-// Diagnostic row pattern (src/model/diagnostic.ts) now admits `S30-24`, but moving 3.0 to that code
-// changes its diagnostics, so it is not done here.
+/**
+ * Every line reports `SCH-13`, 3.0 included: reporting `S30-24` for 3.0 would change its diagnostics.
+ */
 const extraFieldsRefusal = (at: CanonicalKey): Finding =>
 	refusal(
 		"SCH-13/multipart-extra-fields",
@@ -1469,7 +1521,9 @@ const encodingIgnored = (line: Line, at: CanonicalKey): Finding =>
 				at
 			)
 
-// D-OC5: a Media Type description has no use in a generated CLI, so it is ignored.
+/**
+ * D-OC5: a Media Type description has no use in a generated CLI, so it is ignored.
+ */
 const descriptionIgnored = (at: CanonicalKey): Finding =>
 	notice(
 		"MED-09/description-ignored",
@@ -1479,8 +1533,10 @@ const descriptionIgnored = (at: CanonicalKey): Finding =>
 		at
 	)
 
-// MED-26: a form-data body is a set of named parts, so an array of name/value objects has no part
-// flags to fill and every run would fail.
+/**
+ * MED-26: a form-data body is a set of named parts, so an array of name/value objects has no part
+ * flags to fill and every run would fail.
+ */
 const arrayFormData = (at: CanonicalKey): Finding =>
 	refusal(
 		"MED-26/array-form-data",
@@ -1491,8 +1547,10 @@ const arrayFormData = (at: CanonicalKey): Finding =>
 		"Describe the body as an object whose properties are the parts"
 	)
 
-// MED-25: a multipart type other than form-data sends unnamed ordered parts, and correlating them
-// with an object's properties by a Content-Disposition name is a MAY this generator does not offer.
+/**
+ * MED-25: a multipart type other than form-data sends unnamed ordered parts, and correlating them
+ * with an object's properties by a Content-Disposition name is a MAY this generator does not offer.
+ */
 const unnamedParts = (line: Line, at: CanonicalKey): Finding =>
 	refusal(
 		"MED-25/unnamed-parts",
@@ -1572,7 +1630,9 @@ const refusedParts = (findings: readonly Finding[]): Parts => ({
 	refused: true
 })
 
-// The schema-valued additionalProperties of a multipart root, found through `$ref` and `allOf`.
+/**
+ * The schema-valued additionalProperties of a multipart root, found through `$ref` and `allOf`.
+ */
 const extraFields = (
 	ctx: Context,
 	schema: CanonicalKey
@@ -1589,7 +1649,9 @@ const extraFields = (
 		})
 	)
 
-// ENC-33 and MED-13: a multipart body this line cannot read at all.
+/**
+ * ENC-33 and MED-13: a multipart body this line cannot read at all.
+ */
 const partsBlocker = (line: Line, media: Media): Finding | undefined => {
 	const { home, node } = media
 	const positional = node.prefixEncoding !== undefined || node.itemEncoding !== undefined
@@ -1619,7 +1681,9 @@ interface Keys {
 	readonly refused: boolean
 }
 
-// MED-11 refuses an encoding key that names no property; MED-12 (3.2) ignores it with a notice.
+/**
+ * MED-11 refuses an encoding key that names no property; MED-12 (3.2) ignores it with a notice.
+ */
 const unknownKeys = (line: Line, media: Media, members: Members): Keys => {
 	const declared = new Set(members.properties.map(([name]) => name))
 	const findings: Finding[] = []
@@ -1658,7 +1722,9 @@ const unknownKeys = (line: Line, media: Media, members: Members): Keys => {
 	return { findings, refused: false }
 }
 
-// One input per declared property in document order, with its Encoding Object when it has one.
+/**
+ * One input per declared property in document order, with its Encoding Object when it has one.
+ */
 const propertyInputs = (
 	media: Media,
 	members: Members,
@@ -1691,10 +1757,12 @@ interface PartInputs {
 	readonly prefixCount: number
 }
 
-// One input per declared property, then per position, then the item rule. A 3.2 positional
-// `multipart/mixed` body (HT:B15) gives every `prefixItems` position a rule, its Encoding Object or
-// else the default table, and `items` or `itemSchema` an item rule; elsewhere only the declared
-// `prefixEncoding` entries and `itemEncoding` become rules.
+/**
+ * One input per declared property, then per position, then the item rule. A 3.2 positional
+ * `multipart/mixed` body (HT:B15) gives every `prefixItems` position a rule, its Encoding Object or
+ * else the default table, and `items` or `itemSchema` an item rule; elsewhere only the declared
+ * `prefixEncoding` entries and `itemEncoding` become rules.
+ */
 const partInputs = (
 	line: Line,
 	media: Media,
@@ -1748,14 +1816,18 @@ const partInputs = (
 	return { inputs: [...properties, ...positions, ...remaining], prefixCount: count }
 }
 
-// Multipart part rules: the declared properties by name, then 3.2 positions (design 6.3).
+/**
+ * Multipart part rules: the declared properties by name, then 3.2 positions (design 6.3).
+ */
 const typesOf = (nodes: readonly Located[]): readonly string[] => {
 	const type = firstLocated(nodes, (node) => node.type)?.value
 
 	return typeNames(type)
 }
 
-// An array root: typed array, or item schemas with no declared properties.
+/**
+ * An array root: typed array, or item schemas with no declared properties.
+ */
 const isArrayBody = Effect.fnUntraced(function* isArrayBody(
 	walk: Walk,
 	schema: CanonicalKey,
@@ -1771,7 +1843,9 @@ const isArrayBody = Effect.fnUntraced(function* isArrayBody(
 	return typesOf(yield* flatten(walk, schema)).includes("array")
 })
 
-// An object root: not an array body, and typed object or with declared properties.
+/**
+ * An object root: not an array body, and typed object or with declared properties.
+ */
 const isObjectBody = Effect.fnUntraced(function* isObjectBody(
 	walk: Walk,
 	schema: CanonicalKey,
@@ -1790,9 +1864,11 @@ interface PartStyles {
 	readonly refusedFields: readonly string[]
 }
 
-// ENC-40 on a named part follows the form property rules (design 8.5 rules 2, 3 and 11): refused
-// at `field` scope when every named part it refuses is optional, otherwise every one of them drops
-// the alternative. A 3.2 positional entry has no name, so its refusal keeps `element` scope.
+/**
+ * ENC-40 on a named part follows the form property rules (design 8.5 rules 2, 3 and 11): refused
+ * at `field` scope when every named part it refuses is optional, otherwise every one of them drops
+ * the alternative. A 3.2 positional entry has no name, so its refusal keeps `element` scope.
+ */
 const partStyles = Effect.fnUntraced(function* partStyles(
 	ctx: Context,
 	schema: CanonicalKey | undefined,
@@ -1848,7 +1924,6 @@ const multipartParts = Effect.fnUntraced(function* multipartParts(
 		return refusedParts([arrayFormData(media.home)])
 	}
 
-	// A range such as `multipart/*` is not a concrete type, so it is left to the emitter.
 	if (
 		schema !== undefined &&
 		base !== "multipart/form-data" &&
@@ -1893,8 +1968,6 @@ const multipartParts = Effect.fnUntraced(function* multipartParts(
 	}
 })
 
-// --- Form-urlencoded (design 6.3) ---
-
 const multipartOnly = (code: string, anchor: string, field: string, at: CanonicalKey): Finding =>
 	notice(
 		code,
@@ -1904,8 +1977,10 @@ const multipartOnly = (code: string, anchor: string, field: string, at: Canonica
 		at
 	)
 
-// Fields a form value has no use for, in pointer order: part headers (ENC-11) and nested encoding
-// (ENC-07 to ENC-09).
+/**
+ * Fields a form value has no use for, in pointer order: part headers (ENC-11) and nested encoding
+ * (ENC-07 to ENC-09).
+ */
 const formIgnored = (node: EncodingNode, actual: CanonicalKey): readonly Finding[] => [
 	...(node.encoding === undefined
 		? []
@@ -1961,9 +2036,11 @@ const formContentTypeRefusal = (input: RuleInput, expected: string): Finding =>
 		)
 	)
 
-// PRM-27 (design 6.1): a deepObject value is nested when its schema is an array, or declares a
-// property or additionalProperties schema whose type is or includes object or array. An untyped
-// member is not nested.
+/**
+ * PRM-27 (design 6.1): a deepObject value is nested when its schema is an array, or declares a
+ * property or additionalProperties schema whose type is or includes object or array. An untyped
+ * member is not nested.
+ */
 const isNested = Effect.fnUntraced(function* isNested(
 	walk: Walk,
 	schema: CanonicalKey | undefined
@@ -2020,8 +2097,10 @@ const scalarChoice = (input: RuleInput): Finding =>
 		input.actual
 	)
 
-// The scalar switch's decision for a form deepObject entry, by the query parameter rule (design
-// 6.1 Scalar switch); `Strict` for any other style.
+/**
+ * The scalar switch's decision for a form deepObject entry, by the query parameter rule (design
+ * 6.1 Scalar switch); `Strict` for any other style.
+ */
 const scalarCoverOf = (
 	ctx: Context,
 	input: RuleInput,
@@ -2033,8 +2112,10 @@ const scalarCoverOf = (
 				maxNodes: ctx.walk.budget.limit
 			})
 
-// The query style table's refusal for a form property's explicit style fields (design 6.3, through
-// the parameter rule `formStyleRefusal`), placed at the Encoding entry; it drops the alternative.
+/**
+ * The query style table's refusal for a form property's explicit style fields (design 6.3, through
+ * the parameter rule `formStyleRefusal`), placed at the Encoding entry; it drops the alternative.
+ */
 const styleRefusalOf = (
 	ctx: Context,
 	input: RuleInput,
@@ -2061,8 +2142,10 @@ const styleRefusalOf = (
 				)
 			)
 
-// ENC-12 (design D-OC14): a 3.0 or 3.1 form deepObject with explode false or omitted is exploded,
-// as STY-26 is for a parameter, with that row's notice text.
+/**
+ * ENC-12 (design D-OC14): a 3.0 or 3.1 form deepObject with explode false or omitted is exploded,
+ * as STY-26 is for a parameter, with that row's notice text.
+ */
 const deepObjectExplode = (
 	line: Line,
 	serialization: PlainSerialization | undefined,
@@ -2080,8 +2163,10 @@ const deepObjectExplode = (
 			]
 		: []
 
-// What PRM-27 does to one form rule: nothing, refuse its alternative (strict), or mark it for the
-// bracket convention (the author config's switch, never defaulted or inferred).
+/**
+ * What PRM-27 does to one form rule: nothing, refuse its alternative (strict), or mark it for the
+ * bracket convention (the author config's switch, never defaulted or inferred).
+ */
 type DeepObjectAction = "mark" | "none" | "refuse"
 
 const deepObjectOf = Effect.fnUntraced(function* deepObjectOf(
@@ -2096,9 +2181,11 @@ const deepObjectOf = Effect.fnUntraced(function* deepObjectOf(
 	return ctx.site.nonStandard?.deepObjectBrackets === true ? "mark" : "refuse"
 })
 
-// What PRM-27 does to one form rule once the scalar switch has decided: its covered branches
-// (refused when a nested branch or member union is uncovered, marked when the bracket switch covers
-// a nested one), or the strict nested test.
+/**
+ * What PRM-27 does to one form rule once the scalar switch has decided: its covered branches
+ * (refused when a nested branch or member union is uncovered, marked when the bracket switch covers
+ * a nested one), or the strict nested test.
+ */
 const coveredDeepObject = (
 	ctx: Context,
 	input: RuleInput,
@@ -2113,11 +2200,13 @@ const coveredDeepObject = (
 		Uncovered: (): Effect.Effect<DeepObjectAction, BodyNodeBudget> => Effect.succeed("refuse")
 	})
 
-// One form property's rule. Style fields apply on every line (ENC-12; 3.0 per ENC-14); without
-// them the value is sent by the default table, so an explicit contentType is kept only when it
-// names the table's type, which changes nothing on the wire. Style fields the query style table
-// marks not applicable refuse the alternative (STY-17 to STY-24, PRM-27), and a deepObject over a
-// nested value refuses it unless the author config opts into brackets (PRM-27).
+/**
+ * One form property's rule. Style fields apply on every line (ENC-12; 3.0 per ENC-14); without
+ * them the value is sent by the default table, so an explicit contentType is kept only when it
+ * names the table's type, which changes nothing on the wire. Style fields the query style table
+ * marks not applicable refuse the alternative (STY-17 to STY-24, PRM-27), and a deepObject over a
+ * nested value refuses it unless the author config opts into brackets (PRM-27).
+ */
 const formRule = Effect.fnUntraced(function* formRule(
 	ctx: Context,
 	input: RuleInput
@@ -2128,8 +2217,10 @@ const formRule = Effect.fnUntraced(function* formRule(
 		return { findings: typing.findings, rule: undefined }
 	}
 
-	// Under the scalar switch the branch walk decides a deepObject entry the strict object test
-	// would refuse; the style table refuses nothing else for deepObject (design 6.1 Scalar switch).
+	/**
+	 * Under the scalar switch the branch walk decides a deepObject entry the strict object test
+	 * would refuse; the style table refuses nothing else for deepObject (design 6.1 Scalar switch).
+	 */
 	const cover = yield* scalarCoverOf(ctx, input, typing.serialization)
 	const inapplicable = ScalarCover.$is("Strict")(cover)
 		? yield* styleRefusalOf(ctx, input, typing.serialization)
@@ -2195,7 +2286,9 @@ const formRule = Effect.fnUntraced(function* formRule(
 	}
 })
 
-// Positional encoding applies to multipart only (MED-07, MED-08), so a form alternative ignores it.
+/**
+ * Positional encoding applies to multipart only (MED-07, MED-08), so a form alternative ignores it.
+ */
 const formPositional = (media: Media): readonly Finding[] => [
 	...(media.node.itemEncoding === undefined
 		? []
@@ -2219,17 +2312,21 @@ const formPositional = (media: Media): readonly Finding[] => [
 			])
 ]
 
-// A refused form alternative sends nothing, so no entry of it is sent in the bracket convention or
-// as a scalar pair: its author-choice notices go with it (design 8.4, 8.5 rule 7), whatever the
-// order of its properties.
+/**
+ * A refused form alternative sends nothing, so no entry of it is sent in the bracket convention or
+ * as a scalar pair: its author-choice notices go with it (design 8.4, 8.5 rule 7), whatever the
+ * order of its properties.
+ */
 const refusedFormParts = (findings: readonly Finding[]): Parts =>
 	refusedParts(findings.filter((finding) => !authorChoiceCodes.has(finding.code)))
 
-// Form-urlencoded rules: one per declared property, by name (MED-11, MED-12 as for multipart).
-// With `fields` (a request body, design 8.5 rules 2, 3 and 11), a property whose rule refuses is
-// refused at `field` scope when it is optional, and the alternative stays; a required one drops
-// the alternative with every entry's dropping refusals, so no `field` record outlives it. Without
-// (a `querystring` content entry, design 6.1), the first refusing rule refuses the entry.
+/**
+ * Form-urlencoded rules: one per declared property, by name (MED-11, MED-12 as for multipart).
+ * With `fields` (a request body, design 8.5 rules 2, 3 and 11), a property whose rule refuses is
+ * refused at `field` scope when it is optional, and the alternative stays; a required one drops
+ * the alternative with every entry's dropping refusals, so no `field` record outlives it. Without
+ * (a `querystring` content entry, design 6.1), the first refusing rule refuses the entry.
+ */
 const formParts = Effect.fnUntraced(function* formParts(
 	ctx: Context,
 	media: Media,
@@ -2293,8 +2390,10 @@ const ignoredParts = (line: Line, media: Media): Parts => {
 	return present ? { ...noParts, findings: [encodingIgnored(line, home)] } : noParts
 }
 
-// The part rules of an alternative: multipart and form-urlencoded read their encoding fields; any
-// other codec ignores them.
+/**
+ * The part rules of an alternative: multipart and form-urlencoded read their encoding fields; any
+ * other codec ignores them.
+ */
 const partsOf = (
 	ctx: Context,
 	media: Media,
@@ -2318,7 +2417,6 @@ const normalizeAlternative = Effect.fnUntraced(function* normalizeAlternative(
 	const { line, resolution } = ctx
 	const mediaSite = childKey(body, "content", key)
 	if (Option.isNone(decodeMediaRange(key))) {
-		// The grammar check refuses the key (MED-24) before normalization, so it is not raised twice.
 		return stopAlternative()
 	}
 
@@ -2331,7 +2429,9 @@ const normalizeAlternative = Effect.fnUntraced(function* normalizeAlternative(
 		return stopAlternative(...anchorDrops(home, parts.findings))
 	}
 
-	// An XML body is opaque, so its schema is never consulted (design 6.3, D-SCH3).
+	/**
+	 * An XML body is opaque, so its schema is never consulted (design 6.3, D-SCH3).
+	 */
 	const opaque = codec === "xml"
 	const schemaSites = opaque
 		? []
@@ -2340,9 +2440,6 @@ const normalizeAlternative = Effect.fnUntraced(function* normalizeAlternative(
 			)
 	const limits = { maxNodes: ctx.walk.budget.limit }
 	if (schemaSites.some((site) => appliesDynamicKeyword(resolution, site, limits))) {
-		// The schema store refuses the keyword at element scope where it sits (SCH-05, 06, 65, 66);
-		// the body cannot be checked without it, so the alternative is refused with no second
-		// diagnostic, and a required body left without one raises to operation scope.
 		return stopAlternative()
 	}
 
@@ -2384,11 +2481,11 @@ const normalizeAlternative = Effect.fnUntraced(function* normalizeAlternative(
 	}
 })
 
-// --- Diagnostics and the body ---
-
-// Where `at` sits below the content entry `mediaSite` when that entry is a reference, as a 3.2
-// `components/mediaTypes` one is: the same path under the entry instead of under its target. Undefined
-// when the entry is no reference or `at` lies outside its target.
+/**
+ * Where `at` sits below the content entry `mediaSite` when that entry is a reference, as a 3.2
+ * `components/mediaTypes` one is: the same path under the entry instead of under its target. Undefined
+ * when the entry is no reference or `at` lies outside its target.
+ */
 const underMediaSite = (
 	resolution: Resolution,
 	mediaSite: CanonicalKey | undefined,
@@ -2410,23 +2507,26 @@ const underMediaSite = (
 	}
 }
 
-// The use site is the operation's request body; when it is a reference, the element's own
-// location in the target is `related[0]` (design 8.1). Otherwise the element names its own
-// location, in whichever document of the set holds it. Under a content entry `mediaSite` that is a
-// reference, the use site is that entry: inline, the element sits below it with its location in the
-// target as `related[0]`; under a referenced body, the same place below the body's entry follows
-// `related[0]`, so the media key stays known.
+/**
+ * The use site is the operation's request body; when it is a reference, the element's own
+ * location in the target is `related[0]` (design 8.1). Otherwise the element names its own
+ * location, in whichever document of the set holds it. Under a content entry `mediaSite` that is a
+ * reference, the use site is that entry: inline, the element sits below it with its location in the
+ * target as `related[0]`; under a referenced body, the same place below the body's entry follows
+ * `related[0]`, so the media key stays known.
+ */
 const toDiagnostics = (
 	ctx: Context,
 	findings: readonly Finding[],
 	mediaSite?: CanonicalKey
 ): Effect.Effect<readonly Diagnostic[]> =>
-	// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method
 	Effect.forEach(findings, (item) => {
 		const viaEntry = underMediaSite(ctx.resolution, mediaSite, item.at)
 		const own = viaEntry ?? item.at
-		// Placed away from its own location, the element names it first; under a referenced body,
-		// the same place below the body's content entry follows.
+		/**
+		 * Placed away from its own location, the element names it first; under a referenced body,
+		 * the same place below the body's content entry follows.
+		 */
 		const moved = ctx.reference !== undefined || viaEntry !== undefined
 		const bodyEntry = ctx.reference === undefined || viaEntry === undefined ? [] : [viaEntry]
 		const related = [...(moved ? [item.at] : []), ...bodyEntry, ...(item.related ?? [])]
@@ -2457,8 +2557,6 @@ const emptyContent = (line: Line, at: CanonicalKey): Finding =>
 		at
 	)
 
-// --- The discriminator hint (design D-OQ9) ---
-
 const Discriminated = Schema.Struct({
 	anyOf: Schema.optionalKey(Schema.Array(Schema.Unknown)),
 	discriminator: Schema.Struct({
@@ -2482,8 +2580,10 @@ type Hint = typeof DiscriminatorHint.Encoded
 
 type Branch = Hint["branches"][number]
 
-// Whether an element-scope refusal of check names the Discriminator Object of `root`: DSC-03,
-// 04, 05, 09 and 10 all sit at or below it, so none is listed by code.
+/**
+ * Whether an element-scope refusal of check names the Discriminator Object of `root`: DSC-03,
+ * 04, 05, 09 and 10 all sit at or below it, so none is listed by code.
+ */
 const discriminatorRefused = (findings: readonly Diagnostic[], root: CanonicalKey): boolean => {
 	const at = childPointer(root.pointer, "discriminator")
 
@@ -2501,7 +2601,9 @@ interface Component {
 	readonly name: string
 }
 
-// The entry's component schemas, in document key order.
+/**
+ * The entry's component schemas, in document key order.
+ */
 const entrySchemas = (resolution: Resolution): readonly Component[] => {
 	const names = Option.match(decodeEntryComponents(resolution.value), {
 		onNone: (): readonly string[] => [],
@@ -2514,7 +2616,9 @@ const entrySchemas = (resolution: Resolution): readonly Component[] => {
 	}))
 }
 
-// The entry components whose own `allOf[<i>]` references `root` directly (DSC-11).
+/**
+ * The entry components whose own `allOf[<i>]` references `root` directly (DSC-11).
+ */
 const allOfChildren = (
 	resolution: Resolution,
 	components: readonly Component[],
@@ -2531,7 +2635,9 @@ const allOfChildren = (
 	)
 }
 
-// The composition that lists the branches itself: `oneOf` wins over `anyOf`.
+/**
+ * The composition that lists the branches itself: `oneOf` wins over `anyOf`.
+ */
 const listedKeyword = (node: typeof Discriminated.Type): "anyOf" | "oneOf" | undefined => {
 	if ((node.oneOf ?? []).length > 0) {
 		return "oneOf"
@@ -2540,8 +2646,10 @@ const listedKeyword = (node: typeof Discriminated.Type): "anyOf" | "oneOf" | und
 	return (node.anyOf ?? []).length > 0 ? "anyOf" : undefined
 }
 
-// The usable discriminator of the schema at `site`, after its `$ref` chain; none when check
-// refused it or no branch is found.
+/**
+ * The usable discriminator of the schema at `site`, after its `$ref` chain; none when check
+ * refused it or no branch is found.
+ */
 const hintAt = (
 	resolution: Resolution,
 	site: CanonicalKey,
@@ -2660,9 +2768,7 @@ export const normalizeBody = Effect.fnUntraced(function* normalizeBody(
 		return BodyOutcome.Refused({ diagnostics: yield* toDiagnostics(ctx, [empty]), required })
 	}
 
-	// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method
 	const results = yield* Effect.forEach(keys, (key) => normalizeAlternative(ctx, target, key))
-	// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method
 	const placed = yield* Effect.forEach(results, (result, index) =>
 		toDiagnostics(ctx, result.findings, childKey(target, "content", keys[index] ?? ""))
 	)
@@ -2690,7 +2796,6 @@ export const normalizeBody = Effect.fnUntraced(function* normalizeBody(
  * `Implemented` holds one rule per declared property in document order; `Refused` means a rule
  * refused the entry, as it would drop a form body alternative.
  */
-// oxlint-disable-next-line no-redeclare -- Data.taggedEnum pairs a type and its constructors under one name
 export type FormContentOutcome = Data.TaggedEnum<{
 	Implemented: {
 		readonly diagnostics: readonly Diagnostic[]

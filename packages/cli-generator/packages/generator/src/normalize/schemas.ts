@@ -93,7 +93,6 @@ export interface SchemaNormalization extends StoredSchemas {
 /**
  * A conversion or import failure that no D-AD12 class names: a defect in that list (design 3.5).
  */
-// oxlint-disable-next-line unicorn/throw-new-error -- Schema.TaggedError<Self>()(tag, fields) declares a class; nothing is thrown
 export class SchemaImportDefect extends Schema.TaggedError<SchemaImportDefect>()(
 	"SchemaImportDefect",
 	{ key: Schema.String, message: Schema.String }
@@ -102,7 +101,6 @@ export class SchemaImportDefect extends Schema.TaggedError<SchemaImportDefect>()
 /**
  * A schema walk visited more nodes than the node budget allows (design 3.3, 9 I5).
  */
-// oxlint-disable-next-line unicorn/throw-new-error -- Schema.TaggedError<Self>()(tag, fields) declares a class; nothing is thrown
 export class SchemaBudgetExceeded extends Schema.TaggedError<SchemaBudgetExceeded>()(
 	"SchemaBudgetExceeded",
 	{ limit: Schema.Number }
@@ -169,7 +167,9 @@ const childAt = (node: Json | undefined, token: string): Json | undefined => {
 	return isArray(node) ? node[Number(token)] : undefined
 }
 
-// The `$defs` key a `#/$defs/<token>` reference names (one token, as Effect's importer requires).
+/**
+ * The `$defs` key a `#/$defs/<token>` reference names (one token, as Effect's importer requires).
+ */
 const referenceKey = (ref: string): string | undefined => {
 	const tokens = JsonPointer.parseUriFragment(ref)
 	const [defs, key, ...rest] = tokens ?? []
@@ -179,7 +179,9 @@ const referenceKey = (ref: string): string | undefined => {
 
 const refFor = (key: string): string => JsonPointer.formatUriFragment(["$defs", key])
 
-// Subschema positions per line, as the resolver walks them (3.0 Schema Object; 2020-12 applicators).
+/**
+ * Subschema positions per line, as the resolver walks them (3.0 Schema Object; 2020-12 applicators).
+ */
 interface Positions {
 	readonly list: ReadonlySet<string>
 	readonly map: ReadonlySet<string>
@@ -210,15 +212,19 @@ const positions2020: Positions = {
 	])
 }
 
-// Positions the copies descend into. Nested `$defs` stay out: every referenced member is lifted
-// under its own key.
+/**
+ * Positions the copies descend into. Nested `$defs` stay out: every referenced member is lifted
+ * under its own key.
+ */
 const copyPositions: Positions = {
 	list: positions2020.list,
 	map: new Set(["dependentSchemas", "patternProperties", "properties"]),
 	one: positions2020.one
 }
 
-// In-place applicators: a cycle of references through only these never descends into the instance.
+/**
+ * In-place applicators: a cycle of references through only these never descends into the instance.
+ */
 const inPlace: Positions = {
 	list: new Set(["allOf", "anyOf", "oneOf"]),
 	map: new Set(["dependentSchemas"]),
@@ -227,8 +233,10 @@ const inPlace: Positions = {
 
 type Visit = (node: JsonObject, path: readonly string[]) => JsonObject
 
-// Rebuilds a schema node: `visit` rewrites the node itself, then its subschemas are transformed.
-// Objects are rebuilt with `Record.map`, so a `__proto__` member stays an own key.
+/**
+ * Rebuilds a schema node: `visit` rewrites the node itself, then its subschemas are transformed.
+ * Objects are rebuilt with `Record.map`, so a `__proto__` member stays an own key.
+ */
 const transformSchema = (
 	budget: Budget,
 	node: Json,
@@ -253,7 +261,6 @@ const transformSchema = (
 		}
 
 		if (where.map.has(key) && isObject(value)) {
-			// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Record.map(record, f), not an array method
 			return Record.map(value, (item, name) => child(item, [key, name]))
 		}
 
@@ -274,9 +281,6 @@ const forEachSchema = (
 		return current
 	})
 }
-
-// ---------------------------------------------------------------------------------------------
-// The OpenAPI structure around schemas: where schema roots sit, and which objects are not schemas.
 
 type Kind =
 	| "callback"
@@ -360,8 +364,10 @@ interface Layout {
 const childPointer = (pointer: string, ...tokens: readonly string[]): string =>
 	`${pointer}${formatPointer(tokens)}`
 
-// Walks the OpenAPI objects that hold schemas. Every object and container on the way is recorded as
-// structural (not a schema), and every Schema Object position as a root.
+/**
+ * Walks the OpenAPI objects that hold schemas. Every object and container on the way is recorded as
+ * structural (not a schema), and every Schema Object position as a root.
+ */
 const walkLayout = (layout: Layout, kind: Kind | "schema", node: Json, pointer: string): void => {
 	if (kind === "schema") {
 		layout.roots.push(pointer)
@@ -408,7 +414,9 @@ const layoutOf = (budget: Budget, value: Json): Layout => {
 	return layout
 }
 
-// The layout kind each non-schema reference target starts a walk at.
+/**
+ * The layout kind each non-schema reference target starts a walk at.
+ */
 const targetKinds: Partial<Record<ReferenceKind, Kind>> = {
 	callback: "callback",
 	header: "header",
@@ -419,8 +427,10 @@ const targetKinds: Partial<Record<ReferenceKind, Kind>> = {
 	response: "response"
 }
 
-// The layout of each other document of the set, walked from the objects references reach there,
-// so only the schema roots a reference brings into the entry's operations are stored.
+/**
+ * The layout of each other document of the set, walked from the objects references reach there,
+ * so only the schema roots a reference brings into the entry's operations are stored.
+ */
 const memberLayouts = (budget: Budget, resolution: Resolution): ReadonlyMap<Document, Layout> => {
 	const layouts = new Map<Document, Layout>()
 	for (const { kind, target } of resolution.references.values()) {
@@ -436,15 +446,14 @@ const memberLayouts = (budget: Budget, resolution: Resolution): ReadonlyMap<Docu
 	return layouts
 }
 
-// ---------------------------------------------------------------------------------------------
-// The store: every schema root and every schema `$ref` target, converted to draft 2020-12.
-
 const messageOf = (cause: unknown): string =>
 	Predicate.hasProperty(cause, "message") && Predicate.isString(cause.message)
 		? cause.message
 		: "The importer failed without a message."
 
-// Rewrites every schema `$ref` to `#/$defs/<key>` from the resolution, before conversion.
+/**
+ * Rewrites every schema `$ref` to `#/$defs/<key>` from the resolution, before conversion.
+ */
 const rewriteReferences = (
 	budget: Budget,
 	resolution: Resolution,
@@ -467,16 +476,12 @@ const rewriteReferences = (
 			return current
 		}
 
-		// A reference the resolver left without a key names the document root, which is no schema
-		// (D-AD12): the `$ref` is dropped here and `diagnosticsOf` refuses the site.
 		if (reference.defsKey === undefined) {
-			// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Record.filter(record, predicate), not an array method
 			return Record.filter(current, (_, key) => key !== "$ref")
 		}
 
 		const ref = refFor(reference.defsKey)
 
-		// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Record.map(record, f), not an array method
 		return Record.map(current, (value, key): Json => (key === "$ref" ? ref : value))
 	})
 }
@@ -531,9 +536,11 @@ const factsOf = (node: Json): SchemaFacts => {
 	}
 }
 
-// The source of every stored key: Schema Object roots under `defsKey` of their use site, in the
-// entry and in the objects references reach in other documents, and schema `$ref` targets in any
-// document under the resolver's key unless the target is not a schema.
+/**
+ * The source of every stored key: Schema Object roots under `defsKey` of their use site, in the
+ * entry and in the objects references reach in other documents, and schema `$ref` targets in any
+ * document under the resolver's key unless the target is not a schema.
+ */
 const sitesOf = (budget: Budget, resolution: Resolution): ReadonlyMap<string, CanonicalKey> => {
 	const entry: Document = resolution.document
 	const layout = layoutOf(budget, resolution.value)
@@ -600,7 +607,9 @@ export const storeSchemas = (
 	return storeFrom(budget, resolution, sitesOf(budget, resolution))
 }
 
-// Keywords beside a `$ref` that assert nothing: annotations, extensions and location keywords.
+/**
+ * Keywords beside a `$ref` that assert nothing: annotations, extensions and location keywords.
+ */
 const nonAsserting: ReadonlySet<string> = new Set([
 	"$anchor",
 	"$comment",
@@ -640,10 +649,9 @@ export const schemaKeyAt = (resolution: Resolution, site: CanonicalKey): string 
 	return isObject(node) && Object.keys(node).some(asserts) ? own : target
 }
 
-// ---------------------------------------------------------------------------------------------
-// The validation copy (design 3.5 "Import copies"; D-AD12 tiers and special cases).
-
-// Inventory rows per keyword, for 3.0 and for 3.1 and 3.2.
+/**
+ * Inventory rows per keyword, for 3.0 and for 3.1 and 3.2.
+ */
 const keywordRows = new Map<string, readonly [row30: string, row31: string]>([
 	["additionalProperties", ["S30-24", "SCH-13"]],
 	["const", ["SCH-28", "SCH-28"]],
@@ -671,7 +679,9 @@ const rowOf = (line: Line, keyword: string): string => {
 	return line === "3.0" ? row30 : row31
 }
 
-// Server-validated keywords, removed wherever they occur (D-AD12).
+/**
+ * Server-validated keywords, removed wherever they occur (D-AD12).
+ */
 const serverValidated: ReadonlySet<string> = new Set([
 	"contains",
 	"contentSchema",
@@ -688,8 +698,10 @@ const serverValidated: ReadonlySet<string> = new Set([
 	"unevaluatedProperties"
 ])
 
-// The dynamic and recursive keywords (D-AD12): refused wherever a schema holds them, and a body
-// schema that applies one is refused with it (SCH-05, 06, 65, 66).
+/**
+ * The dynamic and recursive keywords (D-AD12): refused wherever a schema holds them, and a body
+ * schema that applies one is refused with it (SCH-05, 06, 65, 66).
+ */
 const dynamicKeywords = new Map([
 	["$dynamicAnchor", "SCH-06/dynamic-anchor"],
 	["$dynamicRef", "SCH-05/dynamic-ref"],
@@ -697,20 +709,26 @@ const dynamicKeywords = new Map([
 	["$recursiveRef", "SCH-66/recursive-ref"]
 ])
 
-// Keywords of other dialects that 3.1 and 3.2 refuse at element scope (SCH-07, SCH-64); a 3.0
-// schema does not read them.
+/**
+ * Keywords of other dialects that 3.1 and 3.2 refuse at element scope (SCH-07, SCH-64); a 3.0
+ * schema does not read them.
+ */
 const otherDialect = new Map([
 	["$vocabulary", "SCH-07/vocabulary"],
 	["dependencies", "SCH-64/dependencies"]
 ])
 
-// The refusal code of a refused keyword (D-AD12), or `undefined`.
+/**
+ * The refusal code of a refused keyword (D-AD12), or `undefined`.
+ */
 const refusedCode = (line: Line, keyword: string): string | undefined =>
 	dynamicKeywords.get(keyword) ?? (line === "3.0" ? undefined : otherDialect.get(keyword))
 
-// Every refused keyword in a stored schema's source, nested `$defs` and `definitions` members
-// included, so whether a member is referenced does not change the refusal: one rule wherever the
-// keyword sits. The copy removes the ones it stores; these are reported at their schema.
+/**
+ * Every refused keyword in a stored schema's source, nested `$defs` and `definitions` members
+ * included, so whether a member is referenced does not change the refusal: one rule wherever the
+ * keyword sits. The copy removes the ones it stores; these are reported at their schema.
+ */
 const refusedInSource = (
 	budget: Budget,
 	resolution: Resolution,
@@ -743,8 +761,10 @@ interface DynamicScan {
 	readonly targets: readonly CanonicalKey[]
 }
 
-// Whether the schema at `at` holds a dynamic or recursive keyword in place (subschemas included,
-// nested `$defs` not), with the targets of its `$ref`s in visit order.
+/**
+ * Whether the schema at `at` holds a dynamic or recursive keyword in place (subschemas included,
+ * nested `$defs` not), with the targets of its `$ref`s in visit order.
+ */
 const holdsDynamicKeyword = (
 	budget: Budget,
 	resolution: Resolution,
@@ -844,8 +864,10 @@ const isAnnotationOnly = (branch: JsonObject): boolean =>
 		(key) => key === "const" || annotationKeys.has(key) || isSpecificationExtension(key)
 	)
 
-// The values of a `oneOf`/`anyOf` whose branches are all primitive `const` values with annotations
-// only (the S7 rule).
+/**
+ * The values of a `oneOf`/`anyOf` whose branches are all primitive `const` values with annotations
+ * only (the S7 rule).
+ */
 const constValues = (branches: Json | undefined): readonly Json[] | undefined => {
 	if (!isArray(branches) || branches.length === 0) {
 		return undefined
@@ -895,9 +917,11 @@ const record = (
 	recorder.edits.push({ action, code, key: recorder.key, path })
 }
 
-// The members a node's `enum` keeps. An object or array member removes the keyword
-// (server-validated); a primitive member outside the declared type is dropped (SM-R16), and an
-// `enum` left empty is removed.
+/**
+ * The members a node's `enum` keeps. An object or array member removes the keyword
+ * (server-validated); a primitive member outside the declared type is dropped (SM-R16), and an
+ * `enum` left empty is removed.
+ */
 const filterEnum = (
 	recorder: Recorder,
 	node: JsonObject,
@@ -929,7 +953,9 @@ const filterEnum = (
 	return kept.length > 0 ? kept : undefined
 }
 
-// Whether a property schema is `readOnly: true`, itself or as the target of its `$ref`.
+/**
+ * Whether a property schema is `readOnly: true`, itself or as the target of its `$ref`.
+ */
 const isReadOnly = (definitions: ReadonlyMap<string, Json>, schema: Json | undefined): boolean => {
 	if (!isObject(schema)) {
 		return false
@@ -947,11 +973,13 @@ const isReadOnly = (definitions: ReadonlyMap<string, Json>, schema: Json | undef
 	)
 }
 
-// The names a node's `required` keeps on a request. A read-only property is not required there
-// (D-SCH2): 3.0.4 says `required` takes effect on the response only, so it is dropped under a code
-// no rule reports; in 3.1 and 3.2 the server decides (server-validated tier), so each drop is a
-// SCH-45 notice. `required` in one `allOf` branch naming a read-only property declared in another
-// is not seen here and stays asserted.
+/**
+ * The names a node's `required` keeps on a request. A read-only property is not required there
+ * (D-SCH2): 3.0.4 says `required` takes effect on the response only, so it is dropped under a code
+ * no rule reports; in 3.1 and 3.2 the server decides (server-validated tier), so each drop is a
+ * SCH-45 notice. `required` in one `allOf` branch naming a read-only property declared in another
+ * is not seen here and stays asserted.
+ */
 const filterRequired = (
 	recorder: Recorder,
 	node: JsonObject,
@@ -977,7 +1005,9 @@ const filterRequired = (
 	return kept.length > 0 ? kept : undefined
 }
 
-// Whether a value is an instance of one of the declared types; no declared type admits any value.
+/**
+ * Whether a value is an instance of one of the declared types; no declared type admits any value.
+ */
 const conformsTo = (types: readonly string[], value: Json): boolean => {
 	if (types.length === 0) {
 		return true
@@ -990,9 +1020,11 @@ const conformsTo = (types: readonly string[], value: Json): boolean => {
 	return isObject(value) ? types.includes("object") : inTypes(types, value)
 }
 
-// The code of a keyword the validation copy removes, or `undefined` when the keyword stays. A 3.0
-// `default` MUST conform to the schema's type (S30-27, D-OC3); one that does not is refused at
-// element scope. In 3.1 and 3.2 `default` is an annotation (SCH-49) and stays.
+/**
+ * The code of a keyword the validation copy removes, or `undefined` when the keyword stays. A 3.0
+ * `default` MUST conform to the schema's type (S30-27, D-OC3); one that does not is refused at
+ * element scope. In 3.1 and 3.2 `default` is an annotation (SCH-49) and stays.
+ */
 const removalCode = (
 	line: Line,
 	node: JsonObject,
@@ -1028,9 +1060,11 @@ const retype = (value: Json): Json => {
 	return [...new Set(strings(value).map((type) => (type === "integer" ? "number" : type)))]
 }
 
-// An `additionalProperties` that rejects or types some keys. Beside `patternProperties` it cannot
-// stay: which keys it governs depends on the patterns, which are not asserted (SCH-15), so the
-// object is left open, as Effect's importer leaves it when it ignores patterns.
+/**
+ * An `additionalProperties` that rejects or types some keys. Beside `patternProperties` it cannot
+ * stay: which keys it governs depends on the patterns, which are not asserted (SCH-15), so the
+ * object is left open, as Effect's importer leaves it when it ignores patterns.
+ */
 const constrainsKeys = (value: Json): boolean =>
 	value === false || (isObject(value) && !isEmptySchema(value))
 
@@ -1118,22 +1152,27 @@ const replaceAt = (node: Json, path: readonly string[]): Json => {
 		return node
 	}
 
-	// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Record.map(record, f), not an array method
 	return Record.map(node, (value, key) => (key === token ? replaceAt(value, rest) : value))
 }
 
-// A copy of the definitions with the edits that made it, in the order they were made.
+/**
+ * A copy of the definitions with the edits that made it, in the order they were made.
+ */
 interface EditedCopy {
 	readonly definitions: ReadonlyMap<string, Json>
 	readonly edits: readonly SchemaEdit[]
 }
 
-// Refuses every reference site on a cycle that returns to a schema without descending into the
-// instance (D-AD12 refused tier, DOC-23/alias-cycle): each such site becomes `{}` in the copy.
+/**
+ * Refuses every reference site on a cycle that returns to a schema without descending into the
+ * instance (D-AD12 refused tier, DOC-23/alias-cycle): each such site becomes `{}` in the copy.
+ */
 const breakAliasCycles = (budget: Budget, initial: ReadonlyMap<string, Json>): EditedCopy => {
 	const edges = edgesOf(budget, initial)
-	// The strongly connected components of the in-place reference graph. Graph's search keeps an
-	// explicit stack, so a long reference chain cannot exhaust the call stack.
+	/**
+	 * The strongly connected components of the in-place reference graph. Graph's search keeps an
+	 * explicit stack, so a long reference chain cannot exhaust the call stack.
+	 */
 	const nodes = new Map<string, Graph.NodeIndex>()
 	const graph = Graph.directed<string, Edge>((mutable) => {
 		for (const key of sortedKeys(initial)) {
@@ -1184,7 +1223,9 @@ const breakAliasCycles = (budget: Budget, initial: ReadonlyMap<string, Json>): E
 	return { definitions, edits }
 }
 
-// The importer's failure classes D-AD12 names (spike S7); any other class is a defect.
+/**
+ * The importer's failure classes D-AD12 names (spike S7); any other class is a defect.
+ */
 const importClasses: readonly (readonly [prefix: string, code: (line: Line) => string])[] = [
 	["Cannot intersect these", () => "SCO-09/union-not-asserted"],
 	[
@@ -1200,7 +1241,9 @@ const quoted = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.String))
 
 const pathToken = /\[(?<token>"(?:[^"\\]|\\.)*"|\d+)\]/gu
 
-// The importer's error path (a line `  at ["definitions"]["A"][0]`) as tokens.
+/**
+ * The importer's error path (a line `  at ["definitions"]["A"][0]`) as tokens.
+ */
 const importPath = (message: string): readonly string[] => {
 	const [, location = ""] = message.split("\n  at ")
 
@@ -1211,7 +1254,9 @@ const importPath = (message: string): readonly string[] => {
 	})
 }
 
-// The child a schema keyword reaches from `node`, with the number of path tokens it consumes.
+/**
+ * The child a schema keyword reaches from `node`, with the number of path tokens it consumes.
+ */
 const keywordChild = (
 	node: JsonObject,
 	keyword: string,
@@ -1227,8 +1272,10 @@ const keywordChild = (
 	return indexed ? [childAt(container, name), 2] : [undefined, 1]
 }
 
-// The deepest schema node on `tokens` that exists: the importer's path can run through merged
-// intersection scopes that are not positions in the document (spike S7).
+/**
+ * The deepest schema node on `tokens` that exists: the importer's path can run through merged
+ * intersection scopes that are not positions in the document (spike S7).
+ */
 const deepestSchema = (node: Json, tokens: readonly string[]): readonly string[] => {
 	let current = node
 	let consumed = 0
@@ -1290,8 +1337,10 @@ const importOnce = (
 	)
 }
 
-// The edit for one importer failure, or `undefined` when its class is unnamed or it makes no
-// progress (the located node is already `{}`).
+/**
+ * The edit for one importer failure, or `undefined` when its class is unnamed or it makes no
+ * progress (the located node is already `{}`).
+ */
 const importEdit = (
 	line: Line,
 	definitions: ReadonlyMap<string, Json>,
@@ -1313,10 +1362,12 @@ const importEdit = (
 		: { action: "replace", code: found[1](line), key, path }
 }
 
-// Imports through `importSchemas`; each rejected node becomes `{}` under the code of its class,
-// at its deepest existing schema ancestor, until the import succeeds. The importer stops at its
-// first failure, so repairs cannot be batched: each pass is charged the number of definitions it
-// imports, and the budget caps the passes.
+/**
+ * Imports through `importSchemas`; each rejected node becomes `{}` under the code of its class,
+ * at its deepest existing schema ancestor, until the import succeeds. The importer stops at its
+ * first failure, so repairs cannot be batched: each pass is charged the number of definitions it
+ * imports, and the budget caps the passes.
+ */
 const importCopy = Effect.fnUntraced(function* importCopy(
 	budget: Budget,
 	line: Line,
@@ -1378,9 +1429,6 @@ export const validationCopy = Effect.fnUntraced(function* validationCopy(
 		edits: [...edits, ...acyclic.edits, ...imported.edits]
 	}
 })
-
-// ---------------------------------------------------------------------------------------------
-// Diagnostics.
 
 interface Rule {
 	readonly anchor: string
@@ -1542,7 +1590,9 @@ const rules = new Map<string, Rule>([
 	]
 ])
 
-// The deepest existing node of the source document on the edit's path, as an RFC 6901 pointer.
+/**
+ * The deepest existing node of the source document on the edit's path, as an RFC 6901 pointer.
+ */
 const sourcePointer = (value: Json, base: string, path: readonly string[]): string => {
 	const tokens = tokensOf(base)
 	if (tokens === undefined) {
@@ -1563,8 +1613,10 @@ const sourcePointer = (value: Json, base: string, path: readonly string[]): stri
 	return formatPointer([...tokens, ...path.slice(0, consumed)])
 }
 
-// A refusal of a removed keyword is reported at its schema, as the resolver reports `$dynamicRef`;
-// a name dropped from `required` at the `required` keyword, once per schema.
+/**
+ * A refusal of a removed keyword is reported at its schema, as the resolver reports `$dynamicRef`;
+ * a name dropped from `required` at the `required` keyword, once per schema.
+ */
 const reportedPath = (edit: SchemaEdit, rule: Rule): readonly string[] => {
 	const removedRefusal = rule.severity === "refusal" && edit.action === "remove"
 	const droppedRequired = edit.action === "drop-member" && edit.path.at(-2) === "required"
@@ -1579,7 +1631,9 @@ const diagnosticsOf = (
 	refused: readonly (readonly [code: string, at: CanonicalKey])[]
 ): Effect.Effect<readonly Diagnostic[]> => {
 	const openapi = Option.getOrElse(declaredOpenapi(resolution.value), () => "unknown")
-	// A diagnostic's identity for deduplication: its code at its document and pointer.
+	/**
+	 * A diagnostic's identity for deduplication: its code at its document and pointer.
+	 */
 	let seen = HashSet.fromIterable<readonly [code: string, document: string, pointer: string]>(
 		resolution.diagnostics.map((diagnostic) => [
 			diagnostic.code,
@@ -1667,14 +1721,10 @@ export const normalizeSchemas = Effect.fnUntraced(function* normalizeSchemas(
 	return { ...stored, diagnostics, line: resolution.line, validation }
 })
 
-// ---------------------------------------------------------------------------------------------
-// The code-generation copy.
-
 const annotationsDropped: ReadonlySet<string> = new Set(["default", "example", "examples"])
 
 const forCodeGeneration: Visit = (node) =>
 	Record.map(
-		// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Record.filter(record, predicate), not an array method
 		Record.filter(node, (_, keyword) => !annotationsDropped.has(keyword)),
 		(value, keyword): Json => {
 			if (keyword !== "properties" || !isObject(value)) {
