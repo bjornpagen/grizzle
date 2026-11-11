@@ -45,7 +45,13 @@ const exponent: Gen<number | undefined> = weighted([
  * digit has fraction digits, so every drawn text is one.
  */
 export const numericText: Gen<string> = (source) => {
-	const sign = source.draw(element(["", "", "-", "+"]))
+	const sign = source.draw(
+		weighted([
+			[2, constant("")],
+			[1, constant("-")],
+			[1, constant("+")]
+		])
+	)
 	const whole = source.draw(digits(24))
 	const frac =
 		whole.length === 0

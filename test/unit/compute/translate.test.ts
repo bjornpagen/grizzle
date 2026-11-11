@@ -42,7 +42,6 @@ import {
 	array,
 	boolean,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
@@ -829,9 +828,7 @@ describe("Compute's translate and lowerAscii", () => {
 		Arr.reduce(members, 0, (most, m) => Math.max(most, codePoints(m).length))
 
 	const castGen: Gen<readonly [Operand, Target]> = (source) => {
-		const language = source.draw(
-			filter(finiteLanguageOver(translationAlphabet), (l) => l.members.length <= 64, 8)
-		)
+		const language = source.draw(finiteLanguageOver(translationAlphabet, 64))
 		const operand = source.draw(
 			weighted<Operand>([
 				[

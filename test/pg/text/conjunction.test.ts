@@ -50,6 +50,7 @@ import {
 	finiteLanguageOver,
 	flagsGen,
 	jsMatcher,
+	mostFiniteMembers,
 	patternOver,
 	stringsOver,
 	walkGen
@@ -70,7 +71,7 @@ const memberGen =
 		return {
 			source:
 				origin === "finite"
-					? source.draw(finiteLanguageOver(family.alphabet)).source
+					? source.draw(finiteLanguageOver(family.alphabet, mostFiniteMembers)).source
 					: source.draw(patternOver(family.alphabet)),
 			flags: source.draw(flagsGen)
 		}

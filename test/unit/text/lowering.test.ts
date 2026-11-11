@@ -48,6 +48,7 @@ import {
 	finiteLanguageOver,
 	flagsGen,
 	jsMatcher,
+	mostFiniteMembers,
 	nestedPattern,
 	patternOver,
 	stringsOver
@@ -460,7 +461,7 @@ describe("the enforcement of a finite language", () => {
 							const family = source.draw(element(families))
 							const alphabet: Arr.NonEmptyReadonlyArray<number> = [...family.alphabet, apostrophe]
 							return {
-								language: source.draw(finiteLanguageOver(alphabet)),
+								language: source.draw(finiteLanguageOver(alphabet, mostFiniteMembers)),
 								flags: source.draw(flagsGen),
 								strings: source.draw(array(stringsOver(alphabet, 6), { min: 1, max: 24 }))
 							}

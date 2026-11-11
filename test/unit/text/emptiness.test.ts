@@ -37,11 +37,12 @@ import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, defined, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
+	type Flags,
 	families,
 	finiteLanguageOver,
-	type Flags,
 	flagsGen,
 	jsMatcher,
+	mostFiniteMembers,
 	patternOver
 } from "#test/unit/text/generators.ts"
 
@@ -255,7 +256,7 @@ const caseGen: Gen<readonly [source: string, flags: Flags]> = (source) => {
 	const pattern = source.draw(
 		weighted<string>([
 			[6, patternOver(alphabet)],
-			[1, map(finiteLanguageOver(alphabet), (language) => language.source)],
+			[1, map(finiteLanguageOver(alphabet, mostFiniteMembers), (language) => language.source)],
 			[3, pastBounds(alphabet)],
 			[2, counted(alphabet)]
 		])

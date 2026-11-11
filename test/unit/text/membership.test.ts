@@ -25,17 +25,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import {
-	array,
-	element,
-	filter,
-	type Gen,
-	int,
-	map,
-	oneOf,
-	shuffled,
-	weighted
-} from "@grizzle/testing/gen"
+import { array, element, type Gen, int, map, oneOf, shuffled, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -56,6 +46,7 @@ import {
 	finiteLanguageOver,
 	flagsGen,
 	jsMatcher,
+	mostFiniteMembers,
 	patternOver,
 	stringsOver,
 	walk,
@@ -98,7 +89,10 @@ const caseGen: Gen<{
 		source: source.draw(
 			weighted([
 				[9, patternOver(family.alphabet)],
-				[1, map(finiteLanguageOver(family.alphabet), (language) => language.source)]
+				[
+					1,
+					map(finiteLanguageOver(family.alphabet, mostFiniteMembers), (language) => language.source)
+				]
 			])
 		),
 		flags: source.draw(flagsGen),
@@ -552,9 +546,7 @@ describe("language-equivalent spellings share one canonical key", () => {
 		readonly withEmpty: boolean
 	}> = (source) => {
 		const { alphabet } = source.draw(element(families))
-		const language = source.draw(
-			filter(finiteLanguageOver(alphabet), (l) => l.members.length <= 48, 8)
-		)
+		const language = source.draw(finiteLanguageOver(alphabet, 48))
 		const order = source.draw(
 			shuffled(language.members, { min: language.members.length, max: language.members.length })
 		)

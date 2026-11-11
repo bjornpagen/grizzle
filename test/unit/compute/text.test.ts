@@ -31,7 +31,16 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, element, filter, type Gen, int, map, weighted } from "@grizzle/testing/gen"
+import {
+	array,
+	boolean,
+	element,
+	type Gen,
+	int,
+	map,
+	uniqueArray,
+	weighted
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -78,9 +87,11 @@ import {
 } from "#test/unit/compute/support.ts"
 import {
 	type FiniteLanguage,
+	admittedPatternOver,
 	families,
 	finiteLanguageOver,
 	jsMatcher,
+	mostFiniteMembers,
 	patternOver,
 	stringsOver
 } from "#test/unit/text/generators.ts"
@@ -513,10 +524,8 @@ describe("Compute's text terms", () => {
 			fault,
 			site: source.draw(element<Site>(["matches", "when"])),
 			mode: source.draw(element(["check", "query"] as const)),
-			pattern: source.draw(
-				filter(patternOver(alphabet), (p) => matchPattern(p, SourceLoc("pattern", [])).ok, 16)
-			),
-			language: source.draw(finiteLanguageOver(alphabet)),
+			pattern: source.draw(admittedPatternOver(alphabet)),
+			language: source.draw(finiteLanguageOver(alphabet, mostFiniteMembers)),
 			point: source.draw(element(alphabet)),
 			other: source.draw(element(alphabet)),
 			copies: source.draw(int(17, 24)),
@@ -790,16 +799,10 @@ describe("Compute's text terms", () => {
 	/** A pattern over one admitted pattern or two distinct ones, two conditionals deep at most. */
 	const spellingGen: Gen<PatternSpelling> = (source) => {
 		const { alphabet } = source.draw(element(families))
-		const admitted = filter(
-			patternOver(alphabet),
-			(p) => matchPattern(p, SourceLoc("pattern", [])).ok,
-			16
+		const [first, ...rest] = source.draw(
+			uniqueArray(admittedPatternOver(alphabet), (p) => p, { min: 1, max: 2 })
 		)
-		const first = source.draw(admitted)
-		const pool: Arr.NonEmptyReadonlyArray<string> = source.draw(boolean)
-			? [first, source.draw(filter(admitted, (p) => p !== first, 16))]
-			: [first]
-		return source.draw(spellingOver(pool, 2))
+		return source.draw(spellingOver([defined(first, "an admitted pattern"), ...rest], 2))
 	}
 
 	/** The ARE str.regex prints for an admitted pattern. */

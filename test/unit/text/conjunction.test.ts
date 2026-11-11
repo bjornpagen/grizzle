@@ -74,6 +74,7 @@ import {
 	finiteLanguageOver,
 	flagsGen,
 	jsMatcher,
+	mostFiniteMembers,
 	patternOver,
 	stringsOver,
 	walkGen
@@ -91,7 +92,7 @@ const memberGen =
 		source: source.draw(
 			weighted<string>([
 				[3, patternOver(alphabet)],
-				[1, map(finiteLanguageOver(alphabet), (language) => language.source)]
+				[1, map(finiteLanguageOver(alphabet, mostFiniteMembers), (language) => language.source)]
 			])
 		),
 		flags: source.draw(flagsGen)

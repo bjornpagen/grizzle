@@ -400,6 +400,107 @@ export const patternOver = (alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<st
 	return disjunction(0)
 }
 
+/**
+ * A class no text value escapes: a positive class of one to three items (code points, ranges and class escapes), each
+ * of which holds a code point, or a negated class of up to three code points alone, which leaves every other one. A
+ * negated class escape could leave nothing beside its complement ([^\\d\\D]), so none stands in a negated class.
+ */
+const admittedClass = (alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<string> => {
+	const item = oneOf<string>([
+		map(element(alphabet), classChar),
+		(source) => {
+			const a = source.draw(element(alphabet))
+			const b = source.draw(element(alphabet))
+			return `${classChar(Math.min(a, b))}-${classChar(Math.max(a, b))}`
+		},
+		element(["\\d", "\\D", "\\w", "\\W"])
+	])
+	return oneOf<string>([
+		map(array(item, { min: 1, max: 3 }), (items) => `[${Arr.join(items, "")}]`),
+		map(
+			array(map(element(alphabet), classChar), { min: 0, max: 3 }),
+			(points) => `[^${Arr.join(points, "")}]`
+		)
+	])
+}
+
+/** Whether an arm of an admitted pattern opens with `^` or closes with `$`: three arms in four do not. */
+const armAnchor = (anchor: "^" | "$"): Gen<string> =>
+	weighted([
+		[3, constant("")],
+		[1, constant(anchor)]
+	])
+
+/**
+ * Admitted patterns of bounded depth over an alphabet: the grammar patternOver writes, every construct and every
+ * nesting of groups, built so that each pattern matches some text and fits every compile limit, so the text analysis
+ * and matchPattern admit it. Every atom matches a code point (a class as admittedClass builds one), so every sequence,
+ * group and alternation does; `^` stands only at the head of a top-level arm and `$` only at its end, where no consumed
+ * code point stands before one or after the other; and the depth, the counts up to five and the arms keep a pattern's
+ * automaton and its anchors within every limit. A refused pattern is patternOver's to draw.
+ */
+export const admittedPatternOver = (alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<string> => {
+	const simple = weighted<string>([
+		[6, literal(alphabet)],
+		[1, constant(".")],
+		[1, element(["\\d", "\\D", "\\w", "\\W"])],
+		[2, admittedClass(alphabet)]
+	])
+	const open = element(["(", "(?:"])
+	const flatDisjunction = (depth: number): Gen<string> =>
+		map(
+			array(
+				map(array(flatTerm(depth), { min: 0, max: 3 }), (terms) => Arr.join(terms, "")),
+				{ min: 1, max: 3 }
+			),
+			(arms) => Arr.join(arms, "|")
+		)
+	const flatTerm = (depth: number): Gen<string> => {
+		const first = FLAT_FIRST[depth]
+		if (first === undefined) {
+			return simple
+		}
+		const inner = flatDisjunction(depth + 1)
+		return weighted<string>([
+			[first, simple],
+			[1, (source) => `${source.draw(open)}${source.draw(inner)})`]
+		])
+	}
+	const disjunction = (depth: number): Gen<string> =>
+		map(
+			array(
+				map(array(termAt(depth), { min: 0, max: 4 }), (terms) => Arr.join(terms, "")),
+				{ min: 1, max: 3 }
+			),
+			(arms) => Arr.join(arms, "|")
+		)
+	const quantified: Gen<string> = (source) => source.draw(simple) + source.draw(quantifier)
+	const termAt = (depth: number): Gen<string> => {
+		const first = TERM_FIRST[depth]
+		if (first === undefined) {
+			return quantified
+		}
+		const flat = flatDisjunction(0)
+		const nested = disjunction(depth + 1)
+		return weighted<string>([
+			[first, quantified],
+			[
+				2,
+				(source) => {
+					const o = source.draw(open)
+					const body = source.draw(flat)
+					const q = source.draw(quantifier)
+					return `${o}${body})${q}`
+				}
+			],
+			[2, (source) => `${source.draw(open)}${source.draw(nested)})`]
+		])
+	}
+	const arm: Gen<string> = (source) =>
+		`${source.draw(armAnchor("^"))}${Arr.join(source.draw(array(termAt(0), { min: 0, max: 4 })), "")}${source.draw(armAnchor("$"))}`
+	return map(array(arm, { min: 1, max: 3 }), (arms) => Arr.join(arms, "|"))
+}
+
 /** A finite language as a pattern spells it, with its members, which the pattern's construction gives. */
 export interface FiniteLanguage {
 	readonly source: string
@@ -421,34 +522,72 @@ const stringsOf = (points: ReadonlyArray<string>, length: number): ReadonlyArray
 		? emptySequence
 		: Arr.flatMap(stringsOf(points, length - 1), (prefix) => Arr.map(points, (p) => prefix + p))
 
-/** How many times a piece repeats, at least and at most: once, mostly, or counted from none to twice. */
-const repetition: Gen<readonly [min: number, max: number]> = weighted<
-	readonly [min: number, max: number]
->([
-	[3, constant([1, 1] as const)],
-	[
-		1,
-		(source) => {
-			const min = source.draw(int(0, 2))
-			return [min, source.draw(int(min, 2))] as const
-		}
-	]
-])
+/**
+ * The bounds of a finite pattern's construction: the most code points a piece's class holds, the most times a piece
+ * repeats, the most pieces an arm holds, and the most arms a pattern alternates.
+ */
+const finiteShape = { chars: 3, repeats: 2, pieces: 3, arms: 3 } as const
 
-/** A code point of the alphabet, or a class of up to three, repeated: one piece of a finite pattern's arm. */
+/** How many strings `k` distinct code points spell from `min` to `max` times over: each length's k^n. */
+const stringsCounted = (k: number, min: number, max: number): number =>
+	Arr.reduce(
+		Arr.makeBy(max - min + 1, (i) => k ** (min + i)),
+		0,
+		(sum, n) => sum + n
+	)
+
+/**
+ * The most members a finite language of the construction holds: every arm at its most, each piece a class of the most
+ * code points repeated from none to the most times. finiteLanguageOver draws every language below it when given it.
+ */
+export const mostFiniteMembers =
+	finiteShape.arms * stringsCounted(finiteShape.chars, 0, finiteShape.repeats) ** finiteShape.pieces
+
+/** The repetitions after `min`, each the next count past it up to the most: none when `min` is the most. */
+const countsAfter = (min: number): ReadonlyArray<number> =>
+	Arr.makeBy(finiteShape.repeats - min, (i) => min + 1 + i)
+
+/**
+ * How many times a piece of `k` distinct code points repeats, at least and at most: once, mostly, or counted, from none
+ * to twice, among the counts whose strings number at most `fits`. Once always fits, as `k` does, and none at all is one
+ * string, so every choice has a count.
+ */
+const repetition = (k: number, fits: number): Gen<readonly [min: number, max: number]> =>
+	weighted<readonly [min: number, max: number]>([
+		[3, constant([1, 1] as const)],
+		[
+			1,
+			(source) => {
+				const min = source.draw(
+					element([0, ...Arr.filter(countsAfter(0), (m) => stringsCounted(k, m, m) <= fits)])
+				)
+				const max = source.draw(
+					element([min, ...Arr.filter(countsAfter(min), (m) => stringsCounted(k, min, m) <= fits)])
+				)
+				return [min, max] as const
+			}
+		]
+	])
+
+/**
+ * A code point of the alphabet, or a class of up to three, repeated: one piece of a finite pattern's arm, matching at
+ * most `fits` strings, so its class holds no more code points than fit once and its count is one whose strings fit.
+ */
 const finitePiece =
-	(alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<Spelled> =>
+	(alphabet: Arr.NonEmptyReadonlyArray<number>, fits: number): Gen<Spelled> =>
 	(source) => {
 		const first = source.draw(element(alphabet))
-		const more = source.draw(array(element(alphabet), { min: 0, max: 2 }))
-		const [min, max] = source.draw(repetition)
+		const more = source.draw(
+			array(element(alphabet), { min: 0, max: Math.min(finiteShape.chars, fits) - 1 })
+		)
 		const points: Arr.NonEmptyReadonlyArray<number> = [first, ...more]
+		const chars = Arr.dedupe(Arr.map(points, (c) => String.fromCodePoint(c)))
+		const [min, max] = source.draw(repetition(chars.length, fits))
 		const atom =
 			more.length === 0
 				? source.draw(spelled(first))
 				: `[${Arr.join(Arr.map(points, classChar), "")}]`
 		const count = min === 1 && max === 1 ? "" : min === max ? `{${min}}` : `{${min},${max}}`
-		const chars = Arr.dedupe(Arr.map(points, (c) => String.fromCodePoint(c)))
 		return {
 			spelling: `${atom}${count}`,
 			matches: Arr.flatMap(Arr.range(min, max), (n) => stringsOf(chars, n))
@@ -462,24 +601,49 @@ const spellingsOf = (parts: ReadonlyArray<Spelled>, separator: string): string =
 		separator
 	)
 
-/** A sequence of up to three pieces: one arm of a finite pattern, matching each concatenation of its pieces' strings. */
-const finiteArm = (alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<Spelled> =>
-	map(array(finitePiece(alphabet), { min: 0, max: 3 }), (pieces) => ({
-		spelling: spellingsOf(pieces, ""),
-		matches: Arr.reduce(pieces, emptySequence, (prefixes, p) =>
-			Arr.flatMap(prefixes, (prefix) => Arr.map(p.matches, (m) => prefix + m))
+/**
+ * A sequence of up to three pieces: one arm of a finite pattern, matching each concatenation of its pieces' strings,
+ * at most `budget` of them, each piece drawn within what the pieces before it left of the budget.
+ */
+const finiteArm =
+	(alphabet: Arr.NonEmptyReadonlyArray<number>, budget: number): Gen<Spelled> =>
+	(source) => {
+		let product = 1
+		const pieces = source.draw(
+			array(
+				(inner) => {
+					const piece = inner.draw(finitePiece(alphabet, Math.floor(budget / product)))
+					product *= piece.matches.length
+					return piece
+				},
+				{ min: 0, max: finiteShape.pieces }
+			)
 		)
-	}))
+		return {
+			spelling: spellingsOf(pieces, ""),
+			matches: Arr.reduce(pieces, emptySequence, (prefixes, p) =>
+				Arr.flatMap(prefixes, (prefix) => Arr.map(p.matches, (m) => prefix + m))
+			)
+		}
+	}
 
 /**
  * Anchored alternations of up to three arms over an alphabet, each a sequence of code points and classes counted up to
- * twice: a finite language, from one member to thousands, which patternOver, whose anchors fall anywhere among its
- * unbounded quantifiers, draws about once in thousands of cases.
+ * twice: a finite language of at most `most` members, constructed within it, each arm within what the arms before it
+ * left, keeping one for each arm after it. patternOver, whose anchors fall anywhere among its unbounded quantifiers,
+ * draws such a language about once in thousands of cases. Given mostFiniteMembers, it draws every language it can.
  */
 export const finiteLanguageOver =
-	(alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<FiniteLanguage> =>
+	(alphabet: Arr.NonEmptyReadonlyArray<number>, most: number): Gen<FiniteLanguage> =>
 	(source) => {
-		const arms = source.draw(array(finiteArm(alphabet), { min: 1, max: 3 }))
+		const count = source.draw(int(1, Math.min(finiteShape.arms, most)))
+		let left = most
+		const arms: Array<Spelled> = []
+		for (let at = 0; at < count; at += 1) {
+			const arm = source.draw(finiteArm(alphabet, left - (count - 1 - at)))
+			left -= arm.matches.length
+			arms.push(arm)
+		}
 		const members = Arr.dedupe(Arr.flatMap(arms, (arm) => arm.matches))
 		if (!Arr.isReadonlyArrayNonEmpty(members)) {
 			throw new Error("every arm of a finite pattern matches a string")

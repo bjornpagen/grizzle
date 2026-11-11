@@ -4,7 +4,8 @@
  * anchors PostgreSQL must move. That PostgreSQL compiles what the limits admit is test/pg/text/differential.test.ts's.
  *
  * - The raw NFA: the built NFA holds the states and arcs its fold counts, no depth-first walk of it is deeper than its
- *   fold's depth, and its colors are its printed sets' classes. Oracle: a second implementation, the built raw NFA, its
+ *   fold's depth, and its colors are its printed sets' classes, over admitted patterns, every one live and within the
+ *   states a compile holds by construction, and nested ones, which the search passes over where they are not. Oracle: a second implementation, the built raw NFA, its
  *   walks either way, and a sweep of every code point's set memberships.
  * - The limits: a shape built to cross one limit along its parameter, drawn on both sides of it, is refused as
  *   ResourceBound naming that limit and what it needed, and admitted inside every limit. Oracle: each shape's measure
@@ -55,11 +56,11 @@ import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
+	admittedPatternOver,
 	families,
 	flagsGen,
 	jsMatcher,
 	nestedPattern,
-	patternOver,
 	walkGen
 } from "#test/unit/text/generators.ts"
 
@@ -76,21 +77,36 @@ const widePoints: ReadonlyArray<number> = [
 ]
 
 /** A pattern over a drawn alphabet of up to 48 code points, a family's, or one of nested quantifiers. */
-const patternGen: Gen<{ readonly source: string; readonly flags: "u" | "su" }> = (source) => ({
-	source: source.draw(
-		oneOf<string>([
-			nestedPattern,
-			(s) => s.draw(patternOver(s.draw(element(families)).alphabet)),
-			(s) => {
-				const alphabet = s.draw(subset(widePoints, { min: 1, max: 48 }))
-				return s.draw(
-					patternOver([defined(alphabet[0], "a drawn code point"), ...alphabet.slice(1)])
-				)
-			}
-		])
-	),
-	flags: source.draw(flagsGen)
-})
+/**
+ * A pattern the raw NFA search draws, by its arm: an admitted one (admittedPatternOver) over a family's alphabet or a
+ * drawn wide one, which is live and within every compile limit by construction, or one of nested quantifiers
+ * (nestedPattern), which may match no text or hold more states than a compile holds, and which the search passes over
+ * then.
+ */
+interface RawCase {
+	readonly arm: "admitted" | "nested"
+	readonly source: string
+	readonly flags: "u" | "su"
+}
+
+const patternGen: Gen<RawCase> = oneOf<RawCase>([
+	(s) => ({ arm: "nested", source: s.draw(nestedPattern), flags: s.draw(flagsGen) }),
+	(s) => ({
+		arm: "admitted",
+		source: s.draw(admittedPatternOver(s.draw(element(families)).alphabet)),
+		flags: s.draw(flagsGen)
+	}),
+	(s) => {
+		const alphabet = s.draw(subset(widePoints, { min: 1, max: 48 }))
+		return {
+			arm: "admitted",
+			source: s.draw(
+				admittedPatternOver([defined(alphabet[0], "a drawn code point"), ...alphabet.slice(1)])
+			),
+			flags: s.draw(flagsGen)
+		}
+	}
+])
 
 /** The non-empty IR of a pattern, or undefined where it is malformed or of the empty language. */
 const liveIr = (source: string, flags: "u" | "su"): LiveNode | undefined => {
@@ -247,17 +263,25 @@ describe("the raw NFA PostgreSQL's parser builds", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					({ source, flags }, c) =>
+					({ arm, source, flags }, c) =>
 						Effect.gen(function* () {
-							const ir = liveIr(source, flags)
-							yield* c.assume(ir !== undefined)
-							if (ir === undefined) {
-								return
-							}
 							const label = `/${source}/${flags}`
+							const ir = liveIr(source, flags)
+							if (arm === "nested") {
+								yield* c.assume(ir !== undefined)
+							}
+							if (ir === undefined) {
+								return assert.fail(`${label}: an admitted pattern is live`)
+							}
 							const colors = colorsOf(ir)
 							const size = rawSize(ir, colors)
-							yield* c.assume(size.states <= regexMaxHeldStates.value)
+							if (arm === "nested") {
+								yield* c.assume(size.states <= regexMaxHeldStates.value)
+							}
+							assert.ok(
+								size.states <= regexMaxHeldStates.value,
+								`${label}: an admitted pattern holds no more states than a compile holds`
+							)
 							c.note("a pattern")
 							const swept = sweptColors(ir)
 							assert.equal(colors.count, swept.count, `${label}: its colors`)
