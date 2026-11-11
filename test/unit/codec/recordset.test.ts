@@ -14,8 +14,9 @@
  *   longest literal refused past the string bound and written within it, and every type's canonical text carried.
  *   Oracle: array_in's grammar restated (test/support/arrays.ts readArrayLiteral), a second implementation.
  *
- * Features: each planted refusal; a fixed and another width; an empty set and a set of several facts; a column of no
- * row, and a row of an empty cell; the bound far within, at, one past and far past.
+ * Features: each planted refusal; a fixed and another width; an empty set and a set of several facts; each fact spelled
+ * once and a fact spelled again; a column of no row, and a row of an empty cell; the bound far within, at, one past and
+ * far past.
  *
  * Plants (~/.cache/grizzle-release/BR06/plants): recordset-order-kept (a set encoded in the order given, not its
  * canonical order) and recordset-array-quote-unescaped (a quote inside an array element written bare).
@@ -541,8 +542,8 @@ describe("relation normalization", () => {
 								(source) => [source.draw(caseGen), source.draw(int(0, 2 ** 31 - 1))] as const
 							),
 							literal: Formatter.format,
-							coverage: required<"an empty set" | "a set of several facts">(
-								["an empty set", "a set of several facts"],
+							coverage: required<"each fact spelled once" | "a fact spelled again">(
+								["each fact spelled once", "a fact spelled again"],
 								{ cases: 200, sense: notesOnly }
 							),
 							kept: [],
@@ -554,7 +555,7 @@ describe("relation normalization", () => {
 						},
 						([{ facts, extra }, seed], c) =>
 							Effect.sync(() => {
-								c.note(facts.length === 0 ? "an empty set" : "a set of several facts")
+								c.note(extra.length === 0 ? "each fact spelled once" : "a fact spelled again")
 								const all = [...facts, ...extra]
 								const shuffled = Arr.map(
 									Arr.sort(

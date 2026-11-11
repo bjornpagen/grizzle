@@ -7,7 +7,10 @@
  *   of drawn contracts under drawn names over two definitions, read at its own level or at an empty level above it. Every named native's constraint reports a law of the theory, among the
  *   constraints of its kind the kit names for that law; every key statement's law, as the kit names it, is reported by
  *   a constraint of the model; every alternatives expansion's arms and reverses are its tagged and native foreign keys;
- *   every checked contract's and text domain's CHECK reports its law. Every native's name is readable exactly where its
+ *   a text domain's CHECK states each column's pattern law, and a checked contract's domain CHECK, shared by contracts of
+ *   one definition, states for each stored column it types the law of that column's own contract and reports its first
+ *   use's (laws/model/model.ts DomainConstraintLaw), or, typing none, carries the contract's law. Every native's name
+ *   is readable exactly where its
  *   identity is a declared row check's, then the check's name's conversion, and otherwise hashed, `__<stem>_<digest>`
  *   with the digest the naming door's rule restated over the identity's canonical encoding; each fits an identifier,
  *   and no two natives of one namespace share a name.
@@ -39,12 +42,12 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Order, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { conversionOf, identifierOf, maxIdentifierBytes } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
-import type { SchemaDesc, SideDesc, StatementDesc } from "#compiler/ir/desc.ts"
+import type { FieldDesc, SchemaDesc, SideDesc, StatementDesc } from "#compiler/ir/desc.ts"
 import { expandAlternatives } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
@@ -134,12 +137,18 @@ const foreignKeysInto = (
 			: []
 	)
 
-/** The declared relation and field of an installed table and column, as ownership registered them. */
-const declaredColumn = (owned: Owned, table: string, column: string): readonly [string, string] => {
+/** The declared relation, field and field description of an installed table and column, as ownership registered them. */
+const declaredColumn = (
+	owned: Owned,
+	table: string,
+	column: string
+): Readonly<{ relation: string; field: string; desc: FieldDesc }> => {
 	const [found] = Arr.flatMap(Rec.values(owned.relations), (owner) =>
 		owner.kind === "relation" && identifierOf(owner.named) === table
 			? Arr.flatMap(Rec.values(owner.fields), (field) =>
-					field.column === column ? [[owner.name, field.name] as const] : []
+					field.column === column
+						? [{ relation: owner.name, field: field.name, desc: field.desc }]
+						: []
 				)
 			: []
 	)
@@ -374,7 +383,23 @@ describe("production names from src", () => {
 							],
 							{ cases: 100, sense: notesOnly }
 						),
-						kept: [],
+						kept: [
+							{
+								note: "two contracts of one definition, the first column's named after the second's: the domain's CHECK reports its first use's law, not the first name's",
+								sketch: {
+									subject: {
+										kind: "contracts",
+										contracts: [
+											{ name: "Ca", atLeastZero: true },
+											{ name: "C", atLeastZero: true }
+										]
+									},
+									extended: false
+								},
+								draws: "",
+								reaches: ["named native", "checked contract"]
+							}
+						],
 						runs: 40,
 						shrink: completeShrink,
 						concurrency: 1,
@@ -494,23 +519,65 @@ describe("production names from src", () => {
 									continue
 								}
 								k.note("checked contract")
-								const [first] = Arr.sort(
-									Arr.filter(Rec.keys(N.model.owned.contracts), (other) => {
-										const o = N.contract(other)
-										return o.kind !== "brand" && o.domain === contract.domain
-									}),
-									Order.String
+								const stored = Arr.flatMap(N.installation.constraintLaws, (c) =>
+									c.kind === "domainConstraint" &&
+									c.owner === contract.domain &&
+									c.name === contract.constraint
+										? c.uses
+										: []
 								)
-								assert.equal(
-									N.lawOfConstraint({ kind: "domain", name: contract.domain }, contract.constraint),
-									N.contract(defined(first, `${contractName}'s domain`)).law,
-									contractName
+								const unstored = Arr.flatMap(N.installation.constraintLaws, (c) =>
+									c.kind === "unstoredDomainConstraint" &&
+									c.owner === contract.domain &&
+									c.name === contract.constraint
+										? c.laws
+										: []
 								)
+								const reported = N.lawOfConstraint(
+									{ kind: "domain", name: contract.domain },
+									contract.constraint
+								)
+								const [first] = stored
+								if (first === undefined) {
+									assert.ok(
+										Arr.some(unstored, (l) => l.law === contract.law),
+										`${contractName}'s domain, typing no stored column, carries its law`
+									)
+									assert.ok(
+										Arr.some(unstored, (l) => l.law === reported),
+										`${contractName}'s domain reports one of the laws it carries`
+									)
+								} else {
+									for (const use of stored) {
+										const typed = declaredColumn(N.model.owned, use.table, use.column)
+										if (typed.desc.kind !== "contract") {
+											return assert.fail(
+												`${typed.relation}.${typed.field} uses ${contract.domain} with no contract`
+											)
+										}
+										const owner = N.contract(typed.desc.name)
+										assert.equal(owner.domain, contract.domain, `${typed.relation}.${typed.field}`)
+										assert.equal(
+											use.law.law,
+											owner.law,
+											`${typed.relation}.${typed.field} states its own contract's law under the domain's CHECK`
+										)
+									}
+									assert.equal(
+										reported,
+										first.law.law,
+										`${contractName}'s domain reports its first use's law`
+									)
+								}
 							}
 							for (const domain of N.installation.textDomains) {
 								for (const use of domain.uses) {
 									k.note("text domain")
-									const [owner, field] = declaredColumn(N.model.owned, use.table, use.column)
+									const { relation: owner, field } = declaredColumn(
+										N.model.owned,
+										use.table,
+										use.column
+									)
 									const textNames = N.textDomain({ name: owner }, field)
 									assert.equal(textNames.domain, domain.name, `${owner}.${field}`)
 									const law = N.patternLaw({ name: owner }, field)

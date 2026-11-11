@@ -702,13 +702,21 @@ describe("closedId", () => {
 						name: "the roster of the drawn name and handles, in declared order (Roster.of)"
 					},
 					suite: "unit/scalar/closed-id",
-					draw: drawn((source) => ({
-						name: source.draw(matching(regex("^[A-Z][a-z]{1,8}$"))),
-						other: source.draw(matching(regex("^[A-Z][a-z]{1,8}$"))),
-						handles: source.draw(
-							uniqueArray(matching(regex("^[A-Za-z]{1,6}$")), (item) => item, { min: 1, max: 5 })
-						)
-					})),
+					draw: drawn((source) => {
+						const name = source.draw(matching(regex("^[A-Z][a-z]{1,8}$")))
+						return {
+							name,
+							other: source.draw(
+								weighted([
+									[1, constant(name)],
+									[1, matching(regex("^[A-Z][a-z]{1,8}$"))]
+								])
+							),
+							handles: source.draw(
+								uniqueArray(matching(regex("^[A-Za-z]{1,6}$")), (item) => item, { min: 1, max: 5 })
+							)
+						}
+					}),
 					literal: Formatter.format,
 					coverage: required<ClosedIdFeature>(
 						["one handle", "several handles", "two names", "one name twice"],

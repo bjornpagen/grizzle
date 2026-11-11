@@ -4,13 +4,14 @@
  * merge across groups decides.
  *
  * Inputs: the fixture's two heterogeneous unions of heading groups (test/unit/page/fixtures.ts flagged and
- * flaggedByTitle, told apart by the roster-typed level), each bounded by a take of the ordered union or by a take
- * ordered again, at any bound and in either direction. An unbounded union pages, and the generated page oracle
- * (test/pg/page/generated.ts) holds that side.
+ * flaggedByTitle, told apart by the roster-typed level), each taken at any bound and ordered again, by its own order or
+ * by its own key reversed: a page reads an Ordered query, so an order over the take is the one page a bounded union
+ * can be asked for, and a take with no order after it is no page at all. An unbounded union pages, and the generated
+ * page oracle (test/pg/page/generated.ts) holds that side.
  *
  * Oracle: the compiler's contract, a specification: every bounded heterogeneous union is refused, by its tag.
  *
- * Features: each union, and each bound: a take of the ordered union, and an order over the take.
+ * Features: each union, and each order over the take: the union's own, and its key reversed.
  *
  * Plant (~/.cache/grizzle-release/BR06/plants): page-bounded-union-paged (an order over the take paged as an unbounded
  * union is).
@@ -23,7 +24,6 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect, Formatter } from "effect"
-import { type Direction, directions } from "#compiler/core/order.ts"
 import { refused } from "#test/support/assert.ts"
 import { testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -31,18 +31,21 @@ import { compiledPageResult, flagged, flaggedByTitle } from "#test/unit/page/fix
 
 type Union = "flagged" | "flagged by title"
 
-type Bound = "a take of the ordered union" | "an order over the take"
+type Reorder = "the union's own order" | "its key reversed"
 
-type Feature = Union | Bound
+type Feature = Union | Reorder
 
-/** The union bounded: taken in its own order, or taken and ordered again by its id. */
-const bounded = (union: Union, bound: Bound, take: number, direction: Direction): unknown => {
-	const ordered = union === "flagged" ? flagged : flaggedByTitle
-	switch (bound) {
-		case "a take of the ordered union":
-			return ordered.take(take)
-		case "an order over the take":
-			return ordered.take(take).orderBy(["id", direction])
+/**
+ * The union taken at `take` and ordered again: by its own order (flagged's id descending, flaggedByTitle's title
+ * ascending), or by its key in the other direction.
+ */
+const bounded = (union: Union, reorder: Reorder, take: number): unknown => {
+	const own = reorder === "the union's own order"
+	switch (union) {
+		case "flagged":
+			return flagged.take(take).orderBy(["id", own ? "desc" : "asc"])
+		case "flagged by title":
+			return flaggedByTitle.take(take).orderBy(["title", own ? "asc" : "desc"])
 	}
 }
 
@@ -59,20 +62,12 @@ describe("the page compiler", () => {
 					suite: "unit/page/bounded-union",
 					draw: drawn((source) => ({
 						union: source.draw(element<Union>(["flagged", "flagged by title"])),
-						bound: source.draw(
-							element<Bound>(["a take of the ordered union", "an order over the take"])
-						),
-						take: source.draw(int(1, 50)),
-						direction: source.draw(element(directions))
+						reorder: source.draw(element<Reorder>(["the union's own order", "its key reversed"])),
+						take: source.draw(int(1, 50))
 					})),
 					literal: Formatter.format,
 					coverage: required<Feature>(
-						[
-							"flagged",
-							"flagged by title",
-							"a take of the ordered union",
-							"an order over the take"
-						],
+						["flagged", "flagged by title", "the union's own order", "its key reversed"],
 						{ cases: 30, sense: notesOnly }
 					),
 					kept: [],
@@ -82,15 +77,15 @@ describe("the page compiler", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				({ union, bound, take, direction }, c) =>
+				({ union, reorder, take }, c) =>
 					Effect.sync(() => {
 						refused(
-							compiledPageResult(bounded(union, bound, take, direction), testCompile),
+							compiledPageResult(bounded(union, reorder, take), testCompile),
 							"UnsupportedOperation",
-							`${union}, ${bound}`
+							`${union}, ${reorder}`
 						)
 						c.note(union)
-						c.note(bound)
+						c.note(reorder)
 					})
 			)
 		)
