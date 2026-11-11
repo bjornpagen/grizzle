@@ -38,9 +38,10 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, type Scope, String as Str } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
-import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
+import { Db } from "#adapter/public/db.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
-import { answered } from "#test/support/calls.ts"
+import type { WriteOutcome } from "#compiler/live/index.ts"
+import { type Answer, answered } from "#test/support/calls.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import * as Q from "#test/support/fixtures/api/queue.ts"
 import { kA, kB, kG, queueFacts } from "#test/support/fixtures/golden/queue.ts"
@@ -134,12 +135,12 @@ type QueueFeature =
 	| "two writes in flight together"
 	| "a write refused"
 	| `refused: ${TransientTag}`
-	| `${QueueWrite["kind"]} ${ApplyOutcome<unknown>["kind"]}`
+	| `${QueueWrite["kind"]} ${Answer<WriteOutcome<unknown>>["kind"]}`
 
 /** The features one explained run reached (see QueueFeature). */
 const featuresOf =
 	(race: QueueRace) =>
-	(e: Explained<ApplyOutcome<unknown>>): ReadonlyArray<QueueFeature> => {
+	(e: Explained<Answer<WriteOutcome<unknown>>>): ReadonlyArray<QueueFeature> => {
 		const waited = Arr.some(
 			e.run.moves,
 			(m) => (m.session === "g" || m.session === "h") && m.observed._tag === "Waited"
@@ -211,7 +212,7 @@ const runRace = (
 		const leasedColumn = (field: "key" | "resource" | "seat" | "epoch" | "expires") =>
 			names.column(Q.Leased, field)
 		const gpu = names.code(Q.Resource, "gpu")
-		const blocker: RaceTxn<ApplyOutcome<unknown>> =
+		const blocker: RaceTxn<Answer<WriteOutcome<unknown>>> =
 			race.blocker.kind === "locks"
 				? {
 						kind: "direct",
@@ -265,7 +266,7 @@ const runRace = (
 						const writeOf = (
 							session: "g" | "h",
 							db: typeof one
-						): RaceTxn<ApplyOutcome<unknown>> => {
+						): RaceTxn<Answer<WriteOutcome<unknown>>> => {
 							const write = race[session]
 							return {
 								kind: "grizzle",
@@ -370,7 +371,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the work queue's races", 
 								h: { kind: "claim", from: "1", fromSeat: 3 }
 							},
 							draws: "",
-							reaches: ["two writes in flight together", "a write refused", "claim no-change"]
+							reaches: ["two writes in flight together", "a write refused", "claim unchanged"]
 						},
 						{
 							note: "a late settlement racing a reclaim: the worker of kB's expired epoch-1 lease settles it while a claimer from 33...3 reclaims kB, and the enqueuer holds kB's row; exactly one of them lands",

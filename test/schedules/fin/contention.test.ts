@@ -152,27 +152,26 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							steps: [
 								opStep(
 									"the grizzle append",
-									Effect.tap(
-										Effect.result(
-											untilAnswered(
-												answered(
-													app.db.workload.append.once({
-														params: {},
-														facts: { insert: { Member: [{ member: GRIZZLE, g: 0 }] } }
-													})
-												)
+									app.db.workload.append
+										.once({
+											params: {},
+											facts: { insert: { Member: [{ member: GRIZZLE, g: 0 }] } }
+										})
+										.pipe(
+											answered,
+											untilAnswered,
+											Effect.result,
+											Effect.tap((r) =>
+												Effect.sync(() => {
+													ran = Result.isSuccess(r)
+														? Result.succeed({
+																refused: r.success.refused,
+																answer: r.success.answered.kind
+															})
+														: Result.fail(r.failure.message)
+												})
 											)
 										),
-										(r) =>
-											Effect.sync(() => {
-												ran = Result.isSuccess(r)
-													? Result.succeed({
-															refused: r.success.refused,
-															answer: r.success.answered.kind
-														})
-													: Result.fail(r.failure.message)
-											})
-									),
 									everyRelation
 								)
 							],

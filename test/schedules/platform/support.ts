@@ -18,20 +18,22 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
-import type { ApplyOutcome } from "#adapter/public/db.ts"
-import type { ApplyError, OpenError, ReadError } from "#adapter/public/errors.ts"
+import type { OpenError } from "#adapter/public/errors.ts"
 import type { DbOf } from "#adapter/types/db.ts"
 import { appendAll } from "#compiler/core/array.ts"
+import type { TransientTag } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { type ReadonlyTupleMap, TupleMap, TupleSet } from "#compiler/core/tuple-map.ts"
 import { codecOf, codeOf } from "#compiler/ir/codes.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
+import type { CallError, WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
+import { type Answer as CallAnswer, answered } from "#test/support/calls.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import {
 	sameIdentity,
@@ -45,7 +47,6 @@ import {
 	namesOf
 } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { messageOf } from "#test/support/message.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { loadOrder, type PlatformFacts } from "#test/support/platform/generate.ts"
 import {
@@ -113,7 +114,7 @@ import { openServed } from "#adapter/db/served.ts"
  *   (recordUsage, refund, setCap, setCaps' MERGE, changeRate, revokeKey, and the settlements payInvoice, disputeInvoice
  *   and voidInvoice, whose members share the sub-query reading the invoice's state), or, for a write the application
  *   computes from a read, the read and then the ChangeSet, two transactions. grizzle makes one attempt per call; the
- *   writer runs the call again after a TransientFailure, and only after one, as the application does;
+ *   writer runs the call again after a transient refusal, and only after one, as the application does;
  * - a direct writer runs the same write as plain SQL in one SERIALIZABLE transaction: a DELETE of each exact fact, then
  *   an INSERT per relation in load order, ending with COMMIT, or with SET CONSTRAINTS ALL IMMEDIATE and then COMMIT,
  *   so its laws are checked at a statement of its own rather than by COMMIT.
@@ -123,20 +124,19 @@ import { openServed } from "#adapter/db/served.ts"
  * writer's statements. The driver runs every order of a race of few moves and a PCT schedule otherwise. Each run is
  * read back as the owner and judged:
  *
- * - every abort is 40001 or 40P01: a direct transaction's failure with either, and each call a grizzle writer ran again,
- *   a TransientFailure whose server report is of class 40. Which session PostgreSQL makes the deadlock victim is the
- *   driver's branch, judged like any other;
+ * - every direct abort is 40001 or 40P01, and each call a grizzle writer ran again a transient refusal, its reason
+ *   noted. Which session PostgreSQL makes the deadlock victim is the driver's branch, judged like any other;
  * - some serial order of the committed transactions, respecting real time (one that finished before another began
  *   comes first), explains each: applied by the model at its place, each decides what it decided, accepted or
  *   no-change, and the state after the last is the committed state, relation by relation as sets of facts;
  * - every refusal is explained by a serial order of its own: the committed transactions with the refusal placed, in
  *   real time, where the model refuses it by the law it named, one the model's state after it breaks. A refusal
  *   commits nothing, so no order need place two of them;
- * - every grizzle write converges: run again after each TransientFailure, it answers accepted, no-change or
- *   invariant-rejected, and one that never answers hangs its case (runGrizzle);
+ * - every grizzle write converges: run again after each transient refusal, it answers accepted, unchanged or
+ *   refused, and one that never answers hangs its case (runGrizzle);
  * - the race's own contract holds of the explained order, stated in billing terms (each race's judge);
  * - the first accepted grizzle write the model says the committed state already reflects is applied again by two
- *   grizzle writers at once, and both are no-change and leave the state as it was: a write's keys make its retry
+ *   grizzle writers at once, and both are unchanged and leave the state as it was: a write's keys make its retry
  *   idempotent.
  *
  * The platform with the races' worlds, under a schema name: the full role `app` the grizzle writers open, in the login
@@ -152,7 +152,6 @@ const racesPrograms = {
 	quote: P.quote,
 	...P.platformWrites
 } as const
-import { answered } from "#test/support/calls.ts"
 
 export const racesAt = (name: string) => {
 	const base = P.platformAt(name).Platform
@@ -243,7 +242,7 @@ export type Answer =
 /** The platform's installed names: an outcome's law read back to its LawId. */
 const platformNames = installationNamesOf(installationOf(P.Platform, { kind: "declared" }))
 
-export const answerOf = (outcome: ApplyOutcome<unknown>): Answer => {
+export const answerOf = (outcome: CallAnswer<WriteOutcome<unknown>>): Answer => {
 	switch (outcome.kind) {
 		case "refused":
 			return {
@@ -260,23 +259,23 @@ export const answerOf = (outcome: ApplyOutcome<unknown>): Answer => {
 
 /** A ChangeSet applied with its parameters, and what it applies to a state. */
 export interface Program {
-	readonly apply: (db: RacesDb) => Effect.Effect<Answer, ApplyError>
+	readonly apply: (db: RacesDb) => Effect.Effect<Answer, CallError>
 	readonly ops: (s: State) => ReadonlyArray<PlatformOp>
 }
 
 /**
  * What a grizzle writer runs: a program, or a read and then the program the application computes from it, whose
- * operations are then known; the writer's retry after a TransientFailure reads again.
+ * operations are then known; the writer's retry after a transient refusal reads again.
  */
 type GrizzleWrite =
 	| ({ readonly kind: "program" } & Program)
 	| {
 			readonly kind: "read"
-			readonly read: (db: RacesDb) => Effect.Effect<Computed, ReadError>
+			readonly read: (db: RacesDb) => Effect.Effect<Computed, CallError>
 	  }
 
 interface Computed {
-	readonly apply: (db: RacesDb) => Effect.Effect<Answer, ApplyError>
+	readonly apply: (db: RacesDb) => Effect.Effect<Answer, CallError>
 	readonly ops: ReadonlyArray<PlatformOp>
 }
 
@@ -334,7 +333,7 @@ interface RaceTxn {
 }
 
 /**
- * What a transaction did, as the oracle judges it: committed (a grizzle write accepted, or a direct COMMIT), no-change,
+ * What a transaction did, as the oracle judges it: committed (a grizzle write accepted, or a direct COMMIT), unchanged,
  * refused by a law, or aborted by PostgreSQL with 40001 or 40P01 (a direct transaction; a grizzle writer runs again).
  */
 type Observed =
@@ -1115,17 +1114,16 @@ const footprintOf = (relations: Iterable<RelationName>): Footprint =>
  * computed write's, known.
  */
 interface Call {
-	readonly call: (db: RacesDb) => Effect.Effect<Answer, ApplyError>
+	readonly call: (db: RacesDb) => Effect.Effect<Answer, CallError>
 	readonly ops: (s: State) => ReadonlyArray<PlatformOp>
 }
 
 /**
- * What a grizzle writer's write did: each call refused by a TransientFailure (its reason and its server report's
- * SQLSTATE), and how the last call ended: answered by the call it made, or failed with an error that is no
- * TransientFailure.
+ * What a grizzle writer's write did: each call refused as transient (its reason), and how the last call ended: answered
+ * by the call it made, or failed with a CallError of another kind.
  */
 interface GrizzleRan {
-	readonly transients: ReadonlyArray<{ readonly reason: string; readonly sqlstate: string }>
+	readonly transients: ReadonlyArray<TransientTag>
 	readonly last:
 		| ({ readonly kind: "answered"; readonly answer: Answer } & Call)
 		| { readonly kind: "failed"; readonly error: string }
@@ -1133,7 +1131,7 @@ interface GrizzleRan {
 
 /**
  * A grizzle write run as the application runs it: read when it reads, then applied, and the whole again after each
- * TransientFailure, until a call answers (untilAnswered). A count of attempts bounds nothing PostgreSQL bounds: an
+ * transient refusal, until a call answers (untilAnswered). A count of attempts bounds nothing PostgreSQL bounds: an
  * attempt that reads what a transaction SSI has already prepared to commit is refused ("conflict out to pivot", during
  * read) until that commit is visible to a new snapshot, and every attempt run meanwhile is refused alike, however many,
  * for as long as the commit's WAL flush takes under load. Each refusal is a concurrent transaction's, and there are
@@ -1141,8 +1139,8 @@ interface GrizzleRan {
  */
 const runGrizzle = (form: GrizzleWrite, db: RacesDb): Effect.Effect<GrizzleRan> =>
 	Effect.gen(function* () {
-		const transients: Array<{ readonly reason: string; readonly sqlstate: string }> = []
-		const made: Effect.Effect<Call, ReadError> =
+		const transients: Array<TransientTag> = []
+		const made: Effect.Effect<Call, CallError> =
 			form.kind === "program"
 				? Effect.succeed({ call: form.apply, ops: form.ops })
 				: Effect.map(form.read(db), (c): Call => ({ call: c.apply, ops: () => c.ops }))
@@ -1152,7 +1150,7 @@ const runGrizzle = (form: GrizzleWrite, db: RacesDb): Effect.Effect<GrizzleRan> 
 					Effect.map(call.call(db), (answer) => ({ made: call, answer }))
 				),
 				(t) => {
-					transients.push({ reason: t.reason._tag, sqlstate: t.error.sqlstate })
+					transients.push(t.reason)
 				}
 			)
 		)
@@ -1161,7 +1159,10 @@ const runGrizzle = (form: GrizzleWrite, db: RacesDb): Effect.Effect<GrizzleRan> 
 					transients,
 					last: { kind: "answered", answer: ran.success.answer, ...ran.success.made }
 				}
-			: { transients, last: { kind: "failed", error: messageOf(ran.failure) } }
+			: {
+					transients,
+					last: { kind: "failed", error: `${ran.failure.kind}: ${ran.failure.message}` }
+				}
 	})
 
 /** A race's transactions on their sessions: grizzle writers on g, h and i, direct writers on a, b and c, in order. */
@@ -1281,11 +1282,6 @@ const directObserved = (i: RaceInstall, result: TxnResult): Observed | string =>
 
 /** How a grizzle write ended, as the oracle reads it, or why its outcome breaks the contract. */
 const grizzleObserved = (i: RaceInstall, r: GrizzleRan): Observed | string => {
-	for (const t of r.transients) {
-		if (!Str.startsWith("40")(t.sqlstate)) {
-			return `a call was refused by TransientFailure ${t.reason} with ${t.sqlstate}, no transaction rollback`
-		}
-	}
 	if (r.last.kind === "failed") {
 		return `the write failed: ${r.last.error}`
 	}
@@ -1311,7 +1307,7 @@ const matches = (observed: Observed, decision: Decision): boolean => {
 		case "accepted":
 			return decision.kind === "accepted"
 		case "unchanged":
-			return decision.kind === "unchanged"
+			return decision.kind === "no-change"
 		case "refused":
 			return (
 				decision.kind === "refused" && Arr.some(observed.laws, (law) => decision.laws.includes(law))
@@ -1343,7 +1339,7 @@ const describeObserved = (o: Observed): string =>
 const endsAnywhere = (): undefined => undefined
 
 /**
- * The serial orders that explain a run: one of the transactions that committed (accepted or no-change), respecting real
+ * The serial orders that explain a run: one of the transactions that committed (accepted or unchanged), respecting real
  * time, in which the model decides each as observed and which ends at the committed state (`differs`, where a state
  * differs from it), with the states it passes; and for each refusal, a serial order of the committed transactions with
  * the refusal placed where the model refuses it by a law it named, and the state there. Several orders may decide every
@@ -1462,7 +1458,7 @@ const noteRun = (e: ExplainedRun, run: Interleaving, note: (f: RaceFeature) => v
 
 /**
  * The first accepted grizzle write the committed state already reflects, applied again by two grizzle writers at once,
- * one call on each writer's Db: both must be no-change and leave the state as it was.
+ * one call on each writer's Db: both must be unchanged and leave the state as it was.
  */
 const exactRepeats = (
 	i: RaceInstall,
@@ -1478,7 +1474,7 @@ const exactRepeats = (
 			(r) =>
 				r.writer === "grizzle" &&
 				r.observed.kind === "accepted" &&
-				r.decide(committed).kind === "unchanged"
+				r.decide(committed).kind === "no-change"
 		)
 		if (Option.isNone(repeat)) {
 			return undefined
@@ -1492,10 +1488,10 @@ const exactRepeats = (
 		})
 		for (const a of again) {
 			if (Result.isFailure(a)) {
-				return `the exact repeat of #${repeat.value.id} failed: ${messageOf(a.failure)}`
+				return `the exact repeat of #${repeat.value.id} failed: ${a.failure.kind}: ${a.failure.message}`
 			}
 			if (a.success.kind !== "unchanged") {
-				return `the exact repeat of #${repeat.value.id} was ${a.success.kind}, not no-change`
+				return `the exact repeat of #${repeat.value.id} was ${a.success.kind}, not unchanged`
 			}
 		}
 		const changed = yield* committedDifference(i, i.rig.env, written, committed)
@@ -1573,8 +1569,8 @@ const runRace = (i: RaceInstall, race: Race, c: Case<RaceFeature>) =>
 				if (typeof observed === "string") {
 					return `#${p.id} on ${p.session}: ${observed}`
 				}
-				for (const t of r.transients) {
-					reached.push(`retried after ${t.reason}`)
+				for (const reason of r.transients) {
+					reached.push(`retried after ${reason}`)
 				}
 				if (r.last.kind !== "answered") {
 					return `#${p.id} on ${p.session} failed: ${r.last.error}`

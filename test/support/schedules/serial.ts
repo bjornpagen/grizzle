@@ -11,12 +11,12 @@ import {
 	Result,
 	String as Str
 } from "effect"
-import type { ApplyError, TransientFailure } from "#adapter/errors/execution.ts"
+import type { CallError } from "#compiler/live/index.ts"
 import { defined } from "#test/support/assert.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { Actors, DirectActor } from "#test/support/schedules/actors.ts"
-import { type Retried, untilAnswered } from "#test/support/schedules/grizzle.ts"
+import { type Answered, type Retried, untilAnswered } from "#test/support/schedules/grizzle.ts"
 import {
 	allowed,
 	type ExploreEnv,
@@ -45,7 +45,7 @@ export interface RaceStatement {
 
 /**
  * One transaction of a race: a direct session's statements, ended by its COMMIT or its ROLLBACK as written; or one
- * call of a grizzle session, which its caller calls again after each TransientFailure until it answers, as an
+ * call of a grizzle session, which its caller calls again after each transient refusal until it answers, as an
  * application does.
  */
 export type RaceTxn<A> =
@@ -59,7 +59,7 @@ export type RaceTxn<A> =
 			readonly kind: "grizzle"
 			readonly session: string
 			readonly label: string
-			readonly call: Effect.Effect<A, ApplyError>
+			readonly call: Effect.Effect<A, CallError>
 			readonly footprint: Footprint
 	  }
 
@@ -319,7 +319,7 @@ export const runSerialRace = <A, E>(
 	noteRun: (explained: Explained<A>) => void
 ): Effect.Effect<void, SerialRaceFailed | E | SqlError> =>
 	Effect.gen(function* () {
-		const seen = new Map<string, Result.Result<Retried<A>, Exclude<ApplyError, TransientFailure>>>()
+		const seen = new Map<string, Result.Result<Retried<A>, Answered>>()
 		const references = new Map<string, Reference<A>>()
 		const bySession = new Map(Arr.map(race.txns, (t) => [t.session, t] as const))
 		const actorOf = (session: string): DirectActor =>
@@ -366,7 +366,7 @@ export const runSerialRace = <A, E>(
 				: Effect.map(Effect.result(untilAnswered(t.call)), (r): Shown<A> =>
 						Result.isSuccess(r)
 							? { kind: "answered", answer: r.success.answered }
-							: { kind: "failed", what: r.failure._tag }
+							: { kind: "failed", what: r.failure.kind }
 					)
 		const referenceOf = (order: ReadonlyArray<string>): Effect.Effect<Reference<A>, E | SqlError> =>
 			Effect.gen(function* () {
@@ -394,7 +394,7 @@ export const runSerialRace = <A, E>(
 				}
 				return Result.isSuccess(answer)
 					? { kind: "answered", retried: answer.success }
-					: `${t.session}'s call failed with ${answer.failure._tag}: ${answer.failure.message}`
+					: `${t.session}'s call failed with ${answer.failure.kind}: ${answer.failure.message}`
 			}
 			const result = run.results[t.session]
 			if (result === undefined) {

@@ -6,11 +6,12 @@ import { pctSchedule } from "@grizzle/testing/interleave"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, pipe, type Scope, String as Str } from "effect"
-import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
+import type { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
 import { Db } from "#adapter/public/db.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
+import type { CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
@@ -354,7 +355,7 @@ interface Fixture {
 	readonly refresh: (
 		refresher: "refresher" | "refresher2",
 		call: Call
-	) => Effect.Effect<void, ApplyError>
+	) => Effect.Effect<void, CallError>
 }
 
 /** Installs the shape with no sitting, and opens the two grizzle refreshers and the observer. */
@@ -402,7 +403,12 @@ const open: Effect.Effect<
 		names: namesOf(opened.installed),
 		refreshers,
 		refresh: (refresher, call) =>
-			(refresher === "refresher" ? refresherDb : refresher2Db).workload[refreshOf(call)].refresh
+			Effect.asVoid(
+				(refresher === "refresher" ? refresherDb : refresher2Db).workload[refreshOf(call)].once({
+					params: {},
+					facts: {}
+				})
+			)
 	}
 })
 

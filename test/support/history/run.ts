@@ -49,7 +49,7 @@ import {
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
-import { untilAnswered } from "#test/support/schedules/grizzle.ts"
+import { untilApplied } from "#test/support/schedules/grizzle.ts"
 
 import {
 	type PgErrorFields,
@@ -783,7 +783,7 @@ const grizzleOutcome = (names: Names, o: ApplyOutcome<unknown>): Effect.Effect<S
 
 /**
  * A grizzle operation's outcome and the TransientFailure reason each discarded attempt met. grizzle makes one attempt
- * per call; the writer calls again after each TransientFailure until a call answers (untilAnswered), as an
+ * per call; the writer calls again after each TransientFailure until a call answers (untilApplied), as an
  * application does, so a refused attempt committed nothing and takes no place in the order, and the operation's
  * outcome is its answer. Its refusals end with the history's other transactions, so an operation that never answers is
  * its case's hang (caseHang).
@@ -803,7 +803,7 @@ export const runGrizzle = (
 	writer: GrizzleWriter,
 	ops: ReadonlyArray<HostOp>
 ): Effect.Effect<GrizzleRun> =>
-	Effect.flatMap(env.rig.writes[writer](ops), (call) => untilAnswered(call)).pipe(
+	Effect.flatMap(env.rig.writes[writer](ops), (call) => untilApplied(call)).pipe(
 		Effect.flatMap((run) =>
 			Effect.map(grizzleOutcome(env.names, run.answered), (outcome) => ({
 				outcome,

@@ -72,14 +72,14 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
-import { memberOps } from "#adapter/db/handles.ts"
-import type { ApplyError, OpenError, TransientFailure } from "#adapter/errors/execution.ts"
-import type { ApplyOutcome } from "#adapter/public/db.ts"
+import { memberCalls, type WrittenOutcome } from "#adapter/db/handles.ts"
+import type { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/served/compile.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
+import type { CallError } from "#compiler/live/index.ts"
 import type { Refused, Witness } from "#compiler/plan/change.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
@@ -131,7 +131,7 @@ import {
 	Zed
 } from "#test/schedules/write/support.ts"
 import { deepEquals, defined } from "#test/support/assert.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
+import { type Answer, answered, writeOnce } from "#test/support/calls.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -155,7 +155,6 @@ import {
 	type Txn
 } from "#test/support/schedules/interleave.ts"
 import { type StepOutcome } from "#test/support/schedules/types.ts"
-import { appliedWith, type CallFacts } from "#test/support/served-db.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate, type TextRows } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -960,6 +959,9 @@ const changeSetOf = (
 	return { changes: Arr.reduce(rest, first, (a, b) => ChangeSet.sequence(a, b)), params }
 }
 
+/** A call's facts: under each op of a change member's array members, the rows of each, under its relation's name. */
+type CallFacts = Readonly<Record<string, Readonly<Record<string, ReadonlyArray<unknown>>>>>
+
 /**
  * A grizzle op's facts as its served call gives them (adapter/served/load.ts ChangeCall): each array member's records
  * under its operation and its relation, a generated addition's labels under Ticket's insert.
@@ -1117,8 +1119,8 @@ const situations: Arr.NonEmptyReadonlyArray<RaceFeature> = [
 	"pair reason pureSet",
 	"pair reason unproved",
 	"grizzle accepted",
-	"grizzle no-change",
-	"grizzle invariant-rejected",
+	"grizzle unchanged",
+	"grizzle refused",
 	"transient GeneratedSerialUnique",
 	"direct committed",
 	"a step waited",
@@ -1137,10 +1139,10 @@ class RaceFailed extends Data.TaggedError("RaceFailed")<{ readonly message: stri
 /** What a grizzle write's retried call answered, its law read back to its LawId through the installation's laws. */
 const answerOf = (
 	reported: (refused: IdentifiedLaw) => LawId,
-	r: Result.Result<Retried<ApplyOutcome<unknown>>, Exclude<ApplyError, TransientFailure>>
+	r: Result.Result<Retried<Answer<WrittenOutcome>>, CallError>
 ): { readonly refused: ReadonlyArray<TransientTag>; readonly answer: GrizzleAnswer } => {
 	if (Result.isFailure(r)) {
-		return { refused: [], answer: { kind: "failed", what: r.failure._tag } }
+		return { refused: [], answer: { kind: "failed", what: r.failure.kind } }
 	}
 	const value = r.success.answered
 	return { refused: r.success.refused, answer: grizzleAnswer(reported, value) }
@@ -1149,7 +1151,7 @@ const answerOf = (
 /** A write's answer as the model judges it: a refusal names its one law, so a refusal naming several is a failure. */
 const grizzleAnswer = (
 	reported: (refused: IdentifiedLaw) => LawId,
-	value: ApplyOutcome<unknown>
+	value: Answer<WrittenOutcome>
 ): GrizzleAnswer => {
 	switch (value.kind) {
 		case "refused": {
@@ -1165,6 +1167,7 @@ const grizzleAnswer = (
 					}
 		}
 		case "outsideWorld":
+		case "refreshed":
 			return { kind: "failed", what: value.kind }
 		case "accepted":
 		case "unchanged":
@@ -1314,21 +1317,17 @@ const runRace = (
 						const key = `${session.actor}#${i}`
 						steps.push({
 							label: describeOp(op),
-							outcome: Effect.map(
-								Effect.result(
-									untilAnswered(
-										answered(
-											writeOnce(memberOps(ctx, change.member))({
-												params: params,
-												facts: factsOf(op)
-											})
-										)
-									)
-								),
-								(r) => {
+							outcome: writeOnce(memberCalls(ctx, change.member))({
+								params,
+								facts: factsOf(op)
+							}).pipe(
+								answered,
+								untilAnswered,
+								Effect.result,
+								Effect.map((r) => {
 									seen.set(key, answerOf(o.names.reported, r))
 									return succeeded
-								}
+								})
 							),
 							footprint: reaches(Arr.map(op.strata.flat(), writtenBy))
 						})
@@ -1377,7 +1376,7 @@ const runRace = (
 								Arr.findFirst(run.moves, (m) => m.session === session.actor && m.step === i),
 								() => new Error(`${session.actor}'s write ${i + 1} made no move`)
 							)
-							const answered = defined(
+							const answer = defined(
 								seen.get(`${session.actor}#${i}`),
 								`${session.actor}'s write ${i + 1}'s answer`
 							)
@@ -1393,8 +1392,8 @@ const runRace = (
 									session: session.actor,
 									op,
 									span: { start: move.issued, end: move.result.at },
-									refused: answered.refused,
-									answer: answered.answer
+									refused: answer.refused,
+									answer: answer.answer
 								}
 							]
 						})
@@ -1666,11 +1665,10 @@ const independent = (a: InserterCall, b: InserterCall): boolean => {
 }
 
 /**
- * What an inserter call answered on its one try: the TransientFailure it met, if any, its answer as the model judges
- * it, and, where it was refused, how its laws were decided and its witness.
+ * What an inserter call answered on its one try: its answer as the model judges it, a transient refusal among its
+ * failures, and, where it was refused, how its laws were decided and its witness.
  */
 interface InserterAnswer {
-	readonly refused: ReadonlyArray<TransientTag>
 	readonly answer: GrizzleAnswer
 	readonly rejection: Option.Option<{
 		readonly decided: Refused["kind"]
@@ -1680,20 +1678,16 @@ interface InserterAnswer {
 
 const inserterAnswerOf = (
 	reported: (refused: IdentifiedLaw) => LawId,
-	r: Result.Result<ApplyOutcome<unknown>, ApplyError>
+	r: Result.Result<Answer<WrittenOutcome>, CallError>
 ): InserterAnswer => {
 	if (Result.isFailure(r)) {
-		return r.failure._tag === "TransientFailure"
-			? {
-					refused: [r.failure.reason._tag],
-					answer: { kind: "failed", what: `TransientFailure ${r.failure.reason._tag}` },
-					rejection: Option.none()
-				}
-			: { refused: [], answer: { kind: "failed", what: r.failure._tag }, rejection: Option.none() }
+		return {
+			answer: { kind: "failed", what: `${r.failure.kind}: ${r.failure.message}` },
+			rejection: Option.none()
+		}
 	}
 	const value = r.success
 	return {
-		refused: [],
 		answer: grizzleAnswer(reported, value),
 		rejection:
 			value.kind === "refused"
@@ -1736,8 +1730,8 @@ const witnessProblem = (call: InserterCall, witness: Witness, final: State): str
 
 /**
  * Why a certified READ COMMITTED call broke the owner's item 1, or undefined: it commits or is refused by a law on its
- * one try, never refused transiently and never failed; and a refusal at badgeCode names it as decided, `every`, with a
- * witness its facts allow (witnessProblem) over the state the run left, `final`.
+ * one try, never failed, a transient refusal among its failures; and a refusal at badgeCode names it as decided,
+ * `every`, with a witness its facts allow (witnessProblem) over the state the run left, `final`.
  */
 const firstTryProblem = (
 	label: string,
@@ -1746,12 +1740,8 @@ const firstTryProblem = (
 	codeLaw: LawId,
 	final: State
 ): string | undefined => {
-	const [reason] = answered.refused
-	if (reason !== undefined) {
-		return `${label} was refused transiently with ${reason}, where a certified READ COMMITTED call commits or is refused by a law on its one try`
-	}
 	if (answered.answer.kind === "failed") {
-		return `${label} failed: ${answered.answer.what}`
+		return `${label} failed: ${answered.answer.what}, where a certified READ COMMITTED call commits or is refused by a law on its one try`
 	}
 	if (answered.answer.kind !== "refused" || answered.answer.law !== codeLaw) {
 		return undefined
@@ -1836,7 +1826,7 @@ const runInserters = (
 						outcome: Effect.map(
 							Effect.result(
 								answered(
-									writeOnce(memberOps(writers[actor].ctx, change.member))({
+									writeOnce(memberCalls(writers[actor].ctx, change.member))({
 										params: {},
 										facts: inserterFacts(call)
 									})
@@ -1890,15 +1880,15 @@ const runInserters = (
 							if (move.result._tag === "Unfinished") {
 								throw new Error(`${actor}'s call did not finish in a run that ran every move`)
 							}
-							const answered = defined(seen.get(actor), `${actor}'s answer`)
+							const answer = defined(seen.get(actor), `${actor}'s answer`)
 							return {
 								kind: "grizzle",
 								label: `${actor}'s call`,
 								session: actor,
 								op: inserterOp(call),
 								span: { start: move.issued, end: move.result.at },
-								refused: answered.refused,
-								answer: answered.answer
+								refused: [],
+								answer: answer.answer
 							}
 						})
 						const final = stateOf(run)
@@ -2085,7 +2075,7 @@ const runInserterAlone = (
 		const mark = tap.mark()
 		const result = yield* Effect.result(
 			answered(
-				writeOnce(memberOps({ ...writer.ctx, pool }, change.member))({
+				writeOnce(memberCalls({ ...writer.ctx, pool }, change.member))({
 					params: {},
 					facts: inserterFacts(ac.call)
 				})
@@ -2093,11 +2083,11 @@ const runInserterAlone = (
 		)
 		const { frontend } = tap.since(mark)
 		const stored = yield* s.superuserRead((rows) => rows(sql.read))
-		const answered = inserterAnswerOf(o.names.reported, result)
+		const answer = inserterAnswerOf(o.names.reported, result)
 		const final = stateOfRows(stored)
 		const problem =
-			framingProblem("readCommitted", answered, frontend) ??
-			firstTryProblem("the call", ac.call, answered, o.names.lawOf(badgeCode), final) ??
+			framingProblem("readCommitted", answer, frontend) ??
+			firstTryProblem("the call", ac.call, answer, o.names.lawOf(badgeCode), final) ??
 			judgeRun(
 				lawsOf(o),
 				initial,
@@ -2108,8 +2098,8 @@ const runInserterAlone = (
 						session: "ins1",
 						op,
 						span: { start: 0, end: 1 },
-						refused: answered.refused,
-						answer: answered.answer
+						refused: [],
+						answer: answer.answer
 					}
 				],
 				final
@@ -2119,7 +2109,7 @@ const runInserterAlone = (
 				message: `${describeOp(op)} over Badge ${Formatter.format(ac.initial)}\n${problem}`
 			})
 		}
-		c.note(`alone ${answered.answer.kind}`)
+		c.note(`alone ${answer.answer.kind}`)
 	})
 
 /**
@@ -2160,7 +2150,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							coverage: required<InserterFeature>(
 								[
 									"inserter accepted",
-									"inserter invariant-rejected",
+									"inserter refused",
 									"inserter witness reported",
 									"an inserter waited on the other's insert",
 									"an inserter held at its gate",
@@ -2201,7 +2191,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							suite: "schedules/write/inserter-alone",
 							draw: drawn(inserterAloneGen),
 							literal: Formatter.format,
-							coverage: required<AloneFeature>(["alone accepted", "alone invariant-rejected"], {
+							coverage: required<AloneFeature>(["alone accepted", "alone refused"], {
 								cases: inserterRuns,
 								sense: notesOnly
 							}),

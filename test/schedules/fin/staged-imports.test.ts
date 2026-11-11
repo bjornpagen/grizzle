@@ -21,15 +21,15 @@
  *   import waits on the gate's key while the second commits).
  *
  * Plant: ~/.cache/grizzle-release/BR08/plants/staged-imports-every-probe-finds-a-row.patch, a probe of stored rows that
- * always finds one, answers each import no-change and must turn the property red.
+ * always finds one, answers each import unchanged and must turn the property red.
  */
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
-import { memberOps } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import { openServed } from "#adapter/db/served.ts"
-import type { ApplyError } from "#adapter/errors/execution.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import type { Session, SessionPool } from "#adapter/wire/session.ts"
+import type { CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { fin, key, login, on, ordered, relation, role, schema } from "#compiler/public/schema.ts"
@@ -176,12 +176,12 @@ const explored = Effect.gen(function* () {
 	const limit = defined(textBoundOf(member), "importPackage is a change member of one variant")
 	/** An import on `writer`'s Db context, its pool's sessions holding the planted message bound. */
 	const imported = (writer: typeof a, facts: ReturnType<typeof importOf>) =>
-		Effect.suspend(() => {
-			const served = memberOps({ ...writer.ctx, pool: plantedPool(writer.ctx.pool, limit) }, member)
-			return served.kind === "facts"
-				? answered(writeOnce(served)({ params: {}, facts: facts }))
-				: Effect.die(new Error("importPackage applies with each call's facts"))
-		})
+		answered(
+			writeOnce(memberCalls({ ...writer.ctx, pool: plantedPool(writer.ctx.pool, limit) }, member))({
+				params: {},
+				facts
+			})
+		)
 	const direct = yield* openActors(s, { gate: { kind: "raw", as: rig.direct } })
 	const preload = {
 		insert: {
@@ -195,15 +195,13 @@ const explored = Effect.gen(function* () {
 	/** Each import's answer in the current run, set by its move. */
 	const ran = new Map<string, string>()
 	const answer =
-		(session: string) => (outcome: Result.Result<{ readonly kind: string }, ApplyError>) =>
+		(session: string) => (outcome: Result.Result<{ readonly kind: string }, CallError>) =>
 			Effect.sync(() => {
 				ran.set(
 					session,
 					Result.isSuccess(outcome)
 						? outcome.success.kind
-						: outcome.failure._tag === "TransientFailure"
-							? `TransientFailure: ${outcome.failure.reason._tag}`
-							: `${outcome.failure._tag}: ${outcome.failure.message}`
+						: `${outcome.failure.kind}: ${outcome.failure.message}`
 				)
 			})
 	const txns: ReadonlyArray<Txn> = [

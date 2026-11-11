@@ -17,7 +17,7 @@
  * says (the same Leave, the same span for another reason, an overlapping span, or apart), and how the writer ends.
  *
  * The kept race is the window the race was first planted for: the span key's exact repeat, the insert waiting on an
- * identical Leave in flight, which commits, so the insert's retry finds the repeat, no-change.
+ * identical Leave in flight, which commits, so the insert's retry finds the repeat, unchanged.
  *
  * Oracle: the serial reference, timing drawn from the case (every order of the race's moves). Features: the insert
  * waited, and the insert refused. Plant: ~/.cache/grizzle-release/BR09/plants/payroll-race-span-abort-not-transient.patch,
@@ -25,7 +25,7 @@
  * refusal instead of a TransientFailure. Only an interleaving reaches it: the 23P01 is raised by a Leave in flight
  * when the insert's probe ran, which commits while the insert waits, and alone the probe finds the stored Leave
  * instead. So the kept race's insert answers refused where its serial reference, the writer's Leave and then the
- * insert alone, answers no-change.
+ * insert alone, answers unchanged.
  */
 
 import { layer } from "@effect/vitest"
@@ -37,10 +37,11 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, type Scope } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
-import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
+import { Db } from "#adapter/public/db.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
+import type { WriteOutcome } from "#compiler/live/index.ts"
 import { defined } from "#test/support/assert.ts"
-import { answered } from "#test/support/calls.ts"
+import { type Answer, answered } from "#test/support/calls.ts"
 import { closedField } from "#test/support/closed/stored.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import * as P from "#test/support/fixtures/api/payroll.ts"
@@ -83,7 +84,7 @@ type LeaveFeature =
 	| "the insert waited"
 	| "the insert refused"
 	| `refused: ${TransientTag}`
-	| `the insert ${ApplyOutcome<unknown>["kind"]}`
+	| `the insert answered ${Answer<WriteOutcome<unknown>>["kind"]}`
 	| `the writer ${"committed" | "rolled back" | "aborted" | "failed"}`
 
 const reasons = ["vacation", "sick", "unpaid"] as const
@@ -150,7 +151,7 @@ const raceGen: Gen<LeaveRace> = (source) => {
 const instantOf = (days: number) => Instant(t0 + BigInt(days) * day)
 
 /** The features one explained run reached (see LeaveFeature). */
-const featuresOf = (e: Explained<ApplyOutcome<unknown>>): ReadonlyArray<LeaveFeature> => {
+const featuresOf = (e: Explained<Answer<WriteOutcome<unknown>>>): ReadonlyArray<LeaveFeature> => {
 	const waited = Arr.some(e.run.moves, (m) => m.session === "g" && m.observed._tag === "Waited")
 	return [
 		...(waited ? ["the insert waited" as const] : []),
@@ -158,7 +159,7 @@ const featuresOf = (e: Explained<ApplyOutcome<unknown>>): ReadonlyArray<LeaveFea
 			switch (end.kind) {
 				case "answered":
 					return [
-						`the insert ${end.retried.answered.kind}`,
+						`the insert answered ${end.retried.answered.kind}`,
 						...(end.retried.refused.length > 0 ? ["the insert refused" as const] : []),
 						...Arr.map(end.retried.refused, (reason): LeaveFeature => `refused: ${reason}`)
 					]
@@ -278,14 +279,14 @@ const runs = 8
 
 const kept: ReadonlyArray<Kept<LeaveRace, LeaveFeature>> = [
 	{
-		note: "the span key's exact repeat: the insert waits on an identical Leave in flight, which commits, so its exclusion check meets the repeat and its retry is no-change",
+		note: "the span key's exact repeat: the insert waits on an identical Leave in flight, which commits, so its exclusion check meets the repeat and its retry is unchanged",
 		sketch: {
 			requested: { start: 5, end: 9, reason: "vacation" },
 			direct: { start: 5, end: 9, reason: "vacation" },
 			end: "commit"
 		},
 		draws: "",
-		reaches: ["the insert waited", "the insert refused", "the insert no-change"]
+		reaches: ["the insert waited", "the insert refused", "the insert answered unchanged"]
 	}
 ]
 

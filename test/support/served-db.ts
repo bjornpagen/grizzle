@@ -1,23 +1,35 @@
-import { Array as Arr, Effect, Layer, Option, type Scope } from "effect"
+import { Array as Arr, Effect, Layer, Option, Record as Rec, Result, type Scope } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { changeApplication, memberCalls, type ServedCalls, variantOf } from "#adapter/db/handles.ts"
 import { openServed } from "#adapter/db/served.ts"
+import { fromEngine, toResult } from "#adapter/engine.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import { compileServed, type ServedRefusal } from "#adapter/public/compile.ts"
 import { DbLayer, served } from "#adapter/public/layer.ts"
+import { compiledWrite } from "#adapter/served/forms.ts"
 import { type LoadedMember, loadServed } from "#adapter/served/load.ts"
+import type { RoleContext } from "#adapter/served/role.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { DbLayerOf, ServedLogin, ServedRole } from "#adapter/types/layer.ts"
 import type { Json } from "#compiler/core/canonical.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
+import { servedWrite } from "#compiler/plan/change.ts"
+import { servedReadBacks } from "#compiler/plan/read.ts"
 import { defect } from "#compiler/plan/runtime.ts"
 import type { ServedTables } from "#compiler/plan/serve.ts"
+import { programsOn } from "#compiler/program/workload/roles.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import type { AnyLogin, AnyLoginRole, AnyRole } from "#compiler/public/schema.ts"
-import { servedFile } from "#compiler/served/json.ts"
+import type { ServedMember, ServedRoleForm, ServedVariants } from "#compiler/served/forms.ts"
+import { servedFile, servedText } from "#compiler/served/json.ts"
+import type { UnservedMember } from "#compiler/served/unserved.ts"
 import type { AnyWorkload } from "#compiler/types/db/workload.ts"
 import { defined } from "#test/support/assert.ts"
+import { conservativeChange } from "#test/support/conservative.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
+import { type RoleSetupError, servedRoleContext } from "#test/support/served-role.ts"
 import { snapshotValue } from "#test/support/snapshot-json.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
@@ -49,6 +61,106 @@ export const servedJson = (
 	Effect.suspend(() =>
 		compileServed(login, snapshotValue(installed.snapshot, installed.installation), workloads)
 	)
+
+/**
+ * `login`'s served file over `installed` with `workloads` (servedJson), each change member's program its conservative
+ * realization (test/support/conservative.ts conservativeChange) in place of the optimized one generate serves, each
+ * variant compiled for the contexts its path holds (adapter/served/load.ts LoadedVariants), for its role as generate
+ * reads it (test/support/served-role.ts servedRoleContext): a file a suite serves beside the optimized one, so a write's
+ * two artifacts run through two served Dbs of one installation and are held to each other.
+ */
+export const conservativeServedJson = (
+	installed: Installed,
+	login: AnyLogin,
+	workloads: ReadonlyArray<AnyWorkload>
+): Effect.Effect<unknown, ServedRefusal | CompileError | UnservedMember | RoleSetupError> =>
+	Effect.gen(function* () {
+		const json = yield* servedJson(installed, login, workloads)
+		const file = servedFile(json)
+		const roles: Array<ServedRoleForm> = []
+		for (const form of file.roles) {
+			const reached = defined(
+				Option.getOrUndefined(
+					Arr.findFirst(Rec.values(login.roles), (r) => r.role.name === form.name)
+				),
+				`role ${form.name} of login ${login.name}`
+			)
+			const role = yield* servedRoleContext(installed, reached)
+			const programs = yield* fromEngine(programsOn(role.schema, workloads))
+			const members: Array<ServedMember> = []
+			for (const member of form.members) {
+				if (member.kind !== "change") {
+					members.push(member)
+					continue
+				}
+				const changes = defined(
+					Option.getOrUndefined(
+						Arr.findFirst(programs, (program) =>
+							program.kind === "changeSet" && program.name === member.name
+								? Option.some(program.value)
+								: Option.none()
+						)
+					),
+					`the ChangeSet of member ${member.name}`
+				)
+				members.push({
+					...member,
+					variants: yield* Effect.fromResult(
+						conservativeVariants(role, changes, member.variants, new Set())
+					)
+				})
+			}
+			roles.push({ ...form, members })
+		}
+		const text = yield* fromEngine(servedText({ ...file, roles }))
+		return trustedJson<unknown>(text)
+	})
+
+/**
+ * A change member's variants with each leaf's program its conservative realization, compiled for `claims`, the contexts
+ * the leaf's path holds, as the served compile compiles a leaf for them.
+ */
+const conservativeVariants = (
+	role: RoleContext,
+	changes: unknown,
+	variants: ServedVariants,
+	claims: ReadonlySet<string>
+): Result.Result<ServedVariants, CompileError | UnservedMember> => {
+	switch (variants.kind) {
+		case "change":
+			return Result.flatMap(compiledWrite(role, changes, claims), (entry) =>
+				Result.flatMap(toResult(conservativeChange(entry, role)), (conservative) =>
+					Result.map(toResult(servedWrite(conservative.compiled)), (program) => ({
+						kind: "change",
+						change: {
+							...variants.change,
+							program,
+							readBacks: servedReadBacks(conservative.compiled.artifact.readBacks)
+						}
+					}))
+				)
+			)
+		case "split":
+			return Result.flatMap(
+				conservativeVariants(
+					role,
+					changes,
+					variants.holding,
+					new Set([...claims, variants.context])
+				),
+				(holding) =>
+					Result.map(
+						conservativeVariants(role, changes, variants.lacking, claims),
+						(lacking): ServedVariants => ({
+							kind: "split",
+							context: variants.context,
+							holding,
+							lacking
+						})
+					)
+			)
+	}
+}
 
 /** A login served as an application serves it: its served login, typed by L, and its DbLayer over the installation. */
 export interface ServedFixture<L> {

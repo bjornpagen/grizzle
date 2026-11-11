@@ -1,5 +1,5 @@
 import { Array as Arr, Effect, Option } from "effect"
-import type { ApplyError } from "#adapter/public/errors.ts"
+import type { CallError } from "#compiler/live/index.ts"
 import type { Addition } from "#compiler/public/changeset.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import type { Fact } from "#compiler/public/schema.ts"
@@ -53,7 +53,7 @@ import { pricedAt, type SpanV, platformSpan } from "#test/support/platform/model
  * host billing model (settleRequests) as the application prices and settles them from what it read.
  *
  * A program that reads the state (a settlement, the revocation, the caps' MERGE) states what it applies at each state:
- * a settlement applies only to an invoice in the state its members read, and is no-change on any other.
+ * a settlement applies only to an invoice in the state its members read, and is unchanged on any other.
  */
 export const ids = {
 	org: uid(1, 1),
@@ -476,7 +476,7 @@ const settlementWrite = (
 	amount: bigint,
 	from: "open" | "paid",
 	to: "paid" | "disputed" | "void",
-	apply: (db: RacesDb) => Effect.Effect<Answer, ApplyError>
+	apply: (db: RacesDb) => Effect.Effect<Answer, CallError>
 ): Write => {
 	const arm: PlatformOp =
 		to === "paid"

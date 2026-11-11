@@ -471,8 +471,8 @@ export interface Span {
  * failed otherwise, never refused.
  */
 export type GrizzleAnswer =
-	| { readonly kind: "accepted" | "no-change" }
-	| { readonly kind: "invariant-rejected"; readonly law: LawId }
+	| { readonly kind: "accepted" | "unchanged" }
+	| { readonly kind: "refused"; readonly law: LawId }
 	| { readonly kind: "failed"; readonly what: string }
 
 /** What a direct transaction did, as the driver recorded it. */
@@ -653,7 +653,7 @@ export type RunProblem = { readonly tag: "Refused" | "NoSerialOrder"; readonly w
  * Every transaction runs SERIALIZABLE, so PostgreSQL commits only histories some serial order explains. The judge
  * searches for one: an order of the operations that committed, and a place among them for every operation refused by a
  * law, that respects real time (an operation that finished before another began comes first), in which each committed
- * operation does exactly what it did (a grizzle apply accepted exactly when the model changes the state, no-change
+ * operation does exactly what it did (a grizzle apply accepted exactly when the model changes the state, unchanged
  * exactly when it does not; a direct transaction's statements with the row counts PostgreSQL answered), each refusal
  * is the model's at its place (a grizzle refusal's law among the laws the model breaks there; a direct transaction's
  * SQLSTATE the one the model fails it with), and the last state is the committed state read back. A direct
@@ -713,7 +713,7 @@ export const judgeRun = (
 	}
 	/** Each generated value lies past the explicit values every grizzle write that finished before it began stored. */
 	const generated = Arr.flatMap(observed, (g) =>
-		g.kind === "grizzle" && (g.answer.kind === "accepted" || g.answer.kind === "no-change")
+		g.kind === "grizzle" && (g.answer.kind === "accepted" || g.answer.kind === "unchanged")
 			? Arr.flatMap(generatedLabels(g.op), (l) => {
 					const value = pins.get(l)
 					return value === undefined
@@ -737,9 +737,7 @@ export const judgeRun = (
 	/** The operations that take a place: committed or refused by a law. */
 	const placed = Arr.filter(observed, (o) =>
 		o.kind === "grizzle"
-			? o.answer.kind === "accepted" ||
-				o.answer.kind === "no-change" ||
-				o.answer.kind === "invariant-rejected"
+			? o.answer.kind === "accepted" || o.answer.kind === "unchanged" || o.answer.kind === "refused"
 			: o.answer.kind === "committed" ||
 				(o.answer.kind === "failed" && o.answer.code !== "40001" && o.answer.code !== "40P01")
 	)
@@ -749,11 +747,11 @@ export const judgeRun = (
 			const meant = grizzleMeaning(laws, state, o.op, pins)
 			switch (o.answer.kind) {
 				case "accepted":
-				case "no-change":
+				case "unchanged":
 					return meant.kind === "applied" && meant.changed === (o.answer.kind === "accepted")
 						? meant.state
 						: undefined
-				case "invariant-rejected":
+				case "refused":
 					return meant.kind === "refused" && meant.laws.includes(o.answer.law) ? state : undefined
 				case "failed":
 					return undefined

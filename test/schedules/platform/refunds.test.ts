@@ -4,7 +4,7 @@
  *
  * The settlements are the workload programs payInvoice, disputeInvoice and voidInvoice: a ChangeSet whose put and arm
  * insertion read one sub-query, the invoice in the state the settlement moves it from, so a settlement applies only to
- * an invoice in that state and is no-change on any other. Refunds never exceed what the invoice charged
+ * an invoice in that state and is unchanged on any other. Refunds never exceed what the invoice charged
  * (refundWithinInvoice), only a paid invoice is refunded (refundOnlyPaid), and a paid, void or disputed invoice has
  * exactly its payment, voiding or dispute (invoiceSettlement); the harness's oracle explains every outcome by those
  * laws and the programs' reads in some serial order. A direct writer settles the invoice as it read it before the race:
@@ -132,8 +132,8 @@ const judgeRefunds = (
 		const observed = ranOf(e, id).observed
 		const before = beforeOf(e, id)
 		const refund = refundAt(id)
-		if (refund === undefined && observed.kind === "no-change") {
-			reached.push("planted: a settlement no-change after another settled it")
+		if (refund === undefined && observed.kind === "unchanged") {
+			reached.push("planted: a settlement unchanged after another settled it")
 		}
 		if (refund === undefined && observed.kind === "refused" && W.refundedIn(before) > 0n) {
 			reached.push("planted: a settlement refused by refunds")
@@ -166,8 +166,8 @@ raceSuite<RefundSketch>({
 		"planted: a refund one micro over what is left refused",
 		"planted: a settlement refused by refunds",
 		"planted: a refund of an unpaid invoice refused",
-		"planted: a settlement no-change after another settled it",
-		"grizzle no-change",
+		"planted: a settlement unchanged after another settled it",
+		"grizzle unchanged",
 		"write: dispute",
 		"write: void",
 		"write: pay"

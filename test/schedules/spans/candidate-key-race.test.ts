@@ -24,14 +24,14 @@
  * fact, overlapping it in its room, at its ref, at its id, or apart), and how the blocker ends.
  *
  * The kept races are the windows the races were first planted for: an identical insert, and an identical put,
- * committed by the direct writer while the apply waits at the span key, each a repeat, no-change; and an overlapping
+ * committed by the direct writer while the apply waits at the span key, each a repeat, unchanged; and an overlapping
  * fact committed while the apply waits at the span key, the span key's law.
  *
  * Features: the apply waited, the apply refused.
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): candidate-key-exclusion-not-transient.patch (a span key's exclusion
  * violation from an occupant the snapshot did not see classified as the key's law, not a TransientFailure, so a
- * committed repeat is refused rather than retried into no-change).
+ * committed repeat is refused rather than retried into an unchanged answer).
  */
 
 import { layer } from "@effect/vitest"
@@ -43,15 +43,15 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, type Scope } from "effect"
 import { openServed } from "#adapter/db/served.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
-import { type ApplyOutcome } from "#adapter/public/db.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
+import type { WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span } from "#compiler/public/fields.ts"
 import { key, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { threeKeys, twoKeys } from "#test/schedules/write/support.ts"
-import { answered } from "#test/support/calls.ts"
+import { type Answer, answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -127,7 +127,7 @@ type BookingFeature =
 	| "the apply waited"
 	| "the apply refused"
 	| `refused: ${TransientTag}`
-	| `the apply ${ApplyOutcome<unknown>["kind"]}`
+	| `the apply answered ${Answer<WriteOutcome<unknown>>["kind"]}`
 	| `${"direct" | "blocker"} ${"committed" | "rolled back" | "aborted" | "failed"}`
 
 /** A span: where it starts, and its width. */
@@ -213,7 +213,7 @@ const spanText = (b: Booked) => `[${b.during.start},${b.during.end})`
 const values = (b: Booked) => `(${b.id}, ${b.room}, '${spanText(b)}', ${b.ref})`
 
 /** The features one explained run reached (see BookingFeature). */
-const featuresOf = (e: Explained<ApplyOutcome<unknown>>): ReadonlyArray<BookingFeature> => {
+const featuresOf = (e: Explained<Answer<WriteOutcome<unknown>>>): ReadonlyArray<BookingFeature> => {
 	const waited = Arr.some(e.run.moves, (m) => m.session === "app" && m.observed._tag === "Waited")
 	return [
 		...(waited ? ["the apply waited" as const] : []),
@@ -221,7 +221,7 @@ const featuresOf = (e: Explained<ApplyOutcome<unknown>>): ReadonlyArray<BookingF
 			switch (end.kind) {
 				case "answered":
 					return [
-						`the apply ${end.retried.answered.kind}`,
+						`the apply answered ${end.retried.answered.kind}`,
 						...(end.retried.refused.length > 0 ? ["the apply refused" as const] : []),
 						...Arr.map(end.retried.refused, (reason): BookingFeature => `refused: ${reason}`)
 					]
@@ -275,7 +275,7 @@ const runRace = (
 		)
 		const insert = (b: Booked) =>
 			`INSERT INTO ${booking} (${Arr.join(listed, ", ")}) VALUES ${values(b)}`
-		const blocker: ReadonlyArray<RaceTxn<ApplyOutcome<unknown>>> =
+		const blocker: ReadonlyArray<RaceTxn<Answer<WriteOutcome<unknown>>>> =
 			race.blocker.kind === "none"
 				? []
 				: [
@@ -286,7 +286,7 @@ const runRace = (
 							end: race.blocker.end
 						}
 					]
-		const apply: RaceTxn<ApplyOutcome<unknown>> = {
+		const apply: RaceTxn<Answer<WriteOutcome<unknown>>> = {
 			kind: "grizzle",
 			session: "app",
 			label: `apply ${race.how}`,
@@ -379,7 +379,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										}
 									},
 									draws: "",
-									reaches: ["the apply waited", "the apply refused", "the apply no-change"]
+									reaches: ["the apply waited", "the apply refused", "the apply answered unchanged"]
 								},
 								{
 									note: "an identical put committed while the apply waits at the span key, the same window",
@@ -395,7 +395,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										}
 									},
 									draws: "",
-									reaches: ["the apply waited", "the apply refused", "the apply no-change"]
+									reaches: ["the apply waited", "the apply refused", "the apply answered unchanged"]
 								},
 								{
 									note: "an overlapping fact committed while the apply waits at the span key: the retry's probe finds it, the span key's law",
@@ -407,7 +407,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										blocker: { kind: "none" }
 									},
 									draws: "",
-									reaches: ["the apply waited", "the apply refused", "the apply invariant-rejected"]
+									reaches: ["the apply waited", "the apply refused", "the apply answered refused"]
 								}
 							],
 							runs,

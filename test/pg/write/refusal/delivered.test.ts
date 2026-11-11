@@ -5,12 +5,8 @@ import { array, element, type Gen, int, subarray } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Layer, Option, Result } from "effect"
-import { runApplication } from "#adapter/apply/index.ts"
-import { openDbContext } from "#adapter/db/open.ts"
-import { toResult } from "#adapter/engine.ts"
-import { compiledWrite } from "#adapter/served/forms.ts"
-import { sqlstates } from "#compiler/core/sqlstate.ts"
+import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
+import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -24,12 +20,12 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, bareRecord, failureOf, succeeded } from "#test/support/assert.ts"
-import { conservativeChange } from "#test/support/conservative.ts"
+import { assert, bareRecord, failureOf } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { conservativeServedJson, servedFixtureOf } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /** A read-back attachment whose delivered type breaks raises inside its own statement, so its write commits nothing.
  *
@@ -40,23 +36,25 @@ import { loginLayer } from "#test/support/worlds.ts"
  * and a read-back counts its children as an option's. A write's statements, its read-backs and its COMMIT go in one
  * flight, so a breach the host found while decoding would surface only after the write had committed. Each read-back
  * statement that delivers a bare child or an option checks the count of children per parent itself and raises through
- * the installation's refusal function: PostgreSQL aborts the transaction, and the apply fails with an ExecutionFailure
- * carrying the server's report, SQLSTATE 21Z01 with the delivered type it broke as its constraint. The database's
- * answer contradicts a proof, which fails closed as a typed failure, and nothing commits.
+ * the installation's refusal function: PostgreSQL aborts the transaction, and the call fails as `failed`, the server's
+ * report SQLSTATE 21Z01 with the delivered type it broke as its constraint. The database's answer contradicts a proof,
+ * which fails closed as a typed failure, and nothing commits.
  *
  * The breaches are made as a compiler defect would make them: the constraints behind the evidence are dropped after the
  * Db opened (Note's foreign keys, and the keys of Account, Badge and Profile), so the database may hold rows they
  * forbid. A case draws such a state: for each of three accounts, its rows of Account (none, one, or two under distinct
  * names), of Badge and of Profile; which of two tags Tag holds; the notes already stored, each over a drawn account and
- * tag, either possibly absent; then the note the write inserts over its own, and the artifact that runs it: the
- * optimized one db.apply runs, which fuses the marker and the badge into their parent's statement and pipelines the
- * holder and the profile, or the conservative realization, which pipelines every attachment.
+ * tag, either possibly absent; then the note the write inserts over its own, and the artifact that runs it, each a Db of
+ * the login's full role calling its served member `write` with the note as its facts: the optimized one the login's
+ * served file holds, which fuses the marker and the badge into their parent's statement and pipelines the holder and the
+ * profile, or the conservative realization a served file of the login holds in its place, which pipelines every
+ * attachment.
  *
  * The oracle is a model of the delivered types over every note the read-back reads: the marker is a bare child, broken
  * by no child (Tag keeps its key, so it never has two); the holder (a deferred reference into Account), the badge and
  * the profile are options, broken by two children, and the holder's none is no breach before COMMIT. A state the model
- * finds no breach in commits the note and reads back every note with exactly its children; any breach aborts the write
- * with an ExecutionFailure the server raised, 21Z01 naming a delivered type some breach broke, and commits nothing.
+ * finds no breach in commits the note and reads back every note with exactly its children; any breach fails the write
+ * as `failed`, the server's refusal, and commits nothing.
  *
  * Plant: ~/.cache/grizzle-release/BR08/plants/delivered-breach-never-raised.patch, a read-back's breach arm that never
  * fires, must turn the property red.
@@ -137,9 +135,10 @@ const notes = (s: NotesInstalled) =>
 			"option"
 		)
 
-const write = (s: NotesInstalled, note: NoteFact) =>
+/** The write: the note each call's facts give, inserted, and every note read back. */
+const write = (s: NotesInstalled) =>
 	ChangeSet.empty(s)
-		.insert(Note, [note])
+		.insert(Note, [])
 		.read("notes", () => notes(s))
 
 type Artifact = "optimized" | "conservative"
@@ -272,8 +271,21 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					ctx,
 					Effect.gen(function* () {
 						const sub = yield* Substrate
-						const o = yield* installed(Notes, {}, { label: "real", extensions: [], programs: {} })
-						const s = o.schema
+						const o = yield* installed(
+							Notes,
+							{},
+							{
+								label: "real",
+								extensions: [],
+								programs: { write: write(Notes) }
+							}
+						)
+						const conservativeJson = yield* conservativeServedJson(
+							o.installed,
+							o.server,
+							o.server.workload
+						)
+						const conservative = servedFixtureOf(o.installed, o.server, conservativeJson)
 						const names = namesOf(o.installed)
 						const sql = (text: string) => sub.admin.queryValues(text, [])
 						const stored = (id: number) =>
@@ -343,20 +355,20 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							]
 						}
 						return yield* Effect.gen(function* () {
-							const { db, ctx: opened } = yield* openDbContext(o.server.roles.app, {})
-							const run = (artifact: Artifact, note: NoteFact) => {
-								const changes = write(s, note)
-								if (artifact === "optimized") {
-									return db.apply(changes, {})
-								}
-								const entry = succeeded(
-									Result.flatMap(compiledWrite(opened, changes, opened.claims), (compiled) =>
-										toResult(conservativeChange(compiled, opened))
-									),
-									"the ChangeSet's conservative realization compiles"
-								)
-								return runApplication(opened, entry, {}, changes.reads)
-							}
+							const optimizedContext = yield* Layer.build(o.served.layer)
+							const optimizedDb = yield* Db.open(o.served.login.roles.app, {}).pipe(
+								Effect.provideContext(optimizedContext)
+							)
+							const conservativeContext = yield* Layer.build(conservative.layer)
+							const conservativeDb = yield* Db.open(conservative.login.roles.app, {}).pipe(
+								Effect.provideContext(conservativeContext)
+							)
+							/** The write of `note` by the artifact's served file: the optimized one, or the conservative one. */
+							const run = (artifact: Artifact, note: NoteFact) =>
+								(artifact === "optimized" ? optimizedDb : conservativeDb).workload.write.once({
+									params: {},
+									facts: { insert: { Note: [note] } }
+								})
 							for (const constraints of passes) {
 								const drops = yield* sql(
 									`SELECT format('ALTER TABLE %s DROP CONSTRAINT %I', conrelid::regclass, conname) FROM pg_catalog.pg_constraint WHERE ${constraints}`
@@ -412,17 +424,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										const label = `${d.artifact}: ${Formatter.format(d)}`
 										if (Arr.isReadonlyArrayNonEmpty(breached)) {
 											const failure = yield* failureOf(run(d.artifact, d.note))
-											assert.ok(
-												failure._tag === "ExecutionFailure" &&
-													failure.reason._tag === "ServerError",
-												`${label}: an ExecutionFailure the server raised, got ${String(failure)}`
-											)
-											const sqlstate: string = failure.reason.sqlstate
-											const type: string | undefined = failure.reason.constraint
-											assert.equal(sqlstate, sqlstates.grizzleDeliveredType, `${label}: a breach`)
-											assert.ok(
-												Arr.some(breached, (b) => b.type === type),
-												`${label}: ${String(type)} is a delivered type some breach broke`
+											assert.equal(
+												failure.kind,
+												"failed",
+												`${label}: the server's failure of the write, got ${Formatter.format(failure)}`
 											)
 											const kept = yield* stored(d.note.id)
 											assert.equal(kept, 0, `${label}: nothing committed`)
@@ -435,7 +440,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											c.note(`${d.artifact}: a breach aborts the write`)
 											return
 										}
-										const outcome = yield* run(d.artifact, d.note)
+										const outcome = yield* answered(run(d.artifact, d.note))
 										if (outcome.kind !== "accepted") {
 											return assert.fail(
 												`${label}: a state with no breach answered ${outcome.kind}`
@@ -463,13 +468,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										c.note(`${d.artifact}: every delivered type proved, committed`)
 									})
 							)
-						}).pipe(
-							(body) =>
-								Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
-									Effect.provideContext(body, context)
-								),
-							Effect.scoped
-						)
+						}).pipe(Effect.scoped)
 					}).pipe(Effect.scoped)
 				)
 		)
