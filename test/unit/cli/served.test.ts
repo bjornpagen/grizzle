@@ -30,6 +30,7 @@ import { check } from "#cli/check.ts"
 import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
+import { paramDomainIdentity } from "#compiler/physical/ddl/domains.ts"
 import { type ServedFile, servedDirectory, servedPath } from "#compiler/served/forms.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
@@ -42,6 +43,7 @@ import {
 	workspace
 } from "#test/pg/cli/support.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { dictionaryNameGen } from "#test/support/kernel/dict.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -66,8 +68,15 @@ import { editedAt, firstSql, memberPaths, without } from "#test/support/served.t
  * its layout alone, and none where it is; generate writes or removes exactly the planted file, drafting no folder, and
  * leaves the served directory as the first draft wrote it, byte for byte; and check passes again.
  *
- * Plant (~/.cache/grizzle-release/TSERVED/plants): served-check-layout.patch lets check pass a committed file that
- * reads as the compile's in another layout, so a file generate does not regenerate byte for byte passes.
+ * The shop's served customersByName names a pattern, its parameter `name`'s, so the first draft installs that
+ * parameter's pattern domain (physical/access/extension.ts workloadExtension), which the first draft's SQL is held to
+ * create: check passing on it and the regenerate drafting no folder are generate's idempotence over a workload's
+ * parameter domains, which a later generate must find recorded in the snapshot and never draft again.
+ *
+ * Plants: (~/.cache/grizzle-release/TSERVED/plants) served-check-layout.patch lets check pass a committed file that
+ * reads as the compile's in another layout, so a file generate does not regenerate byte for byte passes;
+ * (~/.cache/grizzle-release/LIVE-PARSE/plants) snapshot-omits-param-domains.patch records the snapshot without the
+ * parameters' pattern domains its migration installs, so every generate drafts them again.
  */
 
 /** A program of the served file, in the file's order: its role's and its own name, and its first SQL text's path. */
@@ -126,6 +135,26 @@ type Situation =
 	| "another layout"
 
 const shop = shopV1("ServedShop", "full")
+
+/** The SQL of a schema directory's one drafted folder, every file's text joined in name order. */
+const firstDraftSql = (fs: FileSystem.FileSystem, dir: string) =>
+	Effect.gen(function* () {
+		const entries = yield* fs.readDirectory(dir)
+		const folder = Arr.headNonEmpty(
+			nonEmpty(
+				Arr.filter(entries, (n) => Str.endsWith("_init")(n)),
+				"the first draft's folder"
+			)
+		)
+		const names = yield* fs.readDirectory(`${dir}/${folder}`)
+		const files = Arr.sort(
+			Arr.filter(names, (n) => Str.endsWith(".sql")(n)),
+			Order.String
+		)
+		const texts = yield* Effect.forEach(files, (f) => fs.readFileString(`${dir}/${folder}/${f}`))
+		return Arr.join(texts, "\n")
+	})
+
 const ident = identifierOf(identity.schema(parsedSchemaName("ServedShop")))
 const schemaDir = `migrations/${ident}`
 const login = "server"
@@ -420,6 +449,26 @@ layer(NodeServices.layer, { excludeTestServices: true })("served files", (it) =>
 					)
 					const passed = yield* cliOver(base, config, ["check", configName], at(1))
 					assert.equal(passed.code, 0, `check passes on the first draft: ${passed.stdout}`)
+					const domains = nonEmpty(
+						Arr.map(
+							succeeded(
+								compileTestWorkload(
+									[{ login, workloads: shop.server.workload }],
+									shop.schema,
+									testCompile
+								)
+							).paramDomains,
+							(use) => identifierOf(paramDomainIdentity(use.place, use.regex))
+						),
+						"the pattern domains the served parameters name"
+					)
+					const firstDraft = yield* firstDraftSql(fs, `${base}/${schemaDir}`)
+					for (const domain of domains) {
+						assert.ok(
+							Str.includes(domain)(firstDraft),
+							`the first draft creates the parameter's pattern domain ${domain}`
+						)
+					}
 					const file = `${base}/${schemaDir}/${servedPath(login)}`
 					const text = yield* fs.readFileString(file)
 					const json = trustedJson<unknown>(text)
