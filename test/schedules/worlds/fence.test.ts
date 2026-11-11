@@ -216,7 +216,7 @@ const fenced = (fc: FenceCase, c: Case<FenceFeature>) =>
 			runStep(world, before, { kind: "migrate", to, how: "complete" }, 1, unnoted),
 			{ startImmediately: true }
 		)
-		const pid = yield* Effect.orDie(held.pid)
+		const pid = held.backend.pid
 		yield* Effect.raceFirst(s.awaitBlockedBy(pid, world.migrator), endedUnblocked(migration))
 		const during = running(before, to)
 		/** Each call judged in the state the calls before it left: an open adds its Db while the migration runs. */

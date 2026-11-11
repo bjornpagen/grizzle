@@ -1,4 +1,5 @@
-import { Array as Arr, Effect, Formatter, Predicate } from "effect"
+import { regex } from "arkregex"
+import { Array as Arr, Effect, Formatter, Option, Predicate } from "effect"
 import { testExitWait } from "#test/support/limits.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
@@ -90,42 +91,32 @@ export interface ClientBackend {
 }
 
 /**
- * Backend `pid` of a client whose connection is open, as pg_stat_activity lists it, once it is listed. A backend sends
- * its BackendKeyData before its entry in pg_stat_activity is complete, so a session that has just opened may not be
- * listed yet, or be listed without its start: the read waits for the fact, polling until the backend is listed with its
- * start, with no deadline, and the case's hang guard reports a backend that never is. Two rows for one pid is no state
- * PostgreSQL holds, and dies.
+ * The statement a session reads its own backend's identity by, once, as it opens: its own row of pg_stat_activity. A
+ * backend's own entry is there from its start, before it serves any statement, with its start, which its own user
+ * reads, so the session reads a state it proves exists, and no other session's listing of it.
  */
-export const listedBackend = (
-	admin: PgConnection,
-	pid: number
-): Effect.Effect<ClientBackend, SqlError> =>
-	Effect.gen(function* () {
-		for (let polls = 1; ; polls++) {
-			const rows = yield* admin.queryValues(
-				"SELECT a.backend_start::text FROM pg_catalog.pg_stat_activity AS a WHERE a.pid = $1::int4",
-				[pid]
-			)
-			const [only, ...more] = rows
-			if (more.length > 0) {
-				return yield* Effect.die(
-					new Error(`backend ${pid} is listed twice in pg_stat_activity: ${Formatter.format(rows)}`)
-				)
-			}
-			const started = only?.[0]
-			if (Predicate.isString(started)) {
-				return { pid, started }
-			}
-			if (polls === quietPolls) {
-				yield* Effect.sync(() =>
-					process.stderr.write(
-						`waiting for backend ${pid} to be listed with its start in pg_stat_activity: ${Formatter.format(rows)}\n`
-					)
-				)
-			}
-			yield* Effect.yieldNow
-		}
-	})
+export const ownBackendQuery =
+	"SELECT a.pid::text, a.backend_start::text FROM pg_catalog.pg_stat_activity AS a WHERE a.pid = pg_catalog.pg_backend_pid()"
+
+/** A pid's text: a positive decimal integer. */
+const pidText = regex("^[1-9][0-9]*$")
+
+/**
+ * A session's answer to ownBackendQuery, its backend: exactly one row of a pid's text and a start, or none, which the
+ * session's open reports with the answer.
+ */
+export const ownBackendOf = (
+	rows: ReadonlyArray<ReadonlyArray<unknown>>
+): Option.Option<ClientBackend> => {
+	const [only, ...more] = rows
+	if (only === undefined || more.length > 0 || only.length !== 2) {
+		return Option.none()
+	}
+	const [pid, started] = only
+	return Predicate.isString(pid) && pidText.test(pid) && Predicate.isString(started)
+		? Option.some({ pid: Number(pid), started })
+		: Option.none()
+}
 
 /** The backend's row of pg_stat_activity, while it is listed. */
 const backendRow =

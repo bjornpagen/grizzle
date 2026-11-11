@@ -193,7 +193,7 @@ const runRace = (
 		const direct = yield* openActors(substrate, {
 			h: { kind: "psql", as: f.installed.world(worlds.hr) }
 		})
-		const psqlPid = yield* Effect.orDie(direct.h.pid)
+		const psqlPid = direct.h.pid
 		const g = yield* grizzleActor(
 			"g",
 			f.installed.as(worlds.server).role,

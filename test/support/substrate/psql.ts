@@ -20,6 +20,7 @@ import {
 } from "effect"
 import { ChildProcess, type ChildProcessSpawner } from "effect/process"
 import { pgPin } from "#test/support/env.ts"
+import { type ClientBackend, ownBackendOf, ownBackendQuery } from "#test/support/kernel/sanitize.ts"
 import { messageOf } from "#test/support/message.ts"
 import { reportedConstraintOf } from "#test/support/pg.ts"
 import {
@@ -56,10 +57,10 @@ export interface PsqlWriter {
 	readonly role: string
 	readonly database: string
 	/**
-	 * The server backend running the writer's statements, as pg_backend_pid() reports it, read once when the writer
-	 * starts; not counted, and available while a statement is in flight.
+	 * The server backend running the writer's statements, its pid and start as its own row of pg_stat_activity holds
+	 * them (kernel/sanitize.ts ownBackendQuery), read once when the writer starts; not counted.
 	 */
-	readonly pid: Effect.Effect<number, PsqlStatementError | PsqlProcessError>
+	readonly backend: ClientBackend
 	/**
 	 * Runs one SQL statement. A trailing semicolon is optional. psql meta-commands are a defect, and psql still
 	 * interpolates its own variables (`:name` outside literals) as it does at a terminal.
@@ -77,7 +78,7 @@ export interface PsqlWriter {
 		PsqlStatementError | PsqlProcessError | TransactionRolledBack
 	>
 	readonly rollback: Effect.Effect<void, PsqlStatementError | PsqlProcessError>
-	/** Every statement sent through this writer, whether or not it succeeded. The startup pid query is not counted. */
+	/** Every statement sent through this writer, whether or not it succeeded. The startup identity read is not counted. */
 	readonly statements: Effect.Effect<number>
 	readonly log: Effect.Effect<ReadonlyArray<string>>
 	readonly resetStatements: Effect.Effect<void>
@@ -696,8 +697,6 @@ const refusalOf = (
 		: new PsqlStatementError({ sql, fields })
 }
 
-const backendPidQuery = "SELECT pg_catalog.pg_backend_pid()"
-
 /**
  * psql child processes as direct SQL writers.
  *
@@ -915,15 +914,22 @@ export const openPsql = Effect.fnUntraced(function* (
 	 * The startup read, before the backend pid is known. It also surfaces a refused connection or login as a process
 	 * error, and so a server's report on the query itself.
 	 */
-	const started = yield* send(backendPidQuery, "rows", { _tag: "Signal" })
-	const refused = refusalOf(label, backendPidQuery, started)
+	const started = yield* send(ownBackendQuery, "rows", { _tag: "Signal" })
+	const refused = refusalOf(label, ownBackendQuery, started)
 	if (refused !== undefined) {
 		return yield* refused._tag === "PsqlStatementError"
 			? new PsqlProcessError({ reason: refused.fields.message, stderr: started.stderr })
 			: refused
 	}
-	const backendPid = Number(parseRows(started.output)[0]?.[0])
-	const backend: Canceler = { _tag: "Backend", pid: backendPid }
+	const answered = parseRows(started.output)
+	const own = ownBackendOf(answered)
+	if (Option.isNone(own)) {
+		return yield* new PsqlProcessError({
+			reason: `psql writer ${label}: its backend's own row of pg_stat_activity is not one pid and start: ${Formatter.format(answered)}`,
+			stderr: started.stderr
+		})
+	}
+	const backend: Canceler = { _tag: "Backend", pid: own.value.pid }
 	const log = yield* Ref.make<ReadonlyArray<string>>([])
 
 	const record = (sql: string) => Ref.update(log, (entries) => [...entries, sql])
@@ -947,7 +953,7 @@ export const openPsql = Effect.fnUntraced(function* (
 		label,
 		role: options.credentials.role,
 		database: options.database,
-		pid: Effect.succeed(backendPid),
+		backend: own.value,
 		run,
 		begin: Effect.asVoid(run(beginSerializable)),
 		beginBelow: (level) => Effect.asVoid(run(beginBelowStatement(level))),

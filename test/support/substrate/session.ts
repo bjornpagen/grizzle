@@ -1,6 +1,7 @@
-import { Effect, Option, type Redacted, Ref, type Scope, String as Str } from "effect"
+import { Effect, Formatter, Option, type Redacted, Ref, type Scope, String as Str } from "effect"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
+import { type ClientBackend, ownBackendOf, ownBackendQuery } from "#test/support/kernel/sanitize.ts"
 import { type PgConnection, type RawQueryResult, type SqlError, session } from "#test/support/pg.ts"
 import { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 
@@ -40,10 +41,10 @@ export interface RawSession {
 	readonly role: string
 	readonly database: string
 	/**
-	 * The server backend running this session's statements, as pg_backend_pid() reports it, read once when the session
-	 * opens, so it is available while a statement is in flight. The connection's BackendKeyData is never used.
+	 * The server backend running this session's statements, its pid and start as its own row of pg_stat_activity holds
+	 * them (kernel/sanitize.ts ownBackendQuery), read once when the session opens.
 	 */
-	readonly pid: Effect.Effect<number, SqlError>
+	readonly backend: ClientBackend
 	/** One statement per call, through the extended protocol; parameters are text-cast by the caller's SQL. */
 	readonly query: (
 		sql: string,
@@ -88,8 +89,6 @@ export const connect = (
 		applicationName: Option.some(`grizzle-substrate ${options.label}`)
 	})
 
-const backendPidQuery = "SELECT pg_catalog.pg_backend_pid()"
-
 /**
  * Raw pinned sessions: one backend each, explicit BEGIN, and a per-session statement counter.
  *
@@ -115,16 +114,21 @@ export const openSession = Effect.fnUntraced(function* (
 		Effect.andThen(record(sql), pinned.query(sql, params))
 	const values = (sql: string, params: ReadonlyArray<unknown>) =>
 		Effect.andThen(record(sql), pinned.queryValues(sql, params))
-	const backendPid = yield* Effect.map(pinned.queryValues(backendPidQuery, []), (rows) =>
-		Number(rows[0]?.[0])
-	)
-	const pid = Effect.succeed(backendPid)
+	const answered = yield* pinned.queryValues(ownBackendQuery, [])
+	const own = ownBackendOf(answered)
+	if (Option.isNone(own)) {
+		return yield* Effect.die(
+			new Error(
+				`raw session ${label}: its backend's own row of pg_stat_activity is not one pid and start: ${Formatter.format(answered)}`
+			)
+		)
+	}
 
 	return {
 		label,
 		role: options.credentials.role,
 		database: options.database,
-		pid,
+		backend: own.value,
 		query,
 		values,
 		begin: Effect.asVoid(query(beginSerializable, [])),

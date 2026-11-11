@@ -690,7 +690,6 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 							)
 						)
 						const stale = yield* sessionOf(m, first.writer, "cached writer")
-						const pid = yield* stale.pid
 						for (const h of histories) {
 							for (const code of upTo(sizeOf(h.installed), (c) => c)) {
 								yield* judgeCode(m, stale, {
@@ -751,8 +750,6 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 									)
 									yield* judgeCode(m, fresh, c)
 									yield* judgeCode(m, stale, c)
-									const now = yield* stale.pid
-									assert.equal(now, pid, "the cached writer is the backend it was")
 								})
 						)
 					})

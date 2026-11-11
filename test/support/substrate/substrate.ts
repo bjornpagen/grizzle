@@ -6,12 +6,7 @@ import { trusted } from "#compiler/core/trusted.ts"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { InitializedCluster, type InitializedClusterShape } from "#test/support/cluster.ts"
 import { adminUrl, pgPin } from "#test/support/env.ts"
-import {
-	awaitRoleQuiet,
-	type ClientBackend,
-	endBackend,
-	listedBackend
-} from "#test/support/kernel/sanitize.ts"
+import { awaitRoleQuiet, type ClientBackend, endBackend } from "#test/support/kernel/sanitize.ts"
 import { testExitWait } from "#test/support/limits.ts"
 import { freshDatabase, type PgConnection, type SqlError, sqlErrorOf } from "#test/support/pg.ts"
 import { awaitBlockedBy, awaitLockWait, type LockWait } from "#test/support/substrate/barrier.ts"
@@ -527,10 +522,7 @@ const build = Effect.fnUntraced(function* (
 			const writer = yield* openPsql(psqlOptions(options)).pipe(
 				Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner)
 			)
-			const listed = yield* Effect.orDie(
-				Effect.flatMap(writer.pid, (pid) => listedBackend(admin, pid))
-			)
-			started.backend = Option.some(listed)
+			started.backend = Option.some(writer.backend)
 			if (Option.isSome(options.role)) {
 				yield* Effect.orDie(writer.run(`SET ROLE ${quoteIdent(options.role.value)}`))
 				yield* writer.resetStatements

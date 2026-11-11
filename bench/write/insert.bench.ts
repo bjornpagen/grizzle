@@ -230,7 +230,7 @@ export default defineGate({
 			const role = loginRoleOf(fx)
 			const db = yield* openFull(fx, S)
 			const direct = yield* rawSession(fx, fx.world.app, "m15c insert direct")
-			const directPid = yield* direct.pid
+			const directPid = direct.backend.pid
 			const statementsOf = (changes: unknown): Effect.Effect<ReadonlyArray<ObservedStatement>> =>
 				Effect.map(
 					observedChange(db, changes, attemptLabel, { kind: "none" }),

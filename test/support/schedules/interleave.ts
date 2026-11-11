@@ -481,28 +481,23 @@ const isDeadlockVictim = (outcome: StepOutcome): boolean =>
 const ownBackends = (
 	actors: Actors<string, string>,
 	txns: ReadonlyArray<Txn>
-): Effect.Effect<ReadonlyMap<string, number>> =>
-	Effect.map(
-		Effect.forEach(txns, (t): Effect.Effect<ReadonlyArray<readonly [string, number]>> => {
+): ReadonlyMap<string, number> =>
+	new Map(
+		Arr.flatMap(txns, (t): ReadonlyArray<readonly [string, number]> => {
 			switch (t.kind) {
 				case "world":
-					return Effect.succeed([])
+					return []
 				case "grizzle":
-					return Effect.succeed([
-						[
-							t.session,
-							defined(actors.grizzle[t.session], `the grizzle actor of ${t.session}`).pid
-						] as const
-					])
+					return [
+						[t.session, defined(actors.grizzle[t.session], `the grizzle actor of ${t.session}`).pid]
+					]
 				case "scripted":
 				case "direct":
-					return Effect.map(
-						Effect.orDie(defined(actors.direct[t.session], `the direct actor of ${t.session}`).pid),
-						(pid) => [[t.session, pid] as const]
-					)
+					return [
+						[t.session, defined(actors.direct[t.session], `the direct actor of ${t.session}`).pid]
+					]
 			}
-		}),
-		(entries) => new Map(Arr.flatten(entries))
+		})
 	)
 
 /** A direct, scripted or grizzle session's own backend, which ownBackends read for every such session. */
@@ -965,7 +960,7 @@ export const exploreInterleavings = <E>(
 	E | SqlError | Interleave.AfterCycle | Interleave.InterleavingFailed
 > =>
 	Effect.gen(function* () {
-		const owned = yield* ownBackends(actors, spec.txns)
+		const owned = ownBackends(actors, spec.txns)
 		const releases = new Map(Arr.map(spec.txns, (t) => [t.session, releaseOf(actors, t)] as const))
 		const sessions: Interleave.Sessions<string, Move> = Record.fromEntries(
 			Arr.map(

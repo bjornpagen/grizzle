@@ -387,7 +387,7 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 				const { holder } = yield* openActors(s, {
 					holder: { kind: "raw", as: rig.installed.ambientOwner.credentials }
 				})
-				const holderPid = yield* holder.pid
+				const holderPid = holder.pid
 
 				const stateQuery = `SELECT ${Arr.join(
 					Arr.map(statedFields, (f) => `${column(f)}::text`),

@@ -29,8 +29,8 @@ import {
 export interface DirectActor {
 	readonly name: string
 	readonly role: string
-	/** The backend running its statements, read once when the session opened. */
-	readonly pid: Effect.Effect<number, Error>
+	/** The backend running its statements, as the session read its own when it opened. */
+	readonly pid: number
 	/** Runs one action. Every failure is an outcome; a defect stays a defect. */
 	readonly perform: (action: DirectAction) => Effect.Effect<ScheduleOutcome>
 }
@@ -105,7 +105,7 @@ const done: ScheduleOutcome = { _tag: "Ok", rows: [], rowCount: 0 }
 interface ActorParts<E> {
 	readonly name: string
 	readonly role: string
-	readonly pid: Effect.Effect<number, Error>
+	readonly pid: number
 	readonly sql: (
 		sql: string
 	) => Effect.Effect<{ readonly rows: TextRows; readonly rowCount: number }, E>
@@ -165,7 +165,7 @@ const rawActor = (name: string, session: RawSession): DirectActor =>
 	directActor<SqlError>({
 		name,
 		role: session.role,
-		pid: session.pid,
+		pid: session.backend.pid,
 		sql: (text) =>
 			Effect.flatMap(session.query(text, []), (result) =>
 				Effect.map(resultRows(text, result), (found) => ({
@@ -184,7 +184,7 @@ const psqlActor = (name: string, writer: PsqlWriter): DirectActor =>
 	directActor({
 		name,
 		role: writer.role,
-		pid: writer.pid,
+		pid: writer.backend.pid,
 		sql: (text) => writer.run(text),
 		begin: writer.begin,
 		beginBelow: writer.beginBelow,

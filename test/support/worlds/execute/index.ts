@@ -945,7 +945,7 @@ const realizeWith = (
 						sessionScope
 					)
 				)
-				const pid = yield* Effect.orDie(writer.pid)
+				const pid = writer.backend.pid
 				yield* Effect.orDie(writer.run(beginSql(action.isolation)))
 				const session: DirectSession = {
 					kind: "direct",
