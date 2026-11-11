@@ -41,12 +41,17 @@ import {
  * the names its migrations can create: in its database, each of its levels' PostgreSQL schemas, every configured
  * schema's snapshot's; in the cluster, every role `<level>__<conversion>` under its role space (core/identity.ts
  * namespaceStem), a login's or a role's of any snapshot it was ever at, read from pg_roles, never from one snapshot, so
- * a database a newer snapshot has not yet reached loses no role it holds. A role's schema is its stem's name, so the
- * namespace's schemas are its levels' and its roles' stems', those the database holds. No other role or schema is
- * read as the installation's, and the extension's schema, which the installation was given, is never one of them.
+ * a database a newer snapshot has not yet reached loses no role it holds; and each configured schema's live source
+ * (physical/ddl/live.ts), its decoder login among the roles, its publication in the database and the slot its leader
+ * created, all named by the live source's stem (core/identity.ts identity.liveSource). A role's schema is its stem's
+ * name, so the namespace's schemas are its levels' and its roles' stems', those the database holds. No other role or
+ * schema is read as the installation's, and the extension's schema, which the installation was given, is never one of
+ * them.
  *
  * `roles` lists the namespace's roles, by name, in code point order. `uninstall` drops the namespace in one SERIALIZABLE
- * transaction (sql/catalog.ts UninstallStatement): its schemas CASCADE, with every row they hold, then its roles, after
+ * transaction (sql/catalog.ts UninstallStatement): its publications and the slots their leaders created, which
+ * PostgreSQL refuses to drop while a leader streams from one, its schemas CASCADE, with every row they hold, then its
+ * roles, after
  * the migration identity takes on their privileges and DROP OWNED revokes what they hold in the database and on its
  * shared objects, under the database privilege's lock (sql/catalog.ts databasePrivilegeLock), as every writer of the
  * database's ACL takes it. PostgreSQL refuses DROP ROLE (2BP01) while anything of another database depends on a role,
@@ -142,15 +147,15 @@ const namespaceRoles = (
 		)
 	})
 
-const publications = C.from("pg_publication", "p")
+const catalogPublications = C.from("pg_publication", "p")
 
 /** The publications of the database among the names $1. */
 const publicationsNamed: CatalogQuery<string> = {
 	sql: emitCatalog(
 		C.query(
-			[C.asText(publications.col("pubname"))],
-			[publications.item],
-			C.any(C.asText(publications.col("pubname")), C.arrayParam(1, "text"))
+			[C.asText(catalogPublications.col("pubname"))],
+			[catalogPublications.item],
+			C.any(C.asText(catalogPublications.col("pubname")), C.arrayParam(1, "text"))
 		)
 	),
 	what: "a publication name",

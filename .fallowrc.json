@@ -13,6 +13,7 @@
 		"scripts/dev/mutate/take-coverage.ts",
 		"scripts/dev/profile/compile.ts",
 		"scripts/dev/profile/read.ts",
+		"scripts/pg/live-slot-bound.ts",
 		"scripts/gen/allen/main.ts",
 		"packages/devtools/src/oxlint/fixtures.config.ts",
 		"packages/testing/src/vitest/coverage.ts",

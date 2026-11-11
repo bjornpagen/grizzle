@@ -37,7 +37,5 @@ pg_running() {
 live_slot_bound() {
 	local settings
 	settings="$(admin_psql -d postgres -At -F ' ' -c "SELECT current_setting('max_connections'), current_setting('superuser_reserved_connections'), current_setting('reserved_connections')")"
-	(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && node --conditions=grizzle-source --input-type=module -e \
-		"const { liveSlotBound } = await import('#test/support/substrate/shared.ts'); const [m, s, r] = process.argv.slice(1).map(Number); console.log(liveSlotBound(m, s, r))" \
-		-- $settings)
+	(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && node --conditions=grizzle-source scripts/pg/live-slot-bound.ts $settings)
 }
