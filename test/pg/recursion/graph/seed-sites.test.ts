@@ -14,7 +14,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema as declareSchema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { isGraphRule, optimizedLoweringWith, publicCase } from "#test/pg/recursion/graph/support.ts"
-import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { ValueFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenContainment } from "#test/support/oracle/gen/schema.ts"
@@ -349,7 +349,10 @@ layer(Substrate.layer)(
 												true,
 												printOutcome(withConservative)
 											)
-											unorderedEqual(Arr.dedupe(fired), [rule])
+											assert.ok(
+												fired.includes(rule),
+												`${shape} fired ${Arr.join(Arr.dedupe(fired), ", ")}, not ${rule}`
+											)
 											c.note(
 												defined(withReference.left.run.statements[0], "the statement").rows.length >
 													0

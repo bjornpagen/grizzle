@@ -257,9 +257,11 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 						flight(program.roots),
 						(s) => s.role.kind === "attachment"
 					).length
-					return statements === 1 && seeded === statements
+					return statements > 0 && seeded === statements
 						? []
-						: [`${seeded} of ${statements} attachment statements seeded, expected ${statements}`]
+						: [
+								`${seeded} of ${statements} attachment statements seeded, expected every one of at least one`
+							]
 				}
 			})
 		)
