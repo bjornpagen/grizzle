@@ -99,9 +99,10 @@ export type CheckFinding = FindingOf & {
  * - an ungenerated change: the schemas and their logins compile to another snapshot than snapshot.json, so `grizzle
  *   generate` has something to draft; and among them a name the snapshot holds that the schema drops, which the draft
  *   refuses until `--drop` or `--rename` declares it (UndeclaredDrop);
- * - derived facts out of date: the derived runtime facts snapshot.json records beside the snapshot, outside its
- *   fingerprint, are not the ones the compile derives (build.ts derivedHolds), or snapshot.json records none, which
- *   `grizzle generate` writes again with no migration;
+ * - derived facts out of date: the schemas compile to snapshot.json's own snapshot, but the derived runtime facts it
+ *   records beside it, outside its fingerprint, are not the ones the compile derives (build.ts derivedHolds), or it
+ *   records none, which `grizzle generate` writes again with no migration; beside an ungenerated change they follow
+ *   from it, and the folder generate drafts for it writes them, so they are no finding of their own;
  * - a served workload out of date: each login of the configuration over the schema compiled under the snapshot the
  *   draft lays out, as generate compiles it (generate.ts servedFiles), whose committed `served/<login>.json` is not
  *   that text byte for byte, each named with the first member where they part (served/compile.ts servedDifference); a
@@ -400,6 +401,7 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 			}
 			const recorded = committed.committed
 			if (
+				draft.success.change === "none" &&
 				Option.isSome(recorded) &&
 				recorded.value.kind === "files" &&
 				!derivedHolds(recorded.value.derived, draft.success.derived)
