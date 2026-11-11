@@ -48,7 +48,7 @@ import type { SchemaDesc, SideDesc, StatementDesc } from "#compiler/ir/desc.ts"
 import { expandAlternatives } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
-import type { LawModel } from "#compiler/laws/model/model.ts"
+import { constraintLawMap, type LawModel } from "#compiler/laws/model/model.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { type AnySchema, check, relation, type Statement, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -441,8 +441,11 @@ describe("production names from src", () => {
 								const reporting = Arr.filter(
 									L.model.constraints,
 									(entry) =>
-										constraintLaw(L.model.constraintToLaw, constraintOwner(entry), entry.name) ===
-										law
+										constraintLaw(
+											constraintLawMap(L.model.constraints),
+											constraintOwner(entry),
+											entry.name
+										) === law
 								)
 								assert.ok(reporting.length > 0, `a constraint reports the key's law ${law}`)
 							}

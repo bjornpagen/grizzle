@@ -8,6 +8,7 @@ import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
+import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
@@ -15,7 +16,6 @@ import { conservativeStatement, type SentStatement } from "#compiler/lower/shape
 import { executableQuery } from "#compiler/lower/template.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import { schemaCatalog } from "#compiler/program/schema.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { check, relation, schema } from "#compiler/public/schema.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
@@ -288,7 +288,7 @@ const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
 	const optimized = Result.flatMap(admitGenerated(query), (q) =>
 		lowerOptimized(q, {
 			names,
-			catalog: schemaCatalog(artifacts.value),
+			catalog: evidenceCatalog(artifacts.value),
 			subject: { kind: "query" },
 			context
 		})

@@ -51,6 +51,7 @@ import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type ConstraintLaws, constraintLaw } from "#compiler/ir/products.ts"
+import { constraintLawMap } from "#compiler/laws/model/model.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
@@ -640,7 +641,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 								 * reports, which the tightened version's laws map to it (a candidate key's unique index fails its build in
 								 * Indexes with 23505).
 								 */
-								const tightenedLaws = lawNamesOf(next).model.constraintToLaw
+								const tightenedLaws = constraintLawMap(lawNamesOf(next).model.constraints)
 								const reportsLaw =
 									(id: LawId) =>
 									(server: ServerReport): boolean => {
@@ -838,7 +839,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 								])
 								const { names } = x
 								const fk: ForeignKeyLaw = {
-									laws: lawNamesOf(staffed(x.done.schema)).model.constraintToLaw,
+									laws: constraintLawMap(lawNamesOf(staffed(x.done.schema)).model.constraints),
 									schema: names.schema,
 									refusing: lawIdOf(staffed(x.done.schema), staffing)
 								}

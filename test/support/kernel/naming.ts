@@ -51,6 +51,7 @@ import { type ConstraintLaws, type ConstraintOwner, constraintLaw } from "#compi
 import {
 	type ConstraintLaw,
 	compileLaws,
+	constraintLawMap,
 	type LawModel,
 	type TableConstraintLaw
 } from "#compiler/laws/model/model.ts"
@@ -722,7 +723,7 @@ const lawNamesOver = (
 					`the test names the primary key of ${relation.name}, which ${count} natives install`
 			)
 			const law = constraintLaw(
-				model.constraintToLaw,
+				constraintLawMap(model.constraints),
 				{ kind: "table", name: pk.owner },
 				identifierOf(pk.named)
 			)
@@ -808,7 +809,7 @@ export const lawNamesOf = (subject: NamingSubject): LawNames => {
 		throw refused(model.error)
 	}
 	let installed: Installation | undefined
-	return lawNamesOver(model.value, model.value.constraintToLaw, (contract) => {
+	return lawNamesOver(model.value, constraintLawMap(model.value.constraints), (contract) => {
 		installed ??= installationOf(subject, atDeclaredName)
 		return installed.names.contractNamed(contract)
 	})

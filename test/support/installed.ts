@@ -9,6 +9,7 @@ import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
+import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { compileWorkload } from "#compiler/program/workload/compile.ts"
 import {
 	type AnyClosed,
@@ -153,7 +154,7 @@ export const workloadOf = (
 	const plan = succeeded(
 		compileWorkload(
 			Arr.map(version.logins, (l) => ({ login: l.name, workloads: l.workload })),
-			version.schema,
+			succeeded(parseSchemaInput(version.schema)),
 			{
 				artifacts: succeeded(testArtifacts(version.schema, testCompile)),
 				roles: Arr.flatMap(owned, (l) => l.roles)

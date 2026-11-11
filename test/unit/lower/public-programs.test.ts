@@ -41,6 +41,7 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
+import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { queryEvidence } from "#compiler/logical/annotate.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
@@ -50,7 +51,6 @@ import {
 	optimizedInput
 } from "#compiler/lower/optimize/pipeline.ts"
 import { queryInput } from "#compiler/program/compile.ts"
-import { schemaCatalog } from "#compiler/program/schema.ts"
 import { closedId, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
@@ -111,7 +111,7 @@ const lowered = (schemaValue: unknown, read: unknown): Lowered => {
 		return { kind: "refused before" }
 	}
 	const rewritten = succeeded(optimizedInput(checked.value, queryEvidence))
-	const catalog = schemaCatalog(artifacts)
+	const catalog = evidenceCatalog(artifacts)
 	const optimized = lowerOptimized(rewritten, {
 		names: artifacts.names,
 		subject: { kind: "query" },

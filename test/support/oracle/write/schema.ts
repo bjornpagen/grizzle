@@ -5,6 +5,7 @@ import { Array as Arr, Option, String as Str } from "effect"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
+import { constraintLawMap } from "#compiler/laws/model/model.ts"
 import {
 	closed,
 	contained as containment,
@@ -789,6 +790,7 @@ export const lawNames = (plan: RealInstallPlan): WriteLawNames => {
 		return t
 	}
 	const laws = plan.installation.laws
+	const toLaw = constraintLawMap(laws.constraints)
 	/** The law an installed constraint or unique index of the relation's table reports. */
 	const lawOf = (relation: string, constraint: ConstraintName): LawId => {
 		const owned = plan.installation.owned.relations[relation]
@@ -796,7 +798,7 @@ export const lawNames = (plan: RealInstallPlan): WriteLawNames => {
 			throw new Error(`no owned stored relation ${relation}`)
 		}
 		const owner = { kind: "table", name: owned.ident } as const
-		const law = constraintLaw(laws.constraintToLaw, owner, constraint)
+		const law = constraintLaw(toLaw, owner, constraint)
 		if (law === undefined) {
 			throw new Error(`no law reports the installed constraint ${constraint} of ${relation}`)
 		}

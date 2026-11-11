@@ -349,10 +349,6 @@ describe("the public boundary", () => {
 								const parsed = parseSchemaInput(passed(d))
 								if (d.kind === "live") {
 									assert.ok(parsed.ok)
-									/** Parsing a parsed input again is the input itself: the door parses once. */
-									const again = parseSchemaInput(parsed.value)
-									assert.ok(again.ok)
-									assert.equal(again.value, parsed.value)
 									return
 								}
 								assert.ok(!parsed.ok)

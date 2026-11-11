@@ -17,6 +17,7 @@ import type { SchemaDesc as EngineSchemaDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { LogicalQuery, ParamDecl, StatementSpec } from "#compiler/ir/products.ts"
 import type { NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
+import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { Env, LowerContext, NodeLowerer } from "#compiler/lower/conservative/context.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import {
@@ -52,8 +53,7 @@ import {
 	roleArtifacts,
 	type SchemaArtifacts,
 	type SchemaInput,
-	schemaArtifacts,
-	schemaCatalog
+	schemaArtifacts
 } from "#compiler/program/schema.ts"
 
 import {
@@ -154,12 +154,17 @@ export const testArtifacts = (
 	schema: unknown,
 	naming: TestNaming
 ): Result.Result<SchemaArtifacts, CompileError> =>
-	Result.flatMap(parseSchemaInput(schema), (input) =>
-		Result.flatMap(codebookFor(input, naming.codes), (codes) =>
-			naming.installation === undefined
-				? schemaArtifacts(input, { codes })
-				: allocatedArtifacts(input, identifierOf(naming.installation), codes)
-		)
+	Result.flatMap(parseSchemaInput(schema), (input) => inputArtifacts(input, naming))
+
+/** The artifacts of a parsed schema input under `naming` (testArtifacts). */
+const inputArtifacts = (
+	input: SchemaInput,
+	naming: TestNaming
+): Result.Result<SchemaArtifacts, CompileError> =>
+	Result.flatMap(codebookFor(input, naming.codes), (codes) =>
+		naming.installation === undefined
+			? schemaArtifacts(input, { codes })
+			: allocatedArtifacts(input, identifierOf(naming.installation), codes)
 	)
 
 /** The artifacts of `input` with every level of its schema, a role's base among them, renamed under `allocated`. */
@@ -301,7 +306,7 @@ const templateOver = (
 	if (!template.ok) {
 		return template
 	}
-	checkedLowering(templateLowering(template.value, options.context, schemaCatalog(artifacts)))
+	checkedLowering(templateLowering(template.value, options.context, evidenceCatalog(artifacts)))
 	return template
 }
 
@@ -329,8 +334,10 @@ export const compileTestWorkload = (
 	schema: unknown,
 	naming: TestNaming
 ): Result.Result<WorkloadPlan, CompileError> =>
-	Result.flatMap(testArtifacts(schema, naming), (artifacts) =>
-		compileWorkload(logins, schema, { artifacts, roles: [] })
+	Result.flatMap(parseSchemaInput(schema), (input) =>
+		Result.flatMap(inputArtifacts(input, naming), (artifacts) =>
+			compileWorkload(logins, input, { artifacts, roles: [] })
+		)
 	)
 
 /**
@@ -345,13 +352,15 @@ const workloadExtensionOver = (
 	rolesOf: (installing: ReadonlyArray<OwnedLogin>) => ReadonlyArray<OwnedRole>
 ): InstallExtension => ({
 	contribute: (b) =>
-		Result.flatMap(testArtifacts(b.owned.desc, testCompile), (artifacts) =>
-			Result.flatMap(
-				compileWorkload(logins, b.owned.desc, {
-					artifacts,
-					roles: rolesOf(b.settings.logins)
-				}),
-				(plan) => workloadExtension(plan).contribute(b)
+		Result.flatMap(parseSchemaInput(b.owned.desc), (input) =>
+			Result.flatMap(inputArtifacts(input, testCompile), (artifacts) =>
+				Result.flatMap(
+					compileWorkload(logins, input, {
+						artifacts,
+						roles: rolesOf(b.settings.logins)
+					}),
+					(plan) => workloadExtension(plan).contribute(b)
+				)
 			)
 		),
 	textDomainUses: noTextDomainUses,
