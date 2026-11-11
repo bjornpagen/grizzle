@@ -1,11 +1,51 @@
+/**
+ * `natural` and `pred` against PostgreSQL 19rc1, through the engine's own lowering: the domain a `natural` field is,
+ * the STORED generated column a `pred` term is, and the foreign keys between the two, out of pred's column into a
+ * natural key and out of a selected side's natural columns into pred's column.
+ *
+ * A partial term is null outside its definition, pred(x) at x = 0 among them. pred's column is generated as the natural
+ * domain's base, int8, as every law column is typed by its base (physical/ddl/names.ts lawColumnType): its value,
+ * x - 1 where x > 0, is a natural its generation proves, so the domain's CHECK would only judge it again. 19rc1 would
+ * take the domain, since it refuses a domain only to a virtual generated column (catalog/heap.c CheckAttributeType). A
+ * box of no slots leaves pred's column null: the last slot's foreign key, out of that column, passes, and marked's,
+ * into it, finds no key there, so the box's state is admitted and a slot marked last in it refused.
+ *
+ * Each case installs the real installation of the schema in a transaction of a pinned session, and writes each of its
+ * drawn states whole under a savepoint: one INSERT per relation, the slots successor before predecessor
+ * (`successorFirst`), then every deferred constraint checked at once (SET CONSTRAINTS ALL IMMEDIATE), so the verdict is
+ * the state's whichever foreign keys the installation defers.
+ *
+ * Oracle, the specification turned into a checker: a state holding a negative count or index is refused as it is
+ * written, with a check violation under the natural domain, its boxes' INSERT first; any other is admitted exactly
+ * when the host meaning of its laws holds (`broken`), and otherwise refused with a foreign key violation under a
+ * constraint the installation maps to one of the laws it breaks.
+ *
+ * A state is drawn box by box (boxGen), each draw a named, weighted case of the representation: a box absent or present
+ * with a count of 0 to 3 or a negative one; its slots a run from 0 covering the count or falling short of it; a gap in
+ * the run or none; a mark on no slot, on the count's last or on another; and a slot at a negative index or none. So
+ * lawful states and states breaking each law are drawn as often as their weights say, never filtered for.
+ *
+ * Features: a state admitted, one beside a box of no slots, each law refusing, marked refusing under a box of no slots,
+ * and the domain refusing a negative count and a negative index. Plants: ~/.cache/grizzle-release/BR09/plants/
+ * domains-natural-admits-minus-one.patch, natural's CHECK at VALUE >= -1, admits a count of -1; and
+ * domains-pred-defined-at-zero.patch, pred(x) defined at x = 0 as -1, refuses a box of no slots its laws admit.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, type Gen, int } from "@grizzle/testing/gen"
+import {
+	array,
+	constant,
+	element,
+	type Gen,
+	int,
+	proportional,
+	weighted
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll, indices } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
@@ -25,26 +65,6 @@ import type { PgConnection, PgErrorFields, SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
 import { reportedOwnerOf } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-
-/**
- * `natural` and `pred` against PostgreSQL 19rc1, through the engine's own lowering: the domain a `natural` field is,
- * the STORED generated column a `pred` term is, and the foreign keys between the two, out of pred's column into a
- * natural key and out of a selected side's natural columns into pred's column.
- *
- * A partial term is null outside its definition, pred(x) at x = 0 among them. pred's column is generated as the natural
- * domain's base, int8, as every law column is typed by its base (physical/ddl/names.ts lawColumnType): its value,
- * x - 1 where x > 0, is a natural its generation proves, so the domain's CHECK would only judge it again. 19rc1 would
- * take the domain, since it refuses a domain only to a virtual generated column (catalog/heap.c CheckAttributeType). A
- * box of no slots leaves pred's column null: the last slot's foreign key, out of that column, passes, and marked's,
- * into it, finds no key there, so the box's state is admitted and a slot marked last in it refused.
- *
- * Each case installs the real installation of the schema in a transaction of a pinned session, and writes each state
- * whole under a savepoint: one INSERT per relation, the slots successor before predecessor (`successorFirst`), then
- * every deferred constraint checked at once (SET CONSTRAINTS ALL IMMEDIATE), so the verdict is the state's whichever
- * foreign keys the installation defers. The server must admit a state exactly when the host meaning of its laws holds,
- * and refuse every other with a foreign key violation under a constraint the installation maps to one of the laws it
- * breaks; a negative `natural` is refused as it is written, with a check violation under its domain.
- */
 
 /**
  * The schema: a box of `slots` slots, each slot at a natural index, and a slot marked last. Its three laws read pred
@@ -137,64 +157,80 @@ const ruleFeature: Readonly<Record<Rule, DomainFeature>> = {
 }
 
 const boxIds = [1, 2] as const
-const indexes = [0, 1, 2, 3] as const
+
+/** The highest index a box's slots run to: four slots at most, past every count a box draws. */
+const lastIndex = 3
+
+/** A box's count: a natural from 0 to 3, or a negative one, which the natural domain refuses. */
+const countGen: Gen<number> = weighted<number>([
+	[6, int(0, 3)],
+	[1, constant(-1)]
+])
 
 /**
- * A drawn state: each box present as often as not, with up to three slots; each slot of either box at each index
- * present two times in three, marked last one time in four.
+ * One box's part of a state: absent, or present with its count; its slots a run from index 0, covering the count, so
+ * its last slot is held, or falling short of it; a gap in the run below its last slot, or none; a mark on no slot, on the
+ * count's last, or on another slot of the run; and a slot at a negative index, or none. Each choice is weighted, so a
+ * lawful box is drawn as often as a box breaking each law, and none is filtered; a choice a box cannot take, a run short
+ * of a count of none or a gap in a run of one, is no arm of its draw.
  */
-const stateGen: Gen<State> = (source) => ({
-	boxes: Arr.flatMap(boxIds, (id) =>
-		source.draw(boolean) ? [{ id, slots: source.draw(int(0, 3)) }] : []
-	),
-	slots: Arr.flatMap(boxIds, (box) =>
-		Arr.flatMap(indexes, (at) =>
-			source.draw(int(0, 2)) > 0 ? [{ box, at, last: source.draw(int(0, 3)) === 0 }] : []
+const boxGen =
+	(box: number): Gen<State> =>
+	(source) => {
+		const count = source.draw(
+			weighted<number | undefined>([
+				[1, constant(undefined)],
+				[3, countGen]
+			])
 		)
-	)
-})
-
-/** A case's states: up to four drawn, beside the fixed states every case judges (fixedStates). */
-const caseGen: Gen<ReadonlyArray<State>> = array(stateGen, { min: 0, max: 4 })
-
-/**
- * The states every case judges, one on each side of every law: a lawful chain, a box of no slots beside a slot at 0
- * (pred undefined at both), a gap, a missing last slot, a slot marked below its box's last, and a slot marked in a box
- * of no slots.
- */
-const fixedStates: ReadonlyArray<State> = [
-	{
-		boxes: [{ id: 1, slots: 3 }],
-		slots: [
-			{ box: 1, at: 0, last: false },
-			{ box: 1, at: 1, last: false },
-			{ box: 1, at: 2, last: true }
-		]
-	},
-	{ boxes: [{ id: 2, slots: 0 }], slots: [{ box: 2, at: 0, last: false }] },
-	{ boxes: [], slots: [{ box: 1, at: 1, last: false }] },
-	{ boxes: [{ id: 1, slots: 2 }], slots: [{ box: 1, at: 0, last: false }] },
-	{
-		boxes: [{ id: 1, slots: 2 }],
-		slots: [
-			{ box: 1, at: 0, last: true },
-			{ box: 1, at: 1, last: false }
-		]
-	},
-	{ boxes: [{ id: 1, slots: 0 }], slots: [{ box: 1, at: 0, last: true }] }
-]
-
-/** The negative counts and indexes every case writes, each a fact alone, which no law reads but its domain. */
-const negatives: ReadonlyArray<{ readonly feature: DomainFeature; readonly state: State }> = [
-	{
-		feature: "natural refuses a negative count",
-		state: { boxes: [{ id: 1, slots: -1 }], slots: [] }
-	},
-	{
-		feature: "natural refuses a negative index",
-		state: { boxes: [], slots: [{ box: 1, at: -1, last: false }] }
+		const needed = count === undefined ? 0 : Math.max(count, 0)
+		const run = source.draw(
+			proportional<number>([
+				[4, int(needed, lastIndex + 1)],
+				...(needed > 0 ? [[1, int(0, needed - 1)] as const] : [])
+			])
+		)
+		const gap = source.draw(
+			proportional<number | undefined>([
+				[4, constant(undefined)],
+				...(run > 1 ? [[1, int(0, run - 2)] as const] : [])
+			])
+		)
+		const held = Arr.filter(indices(run), (at) => at !== gap)
+		const last = count === undefined || count < 1 ? undefined : count - 1
+		const mark = source.draw(
+			proportional<number | undefined>([
+				[2, constant(undefined)],
+				...(last !== undefined && held.includes(last) ? [[2, constant(last)] as const] : []),
+				...(Arr.isReadonlyArrayNonEmpty(held) ? [[1, element(held)] as const] : [])
+			])
+		)
+		const negative = source.draw(
+			weighted<boolean>([
+				[8, constant(false)],
+				[1, constant(true)]
+			])
+		)
+		return {
+			boxes: count === undefined ? [] : [{ id: box, slots: count }],
+			slots: [
+				...Arr.map(held, (at) => ({ box, at, last: at === mark })),
+				...(negative ? [{ box, at: -1, last: false }] : [])
+			]
+		}
 	}
-]
+
+/** A state: each box's part (boxGen). */
+const stateGen: Gen<State> = (source) => {
+	const parts = Arr.map(boxIds, (box) => source.draw(boxGen(box)))
+	return {
+		boxes: Arr.flatMap(parts, (p) => p.boxes),
+		slots: Arr.flatMap(parts, (p) => p.slots)
+	}
+}
+
+/** A case's states: one to four, each written whole and rolled back. */
+const caseGen: Gen<ReadonlyArray<State>> = array(stateGen, { min: 1, max: 4 })
 
 /** A statement of a probe: its text and its parameters. */
 interface Sql {
@@ -303,9 +339,9 @@ const probe = (
 	})
 
 /**
- * A state's verdict against its host meaning: admitted exactly when it breaks no law, and otherwise refused with a
- * foreign key violation under a constraint the installation maps to one of the laws it breaks. Its features, or its
- * problems.
+ * A state's verdict against its host meaning: refused by the natural domain where it holds a negative count or index
+ * (refusedByDomain); otherwise admitted exactly when it breaks no law, and else refused with a foreign key violation
+ * under a constraint the installation maps to one of the laws it breaks. Its features, or its problems.
  */
 const judgeState = (
 	laws: ConstraintLaws,
@@ -314,6 +350,16 @@ const judgeState = (
 	verdict: Verdict
 ): { readonly problems: ReadonlyArray<string>; readonly reached: ReadonlyArray<DomainFeature> } => {
 	const what = Formatter.format(state)
+	const negativeCount = Arr.some(state.boxes, (b) => b.slots < 0)
+	if (negativeCount || Arr.some(state.slots, (x) => x.at < 0)) {
+		const problems = refusedByDomain(what, verdict)
+		return {
+			problems,
+			reached: Arr.isReadonlyArrayNonEmpty(problems)
+				? []
+				: [negativeCount ? "natural refuses a negative count" : "natural refuses a negative index"]
+		}
+	}
 	const rules = broken(state)
 	if (!Arr.isReadonlyArrayNonEmpty(rules)) {
 		return verdict.kind === "admitted"
@@ -417,13 +463,15 @@ layer(Substrate.layer)("natural and pred against PostgreSQL", (it) => {
 					const substrate = yield* Substrate
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "the laws' host meaning over each drawn state (broken), pred(x) x - 1 above zero, and the natural domain refusing a negative value"
+							},
 							suite: "laws/projections/domains",
 							draw: drawn(caseGen),
 							literal: Formatter.format,
 							coverage: required<DomainFeature>(situations, { cases: 40, sense: notesOnly }),
 							kept: [],
-							/** Every situation is judged in every case by its fixed states; the drawn ones widen them. */
 							runs: 40,
 							shrink: { kind: "complete" },
 							concurrency: 1,
@@ -441,7 +489,7 @@ layer(Substrate.layer)("natural and pred against PostgreSQL", (it) => {
 										pinned,
 										installationSql(installation),
 										Effect.gen(function* () {
-											for (const state of [...fixedStates, ...drawnStates]) {
+											for (const state of drawnStates) {
 												const verdict = yield* probe(pinned, writer.state(state))
 												const judged = judgeState(
 													installation.constraintToLaw,
@@ -451,14 +499,6 @@ layer(Substrate.layer)("natural and pred against PostgreSQL", (it) => {
 												)
 												appendAll(problems, judged.problems)
 												c.noteAll(judged.reached)
-											}
-											for (const negative of negatives) {
-												const verdict = yield* probe(pinned, writer.state(negative.state))
-												const refused = refusedByDomain(Formatter.format(negative.state), verdict)
-												appendAll(problems, refused)
-												if (refused.length === 0) {
-													c.note(negative.feature)
-												}
 											}
 										})
 									)
