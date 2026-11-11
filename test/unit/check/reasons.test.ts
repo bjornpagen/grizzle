@@ -35,7 +35,7 @@ import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { QueryDesc as LocatedQuery } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/compile.ts"
-import { assert, defined, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
+import { assert, defined, placeOf, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredExprDesc,
 	decodedQuery,
@@ -73,7 +73,6 @@ import {
 	liveOf,
 	type Planted
 } from "#test/unit/check/faults.ts"
-import { placeOf } from "#test/unit/check/place.ts"
 import { Lab, Qty } from "#test/unit/check/schemas.ts"
 
 import { regex } from "arkregex"

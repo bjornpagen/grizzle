@@ -54,6 +54,7 @@ import {
 	assert,
 	defined,
 	failed,
+	placeOf,
 	refusalLoc,
 	refused,
 	succeeded,
@@ -102,7 +103,6 @@ import {
 	paramFeatures,
 	paramVerdict
 } from "#test/unit/check/params.ts"
-import { placeOf } from "#test/unit/check/place.ts"
 import { Lab } from "#test/unit/check/schemas.ts"
 
 /** Items and the labels they are tagged with, by small integers. */

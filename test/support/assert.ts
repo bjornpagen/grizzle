@@ -36,6 +36,8 @@ export { AssertionError } from "node:assert"
  * - `refused`: a Result's failure of one typed reason, unwrapped; the reason is a refusal's contract, its prose is not;
  * - `refusedAt`: a Result's failure whose named field holds one value of its literal union, unwrapped, for an error
  *   whose contract is a field other than `reason` (a CliError's stage, a getter of its reason);
+ * - `refusalLoc` and `placeOf`: where a CompileError refused, and that location's place, its label and path, which
+ *   two refusals at one place share whatever call site each was built at;
  * - `throwsRefused`: the CompileError a builder throws on a malformed call, of one typed reason;
  * - `throwsDefect`: the defect a thunk raises (core/invariant.ts), a bug in grizzle and never a refusal, returning what
  *   it names;
@@ -616,6 +618,15 @@ export function refusalLoc(error: CompileError, ...why: Why): SourceLoc {
 	}
 	return reason.at
 }
+
+/**
+ * Where a location is, as a refusal's contract names it: its label and its path, never its call site, which is where a
+ * builder happened to run, and never its printed text (core/loc.ts formatLoc), which formats all three.
+ */
+export type Place = Readonly<{ label: string; path: ReadonlyArray<string | number> }>
+
+/** The place of a location: what two locations of one place share, compared by deepEqual. */
+export const placeOf = (loc: SourceLoc): Place => ({ label: loc.label, path: loc.path })
 
 /**
  * The fields of E whose type is a union of string literals: the fields a refusal's contract can name exactly, a getter
