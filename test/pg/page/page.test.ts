@@ -67,7 +67,7 @@ import {
  * distinct result D with exact flags and that each page's attachments read exactly its delivered parents' children, is
  * test/pg/page/generated.ts's, over generated ordered queries, minus the transaction and the handles; that every page
  * request is one round trip in one SERIALIZABLE READ ONLY transaction of its own that commits, is the round-trip
- * suite's (test/pg/adapter/suites/round-trips.ts). Here the Paging fixture installs under a fresh schema and opens
+ * suite's (test/pg/adapter/round-trips.test.ts). Here the Paging fixture installs under a fresh schema and opens
  * through Db.open and its login's served file as its full world, every ordered query a paged member of its workload,
  * exactly as an application pages:
  *
