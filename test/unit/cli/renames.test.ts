@@ -352,7 +352,7 @@ const listingGen: Gen<Listing> = (source) => {
 	const form = source.draw(element(poolForms))
 	const pool = nonEmpty(
 		Arr.map(
-			source.draw(uniqueArray(declaredGen, (n) => conversionOf(n), { min: 3, max: 3 }, 8)),
+			source.draw(uniqueArray(declaredGen, (n) => conversionOf(n), { min: 3, max: 3 })),
 			(name) => ({ name, second: source.draw(lettersGen) })
 		),
 		"the pool"
@@ -471,7 +471,7 @@ interface RosterCase {
  */
 const rosterCaseGen: Gen<RosterCase> = (source) => {
 	const rosters = nonEmpty(
-		source.draw(uniqueArray(declaredGen, (n) => conversionOf(n), { min: 1, max: 2 }, 8)),
+		source.draw(uniqueArray(declaredGen, (n) => conversionOf(n), { min: 1, max: 2 })),
 		"a roster"
 	)
 	const count = source.draw(int(1, 3))

@@ -232,8 +232,7 @@ const valueAt = (depth: number): Gen<unknown> => {
 				uniqueArray(
 					(source): readonly [string, unknown] => [source.draw(key), source.draw(inner)],
 					([k]) => k,
-					{ min: 0, max: 6 },
-					20
+					{ min: 0, max: 6 }
 				),
 				build
 			)
@@ -979,8 +978,7 @@ describe("the omitted members", () => {
 												source.draw(value)
 											],
 											([k]) => k,
-											{ min: 0, max: 5 },
-											20
+											{ min: 0, max: 5 }
 										)
 									),
 									source.draw(
@@ -1269,8 +1267,7 @@ const nearValueAt = (depth: number): Gen<unknown> => {
 						source.draw(inner)
 					],
 					([k]) => k,
-					{ min: 0, max: 3 },
-					20
+					{ min: 0, max: 3 }
 				),
 				build
 			)

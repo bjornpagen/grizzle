@@ -533,12 +533,11 @@ describe("collections", () => {
 										uniqueArray(
 											(source) => [source.draw(int(0, keys - 1)), source.draw(int(0, 2))] as const,
 											([first]) => first,
-											size,
-											1
+											size
 										),
 										(pairs) => Arr.map(pairs, ([first]) => first)
 									)
-								: uniqueArray(int(0, keys - 1), (value) => value, size, 1)
+								: uniqueArray(int(0, keys - 1), (value) => value, size)
 							const drawnCase = Result.try(() => fresh(generator, seed))
 							if (size.min > keys) {
 								c.note("a length past the keys refused")

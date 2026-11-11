@@ -150,7 +150,7 @@ export const typeKeyOf = (sketch: DescriptorSketch): string => {
 const nameGen: Gen<string> = matching(regex("^[A-Z][a-z]{1,8}$"))
 
 const handlesGen: Gen<Arr.NonEmptyReadonlyArray<string>> = map(
-	uniqueArray(matching(regex("^[A-Za-z]{1,6}$")), (item) => item, { min: 1, max: 5 }, 20),
+	uniqueArray(matching(regex("^[A-Za-z]{1,6}$")), (item) => item, { min: 1, max: 5 }),
 	(handles) => nonEmpty(handles, "a roster's handles")
 )
 

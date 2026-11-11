@@ -60,12 +60,7 @@ const named = nonEmpty(Rec.toEntries(workPrograms), "the worked example's progra
 const workloadGen = (source: Source) =>
 	Arr.map(
 		source.draw(
-			uniqueArray(
-				matching(regex("^[a-z][a-zA-Z0-9]{0,5}$")),
-				(name) => name,
-				{ min: 1, max: 6 },
-				20
-			)
+			uniqueArray(matching(regex("^[a-z][a-zA-Z0-9]{0,5}$")), (name) => name, { min: 1, max: 6 })
 		),
 		(name) => {
 			const [programSource, program] = source.draw(element(named))

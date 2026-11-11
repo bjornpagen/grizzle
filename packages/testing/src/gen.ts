@@ -508,15 +508,13 @@ const nearestNew = <A, K>(
  * tape says, shrinking deleting items and simplifying each in place. A space whose distinct keys run out stops the
  * array there, and one holding fewer than `size.min` of them is a defect of the caller's generator, never a case. A
  * key decided by an item's early decisions, beside a vast space of later ones, is met by the first pass. `key` names
- * what makes two items the same, compared as a `Set` compares, so it is a string or a number. `_attempts` is the
- * retry budget of the filter this construction replaced, kept so callers' calls stand; nothing reads it.
+ * what makes two items the same, compared as a `Set` compares, so it is a string or a number.
  */
 export const uniqueArray =
 	<A, K extends string | number>(
 		item: Gen<A>,
 		key: (item: A) => K,
-		size: Size,
-		_attempts: number
+		size: Size
 	): Gen<ReadonlyArray<A>> =>
 	(source) => {
 		source.open("array")

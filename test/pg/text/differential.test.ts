@@ -156,7 +156,7 @@ const repeatedOf =
 
 /** m code points of their own, then n copies of a class of all of them under a drawn quantifier: arcs by colors. */
 const colorfulGen: Gen<Growth> = (source) => {
-	const points = source.draw(uniqueArray(widePoint, (c) => c, { min: 2, max: 2_048 }, 8))
+	const points = source.draw(uniqueArray(widePoint, (c) => c, { min: 2, max: 2_048 }))
 	const quantifier = source.draw(element(["", "?", "{0,255}", "{1,255}", "{255}", "*"]))
 	const spelled = Arr.join(Arr.map(points, escaped), "")
 	return { at: (n) => `${spelled}(?:[${spelled}]${quantifier}){${n}}b`, top: regexMaxRepeat.value }
@@ -164,7 +164,7 @@ const colorfulGen: Gen<Growth> = (source) => {
 
 /** An alternation of n hundred words of a drawn alphabet: the states a match reads, and colors as the alphabet is wide. */
 const wordsGen: Gen<Growth> = (source) => {
-	const points = source.draw(uniqueArray(widePoint, (c) => c, { min: 10, max: 64 }, 8))
+	const points = source.draw(uniqueArray(widePoint, (c) => c, { min: 10, max: 64 }))
 	const length = source.draw(int(2, 6))
 	const wordOf = (i: number): string =>
 		Arr.join(

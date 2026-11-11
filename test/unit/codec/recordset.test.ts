@@ -187,7 +187,7 @@ describe("relation normalization", () => {
 							},
 							suite: "unit/codec/recordset-refusals",
 							draw: drawn((source) => ({
-								facts: source.draw(uniqueArray(readingFact, (r) => r.id, { min: 0, max: 4 }, 20)),
+								facts: source.draw(uniqueArray(readingFact, (r) => r.id, { min: 0, max: 4 })),
 								at: source.draw(int(0, 2 ** 31 - 1)),
 								plant: source.draw(element(plants)),
 								field: source.draw(element(fieldsOfReading)),
@@ -336,7 +336,7 @@ describe("relation normalization", () => {
 						draw: drawn(
 							(source) =>
 								[
-									source.draw(uniqueArray(readingFact, (f) => f.id, { min: 0, max: 20 }, 20)),
+									source.draw(uniqueArray(readingFact, (f) => f.id, { min: 0, max: 20 })),
 									source.draw(int(0, 2 ** 31 - 1))
 								] as const
 						),
@@ -506,7 +506,7 @@ describe("relation normalization", () => {
 					readonly extra: ReadonlyArray<Scaled>
 				}> = (source) => {
 					const facts = nonEmpty(
-						source.draw(uniqueArray(fact, (f) => f.k, { min: 1, max: 4 }, 20)),
+						source.draw(uniqueArray(fact, (f) => f.k, { min: 1, max: 4 })),
 						"the distinct facts"
 					)
 					const extra = source.draw(

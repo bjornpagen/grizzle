@@ -213,8 +213,7 @@ describe("fingerprints", () => {
 														source.draw(leaf)
 													] as const,
 												([k]) => k,
-												{ min: 0, max: 3 },
-												20
+												{ min: 0, max: 3 }
 											),
 											Record.fromEntries
 										)

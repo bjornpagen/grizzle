@@ -69,7 +69,7 @@ const generationCaseGen: Gen<GenerationCase> = (source) => {
 		...Arr.map(indices(callers), (): Writing => "caller")
 	]
 	const names = source.draw(
-		uniqueArray(nameGen, (n) => n, { min: writings.length, max: writings.length }, 20)
+		uniqueArray(nameGen, (n) => n, { min: writings.length, max: writings.length })
 	)
 	const fields = nonEmpty(
 		Arr.map(Arr.zip(names, writings), ([name, writing]) => ({ name, writing })),

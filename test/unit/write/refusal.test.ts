@@ -115,13 +115,10 @@ const foreignAfter = (tag: string): Gen<string> => {
 
 /** A key: distinct field names, each with its text. */
 const keyGen: Gen<ReadonlyArray<{ readonly field: string; readonly text: string }>> = (source) =>
-	Arr.map(
-		source.draw(uniqueArray(storable, (field) => field, { min: 1, max: 4 }, 10)),
-		(field) => ({
-			field,
-			text: source.draw(oneOf([storable, nasty]))
-		})
-	)
+	Arr.map(source.draw(uniqueArray(storable, (field) => field, { min: 1, max: 4 })), (field) => ({
+		field,
+		text: source.draw(oneOf([storable, nasty]))
+	}))
 
 /** How one character of a JSON string is spelled. */
 type Spelling = "itself" | "short" | "lower hex" | "upper hex"

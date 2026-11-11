@@ -85,7 +85,7 @@ const holesGen: Gen<ReadonlyArray<CodeSlot>> = map(int(0, 3), (count) =>
  * of holes after the last, so a hole lies anywhere: leading, trailing, between, in runs.
  */
 const codesGen: Gen<RosterCodes> = (source) => {
-	const handles = source.draw(uniqueArray(handleGen, (h) => h, { min: 1, max: 4 }, 8))
+	const handles = source.draw(uniqueArray(handleGen, (h) => h, { min: 1, max: 4 }))
 	return [
 		...Arr.flatMap(handles, (handle): ReadonlyArray<CodeSlot> => [
 			...source.draw(holesGen),
@@ -97,9 +97,7 @@ const codesGen: Gen<RosterCodes> = (source) => {
 
 /** A file's rosters: one or more, under distinct declared names. */
 const rostersGen: Gen<ReadonlyArray<readonly [DeclaredName, RosterCodes]>> = (source) => {
-	const names = source.draw(
-		uniqueArray(dictionaryNameGen, (n) => n.declared, { min: 1, max: 3 }, 8)
-	)
+	const names = source.draw(uniqueArray(dictionaryNameGen, (n) => n.declared, { min: 1, max: 3 }))
 	return Arr.map(names, (n) => [parsedName(n.declared), source.draw(codesGen)] as const)
 }
 

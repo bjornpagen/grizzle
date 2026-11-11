@@ -112,8 +112,7 @@ const factsGen = (
 				source.draw(intGen(0, third))
 			] as const,
 		([id]) => id,
-		{ min: 0, max: 6 },
-		16
+		{ min: 0, max: 6 }
 	)
 
 const wideSketchGen: Gen<WideSketch> = (source) => ({

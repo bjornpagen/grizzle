@@ -619,7 +619,7 @@ interface ContextCase {
 const contextCaseGen: Gen<ContextCase> = (source) => {
 	const rosters = nonEmpty(source.draw(array(int(1, 3), { min: 1, max: 2 })), "the rosters")
 	const names = source.draw(
-		uniqueArray(string(codePoint(0x61, 0x66), { min: 1, max: 2 }), (n) => n, { min: 1, max: 3 }, 20)
+		uniqueArray(string(codePoint(0x61, 0x66), { min: 1, max: 2 }), (n) => n, { min: 1, max: 3 })
 	)
 	return {
 		rosters,

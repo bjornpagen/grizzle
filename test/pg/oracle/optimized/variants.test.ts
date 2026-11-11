@@ -138,8 +138,7 @@ const rowsGen = (
 				Arr.map(others, ([min, hi]) => source.draw(intGen(min, hi)))
 			],
 			([k]) => k,
-			{ min: 0, max },
-			20
+			{ min: 0, max }
 		),
 		(rows) => Arr.map(rows, ([k, rest]) => [int(k), ...Arr.map(rest, int)])
 	)

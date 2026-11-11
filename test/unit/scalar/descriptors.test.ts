@@ -684,7 +684,7 @@ describe("closedId", () => {
 			source.draw(matching(regex("^[A-Z][a-z]{1,8}$"))),
 			nonEmpty(
 				source.draw(
-					uniqueArray(matching(regex("^[A-Za-z]{1,6}$")), (item) => item, { min: 1, max: 5 }, 20)
+					uniqueArray(matching(regex("^[A-Za-z]{1,6}$")), (item) => item, { min: 1, max: 5 })
 				),
 				"a roster's handles"
 			)
@@ -706,12 +706,7 @@ describe("closedId", () => {
 						name: source.draw(matching(regex("^[A-Z][a-z]{1,8}$"))),
 						other: source.draw(matching(regex("^[A-Z][a-z]{1,8}$"))),
 						handles: source.draw(
-							uniqueArray(
-								matching(regex("^[A-Za-z]{1,6}$")),
-								(item) => item,
-								{ min: 1, max: 5 },
-								20
-							)
+							uniqueArray(matching(regex("^[A-Za-z]{1,6}$")), (item) => item, { min: 1, max: 5 })
 						)
 					})),
 					literal: Formatter.format,

@@ -413,8 +413,7 @@ describe("shapes", () => {
 						uniqueArray(
 							(source) => [source.draw(keyGen), source.draw(integer)] as const,
 							([key]) => key,
-							{ min: 0, max: 5 },
-							10
+							{ min: 0, max: 5 }
 						)
 					),
 					runs: 100,

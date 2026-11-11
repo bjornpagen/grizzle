@@ -407,12 +407,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 							name: source.draw(matching(regex("^[A-Z][a-z]{1,6}$"))),
 							other: source.draw(matching(regex("^[A-Z][a-z]{1,6}$"))),
 							handles: source.draw(
-								uniqueArray(
-									matching(regex("^[A-Za-z]{1,5}$")),
-									(item) => item,
-									{ min: 1, max: 4 },
-									20
-								)
+								uniqueArray(matching(regex("^[A-Za-z]{1,5}$")), (item) => item, { min: 1, max: 4 })
 							)
 						})),
 						literal: Formatter.format,

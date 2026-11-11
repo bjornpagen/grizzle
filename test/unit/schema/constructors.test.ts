@@ -248,8 +248,7 @@ describe("relation", () => {
 										descriptor: again.draw(element(builtDescriptors))
 									}),
 									(f) => f.name,
-									{ min: 1, max: 4 },
-									20
+									{ min: 1, max: 4 }
 								)
 							)
 							const names = rosterOf(Arr.map(fields, (f) => f.name))
@@ -458,12 +457,10 @@ describe("closed", () => {
 						draw: drawn((source) => {
 							const handles = rosterOf(
 								source.draw(
-									uniqueArray(
-										matching(arkregex("^[A-Z][a-z]{0,6}$")),
-										(item) => item,
-										{ min: 1, max: 4 },
-										20
-									)
+									uniqueArray(matching(arkregex("^[A-Z][a-z]{0,6}$")), (item) => item, {
+										min: 1,
+										max: 4
+									})
 								)
 							)
 							return {
@@ -580,12 +577,10 @@ describe("closed", () => {
 						draw: drawn((source) => {
 							const handles = rosterOf(
 								source.draw(
-									uniqueArray(
-										matching(arkregex("^[A-Z][a-z]{0,6}$")),
-										(item) => item,
-										{ min: 1, max: 4 },
-										20
-									)
+									uniqueArray(matching(arkregex("^[A-Z][a-z]{0,6}$")), (item) => item, {
+										min: 1,
+										max: 4
+									})
 								)
 							)
 							return {
@@ -594,7 +589,7 @@ describe("closed", () => {
 								/** The handles that have a row, in declared order: a closed relation need not cover its roster. */
 								held: source.draw(array(boolean, { min: 4, max: 4 })),
 								payload: source.draw(
-									uniqueArray(payloadFieldGen, (f) => f.name, { min: 0, max: 3 }, 20)
+									uniqueArray(payloadFieldGen, (f) => f.name, { min: 0, max: 3 })
 								),
 								defect: source.draw(element(Arr.append(closedDefects, "none" as const))),
 								target: source.draw(element(handles)),
@@ -1758,12 +1753,10 @@ describe("alternatives", () => {
 						suite: "unit/schema/alternatives-constructor",
 						draw: drawn((source) => ({
 							handles: source.draw(
-								uniqueArray(
-									matching(arkregex("^[A-Z][a-z]{0,6}$")),
-									(item) => item,
-									{ min: 1, max: 4 },
-									20
-								)
+								uniqueArray(matching(arkregex("^[A-Z][a-z]{0,6}$")), (item) => item, {
+									min: 1,
+									max: 4
+								})
 							),
 							armed: source.draw(array(boolean, { min: 4, max: 4 })),
 							arming: source.draw(array(boolean, { min: 4, max: 4 })),

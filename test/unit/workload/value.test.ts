@@ -146,7 +146,7 @@ type WorkloadSketch = readonly [
 
 const workloadGen: Gen<WorkloadSketch> = (source) => {
 	const c = source.draw(element(workloads))
-	const names = source.draw(uniqueArray(nameGen, (name) => name, { min: 0, max: 4 }, 20))
+	const names = source.draw(uniqueArray(nameGen, (name) => name, { min: 0, max: 4 }))
 	return [
 		c,
 		Arr.map(names, (name) => ({

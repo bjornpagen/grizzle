@@ -571,7 +571,7 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 						},
 						/** Each batch of facts distinct by key goes into an empty table. */
 						suite: "pg/codec/scalar/stored-row",
-						draw: drawn(uniqueArray(fact, (f) => Str.toLowerCase(f.id), { min: 1, max: 100 }, 10)),
+						draw: drawn(uniqueArray(fact, (f) => Str.toLowerCase(f.id), { min: 1, max: 100 })),
 						literal: Formatter.format,
 						coverage: noCoverage,
 						kept: [],
