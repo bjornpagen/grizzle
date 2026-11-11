@@ -608,6 +608,7 @@ describe("language-equivalent spellings share one canonical key", () => {
 								c.note("the empty text a member")
 							}
 							const label = `/${language.source}/${language.flags} and /${members.source}/${members.flags}`
+							assert.ok(count <= spelledMembers, `${label}: a language drawn within its budget`)
 							const spellings = [analyzeText([language], loc), analyzeText([members], loc)] as const
 							const [byLanguage, byMembers] = spellings
 							if (!byLanguage.ok || !byMembers.ok) {
