@@ -6,7 +6,8 @@
  *   typmods of many precisions and scales (a negative scale and a scale above the precision among them), real, double
  *   precision, money, smallint, integer, bigint, uuid, date, text and boolean, a batch of drawn host values, inside the
  *   type, past its scale or its precision, no binary32 value, at the type's edges and of another type, is parsed: a
- *   refused value sends nothing; an admitted one is the value drawn under the carrier's own equality, the parse
+ *   refused value sends nothing (every JavaScript number is a double exactly, -0 a spelling of 0, so a double's one
+ *   refusal is a value of another type); an admitted one is the value drawn under the carrier's own equality, the parse
  *   altering only its spelling (a uuid's case, a float's -0), and its parameter text, cast to the column's type in one
  *   recordset as a stored column's assignment casts it, comes back as PostgreSQL's text of the stored value, read by
  *   the kernel's strict reader (test/support/kernel/strict.ts), exactly the value parsed.
@@ -114,7 +115,7 @@ const columns: Arr.NonEmptyReadonlyArray<Column> = [
 		label: "double precision",
 		type: plainType("float8"),
 		sql: "double precision",
-		values: anyReal
+		values: oneOf<unknown>([anyReal, element<unknown>(["1.5", 1n, true])])
 	},
 	{
 		label: "money",
