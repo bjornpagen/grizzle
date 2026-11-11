@@ -1411,7 +1411,7 @@ const formDataOf = (fields: FormFields, options: FormDataOptions) =>
 			return HttpBody.empty
 		}
 
-		return yield* Multipart.formData(sent)
+		return yield* Multipart.formData(sent, Option.none())
 	})
 
 /**
@@ -1736,7 +1736,7 @@ const mixedOf = (bodies: MixedParts, options: MixedOptions) =>
 			return yield* Effect.fail(partCountError(`at least ${partCount(least)}`))
 		}
 
-		return yield* Multipart.mixed(Multipart.positionalParts(bodies, options))
+		return yield* Multipart.mixed(Multipart.positionalParts(bodies, options), Option.none())
 	})
 
 /**

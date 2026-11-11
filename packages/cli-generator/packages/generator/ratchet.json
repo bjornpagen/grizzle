@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 8489,
+		"total": 8487,
 		"files": {
 			"packages/generator/src/emit/api.ts": 125,
 			"packages/generator/src/emit/cli.ts": 123,
@@ -19,7 +19,7 @@
 			"packages/generator/src/runtime-src/runtime/input.ts": 41,
 			"packages/generator/src/runtime-src/runtime/output.ts": 114,
 			"packages/generator/src/runtime-src/runtime/sequential.ts": 26,
-			"packages/generator/src/runtime-src/runtime/serialize.ts": 169,
+			"packages/generator/src/runtime-src/runtime/serialize.ts": 167,
 			"packages/generator/test/bracket-switch.test.ts": 30,
 			"packages/generator/test/check/document-set.test.ts": 3,
 			"packages/generator/test/check/grammar.test.ts": 32,
