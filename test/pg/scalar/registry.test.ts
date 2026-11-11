@@ -25,8 +25,10 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { serialDraw } from "#compiler/ir/desc.ts"
+import { fieldDescOf } from "#compiler/schema/protocol.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { isSerial, spelled, spellings } from "#test/unit/scalar/support.ts"
+import { isSerial, type Spelling, spelled, spellings } from "#test/unit/scalar/support.ts"
 /**
  * The catalog type of each carrier; a closed id is probed through smallint, the type of its code under its roster's
  * domain, a set through bit, ranges through int4range and int8range, and the exact carriers through numeric, the type
@@ -229,6 +231,18 @@ const probe = (db: RawSession, spellings: ReadonlyArray<string>) =>
 
 const accepts = (f: () => unknown): boolean => Result.isSuccess(Result.try(f))
 
+/**
+ * How PostgreSQL spells a column of the pg namespace's member `name`: the name itself, PostgreSQL's own spelling of the
+ * type or the serial, for every member but a serial PostgreSQL draws by its column's `uuidv7()` default (ir/desc.ts
+ * serialDraw), a name no type has, spelled as its type with that default, the column the installer writes for it.
+ */
+const columnSpelling = (name: Spelling): string => {
+	const descriptor = spelled(name)
+	return isSerial(name) && serialDraw(fieldDescOf(descriptor, `pg.${name}`)) === "uuidv7"
+		? `${descriptor.sql} DEFAULT pg_catalog.uuidv7()`
+		: name
+}
+
 /** A precision or a scale near numerictypmodin's bounds, or anywhere past them on either side. */
 const nearBounds = (bounds: ReadonlyArray<number>, far: number): Gen<number> =>
 	oneOf([int(-far, far), ...Arr.map(bounds, (bound) => int(bound - 2, bound + 2))])
@@ -268,7 +282,7 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 						caseHang
 					},
 					(spelling, c) =>
-						Effect.map(probe(db, [spelling]), (stored) => {
+						Effect.map(probe(db, [columnSpelling(spelling)]), (stored) => {
 							c.note(isSerial(spelling) ? "a serial" : "a type")
 							assert.deepEqual(stored, [spelled(spelling).sql], spelling)
 						})
