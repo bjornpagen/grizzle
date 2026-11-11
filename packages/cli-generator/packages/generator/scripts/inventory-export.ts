@@ -1,6 +1,18 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
-import { Console, Data, Effect, FileSystem, Runtime, Schema } from "effect"
-import type { PlatformError } from "effect/PlatformError"
+import { regex } from "arkregex"
+import {
+	Array as Arr,
+	Console,
+	Effect,
+	FileSystem,
+	Option,
+	Order,
+	Runtime,
+	Schema,
+	String as Str,
+	pipe
+} from "effect"
+import type { PlatformError } from "effect"
 
 import { printJson } from "#emit/printer.ts"
 import { JsonLiteral } from "#model/brands.ts"
@@ -16,12 +28,13 @@ const usage = "usage: bun tools/inventory-export.ts [--check] <inventory.md> <ro
 /**
  * A bad command line: exit 2.
  */
-export class ExportUsageError extends Data.TaggedError("ExportUsageError")<{
-	readonly reason: string
-}> {
-	readonly [Runtime.errorExitCode] = 2
+export class ExportUsageError extends Schema.TaggedError<
+	ExportUsageError,
+	{ readonly brand: unique symbol }
+>()("ExportUsageError", { reason: Schema.String }) {
+	override readonly [Runtime.errorExitCode] = 2
 
-	readonly [Runtime.errorReported] = true
+	override readonly [Runtime.errorReported] = true
 
 	override get message(): string {
 		return `${this.reason}\n${usage}`
@@ -31,13 +44,13 @@ export class ExportUsageError extends Data.TaggedError("ExportUsageError")<{
 /**
  * A file that cannot be read or written: exit 1.
  */
-export class ExportFileError extends Data.TaggedError("ExportFileError")<{
-	readonly file: string
-	readonly reason: string
-}> {
-	readonly [Runtime.errorExitCode] = 1
+export class ExportFileError extends Schema.TaggedError<
+	ExportFileError,
+	{ readonly brand: unique symbol }
+>()("ExportFileError", { file: Schema.String, reason: Schema.String }) {
+	override readonly [Runtime.errorExitCode] = 1
 
-	readonly [Runtime.errorReported] = true
+	override readonly [Runtime.errorReported] = true
 
 	override get message(): string {
 		return `${this.file}: ${this.reason}`
@@ -47,13 +60,13 @@ export class ExportFileError extends Data.TaggedError("ExportFileError")<{
 /**
  * A row the export refuses; `row` is the inventory id: exit 1.
  */
-export class ExportRowError extends Data.TaggedError("ExportRowError")<{
-	readonly row: string
-	readonly reason: string
-}> {
-	readonly [Runtime.errorExitCode] = 1
+export class ExportRowError extends Schema.TaggedError<
+	ExportRowError,
+	{ readonly brand: unique symbol }
+>()("ExportRowError", { row: Schema.String, reason: Schema.String }) {
+	override readonly [Runtime.errorExitCode] = 1
 
-	readonly [Runtime.errorReported] = true
+	override readonly [Runtime.errorReported] = true
 
 	override get message(): string {
 		return `${this.row}: ${this.reason}`
@@ -63,13 +76,13 @@ export class ExportRowError extends Data.TaggedError("ExportRowError")<{
 /**
  * `--check` found the rows file different from the inventory: exit 1.
  */
-export class ExportCheckFailed extends Data.TaggedError("ExportCheckFailed")<{
-	readonly file: string
-	readonly reason: string
-}> {
-	readonly [Runtime.errorExitCode] = 1
+export class ExportCheckFailed extends Schema.TaggedError<
+	ExportCheckFailed,
+	{ readonly brand: unique symbol }
+>()("ExportCheckFailed", { file: Schema.String, reason: Schema.String }) {
+	override readonly [Runtime.errorExitCode] = 1
 
-	readonly [Runtime.errorReported] = true
+	override readonly [Runtime.errorReported] = true
 
 	override get message(): string {
 		return `${this.file}: ${this.reason}`
@@ -87,68 +100,64 @@ export interface ExportRow {
 	readonly versions: readonly string[]
 }
 
-const idPattern = "[A-Z][A-Z0-9]*-[0-9]+"
+const rowLine = regex("^\\| `(?<id>[A-Z][A-Z0-9]*-[0-9]+)` ", "u")
 
-const rowLine = /^\| `(?<id>[A-Z][A-Z0-9]*-[0-9]+)` /u
+const idList = regex("^[A-Z][A-Z0-9]*-[0-9]+(?:, [A-Z][A-Z0-9]*-[0-9]+)*$", "u")
 
-const idList = new RegExp(`^${idPattern}(?:, ${idPattern})*$`, "u")
+const idStart = regex("^[A-Z][A-Z0-9]*-[0-9]+", "u")
 
-const idStart = new RegExp(`^${idPattern}`, "u")
+const globOrRange = regex("[A-Z][A-Z0-9]*-\\*|[A-Z][A-Z0-9]*-[0-9]+\\.\\.", "u")
 
-const globOrRange = new RegExp(`[A-Z][A-Z0-9]*-\\*|${idPattern}\\.\\.`, "u")
+const leadingBar = regex("^\\| ", "u")
+
+const trailingBar = regex(" \\|$", "u")
+
+const seeClause = regex("\\bsee (?<clause>[^;]*)", "gu")
 
 const coveredMarker = "covered by: "
 
 const isDisposition = (cell: string): cell is Disposition =>
-	dispositions.some((value) => value === cell)
+	Arr.some(dispositions, (value) => value === cell)
 
 /**
  * The text of a `covered by:` clause: up to the first `;`, or the `. src:` that closes the cell.
  */
-const coveredClause = (reason: string): string | undefined => {
-	const at = reason.indexOf(coveredMarker)
+const coveredClause = (reason: string): Option.Option<string> =>
+	Option.map(Str.indexOf(coveredMarker)(reason), (at) => {
+		const rest = Str.slice(at + coveredMarker.length)(reason)
 
-	if (at === -1) {
-		return undefined
-	}
-
-	const rest = reason.slice(at + coveredMarker.length)
-	const semicolon = rest.indexOf(";")
-	const source = rest.indexOf(". src:")
-	const ends = [semicolon, source].filter((end) => end >= 0)
-
-	return ends.length === 0 ? rest : rest.slice(0, Math.min(...ends))
-}
+		return Arr.match(Arr.getSomes([Str.indexOf(";")(rest), Str.indexOf(". src:")(rest)]), {
+			onEmpty: () => rest,
+			onNonEmpty: (ends) => Str.slice(0, Arr.min(ends, Order.Number))(rest)
+		})
+	})
 
 /**
- * Whether every `see` clause of the reason starts with a row id and holds no glob or range.
+ * Whether a `see` clause of the reason does not start with a row id, or holds a glob or a range.
  */
-const badSeeClause = (reason: string): string | undefined =>
-	[...reason.matchAll(/\bsee (?<clause>[^;]*)/gu)]
-		.map((match) => (match.groups?.clause ?? "").split(". src:")[0] ?? "")
-		.find((clause) => !idStart.test(clause) || globOrRange.test(clause))
+const hasBadSeeClause = (reason: string): boolean =>
+	Arr.some(Arr.fromIterable(Str.matchAll(seeClause)(reason)), (match) => {
+		const clause = Arr.headNonEmpty(Str.split(". src:")(match.groups?.["clause"] ?? ""))
 
-interface Parsed {
-	readonly row: ExportRow
-	readonly clause: string | undefined
-}
+		return !idStart.test(clause) || globOrRange.test(clause)
+	})
 
-const parseRow = (line: string): Effect.Effect<Parsed | null, ExportRowError> => {
-	const id = rowLine.exec(line)?.groups?.id
+const parseRow = (line: string): Effect.Effect<Option.Option<ExportRow>, ExportRowError> => {
+	const id = rowLine.exec(line)?.groups.id
 
 	if (id === undefined) {
-		return Effect.succeed(null)
+		return Effect.succeedNone
 	}
 
-	const cells = line
-		.trimEnd()
-		.replace(/^\| /u, "")
-		.replace(/ \|$/u, "")
-		.split(" | ")
-		.map((cell) => cell.trim())
+	const cells = Arr.map(
+		Str.split(" | ")(
+			pipe(line, Str.trimEnd, Str.replace(leadingBar, ""), Str.replace(trailingBar, ""))
+		),
+		Str.trim
+	)
 
 	if (cells.length !== 6) {
-		return Effect.succeed(null)
+		return Effect.succeedNone
 	}
 
 	const versions = cells[1] ?? ""
@@ -157,35 +166,32 @@ const parseRow = (line: string): Effect.Effect<Parsed | null, ExportRowError> =>
 
 	if (!isDisposition(disposition)) {
 		return Effect.fail(
-			new ExportRowError({ reason: `unknown disposition \`${disposition}\``, row: id })
+			ExportRowError.make({ reason: `unknown disposition \`${disposition}\``, row: id })
 		)
 	}
 
 	const clause = coveredClause(reason)
 
-	if (clause !== undefined && !idList.test(clause)) {
+	if (Option.isSome(clause) && !idList.test(clause.value)) {
 		return Effect.fail(
-			new ExportRowError({ reason: "a `covered by:` clause holds only row ids", row: id })
+			ExportRowError.make({ reason: "a `covered by:` clause holds only row ids", row: id })
 		)
 	}
 
-	if (disposition !== "informational" && badSeeClause(reason) !== undefined) {
+	if (disposition !== "informational" && hasBadSeeClause(reason)) {
 		return Effect.fail(
-			new ExportRowError({
+			ExportRowError.make({
 				reason: "a `see` clause names row ids, never a glob, a range or prose",
 				row: id
 			})
 		)
 	}
 
-	return Effect.succeed({
-		clause,
-		row: {
-			coveredBy: clause === undefined ? [] : clause.split(", "),
-			disposition,
-			id,
-			versions: versions.split(", ")
-		}
+	return Effect.succeedSome({
+		coveredBy: Option.match(clause, { onNone: () => [], onSome: Str.split(", ") }),
+		disposition,
+		id,
+		versions: Str.split(", ")(versions)
 	})
 }
 
@@ -194,32 +200,28 @@ const parseRow = (line: string): Effect.Effect<Parsed | null, ExportRowError> =>
  */
 export const parseInventory = (text: string): Effect.Effect<readonly ExportRow[], ExportRowError> =>
 	Effect.gen(function* parse() {
-		const parsed: Parsed[] = []
-
-		for (const line of text.split("\n")) {
-			const row = yield* parseRow(line)
-
-			if (row !== null) {
-				parsed.push(row)
-			}
-		}
+		const rows = yield* Effect.forEach(Str.split("\n")(text), parseRow)
+		const parsed = Arr.getSomes(rows)
 
 		const covering = new Set(
-			parsed.filter((p) => p.row.disposition !== "informational").map((p) => p.row.id)
+			Arr.map(
+				Arr.filter(parsed, (row) => row.disposition !== "informational"),
+				(row) => row.id
+			)
 		)
 
-		for (const { row } of parsed) {
-			const target = row.coveredBy.find((id) => !covering.has(id))
+		for (const row of parsed) {
+			const target = Arr.findFirst(row.coveredBy, (id) => !covering.has(id))
 
-			if (target !== undefined) {
-				return yield* new ExportRowError({
-					reason: `\`covered by:\` names ${target}, which is not an implemented or refused row`,
+			if (Option.isSome(target)) {
+				return yield* ExportRowError.make({
+					reason: `\`covered by:\` names ${target.value}, which is not an implemented or refused row`,
 					row: row.id
 				})
 			}
 		}
 
-		return parsed.map((p) => p.row)
+		return parsed
 	})
 
 interface Options {
@@ -229,12 +231,12 @@ interface Options {
 }
 
 const parseArgs = (args: readonly string[]): Effect.Effect<Options, ExportUsageError> => {
-	const check = args.includes("--check")
-	const positional = args.filter((arg) => arg !== "--check")
+	const check = Arr.contains(args, "--check")
+	const positional = Arr.filter(args, (arg) => arg !== "--check")
 	const [inventory, rows] = positional
 
 	if (positional.length !== 2 || inventory === undefined || rows === undefined) {
-		return Effect.fail(new ExportUsageError({ reason: "expected <inventory.md> and <rows.json>" }))
+		return Effect.fail(ExportUsageError.make({ reason: "expected <inventory.md> and <rows.json>" }))
 	}
 
 	return Effect.succeed({ check, inventory, rows })
@@ -242,8 +244,8 @@ const parseArgs = (args: readonly string[]): Effect.Effect<Options, ExportUsageE
 
 const fileError =
 	(file: string) =>
-	(cause: PlatformError): ExportFileError =>
-		new ExportFileError({ file, reason: cause.message })
+	(cause: PlatformError.PlatformError): ExportFileError =>
+		ExportFileError.make({ file, reason: cause.message })
 
 const exportInventory = Effect.gen(function* run() {
 	const fs = yield* FileSystem.FileSystem
@@ -252,13 +254,12 @@ const exportInventory = Effect.gen(function* run() {
 		.readFileString(options.inventory)
 		.pipe(Effect.mapError(fileError(options.inventory)))
 	const rows = yield* parseInventory(text)
-	const output = printJson(
-		yield* Schema.decodeUnknownEffect(JsonLiteral)(rows).pipe(
-			Effect.mapError(
-				() => new ExportFileError({ file: options.inventory, reason: "rows are not JSON" })
-			)
+	const json = yield* Schema.decodeUnknownEffect(JsonLiteral)(rows).pipe(
+		Effect.mapError(() =>
+			ExportFileError.make({ file: options.inventory, reason: "rows are not JSON" })
 		)
 	)
+	const output = printJson(json)
 
 	if (options.check) {
 		const current = yield* fs
@@ -266,7 +267,7 @@ const exportInventory = Effect.gen(function* run() {
 			.pipe(Effect.mapError(fileError(options.rows)))
 
 		if (current !== output) {
-			yield* new ExportCheckFailed({
+			return yield* ExportCheckFailed.make({
 				file: options.rows,
 				reason: "differs from the inventory; rerun without --check"
 			})

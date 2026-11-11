@@ -1,6 +1,18 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
-import { Data, Effect, FileSystem, Path, Result, Runtime, Schema } from "effect"
-import type { PlatformError } from "effect/PlatformError"
+import { regex } from "arkregex"
+import {
+	Array as Arr,
+	Console,
+	Effect,
+	FileSystem,
+	Option,
+	Path,
+	Result,
+	Runtime,
+	Schema,
+	String as Str
+} from "effect"
+import type { PlatformError } from "effect"
 
 /**
  * Row trace: prove every implemented or refused inventory row has a test titled with its id.
@@ -16,10 +28,11 @@ const usage =
 /**
  * A bad command line: exit 2.
  */
-export class TraceUsageError extends Data.TaggedError("TraceUsageError")<{
-	readonly reason: string
-}> {
-	readonly [Runtime.errorExitCode] = 2
+export class TraceUsageError extends Schema.TaggedError<
+	TraceUsageError,
+	{ readonly brand: unique symbol }
+>()("TraceUsageError", { reason: Schema.String }) {
+	override readonly [Runtime.errorExitCode] = 2
 
 	override get message(): string {
 		return `${this.reason}\n${usage}`
@@ -29,11 +42,11 @@ export class TraceUsageError extends Data.TaggedError("TraceUsageError")<{
 /**
  * A tracked input that cannot be read or decoded: exit 1.
  */
-export class TraceInputError extends Data.TaggedError("TraceInputError")<{
-	readonly file: string
-	readonly reason: string
-}> {
-	readonly [Runtime.errorExitCode] = 1
+export class TraceInputError extends Schema.TaggedError<
+	TraceInputError,
+	{ readonly brand: unique symbol }
+>()("TraceInputError", { file: Schema.String, reason: Schema.String }) {
+	override readonly [Runtime.errorExitCode] = 1
 
 	override get message(): string {
 		return `${this.file}: ${this.reason}`
@@ -43,10 +56,13 @@ export class TraceInputError extends Data.TaggedError("TraceInputError")<{
 /**
  * `--check` found a row that is not traced; the report is already printed: exit 1.
  */
-export class TraceCheckFailed extends Data.TaggedError("TraceCheckFailed") {
-	readonly [Runtime.errorExitCode] = 1
+export class TraceCheckFailed extends Schema.TaggedError<
+	TraceCheckFailed,
+	{ readonly brand: unique symbol }
+>()("TraceCheckFailed", {}) {
+	override readonly [Runtime.errorExitCode] = 1
 
-	readonly [Runtime.errorReported] = true
+	override readonly [Runtime.errorReported] = true
 }
 
 const Rows = Schema.Array(
@@ -99,14 +115,12 @@ interface Title {
 	readonly todo: boolean
 }
 
-const rowId = "[A-Z][A-Z0-9]*-\\d+"
-
 /**
  * Matches a whole inventory row id: capitals and digits from a leading capital, a hyphen, digits.
  */
-export const rowIdPattern = new RegExp(`^${rowId}$`, "u")
+export const rowIdPattern = regex("^[A-Z][A-Z0-9]*-\\d+$", "u")
 
-const titlePattern = new RegExp(`^(?<id>${rowId})(?: \\((?<half>[a-z0-9-]+)\\))?: `, "u")
+const titlePattern = regex("^(?<id>[A-Z][A-Z0-9]*-\\d+)(?: \\((?<half>[a-z0-9-]+)\\))?: ", "u")
 
 /**
  * A lexical token of a test file. Comments are dropped; a string or template literal is one
@@ -121,7 +135,7 @@ type Token =
 /**
  * A `/` after one of these starts a regular expression, not a division.
  */
-const beforeRegex = new Set([
+const beforeRegex: ReadonlySet<string> = new Set([
 	"await",
 	"case",
 	"delete",
@@ -138,11 +152,26 @@ const beforeRegex = new Set([
 	"yield"
 ])
 
-const identifierStart = /[\p{ID_Start}$_]/u
+const identifierStart = regex("[\\p{ID_Start}$_]", "u")
 
-const identifierPart = /[\p{ID_Continue}$‌‍]/u
+const identifierPart = regex("[\\p{ID_Continue}$\\u200C\\u200D]", "u")
 
-const lineOf = (source: string, at: number): number => source.slice(0, at).split("\n").length
+const whitespace = regex("\\s", "u")
+
+const numberStart = regex("^\\.?\\d", "u")
+
+const numberPart = regex("[\\w.]", "u")
+
+const describeCall = regex("^describe\\b", "u")
+
+const testCall = regex("^(?:test|it)(?:\\.todo)?$", "u")
+
+const lineOf = (source: string, at: number): number =>
+	Str.split("\n")(Str.slice(0, at)(source)).length
+
+/** The index of the first `search` in `source` at or after `from`. */
+const indexFrom = (source: string, search: string, from: number): Option.Option<number> =>
+	Option.map(Str.indexOf(search)(Str.slice(from)(source)), (offset) => from + offset)
 
 /**
  * The lexer's state while it reads one source.
@@ -183,22 +212,21 @@ const wordEnd = (source: string, at: number, part: RegExp): number => {
 	return index
 }
 
-const whitespace: Rule = (lexer, at) => (/\s/u.test(lexer.source[at] ?? "") ? read(at + 1) : pass)
+const blank: Rule = (lexer, at) => (whitespace.test(lexer.source[at] ?? "") ? read(at + 1) : pass)
 
 const comment: Rule = ({ source }, at) => {
-	if (source.startsWith("//", at)) {
-		const end = source.indexOf("\n", at)
-
-		return read(end === -1 ? source.length : end)
+	if (Str.startsWith("//", at)(source)) {
+		return read(Option.getOrElse(indexFrom(source, "\n", at), () => source.length))
 	}
 
-	if (!source.startsWith("/*", at)) {
+	if (!Str.startsWith("/*", at)(source)) {
 		return pass
 	}
 
-	const end = source.indexOf("*/", at + 2)
-
-	return end === -1 ? unterminated("block comment") : read(end + 2)
+	return Option.match(indexFrom(source, "*/", at + 2), {
+		onNone: () => unterminated("block comment"),
+		onSome: (end) => read(end + 2)
+	})
 }
 
 /**
@@ -212,10 +240,10 @@ const regexAllowed = (tokens: readonly Token[]): boolean => {
 		return beforeRegex.has(last.text)
 	}
 
-	return last === undefined || (last.kind === "punct" && !")]}".includes(last.text))
+	return last === undefined || (last.kind === "punct" && !Str.includes(last.text)(")]}"))
 }
 
-const regex: Rule = (lexer, at) => {
+const regexLiteral: Rule = (lexer, at) => {
 	if (lexer.source[at] !== "/" || !regexAllowed(lexer.tokens)) {
 		return pass
 	}
@@ -254,7 +282,7 @@ const quoted: Rule = (lexer, at) => {
 		const char = lexer.source[index]
 
 		if (char === quote) {
-			lexer.tokens.push({ at, kind: "text", text: lexer.source.slice(at + 1, index) })
+			lexer.tokens.push({ at, kind: "text", text: Str.slice(at + 1, index)(lexer.source) })
 
 			return read(index + 1)
 		}
@@ -294,7 +322,7 @@ const template: Rule = (lexer, at) => {
 
 		if (char === "`" || opens) {
 			if (head) {
-				lexer.tokens.push({ at, kind: "text", text: source.slice(at + 1, index) })
+				lexer.tokens.push({ at, kind: "text", text: Str.slice(at + 1, index)(source) })
 			}
 
 			if (char === "`") {
@@ -322,19 +350,19 @@ const name: Rule = (lexer, at) => {
 
 	const end = wordEnd(lexer.source, at + 1, identifierPart)
 
-	lexer.tokens.push({ at, kind: "name", text: lexer.source.slice(at, end) })
+	lexer.tokens.push({ at, kind: "name", text: Str.slice(at, end)(lexer.source) })
 
 	return read(end)
 }
 
 const numeric: Rule = (lexer, at) => {
-	if (!/^\.?\d/u.test(lexer.source.slice(at, at + 2))) {
+	if (!numberStart.test(Str.slice(at, at + 2)(lexer.source))) {
 		return pass
 	}
 
 	lexer.tokens.push({ at, kind: "other" })
 
-	return read(wordEnd(lexer.source, at + 1, /[\w.]/u))
+	return read(wordEnd(lexer.source, at + 1, numberPart))
 }
 
 const punct: Rule = (lexer, at) => {
@@ -354,18 +382,30 @@ const punct: Rule = (lexer, at) => {
 /**
  * In order: the first rule that applies at an index reads it; `punct` always applies.
  */
-const rules: readonly Rule[] = [whitespace, comment, regex, quoted, template, name, numeric, punct]
+const rules: readonly Rule[] = [
+	blank,
+	comment,
+	regexLiteral,
+	quoted,
+	template,
+	name,
+	numeric,
+	punct
+]
 
 /**
  * Tokenize a test file. This is not a TypeScript parser (typescript@7.0.2 exposes no compiler
  * API): it knows comments, string, template and regular expression literals well enough that no
  * text inside them reads as a call, and refuses a source it cannot close rather than guess.
+ * `punct` always reads, so a step that passed every rule cannot occur.
  */
 const tokenize = (source: string): Result.Result<readonly Token[], string> => {
 	const lexer: Lexer = { braces: 0, source, substitutions: [], tokens: [] }
-	let at = source.startsWith("#!") ? source.indexOf("\n") : 0
+	let at = Str.startsWith("#!")(source)
+		? Option.getOrElse(Str.indexOf("\n")(source), () => source.length)
+		: 0
 
-	while (at !== -1 && at < source.length) {
+	while (at < source.length) {
 		let step: Step = pass
 
 		for (const rule of rules) {
@@ -380,7 +420,6 @@ const tokenize = (source: string): Result.Result<readonly Token[], string> => {
 			return Result.fail(`unterminated ${step.what} at line ${String(lineOf(source, at))}`)
 		}
 
-		// `punct` always reads, so a step that passed every rule cannot occur.
 		at = step.kind === "read" ? step.next : source.length
 	}
 
@@ -447,24 +486,25 @@ const callAt = (
 		next += 2
 	}
 
-	return isPunct(tokens[next], "(") ? { callee: chain.join("."), open: next } : undefined
+	return isPunct(tokens[next], "(") ? { callee: Arr.join(chain, "."), open: next } : undefined
 }
 
 /**
  * The `describe` forms whose tests run whenever the file runs. Any other modifier (`skip`, `todo`,
  * `if`, `skipIf`, `only`, ...) may keep its tests from running, so the tests under it cover no row.
  */
-const runningDescribe = new Set(["describe", "describe.each"])
+const runningDescribe: ReadonlySet<string> = new Set(["describe", "describe.each"])
 
 /**
  * The titles of the `test(`, `it(`, `test.todo(` and `it.todo(` calls in one test file, excluding
  * calls under a `describe` that may not run; a source it cannot tokenize fails with the reason.
+ * `offUntil` is the last token of the `describe` that may not run, while inside one; in
+ * `describe.if(cond)(name, fn)` every chained call belongs to the block.
  */
 export const titlesOf = (source: string): Result.Result<readonly Title[], string> =>
 	Result.flatMap(tokenize(source), (tokens) =>
 		Result.map(closers(source, tokens), (closer) => {
 			const titles: Title[] = []
-			// The last token of the `describe` that may not run, while inside one.
 			let offUntil = -1
 
 			for (let index = 0; index < tokens.length; index += 1) {
@@ -472,20 +512,23 @@ export const titlesOf = (source: string): Result.Result<readonly Title[], string
 
 				if (
 					call !== undefined &&
-					/^describe\b/u.test(call.callee) &&
+					describeCall.test(call.callee) &&
 					!runningDescribe.has(call.callee)
 				) {
-					// `describe.if(cond)(name, fn)`: every chained call belongs to the block.
 					offUntil = closer.get(call.open) ?? call.open
 					while (isPunct(tokens[offUntil + 1], "(")) {
 						offUntil = closer.get(offUntil + 1) ?? offUntil + 1
 					}
-				} else if (call !== undefined && /^(?:test|it)(?:\.todo)?$/u.test(call.callee)) {
+				} else if (call !== undefined && testCall.test(call.callee)) {
 					const first = tokens[call.open + 1]
 					const parsed = first?.kind === "text" ? titlePattern.exec(first.text)?.groups : undefined
 
 					if (parsed?.id !== undefined) {
-						titles.push({ half: parsed.half, id: parsed.id, todo: call.callee.endsWith(".todo") })
+						titles.push({
+							half: parsed.half,
+							id: parsed.id,
+							todo: Str.endsWith(".todo")(call.callee)
+						})
 					}
 				}
 			}
@@ -504,7 +547,7 @@ const judge = (titles: readonly Title[]): Judgement => {
 		return { status: "missing" }
 	}
 
-	const todo = titles.filter((title) => title.todo).length
+	const todo = Arr.filter(titles, (title) => title.todo).length
 
 	if (todo === 0) {
 		return { status: "covered" }
@@ -540,35 +583,36 @@ interface Resolution {
 
 /**
  * Report every row, in `rows.json` order, by the rulings of task fe518093. `only` filters the
- * rows reported; delegation targets resolve over every row and every test.
+ * rows reported; delegation targets resolve over every row and every test. A cycle, or every
+ * target whole-deferred with the row unlisted, is missing.
  */
 export const traceRows = (input: TraceInput): readonly Report[] => {
 	const wholeDeferred = (id: string): boolean =>
-		input.deferred.some((entry) => entry.row === id && entry.deferred === "whole")
+		Arr.some(input.deferred, (entry) => entry.row === id && entry.deferred === "whole")
 
 	const base = (row: (typeof Rows.Type)[number]): readonly Report[] => {
 		if (row.disposition === "informational") {
 			return [{ id: row.id, status: "informational" }]
 		}
 
-		const entry = input.deferred.find((candidate) => candidate.row === row.id)
+		const entry = Arr.findFirst(input.deferred, (candidate) => candidate.row === row.id)
 
-		if (entry?.deferred === "whole") {
+		if (Option.exists(entry, (found) => found.deferred === "whole")) {
 			return [{ id: row.id, status: "deferred" }]
 		}
 
-		const own = input.titles.filter((title) => title.id === row.id)
-		const split = input.splits.find((candidate) => candidate.row === row.id)
+		const own = Arr.filter(input.titles, (title) => title.id === row.id)
+		const split = Arr.findFirst(input.splits, (candidate) => candidate.row === row.id)
 
-		if (split !== undefined) {
-			return split.halves.map((half) =>
-				half === entry?.deferred
+		if (Option.isSome(split)) {
+			return Arr.map(split.value.halves, (half): Report =>
+				Option.exists(entry, (found) => found.deferred === half)
 					? { half, id: row.id, status: "deferred" }
-					: { half, id: row.id, ...judge(own.filter((title) => title.half === half)) }
+					: { half, id: row.id, ...judge(Arr.filter(own, (title) => title.half === half)) }
 			)
 		}
 
-		const judged = judge(own.filter((title) => title.half === undefined))
+		const judged = judge(Arr.filter(own, (title) => title.half === undefined))
 
 		return [
 			{
@@ -580,10 +624,10 @@ export const traceRows = (input: TraceInput): readonly Report[] => {
 		]
 	}
 
-	const byId = new Map(input.rows.map((row) => [row.id, row]))
+	const byId = new Map(Arr.map(input.rows, (row) => [row.id, row] as const))
 
 	const resolve = (row: (typeof Rows.Type)[number], stack: readonly string[]): Resolution => {
-		const outcomes = row.coveredBy.map((target): Target => {
+		const outcomes = Arr.map(row.coveredBy, (target): Target => {
 			if (wholeDeferred(target)) {
 				return { outcome: "pass", target }
 			}
@@ -600,24 +644,27 @@ export const traceRows = (input: TraceInput): readonly Report[] => {
 
 			const reports = base(next)
 
-			if (reports.some((report) => report.status === "delegated")) {
+			if (Arr.some(reports, (report) => report.status === "delegated")) {
 				return { outcome: resolve(next, [...stack, target]).outcome, target }
 			}
 
 			return {
-				outcome: reports.every((r) => r.status === "covered" || r.status === "deferred")
+				outcome: Arr.every(reports, (r) => r.status === "covered" || r.status === "deferred")
 					? "covered"
 					: "unresolved",
 				target
 			}
 		})
-		const passed = outcomes.filter((entry) => entry.outcome === "pass").map((entry) => entry.target)
+		const passed = Arr.map(
+			Arr.filter(outcomes, (entry) => entry.outcome === "pass"),
+			(entry) => entry.target
+		)
 
-		if (outcomes.some((entry) => entry.outcome === "cycle")) {
+		if (Arr.some(outcomes, (entry) => entry.outcome === "cycle")) {
 			return { outcome: "cycle", passed }
 		}
 
-		if (!outcomes.every((entry) => entry.outcome === "covered" || entry.outcome === "pass")) {
+		if (!Arr.every(outcomes, (entry) => entry.outcome === "covered" || entry.outcome === "pass")) {
 			return { outcome: "unresolved", passed }
 		}
 
@@ -626,41 +673,40 @@ export const traceRows = (input: TraceInput): readonly Report[] => {
 		}
 
 		return {
-			outcome: input.deferred.some((entry) => entry.row === row.id) ? "pass" : "unresolved",
+			outcome: Arr.some(input.deferred, (entry) => entry.row === row.id) ? "pass" : "unresolved",
 			passed
 		}
 	}
 
-	return input.rows
-		.filter((row) => input.only?.test(row.id) ?? true)
-		.flatMap((row): readonly Report[] => {
-			const reports = base(row)
+	const reported = Arr.filter(input.rows, (row) => input.only?.test(row.id) ?? true)
 
-			if (!reports.some((report) => report.status === "delegated")) {
-				return reports
-			}
+	return Arr.flatMap(reported, (row): readonly Report[] => {
+		const reports = base(row)
 
-			const resolved = resolve(row, [row.id])
+		if (!Arr.some(reports, (report) => report.status === "delegated")) {
+			return reports
+		}
 
-			if (resolved.outcome === "covered" && resolved.passed.length > 0) {
-				return [{ id: row.id, status: "covered", via: resolved.passed }]
-			}
+		const resolved = resolve(row, [row.id])
 
-			if (resolved.outcome === "covered") {
-				return [{ id: row.id, status: "covered" }]
-			}
+		if (resolved.outcome === "covered" && resolved.passed.length > 0) {
+			return [{ id: row.id, status: "covered", via: resolved.passed }]
+		}
 
-			if (resolved.outcome === "pass") {
-				return [{ id: row.id, status: "deferred" }]
-			}
+		if (resolved.outcome === "covered") {
+			return [{ id: row.id, status: "covered" }]
+		}
 
-			// A cycle, or every target whole-deferred with the row unlisted, is missing.
-			const allPassed = resolved.passed.length === row.coveredBy.length
+		if (resolved.outcome === "pass") {
+			return [{ id: row.id, status: "deferred" }]
+		}
 
-			return [
-				{ id: row.id, status: resolved.outcome === "cycle" || allPassed ? "missing" : "delegated" }
-			]
-		})
+		const allPassed = resolved.passed.length === row.coveredBy.length
+
+		return [
+			{ id: row.id, status: resolved.outcome === "cycle" || allPassed ? "missing" : "delegated" }
+		]
+	})
 }
 
 const unresolved = (status: Status, allowTodo: boolean): boolean =>
@@ -694,17 +740,17 @@ export const parseArgs = (args: readonly string[]): Effect.Effect<Options, Trace
 				index += 1
 			} else if (arg === "--only" && value !== undefined) {
 				only = yield* Effect.try({
-					catch: () => new TraceUsageError({ reason: "--only: not a regular expression" }),
-					try: () => new RegExp(value, "u")
+					catch: () => TraceUsageError.make({ reason: "--only: not a regular expression" }),
+					try: () => regex.as(value, "u")
 				})
 				index += 1
 			} else {
-				return yield* new TraceUsageError({ reason: `unknown or incomplete argument: ${arg}` })
+				return yield* TraceUsageError.make({ reason: `unknown or incomplete argument: ${arg}` })
 			}
 		}
 
 		if (allowTodo && !check) {
-			return yield* new TraceUsageError({ reason: "--allow-todo needs --check" })
+			return yield* TraceUsageError.make({ reason: "--allow-todo needs --check" })
 		}
 
 		return { allowTodo, check, only, root }
@@ -716,10 +762,12 @@ const readJson = <S extends Schema.Top & { readonly DecodingServices: never }>(
 	schema: S
 ): Effect.Effect<S["Type"], TraceInputError> =>
 	fs.readFileString(file).pipe(
-		Effect.mapError((cause: PlatformError) => new TraceInputError({ file, reason: cause.message })),
+		Effect.mapError((cause: PlatformError.PlatformError) =>
+			TraceInputError.make({ file, reason: cause.message })
+		),
 		Effect.flatMap((text) =>
-			Schema.decodeUnknownEffect(Schema.fromJsonString(schema))(text).pipe(
-				Effect.mapError(() => new TraceInputError({ file, reason: "not the expected JSON shape" }))
+			Schema.decodeEffect(Schema.fromJsonString(schema))(text).pipe(
+				Effect.mapError(() => TraceInputError.make({ file, reason: "not the expected JSON shape" }))
 			)
 		)
 	)
@@ -766,13 +814,16 @@ export const totalsOf = (reports: readonly Report[]): readonly (readonly [Status
 
 	const statuses = [...worst.values()]
 
-	return totalsOrder.map((status) => [status, statuses.filter((s) => s === status).length])
+	return Arr.map(totalsOrder, (status): readonly [Status, number] => [
+		status,
+		Arr.filter(statuses, (s) => s === status).length
+	])
 }
 
 const line = (report: Report): string =>
 	`${report.id}${report.half === undefined ? "" : ` (${report.half})`} ${report.status}${
 		report.status === "partial" ? ` (${report.passing} passing, ${report.todo} todo)` : ""
-	}${report.via === undefined ? "" : ` (deferred: ${report.via.join(", ")})`}`
+	}${report.via === undefined ? "" : ` (deferred: ${Arr.join(report.via, ", ")})`}`
 
 const trace = Effect.gen(function* run() {
 	const fs = yield* FileSystem.FileSystem
@@ -787,52 +838,52 @@ const trace = Effect.gen(function* run() {
 	const entries = yield* fs
 		.readDirectory(testsDir, { recursive: true })
 		.pipe(
-			Effect.mapError(
-				(cause: PlatformError) => new TraceInputError({ file: testsDir, reason: cause.message })
+			Effect.mapError((cause: PlatformError.PlatformError) =>
+				TraceInputError.make({ file: testsDir, reason: cause.message })
 			)
 		)
-	const titles = yield* Effect.forEach(
-		entries.filter((entry) => entry.endsWith(".test.ts")),
-		(entry) => {
-			const file = path.join("tests", entry)
+	const titles = yield* Effect.forEach(Arr.filter(entries, Str.endsWith(".test.ts")), (entry) => {
+		const file = path.join("tests", entry)
 
-			return fs.readFileString(path.join(testsDir, entry)).pipe(
-				Effect.mapError(
-					(cause: PlatformError) => new TraceInputError({ file, reason: cause.message })
-				),
-				Effect.flatMap((source) =>
-					Result.match(titlesOf(source), {
-						onFailure: (reason) =>
-							Effect.fail(
-								new TraceInputError({
-									file,
-									reason: `${reason}; the trace cannot read its test titles`
-								})
-							),
-						onSuccess: Effect.succeed
-					})
-				)
+		return fs.readFileString(path.join(testsDir, entry)).pipe(
+			Effect.mapError((cause: PlatformError.PlatformError) =>
+				TraceInputError.make({ file, reason: cause.message })
+			),
+			Effect.flatMap((source) =>
+				Result.match(titlesOf(source), {
+					onFailure: (reason) =>
+						Effect.fail(
+							TraceInputError.make({
+								file,
+								reason: `${reason}; the trace cannot read its test titles`
+							})
+						),
+					onSuccess: Effect.succeed
+				})
 			)
-		}
-	)
+		)
+	})
 	const reports = traceRows({
 		deferred,
 		only: options.only,
 		rows,
 		splits,
-		titles: titles.flat()
+		titles: Arr.flatten(titles)
 	})
 
 	for (const report of reports) {
-		console.log(line(report))
+		yield* Console.log(line(report))
 	}
 
 	for (const [status, count] of totalsOf(reports)) {
-		console.log(`total ${status} ${count}`)
+		yield* Console.log(`total ${status} ${count}`)
 	}
 
-	if (options.check && reports.some((report) => unresolved(report.status, options.allowTodo))) {
-		yield* new TraceCheckFailed()
+	if (
+		options.check &&
+		Arr.some(reports, (report) => unresolved(report.status, options.allowTodo))
+	) {
+		return yield* TraceCheckFailed.make()
 	}
 })
 

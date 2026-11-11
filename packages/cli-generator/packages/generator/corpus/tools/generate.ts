@@ -1,16 +1,12 @@
 import { NodeCrypto, NodeRuntime, NodeServices } from "@effect/platform-node"
-import { Array as Arr, Effect, FileSystem, Layer, Path, Schema } from "effect"
+import { Array as Arr, Effect, FileSystem, Path, Schema } from "effect"
 import { generate } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { Diagnostic } from "#model/diagnostic.ts"
 import { sha256Hex } from "#model/digest.ts"
 import { GenerationReport } from "#report/index.ts"
 
-// The generation half of one corpus entry (design 8.2), run as its own process by `run.ts` so the
-// memory generation holds is returned to the system before the package build starts: the guarded
-// peak is then the larger of generation and build, not their sum. It generates the package, and
-// the YAML twin when one is pinned, and writes what the verdict needs from them as JSON.
-
+/** The report file name inside a generated package, which the twin comparison leaves out. */
 export const reportFile = "generation-report.json"
 
 const Target = Schema.Struct({ outDir: Schema.String, specPath: Schema.String })
@@ -50,13 +46,13 @@ const encodeGeneration = Schema.encodeEffect(Schema.fromJsonString(Generation))
 
 const decodeRequest = Schema.decodeUnknownEffect(Schema.fromJsonString(GenerationRequest))
 
-// Every emitted file but the report (which records each input's digest), compared by bytes.
+/** Every emitted file but the report (which records each input's digest), compared by bytes. */
 const twinDifferences = (json: string, yaml: string, files: readonly string[]) =>
 	Effect.gen(function* compare() {
 		const fs = yield* FileSystem.FileSystem
 		const path = yield* Path.Path
 		const differing = yield* Effect.forEach(
-			files.filter((file) => file !== reportFile),
+			Arr.filter(files, (file) => file !== reportFile),
 			(file) =>
 				Effect.all([fs.readFile(path.join(json, file)), fs.readFile(path.join(yaml, file))]).pipe(
 					Effect.flatMap(([a, b]) =>
@@ -67,7 +63,7 @@ const twinDifferences = (json: string, yaml: string, files: readonly string[]) =
 				)
 		)
 
-		return differing.flat()
+		return Arr.flatten(differing)
 	})
 
 const generateBoth = (request: typeof GenerationRequest.Type) =>
@@ -84,19 +80,19 @@ const generateBoth = (request: typeof GenerationRequest.Type) =>
 				config
 			)
 		const generated = yield* into(request.json)
-		const twinTarget = request.twin
+		const twinOf = (twinTarget: typeof Target.Type) =>
+			into(twinTarget).pipe(
+				Effect.flatMap((yaml) =>
+					twinDifferences(
+						request.json.outDir,
+						twinTarget.outDir,
+						Arr.union(generated.files, yaml.files)
+					)
+				),
+				Effect.map((differing) => ({ checked: true, differing }))
+			)
 		const twin =
-			twinTarget === undefined
-				? { checked: false, differing: [] }
-				: yield* Effect.gen(function* twinRun() {
-						const yaml = yield* into(twinTarget)
-						const files = Arr.union(generated.files, yaml.files)
-
-						return {
-							checked: true,
-							differing: yield* twinDifferences(request.json.outDir, twinTarget.outDir, files)
-						}
-					})
+			request.twin === undefined ? { checked: false, differing: [] } : yield* twinOf(request.twin)
 		const result: GenerationValue = {
 			_tag: "Generated",
 			commandNames: generated.report.commandNames,
@@ -108,6 +104,12 @@ const generateBoth = (request: typeof GenerationRequest.Type) =>
 		return result
 	})
 
+/**
+ * The generation half of one corpus entry (design 8.2), run as its own process by `run.ts` so the
+ * memory generation holds is returned to the system before the package build starts: the guarded
+ * peak is then the larger of generation and build, not their sum. It generates the package, and
+ * the YAML twin when one is pinned, and writes what the verdict needs from them as JSON.
+ */
 const main = (raw: string | undefined) =>
 	Effect.gen(function* generateMain() {
 		const fs = yield* FileSystem.FileSystem
@@ -122,13 +124,13 @@ const main = (raw: string | undefined) =>
 			)
 		)
 
-		yield* fs.writeFileString(request.result, yield* encodeGeneration(generation))
+		const text = yield* encodeGeneration(generation)
+
+		yield* fs.writeFileString(request.result, text)
 	})
 
 if (import.meta.main) {
 	NodeRuntime.runMain(
-		main(process.argv[2]).pipe(
-			Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layerDigest))
-		)
+		main(process.argv[2]).pipe(Effect.provide([NodeServices.layer, NodeCrypto.layerDigest]))
 	)
 }

@@ -1,8 +1,10 @@
-import { createHash } from "node:crypto"
-import { Data, Effect, FileSystem, Path, Schema } from "effect"
+import { regex } from "arkregex"
+import { Effect, FileSystem, Path, Schema } from "effect"
+import type { Digest } from "effect/crypto"
 import { HttpClient, HttpClientResponse } from "effect/http"
+import { sha256Hex } from "#model/digest.ts"
 
-const Sha256 = Schema.String.pipe(Schema.check(Schema.isPattern(/^[0-9a-f]{64}$/u)))
+const Sha256 = Schema.String.pipe(Schema.check(Schema.isPattern(regex("^[0-9a-f]{64}$", "u"))))
 
 const Twin = Schema.Struct({ sha256: Sha256, sourceUrl: Schema.NonEmptyString })
 
@@ -32,25 +34,33 @@ export const Corpus = Schema.Struct({
 	version: Schema.Literal(1)
 })
 
-export class CorpusHashMismatch extends Data.TaggedError("CorpusHashMismatch")<{
-	readonly actual: string
-	readonly expected: string
-	readonly sourceUrl: string
-}> {}
+/** The fetched bytes hash to another sha256 than the pin. */
+export class CorpusHashMismatch extends Schema.TaggedError<
+	CorpusHashMismatch,
+	{ readonly brand: unique symbol }
+>()("CorpusHashMismatch", {
+	actual: Schema.String,
+	expected: Schema.String,
+	sourceUrl: Schema.String
+}) {}
 
-export class CorpusSourceRefused extends Data.TaggedError("CorpusSourceRefused")<{
-	readonly sourceUrl: string
-}> {}
+/** A source URL off the one allowed scheme, host, port and credential, refused before any request. */
+export class CorpusSourceRefused extends Schema.TaggedError<
+	CorpusSourceRefused,
+	{ readonly brand: unique symbol }
+>()("CorpusSourceRefused", { sourceUrl: Schema.String }) {}
 
-export class CorpusFetchFailed extends Data.TaggedError("CorpusFetchFailed")<{
-	readonly cause: unknown
-	readonly sourceUrl: string
-}> {}
+/** The request for a pinned source failed or answered other than 2xx. */
+export class CorpusFetchFailed extends Schema.TaggedError<
+	CorpusFetchFailed,
+	{ readonly brand: unique symbol }
+>()("CorpusFetchFailed", { cause: Schema.Defect(), sourceUrl: Schema.String }) {}
 
-export class CorpusCacheFailed extends Data.TaggedError("CorpusCacheFailed")<{
-	readonly cause: unknown
-	readonly path: string
-}> {}
+/** The cache directory or a cached file could not be read or written. */
+export class CorpusCacheFailed extends Schema.TaggedError<
+	CorpusCacheFailed,
+	{ readonly brand: unique symbol }
+>()("CorpusCacheFailed", { cause: Schema.Defect(), path: Schema.String }) {}
 
 export interface Pin {
 	readonly sha256: string
@@ -88,12 +98,12 @@ export const githubSource: Source<HttpClient.HttpClient> = (sourceUrl) =>
 		? HttpClient.get(sourceUrl).pipe(
 				Effect.flatMap(HttpClientResponse.filterStatusOk),
 				Effect.flatMap((response) => response.arrayBuffer),
-				Effect.map((buffer) => new Uint8Array(buffer)),
-				Effect.mapError((cause) => new CorpusFetchFailed({ cause, sourceUrl }))
+				Effect.mapBoth({
+					onFailure: (cause) => CorpusFetchFailed.make({ cause, sourceUrl }),
+					onSuccess: (buffer) => new Uint8Array(buffer)
+				})
 			)
-		: Effect.fail(new CorpusSourceRefused({ sourceUrl }))
-
-const sha256Of = (data: Uint8Array): string => createHash("sha256").update(data).digest("hex")
+		: Effect.fail(CorpusSourceRefused.make({ sourceUrl }))
 
 /**
  * Returns the cache path `<cacheDir>/<sha256>` for the pinned bytes. A cached file is used only
@@ -107,28 +117,30 @@ export const fetchPinned = <R>(
 ): Effect.Effect<
 	string,
 	CorpusCacheFailed | CorpusHashMismatch | SourceError,
-	FileSystem.FileSystem | Path.Path | R
+	FileSystem.FileSystem | Path.Path | Digest.Digest | R
 > =>
 	Effect.gen(function* fetch() {
 		const fs = yield* FileSystem.FileSystem
 		const path = yield* Path.Path
 		const target = path.join(cacheDir, pin.sha256)
-		const cacheFailed = (cause: unknown) => new CorpusCacheFailed({ cause, path: target })
+		const cacheFailed = (cause: unknown) => CorpusCacheFailed.make({ cause, path: target })
 		const present = yield* fs.exists(target).pipe(Effect.mapError(cacheFailed))
 
 		if (present) {
 			const cached = yield* fs.readFile(target).pipe(Effect.mapError(cacheFailed))
 
-			if (sha256Of(cached) === pin.sha256) {
+			const cachedSha256 = yield* sha256Hex(cached)
+
+			if (cachedSha256 === pin.sha256) {
 				return target
 			}
 		}
 
 		const bytes = yield* source(pin.sourceUrl)
-		const actual = sha256Of(bytes)
+		const actual = yield* sha256Hex(bytes)
 
 		if (actual !== pin.sha256) {
-			return yield* new CorpusHashMismatch({
+			return yield* CorpusHashMismatch.make({
 				actual,
 				expected: pin.sha256,
 				sourceUrl: pin.sourceUrl

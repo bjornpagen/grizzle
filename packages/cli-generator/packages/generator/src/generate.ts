@@ -607,7 +607,8 @@ export const generate = (
 		const domain = yield* emitDomainSchemas(
 			schemas.validation.definitions,
 			requestRoots(api),
-			plan.domain
+			plan.domain,
+			defaultLimits
 		)
 		const apiFiles = yield* emitApi({
 			api,
