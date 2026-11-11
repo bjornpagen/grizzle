@@ -1,3 +1,46 @@
+/**
+ * The apply runner's ledger as a state machine, on PostgreSQL 19.
+ *
+ * The model is the documented contract: a migrations
+ * directory of three drafted folders (Shop v1 to v3: the first drafted beside an abandoned schema, whose rows it leaves
+ * behind, a loss only the reviewer decides; a placeholder, a law with its Validate files, a concurrent index in a
+ * no-transaction file, a handle appended to a roster, a serial field, removed objects dropped in Publish), and a
+ * database whose
+ * ledger has recorded some folders, maybe one of them in part. Its state is two numbers: the folders recorded complete,
+ * and the files recorded of the next one. Each command is an action a user or a deployment takes, and the model says
+ * what it must do:
+ *
+ * - apply the directory as of folder k: the folders after the recorded ones run, the partial one resumed at its first
+ *   unrecorded file; a directory missing an applied or partial folder is refused at `edited`, naming each;
+ * - apply folders with a gap, folders that end before the snapshot, or a new folder sorted before an applied one:
+ *   refused at `order`;
+ * - apply the next folder unreviewed: refused at `marker`, naming exactly the markers its files hold, or, with no marker,
+ *   at `decision`, naming exactly the losses of stored data meta.json records, each still commented;
+ * - apply with a failing statement before a file, after a no-transaction file, or after a statement inside one:
+ *   refused at `statement` at that file, the earlier files recorded, a rerun resuming there;
+ * - apply with an applied file edited, deleted, renamed or added, its meta.json edited, or its folder gone: refused at
+ *   `edited`, naming each edit;
+ * - apply while another apply holds the schema's lock (`busy`), as a role that does not own the schema (`identity`),
+ *   with a file that controls its own transaction, or with one schema's folders against another schema's snapshot
+ *   (`input`);
+ * - a data step a deferred law refuses at COMMIT (`commit`), and a folder that would record before the ledger exists
+ *   (`record`).
+ *
+ * After every command the real database is read back and must be in the state the model claims: the ledger's latest
+ * target, its partial folder and the files it recorded, its rows read strictly from the table as the runner reads them;
+ * and after every refusal the model says ran nothing, the ledger and the whole catalog are unchanged. Each step draws a
+ * command the model's state allows, and its parameters in that state, so every drawn program is a sequence of real
+ * actions, and a shrunk one is still one.
+ *
+ * Oracle: the model, the documented contract as a second implementation, against the real database read back. A list a
+ * refusal names is compared as what it is, never by its order: missing folders, markers and edits as sets, losses as a
+ * multiset of places, since a file may record several.
+ *
+ * Features: every command kind, each reached by a generated program.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): ledger-resume-every-file (a partial folder resumes at its first file,
+ * running again the files the ledger recorded).
+ */
 import { layer } from "@effect/vitest"
 import {
 	accepting,
@@ -14,7 +57,7 @@ import { constant, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, String as Str, Struct } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, String as Str, Struct } from "effect"
 import { type SchemaApplyReport, applyLockKey } from "#adapter/migrate/apply.ts"
 import type {
 	AppliedEdit,
@@ -81,41 +124,8 @@ import { books1, shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deplo
 
 import { regex } from "arkregex"
 
-/** The model: the folders the ledger recorded complete, and, when it holds the next one unfinished, how many of its
- * files it recorded (none when a no-transaction file of it failed before any file was recorded).
- *
- * The apply runner's ledger as a state machine, on PostgreSQL 19.
- *
- * The model is the documented contract: a migrations
- * directory of three drafted folders (Shop v1 to v3: the first drafted beside an abandoned schema, whose rows it leaves
- * behind, a loss only the reviewer decides; a placeholder, a law with its Validate files, a concurrent index in a
- * no-transaction file, a handle appended to a roster, a serial field, removed objects dropped in Publish), and a
- * database whose
- * ledger has recorded some folders, maybe one of them in part. Its state is two numbers: the folders recorded complete,
- * and the files recorded of the next one. Each command is an action a user or a deployment takes, and the model says
- * what it must do:
- *
- * - apply the directory as of folder k: the folders after the recorded ones run, the partial one resumed at its first
- *   unrecorded file; a directory missing an applied or partial folder is refused at `edited`, naming each;
- * - apply folders with a gap, folders that end before the snapshot, or a new folder sorted before an applied one:
- *   refused at `order`;
- * - apply the next folder unreviewed: refused at `marker`, naming exactly the markers its files hold, or, with no marker,
- *   at `decision`, naming exactly the losses of stored data meta.json records, each still commented;
- * - apply with a failing statement before a file, after a no-transaction file, or after a statement inside one:
- *   refused at `statement` at that file, the earlier files recorded, a rerun resuming there;
- * - apply with an applied file edited, deleted, renamed or added, its meta.json edited, or its folder gone: refused at
- *   `edited`, naming each edit;
- * - apply while another apply holds the schema's lock (`busy`), as a role that does not own the schema (`identity`),
- *   with a file that controls its own transaction, or with one schema's folders against another schema's snapshot
- *   (`input`);
- * - a data step a deferred law refuses at COMMIT (`commit`), and a folder that would record before the ledger exists
- *   (`record`).
- *
- * After every command the real database is read back and must be in the state the model claims: the ledger's latest
- * target, its partial folder and the files it recorded, its rows read strictly from the table as the runner reads them;
- * and after every refusal the model says ran nothing, the ledger and the whole catalog are unchanged. Each step draws a
- * command the model's state allows, and its parameters in that state, so every drawn program is a sequence of real
- * actions, and a shrunk one is still one. */
+/** The model's state: the folders the ledger recorded complete, and, when it holds the next one unfinished, how many of
+ * its files it recorded (none when a no-transaction file of it failed before any file was recorded). */
 interface Model {
 	readonly recorded: number
 	readonly partial: Option.Option<number>
@@ -370,6 +380,16 @@ const inject = (text: string, point: Point): string => {
 		}
 	}
 }
+
+/** A loss's place: the folder and the file that record it. */
+type Place = Readonly<{ folder: string; file: string }>
+
+/**
+ * Losses by their place, a folder and a file, in that order: a file may record several losses, so the losses a refusal
+ * names are a multiset of places, compared in this order, whatever order the refusal lists them in.
+ */
+const inPlaceOrder = (places: ReadonlyArray<Place>): ReadonlyArray<Place> =>
+	Arr.sort(places, Order.Struct({ folder: Order.String, file: Order.String }))
 
 /** The markers a drafted folder's files hold, and the losses of stored data its meta.json records, each drafted
  * commented, so unreviewed every one is unresolved. */
@@ -647,7 +667,7 @@ const realOf = (
 					const reason = e.reason
 					assert.ok(reason._tag === "AppliedEdited", e.message)
 					const edits: ReadonlyArray<AppliedEdit> = reason.edits
-					assert.deepEqual(
+					unorderedEqual(
 						edits,
 						Arr.map(missing, (i) => ({
 							folder: defined(r.gs[i]).folder.name,
@@ -764,9 +784,9 @@ const realOf = (
 					assert.ok(reason._tag === "LossesUndecided", e.message)
 					const named: ReadonlyArray<UnresolvedLoss> = reason.losses
 					assert.deepEqual(
-						Arr.map(named, (l) => ({ folder: l.folder, file: l.file })),
-						losses,
-						"the losses named"
+						inPlaceOrder(Arr.map(named, (l) => ({ folder: l.folder, file: l.file }))),
+						inPlaceOrder(losses),
+						"the losses named, one per loss, in any order"
 					)
 					return
 				}
@@ -775,7 +795,7 @@ const realOf = (
 				const reason = e.reason
 				assert.ok(reason._tag === "MarkersUnresolved", e.message)
 				const named: ReadonlyArray<UnresolvedMarker> = reason.markers
-				assert.deepEqual(named, markers, "the markers named")
+				unorderedEqual(named, markers, "the markers named")
 			}),
 			took
 		),
@@ -1165,8 +1185,7 @@ const steeredCases = 80 * runs
 
 /**
  * The ledger's search, every command required of a generated program. The machine is built over the shape of the chain
- * drafted under a name of its own. Shrinking stops after 150 candidates, each a whole program on PostgreSQL; a case
- * still running after 20 minutes is hung (the suite's protective cap).
+ * drafted under a name of its own. Shrinking stops after 150 candidates, each a whole program on PostgreSQL.
  */
 const ledgerSearch = Effect.gen(function* () {
 	const substrate = yield* Substrate
@@ -1177,7 +1196,10 @@ const ledgerSearch = Effect.gen(function* () {
 	)
 	return yield* explore(
 		{
-			oracle: { kind: "unstated" },
+			oracle: {
+				kind: "second-implementation",
+				name: "the ledger model, the documented contract as a state machine, against the database read back"
+			},
 			suite: "migrate/ledger",
 			draw: drawn(
 				program(

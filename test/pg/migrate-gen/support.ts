@@ -3183,7 +3183,7 @@ export const payloadRostersRenamed: StatedRenamedPath = plantedRename(
  * - ontoTaken: R1 renamed to R0's name while R0 keeps it, which the schema boundary refuses;
  * - ambiguousPair: R1 removed and two relations of its heading added, so the draft offers both as candidates for R1's
  *   rename, and a reviewer may choose at most one: `grizzle check` refuses two. */
-const legalIntents = [
+export const legalIntents = [
 	"renameReferenced",
 	"renameReferencing",
 	"swapRelations",

@@ -1,3 +1,47 @@
+/**
+ * Rename histories on PostgreSQL 19, run as a commands program against a pure model of identity.
+ *
+ * The model holds the declared objects, and for each installed one the declaration it stands for (its origin): the
+ * relations and their fields, among them a field of the closed relation Tier; Tier's handles; the context the worlds
+ * read and its fields; the roles, each holding relations whole or entries over the context, a relation named by its
+ * place; and the logins, each holding its roles. Each command is one schema edit:
+ *
+ * - a relation renamed, two relations' names swapped, a field renamed, a field renamed with its type changed, or a
+ *   relation removed and one of its shape added under another name (a new identity: the old one dropped); programs
+ *   chain them, so a rename followed by another is a chain A→B→C, and one back to an earlier name A→B→A;
+ * - a login renamed, or renamed while its roles change (a role added to it, or taken from another login), each rename
+ *   declared (`--rename @old=@new`), so the login keeps its PostgreSQL role, renamed in place;
+ * - an entry added to a role or removed from it, a field of the context renamed or added, or the context renamed;
+ * - a login's and a role's names exchanged, the login declared dropped (`--drop @<login>`): one PostgreSQL role would
+ *   turn from a login into a role, which the draft refuses by name (loginRoleExchange), at the PostgreSQL role of one of
+ *   the two, applying nothing.
+ *
+ * Each step drafts the edit from the snapshot before (`grizzle generate`), declaring by the model's identity map what
+ * it renames and drops (`--rename`, `--drop`): a relation renamed exactly when the step keeps its origin under another
+ * name, a field renamed exactly when a kept relation keeps its origin under another name, a login renamed exactly when
+ * the step keeps its origin under another name, and every relation and field whose origin the step no longer holds
+ * dropped. It checks the review reads back as made (the read-back oracle), and
+ * migrates it with the runner, whose admission checks the catalog against the snapshot (drift). After every step:
+ *
+ * - the installed catalog is a fresh install's of the step's version, its worlds included: roles, memberships, views,
+ *   policies, functions and grants;
+ * - every login is the PostgreSQL role its origin was installed as, and every role the one of its name: a renamed login
+ *   keeps its OID under its new name, its old name held by no role, and no role is created again;
+ * - the facts written before the first step read back through the renamed objects: every relation of the step holds
+ *   the rows the carry model of the model's identity map says, against a fresh install loaded with them.
+ *
+ * What a single-step suite cannot see, a rename that loses its identity across steps, fails here: the model says which
+ * object is which, and PostgreSQL must agree.
+ *
+ * Oracle: the identity model, a second implementation of which object each name stands for, judged by PostgreSQL:
+ * the catalog of a fresh install of each version, the OIDs of every login and role, and the rows read back.
+ *
+ * Features: every command kind, chains of renames, a relation renamed back, a world entry over a renamed relation,
+ * renames and drops declared by identity, and a renamed login kept in place.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): histories-login-dropped (a draft ignores every declared login rename,
+ * so the login's PostgreSQL role is dropped and created again under its new name).
+ */
 import { layer } from "@effect/vitest"
 import {
 	accepting,
@@ -85,39 +129,7 @@ import type {
 	Rule
 } from "#test/support/worlds/model/types.ts"
 
-/** Rename histories on PostgreSQL 19, run as a commands program against a pure model of identity.
- *
- * The model holds the declared objects, and for each installed one the declaration it stands for (its origin): the
- * relations and their fields, among them a field of the closed relation Tier; Tier's handles; the context the worlds
- * read and its fields; the roles, each holding relations whole or entries over the context, a relation named by its
- * place; and the logins, each holding its roles. Each command is one schema edit:
- *
- * - a relation renamed, two relations' names swapped, a field renamed, a field renamed with its type changed, or a
- *   relation removed and one of its shape added under another name (a new identity: the old one dropped); programs
- *   chain them, so a rename followed by another is a chain A→B→C, and one back to an earlier name A→B→A;
- * - a login renamed, or renamed while its roles change (a role added to it, or taken from another login), each rename
- *   declared (`--rename @old=@new`), so the login keeps its PostgreSQL role, renamed in place;
- * - an entry added to a role or removed from it, a field of the context renamed or added, or the context renamed;
- * - a login's and a role's names exchanged, the login declared dropped (`--drop @<login>`): one PostgreSQL role would
- *   turn from a login into a role, which the draft refuses by name (loginRoleExchange), at the PostgreSQL role of one of
- *   the two, applying nothing.
- *
- * Each step drafts the edit from the snapshot before (`grizzle generate`), declaring by the model's identity map what
- * it renames and drops (`--rename`, `--drop`): a relation renamed exactly when the step keeps its origin under another
- * name, a field renamed exactly when a kept relation keeps its origin under another name, a login renamed exactly when
- * the step keeps its origin under another name, and every relation and field whose origin the step no longer holds
- * dropped. It checks the review reads back as made (the read-back oracle), and
- * migrates it with the runner, whose admission checks the catalog against the snapshot (drift). After every step:
- *
- * - the installed catalog is a fresh install's of the step's version, its worlds included: roles, memberships, views,
- *   policies, functions and grants;
- * - every login is the PostgreSQL role its origin was installed as, and every role the one of its name: a renamed login
- *   keeps its OID under its new name, its old name held by no role, and no role is created again;
- * - the facts written before the first step read back through the renamed objects: every relation of the step holds
- *   the rows the carry model of the model's identity map says, against a fresh install loaded with them.
- *
- * What a single-step suite cannot see, a rename that loses its identity across steps, fails here: the model says which
- * object is which, and PostgreSQL must agree. */
+/** The declared schema every history's versions are drafted under. */
 const declared = "History"
 const relationPool = ["Alpha", "Beta", "Gamma", "Delta"] as const
 const fieldPool = ["a", "b", "c", "d", "t"] as const
@@ -1325,7 +1337,10 @@ layer(Substrate.layer)("rename histories on PostgreSQL", (it) => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the identity model, judged by a fresh install's catalog, every login's and role's OID, and the rows read back"
+						},
 						suite: "pg/migrate/histories",
 						draw: drawn(program(machine, historySize, everyCommand)),
 						literal: Formatter.format,

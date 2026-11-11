@@ -1,6 +1,58 @@
+/**
+ * Generated migration paths on PostgreSQL 19, applied by the real runner, with PostgreSQL's own catalog as the oracle.
+ *
+ * A path is a schema A, its successor B and B's successor C, drawn two ways: the renamed paths of the generator
+ * (`renamedDrawGen`: random oracle schemas with the renames a user makes), and the
+ * adversarial rename intents over the hazard base (`legalIntentSketchGen`: swaps, chains, renames of a
+ * referenced relation and of its key, keys over retyped fields, a field renamed with its type changed, a relation and
+ * its field renamed together, a roster renamed, its handle removed or renamed, its field retyped, a name hopping across
+ * the relation and type namespaces, a serial field widened, and a name B dropped taken in C). Each step is drafted by
+ * generateMigration from the snapshot before under the renames and drops it declares (`--rename`, `--drop`): the
+ * path's own renames when the path declares them, and every removal a drop otherwise, so the draft guesses nothing. It
+ * is reviewed by the one reviewer, each placeholder given the typed value the carry model gives, and applied by the
+ * runner as `grizzle migrate` applies it,
+ * as the migration identity, with A's facts loaded after A. Properties, for every path:
+ *
+ * (a) every apply succeeds, and the runner's own check after it holds, so no statement
+ *     fails where PostgreSQL refuses it (an order the drafter got wrong: 42830, 2BP01, 42P07, 42710, 42804, 23514);
+ *     and after B and after C the migrated schema holds the catalog a fresh installation of that version holds, both
+ *     read by the test kernel from PostgreSQL's catalog (`sameCatalog`), never through
+ *     grizzle's own snapshot, whatever renames, conversions and rebuilds led there;
+ * (b) the facts are carried as the drafted rules say (`carryChain`, A's facts those lawful through both
+ *     chains, each migration's validation being a reviewed data step): after B, A's facts stand in B's relations
+ *     exactly as the model's rows, loaded into a fresh installation of B and read back by PostgreSQL, compare;
+ * (c) A to C directly, from A's snapshot, applies and passes (a) too, so the catalog of C is the same whichever path
+ *     led to it, but for its rosters' codes, which are each path's history (a handle B added and C no longer holds is
+ *     a hole after B, and no code at all on the direct path);
+ * (d) after every migration, each identity's next value is past its column's stored maximum (`identitiesPast`): the
+ *     reviewer converts a serial field to bigint by its cast, so a widened serial keeps its values and its advance
+ *     is judged against them.
+ *
+ * Every path runs under a drawn ambient session (test/support/ambient.ts): the defaults of the path's own owner login,
+ * which every migration session starts under, its search path PostgreSQL's own or the installation's schemas first. A
+ * renamed path also draws, beside the generator's renames, an arm whose B renames a relation or a closed roster to the
+ * name of a PostgreSQL type; the renamed stream requires that name under the installation-first path, the pairing
+ * where a bare type name resolves to the installation's row type or domain, and a steered case takes that path while
+ * the pairing is pending.
+ *
+ * Every verdict is PostgreSQL's: its refusal of a statement, its catalog of both installations, and its reading of the
+ * rows. The features are the rename kinds a path made by successor, the intents it made, what the draft declared, the
+ * ambient session, whether a version names a relation or a closed roster as PostgreSQL names a type or function, and
+ * each conversion of R1's `sq` between an integer serial, a pg.uuidv7 and a uuid, which a kept path of intents makes
+ * each of.
+ *
+ * Oracle: PostgreSQL, through its refusal of a statement, its catalog of a fresh install of each version, and its
+ * reading of the rows the carry model loads; and the path's own commutation, A to C directly as A to B to C.
+ *
+ * Features: the renamed stream requires a catalog-type name under the installation-first path; the intents stream
+ * requires every legal intent, a steered case aiming its first B intent at one still pending.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): paths-relation-rename-ignored (a draft ignores every declared relation
+ * rename) and paths-field-rename-ignored (a draft ignores every declared field rename).
+ */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import type { ShrinkBudget } from "@grizzle/testing/shrink"
@@ -18,6 +70,7 @@ import {
 	keyPromotedBesideChangedReference,
 	keyRenamedOntoPrimary,
 	type LegalIntentKind,
+	legalIntents,
 	legalIntentSketchGen,
 	payloadRostersRenamed,
 	planOf,
@@ -67,49 +120,7 @@ import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { PropertyFailed } from "#test/support/oracle/runner.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** Cases per stream; a failing path shrinks over at most this many candidates, each a few migrations on PostgreSQL.
- *
- * Generated migration paths on PostgreSQL 19, applied by the real runner, with PostgreSQL's own catalog as the oracle.
- *
- * A path is a schema A, its successor B and B's successor C, drawn two ways: the renamed paths of the generator
- * (`renamedDrawGen`: random oracle schemas with the renames a user makes), and the
- * adversarial rename intents over the hazard base (`legalIntentSketchGen`: swaps, chains, renames of a
- * referenced relation and of its key, keys over retyped fields, a field renamed with its type changed, a relation and
- * its field renamed together, a roster renamed, its handle removed or renamed, its field retyped, a name hopping across
- * the relation and type namespaces, a serial field widened, and a name B dropped taken in C). Each step is drafted by
- * generateMigration from the snapshot before under the renames and drops it declares (`--rename`, `--drop`): the
- * path's own renames when the path declares them, and every removal a drop otherwise, so the draft guesses nothing. It
- * is reviewed by the one reviewer, each placeholder given the typed value the carry model gives, and applied by the
- * runner as `grizzle migrate` applies it,
- * as the migration identity, with A's facts loaded after A. Properties, for every path:
- *
- * (a) every apply succeeds, and the runner's own check after it holds, so no statement
- *     fails where PostgreSQL refuses it (an order the drafter got wrong: 42830, 2BP01, 42P07, 42710, 42804, 23514);
- *     and after B and after C the migrated schema holds the catalog a fresh installation of that version holds, both
- *     read by the test kernel from PostgreSQL's catalog (`sameCatalog`), never through
- *     grizzle's own snapshot, whatever renames, conversions and rebuilds led there;
- * (b) the facts are carried as the drafted rules say (`carryChain`, A's facts those lawful through both
- *     chains, each migration's validation being a reviewed data step): after B, A's facts stand in B's relations
- *     exactly as the model's rows, loaded into a fresh installation of B and read back by PostgreSQL, compare;
- * (c) A to C directly, from A's snapshot, applies and passes (a) too, so the catalog of C is the same whichever path
- *     led to it, but for its rosters' codes, which are each path's history (a handle B added and C no longer holds is
- *     a hole after B, and no code at all on the direct path);
- * (d) after every migration, each identity's next value is past its column's stored maximum (`identitiesPast`): the
- *     reviewer converts a serial field to bigint by its cast, so a widened serial keeps its values and its advance
- *     is judged against them.
- *
- * Every path runs under a drawn ambient session (test/support/ambient.ts): the defaults of the path's own owner login,
- * which every migration session starts under, its search path PostgreSQL's own or the installation's schemas first. A
- * renamed path also draws, beside the generator's renames, an arm whose B renames a relation or a closed roster to the
- * name of a PostgreSQL type; the renamed stream requires that name under the installation-first path, the pairing
- * where a bare type name resolves to the installation's row type or domain, and a steered case takes that path while
- * the pairing is pending.
- *
- * Every verdict is PostgreSQL's: its refusal of a statement, its catalog of both installations, and its reading of the
- * rows. The features are the rename kinds a path made by successor, the intents it made, what the draft declared, the
- * ambient session, whether a version names a relation or a closed roster as PostgreSQL names a type or function, and
- * each conversion of R1's `sq` between an integer serial, a pg.uuidv7 and a uuid, which a kept path of intents makes
- * each of. */
+/** Cases per stream; a failing path shrinks over at most `shrink`'s candidates, each a few migrations on PostgreSQL. */
 const runs = 4
 const shrink: ShrinkBudget = { kind: "bounded", candidates: 100 }
 
@@ -350,6 +361,24 @@ const kept: ReadonlyArray<Kept<RenamedDraw, Feature>> = [
 	)
 ]
 
+/**
+ * The intents a case runs: the drawn ones, or, while the case's steering leaves an intent pending, the drawn ones with
+ * B's first intent the first pending one, so each steered case reaches an intent no witness has, and the steered phase
+ * needs at most one case per intent. Any intent may be B's: only C's are kept from naming a field B drops.
+ */
+const aimedIntents = (
+	sketch: IntentSketch & { readonly kind: "legal" },
+	notes: Case<Feature>
+): IntentSketch & { readonly kind: "legal" } => {
+	const pending = Option.flatMap(notes.steering, (steering) =>
+		Arr.findFirst(legalIntents, (kind) => steering.has(`the intent ${kind}`))
+	)
+	return Option.match(pending, {
+		onNone: () => sketch,
+		onSome: (kind) => ({ ...sketch, toB: [{ kind }, ...Arr.drop(sketch.toB, 1)] })
+	})
+}
+
 /** The intent counterexamples PostgreSQL found. */
 const keptIntents: ReadonlyArray<Kept<IntentSketch & { readonly kind: "legal" }, Feature>> = [
 	{
@@ -432,7 +461,10 @@ layer(Substrate.layer)("generated migration paths on PostgreSQL", (it) => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "postgresql",
+							name: "PostgreSQL's refusals, a fresh install's catalog of each version and the carried rows read back; A to C as A to B to C"
+						},
 						suite: "pg/migrate/paths",
 						draw: drawn(pathDrawGen),
 						literal: Formatter.format,
@@ -458,11 +490,17 @@ layer(Substrate.layer)("generated migration paths on PostgreSQL", (it) => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "postgresql",
+							name: "PostgreSQL's refusals, a fresh install's catalog of each version and the carried rows read back; A to C as A to B to C"
+						},
 						suite: "pg/migrate/intents",
 						draw: drawn(legalIntentSketchGen),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<Feature>(
+							Arr.map(legalIntents, (kind): Feature => `the intent ${kind}`),
+							{ cases: legalIntents.length, sense: notesOnly }
+						),
 						kept: keptIntents,
 						runs,
 						shrink,
@@ -470,7 +508,8 @@ layer(Substrate.layer)("generated migration paths on PostgreSQL", (it) => {
 						steerEvery: 16,
 						caseHang
 					},
-					(sketch, notes) => {
+					(drawnSketch, notes) => {
+						const sketch = aimedIntents(drawnSketch, notes)
 						for (const intent of new Set(Arr.map([...sketch.toB, ...sketch.toC], (i) => i.kind))) {
 							notes.note(`the intent ${intent}`)
 						}

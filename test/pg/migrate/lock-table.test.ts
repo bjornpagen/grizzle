@@ -1,3 +1,26 @@
+/**
+ * A statement of a migration's transaction the server refuses for want of shared memory (SQLSTATE 53200), which a
+ * transaction that creates more objects than the server's lock table holds meets, is refused as the lock table
+ * exhausted (LockTableExhausted): the refusal keeps the server's report and states the three settings that size the
+ * table, max_locks_per_transaction among them, read in the migration's session once the transaction rolled back.
+ *
+ * The shared cluster's lock table is no thing a test may fill (it serves every session at once), so a session stands
+ * in for the server's answer at one place: it sends the transaction with the statement there replaced by one the
+ * server refuses (a read of a relation no schema holds), so every statement before it ran and rolled back, and answers
+ * that refusal with the server's own 53200 report. The statement is drawn, the k-th from either end of the first file's
+ * transaction of a shop's first or second version (the ledger's lock, a statement of the file, or a ledger row) or of
+ * the drift check's replay. The
+ * oracle is the migration's own record, restated: the refusal is the one its place names (LedgerUnlocked,
+ * StatementFailed with its number, RecordFailed, or the replay's ReplayRefused under DriftUnchecked), its failure
+ * LockTableExhausted with the server's report and the settings the server holds, and nothing is left committed: the
+ * ledger and the schema's relations are as they were before the refused transaction. The refusal is asserted by its
+ * tag and fields, never its words.
+ *
+ * Features: each place, the ledger's lock, a file's statement, a ledger row and the drift check's replay.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): lock-table-settings-swapped (the refusal reports
+ * max_connections as max_locks_per_transaction and the other way round).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -5,7 +28,7 @@ import { element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { driftFlight } from "#adapter/admission/drift.ts"
 import { BatchRefused, ServerError } from "#adapter/errors/failures.ts"
 import { applyOnSession, checkDrift } from "#adapter/migrate/apply.ts"
@@ -32,23 +55,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { tappedSession } from "#test/support/wire-tap.ts"
 import { shopV1, shopV2 } from "#test/unit/deploy/schemas.ts"
 
-/**
- * A statement of a migration's transaction the server refuses for want of shared memory (SQLSTATE 53200), which a
- * transaction that creates more objects than the server's lock table holds meets, is refused by name: the refusal keeps
- * the server's report, names max_locks_per_transaction, and states the three settings that size the table, read in the
- * migration's session once the transaction rolled back.
- *
- * The shared cluster's lock table is no thing a test may fill (it serves every session at once), so a session stands
- * in for the server's answer at one place: it sends the transaction with the statement there replaced by one the
- * server refuses (a read of a relation no schema holds), so every statement before it ran and rolled back, and answers
- * that refusal with the server's own 53200 report. The statement is drawn, the k-th from either end of the first file's
- * transaction of a shop's first or second version (the ledger's lock, a statement of the file, or a ledger row) or of
- * the drift check's replay. The
- * oracle is the migration's own record: the refusal is the one its place names (LedgerUnlocked, StatementFailed with
- * its number, RecordFailed, or the replay's ReplayRefused under DriftUnchecked), its failure LockTableExhausted with the
- * server's report and the settings the server holds, and nothing is left committed: the ledger and the schema's
- * relations are as they were before the refused transaction.
- */
 const places = [
 	"the ledger's lock",
 	"a file's statement",
@@ -305,11 +311,6 @@ layer(Substrate.layer)("a migration that runs out of the server's lock table", (
 											maxPreparedTransactions: prepared
 										},
 										"the settings are the server's, read after the rollback"
-									)
-									assert.ok(
-										Str.includes("max_locks_per_transaction")(failed.message) &&
-											Str.includes("out of shared memory")(failed.message),
-										failed.message
 									)
 									const ledgerAfter = yield* Effect.result(readLedger(m, schema, ledgerStatements))
 									assert.deepEqual(ledgerAfter, ledgerBefore, "the ledger is as it was")

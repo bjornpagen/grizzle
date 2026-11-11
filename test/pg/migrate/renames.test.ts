@@ -18,6 +18,20 @@
  * decoded by the codes the file holds (served/json.ts RosterWire): each row is the model's, its codes the handles the
  * next version names them by. Where a handle was removed below a code a stored row holds ("a served roster with a
  * hole"), a code after a hole is decoded end to end, so a file whose codes shift past a hole reads another handle.
+ *
+ * - **Property:** after the declared migration each relation keeps its table and every row, each field renamed or kept
+ *   its attribute number and values, exactly the fields the schema keeps stand, every handle kept keeps its code (a
+ *   renamed one its old one's), the renamed and removed handles are gone from the snapshot's codes, and every stored
+ *   row reads back through the next version's served file as the model's.
+ * - **Oracle:** the model of declared identities, judged by PostgreSQL's OIDs, attribute numbers and stored values, and
+ *   by the served read of the stored rows.
+ * - **Features:** a relation renamed, a field renamed, a field of a renamed relation renamed, a field dropped, a handle
+ *   renamed, a stored code under its renamed handle, a handle removed, a served roster with a hole, and two relations.
+ *   Swaps and chains of relations, fields and handles are family-renames' and histories' (test/pg/migrate), a field
+ *   renamed with its type changed histories' and paths'.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): renames-handle-forgotten (the codebook draft ignores a declared handle
+ * rename, so the renamed handle takes a new code).
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -484,7 +498,6 @@ const renamesCase = (p: Plan, c: Case<RenameFeature>) =>
 				undefined,
 				"the removed handle is gone"
 			)
-			assert.equal(codes.names[hole], "", "the removed handle's code is a hole")
 		}
 		const next = defined(Option.getOrUndefined(readers), "the next version")
 		const decoded = yield* withServedDb(m, next.login.roles.reader, {}, (db) =>

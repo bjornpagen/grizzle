@@ -1,3 +1,31 @@
+/**
+ * The drift check after `grizzle migrate`: the catalog is compared with the target
+ * snapshot and drift is refused: edits are allowed, drift is not, and a hand edit that diverges from the schema is
+ * caught at deploy time rather than at the first failing query.
+ *
+ * The property, over drawn hand edits of a drawn folder's reviewed files: an edit that reaches the same state by
+ * another route (a reviewer's comment, a statement with no effect, a scratch index built and dropped again on a drawn
+ * column) is admitted; one that changes the state is refused at the stage drift after its files committed, and the
+ * ledger records the folder, its latest target the folder's; one that adds a statement that raises, at the head of the
+ * second folder's first file, stops the apply at that statement, StatementFailed naming the folder, the file and
+ * statement 1, and the ledger's latest target stays the first folder's. The state-changing edits are drawn over every statement
+ * of their kind the draft holds: an extra index on a drawn column, a drawn table taken from a drawn grant (or the grant
+ * deleted), the EXECUTE grant of a drawn function deleted, a drawn index rebuilt over one more drawn column under its
+ * drafted name, a CHECK predicate's constant raised by a drawn amount, a drawn VALIDATE CONSTRAINT deleted from a
+ * Validate file (which leaves the constraint NOT VALID). Each edit of a drafted statement is its own printed text
+ * replaced by its edited copy's, both printed from the typed plan. The history is the shop's first version, or its
+ * first and second, the edit made in the second folder; a VALIDATE and a CHECK the draft adds NOT VALID are the
+ * second's. Each version is installed with the fixture's worlds (`fixtureLogin`), whose roles
+ * hold the grants the grant edits pick from. Drift made outside a migration is the admission suite's.
+ *
+ * Oracle: the specification of admission, by the class each edit is constructed in: an edit of the same state is
+ * admitted, an edit of the state refused at drift after its files committed, and a raising statement stops at itself.
+ *
+ * Features: each edit kind with its outcome, admitted or refused.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): admission-unexpected-ignored (the drift check reports what the
+ * snapshot requires and the catalog lacks, never what the catalog holds beyond it, so an extra index is admitted).
+ */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -47,26 +75,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { shopV1, shopV2 } from "#test/unit/deploy/schemas.ts"
 
 /** The folders of `versions` under `schema`, owned by `owner`, each drafted from the snapshot before and installed with
- * the fixture's worlds.
- *
- * The drift check after `grizzle migrate`: the catalog is compared with the target
- * snapshot and drift is refused: edits are allowed, drift is not, and a hand edit that diverges from the schema is
- * caught at deploy time rather than at the first failing query.
- *
- * The property, over drawn hand edits of a drawn folder's reviewed files: an edit that reaches the same state by
- * another route (a reviewer's comment, a statement with no effect, a scratch index built and dropped again on a drawn
- * column) is admitted; one that changes the state is refused at the stage drift after its files committed, and the
- * ledger records the folder, its latest target the folder's; one that adds a statement that raises, at the head of the
- * second folder's first file, stops the apply at that statement, StatementFailed naming the folder, the file and
- * statement 1, and the ledger's latest target stays the first folder's. The state-changing edits are drawn over every statement
- * of their kind the draft holds: an extra index on a drawn column, a drawn table taken from a drawn grant (or the grant
- * deleted), the EXECUTE grant of a drawn function deleted, a drawn index rebuilt over one more drawn column under its
- * drafted name, a CHECK predicate's constant raised by a drawn amount, a drawn VALIDATE CONSTRAINT deleted from a
- * Validate file (which leaves the constraint NOT VALID). Each edit of a drafted statement is its own printed text
- * replaced by its edited copy's, both printed from the typed plan. The history is the shop's first version, or its
- * first and second, the edit made in the second folder; a VALIDATE and a CHECK the draft adds NOT VALID are the
- * second's. Each version is installed with the fixture's worlds (`fixtureLogin`), whose roles
- * hold the grants the grant edits pick from. Drift made outside a migration is the admission suite's. */
+ * the fixture's worlds. */
 const historyOf = (
 	versions: ReadonlyArray<SchemaDesc>,
 	schema: string,
@@ -480,7 +489,10 @@ layer(Substrate.layer)("post-apply admission refuses drift", (it) => {
 				const m = yield* openMigrator(substrate, substrate.owner)
 				return yield* explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "an edit reaching the same state is admitted, one changing it refused at drift, a raising statement stops at itself"
+						},
 						suite: "migrate/hand-edits",
 						draw: drawn(editGen),
 						literal: Formatter.format,

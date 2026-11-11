@@ -1,3 +1,25 @@
+/**
+ * Every step of `grizzle migrate` is one flight, counted on the protocol through the tap (test/support/wire-tap.ts).
+ *
+ * A step is a list of statements sent together: an apply sends the survey step (the session's role, each schema's
+ * owner, apply lock and ledger), one flight per transactional file, one for a no-transaction file's folder row, which
+ * the stale-Db fence records before its statements, one per statement of it and one for its ledger rows, one per
+ * folder recorded alone, then one drift check per schema and the release of its apply lock. The drift check alone is
+ * exactly one flight: the ledger's two reads apart, then one SERIALIZABLE transaction that replays the snapshot into a
+ * scratch schema, reads both and rolls back.
+ *
+ * - **Property:** each apply's round trips are exactly the steps its report says it ran, and each drift check run
+ *   alone after it is one round trip, its simple queries the session's controls for the BEGIN of a read-write
+ *   SERIALIZABLE transaction and its ROLLBACK, the session idle after it.
+ * - **Oracle:** the flight model (stepsOf), the runner's documented steps restated over its own report.
+ * - **Box, exhausted:** the shop's histories of one to three versions, each applied first up to a split folder (none at
+ *   all: the empty snapshot, with no ledger yet), then whole, then again with nothing pending.
+ * - **Features:** an absent ledger admitted, every folder in one apply, a no-transaction file, the rest of a history
+ *   after its start, and nothing pending.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): flights-drift-extra (the drift check reads the server's lock-table
+ * settings in a flight of their own before its own).
+ */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -11,6 +33,7 @@ import { type MigrationSession, migrationSession } from "#adapter/migrate/sessio
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { servedSession } from "#compiler/program/served.ts"
 import { kept, reviewedSource } from "#test/pg/migrate/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
@@ -22,19 +45,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { queryTexts, type Tapped, tappedSession } from "#test/support/wire-tap.ts"
 import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
 
-/** Every step of `grizzle migrate` is one flight, counted on the protocol through the tap.
- *
- * A step is a list of statements sent together: an apply sends the survey step (the
- * session's role, each schema's owner, apply lock and ledger), one flight per transactional file, one for a
- * no-transaction file's folder row, which the stale-Db fence records before its statements, one per statement of it
- * and one for its ledger rows, one per folder recorded alone, then one drift check per schema and the release of its
- * apply lock. The drift check alone is exactly one flight: the ledger's two reads apart, then one
- * SERIALIZABLE transaction that replays the snapshot into a scratch schema, reads both and rolls back.
- *
- * The property, exhausted over the shop's histories of one to three versions, applied first up to a split folder
- * (none at all: the empty snapshot, with no ledger yet), then whole, then again with nothing pending: each apply's
- * round trips are exactly the steps its report says it ran, and each drift check run alone after it is one round trip
- * framed by its BEGIN and ROLLBACK. */
 const versions = [
 	[shopV1, noDeclarations],
 	[shopV2, noDeclarations],
@@ -47,14 +57,23 @@ interface History {
 	readonly split: number
 }
 
-/** Every history of one to three versions, each split at every folder from none to its last: two, three and four
- * splits, nine histories. */
+/** Every history of one to three versions, each split at every folder from none to its last. */
 const historyGen: Gen<History> = (source) => {
 	const count = source.draw(int(1, versions.length))
 	return { versions: count, split: source.draw(int(0, count)) }
 }
 
-const historyCount = 2 + 3 + 4
+/** The histories the box holds: a history of n versions splits at each of its n + 1 folders, none included. */
+const historyCount = Arr.reduce(Arr.range(1, versions.length), 0, (sum, count) => sum + count + 1)
+
+/**
+ * The simple queries that frame the drift check, as a migration session's controls send them: the BEGIN of a
+ * read-write SERIALIZABLE transaction, and its ROLLBACK.
+ */
+const driftFraming: ReadonlyArray<string> = [
+	servedSession.begin.serializable.readWrite,
+	servedSession.rollback
+]
 
 type FlightFeature =
 	| "an absent ledger admitted"
@@ -128,7 +147,7 @@ const admittedAlone = (tapped: Tapped, m: MigrationSession, target: MigrationTar
 		yield* checkDrift(m, snapshot, statements)
 		const window = tapped.since(mark)
 		assert.equal(window.roundTrips, 1, "the drift check is one round trip")
-		assert.deepEqual(queryTexts(window), ["BEGIN ISOLATION LEVEL SERIALIZABLE", "ROLLBACK"])
+		assert.deepEqual(queryTexts(window), driftFraming, "the drift check's framing")
 		assert.deepEqual(window.backend.at(-1), { type: "Z", status: "I" }, "the drift check ends idle")
 	})
 
@@ -141,8 +160,11 @@ layer(Substrate.layer)("every step of grizzle migrate is one flight", (it) => {
 				const owner = substrate.owner.role
 				return yield* exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "the shop's histories of one to three versions, each applied up to every split folder, then whole, then again",
+						oracle: {
+							kind: "specification",
+							name: "the runner's documented steps restated over its report: one round trip per step, the drift check one"
+						},
 						suite: "migrate/flights",
 						generator: historyGen,
 						literal: Formatter.format,
