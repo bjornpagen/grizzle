@@ -282,7 +282,7 @@ const actorAt = <A extends string>(actors: Arr.NonEmptyReadonlyArray<A>, n: numb
 	actors[n] ?? actors[0]
 
 /** A fact of `relation` drawn from its fields' domains, field i by pick i of six. */
-export const domainFact = (
+const domainFact = (
 	host: HostSchema,
 	domains: Domains,
 	relation: string,

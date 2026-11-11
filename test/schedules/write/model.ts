@@ -640,6 +640,13 @@ const directCauseProblem = (
 }
 
 /**
+ * Why a run is not serializable as the model means it: an operation the model refuses at its place, an abort or a value
+ * the run does not explain (Refused), or no serial order of the placed operations that explains them all
+ * (NoSerialOrder), each with its reason; the tags are the interleaving judgment's own.
+ */
+export type RunProblem = { readonly tag: "Refused" | "NoSerialOrder"; readonly why: string }
+
+/**
  * The serial model of the write races: a host meaning of every grizzle ChangeSet and every direct
  * statement a race draws over the schedule schema, and the judge of one run against it.
  *
@@ -676,7 +683,7 @@ export const judgeRun = (
 	initial: State,
 	observed: ReadonlyArray<Observed>,
 	final: State
-): string | undefined => {
+): RunProblem | undefined => {
 	const unkeyed = unkeyedRelations(laws)
 	if (Arr.isReadonlyArrayNonEmpty(unkeyed)) {
 		throw new Error(
@@ -701,7 +708,7 @@ export const judgeRun = (
 				? grizzleCauseProblem(laws, o, concurrent, explicitSerials)
 				: directCauseProblem(o, concurrent)
 		if (problem !== undefined) {
-			return problem
+			return { tag: "Refused", why: problem }
 		}
 	}
 	/** Each generated value lies past the explicit values every grizzle write that finished before it began stored. */
@@ -722,7 +729,10 @@ export const judgeRun = (
 	const behind = Arr.findFirst(generated, ({ value, explicit }) => BigInt(value) <= explicit)
 	if (Option.isSome(behind)) {
 		const { g, e, value, explicit } = behind.value
-		return `${describeObserved(g)} generated ${value}, not past ${explicit}, which ${describeObserved(e)} stored before it began: its sequence was not advanced`
+		return {
+			tag: "Refused",
+			why: `${describeObserved(g)} generated ${value}, not past ${explicit}, which ${describeObserved(e)} stored before it began: its sequence was not advanced`
+		}
 	}
 	/** The operations that take a place: committed or refused by a law. */
 	const placed = Arr.filter(observed, (o) =>
@@ -851,8 +861,11 @@ export const judgeRun = (
 	if (search(new Set(), initial, [])) {
 		return undefined
 	}
-	return `no serial order of ${Arr.join(Arr.map(placed, describeObserved), ", ")} explains the run: ${Arr.join(
-		Arr.map(observed, (o) => `${o.label} ${Formatter.format(o.answer)}`),
-		"; "
-	)}`
+	return {
+		tag: "NoSerialOrder",
+		why: `no serial order of ${Arr.join(Arr.map(placed, describeObserved), ", ")} explains the run: ${Arr.join(
+			Arr.map(observed, (o) => `${o.label} ${Formatter.format(o.answer)}`),
+			"; "
+		)}`
+	}
 }

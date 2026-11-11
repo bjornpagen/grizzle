@@ -100,6 +100,7 @@ import {
 	type Member,
 	type Observed,
 	type Rel,
+	type RunProblem,
 	relationNames,
 	type Span,
 	type State,
@@ -141,8 +142,10 @@ import {
 	exploreInterleavings,
 	type Footprint,
 	type Interleaving,
+	type Judgment,
 	movesOf,
 	type OpStep,
+	noSerialOrderJudgment,
 	refusedJudgment,
 	relationsFootprint,
 	runawayInterleavings,
@@ -1410,7 +1413,7 @@ const runRace = (
 								const observed = observedOf(run)
 								const problem = judgeRun(laws, race.initial, observed, stateOf(run))
 								if (problem !== undefined) {
-									return refusedJudgment(`${describeRace(race, sql)}\n${problem}`)
+									return judgedProblem(describeRace(race, sql), problem)
 								}
 								noteRun(run, observed)
 								return allowed
@@ -1908,9 +1911,9 @@ const runInserters = (
 								`${describe}\none inserter waited on the other, where two calls stating no key, code or gate in common never wait`
 							)
 						}
-						const problem = judgeRun(laws, initial, observed, final)
-						if (problem !== undefined) {
-							return refusedJudgment(`${describe}\n${problem}`)
+						const judged = judgeRun(laws, initial, observed, final)
+						if (judged !== undefined) {
+							return judgedProblem(describe, judged)
 						}
 						appendAll(reached, [
 							...Arr.flatMap([...seen.values()], (a): ReadonlyArray<InserterFeature> => [
@@ -2084,7 +2087,7 @@ const runInserterAlone = (
 					}
 				],
 				final
-			)
+			)?.why
 		if (problem !== undefined) {
 			return yield* new RaceFailed({
 				message: `${describeOp(op)} over Badge ${Formatter.format(ac.initial)}\n${problem}`
@@ -2092,6 +2095,15 @@ const runInserterAlone = (
 		}
 		c.note(`alone ${answered.answer.kind}`)
 	})
+
+/**
+ * The serial model's problem with a run as the interleaving's judgment of it, after `what` the run was: its tag kept, so
+ * a run no serial order explains fails as NoSerialOrder and every other problem as RunRefused.
+ */
+const judgedProblem = (what: string, problem: RunProblem): Judgment =>
+	problem.tag === "NoSerialOrder"
+		? noSerialOrderJudgment(`${what}\n${problem.why}`)
+		: refusedJudgment(`${what}\n${problem.why}`)
 
 /** The cases of each inserter search: each installs its schema and opens its writers. */
 const inserterRuns = 12

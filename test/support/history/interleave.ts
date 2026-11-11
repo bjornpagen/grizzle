@@ -29,6 +29,7 @@ import {
 	type Footprint,
 	type Interleaving,
 	opStep,
+	noSerialOrderJudgment,
 	refusedJudgment,
 	relationsFootprint,
 	runawayInterleavings,
@@ -375,7 +376,9 @@ export const lawExploration = (
 					}
 					const verdict = checkHistory(h)
 					if (!verdict.ok) {
-						return refusedJudgment(verdict.problem)
+						return verdict.tag === "NoSerialOrder"
+							? noSerialOrderJudgment(verdict.problem)
+							: refusedJudgment(verdict.problem)
 					}
 					observe(h, i)
 					return allowed

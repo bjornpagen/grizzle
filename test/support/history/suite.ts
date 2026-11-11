@@ -1,7 +1,6 @@
 import { layer } from "@effect/vitest"
-import { type Case, exhaust, explore, drawn, type Kept } from "@grizzle/testing/explore"
-import { type Reached, required, requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { type Case, explore, drawn, type Kept } from "@grizzle/testing/explore"
+import { type Reached, required } from "@grizzle/testing/features"
 import { type PctSchedule, pctSchedule } from "@grizzle/testing/interleave"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
@@ -15,7 +14,7 @@ import {
 	type Outcome
 } from "#test/support/history/check.ts"
 import { populationsOf } from "#test/support/laws/boxes.ts"
-import { emptyState, expect, rowsDifference, stateRows } from "#test/support/laws/model.ts"
+import { expect, rowsDifference, stateRows } from "#test/support/laws/model.ts"
 
 import {
 	enforcementProblem,
@@ -31,16 +30,9 @@ import {
 	lawExploration
 } from "#test/support/history/interleave.ts"
 import type { WriterKind } from "#test/support/history/model.ts"
-import {
-	type Below,
-	type BelowFeature,
-	belowFeaturesOf,
-	belowForms,
-	belowLevels
-} from "#test/support/history/refused.ts"
+import { type BelowFeature, belowFeaturesOf } from "#test/support/history/refused.ts"
 
 import {
-	domainFact,
 	type HistoryCase,
 	type HistoryEnv,
 	historyCaseGen,
@@ -58,7 +50,6 @@ import { elementAt, nonEmptyList } from "#test/support/oracle/pick.ts"
 import { CaseFailed } from "#test/support/oracle/write/harness.ts"
 import { type Actors, type DirectActor, type GrizzleActor } from "#test/support/schedules/actors.ts"
 import {
-	every,
 	exploreEnv,
 	exploreInterleavings,
 	type Interleaving,
@@ -334,41 +325,10 @@ const installChecked = <P>(
 	)
 
 /**
- * Every planted writer below SERIALIZABLE on a schema: each relation, each level, each form with and without a read
- * first, and a read alone; each write names the first value of its fields' domains.
- */
-const plantedBelow = (env: HistoryEnv): ReadonlyArray<Below> =>
-	Arr.flatMap(env.host.relations, (r) =>
-		Arr.flatMap(belowLevels, (level): ReadonlyArray<Below> => [
-			{ kind: "read only", level, relation: r.name },
-			...Arr.flatMap(belowForms, (form) =>
-				Arr.map([false, true], (readFirst): Below => ({
-					kind: "write",
-					level,
-					form,
-					relation: r.name,
-					fact: domainFact(env.host, env.domains, r.name, [0, 0, 0, 0, 0, 0]),
-					read: readFirst
-				}))
-			)
-		])
-	)
-
-/** What the exhaustion must reach: every form, a read alone, every level, both refusals and a read before a write. */
-const belowRequired: Arr.NonEmptyReadonlyArray<BelowFeature> = [
-	"below: read only",
-	...Arr.map(belowForms, (form) => `below: ${form}` as const),
-	...Arr.map(belowLevels, (level) => `below at ${level}` as const),
-	"refused by the guard",
-	"refused by privilege",
-	"below: a read before the write"
-]
-
-/**
  * One family's generated-history suite: for each population of its box (laws/boxes.ts populationsOf), histories over the
- * population's schemas, each run in its order, explored through the library, and the planted writers below
- * SERIALIZABLE exhausted over every table of the population's first schema, each refused by what its relation's
- * mutability makes its first refusal.
+ * population's schemas, each run in its order, explored through the library. A planted writer below SERIALIZABLE runs
+ * inside a history beside the others (history/refused.ts); the guard's refusal of every statement at every level on
+ * every kind of table, alone, is test/pg/direct-writers/isolation.test.ts's box.
  *
  * A case draws which of the family's schemas it runs on; each schema installs once per test, the first time a case
  * draws it, and its installation is checked to enforce the host's laws as the host states them (history/families.ts
@@ -383,13 +343,16 @@ const belowRequired: Arr.NonEmptyReadonlyArray<BelowFeature> = [
  * mutability is not its parent's among them. Lock waits, aborts by cause, retries and the planted writers' cases are
  * noted for the residual-risk line. Every note goes through the case's own Case (HistoryFeature), each also paired
  * with every trait of the case's schema.
+ *
+ * The oracle is the history check (history/check.ts): a serial order of the committed operations that respects real
+ * time explains every outcome and every refusal by its law, every abort is explained by a concurrent operation, and the
+ * state left is that order's, every law holding over it.
  */
 export const historySuite = <P>(h: HistoryFamily<P>): void => {
 	layer(Substrate.layer, { excludeTestServices: true })(
 		`generated histories: ${h.family.label}`,
 		(it) => {
 			for (const { mode, variants } of populationsOf(h.family)) {
-				const [first] = variants
 				const kept = plantedOn(h, variants)
 				const reach: Arr.NonEmptyReadonlyArray<Reached<HistoryFeature>> = Arr.appendAll(
 					situations,
@@ -407,7 +370,10 @@ export const historySuite = <P>(h: HistoryFamily<P>): void => {
 					const installs = yield* Effect.forEach(variants, (p) => installChecked(h, p))
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the history check (history/check.ts): a real-time serial order of the committed operations explains every outcome, refusal and abort, and the state left"
+							},
 							suite: `history/${label}/${mode}`,
 							draw: drawn(historyCaseGen(variants.length)),
 							literal: Formatter.format,
@@ -464,49 +430,6 @@ export const historySuite = <P>(h: HistoryFamily<P>): void => {
 							})
 					)
 				})
-				/**
-				 * The planted writers below SERIALIZABLE, each alone from the empty state on the first schema: refused
-				 * at its write by its first refusal, the guard's naming its table, committing nothing; a read alone
-				 * commits.
-				 */
-				const exhaustBelow = Effect.scoped(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const install = yield* installChecked(h, first)
-						const env = yield* h.connect(install)
-						const actors = yield* lawActors(env)
-						const observer = yield* exploreEnv(s)
-						return yield* exhaust(
-							{
-								box: { kind: "unstated" },
-								oracle: { kind: "unstated" },
-								suite: `history/${label}/${mode}/below-serializable`,
-								generator: element(nonEmptyList(plantedBelow(env), "the planted writers")),
-								literal: Formatter.format,
-								/** Every relation of a family schema, three levels, and thirteen cases a level. */
-								limit: 256,
-								coverage: requiredInSpace<BelowFeature>(belowRequired),
-								caseHang
-							},
-							(b, c) =>
-								Effect.gen(function* () {
-									c.noteAll(belowFeaturesOf(env.host, b))
-									const spec = yield* lawExploration(
-										env,
-										`a planted writer at ${b.level}`,
-										emptyState(env.host),
-										[{ kind: "below", writer: "a", below: b, session: "a", after: undefined }],
-										() => undefined
-									)
-									yield* exploreInterleavings(observer, actors, spec, every)
-								})
-						)
-					})
-				)
-				it.effect(
-					`${mode}: below SERIALIZABLE, every write to every table is refused and commits nothing, and a read commits`,
-					(ctx) => searched(ctx, exhaustBelow)
-				)
 				it.effect(`${mode}: small histories are lawful, serial and every abort explained`, (ctx) =>
 					searched(ctx, histories)
 				)

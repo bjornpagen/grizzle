@@ -96,14 +96,18 @@ interface Explanation {
 	readonly states: ReadonlyArray<HostState>
 }
 
-/** An explained history: the committed operations' order, and each refusal's own order, by the refusal's id. */
+/**
+ * An explained history: the committed operations' order, and each refusal's own order, by the refusal's id; or why it is
+ * not one, tagged as the interleaving judgment tags it: no serial order of its operations explains them
+ * (NoSerialOrder), or the committed state, an abort or an unorderable refusal is unexplained (Refused).
+ */
 export type Verdict =
 	| {
 			readonly ok: true
 			readonly committed: Explanation
 			readonly refusals: ReadonlyMap<number, Explanation>
 	  }
-	| { readonly ok: false; readonly problem: string }
+	| { readonly ok: false; readonly tag: "Refused" | "NoSerialOrder"; readonly problem: string }
 
 const show = (x: unknown): string => Formatter.format(x)
 const showOps = (ops: ReadonlyArray<HostOp>): string =>
@@ -433,20 +437,21 @@ export const checkHistory = (h: History): Verdict => {
 	if (lawless.length > 0) {
 		return {
 			ok: false,
+			tag: "Refused",
 			problem: `the committed state violates ${show(lawless)}\n${describeHistory(h)}`
 		}
 	}
 	for (const r of h.recorded) {
 		const problem = abortProblem(h, r)
 		if (problem !== undefined) {
-			return { ok: false, problem: `${problem}\n${describeHistory(h)}` }
+			return { ok: false, tag: "Refused", problem: `${problem}\n${describeHistory(h)}` }
 		}
 		const unordered =
 			r.outcome.kind === "unorderable"
 				? departure(r, expectFor(r.kind, h.host, h.initial, r.ops))
 				: undefined
 		if (unordered !== undefined) {
-			return { ok: false, problem: `#${r.id}: ${unordered}\n${describeHistory(h)}` }
+			return { ok: false, tag: "Refused", problem: `#${r.id}: ${unordered}\n${describeHistory(h)}` }
 		}
 	}
 	const committed = Arr.filter(
@@ -457,6 +462,7 @@ export const checkHistory = (h: History): Verdict => {
 	if (!serial.ok) {
 		return {
 			ok: false,
+			tag: "NoSerialOrder",
 			problem: `no serial order of the committed operations explains them\n${serial.problem}`
 		}
 	}
@@ -469,6 +475,7 @@ export const checkHistory = (h: History): Verdict => {
 		if (!own.ok) {
 			return {
 				ok: false,
+				tag: "NoSerialOrder",
 				problem: `no serial order of the committed operations and the refusal #${r.id} explains them\n${own.problem}`
 			}
 		}

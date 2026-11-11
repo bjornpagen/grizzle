@@ -354,8 +354,6 @@ export const movesOf = (txns: ReadonlyArray<Txn>): number =>
 interface ExplorationReport {
 	readonly interleavings: number
 	readonly pruned: number
-	/** How many runs committed each set of sessions, keyed by the committed sessions joined, or "none". */
-	readonly committedSets: ReadonlyMap<string, number>
 	readonly blocked: number
 	readonly branched: number
 }
@@ -1003,7 +1001,6 @@ export const exploreInterleavings = <E>(
 			const [first, second, ...rest] = Arr.map(lane, (t) => t.session)
 			return second === undefined ? [] : [[first, second, ...rest] as const]
 		})
-		const committedSets = new Map<string, number>()
 		const libraryStrategy: Interleave.Strategy<string, string> =
 			strategy.kind === "every"
 				? { kind: "every", limit: spec.maxInterleavings, reduction: "sleep-sets" }
@@ -1037,21 +1034,11 @@ export const exploreInterleavings = <E>(
 						case "Allowed":
 							break
 					}
-					const committed = Arr.filter(spec.txns, (x) => i.results[x.session]?._tag === "Committed")
-					const key =
-						committed.length === 0
-							? "none"
-							: Arr.join(
-									Arr.map(committed, (x) => x.session),
-									","
-								)
-					committedSets.set(key, (committedSets.get(key) ?? 0) + 1)
 				})
 		)
 		return {
 			interleavings: report.interleavings,
 			pruned: report.pruned,
-			committedSets,
 			blocked: report.blocked,
 			branched: report.branched
 		}

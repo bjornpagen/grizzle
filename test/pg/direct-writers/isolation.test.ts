@@ -13,8 +13,9 @@
  * takes, SERIALIZABLE, READ COMMITTED, REPEATABLE READ, READ UNCOMMITTED), an actor (the `writer`, a session in the
  * schema's full world, granted every write grizzle grants, or the schema's owner, who holds every privilege), a
  * statement (an INSERT, an UPDATE, a DELETE of one row, a DELETE of no row, a TRUNCATE ... CASCADE, a MERGE that
- * inserts, a MERGE that updates, a MERGE that deletes, a SELECT) and a table. The model names its outcome from that point
- * alone, in the order PostgreSQL meets each refusal:
+ * inserts, a MERGE that updates, a MERGE that deletes, a SELECT) and a table, and a write's transaction reads its table
+ * first or not, since a guard fires at the write whatever the transaction read. The model names its outcome from that
+ * point alone, in the order PostgreSQL meets each refusal:
  *
  * - a SELECT is admitted at every level, and its transaction commits;
  * - the privilege check at executor start comes first: the writer's TRUNCATE (granted to no one) and its UPDATE of an
@@ -34,8 +35,8 @@
  * - Property: at every point of the box, the outcome PostgreSQL gives is the model's, and every table holds its starting
  *   rows after the point (a refusal that wrote anyway, or an admitted write that committed, fails).
  * - Oracle: the specification turned into a checker (predict), the README's refusal order over the point.
- * - Features: each statement under each verdict, the guard's refusal on each kind of table, and a write admitted at the
- *   database's default.
+ * - Features: each statement under each verdict, the guard's refusal on each kind of table and after a read, and a write
+ *   admitted at the database's default.
  * - Plants: ~/.cache/grizzle-release/BR08/plants/isolation-guard-admits-repeatable-read.patch (the guard compares
  *   against REPEATABLE READ), ~/.cache/grizzle-release/BR08/plants/isolation-no-database-default.patch (the
  *   installation leaves the database's default level alone); each must turn the property red.
@@ -43,7 +44,7 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
+import { boolean, element, type Gen } from "@grizzle/testing/gen"
 import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
@@ -168,18 +169,22 @@ const statements = [
 type Statement = (typeof statements)[number]
 const writes = Arr.filter(statements, (s) => s !== "select")
 
-/** A point of the box: a level, an actor and a statement, over a table, the level outermost. */
-type Point = readonly [readonly [Level, Actor, Statement], Table]
+/**
+ * A point of the box: a level, an actor and a statement, over a table, the level outermost, and for a write whether its
+ * transaction reads the table first, which a read alone already does.
+ */
+type Point = readonly [readonly [Level, Actor, Statement], Table, boolean]
 
-const box: Gen<Point> = (source) =>
-	[
-		[
-			source.draw(element(levels)),
-			source.draw(element(actors)),
-			source.draw(element(statements))
-		] as const,
-		source.draw(element(tables))
+const box: Gen<Point> = (source) => {
+	const level = source.draw(element(levels))
+	const actor = source.draw(element(actors))
+	const statement = source.draw(element(statements))
+	return [
+		[level, actor, statement] as const,
+		source.draw(element(tables)),
+		statement === "select" ? false : source.draw(boolean)
 	] as const
+}
 
 /** What the model names for a point of the box. */
 type Verdict =
@@ -211,6 +216,7 @@ type IsolationFeature =
 	| `${Statement}: ${Verdict["kind"]}`
 	| `${TableKind}: refused by the guard`
 	| "a write at the database's default admitted"
+	| "a write refused by the guard after a read"
 
 /** A table's name in the installation, schema-qualified and quoted. */
 const tableName = (names: Names, table: Table): string => names.table(table.relation)
@@ -289,9 +295,11 @@ const shownMet = (met: Met): string => {
 	}
 }
 
+/** One point's transaction: begun at `level`, `before` read and admitted, then `sql`, which ends it. */
 const runPoint = (
 	session: RawSession,
 	level: Level,
+	before: ReadonlyArray<string>,
 	sql: string,
 	readOnly: boolean
 ): Effect.Effect<Met> =>
@@ -304,6 +312,9 @@ const runPoint = (
 				[]
 			)
 		)
+		for (const read of before) {
+			yield* Effect.orDie(session.query(read, []))
+		}
 		const ran = yield* Effect.result(session.query(sql, []))
 		if (Result.isFailure(ran)) {
 			const fields = defined(pgErrorFields(ran.failure), `${sql}: a server error`)
@@ -378,11 +389,12 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 							"update: refused by privilege",
 							"select: admitted",
 							"a write at the database's default admitted",
+							"a write refused by the guard after a read",
 							...Arr.map(tables, (t): IsolationFeature => `${tableKind(t)}: refused by the guard`)
 						]
 						return yield* exhaust(
 							{
-								box: "every level (the database's default, SERIALIZABLE, READ COMMITTED, REPEATABLE READ, READ UNCOMMITTED), actor (a world role's writer, the schema's owner), statement (INSERT, UPDATE, DELETE of a row and of none, TRUNCATE, MERGE inserting, updating and deleting, SELECT) and table (law-bearing or lawless, mutable or immutable)",
+								box: "every level (the database's default, SERIALIZABLE, READ COMMITTED, REPEATABLE READ, READ UNCOMMITTED), actor (a world role's writer, the schema's owner), statement (INSERT, UPDATE, DELETE of a row and of none, TRUNCATE, MERGE inserting, updating and deleting, SELECT), table (law-bearing or lawless, mutable or immutable), and for a write a read of its table first or none",
 								oracle: {
 									kind: "specification",
 									name: "the README's refusal order restated (predict): a read admitted, then privilege, then the guard below SERIALIZABLE"
@@ -390,16 +402,23 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 								suite: "pg/direct-writers/isolation",
 								generator: box,
 								literal: Formatter.format,
-								limit: levels.length * actors.length * statements.length * tables.length,
+								limit: levels.length * actors.length * (2 * writes.length + 1) * tables.length,
 								coverage: requiredInSpace<IsolationFeature>(situations),
 								caseHang
 							},
-							([[level, actor, statement], table], c) =>
+							([[level, actor, statement], table, readFirst], c) =>
 								Effect.gen(function* () {
 									const sql = sqlOf(names, statement, table)
-									const point = `${actor} at ${level}: ${sql}`
+									const reads = readFirst ? [sqlOf(names, "select", table)] : []
+									const point = `${actor} at ${level}: ${Arr.join([...reads, sql], "; ")}`
 									const verdict = predict(level, actor, statement, table)
-									const met = yield* runPoint(sessions[actor], level, sql, statement === "select")
+									const met = yield* runPoint(
+										sessions[actor],
+										level,
+										reads,
+										sql,
+										statement === "select"
+									)
 									switch (verdict.kind) {
 										case "admitted":
 											assert.ok(met.kind === "ran", `${point}: admitted, met ${shownMet(met)}`)
@@ -427,6 +446,9 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 												`${point}: the refusal names the table, by its schema and name`
 											)
 											c.note(`${tableKind(table)}: refused by the guard`)
+											if (readFirst) {
+												c.note("a write refused by the guard after a read")
+											}
 											break
 									}
 									c.note(`${statement}: ${verdict.kind}`)
