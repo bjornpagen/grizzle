@@ -32,7 +32,14 @@
  * only after rebinding the foreign key (deploy/diff/diff.ts rebind). The box: S0's reference over (k, a, b) in every
  * order, a superkey or a fixed target fixing a or b, the walk drafted and applied through the real runner with rows in
  * every table, each apply admitted by the drift check and the installed-catalog checker, the migrated catalog equal to a
- * fresh install of each step, and S1's foreign key refusing a row naming no row of T after every step.
+ * fresh install of each step, and S1's foreign key refusing a row naming no row of T after every step. T's table is
+ * read by the name the installation gives it.
+ *
+ * Features: two references over one set in two orders, a fixed target and a superkey reference over one set,
+ * references over two sets, a declared key and a reference over one set, a clash refused, a source row committed and
+ * one refused by its own foreign key; the walk must move a kept foreign key off the UNIQUE it landed on. Plant:
+ * ~/.cache/grizzle-release/BR09/plants/superkey-orders-unique-per-order.patch, a UNIQUE's identity read in its plan's
+ * order instead of as its column set, installs two unique indexes over one set.
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
@@ -447,13 +454,13 @@ const stepOf = (second: Reference | undefined): SchemaDesc =>
 	)
 
 /** T's unique constraints, by name, as the catalog holds them: the one over S1's columns. */
-const uniqueOverSet = (schema: string) =>
+const uniqueOverSet = (table: { readonly schema: string; readonly name: string }) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		const rows = yield* admin.queryValues(
 			"SELECT c.conname::text FROM pg_catalog.pg_constraint c JOIN pg_catalog.pg_class r ON r.oid = c.conrelid " +
-				"JOIN pg_catalog.pg_namespace n ON n.oid = r.relnamespace WHERE n.nspname = $1 AND r.relname = 't' AND c.contype = 'u'",
-			[schema]
+				"JOIN pg_catalog.pg_namespace n ON n.oid = r.relnamespace WHERE n.nspname = $1 AND r.relname = $2 AND c.contype = 'u'",
+			[table.schema, table.name]
 		)
 		return Arr.map(rows, (row) => String(row[0]))
 	})
@@ -512,7 +519,7 @@ const walkCase = (
 					sourceRow(sourceName(1), 1, 1)
 				])
 			}
-			const uniques = yield* uniqueOverSet(installation.names.relation("T").schema)
+			const uniques = yield* uniqueOverSet(installation.names.relation("T"))
 			assert.equal(uniques.length, 1, `step ${i + 1}: T holds one UNIQUE over S1's columns`)
 			if (i > 0 && Arr.join(uniques, ",") !== Arr.join(landed, ",")) {
 				note("a kept foreign key moved off the UNIQUE it landed on")

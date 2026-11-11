@@ -12,7 +12,13 @@
  * (enable_seqscan = off): the plan scans no relation sequentially, reads the source through an index scan, an index-only
  * scan or a bitmap index scan with an index condition, and every index it reads is the source's own, of the access
  * method the rule plans: a B-tree, or a hash index. A source text of no bound stores a 10,000-byte value, three times
- * BTMaxItemSize, in a row its selection leaves out.
+ * BTMaxItemSize, in a row its selection leaves out. Every foreign key of a source is probed, however many its
+ * containment installs.
+ *
+ * Oracle: the specification, the reverse-index rule restated (reverse.ts expectedOf), with PostgreSQL's generic plan as
+ * the judge of what serves each probe. Features: every situation reverse.ts draws, and the wide text stored. Plant:
+ * ~/.cache/grizzle-release/BR09/plants/reverse-probe-short-btree.patch, a reverse B-tree one column short of the run
+ * the rule plans, gives a single bounded column a hash index where the rule plans a B-tree.
  */
 import { layer } from "@effect/vitest"
 import { type Case as SearchCase, drawn, explore } from "@grizzle/testing/explore"
@@ -20,7 +26,7 @@ import { required } from "@grizzle/testing/features"
 import { array } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
 import { indices } from "#compiler/core/array.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -103,7 +109,10 @@ const cases = 32
  */
 const reverseProbes = explore(
 	{
-		oracle: { kind: "unstated" },
+		oracle: {
+			kind: "specification",
+			name: "the reverse-index rule (test/support/laws/reverse.ts expectedOf), judged by PostgreSQL's plan of each foreign key's probe"
+		},
 		suite: "laws/reverse-probe",
 		draw: drawn(array(reverseCaseGen, { min: cases, max: cases })),
 		literal: Formatter.format,
@@ -145,12 +154,8 @@ const probeBatch = (batch: ReadonlyArray<ReverseCase>, note: SearchCase<ProbeFea
 				`SELECT c.conname::text, a.attname::text FROM pg_catalog.pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord) JOIN pg_catalog.pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum WHERE c.conrelid = '${table}'::regclass AND c.contype = 'f' ORDER BY k.ord`,
 				[]
 			)
-			assert.equal(
-				Arr.dedupe(Arr.map(references, (r) => textCell(r, 0, "a constraint's name"))).length,
-				1,
-				`${where}: one foreign key`
-			)
-			const columns = Arr.map(references, (r) => textCell(r, 1, "a referencing column"))
+			const foreignKeys = Arr.groupBy(references, (r) => textCell(r, 0, "a constraint's name"))
+			assert.ok(!Rec.isEmptyRecord(foreignKeys), `${where}: the containment is a foreign key`)
 			const indexes = yield* session.values(
 				`SELECT i.relname::text, am.amname::text FROM pg_catalog.pg_index x JOIN pg_catalog.pg_class i ON i.oid = x.indexrelid JOIN pg_catalog.pg_am am ON am.oid = i.relam WHERE x.indrelid = '${table}'::regclass`,
 				[]
@@ -161,41 +166,45 @@ const probeBatch = (batch: ReadonlyArray<ReverseCase>, note: SearchCase<ProbeFea
 					(r) => [textCell(r, 0, "an index's name"), textCell(r, 1, "its access method")] as const
 				)
 			)
-			const probe = `SELECT 1 FROM ONLY ${table} x WHERE ${Arr.join(
-				Arr.map(columns, (column, i) => `$${i + 1} = x.${quoteIdent(column)}`),
-				" AND "
-			)} FOR KEY SHARE OF x`
-			yield* session.query(`PREPARE probe${at} AS ${probe}`, [])
-			const explained = yield* session.values(
-				`EXPLAIN (FORMAT JSON) EXECUTE probe${at}(${Arr.join(
-					Arr.map(columns, () => "NULL"),
-					", "
-				)})`,
-				[]
-			)
-			const nodes = planNodes(
-				succeeded(parsePlanTree(explained[0]?.[0]), "one EXPLAIN plan")
-			).toArray()
-			assert.deepEqual(
-				Arr.map(
-					Arr.filter(nodes, (n) => n.nodeType === "Seq Scan"),
-					(n) => n.relation
-				),
-				[],
-				`${where}: the probe scans no relation sequentially`
-			)
-			const scans = Arr.filter(nodes, (n) => indexScans.has(n.nodeType))
-			assert.ok(scans.length > 0, `${where}: the probe reads the source through an index`)
-			for (const scan of scans) {
-				const index = Option.getOrElse(scan.index, () =>
-					assert.fail(`${where}: a ${scan.nodeType} names its index`)
+			for (const [k, [constraint, rows]] of Rec.toEntries(foreignKeys).entries()) {
+				const columns = Arr.map(rows, (r) => textCell(r, 1, "a referencing column"))
+				const probe = `SELECT 1 FROM ONLY ${table} x WHERE ${Arr.join(
+					Arr.map(columns, (column, i) => `$${i + 1} = x.${quoteIdent(column)}`),
+					" AND "
+				)} FOR KEY SHARE OF x`
+				yield* session.query(`PREPARE probe${at}_${k} AS ${probe}`, [])
+				const explained = yield* session.values(
+					`EXPLAIN (FORMAT JSON) EXECUTE probe${at}_${k}(${Arr.join(
+						Arr.map(columns, () => "NULL"),
+						", "
+					)})`,
+					[]
 				)
-				assert.ok(Option.isSome(scan.indexCond), `${where}: ${index} has an index condition`)
-				assert.equal(
-					methods.get(index),
-					expected.method,
-					`${where}: ${index} is the source's own, of the access method the rule plans`
+				const nodes = planNodes(
+					succeeded(parsePlanTree(explained[0]?.[0]), "one EXPLAIN plan")
+				).toArray()
+				const of = `${where}, the probe of ${constraint}`
+				assert.deepEqual(
+					Arr.map(
+						Arr.filter(nodes, (n) => n.nodeType === "Seq Scan"),
+						(n) => n.relation
+					),
+					[],
+					`${of}: it scans no relation sequentially`
 				)
+				const scans = Arr.filter(nodes, (n) => indexScans.has(n.nodeType))
+				assert.ok(scans.length > 0, `${of}: it reads the source through an index`)
+				for (const scan of scans) {
+					const index = Option.getOrElse(scan.index, () =>
+						assert.fail(`${of}: a ${scan.nodeType} names its index`)
+					)
+					assert.ok(Option.isSome(scan.indexCond), `${of}: ${index} has an index condition`)
+					assert.equal(
+						methods.get(index),
+						expected.method,
+						`${of}: ${index} is the source's own, of the access method the rule plans`
+					)
+				}
 			}
 			const frees = freePositions(c)
 			if (c.selected && frees.length > 0) {

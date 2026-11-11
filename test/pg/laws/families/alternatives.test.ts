@@ -5,7 +5,11 @@
  * model (test/support/laws/model.ts), a second implementation judging each generated write sequence.
  *
  * Beside them, every armed handle of every schema of the box written once, exhausted: a run of the handle with its
- * payload commits, a payload relation shared by several handles taking each one's.
+ * payload commits, a payload relation shared by several handles taking each one's. Its oracle is alternatives' meaning
+ * (fin.md §7), the specification: a run of an armed handle beside its payload's row keeps every law of the expansion.
+ * Features: a handle of a payload relation shared, and one of a relation of its own. Plant:
+ * ~/.cache/grizzle-release/BR09/plants/alternatives-shared-arm-first-handle.patch, an arm's forward containment selecting
+ * its relation's first handle alone, refuses the run of a shared relation's other handle.
  */
 
 import { layer } from "@effect/vitest"
@@ -71,8 +75,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					ctx,
 					exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every armed handle of every schema of the alternatives box, a run of it beside its payload's row",
+							oracle: {
+								kind: "specification",
+								name: "alternatives' meaning: a run of an armed handle beside its payload's row keeps every law"
+							},
 							suite: "laws/alternatives/armed-handles",
 							literal: Formatter.format,
 							generator: element(armedHandles),

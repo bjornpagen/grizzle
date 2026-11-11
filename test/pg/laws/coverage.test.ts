@@ -17,7 +17,12 @@
  *   cover it; so a gap is refused at COMMIT, and the empty span and the overlap are refused at their statements.
  *
  * The box is G2's (doctrine rule 9): keys 0 and 1, points 0 to 3, each span one of the six non-empty intervals over
- * them, the empty one, or outside the selection; at most two target rows in one INSERT, then one source row.
+ * them, the empty one, or outside the selection; at most two target rows in one INSERT, then one source row. A refusal
+ * is told by the law its constraint reports, the key's or the coverage's, or by a CHECK over the span field, its shape.
+ *
+ * Features: a commit, one with the source outside its selection, each refusal, and a coverage refused across a gap,
+ * every one required of the space. Plant: ~/.cache/grizzle-release/BR09/plants/coverage-period-fk-immediate.patch,
+ * the PERIOD foreign key installed immediate, refuses a gap at its statement where the model refuses it at COMMIT.
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
@@ -27,15 +32,9 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { pg, span } from "#compiler/public/fields.ts"
 import { contained, key, on, relation, schema, select } from "#compiler/public/schema.ts"
-import {
-	cleared,
-	type Catalogued,
-	constraintText,
-	type Seat,
-	seatOf
-} from "#test/pg/fin/installed.ts"
+import { type Catalogued, cleared, type Seat, seatOf } from "#test/pg/fin/installed.ts"
 import { covered, isEmpty, keyRefusal, type Row, SPANS } from "#test/pg/substrate/temporal.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
+import { nonEmpty } from "#test/support/assert.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -134,20 +133,24 @@ const insertSql = (seat: Seat, relation: string, rows: ReadonlyArray<Row>, from:
 		", "
 	)}`
 
-/** The native a refusal's constraint is, by kind and columns: the span shape CHECK, the WITHOUT OVERLAPS key, the PERIOD FK. */
-const refusalOf = (c: Catalogued): Option.Option<Refusal> => {
-	switch (c.kind) {
-		case "check":
-			return c.columns.includes("during") && c.columns.length === 1
-				? Option.some("empty span")
-				: Option.none()
-		case "unique":
-		case "primary":
-			return c.relation === "Target" && c.columns.length > 1 ? Option.some("key") : Option.none()
-		case "foreign":
-			return c.relation === "Source" ? Option.some("coverage") : Option.none()
+/**
+ * What a refusal's constraint is, as the installation reports it: a CHECK over a span field, its shape; a unique or a
+ * foreign key reporting the target key's law or the coverage's law, each by the law the installation maps it to.
+ */
+const refusalOf =
+	(seat: Seat) =>
+	(c: Catalogued): Option.Option<Refusal> => {
+		const reports = (kind: string) => Option.exists(c.law, (l) => seat.lawsOf(kind).includes(l))
+		switch (c.kind) {
+			case "check":
+				return c.columns.includes("during") ? Option.some("empty span") : Option.none()
+			case "unique":
+			case "primary":
+				return reports("key") ? Option.some("key") : Option.none()
+			case "foreign":
+				return reports("containment") ? Option.some("coverage") : Option.none()
+		}
 	}
-}
 
 const SQLSTATE: Readonly<Record<Refusal, string>> = {
 	"empty span": "23514",
@@ -169,11 +172,6 @@ layer(Substrate.layer)("coverage through grizzle's lowering on PostgreSQL 19rc1"
 				ctx,
 				Effect.gen(function* () {
 					const seat = yield* seatOf(Coverage, RELATIONS, "coverage")
-					const fk = Arr.filter(seat.constraints, (c) => Option.contains(refusalOf(c), "coverage"))
-					assert.ok(
-						fk.length === 1 && Arr.every(fk, (c) => c.deferrable),
-						`one coverage foreign key, deferrable into its replaceable target: ${Arr.join(Arr.map(fk, constraintText), "; ")}`
-					)
 					return yield* exhaust(
 						{
 							suite: "fin/coverage",
@@ -224,7 +222,7 @@ layer(Substrate.layer)("coverage through grizzle's lowering on PostgreSQL 19rc1"
 								if (model.kind !== "refused") {
 									return yield* disagree("PostgreSQL refused")
 								}
-								const named = Option.flatMap(seat.refusedBy(real.fields), refusalOf)
+								const named = Option.flatMap(seat.refusedBy(real.fields), refusalOf(seat))
 								if (
 									!sameMoment(real.moment, model.moment) ||
 									!Option.contains(named, model.by) ||

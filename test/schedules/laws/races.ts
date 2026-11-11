@@ -1,3 +1,17 @@
+/**
+ * The generated law races of a family (raceSuite), on PostgreSQL 19rc1: every interleaving of a drawn race over a
+ * schema of the family's box, from a drawn lawful state, is a history the history oracle passes
+ * (test/support/history/interleave.ts lawExploration). No law is broken in the committed state, every planted writer
+ * below SERIALIZABLE meets its refusal and commits nothing, every abort has a concurrent cause, and some serial order
+ * respecting real time explains every outcome, refusals with their laws and witnesses included.
+ *
+ * Oracle: the specification, the host model of the family's laws (test/support/laws/model.ts) as a serial reference.
+ * Timing is a drawn input: a race of few moves runs every order, a longer one a PCT schedule drawn on the case's tape.
+ * Features: each population's required situations (its threats, writers, put forms, planted writers below
+ * SERIALIZABLE, its write skew), each paired with its mode. Plant: ~/.cache/grizzle-release/BR09/plants/
+ * races-alternatives-no-forward.patch, an alternatives statement expanded to its reverse containments alone, commits
+ * an arm row whose parent is of another handle.
+ */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required, type Situations } from "@grizzle/testing/features"
@@ -1528,7 +1542,10 @@ export const raceSuite = <P>(h: HistoryFamily<P>): void => {
 				)
 				return yield* explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the host model of the family's laws, as a serial reference of every interleaving"
+						},
 						suite: `races/${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(h.family.label)}`,
 						draw: drawn(raceCaseGen(variants.length, windows, skewStartsOf(h, variants))),
 						literal: Formatter.format,
