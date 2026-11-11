@@ -25,10 +25,11 @@ import {
 	regExp,
 	str,
 	typeKeyword,
+	typeApply,
 	typeReadonlyArray,
 	typeLiteral,
-	typeRef,
 	typeUnion,
+	typedArrow,
 	undef
 } from "#emit/printer.ts"
 import type { Expr, Module, Param, Statement, TypeExpr } from "#emit/printer.ts"
@@ -90,7 +91,7 @@ const path = (dotted: string): Expr => {
 const ref = (dotted: string, args: readonly TypeExpr[] = []): TypeExpr => {
 	const [head = "", ...rest] = dotted.split(".")
 
-	return typeRef(
+	return typeApply(
 		I(head),
 		rest.map((name) => M(name)),
 		args
@@ -166,7 +167,7 @@ const usersModule: Module = {
 			doc: doc("Request builder for users update, not an HttpApi definition."),
 			exported: true,
 			name: I("update"),
-			value: arrow(
+			value: typedArrow(
 				[param("input", ref("UpdateInput"))],
 				fn(
 					"Serialize.request",
@@ -1171,7 +1172,7 @@ const simple = (wire: string, value: string) =>
 	)
 
 const builder = (name: string, params: readonly Param[], body: Expr) =>
-	constant(name, arrow(params, body, ref("Serialize.Request")))
+	constant(name, typedArrow(params, body, ref("Serialize.Request")))
 
 const arrowModule: Module = {
 	imports: [],
@@ -1239,7 +1240,7 @@ const arrowModule: Module = {
 			fn(
 				"Effect.map",
 				path("someValue"),
-				arrow(
+				typedArrow(
 					[param("input", ref("A".repeat(70)))],
 					fn("f", path("input")),
 					ref("Serialize.Request")

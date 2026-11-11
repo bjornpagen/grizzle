@@ -1,4 +1,6 @@
-import { JsonPointer, Predicate } from "effect"
+import { jsonTextOf } from "@superstarter/json"
+import { regex } from "arkregex"
+import { Array as Arr, JsonPointer, Option, Predicate, Record, String as Str } from "effect"
 import { SafeText, sanitizeProse } from "#model/brands.ts"
 import { isRefusal } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
@@ -12,7 +14,7 @@ import type { Json } from "#model/pointer.ts"
  * `enum` values, its `default` (never sent), and whether it is read-only or deprecated.
  */
 export interface HelpBodyField {
-	readonly default: Json | undefined
+	readonly default: Option.Option<Json>
 	readonly deprecated: boolean
 	readonly enum: readonly Json[] | undefined
 	readonly readOnly: boolean
@@ -94,10 +96,19 @@ export interface OperationHelp {
 
 type SafeTextValue = typeof SafeText.Type
 
-// A single-line generated field: sanitized, with LF and TAB runs folded to one space.
-const line = (text: string): string => sanitizeProse(text).replaceAll(/[\n\t]+/gu, " ")
+/**
+ * The runs of LF and TAB a single-line field folds to one space.
+ */
+const lineBreaks = regex("[\\n\\t]+", "gu")
 
-// Each switch's flag note (design 6.1 Scalar switch, Marking).
+/**
+ * A single-line generated field: sanitized, with LF and TAB runs folded to one space.
+ */
+const line = (text: string): string => Str.replaceAll(lineBreaks, " ")(sanitizeProse(text))
+
+/**
+ * Each switch's flag note (design 6.1 Scalar switch, Marking).
+ */
 const choiceNotes: Readonly<Record<NonStandardChoice, string>> = {
 	deepObjectBrackets:
 		"non-standard: sent as name[a][b]=v (author config nonStandard.deepObjectBrackets)",
@@ -107,26 +118,35 @@ const choiceNotes: Readonly<Record<NonStandardChoice, string>> = {
 
 const choices: readonly NonStandardChoice[] = ["deepObjectBrackets", "deepObjectScalars"]
 
-// The distinct choices among use sites, bracket choice first.
+/**
+ * The distinct choices among use sites, bracket choice first.
+ */
 const choicesOf = (uses: readonly NonStandardUse[]): readonly NonStandardChoice[] =>
-	choices.filter((choice) => uses.some((use) => use.choice === choice))
+	Arr.filter(choices, (choice) => Arr.some(uses, (use) => use.choice === choice))
 
-// The first pointer token, unescaped: the form property a body flag writes.
+/**
+ * The first pointer token, unescaped: the form property a body flag writes. The root pointer has
+ * none and names the empty property.
+ */
 const propertyOf = (pointer: string): string =>
-	JsonPointer.unescapeToken(pointer.split("/")[1] ?? "")
+	JsonPointer.unescapeToken(Option.getOrElse(Arr.get(Str.split(pointer, "/"), 1), () => ""))
 
-// The use sites the author config marked on the form property a body flag writes (design 6.1).
+/**
+ * The use sites the author config marked on the form property a body flag writes (design 6.1).
+ */
 const bodyMarked = (operation: Operation, pointer: string): readonly NonStandardUse[] => {
 	const name = propertyOf(pointer)
 
-	return (operation.body?.alternatives ?? []).flatMap((alternative) =>
-		alternative.encoding.flatMap((rule) =>
+	return Arr.flatMap(operation.body?.alternatives ?? [], (alternative) =>
+		Arr.flatMap(alternative.encoding, (rule) =>
 			rule.target.kind === "property" && rule.target.name === name ? markedUses(rule) : []
 		)
 	)
 }
 
-// The switches that marked the element a flag writes, bracket choice first; empty when unmarked.
+/**
+ * The switches that marked the element a flag writes, bracket choice first; empty when unmarked.
+ */
 const markedChoices = (operation: Operation, flag: HelpFlag): readonly NonStandardChoice[] => {
 	const { source } = flag
 	if (source._tag === "Body") {
@@ -140,12 +160,14 @@ const markedChoices = (operation: Operation, flag: HelpFlag): readonly NonStanda
 	return choicesOf(nonStandardUses(source.parameter.serialization))
 }
 
-// Each position's content type, then every later part's (HT:B15): `part 1: a; parts 2+: b`.
+/**
+ * Each position's content type, then every later part's (HT:B15): `part 1: a; parts 2+: b`.
+ */
 const partsNote = (prefix: readonly string[], item: string | undefined): string => {
-	const positions = prefix.map((type, index) => `part ${index + 1}: ${line(type)}`)
+	const positions = Arr.map(prefix, (type, index) => `part ${index + 1}: ${line(type)}`)
 	const rest = item === undefined ? [] : [`parts ${prefix.length + 1}+: ${line(item)}`]
 
-	return [...positions, ...rest].join("; ")
+	return Arr.join([...positions, ...rest], "; ")
 }
 
 const locationNote = (source: HelpFlagSource, name: string): string => {
@@ -173,10 +195,13 @@ const locationNote = (source: HelpFlagSource, name: string): string => {
 
 const record = (
 	entries: readonly (readonly [string, string])[]
-): Readonly<Record<string, string>> => Object.fromEntries(entries)
+): Readonly<Record<string, string>> => Record.fromEntries(entries)
 
 const mediaTypes = (alternatives: readonly { readonly mediaType: string }[]): string =>
-	alternatives.map((alternative) => alternative.mediaType).join(" or ")
+	Arr.join(
+		Arr.map(alternatives, (alternative) => alternative.mediaType),
+		" or "
+	)
 
 const requestLine = (operation: Operation): string => {
 	const { body, key, operationId } = operation
@@ -191,37 +216,46 @@ const requestLine = (operation: Operation): string => {
 		parts.push(`operationId ${line(operationId)}`)
 	}
 
-	return parts.join(", ")
+	return Arr.join(parts, ", ")
 }
 
 type Hint = typeof DiscriminatorHint.Type
 
-// One branch of a discriminated body: the JSON-quoted values that select it, then its component;
-// a branch no value selects names its place in the composition.
+/**
+ * One branch of a discriminated body: the JSON-quoted values that select it, then its component;
+ * a branch no value selects names its place in the composition.
+ */
 const branchText = (hint: Hint, branch: Hint["branches"][number]): string => {
 	const place = `${hint.keyword}/${branch.index}`
 	if (branch.labels.length === 0) {
 		return `${place} (inline, no ${line(hint.propertyName)} value)`
 	}
 
-	const values = branch.labels.map((label) => line(JSON.stringify(label))).join(" | ")
+	const values = Arr.join(
+		Arr.map(branch.labels, (label) => line(jsonTextOf(label))),
+		" | "
+	)
 
 	return `${values} (${branch.component === undefined ? place : line(branch.component)})`
 }
 
-// The VARIANTS line: each hinted body alternative's branches by discriminator value (D-OQ9).
+/**
+ * The VARIANTS line: each hinted body alternative's branches by discriminator value (D-OQ9).
+ */
 const variantsLine = (operation: Operation): string | undefined => {
-	const hinted = (operation.body?.alternatives ?? []).flatMap(({ discriminator, mediaType }) =>
-		discriminator === undefined
-			? []
-			: [
-					`${mediaType} ${discriminator.keyword} by ${line(discriminator.propertyName)}: ${discriminator.branches
-						.map((branch) => branchText(discriminator, branch))
-						.join(", ")}`
-				]
-	)
+	const hinted = Arr.flatMap(operation.body?.alternatives ?? [], ({ discriminator, mediaType }) => {
+		if (discriminator === undefined) {
+			return []
+		}
 
-	return hinted.length === 0 ? undefined : hinted.join("; ")
+		const branches = Arr.map(discriminator.branches, (branch) => branchText(discriminator, branch))
+
+		return [
+			`${mediaType} ${discriminator.keyword} by ${line(discriminator.propertyName)}: ${Arr.join(branches, ", ")}`
+		]
+	})
+
+	return hinted.length === 0 ? undefined : Arr.join(hinted, "; ")
 }
 
 const kindNote = (scheme: SecurityScheme): string => {
@@ -241,13 +275,18 @@ const kindNote = (scheme: SecurityScheme): string => {
 	return kind.type === "oidcToken" ? "oidc token" : "mutualTls"
 }
 
-// The marker column: what a reader must know about where a scheme came from and whether it is deprecated.
+/**
+ * The marker column: what a reader must know about where a scheme came from and whether it is
+ * deprecated.
+ */
 const markers = (scheme: SecurityScheme): readonly string[] => [
 	...(scheme.source === "author-supplied" ? ["author-supplied"] : []),
 	...(scheme.deprecated ? ["deprecated"] : [])
 ]
 
-// The first entry per key, as a linear search would find it; built once per command.
+/**
+ * The first entry per key, as a linear search would find it; built once per command.
+ */
 const firstByKey = <T>(items: readonly T[], keyOf: (item: T) => string): ReadonlyMap<string, T> => {
 	const map = new Map<string, T>()
 	for (const item of items) {
@@ -270,7 +309,9 @@ type Use = Operation["security"]["alternatives"][number]["uses"][number]
 
 type Flows = Extract<SecurityScheme["kind"], { readonly type: "oauth2Token" }>["flows"]
 
-// Flow kinds in a fixed order, so the line does not depend on the spec's key order.
+/**
+ * Flow kinds in a fixed order, so the line does not depend on the spec's key order.
+ */
 const flowKinds = [
 	"authorizationCode",
 	"clientCredentials",
@@ -281,11 +322,17 @@ const flowKinds = [
 
 const acquisition = "token acquisition is not supported; supply an access token"
 
-// One flow: its URLs when the spec gives them, then its scope names and descriptions (OAF-01, OAF-12).
+/**
+ * The URL fields a flow line shows, in a fixed order.
+ */
+const flowUrls = ["authorizationUrl", "deviceAuthorizationUrl", "tokenUrl", "refreshUrl"] as const
+
+/**
+ * One flow: its URLs when the spec gives them, then its scope names and descriptions (OAF-01,
+ * OAF-12).
+ */
 const flowText = (kind: string, flow: NonNullable<Flows[keyof Flows]>): string => {
-	const urls = (
-		["authorizationUrl", "deviceAuthorizationUrl", "tokenUrl", "refreshUrl"] as const
-	).flatMap((field) => {
+	const urls = Arr.flatMap(flowUrls, (field) => {
 		const url = flow[field]
 
 		return url === undefined ? [] : [`${field} ${line(url)}`]
@@ -293,21 +340,24 @@ const flowText = (kind: string, flow: NonNullable<Flows[keyof Flows]>): string =
 	const scopes =
 		flow.scopes.length === 0
 			? "none"
-			: flow.scopes
-					.map(({ description, name }) =>
+			: Arr.join(
+					Arr.map(flow.scopes, ({ description, name }) =>
 						description === "" ? line(name) : `${line(name)} (${line(description)})`
-					)
-					.join(", ")
+					),
+					", "
+				)
 
-	return `${kind} flow ${[...urls, `scopes ${scopes}`].join(", ")}`
+	return `${kind} flow ${Arr.join([...urls, `scopes ${scopes}`], ", ")}`
 }
 
-// What help shows of a scheme besides its sources: the oauth2 flows and metadata URL, the OIDC
-// discovery URL (neither URL is ever fetched, design 9 I3), and that no token is acquired.
+/**
+ * What help shows of a scheme besides its sources: the oauth2 flows and metadata URL, the OIDC
+ * discovery URL (neither URL is ever fetched, design 9 I3), and that no token is acquired.
+ */
 const kindDetails = (scheme: SecurityScheme): readonly string[] => {
 	const { kind } = scheme
 	if (kind.type === "oauth2Token") {
-		const flows = flowKinds.flatMap((flowKind) => {
+		const flows = Arr.flatMap(flowKinds, (flowKind) => {
 			const flow = kind.flows[flowKind]
 
 			return flow === undefined ? [] : [flowText(flowKind, flow)]
@@ -325,8 +375,10 @@ const kindDetails = (scheme: SecurityScheme): readonly string[] => {
 		: []
 }
 
-// The values of a requirement entry: required scopes for a token scheme (SEC-11), role names for
-// any other (SEC-13). Help shows them; they are never sent.
+/**
+ * The values of a requirement entry: required scopes for a token scheme (SEC-11), role names for
+ * any other (SEC-13). Help shows them; they are never sent.
+ */
 const scopesNote = (scheme: SecurityScheme | undefined, scopes: readonly string[]): string[] => {
 	if (scopes.length === 0) {
 		return []
@@ -335,11 +387,13 @@ const scopesNote = (scheme: SecurityScheme | undefined, scopes: readonly string[
 	const type = scheme?.kind.type
 	const label = type === "oauth2Token" || type === "oidcToken" ? "required scopes" : "roles"
 
-	return [`${label} ${scopes.map(line).join(", ")} (never sent)`]
+	return [`${label} ${Arr.join(Arr.map(scopes, line), ", ")} (never sent)`]
 }
 
-// Where the credential is read from: a token scheme's file flag and env name, then the TTY prompt
-// when the scheme's credential sources hold it; a mutualTLS scheme's three env names and no flag.
+/**
+ * Where the credential is read from: a token scheme's file flag and env name, then the TTY prompt
+ * when the scheme's credential sources hold it; a mutualTLS scheme's three env names and no flag.
+ */
 const sourcesOf = (
 	lookup: UseLookup,
 	scheme: SecurityScheme | undefined,
@@ -347,9 +401,9 @@ const sourcesOf = (
 ): string | undefined => {
 	const certificate = lookup.certificates.get(name)
 	if (certificate !== undefined) {
-		const envs = [certificate.certEnv, certificate.keyEnv, certificate.caEnv].map(line)
+		const envs = Arr.map([certificate.certEnv, certificate.keyEnv, certificate.caEnv], line)
 
-		return `env ${envs.join(", ")}; the certificate is presented only to accepted origins`
+		return `env ${Arr.join(envs, ", ")}; the certificate is presented only to accepted origins`
 	}
 
 	const credential = lookup.credentials.get(name)
@@ -364,7 +418,7 @@ const useLine = (lookup: UseLookup, use: Use): string => {
 	const name = use.scheme
 	const scheme = lookup.schemes.get(name)
 	const marked = scheme === undefined ? [] : markers(scheme)
-	const mark = marked.length === 0 ? "" : ` [${marked.join(", ")}]`
+	const mark = marked.length === 0 ? "" : ` [${Arr.join(marked, ", ")}]`
 	const head = scheme === undefined ? line(name) : `${line(name)} (${kindNote(scheme)})${mark}`
 	const sources = sourcesOf(lookup, scheme, name)
 	const details = [
@@ -373,13 +427,16 @@ const useLine = (lookup: UseLookup, use: Use): string => {
 	]
 	const text = sources === undefined ? head : `${head}: ${sources}`
 
-	return details.length === 0 ? text : `${text}; ${details.join("; ")}`
+	return details.length === 0 ? text : `${text}; ${Arr.join(details, "; ")}`
 }
 
 const anonymous = "no authentication"
 
-// The AUTH line: the alternatives in document order, `{}` as no authentication; an explicit
-// `security: []` is no authentication and absent security is undocumented (D-OQ10 (a), design 2.2).
+/**
+ * The AUTH line: the alternatives in document order, `{}` as no authentication; an explicit
+ * `security: []` is no authentication and absent security is undocumented (D-OQ10 (a), design
+ * 2.2).
+ */
 const authLine = (input: HelpInput): string => {
 	const { alternatives, declared } = input.operation.security
 	if (alternatives.length === 0) {
@@ -392,13 +449,17 @@ const authLine = (input: HelpInput): string => {
 		schemes: firstByKey(input.schemes, (scheme) => scheme.name)
 	}
 
-	return alternatives
-		.map((alternative) =>
+	return Arr.join(
+		Arr.map(alternatives, (alternative) =>
 			alternative.uses.length === 0
 				? anonymous
-				: alternative.uses.map((use) => useLine(lookup, use)).join(" and ")
-		)
-		.join(" or ")
+				: Arr.join(
+						Arr.map(alternative.uses, (use) => useLine(lookup, use)),
+						" and "
+					)
+		),
+		" or "
+	)
 }
 
 const responseKey = (key: Operation["responses"][number]["key"]): string => {
@@ -410,13 +471,13 @@ const responseKey = (key: Operation["responses"][number]["key"]): string => {
 }
 
 const responsesLine = (operation: Operation): string => {
-	const cases = operation.responses.map((response) => {
+	const cases = Arr.map(operation.responses, (response) => {
 		const types = mediaTypes(response.alternatives)
 
 		return types === "" ? responseKey(response.key) : `${responseKey(response.key)} ${types}`
 	})
 
-	return `${cases.join("; ")}. Non-2xx exits 1 (401/403 exit 3)`
+	return `${Arr.join(cases, "; ")}. Non-2xx exits 1 (401/403 exit 3)`
 }
 
 type ResponseHeader = Operation["responses"][number]["headers"][number]
@@ -427,24 +488,27 @@ const headerMarks = (header: ResponseHeader): string => {
 		...(header.deprecated ? ["deprecated"] : [])
 	]
 
-	return marks.length === 0 ? header.name : `${header.name} (${marks.join(", ")})`
+	return marks.length === 0 ? header.name : `${header.name} (${Arr.join(marks, ", ")})`
 }
 
-// The RESPONSE HEADERS line: each case that declares headers, its names in document order with
-// their required and deprecated marks (HDR-04); absent when no case declares one.
+/**
+ * The RESPONSE HEADERS line: each case that declares headers, its names in document order with
+ * their required and deprecated marks (HDR-04); absent when no case declares one.
+ */
 const responseHeadersLine = (operation: Operation): string | undefined => {
-	const cases = operation.responses
-		.filter((response) => response.headers.length > 0)
-		.map(
-			(response) => `${responseKey(response.key)}: ${response.headers.map(headerMarks).join(", ")}`
-		)
+	const cases = Arr.map(
+		Arr.filter(operation.responses, (response) => response.headers.length > 0),
+		(response) =>
+			`${responseKey(response.key)}: ${Arr.join(Arr.map(response.headers, headerMarks), ", ")}`
+	)
 
-	return cases.length === 0 ? undefined : cases.join("; ")
+	return cases.length === 0 ? undefined : Arr.join(cases, "; ")
 }
 
 const refusedLine = (input: HelpInput): string | undefined => {
 	const { key } = input.operation
-	const refused = input.diagnostics.filter(
+	const refused = Arr.filter(
+		input.diagnostics,
 		(diagnostic) =>
 			isRefusal(diagnostic) &&
 			(diagnostic.scope === "element" || diagnostic.scope === "field") &&
@@ -454,12 +518,14 @@ const refusedLine = (input: HelpInput): string | undefined => {
 
 	return refused.length === 0
 		? undefined
-		: refused
-				.map(
+		: Arr.join(
+				Arr.map(
+					refused,
 					(diagnostic) =>
 						`${line(diagnostic.wire ?? diagnostic.element)}: ${line(diagnostic.message)}`
-				)
-				.join("; ")
+				),
+				"; "
+			)
 }
 
 const isArgument = (flag: HelpFlag): boolean =>
@@ -479,17 +545,21 @@ const isDeprecated = ({ source }: HelpFlag): boolean => {
 		: source.field?.deprecated === true
 }
 
-// A schema value as help shows it: a string as itself, anything else as JSON.
+/**
+ * A schema value as help shows it: a string as itself, anything else as JSON.
+ */
 const valueText = (value: Json): string =>
-	line(Predicate.isString(value) ? value : JSON.stringify(value))
+	line(Predicate.isString(value) ? value : jsonTextOf(value))
 
-// A body field's schema notes: its allowed values, its default and its read-only mark. A content
-// type option lists its choices, and a required part header names the part flag it goes with.
+/**
+ * A body field's schema notes: its allowed values, its default and its read-only mark. A content
+ * type option lists its choices, and a required part header names the part flag it goes with.
+ */
 const fieldNotes = (source: HelpFlagSource): readonly string[] => {
 	if (source._tag === "PartOption") {
 		const { option } = source
 		if (option.kind === "content-type") {
-			return [`choices: ${option.choices.map(line).join(", ")}`]
+			return [`choices: ${Arr.join(Arr.map(option.choices, line), ", ")}`]
 		}
 
 		return option.required ? [`required when --${line(option.partFlag)} is given`] : []
@@ -501,40 +571,48 @@ const fieldNotes = (source: HelpFlagSource): readonly string[] => {
 	}
 
 	return [
-		...(field.enum === undefined ? [] : [`choices: ${field.enum.map(valueText).join(", ")}`]),
-		...(field.default === undefined ? [] : [`default: ${valueText(field.default)}`]),
+		...(field.enum === undefined
+			? []
+			: [`choices: ${Arr.join(Arr.map(field.enum, valueText), ", ")}`]),
+		...Option.match(field.default, {
+			onNone: () => [],
+			onSome: (value) => [`default: ${valueText(value)}`]
+		}),
 		...(field.readOnly ? ["read-only"] : [])
 	]
 }
 
-// A flag's annotation: its location, then each switch's note, the body field's schema notes and
-// `deprecated` when they apply.
+/**
+ * A flag's annotation: its location, then each switch's note, the body field's schema notes and
+ * `deprecated` when they apply.
+ */
 const noted =
 	(operation: Operation) =>
 	(flag: HelpFlag): readonly [string, string] => {
 		const notes = [
 			locationNote(flag.source, flag.name),
-			...markedChoices(operation, flag).map((choice) => choiceNotes[choice]),
+			...Arr.map(markedChoices(operation, flag), (choice) => choiceNotes[choice]),
 			...fieldNotes(flag.source),
 			...(isDeprecated(flag) ? ["deprecated"] : [])
 		]
 
-		return [line(flag.name), notes.join("; ")]
+		return [line(flag.name), Arr.join(notes, "; ")]
 	}
 
-// The NON-STANDARD line: for each switch, the flags it marked by visible name, then its choice.
+/**
+ * The NON-STANDARD line: for each switch, the flags it marked by visible name, then its choice.
+ */
 const nonStandardLine = (input: HelpInput): string | undefined => {
-	const groups = choices.flatMap((choice) => {
-		const marked = input.flags.filter((flag) =>
+	const groups = Arr.flatMap(choices, (choice) => {
+		const marked = Arr.filter(input.flags, (flag) =>
 			markedChoices(input.operation, flag).includes(choice)
 		)
+		const names = Arr.map(marked, (flag) => `--${line(flag.name)}`)
 
-		return marked.length === 0
-			? []
-			: [`${marked.map((flag) => `--${line(flag.name)}`).join(", ")} (${choice})`]
+		return marked.length === 0 ? [] : [`${Arr.join(names, ", ")} (${choice})`]
 	})
 
-	return groups.length === 0 ? undefined : groups.join("; ")
+	return groups.length === 0 ? undefined : Arr.join(groups, "; ")
 }
 
 /**
@@ -579,9 +657,14 @@ export const operationHelp = (input: HelpInput): OperationHelp => {
 	}
 
 	return {
-		arguments: record(input.flags.filter(isArgument).map(noted(operation))),
+		arguments: record(Arr.map(Arr.filter(input.flags, isArgument), noted(operation))),
 		description: sanitizeProse(operation.docs.description ?? operation.docs.summary ?? ""),
-		flags: record(input.flags.filter((flag) => !isArgument(flag)).map(noted(operation))),
+		flags: record(
+			Arr.map(
+				Arr.filter(input.flags, (flag) => !isArgument(flag)),
+				noted(operation)
+			)
+		),
 		sections
 	}
 }

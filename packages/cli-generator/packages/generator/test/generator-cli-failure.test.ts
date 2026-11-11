@@ -7,13 +7,13 @@ import { RunLockHeld } from "#write/lock.ts"
 
 describe("failureLine", () => {
 	test("a tagged failure names its reason and its JSON-quoted subject", () => {
-		expect(failureLine(new PrinterError({ reason: "duplicate-key", subject: "name" }))).toBe(
+		expect(failureLine(PrinterError.make({ reason: "duplicate-key", subject: "name" }))).toBe(
 			'error: generation failed (PrinterError) reason duplicate-key subject "name"'
 		)
 	})
 
 	test("a subject with a newline and a lone surrogate stays one escaped line", () => {
-		const line = failureLine(new PrinterError({ reason: "duplicate-key", subject: "a\nb\uD800" }))
+		const line = failureLine(PrinterError.make({ reason: "duplicate-key", subject: "a\nb\uD800" }))
 
 		expect(line.includes("\n")).toBe(false)
 		expect(line.includes("\uD800")).toBe(false)

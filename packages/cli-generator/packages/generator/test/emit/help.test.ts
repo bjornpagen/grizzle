@@ -1,6 +1,6 @@
 import nodeFs from "node:fs"
 import nodePath from "node:path"
-import { Effect, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 import { describe, expect, test } from "vitest"
 import type { HelpBodyField, HelpInput } from "#emit/help.ts"
 import { operationHelp } from "#emit/help.ts"
@@ -313,13 +313,23 @@ describe("operationHelp", () => {
 			...input,
 			flags: [
 				body("kind", {
-					default: undefined,
+					default: Option.none(),
 					deprecated: false,
 					enum: ["a", 1, null],
 					readOnly: false
 				}),
-				body("meta", { default: { x: [1] }, deprecated: true, enum: undefined, readOnly: true }),
-				body("plain", { default: undefined, deprecated: false, enum: undefined, readOnly: false }),
+				body("meta", {
+					default: Option.some({ x: [1] }),
+					deprecated: true,
+					enum: undefined,
+					readOnly: true
+				}),
+				body("plain", {
+					default: Option.none(),
+					deprecated: false,
+					enum: undefined,
+					readOnly: false
+				}),
 				{ name: "bare", source: { _tag: "Body", pointer: "/bare" } }
 			]
 		})

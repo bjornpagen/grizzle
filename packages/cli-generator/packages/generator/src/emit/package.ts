@@ -70,7 +70,7 @@ const compilerOptions = {
 	strict: true,
 	target: "ESNext",
 	types: ["node"]
-}
+} as const
 
 const decodeJson = Schema.decodeUnknownEffect(JsonLiteral)
 
@@ -81,7 +81,7 @@ const buildOptions = {
 	outDir: "dist",
 	rewriteRelativeImportExtensions: true,
 	rootDir: "."
-}
+} as const
 
 const unprintable = () => PackageEmitError.make({ reason: "unprintable-package" })
 

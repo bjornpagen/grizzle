@@ -6,6 +6,7 @@ import { emitDomainSchemas } from "#emit/domain.ts"
 import type { Json } from "#model/pointer.ts"
 import { domainIdentifiers } from "#names/domain.ts"
 import { SafeIdentifier } from "#names/fold.ts"
+import { defaultLimits } from "#resolve/index.ts"
 
 const root = nodePath.resolve(import.meta.dirname, "../..")
 
@@ -77,15 +78,18 @@ const identifiersOf = (entries: readonly (readonly [string, Json])[]) =>
 	domainIdentifiers(entries.map(([key]) => key))
 
 const emit = (entries: readonly (readonly [string, Json])[], roots: readonly string[]) =>
-	Effect.runPromise(emitDomainSchemas(store(entries), roots, identifiersOf(entries))).then(
-		(file) => file.content
-	)
+	Effect.runPromise(
+		emitDomainSchemas(store(entries), roots, identifiersOf(entries), defaultLimits)
+	).then((file) => file.content)
 
 const failure = (
 	entries: readonly (readonly [string, Json])[],
 	roots: readonly string[],
 	identifiers = identifiersOf(entries)
-) => Effect.runPromise(emitDomainSchemas(store(entries), roots, identifiers).pipe(Effect.flip))
+) =>
+	Effect.runPromise(
+		emitDomainSchemas(store(entries), roots, identifiers, defaultLimits).pipe(Effect.flip)
+	)
 
 const expectFixedPoint = (content: string) => {
 	const formatted = format(content)

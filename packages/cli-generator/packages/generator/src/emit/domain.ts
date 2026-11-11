@@ -1,17 +1,19 @@
+import { regex } from "arkregex"
 import {
 	Array as Arr,
-	Data,
 	Effect,
+	Function,
 	JsonPointer,
 	Match,
 	Option,
 	Order,
 	Predicate,
+	Record,
 	Schema,
-	SchemaRepresentation
+	SchemaRepresentation,
+	String as Str
 } from "effect"
 import type { JsonSchema } from "effect"
-import { constVoid } from "effect/Function"
 import { guardTemplateCurly, stringLiteral, lineWidth, keyText, numberText } from "#emit/escape.ts"
 import type { EmittedFile } from "#emit/package.ts"
 import { textWidth } from "#emit/printer.ts"
@@ -27,21 +29,25 @@ import type { SchemaBudgetExceeded, SchemaLimits } from "#normalize/schemas.ts"
  * normalize already imported through the same `importSchemas`, does not import again, or names a
  * definition outside itself (a defect, never a property of the document).
  */
-export class DomainEmitError extends Data.TaggedError("DomainEmitError")<{
-	readonly reason:
-		| "identifier-mismatch"
-		| "import-failed"
-		| "reference-cycle"
-		| "unprintable-code"
-		| "unsupported-artifact"
-		| "unsupported-definition"
-}> {}
+export class DomainEmitError extends Schema.TaggedError<
+	DomainEmitError,
+	{ readonly brand: unique symbol }
+>()("DomainEmitError", {
+	reason: Schema.Literals([
+		"identifier-mismatch",
+		"import-failed",
+		"reference-cycle",
+		"unprintable-code",
+		"unsupported-artifact",
+		"unsupported-definition"
+	])
+}) {}
 
-// ---------------------------------------------------------------------------------------------
-// The syntax of the code `SchemaRepresentation.toCodeDocument` writes. Effect writes each
-// definition as one unformatted line, and `vp fmt` accepts exactly one layout of it, so the code
-// is parsed and laid out here (docs/printer.md: the generator never runs a formatter).
-
+/**
+ * A type in the syntax of the code `SchemaRepresentation.toCodeDocument` writes. Effect writes each
+ * definition as one unformatted line, and `vp fmt` accepts exactly one layout of it, so the code
+ * is parsed and laid out here (docs/printer.md: the generator never runs a formatter).
+ */
 type Ty =
 	| { readonly _tag: "Inter"; readonly members: readonly Ty[] }
 	| { readonly _tag: "Lit"; readonly text: string }
@@ -86,41 +92,46 @@ interface Token {
 	readonly text: string
 }
 
-const tokenPattern =
-	/\s*(?:(?<bad>-?\d+n)|(?<string>"(?:[^"\\]|\\.)*")|(?<number>-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)|(?<ident>[A-Za-z_$][A-Za-z0-9_$]*)|(?<punct>=>|\.\.\.|[{}()[\]<>,:.?|&]))/uy
+/**
+ * One token after optional white space. A `bad` match is a bigint, outside the grammar. Matched
+ * through `matchAll`, which reads a copy, so the sticky cursor is never shared between runs.
+ */
+const tokenPattern = regex(
+	'\\s*(?:(?<bad>-?\\d+n)|(?<string>"(?:[^"\\\\]|\\\\.)*")|(?<number>-?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?)|(?<ident>[A-Za-z_$][A-Za-z0-9_$]*)|(?<punct>=>|\\.\\.\\.|[{}()[\\]<>,:.?|&]))',
+	"guy"
+)
 
-const kindOf = (groups: Record<string, string | undefined>): Token | undefined => {
-	const kinds: readonly TokenKind[] = ["string", "number", "ident", "punct"]
-	const kind = kinds.find((candidate) => groups[candidate] !== undefined)
+const tokenKinds: readonly TokenKind[] = ["string", "number", "ident", "punct"]
 
-	return kind === undefined ? undefined : { kind, text: groups[kind] ?? "" }
-}
+/**
+ * The token a match read, by the first group it matched; none for a `bad` match.
+ */
+const kindOf = (groups: Readonly<Record<string, string | undefined>>): Option.Option<Token> =>
+	Arr.findFirst(tokenKinds, (kind) =>
+		Option.map(Option.fromUndefinedOr(groups[kind]), (text) => ({ kind, text }))
+	)
 
-// `undefined` when the text holds something outside the grammar: a bigint, a template literal.
-const tokenize = (source: string): readonly Token[] | undefined => {
-	const tokens: Token[] = []
-	tokenPattern.lastIndex = 0
-	let end = 0
-	let found = tokenPattern.exec(source)
-	while (found !== null) {
-		const token = kindOf(found.groups ?? {})
-		if (token === undefined) {
-			return undefined
-		}
+/**
+ * The source's tokens; none when the text holds something outside the grammar: a bigint, a
+ * template literal.
+ */
+const tokenize = (source: string): Option.Option<readonly Token[]> => {
+	const found = Arr.fromIterable(Str.matchAll(tokenPattern)(source))
+	const end = Arr.reduce(found, 0, (consumed, match) => consumed + match[0].length)
 
-		tokens.push(token)
-		end = tokenPattern.lastIndex
-		found = tokenPattern.exec(source)
-	}
-
-	return source.slice(end).trim() === "" ? tokens : undefined
+	return Str.trim(Str.slice(end)(source)) === ""
+		? Option.all(Arr.map(found, (match) => kindOf(match.groups ?? {})))
+		: Option.none()
 }
 
 const decodeString = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.String))
 
 const placeholder: Ty = { _tag: "Lit", text: "" }
 
-// A failed parse keeps returning placeholders; the caller reads `failed` once at the end.
+/**
+ * A recursive-descent parser over the tokens. A failed parse keeps returning placeholders; the
+ * caller reads `failed` once at the end.
+ */
 class Parser {
 	failed = false
 	private position = 0
@@ -134,7 +145,7 @@ class Parser {
 		return !this.failed && this.position >= this.tokens.length
 	}
 
-	private peek(offset = 0): Token | undefined {
+	private peek(offset: number): Token | undefined {
 		return this.tokens[this.position + offset]
 	}
 
@@ -148,14 +159,14 @@ class Parser {
 		return token ?? { kind: "punct", text: "" }
 	}
 
-	private is(text: string, offset = 0): boolean {
+	private is(text: string, offset: number): boolean {
 		const token = this.peek(offset)
 
 		return token?.kind === "punct" && token.text === text
 	}
 
 	private accept(text: string): boolean {
-		const matched = this.is(text)
+		const matched = this.is(text, 0)
 		if (matched) {
 			this.position += 1
 		}
@@ -182,7 +193,7 @@ class Parser {
 
 	private list<A>(close: string, item: () => A): readonly A[] {
 		const items: A[] = []
-		while (!this.failed && this.position < this.tokens.length && !this.is(close)) {
+		while (!this.failed && this.position < this.tokens.length && !this.is(close, 0)) {
 			items.push(item())
 			if (!this.accept(",")) {
 				break
@@ -196,7 +207,7 @@ class Parser {
 
 	type(): Ty {
 		const first = this.intersection()
-		if (!this.is("|")) {
+		if (!this.is("|", 0)) {
 			return first
 		}
 
@@ -208,9 +219,12 @@ class Parser {
 		return { _tag: "Union", members }
 	}
 
+	/**
+	 * Only the object intersections `toCodeDocument` writes have a layout here.
+	 */
 	private intersection(): Ty {
 		const first = this.typePrimary()
-		if (!this.is("&")) {
+		if (!this.is("&", 0)) {
 			return first
 		}
 
@@ -219,14 +233,13 @@ class Parser {
 			members.push(this.typePrimary())
 		}
 
-		// Only the object intersections `toCodeDocument` writes have a layout here.
-		this.failed ||= !members.every((member) => member._tag === "Obj")
+		this.failed ||= !Arr.every(members, (member) => member._tag === "Obj")
 
 		return { _tag: "Inter", members }
 	}
 
 	private member(): Member {
-		const readonlyKeyword = this.peek()?.text === "readonly" && !this.is(":", 1)
+		const readonlyKeyword = this.peek(0)?.text === "readonly" && !this.is(":", 1)
 		if (readonlyKeyword) {
 			this.next()
 		}
@@ -242,7 +255,7 @@ class Parser {
 			return { index, key: "", optional: false, readonly: readonlyKeyword, type: this.type() }
 		}
 
-		const key = this.peek()?.kind === "string" ? this.string() : this.next().text
+		const key = this.peek(0)?.kind === "string" ? this.string() : this.next().text
 		const optional = this.accept("?")
 		this.expect(":")
 
@@ -271,7 +284,7 @@ class Parser {
 	}
 
 	private typePrimary(): Ty {
-		const token = this.peek()
+		const token = this.peek(0)
 		if (token?.kind === "string") {
 			return { _tag: "Lit", text: stringLiteral(this.string()) }
 		}
@@ -304,7 +317,7 @@ class Parser {
 
 	private entry(): Entry {
 		const computed = this.accept("[")
-		const name = this.peek()?.kind === "string" ? this.string() : this.next().text
+		const name = this.peek(0)?.kind === "string" ? this.string() : this.next().text
 		if (computed) {
 			this.expect("]")
 		}
@@ -315,7 +328,7 @@ class Parser {
 	}
 
 	private primary(): Ex {
-		const token = this.peek()
+		const token = this.peek(0)
 		if (token?.kind === "string") {
 			return { _tag: "Str", value: this.string() }
 		}
@@ -375,49 +388,50 @@ class Parser {
 	}
 }
 
-const parseExpression = (source: string): Ex | undefined => {
-	const tokens = tokenize(source)
-	const parser = new Parser(tokens ?? [])
-	const parsed = parser.expression()
+/**
+ * The whole source parsed by `parse`; none when it does not tokenize or holds more.
+ */
+const parseWith =
+	<A>(parse: (parser: Parser) => A) =>
+	(source: string): Option.Option<A> =>
+		Option.flatMap(tokenize(source), (tokens) => {
+			const parser = new Parser(tokens)
+			const parsed = parse(parser)
 
-	return tokens === undefined || !parser.done() ? undefined : parsed
-}
+			return parser.done() ? Option.some(parsed) : Option.none()
+		})
 
-const parseType = (source: string): Ty | undefined => {
-	const tokens = tokenize(source)
-	const parser = new Parser(tokens ?? [])
-	const parsed = parser.type()
+const parseExpression = parseWith((parser) => parser.expression())
 
-	return tokens === undefined || !parser.done() ? undefined : parsed
-}
+const parseType = parseWith((parser) => parser.type())
 
-// ---------------------------------------------------------------------------------------------
-// Documents: the group, indent and fill model of the formatter (`vp fmt` is `oxfmt`, a Prettier
-// port), reduced to the forms these definitions need.
-
+/**
+ * A document: the group, indent and fill model of the formatter (`vp fmt` is `oxfmt`, a Prettier
+ * port), reduced to the forms these definitions need.
+ */
 type Doc = string | readonly Doc[] | Node
 
+/**
+ * The document nodes. A conditional group prints the first of its states that fits flat, else the
+ * last, broken (Prettier's `conditionalGroup`). An `ifBreak` prints `broken` when the group named by
+ * `id`, or the enclosing one, is broken, and nothing otherwise.
+ */
 type Node =
 	| { readonly _tag: "breakParent" }
+	| { readonly _tag: "conditionalGroup"; readonly states: readonly [Doc, ...Doc[]] }
 	| { readonly _tag: "fill"; readonly parts: readonly Doc[] }
 	| {
 			readonly _tag: "group"
 			readonly brk: boolean
 			readonly contents: Doc
-			readonly id: symbol | undefined
-			readonly states: readonly Doc[] | undefined
+			readonly id: Option.Option<symbol>
 	  }
-	| {
-			readonly _tag: "ifBreak"
-			readonly broken: Doc
-			readonly flat: Doc
-			readonly id: symbol | undefined
-	  }
+	| { readonly _tag: "ifBreak"; readonly broken: Doc; readonly id: Option.Option<symbol> }
 	| { readonly _tag: "indent"; readonly contents: Doc }
 	| { readonly _tag: "indentIfBreak"; readonly contents: Doc; readonly id: symbol }
 	| { readonly _tag: "line"; readonly hard: boolean; readonly soft: boolean }
 
-const isList = (doc: Doc): doc is readonly Doc[] => Array.isArray(doc)
+const isList = (doc: Doc): doc is readonly Doc[] => Arr.isArray(doc)
 
 const line: Doc = { _tag: "line", hard: false, soft: false }
 
@@ -429,58 +443,64 @@ const breakParent: Doc = { _tag: "breakParent" }
 
 const indent = (contents: Doc): Doc => ({ _tag: "indent", contents })
 
-const ifBreak = (broken: Doc, flat: Doc = "", id?: symbol): Doc => ({
+/**
+ * `broken` when the enclosing group is broken.
+ */
+const ifBreak = (broken: Doc): Doc => ({ _tag: "ifBreak", broken, id: Option.none() })
+
+/**
+ * `broken` when the group named `id` is broken.
+ */
+const ifGroupBreaks = (id: symbol, broken: Doc): Doc => ({
 	_tag: "ifBreak",
 	broken,
-	flat,
-	id
+	id: Option.some(id)
 })
 
 const indentIfBreak = (contents: Doc, id: symbol): Doc => ({ _tag: "indentIfBreak", contents, id })
 
 const join = (separator: Doc, docs: readonly Doc[]): readonly Doc[] =>
-	docs.flatMap((doc, index) => (index === 0 ? [doc] : [separator, doc]))
+	Arr.flatMap(docs, (doc, index) => (index === 0 ? [doc] : [separator, doc]))
 
-// Whether a doc holds a forced line break; a group that does is itself broken.
+/**
+ * Whether a doc holds a forced line break; a group that does is itself broken.
+ */
 const willBreak = (doc: Doc): boolean => {
 	if (Predicate.isString(doc)) {
 		return false
 	}
 
 	if (isList(doc)) {
-		return doc.some(willBreak)
+		return Arr.some(doc, willBreak)
 	}
 
 	return Match.valueTags(doc, {
 		breakParent: () => true,
-		fill: (node) => node.parts.some(willBreak),
+		conditionalGroup: () => false,
+		fill: (node) => Arr.some(node.parts, willBreak),
 		group: (node) => node.brk,
-		ifBreak: (node) => willBreak(node.broken) || willBreak(node.flat),
+		ifBreak: (node) => willBreak(node.broken),
 		indent: (node) => willBreak(node.contents),
 		indentIfBreak: (node) => willBreak(node.contents),
 		line: (node) => node.hard
 	})
 }
 
-interface GroupOptions {
-	readonly brk?: boolean
-	readonly id?: symbol
-}
-
-const group = (contents: Doc, options: GroupOptions = {}): Doc => ({
+/**
+ * A group, broken when `brk` holds or its contents hold a forced line break, and named `id` when
+ * an `ifBreak` or `indentIfBreak` reads its mode.
+ */
+const groupOf = (contents: Doc, brk: boolean, id: Option.Option<symbol>): Doc => ({
 	_tag: "group",
-	brk: options.brk === true || willBreak(contents),
+	brk: brk || willBreak(contents),
 	contents,
-	id: options.id,
-	states: undefined
+	id
 })
 
-// The first state that fits flat, else the last one, broken (Prettier's `conditionalGroup`).
+const group = (contents: Doc): Doc => groupOf(contents, false, Option.none())
+
 const conditionalGroup = (states: readonly [Doc, ...Doc[]]): Doc => ({
-	_tag: "group",
-	brk: false,
-	contents: states[0],
-	id: undefined,
+	_tag: "conditionalGroup",
 	states
 })
 
@@ -497,8 +517,15 @@ interface Probe {
 	readonly mode: Mode
 }
 
-const modeOf = (id: symbol | undefined, fallback: Mode, modes: ReadonlyMap<symbol, Mode>): Mode =>
-	id === undefined ? fallback : (modes.get(id) ?? "flat")
+/**
+ * The mode an `ifBreak` reads: the named group's, flat when that group has not printed yet, else
+ * the enclosing mode.
+ */
+const modeOf = (
+	id: Option.Option<symbol>,
+	enclosing: Mode,
+	modes: ReadonlyMap<symbol, Mode>
+): Mode => Option.match(id, { onNone: () => enclosing, onSome: (key) => modes.get(key) ?? "flat" })
 
 interface Spend {
 	readonly mode: Mode
@@ -506,10 +533,12 @@ interface Spend {
 	readonly width: number
 }
 
-// What measuring one doc does: answer, or spend `width` columns and continue into `next`.
+/**
+ * What measuring one doc does: answer, or spend `width` columns and continue into `next`.
+ */
 type Measure = "fits" | "overflow" | Spend
 
-const spend = (mode: Mode, next: readonly Doc[], width = 0): Spend => ({ mode, next, width })
+const spend = (mode: Mode, next: readonly Doc[], width: number): Spend => ({ mode, next, width })
 
 const measure = (probe: Probe, modes: ReadonlyMap<symbol, Mode>, mustBeFlat: boolean): Measure => {
 	const { doc, mode } = probe
@@ -518,29 +547,25 @@ const measure = (probe: Probe, modes: ReadonlyMap<symbol, Mode>, mustBeFlat: boo
 	}
 
 	if (isList(doc)) {
-		return spend(mode, doc)
+		return spend(mode, doc, 0)
 	}
 
 	return Match.valueTags(doc, {
-		breakParent: () => spend(mode, []),
-		fill: (node) => spend(mode, node.parts),
+		breakParent: () => spend(mode, [], 0),
+		conditionalGroup: (node) =>
+			spend(mode, [mode === "break" ? Arr.lastNonEmpty(node.states) : node.states[0]], 0),
+		fill: (node) => spend(mode, node.parts, 0),
 		group: (node): Measure => {
 			if (mustBeFlat && node.brk) {
 				return "overflow"
 			}
 
-			const groupMode = node.brk ? "break" : mode
-			const useLast = node.states !== undefined && groupMode === "break"
-
-			return spend(groupMode, [(useLast ? node.states?.at(-1) : node.contents) ?? ""])
+			return spend(node.brk ? "break" : mode, [node.contents], 0)
 		},
-		ifBreak: (node) => {
-			const broken = modeOf(node.id, mode, modes) === "break"
-
-			return spend(mode, [broken ? node.broken : node.flat])
-		},
-		indent: (node) => spend(mode, [node.contents]),
-		indentIfBreak: (node) => spend(mode, [node.contents]),
+		ifBreak: (node) =>
+			spend(mode, modeOf(node.id, mode, modes) === "break" ? [node.broken] : [], 0),
+		indent: (node) => spend(mode, [node.contents], 0),
+		indentIfBreak: (node) => spend(mode, [node.contents], 0),
 		line: (node): Measure => {
 			if (mode === "break" || node.hard) {
 				return "fits"
@@ -551,7 +576,9 @@ const measure = (probe: Probe, modes: ReadonlyMap<symbol, Mode>, mustBeFlat: boo
 	})
 }
 
-// Whether the doc, then the commands after it up to their first line break, fit in `width`.
+/**
+ * Whether the doc, then the commands after it up to their first line break, fit in `width`.
+ */
 const fits = (
 	start: Probe,
 	rest: readonly Command[],
@@ -582,7 +609,9 @@ const fits = (
 		}
 
 		remaining -= outcome.width
-		stack.push(...Arr.reverse(outcome.next.map((doc): Probe => ({ doc, mode: outcome.mode }))))
+		for (const doc of Arr.reverse(outcome.next)) {
+			stack.push({ doc, mode: outcome.mode })
+		}
 	}
 
 	return false
@@ -590,8 +619,10 @@ const fits = (
 
 type GroupNode = Extract<Node, { readonly _tag: "group" }>
 
-// Prints a doc at the formatter's width: a group is flat when it fits to the next line break the
-// layout emits, otherwise broken.
+/**
+ * Prints a doc at the formatter's width: a group is flat when it fits to the next line break the
+ * layout emits, otherwise broken.
+ */
 class Printer {
 	private column = 0
 	private current = ""
@@ -608,13 +639,15 @@ class Printer {
 			command = this.stack.pop()
 		}
 
-		this.lines.push(this.current.trimEnd())
+		this.lines.push(Str.trimEnd(this.current))
 
-		return this.lines.join("\n")
+		return Arr.join(this.lines, "\n")
 	}
 
 	private emit(commands: readonly Command[]): void {
-		this.stack.push(...Arr.reverse(commands))
+		for (const command of Arr.reverse(commands)) {
+			this.stack.push(command)
+		}
 	}
 
 	private text(text: string): void {
@@ -623,8 +656,8 @@ class Printer {
 	}
 
 	private newline(spaces: number): void {
-		this.lines.push(this.current.trimEnd())
-		this.current = " ".repeat(spaces)
+		this.lines.push(Str.trimEnd(this.current))
+		this.current = Str.repeat(spaces)(" ")
 		this.column = spaces
 	}
 
@@ -637,13 +670,16 @@ class Printer {
 		}
 
 		if (isList(doc)) {
-			this.emit(doc.map((child) => ({ ...command, doc: child })))
+			this.emit(Arr.map(doc, (child) => ({ ...command, doc: child })))
 
 			return
 		}
 
 		Match.valueTags(doc, {
-			breakParent: constVoid,
+			breakParent: Function.constVoid,
+			conditionalGroup: (node) => {
+				this.conditionalGroup(node.states, command)
+			},
 			fill: (node) => {
 				this.fill(node.parts, command)
 			},
@@ -651,8 +687,9 @@ class Printer {
 				this.group(node, command)
 			},
 			ifBreak: (node) => {
-				const broken = modeOf(node.id, command.mode, this.modes) === "break"
-				this.emit([{ ...command, doc: broken ? node.broken : node.flat }])
+				if (modeOf(node.id, command.mode, this.modes) === "break") {
+					this.emit([{ ...command, doc: node.broken }])
+				}
 			},
 			indent: (node) => {
 				this.emit([{ ...command, doc: node.contents, indent: command.indent + 2 }])
@@ -678,44 +715,64 @@ class Printer {
 		this.newline(command.indent)
 	}
 
+	/**
+	 * A group inside a flat line stays as it is unless a line break printed since the last measure;
+	 * otherwise it is measured again. A named group records the mode it printed in.
+	 */
 	private group(node: GroupNode, command: Command): void {
-		if (command.mode === "flat" && !this.remeasure) {
-			const last = node.brk && node.states !== undefined ? node.states.at(-1) : node.contents
-			this.emit([{ ...command, doc: last ?? "", mode: node.brk ? "break" : "flat" }])
-		} else {
-			this.remeasure = false
-			this.emit([this.choose(node, command)])
-		}
-
-		if (node.id !== undefined) {
-			this.modes.set(node.id, this.stack.at(-1)?.mode ?? "flat")
+		const settled = command.mode === "flat" && !this.remeasure
+		const chosen: Command = settled
+			? { ...command, doc: node.contents, mode: node.brk ? "break" : "flat" }
+			: this.choose(node, command)
+		this.remeasure = false
+		this.emit([chosen])
+		if (Option.isSome(node.id)) {
+			this.modes.set(node.id.value, chosen.mode)
 		}
 	}
 
-	// The commands to print a group with: flat when it fits, else its first fitting alternative.
+	/**
+	 * The command to print a group with: flat when it fits, else broken.
+	 */
 	private choose(node: GroupNode, command: Command): Command {
 		const room = lineWidth - this.column
 		const flat: Command = { ...command, doc: node.contents, mode: "flat" }
-		if (!node.brk && fits(flat, this.stack, room, this.modes, false)) {
-			return flat
-		}
 
-		const { states } = node
-		if (states === undefined) {
-			return { ...command, doc: node.contents, mode: "break" }
-		}
-
-		const alternatives = node.brk
-			? []
-			: states.slice(1).map((state): Command => ({ ...command, doc: state, mode: "flat" }))
-		const chosen = alternatives.find((candidate) =>
-			fits(candidate, this.stack, room, this.modes, false)
-		)
-
-		return chosen ?? { ...command, doc: states.at(-1) ?? "", mode: "break" }
+		return !node.brk && fits(flat, this.stack, room, this.modes, false)
+			? flat
+			: { ...command, doc: node.contents, mode: "break" }
 	}
 
-	// Fills a line with as many parts as fit (Prettier's `fill`): [content, separator, content, ...].
+	/**
+	 * A conditional group inside a flat line prints its first state flat unless a line break
+	 * printed since the last measure; otherwise the first state that fits flat, else the last,
+	 * broken.
+	 */
+	private conditionalGroup(states: readonly [Doc, ...Doc[]], command: Command): void {
+		if (command.mode === "flat" && !this.remeasure) {
+			this.emit([{ ...command, doc: states[0], mode: "flat" }])
+
+			return
+		}
+
+		this.remeasure = false
+		const room = lineWidth - this.column
+		const chosen = Arr.findFirst(
+			Arr.map(states, (state): Command => ({ ...command, doc: state, mode: "flat" })),
+			(candidate) => fits(candidate, this.stack, room, this.modes, false)
+		)
+		this.emit([
+			Option.getOrElse(chosen, (): Command => ({
+				...command,
+				doc: Arr.lastNonEmpty(states),
+				mode: "break"
+			}))
+		])
+	}
+
+	/**
+	 * Fills a line with as many parts as fit (Prettier's `fill`): [content, separator, content, ...].
+	 */
 	private fill(parts: readonly Doc[], command: Command): void {
 		const [content, separator, second, ...more] = parts
 		if (content === undefined) {
@@ -745,9 +802,6 @@ class Printer {
 
 const printDoc = (doc: Doc): string => new Printer().print(doc)
 
-// ---------------------------------------------------------------------------------------------
-// Layout of types.
-
 const isObjectType = (type: Ty): boolean => type._tag === "Obj"
 
 const isNullType = (type: Ty): boolean =>
@@ -768,15 +822,19 @@ const keywords: ReadonlySet<string> = new Set([
 	"void"
 ])
 
-// A named type other than a keyword, with or without type arguments.
+/**
+ * A named type other than a keyword, with or without type arguments.
+ */
 const isTypeReference = (type: Ty): boolean =>
 	type._tag === "Ref" && !(type.path.length === 1 && keywords.has(type.path[0] ?? ""))
 
-// An object type or a type reference with only `null` beside it hugs: `{ ... } | null`,
-// `ReadonlyArray<X> | null`. A keyword, literal or tuple beside `null` does not.
+/**
+ * An object type or a type reference with only `null` beside it hugs: `{ ... } | null`,
+ * `ReadonlyArray<X> | null`. A keyword, literal or tuple beside `null` does not.
+ */
 const hugsUnion = (members: readonly Ty[]): boolean =>
-	members.filter(isNullType).length === members.length - 1 &&
-	members.some((member) => isObjectType(member) || isTypeReference(member))
+	Arr.filter(members, isNullType).length === members.length - 1 &&
+	Arr.some(members, (member) => isObjectType(member) || isTypeReference(member))
 
 const isSimpleType = (type: Ty): boolean =>
 	(type._tag === "Ref" && type.args.length === 0) || type._tag === "Lit"
@@ -784,20 +842,24 @@ const isSimpleType = (type: Ty): boolean =>
 const hugsType = (type: Ty): boolean =>
 	isSimpleType(type) || isObjectType(type) || (type._tag === "Union" && hugsUnion(type.members))
 
-// Where a type is printed decides whether a broken union indents under its parent.
+/**
+ * Where a type is printed decides whether a broken union indents under its parent.
+ */
 type TypeContext = "argument" | "element" | "optional" | "position"
 
-type PrintType = (type: Ty, context?: TypeContext) => Doc
+type PrintType = (type: Ty, context: TypeContext) => Doc
 
-// An intersection keeps its parentheses beside `|`.
+/**
+ * An intersection keeps its parentheses beside `|`.
+ */
 const unionMemberDoc = (member: Ty, print: PrintType): Doc =>
-	member._tag === "Inter" ? ["(", print(member), ")"] : print(member)
+	member._tag === "Inter" ? ["(", print(member, "position"), ")"] : print(member, "position")
 
 const unionDoc = (members: readonly Ty[], context: TypeContext, print: PrintType): Doc => {
 	if (hugsUnion(members)) {
 		return join(
 			" | ",
-			members.map((member) => unionMemberDoc(member, print))
+			Arr.map(members, (member) => unionMemberDoc(member, print))
 		)
 	}
 
@@ -806,7 +868,7 @@ const unionDoc = (members: readonly Ty[], context: TypeContext, print: PrintType
 		ifBreak([indents ? line : "", "| "]),
 		join(
 			[line, "| "],
-			members.map((member) => indent(unionMemberDoc(member, print)))
+			Arr.map(members, (member) => indent(unionMemberDoc(member, print)))
 		)
 	]
 	if (context === "optional") {
@@ -817,7 +879,7 @@ const unionDoc = (members: readonly Ty[], context: TypeContext, print: PrintType
 }
 
 const referenceDoc = (type: Extract<Ty, { readonly _tag: "Ref" }>, print: PrintType): Doc => {
-	const name = type.path.join(".")
+	const name = Arr.join(type.path, ".")
 	const [only] = type.args
 	if (only === undefined) {
 		return name
@@ -827,7 +889,7 @@ const referenceDoc = (type: Extract<Ty, { readonly _tag: "Ref" }>, print: PrintT
 		return [name, "<", print(only, "argument"), ">"]
 	}
 
-	const args = type.args.map((arg) => print(arg, "argument"))
+	const args = Arr.map(type.args, (arg) => print(arg, "argument"))
 
 	return [name, group(["<", indent([softline, join([",", line], args)]), softline, ">"])]
 }
@@ -835,12 +897,18 @@ const referenceDoc = (type: Extract<Ty, { readonly _tag: "Ref" }>, print: PrintT
 const memberDoc = (member: Member, print: PrintType): Doc => {
 	const head = member.readonly ? "readonly " : ""
 	if (member.index !== undefined) {
-		const parameter = group([indent([softline, "x: ", print(member.index)]), softline])
+		const parameter = group([indent([softline, "x: ", print(member.index, "position")]), softline])
 
-		return [head, "[", parameter, "]: ", print(member.type)]
+		return [head, "[", parameter, "]: ", print(member.type, "position")]
 	}
 
-	return [head, keyText(member.key), member.optional ? "?" : "", ": ", print(member.type)]
+	return [
+		head,
+		keyText(member.key),
+		member.optional ? "?" : "",
+		": ",
+		print(member.type, "position")
+	]
 }
 
 const objectTypeDoc = (members: readonly Member[], print: PrintType): Doc => {
@@ -848,12 +916,14 @@ const objectTypeDoc = (members: readonly Member[], print: PrintType): Doc => {
 		return "{}"
 	}
 
-	const docs = members.map((member) => memberDoc(member, print))
+	const docs = Arr.map(members, (member) => memberDoc(member, print))
 
 	return group(["{", indent([line, join([";", line], docs)]), ifBreak(";"), line, "}"])
 }
 
-// A tuple element needs parentheses before `?` unless it is a name, a literal or an object type.
+/**
+ * A tuple element needs parentheses before `?` unless it is a name, a literal or an object type.
+ */
 const needsParentheses = (element: TupleElement): boolean =>
 	element.optional && !["Lit", "Obj", "Ref"].includes(element.type._tag)
 
@@ -869,7 +939,7 @@ const tupleDoc = (elements: readonly TupleElement[], print: PrintType): Doc => {
 		return "readonly []"
 	}
 
-	const docs = elements.map((element) => elementDoc(element, print))
+	const docs = Arr.map(elements, (element) => elementDoc(element, print))
 
 	return [
 		"readonly ",
@@ -877,12 +947,12 @@ const tupleDoc = (elements: readonly TupleElement[], print: PrintType): Doc => {
 	]
 }
 
-const typeDoc: PrintType = (type, context = "position") =>
+const typeDoc: PrintType = (type, context) =>
 	Match.valueTags(type, {
 		Inter: (inter) =>
 			join(
 				" & ",
-				inter.members.map((member) => typeDoc(member))
+				Arr.map(inter.members, (member) => typeDoc(member, "position"))
 			),
 		Lit: (literal) => literal.text,
 		Obj: (object) => objectTypeDoc(object.members, typeDoc),
@@ -891,23 +961,29 @@ const typeDoc: PrintType = (type, context = "position") =>
 		Union: (union) => unionDoc(union.members, context, typeDoc)
 	})
 
-// A union opens on the `=` line, broken under it or hugging `null`. Any other type opens on that
-// line when it fits up to its first line break, otherwise under the `=` (the formatter's fluid
-// assignment layout).
+/**
+ * A union opens on the `=` line, broken under it or hugging `null`. Any other type opens on that
+ * line when it fits up to its first line break, otherwise under the `=` (the formatter's fluid
+ * assignment layout).
+ */
 const typeAliasDoc = (name: string, type: Ty): Doc => {
 	const head = `export type ${name} =`
 	if (type._tag === "Union") {
-		return [head, " ", typeDoc(type)]
+		return [head, " ", typeDoc(type, "position")]
 	}
 
 	const id = Symbol("type-alias")
 
-	return group([head, group(indent(line), { id }), indentIfBreak(typeDoc(type), id)])
+	return group([
+		head,
+		groupOf(indent(line), false, Option.some(id)),
+		indentIfBreak(typeDoc(type, "position"), id)
+	])
 }
 
-// ---------------------------------------------------------------------------------------------
-// Layout of expressions.
-
+/**
+ * Prints an expression in the formatter's layout.
+ */
 type PrintEx = (ex: Ex) => Doc
 
 const isPath = (ex: Ex): boolean =>
@@ -935,8 +1011,10 @@ const isShortArgument = (ex: Ex): boolean =>
 		Str: (string) => textWidth(stringLiteral(string.value)) <= lineWidth / 4
 	})
 
-// A call chain whose calls take nothing or one short argument: moving it under the `=` or `:` is
-// the only way to break it.
+/**
+ * A call chain whose calls take nothing or one short argument: moving it under the `=` or `:` is
+ * the only way to break it.
+ */
 const isPoorlyBreakableCall = (ex: Ex): boolean => {
 	if (ex._tag === "Member") {
 		return isPoorlyBreakableCall(ex.object)
@@ -955,7 +1033,9 @@ const isPoorlyBreakableCall = (ex: Ex): boolean => {
 
 type Layout = "break-after-operator" | "fluid" | "never-break-after-operator"
 
-// A key shorter than five columns never moves its value under it (Prettier's short-key rule).
+/**
+ * A key shorter than five columns never moves its value under it (Prettier's short-key rule).
+ */
 const layoutOf = (value: Ex, shortKey: boolean): Layout => {
 	if (shortKey) {
 		return "never-break-after-operator"
@@ -975,7 +1055,9 @@ const layoutOf = (value: Ex, shortKey: boolean): Layout => {
 	return value._tag === "Call" && isPoorlyBreakableCall(value) ? "break-after-operator" : "fluid"
 }
 
-// `left operator value` in the formatter's assignment layouts (property values and declarations).
+/**
+ * `left operator value` in the formatter's assignment layouts (property values and declarations).
+ */
 const assignment = (
 	left: Doc,
 	operator: string,
@@ -995,7 +1077,12 @@ const assignment = (
 
 	const id = Symbol("assignment")
 
-	return group([group(left), operator, group(indent(line), { id }), indentIfBreak(right, id)])
+	return group([
+		group(left),
+		operator,
+		groupOf(indent(line), false, Option.some(id)),
+		indentIfBreak(right, id)
+	])
 }
 
 const entryDoc = (entry: Entry, print: PrintEx): Doc => {
@@ -1011,7 +1098,7 @@ const objectDoc = (entries: readonly Entry[], print: PrintEx): Doc => {
 		return "{}"
 	}
 
-	const docs = Arr.sort(entries, byName).map((entry) => entryDoc(entry, print))
+	const docs = Arr.map(Arr.sort(entries, byName), (entry) => entryDoc(entry, print))
 
 	return group(["{", indent([line, join([",", line], docs)]), ifBreak(","), line, "}"])
 }
@@ -1030,7 +1117,9 @@ const entryCount = (ex: Ex): number =>
 		Str: () => 0
 	})
 
-// Two or more object literals, or two or more array literals, with more than one entry each.
+/**
+ * Two or more object literals, or two or more array literals, with more than one entry each.
+ */
 const alwaysBroken = (elements: readonly Ex[]): boolean => {
 	const [first] = elements
 
@@ -1038,7 +1127,7 @@ const alwaysBroken = (elements: readonly Ex[]): boolean => {
 		elements.length > 1 &&
 		first !== undefined &&
 		(first._tag === "Obj" || first._tag === "Arr") &&
-		elements.every((element) => element._tag === first._tag && entryCount(element) > 1)
+		Arr.every(elements, (element) => element._tag === first._tag && entryCount(element) > 1)
 	)
 }
 
@@ -1047,27 +1136,35 @@ const arrayDoc = (elements: readonly Ex[], print: PrintEx): Doc => {
 		return "[]"
 	}
 
-	const docs = elements.map(print)
-	if (elements.length > 1 && elements.every(isNumber)) {
+	const docs = Arr.map(elements, (element) => print(element))
+	if (elements.length > 1 && Arr.every(elements, isNumber)) {
 		const id = Symbol("array")
 		const last = docs.length - 1
 		const parts = join(
 			line,
-			docs.map((doc, index) => [doc, index === last ? ifBreak(",", "", id) : ","])
+			Arr.map(docs, (doc, index) => [doc, index === last ? ifGroupBreaks(id, ",") : ","])
 		)
 
-		return group(["[", indent([softline, { _tag: "fill", parts }]), softline, "]"], { id })
+		return groupOf(
+			["[", indent([softline, { _tag: "fill", parts }]), softline, "]"],
+			false,
+			Option.some(id)
+		)
 	}
 
-	return group(["[", indent([softline, join([",", line], docs)]), ifBreak(","), softline, "]"], {
-		brk: alwaysBroken(elements)
-	})
+	return groupOf(
+		["[", indent([softline, join([",", line], docs)]), ifBreak(","), softline, "]"],
+		alwaysBroken(elements),
+		Option.none()
+	)
 }
 
 const arrowDoc = (ex: Extract<Ex, { readonly _tag: "Arrow" }>, print: PrintEx): Doc =>
-	group(["(): ", typeDoc(ex.returns), " =>", group(indent([line, print(ex.body)]))])
+	group(["(): ", typeDoc(ex.returns, "position"), " =>", group(indent([line, print(ex.body)]))])
 
-// A last argument opens on the call's line when it is a non-empty object or array.
+/**
+ * A last argument opens on the call's line when it is a non-empty object or array.
+ */
 const hugsLast = (args: readonly Ex[]): boolean => {
 	const last = args.at(-1)
 	const before = args.at(-2)
@@ -1083,26 +1180,33 @@ const hugsLast = (args: readonly Ex[]): boolean => {
 		return false
 	}
 
-	return !(args.length > 1 && last._tag === "Arr" && last.elements.every(isNumber))
+	return !(args.length > 1 && last._tag === "Arr" && Arr.every(last.elements, isNumber))
 }
 
-// Two or more arguments where one is a call taking an arrow function, as in
-// `Schema.Record(Schema.String, Schema.suspend(() => X))`: the formatter always breaks them out
-// (Prettier's function-composition arguments).
+/**
+ * Two or more arguments where one is a call taking an arrow function, as in
+ * `Schema.Record(Schema.String, Schema.suspend(() => X))`: the formatter always breaks them out
+ * (Prettier's function-composition arguments).
+ */
 const isFunctionComposition = (args: readonly Ex[]): boolean =>
 	args.length > 1 &&
-	args.some((arg) => arg._tag === "Call" && arg.args.some((inner) => inner._tag === "Arrow"))
+	Arr.some(
+		args,
+		(arg) => arg._tag === "Call" && Arr.some(arg.args, (inner) => inner._tag === "Arrow")
+	)
 
 const argumentsDoc = (args: readonly Ex[], print: PrintEx): Doc => {
 	if (args.length === 0) {
 		return "()"
 	}
 
-	const docs = args.map(print)
-	const allBroken = group(["(", indent([line, join([",", line], docs)]), ifBreak(","), line, ")"], {
-		brk: true
-	})
-	if (isFunctionComposition(args) || docs.slice(0, -1).some(willBreak)) {
+	const docs = Arr.map(args, (arg) => print(arg))
+	const allBroken = groupOf(
+		["(", indent([line, join([",", line], docs)]), ifBreak(","), line, ")"],
+		true,
+		Option.none()
+	)
+	if (isFunctionComposition(args) || Arr.some(docs.slice(0, -1), willBreak)) {
 		return allBroken
 	}
 
@@ -1111,32 +1215,34 @@ const argumentsDoc = (args: readonly Ex[], print: PrintEx): Doc => {
 	}
 
 	const last = docs.at(-1) ?? ""
-	const leading = docs.slice(0, -1).flatMap((doc) => [doc, ", "])
+	const leading = Arr.flatMap(docs.slice(0, -1), (doc) => [doc, ", "])
 
 	return [
 		willBreak(last) ? breakParent : "",
 		conditionalGroup([
 			["(", ...leading, last, ")"],
-			["(", ...leading, group(last, { brk: true }), ")"],
+			["(", ...leading, groupOf(last, true, Option.none()), ")"],
 			allBroken
 		])
 	]
 }
 
-// A call argument is simple when it is a literal, a path, or a call, object or array of simple
-// values with no call below the first level.
+/**
+ * A call argument is simple when it is a literal, a path, or a call, object or array of simple
+ * values with no call below the first level.
+ */
 const isSimpleArgument = (ex: Ex, depth: number): boolean =>
 	Match.valueTags(ex, {
-		Arr: (array) => array.elements.every((element) => isSimpleArgument(element, depth + 1)),
+		Arr: (array) => Arr.every(array.elements, (element) => isSimpleArgument(element, depth + 1)),
 		Arrow: () => false,
 		Call: (call) =>
 			depth === 0 &&
 			isSimpleArgument(call.callee, depth) &&
-			call.args.every((arg) => isSimpleArgument(arg, depth + 1)),
+			Arr.every(call.args, (arg) => isSimpleArgument(arg, depth + 1)),
 		Ident: () => true,
 		Member: (member) => isSimpleArgument(member.object, depth),
 		Num: () => true,
-		Obj: (object) => object.entries.every((entry) => isSimpleArgument(entry.value, depth + 1)),
+		Obj: (object) => Arr.every(object.entries, (entry) => isSimpleArgument(entry.value, depth + 1)),
 		Str: () => true
 	})
 
@@ -1147,7 +1253,9 @@ type ChainNode =
 
 const isMemberish = (ex: Ex): boolean => ex._tag === "Member" || ex._tag === "Call"
 
-// The head, then each `.name` and call, as Prettier's member chain reads them.
+/**
+ * The head, then each `.name` and call, as Prettier's member chain reads them.
+ */
 const chainNodes = (ex: Ex): readonly ChainNode[] => {
 	if (ex._tag === "Call" && isMemberish(ex.callee)) {
 		return [...chainNodes(ex.callee), { _tag: "call", args: ex.args }]
@@ -1167,13 +1275,19 @@ const chainNodeDoc = (node: ChainNode, print: PrintEx): Doc =>
 		member: (member) => `.${member.name}`
 	})
 
-const isFactory = (name: string): boolean => /^[A-Z]|^[$_]+$/u.test(name)
+const factoryName = regex("^[A-Z]|^[$_]+$", "u")
 
-// How many nodes after the head stay in the first group: the calls that follow it, then members
-// that only lead to the first call.
+const isFactory = (name: string): boolean => factoryName.test(name)
+
+/**
+ * How many nodes after the head stay in the first group: the calls that follow it, then members
+ * that only lead to the first call.
+ */
 const leadingCount = (tail: readonly ChainNode[], headIsCall: boolean): number => {
-	const calls = tail.findIndex((node) => node._tag !== "call")
-	let count = calls === -1 ? tail.length : calls
+	let count = Option.getOrElse(
+		Arr.findFirstIndex(tail, (node) => node._tag !== "call"),
+		() => tail.length
+	)
 	if (headIsCall) {
 		return count
 	}
@@ -1185,8 +1299,10 @@ const leadingCount = (tail: readonly ChainNode[], headIsCall: boolean): number =
 	return count
 }
 
-// Prettier's member-chain groups: the head with its leading members, then one group per
-// `.name(args)`.
+/**
+ * Prettier's member-chain groups: the head with its leading members, then one group per
+ * `.name(args)`.
+ */
 const chainGroups = (nodes: readonly ChainNode[]): readonly (readonly ChainNode[])[] => {
 	const [head, ...tail] = nodes
 	if (head === undefined) {
@@ -1211,7 +1327,9 @@ const chainGroups = (nodes: readonly ChainNode[]): readonly (readonly ChainNode[
 	return current.length > 0 ? [...groups, current] : groups
 }
 
-// The first call stays on the head's line when the head is a capitalized name, as in `Schema.X`.
+/**
+ * The first call stays on the head's line when the head is a capitalized name, as in `Schema.X`.
+ */
 const mergesFirstCall = (groups: readonly (readonly ChainNode[])[]): boolean => {
 	const [first, second] = groups
 	if (first === undefined || second === undefined) {
@@ -1234,7 +1352,9 @@ const callDoc = (ex: Extract<Ex, { readonly _tag: "Call" }>, print: PrintEx): Do
 	const nodes = chainNodes(ex)
 	const groups = chainGroups(nodes)
 	const merge = mergesFirstCall(groups)
-	const printedGroups = groups.map((chain) => chain.map((node) => chainNodeDoc(node, print)))
+	const printedGroups = Arr.map(groups, (chain) =>
+		Arr.map(chain, (node) => chainNodeDoc(node, print))
+	)
 	if (groups.length <= (merge ? 3 : 2)) {
 		return group(printedGroups)
 	}
@@ -1245,10 +1365,11 @@ const callDoc = (ex: Extract<Ex, { readonly _tag: "Call" }>, print: PrintEx): Do
 		merge ? rest.slice(0, 1) : [],
 		indent([hardline, join(hardline, rest.slice(merge ? 1 : 0))])
 	]
-	const calls = nodes.filter((node) => node._tag === "call")
+	const calls = Arr.filter(nodes, (node) => node._tag === "call")
 	const complex =
-		calls.length > 2 && calls.some((node) => !node.args.every((arg) => isSimpleArgument(arg, 0)))
-	if (complex || printedGroups.slice(0, -1).some(willBreak)) {
+		calls.length > 2 &&
+		Arr.some(calls, (node) => !Arr.every(node.args, (arg) => isSimpleArgument(arg, 0)))
+	if (complex || Arr.some(printedGroups.slice(0, -1), willBreak)) {
 		return group(expanded)
 	}
 
@@ -1268,102 +1389,116 @@ const exDoc: PrintEx = (ex) =>
 		Str: (string) => stringLiteral(string.value)
 	})
 
-// ---------------------------------------------------------------------------------------------
-// The module.
-
+/**
+ * One definition of the module: its export name, its schema value and, when the module exports
+ * its type, the type.
+ */
 interface Definition {
 	readonly name: string
 	readonly runtime: Ex
-	readonly type: Ty | undefined
+	readonly type: Option.Option<Ty>
 }
 
-const unprintable = () => new DomainEmitError({ reason: "unprintable-code" })
+const unprintable = () => DomainEmitError.make({ reason: "unprintable-code" })
 
 const definitionOf = (
 	name: string,
 	code: SchemaRepresentation.Code
 ): Effect.Effect<Definition, DomainEmitError> =>
-	Effect.gen(function* parse() {
-		const runtime = parseExpression(code.runtime)
-		if (runtime === undefined) {
-			return yield* unprintable()
-		}
-
-		return { name, runtime, type: parseType(code.Type) }
+	Option.match(parseExpression(code.runtime), {
+		onNone: () => Effect.fail(unprintable()),
+		onSome: (runtime) => Effect.succeed({ name, runtime, type: parseType(code.Type) })
 	})
 
 const typeNames = (type: Ty): readonly string[] =>
 	Match.valueTags(type, {
-		Inter: (inter) => inter.members.flatMap(typeNames),
+		Inter: (inter) => Arr.flatMap(inter.members, typeNames),
 		Lit: () => [],
 		Obj: (object) =>
-			object.members.flatMap((member) => [
+			Arr.flatMap(object.members, (member) => [
 				...typeNames(member.type),
 				...(member.index === undefined ? [] : typeNames(member.index))
 			]),
 		Ref: (reference) => [
 			...(reference.path.length === 1 ? reference.path : []),
-			...reference.args.flatMap(typeNames)
+			...Arr.flatMap(reference.args, typeNames)
 		],
-		Tuple: (tuple) => tuple.elements.flatMap((element) => typeNames(element.type)),
-		Union: (union) => union.members.flatMap(typeNames)
+		Tuple: (tuple) => Arr.flatMap(tuple.elements, (element) => typeNames(element.type)),
+		Union: (union) => Arr.flatMap(union.members, typeNames)
 	})
 
-// Names a `Schema.Codec<T>` annotation in a thunk of `Schema.suspend` reads as a type.
+/**
+ * Names a `Schema.Codec<T>` annotation in a thunk of `Schema.suspend` reads as a type.
+ */
 const suspendedTypes = (ex: Ex): readonly string[] =>
 	Match.valueTags(ex, {
-		Arr: (array) => array.elements.flatMap(suspendedTypes),
+		Arr: (array) => Arr.flatMap(array.elements, suspendedTypes),
 		Arrow: (arrow) => [...typeNames(arrow.returns), ...suspendedTypes(arrow.body)],
-		Call: (call) => [call.callee, ...call.args].flatMap(suspendedTypes),
+		Call: (call) => Arr.flatMap([call.callee, ...call.args], suspendedTypes),
 		Ident: () => [],
 		Member: (member) => suspendedTypes(member.object),
 		Num: () => [],
-		Obj: (object) => object.entries.flatMap((entry) => suspendedTypes(entry.value)),
+		Obj: (object) => Arr.flatMap(object.entries, (entry) => suspendedTypes(entry.value)),
 		Str: () => []
 	})
 
-// A definition keeps its `export type` when a `Schema.Codec<T>` annotation names it, directly or
-// through the type of one that does; a recursive definition always does.
+/**
+ * A definition keeps its `export type` when a `Schema.Codec<T>` annotation names it, directly or
+ * through the type of one that does; a recursive definition always does.
+ */
 const withTypes = (
 	definitions: readonly Definition[],
 	recursives: ReadonlySet<string>
 ): Effect.Effect<readonly Definition[], DomainEmitError> =>
 	Effect.gen(function* keep() {
-		const known = new Map(definitions.map((definition) => [definition.name, definition]))
+		const known = new Map(
+			Arr.map(definitions, (definition) => [definition.name, definition] as const)
+		)
 		const needed = new Set<string>()
-		const pending = [...recursives, ...definitions.flatMap((d) => suspendedTypes(d.runtime))]
+		const pending = [
+			...recursives,
+			...Arr.flatMap(definitions, (definition) => suspendedTypes(definition.runtime))
+		]
 		for (let name = pending.pop(); name !== undefined; name = pending.pop()) {
 			const definition = known.get(name)
-			if (definition !== undefined && !needed.has(name)) {
-				needed.add(name)
-				if (definition.type === undefined) {
-					return yield* unprintable()
-				}
+			if (definition === undefined || needed.has(name)) {
+				continue
+			}
 
-				pending.push(...typeNames(definition.type))
+			needed.add(name)
+			if (Option.isNone(definition.type)) {
+				return yield* unprintable()
+			}
+
+			for (const named of typeNames(definition.type.value)) {
+				pending.push(named)
 			}
 		}
 
-		return definitions.map((definition) => ({
+		return Arr.map(definitions, (definition) => ({
 			...definition,
-			type: needed.has(definition.name) ? definition.type : undefined
+			type: needed.has(definition.name) ? definition.type : Option.none()
 		}))
 	})
 
-// Names a value reads when the module runs; the thunk of `Schema.suspend` runs later.
+/**
+ * Names a value reads when the module runs; the thunk of `Schema.suspend` runs later.
+ */
 const dependenciesOf = (ex: Ex, names: ReadonlySet<string>): readonly string[] =>
 	Match.valueTags(ex, {
-		Arr: (array) => array.elements.flatMap((element) => dependenciesOf(element, names)),
+		Arr: (array) => Arr.flatMap(array.elements, (element) => dependenciesOf(element, names)),
 		Arrow: () => [],
-		Call: (call) => [call.callee, ...call.args].flatMap((part) => dependenciesOf(part, names)),
+		Call: (call) => Arr.flatMap([call.callee, ...call.args], (part) => dependenciesOf(part, names)),
 		Ident: (ident) => (names.has(ident.name) ? [ident.name] : []),
 		Member: (member) => dependenciesOf(member.object, names),
 		Num: () => [],
-		Obj: (object) => object.entries.flatMap((entry) => dependenciesOf(entry.value, names)),
+		Obj: (object) => Arr.flatMap(object.entries, (entry) => dependenciesOf(entry.value, names)),
 		Str: () => []
 	})
 
-// Definitions in name order, each after the names it reads; `undefined` on a cycle.
+/**
+ * Definitions in name order, each after the names it reads; `undefined` on a cycle.
+ */
 const orderOf = (
 	definitions: ReadonlyMap<string, Definition>
 ): readonly Definition[] | undefined => {
@@ -1384,7 +1519,7 @@ const orderOf = (
 		active.add(name)
 
 		const reads = Arr.sort(Arr.dedupe(dependenciesOf(definition.runtime, names)), Order.String)
-		const acyclic = reads.every((read) => visit(read))
+		const acyclic = Arr.every(reads, (read) => visit(read))
 		active.delete(name)
 		done.add(name)
 		ordered.push(definition)
@@ -1392,11 +1527,13 @@ const orderOf = (
 		return acyclic
 	}
 
-	return Arr.sort([...names], Order.String).every((name) => visit(name)) ? ordered : undefined
+	return Arr.every(Arr.sort(names, Order.String), (name) => visit(name)) ? ordered : undefined
 }
 
-// A type and its value share one name (the plan imports the value name, and `Schema.Codec<T>`
-// reads the type), which TypeScript merges but the plain `no-redeclare` rule reports.
+/**
+ * A type and its value share one name (the plan imports the value name, and `Schema.Codec<T>`
+ * reads the type), which TypeScript merges but the plain `no-redeclare` rule reports.
+ */
 const typeRedeclaration =
 	"// oxlint-disable-next-line no-redeclare -- a type and its schema value share one name"
 
@@ -1406,12 +1543,13 @@ const statementsOf = (definition: Definition): readonly string[] => {
 		";"
 	])
 
-	return definition.type === undefined
-		? [constant]
-		: [
-				`${typeRedeclaration}\n${printDoc([typeAliasDoc(definition.name, definition.type), ";"])}`,
-				constant
-			]
+	return Option.match(definition.type, {
+		onNone: () => [constant],
+		onSome: (type) => [
+			`${typeRedeclaration}\n${printDoc([typeAliasDoc(definition.name, type), ";"])}`,
+			constant
+		]
+	})
 }
 
 const multiDocumentOf = (
@@ -1423,21 +1561,21 @@ const multiDocumentOf = (
 		for (const key of keys) {
 			const node = definitions.get(key)
 			if (!Predicate.isObject(node)) {
-				return yield* new DomainEmitError({ reason: "unsupported-definition" })
+				return yield* DomainEmitError.make({ reason: "unsupported-definition" })
 			}
 
 			entries.push([key, node])
 		}
 
-		const [first, ...rest] = keys.map((key) => ({
+		const [first, ...rest] = Arr.map(keys, (key) => ({
 			$ref: JsonPointer.formatUriFragment(["$defs", key])
 		}))
 		if (first === undefined) {
-			return yield* new DomainEmitError({ reason: "unsupported-definition" })
+			return yield* DomainEmitError.make({ reason: "unsupported-definition" })
 		}
 
 		return {
-			definitions: Object.fromEntries(entries),
+			definitions: Record.fromEntries(entries),
 			dialect: "draft-2020-12",
 			schemas: [first, ...rest]
 		}
@@ -1447,17 +1585,22 @@ const importCode = (
 	multi: JsonSchema.MultiDocument<"draft-2020-12">
 ): Effect.Effect<SchemaRepresentation.CodeDocument, DomainEmitError> =>
 	Effect.try({
-		catch: () => new DomainEmitError({ reason: "import-failed" }),
+		catch: () => DomainEmitError.make({ reason: "import-failed" }),
 		try: () => {
 			const [first, ...rest] = importSchemas(multi)
 
 			return SchemaRepresentation.toCodeDocument(
-				SchemaRepresentation.toRepresentations([first.ast, ...rest.map((schema) => schema.ast)])
+				SchemaRepresentation.toRepresentations([
+					first.ast,
+					...Arr.map(rest, (schema) => schema.ast)
+				])
 			)
 		}
 	})
 
-// Subschema positions of the code-generation copy (normalize/schemas.ts `copyPositions`).
+/**
+ * Subschema positions of the code-generation copy (normalize/schemas.ts `copyPositions`).
+ */
 const subschemaOne: ReadonlySet<string> = new Set([
 	"additionalProperties",
 	"contains",
@@ -1484,47 +1627,54 @@ interface JsonNode {
 	readonly [key: string]: Json
 }
 
-const isNode = (json: Json): json is JsonNode => Predicate.isObject(json) && !Array.isArray(json)
+const isNode = (json: Json): json is JsonNode => Predicate.isObject(json) && !Arr.isArray(json)
 
-// Rebuilds a schema: each node's subschemas first, then `visit` rewrites the node.
+/**
+ * Rebuilds a schema: each node's subschemas first, then `visit` rewrites the node.
+ */
 const mapSchema = (node: Json, visit: (node: JsonNode) => JsonNode): Json => {
 	if (!isNode(node)) {
 		return node
 	}
 
 	const child = (value: Json): Json => mapSchema(value, visit)
-	const entries = Object.entries(node).map(([key, value]): [string, Json] => {
+	const entries = Arr.map(Record.toEntries(node), ([key, value]): [string, Json] => {
 		if (subschemaOne.has(key)) {
 			return [key, child(value)]
 		}
 
-		if (subschemaList.has(key) && Array.isArray(value)) {
-			return [key, value.map(child)]
+		if (subschemaList.has(key) && Arr.isArray<Json>(value)) {
+			return [key, Arr.map(value, (item) => child(item))]
 		}
 
 		if (subschemaMap.has(key) && isNode(value)) {
 			return [
 				key,
-				Object.fromEntries(Object.entries(value).map(([name, item]) => [name, child(item)]))
+				Record.fromEntries(
+					Arr.map(Record.toEntries(value), ([name, item]) => [name, child(item)] as const)
+				)
 			]
 		}
 
 		return [key, value]
 	})
 
-	return visit(Object.fromEntries(entries))
+	return visit(Record.fromEntries(entries))
 }
 
-// `additionalProperties: false` beside declared properties closes an object, but Effect's importer
-// reads it as a struct whose decoder strips an undeclared key under the default parse options the
-// runtime checks with. The same closure as a `propertyNames` naming the declared properties
-// imports as an open struct checked by `Schema.isPropertyNames`, which rejects the key (SCH-13).
-// An existing `propertyNames` stays beside the names in an `allOf`. A closed object with no
-// declared property already imports as a record of `Never`; beside `patternProperties` the
-// validation copy has opened the object (SCH-15).
+/**
+ * `additionalProperties: false` beside declared properties closes an object, but Effect's importer
+ * reads it as a struct whose decoder strips an undeclared key under the default parse options the
+ * runtime checks with. The same closure as a `propertyNames` naming the declared properties
+ * imports as an open struct checked by `Schema.isPropertyNames`, which rejects the key (SCH-13).
+ * An existing `propertyNames` stays beside the names in an `allOf`. A closed object with no
+ * declared property already imports as a record of `Never`; beside `patternProperties` the
+ * validation copy has opened the object (SCH-15).
+ */
 const closedNode = (node: JsonNode): JsonNode => {
 	const { additionalProperties, patternProperties, properties, propertyNames: existing } = node
-	const names = properties !== undefined && isNode(properties) ? Object.keys(properties) : []
+	const names =
+		properties !== undefined && isNode(properties) ? Record.keys<string, Json>(properties) : []
 	if (additionalProperties !== false || names.length === 0 || patternProperties !== undefined) {
 		return node
 	}
@@ -1532,18 +1682,21 @@ const closedNode = (node: JsonNode): JsonNode => {
 	const declared: Json = { enum: names }
 	const propertyNames = existing === undefined ? declared : { allOf: [existing, declared] }
 
-	return Object.fromEntries([
-		...Object.entries(node).filter(
+	return Record.fromEntries([
+		...Arr.filter(
+			Record.toEntries(node),
 			([key]) => key !== "additionalProperties" && key !== "propertyNames"
 		),
-		["propertyNames", propertyNames]
+		["propertyNames", propertyNames] as const
 	])
 }
 
-// The node with every `#/$defs/<key>` reference renamed to `#/$defs/<identifier>`; `undefined`
-// when a reference names a key outside the copy (the importer would have failed on it).
-const rekeyedNode = (node: Json, identifiers: ReadonlyMap<string, string>): Json | undefined => {
-	let dangling = false
+/**
+ * The node with every `#/$defs/<key>` reference renamed to `#/$defs/<identifier>`; none when a
+ * reference names a key outside the copy (the importer would have failed on it).
+ */
+const rekeyedNode = (node: Json, identifiers: ReadonlyMap<string, string>): Option.Option<Json> => {
+	const dangling: string[] = []
 	const ofRef = (ref: string): string => {
 		const [defs, key, ...rest] = JsonPointer.parseUriFragment(ref) ?? []
 		const identifier = key === undefined ? undefined : identifiers.get(key)
@@ -1552,7 +1705,7 @@ const rekeyedNode = (node: Json, identifiers: ReadonlyMap<string, string>): Json
 		}
 
 		if (identifier === undefined) {
-			dangling = true
+			dangling.push(ref)
 
 			return ref
 		}
@@ -1565,10 +1718,12 @@ const rekeyedNode = (node: Json, identifiers: ReadonlyMap<string, string>): Json
 		return Predicate.isString(ref) ? { ...current, $ref: ofRef(ref) } : current
 	})
 
-	return dangling ? undefined : rekeyed
+	return dangling.length === 0 ? Option.some(rekeyed) : Option.none()
 }
 
-// The copy under its export names, every reference renamed with it.
+/**
+ * The copy under its export names, every reference renamed with it.
+ */
 const rekeyedCopy = (
 	copy: ReadonlyMap<string, Json>,
 	identifiers: ReadonlyMap<string, SafeIdentifierValue>
@@ -1578,44 +1733,46 @@ const rekeyedCopy = (
 		for (const key of copy.keys()) {
 			const identifier = identifiers.get(key)
 			if (identifier === undefined) {
-				return yield* new DomainEmitError({ reason: "identifier-mismatch" })
+				return yield* DomainEmitError.make({ reason: "identifier-mismatch" })
 			}
 
 			names.set(key, identifier)
 		}
 
 		if (new Set(names.values()).size !== names.size) {
-			return yield* new DomainEmitError({ reason: "identifier-mismatch" })
+			return yield* DomainEmitError.make({ reason: "identifier-mismatch" })
 		}
 
 		const rekeyed = new Map<string, Json>()
 		for (const [key, node] of copy) {
 			const renamed = rekeyedNode(node, names)
-			if (renamed === undefined) {
-				return yield* new DomainEmitError({ reason: "import-failed" })
+			if (Option.isNone(renamed)) {
+				return yield* DomainEmitError.make({ reason: "import-failed" })
 			}
 
-			rekeyed.set(names.get(key) ?? key, renamed)
+			rekeyed.set(names.get(key) ?? key, renamed.value)
 		}
 
 		return rekeyed
 	})
 
-// Effect's code names its definitions with `sanitizeJavaScriptIdentifier` and reserves `Schema`;
-// every name it exports must be the map's name, or cli modules import what is not exported.
+/**
+ * Effect's code names its definitions with `sanitizeJavaScriptIdentifier` and reserves `Schema`;
+ * every name it exports must be the map's name, or cli modules import what is not exported.
+ */
 const sameNames = (
 	code: SchemaRepresentation.CodeDocument,
 	expected: ReadonlyMap<string, Json>
 ): boolean => {
 	const exported = [
-		...code.references.nonRecursives.map((entry) => entry.$ref),
-		...Object.keys(code.references.recursives)
+		...Arr.map(code.references.nonRecursives, (entry) => entry.$ref),
+		...Record.keys(code.references.recursives)
 	]
 
 	return (
 		exported.length === expected.size &&
 		new Set(exported).size === exported.length &&
-		exported.every((name) => expected.has(name))
+		Arr.every(exported, (name) => expected.has(name))
 	)
 }
 
@@ -1634,12 +1791,13 @@ const emptyModule = "export {};\n"
  * `identifiers` is the names plan's map (`domainIdentifiers`). The copy is rekeyed to it, with its
  * references, before import, so every export and its `identifier` annotation carry the folded
  * name, not the schema key; an export Effect names differently fails `identifier-mismatch`.
+ * `limits` bounds the walk that builds the copy.
  */
 export const emitDomainSchemas = (
 	validation: ReadonlyMap<string, Json>,
 	roots: readonly string[],
 	identifiers: ReadonlyMap<string, SafeIdentifierValue>,
-	limits: SchemaLimits = {}
+	limits: SchemaLimits
 ): Effect.Effect<EmittedFile, DomainEmitError | SchemaBudgetExceeded> =>
 	Effect.gen(function* emit() {
 		const copy = yield* codeGenerationCopy(validation, roots, limits)
@@ -1648,34 +1806,36 @@ export const emitDomainSchemas = (
 		}
 
 		const closed = new Map(
-			[...copy].map(([key, node]): [string, Json] => [key, mapSchema(node, closedNode)])
+			Arr.map(Arr.fromIterable(copy), ([key, node]) => [key, mapSchema(node, closedNode)] as const)
 		)
 		const rekeyed = yield* rekeyedCopy(closed, identifiers)
-		const code = yield* importCode(yield* multiDocumentOf(rekeyed))
+		const multi = yield* multiDocumentOf(rekeyed)
+		const code = yield* importCode(multi)
 		if (code.artifacts.length > 0) {
-			return yield* new DomainEmitError({ reason: "unsupported-artifact" })
+			return yield* DomainEmitError.make({ reason: "unsupported-artifact" })
 		}
 
 		if (!sameNames(code, rekeyed)) {
-			return yield* new DomainEmitError({ reason: "identifier-mismatch" })
+			return yield* DomainEmitError.make({ reason: "identifier-mismatch" })
 		}
 
-		const parsed = yield* Effect.all([
-			...code.references.nonRecursives.map((entry) => definitionOf(entry.$ref, entry.code)),
-			...Object.entries(code.references.recursives).map(([name, entry]) =>
-				definitionOf(name, entry)
-			)
-		])
-		const typed = yield* withTypes(parsed, new Set(Object.keys(code.references.recursives)))
-		const ordered = orderOf(new Map(typed.map((definition) => [definition.name, definition])))
+		const sources: ReadonlyArray<readonly [string, SchemaRepresentation.Code]> = [
+			...Arr.map(code.references.nonRecursives, (entry) => [entry.$ref, entry.code] as const),
+			...Record.toEntries(code.references.recursives)
+		]
+		const parsed = yield* Effect.forEach(sources, ([name, entry]) => definitionOf(name, entry))
+		const typed = yield* withTypes(parsed, new Set(Record.keys(code.references.recursives)))
+		const ordered = orderOf(
+			new Map(Arr.map(typed, (definition) => [definition.name, definition] as const))
+		)
 		if (ordered === undefined) {
-			return yield* new DomainEmitError({ reason: "reference-cycle" })
+			return yield* DomainEmitError.make({ reason: "reference-cycle" })
 		}
 
-		const statements = ordered.flatMap(statementsOf).map(guardTemplateCurly)
+		const statements = Arr.map(Arr.flatMap(ordered, statementsOf), guardTemplateCurly)
 
 		return {
-			content: `import { Schema } from "effect";\n\n${statements.join("\n\n")}\n`,
+			content: `import { Schema } from "effect";\n\n${Arr.join(statements, "\n\n")}\n`,
 			path: modulePath
 		}
 	})

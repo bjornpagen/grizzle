@@ -16,7 +16,7 @@ import { normalize } from "#normalize/index.ts"
 import { normalizeSchemas } from "#normalize/schemas.ts"
 import { boundOrigins } from "#normalize/servers.ts"
 import generatorPackage from "#package.json" with { type: "json" }
-import { resolve } from "#resolve/index.ts"
+import { defaultLimits, resolve } from "#resolve/index.ts"
 import { runtimeFiles } from "#test/support/runtime-sources.ts"
 import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
@@ -74,7 +74,12 @@ const generate = (value: Schema.Json) =>
 		const plan = yield* planNames(api, { config, configDocument, strict: false })
 		const context = { config, configDocument, document, openapi: api.openapi }
 		const bound = (servers: readonly Server[]) => boundOrigins(servers, context).origins
-		const domain = yield* emitDomainSchemas(schemas.validation.definitions, [], plan.domain)
+		const domain = yield* emitDomainSchemas(
+			schemas.validation.definitions,
+			[],
+			plan.domain,
+			defaultLimits
+		)
 		const apiFiles = yield* emitApi({ api, boundOrigins: bound, plan })
 		const cli = yield* emitCli({ api, config, plan, validationEdits: [] })
 

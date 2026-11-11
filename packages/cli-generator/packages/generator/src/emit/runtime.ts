@@ -19,15 +19,12 @@ export const runtimeSources: Effect.Effect<
 	const files = yield* Effect.filter(entries, (entry) =>
 		Effect.map(fs.stat(path.join(root, entry)), (info) => info.type === "File")
 	)
-	const keys = Arr.sort(
-		Arr.map(files, (file) => Arr.join(Str.split(path.sep)(file), "/")),
-		Order.String
+	const keyed = Arr.sort(
+		Arr.map(files, (file) => ({ file, key: Arr.join(Str.split(file, path.sep), "/") })),
+		Order.mapInput(Order.String, (entry: { readonly key: string }) => entry.key)
 	)
-	const contents = yield* Effect.forEach(keys, (key) =>
-		Effect.map(
-			fs.readFileString(path.join(root, ...Str.split("/")(key))),
-			(content) => [key, content] as const
-		)
+	const contents = yield* Effect.forEach(keyed, ({ file, key }) =>
+		Effect.map(fs.readFileString(path.join(root, file)), (content) => [key, content] as const)
 	)
 	return Record.fromEntries(contents)
 }).pipe(Effect.orDie)

@@ -1,4 +1,17 @@
-import { Array as Arr, Data, Effect, Match, Option, Order, Predicate, Schema } from "effect"
+import { jsonTextOf } from "@superstarter/json"
+import { regex } from "arkregex"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Match,
+	Option,
+	Order,
+	Predicate,
+	Record,
+	Schema,
+	String as Str
+} from "effect"
 import {
 	guardTemplateCurly,
 	jsDoc,
@@ -90,7 +103,7 @@ type MemberNameType = typeof MemberName.Type
  * A module specifier in an import statement.
  */
 export const ModuleSpecifier = Schema.String.pipe(
-	Schema.check(Schema.isPattern(/^[A-Za-z0-9@._/-]+$/u)),
+	Schema.check(Schema.isPattern(regex("^[A-Za-z0-9@._/-]+$", "u"))),
 	Schema.brand("ModuleSpecifier")
 )
 
@@ -100,7 +113,7 @@ type ModuleSpecifierType = typeof ModuleSpecifier.Type
  * The interpreter line of an executable module, after `#!`: an absolute path and its arguments.
  */
 export const Shebang = Schema.String.pipe(
-	Schema.check(Schema.isPattern(/^\/[!-~]+(?: [!-~]+)*$/u)),
+	Schema.check(Schema.isPattern(regex("^/[!-~]+(?: [!-~]+)*$", "u"))),
 	Schema.brand("Shebang")
 )
 
@@ -141,7 +154,7 @@ export type Expr =
 	| {
 			readonly _tag: "Arrow"
 			readonly params: readonly Param[]
-			readonly returns?: TypeExpr
+			readonly returns: Option.Option<TypeExpr>
 			readonly body: Expr
 	  }
 	| { readonly _tag: "New"; readonly callee: Expr; readonly args: readonly Expr[] }
@@ -207,21 +220,25 @@ export interface Module {
 /**
  * The module holds a construct outside the printer's syntax subset.
  */
-export class PrinterError extends Data.TaggedError("PrinterError")<{
-	readonly reason:
-		| "duplicate-key"
-		| "non-finite-number"
-		| "unbreakable-line"
-		| "unsupported-arrow-body"
-		| "unsupported-chain"
-		| "unsupported-conditional"
-		| "unsupported-expression"
-		| "unsupported-member"
-		| "unsupported-new"
-		| "unsupported-package-json"
-		| "unsupported-plus"
-	readonly subject: string
-}> {}
+export class PrinterError extends Schema.TaggedError<
+	PrinterError,
+	{ readonly brand: unique symbol }
+>()("PrinterError", {
+	reason: Schema.Literals([
+		"duplicate-key",
+		"non-finite-number",
+		"unbreakable-line",
+		"unsupported-arrow-body",
+		"unsupported-chain",
+		"unsupported-conditional",
+		"unsupported-expression",
+		"unsupported-member",
+		"unsupported-new",
+		"unsupported-package-json",
+		"unsupported-plus"
+	]),
+	subject: Schema.String
+}) {}
 
 export const str = (value: string): Expr => ({ _tag: "String", value })
 
@@ -248,8 +265,25 @@ export const arr = (elements: readonly Expr[]): Expr => ({ _tag: "Array", elemen
 
 export const call = (callee: Expr, args: readonly Expr[]): Expr => ({ _tag: "Call", args, callee })
 
-export const arrow = (params: readonly Param[], body: Expr, returns?: TypeExpr): Expr =>
-	returns === undefined ? { _tag: "Arrow", body, params } : { _tag: "Arrow", body, params, returns }
+/**
+ * An arrow function without a return type: `(params) => body`.
+ */
+export const arrow = (params: readonly Param[], body: Expr): Expr => ({
+	_tag: "Arrow",
+	body,
+	params,
+	returns: Option.none()
+})
+
+/**
+ * An arrow function with its return type: `(params): Returns => body`.
+ */
+export const typedArrow = (params: readonly Param[], body: Expr, returns: TypeExpr): Expr => ({
+	_tag: "Arrow",
+	body,
+	params,
+	returns: Option.some(returns)
+})
 
 export const newExpr = (callee: Expr, args: readonly Expr[]): Expr => ({
 	_tag: "New",
@@ -257,7 +291,7 @@ export const newExpr = (callee: Expr, args: readonly Expr[]): Expr => ({
 	callee
 })
 
-const regExpName = Schema.decodeSync(Identifier)("RegExp")
+const regExpName = Identifier.make("RegExp")
 
 export const regExp = (source: string): Expr => newExpr(ident(regExpName), [str(source), str("u")])
 
@@ -275,11 +309,25 @@ export const plus = (left: Expr, right: Expr): Expr => ({ _tag: "Plus", left, ri
  */
 export const dynamicImport = (from: ModuleSpecifierType): Expr => ({ _tag: "DynamicImport", from })
 
-export const typeRef = (
+/**
+ * A generic type applied to its arguments: `head`, each member after `.`, then `<args>`.
+ */
+export const typeApply = (
 	head: IdentifierType,
-	members: readonly MemberNameType[] = [],
-	args: readonly TypeExpr[] = []
+	members: readonly MemberNameType[],
+	args: readonly TypeExpr[]
 ): TypeExpr => ({ _tag: "TypeRef", args, head, members })
+
+/**
+ * A type named by a path: `head`, then each member after `.`.
+ */
+export const typeRef = (head: IdentifierType, members: readonly MemberNameType[]): TypeExpr =>
+	typeApply(head, members, [])
+
+/**
+ * A type named by one identifier.
+ */
+export const typeName = (head: IdentifierType): TypeExpr => typeApply(head, [], [])
 
 export const typeKeyword = (
 	keyword: Extract<TypeExpr, { readonly _tag: "TypeKeyword" }>["keyword"]
@@ -304,7 +352,9 @@ type ArrowExpr = Extract<Expr, { readonly _tag: "Arrow" }>
 
 type Entry = readonly [string, Expr]
 
-// East Asian Wide and Fullwidth blocks: vp fmt counts each such code point as two columns.
+/**
+ * East Asian Wide and Fullwidth blocks: vp fmt counts each such code point as two columns.
+ */
 const wideRanges: readonly (readonly [number, number])[] = [
 	[0x11_00, 0x11_5f],
 	[0x23_29, 0x23_2a],
@@ -328,15 +378,14 @@ const wideRanges: readonly (readonly [number, number])[] = [
 	[0x3_00_00, 0x3_ff_fd]
 ]
 
-const zeroWidthPattern = /^[\p{Mn}\p{Me}\p{Cf}]/u
+const zeroWidthPattern = regex("^[\\p{Mn}\\p{Me}\\p{Cf}]", "u")
 
-const emojiPattern = /^\p{Emoji_Presentation}/u
+const emojiPattern = regex("^\\p{Emoji_Presentation}", "u")
 
 /**
- * The display columns of one code point, as `vp fmt` counts them.
+ * The display columns of the code point `point`, spelled `char`, as `vp fmt` counts them.
  */
-export const charWidth = (char: string): number => {
-	const point = char.codePointAt(0) ?? 0
+const pointWidth = (point: number, char: string): number => {
 	if (point < 0x7f) {
 		return 1
 	}
@@ -346,10 +395,19 @@ export const charWidth = (char: string): number => {
 	}
 
 	const wide =
-		emojiPattern.test(char) || wideRanges.some(([low, high]) => point >= low && point <= high)
+		emojiPattern.test(char) || Arr.some(wideRanges, ([low, high]) => point >= low && point <= high)
 
 	return wide ? 2 : 1
 }
+
+/**
+ * The display columns of one code point, as `vp fmt` counts them.
+ */
+const charWidth = (char: string): number =>
+	Option.match(Str.codePointAt(char, 0), {
+		onNone: () => 0,
+		onSome: (point) => pointWidth(point, char)
+	})
 
 /**
  * Display columns, as `vp fmt` counts them (docs/printer.md Layout).
@@ -363,13 +421,13 @@ export const textWidth = (text: string): number => {
 	return total
 }
 
-const pad = (indent: number): string => " ".repeat(indent)
+const pad = (indent: number): string => Str.repeat(indent)(" ")
 
-const endColumn = (start: number, text: string): number => {
-	const lastBreak = text.lastIndexOf("\n")
-
-	return lastBreak === -1 ? start + textWidth(text) : textWidth(text.slice(lastBreak + 1))
-}
+const endColumn = (start: number, text: string): number =>
+	Option.match(Str.lastIndexOf("\n")(text), {
+		onNone: () => start + textWidth(text),
+		onSome: (lastBreak) => textWidth(Str.slice(lastBreak + 1)(text))
+	})
 
 /**
  * Where a form starts, the indent of its line, and the width of the text after it up to the next
@@ -383,8 +441,14 @@ interface Place {
 
 type Render = (expr: Expr, place: Place) => string
 
-const fits = (text: string | undefined, place: Place): text is string =>
-	text !== undefined && place.column + textWidth(text) + place.tail <= lineWidth
+const fits = (text: string, place: Place): boolean =>
+	place.column + textWidth(text) + place.tail <= lineWidth
+
+/**
+ * Whether a form has a flat text and that text fits at `place`.
+ */
+const fitsFlat = (text: string | undefined, place: Place): boolean =>
+	text !== undefined && fits(text, place)
 
 const isDefined = (text: string | undefined): text is string => text !== undefined
 
@@ -394,10 +458,10 @@ const flatList = (
 	close: string
 ): string | undefined => {
 	if (items.length === 0) {
-		return `${open.trim()}${close.trim()}`
+		return `${Str.trim(open)}${Str.trim(close)}`
 	}
 
-	return items.every(isDefined) ? `${open}${items.join(", ")}${close}` : undefined
+	return Arr.every(items, isDefined) ? `${open}${Arr.join(items, ", ")}${close}` : undefined
 }
 
 const byKey = Order.mapInput(Order.String, (entry: Entry) => entry[0])
@@ -421,22 +485,22 @@ const typeText = (type: TypeExpr): string =>
 				? `readonly (${typeText(array.element)})[]`
 				: `readonly ${typeText(array.element)}[]`,
 		TypeRef: (reference) => {
-			const name = [reference.head, ...reference.members].join(".")
-			const args = reference.args.map(typeText).join(", ")
+			const name = Arr.join([reference.head, ...reference.members], ".")
+			const args = Arr.join(Arr.map(reference.args, typeText), ", ")
 
 			return reference.args.length === 0 ? name : `${name}<${args}>`
 		},
-		TypeUnion: (union) => union.members.map(typeText).join(" | ")
+		TypeUnion: (union) => Arr.join(Arr.map(union.members, typeText), " | ")
 	})
 
 const paramText = (param: Param): string =>
 	param.type === undefined ? param.name : `${param.name}: ${typeText(param.type)}`
 
-const arrowHead = (expr: ArrowExpr): string => {
-	const returns = expr.returns === undefined ? "" : `: ${typeText(expr.returns)}`
+const returnsText = (expr: ArrowExpr): string =>
+	Option.match(expr.returns, { onNone: () => "", onSome: (type) => `: ${typeText(type)}` })
 
-	return `(${expr.params.map(paramText).join(", ")})${returns} =>`
-}
+const arrowHead = (expr: ArrowExpr): string =>
+	`(${Arr.join(Arr.map(expr.params, paramText), ", ")})${returnsText(expr)} =>`
 
 const isPath = (expr: Expr): boolean =>
 	expr._tag === "Identifier" || (expr._tag === "Member" && isPath(expr.object))
@@ -449,14 +513,17 @@ const entryCount = (expr: Expr): number => {
 	return expr._tag === "Array" ? expr.elements.length : 0
 }
 
-// Two or more elements that are all object literals, or all array literals, with more than one
-// entry each.
+/**
+ * Two or more elements that are all object literals, or all array literals, with more than one
+ * entry each.
+ */
 const alwaysBroken = (elements: readonly Expr[]): boolean => {
 	const [first] = elements
 
 	return (
 		elements.length > 1 &&
-		elements.every(
+		Arr.every(
+			elements,
 			(element) =>
 				(element._tag === "Object" || element._tag === "Array") &&
 				element._tag === first?._tag &&
@@ -466,9 +533,11 @@ const alwaysBroken = (elements: readonly Expr[]): boolean => {
 }
 
 const isNumberList = (elements: readonly Expr[]): boolean =>
-	elements.length > 1 && elements.every((element) => element._tag === "Number")
+	elements.length > 1 && Arr.every(elements, (element) => element._tag === "Number")
 
-// Values that move below `=` or `:` when they do not fit after it.
+/**
+ * Values that move below `=` or `:` when they do not fit after it.
+ */
 const movesWhenLong = (expr: Expr): boolean =>
 	expr._tag === "String" ||
 	expr._tag === "Undefined" ||
@@ -481,7 +550,7 @@ const flatPair = (left: string | undefined, separator: string, right: string | u
 const flat = (expr: Expr): string | undefined =>
 	Match.valueTags(expr, {
 		Array: (list) =>
-			alwaysBroken(list.elements) ? undefined : flatList(list.elements.map(flat), "[", "]"),
+			alwaysBroken(list.elements) ? undefined : flatList(Arr.map(list.elements, flat), "[", "]"),
 		Arrow: (fn) => {
 			const body = flat(fn.body)
 
@@ -489,7 +558,7 @@ const flat = (expr: Expr): string | undefined =>
 		},
 		Boolean: (literal) => String(literal.value),
 		Call: (invocation) =>
-			flatPair(flat(invocation.callee), "", flatList(invocation.args.map(flat), "(", ")")),
+			flatPair(flat(invocation.callee), "", flatList(Arr.map(invocation.args, flat), "(", ")")),
 		Conditional: (choice) =>
 			flatPair(
 				flatPair(flat(choice.test), " ? ", flat(choice.consequent)),
@@ -503,11 +572,11 @@ const flat = (expr: Expr): string | undefined =>
 			flatPair(
 				`new ${flat(construct.callee) ?? ""}`,
 				"",
-				flatList(construct.args.map(flat), "(", ")")
+				flatList(Arr.map(construct.args, flat), "(", ")")
 			),
 		Number: (literal) => numberText(literal.value),
 		Object: (literal) => {
-			const entries = sortEntries(literal.entries).map(([key, value]) =>
+			const entries = Arr.map(sortEntries(literal.entries), ([key, value]) =>
 				flatPair(keyText(key), ": ", flat(value))
 			)
 
@@ -519,9 +588,11 @@ const flat = (expr: Expr): string | undefined =>
 	})
 
 const block = (open: string, lines: readonly string[], indent: number, close: string): string =>
-	[open, ...lines, `${pad(indent)}${close}`].join("\n")
+	Arr.join([open, ...lines, `${pad(indent)}${close}`], "\n")
 
-// Packs pre-punctuated items greedily, as many per line as end at or before column 100.
+/**
+ * Packs pre-punctuated items greedily, as many per line as end at or before column 100.
+ */
 const fillLines = (items: readonly string[], indent: number): readonly string[] => {
 	const lines: string[] = []
 	let current = ""
@@ -538,17 +609,19 @@ const fillLines = (items: readonly string[], indent: number): readonly string[] 
 
 	lines.push(current)
 
-	return lines.map((line) => `${pad(indent)}${line}`)
+	return Arr.map(lines, (line) => `${pad(indent)}${line}`)
 }
 
-// A conditional moves below `=` or `:` when its test does not fit after it.
+/**
+ * A conditional moves below `=` or `:` when its test does not fit after it.
+ */
 const movesConditional = (expr: Expr, place: Place): boolean =>
-	expr._tag === "Conditional" && !fits(flat(expr.test), { ...place, tail: 0 })
+	expr._tag === "Conditional" && !fitsFlat(flat(expr.test), { ...place, tail: 0 })
 
 const renderProperty = (key: string, value: Expr, indent: number, render: Render): string => {
 	const place = { column: indent + textWidth(key) + 2, indent, tail: 1 }
 	const text = flat(value)
-	if (movesWhenLong(value) && textWidth(key) >= 5 && !fits(text, place)) {
+	if (movesWhenLong(value) && textWidth(key) >= 5 && !fitsFlat(text, place)) {
 		return `${key}:\n${pad(indent + 2)}${text ?? ""}`
 	}
 
@@ -567,7 +640,8 @@ const renderObject = (entries: readonly Entry[], indent: number, render: Render)
 	}
 
 	const inner = indent + 2
-	const lines = sortEntries(entries).map(
+	const lines = Arr.map(
+		sortEntries(entries),
 		([key, value]) => `${pad(inner)}${renderProperty(keyText(key), value, inner, render)},`
 	)
 
@@ -583,10 +657,10 @@ const renderArray = (elements: readonly Expr[], indent: number, render: Render):
 	const place = { column: inner, indent: inner, tail: 1 }
 	const lines = isNumberList(elements)
 		? fillLines(
-				elements.map((element) => `${flat(element) ?? ""},`),
+				Arr.map(elements, (element) => `${flat(element) ?? ""},`),
 				inner
 			)
-		: elements.map((element) => `${pad(inner)}${render(element, place)},`)
+		: Arr.map(elements, (element) => `${pad(inner)}${render(element, place)},`)
 
 	return block("[", lines, indent, "]")
 }
@@ -634,8 +708,10 @@ const renderMovedBody = (expr: ArrowExpr, indent: number, tail: number, render: 
 	return `${arrowHead(expr)}\n${pad(inner)}${render(expr.body, { column: inner, indent: inner, tail })}`
 }
 
-// The last argument opens on the call's line and is printed broken. A hugged arrow whose body
-// moves ends with `,` and leaves `)` to its own line.
+/**
+ * The last argument opens on the call's line and is printed broken. A hugged arrow whose body
+ * moves ends with `,` and leaves `)` to its own line.
+ */
 const renderHugged = (expr: Expr, indent: number, render: Render): string => {
 	if (expr._tag === "Object") {
 		return renderObject(expr.entries, indent, render)
@@ -661,16 +737,19 @@ const renderHugged = (expr: Expr, indent: number, render: Render): string => {
 }
 
 const renderArgs = (args: readonly Expr[], place: Place, render: Render): string => {
-	const flats = args.map(flat)
+	const flats = Arr.map(args, flat)
 	const flatText = flatList(flats, "(", ")")
-	if (fits(flatText, place)) {
+	if (flatText !== undefined && fits(flatText, place)) {
 		return flatText
 	}
 
 	const last = args.at(-1)
 	const leading = flats.slice(0, -1)
-	if (last !== undefined && canHug(args) && leading.every(isDefined)) {
-		const prefix = `(${leading.map((text) => `${text}, `).join("")}`
+	if (last !== undefined && canHug(args) && Arr.every(leading, isDefined)) {
+		const prefix = `(${Arr.join(
+			Arr.map(leading, (text) => `${text}, `),
+			""
+		)}`
 		if (place.column + textWidth(prefix) + textWidth(opening(last)) <= lineWidth) {
 			return `${prefix}${renderHugged(last, place.indent, render)})`
 		}
@@ -678,12 +757,14 @@ const renderArgs = (args: readonly Expr[], place: Place, render: Render): string
 
 	const inner = place.indent + 2
 	const at = { column: inner, indent: inner, tail: 1 }
-	const lines = args.map((arg) => `${pad(inner)}${render(arg, at)},`)
+	const lines = Arr.map(args, (arg) => `${pad(inner)}${render(arg, at)},`)
 
 	return block("(", lines, place.indent, ")")
 }
 
-// The text after `=>` that stays on the head's line: ` ({` or ` [` before a literal body.
+/**
+ * The text after `=>` that stays on the head's line: ` ({` or ` [` before a literal body.
+ */
 const headTail = (expr: ArrowExpr): number => {
 	if (expr.body._tag === "Object") {
 		return 3
@@ -692,18 +773,19 @@ const headTail = (expr: ArrowExpr): number => {
 	return expr.body._tag === "Array" ? 2 : 0
 }
 
-// When the head's line runs past column 100, the parameters break one per line and the head ends
-// with `): Returns =>` at the arrow's indent. The body is then laid out after that line.
+/**
+ * When the head's line runs past column 100, the parameters break one per line and the head ends
+ * with `): Returns =>` at the arrow's indent. The body is then laid out after that line.
+ */
 const renderBrokenHead = (expr: ArrowExpr, place: Place, render: Render): string => {
 	const inner = place.indent + 2
-	const params = expr.params.map((param) => `${pad(inner)}${paramText(param)},`)
-	const returns = expr.returns === undefined ? "" : `: ${typeText(expr.returns)}`
-	const close = `)${returns} =>`
+	const params = Arr.map(expr.params, (param) => `${pad(inner)}${paramText(param)},`)
+	const close = `)${returnsText(expr)} =>`
 	const head = block("(", params, place.indent, close)
 	const column = place.indent + textWidth(close) + 1
 	const body = flat(expr.body)
 	const flatBody = expr.body._tag === "Object" ? flatPair("(", "", flatPair(body, "", ")")) : body
-	if (fits(flatBody, { ...place, column })) {
+	if (flatBody !== undefined && fits(flatBody, { ...place, column })) {
 		return `${head} ${flatBody}`
 	}
 
@@ -744,8 +826,10 @@ const renderArrow = (expr: ArrowExpr, place: Place, render: Render): string => {
 
 type ConditionalExpr = Extract<Expr, { readonly _tag: "Conditional" }>
 
-// The test stays on the line; each branch starts a line one level deeper, after `? ` or `: `, and
-// lays out two columns further in.
+/**
+ * The test stays on the line; each branch starts a line one level deeper, after `? ` or `: `, and
+ * lays out two columns further in.
+ */
 const renderConditional = (expr: ConditionalExpr, place: Place, render: Render): string => {
 	const inner = place.indent + 2
 	const branch = { column: inner + 2, indent: inner + 2, tail: 0 }
@@ -758,7 +842,7 @@ const renderConditional = (expr: ConditionalExpr, place: Place, render: Render):
 
 const render: Render = (expr, place) => {
 	const text = flat(expr)
-	if (fits(text, place)) {
+	if (text !== undefined && fits(text, place)) {
 		return text
 	}
 
@@ -804,7 +888,7 @@ type Issue = Option.Option<PrinterError>
 const none = (): Issue => Option.none()
 
 const issue = (reason: PrinterError["reason"], subject: string): Issue =>
-	Option.some(new PrinterError({ reason, subject }))
+	Option.some(PrinterError.make({ reason, subject }))
 
 const firstIssue = <A>(items: readonly A[], check: (item: A) => Issue): Issue => {
 	for (const item of items) {
@@ -817,8 +901,11 @@ const firstIssue = <A>(items: readonly A[], check: (item: A) => Issue): Issue =>
 	return Option.none()
 }
 
-const duplicateKey = (keys: readonly string[]): string | undefined =>
-	keys.find((key, index) => keys.indexOf(key) !== index)
+const duplicateKey = (keys: readonly string[]): Issue =>
+	Option.flatMap(
+		Arr.findFirst(keys, (key, index) => keys.indexOf(key) !== index),
+		(duplicate) => issue("duplicate-key", duplicate)
+	)
 
 const pathHead = (expr: Expr): string | undefined => {
 	if (expr._tag === "Identifier") {
@@ -836,8 +923,10 @@ interface Chain {
 	readonly root: Expr
 }
 
-// `Head.member(args)` is one call group, each `.name(args)` after a call adds one, and curried
-// calls stay in their group.
+/**
+ * `Head.member(args)` is one call group, each `.name(args)` after a call adds one, and curried
+ * calls stay in their group.
+ */
 const chainOf = (callee: Expr, groups: number): Chain => {
 	if (callee._tag === "Call") {
 		return chainOf(callee.callee, groups)
@@ -850,10 +939,12 @@ const chainOf = (callee: Expr, groups: number): Chain => {
 	return { groups, root: callee }
 }
 
+const capitalized = regex("^[A-Z]", "u")
+
 const checkChain = (callee: Expr): Issue => {
 	const { groups, root } = chainOf(callee, 1)
 	const head = isPath(root) ? pathHead(root) : undefined
-	if (head === undefined || groups > 2 || (groups === 2 && !/^[A-Z]/u.test(head))) {
+	if (head === undefined || groups > 2 || (groups === 2 && !capitalized.test(head))) {
 		return issue("unsupported-chain", flat(callee) ?? "")
 	}
 
@@ -867,13 +958,10 @@ const isLeaf = (expr: Expr): boolean =>
 	expr._tag === "Undefined" ||
 	isPath(expr)
 
-const checkObject = (entries: readonly Entry[], check: (expr: Expr) => Issue): Issue => {
-	const duplicate = duplicateKey(entries.map(([key]) => key))
-
-	return duplicate === undefined
-		? firstIssue(entries, ([, value]) => check(value))
-		: issue("duplicate-key", duplicate)
-}
+const checkObject = (entries: readonly Entry[], check: (expr: Expr) => Issue): Issue =>
+	Option.orElse(duplicateKey(Arr.map(entries, ([key]) => key)), () =>
+		firstIssue(entries, ([, value]) => check(value))
+	)
 
 const check = (expr: Expr, role: Role): Issue => {
 	const asValue = (inner: Expr) => check(inner, "value")
@@ -892,13 +980,15 @@ const check = (expr: Expr, role: Role): Issue => {
 			),
 		Conditional: (choice) => {
 			const operands = [choice.test, choice.consequent, choice.alternate]
-			const nested = operands.find(
+			const nested = Arr.findFirst(
+				operands,
 				(operand) => operand._tag === "Conditional" || operand._tag === "Arrow"
 			)
 
-			return nested === undefined
-				? firstIssue(operands, asValue)
-				: issue("unsupported-conditional", nested._tag)
+			return Option.match(nested, {
+				onNone: () => firstIssue(operands, asValue),
+				onSome: (operand) => issue("unsupported-conditional", operand._tag)
+			})
 		},
 		DynamicImport: none,
 		Identifier: none,
@@ -932,17 +1022,19 @@ const check = (expr: Expr, role: Role): Issue => {
 const withDoc = (doc: JsDocTextType | undefined, text: string): string =>
 	doc === undefined ? text : `${jsDoc(doc)}\n${text}`
 
-// A line past column 100 is allowed when `vp fmt` keeps it there: its only wide parts are
-// identifiers, which cannot break. A type with several union members or type arguments is one
-// `vp fmt` breaks across lines. The printer breaks a union that is a field's or alias's whole type
-// (see `brokenUnion`); any other such line is refused.
+/**
+ * A line past column 100 is allowed when `vp fmt` keeps it there: its only wide parts are
+ * identifiers, which cannot break. A type with several union members or type arguments is one
+ * `vp fmt` breaks across lines. The printer breaks a union that is a field's or alias's whole type
+ * (see `brokenUnion`); any other such line is refused.
+ */
 const breaksWhenWide = (type: TypeExpr): boolean =>
 	Match.valueTags(type, {
 		TypeKeyword: () => false,
 		TypeLiteral: () => false,
 		TypeReadonlyArray: (array) => breaksWhenWide(array.element),
-		TypeRef: (reference) => reference.args.length > 1 || reference.args.some(breaksWhenWide),
-		TypeUnion: (union) => union.members.length > 1 || union.members.some(breaksWhenWide)
+		TypeRef: (reference) => reference.args.length > 1 || Arr.some(reference.args, breaksWhenWide),
+		TypeUnion: (union) => union.members.length > 1 || Arr.some(union.members, breaksWhenWide)
 	})
 
 const unbreakable = (line: string, type: TypeExpr | undefined, subject: string): Issue =>
@@ -958,25 +1050,30 @@ interface Layout {
 	readonly text: string
 }
 
-// The members of a union, nested unions flattened: `typeText` prints a nested union without
-// parentheses, so it parses as part of the outer one.
+/**
+ * The members of a union, nested unions flattened: `typeText` prints a nested union without
+ * parentheses, so it parses as part of the outer one.
+ */
 const unionMembers = (type: TypeExpr): readonly TypeExpr[] =>
-	type._tag === "TypeUnion" ? type.members.flatMap(unionMembers) : [type]
+	type._tag === "TypeUnion" ? Arr.flatMap(type.members, unionMembers) : [type]
 
-// A union that does not fit on its line, as `vp fmt` prints it: `head` ends the line, then each
-// member starts a line one level deeper than `indent` with `| `, and the last member ends with `;`.
-// A member that `vp fmt` would break further is refused.
+/**
+ * A union that does not fit on its line, as `vp fmt` prints it: `head` ends the line, then each
+ * member starts a line one level deeper than `indent` with `| `, and the last member ends with
+ * `;`. A member that `vp fmt` would break further is refused.
+ */
 const brokenUnion = (head: string, type: TypeExpr, indent: number, subject: string): Layout => {
 	const members = unionMembers(type)
-	const lines = members.map(
+	const lines = Arr.map(
+		members,
 		(part, index) =>
 			`${pad(indent + 2)}| ${typeText(part)}${index === members.length - 1 ? ";" : ""}`
 	)
 	const failure = Option.firstSomeOf(
-		members.map((part, index) => unbreakable(lines[index] ?? "", part, subject))
+		Arr.zipWith(lines, members, (line, part) => unbreakable(line, part, subject))
 	)
 
-	return { failure, text: [head, ...lines].join("\n") }
+	return { failure, text: Arr.join([head, ...lines], "\n") }
 }
 
 const isLongUnion = (line: string, type: TypeExpr): boolean =>
@@ -988,6 +1085,11 @@ const succeedUnless = (failure: Issue, text: () => string): Effect.Effect<string
 		onSome: (error) => Effect.fail(error)
 	})
 
+/**
+ * A constant's value after its head. A head past column 100 moves every value except a
+ * non-negative number or boolean onto its own line, which `vp fmt` does whether or not the value
+ * is long.
+ */
 const constBody = (statement: Extract<Statement, { readonly _tag: "Const" }>, head: string) => {
 	const { value } = statement
 	const asConst = statement.asConst === true
@@ -1000,13 +1102,11 @@ const constBody = (statement: Extract<Statement, { readonly _tag: "Const" }>, he
 		return `${head}\n  ${render(value, { column: 2, indent: 2, tail: tail.length })}${tail}`
 	}
 
-	// A head past column 100 moves every value except a non-negative number or boolean onto its own
-	// line, which `vp fmt` does whether or not the value is long.
 	if (textWidth(head) > lineWidth && value._tag !== "Number" && value._tag !== "Boolean") {
 		return `${head}\n  ${render(value, { column: 2, indent: 2, tail: tail.length })}${tail}`
 	}
 
-	const body = moves && !fits(text, place) ? `\n  ${text ?? ""}` : ` ${render(value, place)}`
+	const body = moves && !fitsFlat(text, place) ? `\n  ${text ?? ""}` : ` ${render(value, place)}`
 
 	return `${head}${body}${tail}`
 }
@@ -1034,21 +1134,22 @@ const fieldLayout = (field: Field, subject: string): Layout => {
 
 const printInterface = (statement: Extract<Statement, { readonly _tag: "Interface" }>) => {
 	const head = `export interface ${statement.name} {`
-	const duplicate = duplicateKey(statement.fields.map((field) => field.key))
-	const layouts = Arr.sort(statement.fields, byFieldKey).map((field) =>
+	const duplicated = duplicateKey(Arr.map(statement.fields, (field) => field.key))
+	const layouts = Arr.map(Arr.sort(statement.fields, byFieldKey), (field) =>
 		fieldLayout(field, statement.name)
 	)
-	const wide = Option.firstSomeOf(layouts.map((layout) => layout.failure))
-	const duplicated = duplicate === undefined ? Option.none() : issue("duplicate-key", duplicate)
+	const wide = Option.firstSomeOf(Arr.map(layouts, (layout) => layout.failure))
 	const failure = Option.orElse(duplicated, () => wide)
-	const lines = layouts.map((layout) => layout.text)
-	const text = lines.length === 0 ? `${head}}` : [head, ...lines, "}"].join("\n")
+	const lines = Arr.map(layouts, (layout) => layout.text)
+	const text = lines.length === 0 ? `${head}}` : Arr.join([head, ...lines, "}"], "\n")
 
 	return succeedUnless(failure, () => withDoc(statement.doc, text))
 }
 
-// A top-level call, such as `NodeRuntime.runMain(program);`. Other expressions are not statements
-// the generator writes.
+/**
+ * A top-level call, such as `NodeRuntime.runMain(program);`. Other expressions are not statements
+ * the generator writes.
+ */
 const printExpression = (statement: Extract<Statement, { readonly _tag: "Expression" }>) => {
 	const { value } = statement
 	const failure =
@@ -1057,29 +1158,34 @@ const printExpression = (statement: Extract<Statement, { readonly _tag: "Express
 	return succeedUnless(failure, () => `${render(value, { column: 0, indent: 0, tail: 1 })};`)
 }
 
+/**
+ * A type alias: past column 100 a union breaks, and any other type moves to its own line, as
+ * `vp fmt` does.
+ */
+const printTypeAlias = (alias: Extract<Statement, { readonly _tag: "TypeAlias" }>) => {
+	const head = `export type ${alias.name} =`
+	const line = `${head} ${typeText(alias.type)};`
+	const moved = `${head}\n  ${typeText(alias.type)};`
+	const layout = isLongUnion(line, alias.type)
+		? brokenUnion(head, alias.type, 0, alias.name)
+		: {
+				failure: unbreakable(line, alias.type, alias.name),
+				text: textWidth(line) > lineWidth ? moved : line
+			}
+
+	return succeedUnless(layout.failure, () => withDoc(alias.doc, layout.text))
+}
+
 const printStatement = (statement: Statement): Effect.Effect<string, PrinterError> =>
 	Match.valueTags(statement, {
 		Const: printConst,
 		Expression: printExpression,
 		Interface: printInterface,
-		TypeAlias: (alias) => {
-			const head = `export type ${alias.name} =`
-			const line = `${head} ${typeText(alias.type)};`
-			// Past column 100 a union breaks, and any other type moves to its own line, as `vp fmt` does.
-			const moved = `${head}\n  ${typeText(alias.type)};`
-			const layout = isLongUnion(line, alias.type)
-				? brokenUnion(head, alias.type, 0, alias.name)
-				: {
-						failure: unbreakable(line, alias.type, alias.name),
-						text: textWidth(line) > lineWidth ? moved : line
-					}
-
-			return succeedUnless(layout.failure, () => withDoc(alias.doc, layout.text))
-		}
+		TypeAlias: printTypeAlias
 	})
 
 const importOrder = Order.combineAll([
-	Order.mapInput(Order.Boolean, (entry: Import) => entry.from.startsWith(".")),
+	Order.mapInput(Order.Boolean, (entry: Import) => Str.startsWith(".")(entry.from)),
 	Order.mapInput(Order.String, (entry: Import) => entry.from),
 	Order.mapInput(Order.Boolean, (entry: Import) => !entry.typeOnly),
 	Order.mapInput(Order.Boolean, (entry: Import) => entry._tag === "Named"),
@@ -1087,14 +1193,14 @@ const importOrder = Order.combineAll([
 ])
 
 const importKey = (entry: Import): string =>
-	[
-		entry._tag,
-		String(entry.typeOnly),
-		entry.from,
-		entry._tag === "Namespace" ? entry.name : ""
-	].join(":")
+	Arr.join(
+		[entry._tag, String(entry.typeOnly), entry.from, entry._tag === "Namespace" ? entry.name : ""],
+		":"
+	)
 
-// One statement per specifier and kind: named imports of one kind from one specifier merge.
+/**
+ * One statement per specifier and kind: named imports of one kind from one specifier merge.
+ */
 const mergeImports = (imports: readonly Import[]): readonly Import[] => {
 	const merged = new Map<string, Import>()
 	for (const entry of imports) {
@@ -1115,12 +1221,15 @@ const importLine = (entry: Import): string => {
 	}
 
 	const names = Arr.sort(Arr.dedupe(entry.names), Order.String)
-	const line = `import ${kind}{ ${names.join(", ")} } from ${from};`
+	const line = `import ${kind}{ ${Arr.join(names, ", ")} } from ${from};`
 	if (textWidth(line) <= lineWidth) {
 		return line
 	}
 
-	return [`import ${kind}{`, ...names.map((name) => `  ${name},`), `} from ${from};`].join("\n")
+	return Arr.join(
+		[`import ${kind}{`, ...Arr.map(names, (name) => `  ${name},`), `} from ${from};`],
+		"\n"
+	)
 }
 
 /**
@@ -1128,59 +1237,59 @@ const importLine = (entry: Import): string => {
  * with a `PrinterError` when the module holds a construct outside the printer's syntax subset.
  */
 export const printModule = (module: Module): Effect.Effect<string, PrinterError> =>
-	Effect.map(Effect.all(module.statements.map(printStatement)), (printed) => {
-		const statements = printed.map(guardTemplateCurly)
-		const imports = mergeImports(module.imports).map(importLine)
+	Effect.map(Effect.forEach(module.statements, printStatement), (printed) => {
+		const statements = Arr.map(printed, guardTemplateCurly)
+		const imports = Arr.map(mergeImports(module.imports), importLine)
 		const blocks = [
 			...(module.shebang === undefined ? [] : [`#!${module.shebang}`]),
-			...(imports.length === 0 ? [] : [imports.join("\n")]),
+			...(imports.length === 0 ? [] : [Arr.join(imports, "\n")]),
 			...statements
 		]
 
-		return blocks.length === 0 ? "" : `${blocks.join("\n\n")}\n`
+		return blocks.length === 0 ? "" : `${Arr.join(blocks, "\n\n")}\n`
 	})
-
-type Json = Schema.Json
 
 type JsonValue = (typeof JsonLiteral)["Type"]
 
-const isJsonArray = (value: Json): value is Schema.JsonArray => Array.isArray(value)
+const isJsonArray = (value: Schema.Json): value is Schema.JsonArray => Arr.isArray(value)
 
-const isJsonScalar = (value: Json): value is boolean | number | string | null =>
+const isJsonScalar = (value: Schema.Json): value is boolean | number | string | null =>
 	value === null ||
 	Predicate.isBoolean(value) ||
 	Predicate.isNumber(value) ||
 	Predicate.isString(value)
 
-const isNonEmptyJsonObject = (value: Json): boolean =>
-	!isJsonScalar(value) && !isJsonArray(value) && Object.keys(value).length > 0
+const isNonEmptyJsonObject = (value: Schema.Json): boolean =>
+	!isJsonScalar(value) && !isJsonArray(value) && !Record.isEmptyReadonlyRecord(value)
 
-const isLongJsonArray = (value: Json): boolean => isJsonArray(value) && value.length > 1
+const isLongJsonArray = (value: Schema.Json): boolean => isJsonArray(value) && value.length > 1
 
-// An array holding a non-empty object, or two or more arrays that each hold more than one element.
-const jsonAlwaysBroken = (values: readonly Json[]): boolean =>
-	values.some((value) => isNonEmptyJsonObject(value)) ||
-	(values.length > 1 && values.every((value) => isLongJsonArray(value)))
+/**
+ * An array holding a non-empty object, or two or more arrays that each hold more than one element.
+ */
+const jsonAlwaysBroken = (values: readonly Schema.Json[]): boolean =>
+	Arr.some(values, (value) => isNonEmptyJsonObject(value)) ||
+	(values.length > 1 && Arr.every(values, (value) => isLongJsonArray(value)))
 
-const jsonFlat = (value: Json): string | undefined => {
+const jsonFlat = (value: Schema.Json): string | undefined => {
 	if (isJsonScalar(value)) {
-		return JSON.stringify(value)
+		return jsonTextOf(value)
 	}
 
 	if (isJsonArray(value)) {
 		return jsonAlwaysBroken(value)
 			? undefined
 			: flatList(
-					value.map((item) => jsonFlat(item)),
+					Arr.map(value, (item) => jsonFlat(item)),
 					"[",
 					"]"
 				)
 	}
 
-	return Object.keys(value).length === 0 ? "{}" : undefined
+	return Record.isEmptyReadonlyRecord(value) ? "{}" : undefined
 }
 
-type RenderJson = (value: Json, place: Place) => string
+type RenderJson = (value: Schema.Json, place: Place) => string
 
 const jsonArrayLines = (
 	values: Schema.JsonArray,
@@ -1189,43 +1298,48 @@ const jsonArrayLines = (
 ): readonly string[] => {
 	const lastIndex = values.length - 1
 	const comma = (index: number) => (index === lastIndex ? "" : ",")
-	if (values.length > 1 && values.every((item) => Predicate.isNumber(item))) {
+	if (values.length > 1 && Arr.every(values, Predicate.isNumber)) {
 		return fillLines(
-			values.map((item, index) => `${JSON.stringify(item)}${comma(index)}`),
+			Arr.map(values, (item, index) => `${jsonTextOf(item)}${comma(index)}`),
 			indent
 		)
 	}
 
-	return values.map((item, index) => {
+	return Arr.map(values, (item, index) => {
 		const at = { column: indent, indent, tail: comma(index).length }
 
 		return `${pad(indent)}${renderItem(item, at)}${comma(index)}`
 	})
 }
 
+const byJsonKey = Order.mapInput(Order.String, (entry: readonly [string, Schema.Json]) => entry[0])
+
 const jsonObjectLines = (
 	value: Schema.JsonObject,
 	indent: number,
 	renderItem: RenderJson
 ): readonly string[] => {
-	const keys = Arr.sort(Object.keys(value), Order.String)
-	const lastIndex = keys.length - 1
+	const entries = Arr.sort(Record.toEntries(value), byJsonKey)
+	const lastIndex = entries.length - 1
 
-	return keys.map((key, index) => {
-		const label = `${JSON.stringify(key)}: `
+	return Arr.map(entries, ([key, item], index) => {
+		const label = `${jsonTextOf(key)}: `
 		const comma = index === lastIndex ? "" : ","
 		const at = { column: indent + textWidth(label), indent, tail: comma.length }
 
-		return `${pad(indent)}${label}${renderItem(value[key] ?? null, at)}${comma}`
+		return `${pad(indent)}${label}${renderItem(item, at)}${comma}`
 	})
 }
 
+/**
+ * A JSON value laid out from `place`: a scalar, `[]` and `{}` as their text, which cannot break;
+ * any other array or object flat when it fits, else broken.
+ */
 const renderJson: RenderJson = (value, place) => {
 	if (isJsonScalar(value)) {
-		return JSON.stringify(value)
+		return jsonTextOf(value)
 	}
 
-	// `[]` and `{}` cannot break.
 	const text = jsonFlat(value)
 	if (text !== undefined && (text.length === 2 || fits(text, place))) {
 		return text
@@ -1267,12 +1381,27 @@ const knownPackageKeys: ReadonlySet<string> = new Set(packageKeys)
 
 const dependencyKeys: ReadonlySet<string> = new Set(["dependencies", "devDependencies"])
 
-const byJsonKey = Order.mapInput(Order.String, (entry: readonly [string, Json]) => entry[0])
-
-const sortedMap = (value: Json): Json =>
+const sortedMap = (value: Schema.Json): Schema.Json =>
 	isJsonScalar(value) || isJsonArray(value)
 		? value
-		: Object.fromEntries(Arr.sort(Object.entries(value), byJsonKey))
+		: Record.fromEntries(Arr.sort(Record.toEntries(value), byJsonKey))
+
+const unsupportedPackageJson = (subject: string) =>
+	Effect.fail(PrinterError.make({ reason: "unsupported-package-json", subject }))
+
+/**
+ * The manifest's members in the `docs/printer.md` key order, its dependency maps sorted by package
+ * name.
+ */
+const orderedManifest = (manifest: Schema.JsonObject): Schema.JsonObject =>
+	Record.fromEntries(
+		Arr.flatMap(packageKeys, (key) =>
+			Option.match(Record.get<string, Schema.Json>(manifest, key), {
+				onNone: () => [],
+				onSome: (value) => [[key, dependencyKeys.has(key) ? sortedMap(value) : value] as const]
+			})
+		)
+	)
 
 /**
  * Prints `package.json` in the layout the formatter keeps for it: `JSON.stringify(value, null, 2)`
@@ -1281,24 +1410,15 @@ const sortedMap = (value: Json): Json =>
  */
 export const printPackageJson = (manifest: JsonValue): Effect.Effect<string, PrinterError> => {
 	if (isJsonScalar(manifest) || isJsonArray(manifest)) {
-		return Effect.fail(new PrinterError({ reason: "unsupported-package-json", subject: "root" }))
+		return unsupportedPackageJson("root")
 	}
 
-	const unknown = Object.keys(manifest).find((key) => !knownPackageKeys.has(key))
-	if (unknown !== undefined) {
-		return Effect.fail(new PrinterError({ reason: "unsupported-package-json", subject: unknown }))
-	}
-
-	const ordered = Object.fromEntries(
-		packageKeys.flatMap((key) => {
-			const value = manifest[key]
-			if (value === undefined) {
-				return []
-			}
-
-			return [[key, dependencyKeys.has(key) ? sortedMap(value) : value]]
-		})
+	return Option.match(
+		Arr.findFirst(Record.keys<string, Schema.Json>(manifest), (key) => !knownPackageKeys.has(key)),
+		{
+			onNone: () =>
+				Effect.succeed(`${Formatter.formatJson(orderedManifest(manifest), { space: 2 })}\n`),
+			onSome: unsupportedPackageJson
+		}
 	)
-
-	return Effect.succeed(`${JSON.stringify(ordered, null, 2)}\n`)
 }

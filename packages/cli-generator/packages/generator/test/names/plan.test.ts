@@ -7,6 +7,7 @@ import { Api } from "#model/entities.ts"
 import { fixedNamespaces } from "#names/domain.ts"
 import { planNames } from "#names/index.ts"
 import type { NamePlan, PlannedCommand } from "#names/index.ts"
+import { defaultLimits } from "#resolve/index.ts"
 
 type Json = Schema.Json
 
@@ -959,7 +960,12 @@ describe("planNames: domain names", () => {
 		const modules = [result.root, ...result.groups.map((group) => group.commands)]
 		const imported = modules.flatMap((commands) => imports(commands, result.domain))
 		const file = await Effect.runPromise(
-			emitDomainSchemas(new Map(Object.entries({ ...defs })), bodyKeys, result.domain)
+			emitDomainSchemas(
+				new Map(Object.entries({ ...defs })),
+				bodyKeys,
+				result.domain,
+				defaultLimits
+			)
 		)
 
 		expect(Arr.sort(imported, Order.String)).toEqual([

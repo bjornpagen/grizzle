@@ -16,7 +16,7 @@ import { normalize } from "#normalize/index.ts"
 import { normalizeSchemas } from "#normalize/schemas.ts"
 import { boundOrigins } from "#normalize/servers.ts"
 import generatorPackage from "#package.json" with { type: "json" }
-import { resolve } from "#resolve/index.ts"
+import { defaultLimits, resolve } from "#resolve/index.ts"
 import { runtimeFiles } from "#test/support/runtime-sources.ts"
 import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
@@ -224,7 +224,8 @@ const generated = await Effect.runPromise(
 		const domain = yield* emitDomainSchemas(
 			schemas.validation.definitions,
 			roots,
-			(yield* planOf(markedApi)).domain
+			(yield* planOf(markedApi)).domain,
+			defaultLimits
 		)
 		// The name plan carries each command's operation, so each model is planned on its own.
 		const emitOf = (model: Api) =>
