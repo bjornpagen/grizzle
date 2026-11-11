@@ -3,11 +3,12 @@
  * (test/support/prelude.ts): the program imports these alone, each through this module.
  */
 export { Stream } from "effect"
-export type { Effect, Scope } from "effect"
-export type { DbOf, WorkloadHandles } from "#adapter/types/db.ts"
+export type { Effect } from "effect"
+export type { WorkloadHandles } from "#adapter/types/db.ts"
 export type { CallError, InputOf, WriteOutcome } from "#compiler/live/index.ts"
 export type { Phantom } from "#compiler/core/phantom.ts"
 export { ChangeSet } from "#compiler/public/changeset.ts"
+export { workload } from "#compiler/public/workload.ts"
 export type { AdditionIn, InsertAllRowsOf, Written } from "#compiler/public/changeset.ts"
 export { Compute } from "#compiler/public/compute.ts"
 export { Bits, Money, pg } from "#compiler/public/fields.ts"
@@ -18,7 +19,6 @@ export type { ArraysOf, ReadsOf, WritesOf } from "#compiler/types/changeset/chan
 export type { Invariant, Rostered } from "#compiler/types/core/phantom.ts"
 export type { Bits as BitsOf, Infer } from "#compiler/types/fields/field.ts"
 export type { RegexInfer } from "#compiler/types/fields/regex.ts"
-export type { CompileError } from "#index.ts"
 export {
 	Bin,
 	Budget,

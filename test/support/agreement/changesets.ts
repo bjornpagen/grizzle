@@ -69,16 +69,18 @@ import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/su
 /**
  * The ChangeSet population: ChangeSets drawn over Work (./changeset-schema.ts), each read twice, as TypeScript source
  * for one program the type tier checks and through the engine's JavaScript view (the ChangeSet facade, compileWrite over
- * reality and over the applying role, and bindWrite over the facts), which builds, compiles and binds it as db.apply
- * does. The engine is the oracle:
+ * reality and over the applying role, and bindWrite over the facts), which builds, compiles and binds it as a change
+ * member's once does. The engine is the oracle:
  *
- * - a ChangeSet, and its application through a role's Db, typechecks exactly when the engine builds, compiles and
- *   binds it: a refused case stands under a directive, which the type-test batch disarms;
+ * - a ChangeSet, its workload as a member of the applying role's (workload(role, { m })) and its call through that
+ *   member's handle (`once({ params, facts })`), typechecks exactly when the engine builds, compiles and binds it: a
+ *   refused case stands under a directive, at its ChangeSet's, its workload's or its call's line, which the type-test
+ *   batch disarms;
  * - the Refusal a refused case's directive names is the engine's reason (claimOf);
  * - an admitted ChangeSet's parameters, writes, read-backs and schema are the engine's, and so are the rows of each
  *   relation it writes, the fields its caller writes (Written) and those its addition holds (AdditionIn); its
- *   application's error, success and service channels are ApplyError, the ApplyOutcome of its read-backs, and none,
- *   each asserted exactly.
+ *   call's error, success and service channels are CallError, the WriteOutcome of its read-backs, and none, each
+ *   asserted exactly.
  *
  * The engine is judged too where a stratum puts an owner and inserts it with its members nested (ownerPairings): at
  * one key the two are two rows at that key, which it refuses on the key before any SQL (README Families).
@@ -94,9 +96,9 @@ import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/su
  * in an insert), a family write the engine cannot plan (a sequence's member written
  * alone or by its row, a tree's row put or deleted, an immutable owner put, a member of an immutable owner's family
  * deleted), a fold over a delta reading no key, ChangeSets over schemas that are no levels of one another, a role that
- * does not write the relation (or a member its insert nests), a parameter left unbound, a compiled ChangeSet read as a
- * query, an argument naming no parameter, ChangeSet.bind given a value that is no record. The floor's witnesses (changeSetWitnesses), the same in every run, each aimed at a requirement, reach every
- * fault and every construct.
+ * does not write the relation (or a member its insert nests), a parameter left unbound, an argument naming no
+ * parameter, ChangeSet.bind given a value that is no record. The floor's witnesses (changeSetWitnesses), the same in
+ * every run, each aimed at a requirement, reach every fault and every construct.
  *
  * A built ChangeSet may write its inserts as one insertAll (callsOf): each insert of a relation no insert before it in
  * the call writes, under its relation's name, an appended owner and its members two keys. The engine reads the same
@@ -377,8 +379,6 @@ const changeSetFeatures = [
 	"over an extension",
 	"applied",
 	"a partial write list",
-	"a choice of two ChangeSets applied",
-	"a choice of two ChangeSets compiled",
 	...outsideShapes
 ] as const
 type ChangeSetFeature = (typeof changeSetFeatures)[number]
@@ -403,7 +403,6 @@ const refusalNotes = {
 	"a ChangeSet writes only relations its role's write list names": "refused: a write list",
 	"two facts of one relation share a key with different values; a key names one fact":
 		"refused: a shared key",
-	"a compiled ChangeSet applies, and a compiled query reads": "refused: a compiled ChangeSet read",
 	"a parameter map names only its program's parameters": "refused: an undeclared parameter",
 	"a put or a delete names its rows by their key, and no fact states a key field grizzle writes: key the relation by fields its caller writes":
 		"refused: an unstated key",
@@ -419,7 +418,9 @@ const refusalNotes = {
 	"a served ChangeSet's facts name, under each op, only the relations of its array members of that op":
 		"refused: a served fact's relation",
 	"a served ChangeSet's facts name only the ops of its array members: insert, put and delete":
-		"refused: a served fact's op"
+		"refused: a served fact's op",
+	"a served ChangeSet's facts hold one array for each op and relation: merge the strata's array members of this op and relation into one":
+		"refused: a repeated array"
 } as const
 type ChangeSetRefusal = keyof typeof refusalNotes
 type RefusalNote = (typeof refusalNotes)[ChangeSetRefusal]
@@ -435,7 +436,6 @@ export const changeSetRefusals: Arr.NonEmptyReadonlyArray<RefusalNote> = [
 	"refused: unrelated schemas",
 	"refused: a write list",
 	"refused: a shared key",
-	"refused: a compiled ChangeSet read",
 	"refused: an undeclared parameter",
 	"refused: an unstated key",
 	"refused: a tree row",
@@ -591,18 +591,12 @@ type ChangeSpec =
 	| { readonly kind: "union" | "sequence"; readonly a: ChangeSpec; readonly b: ChangeSpec }
 
 /**
- * How a case's ChangeSet is applied: by a role's Db, through apply or compile, with its arguments; or, compiled, read as
- * a query is, by execute or get, or applied through its handle.
+ * How a case's ChangeSet is applied: as the member of a role's workload, called through its handle's once with its
+ * arguments and its array members' facts.
  */
 interface ApplySpec {
 	readonly role: RoleName
-	readonly entry: "apply" | "compile" | "compiled apply"
 	readonly args: Argument
-	/**
-	 * Where db.apply or db.compile is given a choice of two ChangeSets, `flip ? c : ChangeSet.sequence(c, choice)`, the
-	 * ChangeSet the second branch sequences after the case's own.
-	 */
-	readonly choice: BuiltSpec | undefined
 }
 
 type RoleName = "Writer" | "Clerk" | "Reader"
@@ -1675,36 +1669,18 @@ const caseOver = (d: Drawing): CaseSpec => {
 	const free = freeParams(change)
 	const writes = Arr.flatMap(builtsOf(change), (b) => Arr.flatMap(b.members, memberWrites))
 	const clerkly = Arr.every(writes, (w) => Arr.contains(clerkWrites, w))
-	const entry =
-		fault === "a parameter left unbound"
-			? "apply"
-			: fault === "an argument naming no parameter" || fault === "a parameter map of a wider type"
-				? d.from(["apply", "compiled apply"] as const)
-				: d.aimed("a choice of two ChangeSets compiled")
-					? "compile"
-					: d.aimed("a choice of two ChangeSets applied")
-						? "apply"
-						: d.from(["apply", "apply", "compile"] as const)
 	const roleFault =
 		fault === "a role that does not write the relation" && Arr.isReadonlyArrayNonEmpty(writes)
-	const chosen =
-		(fault === undefined || (roleFault && clerkly)) &&
-		(entry === "apply"
-			? d.keep("a choice of two ChangeSets applied")
-			: entry === "compile" && d.keep("a choice of two ChangeSets compiled"))
 	const role: RoleName = roleFault
-		? chosen
-			? "Clerk"
-			: clerkly
-				? "Reader"
-				: d.from(["Reader", "Clerk"] as const)
+		? clerkly
+			? "Reader"
+			: d.from(["Reader", "Clerk"] as const)
 		: clerkly && d.keep("a partial write list")
 			? "Clerk"
 			: "Writer"
 	if (role === "Clerk") {
 		d.note("a partial write list")
 	}
-	const choice = chosen ? choiceOf(d, role, roleFault) : undefined
 	const entries =
 		fault === "a parameter left unbound"
 			? free.slice(1)
@@ -1715,39 +1691,9 @@ const caseOver = (d: Drawing): CaseSpec => {
 		change,
 		apply: {
 			role,
-			entry,
-			args: { kind: fault === "a parameter map of a wider type" ? "variable" : "record", entries },
-			choice
+			args: { kind: fault === "a parameter map of a wider type" ? "variable" : "record", entries }
 		},
 		fault
-	}
-}
-
-/**
- * The ChangeSet a choice sequences after the case's own in its other branch: one fact's insert, into a relation the
- * role writes, or, where the case plants a write outside its role's write list, into one the clerk does not write.
- */
-const choiceOf = (d: Drawing, role: RoleName, outside: boolean): BuiltSpec => {
-	const relation =
-		role !== "Clerk"
-			? d.from(relNames)
-			: outside
-				? d.from(["Ticket", "Pair", "Ledger", "Tag"] as const)
-				: d.from(["Task", "Budget"] as const)
-	return {
-		kind: "built",
-		level: "Work",
-		members: [
-			{
-				kind: "array",
-				op: "insert",
-				relation,
-				facts: [factOf(d, "insert", relation, undefined, 0)]
-			}
-		],
-		grouped: false,
-		reads: [],
-		bind: undefined
 	}
 }
 
@@ -1767,7 +1713,6 @@ class Rendering {
 		| "Bits"
 		| "Flag"
 		| RoleName
-		| "flip"
 		| "plain"
 	>()
 
@@ -2152,12 +2097,7 @@ const claimOf = (reason: CompileReason, spec: CaseSpec): Claim => {
 					? { kind: "refusal", refusal: "the ChangeSets' schemas are not levels of one another" }
 					: Str.startsWith("a literal of")(reason.what)
 						? { kind: "refusal", refusal: "the query's head is not a fact of the relation" }
-						: Str.startsWith("an operation of the compiled program")(reason.what)
-							? {
-									kind: "refusal",
-									refusal: "a compiled ChangeSet applies, and a compiled query reads"
-								}
-							: { kind: "prose", why: `the engine: ${oneLine(reason.what)}` }
+						: { kind: "prose", why: `the engine: ${oneLine(reason.what)}` }
 	}
 	if (reason._tag === "UnstatedKey") {
 		return {
@@ -2246,13 +2186,17 @@ const rowShapeOf = (laws: ReturnType<typeof realityWrite>["laws"], name: string)
 }
 
 /**
- * Where a refusal lands: the ChangeSet's one line, or its application's.
+ * Where a refusal lands: the ChangeSet's one line, its workload's, as a member of its applying role's, or its call's,
+ * through its handle's once.
  */
+type Site = "change" | "workload" | "call"
+
+/** The engine's verdict on a case: admitted, or refused at its site with its claim. */
 type Verdict =
 	| { readonly kind: "admitted"; readonly admitted: Admitted }
 	| {
 			readonly kind: "refused"
-			readonly at: "change" | "apply"
+			readonly at: Site
 			readonly claim: Claim
 	  }
 
@@ -2327,7 +2271,7 @@ const paramText = (t: ScalarType): string =>
 			)}, "code", ${hostText(t)}>`
 		: `ParamType<${hostText(t)}, ${jsonText(carrierSql[t.carrier])}>`
 
-const refusedAt = (at: "change" | "apply", thrown: unknown, spec: CaseSpec): Verdict => ({
+const refusedAt = (at: Site, thrown: unknown, spec: CaseSpec): Verdict => ({
 	kind: "refused",
 	at,
 	claim:
@@ -2386,7 +2330,7 @@ const roleWorlds: { readonly [R in RoleName]: ReturnType<typeof roleWorldOf> } =
 	Reader: roleWorldOf("Reader")
 }
 
-/** The facts and arguments of an application, bound as db.apply binds them: the engine's encoding is the oracle. */
+/** The facts and arguments of an application, bound as a change member's once binds them: the engine's encoding is the oracle. */
 const bound = (
 	program: CompiledWrite,
 	change: unknown,
@@ -2432,21 +2376,24 @@ const outsideItsDomain = (laws: ReturnType<typeof realityWrite>["laws"], c: Chan
 	)
 
 /**
- * The engine's verdict on a case: its own ChangeSet's, and, where its application is given a choice, refused where
- * either branch is, at the call that is given both.
+ * The array members of a ChangeSet's Description, by relation and op, in its strata's order: what a served call's facts
+ * key, one array for each op and relation.
+ */
+const arraysOf = (
+	desc: NonNullable<ReturnType<typeof changeSetDesc>>
+): ReadonlyArray<{ readonly relation: string; readonly op: Op }> =>
+	Arr.flatMap(desc.strata, (st) =>
+		Arr.flatMap(st.members, (m) =>
+			m.member.kind === "array" ? [{ relation: m.relation, op: m.op }] : []
+		)
+	)
+
+/**
+ * The engine's verdict on one ChangeSet: built, compiled over reality, bound, then, applied, compiled for the applying
+ * role, as its workload's member (two array members of one op and relation being one call's facts twice, which generate
+ * refuses, UnservedMember `repeated`).
  */
 const verdictOf = (spec: CaseSpec): Verdict => {
-	const own = verdictOfOne(spec)
-	const choice = spec.apply?.choice
-	if (own.kind === "refused" || choice === undefined) {
-		return own
-	}
-	const other = verdictOfOne({ ...spec, change: { kind: "sequence", a: spec.change, b: choice } })
-	return other.kind === "refused" ? { ...other, at: "apply" } : own
-}
-
-/** The engine's verdict on one ChangeSet: built, compiled over reality, bound, then compiled for the applying role. */
-const verdictOfOne = (spec: CaseSpec): Verdict => {
 	const built = Result.try(() => buildChange(spec.change))
 	if (Result.isFailure(built)) {
 		return refusedAt("change", built.failure, spec)
@@ -2459,10 +2406,25 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 	const program = compileWrite(reality.checked, desc, reality.options)
 	if (!program.ok) {
 		return refusedAt(
-			spec.fault === "an append to an owner its stratum does not insert" ? "apply" : "change",
+			spec.fault === "an append to an owner its stratum does not insert" ? "workload" : "change",
 			program.error,
 			spec
 		)
+	}
+	const arrays = arraysOf(desc)
+	if (
+		spec.apply !== undefined &&
+		Arr.dedupe(Arr.map(arrays, (a) => `${a.op} ${a.relation}`)).length !== arrays.length
+	) {
+		return {
+			kind: "refused",
+			at: "workload",
+			claim: {
+				kind: "refusal",
+				refusal:
+					"a served ChangeSet's facts hold one array for each op and relation: merge the strata's array members of this op and relation into one"
+			}
+		}
 	}
 	const entries =
 		spec.apply === undefined || spec.apply.args.kind === "value"
@@ -2470,7 +2432,6 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 			: spec.apply.args.entries
 	if (
 		spec.apply !== undefined &&
-		(spec.apply.entry === "apply" || spec.apply.entry === "compiled apply") &&
 		Result.isFailure(
 			readParams(
 				Arr.map(program.value.params, (p) => p.name),
@@ -2481,7 +2442,7 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 	) {
 		return {
 			kind: "refused",
-			at: "apply",
+			at: "call",
 			claim: { kind: "refusal", refusal: "a parameter map names only its program's parameters" }
 		}
 	}
@@ -2499,7 +2460,7 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 		return place._tag === "Slot" && Arr.some(freeParams(spec.change), ([n]) => n === place.name)
 			? {
 					kind: "refused",
-					at: "apply",
+					at: "call",
 					claim: { kind: "prose", why: `the engine: no value for ${place.name}` }
 				}
 			: {
@@ -2537,7 +2498,7 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 		const world = roleWorlds[spec.apply.role]
 		const applied = compileWrite(world.checked, desc, world.options)
 		if (!applied.ok) {
-			return refusedAt("apply", applied.error, spec)
+			return refusedAt("workload", applied.error, spec)
 		}
 	}
 	if (spec.fault === "a value missing its brand") {
@@ -2574,11 +2535,7 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 				),
 				(name) => rowShapeOf(reality.options.laws, name)
 			),
-			arrays: Arr.flatMap(desc.strata, (st) =>
-				Arr.flatMap(st.members, (m) =>
-					m.member.kind === "array" ? [{ relation: m.relation, op: m.op }] : []
-				)
-			),
+			arrays,
 			reads: Arr.map(
 				program.value.frontend.ir.reads,
 				(rd) =>
@@ -2599,8 +2556,8 @@ interface ChangeSetCase {
 	readonly spec: CaseSpec
 	readonly change: string
 	readonly args: string
-	/** The source of the ChangeSet a choice sequences after the case's own, where its application is given one. */
-	readonly choice: string | undefined
+	/** The facts its application's call passes: each array member's own, under its op and relation's name. */
+	readonly facts: string
 	readonly verdict: Verdict
 	/** Its ChangeSet's served calls, admitted with array members of distinct relations (servedOf). */
 	readonly served: ReadonlyArray<ServedCall>
@@ -2741,6 +2698,50 @@ const groupKeys = (groups: ReadonlyArray<OpGroup>): ReadonlyArray<string> =>
 	Arr.flatMap(groups, (g) => Arr.map(g.relations, ([relation]) => `${g.op} ${relation}`))
 
 /**
+ * A call's facts as the program writes them: under each op of `of`, each relation's array of its parts' facts, under
+ * its name, `besideFirst` beside the first op's relations and `beside` beside the ops.
+ */
+const factsText = (
+	rendering: Rendering,
+	of: ReadonlyArray<OpGroup>,
+	besideFirst: ReadonlyArray<string>,
+	beside: ReadonlyArray<string>
+): string => {
+	const relationsText = (
+		relations: ReadonlyArray<readonly [string, Arr.NonEmptyReadonlyArray<ArrayPart>]>,
+		besideThem: ReadonlyArray<string>
+	): string =>
+		`{ ${Arr.join(
+			[
+				...Arr.map(
+					relations,
+					([relation, parts]) =>
+						`${relation}: [${Arr.join(
+							Arr.flatMap(parts, ({ part }) =>
+								part.kind === "family"
+									? Arr.map(part.facts, (f) => rendering.familyFact(f))
+									: Arr.map(part.facts, (f) => rendering.fact(f))
+							),
+							", "
+						)}]`
+				),
+				...besideThem
+			],
+			", "
+		)} }`
+	return `{ ${Arr.join(
+		[
+			...Arr.map(
+				of,
+				(g, i) => `${g.op}: ${relationsText(g.relations, i === 0 ? besideFirst : [])}`
+			),
+			...beside
+		],
+		", "
+	)} }`
+}
+
+/**
  * The served calls of an admitted ChangeSet whose array members are of distinct ops and relations, as a served workload
  * holds one (two of one op and relation are refused at generate), one of each variant (servedVariants). The facts a call
  * passes are its parts' own, under each op each relation's under its name, every array written as an array; the
@@ -2763,43 +2764,11 @@ const servedOf = (
 		)
 	}
 	const params = rendering.args({ kind: "record", entries: freeParams(spec.change) })
-	const relationsText = (
-		relations: ReadonlyArray<readonly [string, Arr.NonEmptyReadonlyArray<ArrayPart>]>,
-		beside: ReadonlyArray<string>
-	): string =>
-		`{ ${Arr.join(
-			[
-				...Arr.map(
-					relations,
-					([relation, parts]) =>
-						`${relation}: [${Arr.join(
-							Arr.flatMap(parts, ({ part }) =>
-								part.kind === "family"
-									? Arr.map(part.facts, (f) => rendering.familyFact(f))
-									: Arr.map(part.facts, (f) => rendering.fact(f))
-							),
-							", "
-						)}]`
-				),
-				...beside
-			],
-			", "
-		)} }`
 	const factsOf = (
 		of: ReadonlyArray<OpGroup>,
 		besideFirst: ReadonlyArray<string>,
 		beside: ReadonlyArray<string>
-	): string =>
-		`{ ${Arr.join(
-			[
-				...Arr.map(
-					of,
-					(g, i) => `${g.op}: ${relationsText(g.relations, i === 0 ? besideFirst : [])}`
-				),
-				...beside
-			],
-			", "
-		)} }`
+	): string => factsText(rendering, of, besideFirst, beside)
 	const asBuilt: ServedCall = {
 		variant: "as built",
 		facts: factsOf(groups, [], []),
@@ -2815,7 +2784,7 @@ const servedOf = (
 				...asBuilt,
 				verdict: {
 					kind: "refused",
-					at: "apply",
+					at: "call",
 					claim: {
 						kind: "refusal",
 						refusal:
@@ -2832,7 +2801,7 @@ const servedOf = (
 		params,
 		verdict: {
 			kind: "refused",
-			at: "apply",
+			at: "call",
 			claim: { kind: "prose", why: "the facts leave out an array member's op" }
 		}
 	}
@@ -2849,7 +2818,7 @@ const servedOf = (
 					params,
 					verdict: {
 						kind: "refused",
-						at: "apply",
+						at: "call",
 						claim: {
 							kind: "refusal",
 							refusal:
@@ -2869,7 +2838,7 @@ const servedOf = (
 					params,
 					verdict: {
 						kind: "refused",
-						at: "apply",
+						at: "call",
 						claim: {
 							kind: "refusal",
 							refusal:
@@ -2892,7 +2861,7 @@ const servedOf = (
 			const [head, ...tail] = member.facts
 			const bogus: MemberSpec = { ...member, facts: [[...head, ["bogus", plainNumber]], ...tail] }
 			const change = withMember(spec.change, member, bogus)
-			const engine = verdictOfOne({
+			const engine = verdictOf({
 				change,
 				apply: undefined,
 				fault: "a fact with a field its relation lacks"
@@ -2902,7 +2871,7 @@ const servedOf = (
 					variant: "a fact with a field its relation lacks",
 					facts: factsOf(arrayGroupsOf(change), [], []),
 					params,
-					verdict: engine.kind === "refused" ? { ...engine, at: "apply" } : engine
+					verdict: engine.kind === "refused" ? { ...engine, at: "call" } : engine
 				}
 			]
 		}
@@ -2927,12 +2896,10 @@ const caseOf = ({ spec, reached }: Drawn): ChangeSetCase => {
 	const rendering = new Rendering()
 	const change = rendering.change(spec.change)
 	const args = spec.apply === undefined ? "" : rendering.args(spec.apply.args)
+	const groups = arrayGroupsOf(spec.change)
+	const facts = Arr.isReadonlyArrayNonEmpty(groups) ? factsText(rendering, groups, [], []) : "{}"
 	if (spec.apply !== undefined) {
 		rendering.uses.add(spec.apply.role)
-	}
-	const choice = spec.apply?.choice === undefined ? undefined : rendering.change(spec.apply.choice)
-	if (choice !== undefined) {
-		rendering.uses.add("flip")
 	}
 	const verdict = verdictOf(spec)
 	const served = verdict.kind === "admitted" ? servedOf(spec, verdict.admitted, rendering) : []
@@ -2961,7 +2928,7 @@ const caseOf = ({ spec, reached }: Drawn): ChangeSetCase => {
 	for (const pairing of ownerPairingsOf(spec.change)) {
 		notes.add(pairing)
 	}
-	return { spec, change, args, choice, verdict, served, uses: rendering.uses, notes }
+	return { spec, change, args, facts, verdict, served, uses: rendering.uses, notes }
 }
 
 /**
@@ -2991,8 +2958,8 @@ const insertAllFaults = [
 /**
  * The situations the floor's witnesses reach: every construct and fault, each construct admitted and each fault
  * refused; a value outside its field in each of its shapes; a key two facts share and a derived relation written, under
- * each op; a derived relation's delta, added and removed; a write outside the role's write list by one branch of a
- * choice of two ChangeSets, applied and compiled; and each fault an insert's member carries, at an insertAll key.
+ * each op; a derived relation's delta, added and removed; and each fault an insert's member carries, at an insertAll
+ * key.
  */
 export const changeSetRequired: ReadonlyArray<Reached<ChangeSetNote>> = [
 	...changeSetFeatures,
@@ -3005,10 +2972,6 @@ export const changeSetRequired: ReadonlyArray<Reached<ChangeSetNote>> = [
 	),
 	...Arr.map(changeSetFaults, (f) => [f, "refused"] as const),
 	...Arr.map(outsideShapes, (shape) => ["a fact value outside its field", shape] as const),
-	...Arr.map(
-		["a choice of two ChangeSets applied", "a choice of two ChangeSets compiled"] as const,
-		(choice) => ["a role that does not write the relation", choice] as const
-	),
 	...Arr.flatMap(["two facts sharing a key", "a derived relation written"] as const, (f) =>
 		Arr.map(["insert", "delete", "put"] as const, (op) => [f, op] as const)
 	),
@@ -3073,8 +3036,6 @@ const prerequisites: { readonly [F in ChangeSetFeature]?: ReadonlyArray<ChangeSe
 	"an immutable family": ["family member"],
 	"an append beside its owner": ["family member", "a counted member", "insert"],
 	"a partial write list": ["applied"],
-	"a choice of two ChangeSets applied": ["applied", "a partial write list"],
-	"a choice of two ChangeSets compiled": ["applied", "a partial write list"],
 	"a generated addition": ["insert"],
 	insertAll: ["insert"],
 	bind: ["described member", "a parameter"]
@@ -3157,7 +3118,7 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/changes
 export const changeSetEntriesFrom = (entry: (path: string) => string): PreludeAt =>
 	preludeFrom(prelude, entry)
 
-const directiveOf = (v: Verdict, at: "change" | "apply"): ReadonlyArray<string> =>
+const directiveOf = (v: Verdict, at: Site): ReadonlyArray<string> =>
 	v.kind === "refused" && v.at === at
 		? [
 				v.claim.kind === "refusal"
@@ -3228,7 +3189,7 @@ const blockOf = (c: ChangeSetCase, i: number): string => {
 	const served =
 		v.kind === "admitted"
 			? [
-					`export type F${i} = [Expect<Equals<keyof ArraysOf<typeof c${i}>, ${unionOf(Arr.dedupe(Arr.map(v.admitted.arrays, (a) => a.op)))}>>, Expect<Equals<Parameters<${servedHandle}["apply"]>["length"], ${Arr.isReadonlyArrayNonEmpty(v.admitted.arrays) ? 2 : 1}>>${Arr.join(
+					`export type F${i} = [Expect<Equals<keyof ArraysOf<typeof c${i}>, ${unionOf(Arr.dedupe(Arr.map(v.admitted.arrays, (a) => a.op)))}>>, Expect<Equals<keyof InputOf<typeof c${i}>["facts"], ${unionOf(Arr.dedupe(Arr.map(v.admitted.arrays, (a) => a.op)))}>>${Arr.join(
 						Arr.flatMap(c.served.length === 0 ? [] : arrayGroupsOf(c.spec.change), (g) =>
 							Arr.flatMap(g.relations, ([relation, parts]) => {
 								const { level } = Arr.headNonEmpty(parts)
@@ -3243,8 +3204,8 @@ const blockOf = (c: ChangeSetCase, i: number): string => {
 					)}]`,
 					...Arr.flatMap(c.served, (call, k) => [
 						`export const s${i}_${k} = (h: ${servedHandle}) =>`,
-						...directiveOf(call.verdict, "apply"),
-						`\th.apply(${call.facts}, ${call.params})`
+						...directiveOf(call.verdict, "call"),
+						`\th.once({ params: ${call.params}, facts: ${call.facts} })`
 					])
 				]
 			: []
@@ -3253,39 +3214,30 @@ const blockOf = (c: ChangeSetCase, i: number): string => {
 		return Arr.join([...change, ...assertions, ...served, ""], "\n")
 	}
 	const passed = apply.args.kind === "variable" ? `w${i}` : c.args
-	const given =
-		c.choice === undefined ? `c${i}` : `flip ? c${i} : ChangeSet.sequence(c${i}, ${c.choice})`
-	const call =
-		apply.entry === "apply"
-			? `db.apply(${given}, ${passed})`
-			: apply.entry === "compile"
-				? `db.compile(${given})`
-				: `h.apply(${passed})`
-	const handle =
-		apply.entry === "apply" || apply.entry === "compile"
-			? `db: DbOf<typeof ${apply.role}, unknown>`
-			: `h: Compiled<typeof ${apply.role}, typeof c${i}, unknown>`
+	const member = [
+		`export const a${i} =`,
+		...directiveOf(v, "workload"),
+		`\tworkload(${apply.role}, { m: c${i} })`
+	]
+	if (v.kind === "refused" && v.at === "workload") {
+		return Arr.join([...change, ...assertions, ...served, ...member, ""], "\n")
+	}
 	const channels =
 		v.kind === "admitted"
-			? apply.entry === "apply"
-				? [
-						`export type E${i} = [Expect<Equals<Effect.Error<ReturnType<typeof a${i}>>, ApplyError>>, Expect<Equals<Effect.Success<ReturnType<typeof a${i}>>, ApplyOutcome<${readsText}>>>, Expect<Equals<Effect.Services<ReturnType<typeof a${i}>>, never>>]`
-					]
-				: apply.entry === "compile"
-					? [
-							`export type E${i} = [Expect<Equals<Effect.Error<ReturnType<typeof a${i}>>, CompileError>>, Expect<Equals<Effect.Services<ReturnType<typeof a${i}>>, Scope.Scope>>]`
-						]
-					: []
+			? [
+					`export type E${i} = [Expect<Equals<Effect.Error<ReturnType<typeof b${i}>>, CallError>>, Expect<Equals<Effect.Success<ReturnType<typeof b${i}>>, WriteOutcome<${readsText}>>>, Expect<Equals<Effect.Services<ReturnType<typeof b${i}>>, never>>]`
+				]
 			: []
 	return Arr.join(
 		[
 			...change,
 			...assertions,
 			...served,
+			...member,
 			...(apply.args.kind === "variable" ? [`export const w${i} = ${c.args} as const`] : []),
-			`export const a${i} = (${handle}) =>`,
-			...directiveOf(v, "apply"),
-			`\t${call}`,
+			`export const b${i} = (h: WorkloadHandles<typeof ${apply.role}, { readonly m: typeof c${i} }>["m"]) =>`,
+			...directiveOf(v, "call"),
+			`\th.once({ params: ${passed}, facts: ${c.facts} })`,
 			...channels,
 			""
 		],
@@ -3318,7 +3270,7 @@ const pantryShape = (): ReadonlyArray<string> => {
 		"declare const pantryRows: { readonly [Name in keyof InsertAllRowsOf<typeof Work>]: ReadonlyArray<InsertAllRowsOf<typeof Work>[Name][number]> }",
 		"export const pantry = ChangeSet.empty(Writer).insertAll(pantryRows)",
 		'export const pantryServed = (h: WorkloadHandles<typeof Writer, { readonly m: typeof pantry }>["m"]) =>',
-		"\th.apply({ insert: pantryRows }, {})"
+		"\th.once({ params: {}, facts: { insert: pantryRows } })"
 	]
 }
 
@@ -3333,10 +3285,10 @@ const mappedShapes: ReadonlyArray<string> = [
 	"declare const ledgerRows: ReadonlyArray<Written<typeof Ledger>>",
 	"export const mappedOrders = ChangeSet.empty(Writer).insert(Order, [])",
 	'export const mappedOrdersServed = (h: WorkloadHandles<typeof Writer, { readonly m: typeof mappedOrders }>["m"]) =>',
-	"\th.apply({ insert: { Order: orderRows.map((o) => ({ id: o.id, n: o.quantities.map((qty) => ({ qty })) })) } }, {})",
+	"\th.once({ params: {}, facts: { insert: { Order: orderRows.map((o) => ({ id: o.id, n: o.quantities.map((qty) => ({ qty })) })) } } })",
 	"export const ledgerEdit = ChangeSet.empty(Writer).put(Ledger, []).delete(Ledger, [])",
 	'export const ledgerEditServed = (h: WorkloadHandles<typeof Writer, { readonly m: typeof ledgerEdit }>["m"]) =>',
-	"\th.apply({ put: { Ledger: ledgerRows.map((r) => ({ ...r, balance: r.balance + 1n })) }, delete: { Ledger: ledgerRows.map((r) => ({ id: r.id, balance: r.balance, fee: r.fee })) } }, {})"
+	"\th.once({ params: {}, facts: { put: { Ledger: ledgerRows.map((r) => ({ ...r, balance: r.balance + 1n })) }, delete: { Ledger: ledgerRows.map((r) => ({ id: r.id, balance: r.balance, fee: r.fee })) } } })"
 ]
 
 /** The program over the run's cases: one module, each case a block. */
@@ -3350,7 +3302,6 @@ export const changeSetModules = (
 		[
 			"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
 			"type Expect<T extends true> = T",
-			...(uses.has("flip") ? ["declare const flip: boolean"] : []),
 			...(uses.has("plain") ? ["declare const plain: string"] : []),
 			"export const widen = <R>(_relation: R, facts: ReadonlyArray<Written<R>>): ReadonlyArray<Written<R>> => facts",
 			"type SchemaOf<C> = C extends Phantom<{ readonly schema: Invariant<infer S> }> ? S : never",
