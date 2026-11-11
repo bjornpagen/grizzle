@@ -5,7 +5,8 @@
  *
  * The installation is the worlds fixture (fixture.ts): `editor` reads Doc and writes Mine, the notes of the documents
  * its session's subject owns, under row security, through a filter that reads Doc beside Note; `viewer` reads Doc;
- * both in the login `desk`. It is generated and migrated through the command line once. Each case draws, for every
+ * `keeper` writes Doc through a put whose flight creates a carrier, so migrate grants it TEMPORARY on the database; all
+ * in the login `desk`. It is generated and migrated through the command line once. Each case draws, for every
  * operator below, whether it plants a change and where, its target picked among what the installed catalog holds,
  * and makes every drawn change at once as the cluster's superuser:
  *
@@ -18,7 +19,12 @@
  * - a role or the login gains an attribute the snapshot denies it, of PostgreSQL's role attributes the test's
  *   administrator may set;
  * - one role becomes a member of the other;
- * - a table is created in a role's schema.
+ * - a table is created in a role's schema;
+ * - a role holding its own TEMPORARY on the database, as the catalog reads it, has it revoked;
+ * - a role or the login not holding it is granted TEMPORARY on the database.
+ *
+ * A grant or revoke on the database runs under the lock every installation's does (test/support/substrate/substrate.ts
+ * underDatabasePrivilegeLock), since the files of a run share the database's one pg_database row.
  *
  * The oracle is PostgreSQL's catalog as the drift check reads it: drift refuses exactly when a change was made, its
  * mismatches naming every changed object, and passes once every change is undone.
@@ -26,7 +32,8 @@
  *
  * Features: every operator planted, nothing planted, and several at once.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): workflow-drift-unchecked.patch.
+ * Plants (~/.cache/grizzle-release/BR13/plants): workflow-drift-unchecked.patch; (~/.cache/grizzle-release/GZTEMP/plants):
+ * temporary-drift-blind.patch (the drift check never reports a login's or role's missing TEMPORARY on the database).
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
@@ -63,7 +70,7 @@ import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, underDatabasePrivilegeLock } from "#test/support/substrate/substrate.ts"
 
 type Planted =
 	| "a view's security barrier"
@@ -75,6 +82,8 @@ type Planted =
 	| "a role's attribute"
 	| "a membership granted"
 	| "a table in a role's schema"
+	| "a TEMPORARY grant revoked"
+	| "a TEMPORARY grant beyond the snapshot"
 
 /** Where an operator plants its change: picks among the targets the catalog holds (test/support/pick.ts). */
 type Picks = readonly [number, number, number]
@@ -93,7 +102,9 @@ const plantsOf = (each: () => Option.Option<Picks>): Plants => ({
 	"a role's setting": each(),
 	"a role's attribute": each(),
 	"a membership granted": each(),
-	"a table in a role's schema": each()
+	"a table in a role's schema": each(),
+	"a TEMPORARY grant revoked": each(),
+	"a TEMPORARY grant beyond the snapshot": each()
 })
 
 /** One operator's choice: left out two draws in three, otherwise planted at drawn picks. */
@@ -119,12 +130,14 @@ interface Change {
 	readonly named: string
 }
 
-/** The installed names a change reaches: the schema, its tables, the roles, and the roles' schemas. */
+/** The installed names a change reaches: the database, the schema, its tables, the roles, and the roles' schemas. */
 interface Names {
+	readonly database: string
 	readonly schema: string
 	readonly tables: Arr.NonEmptyReadonlyArray<string>
 	readonly editor: string
 	readonly viewer: string
+	readonly keeper: string
 	readonly login: string
 	readonly roleSchemas: Arr.NonEmptyReadonlyArray<string>
 }
@@ -170,12 +183,26 @@ const picked = (
 /** Column `i` of a row a catalog read answers. */
 const column = (row: ReadonlyArray<string>, i: number): string => defined(row[i], "a column read")
 
+/** TEMPORARY on the database, granted to or revoked from `role` (`verb`), under the database privilege's lock. */
+const temporary = (n: Names, verb: "GRANT" | "REVOKE", role: string): string =>
+	underDatabasePrivilegeLock(
+		`${verb} TEMPORARY ON DATABASE ${quoteIdent(n.database)} ${verb === "GRANT" ? "TO" : "FROM"} ${quoteIdent(role)}`
+	)
+
 /** The change of `kind` at `picks`, reading from the catalog what it reaches, as the cluster's superuser. */
 const changeOf = (kind: Planted, [first, second, third]: Picks, n: Names) =>
 	Effect.gen(function* () {
 		const admin = (yield* Substrate).admin
 		const table = (name: string) => `${quoteIdent(n.schema)}.${quoteIdent(name)}`
 		const roles = [n.editor, n.viewer, n.login] as const
+		/** The installation's roles and its login that hold their own TEMPORARY on the database, as its ACL holds it. */
+		const temporaryHolders = Effect.map(
+			admin.queryValues(
+				"SELECT r.rolname::text FROM pg_catalog.pg_database AS d CROSS JOIN LATERAL pg_catalog.aclexplode(d.datacl) AS a JOIN pg_catalog.pg_roles AS r ON r.oid = a.grantee WHERE d.datname = pg_catalog.current_database() AND a.privilege_type = 'TEMPORARY' AND r.rolname = ANY ($1::text[]) ORDER BY 1",
+				[[n.editor, n.viewer, n.keeper, n.login]]
+			),
+			(rows) => Arr.map(textRows(rows), (row) => column(row, 0))
+		)
 		switch (kind) {
 			case "a view's security barrier": {
 				const rows = yield* admin.queryValues(
@@ -311,6 +338,35 @@ const changeOf = (kind: Planted, [first, second, third]: Picks, n: Names) =>
 				}
 				return change
 			}
+			case "a TEMPORARY grant revoked": {
+				const held = yield* temporaryHolders
+				const role = pickFrom(
+					nonEmpty(held, "a role holding its own TEMPORARY on the database"),
+					first
+				)
+				const change: Change = {
+					plant: [temporary(n, "REVOKE", role)],
+					undo: [temporary(n, "GRANT", role)],
+					named: `role ${role} privilege TEMPORARY on database`
+				}
+				return change
+			}
+			case "a TEMPORARY grant beyond the snapshot": {
+				const held = yield* temporaryHolders
+				const role = pickFrom(
+					nonEmpty(
+						Arr.filter([n.editor, n.viewer, n.keeper, n.login], (r) => !Arr.contains(held, r)),
+						"a role or login holding no TEMPORARY of its own on the database"
+					),
+					first
+				)
+				const change: Change = {
+					plant: [temporary(n, "GRANT", role)],
+					undo: [temporary(n, "REVOKE", role)],
+					named: `role ${role} privilege TEMPORARY on database`
+				}
+				return change
+			}
 		}
 	})
 
@@ -401,14 +457,16 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 							const roleSchema = (role: string) =>
 								identifierOf(identity.roleSchema(identity.role(installation, parsedName(role))))
 							const names: Names = {
+								database: substrate.database,
 								schema: identifierOf(installation),
 								tables: [
 									identifierOf(identity.table(parsedName("Doc"))),
 									identifierOf(identity.table(parsedName("Note")))
 								],
-								editor: roleNameOf(w.editor),
-								viewer: roleNameOf(w.viewer),
-								login: roleNameOf(w.desk),
+								editor: roleNameOf(w.editor, {}),
+								viewer: roleNameOf(w.viewer, {}),
+								keeper: roleNameOf(w.keeper, {}),
+								login: roleNameOf(w.desk, {}),
 								roleSchemas: [roleSchema("editor"), roleSchema("viewer")]
 							}
 							return yield* explore(
@@ -427,6 +485,8 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 											"a role's attribute",
 											"a membership granted",
 											"a table in a role's schema",
+											"a TEMPORARY grant revoked",
+											"a TEMPORARY grant beyond the snapshot",
 											"nothing planted",
 											"several planted"
 										],

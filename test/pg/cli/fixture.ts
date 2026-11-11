@@ -243,8 +243,9 @@ const subject = str.regex("^u_[a-z]{1,8}$")
 /**
  * The worlds schema under `name`, for the drift suite: documents and the notes on them, and the session's subject;
  * `editor` reads Doc and writes Mine, the notes of the documents the session's subject owns, under row security through
- * a filter that reads Doc beside Note; `viewer` reads Doc; both in the login `desk`. Each call builds a schema of its
- * own.
+ * a filter that reads Doc beside Note; `viewer` reads Doc; `keeper` holds Doc whole and writes it, and the login serves
+ * it `keep`, a put of Doc with a read-back of both sides of its delta, whose flight creates a carrier; all three in the
+ * login `desk`. Each call builds a schema of its own.
  */
 export const worlds = (name: string) => {
 	const Doc = relation("Doc", { id: uuid, owner: subject, words: pg.integer }, ["id"])
@@ -265,5 +266,31 @@ export const worlds = (name: string) => {
 	})
 	const editor = role(base, "editor", { Doc, Mine: mine }, { write: ["Mine"] })
 	const viewer = role(base, "viewer", { Doc })
-	return { schema: base, editor, viewer, desk: login(base, "desk", [editor, viewer]) }
+	const keeper = role(base, "keeper", { Doc }, { write: ["Doc"] })
+	const keep = ChangeSet.empty(keeper)
+		.put(Doc, [])
+		.read("delta", (d) =>
+			query(keeper)
+				.rule((r) => {
+					const { id, owner, words } = v(Doc, "added")
+					return r
+						.match(d.added(Doc), { id, owner, words })
+						.find({ side: "added", id, owner, words })
+				})
+				.rule((r) => {
+					const { id, owner, words } = v(Doc, "removed")
+					return r
+						.match(d.removed(Doc), { id, owner, words })
+						.find({ side: "removed", id, owner, words })
+				})
+		)
+	return {
+		schema: base,
+		editor,
+		viewer,
+		keeper,
+		desk: login(base, "desk", [editor, viewer, keeper], {
+			workload: [workload(keeper, { keep })]
+		})
+	}
 }
