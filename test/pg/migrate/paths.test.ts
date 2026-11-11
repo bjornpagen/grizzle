@@ -45,10 +45,12 @@
  * reading of the rows the carry model loads; and the path's own commutation, A to C directly as A to B to C.
  *
  * Features: the renamed stream requires a catalog-type name under the installation-first path; the intents stream
- * requires every legal intent, a steered case aiming its first B intent at one still pending.
+ * requires every legal intent, each steered case aiming its first B intent at the first one still pending as the
+ * steering reads it after every case (steerEvery 1), so the steered phase's one case per intent reaches them all.
  *
  * Plants (~/.cache/grizzle-release/BR11/plants): paths-relation-rename-ignored (a draft ignores every declared relation
- * rename) and paths-field-rename-ignored (a draft ignores every declared field rename).
+ * rename) and paths-field-rename-ignored (a draft ignores every declared field rename); ROLEVARS/plants:
+ * intents-unaimed (a steered case runs its drawn intents).
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
@@ -509,7 +511,7 @@ layer(Substrate.layer)("generated migration paths on PostgreSQL", (it) => {
 						runs,
 						shrink,
 						concurrency: 1,
-						steerEvery: 16,
+						steerEvery: 1,
 						caseHang
 					},
 					(drawnSketch, notes) => {
