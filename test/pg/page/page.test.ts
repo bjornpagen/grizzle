@@ -19,8 +19,10 @@ import { memberOps, memberOpsOn } from "#adapter/db/handles.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { PageRequestRefused, type RequestFault } from "#adapter/errors/failures.ts"
 import { poolExecutor } from "#adapter/reader/executor.ts"
+import { base64urlLength } from "#compiler/codec/cursor/base64url.ts"
 import { cursorCodec, cursorTokenMaxLength } from "#compiler/codec/cursor/codec.ts"
-import { appendAll, indices } from "#compiler/core/array.ts"
+import { headerBytes } from "#compiler/codec/cursor/layout.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { CursorError, type CursorFault } from "#compiler/core/errors.ts"
 import { uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -93,36 +95,20 @@ const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 const A = id(0xa)
 const B = id(0xb)
-const D = id(0xd)
 const t = (n: number) => id(0x1000 + n)
 
-/**
- * Account A: 23 tasks over five priorities, titles repeating, a supplementary-plane title among them; B: three; D:
- * one. Notes and flags on some of A's tasks.
- */
+/** The titles a task draws: repeating, a supplementary-plane one among them. */
 const titleChoices = ["alpha", "beta", "gamma", "𝔘nicode", "beta"] as const
 const titleOf = (n: number): string => defined(titleChoices[n % titleChoices.length])
-const facts = {
-	Task: [
-		...Arr.map(indices(23), (n) => ({
-			id: t(n),
-			account: A,
-			priority: (n * 7) % 5,
-			title: titleOf(n)
-		})),
-		...Arr.map(indices(3), (n) => ({
-			id: t(100 + n),
-			account: B,
-			priority: n,
-			title: titleOf(n + 1)
-		})),
-		{ id: t(200), account: D, priority: 4, title: "solo" }
-	],
-	Note: Arr.map([0, 1, 1, 3, 5, 5, 5, 8, 13, 21], (n, k) => ({ task: t(n), note: `note ${k}` })),
-	Flag: Arr.map([0, 2, 3, 6, 7, 9, 11, 14, 17, 20, 22], (n) => ({
-		task: t(n),
-		level: n % 3 === 0 ? "High" : "Low"
-	}))
+
+/**
+ * The token suite's facts: what every paged query needs to issue an edge, one task of the paged account A, noted (for
+ * notes) and flagged High (for flagged and flagged by title). A refusal reads no fact, so no other is stated.
+ */
+const tokenFacts = {
+	Task: [{ id: t(0), account: A, priority: 0, title: titleOf(0) }],
+	Note: [{ task: t(0), note: "note" }],
+	Flag: [{ task: t(0), level: "High" }]
 }
 
 /**
@@ -467,8 +453,8 @@ const answered = (page: PageValue): Expected => ({
 /** The base64url alphabet a token is written in, and characters outside it. */
 const base64url = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 const foreign = ["!", "+", "/", " ", "=", "é", "\u{1F600}"] as const
-/** The characters of a token's three digests: 51 bytes, every one of its first 68 characters within them. */
-const digestCharacters = 68
+/** The characters of a token's three digests: its first, every one of them within the header's bytes (layout.ts). */
+const digestCharacters = base64urlLength(headerBytes)
 
 /**
  * A text of `length` copies of "A", built by doubling: V8 holds it as concatenations of shared halves, its characters
@@ -954,7 +940,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const opened = yield* installed(Paging, facts, {
+					const opened = yield* installed(Paging, tokenFacts, {
 						label: "real",
 						extensions: [],
 						programs: {}
