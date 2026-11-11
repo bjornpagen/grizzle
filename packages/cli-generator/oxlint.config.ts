@@ -14,7 +14,9 @@ export default defineConfig(
 		effectFree: manifest.superlint.effectFree,
 		ceremony: ["packages/devtools/**", "**/*.test.ts", "**/scripts/**"],
 		plugin: {
-			"bearer-owners": { owners: [] },
+			"bearer-owners": {
+				owners: ["packages/generator/src/runtime-src/runtime/auth.ts"]
+			},
 			"brands-sole-mint": { mints: [] },
 			"import-doors": { doors: [] },
 			"no-dynamic-imports": { allowed: [] }
