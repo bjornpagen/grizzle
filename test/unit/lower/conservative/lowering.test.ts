@@ -61,6 +61,7 @@ import {
 } from "#compiler/lower/conservative/types.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import type { OperandSelect, Select } from "#compiler/sql/ast.ts"
+import { freshNames } from "#compiler/sql/naming.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
@@ -134,7 +135,7 @@ const optionsFor = (params: ReadonlyArray<ParamDecl>, subject: Subject): Conserv
 						columns: ["c1", "c2", "c3", "c4"]
 					}),
 					breach: breachGuard("Ledger"),
-					naming: { kind: "own" }
+					start: freshNames
 				}
 })
 
