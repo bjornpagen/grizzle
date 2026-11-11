@@ -1,9 +1,12 @@
 import { array, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
-import type {
-	IsolationReason,
-	RoleCertificate,
-	RoleIsolation
+import {
+	type Candidate,
+	certify,
+	type IsolationReason,
+	isolationOf,
+	type RoleCertificate,
+	type RoleIsolation
 } from "#compiler/analysis/isolation/certify.ts"
 import type {
 	IsolationInput,
@@ -12,6 +15,7 @@ import type {
 } from "#compiler/analysis/isolation/facts.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
+import * as Result from "#compiler/core/result.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { type AnyRole, login, relation, role, schema } from "#compiler/public/schema.ts"
@@ -23,9 +27,10 @@ import type { Shape } from "#test/pg/isolation/support/race.ts"
 import { defined } from "#test/support/assert.ts"
 
 /**
- * Drawn installations of pivots and multi-statement members, their facts as the certifier reads them (`drawnFacts`), and
- * their certificates under main's conditions restated over the drawing itself (`drawnCertificates`), a second statement
- * of the rules the certifier implements, which the oracle runs beside `certify`'s wherever the two differ.
+ * Drawn installations of pivots and multi-statement members, the certificates of their facts as the certifier reads them
+ * (`factCertificates`), and their certificates under main's conditions restated over the drawing itself
+ * (`drawnCertificates`), a second statement of the rules the certifier implements, which the oracle runs beside
+ * `certify`'s wherever the two differ.
  *
  * Four insert-only relations R0..R3, each (k, v) keyed by k. Each of two or three roles r<i> has one change member m<i> of one
  * or two statements, each inserting into a relation the role writes: from the call's parameters (`put`), from the row of
@@ -244,7 +249,7 @@ const statementFacts = (statement: DrawnStatement): StatementFacts => {
  * native, no counted group and no foreign key; each role SELECT on every relation and INSERT on those its member writes; each member's
  * statements in order.
  */
-export const drawnFacts = (d: DrawnInstallation): IsolationInput => ({
+const drawnFacts = (d: DrawnInstallation): IsolationInput => ({
 	relations: new Map(
 		Arr.map(
 			Rec.keys(relations),
@@ -263,11 +268,27 @@ export const drawnFacts = (d: DrawnInstallation): IsolationInput => ({
 					new Set<TablePrivilege>(writes.has(name) ? ["SELECT", "INSERT"] : ["SELECT"])
 				])
 			),
-			members: [{ name: `m${i}`, statements: mapNonEmpty(member, statementFacts) }],
-			serializable: []
+			members: [{ name: `m${i}`, statements: mapNonEmpty(member, statementFacts) }]
 		}
 	})
 })
+
+/**
+ * The certificates `certify` gives the facts of `d` (drawnFacts), each role lowered to a SERIALIZABLE form of no fact:
+ * a drawing states its members' READ COMMITTED facts alone.
+ */
+export const factCertificates = (d: DrawnInstallation): ReadonlyArray<RoleIsolation> => {
+	const input = drawnFacts(d)
+	const certified = certify(
+		input.relations,
+		Arr.map(input.roles, (role): Candidate<undefined, undefined, never> => ({
+			role,
+			readCommitted: undefined,
+			lower: () => Result.ok({ facts: [], form: undefined })
+		}))
+	)
+	return certified.ok ? Arr.map(certified.value, isolationOf) : certified.error
+}
 
 /** A statement's read of a relation, with how it reads it. */
 interface Read {

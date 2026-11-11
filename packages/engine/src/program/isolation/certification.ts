@@ -1,4 +1,9 @@
-import { certify, type RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
+import {
+	type Candidate,
+	certify,
+	isolationOf,
+	type RoleIsolation
+} from "#compiler/analysis/isolation/certify.ts"
 import type { MemberFacts } from "#compiler/analysis/isolation/facts.ts"
 import type { CheckedSchema, RoleWorld } from "#compiler/analysis/schema.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -230,19 +235,6 @@ const zipped = <A, B>(
 	})
 }
 
-/** A role certification reads: its login, its changes compiled for READ COMMITTED, and its source of facts. */
-interface CertifiedSource {
-	readonly login: string
-	readonly changes: RoleChanges<"readCommitted">
-	readonly source: RoleSource<CheckedSchema<RoleWorld>, ExtractNames, CompiledVariants>
-}
-
-/** A role lowered to its SERIALIZABLE form: its changes compiled so, and their facts. */
-interface Lowered {
-	readonly changes: RoleChanges<"serializable">
-	readonly facts: ReadonlyArray<MemberFacts>
-}
-
 /**
  * Every role's certificate, by login and role in the order given, and the changes each is served, compiled for its
  * certificate's level: its READ COMMITTED form where it runs READ COMMITTED, and its SERIALIZABLE form
@@ -263,24 +255,25 @@ export interface Certification {
  * were compiled for (extract.ts memberFacts). A role certifies READ COMMITTED only when the certifier proves it from
  * these; a variant that sends no statement has no facts.
  *
- * A role is served the form its level chooses, so the certificate is read from the statements served: every role is
- * certified over its READ COMMITTED form, each role that runs SERIALIZABLE is lowered to its SERIALIZABLE form, whose
- * facts it then judges the others by beside its own (RoleFacts serializable), and the roles are certified again, until
- * no role runs SERIALIZABLE unlowered. A lowered form only adds the reasons it gives, so a role that runs SERIALIZABLE
- * keeps running it, and the rounds end within one per role.
+ * A role is served the form its level chooses, so the certificate is read from the statements served: the certifier
+ * judges every role over its READ COMMITTED form, and lowers each role it leaves SERIALIZABLE to its SERIALIZABLE form
+ * (serializableChanges), whose facts it judges the others by from then on.
  */
 export const certification = (
 	artifacts: SchemaArtifacts,
 	changes: ReadonlyMap<string, ReadonlyMap<string, RoleChanges<"readCommitted">>>
 ): Result.Result<Certification, CompileError> => {
-	const sources: Array<CertifiedSource> = []
+	const sources: Array<{
+		readonly changes: RoleChanges<"readCommitted">
+		readonly source: RoleSource<CheckedSchema<RoleWorld>, ExtractNames, CompiledVariants>
+	}> = []
 	for (const [login, logged] of changes) {
 		for (const role of logged.values()) {
 			const source = roleSource(artifacts, login, role)
 			if (!source.ok) {
 				return source
 			}
-			sources.push({ login, changes: role, source: source.value })
+			sources.push({ changes: role, source: source.value })
 		}
 	}
 	const input = isolationInput({
@@ -290,49 +283,34 @@ export const certification = (
 		grantedPrivileges,
 		memberFacts: changeFacts("readCommitted")
 	})
-	const roles = zipped(sources, input.roles)
-	const lowered = new Map<CertifiedSource, Lowered>()
-	let certified = zipped(roles, certify(input))
-	for (;;) {
-		const fresh = certified.filter(
-			([[r], c]) => c.certificate.level === "serializable" && !lowered.has(r)
-		)
-		if (fresh.length === 0) {
-			break
-		}
-		for (const [[r]] of fresh) {
-			const lower = serializableChanges(r.changes)
-			if (!lower.ok) {
-				return lower
-			}
-			lowered.set(r, {
-				changes: lower.value,
-				facts: [...lower.value.members].flatMap(([name, compiled]) =>
-					changeFacts("serializable")(name, compiled, r.source.names)
-				)
-			})
-		}
-		certified = zipped(
-			roles,
-			certify({
-				...input,
-				roles: roles.map(([r, facts]) => {
-					const low = lowered.get(r)
-					return low === undefined ? facts : { ...facts, serializable: low.facts }
-				})
+	const certified = certify(
+		input.relations,
+		zipped(sources, input.roles).map(
+			([r, role]): Candidate<
+				RoleChanges<"readCommitted">,
+				RoleChanges<"serializable">,
+				CompileError
+			> => ({
+				role,
+				readCommitted: r.changes,
+				lower: () =>
+					Result.map(serializableChanges(r.changes), (lowered) => ({
+						facts: [...lowered.members].flatMap(([name, compiled]) =>
+							changeFacts("serializable")(name, compiled, r.source.names)
+						),
+						form: lowered
+					}))
 			})
 		)
+	)
+	if (!certified.ok) {
+		return certified
 	}
 	const served = new Map<string, Map<string, RoleChanges>>()
-	for (const [[r], c] of certified) {
-		const low = lowered.get(r)
-		const form = c.certificate.level === "serializable" ? low?.changes : r.changes
-		if (form === undefined) {
-			throw defect(`role ${r.source.role} of ${r.login} runs SERIALIZABLE unlowered`)
-		}
-		const logged = served.get(r.login) ?? new Map<string, RoleChanges>()
-		logged.set(r.source.role, form)
-		served.set(r.login, logged)
+	for (const c of certified.value) {
+		const logged = served.get(c.role.login) ?? new Map<string, RoleChanges>()
+		logged.set(c.role.role, c.form)
+		served.set(c.role.login, logged)
 	}
-	return Result.ok({ certificates: certified.map(([, c]) => c), served })
+	return Result.ok({ certificates: certified.value.map(isolationOf), served })
 }

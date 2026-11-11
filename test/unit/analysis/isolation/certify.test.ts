@@ -5,7 +5,7 @@
  * relations, positively, negated, counted or as grizzle's key arbitration, its own rows or not, by a group bound to one
  * value or to one per own row, or none, and writing relations, by insert, update or delete, with each written row
  * joined with some of its statement's reads; its members as served at READ COMMITTED, and those of its SERIALIZABLE
- * form, which it judges the other roles by beside them. Some draws are counterexamples: two copiers, each inserting
+ * form, which certification lowers it to once a round leaves it SERIALIZABLE. Some draws are counterexamples: two copiers, each inserting
  * into one relation and then copying the other's (by a scan, or at a whole key); a writer reading another's absence
  * beside a reader of both; a chain of SERIALIZABLE readers; a SERIALIZABLE pivot writing what an RC member reads
  * unsealed; a write after an outside read joined with no row of its call; an insert into a relation an update cascades
@@ -14,15 +14,18 @@
  * group lagging an in-flight SERIALIZABLE pivot, a reader of one group per own row, a copy whose foreign key check
  * misses that pivot's row, and a copy over many own rows whose deferred check reads at COMMIT.
  *
- * The oracle restates every condition over the drawn facts, apart from the certifier's code: each role's own conditions
- * over its READ COMMITTED members, its foreign key checks among its reads, then, of the roles that meet them, the
- * greatest set none of whose members a role outside it gives a reason, found by trying every subset, where whatever a
- * role's members read or write, conditions 2, 3 and 5c included, is read from both its forms. Every role's level is the
- * oracle's, and every SERIALIZABLE role names exactly the conditions the oracle finds it failing; a role with no change
- * member is SERIALIZABLE by the members condition. Adding a capability (a privilege, a read, a statement, a member, a
- * role, an insert with no insert, a trigger-held law, a foreign key) never makes a SERIALIZABLE role READ COMMITTED,
- * nor does removing a relation's fact, but for the first change member of a role with none, which the members condition
- * alone held. Every counterexample comes out SERIALIZABLE.
+ * The oracle restates every condition over the drawn facts, apart from the certifier's code, in rounds from none
+ * lowered: each judged role's own conditions over its READ COMMITTED members, its foreign key checks among its reads,
+ * then, of the judged roles that meet them, the greatest set none of whose members a role outside it gives a reason,
+ * found by trying every subset, where whatever a lowered role's members read or write, conditions 2, 3 and 5c included,
+ * is read from both its forms; each round lowers the judged roles it leaves SERIALIZABLE, with its conditions, until one
+ * lowers none. Every role's level is the oracle's, and every SERIALIZABLE role names exactly the conditions of the round
+ * that lowered it, each of which it still fails at the fixpoint; a role with no change member is SERIALIZABLE by the
+ * members condition. Every role's certificate is the same with its own SERIALIZABLE form dropped: that form is served
+ * only once the role runs SERIALIZABLE, so it never judges the role. Adding a capability (a privilege, a read, a
+ * statement, a member, a member of a SERIALIZABLE form, a role, an insert with no insert, a trigger-held law, a foreign
+ * key) never makes a SERIALIZABLE role READ COMMITTED, nor does removing a relation's fact, but for the first change
+ * member of a role with none, which the members condition alone held. Every counterexample comes out SERIALIZABLE.
  *
  * Planted in a scratch copy, each of these fails the search: condition 2's SERIALIZABLE readers left out; the fixpoint
  * run once; a pivot's write before a group read only later let through; a pivot's write after an outside read joined
@@ -38,16 +41,21 @@
  * another group or no positive one (the arbiterPath shape), through one UNION arm alone (the unions at another key,
  * another relation or the recursion's own rows), through no UNION or no core at all; and the arbitrated read without
  * its clean prefix; a SERIALIZABLE writer's sealed foreign key checks counted as a pivot cause; that exemption extended
- * to a role's own checks, the publication's publisher certified READ COMMITTED; and a SERIALIZABLE form left out of a
+ * to a role's own checks, the publication's publisher certified READ COMMITTED; a SERIALIZABLE form left out of a
  * role's judging (the served cause), of the relations' writers (the served update) or of the absence sites (the served
- * absence), or read for the role's own conditions (the served own).
+ * absence); a lowered role judged again over both its forms, its own lowering's absence named in place of the reasons
+ * that lowered it (the lowered absence, edullm's folded publisher); and a lowered role's certificate read from the last
+ * round, over its READ COMMITTED form alone, where another role's lowering gives it an absence of its own (the lowered
+ * cause).
  *
  * Plants (~/.cache/grizzle-release/BR03/plants), two of those as patches: certify-memberless-role-certified (a role
  * with no change member certified) and certify-fixpoint-once (the fixpoint over the roles a SERIALIZABLE role gives a
- * reason run once).
+ * reason run once). Plants (~/.cache/grizzle-release/CERTIFY/plants): certify-own-lowering-self-included and
+ * certify-lowering-cause-dropped, the last two.
  *
- * Features: each condition failed and met, each counterexample shape, each level, and each capability added or fact
- * removed (the required situations of the search).
+ * Features: each condition failed and met, each counterexample shape, each level, each capability added or fact
+ * removed, a role lowered in a later round, and a role whose lowered form alone reads the absence of what it writes
+ * (the required situations of the search).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -59,8 +67,10 @@ import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import {
+	type Candidate,
 	certify,
 	type IsolationCondition,
+	isolationOf,
 	type ReadSeal,
 	type RoleIsolation,
 	readSeal
@@ -72,7 +82,8 @@ import type {
 	RowSource
 } from "#compiler/analysis/isolation/facts.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
-import { assert } from "#test/support/assert.ts"
+import * as Result from "#compiler/core/result.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -198,6 +209,8 @@ type Shape =
 	| "servedUpdate"
 	| "servedAbsence"
 	| "servedOwn"
+	| "loweredAbsence"
+	| "loweredCause"
 	| "triggered"
 	| "droppedReference"
 
@@ -1231,13 +1244,13 @@ const arbitratedOf = (gated: boolean): Sketch => ({
 })
 
 /**
- * A role's SERIALIZABLE form, which it judges others by beside its READ COMMITTED one. r0 holds UPDATE on D, so it runs
- * SERIALIZABLE by its own privileges, and inserts into B in either form. In its SERIALIZABLE form it also reads B by an
- * own column (`cause`), so it may miss another call's write, and r1, reading B at its key, runs SERIALIZABLE by r0's
- * writes; it updates A (`update`), so r1's point read of A, which r2 inserts, is unsealed, and r1 and r2 run
- * SERIALIZABLE; or it reads C's absence (`absence`), so r1, inserting into C, runs SERIALIZABLE. Where r0 holds no
- * UPDATE (`own`), its own conditions read its READ COMMITTED form alone, which reads nothing, and every role runs READ
- * COMMITTED, though its SERIALIZABLE form reads C by an own column before it writes.
+ * A role's SERIALIZABLE form, which it judges others by beside its READ COMMITTED one once lowered. r0 holds UPDATE on
+ * D, so it runs SERIALIZABLE by its own privileges, and inserts into B in either form. In its SERIALIZABLE form it also
+ * reads B by an own column (`cause`), so it may miss another call's write, and r1, reading B at its key, runs
+ * SERIALIZABLE by r0's writes; it updates A (`update`), so r1's point read of A, which r2 inserts, is unsealed, and r1
+ * and r2 run SERIALIZABLE; or it reads C's absence (`absence`), so r1, inserting into C, runs SERIALIZABLE. Where r0
+ * holds no UPDATE (`own`), its READ COMMITTED form reads nothing, so it is never lowered and its SERIALIZABLE form,
+ * which reads C by an own column before it writes, is never a fact: every role runs READ COMMITTED.
  */
 const servedOf = (kind: "cause" | "update" | "absence" | "own"): Sketch => {
 	const serializable: StatementSketch = {
@@ -1292,6 +1305,69 @@ const servedOf = (kind: "cause" | "update" | "absence" | "own"): Sketch => {
 		]
 	}
 }
+
+/**
+ * edullm's folded publisher, QTI's publisher writing the media policy too: r0 publishes into P and writes M, which a
+ * trigger-held law reads, so it runs SERIALIZABLE by its own laws and may miss another call's write; r1, the learner,
+ * inserts into S joined with P read at its key, so r0 gives it 5c; r2 inserts into V joined with S read at its key, so
+ * r1, reading P from outside, gives it 5c, and it reads S, which gives r1 condition 2's other half. In its SERIALIZABLE
+ * form r1 also reads the absence of S, which it writes, and where `other` r2's SERIALIZABLE form reads a count of S.
+ * r1's certificate names 5c and condition 2, the reasons of the round that lowered it, never the absence its own
+ * lowered form or r2's reads.
+ */
+const loweredOf = (other: boolean): Sketch => ({
+	relations: [clean([0]), clean([0]), { ...clean([0]), triggerLaws: true }, clean([0])],
+	roles: [
+		{
+			login: 0,
+			serializable: [],
+			privileges: [
+				{ relation: 0, privilege: "INSERT" },
+				{ relation: 2, privilege: "INSERT" }
+			],
+			members: [
+				[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }],
+				[{ writes: [insertOf(2, [])], reads: [], probes: [], cores: [] }]
+			]
+		},
+		{
+			login: 1,
+			serializable: [
+				[
+					{
+						writes: [insertOf(1, [0])],
+						reads: [readOf(0, "positive", 0), readOf(1, "negated", 0)],
+						probes: [],
+						cores: []
+					}
+				]
+			],
+			privileges: [{ relation: 1, privilege: "INSERT" }],
+			members: [
+				[{ writes: [insertOf(1, [0])], reads: [readOf(0, "positive", 0)], probes: [], cores: [] }]
+			]
+		},
+		{
+			login: 1,
+			serializable: other
+				? [
+						[
+							{
+								writes: [insertOf(3, [0])],
+								reads: [readOf(1, "positive", 0), readOf(1, "counted", 0)],
+								probes: [],
+								cores: []
+							}
+						]
+					]
+				: [],
+			privileges: [{ relation: 3, privilege: "INSERT" }],
+			members: [
+				[{ writes: [insertOf(3, [0])], reads: [readOf(1, "positive", 0)], probes: [], cores: [] }]
+			]
+		}
+	]
+})
 
 /**
  * The publication layer: r0 inserts Q where B's key is absent and inserts B, so it runs SERIALIZABLE and may miss
@@ -1473,6 +1549,10 @@ const shapeSketch = (
 			return servedOf("absence")
 		case "servedOwn":
 			return servedOf("own")
+		case "loweredAbsence":
+			return loweredOf(false)
+		case "loweredCause":
+			return loweredOf(true)
 		case "drawn":
 			return s.draw(sketchGen)
 	}
@@ -1514,6 +1594,8 @@ const caseGen: Gen<Case> = (s) => {
 			[1, () => "servedUpdate"],
 			[1, () => "servedAbsence"],
 			[1, () => "servedOwn"],
+			[1, () => "loweredAbsence"],
+			[1, () => "loweredCause"],
 			[1, () => "triggered"],
 			[1, () => "droppedReference"]
 		])
@@ -1604,11 +1686,33 @@ const inputOf = (sketch: Sketch): IsolationInput => ({
 			login: `L${role.login}`,
 			role: `r${i}`,
 			privileges,
-			members: membersOf(role.members),
-			serializable: membersOf(role.serializable)
+			members: membersOf(role.members)
 		}
 	})
 })
+
+/**
+ * Each role of a sketch as certification takes it, its relations' facts `relations`: its READ COMMITTED facts, and its
+ * lowering to the sketch's SERIALIZABLE form; and every role's certificate.
+ */
+const verdictsOf = (
+	sketch: Sketch,
+	relations: IsolationInput["relations"]
+): ReadonlyArray<RoleIsolation> => {
+	const certified = certify(
+		relations,
+		Arr.map(inputOf(sketch).roles, (role, i): Candidate<undefined, undefined, never> => ({
+			role,
+			readCommitted: undefined,
+			lower: () =>
+				Result.ok({
+					facts: membersOf(Arr.getUnsafe(sketch.roles, i).serializable),
+					form: undefined
+				})
+		}))
+	)
+	return certified.ok ? Arr.map(certified.value, isolationOf) : certified.error
+}
 
 const withRole = (sketch: Sketch, at: number, edit: (role: RoleSketch) => RoleSketch): Sketch => ({
 	...sketch,
@@ -1705,28 +1809,18 @@ const givesFirstMember = (sketch: Sketch, e: Extension): boolean => {
 	}
 }
 
-/** The facts after a case's extension: a dropped fact leaves its relation out of the facts. */
-const afterOf = (c: Case): IsolationInput => {
-	const input = inputOf(extended(c.sketch, c.extension))
+/** The certificates after a case's extension: a dropped fact leaves its relation out of the facts. */
+const afterOf = (c: Case): ReadonlyArray<RoleIsolation> => {
+	const sketch = extended(c.sketch, c.extension)
+	const relations = inputOf(sketch).relations
 	const e = c.extension
-	return e.kind === "dropFact"
-		? {
-				...input,
-				relations: new Map(
-					Arr.filter([...input.relations], ([name]) => name !== relationName(e.relation))
-				)
-			}
-		: input
+	return verdictsOf(
+		sketch,
+		e.kind === "dropFact"
+			? new Map(Arr.filter([...relations], ([name]) => name !== relationName(e.relation)))
+			: relations
+	)
 }
-
-/** Every member a role may be served, at either level. */
-const served = (role: RoleSketch): ReadonlyArray<ReadonlyArray<StatementSketch>> => [
-	...role.members,
-	...role.serializable
-]
-
-const writesOfRole = (role: RoleSketch) =>
-	Arr.flatMap(served(role), (statements) => Arr.flatMap(statements, (st) => st.writes))
 
 type OracleSeal = "arbiter" | "own" | "unwritten" | "arbitrated" | "sealed" | "unsealed"
 
@@ -1739,12 +1833,20 @@ interface OracleCheck {
 }
 
 /**
- * The oracle: each condition stated over the sketch on its own, and the levels as the greatest set of roles that meet
- * their own conditions none of whose members a role outside the set gives a reason.
+ * Each condition stated over the sketch on its own, in a round where the roles of `lowered` are served both their forms
+ * and every other role its READ COMMITTED form alone: `own(i)`, the conditions role i's own members fail, and
+ * `given(judges, i)`, those the roles of `judges` but i give it; `absent(statements)`, the relations a member reads the
+ * absence or a count of; and `written(i)`, the relations role i writes.
  */
-const oracle = (sketch: Sketch) => {
+const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 	const roles = sketch.roles
 	const relations = sketch.relations
+	const formsOf = (i: number): ReadonlyArray<ReadonlyArray<StatementSketch>> => {
+		const role = Arr.getUnsafe(roles, i)
+		return lowered.has(i) ? [...role.members, ...role.serializable] : role.members
+	}
+	const writesOf = (i: number) =>
+		Arr.flatMap(formsOf(i), (statements) => Arr.flatMap(statements, (st) => st.writes))
 	const reach = (from: ReadonlySet<number>): ReadonlySet<number> => {
 		const out = new Set(from)
 		for (let step = 0; step < RELATIONS; step += 1) {
@@ -1756,30 +1858,34 @@ const oracle = (sketch: Sketch) => {
 		}
 		return out
 	}
-	const updatedOf = (role: RoleSketch): ReadonlySet<number> =>
+	const updatedOf = (i: number): ReadonlySet<number> =>
 		reach(
 			new Set([
-				...Arr.flatMap(role.privileges, (p) => (p.privilege === "UPDATE" ? [p.relation] : [])),
-				...Arr.flatMap(writesOfRole(role), (w) => (w.op === "update" ? [w.relation] : []))
+				...Arr.flatMap(Arr.getUnsafe(roles, i).privileges, (p) =>
+					p.privilege === "UPDATE" ? [p.relation] : []
+				),
+				...Arr.flatMap(writesOf(i), (w) => (w.op === "update" ? [w.relation] : []))
 			])
 		)
-	const writtenSet = (role: RoleSketch): ReadonlySet<number> =>
+	const writtenSet = (i: number): ReadonlySet<number> =>
 		new Set([
-			...Arr.flatMap(role.privileges, (p) => (p.privilege === "SELECT" ? [] : [p.relation])),
-			...Arr.map(writesOfRole(role), (w) => w.relation),
-			...updatedOf(role)
+			...Arr.flatMap(Arr.getUnsafe(roles, i).privileges, (p) =>
+				p.privilege === "SELECT" ? [] : [p.relation]
+			),
+			...Arr.map(writesOf(i), (w) => w.relation),
+			...updatedOf(i)
 		])
-	const anyWrites = (relation: number) => Arr.some(roles, (r) => writtenSet(r).has(relation))
+	const anyWrites = (relation: number) => Arr.some(roles, (_, i) => writtenSet(i).has(relation))
 	const changes = (relation: number) =>
 		Arr.some(
 			roles,
-			(r) =>
+			(r, i) =>
 				Arr.some(
 					r.privileges,
 					(p) => p.relation === relation && (p.privilege === "UPDATE" || p.privilege === "DELETE")
 				) ||
-				Arr.some(writesOfRole(r), (w) => w.relation === relation && w.op !== "insert") ||
-				updatedOf(r).has(relation)
+				Arr.some(writesOf(i), (w) => w.relation === relation && w.op !== "insert") ||
+				updatedOf(i).has(relation)
 		)
 	const covers = (relation: number, fields: ReadonlyArray<string>) =>
 		Arr.some(Arr.getUnsafe(relations, relation).keys, (k) =>
@@ -1932,6 +2038,20 @@ const oracle = (sketch: Sketch) => {
 			}))
 		})
 	}
+	/** The relations a member reads the absence or a count of, by a statement or the check of a changed row. */
+	const absent = (statements: ReadonlyArray<StatementSketch>): ReadonlySet<number> =>
+		new Set([
+			...Arr.flatMap(placedOf(statements), (placed) =>
+				Arr.flatMap(placed, (p) =>
+					p.mode === "negated" ||
+					p.mode === "counted" ||
+					(p.mode === "arbiter" && p.seal === "unsealed")
+						? [p.read.relation]
+						: []
+				)
+			),
+			...Arr.flatMap(checksOf(statements), (c) => (c.side === "referenced" ? [c.relation] : []))
+		])
 	const outsideReads = (role: RoleSketch): ReadonlySet<number> =>
 		new Set(
 			Arr.flatMap(role.members, (statements) => [
@@ -1941,41 +2061,25 @@ const oracle = (sketch: Sketch) => {
 				...Arr.flatMap(checksOf(statements), (c) => (isOutside(c.seal) ? [c.relation] : []))
 			])
 		)
-	const own = (role: RoleSketch): ReadonlySet<IsolationCondition> => {
+	const own = (i: number): ReadonlySet<IsolationCondition> => {
+		const role = Arr.getUnsafe(roles, i)
 		const failed = new Set<IsolationCondition>()
 		if (role.members.length === 0) {
 			failed.add("members")
 		}
 		if (
 			Arr.some(role.privileges, (p) => p.privilege === "UPDATE" || p.privilege === "DELETE") ||
-			Arr.some([...writtenSet(role)], changes)
+			Arr.some([...writtenSet(i)], changes)
 		) {
 			failed.add("privileges")
 		}
-		for (const relation of writtenSet(role)) {
+		for (const relation of writtenSet(i)) {
 			if (Arr.getUnsafe(relations, relation).triggerLaws) {
 				failed.add("laws")
 			}
 			if (
-				Arr.some(roles, (r) =>
-					Arr.some(
-						served(r),
-						(statements) =>
-							Arr.some(placedOf(statements), (placed) =>
-								Arr.some(
-									placed,
-									(p) =>
-										p.read.relation === relation &&
-										(p.mode === "negated" ||
-											p.mode === "counted" ||
-											(p.mode === "arbiter" && p.seal === "unsealed"))
-								)
-							) ||
-							Arr.some(
-								checksOf(statements),
-								(c) => c.side === "referenced" && c.relation === relation
-							)
-					)
+				Arr.some(roles, (_, r) =>
+					Arr.some(formsOf(r), (statements) => absent(statements).has(relation))
 				)
 			) {
 				failed.add("absence")
@@ -1993,8 +2097,8 @@ const oracle = (sketch: Sketch) => {
 				) ||
 				Arr.some(
 					checks,
-					(c, i) =>
-						c.seal === "unsealed" && (outs.length > 0 || Arr.some(checks, (_, j) => j !== i))
+					(c, k) =>
+						c.seal === "unsealed" && (outs.length > 0 || Arr.some(checks, (_, j) => j !== k))
 				)
 			) {
 				failed.add("snapshot")
@@ -2038,21 +2142,14 @@ const oracle = (sketch: Sketch) => {
 		}
 		return failed
 	}
-	const owns = Arr.map(roles, own)
-	const candidates = Arr.filter(
-		Arr.map(roles, (_, i) => i),
-		(i) => Arr.getUnsafe(owns, i).size === 0
-	)
-	const given = (outside: ReadonlySet<number>, i: number): ReadonlySet<IsolationCondition> => {
-		const role = Arr.getUnsafe(roles, i)
-		const written = writtenSet(role)
-		const reads = outsideReads(role)
+	const given = (judges: ReadonlySet<number>, i: number): ReadonlySet<IsolationCondition> => {
+		const written = writtenSet(i)
+		const reads = outsideReads(Arr.getUnsafe(roles, i))
 		const out = new Set<IsolationCondition>()
-		for (const o of Arr.filter([...outside], (x) => x !== i)) {
-			const other = Arr.getUnsafe(roles, o)
+		for (const o of Arr.filter([...judges], (x) => x !== i)) {
 			if (
 				Arr.some(
-					served(other),
+					formsOf(o),
 					(statements) =>
 						Arr.some(statements, (st) => Arr.some(st.reads, (r) => written.has(r.relation))) ||
 						Arr.some(checksOf(statements), (c) => written.has(c.relation))
@@ -2060,39 +2157,118 @@ const oracle = (sketch: Sketch) => {
 			) {
 				out.add("laws")
 			}
-			const shared = Arr.some([...writtenSet(other)], (x) => reads.has(x))
+			const shared = Arr.some([...writtenSet(o)], (x) => reads.has(x))
 			const pivot =
-				Arr.some(served(other), (statements) =>
+				Arr.some(formsOf(o), (statements) =>
 					Arr.some(placedOf(statements), (placed) => Arr.some(placed, (p) => isOutside(p.seal)))
 				) ||
-				Arr.some(served(other), (statements) =>
+				Arr.some(formsOf(o), (statements) =>
 					Arr.some(
 						checksOf(statements),
 						(c) => isOutside(c.seal) && (c.side === "referenced" || c.seal === "unsealed")
 					)
 				) ||
-				Arr.some([...writtenSet(other)], (x) => Arr.getUnsafe(relations, x).triggerLaws)
-			if ((shared && pivot) || Arr.some([...writtenSet(other)], (x) => written.has(x))) {
+				Arr.some([...writtenSet(o)], (x) => Arr.getUnsafe(relations, x).triggerLaws)
+			if ((shared && pivot) || Arr.some([...writtenSet(o)], (x) => written.has(x))) {
 				out.add("writers")
 			}
 		}
 		return out
 	}
-	const all = new Set(Arr.map(roles, (_, i) => i))
+	return { own, given, absent, written: writtenSet }
+}
+
+/** One role's level and conditions as the oracle finds them. */
+interface OracleVerdict {
+	readonly readCommitted: boolean
+	readonly failed: ReadonlySet<IsolationCondition>
+	readonly own: ReadonlySet<IsolationCondition>
+}
+
+/**
+ * One round as the oracle runs it: every role outside `lowered` judged over its READ COMMITTED form, the roles of
+ * `lowered` served both forms and SERIALIZABLE, and the judged roles left READ COMMITTED the greatest set that meet
+ * their own conditions none of whose members a role outside it gives a reason, found by trying every subset. A judged
+ * role's conditions are its own where it fails any, else those the round's other SERIALIZABLE roles give it.
+ */
+const judgedRound = (
+	sketch: Sketch,
+	lowered: ReadonlySet<number>
+): ReadonlyMap<number, OracleVerdict> => {
+	const at = oracleRound(sketch, lowered)
+	const judged = Arr.flatMap(sketch.roles, (_, i) =>
+		lowered.has(i) ? [] : [{ i, own: at.own(i) }]
+	)
+	const candidates = Arr.flatMap(judged, (j) => (j.own.size === 0 ? [j.i] : []))
+	const all = new Set(Arr.map(sketch.roles, (_, i) => i))
 	let best = new Set<number>()
 	for (let mask = 0; mask < 1 << candidates.length; mask += 1) {
 		const set = new Set(Arr.filter(candidates, (_, b) => (mask & (1 << b)) !== 0))
 		const outside = new Set(Arr.filter([...all], (i) => !set.has(i)))
-		if (Arr.every([...set], (i) => given(outside, i).size === 0)) {
+		if (Arr.every([...set], (i) => at.given(outside, i).size === 0)) {
 			best = new Set([...best, ...set])
 		}
 	}
 	const outside = new Set(Arr.filter([...all], (i) => !best.has(i)))
-	return Arr.map(roles, (_, i) => {
-		const owned = Arr.getUnsafe(owns, i)
-		const failed = owned.size > 0 ? owned : given(outside, i)
-		return { readCommitted: best.has(i), failed, own: owned }
-	})
+	return new Map(
+		Arr.map(
+			judged,
+			({ i, own }) =>
+				[
+					i,
+					{ readCommitted: best.has(i), failed: own.size > 0 ? own : at.given(outside, i), own }
+				] as const
+		)
+	)
+}
+
+/**
+ * The oracle: rounds from none lowered, each lowering the roles it judges SERIALIZABLE with that round's conditions,
+ * until one lowers none; with the roles lowered, by the round that lowered them, a role's own form never among the
+ * facts it was judged by.
+ */
+const oracle = (sketch: Sketch) => {
+	const lowered = new Map<number, OracleVerdict>()
+	const rounds = new Map<number, number>()
+	for (let at = 0; ; at += 1) {
+		const round = judgedRound(sketch, new Set(lowered.keys()))
+		const fresh = Arr.filter([...round], ([, v]) => !v.readCommitted)
+		if (fresh.length === 0) {
+			return {
+				lowered: new Set(lowered.keys()),
+				rounds,
+				verdicts: Arr.map(sketch.roles, (_, i) =>
+					defined(lowered.get(i) ?? round.get(i), `the oracle's verdict of r${i}`)
+				)
+			}
+		}
+		for (const [i, v] of fresh) {
+			lowered.set(i, v)
+			rounds.set(i, at)
+		}
+	}
+}
+
+/**
+ * Whether lowered role i's SERIALIZABLE form alone reads the absence or a count of a relation it writes, among the
+ * forms the roles of `lowered` are served: no READ COMMITTED form does, nor another lowered role's.
+ */
+const absenceOfItsOwnLowering = (
+	sketch: Sketch,
+	lowered: ReadonlySet<number>,
+	i: number
+): boolean => {
+	const at = oracleRound(sketch, lowered)
+	return Arr.some(
+		[...at.written(i)],
+		(x) =>
+			Arr.some(Arr.getUnsafe(sketch.roles, i).serializable, (sts) => at.absent(sts).has(x)) &&
+			!Arr.some(sketch.roles, (r, j) =>
+				Arr.some(j !== i && lowered.has(j) ? [...r.members, ...r.serializable] : r.members, (sts) =>
+					at.absent(sts).has(x)
+				)
+			)
+	)
 }
 
 type IsolationFeature =
@@ -2112,6 +2288,8 @@ type IsolationFeature =
 	| `the ${Exclude<Shape, "drawn">}`
 	| "a fact dropped beside a READ COMMITTED role"
 	| "a dropped fact a SERIALIZABLE role's level rests on alone"
+	| "a role whose lowered form alone reads the absence of what it writes"
+	| "a role lowered in a later round"
 
 const conditions: ReadonlyArray<IsolationCondition> = [
 	"members",
@@ -2162,6 +2340,8 @@ const shapes: ReadonlyArray<Exclude<Shape, "drawn">> = [
 	"servedUpdate",
 	"servedAbsence",
 	"servedOwn",
+	"loweredAbsence",
+	"loweredCause",
 	"triggered",
 	"droppedReference"
 ]
@@ -2196,6 +2376,8 @@ const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "servedAbsence":
 			return [0, 1]
 		case "servedUpdate":
+		case "loweredAbsence":
+		case "loweredCause":
 			return [0, 1, 2]
 		case "absentThenInsert":
 			return [2]
@@ -2250,7 +2432,7 @@ describe("the isolation certifier", () => {
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
-							name: "every condition restated over the drawn facts, the fixpoint as the greatest of every subset"
+							name: "every condition restated over the drawn facts, in rounds each the greatest of every subset"
 						},
 						coverage: required<IsolationFeature>(
 							[
@@ -2269,7 +2451,9 @@ describe("the isolation certifier", () => {
 								"an update carried by a cascading foreign key",
 								...Arr.map(shapes, (s) => `the ${s}` as const),
 								"a fact dropped beside a READ COMMITTED role",
-								"a dropped fact a SERIALIZABLE role's level rests on alone"
+								"a dropped fact a SERIALIZABLE role's level rests on alone",
+								"a role whose lowered form alone reads the absence of what it writes",
+								"a role lowered in a later round"
 							],
 							{ cases: 400, sense: notesOnly }
 						),
@@ -2283,27 +2467,51 @@ describe("the isolation certifier", () => {
 					(c, k) =>
 						Effect.sync(() => {
 							const input = inputOf(c.sketch)
-							const verdicts = certify(input)
+							const verdicts = verdictsOf(c.sketch, input.relations)
 							const expected = oracle(c.sketch)
 							for (const [i, v] of verdicts.entries()) {
-								const o = Arr.getUnsafe(expected, i)
+								const o = Arr.getUnsafe(expected.verdicts, i)
 								assert.equal(
 									v.certificate.level,
 									o.readCommitted ? "readCommitted" : "serializable",
 									`${v.role}'s level`
+								)
+								assert.deepEqual(
+									Arr.getUnsafe(
+										verdictsOf(
+											withRole(c.sketch, i, (r) => ({ ...r, serializable: [] })),
+											input.relations
+										),
+										i
+									),
+									v,
+									`${v.role}'s certificate is the same without its own SERIALIZABLE form`
 								)
 								if (v.certificate.level === "serializable") {
 									const named = new Set(Arr.map(v.certificate.reasons, (r) => r.condition))
 									assert.deepEqual(
 										Arr.filter(everyCondition, (x) => named.has(x)),
 										Arr.filter(everyCondition, (x) => o.failed.has(x)),
-										`${v.role} names exactly the conditions it fails`
+										`${v.role} names exactly the conditions of the round that lowered it`
 									)
+									const judges = new Set(Arr.filter([...expected.lowered], (j) => j !== i))
+									const at = oracleRound(c.sketch, judges)
+									const still = new Set([...at.own(i), ...at.given(judges, i)])
 									for (const r of named) {
+										assert.ok(
+											still.has(r),
+											`${v.role} still fails ${r}, which lowered it, at the fixpoint`
+										)
 										k.note(`a role SERIALIZABLE by ${r}`)
 									}
 									if (o.own.size === 0) {
 										k.note("a role SERIALIZABLE only through roles that run SERIALIZABLE")
+									}
+									if (defined(expected.rounds.get(i), `the round that lowered ${v.role}`) > 0) {
+										k.note("a role lowered in a later round")
+									}
+									if (absenceOfItsOwnLowering(c.sketch, expected.lowered, i)) {
+										k.note("a role whose lowered form alone reads the absence of what it writes")
 									}
 								} else {
 									k.note("a role certified READ COMMITTED")
@@ -2380,7 +2588,7 @@ describe("the isolation certifier", () => {
 							if (first) {
 								k.note("a first change member given to a role with none")
 							}
-							const after = levelsOf(certify(afterOf(c)))
+							const after = levelsOf(afterOf(c))
 							for (const [i, level] of levelsOf(verdicts).entries()) {
 								if (level === "serializable" && !first) {
 									assert.equal(
@@ -2397,7 +2605,7 @@ describe("the isolation certifier", () => {
 								}
 								const lifted = oracle(
 									withRelation(c.sketch, e.relation, (r) => ({ ...r, triggerLaws: false }))
-								)
+								).verdicts
 								if (
 									Arr.some(
 										lifted,

@@ -139,19 +139,16 @@ export interface MemberFacts {
 }
 
 /**
- * One role of one login: the privileges its grant plan holds, by relation, its change members in the form served at
- * READ COMMITTED (`members`), and in the form served at SERIALIZABLE where certification lowered it (`serializable`,
- * program/isolation/certification.ts), none before. A role is served the form its level chooses, so its own conditions
- * read `members` alone, which it is served exactly when it runs READ COMMITTED; every reason it gives another role, and
- * every fact the installation states of a relation's writers, reads both, the form it may be served either way. Its
- * read members run SERIALIZABLE READ ONLY whatever its verdict, so no fact of theirs is read.
+ * One role of one login: the privileges its grant plan holds, by relation, and its change members in the form served at
+ * READ COMMITTED (`members`), the one certification judges it by. Its SERIALIZABLE form is no fact of it: certification
+ * takes it once the role runs SERIALIZABLE, as its lowering (certify.ts Candidate), and judges the others by it beside
+ * these. Its read members run SERIALIZABLE READ ONLY whatever its verdict, so no fact of theirs is read.
  */
 export interface RoleFacts {
 	readonly login: string
 	readonly role: string
 	readonly privileges: ReadonlyMap<string, ReadonlySet<TablePrivilege>>
 	readonly members: ReadonlyArray<MemberFacts>
-	readonly serializable: ReadonlyArray<MemberFacts>
 }
 
 /**

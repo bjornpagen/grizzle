@@ -30,7 +30,7 @@ import { pctSchedule } from "@grizzle/testing/interleave"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
-import { certify, type RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
+import type { RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { type CounterShape, flawedCertificates } from "#test/pg/isolation/support/certify.ts"
@@ -38,7 +38,7 @@ import {
 	callParams,
 	type DrawnRace,
 	drawnCertificates,
-	drawnFacts,
+	factCertificates,
 	drawnRaceGen,
 	drawnShape
 } from "#test/pg/isolation/support/drawn.ts"
@@ -1513,7 +1513,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									const candidates: ReadonlyArray<Candidate> = [
 										{
 											label: "certify over 1:1 facts",
-											roles: certify(drawnFacts(race.installation))
+											roles: factCertificates(race.installation)
 										},
 										{
 											label: "the restated conditions",
