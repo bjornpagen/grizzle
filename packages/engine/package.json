@@ -42,6 +42,11 @@
 			"types": "./dist/index.d.ts",
 			"default": "./dist/index.js"
 		},
+		"./internal/live/index.ts": {
+			"grizzle-source": "./src/live/index.ts",
+			"types": "./dist/live/index.d.ts",
+			"default": "./dist/live/index.js"
+		},
 		"./internal/plan/catalog.ts": {
 			"grizzle-source": "./src/plan/catalog.ts",
 			"types": "./dist/plan/catalog.d.ts",
