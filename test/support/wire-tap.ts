@@ -32,7 +32,8 @@ import { parsedConnection } from "#test/support/pg.ts"
  * verify-full TLS with the tap's own CA, which the transport names as `ca`. Behind it the tap opens its own verified TLS
  * to the cluster, SSLRequest then verify-full against the cluster's CA, and carries the plaintext between the two. The
  * first connection whose first message is a startup packet is the session the tap records and gates; a connection whose
- * first message is a CancelRequest is counted, and goes to the server as any other; any later session passes straight.
+ * first message is a CancelRequest is counted, and goes to the server as any other; any later session passes straight,
+ * recorded in a log of its own (Tap.sessions), so a test reads every session a layer opens, a listening one included.
  *
  * A round trip is a turn of the conversation: the client writes after it has read something since its last write.
  * Writes in a row with no read between them, a pipeline, count once. The tap records each write as it arrives and
@@ -48,13 +49,15 @@ import { parsedConnection } from "#test/support/pg.ts"
  * a call after exactly k answers it has read, with the server having done all it can, and then let the rest through.
  *
  * One frontend message: its type byte; the statement it names for Parse, Bind and Close ("" for the unnamed one and for
- * every other type); and the SQL text of a Parse or a simple Query ("" for every other type). The untyped startup
- * packet is "startup".
+ * every other type); the SQL text of a Parse or a simple Query ("" for every other type); and the parameter values a
+ * Bind carries, in order, each a text-format value's UTF-8 text, a binary-format value's bytes as `\x` and their hex,
+ * or null for SQL NULL (none for every other type). The untyped startup packet is "startup".
  */
 export interface FrontendMessage {
 	readonly type: string
 	readonly name: string
 	readonly text: string
+	readonly params: ReadonlyArray<string | null>
 }
 
 /** One backend message: its type byte, and the transaction status of a ReadyForQuery ("" for every other type). */
@@ -130,6 +133,37 @@ const statementName = (type: string, body: Buffer): string => {
 		return cString(body, 1)
 	}
 	return ""
+}
+
+/**
+ * The parameter values a Bind carries (FrontendMessage params): after its portal and statement names, its format codes
+ * (none for all text, one for all, or one for each), then each value's length, -1 for NULL, and its bytes.
+ */
+const bindParams = (type: string, body: Buffer): ReadonlyArray<string | null> => {
+	if (type !== "B") {
+		return []
+	}
+	let offset = body.indexOf(0, body.indexOf(0) + 1) + 1
+	const formatCount = body.readInt16BE(offset)
+	offset += 2
+	const formats = Arr.map(Arr.range(0, formatCount - 1), (k) => body.readInt16BE(offset + 2 * k))
+	offset += 2 * formatCount
+	const count = body.readInt16BE(offset)
+	offset += 2
+	const values: Array<string | null> = []
+	for (let k = 0; k < count; k++) {
+		const length = body.readInt32BE(offset)
+		offset += 4
+		if (length < 0) {
+			values.push(null)
+			continue
+		}
+		const bytes = body.subarray(offset, offset + length)
+		offset += length
+		const format = formats.length === 1 ? formats[0] : formats[k]
+		values.push(format === 1 ? `\\x${bytes.toString("hex")}` : bytes.toString("utf8"))
+	}
+	return values
 }
 
 /** The SQL a frontend message carries: a simple Query's text, or a Parse's after its name. */
@@ -515,6 +549,12 @@ export interface Tap {
 	readonly mark: () => number
 	/** The traffic since `mark`. */
 	readonly since: (mark: number) => WireWindow
+	/**
+	 * Every session's whole traffic so far, in the order the sessions connected: the gated session first, then each
+	 * later session through the transport, which passes straight and is recorded all the same. A CancelRequest's
+	 * connection is no session.
+	 */
+	readonly sessions: () => ReadonlyArray<WireWindow>
 	/** The connections opened for CancelRequests. */
 	readonly cancels: () => number
 	/** The CancelRequest connections that have ended: the server read each request and closed it, or it failed. */
@@ -526,6 +566,8 @@ export interface Tap {
 export const makeTap = (cluster: InitializedClusterShape): Tap => {
 	const material = tlsMaterial(tapServername)
 	const events: Array<WireEvent> = []
+	/** Every session's traffic, in the order the sessions connected, the gated one's `events` first. */
+	const logs: Array<Array<WireEvent>> = []
 	const gate = new MessageGate()
 	let recording = false
 	let cancels = 0
@@ -540,6 +582,11 @@ export const makeTap = (cluster: InitializedClusterShape): Tap => {
 			const recorded = !cancel && !recording
 			if (recorded) {
 				recording = true
+			}
+			/** Where this connection's traffic is recorded: the gated session's events, a later session's own, or none. */
+			const log: Array<WireEvent> | undefined = cancel ? undefined : recorded ? events : []
+			if (log !== undefined) {
+				logs.push(log)
 			}
 			if (cancel) {
 				cancels++
@@ -566,10 +613,15 @@ export const makeTap = (cluster: InitializedClusterShape): Tap => {
 			const carrier: Carrier = recorded ? gate : straight
 			let written: Array<FrontendMessage> = []
 			const frontend = framer(true, (type, body) =>
-				written.push({ type, name: statementName(type, body), text: statementText(type, body) })
+				written.push({
+					type,
+					name: statementName(type, body),
+					text: statementText(type, body),
+					params: bindParams(type, body)
+				})
 			)
 			const backend = framer(false, (type, body) =>
-				events.push({
+				log?.push({
 					side: "backend",
 					message: { type, status: type === "Z" ? cString(body, 0) : "" }
 				})
@@ -577,9 +629,7 @@ export const makeTap = (cluster: InitializedClusterShape): Tap => {
 			const server = upstream(
 				cluster.caPem,
 				(chunk) => {
-					if (recorded) {
-						backend(chunk)
-					}
+					backend(chunk)
 					carrier.data(chunk, push)
 				},
 				() => {
@@ -590,10 +640,10 @@ export const makeTap = (cluster: InitializedClusterShape): Tap => {
 				}
 			)
 			const forward = (chunk: Buffer): void => {
-				if (recorded) {
+				if (log !== undefined) {
 					written = []
 					frontend(chunk)
-					events.push({ side: "frontend", messages: written })
+					log.push({ side: "frontend", messages: written })
 				}
 				server.write(chunk)
 			}
@@ -607,6 +657,7 @@ export const makeTap = (cluster: InitializedClusterShape): Tap => {
 		transport: memoryTransport(material, memoryEndpoint(material, serve)),
 		mark: () => events.length,
 		since: (mark) => windowOf(events.slice(mark)),
+		sessions: () => Arr.map(logs, (log) => windowOf(log)),
 		cancels: () => cancels,
 		cancelsEnded: () => ended,
 		gate
@@ -649,6 +700,7 @@ export const tappedSession = (
 				session,
 				mark: tap.mark,
 				since: tap.since,
+				sessions: tap.sessions,
 				cancels: tap.cancels,
 				cancelsEnded: tap.cancelsEnded,
 				gate: tap.gate
