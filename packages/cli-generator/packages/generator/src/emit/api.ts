@@ -28,6 +28,9 @@ import {
 	str,
 	typeKeyword,
 	typeLiteral,
+	typeApply,
+	typedArrow,
+	typeName,
 	typeReadonlyArray,
 	typeRef,
 	typeUnion
@@ -1567,13 +1570,13 @@ const encoderOf = (
 					name: alias,
 					type: typeUnion(contentType.choices.map((choice) => typeLiteral(choice)))
 				})
-				typeArgument = typeRef(alias)
+				typeArgument = typeName(alias)
 			}
 
 			keyed.push({
 				key: formKey,
 				optional: true,
-				type: optionalOf(typeRef(I("Serialize"), [M("ChosenPart")], [typeArgument]))
+				type: optionalOf(typeApply(I("Serialize"), [M("ChosenPart")], [typeArgument]))
 			})
 
 			const slot = yield* memberName(formKey)
@@ -1610,7 +1613,7 @@ const encoderOf = (
 				}
 			],
 			encode: (value) => fn("formData", [member(value, M("fields")), options(value)]),
-			type: typeRef(name),
+			type: typeName(name),
 			typed: false
 		})
 	})
@@ -1664,7 +1667,7 @@ const chosenParts = (
 				{
 					key: "body",
 					optional: false,
-					type: typeRef(I("Serialize"), [M("Chosen")], [typeRef(name)])
+					type: typeApply(I("Serialize"), [M("Chosen")], [typeName(name)])
 				}
 			]
 		} satisfies BodyParts
@@ -1881,8 +1884,8 @@ const commandStatements = (
 		const fields = [...body.fields, ...Arr.getSomes(Arr.map(parameters, (part) => part.field))]
 		// An operation with no input takes no argument: an empty interface and an unused parameter
 		// fail the package's own lint.
-		const builder = arrow(
-			fields.length === 0 ? [] : [{ name: I("input"), type: typeRef(inputName) }],
+		const builder = typedArrow(
+			fields.length === 0 ? [] : [{ name: I("input"), type: typeName(inputName) }],
 			fn("request", [str(operation.key.method), obj(parts)]),
 			typeRef(I("Serialize"), [M("Request")])
 		)
@@ -1959,14 +1962,14 @@ const commandStatements = (
 				_tag: "Const",
 				exported: false,
 				name: mediaName,
-				type: typeRef(I("MediaDeclaration")),
+				type: typeName(I("MediaDeclaration")),
 				value: media
 			},
 			{
 				_tag: "Const",
 				exported: false,
 				name: securityName,
-				type: typeRef(I("SecurityRequirement")),
+				type: typeName(I("SecurityRequirement")),
 				value: yield* requirementOf(operation, context.schemes)
 			},
 			...(eventTable.length === 0
@@ -1976,7 +1979,7 @@ const commandStatements = (
 							_tag: "Const",
 							exported: false,
 							name: eventsName,
-							type: typeRef(I("EventTable")),
+							type: typeName(I("EventTable")),
 							value: obj(eventTable)
 						} as const
 					]),
@@ -2192,7 +2195,7 @@ const securityFile = (api: Api, plan: NamePlan) =>
 					_tag: "Const",
 					exported: true,
 					name: I("security"),
-					type: typeRef(I("SecurityTable")),
+					type: typeName(I("SecurityTable")),
 					value: obj([["schemes", obj(schemes)]])
 				}
 			]
@@ -2216,7 +2219,7 @@ const serversFile = (api: Api, bound: ApiEmitInput["boundOrigins"]) =>
 				_tag: "Const",
 				exported: true,
 				name: I("servers"),
-				type: typeRef(I("ServersTable")),
+				type: typeName(I("ServersTable")),
 				value: serversTable(api.servers, bound)
 			}
 		]

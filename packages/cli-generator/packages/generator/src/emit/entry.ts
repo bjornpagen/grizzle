@@ -17,6 +17,7 @@ import {
 	printModule,
 	str,
 	typeKeyword,
+	typeName,
 	typeReadonlyArray,
 	typeRef,
 	typeUnion
@@ -357,7 +358,7 @@ const binModule = (config: AuthorConfig, mutualTls: boolean): Module => {
 			)
 		)
 	const clientOver = arrow(
-		[{ name: I("dispatcher"), type: typeRef(I("Dispatcher")) }],
+		[{ name: I("dispatcher"), type: typeName(I("Dispatcher")) }],
 		fn(
 			"Effect.provideService",
 			path("NodeHttpClient.makeUndici"),

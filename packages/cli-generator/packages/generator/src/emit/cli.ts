@@ -455,7 +455,7 @@ const fieldSchema = (
 	)
 
 	const notes: HelpBodyField = {
-		default: field.nodes.find((node) => node.default !== undefined)?.default,
+		default: Arr.findFirst(field.nodes, (node) => Option.fromUndefinedOr(node.default)),
 		deprecated: field.nodes.some((node) => node.deprecated),
 		enum: [...field.nodes, ...items.nodes].find((node) => node.enum !== undefined)?.enum,
 		readOnly: field.nodes.some((node) => node.readOnly)
@@ -478,7 +478,7 @@ const unknownField: FieldSchema = {
 	integer: "unsettled",
 	maxLength: undefined,
 	mediaType: undefined,
-	notes: { default: undefined, deprecated: false, enum: undefined, readOnly: false },
+	notes: { default: Option.none(), deprecated: false, enum: undefined, readOnly: false },
 	password: false
 }
 

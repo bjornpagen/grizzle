@@ -1,10 +1,10 @@
 {
 	"typecheck": {
-		"total": 8505,
+		"total": 8489,
 		"files": {
-			"packages/generator/src/emit/api.ts": 137,
-			"packages/generator/src/emit/cli.ts": 126,
-			"packages/generator/src/emit/entry.ts": 10,
+			"packages/generator/src/emit/api.ts": 125,
+			"packages/generator/src/emit/cli.ts": 123,
+			"packages/generator/src/emit/entry.ts": 9,
 			"packages/generator/src/emit/readme.ts": 58,
 			"packages/generator/src/model/author-config.ts": 11,
 			"packages/generator/src/model/entities.ts": 14,
@@ -599,10 +599,9 @@
 		}
 	},
 	"dead-code": {
-		"total": 12,
+		"total": 11,
 		"files": {
 			"packages/generator/src/emit/api.ts": 2,
-			"packages/generator/src/emit/printer.ts": 1,
 			"packages/generator/src/model/author-config.ts": 1,
 			"packages/generator/src/model/entities.ts": 6,
 			"packages/generator/test/support/generated-cli.ts": 1,
