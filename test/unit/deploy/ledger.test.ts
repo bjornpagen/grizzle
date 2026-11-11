@@ -1,3 +1,21 @@
+/**
+ * The `<schema>.__migrations` ledger's state as `grizzle migrate` reads it (deploy/ledger/ledger.ts ledgerState),
+ * generated: the rows any sequence of applies leaves, in any order the rows statement could return them, and the damage
+ * no apply leaves.
+ *
+ * - **The model:** an apply records each folder in name order, the folder row in the transaction of its first file (or
+ *   alone for a folder of no file) and each file's row in that file's own transaction, every row carrying the folder's
+ *   source, target and file count. A folder is complete exactly when every one of its files has a row, the latest
+ *   target is the last complete folder's (the empty snapshot's before any), and only the last folder may be partial,
+ *   since a failed apply stops there. A drafted folder reaches a new snapshot; a custom one keeps its source, and one of
+ *   no file completes on its folder row alone.
+ * - **Planted damage, refused as MalformedArtifact naming the folder:** a folder's file rows without its folder row; a
+ *   partial folder that another folder follows; one row of a folder disagreeing with its folder row on the source, the
+ *   target or the file count.
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): ledger-folders-in-row-order (the folders read in the order the rows
+ * arrived, not by name).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -10,8 +28,8 @@ import {
 	int,
 	map,
 	shuffled,
-	type Weighted,
-	weighted
+	weighted,
+	type Weighted
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -29,21 +47,6 @@ import { folderOrdinal } from "#compiler/physical/ddl/ledger.ts"
 import { artifactRefusal, assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
-/**
- * The `<schema>.__migrations` ledger's state as `grizzle migrate` reads it (deploy/ledger/ledger.ts ledgerState),
- * generated: the rows any sequence of applies leaves, in any order the rows statement could return them, and the damage
- * no apply leaves.
- *
- * - **The model:** an apply records each folder in name order, the folder row in the transaction of its first file (or
- *   alone for a folder of no file) and each file's row in that file's own transaction, every row carrying the folder's
- *   source, target and file count. A folder is complete exactly when every one of its files has a row, the latest
- *   target is the last complete folder's (the empty snapshot's before any), and only the last folder may be partial,
- *   since a failed apply stops there. A drafted folder reaches a new snapshot; a custom one keeps its source, and one of
- *   no file completes on its folder row alone.
- * - **Planted damage, refused as MalformedArtifact naming the folder:** a folder's file rows without its folder row; a
- *   partial folder that another folder follows; one row of a folder disagreeing with its folder row on the source, the
- *   target or the file count.
- */
 interface Folder {
 	readonly name: string
 	readonly custom: boolean

@@ -13,7 +13,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int } from "@grizzle/testing/gen"
+import { array, constant, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -40,17 +40,22 @@ const value =
 	(s) => ({
 		bytes: s.draw(array(int(0, 255), { min: 0, max: 6 })),
 		shares:
-			index > 0 && s.draw(element([false, false, true] as const))
+			index > 0 &&
+			s.draw(
+				weighted([
+					[2, constant(false)],
+					[1, constant(true)]
+				])
+			)
 				? s.draw(int(0, index - 1))
 				: undefined,
 		touch: s.draw(
-			element([
-				"none",
-				"none",
-				"a byte changed",
-				"a byte written as it was",
-				"its buffer detached"
-			] as const)
+			weighted([
+				[2, constant("none" as const)],
+				[1, constant("a byte changed" as const)],
+				[1, constant("a byte written as it was" as const)],
+				[1, constant("its buffer detached" as const)]
+			])
 		),
 		at: s.draw(int(0, 5))
 	})

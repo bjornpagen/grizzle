@@ -1,3 +1,23 @@
+/**
+ * Declared renames and drops, drafted with no database: every one or two operations (a rename, a drop, an addition)
+ * over at most three names, on relations, on the fields of one relation, on a roster's handles and on logins, and every
+ * operation on relations beside one or two on logins, each operation declared or, a named invalid variant, its
+ * declaration left out, exhausted.
+ *
+ * The oracle is a model of declared identities: it applies the operations to the previous names, predicts the target's
+ * names, and predicts the verdict, accepted exactly when every name the previous schema holds and the target does not
+ * keep is declared renamed or dropped, refused otherwise with UndeclaredDrop naming the first such name, a relation's
+ * before a login's, in the previous snapshot's order. A name a declared rename takes from a name the previous schema
+ * holds and does not rename, as a drop and then a rename onto the dropped name does, ends that name, so its drop is
+ * declared though the target holds the name. An accepted draft is checked against the model: its snapshot holds exactly
+ * the target's names; a declared rename of a relation is a chain of renames taking the old table to the target's, and
+ * of a login a chain of ALTER ROLE ... RENAME taking the old login's role to the target's, which the draft neither
+ * creates nor drops; a kept login's role is neither renamed, created nor dropped; a dropped login's role is dropped,
+ * and a new login's created; and a renamed handle keeps its code, the codes read back from the snapshot.
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): rosters-handle-renames-ignored (a roster's declared handle renames
+ * ignored when its codes are drafted).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -41,24 +61,6 @@ import { aliasGroups } from "#test/support/kernel/dict.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
-
-/**
- * Declared renames and drops, drafted with no database: every one or two operations (a rename, a drop, an addition)
- * over at most three names, on relations, on the fields of one relation, on a roster's handles and on logins, and every
- * operation on relations beside one or two on logins, each operation declared or, a named invalid variant, its
- * declaration left out, exhausted.
- *
- * The oracle is a model of declared identities: it applies the operations to the previous names, predicts the target's
- * names, and predicts the verdict, accepted exactly when every name the previous schema holds and the target does not
- * keep is declared renamed or dropped, refused otherwise with UndeclaredDrop naming the first such name, a relation's
- * before a login's, in the previous snapshot's order. A name a declared rename takes from a name the previous schema
- * holds and does not rename, as a drop and then a rename onto the dropped name does, ends that name, so its drop is
- * declared though the target holds the name. An accepted draft is checked against the model: its snapshot holds exactly
- * the target's names; a declared rename of a relation is a chain of renames taking the old table to the target's, and
- * of a login a chain of ALTER ROLE ... RENAME taking the old login's role to the target's, which the draft neither
- * creates nor drops; a kept login's role is neither renamed, created nor dropped; a dropped login's role is dropped,
- * and a new login's created; and a renamed handle keeps its code, the codes read back from the snapshot.
- */
 
 /** The names a dimension's operations range over: the box's bound of three. */
 const names = ["a", "b", "c"] as const

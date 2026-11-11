@@ -1,3 +1,26 @@
+/**
+ * Which roster a roster continues, drafted with no database: generated histories of two rosters and a stored relation T
+ * whose fields r and q hold closed ids and s a set, each over a roster or moved to smallint. A step is one change and
+ * exactly the declarations it needs, as a person types them: a handle added, removed (`--drop R#h`) or renamed
+ * (`--rename R#h=k`); a roster renamed (`--rename R=S`), renamed without the declaration, which is its drop and a new
+ * roster (`--drop R`), respelled to an alike name (no declaration), renamed to the name of another it drops (`--rename
+ * R=S --drop S`), or swapped with another; a new roster; or a field moved to another roster or to or from smallint.
+ *
+ * The oracle is a second implementation of a roster's history: each roster of the model keeps its own codes, a handle
+ * its code across every rename of its own or of its roster, a removed one a hole, a new one the next code, and a roster
+ * that does not continue another starts afresh; each field knows the roster its stored values are handles of. Each step
+ * is drafted as `grizzle generate` drafts it (the kit's draftCodes, compile and generate) from the snapshot the step
+ * before wrote, read back as snapshot.json is read, and holds:
+ *
+ * - the draft is admitted: every step declares exactly what it drops and renames, in its codes' order;
+ * - every roster's drafted codes are the model's, so a stored code of a field whose roster continues reads as the
+ *   handle it was written as, renamed or not, or is a hole the migration's validation refuses, and never as another
+ *   handle;
+ * - a field whose values the model moves to a roster its own does not continue as, or to or from smallint, is converted
+ *   at its placeholder, by the reviewer, and no other field is: a code is never cast into another roster's meaning. *
+ * Plant (~/.cache/grizzle-release/BR06/plants): continuity-codes-restarted (every roster's codes drafted afresh, none
+ * continued).
+ */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -41,26 +64,6 @@ import {
 } from "#test/support/migrate/kit.ts"
 import { draftActions } from "#test/support/migrate/review.ts"
 
-/**
- * Which roster a roster continues, drafted with no database: generated histories of two rosters and a stored relation T
- * whose fields r and q hold closed ids and s a set, each over a roster or moved to smallint. A step is one change and
- * exactly the declarations it needs, as a person types them: a handle added, removed (`--drop R#h`) or renamed
- * (`--rename R#h=k`); a roster renamed (`--rename R=S`), renamed without the declaration, which is its drop and a new
- * roster (`--drop R`), respelled to an alike name (no declaration), renamed to the name of another it drops (`--rename
- * R=S --drop S`), or swapped with another; a new roster; or a field moved to another roster or to or from smallint.
- *
- * The oracle is a second implementation of a roster's history: each roster of the model keeps its own codes, a handle
- * its code across every rename of its own or of its roster, a removed one a hole, a new one the next code, and a roster
- * that does not continue another starts afresh; each field knows the roster its stored values are handles of. Each step
- * is drafted as `grizzle generate` drafts it (the kit's draftCodes, compile and generate) from the snapshot the step
- * before wrote, read back as snapshot.json is read, and holds:
- *
- * - the draft is admitted: every step declares exactly what it drops and renames, in its codes' order;
- * - every roster's drafted codes are the model's, so a stored code of a field whose roster continues reads as the
- *   handle it was written as, renamed or not, or is a hole the migration's validation refuses, and never as another
- *   handle;
- * - a field whose values the model moves to a roster its own does not continue as, or to or from smallint, is converted
- *   at its placeholder, by the reviewer, and no other field is: a code is never cast into another roster's meaning. */
 const handlePool = ["a", "b", "c", "d", "e", "f"] as const
 type Handle = (typeof handlePool)[number]
 

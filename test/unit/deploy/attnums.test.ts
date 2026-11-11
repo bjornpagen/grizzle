@@ -1,3 +1,16 @@
+/**
+ * A table's attribute numbers across migrations, drafted with no database: every program of at most six commands (add
+ * a field, drop one, rename one) on one table, each against a column bound drawn small, from 2 to 6 (testing doctrine
+ * rule 10: PostgreSQL's is 1600, a constant no test reaches by adding columns), exhausted.
+ *
+ * The oracle is a model of pg_attribute's attribute numbers: a table created with n columns has used n, each added
+ * column takes the next, and a dropped or renamed one gives its number back to nothing. Each step's snapshot records
+ * the model's count, which only grows, and the draft's attribute numbers are refused under the drawn bound exactly
+ * when the model's count passes it, an addition past the bound counting the dropped columns.
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): attnums-not-carried (a table's attribute numbers read from the target
+ * alone, the columns its earlier migrations added and dropped forgotten).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -24,17 +37,6 @@ import { f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
-
-/**
- * A table's attribute numbers across migrations, drafted with no database: every program of at most six commands (add
- * a field, drop one, rename one) on one table, each against a column bound drawn small, from 2 to 6 (testing doctrine
- * rule 10: PostgreSQL's is 1600, a constant no test reaches by adding columns), exhausted.
- *
- * The oracle is a model of pg_attribute's attribute numbers: a table created with n columns has used n, each added
- * column takes the next, and a dropped or renamed one gives its number back to nothing. Each step's snapshot records
- * the model's count, which only grows, and the draft's attribute numbers are refused under the drawn bound exactly
- * when the model's count passes it, an addition past the bound counting the dropped columns.
- */
 
 /** The commands: a field added under the next fresh name, the first field dropped, the first renamed to a fresh name. */
 type Command = "add" | "drop" | "rename"

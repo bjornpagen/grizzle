@@ -1,16 +1,27 @@
+/**
+ * A migration file's markers, generated (deploy/render/markers.ts): a file is drawn as its lines, each built from
+ * pieces whose reading is known by construction, so where a placeholder token counts is known without a scanner.
+ *
+ * - **Markers:** a line is a placeholder when, past its leading whitespace, it starts with the placeholder marker, or
+ *   when it holds the placeholder token in SQL PostgreSQL's scanner reads: a word (the token alone or inside one), a
+ *   string constant, a quoted identifier, a dollar-quoted body, each of which may span lines, or a run the scanner reads
+ *   whole and refuses, such as junk after a number; never in a line comment or a block comment, nested or spanning
+ *   lines, and a comment after a refused run, such as `""`, is still a comment. From an unterminated quote or block
+ *   comment to the end, nothing is known to be a comment, so every token there counts. Otherwise a line that starts
+ *   with the confirm marker is a confirm. A marker line counts by its text wherever it stands, inside a comment or a
+ *   string too. Lines end in `\n` or `\r\n`.
+ * - **generate's line:** each marker prints as its file, its line, its kind and its own kind's fix (cli/run.ts
+ *   markerLine), so a confirm is never told to fill a placeholder.
+ * - **No transaction:** a file runs statement by statement exactly when its first line is the no-transaction marker,
+ *   trailing spaces, tabs and a carriage return aside; the marker anywhere else, or after text, is no marker.
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): render-markers-crlf-kept (a line's carriage return kept, so a marker
+ * line ending in CRLF reads as none).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import {
-	array,
-	boolean,
-	constant,
-	element,
-	type Gen,
-	map,
-	oneOf,
-	weighted
-} from "@grizzle/testing/gen"
+import { array, boolean, constant, element, type Gen, map, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -29,23 +40,6 @@ import { placeholderToken } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
-/**
- * A migration file's markers, generated (deploy/render/markers.ts): a file is drawn as its lines, each built from
- * pieces whose reading is known by construction, so where a placeholder token counts is known without a scanner.
- *
- * - **Markers:** a line is a placeholder when, past its leading whitespace, it starts with the placeholder marker, or
- *   when it holds the placeholder token in SQL PostgreSQL's scanner reads: a word (the token alone or inside one), a
- *   string constant, a quoted identifier, a dollar-quoted body, each of which may span lines, or a run the scanner reads
- *   whole and refuses, such as junk after a number; never in a line comment or a block comment, nested or spanning
- *   lines, and a comment after a refused run, such as `""`, is still a comment. From an unterminated quote or block
- *   comment to the end, nothing is known to be a comment, so every token there counts. Otherwise a line that starts
- *   with the confirm marker is a confirm. A marker line counts by its text wherever it stands, inside a comment or a
- *   string too. Lines end in `\n` or `\r\n`.
- * - **generate's line:** each marker prints as its file, its line, its kind and its own kind's fix (cli/run.ts
- *   markerLine), so a confirm is never told to fill a placeholder.
- * - **No transaction:** a file runs statement by statement exactly when its first line is the no-transaction marker,
- *   trailing spaces, tabs and a carriage return aside; the marker anywhere else, or after text, is no marker.
- */
 type MarkerFeature =
 	| "a placeholder marker line"
 	| "a confirm marker line"
@@ -90,43 +84,64 @@ const plainWords = element([
 ])
 
 /** A piece of SQL a scanner reads, holding a counted token or not. */
-const sqlPiece: Gen<Piece> = oneOf<Piece>([
-	map(plainWords, (text) => ({ text, counted: false, feature: undefined })),
-	map(element([placeholderToken, `a${placeholderToken}`, `${placeholderToken}9`]), (text) => ({
-		text,
-		counted: true,
-		feature: "a token in a word"
-	})),
-	map(tokenOrNot, (inner) => ({
-		text: `"q${inner}"`,
-		counted: inner.length > 0,
-		feature: inner.length > 0 ? "a token in a quoted identifier" : undefined
-	})),
-	map(tokenOrNot, (inner) => ({
-		text: `'it''s ${inner}'`,
-		counted: inner.length > 0,
-		feature: undefined
-	})),
-	map(tokenOrNot, (inner) => ({
-		text: `$x$ ${inner} $x$`,
-		counted: inner.length > 0,
-		feature: inner.length > 0 ? "a token in a dollar-quoted body" : undefined
-	})),
-	map(tokenOrNot, (inner) => ({
-		text: `/* /* ${inner} */ ${inner} */`,
-		counted: false,
-		feature: inner.length > 0 ? "a token in a nested block comment, uncounted" : undefined
-	})),
-	map(element(['""', "1x", "$", "\\"]), (text) => ({
-		text,
-		counted: false,
-		feature: "a run PostgreSQL refuses"
-	})),
-	map(constant(`1${placeholderToken}`), (text) => ({
-		text,
-		counted: true,
-		feature: "a token in a run PostgreSQL refuses"
-	}))
+const sqlPiece: Gen<Piece> = weighted<Piece>([
+	[1, map(plainWords, (text) => ({ text, counted: false, feature: undefined }))],
+	[
+		1,
+		map(element([placeholderToken, `a${placeholderToken}`, `${placeholderToken}9`]), (text) => ({
+			text,
+			counted: true,
+			feature: "a token in a word"
+		}))
+	],
+	[
+		1,
+		map(tokenOrNot, (inner) => ({
+			text: `"q${inner}"`,
+			counted: inner.length > 0,
+			feature: inner.length > 0 ? "a token in a quoted identifier" : undefined
+		}))
+	],
+	[
+		1,
+		map(tokenOrNot, (inner) => ({
+			text: `'it''s ${inner}'`,
+			counted: inner.length > 0,
+			feature: undefined
+		}))
+	],
+	[
+		1,
+		map(tokenOrNot, (inner) => ({
+			text: `$x$ ${inner} $x$`,
+			counted: inner.length > 0,
+			feature: inner.length > 0 ? "a token in a dollar-quoted body" : undefined
+		}))
+	],
+	[
+		1,
+		map(tokenOrNot, (inner) => ({
+			text: `/* /* ${inner} */ ${inner} */`,
+			counted: false,
+			feature: inner.length > 0 ? "a token in a nested block comment, uncounted" : undefined
+		}))
+	],
+	[
+		1,
+		map(element(['""', "1x", "$", "\\"]), (text) => ({
+			text,
+			counted: false,
+			feature: "a run PostgreSQL refuses"
+		}))
+	],
+	[
+		1,
+		map(constant(`1${placeholderToken}`), (text) => ({
+			text,
+			counted: true,
+			feature: "a token in a run PostgreSQL refuses"
+		}))
+	]
 ])
 
 /** Whether a piece is a run PostgreSQL's scanner reads whole and refuses. */

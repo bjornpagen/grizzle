@@ -1,3 +1,29 @@
+/**
+ * Splitting a no-transaction migration file into the statements that run one by one, generated: a file is drawn as
+ * its statements, each a run of PostgreSQL tokens and comments joined by whitespace, so the split it must yield is
+ * known. Every semicolon that is not a statement's end sits where PostgreSQL's scanner does not end a statement: in a
+ * string constant (standard, with doubled quotes and backslashes that escape nothing, or E'' with backslash escapes),
+ * a quoted identifier, a dollar-quoted body whose tag may be any identifier PostgreSQL allows (non-ASCII letters
+ * among them), a line comment, or a nested block comment. Identifiers carry `$`, positional parameters appear beside
+ * dollar quotes, and a piece that holds only comments and whitespace is no statement. A run the scanner reads whole
+ * and refuses (an empty quoted identifier, junk after a number or a parameter, a base with no digit, a stray `$`, a
+ * character no rule reads) is part of its statement, and the split goes on after it. As psql splits a file, a
+ * semicolon inside parentheses, nested or not, ends no statement, and neither does one in the body of a CREATE [OR
+ * REPLACE] FUNCTION or PROCEDURE between BEGIN ATOMIC and its END, through the BEGIN blocks and CASE expressions nested
+ * inside; a `)` no parenthesis opened closes none. Each statement keeps its leading comments and loses its terminator;
+ * a file whose last statement opens a quote or a parenthesis it never closes keeps the rest of the file as that
+ * statement, and a block comment left open, nested or not, adds no statement of its own. A string constant continues
+ * across whitespace holding a newline, line comments among it, into the quote that follows (scan.l quotecontinue),
+ * and every segment is read as the first is, so an escape string's later segments keep their backslash escapes: the
+ * search draws such continuations on purpose (continuedGen), and keeps two drawn strings from joining by accident
+ * (spaced).
+ *
+ * A dollar-quoted body is drawn and filtered where it would spell its own closing tag before its end: whether a body
+ * does depends on the tag drawn with it, and the filter's discards are counted.
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): split-empty-statement-kept (an empty statement between two semicolons
+ * kept as one).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -45,25 +71,7 @@ type SplitFeature = (typeof splitFeatures)[number]
 
 /** A piece of a statement: its text, whether it makes the statement substantive (a comment does not), and what it
  * reaches.
- *
- * Splitting a no-transaction migration file into the statements that run one by one, generated: a file is drawn as
- * its statements, each a run of PostgreSQL tokens and comments joined by whitespace, so the split it must yield is
- * known. Every semicolon that is not a statement's end sits where PostgreSQL's scanner does not end a statement: in a
- * string constant (standard, with doubled quotes and backslashes that escape nothing, or E'' with backslash escapes),
- * a quoted identifier, a dollar-quoted body whose tag may be any identifier PostgreSQL allows (non-ASCII letters
- * among them), a line comment, or a nested block comment. Identifiers carry `$`, positional parameters appear beside
- * dollar quotes, and a piece that holds only comments and whitespace is no statement. A run the scanner reads whole
- * and refuses (an empty quoted identifier, junk after a number or a parameter, a base with no digit, a stray `$`, a
- * character no rule reads) is part of its statement, and the split goes on after it. As psql splits a file, a
- * semicolon inside parentheses, nested or not, ends no statement, and neither does one in the body of a CREATE [OR
- * REPLACE] FUNCTION or PROCEDURE between BEGIN ATOMIC and its END, through the BEGIN blocks and CASE expressions nested
- * inside; a `)` no parenthesis opened closes none. Each statement keeps its leading comments and loses its terminator;
- * a file whose last statement opens a quote or a parenthesis it never closes keeps the rest of the file as that
- * statement, and a block comment left open, nested or not, adds no statement of its own. A string constant continues
- * across whitespace holding a newline, line comments among it, into the quote that follows (scan.l quotecontinue),
- * and every segment is read as the first is, so an escape string's later segments keep their backslash escapes: the
- * search draws such continuations on purpose (continuedGen), and keeps two drawn strings from joining by accident
- * (spaced). */
+ */
 interface Item {
 	readonly text: string
 	readonly substantive: boolean

@@ -36,6 +36,9 @@
  *   nothing; NP's reference fold (test/support/families/fold.ts) of each owner's members in key order, NP's pre-order
  *   numbering of each tree (test/support/families/tree.ts) with each node's children in key order, and a naive left
  *   fold of each owner's pieces state every drawn value.
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): backfill-counts-from-one (a family's counts and indices drawn from one,
+ * not zero).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn as generated, explore } from "@grizzle/testing/explore"
@@ -46,7 +49,6 @@ import {
 	type Gen,
 	int as between,
 	map,
-	oneOf,
 	shuffled,
 	weighted
 } from "@grizzle/testing/gen"
@@ -1655,69 +1657,87 @@ const forestGen: Gen<ReadonlyArray<StoredNode>> = (source) => {
 
 const pieces = ["", "a", " c", "\u{1F600}", "é"] as const
 
-const backfillGen: Gen<Backfill> = oneOf<Backfill>([
-	(source) => {
-		const owners = source.draw(between(1, 3))
-		return {
-			kind: "fold",
-			family: source.draw(
-				element(["counted", "ordered by line", "ordered by order and index"] as const)
-			),
-			owners,
-			stored: source.draw(membersGen(owners))
+const backfillGen: Gen<Backfill> = weighted<Backfill>([
+	[
+		1,
+		(source) => {
+			const owners = source.draw(between(1, 3))
+			return {
+				kind: "fold",
+				family: source.draw(
+					element(["counted", "ordered by line", "ordered by order and index"] as const)
+				),
+				owners,
+				stored: source.draw(membersGen(owners))
+			}
 		}
-	},
-	map(forestGen, (stored) => ({ kind: "tree", stored })),
-	(source) => {
-		const owners = source.draw(between(1, 3))
-		return {
-			kind: "concat",
-			owners,
-			tokens: Arr.map(source.draw(keysGen({ min: 0, max: 5 })), (token) => ({
-				token,
-				attr: source.draw(between(0, owners - 1)),
-				piece: source.draw(element(pieces))
-			}))
+	],
+	[1, map(forestGen, (stored) => ({ kind: "tree", stored }))],
+	[
+		1,
+		(source) => {
+			const owners = source.draw(between(1, 3))
+			return {
+				kind: "concat",
+				owners,
+				tokens: Arr.map(source.draw(keysGen({ min: 0, max: 5 })), (token) => ({
+					token,
+					attr: source.draw(between(0, owners - 1)),
+					piece: source.draw(element(pieces))
+				}))
+			}
 		}
-	},
-	map(between(1, 3), (owners) => ({ kind: "new members", owners })),
-	(source) => {
-		const owners = source.draw(between(1, 3))
-		return {
-			kind: "renamed",
-			family: source.draw(element(renamedFamilies)),
-			renaming: source.draw(element(renamings)),
-			owners,
-			stored: source.draw(membersGen(owners))
+	],
+	[1, map(between(1, 3), (owners) => ({ kind: "new members", owners }))],
+	[
+		1,
+		(source) => {
+			const owners = source.draw(between(1, 3))
+			return {
+				kind: "renamed",
+				family: source.draw(element(renamedFamilies)),
+				renaming: source.draw(element(renamings)),
+				owners,
+				stored: source.draw(membersGen(owners))
+			}
 		}
-	},
-	(source) => {
-		const owners = source.draw(between(1, 3))
-		return {
-			kind: "kind changed",
-			change: source.draw(element(kindChanges)),
-			owners,
-			stored: source.draw(membersGen(owners))
+	],
+	[
+		1,
+		(source) => {
+			const owners = source.draw(between(1, 3))
+			return {
+				kind: "kind changed",
+				change: source.draw(element(kindChanges)),
+				owners,
+				stored: source.draw(membersGen(owners))
+			}
 		}
-	},
-	(source) => {
-		const owners = source.draw(between(1, 3))
-		return {
-			kind: "end moved",
-			move: source.draw(element(endMoves)),
-			owners,
-			stored: source.draw(membersGen(owners))
+	],
+	[
+		1,
+		(source) => {
+			const owners = source.draw(between(1, 3))
+			return {
+				kind: "end moved",
+				move: source.draw(element(endMoves)),
+				owners,
+				stored: source.draw(membersGen(owners))
+			}
 		}
-	},
-	(source) => {
-		const owners = source.draw(between(1, 3))
-		return {
-			kind: "stored key",
-			fate: source.draw(element(storedKeyFates)),
-			owners,
-			stored: source.draw(membersGen(owners))
+	],
+	[
+		1,
+		(source) => {
+			const owners = source.draw(between(1, 3))
+			return {
+				kind: "stored key",
+				fate: source.draw(element(storedKeyFates)),
+				owners,
+				stored: source.draw(membersGen(owners))
+			}
 		}
-	}
+	]
 ])
 
 type BackfillFeature =
@@ -1970,29 +1990,38 @@ type Reversal =
 			readonly junk: readonly [n: number, end: number, ownerTag: number]
 	  }
 
-const reversalGen: Gen<Reversal> = oneOf<Reversal>([
-	(source) => {
-		const owners = source.draw(between(1, 3))
-		return { kind: "a counted family removed", owners, stored: source.draw(membersGen(owners)) }
-	},
-	map(forestGen, (stored) => ({ kind: "a tree removed", stored })),
-	(source) => {
-		const owners = source.draw(between(1, 3))
-		return { kind: "left to its caller", owners, stored: source.draw(membersGen(owners)) }
-	},
-	(source) => {
-		const owners = source.draw(between(1, 3))
-		return {
-			kind: "drawn anew over the caller's values",
-			owners,
-			stored: source.draw(membersGen(owners)),
-			junk: [
-				source.draw(between(0, 99)),
-				source.draw(between(-9, 99)),
-				source.draw(between(-9, 99))
-			]
+const reversalGen: Gen<Reversal> = weighted<Reversal>([
+	[
+		1,
+		(source) => {
+			const owners = source.draw(between(1, 3))
+			return { kind: "a counted family removed", owners, stored: source.draw(membersGen(owners)) }
 		}
-	}
+	],
+	[1, map(forestGen, (stored) => ({ kind: "a tree removed", stored }))],
+	[
+		1,
+		(source) => {
+			const owners = source.draw(between(1, 3))
+			return { kind: "left to its caller", owners, stored: source.draw(membersGen(owners)) }
+		}
+	],
+	[
+		1,
+		(source) => {
+			const owners = source.draw(between(1, 3))
+			return {
+				kind: "drawn anew over the caller's values",
+				owners,
+				stored: source.draw(membersGen(owners)),
+				junk: [
+					source.draw(between(0, 99)),
+					source.draw(between(-9, 99)),
+					source.draw(between(-9, 99))
+				]
+			}
+		}
+	]
 ])
 
 /** Each stored row of `rows`'s relation as `fields` read it on the model's state. */

@@ -441,15 +441,13 @@ interface PatternSketch {
 const patternSketchGen: Gen<PatternSketch> = (source) => ({
 	alternatives: source.draw(nonEmpty(array(regexItemGen(2), { min: 0, max: 4 }), 2)),
 	defect: source.draw(
-		element<RegexDefect>([
-			"none",
-			"none",
-			"none",
-			"no start anchor",
-			"no end anchor",
-			"unbounded repetition",
-			"back-reference",
-			"long run"
+		weighted<RegexDefect>([
+			[3, constant("none")],
+			[1, constant("no start anchor")],
+			[1, constant("no end anchor")],
+			[1, constant("unbounded repetition")],
+			[1, constant("back-reference")],
+			[1, constant("long run")]
 		])
 	),
 	at: source.draw(pickGen),

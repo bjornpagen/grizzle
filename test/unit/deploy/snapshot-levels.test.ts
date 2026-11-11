@@ -1,3 +1,21 @@
+/**
+ * snapshot.json records each level's laws as an outcome names them (deploy/snapshot/types.ts SnapshotLevel), so a law
+ * whose side selects by a literal carries that literal, whose type member is absent, into the snapshot. The writer lays
+ * each law out as one canonical value, as it lays out an installed statement, so the file and the fingerprint agree by
+ * construction.
+ *
+ * The box, exhausted: a key over a side of R selected by a comparison of each kind of field R holds (a 64-bit integer,
+ * a text, a boolean, a uuid, a closed id over the root's roster) with a literal of it, R declared at the root or at a
+ * level over it, which records the key among the upper level's laws. The oracle is the snapshot itself: the text writeSnapshot writes reads back
+ * (boundary/snapshot.ts readSnapshot, which refuses a text whose content is not its recorded fingerprint) as a snapshot
+ * of the fingerprint written, every level recording the laws written; and what DbLayer.make serves of the file's JSON
+ * value over each of its levels (boundary/snapshot.ts parseSnapshot) is exactly those members of what the file reads
+ * back as: its fingerprint, its levels' schemas, the laws of the levels above the served one, its constraint-to-law map
+ * and its codes.
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): snapshot-levels-above-skips-one (the served levels above the one served
+ * starting a level late).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -28,21 +46,6 @@ import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 
-/**
- * snapshot.json records each level's laws as an outcome names them (deploy/snapshot/types.ts SnapshotLevel), so a law
- * whose side selects by a literal carries that literal, whose type member is absent, into the snapshot. The writer lays
- * each law out as one canonical value, as it lays out an installed statement, so the file and the fingerprint agree by
- * construction.
- *
- * The box, exhausted: a key over a side of R selected by a comparison of each kind of field R holds (a 64-bit integer,
- * a text, a boolean, a uuid, a closed id over the root's roster) with a literal of it, R declared at the root or at a
- * level over it, which records the key among the upper level's laws. The oracle is the snapshot itself: the text writeSnapshot writes reads back
- * (boundary/snapshot.ts readSnapshot, which refuses a text whose content is not its recorded fingerprint) as a snapshot
- * of the fingerprint written, every level recording the laws written; and what DbLayer.make serves of the file's JSON
- * value over each of its levels (boundary/snapshot.ts parseSnapshot) is exactly those members of what the file reads
- * back as: its fingerprint, its levels' schemas, the laws of the levels above the served one, its constraint-to-law map
- * and its codes.
- */
 const Kind = closed("Kind", ["One", "Two"])
 const R = relation(
 	"R",

@@ -1328,7 +1328,13 @@ describe("statements", () => {
 						statement: source.draw(element<SideStatement>(["contained", "mirrors"])),
 						left: source.draw(int(1, 3)),
 						right: source.draw(int(1, 3)),
-						bare: source.draw(element<"none" | "left" | "right">(["none", "none", "left", "right"]))
+						bare: source.draw(
+							weighted<"none" | "left" | "right">([
+								[2, constant("none")],
+								[1, constant("left")],
+								[1, constant("right")]
+							])
+						)
 					})),
 					literal: Formatter.format,
 					coverage:

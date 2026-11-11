@@ -1,6 +1,31 @@
+/**
+ * A migration folder's name, its files' names and its meta.json, generated: each reader accepts exactly what its
+ * grammar allows, judged by an oracle written apart from it, over valid names and values and their near misses.
+ *
+ * - A folder is `<YYYYMMDDHHMMSS>_<words>`: fourteen ASCII digits, one `_`, and lowercase ASCII letters and digits in
+ *   words joined by single `_` or `-`; parseMigrationName admits the words of at most maxMigrationNameLength bytes,
+ *   and folderName builds a folder name from a timestamp and a name it admits.
+ * - A drafted file is `NN-<words>.sql`, NN two or more ASCII digits and positive; a folder holds such files beside
+ *   meta.json, one per ordinal, applied in ordinal order.
+ * - meta.json holds four nonempty strings, its kind, drafted or custom, and its laws, the level schemas and each table's
+ *   and domain's constraint names to the laws they report; a custom migration's source is its target. A drafted
+ *   folder also holds the renames and drops it was drafted under, and its decisions, empty when it has none:
+ *   each drafted statement in its place, each group of statements it confirms, one at least, and each loss of stored
+ *   data, what it loses and its statement. A value short of any of it is refused as malformed, a decision written as
+ *   another recorded statement among it, and a valid one reads back as written, byte for byte when written again.
+ * - A drafted folder is named after its change.
+ *
+ * Features: a folder name accepted and refused; a migration name admitted and refused, a timestamp refused; a folder of
+ * no file, files in ordinal order, and a folder refused for a file's name or an ordinal twice; and as the meta and
+ * derived-name searches name them.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): folder-name-one-byte-past (a migration name a byte past
+ * maxMigrationNameLength admitted), folder-timestamp-unchecked (a folder name's timestamp unread) and
+ * folder-ordinal-twice-admitted (two files of one ordinal admitted).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -12,8 +37,8 @@ import {
 	map,
 	string,
 	subarray,
-	type Weighted,
-	weighted
+	weighted,
+	type Weighted
 } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -67,21 +92,6 @@ import {
 } from "#test/support/migrate/kit.ts"
 
 import { regex } from "arkregex"
-/** A migration folder's name, its files' names and its meta.json, generated: each reader accepts exactly what its
- * grammar allows, judged by an oracle written apart from it, over valid names and values and their near misses.
- *
- * - A folder is `<YYYYMMDDHHMMSS>_<words>`: fourteen ASCII digits, one `_`, and lowercase ASCII letters and digits in
- *   words joined by single `_` or `-`; parseMigrationName admits the words of at most maxMigrationNameLength bytes,
- *   and folderName builds a folder name from a timestamp and a name it admits.
- * - A drafted file is `NN-<words>.sql`, NN two or more ASCII digits and positive; a folder holds such files beside
- *   meta.json, one per ordinal, applied in ordinal order.
- * - meta.json holds four nonempty strings, its kind, drafted or custom, and its laws, the level schemas and each table's
- *   and domain's constraint names to the laws they report; a custom migration's source is its target. A drafted
- *   folder also holds the renames and drops it was drafted under, and its decisions, empty when it has none:
- *   each drafted statement in its place, each group of statements it confirms, one at least, and each loss of stored
- *   data, what it loses and its statement. A value short of any of it is refused as malformed, a decision written as
- *   another recorded statement among it, and a valid one reads back as written, byte for byte when written again.
- * - A drafted folder is named after its change. */
 const words = regex("^[a-z0-9]+(?:[_-][a-z0-9]+)*$")
 const isWordsOracle = (text: string): boolean => words.test(text)
 
@@ -119,8 +129,18 @@ const wordsGen: Gen<string> = weighted([
 	[1, string(codePoint(0x61, 0x7a), { min: nameBound - 1, max: nameBound + 1 })]
 ])
 
+/** The separator after a folder name's timestamp: its own `_`, or a near miss. */
+const folderSeparatorGen: Gen<string> = weighted([
+	[3, constant("_")],
+	[1, constant("-")],
+	[1, constant("")],
+	[1, constant(" ")],
+	[1, constant("__")],
+	[1, constant("x")]
+])
+
 const folderNameGen: Gen<string> = (source) =>
-	`${source.draw(timestampGen)}${source.draw(element(["_", "_", "_", "-", "", " ", "__", "x"]))}${source.draw(wordsGen)}`
+	`${source.draw(timestampGen)}${source.draw(folderSeparatorGen)}${source.draw(wordsGen)}`
 
 /** A drafted file's name, or a near miss: a one-digit, zero, signed, hexadecimal or non-ASCII ordinal, another
  * separator, a phase that is no words, another extension. */
@@ -131,14 +151,27 @@ const fileNameGen: Gen<string> = (source) => {
 			[2, element(["1", "9", "00", "000", "+12", "0x1", "1e2", " 12", "١٢"])]
 		])
 	)
-	const separator = source.draw(element(["-", "-", "-", "_", ""]))
+	const separator = source.draw(
+		weighted([
+			[3, constant("-")],
+			[1, constant("_")],
+			[1, constant("")]
+		])
+	)
 	const phase = source.draw(
 		weighted([
 			[3, element(["structure", "setup", "backfill_rows"])],
 			[1, wordsGen]
 		])
 	)
-	const extension = source.draw(element([".sql", ".sql", ".sql", ".SQL", ".sql.bak", ""]))
+	const extension = source.draw(
+		weighted([
+			[3, constant(".sql")],
+			[1, constant(".SQL")],
+			[1, constant(".sql.bak")],
+			[1, constant("")]
+		])
+	)
 	return `${ordinal}${separator}${phase}${extension}`
 }
 
@@ -204,11 +237,20 @@ describe("migration folders, generated", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "the folder grammar, written apart (isWordsOracle)"
+					},
 					suite: "unit/deploy/folder-names",
 					draw: drawn(folderNameGen),
 					literal: Formatter.format,
-					coverage: noCoverage,
+					coverage: required<"a folder name" | "no folder name">(
+						["a folder name", "no folder name"],
+						{
+							cases: 400,
+							sense: notesOnly
+						}
+					),
 					kept: [],
 					runs: 400,
 					shrink: completeShrink,
@@ -216,9 +258,10 @@ describe("migration folders, generated", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				(name) =>
+				(name, c) =>
 					Effect.sync(() => {
 						const expected = regex("^[0-9]{14}_").test(name) && isWordsOracle(Str.slice(15)(name))
+						c.note(expected ? "a folder name" : "no folder name")
 						assert.equal(isFolderName(name), expected, Formatter.format(name))
 					})
 			)
@@ -232,11 +275,17 @@ describe("migration folders, generated", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the words grammar and the name bound, written apart"
+						},
 						suite: "unit/deploy/folder-build",
 						draw: drawn((source) => [source.draw(timestampGen), source.draw(wordsGen)] as const),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<"a name admitted" | "a name refused" | "a timestamp refused">(
+							["a name admitted", "a name refused", "a timestamp refused"],
+							{ cases: 400, sense: notesOnly }
+						),
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
@@ -244,9 +293,10 @@ describe("migration folders, generated", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					([timestamp, name]) =>
+					([timestamp, name], c) =>
 						Effect.sync(() => {
 							const parsed = parseMigrationName(name)
+							c.note(parsed === undefined ? "a name refused" : "a name admitted")
 							assert.equal(
 								parsed !== undefined,
 								isWordsOracle(name) && name.length <= nameBound,
@@ -265,6 +315,7 @@ describe("migration folders, generated", () => {
 								assert.equal(built.value, `${timestamp}_${name}`)
 								assert.ok(isFolderName(built.value))
 							} else {
+								c.note("a timestamp refused")
 								assert.equal(built.error.reason._tag, "MalformedDescription")
 							}
 						})
@@ -287,11 +338,17 @@ describe("migration folders, generated", () => {
 					)
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "the file grammar's ordinals, written apart (fileOrdinalOracle), in order"
+							},
 							suite: "unit/deploy/folder-files",
 							draw: drawn(namesGen),
 							literal: Formatter.format,
-							coverage: noCoverage,
+							coverage: required<"no file" | "files in order" | "a folder refused">(
+								["no file", "files in order", "a folder refused"],
+								{ cases: 400, sense: notesOnly }
+							),
 							kept: [],
 							runs: 400,
 							shrink: completeShrink,
@@ -299,13 +356,16 @@ describe("migration folders, generated", () => {
 							steerEvery: 16,
 							caseHang
 						},
-						(names) =>
+						(names, c) =>
 							Effect.sync(() => {
 								const files = Arr.filter(names, (n) => n !== metaFileName)
 								const ordinals = Arr.map(files, fileOrdinalOracle)
 								const valid =
 									Arr.every(ordinals, (o) => o !== undefined) &&
 									new Set(ordinals).size === ordinals.length
+								c.note(
+									!valid ? "a folder refused" : files.length === 0 ? "no file" : "files in order"
+								)
 								const ordered = orderFolderFiles(Arr.map(names, (name) => ({ name })))
 								assert.equal(ordered.ok, valid, Formatter.format(names))
 								if (ordered.ok) {
@@ -674,7 +734,10 @@ describe("meta.json, generated", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "readMeta ∘ writeMeta = id, byte for byte, each fault refused"
+						},
 						suite: "unit/deploy/meta",
 						draw: drawn((source): readonly [MigrationMeta, Fault] => {
 							const meta = source.draw(metaGen)
