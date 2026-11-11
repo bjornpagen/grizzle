@@ -1,3 +1,14 @@
+/**
+ * The library's lint rules (oxlint/rules), each run by oxlint's RuleTester over the named forms its specification
+ * flags and the neighbouring forms it leaves alone: unordered views compared in order, error prose, serialized
+ * comparisons, example tables, boolean assertions, clamped counts, fixed seeds, sleeps, wall-clock reads, and retries or
+ * concurrency in a test. Each form is a first-class case of what its rule promises, every one written against the
+ * imports a real test file has.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants), one a rule in this order: rule-ordered-unordered-tovalues,
+ * rule-error-prose-err, rule-serialized-json, rule-example-table-for, rule-boolean-assert-true,
+ * rule-clamped-count-bare, rule-fixed-seed-words, rule-sleep-effect, rule-wall-clock-date-now, rule-retry-unread.
+ */
 import { describe, it } from "@effect/vitest"
 import { Array as Arr } from "effect"
 import { RuleTester } from "oxlint/plugins-dev"
