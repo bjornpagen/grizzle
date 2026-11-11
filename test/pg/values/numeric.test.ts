@@ -7,7 +7,8 @@
  * - Coercion: every literal coerced to numeric(p, s), p and s drawn past their declarable ranges' interesting ends and
  *   literals one digit past p nines at scale s among them, is what both of PostgreSQL's coercion paths make of it,
  *   numeric_in under the typmod and the numeric(numeric, typmod) cast: the same trimmed value, or 22003 where the host
- *   refuses it (normalizeNumeric's numericOverflow or numericInfinity).
+ *   refuses it (normalizeNumeric's numericOverflow or numericInfinity); and the numeric(p, s) codec's encoder
+ *   (codec/scalar.ts) writes that value, or refuses it.
  * - Order: PostgreSQL's positions of a batch of numeric spellings, padded with trailing zeros and the special values
  *   among them, under ORDER BY ascending and descending (ties by position) are the host's under Decimal.compare;
  *   count(DISTINCT) and SELECT DISTINCT keep one value per host Decimal; and `<` and `=` over every value paired with
@@ -17,6 +18,8 @@
  *
  * Plants: values-numeric-parse-trailing-zeros (fromString drops a literal's trailing zeros without raising its
  * exponent), values-numeric-overflow-inclusive (normalizeNumeric admits a rounded magnitude of exactly 10^(p - s)),
+ * codec-numeric-typmod-dropped (the numeric codec's carrier spec drops its typmod, so its encoder writes the value
+ * unrounded),
  * values-numeric-nan-ties-infinity (compareDecimal ranks NaN with +Infinity).
  *
  * Features: "overflow by rounding", "negative scale" and "scale above precision", the coercions the typmod turns on.
@@ -29,10 +32,13 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { assert, contains, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -113,6 +119,19 @@ const hostAnswer = (c: Case): string => {
 	}
 	contains(overflowFaults, normalized.error)
 	return "22003"
+}
+
+/**
+ * The numeric(p, s) codec's answer: the value its encoder writes for the literal, read back as its one text, or the
+ * SQLSTATE PostgreSQL raises for a value the encoder refuses.
+ */
+const codecAnswer = (c: Case): string => {
+	const codec = scalarCodec(
+		scalarOf({ kind: "numeric", precision: c.p, scale: c.s }, {}),
+		emptyCodebook
+	)
+	const encoded = codec.encode(succeeded(Decimal.fromString(c.v)))
+	return encoded.ok ? Decimal.fromOutput(encoded.value).toString() : "22003"
 }
 
 const typmodSql = "((c.p << 16) | (c.s & 2047)) + 4"
@@ -202,9 +221,10 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 								const mismatches: Array<unknown> = []
 								for (const [i, c] of chunk.entries()) {
 									const host = hostAnswer(c)
+									const codec = codecAnswer(c)
 									const [ord, input, cast] = defined(rows[i], `no row for case ${i}`)
-									if (ord !== String(c.ord) || input !== host || cast !== host) {
-										mismatches.push({ ...c, host, input, cast })
+									if (ord !== String(c.ord) || input !== host || cast !== host || codec !== host) {
+										mismatches.push({ ...c, host, codec, input, cast })
 									}
 									const x = succeeded(Decimal.fromString(c.v))
 									if (host === "22003" && x.isFinite()) {

@@ -1,10 +1,35 @@
+/**
+ * Exact scalar codecs against PostgreSQL 19 in raw-text mode (codec/scalar.ts): the outermost SELECT casts every column
+ * to text, which the conversions read.
+ *
+ * - Round trip: for every carrier, numeric with NaN, Infinity and display scale, real at binary32, -0, money minor
+ *   units, bigint, uuid case, text of every plane, closed ids and sets of every width over rosters with holes, spans,
+ *   vectors and a contract, a batch of host values is encoded, sent through jsonb_to_recordset, and one value of the
+ *   case through a cast parameter, and PostgreSQL's own text of each is admitted by the kernel's strict reader
+ *   (test/support/kernel/strict.ts) and converted by the library's trusting conversion to the value the strict reader
+ *   reads, which is exactly the value sent.
+ * - Stored rows: facts encoded through their relation input's arrays, inserted into a table of every column type with
+ *   the lowering's casts, and read back are decoded by the positional row decoder (statement-rows.ts headingRecord) to
+ *   exactly the facts written, one row each.
+ *
+ * Oracle: a universal one, convert ∘ PostgreSQL ∘ encode = id, PostgreSQL's input and output functions between them.
+ * The encoder's coercions are each held to PostgreSQL where its rounding is decided: numeric(p, s) in
+ * test/pg/values/numeric.test.ts, the float8-to-real cast in test/pg/values/float.test.ts, pgvector's rounding in
+ * test/pg/values/carriers.test.ts.
+ *
+ * Plants: codec-set-bit-order (setBit puts a set's position 0 at its digit's least significant bit), and
+ * values-money-text-padding (money's text pads its digits one short).
+ *
+ * Features: "round-trips <carrier>", every carrier's.
+ */
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Exploration } from "@grizzle/testing/explore"
+import { drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
 	codePoint,
+	constant,
 	element,
 	filter,
 	type Gen,
@@ -32,7 +57,6 @@ import { type Carrier, contractOf, type ScalarType } from "#compiler/ir/scalar.t
 import { anyNumeric, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { toReal } from "#compiler/scalar/values/float.ts"
 import { admitValue, type CarrierHost, isHostValue } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { isVector, Vector } from "#compiler/scalar/values/vector.ts"
@@ -58,25 +82,7 @@ import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/su
 import { codecOf, type TestCodec } from "#test/unit/codec/support.ts"
 import { decimalGen } from "#test/unit/values/support.ts"
 
-/**
- * Exact scalar codecs against PostgreSQL 19 in raw-text mode.
- *
- * - The outermost SELECT casts every column to text, which the conversions read.
- * - For every scalar, generated host values are encoded, sent through jsonb_to_recordset and through a cast
- *   parameter, and read back as PostgreSQL's own text, which the kernel's strict reader admits
- *   (test/support/kernel/strict.ts) and the library's trusting conversion converts to the value the strict reader
- *   reads (the same text form and identity, never through the encoder's admission) and to exactly the value sent:
- *   numeric with NaN, Infinity and display scale, real at binary32, -0, money minor units, bigint, uuid case, spans and
- *   vectors.
- * - The encoder's native coercion is PostgreSQL's: numeric(p,s) rounding and overflow, and the float8-to-real cast.
- * - Vectors PostgreSQL rounds itself convert exactly, and a stored row converts through a positional row converter.
- *
- * Each property searches through the library's exploration over a batch of values, sent in one statement per case, so
- * a failure shrinks to the value that fails.
- *
- * The handles of the test's own roster, the codes they hold, with a hole before each of the last two so no handle's code
- * is its position, and the cases' scalar types beyond the plain carriers, each the registry's.
- */
+/** The handles of the test's own roster, the codes they hold, with a hole before each of the last two. */
 const kindHandles = ["Manual", "Automatic", "Ünïcode"] as const
 
 /**
@@ -176,16 +182,40 @@ const span = <E extends number | bigint>(endpoint: Gen<E>) =>
 		([a, b]) => (a < b ? { start: a, end: b } : { start: b, end: a })
 	)
 
-/** Values the float8-to-real cast admits: a draw it refuses, overflowing or underflowing, draws again. */
-const realGen: Gen<number> = filter(
-	oneOf([
-		withNonFinite(double(-Number.MAX_VALUE, Number.MAX_VALUE)),
-		withNonFinite(float(-realMax, realMax)),
-		element([-0, 1 + 2 ** -24, 2 ** -149, realMax, Number.NaN, Number.POSITIVE_INFINITY])
-	]),
-	(x) => toReal(x).ok,
-	100
-)
+/**
+ * A binary64 value strictly inside binary32's range, so the float8-to-real cast admits it: a sign, a significand in
+ * [1, 2) of any binary64 bits, and an exponent from the least subnormal binary32's to one below the greatest's, which
+ * keeps it above the underflow tie 2^-150 and below the overflow tie 2^128 - 2^103.
+ */
+const insideReal: Gen<number> = (source) => {
+	const negative = source.draw(boolean)
+	const m = source.draw(double(1, 2 - 2 ** -52))
+	const e = source.draw(int(-149, 126))
+	return (negative ? -1 : 1) * m * 2 ** e
+}
+
+/** Values the float8-to-real cast admits, by construction: binary32 values, binary64 values inside its range, edges. */
+const realGen: Gen<number> = oneOf([
+	withNonFinite(insideReal),
+	withNonFinite(float(-realMax, realMax)),
+	element([-0, 1 + 2 ** -24, 2 ** -149, realMax, Number.NaN, Number.POSITIVE_INFINITY])
+])
+
+/**
+ * A numeric(7,2) value, by construction: NaN, or a whole part below 10^5 - 1 in magnitude and up to four fraction
+ * digits, so rounding to two places never reaches the typmod's 10^5.
+ */
+const numeric72Gen: Gen<Decimal> = weighted([
+	[1, constant(Decimal.nan)],
+	[
+		12,
+		(source) => {
+			const whole = source.draw(int(-99_998, 99_998))
+			const fraction = source.draw(string(codePoint(0x30, 0x39), { min: 0, max: 4 }))
+			return Decimal.of(fraction.length === 0 ? `${whole}` : `${whole}.${fraction}`)
+		}
+	]
+])
 
 const doubleGen: Gen<number> = oneOf([
 	withNonFinite(double(-Number.MAX_VALUE, Number.MAX_VALUE)),
@@ -241,21 +271,11 @@ const vectorGen = (dims: number) => {
 	})
 }
 
-/**
- * A batch of values a case sends in one statement: up to 100, so a round trip's 15 cases send 1500 values per
- * carrier, the sample each carrier sent before the search.
- */
+/** A batch of values a case sends in one statement. */
 const batchOf = <A>(values: Gen<A>): Gen<ReadonlyArray<A>> => array(values, { min: 1, max: 100 })
 
-/** The round trips' cases per carrier: 15 batches of up to 100 values. */
+/** The round trips' cases per carrier. */
 const roundTripRuns = 15
-
-/**
- * The values each carrier sent through a cast parameter before the search, one statement each: spread over the round
- * trip's cases.
- */
-const castsPerCarrier = 40
-const castsPerCase = Math.ceil(castsPerCarrier / roundTripRuns)
 
 interface Case {
 	readonly label: string
@@ -271,7 +291,7 @@ const cases: Arr.NonEmptyReadonlyArray<Case> = [
 	{
 		label: "numeric(7,2)",
 		type: scalars.numeric72,
-		values: filter(decimalGen, (d) => codecOf(scalars.numeric72, kindCodes).encode(d).ok, 100)
+		values: numeric72Gen
 	},
 	{ label: "real", type: plainType("float4"), values: realGen },
 	{ label: "double precision", type: plainType("float8"), values: doubleGen },
@@ -304,15 +324,19 @@ const caseOf = (label: string): Case =>
 		() => new Error(`no carrier ${label}`)
 	)
 
-/** A round trip's case: a carrier, by its label, and a batch of its values. */
+/**
+ * A round trip's case: a carrier, by its label, a batch of its values the recordset sends, and one value a cast
+ * parameter sends.
+ */
 interface RoundTrip {
 	readonly label: string
 	readonly batch: ReadonlyArray<unknown>
+	readonly cast: unknown
 }
 
 const roundTripGen: Gen<RoundTrip> = (source) => {
 	const c = source.draw(element(cases))
-	return { label: c.label, batch: source.draw(batchOf(c.values)) }
+	return { label: c.label, batch: source.draw(batchOf(c.values)), cast: source.draw(c.values) }
 }
 
 /** A carrier a round trip reached, by its label. */
@@ -399,13 +423,13 @@ const setup = Effect.gen(function* () {
 	return { db, names }
 })
 
-/** One batch of a carrier's values through the recordset, and its first values through a cast parameter. */
-const roundTrip = (db: RawSession, names: SqlNames, c: Case, batch: ReadonlyArray<unknown>) =>
+/** One batch of a carrier's values through the recordset, and one value through a cast parameter. */
+const roundTrip = (db: RawSession, names: SqlNames, c: Case, trip: RoundTrip) =>
 	Effect.gen(function* () {
 		const codec = codecOf(c.type, kindCodes)
-		const texts = Arr.map(batch, (v) => succeeded(codec.encode(v)))
+		const texts = Arr.map(trip.batch, (v) => succeeded(codec.encode(v)))
 		const rows = yield* recordset(db, textOut(c.type, "r.v"), wireSql(c.type, names), texts)
-		const viaRecordset = Arr.flatMap(batch, (v, i) => {
+		const viaRecordset = Arr.flatMap(trip.batch, (v, i) => {
 			const text = rows[i]?.[0]
 			const decoded = read(codec, text)
 			return decoded.ok && sameValue(codec, v, decoded.value)
@@ -413,52 +437,17 @@ const roundTrip = (db: RawSession, names: SqlNames, c: Case, batch: ReadonlyArra
 				: [{ sent: texts[i], received: text }]
 		})
 		assert.deepEqual(viaRecordset, [])
-		/** The parameter path: the text bound untyped and cast by the statement, $1::type. */
-		const viaParam: Array<{ readonly sent: string | undefined; readonly received: unknown }> = []
-		for (let i = 0; i < Math.min(castsPerCase, batch.length); i++) {
-			const out = yield* db.values(`SELECT ${textOut(c.type, `$1::${wireSql(c.type, names)}`)}`, [
-				texts[i]
-			])
-			const text = out[0]?.[0]
-			const decoded = read(codec, text)
-			if (!(decoded.ok && sameValue(codec, batch[i], decoded.value))) {
-				viaParam.push({ sent: texts[i], received: text })
-			}
-		}
-		assert.deepEqual(viaParam, [])
+		const sent = succeeded(codec.encode(trip.cast))
+		const out = yield* db.values(`SELECT ${textOut(c.type, `$1::${wireSql(c.type, names)}`)}`, [
+			sent
+		])
+		const received = out[0]?.[0]
+		const decoded = read(codec, received)
+		assert.ok(
+			decoded.ok && sameValue(codec, trip.cast, decoded.value),
+			`the parameter ${sent} read back as ${Formatter.format(received)}`
+		)
 	})
-
-/** The numeric typmods coerced, each the feature of the cases that draw it. */
-const typmods = [
-	{ precision: 5, scale: 2 },
-	{ precision: 3, scale: 0 },
-	{ precision: 4, scale: -2 },
-	{ precision: 2, scale: 4 }
-] as const
-
-type TypmodFeature = `numeric(${number},${number})`
-
-const typmodName = (typmod: (typeof typmods)[number]): TypmodFeature =>
-	`numeric(${typmod.precision},${typmod.scale})`
-
-/** One exploration of `values` in batches, each case one statement; `runs` batches of up to 100. */
-const batches = <A>(
-	suite: string,
-	values: Gen<A>,
-	runs: number
-): Exploration<ReadonlyArray<A>, ReadonlyArray<A>, never> => ({
-	oracle: { kind: "unstated" },
-	suite,
-	draw: drawn(batchOf(values)),
-	literal: Formatter.format,
-	coverage: noCoverage,
-	kept: [],
-	runs,
-	shrink: completeShrink,
-	concurrency: 1,
-	steerEvery: 16,
-	caseHang
-})
 
 layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 	it.effect("round-trips every carrier exactly through the recordset and a cast parameter", (ctx) =>
@@ -487,160 +476,11 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 							name: "convert ∘ PostgreSQL ∘ encode = id, the strict reader's value of the output text"
 						}
 					},
-					({ label, batch }, c) =>
+					(trip, c) =>
 						Effect.gen(function* () {
-							yield* roundTrip(db, names, caseOf(label), batch)
-							c.note(`round-trips ${label}`)
+							yield* roundTrip(db, names, caseOf(trip.label), trip)
+							c.note(`round-trips ${trip.label}`)
 						})
-				)
-			})
-		)
-	)
-
-	it.effect(
-		"coerces numeric(p,s) exactly as PostgreSQL does, overflow by rounding included",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const { db } = yield* setup
-					return yield* explore(
-						{
-							oracle: { kind: "unstated" },
-							/** 60 batches over four typmods: each typmod's 1500 values, its sample before the search. */
-							suite: "pg/codec/scalar/numeric-coercion",
-							draw: drawn(
-								(source) =>
-									[
-										source.draw(element<(typeof typmods)[number]>(typmods)),
-										source.draw(batchOf(decimalGen))
-									] as const
-							),
-							literal: Formatter.format,
-							coverage: required<TypmodFeature>(Arr.map(typmods, typmodName), {
-								cases: 60,
-								sense: notesOnly
-							}),
-							kept: [],
-							runs: 60,
-							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 16,
-							caseHang
-						},
-						([typmod, batch], notes) =>
-							Effect.gen(function* () {
-								notes.note(typmodName(typmod))
-								const type = scalarOf(
-									{ kind: "numeric", precision: typmod.precision, scale: typmod.scale },
-									{}
-								)
-								const codec = codecOf(type, kindCodes)
-								const sql = typmodName(typmod)
-								const admitted = Arr.filter(batch, (d) => codec.encode(d).ok)
-								const refusedValues = Arr.filter(batch, (d) => !codec.encode(d).ok)
-								const rows = yield* recordset(
-									db,
-									`(r.v::${sql})::text`,
-									"text",
-									Arr.map(admitted, (d) => d.toString())
-								)
-								const mismatches = Arr.flatMap(admitted, (d, i) => {
-									const pg = rows[i]?.[0]
-									return typeof pg === "string" &&
-										Decimal.fromOutput(pg).equals(Decimal.fromOutput(succeeded(codec.encode(d))))
-										? []
-										: [{ raw: d.toString(), pg }]
-								})
-								assert.deepEqual(mismatches, [])
-								if (!(refusedValues.length > 0)) {
-									return
-								}
-								const codes = yield* recordset(
-									db,
-									`(pg_input_error_info(r.v, '${sql}')).sql_error_code`,
-									"text",
-									Arr.map(refusedValues, (d) => d.toString())
-								)
-								const accepted = Arr.flatMap(refusedValues, (d, i) =>
-									codes[i]?.[0] === "22003" ? [] : [{ raw: d.toString(), pg: codes[i]?.[0] }]
-								)
-								assert.deepEqual(accepted, [])
-							})
-					)
-				})
-			)
-	)
-
-	it.effect(
-		"rounds a binary64 value to real as the float8-to-real cast does, never double-rounding",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const { db } = yield* setup
-					const real = codecOf(plainType("float4"), kindCodes)
-					const float8Text = (x: number) => (Object.is(x, -0) ? "-0" : String(x))
-					/** 30 batches: the 3000 values the cast was sampled with before the search. */
-					const sampled = batches("pg/codec/scalar/real-cast", realGen, 30)
-					return yield* explore(sampled, (sample) =>
-						Effect.gen(function* () {
-							const rows = yield* recordset(
-								db,
-								"((r.v::float8)::real)::text",
-								"text",
-								Arr.map(sample, float8Text)
-							)
-							const mismatches = Arr.flatMap(sample, (x, i) => {
-								const text = rows[i]?.[0]
-								const decoded = read(real, text)
-								return decoded.ok && real.text(decoded.value) === succeeded(real.encode(x))
-									? []
-									: [{ x: float8Text(x), pg: text }]
-							})
-							assert.deepEqual(mismatches, [])
-						})
-					)
-				})
-			)
-	)
-
-	it.effect("decodes pgvector's output at float32 for vectors PostgreSQL rounds itself", (ctx) =>
-		searched(
-			ctx,
-			Effect.gen(function* () {
-				const { db, names } = yield* setup
-				/** Components the float8-to-real cast admits: it refuses a nonzero value that underflows. */
-				const component = filter(double(-1e30, 1e30), (x) => toReal(x).ok, 100)
-				const toFloat8Array = (xs: ReadonlyArray<number>) =>
-					`{${Arr.join(
-						Arr.map(xs, (x) => (Object.is(x, -0) ? "-0" : String(x))),
-						","
-					)}}`
-				const codec = codecOf(scalars.vector16, kindCodes)
-				/** 5 batches: the 500 vectors sampled before the search. */
-				const sampled = batches(
-					"pg/codec/scalar/vector-rounding",
-					array(component, { min: 16, max: 16 }),
-					5
-				)
-				return yield* explore(sampled, (sample) =>
-					Effect.gen(function* () {
-						const rows = yield* recordset(
-							db,
-							`(r.v::float8[]::real[]::${names.vector}."vector"(16))::text`,
-							"text",
-							Arr.map(sample, toFloat8Array)
-						)
-						const mismatches = Arr.flatMap(sample, (xs, i) => {
-							const decoded = read(codec, rows[i]?.[0])
-							const host = Vector.make(Float32Array.from(xs), 16)
-							return decoded.ok && isVector(decoded.value) && Vector.equals(decoded.value, host)
-								? []
-								: [{ pg: rows[i]?.[0] }]
-						})
-						assert.deepEqual(mismatches, [])
-					})
 				)
 			})
 		)
@@ -725,10 +565,11 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 				)
 				return yield* explore(
 					{
-						oracle: { kind: "unstated" },
-						/**
-						 * 3 batches of facts distinct by key: the 300 facts stored before the search, each batch into an empty table.
-						 */
+						oracle: {
+							kind: "universal",
+							name: "decode ∘ PostgreSQL ∘ encode = id over a stored row, the positional decoder's"
+						},
+						/** Each batch of facts distinct by key goes into an empty table. */
 						suite: "pg/codec/scalar/stored-row",
 						draw: drawn(uniqueArray(fact, (f) => Str.toLowerCase(f.id), { min: 1, max: 100 }, 10)),
 						literal: Formatter.format,

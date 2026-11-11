@@ -1,3 +1,22 @@
+/**
+ * Relation inputs against PostgreSQL.
+ *
+ * - Host fact equality is PostgreSQL's: on explored batches of generated cases over small domains that collide (numeric
+ *   display scale, NaN, signed zero, numeric(5,2) rounding, the float8-to-real cast, uuid case, composed and decomposed
+ *   text), the host's fact identity partitions every case exactly as GROUP BY, which is DISTINCT's equality, does.
+ * - The arrays encoder deduplicates, so PostgreSQL receives a set, which it reads back from the arrays in the
+ *   select-list form the lowering prints (sql/print.ts printArrays).
+ *
+ * The heading of the equality cases spells each field raw to PostgreSQL, the host value's own spelling and not the
+ * codec's normalized text, so PostgreSQL decides the equality independently.
+ *
+ * Oracle: PostgreSQL itself, GROUP BY's equality over the raw spellings, and DISTINCT over the arrays the encoder sends.
+ *
+ * Plants: codec-uuid-case-kept (a uuid's identity keeps its case, so the host splits what PostgreSQL groups),
+ * codec-relation-no-dedup (the normalizer keeps every fact, so the arrays hold one value twice).
+ *
+ * Features: "equal facts spelled apart" and "deduplicated".
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -29,18 +48,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 
-/**
- * Relation inputs against PostgreSQL.
- *
- * - Host fact equality is PostgreSQL's: on explored batches of generated cases over small domains that collide (numeric
- *   display scale, NaN, signed zero, numeric(5,2) rounding, the float8-to-real cast, uuid case, composed and decomposed
- *   text), the host's fact identity partitions every case exactly as GROUP BY, which is DISTINCT's equality, does.
- * - The arrays encoder deduplicates, so PostgreSQL receives a set, which it reads back from the arrays in the
- *   select-list form the lowering prints (sql/print.ts printArrays).
- *
- * The heading of the equality cases, and how each field is spelled raw to PostgreSQL: the host value's own spelling,
- * not the codec's normalized text, so PostgreSQL decides the equality independently.
- */
 const uuidA = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
 /** The cases' scalar types, each the registry's. */
 const uuid = scalarOf({ kind: "uuid" }, {})
@@ -139,7 +146,7 @@ layer(Substrate.layer)("relation inputs against PostgreSQL", (it) => {
 				}))
 				return yield* explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "postgresql", name: "GROUP BY's equality over the raw spellings" },
 						suite: "codec/relation/partition",
 						/**
 						 * A batch of cases is one jsonb_to_recordset round trip, so a failing batch shrinks to its failing
@@ -251,7 +258,7 @@ layer(Substrate.layer)("relation inputs against PostgreSQL", (it) => {
 					)
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: { kind: "postgresql", name: "DISTINCT over the arrays the encoder sends" },
 							suite: "codec/relation/set",
 							/** Facts that collide, so the encoder has equal facts spelled apart to deduplicate. */
 							draw: drawn(collidingFactsGen(40)),

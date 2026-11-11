@@ -1,3 +1,18 @@
+/**
+ * Forged carrier inputs against PostgreSQL's own equality: every batch of forged and honest Decimal and Money inputs
+ * grizzle admits is sent as a relation input's arrays, and PostgreSQL finds in those arrays exactly as many distinct
+ * values as grizzle counted facts, and exactly as many as it finds among the PostgreSQL texts the inputs stand for
+ * (test/support/forged.ts). So the arrays of a forged input are a set under PostgreSQL's equality, the premise a
+ * relation input's lowering reads them without a DISTINCT on, and two forged values PostgreSQL calls equal are one fact.
+ *
+ * Oracle: PostgreSQL itself, its DISTINCT under the column's type, over both the arrays grizzle sends and the
+ * independent texts of the values the inputs stand for.
+ *
+ * Plants: codec-forged-decimal-admitted (Decimal's instanceof admits any object with a text, so a prototype object's
+ * forged text reaches the arrays).
+ *
+ * Features: "a batch holding one value twice", "two values" and "every input refused".
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -9,16 +24,6 @@ import { positionalColumns } from "#compiler/codec/recordset.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { admitValue } from "#compiler/scalar/values/identity.ts"
-/**
- * Forged carrier inputs against PostgreSQL's own equality: every batch of forged and honest Decimal and Money inputs
- * grizzle admits is sent as a relation input's arrays, and PostgreSQL finds in those arrays exactly as many distinct
- * values as grizzle counted facts, and exactly as many as it finds among the PostgreSQL texts the inputs stand for
- * (test/support/forged.ts). So the arrays of a forged input are a set under PostgreSQL's equality, the premise a
- * relation input's lowering reads them without a DISTINCT on, and two forged values PostgreSQL calls equal are one fact.
- *
- * Oracle: PostgreSQL itself, its DISTINCT under the column's type, over both the arrays grizzle sends and the
- * independent texts of the values the inputs stand for.
- */
 import { arraysEncoder } from "#test/support/arrays.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { type CarrierName, carriers, forgedCases } from "#test/support/forged.ts"
@@ -51,7 +56,10 @@ layer(Substrate.layer)("forged carrier inputs against PostgreSQL", (it) => {
 					const db = yield* session(ownerSession())
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "postgresql",
+								name: "DISTINCT over the arrays sent and over the texts the inputs stand for"
+							},
 							suite: "codec/forged",
 							draw: drawn(forgedCases(judged)),
 							literal: Formatter.format,
