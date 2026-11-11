@@ -28,6 +28,7 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
+import { structural } from "#compiler/analysis/physical/fds.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -260,7 +261,14 @@ describe("the bounded union consumed inside a statement", () => {
 							const built = tasksByKind({ kind: "first", k: BigInt(k) }, overlap)
 							const union = unionOf(built.dag)
 							const take = takeOf(built.dag)
-							const { facts } = shapedFacts(built.dag, { keyedBy: () => keyedArms }, "placement")
+							const { facts } = shapedFacts(
+								built.dag,
+								{
+									keyedBy: (_, columns) =>
+										keyedArms ? { just: structural, key: columns } : undefined
+								},
+								"placement"
+							)
 							const cx = context(built.dag, facts, testOptions("Ledger"))
 							const bound = lit.int(BigInt(k), types.bigint)
 							const arms = boundedArms(
