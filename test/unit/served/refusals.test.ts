@@ -13,12 +13,14 @@
  * - Differential (R1): every refusal the role's writes can raise, as test/support/served-reach.ts computes it from the
  *   compiled program and the installation, never through program/schema.ts raisableOf, reported as PostgreSQL reports
  *   it at a statement writing some of the role's written relations: a table constraint's or rule trigger's violation;
- *   a domain's CHECK, at a statement writing a column it types; an unstored contract domain's CHECK; a write statement's
- *   refusal of a law, its DETAIL's key decoded through the refused relation's heading; a roster domain's CHECK, which is
- *   grizzle's defect; a generated column's NOT NULL; a concurrent change at a written relation; a fact outside a query
- *   entry the role writes through. Each is a law outcome of the full classifier, and the cut's outcome is the same
- *   value as the runtime reads it (test/support/served.ts runtimeDifference), the host asked the same of the same
- *   columns.
+ *   a domain's CHECK, at a statement writing a column it types; an unstored contract domain's CHECK; the CHECK of the
+ *   domain a context claim is cast to, at a statement writing through the query entry that reads the context, where
+ *   that domain types only stored columns of relations the role does not write; a write statement's refusal of a law,
+ *   its DETAIL's key decoded through the refused relation's heading; a roster domain's CHECK, which is grizzle's
+ *   defect; a generated column's NOT NULL; a concurrent change at a written relation; a fact outside a query entry the
+ *   role writes through. The cut's outcome is the full classifier's, the same value as the runtime reads it
+ *   (test/support/served.ts runtimeDifference), the host asked the same of the same columns; a feature is noted only
+ *   where that outcome is a law outcome.
  * - Narrowing (R2): a domain shared with a relation the role does not write is classified alike at a statement writing
  *   some of its columns, its uses narrowed to the written tables as the full classifier narrows them by the statement.
  *
@@ -78,7 +80,7 @@ type Feature =
 	| "a concurrent change classified alike"
 	| "a fact outside a written query entry classified alike"
 	| "a statement writing some of the role's written relations"
-	| "a write reading a context field whose contract domain types only unwritten stored columns"
+	| "a write reading a context field whose domain types only unwritten stored columns"
 
 /**
  * One refusal a role's writes can raise, as PostgreSQL reports it, beside the relations a statement that raises it
@@ -337,9 +339,9 @@ const refusalsOf = (
 }
 
 /**
- * The CHECK of the domain a written query entry's `held` claim is cast to (served-login.ts EntryShape), where it is a
- * contract's domain that types only stored columns of relations the role does not write: a statement writing through
- * the entry reads its context and casts each claim to its domain.
+ * The CHECK of the domain a written query entry's `held` claim is cast to (served-login.ts EntryShape), its stored
+ * field's domain, a contract's or a pattern's, where it types only stored columns of relations the role does not write:
+ * a statement writing through the entry reads its context and casts each claim to its domain.
  */
 const claimsOf = (
 	artifacts: SchemaArtifacts,
@@ -355,7 +357,7 @@ const claimsOf = (
 	}
 	const { target, held } = shape.entry.value
 	const writes = artifacts.derived.schema.relations.get(target.name)
-	if (held.field.kind !== "tick" || writes === undefined) {
+	if (writes === undefined) {
 		return []
 	}
 	const table = artifacts.names.relation(held.relation.name).name
@@ -375,7 +377,7 @@ const claimsOf = (
 						},
 						at: [writes.name],
 						feature:
-							"a write reading a context field whose contract domain types only unwritten stored columns"
+							"a write reading a context field whose domain types only unwritten stored columns"
 					}
 				]
 			: []
@@ -456,7 +458,7 @@ describe("a served login's classifier", () => {
 								"a concurrent change classified alike",
 								"a fact outside a written query entry classified alike",
 								"a statement writing some of the role's written relations",
-								"a write reading a context field whose contract domain types only unwritten stored columns"
+								"a write reading a context field whose domain types only unwritten stored columns"
 							],
 							{ cases: 60, sense: notesOnly }
 						),
