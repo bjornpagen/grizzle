@@ -13,7 +13,6 @@
  *    admits a row exactly when ECMAScript's test of its pattern holds, and refuses every other with 23514 naming that
  *    CHECK.
  *
- *
  * Oracle: the reference evaluator and ECMAScript's own RegExp test for the SQL; PostgreSQL's CHECK for the installed
  * patterns, against ECMAScript's test.
  *

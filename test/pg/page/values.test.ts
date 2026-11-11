@@ -1,3 +1,27 @@
+/**
+ * Boundary values through the page runtime, drawn from the scalar edge dictionaries.
+ *
+ * The Measures fixture (test/unit/page/fixtures.ts) orders one relation by a double precision, an exact numeric, a
+ * bigint and a text, each the leading key of one ordered query (ascending and descending for the double, the id
+ * completing every order). Each case stores drawn facts, every field drawn from its type's value classes with their
+ * edge classes and every spelling (test/support/oracle/gen/domain.ts valueClasses): -0 beside 0, NaN, the infinities, a
+ * subnormal and the largest finite double; numeric NaN (the fixture's numeric(161, 40) holds no infinity, which only an
+ * unbounded numeric does), more digits than a binary64 holds and the smallest scale; the bigint extremes and 2^53 + 1,
+ * which a binary64 cannot hold, either sign; the empty text, text beyond the BMP, U+10FFFF and combining marks. Through
+ * Db, for a drawn query at a drawn page size per direction:
+ *
+ * - the forward and backward pages concatenate to D exactly, with exact flags: every boundary value round-trips, the
+ *   seek comparing it in PostgreSQL's own order (NaN greatest, -0 = 0, code points);
+ * - every edge's cursor carries its node's comparator values exactly: PostgreSQL reads each boundary text back, as its
+ *   column's type, equal to the value stored in the edge's row.
+ *
+ * Oracle: D itself, the complete sorted result, which the pages concatenate to; and PostgreSQL's reading of each
+ * cursor's boundary text as its column's type.
+ *
+ * Plants: page-cursor-float-rounded (the cursor decodes a double through twelve significant digits).
+ *
+ * Features: each ordered field's edge classes and spellings, each direction and page size.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -40,23 +64,6 @@ import {
 import { regex } from "arkregex"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { caseHang } from "#test/support/limits.ts"
-/**
- * Boundary values through the page runtime, drawn from the scalar edge dictionaries.
- *
- * The Measures fixture (test/unit/page/fixtures.ts) orders one relation by a double precision, an exact numeric, a
- * bigint and a text, each the leading key of one ordered query (ascending and descending for the double, the id
- * completing every order). Each case stores drawn facts, every field drawn from its type's value classes with their
- * edge classes and every spelling (test/support/oracle/gen/domain.ts valueClasses): -0 beside 0, NaN, the infinities, a
- * subnormal and the largest finite double; numeric NaN (the fixture's numeric(161, 40) holds no infinity, which only an
- * unbounded numeric does), more digits than a binary64 holds and the smallest scale; the bigint extremes and 2^53 + 1,
- * which a binary64 cannot hold, either sign; the empty text, text beyond the BMP, U+10FFFF and combining marks. Through
- * Db, for a drawn query at a drawn page size per direction:
- *
- * - the forward and backward pages concatenate to D exactly, with exact flags: every boundary value round-trips, the
- *   seek comparing it in PostgreSQL's own order (NaN greatest, -0 = 0, code points);
- * - every edge's cursor carries its node's comparator values exactly: PostgreSQL reads each boundary text back, as its
- *   column's type, equal to the value stored in the edge's row.
- */
 
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
@@ -243,7 +250,10 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 								)
 								return yield* explore(
 									{
-										oracle: { kind: "unstated" },
+										oracle: {
+											kind: "second-implementation",
+											name: "D itself, and PostgreSQL's reading of each cursor's boundary text"
+										},
 										/** The pages at the drawn sizes concatenate to D, with exact flags. */
 										suite: "pg/page/values",
 										draw: drawn(valuesCaseGen),

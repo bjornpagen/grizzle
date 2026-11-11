@@ -21,7 +21,6 @@
  * The mutant, and every planted lowering, is the left side, the reference the right; the order of the two is no
  * contract.
  *
- *
  * Plants: oracle-compare-types-ignored (a narrowed column type is no structural difference), and the I1 mutant the
  * suite carries.
  *

@@ -1,3 +1,36 @@
+/**
+ * The plans of the statements the page runtime sends: what the installation's access paths serve, over drawn tasks and
+ * drawn requests, with PostgreSQL's alternatives to an access path disabled.
+ *
+ * The paging example's Task installs with one workload holding every order a page reads (program/workload,
+ * physical/access workloadExtension): priority ascending, priority descending with the id ascending (mixed), and every
+ * key descending. An access index is identified by its columns and a direction vector canonical under reversal, so the
+ * descending order is the ascending one's index read backward and the mixed order has its own; the three orders
+ * install together, which is the case a workload naming an order and its exact reverse must reach. Each case replaces
+ * the task table's facts with drawn tasks of the paged account and of another (substrate/replace.ts), and sends a drawn
+ * request (an order, first, after or before an anchor drawn among the paged account's rows, a page size of one to seven)
+ * through the order's paged member of the login's served workload with a counting executor (adapter/db/handles.ts
+ * memberOpsOn). The rows statement it sent runs under EXPLAIN (ANALYZE) with sequential scans and sorts disabled, so a
+ * plan that still scans the table sequentially or sorts has no access path that does otherwise, read by the tree's one
+ * EXPLAIN decoder:
+ *
+ * - every request reads the task table through an index, never by a sequential scan, and none has a Unique node: the
+ *   delivered heading keeps the primary key, so no page deduplicates (R17);
+ * - nothing is sorted: each order has an access path in its own order or its exact reverse, read forward or backward;
+ * - a first page, and a seek in one direction, a native row comparison the index bounds (R05), read at most the page
+ *   and its lookahead, and a seek no row on the far side of its anchor;
+ * - a seek in mixed directions (the OR expansion) reads at most the account's rows up to its anchor and the page and its
+ *   lookahead past it, never the rest of the account.
+ *
+ * The plan's node order, index names and costs are the planner's; the properties above are what the access paths serve,
+ * at any volume, so no volume stands in for the planner's choice.
+ *
+ * Oracle: PostgreSQL's EXPLAIN (ANALYZE) of each statement sent, under the specification above.
+ *
+ * Plants: page-access-paths-dropped (the workload requests no access path, so a page scans or sorts the table).
+ *
+ * Features: each order, each request variant, and each seek direction the plans name.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -32,34 +65,6 @@ import {
 	Task
 } from "#test/unit/page/fixtures.ts"
 import { fixtureLogin } from "#test/unit/workload/fixtures.ts"
-
-/**
- * The plans of the statements the page runtime sends: what the installation's access paths serve, over drawn tasks and
- * drawn requests, with PostgreSQL's alternatives to an access path disabled.
- *
- * The paging example's Task installs with one workload holding every order a page reads (program/workload,
- * physical/access workloadExtension): priority ascending, priority descending with the id ascending (mixed), and every
- * key descending. An access index is identified by its columns and a direction vector canonical under reversal, so the
- * descending order is the ascending one's index read backward and the mixed order has its own; the three orders
- * install together, which is the case a workload naming an order and its exact reverse must reach. Each case replaces
- * the task table's facts with drawn tasks of the paged account and of another (substrate/replace.ts), and sends a drawn
- * request (an order, first, after or before an anchor drawn among the paged account's rows, a page size of one to seven)
- * through the order's paged member of the login's served workload with a counting executor (adapter/db/handles.ts
- * memberOpsOn). The rows statement it sent runs under EXPLAIN (ANALYZE) with sequential scans and sorts disabled, so a
- * plan that still scans the table sequentially or sorts has no access path that does otherwise, read by the tree's one
- * EXPLAIN decoder:
- *
- * - every request reads the task table through an index, never by a sequential scan, and none has a Unique node: the
- *   delivered heading keeps the primary key, so no page deduplicates (R17);
- * - nothing is sorted: each order has an access path in its own order or its exact reverse, read forward or backward;
- * - a first page, and a seek in one direction, a native row comparison the index bounds (R05), read at most the page
- *   and its lookahead, and a seek no row on the far side of its anchor;
- * - a seek in mixed directions (the OR expansion) reads at most the account's rows up to its anchor and the page and its
- *   lookahead past it, never the rest of the account.
- *
- * The plan's node order, index names and costs are the planner's; the properties above are what the access paths serve,
- * at any volume, so no volume stands in for the planner's choice.
- */
 
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`

@@ -6,7 +6,6 @@
  * against the installation's own evidence catalog, in every per-execution form, against the conservative lowering
  * (support.ts).
  *
- *
  * Oracle: the conservative lowering's raw text sets, no repeated row on the optimized side.
  *
  * Plants: oracle-optimized-obligations-dropped (the dedup placement discharges no obligation, so a DISTINCT owed is

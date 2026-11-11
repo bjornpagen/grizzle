@@ -17,7 +17,6 @@
  * entry is counted at exact offsets through its fixed-width prefix, so a key whose bounded text comes after fixed-width
  * fields alone is sized to the byte PostgreSQL lays out.
  *
- *
  * Oracle: PostgreSQL itself, the B-tree item limit (54000) of the key's unique index.
  *
  * Plants: oracle-representability-utf8-three (the byte bound counts three bytes a code point).

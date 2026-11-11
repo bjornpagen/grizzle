@@ -6,7 +6,6 @@
  * The population must reach every program with rows: a program that never delivers a row compares nothing, so each
  * program's delivering a row is a required feature. Two ChangeSet members compile only inside their ChangeSet.
  *
- *
  * Oracle: the conservative lowering of every payroll program.
  *
  * Plants: oracle-optimized-obligations-dropped (a DISTINCT owed is never placed).

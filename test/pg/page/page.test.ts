@@ -1,3 +1,42 @@
+/**
+ * The page runtime through the readers.
+ *
+ * The traversal property, that forward and backward pages at every size 1 through 7 concatenate to the complete sorted
+ * distinct result D with exact flags and that each page's attachments read exactly its delivered parents' children, is
+ * test/pg/page/generated.ts's, over generated ordered queries, minus the transaction and the handles; that every page
+ * request is one round trip in one SERIALIZABLE READ ONLY transaction of its own that commits, is the round-trip
+ * suite's (test/pg/adapter/round-trips.test.ts). Here the Paging fixture installs under a fresh schema and opens
+ * through Db.open and its login's served file as its full world, every ordered query a paged member of its workload,
+ * exactly as an application pages:
+ *
+ * - every request answers exactly by the D of the moment and its anchor's encoded values, through the query's paged
+ *   member or its twin, another member paging the same query, whatever happened to D since the anchor's cursor was
+ *   made: over drawn facts, a drawn query of the fixture and a walk of drawn requests, each anchored on an edge some
+ *   earlier page delivered, through either member, with drawn changes to D between them (deleting an anchor's task, moving it, deleting the last page,
+ *   inserting, flagging, emptying the account), each written as the facts' whole new state in one transaction that
+ *   reads nothing (test/support/substrate/replace.ts), so no reset is an SSI pivot under load. A first page holds D's
+ *   first k tuples and a last page its last k; an after page the first k tuples strictly after the anchor, a before
+ *   page the last k strictly before it. The flag of the fetching direction is whether more remain on that side; the
+ *   opposite flag of an anchored page is whether D holds a tuple at or before the anchor (after) or at or after it
+ *   (before), whether or not the anchor is still in D; a first page has no previous page and a last page no next;
+ * - a token that is not one this query issued for this generation, a token longer than the layout's bound included, and
+ *   a request of another shape or size, is refused before any SQL: CursorError for the token, PageRequestRefused with
+ *   its fault for the request, the counting executor seeing no transaction and no statement;
+ * - a page size has no upper bound: a walk's requests draw sizes up to the largest safe integer, which the statements
+ *   bind as bigint limits.
+ *
+ * test/pg/page/values.test.ts covers the boundary values, test/pg/page/plans.test.ts the plans, and
+ * test/pg/page/generated.ts the generated ordered queries.
+ *
+ * Oracle: the specification of a page, D of the moment and the anchor's encoded values, which the drawn facts and the
+ * walk's own writes state; and the cursor codec's own refusals, with no transaction and no statement counted.
+ *
+ * Plants: page-opposite-flag-false (an anchored page's opposite flag is always false), page-cursor-generation-unchecked
+ * (the cursor codec accepts a token of another generation).
+ *
+ * Features: each query through each member, each request variant, the anchors and flags the walk names, and each token
+ * and request refusal.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -59,37 +98,6 @@ import {
 	tasksWithNotes,
 	titles
 } from "#test/unit/page/fixtures.ts"
-
-/**
- * The page runtime through the readers.
- *
- * The traversal property, that forward and backward pages at every size 1 through 7 concatenate to the complete sorted
- * distinct result D with exact flags and that each page's attachments read exactly its delivered parents' children, is
- * test/pg/page/generated.ts's, over generated ordered queries, minus the transaction and the handles; that every page
- * request is one round trip in one SERIALIZABLE READ ONLY transaction of its own that commits, is the round-trip
- * suite's (test/pg/adapter/round-trips.test.ts). Here the Paging fixture installs under a fresh schema and opens
- * through Db.open and its login's served file as its full world, every ordered query a paged member of its workload,
- * exactly as an application pages:
- *
- * - every request answers exactly by the D of the moment and its anchor's encoded values, through the query's paged
- *   member or its twin, another member paging the same query, whatever happened to D since the anchor's cursor was
- *   made: over drawn facts, a drawn query of the fixture and a walk of drawn requests, each anchored on an edge some
- *   earlier page delivered, through either member, with drawn changes to D between them (deleting an anchor's task, moving it, deleting the last page,
- *   inserting, flagging, emptying the account), each written as the facts' whole new state in one transaction that
- *   reads nothing (test/support/substrate/replace.ts), so no reset is an SSI pivot under load. A first page holds D's
- *   first k tuples and a last page its last k; an after page the first k tuples strictly after the anchor, a before
- *   page the last k strictly before it. The flag of the fetching direction is whether more remain on that side; the
- *   opposite flag of an anchored page is whether D holds a tuple at or before the anchor (after) or at or after it
- *   (before), whether or not the anchor is still in D; a first page has no previous page and a last page no next;
- * - a token that is not one this query issued for this generation, a token longer than the layout's bound included, and
- *   a request of another shape or size, is refused before any SQL: CursorError for the token, PageRequestRefused with
- *   its fault for the request, the counting executor seeing no transaction and no statement;
- * - a page size has no upper bound: a walk's requests draw sizes up to the largest safe integer, which the statements
- *   bind as bigint limits.
- *
- * test/pg/page/values.test.ts covers the boundary values, test/pg/page/plans.test.ts the plans, and
- * test/pg/page/generated.ts the generated ordered queries.
- */
 
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
@@ -651,7 +659,10 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 								const loaded = yield* load(walkMembers)
 								return yield* explore(
 									{
-										oracle: { kind: "unstated" },
+										oracle: {
+											kind: "specification",
+											name: "D of the moment and the anchor's encoded values, as the walk's own writes state them"
+										},
 										suite: "pg/page/walks",
 										draw: drawn(walkSketchGen),
 										literal: Formatter.format,
@@ -958,7 +969,10 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 									memberOpsOn(executor, context, member(loaded, name)).ops
 								return yield* explore(
 									{
-										oracle: { kind: "unstated" },
+										oracle: {
+											kind: "specification",
+											name: "the cursor codec's refusals before any SQL, no transaction and no statement counted"
+										},
 										/**
 										 * Refused before any SQL: no transaction opened, no statement sent.
 										 *

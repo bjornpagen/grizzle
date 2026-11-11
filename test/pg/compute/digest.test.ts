@@ -21,7 +21,6 @@
  *    is not a fact of the relation", and a JavaScript caller's an EncodingFailure (factShape), since an insert holds
  *    only the fields its caller writes: the ChangeSet type/engine agreement's "a generated field supplied" holds both.
  *
- *
  * Plants: compute-digest-hex-upper (the digest's SQL writes uppercase hex, which the generated field's domain refuses
  * and the host's digest never equals).
  *

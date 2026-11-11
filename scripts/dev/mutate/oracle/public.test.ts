@@ -2,7 +2,6 @@ import { layer } from "@effect/vitest"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect } from "effect"
 import { firstFailure, oracleCases } from "#scripts/dev/mutate/oracle/check.ts"
-import { asConverted, asDelivered } from "#test/pg/oracle/public/planted.ts"
 import { runCase } from "#test/pg/oracle/public/run.ts"
 import { caseGen } from "#test/support/oracle/public/generate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -19,9 +18,7 @@ layer(Substrate.layer)("mutation stage 2: the public-boundary differential", (it
 				generator: caseGen,
 				runs: programs,
 				property: (program) =>
-					Effect.scoped(
-						Effect.suspend(() => runCase(program, () => undefined, asDelivered, asConverted))
-					)
+					Effect.scoped(Effect.suspend(() => runCase(program, () => undefined)))
 			})
 		)
 	)

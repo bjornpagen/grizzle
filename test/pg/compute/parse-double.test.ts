@@ -16,7 +16,6 @@
  * The oracle is the reference conversion. Bound: up to 48 texts a case, each case one installation in a transaction
  * rolled back.
  *
- *
  * Plants: compute-parse-double-inf (the host reads INF as no number).
  *
  * Features: each rounding point and spelling the form admits.

@@ -10,7 +10,6 @@
  * - Generated facts satisfy the declared laws natively: an explored population of schemas installs with PRIMARY KEY,
  *   UNIQUE and immediate FOREIGN KEY constraints, and every fact loads, so no key collides under native equality.
  *
- *
  * Oracle: PostgreSQL itself: pg_aggregate's overloads and pg_typeof, = over each type's class literals, and the
  * declared constraints over every fact loaded.
  *

@@ -10,7 +10,6 @@
  * generated term raises (every partial operation is guarded, gen/compute.ts), so an execution error of any form is a
  * defect.
  *
- *
  * Oracle: the conservative lowering's raw text sets, no repeated row on the optimized side.
  *
  * Plants: oracle-optimized-obligations-dropped (the dedup placement discharges no obligation, so a DISTINCT owed is
