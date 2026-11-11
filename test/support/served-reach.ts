@@ -1,4 +1,5 @@
 import { Array as Arr, Order, Record as Rec, String as Str } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import type { DecoderForm } from "#compiler/core/decoder.ts"
 import { type DeclaredName, identifierOf } from "#compiler/core/identity.ts"
 import type {
@@ -181,9 +182,9 @@ export const heldRosters = (json: unknown): ReadonlySet<string> => {
 				out.add(roster)
 			}
 		} else if (isList(next)) {
-			pending.push(...next)
+			appendAll(pending, next)
 		} else if (isRecord(next)) {
-			pending.push(...Rec.values(next))
+			appendAll(pending, Rec.values(next))
 		}
 	}
 	return out

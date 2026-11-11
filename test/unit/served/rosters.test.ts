@@ -49,6 +49,7 @@ import { dictionaryNameGen } from "#test/support/kernel/dict.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { runtimeDifference } from "#test/support/served.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 type Feature =
 	| "a leading hole"
@@ -76,9 +77,7 @@ const handleGen: Gen<string> = oneOf([
 const hole: CodeSlot = { kind: "hole" }
 
 /** A run of holes, none or several. */
-const holesGen: Gen<ReadonlyArray<CodeSlot>> = map(int(0, 3), (count) =>
-	Arr.makeBy(count, () => hole)
-)
+const holesGen: Gen<ReadonlyArray<CodeSlot>> = map(int(0, 3), (count) => upTo(count, () => hole))
 
 /**
  * A roster's codes: its live handles, distinct and in code order, one at least, each after a run of holes, and a run
