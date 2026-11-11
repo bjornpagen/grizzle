@@ -28,6 +28,7 @@ import {
 	Order,
 	type Path,
 	type PlatformError,
+	Record as Rec,
 	String as Str,
 	Struct
 } from "effect"
@@ -958,7 +959,7 @@ const fieldOf = (kind: FieldKind, roster: ReturnType<typeof rosterOf>): FieldBas
 const schemaOf = (
 	name: string,
 	relations: Readonly<Record<string, ReturnType<typeof rosterOf> | ProjectRelation>>
-) => schema(name, relations, [])
+) => schema(name, Rec.values(relations), [])
 
 /** A schema's value and its login `server`, whose role `reader` reads every relation, built from its code. */
 const builtOf = (spec: SchemaSpec) => {

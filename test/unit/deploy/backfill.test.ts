@@ -455,10 +455,10 @@ const foldObserved = (c: FoldCase, state: State) => {
  * owner in n, their x summed into its end, and its tag copied onto each member along the owner axis. */
 const countedBefore = schema(
 	"Backfill",
-	{
-		Owner: relation("Owner", { id: pg.int4, tag: pg.int4 }, ["id"]),
-		Member: relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
-	},
+	[
+		relation("Owner", { id: pg.int4, tag: pg.int4 }, ["id"]),
+		relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
+	],
 	[]
 )
 const countedAfter = (() => {
@@ -473,11 +473,15 @@ const countedAfter = (() => {
 		["member"]
 	)
 	const family = counted(on(Member, "g"), fin(Owner, "n"))
-	return schema("Backfill", { Owner, Member }, [
-		family,
-		fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end")),
-		contained(on(Member, "g", "ownerTag"), on(Owner, "id", "tag"))
-	])
+	return schema(
+		"Backfill",
+		[Owner, Member],
+		[
+			family,
+			fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end")),
+			contained(on(Member, "g", "ownerTag"), on(Owner, "id", "tag"))
+		]
+	)
 })()
 
 /** How the counted case's rows are named, and its one copy: each member's owner's tag. */
@@ -502,12 +506,10 @@ const countedCase: FoldCase = {
  * the type it was drawn as. */
 const countedWritten = schema(
 	"Backfill",
-	{
-		Owner: relation("Owner", { id: pg.int4, tag: pg.int4, n: natural, end: pg.int4 }, ["id"]),
-		Member: relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4, ownerTag: pg.int4 }, [
-			"member"
-		])
-	},
+	[
+		relation("Owner", { id: pg.int4, tag: pg.int4, n: natural, end: pg.int4 }, ["id"]),
+		relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4, ownerTag: pg.int4 }, ["member"])
+	],
 	[]
 )
 
@@ -525,11 +527,12 @@ const newMembers: Migration = (() => {
 	const Member = relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
 	const family = counted(on(Member, "g"), fin(Owner, "n"))
 	return migrationOf(
-		schema(name, { Owner: relation("Owner", { id: pg.int4 }, ["id"]) }, []),
-		schema(name, { Owner, Member }, [
-			family,
-			fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end"))
-		])
+		schema(name, [relation("Owner", { id: pg.int4 }, ["id"])], []),
+		schema(
+			name,
+			[Owner, Member],
+			[family, fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end"))]
+		)
 	)
 })()
 
@@ -563,19 +566,23 @@ const orderedCase = (key: LineKey): FoldCase => {
 		migration: migrationOf(
 			schema(
 				name,
-				{
-					Order: relation("Order", { id: pg.int4, tag: pg.int4 }, ["id"]),
-					Line: relation("Line", { line: pg.int4, order: pg.int4, qty: pg.int4 }, ["line"])
-				},
+				[
+					relation("Order", { id: pg.int4, tag: pg.int4 }, ["id"]),
+					relation("Line", { line: pg.int4, order: pg.int4, qty: pg.int4 }, ["line"])
+				],
 				[]
 			),
-			schema(name, { Order: Order_, Line }, [
-				family,
-				fold(family, Monoid.sum, on(Line, "order", "qty"), on(Order_, "id", "total")),
-				contained(on(Line, "order", "orderTag"), on(Order_, "id", "tag")),
-				contained(on(Line, "order", pred("at"), "prevQty"), on(Line, "order", "at", "qty")),
-				contained(on(Order_, "id", pred("n"), "lastQty"), on(Line, "order", "at", "qty"))
-			])
+			schema(
+				name,
+				[Order_, Line],
+				[
+					family,
+					fold(family, Monoid.sum, on(Line, "order", "qty"), on(Order_, "id", "total")),
+					contained(on(Line, "order", "orderTag"), on(Order_, "id", "tag")),
+					contained(on(Line, "order", pred("at"), "prevQty"), on(Line, "order", "at", "qty")),
+					contained(on(Order_, "id", pred("n"), "lastQty"), on(Line, "order", "at", "qty"))
+				]
+			)
 		),
 		owner: "Order",
 		member: "Line",
@@ -647,21 +654,27 @@ const treeMigration: Migration = (() => {
 	return migrationOf(
 		schema(
 			name,
-			{
-				Node: relation("Node", { id: pg.int4, parent: pg.int4, doc: pg.int4, kind: pg.int4 }, [
-					"id"
-				])
-			},
+			[relation("Node", { id: pg.int4, parent: pg.int4, doc: pg.int4, kind: pg.int4 }, ["id"])],
 			[]
 		),
-		schema(name, { Node: Node_ }, [
-			t,
-			fold(t, Monoid.count, on(Node_, "parent", "before", "after"), on(Node_, "id", "total")),
-			contained(on(members, "parent", "parentKind"), on(Node_, "id", "kind")),
-			contained(on(members, "parent", "grandKind"), on(Node_, "id", "parentKind")),
-			contained(on(members, "parent", pred("at"), "prevKind"), on(members, "parent", "at", "kind")),
-			contained(on(Node_, "id", pred("children"), "lastKind"), on(members, "parent", "at", "kind"))
-		])
+		schema(
+			name,
+			[Node_],
+			[
+				t,
+				fold(t, Monoid.count, on(Node_, "parent", "before", "after"), on(Node_, "id", "total")),
+				contained(on(members, "parent", "parentKind"), on(Node_, "id", "kind")),
+				contained(on(members, "parent", "grandKind"), on(Node_, "id", "parentKind")),
+				contained(
+					on(members, "parent", pred("at"), "prevKind"),
+					on(members, "parent", "at", "kind")
+				),
+				contained(
+					on(Node_, "id", pred("children"), "lastKind"),
+					on(members, "parent", "at", "kind")
+				)
+			]
+		)
 	)
 })()
 
@@ -897,10 +910,10 @@ const lineFieldRenamed = (from: string, to: string): Rename => ({
 /** The lines before the migration, keyed by line, and their orders. */
 const storedLines = schema(
 	"StoredKey",
-	{
-		Order: relation("Order", { id: pg.int4, tag: pg.int4 }, ["id"]),
-		Line: relation("Line", { line: pg.int4, order: pg.int4, qty: pg.int4 }, ["line"])
-	},
+	[
+		relation("Order", { id: pg.int4, tag: pg.int4 }, ["id"]),
+		relation("Line", { line: pg.int4, order: pg.int4, qty: pg.int4 }, ["line"])
+	],
 	[]
 )
 
@@ -961,10 +974,11 @@ const freshKeyed = (() => {
 		["order", "at"]
 	)
 	const family = ordered(on(Line, "order", "at"), fin(countedOrder, "n"))
-	return schema("StoredKey", { Order: countedOrder, Line }, [
-		family,
-		fold(family, Monoid.sum, on(Line, "order", "qty"), on(countedOrder, "id", "total"))
-	])
+	return schema(
+		"StoredKey",
+		[countedOrder, Line],
+		[family, fold(family, Monoid.sum, on(Line, "order", "qty"), on(countedOrder, "id", "total"))]
+	)
 })()
 
 /** The lines after a migration that swaps their stored key with qty: qty holds the stored key, line the qty. */
@@ -975,10 +989,11 @@ const swappedKeyed = (() => {
 		["order", "at"]
 	)
 	const family = ordered(on(Line, "order", "at"), fin(countedOrder, "n"))
-	return schema("StoredKey", { Order: countedOrder, Line }, [
-		family,
-		fold(family, Monoid.sum, on(Line, "order", "line"), on(countedOrder, "id", "total"))
-	])
+	return schema(
+		"StoredKey",
+		[countedOrder, Line],
+		[family, fold(family, Monoid.sum, on(Line, "order", "line"), on(countedOrder, "id", "total"))]
+	)
 })()
 
 /** The lines after a migration that renames their stored key along a chain: line to qty, qty to amount. */
@@ -989,10 +1004,11 @@ const chainedKeyed = (() => {
 		["order", "at"]
 	)
 	const family = ordered(on(Line, "order", "at"), fin(countedOrder, "n"))
-	return schema("StoredKey", { Order: countedOrder, Line }, [
-		family,
-		fold(family, Monoid.sum, on(Line, "order", "amount"), on(countedOrder, "id", "total"))
-	])
+	return schema(
+		"StoredKey",
+		[countedOrder, Line],
+		[family, fold(family, Monoid.sum, on(Line, "order", "amount"), on(countedOrder, "id", "total"))]
+	)
 })()
 
 /** The lines after a migration that drops their stored key. */
@@ -1002,10 +1018,11 @@ const droppedKeyed = (() => {
 		"at"
 	])
 	const family = ordered(on(Line, "order", "at"), fin(countedOrder, "n"))
-	return schema("StoredKey", { Order: countedOrder, Line }, [
-		family,
-		fold(family, Monoid.sum, on(Line, "order", "qty"), on(countedOrder, "id", "total"))
-	])
+	return schema(
+		"StoredKey",
+		[countedOrder, Line],
+		[family, fold(family, Monoid.sum, on(Line, "order", "qty"), on(countedOrder, "id", "total"))]
+	)
 })()
 
 const storedKeyCases: { readonly [F in StoredKeyFate]: StoredKeyCase } = {
@@ -1099,21 +1116,25 @@ const concatCase: FoldCase = (() => {
 		migration: migrationOf(
 			schema(
 				name,
-				{
-					Attr: relation("Attr", { id: pg.int4 }, ["id"]),
-					Token: relation("Token", { token: pg.int4, attr: pg.int4, piece: joinedText }, ["token"])
-				},
+				[
+					relation("Attr", { id: pg.int4 }, ["id"]),
+					relation("Token", { token: pg.int4, attr: pg.int4, piece: joinedText }, ["token"])
+				],
 				[]
 			),
-			schema(name, { Attr, Token }, [
-				family,
-				fold(
+			schema(
+				name,
+				[Attr, Token],
+				[
 					family,
-					Monoid.concat,
-					on(Token, "attr", "piece", "before", "after"),
-					on(Attr, "id", "joined")
-				)
-			])
+					fold(
+						family,
+						Monoid.concat,
+						on(Token, "attr", "piece", "before", "after"),
+						on(Attr, "id", "joined")
+					)
+				]
+			)
 		),
 		owner: "Attr",
 		member: "Token",

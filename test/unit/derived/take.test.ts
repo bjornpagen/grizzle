@@ -167,9 +167,9 @@ const installed = (s: Sketch): ReadonlyArray<SqlStatement> => {
 		Arr.take(fields, s.key),
 		[]
 	)
-	const Base = schema("Base", { R }, [], [])
+	const Base = schema("Base", [R], [], [])
 	const D = materializedDerived("D", definitionOf(Base, R, fields, s.derived), [])
-	const S = schema.extend(Base, "S", { D }, [], [])
+	const S = schema.extend(Base, "S", [D], [], [])
 	const reader = role(
 		S,
 		"reader",

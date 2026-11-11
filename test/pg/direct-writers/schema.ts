@@ -22,10 +22,11 @@ export const Pair = relation("Pair", { a: pg.integer, b: pg.integer }, ["a", "b"
 /** Pair's declared row check, a statement of Desk: the law a test names by this value. */
 export const DistinctPair = check("Distinct", Pair, (x) => x.ne(x.a, x.b))
 
-const Desk = schema("Desk", { Account, Entry, Pair }, [
-	contained(on(Entry, "account"), on(Account, "id")),
-	DistinctPair
-])
+const Desk = schema(
+	"Desk",
+	[Account, Entry, Pair],
+	[contained(on(Entry, "account"), on(Account, "id")), DistinctPair]
+)
 
 const AccountEntries = derived.materialized(
 	"AccountEntries",
@@ -46,7 +47,7 @@ const AccountEntries = derived.materialized(
  * Its worlds, in the login `desk`: `writer` holds every base relation whole and writes them; `auditor` reads the
  * derived relation.
  */
-export const DeskReports = schema.extend(Desk, "DeskReports", { AccountEntries }, [])
+export const DeskReports = schema.extend(Desk, "DeskReports", [AccountEntries], [])
 
 export const writer = role(
 	DeskReports,

@@ -169,7 +169,7 @@ const schemaOf = (c: Case) => {
 			)
 		})
 	)
-	return { Texts, value: schema("BytesGuard", { Texts }, []) }
+	return { Texts, value: schema("BytesGuard", [Texts], []) }
 }
 
 /** Installs `sql` on the pinned session in a transaction, runs `body` in it, and rolls back. */

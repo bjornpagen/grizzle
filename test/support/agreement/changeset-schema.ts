@@ -139,7 +139,7 @@ export const Node = relation(
 
 export const Work = schema(
 	"Work",
-	{
+	[
 		Kind,
 		Flag,
 		Task,
@@ -157,7 +157,7 @@ export const Work = schema(
 		Bin,
 		Chip,
 		Node
-	},
+	],
 	[
 		lines,
 		fold(lines, Monoid.sum, on(Line, "owner", "qty", "before", "after"), on(Order, "id", "total")),
@@ -186,10 +186,10 @@ export const TaskCount = derived.materialized(
 		return r.match(Task, { id, account }).find({ account, tasks: r.count() })
 	})
 )
-export const Reports = schema.extend(Work, "Reports", { TaskCount }, [])
+export const Reports = schema.extend(Work, "Reports", [TaskCount], [])
 const Note = relation("Note", { id: uuid }, ["id"])
-export const Other = schema("Other", { Note }, [])
-export const Twin = schema("Work", { Kind, Task }, [])
+export const Other = schema("Other", [Note], [])
+export const Twin = schema("Work", [Kind, Task], [])
 
 /**
  * Work's worlds: a writer of every ordinary relation; a clerk of Task, Budget and the families' owners, whose write list

@@ -68,7 +68,7 @@ import { isNativePool } from "#test/support/worlds/execute/pool.ts"
  * layer of the login logs in as `<name>__worker`, the role the substrate creates for the schema.
  */
 const shopUnder = (name: string) => {
-	const shop = schemaOf(name, { Item: relation("Item", { id: uuid }, ["id"]) }, [])
+	const shop = schemaOf(name, [relation("Item", { id: uuid }, ["id"])], [])
 	const app = role(shop, "app", wholeEntriesOf(shop))
 	/** The shop's snapshot.json, as an import of it yields: what its login's served file is compiled under. */
 	const snapshot = snapshotJson(

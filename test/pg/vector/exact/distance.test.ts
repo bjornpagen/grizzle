@@ -90,7 +90,7 @@ const vectorType = (dims: number): ScalarType => scalarOf({ kind: "vector", dime
 const Narrow = relation("Narrow", { id: uuid, value: pg.vector(4) }, ["id"])
 const Wide = relation("Wide", { id: uuid, value: pg.vector(2000) }, ["id"])
 const Widest = relation("Widest", { id: uuid, value: pg.vector(16000) }, ["id"])
-const Widths = schema("VectorWidths", { Narrow, Wide, Widest }, [])
+const Widths = schema("VectorWidths", [Narrow, Wide, Widest], [])
 
 /** The text of any vector's components, the codec's text form without its domain check: the carrier's own. */
 const rawText = (v: Vector): string => Vector.componentText(v)

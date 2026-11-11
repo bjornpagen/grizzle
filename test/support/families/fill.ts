@@ -789,7 +789,7 @@ const schemaOf = (
 	declared: string,
 	relations: Readonly<Record<string, AnyRelation>>,
 	statements: ReadonlyArray<Statement>
-) => schema(declared, relations, statements)
+) => schema(declared, Rec.values(relations), statements)
 
 /** A tree's member side reads every row but its root, the rows whose start is above zero. */
 const treeMembers = (t: AnyRelation) =>

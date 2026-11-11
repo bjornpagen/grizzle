@@ -83,7 +83,7 @@ const slotKey = key(on(Sitting, "slot"))
 
 /** The schema, the role `learner`, which inserts Sitting and Gate and nothing else, and its two logins. */
 const collisions = (name: string) => {
-	const base = schema(name, { Sitting, Gate }, [sittingKey, slotKey])
+	const base = schema(name, [Sitting, Gate], [sittingKey, slotKey])
 	const learner = role(base, "learner", { Sitting, Gate }, { insert: ["Sitting", "Gate"] })
 	const direct = role(base, "direct", { Sitting, Gate })
 	return {

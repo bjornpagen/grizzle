@@ -91,6 +91,7 @@ import {
 } from "#test/unit/schema/support.ts"
 
 import { regex as arkregex } from "arkregex"
+import { catchCompileError } from "#compiler/core/canonical.ts"
 import * as Result from "#compiler/core/result.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 
@@ -114,7 +115,7 @@ const ManualTask = relation("ManualTask", { task: uuid, assignee: uuid }, ["task
 
 const Work = schema(
 	"Work",
-	{ Kind, Account, Task, AutomaticTask, ManualTask },
+	[Kind, Account, Task, AutomaticTask, ManualTask],
 	[
 		containedBuilder(onBuilder(Task, ["account"]), onBuilder(Account, ["id"])),
 		keyBuilder(onBuilder(Account, ["name"])),
@@ -132,7 +133,7 @@ const TaskIds = materializedDerived(
 	}),
 	[]
 )
-const Reports = schema.extend(Work, "Reports", { TaskIds }, [], [])
+const Reports = schema.extend(Work, "Reports", [TaskIds], [], [])
 
 const wordGen = matching(arkregex("^[A-Z][a-z]{1,7}$"))
 
@@ -399,7 +400,12 @@ describe("the owned product", () => {
 									rewrite && s.repeats
 										? [...statements, ...statements, bounded(false, false)]
 										: statements
-								const root = schema("Work", record, rewrite ? Arr.reverse([...all]) : all, [])
+								const root = schema(
+									"Work",
+									Record.values(record),
+									rewrite ? Arr.reverse([...all]) : all,
+									[]
+								)
 								if (!s.extended) {
 									return root
 								}
@@ -411,7 +417,7 @@ describe("the owned product", () => {
 									}),
 									[]
 								)
-								return schema.extend(root, "Above", { TaskIds: Ids }, [], [])
+								return schema.extend(root, "Above", [Ids], [], [])
 							}
 							if (s.extended) {
 								c.note("an extension")
@@ -529,17 +535,20 @@ describe("conflicting declarations", () => {
 												: rawContract(s.name, rawPg.bigint, atLeast(s.n + 1n))
 										const A = relation("A", { id: uuid, amount: first }, ["id"], [])
 										const B = relation("B", { id: uuid, amount: second }, ["id"], [])
-										return ownValue(schema("Pay", { A, B }, [], []))
+										return ownValue(schema("Pay", [A, B], [], []))
 									}
 									case "a relation name across levels":
-										return ownValue(
-											schema.extend(
-												Work,
-												"Above",
-												{ Task: s.agree ? Task : relation("Task", { id: uuid }, ["id"], []) },
-												[],
-												[]
-											)
+										return Result.flatMap(
+											catchCompileError(() =>
+												schema.extend(
+													Work,
+													"Above",
+													[s.agree ? Task : relation("Task", { id: uuid }, ["id"], [])],
+													[],
+													[]
+												)
+											),
+											ownValue
 										)
 								}
 							})()
@@ -642,7 +651,7 @@ describe("closed relations", () => {
 								[]
 							)
 							const Rated = relation("Rated", { id: uuid, grade }, ["id"], [])
-							const valid = descOf(schema("W", { Kind, Level, Graded, Rated, Task }, [], []))
+							const valid = descOf(schema("W", [Kind, Level, Graded, Rated, Task], [], []))
 							const build = (): unknown => {
 								switch (s.site) {
 									case "a built row":
@@ -785,13 +794,13 @@ describe("closed relations", () => {
 							if (!s.decoded) {
 								const build = () => closed("Long", [handle], [])
 								if (within) {
-									succeeded(ownValue(schema("W", { Long: build() }, [], [])))
+									succeeded(ownValue(schema("W", [build()], [], [])))
 								} else {
 									throwsRefused(build, "MalformedDescription")
 								}
 								return
 							}
-							const d = descOf(schema("W", { Kind }, [], []))
+							const d = descOf(schema("W", [Kind], [], []))
 							const owned = ownValue({
 								...d,
 								relations: Arr.map(d.relations, (r) =>
@@ -920,7 +929,7 @@ describe("statements over a derived relation", () => {
 									? [onBuilder(Task, ["id"]), onBuilder(TaskIds, ["id"])]
 									: [onBuilder(TaskIds, ["id"]), onBuilder(Task, ["id"])]
 								const extended = (statement: Statement) =>
-									ownValue(schema.extend(Work, "Above", { TaskIds }, [statement], []))
+									ownValue(schema.extend(Work, "Above", [TaskIds], [statement], []))
 								switch (law.kind) {
 									case "check":
 										verdict(
@@ -1099,7 +1108,7 @@ describe("scope and structure", () => {
 								return assert.fail("Reports declares TaskIds")
 							}
 							const taskIds = found.value
-							const claims = descOf(schema("P", { Pool, Claim }, [], []))
+							const claims = descOf(schema("P", [Pool, Claim], [], []))
 							const owned = (() => {
 								switch (s.structure) {
 									case "Reports as written":
@@ -1123,7 +1132,7 @@ describe("scope and structure", () => {
 											)
 										)
 									case "a closedId over an undeclared roster":
-										return ownValue(schema(s.name, { Task }, [], []))
+										return ownValue(schema(s.name, [Task], [], []))
 									case "a key over a closed relation":
 										return ownValue(withStatements(key(on("Kind", ["id"]))))
 									case "a closed relation made mutable":
@@ -1151,7 +1160,7 @@ describe("scope and structure", () => {
 										return ownValue(
 											schema(
 												"Checked",
-												Work.relations,
+												Record.values(Work.relations),
 												[
 													...Work.statements,
 													checkBuilder(s.name, Task, (row: Row) => row.account.ne(row.id))

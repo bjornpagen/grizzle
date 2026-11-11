@@ -66,9 +66,11 @@ const build = (name: string) => {
 		{ document: uuid, value: pg.vector(dimensions) },
 		["document"]
 	)
-	const Core = schema(name, { Document, DocumentEmbedding }, [
-		contained(on(DocumentEmbedding, "document"), on(Document, "id"))
-	])
+	const Core = schema(
+		name,
+		[Document, DocumentEmbedding],
+		[contained(on(DocumentEmbedding, "document"), on(Document, "id"))]
+	)
 	/** Each embedded document with its account: keyed by document, inherited from the embedding's key. */
 	const Embeddings = derived.materialized(
 		"Embeddings",
@@ -81,7 +83,7 @@ const build = (name: string) => {
 				.find({ document, account, value })
 		})
 	)
-	const Reports = schema.extend(Core, `${name}_1`, { Embeddings }, [])
+	const Reports = schema.extend(Core, `${name}_1`, [Embeddings], [])
 	const viewer = role(Reports, "viewer", { Embeddings })
 	const refresher = role(Reports, "refresher", { Embeddings }, { refresh: ["Embeddings"] })
 	/** The exact scoring of an account's documents through the view, the viewer's one relation. */

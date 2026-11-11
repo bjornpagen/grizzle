@@ -277,8 +277,8 @@ const checkLaw = (name: string): Extract<Law, { readonly kind: "check" }> => ({
  * inserting Attribute.
  */
 const levelsAt = (name: string, own: ReadonlyArray<Stated>, level: ReadonlyArray<Stated>) => {
-	const base = schema(name, { Attribute }, statementsOf(own))
-	const media = schema.extend(base, levelNameAt(name, 1), { Note }, statementsOf(level))
+	const base = schema(name, [Attribute], statementsOf(own))
+	const media = schema.extend(base, levelNameAt(name, 1), [Note], statementsOf(level))
 	const author = role(base, "author", wholeEntriesOf(base), { write: writableNamesOf(base) })
 	const editor = role(media, "editor", wholeEntriesOf(media), { write: ["Attribute"] })
 	return {

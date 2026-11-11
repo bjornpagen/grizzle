@@ -192,7 +192,7 @@ const probesOf = (name: string, states: ReadonlyArray<RosterState>): Probes => {
 		declared[probeOf(state)] = probe
 		probes[probeOf(state)] = probe
 	}
-	const base = schema(name, declared, [])
+	const base = schema(name, Rec.values(declared), [])
 	const writer = role(base, "writer", probes, { write: Rec.keys(probes), refresh: [] })
 	const reader = role(base, "reader", probes, { write: [], refresh: [] })
 	return {
@@ -471,7 +471,7 @@ const setsOf = (name: string, state: RosterState) => {
 	const roster = closed(state.closed, liveOf(state))
 	const Sets = relation("Sets", { id: pg.integer, members: bits(roster) }, ["id"])
 	const declared: Record<string, AnyRelation | AnyClosed> = { [state.closed]: roster, Sets }
-	const base = schema(name, declared, [])
+	const base = schema(name, Rec.values(declared), [])
 	const writer = role(base, "writer", { Sets }, { write: ["Sets"], refresh: [] })
 	const reader = role(base, "reader", { Sets }, { write: [], refresh: [] })
 	const version: Version = { schema: base, logins: [login(base, "desk", [writer, reader])] }

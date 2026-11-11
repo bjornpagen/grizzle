@@ -50,10 +50,11 @@ import { upTo } from "#test/support/up-to.ts"
 const V = relation("V", { id: uuid }, ["id"])
 const E = relation("E", { from: uuid, to: uuid, cost: pg.integer }, ["from", "to"])
 const B = relation("B", { id: uuid }, ["id"])
-const Net = schema("Net", { V, E, B }, [
-	contained(on(E, "from"), on(V, "id")),
-	contained(on(E, "to"), on(V, "id"))
-])
+const Net = schema(
+	"Net",
+	[V, E, B],
+	[contained(on(E, "from"), on(V, "id")), contained(on(E, "to"), on(V, "id"))]
+)
 
 const vertex = (i: number): Uuid => `00000000-0000-4000-8000-00000000000${i}`
 const vertexId = (i: number): TypedLiteral => ({ kind: "uuid", value: vertex(i) })

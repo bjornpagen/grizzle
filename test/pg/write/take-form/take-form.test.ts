@@ -63,7 +63,7 @@ const Latest = relation("Latest", { account: uuid, seq: pg.bigint, amount: pg.bi
 	"account",
 	"seq"
 ])
-const build = (name: string) => schema(name, { Account, Entry, Latest }, [])
+const build = (name: string) => schema(name, [Account, Entry, Latest], [])
 
 const accounts = 2000
 const entriesPerAccount = 30

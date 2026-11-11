@@ -34,7 +34,7 @@ const proved = (box: Box, delivery: Delivery): boolean =>
 
 const schemaBlock = (
 	box: Box
-): string => `export const ${box.name} = schema("Scan", { Doc, Node, Comment }, [
+): string => `export const ${box.name} = schema("Scan", [Doc, Node, Comment], [
 	contained(on(Node, "document"), on(Doc, "id")),
 	${box.existence ? 'contained(on(Node, "id"), on(Comment, "node"))' : 'contained(on(Comment, "node"), on(Node, "id"))'}
 ])

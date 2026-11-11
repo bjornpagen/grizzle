@@ -9,7 +9,7 @@ const Posting = relation("Posting", { id: uuid, account: uuid, amount: pg.bigint
  * the posting id although its head omits it, so two postings of one account and amount both contribute; byAmount folds
  * the distinct (account, amount) values, a stage of its own matched whole, so they are one value.
  */
-export const Ledger = schema("Ledger", { Posting }, [])
+export const Ledger = schema("Ledger", [Posting], [])
 
 export const byFact = query(Ledger).rule((r) => {
 	const { id, account, amount } = v(Posting, "posting")

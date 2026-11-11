@@ -223,7 +223,7 @@ export const untypedSource = (entries: PreludeAt): string =>
 		`export const Parent = relation("Parent", { id: uuid, kids: drawn(natural) }, ["id"])
 export const Kid = relation("Kid", { parent: uuid, at: drawn(natural), label: pg.integer }, ["parent", "at"])
 export const nesting = ordered(on(Kid, "parent", "at"), fin(Parent, "kids"))
-export const Root = schema("Root", { Parent, Kid }, [nesting])
+export const Root = schema("Root", [Parent, Kid], [nesting])
 export const Bag = relation("Bag", { id: uuid, items: drawn(natural) }, ["id"])
 export const Item = relation("Item", { bag: uuid, at: drawn(natural), label: pg.integer }, ["bag", "at"])
 export const bagging = ordered(on(Item, "bag", "at"), fin(Bag, "items"))
@@ -234,7 +234,7 @@ export const Labels = derived.materialized(
 		return r.match(Kid, { parent, label }).find({ parent, label })
 	})
 )
-export const Up = schema.extend(Root, "Up", { Labels }, [])
+export const Up = schema.extend(Root, "Up", [Labels], [])
 export const member = role(Root, "member", { Parent })
 export const ids = query(Root).rule((r) => {
 	const { id } = v(Parent, "parent")

@@ -84,10 +84,10 @@ import { upTo } from "#test/support/up-to.ts"
 const before = (name: string) =>
 	schema(
 		name,
-		{
-			Owner: relation("Owner", { id: pg.int4 }, ["id"]),
-			Member: relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
-		},
+		[
+			relation("Owner", { id: pg.int4 }, ["id"]),
+			relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
+		],
 		[]
 	)
 
@@ -99,10 +99,11 @@ const after = (name: string) => {
 	)
 	const Member = relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
 	const family = counted(on(Member, "g"), fin(Owner, "n"))
-	return schema(name, { Owner, Member }, [
-		family,
-		fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end"))
-	])
+	return schema(
+		name,
+		[Owner, Member],
+		[family, fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end"))]
+	)
 }
 
 const SPEC = defined(
@@ -115,10 +116,10 @@ const SPEC = defined(
 const copyBefore = (name: string) =>
 	schema(
 		name,
-		{
-			Owner: relation("Owner", { id: pg.int4, tag: pg.int4 }, ["id"]),
-			Member: relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
-		},
+		[
+			relation("Owner", { id: pg.int4, tag: pg.int4 }, ["id"]),
+			relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
+		],
 		[]
 	)
 
@@ -134,11 +135,15 @@ const copyAfter = (name: string) => {
 		["member"]
 	)
 	const family = counted(on(Member, "g"), fin(Owner, "n"))
-	return schema(name, { Owner, Member }, [
-		family,
-		fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end")),
-		contained(on(Member, "g", "ownerTag"), on(Owner, "id", "tag"))
-	])
+	return schema(
+		name,
+		[Owner, Member],
+		[
+			family,
+			fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end")),
+			contained(on(Member, "g", "ownerTag"), on(Owner, "id", "tag"))
+		]
+	)
 }
 
 /** A tree of Node, one per doc, folded by count over each node's children (FoldedTree's), each node's parent's kind
@@ -146,9 +151,7 @@ const copyAfter = (name: string) => {
 const treeBefore = (name: string) =>
 	schema(
 		name,
-		{
-			Node: relation("Node", { id: pg.int4, parent: pg.int4, doc: pg.int4, kind: pg.int4 }, ["id"])
-		},
+		[relation("Node", { id: pg.int4, parent: pg.int4, doc: pg.int4, kind: pg.int4 }, ["id"])],
 		[]
 	)
 
@@ -172,18 +175,22 @@ const treeAfter = (name: string) => {
 		["id"]
 	)
 	const t = tree(on(Node_, "parent", "at"), fin(Node_, "children"), { root: "doc" })
-	return schema(name, { Node: Node_ }, [
-		t,
-		fold(t, Monoid.count, on(Node_, "parent", "before", "after"), on(Node_, "id", "total")),
-		contained(
-			on(
-				select(Node_, (n) => n.gt(n.start, 0n)),
-				"parent",
-				"parentKind"
-			),
-			on(Node_, "id", "kind")
-		)
-	])
+	return schema(
+		name,
+		[Node_],
+		[
+			t,
+			fold(t, Monoid.count, on(Node_, "parent", "before", "after"), on(Node_, "id", "total")),
+			contained(
+				on(
+					select(Node_, (n) => n.gt(n.start, 0n)),
+					"parent",
+					"parentKind"
+				),
+				on(Node_, "id", "kind")
+			)
+		]
+	)
 }
 
 /** The bound on a drawn value: a member's x and an owner's tag lie within it either way, a node's kind below it. */
@@ -543,10 +550,10 @@ type VectorKeyFate = (typeof vectorKeyFates)[number]
 const vectorKeyed = (name: string) =>
 	schema(
 		name,
-		{
-			Owner: relation("Owner", { id: pg.int4 }, ["id"]),
-			Member: relation("Member", { member: pg.vector(2), g: pg.int4, x: pg.int4 }, ["member"])
-		},
+		[
+			relation("Owner", { id: pg.int4 }, ["id"]),
+			relation("Member", { member: pg.vector(2), g: pg.int4, x: pg.int4 }, ["member"])
+		],
 		[]
 	)
 
@@ -565,10 +572,11 @@ const vectorKept = (name: string) => {
 		["g", "at"]
 	)
 	const family = ordered(on(Member, "g", "at"), fin(countingOwner, "n"))
-	return schema(name, { Owner: countingOwner, Member }, [
-		family,
-		fold(family, Monoid.sum, on(Member, "g", "x"), on(countingOwner, "id", "end"))
-	])
+	return schema(
+		name,
+		[countingOwner, Member],
+		[family, fold(family, Monoid.sum, on(Member, "g", "x"), on(countingOwner, "id", "end"))]
+	)
 }
 
 /** vectorKept with the vector key renamed to item. */
@@ -579,10 +587,11 @@ const vectorRenamed = (name: string) => {
 		["g", "at"]
 	)
 	const family = ordered(on(Member, "g", "at"), fin(countingOwner, "n"))
-	return schema(name, { Owner: countingOwner, Member }, [
-		family,
-		fold(family, Monoid.sum, on(Member, "g", "x"), on(countingOwner, "id", "end"))
-	])
+	return schema(
+		name,
+		[countingOwner, Member],
+		[family, fold(family, Monoid.sum, on(Member, "g", "x"), on(countingOwner, "id", "end"))]
+	)
 }
 
 /** vectorKept with the vector key dropped. */
@@ -592,10 +601,11 @@ const vectorDropped = (name: string) => {
 		"at"
 	])
 	const family = ordered(on(Member, "g", "at"), fin(countingOwner, "n"))
-	return schema(name, { Owner: countingOwner, Member }, [
-		family,
-		fold(family, Monoid.sum, on(Member, "g", "x"), on(countingOwner, "id", "end"))
-	])
+	return schema(
+		name,
+		[countingOwner, Member],
+		[family, fold(family, Monoid.sum, on(Member, "g", "x"), on(countingOwner, "id", "end"))]
+	)
 }
 
 /** Each fate's target and declarations. */

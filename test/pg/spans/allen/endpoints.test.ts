@@ -74,7 +74,7 @@ const IntPairs = relation(
 const BigPairs = relation("BigPairs", { id: pg.integer, a: span(pg.bigint), b: span(pg.bigint) }, [
 	"id"
 ])
-const Pairs = schema("EndpointPairs", { IntPairs, BigPairs }, [])
+const Pairs = schema("EndpointPairs", [IntPairs, BigPairs], [])
 
 const relationOf: Readonly<Record<RangeType, string>> = {
 	int4range: "IntPairs",

@@ -121,13 +121,17 @@ export const shopOf = (name: string) => {
 	)
 	const Item = relation("Item", { id: uuid, store: uuid, region: word, qty: pg.bigint }, ["id"])
 	const items = counted(on(Item, "store"), fin(Store, "items"))
-	const shop = schema(name, { Store, Item }, [
-		items,
-		fold(items, Monoid.sum, on(Item, "store", "qty"), on(Store, "id", "stock")),
-		contained(on(Item, "store", "region"), on(Store, "id", "region")),
-		mutable(Store),
-		mutable(Item)
-	])
+	const shop = schema(
+		name,
+		[Store, Item],
+		[
+			items,
+			fold(items, Monoid.sum, on(Item, "store", "qty"), on(Store, "id", "stock")),
+			contained(on(Item, "store", "region"), on(Store, "id", "region")),
+			mutable(Store),
+			mutable(Item)
+		]
+	)
 	return { shop, Store, Item }
 }
 

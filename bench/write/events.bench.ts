@@ -53,11 +53,15 @@ const Grp = relation("Grp", { id: pg.integer, lead: pg.bigint }, ["id"])
 const Member = relation("Member", { id: pg.bigint, grp: pg.integer }, ["id"])
 
 const build = (name: string) =>
-	schema(name, { Grp, Member }, [
-		contained(on(Member, "grp"), on(Grp, "id")),
-		contained(on(Grp, "lead"), on(Member, "id")),
-		mutable(Member)
-	])
+	schema(
+		name,
+		[Grp, Member],
+		[
+			contained(on(Member, "grp"), on(Grp, "id")),
+			contained(on(Grp, "lead"), on(Member, "id")),
+			mutable(Member)
+		]
+	)
 
 interface Options extends Readonly<Record<string, unknown>> {
 	/** Rows one transaction inserts, growing. */

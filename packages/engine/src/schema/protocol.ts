@@ -214,7 +214,8 @@ export const queryHeadingOf = (value: unknown): ReadonlyMap<string, HeadingTypin
 /**
  * Each kind of owned value: the value a builder returns, at the widest of its public type, the Description it carries,
  * and the content it was built with, read once at its build: the roster a roster's handles type (relation.ts closed), a
- * statement's canonical form and text (own.ts CanonicalStatement), a mirrors' its two containments', a schema's content
+ * statement's canonical form and text (own.ts CanonicalStatement) and the relations it was built over
+ * (statements.ts relationsOver), a mirrors' its two containments' and its relations, a schema's content
  * (levels.ts SchemaContent), a role's level (world.ts RoleLevel), and nothing for any other kind: a relation's identity
  * is its Description, compared by structure (core/canonical.ts sameContent). A mirrors is sugar, owned as an expansion,
  * the two containments it states, never as a statement.
@@ -243,12 +244,18 @@ interface OwnedKinds {
 	readonly statement: {
 		readonly value: Exclude<Statement, MirrorsBase>
 		readonly desc: StatementDesc
-		readonly content: CanonicalStatement
+		readonly content: {
+			readonly canonical: CanonicalStatement
+			readonly over: ReadonlyArray<unknown>
+		}
 	}
 	readonly expansion: {
 		readonly value: MirrorsBase
 		readonly desc: ExpansionDesc
-		readonly content: readonly [CanonicalStatement, CanonicalStatement]
+		readonly content: {
+			readonly canonical: readonly [CanonicalStatement, CanonicalStatement]
+			readonly over: ReadonlyArray<unknown>
+		}
 	}
 	readonly side: { readonly value: AnySide; readonly desc: SideDesc; readonly content: undefined }
 	readonly selection: {

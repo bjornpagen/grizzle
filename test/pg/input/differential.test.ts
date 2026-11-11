@@ -87,7 +87,7 @@ const Rate = contract("Rate", pg.numeric(7, 6), (x) => x.between(0n, 1n))
 
 const Article = relation("Article", { id: uuid, slug: Slug }, ["id"])
 const Price = relation("Price", { id: uuid, amount: Cents, rate: Rate }, ["id"])
-const Shop = schema("Shop", { Article, Price }, [])
+const Shop = schema("Shop", [Article, Price], [])
 const shopCodes = firstCodebook(rostersOf(owning(Shop)))
 
 /** The articles a slug matches. */

@@ -284,7 +284,7 @@ const drawnRuns = (p: RunsParams) => {
 /** A drawn alternatives schema under a name. */
 export const runs = (p: RunsParams) => (name: string) => {
 	const d = drawnRuns(p)
-	return schema(name, d.relations, [
+	return schema(name, Rec.values(d.relations), [
 		d.stage,
 		...Arr.map(d.pays, (pay) => pay.runKey),
 		...(p.runMutable ? [mutable(d.Run)] : []),
@@ -556,20 +556,28 @@ const coverRosterKey = (p: VisitsParams) =>
 	p.cover.kind === "every" ? [] : [key(on(openRoster(p.cover.value), "place", "shift"))]
 
 export const visits = (p: VisitsParams) => (name: string) =>
-	schema(name, { Rota, Visit }, [
-		visitSpanKey,
-		...coverRotaKey(p),
-		rotaCoverage(p),
-		...mutables(p.mutable, { source: Visit, target: Rota })
-	])
+	schema(
+		name,
+		[Rota, Visit],
+		[
+			visitSpanKey,
+			...coverRotaKey(p),
+			rotaCoverage(p),
+			...mutables(p.mutable, { source: Visit, target: Rota })
+		]
+	)
 
 export const rosterVisits = (p: VisitsParams) => (name: string) =>
-	schema(name, { Roster: ShiftRoster, Visit }, [
-		visitSpanKey,
-		...coverRosterKey(p),
-		rosterCoverage(p),
-		...mutables(p.mutable, { source: Visit, target: ShiftRoster })
-	])
+	schema(
+		name,
+		[ShiftRoster, Visit],
+		[
+			visitSpanKey,
+			...coverRosterKey(p),
+			rosterCoverage(p),
+			...mutables(p.mutable, { source: Visit, target: ShiftRoster })
+		]
+	)
 
 const visitRelation = (p: VisitsParams): HostRelation =>
 	hostRelation("Visit", ["id", "site", "during", "billable"], ["id"], p.mutable.source)
@@ -812,12 +820,11 @@ const leaseSeatKey = key(on(Leased, "resource", "seat"))
 const leaseSeat = contained(on(Leased, "resource", "seat"), on(Seat, "resource", "seat"))
 
 export const queue = (p: QueueParams) => (name: string) =>
-	schema(name, { Standing, Work, Wanted, Leased, Done, Seat }, [
-		workStanding,
-		leaseSeatKey,
-		leaseSeat,
-		...mutables(p.mutable, queueRelations)
-	])
+	schema(
+		name,
+		[Standing, Work, Wanted, Leased, Done, Seat],
+		[workStanding, leaseSeatKey, leaseSeat, ...mutables(p.mutable, queueRelations)]
+	)
 
 /**
  * Each armed handle's arm in the work item standing at it, and the work items standing at it in their arm: both
@@ -937,7 +944,7 @@ const shiftEmployment = (p: TimekeepingParams) =>
 	contained(on(approvedShifts(p), "employee", "during"), on(Employment, "employee", "during"))
 
 export const timekeeping = (p: TimekeepingParams) => (name: string) =>
-	schema(name, timekeepingRelations, [
+	schema(name, Rec.values(timekeepingRelations), [
 		shiftTimesheet(p),
 		shiftEmployment(p),
 		...mutables(p.mutable, timekeepingRelations)
@@ -1068,10 +1075,11 @@ export interface TenantRunsParams {
 }
 
 const tenantRuns = (p: TenantRunsParams) => (name: string) =>
-	schema(name, { Stage, ...tenantRunsRelations }, [
-		tenantRunStages,
-		...mutables(p.mutable, tenantRunsRelations)
-	])
+	schema(
+		name,
+		[Stage, ...Rec.values(tenantRunsRelations)],
+		[tenantRunStages, ...mutables(p.mutable, tenantRunsRelations)]
+	)
 
 /**
  * Each armed handle's foreign key from its arm's (tenant, run) into the run at (tenant, id) standing at it, and the

@@ -136,7 +136,7 @@ const file = `${repoRoot}app/grizzle.config.ts`
 
 /** The configuration of `version` under `name`, Post named Post. */
 const withPost = (name: string, version: Version) => {
-	const S = schema(name, { Post, Tag }, [])
+	const S = schema(name, [Post, Tag], [])
 	const names = Arr.map(version.writes, (t) => (t === "post" ? "Post" : "Tag"))
 	const writer = role(
 		S,
@@ -167,7 +167,7 @@ const withPost = (name: string, version: Version) => {
 
 /** The configuration of `version` under `name`, Post renamed to Note. */
 const withNote = (name: string, version: Version) => {
-	const S = schema(name, { Note, Tag }, [])
+	const S = schema(name, [Note, Tag], [])
 	const names = Arr.map(version.writes, (t) => (t === "post" ? "Note" : "Tag"))
 	const writer = role(
 		S,

@@ -75,10 +75,11 @@ const Profile = relation(
 	["account"]
 )
 const Note = relation("Note", { id: pg.integer, account: pg.integer, tag: pg.integer }, ["id"])
-const Notes = schema("Notes", { Account, Tag, Badge, Profile, Note }, [
-	contained(on(Note, "account"), on(Account, "id")),
-	contained(on(Note, "tag"), on(Tag, "id"))
-])
+const Notes = schema(
+	"Notes",
+	[Account, Tag, Badge, Profile, Note],
+	[contained(on(Note, "account"), on(Account, "id")), contained(on(Note, "tag"), on(Tag, "id"))]
+)
 
 type NotesInstalled = Schema<
 	string,

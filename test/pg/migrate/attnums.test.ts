@@ -55,13 +55,13 @@ const columnsOf = (prefix: string, n: number): ReadonlyArray<string> =>
 const wide = (name: string, columns: ReadonlyArray<string>) =>
 	schema(
 		name,
-		{
-			Wide: relation(
+		[
+			relation(
 				"Wide",
 				{ id: pg.int4, ...Rec.fromEntries(Arr.map(columns, (c) => [c, pg.int2] as const)) },
 				["id"]
 			)
-		},
+		],
 		[]
 	)
 

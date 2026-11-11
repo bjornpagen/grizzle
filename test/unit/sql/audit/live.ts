@@ -358,15 +358,19 @@ const loweredLive = ({ c, twin, context }: Extract<LiveSketch, { kind: "lowered"
  * installed DDL holds the float literals the persisted forms once lost, which no other fixture states.
  */
 const Gauge = relation("Gauge", { id: pg.integer, reading: pg.float8 }, ["id"])
-const gauges = schema("Gauges", { Gauge }, [
-	check("RealReading", Gauge, (g) =>
-		g.and(
-			g.reading.ne(Number.NaN),
-			g.reading.lt(Number.POSITIVE_INFINITY),
-			g.reading.gt(Number.NEGATIVE_INFINITY)
+const gauges = schema(
+	"Gauges",
+	[Gauge],
+	[
+		check("RealReading", Gauge, (g) =>
+			g.and(
+				g.reading.ne(Number.NaN),
+				g.reading.lt(Number.POSITIVE_INFINITY),
+				g.reading.gt(Number.NEGATIVE_INFINITY)
+			)
 		)
-	)
-])
+	]
+)
 
 const fixtureSchemas: Arr.NonEmptyReadonlyArray<readonly [string, FixtureSchema]> = [
 	["shop v1", shopV1],

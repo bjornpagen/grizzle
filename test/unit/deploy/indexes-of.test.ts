@@ -92,38 +92,38 @@ const lawsOf = (c: Case) => [
 /** The case's schema: R at the root beside B or at a level over a root of B, and a derived level above it. */
 const schemaOf = (c: Case): AnySchema => {
 	if (c.placement === "root") {
-		const root = schema("Root", { B, R }, lawsOf(c))
+		const root = schema("Root", [B, R], lawsOf(c))
 		return c.derived
 			? schema.extend(
 					root,
 					"Upper",
-					{
-						Pairs: derived.materialized(
+					[
+						derived.materialized(
 							"Pairs",
 							query(root).rule((r) => {
 								const { id, other } = v(R, "r")
 								return r.match(R, { id, other }).find({ id, other })
 							})
 						)
-					},
+					],
 					[]
 				)
 			: root
 	}
-	const mid = schema.extend(schema("Root", { B }, []), "Mid", { R }, lawsOf(c))
+	const mid = schema.extend(schema("Root", [B], []), "Mid", [R], lawsOf(c))
 	return c.derived
 		? schema.extend(
 				mid,
 				"Upper",
-				{
-					Pairs: derived.materialized(
+				[
+					derived.materialized(
 						"Pairs",
 						query(mid).rule((r) => {
 							const { id, other } = v(R, "r")
 							return r.match(R, { id, other }).find({ id, other })
 						})
 					)
-				},
+				],
 				[]
 			)
 		: mid

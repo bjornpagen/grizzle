@@ -69,12 +69,11 @@ const positiveSeatsCheck = check("PositiveSeats", Club, (x) => x.gt(x.seats, 0))
  *   domain constraints, 23514 with the domain as the data type. Club's code and Member's code share the refinement's
  *   one domain, each field its own pattern law, which the table the refused statement writes decides.
  */
-export const Clubs = schema("Clubs", { Region, Club, Member }, [
-	memberOfClub,
-	captainKey,
-	emailKey,
-	positiveSeatsCheck
-])
+export const Clubs = schema(
+	"Clubs",
+	[Region, Club, Member],
+	[memberOfClub, captainKey, emailKey, positiveSeatsCheck]
+)
 
 /**
  * The names of Clubs' fresh installation, and its laws, each read through the naming door from the statement that

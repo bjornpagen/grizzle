@@ -47,7 +47,7 @@ import { refusedLaws } from "#test/support/refused.ts"
  */
 const Item = relation("Item", { id: pg.bigint, v: pg.integer }, ["id"])
 const Src = relation("Src", { id: pg.bigint, v: pg.integer }, ["id"])
-const build = (name: string) => schema(name, { Item, Src }, [])
+const build = (name: string) => schema(name, [Item, Src], [])
 
 interface Options extends Readonly<Record<string, unknown>> {
 	readonly batch: number

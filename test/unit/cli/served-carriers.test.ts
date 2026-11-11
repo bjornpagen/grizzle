@@ -106,7 +106,7 @@ type Feature =
 	| "a migration dropping a role that held TEMPORARY"
 
 const R = relation("R", { k: pg.integer, v: pg.integer }, ["k"])
-const Base = schema("served_carriers", { R }, [mutable(R)])
+const Base = schema("served_carriers", [R], [mutable(R)])
 
 /** A role of the box: R whole, written. */
 const writer = (name: string) => role(Base, name, wholeEntriesOf(Base), { write: ["R"] })

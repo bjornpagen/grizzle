@@ -103,7 +103,7 @@ const A = relation("A", { id: uuid, value: Pair }, ["id"])
 const B = relation("B", { id: uuid, value: Pair }, ["id"])
 const Edge = relation("Edge", { id: uuid, from: Pair, to: Pair }, ["id"])
 const Note = relation("Note", { id: uuid, value: Pair, rank: pg.bigint }, ["id"])
-const Pairs = schema("VectorPairs", { A, B, Edge, Note }, [])
+const Pairs = schema("VectorPairs", [A, B, Edge, Note], [])
 
 const pairType = scalarOf({ kind: "vector", dimensions: 2 }, {})
 const pairCodec = codecOf(pairType, emptyCodebook)
@@ -650,7 +650,7 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 					 * write transaction and so reads the conservative artifact, each a member of the full world's served
 					 * workload. The queries are built over the installed schema.
 					 */
-					const value = schema(installed.declared, Pairs.relations, Pairs.statements)
+					const value = schema(installed.declared, Rec.values(Pairs.relations), Pairs.statements)
 					const twins = query(value)
 						.rule((r) => {
 							const { id: key, value: pair } = v(A, "a")

@@ -1,3 +1,4 @@
+import { Record as Rec } from "effect"
 import { type AttemptFailure, labelText } from "#bench/write/support/writes.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -54,7 +55,7 @@ const workStanding = alternatives(QueueWork, "standing", Standing, {
 
 /** The queue schema, Work mutable. */
 export const queueSchema = (name: string) =>
-	schema(name, Queue.relations, [
+	schema(name, Rec.values(Queue.relations), [
 		mutable(QueueWork),
 		workStanding,
 		keyOn(on(Leased, "resource", "seat")),
@@ -63,7 +64,7 @@ export const queueSchema = (name: string) =>
 
 /** The same schema with Work immutable. */
 export const immutableQueueSchema = (name: string) =>
-	schema(name, Queue.relations, [
+	schema(name, Rec.values(Queue.relations), [
 		workStanding,
 		keyOn(on(Leased, "resource", "seat")),
 		contained(on(Leased, "resource", "seat"), on(Seat, "resource", "seat"))

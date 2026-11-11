@@ -265,7 +265,7 @@ const Ranges = relation.generated(
 		)
 	})
 )
-const parsed = schema("ParseDecimal", { Ranges }, [])
+const parsed = schema("ParseDecimal", [Ranges], [])
 
 const installationOf = Effect.gen(function* () {
 	const substrate = yield* Substrate

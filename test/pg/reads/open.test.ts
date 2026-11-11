@@ -94,7 +94,7 @@ const searchProbe = query(search.Search).rule((r) => {
  * extra_float_digits rounds; and bytes, which bytea_output spells. Its key is the stamp's id.
  */
 const Stamp = relation("Stamp", { id: uuid, day: date, ratio: pg.float8, blob: bytes }, ["id"])
-const Stamps = schema("Stamps", { Stamp }, [])
+const Stamps = schema("Stamps", [Stamp], [])
 
 /** The one stamp a case stores. */
 const stampId = "00000000-0000-4000-8000-0000000000aa"

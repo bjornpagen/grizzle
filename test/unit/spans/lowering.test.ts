@@ -52,7 +52,7 @@ const Slot = relation(
 	["id"]
 )
 const Visit = relation("Visit", { id: uuid, stay: span(Instant), at: Instant }, ["id"])
-const Spans = schema("Spans", { Slot, Visit }, [])
+const Spans = schema("Spans", [Slot, Visit], [])
 
 const compiled = (q: unknown): OracleTemplate =>
 	succeeded(
@@ -72,7 +72,7 @@ const statements = (t: OracleTemplate): ReadonlyArray<SqlStatement> => [
 const Shift = relation("Shift", { id: pg.integer, slot: span(pg.integer, 15), at: pg.integer }, [
 	"id"
 ])
-const Shifts = schema("Shifts", { Shift, Visit }, [])
+const Shifts = schema("Shifts", [Shift, Visit], [])
 
 /** The endpoint types a span parameter is declared over, by the pg type its description names. */
 const endpoints = ["integer", "bigint"] as const

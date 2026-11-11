@@ -104,31 +104,34 @@ const Club = relation("Club", { id: pg.int4 }, ["id"])
 const Seat = relation("Seat", { id: pg.int4, club: pg.int4, lead: pg.bool }, ["id"])
 const leads = select(Seat, (s) => s.eq(s.lead, true))
 
-const atMostOne = schema("fin_cap_at_most_one", { Club, Seat }, [key(on(leads, "club"))])
+const atMostOne = schema("fin_cap_at_most_one", [Club, Seat], [key(on(leads, "club"))])
 
-const exactlyOne = schema("fin_cap_exactly_one", { Club, Seat }, [
-	key(on(leads, "club")),
-	contained(on(Club, "id"), on(leads, "club"))
-])
+const exactlyOne = schema(
+	"fin_cap_exactly_one",
+	[Club, Seat],
+	[key(on(leads, "club")), contained(on(Club, "id"), on(leads, "club"))]
+)
 
 /** A club counting its seats, a counted family. */
 const CountedClub = relation("Club", { id: pg.int4, n: drawn(natural), need: natural }, ["id"])
 const CountedSeat = relation("Seat", { id: pg.int4, club: pg.int4 }, ["id"])
 const seats = counted(on(CountedSeat, "club"), fin(CountedClub, "n"))
 
-const atLeastOne = schema("fin_cap_at_least_one", { Club: CountedClub, Seat: CountedSeat }, [
-	seats,
-	check("AtLeastOne", CountedClub, (c) => c.ge(c.n, 1n))
-])
+const atLeastOne = schema(
+	"fin_cap_at_least_one",
+	[CountedClub, CountedSeat],
+	[seats, check("AtLeastOne", CountedClub, (c) => c.ge(c.n, 1n))]
+)
 
-const countBetween = schema("fin_cap_between", { Club: CountedClub, Seat: CountedSeat }, [
-	seats,
-	check("OneToThree", CountedClub, (c) => c.and(c.ge(c.n, 1n), c.le(c.n, 3n)))
-])
+const countBetween = schema(
+	"fin_cap_between",
+	[CountedClub, CountedSeat],
+	[seats, check("OneToThree", CountedClub, (c) => c.and(c.ge(c.n, 1n), c.le(c.n, 3n)))]
+)
 
 const countAtLeastField = schema(
 	"fin_cap_at_least_field",
-	{ Club: CountedClub, Seat: CountedSeat },
+	[CountedClub, CountedSeat],
 	[seats, check("Needed", CountedClub, (c) => c.ge(c.n, c.need))]
 )
 
@@ -145,11 +148,15 @@ const WeighedSeat = relation(
 )
 const weighed = ordered(on(WeighedSeat, "club", "at"), fin(WeighedClub, "n"))
 
-const weightedSchema = schema("fin_cap_weighted", { Club: WeighedClub, Seat: WeighedSeat }, [
-	weighed,
-	fold(weighed, Monoid.sum, on(WeighedSeat, "club", "weight"), on(WeighedClub, "id", "total")),
-	check("AtMostTen", WeighedClub, (c) => c.le(c.total, 10))
-])
+const weightedSchema = schema(
+	"fin_cap_weighted",
+	[WeighedClub, WeighedSeat],
+	[
+		weighed,
+		fold(weighed, Monoid.sum, on(WeighedSeat, "club", "weight"), on(WeighedClub, "id", "total")),
+		check("AtMostTen", WeighedClub, (c) => c.le(c.total, 10))
+	]
+)
 
 /** A club's shifts, each a span whose width is a generated field, summed: a duration made a weight. */
 const Shift = relation.generated(
@@ -169,11 +176,15 @@ const Shift = relation.generated(
 )
 const shifts = ordered(on(Shift, "club", "at"), fin(WeighedClub, "n"))
 
-const durationSchema = schema("fin_cap_duration", { Club: WeighedClub, Seat: Shift }, [
-	shifts,
-	fold(shifts, Monoid.sum, on(Shift, "club", "length"), on(WeighedClub, "id", "total")),
-	check("AtMostEight", WeighedClub, (c) => c.le(c.total, 8))
-])
+const durationSchema = schema(
+	"fin_cap_duration",
+	[WeighedClub, Shift],
+	[
+		shifts,
+		fold(shifts, Monoid.sum, on(Shift, "club", "length"), on(WeighedClub, "id", "total")),
+		check("AtMostEight", WeighedClub, (c) => c.le(c.total, 8))
+	]
+)
 
 /** A club counting its lead seats by a count fold over a selection. */
 const LedClub = relation(
@@ -188,25 +199,31 @@ const LedSeat = relation(
 )
 const led = ordered(on(LedSeat, "club", "at"), fin(LedClub, "n"))
 
-const countingSelection = schema("fin_cap_counting", { Club: LedClub, Seat: LedSeat }, [
-	led,
-	fold(
+const countingSelection = schema(
+	"fin_cap_counting",
+	[LedClub, LedSeat],
+	[
 		led,
-		Monoid.count,
-		on(
-			select(LedSeat, (s) => s.eq(s.lead, true)),
-			"club"
+		fold(
+			led,
+			Monoid.count,
+			on(
+				select(LedSeat, (s) => s.eq(s.lead, true)),
+				"club"
+			),
+			on(LedClub, "id", "leads")
 		),
-		on(LedClub, "id", "leads")
-	),
-	check("OneLead", LedClub, (c) => c.le(c.leads, 1n))
-])
+		check("OneLead", LedClub, (c) => c.le(c.leads, 1n))
+	]
+)
 
 /** A seat whose club is its home: the row check the capacity's equal source and target always was. */
 const HomeSeat = relation("Seat", { id: pg.int4, club: pg.int4, home: pg.int4 }, ["id"])
-const sourceEqualsTarget = schema("fin_cap_equal", { Seat: HomeSeat }, [
-	check("AtHome", HomeSeat, (s) => s.eq(s.club, s.home))
-])
+const sourceEqualsTarget = schema(
+	"fin_cap_equal",
+	[HomeSeat],
+	[check("AtHome", HomeSeat, (s) => s.eq(s.club, s.home))]
+)
 
 const clubSeats = ["id", "club", "lead"] as const
 

@@ -90,7 +90,7 @@ const lowerOf = (upper: Upper): Link => (upper === "L1" ? "L2" : "L3")
 
 /** The stored relations of every shape, and the path L1 ⋈ L2 from a key to its L2, an imported query. */
 const base = (name: string) => {
-	const Base = schema(name, { L1, L2, L3, M, N }, [])
+	const Base = schema(name, [L1, L2, L3, M, N], [])
 	const path = query(Base).rule((r) => {
 		const { id: x1, up: k } = v(L1, "first")
 		const { id: x2 } = v(L2, "second")
@@ -124,9 +124,12 @@ const titles = (name: string) => {
 					.find({ k })
 			})
 	)
-	return schema.extend(Base, `${name}_1`, { Listed, Matched }, [
-		contained(on(Listed, "k"), on(Matched, "k"))
-	])
+	return schema.extend(
+		Base,
+		`${name}_1`,
+		[Listed, Matched],
+		[contained(on(Listed, "k"), on(Matched, "k"))]
+	)
 }
 
 /** deep: a source of two arms in a target of three, the first declared from its deepest link up. */
@@ -180,9 +183,12 @@ const deep = (name: string) => {
 					.find({ k })
 			})
 	)
-	return schema.extend(Base, `${name}_1`, { Marked, Reached }, [
-		contained(on(Marked, "k"), on(Reached, "k"))
-	])
+	return schema.extend(
+		Base,
+		`${name}_1`,
+		[Marked, Reached],
+		[contained(on(Marked, "k"), on(Reached, "k"))]
+	)
 }
 
 /** key: a key over a side of three arms. */
@@ -210,7 +216,7 @@ const keyed = (name: string) => {
 				return r.match(L3, { up: x2, v: w }).match(path, { k, x2 }).find({ k, w })
 			})
 	)
-	return schema.extend(Base, `${name}_1`, { Valued }, [key(on(Valued, "k"))])
+	return schema.extend(Base, `${name}_1`, [Valued], [key(on(Valued, "k"))])
 }
 
 const shapes = ["titles", "deep", "key"] as const

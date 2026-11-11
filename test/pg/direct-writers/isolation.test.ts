@@ -68,12 +68,16 @@ const Member = relation("Member", { id: pg.integer, team: pg.integer, active: pg
 const Note = relation("Note", { id: pg.integer, body: pg.integer }, ["id"])
 const Tag = relation("Tag", { id: pg.integer, body: pg.integer }, ["id"])
 
-const Guarded = schema("Guarded", { Team, Member, Note, Tag }, [
-	check("CapNotNegative", Team, (x) => x.ge(x.cap, 0)),
-	contained(on(Member, "team"), on(Team, "id")),
-	mutable(Team),
-	mutable(Tag)
-])
+const Guarded = schema(
+	"Guarded",
+	[Team, Member, Note, Tag],
+	[
+		check("CapNotNegative", Team, (x) => x.ge(x.cap, 0)),
+		contained(on(Member, "team"), on(Team, "id")),
+		mutable(Team),
+		mutable(Tag)
+	]
+)
 
 /** The full world every write of the writer runs in: its role holds every relation whole and writes them. */
 const world = Object.freeze(fullWorld(Guarded, {}))

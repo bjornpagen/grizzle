@@ -135,7 +135,7 @@ const aimed = (d: Drawn, c: Case<Feature>): Drawn =>
 const Blob = relation("Blob", { id: pg.integer, a: bytes, b: bytes, t: str.regex("^.*$", "su") }, [
 	"id"
 ])
-const Blobs = schema("Delivery", { Blob }, [])
+const Blobs = schema("Delivery", [Blob], [])
 
 /** The full world's workload: Blob's rows written with the facts each call gives. */
 const programs = Object.freeze({ write: ChangeSet.empty(Blobs).insert(Blob, []) })

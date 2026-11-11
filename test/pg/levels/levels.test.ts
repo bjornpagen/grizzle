@@ -98,8 +98,8 @@ type LevelRole = "author" | "learner"
 const levelsAt = (name: string) => {
 	const lowerOwn = { Kind, Item }
 	const upperOwn = { Sitting }
-	const lower = schema(name, lowerOwn, [])
-	const upper = schema.extend(lower, levelNameAt(name, 1), upperOwn, [
+	const lower = schema(name, Rec.values(lowerOwn), [])
+	const upper = schema.extend(lower, levelNameAt(name, 1), Rec.values(upperOwn), [
 		contained(on(Sitting, "item"), on(Item, "id"))
 	])
 	const authorWrites = writableNamesOf(lower)

@@ -26,10 +26,11 @@ export const Task = relation(
 const NoteText = str.regex("^[a-z0-9 ]{1,40}$", "u")
 const Note = relation("Note", { task: uuid, note: NoteText }, ["task", "note"])
 const Flag = relation("Flag", { task: uuid, level: closedId(Level) }, ["task"])
-export const Paging = schema("Paging", { Level, Task, Note, Flag }, [
-	contained(on(Note, "task"), on(Task, "id")),
-	contained(on(Flag, "task"), on(Task, "id"))
-])
+export const Paging = schema(
+	"Paging",
+	[Level, Task, Note, Flag],
+	[contained(on(Note, "task"), on(Task, "id")), contained(on(Flag, "task"), on(Task, "id"))]
+)
 
 const tasksForAccount = query(Paging).rule((r) => {
 	const { id, account, priority, title } = v(Task, "task")
@@ -144,7 +145,7 @@ export const Measure = relation(
 	{ id: uuid, x: pg.float8, amount: pg.numeric(161, 40), big: pg.bigint, label: Label },
 	["id"]
 )
-export const Measures = schema("Measures", { Measure }, [])
+export const Measures = schema("Measures", [Measure], [])
 
 const measures = query(Measures).rule((r) => {
 	const { id, x, amount, big, label } = v(Measure, "measure")

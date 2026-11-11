@@ -132,9 +132,11 @@ const ruleCase: Gen<RuleCase> = (s) => ({
 const Item = relation("Item", { id: pg.integer, kind: pg.integer }, ["id"])
 const Mark = relation("Mark", { id: pg.integer, item: pg.integer, on: pg.integer }, ["id"])
 const Claim = relation("Claim", { item: pg.integer }, ["item"])
-const Base = schema("RuleQuery", { Item, Mark, Claim }, [
-	check("Positive", Item, (x) => x.not(x.eq(x.kind, 0)))
-])
+const Base = schema(
+	"RuleQuery",
+	[Item, Mark, Claim],
+	[check("Positive", Item, (x) => x.not(x.eq(x.kind, 0)))]
+)
 
 /**
  * The case's schema: its derived relation, on a level of its own, then Item's semijoin with it and the rule over the
@@ -164,7 +166,7 @@ const schemaOf = (c: RuleCase) => {
 			return negated.find({ id })
 		})
 	)
-	const Middle = schema.extend(Base, "RuleQueryMiddle", { Marked }, [])
+	const Middle = schema.extend(Base, "RuleQueryMiddle", [Marked], [])
 	const Read = derived(
 		"Read",
 		query(Middle).rule((r) => {
@@ -188,7 +190,7 @@ const schemaOf = (c: RuleCase) => {
 				return check("Positive", side, (x) => x.not(x.eq(x.id, 0)))
 		}
 	})()
-	return schema.extend(Middle, "RuleQueryTop", { Read }, [rule])
+	return schema.extend(Middle, "RuleQueryTop", [Read], [rule])
 }
 
 /** The pattern a text field is refined by: Doc's own, one inside it, or one around it. */
@@ -228,15 +230,7 @@ const notes = {
 } as const
 const Docs = schema(
 	"RuleQueryText",
-	{
-		Doc,
-		RefSame: refs.same,
-		RefNarrower: refs.narrower,
-		RefWider: refs.wider,
-		NoteSame: notes.same,
-		NoteNarrower: notes.narrower,
-		NoteWider: notes.wider
-	},
+	[Doc, refs.same, refs.narrower, refs.wider, notes.same, notes.narrower, notes.wider],
 	[]
 )
 
@@ -256,7 +250,7 @@ const textSchemaOf = (c: TextCase) => {
 			})
 		})
 	)
-	const Middle = schema.extend(Docs, "RuleQueryTextMiddle", { Paths }, [])
+	const Middle = schema.extend(Docs, "RuleQueryTextMiddle", [Paths], [])
 	const Read = derived(
 		"Read",
 		query(Middle).rule((r) => {
@@ -266,11 +260,16 @@ const textSchemaOf = (c: TextCase) => {
 	)
 	const side = c.read === "itself" ? Paths : Read
 	const ref = refs[c.ref]
-	return schema.extend(Middle, "RuleQueryTextTop", { Read }, [
-		c.rule === "into"
-			? contained(on(ref, "path"), on(side, "path"))
-			: contained(on(side, "path"), on(ref, "path"))
-	])
+	return schema.extend(
+		Middle,
+		"RuleQueryTextTop",
+		[Read],
+		[
+			c.rule === "into"
+				? contained(on(ref, "path"), on(side, "path"))
+				: contained(on(side, "path"), on(ref, "path"))
+		]
+	)
 }
 
 type TextReached = `a ${Exclude<Pattern, "same">} ${"ref" | "note"}` | "into" | "out of"
@@ -356,7 +355,7 @@ const tagCase: Gen<TagCase> = (s) => ({
 
 const tags = str.bytes(20, str.regex("^[a-z]+$"))
 const Tag = relation("Tag", { item: pg.integer, tag: tags }, ["item"])
-const Tags = schema("RuleQueryTags", { Item, Tag }, [])
+const Tags = schema("RuleQueryTags", [Item, Tag], [])
 
 /**
  * The case's schema, its head literals texts: Item's facts tagged "a" in both arms, or "a" and "b", and in the one arm
@@ -384,7 +383,7 @@ const tagSchemaOf = (c: TagCase) => {
 			return r.match(Item, { id }).find({ id, tag: "a" })
 		})
 	)
-	const Middle = schema.extend(Tags, "RuleQueryTagsMiddle", { Tagged, Once }, [])
+	const Middle = schema.extend(Tags, "RuleQueryTagsMiddle", [Tagged, Once], [])
 	const ReadOnce = derived(
 		"ReadOnce",
 		query(Middle).rule((r) => {
@@ -449,11 +448,11 @@ const tagSchemaOf = (c: TagCase) => {
 				]
 		}
 	})()
-	return schema.extend(Middle, "RuleQueryTagsTop", { Read, ReadOnce }, rules)
+	return schema.extend(Middle, "RuleQueryTagsTop", [Read, ReadOnce], rules)
 }
 
 const Amount = relation("Amount", { item: pg.integer, amount: pg.numeric(4, 2) }, ["item"])
-const Amounts = schema("RuleQueryAmounts", { Item, Amount }, [])
+const Amounts = schema("RuleQueryAmounts", [Item, Amount], [])
 const three = Decimal.fromOutput("3")
 
 /**
@@ -485,7 +484,7 @@ const amountSchemaOf = (c: TagCase, price: Decimal) => {
 			return r.match(Item, { id }).find({ id, amount: price })
 		})
 	)
-	const Middle = schema.extend(Amounts, "RuleQueryAmountsMiddle", { Priced, Once }, [])
+	const Middle = schema.extend(Amounts, "RuleQueryAmountsMiddle", [Priced, Once], [])
 	const ReadOnce = derived(
 		"ReadOnce",
 		query(Middle).rule((r) => {
@@ -556,7 +555,7 @@ const amountSchemaOf = (c: TagCase, price: Decimal) => {
 				]
 		}
 	})()
-	return schema.extend(Middle, "RuleQueryAmountsTop", { Read, ReadOnce }, rules)
+	return schema.extend(Middle, "RuleQueryAmountsTop", [Read, ReadOnce], rules)
 }
 
 /**
@@ -588,7 +587,7 @@ const negationCase: Gen<NegationCase> = (s) => ({
 })
 
 const Note = relation("Note", { item: pg.integer, on: pg.integer }, ["item", "on"])
-const Notes = schema("RuleQueryNegated", { Item, Mark, Claim, Note }, [])
+const Notes = schema("RuleQueryNegated", [Item, Mark, Claim, Note], [])
 
 /**
  * The reason each negated source is refused for, as a refusal reads (reasonOf), or none for one a rule reads: a
@@ -629,7 +628,7 @@ const negationSchemaOf = (c: NegationCase) => {
 		return r.match(Mark, { item, on }).match(Note, { item, on }).find({ item, on })
 	})
 	const Joined = derived("Joined", join)
-	const Middle = schema.extend(Notes, "RuleQueryNegatedMiddle", { Joined }, [])
+	const Middle = schema.extend(Notes, "RuleQueryNegatedMiddle", [Joined], [])
 	const union = query(Middle)
 		.rule((r) => {
 			const { item, on } = v(Mark, "mark")
@@ -683,7 +682,7 @@ const negationSchemaOf = (c: NegationCase) => {
 			return filtered.find({ id })
 		})
 	)
-	const Upper = schema.extend(Middle, "RuleQueryNegatedUpper", { Unmarked }, [])
+	const Upper = schema.extend(Middle, "RuleQueryNegatedUpper", [Unmarked], [])
 	const Read = derived(
 		"Read",
 		query(Upper).rule((r) => {
@@ -704,7 +703,7 @@ const negationSchemaOf = (c: NegationCase) => {
 				return key(on(side, "id"))
 		}
 	})()
-	return schema.extend(Upper, "RuleQueryNegatedTop", { Read }, [rule])
+	return schema.extend(Upper, "RuleQueryNegatedTop", [Read], [rule])
 }
 
 type NegationReached =

@@ -122,7 +122,7 @@ const schemaOf = (d: Drawn) => {
 			w: generated(bits(S), C.row(r.k))
 		})
 	)
-	const Sets = schema("SetPadding", { S, C, R }, [])
+	const Sets = schema("SetPadding", [S, C, R], [])
 	const programs = {
 		write: ChangeSet.empty(Sets).insert(R, []),
 		sets: query(Sets).rule((r) => {

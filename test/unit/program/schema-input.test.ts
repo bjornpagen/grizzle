@@ -326,12 +326,12 @@ const roots: Arr.NonEmptyReadonlyArray<Root> = [
 	{
 		subject: work,
 		relation: Account,
-		renamed: (name) => schema(name, Work.relations, Work.statements)
+		renamed: (name) => schema(name, Rec.values(Work.relations), Work.statements)
 	},
 	{
 		subject: payroll,
 		relation: Employer,
-		renamed: (name) => schema(name, Payroll.relations, Payroll.statements)
+		renamed: (name) => schema(name, Rec.values(Payroll.relations), Payroll.statements)
 	}
 ]
 

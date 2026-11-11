@@ -42,7 +42,16 @@ import { boolean, element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order, Result, String as Str } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	Record as Rec,
+	Result,
+	String as Str
+} from "effect"
 import { CompileError } from "#compiler/core/errors.ts"
 import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
@@ -108,7 +117,7 @@ const relations = Object.freeze({ Store, Item, Open, Shelf, Slot, Ticket })
 /** The world's schema: the counted family of Items with a sum into Store's stock and Store's region copied into each
  * Item, the ordered family of Slots, and each owner mutable when `mutability` says so. */
 const schemaOf = (mutability: Mutability) =>
-	schema("Shops", relations, [
+	schema("Shops", Rec.values(relations), [
 		items,
 		fold(items, Monoid.sum, on(Item, "store", "qty"), on(Store, "id", "stock")),
 		contained(on(Item, "store", "region"), on(Store, "id", "region")),

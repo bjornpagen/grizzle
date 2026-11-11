@@ -189,7 +189,7 @@ const Keys = relation.generated(
 	["id"],
 	(r) => ({ value: generated(pg["double precision"], Compute.parseDouble(r.key)) })
 )
-const parsed = schema("ParseDouble", { Keys }, [])
+const parsed = schema("ParseDouble", [Keys], [])
 
 const installationOf = Effect.gen(function* () {
 	const substrate = yield* Substrate

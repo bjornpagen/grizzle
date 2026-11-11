@@ -409,7 +409,7 @@ const containmentsOf = (left: MirrorLeft): ReadonlyArray<Statement> =>
 			]
 
 const installed = (statements: ReadonlyArray<Statement>): Installation => {
-	const owned = owning(schema("Projections", { Owner, Item, Note, Profile, Seat }, statements))
+	const owned = owning(schema("Projections", [Owner, Item, Note, Profile, Seat], statements))
 	const result = compileInstallation(owned, installOptions(owned, owner))
 	if (!result.ok) {
 		throw result.error

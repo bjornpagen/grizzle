@@ -180,7 +180,7 @@ const notes = (d: Drawn): ReadonlyArray<Feature> => {
 
 const Shelf = relation("Shelf", { id: pg.integer }, ["id"])
 const Blob = relation("Blob", { id: pg.integer, shelf: pg.integer, body: bytes }, ["id"])
-const Blobs = schema("Bytes", { Shelf, Blob }, [])
+const Blobs = schema("Bytes", [Shelf, Blob], [])
 
 /** Every bytes value with its shelf. */
 const blobs = query(Blobs).rule((r) => {

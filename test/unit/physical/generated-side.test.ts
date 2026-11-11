@@ -111,7 +111,7 @@ const schemaOf = (c: SideCase) => {
 	)
 	const side = onBuilder(selected, Arr.map(c.terms, nameOf))
 	if (c.law === "key") {
-		return { R, value: schema("Generated", { R }, [keyBuilder(side)], []) }
+		return { R, value: schema("Generated", [R], [keyBuilder(side)], []) }
 	}
 	const targets = Arr.map(c.terms, (_, i) => `t${i}`)
 	const targetFields: Readonly<Record<string, FieldBase>> = Rec.fromEntries(
@@ -120,7 +120,7 @@ const schemaOf = (c: SideCase) => {
 	const T = relation("T", targetFields, nonEmpty(targets, "T's key"), [])
 	return {
 		R,
-		value: schema("Generated", { R, T }, [containedBuilder(side, onBuilder(T, targets))], [])
+		value: schema("Generated", [R, T], [containedBuilder(side, onBuilder(T, targets))], [])
 	}
 }
 

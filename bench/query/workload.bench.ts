@@ -66,9 +66,11 @@ const Task = relation(
 	["id"]
 )
 
-const Workload = schema("Workload", { Account, Task }, [
-	contained(on(Task, "account"), on(Account, "id"))
-])
+const Workload = schema(
+	"Workload",
+	[Account, Task],
+	[contained(on(Task, "account"), on(Account, "id"))]
+)
 
 const urgentTasks = query(Workload).rule((r) => {
 	const { id, priority } = v(Task, "task")

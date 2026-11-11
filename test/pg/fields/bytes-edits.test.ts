@@ -249,7 +249,7 @@ const notes = (d: Drawn): ReadonlyArray<Feature> => {
 const Blob = relation("Blob", { id: pg.integer, body: bytes }, ["id"])
 const Held = relation("Held", { id: pg.integer, body: bytes }, ["id"])
 const Stage = relation("Stage", { id: pg.integer, body: bytes }, ["id"])
-const Edits = schema("BytesEdits", { Blob, Held, Stage }, [mutable(Blob), mutable(Held)])
+const Edits = schema("BytesEdits", [Blob, Held, Stage], [mutable(Blob), mutable(Held)])
 
 /** Every row of `target`, with its value. */
 const everyRowOf = (target: typeof Blob | typeof Held) =>

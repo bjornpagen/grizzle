@@ -130,20 +130,24 @@ const countOrdered = (() => {
 		["member"]
 	)
 	const family = ordered(on(Member, "g", "at"), fin(Owner, "n"))
-	return schema("fin_fold_count", { Owner, Member }, [
-		family,
-		fold(
+	return schema(
+		"fin_fold_count",
+		[Owner, Member],
+		[
 			family,
-			Monoid.count,
-			on(
-				select(Member, (r) => r.eq(r.on, true)),
-				"g",
-				"before",
-				"after"
-			),
-			on(Owner, "id", "end")
-		)
-	])
+			fold(
+				family,
+				Monoid.count,
+				on(
+					select(Member, (r) => r.eq(r.on, true)),
+					"g",
+					"before",
+					"after"
+				),
+				on(Owner, "id", "end")
+			)
+		]
+	)
 })()
 
 const sumInt4 = (() => {
@@ -165,10 +169,14 @@ const sumInt4 = (() => {
 		["member"]
 	)
 	const family = ordered(on(Member, "g", "at"), fin(Owner, "n"))
-	return schema("fin_fold_sum_int4", { Owner, Member }, [
-		family,
-		fold(family, Monoid.sum, on(Member, "g", "x", "before", "after"), on(Owner, "id", "end"))
-	])
+	return schema(
+		"fin_fold_sum_int4",
+		[Owner, Member],
+		[
+			family,
+			fold(family, Monoid.sum, on(Member, "g", "x", "before", "after"), on(Owner, "id", "end"))
+		]
+	)
 })()
 
 const sumNumeric = (() => {
@@ -191,10 +199,14 @@ const sumNumeric = (() => {
 		["member"]
 	)
 	const family = ordered(on(Member, "g", "at"), fin(Owner, "n"))
-	return schema("fin_fold_sum_numeric", { Owner, Member }, [
-		family,
-		fold(family, Monoid.sum, on(Member, "g", "x", "before", "after"), on(Owner, "id", "end"))
-	])
+	return schema(
+		"fin_fold_sum_numeric",
+		[Owner, Member],
+		[
+			family,
+			fold(family, Monoid.sum, on(Member, "g", "x", "before", "after"), on(Owner, "id", "end"))
+		]
+	)
 })()
 
 const orBits = (() => {
@@ -217,10 +229,14 @@ const orBits = (() => {
 		["member"]
 	)
 	const family = ordered(on(Member, "g", "at"), fin(Owner, "n"))
-	return schema("fin_fold_or", { Tag, Owner, Member }, [
-		family,
-		fold(family, Monoid.or, on(Member, "g", "x", "before", "after"), on(Owner, "id", "end"))
-	])
+	return schema(
+		"fin_fold_or",
+		[Tag, Owner, Member],
+		[
+			family,
+			fold(family, Monoid.or, on(Member, "g", "x", "before", "after"), on(Owner, "id", "end"))
+		]
+	)
 })()
 
 const twosBits = (() => {
@@ -251,18 +267,22 @@ const twosBits = (() => {
 		["member"]
 	)
 	const family = ordered(on(Member, "g", "at"), fin(Owner, "n"))
-	return schema("fin_fold_twos", { Tag, Owner, Member }, [
-		family,
-		fold(
+	return schema(
+		"fin_fold_twos",
+		[Tag, Owner, Member],
+		[
 			family,
-			Monoid.twos,
-			on(Member, "g", "x", "onesBefore", "onesAfter", "twosBefore", "twosAfter"),
-			on(Owner, "id", "ones", "twos")
-		),
-		check("atMostOneOfK", Owner, (o) =>
-			o.eq(Compute.cardinality(Compute.intersection(o.twos, o.k)), 0n)
-		)
-	])
+			fold(
+				family,
+				Monoid.twos,
+				on(Member, "g", "x", "onesBefore", "onesAfter", "twosBefore", "twosAfter"),
+				on(Owner, "id", "ones", "twos")
+			),
+			check("atMostOneOfK", Owner, (o) =>
+				o.eq(Compute.cardinality(Compute.intersection(o.twos, o.k)), 0n)
+			)
+		]
+	)
 })()
 
 const maxInt4 = (() => {
@@ -284,10 +304,14 @@ const maxInt4 = (() => {
 		["member"]
 	)
 	const family = ordered(on(Member, "g", "at"), fin(Owner, "n"))
-	return schema("fin_fold_max_int4", { Owner, Member }, [
-		family,
-		fold(family, Monoid.max, on(Member, "g", "x", "before", "after"), on(Owner, "id", "end"))
-	])
+	return schema(
+		"fin_fold_max_int4",
+		[Owner, Member],
+		[
+			family,
+			fold(family, Monoid.max, on(Member, "g", "x", "before", "after"), on(Owner, "id", "end"))
+		]
+	)
 })()
 
 const maxCode = (() => {
@@ -309,10 +333,14 @@ const maxCode = (() => {
 		["member"]
 	)
 	const family = ordered(on(Member, "g", "at"), fin(Owner, "n"))
-	return schema("fin_fold_max_code", { Tag, Owner, Member }, [
-		family,
-		fold(family, Monoid.max, on(Member, "g", "x", "before", "after"), on(Owner, "id", "end"))
-	])
+	return schema(
+		"fin_fold_max_code",
+		[Tag, Owner, Member],
+		[
+			family,
+			fold(family, Monoid.max, on(Member, "g", "x", "before", "after"), on(Owner, "id", "end"))
+		]
+	)
 })()
 
 const sumCounted = (() => {
@@ -323,10 +351,11 @@ const sumCounted = (() => {
 	)
 	const Member = relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
 	const family = counted(on(Member, "g"), fin(Owner, "n"))
-	return schema("fin_fold_sum_counted", { Owner, Member }, [
-		family,
-		fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end"))
-	])
+	return schema(
+		"fin_fold_sum_counted",
+		[Owner, Member],
+		[family, fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end"))]
+	)
 })()
 
 const orCounted = (() => {
@@ -338,10 +367,11 @@ const orCounted = (() => {
 	)
 	const Member = relation("Member", { member: pg.int4, g: pg.int4, x: bits(Tag) }, ["member"])
 	const family = counted(on(Member, "g"), fin(Owner, "n"))
-	return schema("fin_fold_or_counted", { Tag, Owner, Member }, [
-		family,
-		fold(family, Monoid.or, on(Member, "g", "x"), on(Owner, "id", "end"))
-	])
+	return schema(
+		"fin_fold_or_counted",
+		[Tag, Owner, Member],
+		[family, fold(family, Monoid.or, on(Member, "g", "x"), on(Owner, "id", "end"))]
+	)
 })()
 
 /** How a carrier's values are written, read and encoded: SQL text from the reference's value, and back. */

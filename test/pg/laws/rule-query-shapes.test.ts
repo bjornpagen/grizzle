@@ -71,7 +71,7 @@ const Flag = relation("Flag", { id: pg.integer }, ["id"])
 const shapes = (name: string) => {
 	const Base = schema(
 		name,
-		{
+		[
 			ResourceHref,
 			ResourceTyped,
 			Entry,
@@ -85,7 +85,7 @@ const shapes = (name: string) => {
 			Item,
 			ItemKey,
 			Flag
-		},
+		],
 		[]
 	)
 	const TypedHref = derived(
@@ -123,22 +123,27 @@ const shapes = (name: string) => {
 			return r.match(Item, { id, k }).where(r.not(ItemKey, { k })).find({ id })
 		})
 	)
-	return schema.extend(Base, `${name}_1`, { TypedHref, TitledObject, HeldSetter, Unmatched }, [
-		check("DocumentEntry", TypedHref, (t) =>
-			t.not(t.and(t.eq(t.type, ITEM), t.eq(t.internal, false)))
-		),
-		contained(
-			on(
-				select(TypedHref, (t) => t.eq(t.type, ITEM)),
-				"path"
+	return schema.extend(
+		Base,
+		`${name}_1`,
+		[TypedHref, TitledObject, HeldSetter, Unmatched],
+		[
+			check("DocumentEntry", TypedHref, (t) =>
+				t.not(t.and(t.eq(t.type, ITEM), t.eq(t.internal, false)))
 			),
-			on(Entry, "path")
-		),
-		contained(on(LomObject, "node", "path", "type"), on(TypedHref, "node", "path", "type")),
-		contained(on(TitledObject, "record"), on(ObjectTitle, "record")),
-		contained(on(HeldSetter, "node"), on(HeldType, "node")),
-		contained(on(Unmatched, "id"), on(Flag, "id"))
-	])
+			contained(
+				on(
+					select(TypedHref, (t) => t.eq(t.type, ITEM)),
+					"path"
+				),
+				on(Entry, "path")
+			),
+			contained(on(LomObject, "node", "path", "type"), on(TypedHref, "node", "path", "type")),
+			contained(on(TitledObject, "record"), on(ObjectTitle, "record")),
+			contained(on(HeldSetter, "node"), on(HeldType, "node")),
+			contained(on(Unmatched, "id"), on(Flag, "id"))
+		]
+	)
 }
 
 const RELATIONS = nonEmpty([

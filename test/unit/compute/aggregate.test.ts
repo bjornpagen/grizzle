@@ -70,7 +70,7 @@ const countsByFilter = (statements: ReadonlyArray<{ readonly ast: SqlStatement }
 
 describe("R24 conditional aggregates", () => {
 	const Line = relation("Line", { id: uuid, flag: pg.boolean, qty: pg.integer }, ["id"])
-	const Lines = schema("Lines", { Line }, [])
+	const Lines = schema("Lines", [Line], [])
 
 	/** The head term a shape makes of a conditional: its sum, or the conditional itself. A count takes no argument. */
 	type Shape = "sum" | "bare"
@@ -342,7 +342,7 @@ describe("min, max, LEAST and GREATEST", () => {
 					Effect.sync(() => {
 						c.note(`${returning} over a ${reading}`)
 						const Held = relation("Held", { id: uuid, a: k, b: k }, ["id"])
-						const held = queryOver(schema("Held", { Held }, [])).rule((r: RuleValue) => {
+						const held = queryOver(schema("Held", [Held], [])).rule((r: RuleValue) => {
 							const x = varsOver(Held, "held")
 							return r
 								.match(Held, { id: x["id"], a: x["a"], b: x["b"] })

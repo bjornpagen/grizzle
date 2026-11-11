@@ -228,7 +228,7 @@ const labelSchema = (labels: ReadonlyArray<Slug>) => {
 		["tier"],
 		Arr.map(handles, (tier, i) => ({ tier, label: defined(labels[i], "a handle's label") }))
 	)
-	return schema("Labels", { Tier, TierLabel }, [])
+	return schema("Labels", [Tier, TierLabel], [])
 }
 
 describe("migration folders, generated", () => {

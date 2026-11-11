@@ -36,17 +36,21 @@ const Node = relation(
 )
 const Document = relation("Document", { node: pg.int4 }, ["node"])
 
-const FixedTarget = schema("fixed_target", { NodeKind, Node, Document }, [
-	contained(
-		on(Document, "node"),
-		on(
-			select(Node, (n) =>
-				n.and(n.eq(n.kind, "document"), n.eq(n.document, n.id), n.eq(n.depth, 0n))
-			),
-			"id"
+const FixedTarget = schema(
+	"fixed_target",
+	[NodeKind, Node, Document],
+	[
+		contained(
+			on(Document, "node"),
+			on(
+				select(Node, (n) =>
+					n.and(n.eq(n.kind, "document"), n.eq(n.document, n.id), n.eq(n.depth, 0n))
+				),
+				"id"
+			)
 		)
-	)
-])
+	]
+)
 
 const RELATIONS = ["Node", "Document"] as const
 

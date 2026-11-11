@@ -933,7 +933,7 @@ describe("r.pack over a recursive arm", () => {
 		"to",
 		"during"
 	])
-	const Spans = schema("Spans", { Link }, [])
+	const Spans = schema("Spans", [Link], [])
 	const row = { node: uuid, during: span(pg.bigint) }
 	/**
 	 * The step's head term is chosen at run time, a producer or a term, which the typed recursive cannot state as the

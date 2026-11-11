@@ -162,14 +162,11 @@ const Entry = relation.generated(
 const entries = ordered(on(Entry, "mapping", "at"), fin(Mapping, "n"))
 const entryKey = key(on(Entry, "mapping", "value", "negative"))
 
-const Keys = schema("Keys", { MapKey, Use, Tag, Mapping, Entry }, [
-	typedKey,
-	useRef,
-	positiveTag,
-	entries,
-	entryKey,
-	mutable(Tag)
-])
+const Keys = schema(
+	"Keys",
+	[MapKey, Use, Tag, Mapping, Entry],
+	[typedKey, useRef, positiveTag, entries, entryKey, mutable(Tag)]
+)
 
 /**
  * The full world's workload: the stored state's insert, MapKey, Use, Tag and new mappings from each call's facts; and
@@ -876,7 +873,7 @@ const Label = relation.generated("Label", { id: pg.integer, text: KeyText }, ["i
 const labelValue = key(on(Label, "value"))
 
 const labelsAt = (name: string) => {
-	const base = schema(name, { Label }, [labelValue])
+	const base = schema(name, [Label], [labelValue])
 	const low = query(base).rule((r) => {
 		const { id, text, value } = v(Label, "label")
 		return r.match(Label, { id, text, value }).where(r.lt(id, 5)).find({ id, text, value })

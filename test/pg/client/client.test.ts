@@ -63,10 +63,10 @@ const Item = relation(
 	},
 	["id"]
 )
-const Items = schema("Items", { Item }, [mutable(Item)])
+const Items = schema("Items", [Item], [mutable(Item)])
 
 /** The items' schema under the name `name` an installation is allocated, over the same relation. */
-const itemsNamed = (name: string) => schema(name, { Item }, [mutable(Item)])
+const itemsNamed = (name: string) => schema(name, [Item], [mutable(Item)])
 
 /** An item as stored and as a call states it. */
 type ItemFact = Readonly<{ id: number; big: bigint; amount: Decimal; cash: Money; flag: boolean }>

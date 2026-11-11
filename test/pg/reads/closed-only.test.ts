@@ -106,7 +106,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relati
 							tierFacts
 						)
 						const Region = closed("Region", c.regions)
-						const Plans = schema("Plans", { Tier, TierInfo, Region }, [])
+						const Plans = schema("Plans", [Tier, TierInfo, Region], [])
 						const tiers = query(Plans).rule((r) => {
 							const { id } = v(Tier, "tier")
 							return r.match(Tier, { id }).find({ id })

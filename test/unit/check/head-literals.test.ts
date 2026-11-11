@@ -58,7 +58,7 @@ const Cell = relation(
 	},
 	["id"]
 )
-const Cells = schema("HeadLiterals", { Kind, Cell }, [])
+const Cells = schema("HeadLiterals", [Kind, Cell], [])
 
 /** The types of the universe: Kind's closed id, Cell's short text, unrefined text, and the plain types. */
 type Token =

@@ -47,14 +47,18 @@ const bronze = () => Compute.literal(Badge.fields.tiers, Bits.of(Tier, ["bronze"
 const silver = Bits.of(Tier, ["silver"])
 
 /** At most one badge of bronze and silver alone per holder: a selection key whose guard computes its value. */
-const Badges = schema("Badges", { Tier, Badge }, [
-	key(
-		on(
-			select(Badge, (x) => x.eq(x.tiers, Compute.union(bronze(), silver))),
-			"holder"
+const Badges = schema(
+	"Badges",
+	[Tier, Badge],
+	[
+		key(
+			on(
+				select(Badge, (x) => x.eq(x.tiers, Compute.union(bronze(), silver))),
+				"holder"
+			)
 		)
-	)
-])
+	]
+)
 
 const schemaOf = (relation: Relation) => (relation === "Badge" ? Badges : Plans)
 

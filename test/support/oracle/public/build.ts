@@ -184,7 +184,7 @@ const schemaOf = (
 	declared: string,
 	relations: Readonly<Record<string, RosterValue | RelationValue>>,
 	statements: ReadonlyArray<Statement>
-) => schema(declared, relations, statements)
+) => schema(declared, Rec.values(relations), statements)
 export type SchemaValue = ReturnType<typeof schemaOf>
 
 /**

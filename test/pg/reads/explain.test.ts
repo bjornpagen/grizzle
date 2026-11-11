@@ -111,7 +111,7 @@ import { regex } from "arkregex"
 /**
  * A schema no Db of the suite opens, holding Work's TaskNote: a ChangeSet over it is over no level of any role here.
  */
-const Elsewhere = schema("Elsewhere", { TaskNote: W.TaskNote }, [])
+const Elsewhere = schema("Elsewhere", [W.TaskNote], [])
 
 /** Every node of a plan tree, depth first. */
 const nodes = <N extends { readonly children: ReadonlyArray<N> }>(plan: N): ReadonlyArray<N> => [
@@ -470,7 +470,7 @@ const refusalOf = (c: RefusalCase): RefusalFeature =>
 /** A box, the owner of an ordered family of parts whose bodies are bytes, as pantry's import nests its entries. */
 const Box = relation("Box", { id: uuid, parts: drawnField(natural) }, ["id"])
 const Part = relation("Part", { box: uuid, at: drawnField(natural), body: bytes }, ["box", "at"])
-const Boxes = schema("Boxes", { Box, Part }, [ordered(on(Part, "box", "at"), fin(Box, "parts"))])
+const Boxes = schema("Boxes", [Box, Part], [ordered(on(Part, "box", "at"), fin(Box, "parts"))])
 
 /** A pool whose sessions hold the message bound `limit`, as a server whose bound is below the protocol's does. */
 const boundPool = (pool: SessionPool, limit: number): SessionPool => ({

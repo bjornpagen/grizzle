@@ -1,7 +1,7 @@
 import { array, type Gen, int, map } from "@grizzle/testing/gen"
 import { exact, set, structuralHash } from "@grizzle/testing/oracle"
 import { keep, type Swarm, swarm as swarmOf, weightOf } from "@grizzle/testing/swarm"
-import { Array as Arr, Option, String as Str } from "effect"
+import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
@@ -647,7 +647,7 @@ const schemaOf = (
 	declared: string,
 	relations: Readonly<Record<string, WRoster | WRelationValue>>,
 	statements: ReadonlyArray<Statement>
-) => schema(declared, relations, statements)
+) => schema(declared, Rec.values(relations), statements)
 /** The schema value of a generated schema, under any declared name. */
 export type WSchemaValue = ReturnType<typeof schemaOf>
 

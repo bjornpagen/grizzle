@@ -18,7 +18,17 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Exit, Formatter, Option, Order, Result, String as Str } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Exit,
+	Formatter,
+	Option,
+	Order,
+	Record as Rec,
+	Result,
+	String as Str
+} from "effect"
 import { textArray } from "#adapter/admission/roles.ts"
 import {
 	CommitUnknown,
@@ -97,7 +107,7 @@ const Sitting = relation(
 	{ id: uuid, student: uuid, week: pg.integer, passed: pg.boolean },
 	["id"]
 )
-const Edu = schema("Edu", { Sitting }, [])
+const Edu = schema("Edu", [Sitting], [])
 
 /** A role value's Description, as Db.open parses it. */
 const declaredOf = (value: unknown): RoleDesc =>
@@ -209,7 +219,7 @@ const built = (c: TargetsCase) => {
 				declared.push({ name: `D${n}`, n, level: index + 1, position, value })
 			}
 		}
-		base = schema.extend(base, `Level${index + 1}`, record, [])
+		base = schema.extend(base, `Level${index + 1}`, Rec.values(record), [])
 	}
 	const refreshed = Arr.filter(declared, (_, i) => c.refresh[i] === true)
 	const refresher = admitRole(
@@ -650,13 +660,13 @@ const Totals = query(Edu).rule((r) => {
 })
 const B = derived.materialized("B", Weekly)
 const A = derived.materialized("A", Totals)
-const Level1 = schema.extend(Edu, "Level1", { B, A }, [])
+const Level1 = schema.extend(Edu, "Level1", [B, A], [])
 const Busy = query(Level1).rule((r) => {
 	const { student, week } = v(B, "b")
 	return r.match(B, { student, week }).find({ week, students: r.count() })
 })
 const C = derived.materialized("C", Busy)
-const Reports = schema.extend(Level1, "Reports", { C }, [])
+const Reports = schema.extend(Level1, "Reports", [C], [])
 const Refresher = role(Reports, "refresher", Reports.relations, { refresh: ["A", "B", "C"] })
 const reports = succeeded(testArtifacts(Reports, testCompile))
 const reportsNames = installationNamesOf(installationOf(Reports, atDeclaredName))

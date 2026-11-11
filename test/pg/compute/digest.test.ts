@@ -235,11 +235,15 @@ const Page = relation(
 	{ id: uuid, entry: uuid, at: drawnField(natural), entryDigest: accumulated(Digest, noDigest) },
 	["id"]
 )
-const Media = schema("Media", { Entry, Page }, [
-	ordered(on(Page, "entry", "at"), fin(Entry, "pages")),
-	contained(on(Page, "entry", "entryDigest"), on(Entry, "id", "digest")),
-	check("Digested", Entry, (row) => row.eq(row.digest, Compute.sha256(row.content)))
-])
+const Media = schema(
+	"Media",
+	[Entry, Page],
+	[
+		ordered(on(Page, "entry", "at"), fin(Entry, "pages")),
+		contained(on(Page, "entry", "entryDigest"), on(Entry, "id", "digest")),
+		check("Digested", Entry, (row) => row.eq(row.digest, Compute.sha256(row.content)))
+	]
+)
 
 /**
  * The full world's workload: entries written with their pages nested, the entries' digests read back, a query's head

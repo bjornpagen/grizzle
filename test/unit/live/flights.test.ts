@@ -75,7 +75,7 @@ import { upTo } from "#test/support/up-to.ts"
 const Sitting = relation("Sitting", { id: pg.integer, student: pg.integer, week: pg.integer }, [
 	"id"
 ])
-const Edu = schema("Edu", { Sitting }, [])
+const Edu = schema("Edu", [Sitting], [])
 const Weekly = derived.materialized(
 	"Weekly",
 	query(Edu).rule((r) => {
@@ -83,7 +83,7 @@ const Weekly = derived.materialized(
 		return r.match(Sitting, { id, student, week }).find({ student, week, sittings: r.count() })
 	})
 )
-const Reports = schema.extend(Edu, "Edu_1", { Weekly }, [])
+const Reports = schema.extend(Edu, "Edu_1", [Weekly], [])
 const app = role(Reports, "app", wholeEntriesOf(Reports), { refresh: ["Weekly"] })
 const sittingsOf = query(Reports).rule((r) => {
 	const { id, week } = v(Sitting, "sitting")

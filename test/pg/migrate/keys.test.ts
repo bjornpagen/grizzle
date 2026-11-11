@@ -107,11 +107,11 @@ const ItemByB = relation("Item", fields, ["b"])
 const schemaOf = (name: string, key: Field) => {
 	switch (key) {
 		case "id":
-			return schema(name, { Item: ItemById }, [])
+			return schema(name, [ItemById], [])
 		case "a":
-			return schema(name, { Item: ItemByA }, [])
+			return schema(name, [ItemByA], [])
 		case "b":
-			return schema(name, { Item: ItemByB }, [])
+			return schema(name, [ItemByB], [])
 	}
 }
 

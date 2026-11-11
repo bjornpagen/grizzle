@@ -41,7 +41,7 @@ const Booking = relation(
 	["id"]
 )
 const bookingSpan = key(on(Booking, "room", "during"))
-const U = schema("U", { Booking }, [bookingSpan, key(on(Booking, "ref"))])
+const U = schema("U", [Booking], [bookingSpan, key(on(Booking, "ref"))])
 const names = writeNamesOf(U, "u")
 
 const artifacts = succeeded(testArtifacts(U, testCompile))

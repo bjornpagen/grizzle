@@ -1,3 +1,4 @@
+import { Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type * as Result from "#compiler/core/result.ts"
@@ -91,13 +92,13 @@ const shopLaws = [
 	check("OneOrTwoHands", Crew, (r) => r.hands.between(1n, 2n))
 ] as const
 
-const Shop = schema("Shop", shopRelations, shopLaws)
+const Shop = schema("Shop", Rec.values(shopRelations), shopLaws)
 
 /**
  * The Shop with Crew mutable: a Hand's delete then shrinks a stored Crew's family, which the Shop's immutable Crew keeps
  * fixed from its insert.
  */
-const MutableCrewShop = schema("Shop", shopRelations, [...shopLaws, mutable(Crew)])
+const MutableCrewShop = schema("Shop", Rec.values(shopRelations), [...shopLaws, mutable(Crew)])
 
 export const shopChangeSet = (): ChangeSetValue => ChangeSet.empty(Shop)
 export const mutableCrewChangeSet = (): ChangeSetValue => ChangeSet.empty(MutableCrewShop)

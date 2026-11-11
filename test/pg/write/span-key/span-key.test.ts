@@ -62,7 +62,7 @@ const Room = relation("Room", { room: uuid, during: span(pg.bigint), guest: uuid
 	"during"
 ])
 const Hold = relation("Hold", { room: uuid, during: span(pg.bigint), note }, ["room", "during"])
-const Spans = schema("SpanKeys", { Room, Hold }, [mutable(Hold)])
+const Spans = schema("SpanKeys", [Room, Hold], [mutable(Hold)])
 
 /**
  * The full world's workload: an insert and a put of each relation, enumerated from each call's facts, and described

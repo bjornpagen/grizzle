@@ -98,22 +98,26 @@ const lines = ordered(on(Line, "order", "at"), fin(Order, "n"))
  * the family's sum, so a put of either owner that changes it refills its members; a second counted family of Owner's;
  * and an ordered family. Every relation mutable, so a put updates in place and a delete re-places a sequence.
  */
-const Removals = schema("removal_plans", { Owner, Other, Member, Second, Order, Line }, [
-	byOwner,
-	byOther,
-	seconds,
-	lines,
-	contained(on(Member, "g", "c"), on(Owner, "id", "v")),
-	contained(on(Member, "h", "d"), on(Other, "id", "w")),
-	fold(byOwner, Monoid.sum, on(Member, "g", "c"), on(Owner, "id", "e")),
-	fold(byOther, Monoid.sum, on(Member, "h", "d"), on(Other, "id", "e")),
-	mutable(Owner),
-	mutable(Other),
-	mutable(Member),
-	mutable(Second),
-	mutable(Order),
-	mutable(Line)
-])
+const Removals = schema(
+	"removal_plans",
+	[Owner, Other, Member, Second, Order, Line],
+	[
+		byOwner,
+		byOther,
+		seconds,
+		lines,
+		contained(on(Member, "g", "c"), on(Owner, "id", "v")),
+		contained(on(Member, "h", "d"), on(Other, "id", "w")),
+		fold(byOwner, Monoid.sum, on(Member, "g", "c"), on(Owner, "id", "e")),
+		fold(byOther, Monoid.sum, on(Member, "h", "d"), on(Other, "id", "e")),
+		mutable(Owner),
+		mutable(Other),
+		mutable(Member),
+		mutable(Second),
+		mutable(Order),
+		mutable(Line)
+	]
+)
 
 const RELATIONS: Arr.NonEmptyReadonlyArray<string> = [
 	"Owner",

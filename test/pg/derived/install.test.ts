@@ -434,7 +434,7 @@ const descriptorSchemaOf = (c: DescriptorCase) => {
 	)
 	const Base = schema(
 		"Base",
-		{ ...Rec.fromEntries(Arr.map(rosters, (r, i) => [`K${i}`, r] as const)), R },
+		[...Rec.values(Rec.fromEntries(Arr.map(rosters, (r, i) => [`K${i}`, r] as const))), R],
 		[]
 	)
 	const projected =
@@ -461,7 +461,7 @@ const descriptorSchemaOf = (c: DescriptorCase) => {
 			)
 		})
 	})
-	return schema.extend(Base, "Derived", { D: runtimeDerived("D", definition, []) }, [])
+	return schema.extend(Base, "Derived", [runtimeDerived("D", definition, [])], [])
 }
 
 /** What a descriptor case reached: each aggregate and column kind, or a schema the compiler refuses, which installs
@@ -593,7 +593,7 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 									{ id: uuid, code: regex(declared.source, declared.flags) },
 									["id"]
 								)
-								const C = schema("C", { Coded }, [])
+								const C = schema("C", [Coded], [])
 								const literalOf = (l: LiteralCase["first"]) => {
 									const { source, flags } = patternOf(sketchOf(c, l.pattern))
 									return computeCore.literal(regex(source, flags), l.member)
@@ -607,7 +607,7 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 									})
 								})
 								const Literals = runtimeDerived("Literals", literals, [])
-								const Ext = schema.extend(C, "Ext", { Literals }, [])
+								const Ext = schema.extend(C, "Ext", [Literals], [])
 								const viewer = role(Ext, "viewer", { Literals })
 								const refresher = role(
 									Ext,
@@ -699,7 +699,7 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 					})
 					const OwnedTasks = derived.materialized("OwnedTasks", ownedTasks)
 					/** Account's name lies outside the referenced key, which makes Task.account -> Account.id deferred. */
-					const Written = schema.extend(W.Work, "Written", { OwnedTasks }, [])
+					const Written = schema.extend(W.Work, "Written", [OwnedTasks], [])
 					const installed = yield* install(Written, {
 						ambient: ordinarySession,
 						extensions: [],

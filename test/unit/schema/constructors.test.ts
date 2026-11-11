@@ -1961,7 +1961,7 @@ describe("schema and schema.extend", () => {
 			Effect.gen(function* () {
 				const D = materializedDerived(
 					"TaskIds",
-					idsOf(schema("Edu", { Kind, Task }, [], []), [Task]),
+					idsOf(schema("Edu", [Kind, Task], [], []), [Task]),
 					[]
 				)
 				yield* searched(
@@ -2039,7 +2039,7 @@ describe("schema and schema.extend", () => {
 										break
 								}
 								const names = Arr.map(s.entries, entryName)
-								const W = schema("Work", relations, statements, [])
+								const W = schema("Work", Rec.values(relations), statements, [])
 								const desc = defined(schemaDescOf(W))
 								assert.deepEqual(
 									Arr.map(desc.relations, (r) => r.name),
@@ -2132,7 +2132,7 @@ describe("schema and schema.extend", () => {
 								readonly derivedLevel: number
 							}
 							const tower = () => {
-								const base = schema("Edu", { Kind, Task }, [], [])
+								const base = schema("Edu", [Kind, Task], [], [])
 								const below: Array<Declared> = [{ name: "Task", value: Task, derivedLevel: 0 }]
 								const chain: Array<AnySchema> = [base]
 								const expected: Array<{
@@ -2200,10 +2200,9 @@ describe("schema and schema.extend", () => {
 											case "a read of its own level":
 												record["OwnLevel"] = materializedDerived(
 													"OwnLevel",
-													idsOf(
-														schema.extend(current, "Probe", { [first.name]: first.value }, [], []),
-														[first.value]
-													),
+													idsOf(schema.extend(current, "Probe", [first.value], [], []), [
+														first.value
+													]),
 													[]
 												)
 												break
@@ -2226,7 +2225,13 @@ describe("schema and schema.extend", () => {
 												break
 										}
 									}
-									current = schema.extend(current, `Level${chain.length}`, record, [], [])
+									current = schema.extend(
+										current,
+										`Level${chain.length}`,
+										Rec.values(record),
+										[],
+										[]
+									)
 									chain.push(current)
 									appendAll(below, declared)
 								}

@@ -37,7 +37,7 @@ import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 const Event = relation("Event", { id: pg.integer, day: date }, ["id"])
-const Events = schema("Events", { Event }, [])
+const Events = schema("Events", [Event], [])
 
 /** Every event's day, as grizzle reads it: the full world's workload member `days`. */
 const days = query(Events).rule((r) => {

@@ -54,7 +54,7 @@ import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
 
 const Note = relation("Note", { id: pg.integer, body: str.regex("^[a-z]*$") }, ["id"])
-const Notes = schema("Notes", { Note }, [])
+const Notes = schema("Notes", [Note], [])
 
 /** A case: the table's rows, n of them, each a text of `width` characters. */
 interface Case {

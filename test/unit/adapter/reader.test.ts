@@ -102,7 +102,7 @@ const Sample = relation(
 	},
 	["id"]
 )
-const Pinned = schema("Pinned", { Color, Sample }, [])
+const Pinned = schema("Pinned", [Color, Sample], [])
 /** The codes a fresh installation of Pinned holds, which its parameters' codecs encode under. */
 const pinnedCodes = succeeded(codebookFor(schemaInputOf(Pinned), firstCodes))
 

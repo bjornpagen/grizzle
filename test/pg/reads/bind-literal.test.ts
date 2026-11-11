@@ -41,7 +41,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 const Tag = str.regex("^[a-z]{1,4}$")
 const Item = relation("Item", { id: pg.integer, grp: pg.integer, score: pg.integer }, ["id"])
 const Mark = relation("Mark", { item: pg.integer, tag: Tag }, ["item", "tag"])
-const Scores = schema("Scores", { Item, Mark }, [])
+const Scores = schema("Scores", [Item, Mark], [])
 
 interface ItemFact {
 	readonly id: number

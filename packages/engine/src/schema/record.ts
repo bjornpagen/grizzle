@@ -33,7 +33,7 @@ import type {
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { HeadLiteral, HeadShape, HeadTerms, HeadValue } from "#compiler/types/query/terms.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
-import type { AnySchema } from "#compiler/types/schema/schema.ts"
+import type { AnySchema, Declared, DeclaredOver } from "#compiler/types/schema/schema.ts"
 import type {
 	AnyWorld,
 	EntryValue,
@@ -145,6 +145,10 @@ export const bindGroups = <A>(
  * - wholeEntries(relations): a full role's entries (schema/world.ts wholeEntriesOf), every relation of a schema's
  *   record under its own key but the closed relations, each kept or dropped by its kind, as its type keeps or drops it
  *   by its type: WholeEntries<Rs> (types/schema/world.ts).
+ * - levelRecord(names) and levelRecordOver(base, names): a level's record (schema/schema.ts), each relation of
+ *   the list under its own name, the one declaration of each name the level's build admitted (`names`, in list order),
+ *   after the base's relations for an extension, which holds a name the base declares as the base's:
+ *   Declared<Rs> and DeclaredOver<B, Rs> (types/schema/schema.ts).
  *
  * Nothing else asserts a type in the repository; this file's override in oxlint.config.ts allows this one, `claimed`.
  *
@@ -308,6 +312,36 @@ export const wholeEntries = <const Rs extends AnySchema["relations"]>(
 				? []
 				: [[key, () => relation] as const]
 		),
+		undefined
+	)
+
+/** A root level's record over its list (see the header): `names` each declaration's name and value, in list order. */
+export const levelRecord = <Rs extends ReadonlyArray<unknown>>(
+	names: ReadonlyArray<readonly [string, unknown]>
+): Declared<Rs> =>
+	assembled<Declared<Rs>, undefined>(
+		names.map(([name, value]) => [name, () => value] as const),
+		undefined
+	)
+
+/**
+ * An extension's record (see the header): the base's relations, then each declaration `names` holds of a name the base
+ * does not, in list order.
+ */
+export const levelRecordOver = <
+	B extends AnySchema["relations"],
+	Rs extends ReadonlyArray<unknown>
+>(
+	base: B,
+	names: ReadonlyArray<readonly [string, unknown]>
+): DeclaredOver<B, Rs> =>
+	assembled<DeclaredOver<B, Rs>, undefined>(
+		[
+			...Object.entries(base).map(([name, value]) => [name, () => value] as const),
+			...names.flatMap(([name, value]) =>
+				Object.hasOwn(base, name) ? [] : [[name, () => value] as const]
+			)
+		],
 		undefined
 	)
 

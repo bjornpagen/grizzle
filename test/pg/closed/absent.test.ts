@@ -1164,7 +1164,7 @@ const schemaOf = (c: AbsentCase) => {
 		Member,
 		...generatedRelations
 	}
-	const Absent = schema("Absent", relations, statements)
+	const Absent = schema("Absent", Rec.values(relations), statements)
 	return {
 		Flag,
 		checked: [Checked0, Checked1] as const,
@@ -1221,7 +1221,7 @@ const guardedSchemaOf = (c: GuardedCase) => {
 				: r.eq(Compute.subset(r.flags, FlagRel.row(Slot.at("slot", r.kind, r.flag))), true)
 		)
 	)
-	const Lookup = schema("Lookup", { Kind, Flag, FlagRel, Slot, Guarded }, [guards])
+	const Lookup = schema("Lookup", [Kind, Flag, FlagRel, Slot, Guarded], [guards])
 	return {
 		Flag,
 		Guarded,

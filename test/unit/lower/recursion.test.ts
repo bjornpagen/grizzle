@@ -51,10 +51,11 @@ import { present } from "#test/unit/lower/support.ts"
 
 const Vertex = relation("Vertex", { id: uuid, rank: pg.smallint }, ["id"])
 const Edge = relation("Edge", { from: uuid, to: uuid }, ["from", "to"])
-const Graph = schema("Graph", { Vertex, Edge }, [
-	contained(on(Edge, "from"), on(Vertex, "id")),
-	contained(on(Edge, "to"), on(Vertex, "id"))
-])
+const Graph = schema(
+	"Graph",
+	[Vertex, Edge],
+	[contained(on(Edge, "from"), on(Vertex, "id")), contained(on(Edge, "to"), on(Vertex, "id"))]
+)
 
 const admit = (q: unknown): LogicalQuery => {
 	const desc = queryValueDesc(q)

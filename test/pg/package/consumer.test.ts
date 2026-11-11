@@ -50,7 +50,7 @@ import { exitedCleanly, publishedProject, runChild } from "#test/unit/dev/publis
 
 const Note = relation("Note", { id: uuid, n: pg.integer }, ["id"])
 
-const declared = (name: string) => schema(name, { Note }, [])
+const declared = (name: string) => schema(name, [Note], [])
 
 /** Every note, the one read the consumer's workload serves. */
 const notesOf = (base: ReturnType<typeof declared>) =>

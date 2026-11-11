@@ -56,7 +56,7 @@ const build = (name: string) => {
 		{ id: uuid, student: uuid, week: pg.integer, passed: pg.boolean },
 		["id"]
 	)
-	const Edu = schema(name, { Sitting }, [])
+	const Edu = schema(name, [Sitting], [])
 	const weekly = query(Edu).rule((r) => {
 		const { id, student, week, passed } = v(Sitting, "sitting")
 		return r.match(Sitting, { id, student, week, passed }).find({
@@ -74,13 +74,13 @@ const build = (name: string) => {
 			return r.match(Sitting, { id, week }).find({ week, sittings: r.count() })
 		})
 	)
-	const Level1 = schema.extend(Edu, `${name}_1`, { StudentWeekly, WeekSittings }, [])
+	const Level1 = schema.extend(Edu, `${name}_1`, [StudentWeekly, WeekSittings], [])
 	const busy = query(Level1).rule((r) => {
 		const { student, week } = v(StudentWeekly, "studentWeekly")
 		return r.match(StudentWeekly, { student, week }).find({ week, students: r.count() })
 	})
 	const WeekBusy = derived.materialized("WeekBusy", busy)
-	const Reports = schema.extend(Level1, `${name}_2`, { WeekBusy }, [])
+	const Reports = schema.extend(Level1, `${name}_2`, [WeekBusy], [])
 	const partial = role(
 		Reports,
 		"partial",

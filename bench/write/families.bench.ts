@@ -58,14 +58,18 @@ const Group = relation("Group", { id: pg.integer, size: drawn(natural) }, ["id"]
 const Tag = relation("Tag", { id: pg.integer, grp: pg.integer, payload: pg.integer }, ["id"])
 
 const build = (name: string) =>
-	schema(name, { Owner, Item, Group, Tag }, [
-		ordered(on(Item, "owner", "at"), fin(Owner, "members")),
-		counted(on(Tag, "grp"), fin(Group, "size")),
-		mutable(Owner),
-		mutable(Item),
-		mutable(Group),
-		mutable(Tag)
-	])
+	schema(
+		name,
+		[Owner, Item, Group, Tag],
+		[
+			ordered(on(Item, "owner", "at"), fin(Owner, "members")),
+			counted(on(Tag, "grp"), fin(Group, "size")),
+			mutable(Owner),
+			mutable(Item),
+			mutable(Group),
+			mutable(Tag)
+		]
+	)
 
 interface Options extends Readonly<Record<string, unknown>> {
 	/** The lengths of the families written, two owners of each kind each. */

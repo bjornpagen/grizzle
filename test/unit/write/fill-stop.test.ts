@@ -124,7 +124,31 @@ const schemaOf = (selection: Selection, weighed: boolean) => {
 		const family = ordered(on(Member, "owner", "at"), fin(Owner, "n"))
 		return {
 			Owner,
-			schema: schema("FillStop", { Kind, Weights, Owner, Member }, [
+			schema: schema(
+				"FillStop",
+				[Kind, Weights, Owner, Member],
+				[
+					family,
+					fold(
+						family,
+						Monoid.sum,
+						on(stepSideOf(selection), "owner", "qty"),
+						on(Owner, "id", "total")
+					),
+					mutable(Owner),
+					mutable(Member)
+				]
+			)
+		}
+	}
+	const Owner = relation("Owner", { ...ownerFields, weighed: accumulated(pg.bigint, 0n) }, ["id"])
+	const family = ordered(on(Member, "owner", "at"), fin(Owner, "n"))
+	return {
+		Owner,
+		schema: schema(
+			"FillStop",
+			[Kind, Weights, Owner, Member],
+			[
 				family,
 				fold(
 					family,
@@ -132,22 +156,11 @@ const schemaOf = (selection: Selection, weighed: boolean) => {
 					on(stepSideOf(selection), "owner", "qty"),
 					on(Owner, "id", "total")
 				),
+				fold(family, Monoid.sum, on(Member, "owner", "w"), on(Owner, "id", "weighed")),
 				mutable(Owner),
 				mutable(Member)
-			])
-		}
-	}
-	const Owner = relation("Owner", { ...ownerFields, weighed: accumulated(pg.bigint, 0n) }, ["id"])
-	const family = ordered(on(Member, "owner", "at"), fin(Owner, "n"))
-	return {
-		Owner,
-		schema: schema("FillStop", { Kind, Weights, Owner, Member }, [
-			family,
-			fold(family, Monoid.sum, on(stepSideOf(selection), "owner", "qty"), on(Owner, "id", "total")),
-			fold(family, Monoid.sum, on(Member, "owner", "w"), on(Owner, "id", "weighed")),
-			mutable(Owner),
-			mutable(Member)
-		])
+			]
+		)
 	}
 }
 

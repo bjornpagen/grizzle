@@ -15,7 +15,7 @@ import { queryValueDesc } from "#compiler/query/build/query.ts"
 export const Preference = relation("Preference", { account: uuid, enabled: pg.boolean }, [
 	"account"
 ])
-export const Settings = schema("Settings", { Preference }, [])
+export const Settings = schema("Settings", [Preference], [])
 
 /** The span example. */
 const RoomOpen = relation("RoomOpen", { room: uuid, during: span(pg.bigint) }, ["room", "during"])
@@ -24,9 +24,11 @@ export const Booking = relation("Booking", { room: uuid, during: span(pg.bigint)
 	"during"
 ])
 
-export const Schedule = schema("Schedule", { RoomOpen, Booking }, [
-	contained(on(Booking, "room", "during"), on(RoomOpen, "room", "during"))
-])
+export const Schedule = schema(
+	"Schedule",
+	[RoomOpen, Booking],
+	[contained(on(Booking, "room", "during"), on(RoomOpen, "room", "during"))]
+)
 
 /** The vector example. */
 const DocumentVector = pg.vector(4)
@@ -48,10 +50,14 @@ export const DocumentEmbedding = relation(
 	["document", "revision"]
 )
 
-export const Search = schema("Search", { Document, DocumentCurrent, DocumentEmbedding }, [
-	contained(on(DocumentCurrent, "document"), on(Document, "id")),
-	contained(on(DocumentEmbedding, "document"), on(Document, "id"))
-])
+export const Search = schema(
+	"Search",
+	[Document, DocumentCurrent, DocumentEmbedding],
+	[
+		contained(on(DocumentCurrent, "document"), on(Document, "id")),
+		contained(on(DocumentEmbedding, "document"), on(Document, "id"))
+	]
+)
 
 /** Reading what the builder emits. */
 

@@ -114,7 +114,7 @@ describe("row checks over the field registry and Compute", () => {
 								own(
 									defined(
 										schemaDescOf(
-											schema("bank", { Account, Kind }, [statement, key(on(Account, "slug"))], [])
+											schema("bank", [Account, Kind], [statement, key(on(Account, "slug"))], [])
 										)
 									)
 								)

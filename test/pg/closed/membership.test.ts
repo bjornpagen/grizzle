@@ -32,7 +32,7 @@ import { boolean, constant, element, type Gen, map, subset, weighted } from "@gr
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Codebook, codecOf, codeOf } from "#compiler/ir/codes.ts"
@@ -179,7 +179,7 @@ const schemaOf = (name: string, c: MembershipCase) => {
 	declared[ids.closed] = ItemId
 	declared["Grid"] = Grid
 	declared["Item"] = Item
-	return { base: schema(name, declared, []), Grid, Item }
+	return { base: schema(name, Rec.values(declared), []), Grid, Item }
 }
 
 /** The query: each item whose key fields, read as the case reads them, are a key Grid holds; its id. */

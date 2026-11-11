@@ -61,7 +61,7 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 const Body = str.regex("^.*$", "su")
 const Note = relation("Note", { id: uuid, body: Body }, ["id"])
 const Response = relation("Response", { id: uuid, value: Body }, ["id"])
-const Texts = schema("TextArrays", { Note, Response }, [mutable(Note), mutable(Response)])
+const Texts = schema("TextArrays", [Note, Response], [mutable(Note), mutable(Response)])
 
 /**
  * The full world's workload: Note's insert, put and delete, each from its call's facts; Response's insert from the

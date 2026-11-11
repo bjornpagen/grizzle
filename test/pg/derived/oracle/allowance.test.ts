@@ -163,18 +163,18 @@ const chosen = (sketch: Sketch): ReadonlyArray<MenuItem> => {
 }
 
 const build = (name: string, items: ReadonlyArray<MenuItem>) => {
-	const Base = schema(name, { Amount }, [], [])
+	const Base = schema(name, [Amount], [], [])
 	const level1: Record<string, AnyDerived> = {}
 	for (const m of Arr.filter(items, (i) => i.level === 1)) {
 		level1[m.name] = materializedDerived(m.name, m.build(Base, {}), [])
 	}
-	let top: AnySchema = schema.extend(Base, `${name}_1`, level1, [], [])
+	let top: AnySchema = schema.extend(Base, `${name}_1`, Rec.values(level1), [], [])
 	const level2: Record<string, AnyDerived> = {}
 	for (const m of Arr.filter(items, (i) => i.level === 2)) {
 		level2[m.name] = materializedDerived(m.name, m.build(top, level1), [])
 	}
 	if (Rec.keys(level2).length > 0) {
-		top = schema.extend(top, `${name}_2`, level2, [], [])
+		top = schema.extend(top, `${name}_2`, Rec.values(level2), [], [])
 	}
 	const values: Readonly<Record<string, AnyDerived>> = { ...level1, ...level2 }
 	/** The role that refreshes every derived relation, holding them and Amount whole, in the login `server`. */

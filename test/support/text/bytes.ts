@@ -163,7 +163,7 @@ const caseLines = (c: MeetCase, at: number): ReadonlyArray<string> => [
 	...sideLines(`T${at}`, c.target),
 	`export const A${at} = relation("A${at}", { id: uuid, t: S${at} }, ["id"])`,
 	`export const B${at} = relation("B${at}", { u: T${at} }, ["u"])`,
-	`export const Schema${at} = schema("Meets${at}", { A${at}, B${at} }, [contained(on(A${at}, "t"), on(B${at}, "u"))])`
+	`export const Schema${at} = schema("Meets${at}", [A${at}, B${at}], [contained(on(A${at}, "t"), on(B${at}, "u"))])`
 ]
 
 /** The program, for a file four directories below the repository root, and the floor's tally of what it reaches. */

@@ -431,8 +431,8 @@ const smallintForm = formSource({ kind: "integer", carrier: "int2" })
 const guardedParse = (subject: string, guard: string) =>
 	schema(
 		"Guarded",
-		{
-			R: relation.generated("R", { id: uuid, t: regexField<string>(subject, []) }, ["id"], (r) => ({
+		[
+			relation.generated("R", { id: uuid, t: regexField<string>(subject, []) }, ["id"], (r) => ({
 				n: generated(
 					pg.smallint,
 					Compute.when(
@@ -442,7 +442,7 @@ const guardedParse = (subject: string, guard: string) =>
 					)
 				)
 			}))
-		},
+		],
 		[]
 	)
 

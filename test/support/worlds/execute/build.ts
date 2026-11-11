@@ -481,7 +481,7 @@ export const buildBase = (
 		}
 		const declared: Record<string, AnyRelation | AnyClosed> = { ...rosters, ...relations }
 		const root = yield* attempt(`schema ${name}`, () =>
-			schema(name, declared, [...mutables, ...laws])
+			schema(name, Rec.values(declared), [...mutables, ...laws])
 		)
 		const derivedValues: Record<string, AnyDerived> = {}
 		let base: AnySchema = root
@@ -499,7 +499,7 @@ export const buildBase = (
 			)
 			derivedValues[d.name] = value
 			base = yield* attempt(`derived ${d.name}`, () =>
-				schema.extend(level, `${name}_${depth + 1}`, { [d.name]: value }, [])
+				schema.extend(level, `${name}_${depth + 1}`, [value], [])
 			)
 		}
 		return { base, relations, closed: rosters, derived: derivedValues, contexts, laws }

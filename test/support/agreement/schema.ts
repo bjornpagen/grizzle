@@ -1,3 +1,4 @@
+import { Record as Rec } from "effect"
 import { closedId, contract, date, pg, span, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -115,7 +116,7 @@ export const byOwner = key(on(Item, "owner", "n"))
 
 export const Agree = schema(
 	"Agree",
-	{ Tone, Shade, Item, Tag, Note, Batch, Cell, Slot, ToneWeight },
+	[Tone, Shade, Item, Tag, Note, Batch, Cell, Slot, ToneWeight],
 	[byOwner]
 )
 
@@ -141,7 +142,7 @@ export const OwnerCounts = derived.materialized(
 	})
 )
 
-export const Rollup = schema.extend(Agree, "Rollup", { ItemTones, OwnerCounts }, [])
+export const Rollup = schema.extend(Agree, "Rollup", [ItemTones, OwnerCounts], [])
 
 /** Rollup's entries a full role holds whole: Agree's and the derived relations. */
 const rollupEntries = Object.freeze({ ...agreeEntries, ItemTones, OwnerCounts })
@@ -169,8 +170,8 @@ export const Owned = query(Agree).rule((r) => {
  * extension of Agree, whose levels are itself and Agree; and Apart, which holds Agree's Cell and its rosters but is no
  * level of Agree, nor Agree of it, so a query over one reads relations the other holds and is still over no level of it.
  */
-export const AgreeAbove = schema.extend(Agree, "AgreeAbove", {}, [])
-export const Apart = schema("Apart", { Tone, Shade, Cell }, [])
+export const AgreeAbove = schema.extend(Agree, "AgreeAbove", [], [])
+export const Apart = schema("Apart", [Tone, Shade, Cell], [])
 
 /**
  * The schema the attachment agreement draws its parents and children over (test/support/agreement/attachments.ts): a
@@ -209,7 +210,7 @@ const TaskLabel = relation("TaskLabel", { task: uuid, account: uuid, label: pg.i
 ])
 export const Deliver = schema(
 	"Deliver",
-	{ Kind, Plan, PlanBudget, Account, Task, AutomaticTask, ManualTask, TaskNote, Label, TaskLabel },
+	[Kind, Plan, PlanBudget, Account, Task, AutomaticTask, ManualTask, TaskNote, Label, TaskLabel],
 	[
 		contained(on(Task, "account"), on(Account, "id")),
 		contained(on(Account, "plan"), on(PlanBudget, "plan")),
@@ -223,4 +224,4 @@ export const Deliver = schema(
  * A schema of Deliver's relations that is no level of Deliver, nor Deliver of it: an attachment child written over it
  * reads relations its parent's schema holds, and is still over no level of that schema.
  */
-export const DeliverApart = schema("DeliverApart", Deliver.relations, [])
+export const DeliverApart = schema("DeliverApart", Rec.values(Deliver.relations), [])

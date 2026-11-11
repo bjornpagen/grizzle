@@ -60,10 +60,11 @@ import { upTo } from "#test/support/up-to.ts"
 /** The graph fixture's Network. */
 const Person = relation("Person", { id: uuid, name: str.regex("^.*$", "su") }, ["id"])
 const Follows = relation("Follows", { from: uuid, to: uuid }, ["from", "to"])
-const Network = schema("Network", { Person, Follows }, [
-	contained(on(Follows, "from"), on(Person, "id")),
-	contained(on(Follows, "to"), on(Person, "id"))
-])
+const Network = schema(
+	"Network",
+	[Person, Follows],
+	[contained(on(Follows, "from"), on(Person, "id")), contained(on(Follows, "to"), on(Person, "id"))]
+)
 
 /** The (person, hops) states reachable from the start in fewer than `limit` hops, which proves depth `limit`. */
 const walksBelow = (name: string, limit: number) =>

@@ -256,7 +256,7 @@ const stepsAt = (size: Size) =>
 			const fs = yield* FileSystem.FileSystem
 			const made = schemaOf(size)
 			const [base, schemaCounts] = yield* callCounts(
-				Effect.sync((): AnySchema => schema("Guard", made.declared, made.statements)),
+				Effect.sync((): AnySchema => schema("Guard", Rec.values(made.declared), made.statements)),
 				sites
 			)
 			const [server, builders] = yield* callCounts(

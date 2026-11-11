@@ -67,13 +67,17 @@ const versionOf = (name: string) => {
 	const Slot = relation("Slot", { shelf: uuid, at: drawn(natural), what: word }, ["shelf", "at"])
 	const Ticket = relation("Ticket", { no: pg.bigserial, note: word }, ["no"])
 	const items = counted(on(Item, "store"), fin(Store, "items"))
-	const base = schema(name, { Store, Item, Shelf, Slot, Ticket }, [
-		items,
-		fold(items, Monoid.sum, on(Item, "store", "qty"), on(Store, "id", "stock")),
-		ordered(on(Slot, "shelf", "at"), fin(Shelf, "slots")),
-		mutable(Store),
-		mutable(Item)
-	])
+	const base = schema(
+		name,
+		[Store, Item, Shelf, Slot, Ticket],
+		[
+			items,
+			fold(items, Monoid.sum, on(Item, "store", "qty"), on(Store, "id", "stock")),
+			ordered(on(Slot, "shelf", "at"), fin(Shelf, "slots")),
+			mutable(Store),
+			mutable(Item)
+		]
+	)
 	const allTickets = query(base).rule((r) => {
 		const { no, note } = v(Ticket, "ticket")
 		return r.match(Ticket, { no, note }).find({ no, note })

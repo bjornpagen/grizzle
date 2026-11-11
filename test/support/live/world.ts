@@ -435,10 +435,11 @@ export const liveWorld = (c: LiveCase, name: string) => {
 	const Item0 = relation(relationName(0), fields, ["id"])
 	const Item1 = relation(relationName(1), fields, ["id"])
 	const Probe = relation(probeRelation, { id: pg.integer }, ["id"])
-	const base = schema(name, { Item0, Item1, Probe }, [
-		...(c.mutable[0] ? [mutable(Item0)] : []),
-		...(c.mutable[1] ? [mutable(Item1)] : [])
-	])
+	const base = schema(
+		name,
+		[Item0, Item1, Probe],
+		[...(c.mutable[0] ? [mutable(Item0)] : []), ...(c.mutable[1] ? [mutable(Item1)] : [])]
+	)
 	const items = [Item0, Item1] as const
 	const keyed = (place: RelationPlace) => {
 		const Item = items[place]

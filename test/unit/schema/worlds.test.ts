@@ -98,7 +98,7 @@ const Post = relation(
 )
 const Note = relation("Note", { id: uuid, post: uuid }, ["id"])
 const Doc = relation("Doc", { id: uuid, a: pg.vector(3), b: pg.vector(3) }, ["id"])
-const Blog = schema("Blog", { Kind, Post, Note, Doc }, [])
+const Blog = schema("Blog", [Kind, Post, Note, Doc], [])
 const Counts = derived.materialized(
 	"Counts",
 	query(Blog).rule((r) => {
@@ -106,9 +106,9 @@ const Counts = derived.materialized(
 		return r.match(Post, { id, author }).find({ author, posts: r.count() })
 	})
 )
-const Reports = schema.extend(Blog, "Reports", { Counts }, [])
+const Reports = schema.extend(Blog, "Reports", [Counts], [])
 const Stray = relation("Stray", { id: uuid }, ["id"])
-const Other = schema("Other", { Kind, Post, Stray }, [])
+const Other = schema("Other", [Kind, Post, Stray], [])
 
 /** The base's relations by name, and the ordinary ones a role may write, each with its fields and its key. */
 const baseRelations = Reports.relations

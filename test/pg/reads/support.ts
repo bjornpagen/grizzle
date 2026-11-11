@@ -3,14 +3,14 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import {
 	type AnyClosed,
 	type AnyRelation,
+	type Declared,
 	type Schema,
 	type Statement,
 	type StatementsByName,
 	type StatementsReadBack,
-	type StatementsWithin,
-	type UnderOwnNames,
-	schema
+	type StatementsWithin
 } from "#compiler/public/schema.ts"
+import { schema as builtSchema } from "#compiler/schema/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import {
@@ -178,13 +178,21 @@ export const installed = <
 	const P extends Readonly<Record<string, unknown>>
 >(
 	fixture: Schema<N, R, StatementsByName<St, R>> & {
-		readonly relations: UnderOwnNames<R>
-		readonly statements: St & StatementsWithin<St, R> & StatementsReadBack<St, R>
+		readonly statements: St &
+			StatementsWithin<St, R> &
+			StatementsReadBack<St, Declared<ReadonlyArray<R[keyof R]>>>
 	},
 	facts: FactSet,
 	options: FixtureInstall<P>
 ): Effect.Effect<
-	Opened<Schema<string, R, StatementsByName<St, R>>, P>,
+	Opened<
+		Schema<
+			string,
+			Declared<ReadonlyArray<R[keyof R]>>,
+			StatementsByName<St, Declared<ReadonlyArray<R[keyof R]>>>
+		>,
+		P
+	>,
 	CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
 > =>
@@ -196,7 +204,16 @@ export const installed = <
 			logins: [fullWorld(fixture, {}).server]
 		})
 		yield* load(done, facts)
-		const rebuilt = schema<string, R, St>(done.schema, fixture.relations, fixture.statements)
+		const relations: Array<R[keyof R]> = []
+		for (const name in fixture.relations) {
+			relations.push(fixture.relations[name])
+		}
+		const rebuilt = builtSchema<string, ReadonlyArray<R[keyof R]>, St>(
+			done.schema,
+			relations,
+			fixture.statements,
+			[]
+		)
 		const world = fullWorld(rebuilt, options.programs)
 		return {
 			installed: done,

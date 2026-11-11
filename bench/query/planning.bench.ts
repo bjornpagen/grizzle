@@ -66,7 +66,7 @@ import type { RawSession } from "#test/support/substrate/session.ts"
  * each.
  */
 const Edge = relation("Edge", { src: pg.bigint, dst: pg.bigint, w: pg.integer }, ["src", "dst"])
-const Plan = schema("Plan", { Edge }, [])
+const Plan = schema("Plan", [Edge], [])
 
 const path2 = query(Plan).rule((r) => {
 	const [a, b] = [v(Edge, "first"), v(Edge, "second")]

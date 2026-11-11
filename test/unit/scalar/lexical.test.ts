@@ -405,7 +405,7 @@ describe("a parse's lexical precondition", () => {
 								`${pattern}: an admitted pattern's text analyzes`
 							)
 							const verdict = inclusion([nfaOf(pattern)], [nfaOf(formSource(target))]).kind
-							const checked = checkedIn(schema("Lexical", { R: build(pattern, route) }, []))
+							const checked = checkedIn(schema("Lexical", [build(pattern, route)], []))
 							run.note(`${route} ${checked.ok ? "admitted" : "refused"}`)
 							assert.equal(
 								checked.ok,
@@ -575,7 +575,7 @@ describe("a decimal's parse", () => {
 									bytes < patternBytes &&
 									longestMember(nfaOf(pattern), bytes) <= decimalTextMaxBytes.value)
 							const checked = checkedIn(
-								schema("DecimalLexical", { R: decimalRelation(pattern, route, bound) }, [])
+								schema("DecimalLexical", [decimalRelation(pattern, route, bound)], [])
 							)
 							const label = `/${pattern}/ by ${route} within ${Formatter.format(bound)}`
 							if (verdict === "included" && withinBytes) {

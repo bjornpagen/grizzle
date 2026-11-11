@@ -103,7 +103,7 @@ const attached = (
 	for (const kid of kids) {
 		declared[kid.name] = kid
 	}
-	const value = schema("Attached", declared, [])
+	const value = schema("Attached", Rec.values(declared), [])
 	let query = queryOver(value).rule((r: RuleValue) => matchAll(r, root, ["id", "rank"], {}))
 	for (const [i, kid] of kids.entries()) {
 		query = query.attach(

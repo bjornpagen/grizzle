@@ -88,7 +88,7 @@ const Spot = relation.generated("Spot", written, ["id"], (r) => ({
 }))
 const itemNumeral = key(on(Item, "k"))
 const spotNumeral = key(on(Spot, "k"))
-const Items = schema("Items", { Tier, Rate, Item, Spot }, [itemNumeral, spotNumeral, mutable(Spot)])
+const Items = schema("Items", [Tier, Rate, Item, Spot], [itemNumeral, spotNumeral, mutable(Spot)])
 
 /**
  * The full world's workload: each relation's rows as grizzle reads them, generated fields included; each relation's

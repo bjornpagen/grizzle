@@ -193,7 +193,7 @@ const schemaOf = (
 	declared: string,
 	relations: Readonly<Record<string, AnyRelation>>,
 	statements: ReadonlyArray<Statement>
-) => schema(declared, relations, statements)
+) => schema(declared, Rec.values(relations), statements)
 
 /** A spec's schema, under any declared name, with its relations and the statements its laws are. */
 interface Built {

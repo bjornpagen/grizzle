@@ -853,7 +853,7 @@ export const buildSchema = (sketch: CaseSketch, options: BuildOptions): GenSchem
 	const stored: ReadonlyArray<GenStored> = [...base, roster]
 	let current: AnySchema = schema(
 		options.name,
-		Rec.fromEntries(Arr.map(stored, (s) => [s.name, s.value])),
+		Rec.values(Rec.fromEntries(Arr.map(stored, (s) => [s.name, s.value]))),
 		[],
 		[]
 	)
@@ -880,7 +880,7 @@ export const buildSchema = (sketch: CaseSketch, options: BuildOptions): GenSchem
 		current = schema.extend(
 			current,
 			`${options.name}_${li + 1}`,
-			Rec.fromEntries(Arr.map(declared, (d) => [d.name, d.value])),
+			Rec.values(Rec.fromEntries(Arr.map(declared, (d) => [d.name, d.value]))),
 			[],
 			[]
 		)

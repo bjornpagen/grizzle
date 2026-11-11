@@ -110,7 +110,7 @@ const assertFlight = (label: string, window: WireWindow, frame: TransactionFrame
 /** A derived relation over one base relation, the role that refreshes it, and its login. */
 const derivedFixture = (name: string) => {
 	const Sitting = relation("Sitting", { id: uuid, student: uuid, week: pg.integer }, ["id"])
-	const Edu = schema(name, { Sitting }, [])
+	const Edu = schema(name, [Sitting], [])
 	const StudentWeekly = derived.materialized(
 		"StudentWeekly",
 		query(Edu).rule((r) => {
@@ -118,7 +118,7 @@ const derivedFixture = (name: string) => {
 			return r.match(Sitting, { id, student, week }).find({ student, week, sittings: r.count() })
 		})
 	)
-	const Reports = schema.extend(Edu, `${name}_1`, { StudentWeekly }, [])
+	const Reports = schema.extend(Edu, `${name}_1`, [StudentWeekly], [])
 	const refresher = role(Reports, "refresher", wholeEntriesOf(Reports), {
 		refresh: ["StudentWeekly"]
 	})

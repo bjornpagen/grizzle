@@ -176,10 +176,10 @@ const lowersValid = (
  * relation per parent.
  */
 const Item = relation("Item", { id: uuid, x: pg.integer, y: pg.integer }, ["id"])
-const Items = schema("Items", { Item }, [])
+const Items = schema("Items", [Item], [])
 const Route = closed("Route", ["Red", "Green", "Blue"])
 const Stop = relation("Stop", { route: closedId(Route) }, ["route"])
-const Routes = schema("Routes", { Route, Stop }, [])
+const Routes = schema("Routes", [Route, Stop], [])
 
 /**
  * A take of the first `k` items, each finding its id and x and y where drawn, filtered on x where drawn, ordered by the
@@ -384,7 +384,7 @@ describe("the optimized lowering of checked public programs", () => {
 						Effect.sync(() => {
 							const Tier = closed("Tier", handles)
 							const Item = relation("Item", { id: uuid, tier: closedId(Tier) }, ["id"])
-							const Plant = schema("Plant", { Tier, Item }, [])
+							const Plant = schema("Plant", [Tier, Item], [])
 							/** The items of the tier a parameter names, by their tier. */
 							const ofTier = query(Plant).rule((r) => {
 								const { tier } = v(Item, "item")

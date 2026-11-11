@@ -64,7 +64,7 @@ const Doc = relation(
 	},
 	["id"]
 )
-const Payload = schema("Payload", { Doc }, [])
+const Payload = schema("Payload", [Doc], [])
 
 /** The twenty best-ranked documents with their payload; the order is total at the key. */
 const topDocs = query(Payload)

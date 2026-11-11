@@ -290,7 +290,7 @@ describe("a carried set's key", () => {
 		onOf(Line, "order", "flags", "before", "after"),
 		onOf(Order, "id", "seen")
 	)
-	const owned = succeeded(ownedInput(schema("Holes", { Tag, Order, Line }, [lines, seen])))
+	const owned = succeeded(ownedInput(schema("Holes", [Tag, Order, Line], [lines, seen])))
 
 	/** Tag's live handles, which every code count holds. */
 	const live = 2

@@ -57,11 +57,11 @@ import { codecOf } from "#test/unit/codec/support.ts"
 const Embedding = relation("Embedding", { id: uuid, value: pg.vector(4), raw: pg.vector(4) }, [
 	"id"
 ])
-const Store = schema("VectorStore", { Embedding }, [])
+const Store = schema("VectorStore", [Embedding], [])
 
 /** A relation keyed by a vector: its key's B-tree index compares by pgvector's equality. */
 const Point = relation("Point", { at: pg.vector(2), label: pg.integer }, ["at"])
-const Points = schema("VectorPoints", { Point }, [])
+const Points = schema("VectorPoints", [Point], [])
 
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`

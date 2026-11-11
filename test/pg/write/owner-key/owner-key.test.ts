@@ -54,11 +54,15 @@ const Owner = relation(
 )
 const Member = relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
 const family = counted(on(Member, "g"), fin(Owner, "n"))
-const Owners = schema("OwnerKeys", { Owner, Member }, [
-	family,
-	fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end")),
-	check("Balanced", Owner, (o) => o.eq(o.end, o.cap))
-])
+const Owners = schema(
+	"OwnerKeys",
+	[Owner, Member],
+	[
+		family,
+		fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end")),
+		check("Balanced", Owner, (o) => o.eq(o.end, o.cap))
+	]
+)
 
 /**
  * The full world's workload: the stored state's load, owners and members inserted from each call's facts; the

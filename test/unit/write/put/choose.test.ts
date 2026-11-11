@@ -72,24 +72,28 @@ const featureOf = (c: Choice): ChoiceFeature => `${c.target} (${c.reason})`
 const R = relation("R", { b: pg.integer, c: pg.integer, d: pg.integer }, ["b", "c"])
 
 const schemaOf = (uniques: Uniques) =>
-	schema("Put", { R }, [
-		mutable(R),
-		...(uniques === "key(c)"
-			? [key(on(R, "c"))]
-			: uniques === "key over a selected primary key"
-				? [
-						key(
-							on(
-								select(R, (r) => r.eq(r.b, 1)),
-								"b",
-								"c"
+	schema(
+		"Put",
+		[R],
+		[
+			mutable(R),
+			...(uniques === "key(c)"
+				? [key(on(R, "c"))]
+				: uniques === "key over a selected primary key"
+					? [
+							key(
+								on(
+									select(R, (r) => r.eq(r.b, 1)),
+									"b",
+									"c"
+								)
 							)
-						)
-					]
-				: uniques === "key(d)"
-					? [key(on(R, "d"))]
-					: [])
-	])
+						]
+					: uniques === "key(d)"
+						? [key(on(R, "d"))]
+						: [])
+		]
+	)
 
 /** The facts of the relation parameter `rows`, put as they are. */
 const fromRows = (s: ReturnType<typeof schemaOf>): QueryValue =>

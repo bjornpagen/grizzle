@@ -34,9 +34,7 @@ const Order = relation("Order", { id: uuid, customer: uuid, cents: pg.bigint }, 
  */
 export const shopV1 = (name: string, programs: ShopWorkload) => {
 	const Customer = relation("Customer", { id: uuid, name: customerName }, ["id"])
-	const s = schema(name, { Customer, Order }, [
-		contained(on(Order, "customer"), on(Customer, "id"))
-	])
+	const s = schema(name, [Customer, Order], [contained(on(Order, "customer"), on(Customer, "id"))])
 	const reader = role(s, "reader", wholeEntriesOf(s))
 	const writer = role(s, "writer", wholeEntriesOf(s), { write: writableNamesOf(s) })
 	/** A customer by name: an equality lookup on a bounded text field, which drafts `customer__ix__name`. */
@@ -85,9 +83,7 @@ export const shopV1 = (name: string, programs: ShopWorkload) => {
  */
 export const shopV2 = (name: string, programs: ShopWorkload) => {
 	const Customer = relation("Customer", { id: uuid, name: customerName, tier: pg.integer }, ["id"])
-	const s = schema(name, { Customer, Order }, [
-		contained(on(Order, "customer"), on(Customer, "id"))
-	])
+	const s = schema(name, [Customer, Order], [contained(on(Order, "customer"), on(Customer, "id"))])
 	const reader = role(s, "reader", wholeEntriesOf(s))
 	const writer = role(s, "writer", wholeEntriesOf(s), { write: writableNamesOf(s) })
 	const customersByName = query(s).rule((r) => {
@@ -180,10 +176,14 @@ export const ledger = (name: string) => {
 	const InvoicePayment = relation("InvoicePayment", { payment: uuid, days: pg.integer }, [
 		"payment"
 	])
-	const base = schema(name, { Plan, Customer, Payment, CardPayment, InvoicePayment }, [
-		contained(on(Payment, "customer"), on(Customer, "id")),
-		alternatives(Payment, "plan", Plan, { Card: CardPayment, Invoice: InvoicePayment })
-	])
+	const base = schema(
+		name,
+		[Plan, Customer, Payment, CardPayment, InvoicePayment],
+		[
+			contained(on(Payment, "customer"), on(Customer, "id")),
+			alternatives(Payment, "plan", Plan, { Card: CardPayment, Invoice: InvoicePayment })
+		]
+	)
 	/** Each customer's payment count and total: a stored query, keyed by customer. */
 	const spend = query(base).rule((r) => {
 		const { id, customer, cents } = v(Payment, "payment")
@@ -192,7 +192,7 @@ export const ledger = (name: string) => {
 			.find({ customer, payments: r.count(), cents: r.sum(cents) })
 	})
 	const CustomerSpend = derived.materialized("CustomerSpend", spend)
-	const s = schema.extend(base, `${name}_1`, { CustomerSpend }, [])
+	const s = schema.extend(base, `${name}_1`, [CustomerSpend], [])
 	const reader = role(s, "reader", wholeEntriesOf(s))
 	const writer = role(s, "writer", wholeEntriesOf(s), {
 		write: writableNamesOf(s)
@@ -251,10 +251,7 @@ export const worlds = (name: string) => {
 	const Doc = relation("Doc", { id: uuid, owner: subject, words: pg.integer }, ["id"])
 	const Note = relation("Note", { id: uuid, doc: uuid, author: subject }, ["id"])
 	const Session = context("Session", { sub: subject })
-	const base = schema(name, { Doc, Note }, [
-		mutable(Doc),
-		contained(on(Note, "doc"), on(Doc, "id"))
-	])
+	const base = schema(name, [Doc, Note], [mutable(Doc), contained(on(Note, "doc"), on(Doc, "id"))])
 	const mine = query(base).rule((r) => {
 		const { id, doc, author } = v(Note, "note")
 		const { owner } = v(Doc, "doc")

@@ -269,7 +269,7 @@ const joinBase = (relations: Arr.NonEmptyReadonlyArray<JoinRelation>) => {
 		values,
 		schema: schema(
 			"Joined",
-			Rec.fromEntries(Arr.map(values, (value, i) => [`R${i}`, value] as const)),
+			Rec.values(Rec.fromEntries(Arr.map(values, (value, i) => [`R${i}`, value] as const))),
 			Arr.flatMap(keyed, (k) => k.candidates)
 		)
 	}
@@ -1195,7 +1195,7 @@ const storableOf = (c: StorableCase) => {
 		},
 		["id"]
 	)
-	const base = schema("Base", { Org, Wide }, [])
+	const base = schema("Base", [Org, Wide], [])
 	const everyColumn = upTo(c.stored.length + 1, (i) => i)
 	const terms = (vars: Readonly<Record<string, unknown>>, columns: ReadonlyArray<number>) =>
 		Rec.fromEntries(Arr.map(columns, (i) => [columnName(i), vars[columnName(i)]] as const))
@@ -1405,7 +1405,7 @@ type StorableFeature =
 
 /** A relation keyed by its id, with another field beside it, which a view names under several names. */
 const Keyed = relation("Keyed", { id: uuid, other: uuid }, ["id"])
-const keyedBase = schema("Named", { Keyed }, [])
+const keyedBase = schema("Named", [Keyed], [])
 
 /** A view of Keyed: how many names its head gives Keyed's id, and whether it delivers Keyed's other field too. */
 interface NamedKey {
@@ -1530,7 +1530,7 @@ describe("derived relation keys", () => {
 											runtimeSchema.extend(
 												j.base.schema,
 												"Level5",
-												{ D: runtimeDerived("D", j.definition, []) },
+												[runtimeDerived("D", j.definition, [])],
 												[],
 												[]
 											)
@@ -1613,7 +1613,7 @@ describe("derived relation keys", () => {
 							const p = aimedProduct(drawnProduct, c)
 							const minimal = productMinimal(p)
 							const view = runtimeDerived("D", p.definition, [])
-							const level = runtimeSchema.extend(p.base.schema, "Level1", { D: view }, [], [])
+							const level = runtimeSchema.extend(p.base.schema, "Level1", [view], [], [])
 							const above = aboveOf(p, minimal, view, level)
 							const analysis = succeeded(
 								Result.map(
@@ -1623,7 +1623,7 @@ describe("derived relation keys", () => {
 											: runtimeSchema.extend(
 													level,
 													"Level6",
-													{ E: runtimeDerived("E", above.definition, []) },
+													[runtimeDerived("E", above.definition, [])],
 													[],
 													[]
 												)
@@ -1698,7 +1698,7 @@ describe("derived relation keys", () => {
 									runtimeSchema.extend(
 										base,
 										"Level2",
-										{ D: runtimeDerived("D", definition, []) },
+										[runtimeDerived("D", definition, [])],
 										[],
 										[]
 									)
@@ -1788,7 +1788,7 @@ describe("derived relation keys", () => {
 								}),
 								[]
 							)
-							const level = runtimeSchema.extend(keyedBase, "Level3", { D: view }, [], [])
+							const level = runtimeSchema.extend(keyedBase, "Level3", [view], [], [])
 							const above = runtimeDerived(
 								"E",
 								queryOver(level).rule((r: RuleValue) => {
@@ -1800,7 +1800,7 @@ describe("derived relation keys", () => {
 							)
 							const analysis = succeeded(
 								Result.map(
-									checkedIn(runtimeSchema.extend(level, "Level4", { E: above }, [], [])),
+									checkedIn(runtimeSchema.extend(level, "Level4", [above], [], [])),
 									derivedAnalysis
 								)
 							)

@@ -68,7 +68,7 @@ const Account = relation.generated(
 )
 const positive = check("Positive", Account, (x) => x.gt(x.units, 0))
 const withinRate = check("WithinRate", Account, (x) => x.le(Compute.base(x.units), x.rate))
-const Accounts = schema("Accounts", { Tier, Rate, Account }, [positive, withinRate])
+const Accounts = schema("Accounts", [Tier, Rate, Account], [positive, withinRate])
 
 /** The full role's workload: accounts inserted, and accounts put, each from its call's facts. */
 const programs = {

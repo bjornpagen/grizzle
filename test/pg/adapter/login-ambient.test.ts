@@ -87,7 +87,7 @@ const MoneyRelation = relation(
 )
 const Shadowed = schema(
 	"Shadowed",
-	{ Text: TextRelation, Uuid: UuidRelation, Money: MoneyRelation },
+	[TextRelation, UuidRelation, MoneyRelation],
 	[contained(on(UuidRelation, "text"), on(TextRelation, "id")), mutable(MoneyRelation)]
 )
 

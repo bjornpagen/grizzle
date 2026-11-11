@@ -175,12 +175,16 @@ describe("a write that names rows by a primary key", () => {
 					(box, c) =>
 						Effect.gen(function* () {
 							const { Member, declared } = memberOf(box.primary)
-							const Sequence = schema("Sequence", { Owner, Member }, [
-								ordered(on(Member, "owner", "at"), fin(Owner, "n")),
-								...Arr.map(box.declared, declared),
-								mutable(Owner),
-								mutable(Member)
-							])
+							const Sequence = schema(
+								"Sequence",
+								[Owner, Member],
+								[
+									ordered(on(Member, "owner", "at"), fin(Owner, "n")),
+									...Arr.map(box.declared, declared),
+									mutable(Owner),
+									mutable(Member)
+								]
+							)
 							const facts = Arr.map(
 								upTo(box.facts, (i) => i + 1),
 								(n) => ({

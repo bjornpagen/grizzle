@@ -56,7 +56,7 @@ const schemaOf = (k: SpanKey) => {
 		[]
 	)
 	const side = k.selected ? selectBuilder(T, (r: TRow) => r.eq(r.kind, 1)) : T
-	return schema("GuardedSpan", { T }, [keyBuilder(onBuilder(side, [...k.scalars, "during"]))], [])
+	return schema("GuardedSpan", [T], [keyBuilder(onBuilder(side, [...k.scalars, "during"]))], [])
 }
 
 type Feature =

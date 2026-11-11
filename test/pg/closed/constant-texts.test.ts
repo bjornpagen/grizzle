@@ -477,7 +477,7 @@ const schemaOf = (c: ConstantCase) => {
 	] as const
 	const Constants = schema(
 		"Constants",
-		{ Kind, Pick, Allowed, GenCond, GenText, Checked, Keyed, Contained },
+		[Kind, Pick, Allowed, GenCond, GenText, Checked, Keyed, Contained],
 		statements
 	)
 	return {

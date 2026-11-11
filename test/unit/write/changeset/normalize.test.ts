@@ -80,7 +80,7 @@ const pairC = key(on(Pair, "c"))
 const genK = key(on(Gen, "k"))
 const Unit = relation("Unit", { id: pg.bigserial }, ["id"])
 const Two = relation("Two", { a: pg.bigserial, b: pg.serial, n: pg.integer }, ["a"])
-const Small = schema("Small", { Pair, Gen, Unit, Two }, [pairC, genK])
+const Small = schema("Small", [Pair, Gen, Unit, Two], [pairC, genK])
 
 type Category = "put" | "delete" | "insert" | "generated"
 

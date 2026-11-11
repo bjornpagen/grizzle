@@ -45,12 +45,16 @@ export const TaskNote = relation("TaskNote", { task: uuid, note: str.regex("^.*$
  * in one login. switchToManualDescribed's members are exported one query each, because a ChangeSet value is the write
  * package's.
  */
-export const Work = schema("Work", { Kind, Account, Task, AutomaticTask, ManualTask, TaskNote }, [
-	contained(on(Task, "account"), on(Account, "id")),
-	contained(on(TaskNote, "task"), on(Task, "id")),
-	alternatives(Task, "kind", Kind, { Automatic: AutomaticTask, Manual: ManualTask }),
-	mutable(TaskNote)
-])
+export const Work = schema(
+	"Work",
+	[Kind, Account, Task, AutomaticTask, ManualTask, TaskNote],
+	[
+		contained(on(Task, "account"), on(Account, "id")),
+		contained(on(TaskNote, "task"), on(Task, "id")),
+		alternatives(Task, "kind", Kind, { Automatic: AutomaticTask, Manual: ManualTask }),
+		mutable(TaskNote)
+	]
+)
 
 /** The Work schema under another name, as an installation under a unique schema name opens it. */
 export type WorkNamed<N extends string> = Schema<
@@ -275,7 +279,7 @@ export const automaticBudget = query(Work).rule((r) => {
 })
 
 export const AccountBudget = derived.materialized("AccountBudget", automaticBudget)
-export const Reports = schema.extend(Work, "Reports", { AccountBudget }, [])
+export const Reports = schema.extend(Work, "Reports", [AccountBudget], [])
 
 /** AccountBudget matched over Reports, as the reporter reads it. */
 export const accountBudgets = query(Reports).rule((r) => {
@@ -320,9 +324,11 @@ const TierBudget = closed.relation(
 	]
 )
 const Subscription = relation("Subscription", { account: uuid, tier: closedId(Tier) }, ["account"])
-export const Plans = schema("Plans", { Tier, TierBudget, Subscription }, [
-	contained(on(Subscription, "tier"), on(Tier, "id"))
-])
+export const Plans = schema(
+	"Plans",
+	[Tier, TierBudget, Subscription],
+	[contained(on(Subscription, "tier"), on(Tier, "id"))]
+)
 
 /** Plans under another name, as an installation under a unique schema name opens it. */
 export type PlansNamed<N extends string> = Schema<

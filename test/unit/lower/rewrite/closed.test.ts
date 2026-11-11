@@ -69,7 +69,7 @@ const Item = relation(
 	{ id: pg.bigint, k0: closedId(Kind), k1: closedId(Tier), w: closedId(Kind) },
 	["id"]
 )
-const Rewrite = schema("Rewrite", { Kind, Tier, Grid, Item }, [])
+const Rewrite = schema("Rewrite", [Kind, Tier, Grid, Item], [])
 
 /** The items matched with Grid, its key fields read as `k0` and `k1` say and its payload as `w` says. */
 const membership = (k0: KeyRead, k1: KeyRead, w: PayloadRead) =>

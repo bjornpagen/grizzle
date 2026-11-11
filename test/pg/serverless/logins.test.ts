@@ -29,7 +29,7 @@ import { array, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Layer, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Layer, Order, Record as Rec } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { ServedLogin } from "#adapter/types/layer.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -174,7 +174,9 @@ layer(Substrate.layer)("logins in one process", (it) => {
 								logins: [declared.web, declared.ops]
 							})
 							yield* load(done, workFacts)
-							const worlds = worldsOver(schema(done.declared, W.Work.relations, W.Work.statements))
+							const worlds = worldsOver(
+								schema(done.declared, Rec.values(W.Work.relations), W.Work.statements)
+							)
 							const web = yield* servedFixture(done, worlds.web)
 							const ops = yield* servedFixture(done, worlds.ops)
 							return { done, worlds, web, ops, read: readsOf(web.login, ops.login) }

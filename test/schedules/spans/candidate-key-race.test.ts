@@ -40,7 +40,7 @@ import { required } from "@grizzle/testing/features"
 import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, type Scope } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec, type Scope } from "effect"
 import { openServed } from "#adapter/db/served.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
@@ -84,7 +84,7 @@ const statements = Object.freeze([bookingSpan, bookingRef])
  * role `direct` the direct actors take on, in the login `psql`.
  */
 const renamed = (name: string) => {
-	const base = schema(name, relations, statements)
+	const base = schema(name, Rec.values(relations), statements)
 	const app = role(base, "app", relations, { write: ["Booking"] })
 	const direct = role(base, "direct", relations, { write: ["Booking"] })
 	return {

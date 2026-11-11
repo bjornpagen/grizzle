@@ -135,17 +135,21 @@ const entries = ordered(on(Entry, "package", "at"), fin(Package, "entries"))
 const binned = counted(on(Entry, "bin"), fin(Bin, "n"))
 const shelved = counted(on(Entry, "shelf"), fin(Shelf, "n"))
 const Tag = relation("Tag", { id: pg.int4, v: pg.int4 }, ["id"])
-const Staged = schema("StagedRows", { Package, Bin, Shelf, Entry, Tag }, [
-	mutable(Tag),
-	entries,
-	key(on(Entry, "package", "path")),
-	binned,
-	fold(binned, Monoid.sum, on(Entry, "bin", "size"), on(Bin, "id", "total")),
-	mutable(Shelf),
-	shelved,
-	fold(shelved, Monoid.sum, on(Entry, "shelf", "size"), on(Shelf, "id", "total")),
-	check("Small", Entry, (e) => e.le(e.size, small))
-])
+const Staged = schema(
+	"StagedRows",
+	[Package, Bin, Shelf, Entry, Tag],
+	[
+		mutable(Tag),
+		entries,
+		key(on(Entry, "package", "path")),
+		binned,
+		fold(binned, Monoid.sum, on(Entry, "bin", "size"), on(Bin, "id", "total")),
+		mutable(Shelf),
+		shelved,
+		fold(shelved, Monoid.sum, on(Entry, "shelf", "size"), on(Shelf, "id", "total")),
+		check("Small", Entry, (e) => e.le(e.size, small))
+	]
+)
 
 /**
  * What one entry's row adds to a fill's Bind message beside its bytes, at most: its other columns' arrays (its

@@ -340,7 +340,7 @@ export const buildExecutesWorld = (w: ExecutesWorld, name: string) => {
 		...Rec.fromEntries(Arr.map([...rosters], ([n, r]) => [n, r] as const)),
 		...Rec.fromEntries(Arr.map([...relations], ([n, r]) => [n, r] as const))
 	}
-	const s = schema(name, declared, statements, [])
+	const s = schema(name, Rec.values(declared), statements, [])
 	const roles = Arr.map(w.roles, (r) =>
 		role(s, r.name, Rec.fromEntries(Arr.map(r.holds, (n) => [n, relationOf(n)] as const)), {
 			write: [...r.writes],

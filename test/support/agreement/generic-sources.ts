@@ -394,7 +394,7 @@ const compiles = (
 		[source.name]: source
 	}
 	return Result.flatMap(
-		catchCompileError(() => schema("Generic", relations, statements, [])),
+		catchCompileError(() => schema("Generic", Rec.values(relations), statements, [])),
 		(built) => testArtifacts(built, testCompile)
 	)
 }

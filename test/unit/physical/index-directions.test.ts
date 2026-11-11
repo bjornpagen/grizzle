@@ -42,7 +42,7 @@ import { owning } from "#test/support/policy.ts"
 type Vector = readonly [Direction, Direction, Direction]
 
 const T = relation("T", { id: uuid, g: uuid, a: pg.integer, b: pg.integer }, ["id"])
-const Dirs = schema("Dirs", { T }, [])
+const Dirs = schema("Dirs", [T], [])
 
 const reversed = (vector: Vector): Vector => [
 	opposite(vector[0]),

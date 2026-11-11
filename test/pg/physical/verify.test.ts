@@ -82,10 +82,7 @@ const Session = context("Session", { sub: Sub })
  * a session's subject, and the derived DocCount, each organization's documents.
  */
 const driftBase = (name: string) => {
-	const base = schema(name, { Doc, Note }, [
-		mutable(Doc),
-		contained(on(Note, "doc"), on(Doc, "id"))
-	])
+	const base = schema(name, [Doc, Note], [mutable(Doc), contained(on(Note, "doc"), on(Doc, "id"))])
 	const DocCount = derived.materialized(
 		"DocCount",
 		query(base).rule((r) => {
@@ -93,7 +90,7 @@ const driftBase = (name: string) => {
 			return r.match(Doc, { id, org }).find({ org, docs: r.count() })
 		})
 	)
-	return schema.extend(base, `${name}_1`, { DocCount }, [])
+	return schema.extend(base, `${name}_1`, [DocCount], [])
 }
 
 /**

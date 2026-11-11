@@ -155,7 +155,12 @@ describe("derived field inference", () => {
 						const owned = checking(
 							schema(
 								"L",
-								{ ...Record.fromEntries(Arr.map(rosters, (r, i) => [`K${i}`, r] as const)), Line },
+								[
+									...Record.values(
+										Record.fromEntries(Arr.map(rosters, (r, i) => [`K${i}`, r] as const))
+									),
+									Line
+								],
 								[]
 							)
 						).owned
@@ -227,7 +232,7 @@ describe("derived field inference", () => {
 								)
 							)
 							const Line = relation("Line", { id: uuid, amount: pg.bigint }, ["id"])
-							const L = schema("L", { ...holders, Line }, [])
+							const L = schema("L", [...Record.values(holders), Line], [])
 							const q = queryOver(L).rule((r: RuleValue) => {
 								const vars = varsOver(Line, "line")
 								return r.match(Line, { id: vars["id"], amount: vars["amount"] }).find({
@@ -240,9 +245,7 @@ describe("derived field inference", () => {
 								})
 							})
 							const analyzed = Result.map(
-								checkedIn(
-									runtimeSchema.extend(L, "Level1", { T: runtimeDerived("T", q, []) }, [], [])
-								),
+								checkedIn(runtimeSchema.extend(L, "Level1", [runtimeDerived("T", q, [])], [], [])),
 								derivedAnalysis
 							)
 							const owned = checking(L).owned

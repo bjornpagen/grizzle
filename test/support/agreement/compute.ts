@@ -1948,7 +1948,7 @@ const bytesSchemaText = (spec: Extract<CaseSpec, { readonly kind: "bytes" }>): s
 			: spec.guard.kind === "uncast"
 				? "r.text"
 				: cast
-	return `schema("Bytes", { Texts: relation.generated("Texts", { id: uuid, text: Cell.fields.${spec.text} }, ["id"], (r) => ({ stored: generated(${target}, ${term}) })) }, [])`
+	return `schema("Bytes", [relation.generated("Texts", { id: uuid, text: Cell.fields.${spec.text} }, ["id"], (r) => ({ stored: generated(${target}, ${term}) }))], [])`
 }
 
 /** The engine's reading of a byte guard case: the same schema, built by the public constructors and Compute's core. */
@@ -1957,28 +1957,23 @@ const bytesSchema = (spec: Extract<CaseSpec, { readonly kind: "bytes" }>): Fixtu
 	const guard = spec.guard
 	return schema(
 		"Bytes",
-		{
-			Texts: relation.generated(
-				"Texts",
-				{ id: uuid, text: Cell.fields[spec.text] },
-				["id"],
-				(r) => ({
-					stored: generatedField(
-						target,
-						guard.kind === "within"
-							? computeCore.when(
-									computeCore.within(computeCore.octetLength(r.text), guard.low, guard.high),
-									() => computeCore.cast(r.text, target),
-									""
-								)
-							: guard.kind === "uncast"
-								? r.text
-								: computeCore.cast(r.text, target),
-						[]
-					)
-				})
-			)
-		},
+		[
+			relation.generated("Texts", { id: uuid, text: Cell.fields[spec.text] }, ["id"], (r) => ({
+				stored: generatedField(
+					target,
+					guard.kind === "within"
+						? computeCore.when(
+								computeCore.within(computeCore.octetLength(r.text), guard.low, guard.high),
+								() => computeCore.cast(r.text, target),
+								""
+							)
+						: guard.kind === "uncast"
+							? r.text
+							: computeCore.cast(r.text, target),
+					[]
+				)
+			}))
+		],
 		[]
 	)
 }
@@ -2002,7 +1997,7 @@ const digestOf = (d: Drawing): CaseSpec => ({
 const digestSchemaText = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): string => {
 	const digest = `Compute.sha256(r.${spec.operand})`
 	const term = spec.cast ? `Compute.cast(${digest}, ${spec.target.text})` : digest
-	return `schema("Digests", { Media: relation.generated("Media", { id: uuid, content: bytes, text: Cell.fields.text, word: Cell.fields.word, body: Cell.fields.body }, ["id"], (r) => ({ stored: generated(${spec.target.text}, ${term}) })) }, [])`
+	return `schema("Digests", [relation.generated("Media", { id: uuid, content: bytes, text: Cell.fields.text, word: Cell.fields.word, body: Cell.fields.body }, ["id"], (r) => ({ stored: generated(${spec.target.text}, ${term}) }))], [])`
 }
 
 /** The engine's reading of a digest case: the same schema, built by the public constructors and Compute's core. */
@@ -2010,8 +2005,8 @@ const digestSchema = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): Fix
 	const target = spec.target.field
 	return schema(
 		"Digests",
-		{
-			Media: relation.generated(
+		[
+			relation.generated(
 				"Media",
 				{
 					id: uuid,
@@ -2032,7 +2027,7 @@ const digestSchema = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): Fix
 					}
 				}
 			)
-		},
+		],
 		[]
 	)
 }
@@ -2166,7 +2161,7 @@ const closedSchemaText = (spec: Extract<CaseSpec, { readonly kind: "closed" }>):
 		spec.guard.kind === "within"
 			? `Compute.when(Compute.within(${value}, ${tunedBound(spec.value, spec.guard.low).text}, ${tunedBound(spec.value, spec.guard.high).text}), (g) => ${cast("g")}, cell.${spec.to})`
 			: cast(value)
-	return `schema("Tuned", { Tone, Tuning, Rows: relation.generated("Rows", ${tunedRelationText}, ["id"], (cell) => ({ out: generated(Cell.fields.${spec.to}, ${term}) })) }, [])`
+	return `schema("Tuned", [Tone, Tuning, relation.generated("Rows", ${tunedRelationText}, ["id"], (cell) => ({ out: generated(Cell.fields.${spec.to}, ${term}) }))], [])`
 }
 
 /**
@@ -2177,10 +2172,10 @@ const closedSchema = (spec: Extract<CaseSpec, { readonly kind: "closed" }>): Fix
 	const target = Cell.fields[spec.to]
 	return schema(
 		"Tuned",
-		{
+		[
 			Tone,
 			Tuning,
-			Rows: relation.generated(
+			relation.generated(
 				"Rows",
 				{
 					id: uuid,
@@ -2222,7 +2217,7 @@ const closedSchema = (spec: Extract<CaseSpec, { readonly kind: "closed" }>): Fix
 					}
 				}
 			)
-		},
+		],
 		[]
 	)
 }

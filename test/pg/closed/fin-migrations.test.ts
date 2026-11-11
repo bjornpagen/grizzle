@@ -199,13 +199,17 @@ const schemaAt = (name: string, stage: Stage) => {
 	}
 	const Step = relation("Step", probe, ["id"])
 	const StepProduct = relation("StepProduct", probe, ["id"])
-	return schema(name, { Version, Kind, Position, Model, Last, LastProduct, Step, StepProduct }, [
-		contained(on(Step, "version", "parent", "at"), on(Last, "version", "parent", "at")),
-		contained(
-			on(StepProduct, "version", "parent", "at"),
-			on(LastProduct, "version", "parent", "at")
-		)
-	])
+	return schema(
+		name,
+		[Version, Kind, Position, Model, Last, LastProduct, Step, StepProduct],
+		[
+			contained(on(Step, "version", "parent", "at"), on(Last, "version", "parent", "at")),
+			contained(
+				on(StepProduct, "version", "parent", "at"),
+				on(LastProduct, "version", "parent", "at")
+			)
+		]
+	)
 }
 
 /** What a version's migration declares: the handle its change renames, if it renames one. */

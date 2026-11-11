@@ -24,7 +24,7 @@
  * always finds one, answers each import unchanged and must turn the property red.
  */
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec, Result, String as Str } from "effect"
 import { memberCalls } from "#adapter/db/handles.ts"
 import { openServed } from "#adapter/db/served.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
@@ -72,7 +72,7 @@ const Entry = relation(
  */
 const imports = (name: string) => {
 	const relations = { Package, Entry }
-	const base = schema(name, relations, [
+	const base = schema(name, Rec.values(relations), [
 		ordered(on(Entry, "package", "at"), fin(Package, "entries")),
 		key(on(Entry, "package", "path"))
 	])

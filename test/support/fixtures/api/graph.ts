@@ -12,10 +12,11 @@ const Follows = relation("Follows", { from: uuid, to: uuid }, ["from", "to"])
  * recursive relation with computed hop state, the Reachable import that binds its parameter, and the same reachability
  * to two hops as connected matches.
  */
-export const Network = schema("Network", { Person, Follows }, [
-	contained(on(Follows, "from"), on(Person, "id")),
-	contained(on(Follows, "to"), on(Person, "id"))
-])
+export const Network = schema(
+	"Network",
+	[Person, Follows],
+	[contained(on(Follows, "from"), on(Person, "id")), contained(on(Follows, "to"), on(Person, "id"))]
+)
 
 /**
  * The (person, hops) states reachable in zero through four steps. Exported because the compile profile

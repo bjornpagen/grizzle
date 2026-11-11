@@ -40,7 +40,7 @@ const Code = str.regex("^[a-z]{1,4}$", "u")
 
 /** A schema whose one stored relation declares Code and no field of Slug. */
 const Note = relation("Note", { id: uuid, code: Code }, ["id"])
-const Notes = schema("Notes", { Note }, [])
+const Notes = schema("Notes", [Note], [])
 
 /** The slugs and codes a relation parameter carries, each with its position, delivered as they are. */
 const echoed = query(Notes).rule((r) => {

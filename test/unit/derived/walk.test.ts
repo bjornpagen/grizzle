@@ -84,7 +84,7 @@ const importCaseGen: Gen<ImportCase> = (source) => ({
 
 const R0 = relation("R0", { f0: uuid, f1: uuid, f2: uuid }, ["f0"])
 const R1 = relation("R1", { f0: uuid, f1: uuid, f2: uuid }, ["f0"])
-const S = schema("S", { R0, R1 }, [])
+const S = schema("S", [R0, R1], [])
 
 const relationAt = (i: number) => (i === 0 ? R0 : R1)
 

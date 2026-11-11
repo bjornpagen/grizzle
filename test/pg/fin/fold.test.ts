@@ -296,15 +296,19 @@ const FoldedNode = relation(
 
 const FoldedTree = (() => {
 	const t = tree(on(FoldedNode, "parent", "at"), fin(FoldedNode, "children"), { root: "doc" })
-	return schema("fin_fold_tree", { Node: FoldedNode }, [
-		t,
-		fold(
+	return schema(
+		"fin_fold_tree",
+		[FoldedNode],
+		[
 			t,
-			Monoid.count,
-			on(FoldedNode, "parent", "before", "after"),
-			on(FoldedNode, "id", "total")
-		)
-	])
+			fold(
+				t,
+				Monoid.count,
+				on(FoldedNode, "parent", "before", "after"),
+				on(FoldedNode, "id", "total")
+			)
+		]
+	)
 })()
 
 /** A folded tree row: the tree's row and its count fold's before, after and total. */

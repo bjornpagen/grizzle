@@ -57,7 +57,6 @@ export const refusals = [
 	"a rule reads a derived relation whose definition joins, selects and projects: this one orders and takes",
 	"a rule reads a derived relation whose definition joins, selects and projects: this one produces spans",
 	"a rule reads a derived relation whose definition joins, selects and projects: this one recurses",
-	"a schema holds each relation under its own name",
 	"a schema predicate reads no parameter",
 	"a sequence's member is written under its owner: nest it in order at the owner's count field",
 	"a served ChangeSet's facts hold one array for each op and relation: merge the strata's array members of this op and relation into one",
@@ -129,7 +128,8 @@ export const refusals = [
 	"the sides' field types differ",
 	"the span's own endpoint descriptor: a descriptor of another type is no endpoint of the span",
 	"two facts of one relation share a key with different values; a key names one fact",
-	"two programs of one name across a login's workloads"
+	"two programs of one name across a login's workloads",
+	"two relations of one name across a schema's levels"
 ] as const
 
 /** A named refusal: one message of the vocabulary. */

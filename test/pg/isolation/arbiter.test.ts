@@ -101,7 +101,7 @@ const invoiceLines = counted(on(Line, "invoice"), fin(Invoice, "lines"))
 /** The import shape under the name `name`: the role `importer`, with its members `doc` and `post`. */
 const importShape = (name: string) => {
 	const relations = { Doc, Invoice, Line } as const
-	const base = schema(name, relations, [
+	const base = schema(name, Rec.values(relations), [
 		key(on(Doc, "slug")),
 		invoiceLines,
 		fold(invoiceLines, Monoid.sum, on(Line, "invoice", "amount"), on(Invoice, "id", "total")),

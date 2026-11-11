@@ -26,10 +26,11 @@ export const Kind = closed("Kind", ["Automatic", "Manual"])
 export const Account = relation("Account", { id: uuid, name: str.regex("^[a-z]{1,32}$") }, ["id"])
 export const Task = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) }, ["id"])
 export const byName = key(on(Account, "name"))
-export const Work = schema("Work", { Kind, Account, Task }, [
-	contained(on(Task, "account"), on(Account, "id")),
-	byName
-])
+export const Work = schema(
+	"Work",
+	[Kind, Account, Task],
+	[contained(on(Task, "account"), on(Account, "id")), byName]
+)
 
 export const Tally = derived.materialized(
 	"Tally",
@@ -38,10 +39,10 @@ export const Tally = derived.materialized(
 		return r.match(Task, { id, account }).find({ account, tasks: r.count() })
 	})
 )
-export const Reports = schema.extend(Work, "Reports", { Tally }, [])
+export const Reports = schema.extend(Work, "Reports", [Tally], [])
 export const Thing = relation("Thing", { id: uuid }, ["id"])
-export const Other = schema("Other", { Thing }, [])
-const Twin = schema("Work", { Account }, [])
+export const Other = schema("Other", [Thing], [])
+const Twin = schema("Work", [Account], [])
 
 export const Writer = role(Work, "writer", wholeEntriesOf(Work), { write: writableNamesOf(Work) })
 export const Reader = role(Work, "reader", wholeEntriesOf(Work))

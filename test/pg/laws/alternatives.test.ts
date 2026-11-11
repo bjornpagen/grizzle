@@ -35,9 +35,11 @@ const Item = relation("Item", { id: pg.int4, kind: closedId(Kind) }, ["id"])
 const A = relation("A", { item: pg.int4 }, ["item"])
 const B = relation("B", { item: pg.int4 }, ["item"])
 
-const Alternatives = schema("fin_alternatives", { Kind, Item, A, B }, [
-	alternatives(Item, "kind", Kind, { a: A, b: B })
-])
+const Alternatives = schema(
+	"fin_alternatives",
+	[Kind, Item, A, B],
+	[alternatives(Item, "kind", Kind, { a: A, b: B })]
+)
 
 const RELATIONS = ["Item", "A", "B"] as const
 

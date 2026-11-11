@@ -813,7 +813,7 @@ const schemaOf = (
 	declared: string,
 	relations: Readonly<Record<string, AnyRelation | AnyRoster>>,
 	statements: ReadonlyArray<Statement>
-) => schema(declared, relations, statements)
+) => schema(declared, Rec.values(relations), statements)
 
 /** A family's statement of its kind over its member and its slots. */
 const familyStatement = (

@@ -113,10 +113,11 @@ const Owner = relation("Owner", { id: uuid, badge: bytes, members: drawnField(na
 const Member = relation("Member", { id: uuid, owner: uuid, at: drawnField(natural), body: bytes }, [
 	"id"
 ])
-const Files = schema("BytesFamily", { Owner, Member }, [
-	ordered(on(Member, "owner", "at"), fin(Owner, "members")),
-	mutable(Owner)
-])
+const Files = schema(
+	"BytesFamily",
+	[Owner, Member],
+	[ordered(on(Member, "owner", "at"), fin(Owner, "members")), mutable(Owner)]
+)
 
 /**
  * The full world's workload: an owner written with its members nested, the owners and the members read back, and a

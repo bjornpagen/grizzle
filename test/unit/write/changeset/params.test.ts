@@ -58,7 +58,7 @@ const fieldsOf = (declared: Declared) => {
 
 const R = relation("R", { b: pg.integer, c: pg.integer, d: pg.integer }, ["b", "c"])
 const S = relation("S", { b: pg.integer, c: pg.integer, d: pg.integer }, ["b", "c"])
-const Pair = schema("Pair", { R, S }, [])
+const Pair = schema("Pair", [R, S], [])
 
 /** The facts of `rows`, declared under `declared`, each at its b and c, its d 1. */
 const fromRows = (declared: Declared, target: typeof R | typeof S) =>

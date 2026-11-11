@@ -335,7 +335,7 @@ const subjectOf = (box: Box, at: "start" | "target"): Subject => {
 			(n) => [upper(n), relationValue(upper(n), { id: uuid }, ["id"])] as const
 		)
 	)
-	const base = schema("Renames", { ...stored, Doc }, [])
+	const base = schema("Renames", [...Rec.values(stored), Doc], [])
 	return {
 		desc: base,
 		logins: Arr.map(heldOf(box, "login", at), (n) =>

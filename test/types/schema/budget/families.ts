@@ -85,10 +85,10 @@ const unitsSource = (ns: string, units: ReadonlyArray<number>): string => `${Arr
 	Arr.map(units, (u) => (isTreeUnit(u) ? treeUnit(ns, u) : nestedUnit(ns, u))),
 	""
 )}
-export const ${ns}S = schema("FamilyScale", { ${Arr.join(
-	Arr.map(Arr.flatMap(units, relationsOf), (name) => `${name}: ${ns}${name}`),
+export const ${ns}S = schema("FamilyScale", [${Arr.join(
+	Arr.map(Arr.flatMap(units, relationsOf), (name) => `${ns}${name}`),
 	", "
-)} }, [
+)}], [
 ${Arr.join(
 	Arr.map(Arr.flatMap(units, statementsOf), (s) => `\t${ns}${s}`),
 	",\n"

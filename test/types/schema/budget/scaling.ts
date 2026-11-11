@@ -251,13 +251,13 @@ ${Arr.join(
 			),
 			""
 		)}
-export const S = schema("Scale", { P, K, ${Arr.join(
+export const S = schema("Scale", [P, K, ${Arr.join(
 			Arr.map(indices(shape.closed), (c) => `C${c}`),
 			", "
 		)}, ${Arr.join(
 			Arr.map(indices(shape.relations), (i) => `R${i}`),
 			", "
-		)} }, [
+		)}], [
 ${Arr.join(
 	Arr.flatMap(indices(shape.relations), (i) => Arr.map(lawsOf(i, shape.laws), (law) => `\t${law}`)),
 	",\n"

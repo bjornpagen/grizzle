@@ -75,7 +75,7 @@ const Tag = defineRelation("Tag", { id: pg.bigint }, ["id"])
 const Coded = defineRelation("Coded", { id: pg.bigint, code: pg.bigint }, ["id"])
 const Anchor = defineRelation("Anchor", { id: pg.integer }, ["id"])
 const build = (name: string) =>
-	schema(name, { Item, Note, Tag, Coded, Anchor }, [mutable(Note), key(on(Coded, "code"))])
+	schema(name, [Item, Note, Tag, Coded, Anchor], [mutable(Note), key(on(Coded, "code"))])
 
 interface Options extends Readonly<Record<string, unknown>> {
 	/** Facts per timed batch. */

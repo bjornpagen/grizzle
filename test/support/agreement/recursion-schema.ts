@@ -9,5 +9,5 @@ import { closed, relation, role, schema, wholeEntriesOf } from "#compiler/public
 const Kind = closed("Kind", ["Leaf", "Inner"])
 export const Edge = relation("Edge", { from: uuid, to: uuid }, ["from", "to"])
 export const Node = relation("Node", { id: uuid, rank: pg.integer, kind: closedId(Kind) }, ["id"])
-export const Graph = schema("Graph", { Kind, Edge, Node }, [])
+export const Graph = schema("Graph", [Kind, Edge, Node], [])
 export const Reader = role(Graph, "reader", wholeEntriesOf(Graph))

@@ -38,7 +38,7 @@ const Fee = relation("Fee", { id: pg.integer, grp: pg.integer, fee: pg.money }, 
 
 /** The derived relation, its refresher and the login holding it, over a schema named `name`. */
 const build = (name: string) => {
-	const Base = schema(name, { Fee }, [])
+	const Base = schema(name, [Fee], [])
 	const narrowed = query(Base).rule((r) => {
 		const totals = r.interior((s) => {
 			const { id, grp, fee } = v(Fee, "fee")
@@ -55,7 +55,7 @@ const build = (name: string) => {
 		})
 	})
 	const Narrowed = derived.materialized("Narrowed", narrowed)
-	const top = schema.extend(Base, `${name}_1`, { Narrowed }, [])
+	const top = schema.extend(Base, `${name}_1`, [Narrowed], [])
 	const refresher = role(top, "refresher", { Fee, Narrowed }, { refresh: ["Narrowed"] })
 	return { top, Narrowed, server: login(top, "server", [refresher]) }
 }

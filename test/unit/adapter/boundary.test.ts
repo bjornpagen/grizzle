@@ -298,7 +298,7 @@ const windowFeatures: Arr.NonEmptyReadonlyArray<WindowFeature> = [
 
 /** A built schema, the one value a schema door admits. */
 const Item = relation("Item", { id: uuid }, ["id"])
-const Shop = schema("BoundaryShop", { Item }, [])
+const Shop = schema("BoundaryShop", [Item], [])
 
 describe("the public boundary", () => {
 	it.effect(

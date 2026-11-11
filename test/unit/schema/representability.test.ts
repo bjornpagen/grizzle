@@ -123,7 +123,7 @@ const utf8Bytes = (text: string): number => utf8.encode(text).length
 const ownValue = (value: unknown) => Result.flatMap(parseSchemaInput(value), ownInput)
 
 const ownOne = (r: AnyRelation | AnyClosed, statements: ReadonlyArray<Statement>) =>
-	ownValue(schema("Keys", { [r.name]: r }, statements, []))
+	ownValue(schema("Keys", [r], statements, []))
 
 /** The field Descriptions of a relation, read through its accessor. */
 const fieldDescsOf = (r: unknown): Readonly<Record<string, FieldDesc>> => {
@@ -1418,7 +1418,7 @@ const orderedAxis = (bytes: number, spelling: Spelling) => {
 			onBuilder(Doc, ["id", "text"])
 		)
 	]
-	return schema("Axis", { Doc, Line }, statements, [])
+	return schema("Axis", [Doc, Line], statements, [])
 }
 
 /**
@@ -1457,7 +1457,7 @@ const treeAxis = (bytes: number, spelling: Spelling) => {
 			onBuilder(Node, ["id", "total"])
 		)
 	]
-	return schema("Tree", { Node }, statements, [])
+	return schema("Tree", [Node], statements, [])
 }
 
 const uuidCompanion: Companion = { kind: "fixed", type: "uuid" }
@@ -1488,12 +1488,7 @@ const keyArm = (s: Extract<BudgetCase, { readonly arm: KeyArm }>): Arm => {
 			const fields = [...Arr.take(named, s.position), text, ...Arr.drop(named, s.position)]
 			const names = Arr.map(fields, ([n]) => n)
 			if (!selected) {
-				return schema(
-					"Budget",
-					{ Kind, R: relation("R", Rec.fromEntries(fields), names, []) },
-					[],
-					[]
-				)
+				return schema("Budget", [Kind, relation("R", Rec.fromEntries(fields), names, [])], [], [])
 			}
 			const R = relation(
 				"R",
@@ -1509,7 +1504,7 @@ const keyArm = (s: Extract<BudgetCase, { readonly arm: KeyArm }>): Arm => {
 					)
 				)
 			]
-			return schema("Budget", { Kind, R }, statements, [])
+			return schema("Budget", [Kind, R], statements, [])
 		},
 		entryAt: (bytes) => {
 			const before = Arr.map(Arr.take(s.companions, s.position), companionDatum)
@@ -1704,7 +1699,7 @@ describe("B-tree entries (nbtree.h BTMaxItemSize)", () => {
 								? relation("R", keyFields, names, [])
 								: relation("R", { id: uuid, ...keyFields }, ["id"], [])
 							const owned = ownValue(
-								schema("Keys", { Kind, R }, s.primary ? [] : [keyBuilder(onBuilder(R, names))], [])
+								schema("Keys", [Kind, R], s.primary ? [] : [keyBuilder(onBuilder(R, names))], [])
 							)
 							const bounded = boundedDatums(fields)
 							if (bounded.length < fields.length) {
@@ -1875,7 +1870,7 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 								: ordered
 							const names = Arr.map(keyed, ([name]) => name)
 							const R = relation("Booking", Rec.fromEntries(keyed), names, [])
-							const owned = ownValue(schema("Keys", { Kind, Booking: R }, [], []))
+							const owned = ownValue(schema("Keys", [Kind, R], [], []))
 							if (s.second) {
 								c.note("two spans")
 								refused(owned, "UnrepresentableKey")
@@ -2135,7 +2130,7 @@ describe("a vector field is a key field like any other: every vector has one for
 							const owned = ownValue(
 								schema(
 									"Keys",
-									{ R: keyed },
+									[keyed],
 									s.primary ? [] : [keyBuilder(onBuilder(keyed, vectorKey))],
 									[]
 								)

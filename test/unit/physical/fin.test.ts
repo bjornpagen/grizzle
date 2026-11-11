@@ -32,7 +32,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { cellMaxCodes } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -232,7 +232,7 @@ const slottedOf = (
 const schemaOf = (d: Declaration) => {
 	const Model = modelOf(countsOf(d.held))
 	const Slotted = slottedOf(d, Model, undefined, false)
-	return schema("Fin", { Version, Kind, Position, Label, Model, Slotted }, [])
+	return schema("Fin", [Version, Kind, Position, Label, Model, Slotted], [])
 }
 
 /** A schema value's installation, its refusal on the way included. */
@@ -528,7 +528,7 @@ describe("a fault planted in a valid slotted declaration", () => {
 				Label,
 				...relations
 			}
-			return compiled(schema("Fin", declared, []))
+			return compiled(schema("Fin", Rec.values(declared), []))
 		}
 		switch (fault.kind) {
 			case "a slot past its owner's count":
@@ -839,7 +839,7 @@ describe("a cell read as an integer", () => {
 								["key"],
 								[{ key: "k", a: "h0", b: "h0", c: "h0" }]
 							)
-							const installation = compiled(schema("Wide", { Key, A, B, C, Wide }, []))
+							const installation = compiled(schema("Wide", [Key, A, B, C, Wide], []))
 							const codes = BigInt(a) * BigInt(b) * BigInt(c)
 							if (codes <= greatest) {
 								succeeded(installation, `${a} × ${b} × ${c} payload codes`)

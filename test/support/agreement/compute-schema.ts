@@ -96,7 +96,7 @@ export const Tuning = closed.relation(
 	]
 )
 
-export const Cells = schema("Cells", { Tone, Shade, Cell }, [])
+export const Cells = schema("Cells", [Tone, Shade, Cell], [])
 
 /**
  * Cell's divisor read back through a query's heading, one column per kind of head term that delivers it: the variable
@@ -133,7 +133,7 @@ export const Heads = headsOver(Cells, Cell)
  */
 const RateAsTyped = contract("Rate", pg.numeric(7, 6))
 const CellAsTyped = cellOver(RateAsTyped)
-const CellsAsTyped = schema("Cells", { Tone, Shade, Cell: CellAsTyped }, [])
+const CellsAsTyped = schema("Cells", [Tone, Shade, CellAsTyped], [])
 
 /** The population's world as the types read it (CellsAsTyped). */
 export const AsTyped = Object.freeze({

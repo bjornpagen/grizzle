@@ -207,11 +207,13 @@ describe("the text analysis", () => {
 									const owned = ownedInput(
 										schema(
 											"Counted",
-											{
+											[
 												Kind,
 												Labels,
-												...Rec.fromEntries(Arr.map(relations, (r) => [r.name, r.value] as const))
-											},
+												...Rec.values(
+													Rec.fromEntries(Arr.map(relations, (r) => [r.name, r.value] as const))
+												)
+											],
 											statements,
 											[]
 										)

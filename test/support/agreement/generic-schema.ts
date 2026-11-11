@@ -62,4 +62,4 @@ export const T2 = relation("T2", treeHeading, ["id"])
 export const TM = relation("TM", { ...treeHeading, doc: pg.integer }, ["id"])
 
 /** The schema the agreement's queries are over: every member and the relation a join reads. */
-export const Members = schema("Members", { Kind, Other, Target, A, B, W, MOwner, MKind, MN }, [])
+export const Members = schema("Members", [Kind, Other, Target, A, B, W, MOwner, MKind, MN], [])

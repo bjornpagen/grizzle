@@ -52,7 +52,7 @@ const Visit = relation(
 	{ id: pg.integer, room: uuid, during: span(pg.bigint), note: pg.integer },
 	["id"]
 )
-const Rooms = schema("Rooms", { Booking, Visit }, [])
+const Rooms = schema("Rooms", [Booking, Visit], [])
 
 /** The workload program whose span predicate requests Visit's GiST (room, during): one room's visits meeting a window. */
 const visitsInWindow = query(Rooms).rule((r) => {

@@ -471,7 +471,7 @@ const schemaOf = (
 	name: string,
 	relations: Readonly<Record<string, AnyRoster | AnyRelation>>,
 	statements: ReadonlyArray<Statement>
-) => schema(name, relations, statements)
+) => schema(name, Rec.values(relations), statements)
 
 /** A field and its name. */
 type Named = readonly [name: string, field: FieldBase]

@@ -67,9 +67,11 @@ const build = (name: string, picked: ReadonlyArray<ProgramName>) => {
 		{ id: uuid, account: Code, kind: closedId(Kind), weight: pg.integer },
 		["id"]
 	)
-	const base = schema(name, { Kind, Account, Task }, [
-		contained(on(Task, "account"), on(Account, "code"))
-	])
+	const base = schema(
+		name,
+		[Kind, Account, Task],
+		[contained(on(Task, "account"), on(Account, "code"))]
+	)
 	/** Per account and kind, the number of tasks and their total weight. */
 	const Totals = derived.materialized(
 		"Totals",
@@ -92,7 +94,7 @@ const build = (name: string, picked: ReadonlyArray<ProgramName>) => {
 				.find({ id, region, kind })
 		})
 	)
-	const value = schema.extend(base, `${name}_1`, { Totals, Placed }, [])
+	const value = schema.extend(base, `${name}_1`, [Totals, Placed], [])
 	/** Its worlds, in one login: the writer of the base relations, a reader of every relation, and the refresher. */
 	const writer = role(value, "writer", { Account, Task }, { write: ["Account", "Task"] })
 	const reader = role(value, "reader", { Kind, Account, Task, Totals, Placed })

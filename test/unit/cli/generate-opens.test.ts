@@ -92,7 +92,7 @@ const side = <const Name extends string>(name: Name, prefix: string, count: numb
 const pairsOf = (head: Head) => {
 	const Left = side("Left", "l", head.left)
 	const Right = side("Right", "r", head.entries - 1 - head.left)
-	const Pairs = schema("Pairs", { Left, Right }, [])
+	const Pairs = schema("Pairs", [Left, Right], [])
 	const pairs = query(Pairs).rule((r) => {
 		const left = v(Left, "left")
 		const right = v(Right, "right")

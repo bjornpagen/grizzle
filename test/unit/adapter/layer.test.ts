@@ -145,7 +145,7 @@ const pem = (body: string): string =>
  * a verify.
  */
 const Item = relation("Item", { id: uuid, owner: uuid }, ["id"])
-const Shelf = schema("Shelf", { Item }, [])
+const Shelf = schema("Shelf", [Item], [])
 const Plain = login(Shelf, "plain", [role(Shelf, "shelver", { Item })])
 const Session = context("Session", { sub: uuid })
 const owned = query(Shelf).rule((r) => {

@@ -105,14 +105,18 @@ const versionOf = (name: string) => {
 	const Shelf = relation("Shelf", { id: uuid, tag: word, slots: drawn(natural) }, ["id"])
 	const Slot = relation("Slot", { shelf: uuid, at: drawn(natural), what: word }, ["shelf", "at"])
 	const items = counted(on(Item, "store"), fin(Store, "items"))
-	const base = schema(name, { Store, Item, Shelf, Slot }, [
-		items,
-		fold(items, Monoid.sum, on(Item, "store", "qty"), on(Store, "id", "stock")),
-		contained(on(Item, "store", "region"), on(Store, "id", "region")),
-		ordered(on(Slot, "shelf", "at"), fin(Shelf, "slots")),
-		mutable(Store),
-		mutable(Item)
-	])
+	const base = schema(
+		name,
+		[Store, Item, Shelf, Slot],
+		[
+			items,
+			fold(items, Monoid.sum, on(Item, "store", "qty"), on(Store, "id", "stock")),
+			contained(on(Item, "store", "region"), on(Store, "id", "region")),
+			ordered(on(Slot, "shelf", "at"), fin(Shelf, "slots")),
+			mutable(Store),
+			mutable(Item)
+		]
+	)
 	const north = query(base).rule((r) => {
 		const { id, label, items: n, stock } = v(Store, "store")
 		return r

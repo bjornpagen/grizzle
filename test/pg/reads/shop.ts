@@ -36,7 +36,7 @@ const Hand = relation("Hand", { id: uuid, crew: uuid, label }, ["id"])
 
 export const Shop = schema(
 	"Shop",
-	{ Item, Stock, Seat, Code, Pair, Counter, Line, Worker, Task, Crew, Hand },
+	[Item, Stock, Seat, Code, Pair, Counter, Line, Worker, Task, Crew, Hand],
 	[
 		mutable(Stock),
 		mutable(Seat),

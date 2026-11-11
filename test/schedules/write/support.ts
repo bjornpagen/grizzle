@@ -1,5 +1,5 @@
 import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
-import { Array as Arr, type Context, Effect, Option, type Scope } from "effect"
+import { Array as Arr, type Context, Effect, Option, Record as Rec, type Scope } from "effect"
 import { openServed } from "#adapter/db/served.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
@@ -118,7 +118,7 @@ const inserterOf = (base: ReturnType<typeof schedSchema>) =>
 type Inserter = ReturnType<typeof inserterOf>
 
 /** The schedule schema under `name`, over the relations and laws above. */
-const schedSchema = (name: string) => schema(name, relations, statements)
+const schedSchema = (name: string) => schema(name, Rec.values(relations), statements)
 
 /**
  * Shared setup for the grizzle write schedules.

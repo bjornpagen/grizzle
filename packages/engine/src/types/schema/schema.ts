@@ -4,6 +4,7 @@ import type {
 	Carriers,
 	Headed,
 	Invariant,
+	IsOneLiteral,
 	MembersTyped,
 	Refusal
 } from "#compiler/types/core/phantom.ts"
@@ -246,45 +247,143 @@ export type NamedBy<St> =
 type OwnerOf<Fi> = Fi extends Fin<infer O, string> ? O : never
 
 /**
- * The relations a statement names that are none of the record's relations. A relation whose name the type does not
- * know (a widened arm of alternatives, a side over AnySide, a statement list typed ReadonlyArray<Statement>) is not
- * refused here; the run time checks it.
+ * Whether every relation of the union U is R itself: false where some is another relation, true where U is R, and
+ * true where U is copies of R the checker keeps apart, as one name's relations in Declared are. Identical compares
+ * a union with a relation false by its kind alone, so U is compared member by member.
  */
-type Undeclared<Members, R> = R extends unknown
-	? [NameOf<R>] extends [never]
+type SameAs<U, R> = U extends unknown ? Identical<U, R> : never
+
+/**
+ * Whether a record's keys are names the type knows: false for a record with an index signature, which a list holding
+ * a relation of a name the type does not know as one literal makes (Declared), as a record typed
+ * `Record<string, R>` is.
+ */
+type KnownNames<Relations> = string extends keyof Relations ? false : true
+
+/**
+ * The relations a statement names that are not the record's relation of their name: one the record holds under no
+ * key, and one whose name the record holds only other relations under, which a statement would name by that name
+ * alone (ir/desc.ts SideDesc). A relation is the record's where it is one of the relations under its name: the list
+ * refuses two of one name differing (DeclaredOnce), so several there are copies, or the relations one element chosen
+ * at run time may be. Over a record whose names the type does not know, a relation is the record's where it is one of
+ * its relations. A relation whose name the type does not know (a widened arm of alternatives, a side over AnySide, a
+ * statement list typed ReadonlyArray<Statement>) is not refused here; the run time checks it.
+ */
+type Undeclared<Relations, R> = R extends unknown
+	? IsOneLiteral<NameOf<R>> extends false
 		? never
-		: string extends NameOf<R>
-			? never
-			: [R] extends [Members]
+		: KnownNames<Relations> extends false
+			? [R] extends [Relations[keyof Relations]]
+				? never
+				: R
+			: true extends SameAs<UnderName<Relations, NameOf<R>>, R>
 				? never
 				: R
 	: never
 
 /**
- * Every statement is typed (MembersTyped), and every relation it names is one of the schema's, at some level (the
- * runtime refusal of schemaArtifacts, "names B, which no level of the schema declares", as a type error). A statement
- * typed `any` names whatever its reader asks, so it is refused before the relations it names are read.
+ * Every statement is typed (MembersTyped), and every relation it names is the schema's relation of its name, at some
+ * level (the run time's refusals at the schema's build: "a statement names a relation no level of the schema
+ * declares", and DuplicateIdentity for another relation of a declared name, as one type error). A statement typed
+ * `any` names whatever its reader asks, so it is refused before the relations it names are read.
  */
 export type StatementsWithin<Statements extends ReadonlyArray<Statement>, Relations> = 0 extends 1 &
 	Statements[number]
 	? Refusal<"a member typed any, which every check admits: type each member of the list or record">
-	: [Undeclared<Relations[keyof Relations], NamedBy<Statements[number]>>] extends [never]
+	: [Undeclared<Relations, NamedBy<Statements[number]>>] extends [never]
 		? unknown
 		: Refusal<"a statement names a relation no level of the schema declares">
 
 /**
- * Each relation of a level's record sits under its own name, as a role's whole entries do (EntriesCheck), the type
- * of the run time's refusal "a relation under its own name". The record's values are then the level's relations, one
- * per name, so "R is the level's relation of R's name" is "R is one of the record's values": one identity test
- * against the union of the values, which the checker builds once per record, and no index by name is derived. A
- * relation whose name the type does not know passes here; the run time checks it. A relation typed `any` states no
- * name and passes every reader of the record, so it is refused (MembersTyped).
+ * A level's relations by name, from the list its call writes: each relation under its own name, and the relations
+ * of one name in one union there, which DeclaredOnce refuses unless they are one relation. Its keys are the level's
+ * names, so a lookup by name is one property read.
  */
-export type UnderOwnNames<Relations> = MembersTyped<Relations> & {
-	readonly [K in keyof Relations]: [K] extends [NameOf<Relations[K]>]
+export type Declared<Relations extends ReadonlyArray<unknown>> = DeclaredIn<Relations[number]>
+
+/**
+ * The relations of the union R by name; where some relation's name is no one literal the type knows, every relation
+ * of R under any name, as a record typed `Record<string, R>` holds them.
+ */
+type DeclaredIn<R> = true extends (
+	R extends unknown ? (IsOneLiteral<NameOf<R>> extends true ? false : true) : never
+)
+	? { readonly [name: string]: R }
+	: { readonly [X in R as NameOf<X>]: X }
+
+/**
+ * Each element of a list, boxed: a tuple's elements one by one, each as its call wrote it (a relation chosen at run
+ * time among several of one name is one element), and an array's possible elements, each relation of its element
+ * type, any two of which it may hold.
+ */
+type Elements<Relations extends ReadonlyArray<unknown>> = number extends Relations["length"]
+	? Relations[number] extends infer R
+		? R extends unknown
+			? readonly [R]
+			: never
+		: never
+	: { readonly [I in keyof Relations]: readonly [Relations[I]] }[number]
+
+/**
+ * The name of R where `Named`, the relations of a list or a level below under R's name, holds another relation: R's
+ * name where they are not R, or copies of R, or the one element R itself is.
+ */
+type ClashOf<R, Named> = [Named] extends [never]
+	? never
+	: Identical<Named, R> extends true
+		? never
+		: false extends SameAs<Named, R>
+			? NameOf<R>
+			: never
+
+/**
+ * The names the list's relations declare, each with another relation of its name in the list or among the relations
+ * below it: two declarations of one name differing. A relation whose name the type does not know as one literal, and
+ * a list or base whose record holds such a name, pass here; the run time checks them.
+ */
+type Clashing<Relations extends ReadonlyArray<unknown>, Below> =
+	Elements<Relations> extends infer B
+		? B extends readonly [infer R]
+			? IsOneLiteral<NameOf<R>> extends false
+				? never
+				:
+						| (KnownNames<Declared<Relations>> extends true
+								? ClashOf<R, UnderName<Declared<Relations>, NameOf<R>>>
+								: never)
+						| (KnownNames<Below> extends true ? ClashOf<R, UnderName<Below, NameOf<R>>> : never)
+			: never
+		: never
+
+/**
+ * A level's list of relations, each name declared once (the run time's DuplicateIdentity, as a type error): a
+ * relation is refused where another relation of its name is in the list or, for an extension, at a level below
+ * (`Below`, the base's relations). One relation listed twice, or copies of one relation, declare it once. Every
+ * relation of a clashing name carries the refusal, so each side of the clash is named; a list with no clash is checked
+ * as itself, so a list spreading an array of relations keeps its inferred tuple. A relation typed `any` states no name
+ * and passes every reader of the list, so it is refused (MembersTyped).
+ */
+export type DeclaredOnce<
+	Relations extends ReadonlyArray<unknown>,
+	Below = never
+> = MembersTyped<Relations> &
+	([Clashing<Relations, Below>] extends [never]
 		? unknown
-		: Refusal<"a schema holds each relation under its own name">
-}
+		: {
+				readonly [I in keyof Relations]: [
+					NameOf<Relations[I]> & Clashing<Relations, Below>
+				] extends [never]
+					? unknown
+					: Refusal<"two relations of one name across a schema's levels">
+			})
+
+/**
+ * An extension's record: the base's relations, then each relation of the level's list the base does not hold under
+ * its name, so a name the level declares again, as the base declares it, is the base's relation alone.
+ */
+export type DeclaredOver<BaseRelations, Relations extends ReadonlyArray<unknown>> = BaseRelations &
+	(KnownNames<BaseRelations> extends false
+		? Declared<Relations>
+		: DeclaredIn<Exclude<Relations[number], { readonly name: keyof BaseRelations }>>)
 
 /**
  * S and every schema below it. A query over any of them is a query over S. The recursion
@@ -324,14 +423,14 @@ export type RelationOf<S> = RelationsOf<S>[keyof RelationsOf<S>]
 
 /**
  * What a record of relations holds under the name N, none where it holds nothing of that name. A schema's record and
- * a role's hold each relation under its own name (UnderOwnNames, EntriesCheck), so a relation is found by its name in
+ * a role's hold each relation under its own name (Declared, EntriesCheck), so a relation is found by its name in
  * one property read, never in a pass over the record's values.
  */
 export type UnderName<Rs, N> = N extends keyof Rs ? Rs[N] : never
 
 /**
  * Whether R is a relation, closed relation or derived relation of S; any schema admits every relation. S's record
- * holds each relation under its own name (UnderOwnNames), so R is S's relation of its name exactly when it is one of
+ * holds each relation under its own name (Declared), so R is S's relation of its name exactly when it is one of
  * RelationOf<S>, the union the checker builds once per schema.
  */
 export type IsRelationOf<S, R> = 0 extends 1 & S ? true : [R] extends [RelationOf<S>] ? true : false

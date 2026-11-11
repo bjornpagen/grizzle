@@ -167,7 +167,7 @@ const schemaOf = (c: ParseCase, copies: number, rows: number) => {
 		Arr.map(Arr.take(handles, rows), (kind) => ({ kind, label: patternAt(c, 0).member })),
 		[]
 	)
-	return schema("Parsed", { Kind, Labels, ...Rec.fromEntries(relations) }, [], [])
+	return schema("Parsed", [Kind, Labels, ...Rec.values(Rec.fromEntries(relations))], [], [])
 }
 
 const parseSites = Object.freeze({

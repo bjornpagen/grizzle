@@ -62,7 +62,7 @@ const RuleOtherExact = relation("RuleOtherExact", { id: pg.int4 }, ["id"])
 
 const Selected = schema(
 	"selector_literal",
-	{
+	[
 		BNumeric,
 		BKeyed,
 		BText,
@@ -77,7 +77,7 @@ const Selected = schema(
 		TextOtherExact,
 		RuleOther,
 		RuleOtherExact
-	},
+	],
 	[
 		contained(
 			on(NumericOther, "id"),
@@ -156,7 +156,7 @@ const KeyedAtOtherExact = derived("KeyedAtOtherExact", keyedAt("1.30"))
 const SelectorLiteral = schema.extend(
 	Selected,
 	"selector_literal_rules",
-	{ AtOther, AtOtherExact, KeyedAtOther, KeyedAtOtherExact },
+	[AtOther, AtOtherExact, KeyedAtOther, KeyedAtOtherExact],
 	[
 		contained(on(RuleOther, "id"), on(AtOther, "id")),
 		contained(on(RuleOtherExact, "id"), on(AtOtherExact, "id")),

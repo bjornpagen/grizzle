@@ -61,13 +61,17 @@ const Ledger = relation(
 )
 const Entry = relation("Entry", { id: uuid, ledger: uuid, x: pg.bigint }, ["id"])
 const entries = counted(on(Entry, "ledger"), fin(Ledger, "n"))
-const Books = schema("Books", { Ledger, Entry }, [
-	entries,
-	fold(entries, Monoid.sum, on(Entry, "ledger", "x"), on(Ledger, "id", "t")),
-	check("Balanced", Ledger, (l) => l.eq(l.t, l.total)),
-	mutable(Ledger),
-	mutable(Entry)
-])
+const Books = schema(
+	"Books",
+	[Ledger, Entry],
+	[
+		entries,
+		fold(entries, Monoid.sum, on(Entry, "ledger", "x"), on(Ledger, "id", "t")),
+		check("Balanced", Ledger, (l) => l.eq(l.t, l.total)),
+		mutable(Ledger),
+		mutable(Entry)
+	]
+)
 
 /** Ledgers read from the relation parameter `given`: facts no row need hold, so a write of them may insert each. */
 const givenLedgers = query(Books).rule((r) => {

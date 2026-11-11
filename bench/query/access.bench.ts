@@ -98,7 +98,7 @@ const Entry = relation(
  *   with the pattern form, starts_with, on every prefix tried, supplementary-plane prefixes and a trailing U+10FFFF
  *   included.
  */
-export const Access = schema("Access", { Kind, Entry }, [])
+export const Access = schema("Access", [Kind, Entry], [])
 
 /** R04 and R18: open entries in an amount range. */
 const openInRange = query(Access).rule((r) => {

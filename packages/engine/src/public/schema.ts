@@ -103,6 +103,9 @@ export type {
 export type {
 	AnySchema,
 	ContainmentsOf,
+	Declared,
+	DeclaredOnce,
+	DeclaredOver,
 	KeysOf,
 	LawsOf,
 	LevelsOf,
@@ -113,8 +116,7 @@ export type {
 	StatementsByName,
 	StatementsOf,
 	StatementsReadBack,
-	StatementsWithin,
-	UnderOwnNames
+	StatementsWithin
 } from "#compiler/types/schema/schema.ts"
 
 /**

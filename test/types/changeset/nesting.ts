@@ -150,7 +150,7 @@ export const Part = relation("Part", { node: uuid, line: natural, at: drawn(natu
 export const nodes = tree(on(Node, "parent", "at"), fin(Node, "children"), { root: "doc" })
 export const lines = ordered(on(Line, "node", "at"), fin(Node, "n"))
 export const parts = ordered(on(Part, "node", "line", "at"), fin(Line, "m"))
-export const Nesting = schema("Nesting", { Node, Line, Part }, [nodes, lines, parts])
+export const Nesting = schema("Nesting", [Node, Line, Part], [nodes, lines, parts])
 
 ${Arr.join(Arr.map(cases, caseBlock), "\n")}`
 	)

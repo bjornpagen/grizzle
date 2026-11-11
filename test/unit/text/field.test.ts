@@ -70,7 +70,7 @@ describe("str.regex", () => {
 							assert.equal(Object.isFrozen(field.patterns), true)
 							assert.deepEqual(field.patterns, [{ source, flags }])
 							const content = () =>
-								schema("Content", { Article: relation("Article", { state: field }, ["state"]) }, [])
+								schema("Content", [relation("Article", { state: field }, ["state"])], [])
 							const analyzed = textLookup([{ source, flags }])
 							if (analyzed.ok) {
 								const desc = succeeded(describeField(field, SourceLoc("field", []))).desc

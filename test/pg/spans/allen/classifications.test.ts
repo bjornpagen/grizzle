@@ -68,7 +68,7 @@ const P4 = relation("P4", { p: pg.integer }, ["p"])
 const P8 = relation("P8", { p: pg.bigint }, ["p"])
 const Stay = relation("Stay", { id: pg.integer, stay: span(Instant) }, ["id"])
 const Moment = relation("Moment", { at: Instant }, ["at"])
-const Universe = schema("Universe", { U4, U8, P4, P8, Stay, Moment }, [])
+const Universe = schema("Universe", [U4, U8, P4, P8, Stay, Moment], [])
 
 /** The pairs of stored spans in a mask's relations, over the relation of each range type. */
 const pairQuery = (type: RangeType, mask: number) =>

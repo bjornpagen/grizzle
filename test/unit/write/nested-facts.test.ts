@@ -62,12 +62,16 @@ const Item = relation("Item", { owner: uuid, at: drawnField(natural), x: pg.bigi
 	"at"
 ])
 const items = ordered(on(Item, "owner", "at"), fin(Owner, "n"))
-const Sequenced = schema("Sequenced", { Owner, Item }, [
-	items,
-	fold(items, Monoid.sum, on(Item, "owner", "x"), on(Owner, "id", "total")),
-	mutable(Owner),
-	mutable(Item)
-])
+const Sequenced = schema(
+	"Sequenced",
+	[Owner, Item],
+	[
+		items,
+		fold(items, Monoid.sum, on(Item, "owner", "x"), on(Owner, "id", "total")),
+		mutable(Owner),
+		mutable(Item)
+	]
+)
 
 /** Every field either relation declares: a foreign field is none of them. */
 const headings: ReadonlySet<string> = new Set([

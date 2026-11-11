@@ -66,13 +66,11 @@ const boundOf = (error: CompileError): CompileBound => {
 const wideSchema = (columns: number) =>
 	schema(
 		"Wide",
-		{
-			Wide: relation(
-				"Wide",
-				Rec.fromEntries(upTo(columns, (i) => [`c${i}`, pg.integer] as const)),
-				["c0"]
-			)
-		},
+		[
+			relation("Wide", Rec.fromEntries(upTo(columns, (i) => [`c${i}`, pg.integer] as const)), [
+				"c0"
+			])
+		],
 		[]
 	)
 
@@ -230,7 +228,7 @@ describe("PostgreSQL's limits", () => {
 				(body, c) =>
 					Effect.sync(() => {
 						const Note = relation("Note", { id: uuid, body: str.regex("^.*$", "su") }, ["id"])
-						const Notes = schema("Notes", { Note }, [])
+						const Notes = schema("Notes", [Note], [])
 						const matching = query(Notes).rule((r) => {
 							const { id } = v(Note, "note")
 							return r.match(Note, { id, body }).find({ id })

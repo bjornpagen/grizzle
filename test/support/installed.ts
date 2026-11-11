@@ -16,15 +16,15 @@ import {
 	type AnyLogin,
 	type AnyRelation,
 	type AnySchema,
+	type Declared,
 	type Schema,
 	type Statement,
 	type StatementsByName,
 	type StatementsReadBack,
-	type StatementsWithin,
-	type UnderOwnNames,
-	schema
+	type StatementsWithin
 } from "#compiler/public/schema.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
+import { schema as builtSchema } from "#compiler/schema/schema.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
@@ -79,12 +79,33 @@ export const rebuild = <
 	const St extends ReadonlyArray<Statement>
 >(
 	fixture: Schema<N, R, StatementsByName<St, R>> & {
-		readonly relations: UnderOwnNames<R>
-		readonly statements: St & StatementsWithin<St, R> & StatementsReadBack<St, R>
+		readonly statements: St &
+			StatementsWithin<St, R> &
+			StatementsReadBack<St, Declared<ReadonlyArray<R[keyof R]>>>
 	},
 	name: string
-): Schema<string, R, StatementsByName<St, R>> =>
-	schema<string, R, St>(name, fixture.relations, fixture.statements)
+): Schema<
+	string,
+	Declared<ReadonlyArray<R[keyof R]>>,
+	StatementsByName<St, Declared<ReadonlyArray<R[keyof R]>>>
+> =>
+	builtSchema<string, ReadonlyArray<R[keyof R]>, St>(
+		name,
+		listed(fixture.relations),
+		fixture.statements,
+		[]
+	)
+
+/** A schema's relations as the list it was built from: its record's members, in the record's order. */
+const listed = <R extends Record<string, AnyRelation | AnyClosed>>(
+	relations: R
+): ReadonlyArray<R[keyof R]> => {
+	const out: Array<R[keyof R]> = []
+	for (const name in relations) {
+		out.push(relations[name])
+	}
+	return out
+}
 
 /**
  * The declared name a fixture is rebuilt under: a unique one, or a word PostgreSQL reserves (one installation of it at

@@ -48,13 +48,17 @@ const Doc = relation("Doc", { id: uuid, lines: drawnField(natural) }, ["id"])
 const Line = relation("Line", { id: uuid, doc: uuid, at: drawnField(natural), qty: pg.bigint }, [
 	"id"
 ])
-const Strata = schema("StrataFamilies", { Club, Member, Doc, Line }, [
-	counted(on(Member, "club"), fin(Club, "n")),
-	ordered(on(Line, "doc", "at"), fin(Doc, "lines")),
-	mutable(Club),
-	mutable(Member),
-	mutable(Doc)
-])
+const Strata = schema(
+	"StrataFamilies",
+	[Club, Member, Doc, Line],
+	[
+		counted(on(Member, "club"), fin(Club, "n")),
+		ordered(on(Line, "doc", "at"), fin(Doc, "lines")),
+		mutable(Club),
+		mutable(Member),
+		mutable(Doc)
+	]
+)
 
 /** The edit's stratum: deletions and insertions of counted members, each call's facts. */
 const edit = () => ChangeSet.empty(Strata).delete(Member, []).insert(Member, [])

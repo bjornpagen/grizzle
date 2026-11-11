@@ -36,9 +36,11 @@ export const Account = relation(
 	["id"]
 )
 export const Task = relation("Task", { id: uuid, account: uuid }, ["id"])
-export const Work = schema("Work", { Tier, TierInfo, Account, Task }, [
-	contained(on(Task, "account"), on(Account, "id"))
-])
+export const Work = schema(
+	"Work",
+	[Tier, TierInfo, Account, Task],
+	[contained(on(Task, "account"), on(Account, "id"))]
+)
 
 /** A program over the base reading its ordinary relations alone. */
 export const accountIds = query(Work).rule((r) => {
@@ -75,7 +77,7 @@ const AccountTasks = derived(
 		return r.match(Task, { id, account }).find({ id, account })
 	})
 )
-export const Reports = schema.extend(Work, "Reports", { TaskTally, AccountNames, AccountTasks }, [])
+export const Reports = schema.extend(Work, "Reports", [TaskTally, AccountNames, AccountTasks], [])
 
 /** A program over the extension matching its live derived relation, which a full role of the extension runs. */
 export const accountTasks = query(Reports).rule((r) => {

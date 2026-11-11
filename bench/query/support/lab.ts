@@ -48,10 +48,14 @@ const Price = relation(
  * LabReports extends Lab with BestThree, the every-student take as a derived relation (R20's refresh-evaluated
  * definition).
  */
-export const Lab = schema("Lab", { Student, Sitting, Price }, [
-	contained(on(Sitting, "student"), on(Student, "id")),
-	contained(on(Price, "student"), on(Student, "id"))
-])
+export const Lab = schema(
+	"Lab",
+	[Student, Sitting, Price],
+	[
+		contained(on(Sitting, "student"), on(Student, "id")),
+		contained(on(Price, "student"), on(Student, "id"))
+	]
+)
 
 const f8 = (x: number) => Compute.literal(pg["double precision"], x)
 
@@ -517,7 +521,7 @@ export const distinctPointsPerCohort = query(Lab).rule((r) => {
  * always wants every group, so it never takes the correlated form".
  */
 export const BestThree = derived.materialized("BestThree", bestPerStudent)
-export const LabReports = schema.extend(Lab, "LabReports", { BestThree }, [])
+export const LabReports = schema.extend(Lab, "LabReports", [BestThree], [])
 /** The refresher: a full role over LabReports refreshing BestThree, in a login of its own. */
 export const labRefresher = role(LabReports, "refresher", wholeEntriesOf(LabReports), {
 	refresh: ["BestThree"]

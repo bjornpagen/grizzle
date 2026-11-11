@@ -107,37 +107,41 @@ const encodedAt = (guard: Guard, size: number): number => {
 	)
 	const T = relation("T", { id: uuid, kind: closedId(Kind), n: pg.integer, a: uuid }, ["id"])
 	const first = handleAt(0)
-	const S = schema("Encoded", { Kind, Weight, T }, [
-		key(
-			on(
-				select(T, (t) => {
-					const atom = (a: Atom) => {
-						switch (a.kind) {
-							case "handle":
-								return a.op === "eq" ? t.eq(t.kind, first) : t.ne(t.kind, first)
-							case "in":
-								return t.in(t.kind, [first])
-							case "closed read":
-								return a.op === "eq"
-									? t.eq(Weight.at("weight", t.kind), a.value)
-									: t.ge(Weight.at("weight", t.kind), a.value)
-							case "integer":
-								return a.op === "eq" ? t.eq(t.n, a.value) : t.lt(t.n, a.value)
+	const S = schema(
+		"Encoded",
+		[Kind, Weight, T],
+		[
+			key(
+				on(
+					select(T, (t) => {
+						const atom = (a: Atom) => {
+							switch (a.kind) {
+								case "handle":
+									return a.op === "eq" ? t.eq(t.kind, first) : t.ne(t.kind, first)
+								case "in":
+									return t.in(t.kind, [first])
+								case "closed read":
+									return a.op === "eq"
+										? t.eq(Weight.at("weight", t.kind), a.value)
+										: t.ge(Weight.at("weight", t.kind), a.value)
+								case "integer":
+									return a.op === "eq" ? t.eq(t.n, a.value) : t.lt(t.n, a.value)
+							}
 						}
-					}
-					const [p, q, r] = Arr.map(guard.atoms, atom)
-					if (q === undefined) {
-						return p
-					}
-					if (r === undefined) {
-						return guard.join === "and" ? t.and(p, q) : t.or(p, q)
-					}
-					return guard.join === "and" ? t.and(p, q, r) : t.or(p, q, r)
-				}),
-				"a"
+						const [p, q, r] = Arr.map(guard.atoms, atom)
+						if (q === undefined) {
+							return p
+						}
+						if (r === undefined) {
+							return guard.join === "and" ? t.and(p, q) : t.or(p, q)
+						}
+						return guard.join === "and" ? t.and(p, q, r) : t.or(p, q, r)
+					}),
+					"a"
+				)
 			)
-		)
-	])
+		]
+	)
 	const owned = succeeded(ownedInput(S))
 	const model = succeeded(
 		compileLaws(owned, everySlice(owned), { kind: "planned" }),

@@ -128,7 +128,7 @@ const schemaOf = (c: GenerationCase) => {
 	})
 	return schema(
 		"GenerationRow",
-		{ Flag, R, ...Rec.fromEntries(Arr.map(families, (f, i) => [`M${i}`, f.M] as const)) },
+		[Flag, R, ...Rec.values(Rec.fromEntries(Arr.map(families, (f, i) => [`M${i}`, f.M] as const)))],
 		[...Arr.map(families, (f) => f.members), ...folds, mutableBuilder(R)],
 		[]
 	)

@@ -200,7 +200,7 @@ ${Arr.join(
 	),
 	""
 )}
-export const S = schema("Gen", { Kind, ${names} }, [
+export const S = schema("Gen", [Kind, ${names}], [
 ${Arr.join(
 	Arr.map(statements(shape.relations), (s) => `\t${s}`),
 	",\n"

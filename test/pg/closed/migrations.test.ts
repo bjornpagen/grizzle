@@ -395,7 +395,7 @@ const builtOf = (name: string, m: Model, declaration: Declaration): Built => {
 		stored["Sets"] = relation("Sets", { id: pg.integer, members: bits(Tier) }, ["id"])
 	}
 	const declared: Record<string, AnyRelation | AnyClosed> = { Tier, Node, Allowed, Edge, ...stored }
-	const base = schema(name, declared, [law])
+	const base = schema(name, Rec.values(declared), [law])
 	const writer = role(base, "writer", stored, { write: Rec.keys(stored), refresh: [] })
 	const reader = role(base, "reader", stored, { write: [], refresh: [] })
 	return {

@@ -80,7 +80,7 @@ const BoardTask = relation(
 	{ id: uuid, account: uuid, priority: pg.integer, title: Title },
 	["id"]
 )
-export const Board = schema("Board", { Task: BoardTask }, [])
+export const Board = schema("Board", [BoardTask], [])
 
 export const tasksForAccount = query(Board).rule((r) => {
 	const { id, account, priority, title } = v(BoardTask, "boardTask")

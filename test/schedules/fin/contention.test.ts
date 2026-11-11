@@ -18,7 +18,7 @@
  * action, refuses every append's count update and must turn the property red.
  */
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec, Result } from "effect"
 import { openServed } from "#adapter/db/served.ts"
 import type { TransientTag } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -69,7 +69,10 @@ const Member = relation("Member", { member: pg.int4, g: pg.int4 }, ["member"])
  */
 const contended = (name: string) => {
 	const relations = { Owner, Member }
-	const base = schema(name, relations, [mutable(Owner), counted(on(Member, "g"), fin(Owner, "n"))])
+	const base = schema(name, Rec.values(relations), [
+		mutable(Owner),
+		counted(on(Member, "g"), fin(Owner, "n"))
+	])
 	const app = role(base, "app", relations, { write: ["Owner", "Member"] })
 	const direct = role(base, "direct", relations, { write: ["Owner", "Member"] })
 	return {

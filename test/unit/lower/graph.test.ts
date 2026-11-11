@@ -85,10 +85,11 @@ import { nodeOfKind, present } from "#test/unit/lower/support.ts"
 const text = str.regex("^.*$", "su")
 const Person = relation("Person", { id: uuid, name: text }, ["id"])
 const Follows = relation("Follows", { from: uuid, to: uuid }, ["from", "to"])
-const Network = schema("Network", { Person, Follows }, [
-	contained(on(Follows, "from"), on(Person, "id")),
-	contained(on(Follows, "to"), on(Person, "id"))
-])
+const Network = schema(
+	"Network",
+	[Person, Follows],
+	[contained(on(Follows, "from"), on(Person, "id")), contained(on(Follows, "to"), on(Person, "id"))]
+)
 
 const logical = (q: unknown): LogicalQuery => {
 	const desc = queryValueDesc(q)
@@ -340,7 +341,7 @@ const Weight = closed.relation(
 	]
 )
 const Link = relation("Link", { from: closedId(Kind), to: closedId(Kind) }, ["from", "to"])
-const Kinds = schema("Kinds", { Kind, Zone, Allowed, Weight, Link }, [])
+const Kinds = schema("Kinds", [Kind, Zone, Allowed, Weight, Link], [])
 
 /** Every kind with the kinds it reaches: the origin carried by the step, the kind advanced. */
 const KindReach = query(Kinds).recursive("KindReach", {

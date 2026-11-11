@@ -190,11 +190,11 @@ const plantedSchema = (p: Planted) => {
 			"account"
 		)
 	)
-	const value = schema("Checks", { Grade, GradeScore, Gauge, Mark, Stay, Amount, Tagged, Charge }, [
-		atLeast,
-		graded,
-		tipOnce
-	])
+	const value = schema(
+		"Checks",
+		[Grade, GradeScore, Gauge, Mark, Stay, Amount, Tagged, Charge],
+		[atLeast, graded, tipOnce]
+	)
 	return { value, Gauge, Mark, Stay, Amount, Tagged, Charge, atLeast, graded, tipOnce, hi }
 }
 

@@ -177,7 +177,7 @@ const connectionOf = <L>(
 
 const nameCase = (n: Names, c: Case<NameFeature>) =>
 	Effect.gen(function* () {
-		const base = schema(n.schema, { Item: relation("Item", { id: uuid }, ["id"]) }, [])
+		const base = schema(n.schema, [relation("Item", { id: uuid }, ["id"])], [])
 		const roles = Arr.map(n.roles, (name) => role(base, name, wholeEntriesOf(base)))
 		const desk = login(base, n.login, roles)
 		const installation = identity.schema(parsedSchemaName(n.schema))

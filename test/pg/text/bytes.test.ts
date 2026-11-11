@@ -175,7 +175,11 @@ const checkBatch = (batch: ReadonlyArray<BytesCase>, note: SearchCase<BytesFeatu
 			relation(relationName(i), { id: pg.integer, t }, ["id"])
 		)
 		const installed = yield* install(
-			schema("Bytes", Rec.fromEntries(Arr.map(relations, (r, i) => [relationName(i), r])), []),
+			schema(
+				"Bytes",
+				Rec.values(Rec.fromEntries(Arr.map(relations, (r, i) => [relationName(i), r]))),
+				[]
+			),
 			{ ambient: ordinarySession, label: "bytes", logins: [], extensions: [] }
 		)
 		const substrate = yield* Substrate

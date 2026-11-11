@@ -333,7 +333,7 @@ const build = Effect.fn("build")(function* (scale: Scale) {
 		declared[r.name] = r
 	}
 	const [base, schemaSpent] = yield* timed("schema", (): AnySchema =>
-		schema("Bench", declared, statements)
+		schema("Bench", Rec.values(declared), statements)
 	)
 	const [app, roleSpent] = yield* timed("role", () => {
 		const entries: Record<string, EntryValue> = {}

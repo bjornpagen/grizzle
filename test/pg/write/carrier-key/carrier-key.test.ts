@@ -46,7 +46,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * must turn the property red.
  */
 const R = relation("R", { id: pg.int4, v: pg.int4 }, ["id"])
-const Keyed = schema("carrier_key", { R }, [mutable(R)])
+const Keyed = schema("carrier_key", [R], [mutable(R)])
 
 const owned = owning(Keyed)
 const names = succeeded(

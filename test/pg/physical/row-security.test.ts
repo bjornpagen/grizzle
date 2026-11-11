@@ -98,7 +98,7 @@ const caseGen: Gen<RowSecurityCase> = (source) => ({
 const versionOf = (name: string, uses: Uses) => {
 	const Note = relation("Note", { id: uuid, shelf: pg.integer }, ["id"])
 	const Card = relation("Card", { id: uuid, shelf: pg.integer }, ["id"])
-	const base = schema(name, { Note, Card }, [])
+	const base = schema(name, [Note, Card], [])
 	/** A relation's facts on one shelf, a query entry whose filter fixes the shelf. */
 	const shelvedNote = (shelf: 1 | 2) =>
 		query(base).rule((r) => {

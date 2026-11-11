@@ -317,7 +317,7 @@ const { relation, schema }: Readonly<typeof import("#compiler/public/schema.ts")
 	await import("#compiler/public/schema.ts")
 const { compileTemplate, testCompile } = await import("#test/support/compile.ts")
 const Flagged = relation("Flagged", { id: uuid, flag: pg.boolean }, ["id"])
-const Flags = schema("Flags", { Flagged }, [])
+const Flags = schema("Flags", [Flagged], [])
 /** The query compiled, or the probe fails. */
 const compiles = (q: unknown): void => {
 	const template = compileTemplate(q, undefined, testCompile)

@@ -260,7 +260,7 @@ const benchRun = Effect.fn("benchRun")(function* (options: ColdOptions) {
 		extensions: []
 	})
 	yield* load(work, workFacts)
-	const installed = coldLogin(schema(work.schema, W.Work.relations, W.Work.statements))
+	const installed = coldLogin(schema(work.schema, Rec.values(W.Work.relations), W.Work.statements))
 	const compiled = yield* compileServed(
 		installed,
 		snapshotValue(work.snapshot, work.installation),

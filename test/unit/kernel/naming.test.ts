@@ -308,8 +308,8 @@ const subjectOf = (c: NamingCase): { readonly base: AnySchema; readonly subject:
 			? familySchema(sub.space, sub.variant)
 			: schema(
 					"Contracts",
-					{
-						Line: relation(
+					[
+						relation(
 							"Line",
 							{
 								id: pg.integer,
@@ -323,10 +323,10 @@ const subjectOf = (c: NamingCase): { readonly base: AnySchema; readonly subject:
 							},
 							["id"]
 						)
-					},
+					],
 					[]
 				)
-	return { base, subject: c.extended ? schema.extend(base, "Above", {}, []) : base }
+	return { base, subject: c.extended ? schema.extend(base, "Above", [], []) : base }
 }
 
 /**
@@ -629,7 +629,7 @@ describe("production names from src", () => {
 					(shape, c) =>
 						Effect.sync(() => {
 							c.noteAll(shapeFeatures(shape, false))
-							const L = lawNamesOf(schema("S", { Item }, [checkOf(shape)]))
+							const L = lawNamesOf(schema("S", [Item], [checkOf(shape)]))
 							const theory = Arr.filter(
 								L.model.theory.laws,
 								(l) => l.detail.kind === "check" && l.detail.name === "H"

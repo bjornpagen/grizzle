@@ -78,7 +78,7 @@ export const issued = (selector: boolean) =>
  * independent law of the same shape into a relation that is all key, `Badge` into `Desk`.
  */
 export const staffingOf = (p: StaffingParams) => (name: string) =>
-	schema(name, staffingRelations, [
+	schema(name, Rec.values(staffingRelations), [
 		staffed(p.selector),
 		issued(p.selector),
 		...mutables(p.mutable, staffingRelations)
@@ -133,11 +133,15 @@ export const oneShift = (status: ShiftStatus) => key(shiftWeeks(status))
  * keyed, one of its selected shifts, which shares the containment's generated columns.
  */
 export const rotaOf = (p: RotaParams) => (name: string) =>
-	schema(name, { Status, ...rotaRelations }, [
-		shiftSheet(p.status),
-		...(p.keyed ? [oneShift(p.status)] : []),
-		...mutables(p.mutable, rotaRelations)
-	])
+	schema(
+		name,
+		[Status, ...Rec.values(rotaRelations)],
+		[
+			shiftSheet(p.status),
+			...(p.keyed ? [oneShift(p.status)] : []),
+			...mutables(p.mutable, rotaRelations)
+		]
+	)
 
 export const rota = (options: { readonly mutable: boolean }) =>
 	rotaOf({ mutable: options.mutable, status: "approved", keyed: false })("Rota")
@@ -163,7 +167,7 @@ export const nodeParent = (live: boolean) =>
 
 /** Tree: a selected source into its own relation, one table that is both source and target. */
 export const treeOf = (p: TreeParams) => (name: string) =>
-	schema(name, { Node }, [nodeParent(p.live), ...mutables(p.mutable, { Node })])
+	schema(name, [Node], [nodeParent(p.live), ...mutables(p.mutable, { Node })])
 
 export const tree = (options: { readonly mutable: boolean }) =>
 	treeOf({ mutable: options.mutable, live: true })("Tree")
@@ -193,7 +197,7 @@ export const reasonKey = key(reasonLine)
 
 /** Reasons: `mirrors(on(select(Line, (l) => l.eq(l.offCycle, sel)), "id"), on(Reason, "line"))`. */
 export const reasonsOf = (p: ReasonsParams) => (name: string) =>
-	schema(name, reasonsRelations, [
+	schema(name, Rec.values(reasonsRelations), [
 		reasonKey,
 		mirrors(offCycleLines(p.selector), reasonLine),
 		...mutables(p.mutable, reasonsRelations)
@@ -235,7 +239,7 @@ export const noteKey = key(noteBatch)
 
 /** Batches: `mirrors(on(select(Batch, (b) => b.eq(b.urgent, sel)), "id", "tenant"), on(Note, "batch", "account"))`. */
 export const batchesOf = (p: BatchesParams) => (name: string) =>
-	schema(name, batchesRelations, [
+	schema(name, Rec.values(batchesRelations), [
 		noteKey,
 		mirrors(urgentBatches(p.selector), noteBatch),
 		...mutables(p.mutable, batchesRelations)
@@ -290,13 +294,17 @@ export const watchTicket = on(Watch, "ticket")
  * relation that is all key are deferred.
  */
 export const signalsOf = (p: SignalsParams) => (name: string) =>
-	schema(name, { Priority, ...signalsRelations }, [
-		mirrors(levelTickets, escalationTicket),
-		mirrors(translationTicket, englishTickets),
-		mirrors(urgentTickets, pageTicket),
-		mirrors(watchedTickets, watchTicket),
-		...mutables(p.mutable, signalsRelations)
-	])
+	schema(
+		name,
+		[Priority, ...Rec.values(signalsRelations)],
+		[
+			mirrors(levelTickets, escalationTicket),
+			mirrors(translationTicket, englishTickets),
+			mirrors(urgentTickets, pageTicket),
+			mirrors(watchedTickets, watchTicket),
+			...mutables(p.mutable, signalsRelations)
+		]
+	)
 
 export const signals = (options: { readonly mutable: boolean }) =>
 	signalsOf({ mutable: options.mutable })("Signals")

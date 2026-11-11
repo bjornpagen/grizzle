@@ -93,7 +93,7 @@ const loginOf = (k: number) => {
 			)
 		)
 	)
-	const base = schema("Guarded", { T, U }, keys)
+	const base = schema("Guarded", [T, U], keys)
 	const writer = role(base, "writer", { T, U }, { write: ["T", "U"] })
 	const load = ChangeSet.empty(writer).insert(writer.relations.U, []).insert(writer.relations.T, [])
 	return {
@@ -234,7 +234,11 @@ const orderedAt = (r: number) =>
 		const relations = upTo(r, (i) => relation(`R${i}`, { id: uuid, a: pg.integer }, ["id"]))
 		const owned = succeeded(
 			ownedInput(
-				schema("Tables", Rec.fromEntries(Arr.map(relations, (t) => [t.name, t] as const)), [])
+				schema(
+					"Tables",
+					Rec.values(Rec.fromEntries(Arr.map(relations, (t) => [t.name, t] as const))),
+					[]
+				)
 			)
 		)
 		const [, counts] = yield* callCounts(

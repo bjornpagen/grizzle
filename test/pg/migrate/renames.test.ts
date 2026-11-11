@@ -180,7 +180,7 @@ const rosterAt = (p: Plan, after: boolean) => closed("Kind", handlesAt(p, after)
 const schemaOf = (
 	name: string,
 	relations: Readonly<Record<string, ReturnType<typeof rosterAt> | VersionRelation>>
-) => schema(name, relations, [])
+) => schema(name, Rec.values(relations), [])
 
 /** The schema of a version under the declared name `name`: before the migration, or after it. */
 const schemaAt = (name: string, p: Plan, after: boolean) => {

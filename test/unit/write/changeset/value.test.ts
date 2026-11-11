@@ -124,7 +124,7 @@ import {
 
 /** The relation an extension of Work adds, so Work is a level of the extension and not the other way round. */
 const Extra = relation("Extra", { id: uuid }, ["id"])
-const Ext = schema.extend(Work, "Ext", { Extra }, [])
+const Ext = schema.extend(Work, "Ext", [Extra], [])
 
 type LevelName = "Work" | "Ext" | "Ledger"
 const levelValues: Readonly<Record<LevelName, object>> = { Work, Ext, Ledger: LedgerSchema }
@@ -1296,7 +1296,7 @@ const lookAlike: QueryBase = {
 	named: () => lookAlike
 }
 
-const foreign = query(schema("Elsewhere", { Task }, [])).rule((r: RuleValue) => {
+const foreign = query(schema("Elsewhere", [Task], [])).rule((r: RuleValue) => {
 	const { id, account, kind } = v(Task, "task")
 	return r.match(Task, { id, account, kind }).find({ id, account, kind })
 })
@@ -1647,15 +1647,19 @@ interface LevelRoot {
 const levelRoots: Arr.NonEmptyReadonlyArray<LevelRoot> = [
 	{
 		label: "Work",
-		renamed: (name) => schema(name, Work.relations, Work.statements),
-		relationAdded: schema("Work", { ...Work.relations, Extra }, Work.statements),
-		statementRemoved: schema("Work", Work.relations, Work.statements.slice(0, -1))
+		renamed: (name) => schema(name, Rec.values(Work.relations), Work.statements),
+		relationAdded: schema("Work", [...Rec.values(Work.relations), Extra], Work.statements),
+		statementRemoved: schema("Work", Rec.values(Work.relations), Work.statements.slice(0, -1))
 	},
 	{
 		label: "Payroll",
-		renamed: (name) => schema(name, Payroll.relations, Payroll.statements),
-		relationAdded: schema("Payroll", { ...Payroll.relations, Extra }, Payroll.statements),
-		statementRemoved: schema("Payroll", Payroll.relations, Payroll.statements.slice(0, -1))
+		renamed: (name) => schema(name, Rec.values(Payroll.relations), Payroll.statements),
+		relationAdded: schema("Payroll", [...Rec.values(Payroll.relations), Extra], Payroll.statements),
+		statementRemoved: schema(
+			"Payroll",
+			Rec.values(Payroll.relations),
+			Payroll.statements.slice(0, -1)
+		)
 	}
 ]
 

@@ -51,7 +51,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 const Item = relation("Item", { id: pg.integer, score: pg.integer }, ["id"])
-const Items = schema("Items", { Item }, [mutable(Item)])
+const Items = schema("Items", [Item], [mutable(Item)])
 
 /** An item as stored and as a call states it. */
 type ItemFact = Readonly<{ id: number; score: number }>

@@ -64,7 +64,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 const Day = relation("Day", { day: pg.bigint, span: span(pg.bigint), week: pg.bigint }, ["day"])
 const Visit = relation("Visit", { id: pg.bigint, at: pg.bigint }, ["id"])
-const Spans = schema("Spans", { Day, Visit }, [key(on(Day, "span"))])
+const Spans = schema("Spans", [Day, Visit], [key(on(Day, "span"))])
 
 /**
  * The day of each instant a relation parameter names. r.pointIn takes a term as its point, and a scalar parameter is

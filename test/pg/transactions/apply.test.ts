@@ -30,7 +30,7 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Result, Stream } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec, Result, Stream } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { memberCalls, variantOf } from "#adapter/db/handles.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
@@ -77,9 +77,9 @@ const counts = (relation: string, added: bigint, deleted: bigint, put: bigint) =
  * has Work as its base level.
  */
 const levels = (name: string) => {
-	const Base = schema(name, W.Work.relations, W.Work.statements)
+	const Base = schema(name, Rec.values(W.Work.relations), W.Work.statements)
 	const Label = relation("Label", { task: uuid }, ["task"])
-	const Extended = schema.extend(Base, `${name}_1`, { Label }, [])
+	const Extended = schema.extend(Base, `${name}_1`, [Label], [])
 	/**
 	 * The app: a full role over Extended writing Work's stored relations but Account, so a write of Account is outside
 	 * its write list, in its login.
@@ -213,11 +213,11 @@ layer(Substrate.layer)("a change member's apply", (it) => {
 					 * write list, at workload(...); the workload builder refuses the first two where it is called, and the
 					 * compile of the served file the third.
 					 */
-					const sibling = schema(done.schema, W.Work.relations, [])
+					const sibling = schema(done.schema, Rec.values(W.Work.relations), [])
 					const extension = schema.extend(
 						s0,
 						"Extended",
-						{ Extra: relation("Extra", { id: uuid }, ["id"]) },
+						[relation("Extra", { id: uuid }, ["id"])],
 						[]
 					)
 					/** The ChangeSets the compile refuses, by the value that draws them. */

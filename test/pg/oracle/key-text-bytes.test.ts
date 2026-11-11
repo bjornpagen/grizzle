@@ -277,7 +277,7 @@ layer(Substrate.layer)(
 								])
 								const key = Arr.map(c.order, (p) => defined(names[p], "a key field"))
 								const Keyed = relation("Keyed", fields, key, [])
-								const installed = yield* install(schema("TextBytes", { Kind, Keyed }, [], []), {
+								const installed = yield* install(schema("TextBytes", [Kind, Keyed], [], []), {
 									ambient: ordinarySession,
 									label: "textbytes",
 									logins: [],

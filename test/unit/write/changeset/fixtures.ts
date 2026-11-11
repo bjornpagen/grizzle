@@ -116,7 +116,7 @@ const Status = relation("Status", { id: uuid, state: label }, ["id"])
 const Tag = relation("Tag", { owner: uuid, tag: label }, ["owner", "tag"])
 export const LedgerSchema = schema(
 	"Ledger",
-	{ Book, Entry: BookEntry, Ticket, Counter, Status, Tag },
+	[Book, BookEntry, Ticket, Counter, Status, Tag],
 	[
 		key(on(BookEntry, "code")),
 		contained(on(BookEntry, "book"), on(Book, "id")),

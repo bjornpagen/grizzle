@@ -79,7 +79,7 @@ const Fee = relation("Fee", { id: pg.bigint, student: pg.integer, amount: pg.num
 ])
 
 const build = (name: string) => {
-	const Edu = schema(name, { Sitting, Fee }, [])
+	const Edu = schema(name, [Sitting, Fee], [])
 	const StudentWeekly = derived.materialized(
 		"StudentWeekly",
 		query(Edu).rule((r) => {
@@ -99,7 +99,7 @@ const build = (name: string) => {
 			return r.match(Fee, { id, student, amount }).find({ student, top: r.max(amount) })
 		})
 	)
-	const Level1 = schema.extend(Edu, `${name}_1`, { StudentWeekly, TopFee }, [])
+	const Level1 = schema.extend(Edu, `${name}_1`, [StudentWeekly, TopFee], [])
 	const WeekBusy = derived.materialized(
 		"WeekBusy",
 		query(Level1).rule((r) => {
@@ -107,7 +107,7 @@ const build = (name: string) => {
 			return r.match(StudentWeekly, { student, week }).find({ week, students: r.count() })
 		})
 	)
-	const Reports = schema.extend(Level1, `${name}_2`, { WeekBusy }, [])
+	const Reports = schema.extend(Level1, `${name}_2`, [WeekBusy], [])
 	/** The refresher: a full role refreshing every view, in a login of its own. */
 	const refresher = role(Reports, "refresher", wholeEntriesOf(Reports), {
 		refresh: ["StudentWeekly", "TopFee", "WeekBusy"]

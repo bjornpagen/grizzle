@@ -45,7 +45,7 @@ import { caseHang } from "#test/support/limits.ts"
 
 const A = relation("A", { id: uuid, x: uuid, y: uuid, n: natural }, ["id"])
 const L = relation("L", { id: uuid, owner: uuid }, ["id"])
-const Lo = schema("Lo", { A, L }, [key(on(A, "x"))])
+const Lo = schema("Lo", [A, L], [key(on(A, "x"))])
 
 const C = relation("C", { id: uuid, a: uuid, n: natural }, ["id"])
 const U = relation("U", { id: uuid, count: drawn(natural) }, ["id"])
@@ -192,7 +192,7 @@ const refusedAt = (s: Shape): string | undefined => {
 
 /** The upper level over Lo stating `statement`, owned. */
 const ownedUp = (statement: Statement) => {
-	const Up: AnySchema = schema.extend(Lo, "Up", { C, U, UM }, [statement])
+	const Up: AnySchema = schema.extend(Lo, "Up", [C, U, UM], [statement])
 	return own(defined(schemaDescOf(Up), "Up's description"))
 }
 

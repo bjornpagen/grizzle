@@ -264,7 +264,7 @@ describe("an attachment's delivery", () => {
 
 const Post = relation("Post", { id: uuid, n: pg.numeric(10, 2) }, ["id"])
 const Comment = relation("Comment", { id: uuid, post: uuid, n: pg.numeric(10, 2) }, ["id"])
-const Blog = schema("Blog", { Post, Comment }, [contained(on(Comment, "post"), on(Post, "id"))])
+const Blog = schema("Blog", [Post, Comment], [contained(on(Comment, "post"), on(Post, "id"))])
 
 /** Each post with its comments: a root statement and one attachment statement, its rows led by the parent key. */
 const postsWithComments = query(Blog)

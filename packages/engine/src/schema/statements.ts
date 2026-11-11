@@ -30,6 +30,7 @@ import {
 	orThrow,
 	ownedDesc,
 	ownedEntry,
+	ownedKind,
 	ownValue,
 	queryHeadingOf,
 	builderRefusal,
@@ -105,7 +106,46 @@ export const statementDescOf = (value: unknown): StatementDesc | undefined =>
 const ownedStatement = <V extends Exclude<Statement, MirrorsBase>>(
 	value: V,
 	desc: StatementDesc
-): V => ownValue(value, "statement", desc, canonicalStatementOf(desc))
+): V =>
+	ownValue(value, "statement", desc, {
+		canonical: canonicalStatementOf(desc),
+		over: relationsOver(value)
+	})
+
+/** Whether a value a statement holds is a relation, closed relation, roster or derived relation: a declaration. */
+const isDeclaration = (value: Readonly<Record<string, unknown>>): boolean => {
+	const kind = ownedKind(value) ?? value["kind"]
+	return kind === "relation" || kind === "closed" || kind === "closedRelation" || kind === "derived"
+}
+
+/**
+ * The relations a statement value was built over, each once, in the order met: a side's source or its selection's
+ * relation, a mutable's or a check's relation, a family's slots' owner, an alternatives law's parent, roster and arms,
+ * a fold's step and end. A statement's Description names each by its name alone (ir/desc.ts SideDesc), which a schema
+ * reads as its own relation of that name, so the schema's build holds each to the schema's declaration of its name
+ * (schema.ts). The walk reads the members the builders froze into the value, and stops at a relation, whose members
+ * are its own.
+ */
+const relationsOver = (value: unknown): ReadonlyArray<unknown> => {
+	const over: Array<unknown> = []
+	const pending: Array<unknown> = [value]
+	for (let at = 0; at < pending.length; at += 1) {
+		const member = pending[at]
+		if (!hasProperties(member)) {
+			continue
+		}
+		if (isDeclaration(member)) {
+			if (!over.includes(member)) {
+				over.push(member)
+			}
+			continue
+		}
+		for (const inner of isList(member) ? member : Object.values(member)) {
+			pending.push(inner)
+		}
+	}
+	return Object.freeze(over)
+}
 
 /** A field of a relation whose heading is known, refused when the heading has no field of that name. */
 const fieldOf = (
@@ -441,10 +481,13 @@ const admitMirrors = (left: unknown, right: unknown): ExpansionDesc => {
 
 /** A mirrors value owned with its two containments and their canonical forms, computed once, here (ownedStatement). */
 const ownExpansion = <V extends MirrorsBase>(value: V, expansion: ExpansionDesc): V =>
-	ownValue(value, "expansion", expansion, [
-		canonicalStatementOf(expansion.statements[0]),
-		canonicalStatementOf(expansion.statements[1])
-	])
+	ownValue(value, "expansion", expansion, {
+		canonical: [
+			canonicalStatementOf(expansion.statements[0]),
+			canonicalStatementOf(expansion.statements[1])
+		],
+		over: relationsOver(value)
+	})
 
 /** mirrors(left, right): sugar for contained(left, right) and contained(right, left), which the schema states. */
 export const mirrorsBuilder = <L, R>(left: L, right: R): Mirrors<L, R> =>

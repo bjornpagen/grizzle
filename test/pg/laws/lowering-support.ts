@@ -41,13 +41,13 @@ export const RELATIONS = ["A", "B", "S"] as const
 
 /** The root level: A and B with their candidate keys, A's (grp, kind) and B's grp. */
 const rootOf = (name: string) =>
-	schema(name, { A, B }, [key(on(A, "grp", "kind")), key(on(B, "grp"))])
+	schema(name, [A, B], [key(on(A, "grp", "kind")), key(on(B, "grp"))])
 
 type Root = ReturnType<typeof rootOf>
 
 /** The root level with other candidate keys, A's (v, kind) and B's tag, each inside a superkey a lowering keys on. */
 const otherRoot = (name: string) =>
-	schema(name, { A, B }, [key(on(A, "v", "kind")), key(on(B, "tag"))])
+	schema(name, [A, B], [key(on(A, "v", "kind")), key(on(B, "tag"))])
 
 /**
  * `desc` with its root level's statements `statements`, every level above it as it is: the same schema over other
@@ -150,7 +150,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { id }).find({ id })
 				})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x"), on(D, "id"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x"), on(D, "id"))])
 		}
 		case "fixed": {
 			const D = derived(
@@ -160,7 +160,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { id, kind: 1 }).find({ id })
 				})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x"), on(D, "id"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x"), on(D, "id"))])
 		}
 		case "fixedTwo": {
 			const D = derived(
@@ -170,7 +170,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { id, kind: 1, grp: 0 }).find({ id })
 				})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x"), on(D, "id"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x"), on(D, "id"))])
 		}
 		case "whereFixed": {
 			const D = derived(
@@ -180,7 +180,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { id, kind }).where(r.eq(kind, 1)).find({ id })
 				})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x"), on(D, "id"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x"), on(D, "id"))])
 		}
 		case "candidate": {
 			const D = derived(
@@ -190,7 +190,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { grp, kind: 2 }).find({ id: grp })
 				})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x"), on(D, "id"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x"), on(D, "id"))])
 		}
 		case "candidatePair": {
 			const D = derived(
@@ -200,7 +200,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { grp, v: w, kind: 2 }).find({ id: grp, g: w })
 				})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x", "y"), on(D, "id", "g"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x", "y"), on(D, "id", "g"))])
 		}
 		case "pair": {
 			const D = derived(
@@ -210,7 +210,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { id, grp, kind: 1 }).find({ id, g: grp })
 				})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x", "y"), on(D, "id", "g"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x", "y"), on(D, "id", "g"))])
 		}
 		case "join": {
 			const D = derived(
@@ -220,7 +220,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { id, grp, kind: 1 }).match(B, { grp, tag: 3 }).find({ id, g: grp })
 				})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x", "y"), on(D, "id", "g"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x", "y"), on(D, "id", "g"))])
 		}
 		case "union": {
 			const D = derived(
@@ -235,7 +235,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 						return r.match(A, { id, kind: 2 }).find({ id })
 					})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x"), on(D, "id"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x"), on(D, "id"))])
 		}
 		case "negated": {
 			const D = derived(
@@ -245,7 +245,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { id, grp, kind: 1 }).where(r.not(B, { grp })).find({ id })
 				})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x"), on(D, "id"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x"), on(D, "id"))])
 		}
 		case "computed": {
 			const D = derived(
@@ -257,7 +257,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 						.find({ id: Compute.greatest(id, Compute.literal(pg.integer, 0)) })
 				})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x"), on(D, "id"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x"), on(D, "id"))])
 		}
 		case "repeated": {
 			const D = derived(
@@ -267,7 +267,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { id, kind: 1 }).find({ id, id2: id })
 				})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x", "y"), on(D, "id", "id2"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x", "y"), on(D, "id", "id2"))])
 		}
 		case "compared": {
 			const D = derived(
@@ -277,7 +277,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { id, kind: 1, v: w }).where(r.gt(w, 0)).find({ id })
 				})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x"), on(D, "id"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x"), on(D, "id"))])
 		}
 		case "headFixed": {
 			const D = derived(
@@ -287,7 +287,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { id, kind: 1 }).where(r.eq(id, 1)).find({ id })
 				})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x"), on(D, "id"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x"), on(D, "id"))])
 		}
 		case "existential": {
 			const D = derived(
@@ -298,7 +298,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { id, grp, kind: 1 }).match(B, { id: bid, grp }).find({ id, bid })
 				})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x", "y"), on(D, "id", "bid"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x", "y"), on(D, "id", "bid"))])
 		}
 		case "headless": {
 			const D = derived(
@@ -308,7 +308,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { id, kind: 1 }).match(B, { id: 0 }).find({ id })
 				})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x"), on(D, "id"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x"), on(D, "id"))])
 		}
 		case "doubled": {
 			const D = derived(
@@ -318,7 +318,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { id, grp: id, kind: 1 }).find({ id })
 				})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x"), on(D, "id"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x"), on(D, "id"))])
 		}
 		case "unkeyed": {
 			const D = derived(
@@ -328,7 +328,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { grp, v: 1 }).find({ id: grp })
 				})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x"), on(D, "id"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x"), on(D, "id"))])
 		}
 		case "unbounded": {
 			const D = derived(
@@ -338,7 +338,7 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { id, txt: "a" }).find({ id })
 				})
 			)
-			return schema.extend(root, name, { S, D }, [contained(on(S, "x"), on(D, "id"))])
+			return schema.extend(root, name, [S, D], [contained(on(S, "x"), on(D, "id"))])
 		}
 	}
 }

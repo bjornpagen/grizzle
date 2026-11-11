@@ -74,11 +74,11 @@ const Member = relation(
 	{ owner: uuid, at: drawnField(natural), body: str.regex("^[ab]*$") },
 	["owner", "at"]
 )
-const Bodies = schema("Bodies", { Owner, Member }, [
-	ordered(on(Member, "owner", "at"), fin(Owner, "members")),
-	mutable(Owner),
-	mutable(Member)
-])
+const Bodies = schema(
+	"Bodies",
+	[Owner, Member],
+	[ordered(on(Member, "owner", "at"), fin(Owner, "members")), mutable(Owner), mutable(Member)]
+)
 
 const reality = realityWrite(succeeded(testArtifacts(Bodies, testCompile)))
 const lawNames = lawNamesOf(Bodies)

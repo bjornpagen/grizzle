@@ -51,7 +51,15 @@ import { element, type Gen, increasing, int, shuffled } from "@grizzle/testing/g
 import { matching } from "@grizzle/testing/pattern"
 import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Record as Rec,
+	Result,
+	String as Str
+} from "effect"
 import { applyOnSession } from "#adapter/migrate/apply.ts"
 import type { MigrateError, MigrationPlace, ServerReport } from "#adapter/migrate/errors.ts"
 import type { FolderSource, MigrationTarget } from "#adapter/migrate/input.ts"
@@ -157,7 +165,7 @@ const { Worker, Assignment, Desk, Badge } = Object.freeze(relations)
  * Every version's world is its full world (fullWorld): the role `app`, writing every relation, in
  * the login `server`, which the migration keeps and the racing writers act in.
  */
-const v1 = (name: string) => schema(name, relations, [])
+const v1 = (name: string) => schema(name, Rec.values(relations), [])
 /** Every kind of law at once: a candidate key, a row check, a containment and a selected side's one. */
 const workerName = key(on(Worker, "name"))
 const nonNegative = check("NonNegativeHours", Assignment, (x) => x.ge(x.hours, 0))
@@ -172,7 +180,7 @@ const issuedDesk = contained(
 const tightenedRelations = Object.freeze(domains(true))
 const tightened = (name: string) => {
 	const r = tightenedRelations
-	return schema(name, r, [
+	return schema(name, Rec.values(r), [
 		key(on(r.Worker, "name")),
 		check("NonNegativeHours", r.Assignment, (x) => x.ge(x.hours, 0)),
 		contained(on(r.Assignment, "worker"), on(r.Worker, "id")),
@@ -193,7 +201,7 @@ const staffing = contained(
 	),
 	on(Worker, "id")
 )
-const staffed = (name: string) => schema(name, relations, [staffing])
+const staffed = (name: string) => schema(name, Rec.values(relations), [staffing])
 
 /**
  * A version's complete installation under `schema`, owned by `owner`, with its full world, as `grizzle generate`

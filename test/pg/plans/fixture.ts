@@ -42,20 +42,24 @@ export const Note = relation("Note", { id: uuid, ticket: uuid, open: pg.boolean 
  * rows exactly. VACUUM also sets the visibility map an index-only scan needs. The sizes make every keyed probe far
  * cheaper than a scan, so a plan that loses an index condition shows it.
  */
-export const Plans = schema("Plans", { Kind, Account, Posting, Entry, Item, Task, Ticket, Note }, [
-	key(
-		on(
-			select(Task, (x) => x.eq(x.kind, "Automatic")),
-			"account"
+export const Plans = schema(
+	"Plans",
+	[Kind, Account, Posting, Entry, Item, Task, Ticket, Note],
+	[
+		key(
+			on(
+				select(Task, (x) => x.eq(x.kind, "Automatic")),
+				"account"
+			)
+		),
+		key(
+			on(
+				select(Note, (x) => x.eq(x.open, true)),
+				"ticket"
+			)
 		)
-	),
-	key(
-		on(
-			select(Note, (x) => x.eq(x.open, true)),
-			"ticket"
-		)
-	)
-])
+	]
+)
 
 /** The pinned sizes. */
 export const sizes = {

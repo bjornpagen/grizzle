@@ -49,14 +49,18 @@ const OrderedMember = relation("Member", { member: pg.int4, g: pg.int4, at: draw
 const CountedMember = relation("Member", { member: pg.int4, g: pg.int4 }, ["member"])
 
 /** The ordered family: each owner's members indexed by their drawn `at`. */
-const OrderedFamily = schema("fin_ordered", { Owner, Member: OrderedMember }, [
-	ordered(on(OrderedMember, "g", "at"), fin(Owner, "n"))
-])
+const OrderedFamily = schema(
+	"fin_ordered",
+	[Owner, OrderedMember],
+	[ordered(on(OrderedMember, "g", "at"), fin(Owner, "n"))]
+)
 
 /** The counted family: each owner's members indexed by the hidden ‹i›. */
-const CountedFamily = schema("fin_counted", { Owner, Member: CountedMember }, [
-	counted(on(CountedMember, "g"), fin(Owner, "n"))
-])
+const CountedFamily = schema(
+	"fin_counted",
+	[Owner, CountedMember],
+	[counted(on(CountedMember, "g"), fin(Owner, "n"))]
+)
 
 export const FAMILY_RELATIONS = ["Owner", "Member"] as const
 

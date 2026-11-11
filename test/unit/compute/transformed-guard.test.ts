@@ -332,7 +332,7 @@ describe("a guard over a transformed text", () => {
 								return
 							}
 							const image = imageOf(c.transform)
-							const checked = checkedIn(schema("Transformed", { R: relationOf(c) }, []))
+							const checked = checkedIn(schema("Transformed", [relationOf(c)], []))
 							run.note(`${c.transform.kind} ${checked.ok ? "admitted" : "refused"}`)
 							if (
 								!analyzeText([{ source: c.guard, flags: "u" }, image], SourceLoc("guard", [])).ok
@@ -1025,7 +1025,7 @@ const installsStored = (
 	const Stored = relation.generated("R", { id: uuid, t: Operand }, ["id"], (r) => ({
 		n: generatedField(Target, chained(steps, r.t), [])
 	}))
-	const Installed = schema("Stored", { R: Stored }, [])
+	const Installed = schema("Stored", [Stored], [])
 	const reads = queryOver(Installed).rule((r: RuleValue) => {
 		const row = varsOver(Stored, "row")
 		return r.match(Stored, row).find(row)
@@ -1167,15 +1167,15 @@ describe("a transformed text's byte bound", () => {
 							const checked = checkedIn(
 								schema(
 									"Bounded",
-									{
-										R: relation.generated("R", { id: uuid, t: OperandText }, ["id"], (r) => ({
+									[
+										relation.generated("R", { id: uuid, t: OperandText }, ["id"], (r) => ({
 											n: generatedField(
 												TargetText,
 												Compute.cast(chained(c.steps, r.t), TargetText),
 												[]
 											)
 										}))
-									},
+									],
 									[]
 								)
 							)

@@ -59,14 +59,16 @@ import type {
 
 import type {
 	AnySchema,
+	Declared,
+	DeclaredOnce,
+	DeclaredOver,
 	DerivedAt,
 	LevelsOf,
 	Schema,
 	StatementsBelow,
 	StatementsByName,
 	StatementsReadBack,
-	StatementsWithin,
-	UnderOwnNames
+	StatementsWithin
 } from "#compiler/types/schema/schema.ts"
 
 import type { MonoidName } from "#compiler/ir/desc.ts"
@@ -264,51 +266,56 @@ export const closed: typeof closedRoster & { readonly relation: typeof closedRel
 	Object.freeze(Object.assign(closedRoster, { relation: closedRelation }))
 
 /**
- * schema(name, relations, statements). Each relation sits under its own name, so the record is the schema's index by
- * name. The statements are a frozen copy, held by name (StatementsByName) and read back whole, so `statements` is the
- * tuple the call writes: every tuple of statements reads back as itself (StatementsReadBack). A relation or statement
- * typed `any` is refused (UnderOwnNames, StatementsWithin).
+ * schema(name, relations, statements). The relations are a list, each relation carrying its own name, which the value
+ * holds by name (Declared), so the record is the schema's index by name. A library's relations join an application's
+ * by concatenating lists, `[...own, ...library]`, which drops nothing: a name is declared once (DeclaredOnce), a
+ * relation listed twice or copies of one are one declaration, and two relations of one name differing are refused,
+ * each marked. The statements are a frozen copy, held by name (StatementsByName) and read back whole, so `statements`
+ * is the tuple the call writes: every tuple of statements reads back as itself (StatementsReadBack). Every relation a
+ * statement names is the schema's relation of its name (StatementsWithin). A relation or statement typed `any` is
+ * refused (DeclaredOnce, StatementsWithin).
  */
 const rootSchema = <
 	const Name extends string,
-	const Relations extends Record<string, AnyRelation | AnyClosed>,
+	const Relations extends ReadonlyArray<AnyRelation | AnyClosed>,
 	const Statements extends ReadonlyArray<Statement>
 >(
 	name: Name,
-	relations: Relations & UnderOwnNames<Relations>,
+	relations: Relations & DeclaredOnce<Relations>,
 	statements: Statements &
-		StatementsWithin<Statements, Relations> &
-		StatementsReadBack<Statements, Relations>,
+		StatementsWithin<Statements, Declared<Relations>> &
+		StatementsReadBack<Statements, Declared<Relations>>,
 	...extra: ReadonlyArray<never>
-): Schema<Name, Relations, StatementsByName<Statements, Relations>> =>
+): Schema<Name, Declared<Relations>, StatementsByName<Statements, Declared<Relations>>> =>
 	schemaBuilder<Name, Relations, Statements>(name, relations, statements, extra)
 
 /**
  * schema.extend(base, name, relations, statements): a level of its own name over `base`, with relations, derived
- * relations over the base among them, each under its own name, and statements. Its relations install in a PostgreSQL
- * schema of its own, beside the base's, in one installation with every level below it. A derived definition must be a
- * query over the base or a lower level. Query is invariant in its schema, so a query over this level, which would read
- * its own relations, is no query over any level below it. Its statements are the base's, then its own, held by name
- * over the base's relations and its own. A relation or statement typed `any` is refused (UnderOwnNames,
- * StatementsWithin).
+ * relations over the base among them, a list as the root's are, and statements. A name is declared once across the
+ * level and every level below it (DeclaredOnce over the base's relations): a relation the base declares, listed again
+ * as the base declares it, is the base's. Its relations install in a PostgreSQL schema of its own, beside the base's,
+ * in one installation with every level below it. A derived definition must be a query over the base or a lower level.
+ * Query is invariant in its schema, so a query over this level, which would read its own relations, is no query over
+ * any level below it. Its statements are the base's, then its own, held by name over the base's relations and its
+ * own. A relation or statement typed `any` is refused (DeclaredOnce, StatementsWithin).
  */
 const extend = <
 	Base extends AnySchema,
 	const Name extends string,
-	const Relations extends Record<string, AnyRelation | AnyClosed | DerivedAt<LevelsOf<Base>>>,
+	const Relations extends ReadonlyArray<AnyRelation | AnyClosed | DerivedAt<LevelsOf<Base>>>,
 	const Statements extends ReadonlyArray<Statement>
 >(
 	base: Base & { readonly statements: StatementsBelow<Base> },
 	name: Name,
-	relations: Relations & UnderOwnNames<Relations>,
+	relations: Relations & DeclaredOnce<Relations, Base["relations"]>,
 	statements: Statements &
-		StatementsWithin<Statements, Base["relations"] & Relations> &
-		StatementsReadBack<Statements, Base["relations"] & Relations>,
+		StatementsWithin<Statements, DeclaredOver<Base["relations"], Relations>> &
+		StatementsReadBack<Statements, DeclaredOver<Base["relations"], Relations>>,
 	...extra: ReadonlyArray<never>
 ): Schema<
 	Name,
-	Base["relations"] & Relations,
-	StatementsByName<Statements, Base["relations"] & Relations>,
+	DeclaredOver<Base["relations"], Relations>,
+	StatementsByName<Statements, DeclaredOver<Base["relations"], Relations>>,
 	Base
 > =>
 	schemaBuilder.extend<Base, Name, Relations, Statements>(base, name, relations, statements, extra)

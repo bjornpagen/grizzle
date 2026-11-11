@@ -45,7 +45,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { pickGen } from "#test/support/pick.ts"
 
 const Edge = relation("Edge", { src: pg.bigint, dst: pg.bigint, w: pg.integer }, ["src", "dst"])
-const Plan = schema("Plan", { Edge }, [])
+const Plan = schema("Plan", [Edge], [])
 
 /** The most edges a path has; the fewest is one past the collapse limit. */
 const maxEdges = 14

@@ -79,7 +79,7 @@ const DocumentTag = relation("DocumentTag", { document: uuid, tag: TagName }, ["
  */
 const AnnSearch = schema(
 	"AnnSearch",
-	{ Document, DocumentCurrent, DocumentEmbedding, DocumentTag },
+	[Document, DocumentCurrent, DocumentEmbedding, DocumentTag],
 	[
 		contained(on(DocumentCurrent, "document"), on(Document, "id")),
 		contained(on(DocumentEmbedding, "document"), on(Document, "id")),

@@ -85,7 +85,7 @@ const Cell = relation(
 	},
 	["id"]
 )
-const Cells = schema("Cells", { Kind, Cell }, [])
+const Cells = schema("Cells", [Kind, Cell], [])
 
 /** The kinds a head literal can be, each with the field of Cell that holds it. */
 const kinds = ["int4", "int8", "bool", "text", "handle"] as const

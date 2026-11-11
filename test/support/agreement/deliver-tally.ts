@@ -16,4 +16,4 @@ export const AccountTally = derived.materialized(
 		return r.match(Task, { id, account }).find({ account, tasks: r.count() })
 	})
 )
-export const Tallies = schema.extend(Deliver, "Tallies", { AccountTally }, [])
+export const Tallies = schema.extend(Deliver, "Tallies", [AccountTally], [])

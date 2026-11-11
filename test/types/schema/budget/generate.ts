@@ -66,10 +66,10 @@ ${Arr.join(
 	Arr.map(declared, (i) => relationDeclaration(ns, i)),
 	""
 )}
-export const ${ns}S = schema("Scale", { ${Arr.join(
-		Arr.map(declared, (i) => `R${i}: ${ns}R${i}`),
+export const ${ns}S = schema("Scale", [${Arr.join(
+		Arr.map(declared, (i) => `${ns}R${i}`),
 		", "
-	)} }, [
+	)}], [
 ${statements(ns, declared)}
 ])
 export const ${ns}Stray = relation("Stray", { id: uuid, parent: uuid, label: ${ns}Label }, ["id"])

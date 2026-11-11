@@ -149,7 +149,7 @@ const longest = (n: Names): number =>
 
 /** The world a case's names declare: one relation, each role reading it whole, every role in the login. */
 const worldOf = (declared: string, n: Names) => {
-	const base = schema(declared, { Item: relation("Item", { id: uuid }, ["id"]) }, [])
+	const base = schema(declared, [relation("Item", { id: uuid }, ["id"])], [])
 	const roles = Arr.map(n.roles, (name) => role(base, name, wholeEntriesOf(base)))
 	return { schema: base, roles, login: login(base, n.login, roles) }
 }

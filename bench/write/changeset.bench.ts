@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, type Scope } from "effect"
+import { Array as Arr, Effect, Option, Record as Rec, type Scope } from "effect"
 import {
 	type CaseRecord,
 	defineGate,
@@ -83,8 +83,8 @@ const Entry = defineRelation("Entry", { id: pg.bigint, account: pg.bigint, amoun
 	"id"
 ])
 const relations = { Account, Pending, Entry } as const
-const build = (name: string) => schema(name, relations, [])
-const buildMutable = (name: string) => schema(name, relations, [mutable(Account)])
+const build = (name: string) => schema(name, Rec.values(relations), [])
+const buildMutable = (name: string) => schema(name, Rec.values(relations), [mutable(Account)])
 
 /**
  * The described put: credit `amount` to account `id`, reading its balance; the read-back reads the post-change row. The

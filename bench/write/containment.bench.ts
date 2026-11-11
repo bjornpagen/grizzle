@@ -67,7 +67,7 @@ const covered = contained(
 	),
 	on(Timesheet, "employee", "week")
 )
-const build = (name: string) => schema(name, { ShiftStatus, Timesheet, Shift }, [covered])
+const build = (name: string) => schema(name, [ShiftStatus, Timesheet, Shift], [covered])
 
 interface Options extends Readonly<Record<string, unknown>> {
 	/** Employees at the small size (ten times as many at the large one), weeks each, shifts per timesheet. */

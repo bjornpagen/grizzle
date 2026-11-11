@@ -40,7 +40,7 @@ import { owning } from "#test/support/policy.ts"
 const Shelf = relation("Shelf", { id: pg.integer }, ["id"])
 const Note = relation("Note", { id: uuid, shelf: pg.integer }, ["id"])
 const Card = relation("Card", { id: uuid, shelf: pg.integer }, ["id"])
-const Library = schema("Library", { Shelf, Note, Card }, [])
+const Library = schema("Library", [Shelf, Note, Card], [])
 const owned = owning(Library)
 
 const tables = ["Note", "Card"] as const

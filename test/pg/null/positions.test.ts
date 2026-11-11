@@ -429,7 +429,7 @@ const schemaOf = (nc: NullCase) => {
 		gens: [G0, G1, G2] as const,
 		Null: schema(
 			"Null",
-			{ ...c, Checked, Contained, Keyed, Rows, Owner, Member, G0, G1, G2 },
+			[...Rec.values(c), Checked, Contained, Keyed, Rows, Owner, Member, G0, G1, G2],
 			statements
 		)
 	}

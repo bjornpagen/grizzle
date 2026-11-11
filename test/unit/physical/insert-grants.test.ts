@@ -41,7 +41,7 @@ import { array, boolean, constant, element, type Gen, weighted } from "@grizzle/
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { CompileError } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty } from "#compiler/core/nonempty.ts"
@@ -112,7 +112,7 @@ type Mutability = { readonly [O in Owner]: boolean }
 /** The world's schema: Items counted under Stores, summed into their stock and copying their region, Slots ordered
  * under Shelves, each owner mutable when `mutability` says so. */
 const schemaOf = (mutability: Mutability) =>
-	schema("Shops", relations, [
+	schema("Shops", Rec.values(relations), [
 		items,
 		fold(items, Monoid.sum, on(Item, "store", "qty"), on(Store, "id", "stock")),
 		contained(on(Item, "store", "region"), on(Store, "id", "region")),

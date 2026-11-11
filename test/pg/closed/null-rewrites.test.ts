@@ -460,7 +460,7 @@ const schemaOf = (c: RewriteCase) => {
 	] as const
 	const Rewrites = schema(
 		"Rewrites",
-		{ Kind, Pick, Allowed, Checked, Contained, Keyed, Queried, GenCond },
+		[Kind, Pick, Allowed, Checked, Contained, Keyed, Queried, GenCond],
 		statements
 	)
 	const filtered = query(Rewrites).rule((q) => {

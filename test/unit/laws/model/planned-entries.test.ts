@@ -341,7 +341,7 @@ describe("the law model's planned B-tree indexes", () => {
 							const owned = ownedInput(
 								schema(
 									"Planned",
-									{ A, B },
+									[A, B],
 									[
 										containedBuilder(
 											onBuilder(

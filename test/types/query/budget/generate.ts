@@ -124,10 +124,10 @@ ${Arr.join(
 	Arr.map(declared, (i) => relationDeclaration(ns, i)),
 	""
 )}
-export const ${ns}S = schema("Gen", { Kind: ${ns}Kind, ${Arr.join(
-	Arr.map(declared, (i) => `R${i}: ${ns}R${i}`),
+export const ${ns}S = schema("Gen", [${ns}Kind, ${Arr.join(
+	Arr.map(declared, (i) => `${ns}R${i}`),
 	", "
-)} }, [
+)}], [
 ${statements(ns, declared)}
 ])
 /** A full role reading every relation, which every program over the schema runs on. */

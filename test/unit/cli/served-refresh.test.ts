@@ -80,7 +80,7 @@ const memberName = "nightly"
 const servedAt = `${schemaDir}/${servedPath(loginName)}`
 
 const Call = relation("Call", { id: uuid, workspace: uuid, cost: pg.bigint }, ["id"])
-const base = schema(schemaName, { Call }, [])
+const base = schema(schemaName, [Call], [])
 const Spend = derived.materialized(
 	"Spend",
 	query(base).rule((r) => {
@@ -95,7 +95,7 @@ const Calls = derived.materialized(
 		return r.match(Call, { id, workspace }).find({ workspace, calls: r.count() })
 	})
 )
-const totals = schema.extend(base, `${schemaName}_1`, { Spend, Calls }, [])
+const totals = schema.extend(base, `${schemaName}_1`, [Spend, Calls], [])
 const Usage = derived.materialized(
 	"Usage",
 	query(totals).rule((r) => {
@@ -107,7 +107,7 @@ const Usage = derived.materialized(
 			.find({ workspace, spend, calls })
 	})
 )
-const top = schema.extend(totals, `${schemaName}_2`, { Usage }, [])
+const top = schema.extend(totals, `${schemaName}_2`, [Usage], [])
 
 /** A materialized relation of the schema, with its declared name. */
 interface Materialized {

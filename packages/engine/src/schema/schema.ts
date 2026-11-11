@@ -1,6 +1,9 @@
+import { sameContent } from "#compiler/core/canonical.ts"
+import { CompileError, ruleRefused } from "#compiler/core/errors.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
-import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
+import { hasProperties, isList } from "#compiler/core/record.ts"
 import {
+	type AdmittedClosedRelation,
 	builtNode,
 	type FieldDesc,
 	type RelationDesc,
@@ -13,20 +16,28 @@ import { levelContent, type SchemaContent } from "#compiler/schema/levels.ts"
 import type { CanonicalStatement } from "#compiler/schema/own.ts"
 import {
 	builderLoc,
-	frozenCopy,
 	frozenTuple,
 	malformed,
 	ownedDesc,
 	ownedEntry,
 	ownValue,
-	builderRefusal,
 	requireName
 } from "#compiler/schema/protocol.ts"
-import { derivedDraftOf, relationDescOf, rosterHandlesOf } from "#compiler/schema/relation.ts"
+import { levelRecord, levelRecordOver } from "#compiler/schema/record.ts"
+import {
+	type DerivedDraft,
+	derivedDraftOf,
+	type OrdinaryRelationDesc,
+	type RosterDesc,
+	relationDescOf,
+	rosterHandlesOf
+} from "#compiler/schema/relation.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type {
 	AnySchema,
+	Declared,
+	DeclaredOver,
 	Schema,
 	StatementsBelow,
 	StatementsByName,
@@ -36,25 +47,81 @@ import type { Statement } from "#compiler/types/schema/statements.ts"
 
 export const schemaDescOf = (value: unknown): SchemaDesc | undefined => ownedDesc(value, "schema")
 
-/** What a schema builder's admission core reads of its arguments: the level's Description and its content. */
-interface AdmittedLevel {
-	readonly desc: SchemaDesc
-	readonly content: SchemaContent
+/**
+ * One declaration of a name a schema's build meets: a relation, closed relation, roster or derived relation value, a
+ * level's list holds it or a statement was built over it, and its meaning, its Description (a derived relation's, its
+ * draft), whose location is where it was declared.
+ */
+interface Declaration {
+	readonly value: unknown
+	readonly meaning: OrdinaryRelationDesc | RosterDesc | AdmittedClosedRelation | DerivedDraft
+}
+
+const declarationOf = (value: unknown, label: string): Declaration => ({
+	value,
+	meaning: derivedDraftOf(value) ?? relationDescOf(value, label)
+})
+
+/**
+ * A name declared twice differently: `later` refused, `earlier` the declaration it differs from, both where they were
+ * written.
+ */
+const declaredTwice = (later: Declaration, earlier: Declaration): CompileError =>
+	CompileError.make({
+		_tag: "DuplicateIdentity",
+		at: later.meaning.loc,
+		duplicate: { kind: "relation", name: later.meaning.name, earlier: earlier.meaning.loc }
+	})
+
+/**
+ * Whether `d` is the first declaration of its name in its level, `declared` the level's so far and `below` every
+ * level's below it. A name is one meaning: a later declaration of a name is the same declaration where its meaning is
+ * the first one's, the lowest level's (sameContent, the semantic identity, which no source location is part of), so
+ * the level records it once, and is refused (DuplicateIdentity) where it differs, the first one its earlier. A name a
+ * level below declares alike is the level's own declaration too, which ownership owns once, at the lower level.
+ */
+const declaresFirst = (
+	declared: Map<string, Declaration>,
+	below: ReadonlyMap<string, Declaration>,
+	d: Declaration
+): boolean => {
+	const prior = below.get(d.meaning.name) ?? declared.get(d.meaning.name)
+	if (prior !== undefined && !sameContent(prior.meaning, d.meaning)) {
+		throw declaredTwice(d, prior)
+	}
+	if (declared.has(d.meaning.name)) {
+		return false
+	}
+	declared.set(d.meaning.name, d)
+	return true
 }
 
 /**
- * A level's record is its index by name: each relation sits under its own name, as a role's whole entries do. The
- * record's keys are then the level's names, each once, so a lookup by name is one property read, no name index is
- * derived from the record, and no level declares one name twice.
+ * Every relation a statement was built over is the schema's declaration of its name (statements.ts relationsOver): a
+ * statement's Description names each by name alone, so one built over another relation of a declared name would be
+ * read as a statement over the declared one. One of a name no level declares is refused as the statement's.
  */
-const underOwnName = <D extends RelationDesc>(label: string, key: string, desc: D): D => {
-	if (desc.name !== key) {
-		throw builderRefusal(
-			`${label} relation ${key}`,
-			"a schema holds each relation under its own name"
-		)
+const statementsDeclared = (
+	statements: ReadonlyArray<LevelStatement>,
+	declared: ReadonlyMap<string, Declaration>,
+	below: ReadonlyMap<string, Declaration>,
+	label: string
+): void => {
+	for (const s of statements) {
+		for (const value of s.over) {
+			const d = declarationOf(value, `${label} statement relation`)
+			const prior = below.get(d.meaning.name) ?? declared.get(d.meaning.name)
+			if (prior === undefined) {
+				throw ruleRefused(
+					s.desc.loc,
+					"a statement names a relation no level of the schema declares"
+				)
+			}
+			if (!sameContent(prior.meaning, d.meaning)) {
+				throw declaredTwice(d, prior)
+			}
+		}
 	}
-	return desc
 }
 
 /** A closed id's roster, through any depth of contracts; none for any other field. */
@@ -66,19 +133,18 @@ const closedIdRoster = (desc: FieldDesc): string | undefined =>
 			: undefined
 
 /**
- * Each closed relation of a level's record held to the schema's rosters, `rosters` the schema's relations by name, the
- * level's own among them: closed.relation()
- * admitted its rows against the rosters its closed-id fields were built over, so each of those rosters' handles must
- * be one of the schema's roster of that name, and then each row's is. A field over a roster the schema does not
- * declare is ownership's refusal.
+ * Each closed relation of a level's declarations held to the schema's rosters, `rosters` the schema's relations by
+ * name, the level's own among them: closed.relation() admitted its rows against the rosters its closed-id fields were
+ * built over, so each of those rosters' handles must be one of the schema's roster of that name, and then each row's
+ * is. A field over a roster the schema does not declare is ownership's refusal.
  */
 const heldToRosters = (
 	label: string,
-	record: Readonly<Record<string, unknown>>,
+	declarations: Iterable<Declaration>,
 	rosters: ReadonlyMap<string, RelationDesc>
 ): void => {
-	for (const [key, value] of Object.entries(record)) {
-		const desc = rosters.get(key)
+	for (const { value, meaning } of declarations) {
+		const desc = rosters.get(meaning.name)
 		const fields = hasProperties(value) ? value["fields"] : undefined
 		if (desc?.kind !== "closedRelation" || !hasProperties(fields)) {
 			continue
@@ -94,12 +160,24 @@ const heldToRosters = (
 			const stray = carried.find((handle) => !held.has(handle))
 			if (stray !== undefined) {
 				throw malformed(
-					`${label} relation ${key}`,
+					`${label} relation ${desc.name}`,
 					`a closed relation over the schema's roster ${declared.name}; its field ${field} is over another roster of that name, which holds ${JSON.stringify(stray)}`
 				)
 			}
 		}
 	}
+}
+
+/** The list of relations a caller handed in. */
+const relationValues = (
+	relations: unknown,
+	label: string,
+	what: string
+): ReadonlyArray<unknown> => {
+	if (!isList(relations)) {
+		throw malformed(label, what)
+	}
+	return relations
 }
 
 /** The list of statements a caller handed in. */
@@ -110,10 +188,14 @@ const statementValues = (statements: unknown, label: string): ReadonlyArray<unkn
 	return statements
 }
 
-/** A statement of a level: its Description and the canonical form its builder read (statements.ts ownedStatement). */
+/**
+ * A statement of a level: its Description, the canonical form its builder read (statements.ts ownedStatement), and the
+ * relations it was built over.
+ */
 interface LevelStatement {
 	readonly desc: StatementDesc
 	readonly canonical: CanonicalStatement
+	readonly over: ReadonlyArray<unknown>
 }
 
 /**
@@ -135,10 +217,11 @@ const statementList = (
 		const expansion = ownedEntry(s, "expansion")
 		if (expansion !== undefined) {
 			const [left, right] = expansion.desc.statements
-			const [leftCanonical, rightCanonical] = expansion.content
+			const [leftCanonical, rightCanonical] = expansion.content.canonical
+			const over = expansion.content.over
 			return [
-				{ desc: left, canonical: leftCanonical },
-				{ desc: right, canonical: rightCanonical }
+				{ desc: left, canonical: leftCanonical, over },
+				{ desc: right, canonical: rightCanonical, over }
 			]
 		}
 		const statement = ownedEntry(s, "statement")
@@ -148,8 +231,28 @@ const statementList = (
 				"a statement built by key, mutable, check, contained, mirrors, alternatives, ordered, counted, tree or fold"
 			)
 		}
-		return [{ desc: statement.desc, canonical: statement.content }]
+		return [
+			{ desc: statement.desc, canonical: statement.content.canonical, over: statement.content.over }
+		]
 	})
+
+/**
+ * What a schema builder's admission core reads of its arguments: the level's Description, its content, and the name
+ * and value of each relation it declares, in list order, its record's entries.
+ */
+interface AdmittedLevel {
+	readonly desc: SchemaDesc
+	readonly content: SchemaContent
+	readonly names: ReadonlyArray<readonly [string, unknown]>
+}
+
+/** The names and values of a level's declarations, in the order its list first declares each. */
+const namesOf = (
+	declared: ReadonlyMap<string, Declaration>
+): ReadonlyArray<readonly [string, unknown]> =>
+	[...declared].map(([name, d]) => [name, d.value] as const)
+
+const noDeclarations: ReadonlyMap<string, Declaration> = new Map()
 
 /**
  * The admission cores of schema(...) and schema.extend(...): a JavaScript caller's arguments checked and
@@ -166,21 +269,24 @@ export const admitSchema = (
 	if (extra.length > 0) {
 		throw malformed(label, "schema(name, relations, statements): three arguments")
 	}
-	if (!isPlainRecord(relations)) {
-		throw malformed(label, "a record of relations and closed relations")
-	}
+	const values = relationValues(relations, label, "a list of relations and closed relations")
+	const declared = new Map<string, Declaration>()
 	const descs: Array<SchemaRelationDesc> = []
-	for (const [key, value] of Object.entries(relations)) {
+	for (const [i, value] of values.entries()) {
 		if (derivedDraftOf(value) !== undefined) {
 			throw malformed(
-				`${label} relation ${key}`,
+				`${label} relation ${i}`,
 				"a relation or closed relation: a derived relation is declared in schema.extend"
 			)
 		}
-		descs.push(underOwnName(label, key, relationDescOf(value, `${label} relation ${key}`)))
+		const desc = relationDescOf(value, `${label} relation ${i}`)
+		if (declaresFirst(declared, noDeclarations, { value, meaning: desc })) {
+			descs.push(desc)
+		}
 	}
-	heldToRosters(label, relations, new Map(descs.map((d) => [d.name, d] as const)))
+	heldToRosters(label, declared.values(), new Map(descs.map((d) => [d.name, d] as const)))
 	const stmts = statementList(statementValues(statements, label), label)
+	statementsDeclared(stmts, declared, noDeclarations, label)
 	const desc = schemaLevelDesc({
 		name: schemaName,
 		relations: descs,
@@ -194,32 +300,34 @@ export const admitSchema = (
 			descs.map((d) => ({ name: d.name, desc: d })),
 			stmts.map((s) => s.canonical),
 			undefined
-		)
+		),
+		names: namesOf(declared)
 	}
 }
 
 /**
- * schema(name, relations, statements). The relations are a frozen copy, and the statements a frozen copy, held by name
- * and read back whole (types/schema/schema.ts StatementsReadBack), which is Statements for every tuple a call writes.
+ * schema(name, relations, statements). The relations are a list, held by name (record.ts levelRecord), each name's one
+ * declaration; the statements a frozen copy, held by name and read back whole (types/schema/schema.ts
+ * StatementsReadBack), which is Statements for every tuple a call writes.
  */
 const rootSchema = <
 	const Name extends string,
-	const Relations extends Readonly<Record<string, AnyRelation | AnyClosed>>,
+	const Relations extends ReadonlyArray<AnyRelation | AnyClosed>,
 	const Statements extends ReadonlyArray<Statement>
 >(
 	name: Name,
 	relations: Relations,
-	statements: Statements & StatementsReadBack<Statements, Relations>,
+	statements: Statements & StatementsReadBack<Statements, Declared<Relations>>,
 	extra: ReadonlyArray<unknown>
-): Schema<Name, Relations, StatementsByName<Statements, Relations>> => {
+): Schema<Name, Declared<Relations>, StatementsByName<Statements, Declared<Relations>>> => {
 	const admitted = admitSchema(name, relations, statements, extra)
-	const read: StatementsReadBack<Statements, Relations> = statements
+	const read: StatementsReadBack<Statements, Declared<Relations>> = statements
 	return ownValue(
 		{
 			...builtMark,
 			kind: "schema",
 			name,
-			relations: frozenCopy(relations),
+			relations: levelRecord<Relations>(admitted.names),
 			statements: frozenTuple(read),
 			extends: undefined
 		},
@@ -258,47 +366,62 @@ const admitExtend = (
 	if (extra.length > 0) {
 		throw malformed(label, "schema.extend(base, name, relations, statements): four arguments")
 	}
-	if (!isPlainRecord(relations)) {
-		throw malformed(label, "a record of relations, closed and derived relations")
-	}
+	const values = relationValues(
+		relations,
+		label,
+		"a list of relations, closed and derived relations"
+	)
 	const below = levelRelations(baseDesc)
+	const lower = new Map(
+		Object.entries(baseEntry.value.relations).map(
+			([key, value]) => [key, declarationOf(value, `${label} base relation ${key}`)] as const
+		)
+	)
+	const declared = new Map<string, Declaration>()
 	const descs: Array<SchemaRelationDesc> = []
-	for (const [key, value] of Object.entries(relations)) {
+	for (const [i, value] of values.entries()) {
 		const draft = derivedDraftOf(value)
 		if (draft === undefined) {
-			descs.push(underOwnName(label, key, relationDescOf(value, `${label} relation ${key}`)))
+			const desc = relationDescOf(value, `${label} relation ${i}`)
+			if (declaresFirst(declared, lower, { value, meaning: desc })) {
+				descs.push(desc)
+			}
+			continue
+		}
+		if (!declaresFirst(declared, lower, { value, meaning: draft })) {
 			continue
 		}
 		let level = 1
 		for (const read of draft.reads) {
-			const lower = below.get(read)
-			if (lower === undefined) {
+			const lowerRead = below.get(read)
+			if (lowerRead === undefined) {
 				throw malformed(
 					`${label} derived ${draft.name}`,
 					`a definition over the levels below it; it reads ${read}, which no level below declares`
 				)
 			}
-			if (lower.kind === "derived") {
-				level = Math.max(level, lower.level + 1)
+			if (lowerRead.kind === "derived") {
+				level = Math.max(level, lowerRead.level + 1)
 			}
 		}
 		descs.push(
-			underOwnName(
-				label,
-				key,
-				builtNode({
-					kind: "derived",
-					name: draft.name,
-					query: draft.query,
-					level,
-					storage: draft.storage,
-					loc: draft.loc
-				})
-			)
+			builtNode({
+				kind: "derived",
+				name: draft.name,
+				query: draft.query,
+				level,
+				storage: draft.storage,
+				loc: draft.loc
+			})
 		)
 	}
-	heldToRosters(label, relations, new Map([...below, ...descs.map((d) => [d.name, d] as const)]))
+	heldToRosters(
+		label,
+		declared.values(),
+		new Map([...below, ...descs.map((d) => [d.name, d] as const)])
+	)
 	const stmts = statementList(statementValues(statements, label), label)
+	statementsDeclared(stmts, declared, lower, label)
 	const desc = schemaLevelDesc({
 		name: levelName,
 		relations: descs,
@@ -307,47 +430,53 @@ const admitExtend = (
 		loc: builderLoc(label, [levelName])
 	})
 	/** A derived relation's description is the level's own, as the level holds it; any other its value's. */
-	const declared = [
+	const ownDeclared = [
 		...descs.flatMap((d) => (d.kind === "derived" ? [] : [{ name: d.name, desc: d }])),
 		...desc.relations.flatMap((r) => (r.kind === "derived" ? [{ name: r.name, desc: r }] : []))
 	]
 	return {
 		desc,
 		content: levelContent(
-			declared,
+			ownDeclared,
 			stmts.map((s) => s.canonical),
 			baseEntry.content
-		)
+		),
+		names: namesOf(declared)
 	}
 }
 
 /**
  * A level named `name` over `base`: relations, derived relations among them, and statements; the value holds the
- * base's relations and statements before its own, its own read back whole as the root's are, and the base it extends.
+ * base's relations, then each relation of its own list the base does not declare (record.ts levelRecordOver), and the
+ * base's statements before its own, its own read back whole as the root's are, and the base it extends.
  */
 const extend = <
 	Base extends AnySchema,
 	const Name extends string,
-	const Relations extends Readonly<Record<string, AnyRelation | AnyClosed | AnyDerived>>,
+	const Relations extends ReadonlyArray<AnyRelation | AnyClosed | AnyDerived>,
 	const Statements extends ReadonlyArray<Statement>
 >(
 	base: Base & { readonly statements: StatementsBelow<Base> },
 	name: Name,
 	relations: Relations,
-	statements: Statements & StatementsReadBack<Statements, Base["relations"] & Relations>,
+	statements: Statements &
+		StatementsReadBack<Statements, DeclaredOver<Base["relations"], Relations>>,
 	extra: ReadonlyArray<unknown>
 ): Schema<
 	Name,
-	Base["relations"] & Relations,
-	StatementsByName<Statements, Base["relations"] & Relations>,
+	DeclaredOver<Base["relations"], Relations>,
+	StatementsByName<Statements, DeclaredOver<Base["relations"], Relations>>,
 	Base
 > => {
 	const admitted = admitExtend(base, name, relations, statements, extra)
 	const below: StatementsBelow<Base> = base.statements
-	const added: StatementsReadBack<Statements, Base["relations"] & Relations> = statements
+	const added: StatementsReadBack<
+		Statements,
+		DeclaredOver<Base["relations"], Relations>
+	> = statements
 	const all: readonly [
 		...StatementsBelow<Base>,
-		...StatementsReadBack<Statements, Base["relations"] & Relations>
+		...StatementsReadBack<Statements, DeclaredOver<Base["relations"], Relations>>
 	] = [...below, ...added]
 	Object.freeze(all)
 	return ownValue(
@@ -355,7 +484,7 @@ const extend = <
 			...builtMark,
 			kind: "schema",
 			name,
-			relations: frozenCopy({ ...base.relations, ...relations }),
+			relations: levelRecordOver<Base["relations"], Relations>(base.relations, admitted.names),
 			statements: all,
 			extends: base
 		},
@@ -368,7 +497,7 @@ const extend = <
 /**
  * schema and schema.extend.
  *
- * `schema(name, relations, statements)` records relations and closed relations, each under its own name, and the
+ * `schema(name, relations, statements)` records a list of relations and closed relations, held by name, and the
  * statements, which the type captures as a tuple. `schema.extend(base, name, relations, statements)` is a level of its
  * own over `base`: relations, derived relations among them, and statements, under its own name, which places its
  * relations in a PostgreSQL schema of their own; its Description records the base under `extends`. A level and every
@@ -379,9 +508,13 @@ const extend = <
  * cycle cannot be written. Its derived level is one more than the highest derived level it reads, 1 over
  * base relations only (ir/desc.ts RelationDesc).
  *
- * Two relation values with one name in one record are one declaration when their Descriptions agree; with conflicting
- * Descriptions the name is claimed twice, which is DuplicateIdentity. Every other check of the schema as
- * a whole is ownership's (own.ts).
+ * Relations are a list, not a record keyed by name: each relation carries its own name, and a record's key, which
+ * repeated it, let a JavaScript spread of two records drop one of two declarations of a name before any builder saw
+ * it. A list of two libraries' relations is their concatenation, which drops nothing, and the build holds every name
+ * to one meaning: within the level, against every level below, and for every relation a statement was built over.
+ * Two declarations of one name whose Descriptions agree are one declaration; with conflicting Descriptions the name is
+ * claimed twice, which is DuplicateIdentity, at the later declaration with the earlier's location. Every other check of
+ * the schema as a whole is ownership's (own.ts).
  *
  * Each builder is the one implementation of its value: its admission core first, then the literal of its arguments,
  * frozen copies, owned with the Description, so the value has its public type (types/schema/schema.ts Schema) by

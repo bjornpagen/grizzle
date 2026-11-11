@@ -124,12 +124,14 @@ const selectedKey = (literal: Literal) => {
 const schemaOf = (c: Case): AnySchema => {
 	switch (c.placement) {
 		case "root":
-			return schema("Root", { Kind, R }, [selectedKey(c.literal)])
+			return schema("Root", [Kind, R], [selectedKey(c.literal)])
 		case "level":
-			return schema.extend(schema("Root", { Kind, B }, []), "Upper", { R }, [
-				contained(on(R, "other"), on(B, "id")),
-				selectedKey(c.literal)
-			])
+			return schema.extend(
+				schema("Root", [Kind, B], []),
+				"Upper",
+				[R],
+				[contained(on(R, "other"), on(B, "id")), selectedKey(c.literal)]
+			)
 	}
 }
 

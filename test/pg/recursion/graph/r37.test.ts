@@ -57,13 +57,17 @@ const V = relation("V", { id: pg.integer }, ["id"])
 const E = relation("E", { from: pg.integer, to: pg.integer }, ["from", "to"])
 const Root = relation("Root", { id: pg.integer }, ["id"])
 const Pair = relation("Pair", { a: pg.integer, b: pg.integer }, ["a", "b"])
-const Net = declareSchema("Net", { V, E, Root, Pair }, [
-	contained(on(E, "from"), on(V, "id")),
-	contained(on(E, "to"), on(V, "id")),
-	contained(on(Root, "id"), on(V, "id")),
-	contained(on(Pair, "a"), on(V, "id")),
-	contained(on(Pair, "b"), on(V, "id"))
-])
+const Net = declareSchema(
+	"Net",
+	[V, E, Root, Pair],
+	[
+		contained(on(E, "from"), on(V, "id")),
+		contained(on(E, "to"), on(V, "id")),
+		contained(on(Root, "id"), on(V, "id")),
+		contained(on(Pair, "a"), on(V, "id")),
+		contained(on(Pair, "b"), on(V, "id"))
+	]
+)
 
 const containments: ReadonlyArray<GenContainment> = [
 	{ from: { relation: "E", fields: ["from"] }, to: { relation: "V", fields: ["id"] } },

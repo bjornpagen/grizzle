@@ -86,7 +86,7 @@ const marked = contained(
 	),
 	on(Box, "id", pred("slots"))
 )
-const Slots = schema("Slots", { Box, Slot }, [follows, lastSlot, marked])
+const Slots = schema("Slots", [Box, Slot], [follows, lastSlot, marked])
 
 interface BoxRow {
 	readonly id: number

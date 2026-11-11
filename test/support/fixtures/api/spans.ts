@@ -14,9 +14,11 @@ export const Booking = relation("Booking", { room: uuid, during: span(pg.bigint)
  * containment, an Allen-mask query, the point-in-span day lookup over a calendar relation, and a span-typed window
  * parameter.
  */
-export const Schedule = schema("Schedule", { RoomOpen, Booking }, [
-	contained(on(Booking, "room", "during"), on(RoomOpen, "room", "during"))
-])
+export const Schedule = schema(
+	"Schedule",
+	[RoomOpen, Booking],
+	[contained(on(Booking, "room", "during"), on(RoomOpen, "room", "during"))]
+)
 
 /** Bookings sharing a point with a span-typed window parameter. */
 export const intersecting = query(Schedule).rule((r) => {
@@ -53,6 +55,8 @@ export const ChicagoCalendar = relation(
 )
 /** A fact that carries only an instant, bucketed into days by the calendar join. */
 const Visit = relation("Visit", { id: uuid, at: Instant }, ["id"])
-export const Calendars = schema("Calendars", { Weekday, ChicagoCalendar, Visit }, [
-	key(on(ChicagoCalendar, "span"))
-])
+export const Calendars = schema(
+	"Calendars",
+	[Weekday, ChicagoCalendar, Visit],
+	[key(on(ChicagoCalendar, "span"))]
+)

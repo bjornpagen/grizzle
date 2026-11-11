@@ -839,8 +839,7 @@ const statementOf = (
 						catchCompileError(() =>
 							check(name, Cell, (row: unknown) => computeCore.eq(rowField(row, col), c.value()))
 						),
-						(made) =>
-							testArtifacts(schema("AgreeCheck", { Tone, Shade, Cell }, [made]), testCompile)
+						(made) => testArtifacts(schema("AgreeCheck", [Tone, Shade, Cell], [made]), testCompile)
 					).ok
 			}
 		case "computedBinding":

@@ -7,14 +7,14 @@ import {
 	type AnyRelation,
 	type AnyRole,
 	type AnySchema,
+	type Declared,
 	type Schema,
 	type Statement,
 	type StatementsByName,
 	type StatementsReadBack,
-	type StatementsWithin,
-	type UnderOwnNames,
-	schema
+	type StatementsWithin
 } from "#compiler/public/schema.ts"
+import { schema as builtSchema } from "#compiler/schema/schema.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import {
@@ -36,17 +36,28 @@ import {
 import type { PsqlWriter } from "#test/support/substrate/psql.ts"
 import { Substrate, worldPsql } from "#test/support/substrate/substrate.ts"
 
+/** A schema's relations as the list it was built from, its record's members. */
+type Listed<R> = ReadonlyArray<R[keyof R]>
+
 /**
- * A schema value whose relations sit under their own names and whose statements name only its relations and read back
- * from their names as themselves, as schema(...) checked when it was built.
+ * A schema value whose statements name only its relations and read back from their names as themselves, as
+ * schema(...) checked when it was built, over the list of its relations it is rebuilt from.
  */
 type Checked<N extends string, R, St extends ReadonlyArray<Statement>> = Schema<
 	N,
 	R,
 	StatementsByName<St, R>
 > & {
-	readonly relations: UnderOwnNames<R>
-	readonly statements: St & StatementsWithin<St, R> & StatementsReadBack<St, R>
+	readonly statements: St & StatementsWithin<St, R> & StatementsReadBack<St, Declared<Listed<R>>>
+}
+
+/** A schema's relations as the list it was built from: its record's members, in the record's order. */
+const listed = <R extends Record<string, AnyRelation | AnyClosed>>(relations: R): Listed<R> => {
+	const out: Array<R[keyof R]> = []
+	for (const name in relations) {
+		out.push(relations[name])
+	}
+	return out
 }
 
 export interface Fixture {
@@ -63,7 +74,7 @@ export interface Fixture {
 		const St extends ReadonlyArray<Statement>
 	>(
 		value: Checked<N, R, St>
-	) => Schema<string, R, StatementsByName<St, R>>
+	) => Schema<string, Declared<Listed<R>>, StatementsByName<St, Declared<Listed<R>>>>
 	/**
 	 * A login of the rebuilt worlds served as an application serves it, from its own served file over the installation
 	 * (test/support/served-db.ts servedFixture): its served login, whose roles a Db opens, and its layer.
@@ -147,7 +158,13 @@ export const openFixture = (
 				const St extends ReadonlyArray<Statement>
 			>(
 				value: Checked<N, R, St>
-			) => schema<string, R, St>(done.schema, value.relations, value.statements),
+			) =>
+				builtSchema<string, Listed<R>, St>(
+					done.schema,
+					listed<R>(value.relations),
+					value.statements,
+					[]
+				),
 			served: (login) => servedFixture(done, login),
 			owner,
 			rows: (sql) =>

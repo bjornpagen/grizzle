@@ -60,7 +60,7 @@ const split = check("Split", R, (r) =>
 		r.eq(Compute.subset(r.flags, Bits.of(Flag, otherSide)), true)
 	)
 )
-const Sets = schema("SetChecks", { Flag, R }, [apart, within, split])
+const Sets = schema("SetChecks", [Flag, R], [apart, within, split])
 
 /**
  * The full world's workload: a row of R written with the flags each call gives, and R's rows read back, whether the

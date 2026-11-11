@@ -37,7 +37,7 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  * texts' order; bound-key-unkeyed-long, a value past the longest string left opaque.
  */
 const Note = relation("Note", { id: pg.int4, body: str.regex("^[ab]*$") }, ["id"])
-const Notes = schema("BoundNotes", { Note }, [])
+const Notes = schema("BoundNotes", [Note], [])
 
 /** The notes inserted as the relation parameter `notes` binds them. */
 const inserted = (): ChangeSetValue =>

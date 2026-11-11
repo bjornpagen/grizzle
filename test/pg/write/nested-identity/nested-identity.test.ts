@@ -46,9 +46,11 @@ const Member = relation(
 	{ at: drawnField(natural), body: str.regex("^a*$"), owner: uuid },
 	["owner", "at"]
 )
-const Bodies = schema("NestedBodies", { Owner, Member }, [
-	ordered(on(Member, "owner", "at"), fin(Owner, "members"))
-])
+const Bodies = schema(
+	"NestedBodies",
+	[Owner, Member],
+	[ordered(on(Member, "owner", "at"), fin(Owner, "members"))]
+)
 
 /**
  * The full world's workload: an owner inserted with its members nested, each call's facts; and the members and the

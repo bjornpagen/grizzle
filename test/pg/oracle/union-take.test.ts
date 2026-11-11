@@ -52,10 +52,11 @@ const Kind = closed("Kind", ["Open", "Done", "Held"])
 const Text = str.regex("^.{1,80}$", "su")
 const Task = relation("Task", { id: uuid, kind: closedId(Kind), title: Text }, ["id"])
 const Memo = relation("Memo", { id: uuid, task: uuid, text: Text }, ["id"])
-const Unions = schema("Unions", { Kind, Task, Memo }, [
-	contained(on(Memo, "task"), on(Task, "id")),
-	key(on(Memo, "task"))
-])
+const Unions = schema(
+	"Unions",
+	[Kind, Task, Memo],
+	[contained(on(Memo, "task"), on(Task, "id")), key(on(Memo, "task"))]
+)
 
 const activity = query(Unions)
 	.rule((r) => {

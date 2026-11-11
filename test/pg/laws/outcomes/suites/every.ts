@@ -107,19 +107,23 @@ const namingNames: Arr.NonEmptyReadonlyArray<Naming> = ["forward", "backward"]
 /** Cell's four rules, each a row CHECK declared under the name `naming` gives it, in the order of `rules`, then the
  * family of its parts and their fold. */
 const cellsNamed = (label: string, naming: Naming) =>
-	schema(label, { Kind, Shape, Cell, Part }, [
-		check(namings[naming].a, Cell, (x) => x.ge(x.a, 0)),
-		check(namings[naming].arity, Cell, (x) =>
-			x.and(
-				x.ge(Compute.base(x.n), Shape.at("min", x.kind)),
-				x.le(Compute.base(x.n), Shape.at("max", x.kind))
-			)
-		),
-		check(namings[naming].floor, Cell, (x) => x.ge(x.total, Shape.at("floor", x.kind))),
-		check(namings[naming].balance, Cell, (x) => x.gt(Compute.base(x.n), x.total)),
-		cellParts,
-		cellTotal
-	])
+	schema(
+		label,
+		[Kind, Shape, Cell, Part],
+		[
+			check(namings[naming].a, Cell, (x) => x.ge(x.a, 0)),
+			check(namings[naming].arity, Cell, (x) =>
+				x.and(
+					x.ge(Compute.base(x.n), Shape.at("min", x.kind)),
+					x.le(Compute.base(x.n), Shape.at("max", x.kind))
+				)
+			),
+			check(namings[naming].floor, Cell, (x) => x.ge(x.total, Shape.at("floor", x.kind))),
+			check(namings[naming].balance, Cell, (x) => x.gt(Compute.base(x.n), x.total)),
+			cellParts,
+			cellTotal
+		]
+	)
 
 /** The full role's workload over the cells of `cells`: cells inserted with their parts, both from each call's facts. */
 const programsOf = (cells: ReturnType<typeof cellsNamed>) => ({

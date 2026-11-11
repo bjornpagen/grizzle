@@ -37,10 +37,11 @@ const Vertex = relation(
 )
 const Edge = relation("Edge", { from: uuid, to: uuid, cost: pg.integer }, ["from", "to"])
 const Blocked = relation("Blocked", { id: uuid }, ["id"])
-export const Graph = schema("Graph", { Level, Vertex, Edge, Blocked }, [
-	contained(on(Edge, "from"), on(Vertex, "id")),
-	contained(on(Edge, "to"), on(Vertex, "id"))
-])
+export const Graph = schema(
+	"Graph",
+	[Level, Vertex, Edge, Blocked],
+	[contained(on(Edge, "from"), on(Vertex, "id")), contained(on(Edge, "to"), on(Vertex, "id"))]
+)
 
 export const descOf = (q: unknown) => {
 	const desc = queryValueDesc(q)

@@ -468,7 +468,7 @@ const checkBatch = (b: ReadonlyArray<Case>, note: SearchCase<Feature>["noteAll"]
 		})
 		const declared = schema(
 			"Checks",
-			Record.fromEntries(Arr.map(items, (item, i) => [`Item${i}`, item])),
+			Record.values(Record.fromEntries(Arr.map(items, (item, i) => [`Item${i}`, item]))),
 			statements
 		)
 		const laws = lawsOf(declared)

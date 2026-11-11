@@ -27,7 +27,7 @@ interface ExitCase {
 }
 
 const Note = relation("Note", { id: pg.integer }, ["id"])
-const Notes = schema("Notes", { Note }, [])
+const Notes = schema("Notes", [Note], [])
 
 const notes = query(Notes).rule((r) => {
 	const { id } = v(Note, "note")

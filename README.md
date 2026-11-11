@@ -115,7 +115,7 @@ export const Comment = relation(
 )
 export const PostViews = relation("PostViews", { post: uuid, views: pg.bigint }, ["post"])
 
-export const Blog = schema("Blog", { Status, Post, Comment, PostViews }, [
+export const Blog = schema("Blog", [Status, Post, Comment, PostViews], [
 	contained(on(Comment, "post"), on(Post, "id")),
 	contained(on(PostViews, "post"), on(Post, "id"))
 ])
@@ -144,8 +144,8 @@ Three relations, a roster of statuses, two rules and one query.
 
 ### Relations hold facts
 
-`relation(name, fields, primaryKey)` declares a relation, and `schema(name, relations, rules)` gathers relations and
-the rules between them into one PostgreSQL schema. Each `Post` row is a fact: this post exists, in this organization,
+`relation(name, fields, primaryKey)` declares a relation, and `schema(name, relations, rules)` gathers a list of
+relations and the rules between them into one PostgreSQL schema. Each `Post` row is a fact: this post exists, in this organization,
 by this author, with this title, body and status. Three things follow:
 
 - **Every field is required.** There are no nullable columns. A post that has never been viewed has no `PostViews` row,
@@ -246,7 +246,7 @@ export const Subscription = relation(
 )
 
 /** The blog, billed: an organization posts once it subscribes, within its plan's seats. */
-export const Billing = schema.extend(Blog, "Billing", { Plan, PlanLimits, Subscription }, [
+export const Billing = schema.extend(Blog, "Billing", [Plan, PlanLimits, Subscription], [
 	contained(on(Post, "org"), on(Subscription, "org")),
 	check("WithinPlan", Subscription, (s) => s.le(s.seats, PlanLimits.at("seats", s.plan)))
 ])
@@ -442,7 +442,7 @@ Nothing ties the policy's condition to the TypeScript that relies on it, and a q
 import { context, login, role } from "@bjornpagen/grizzle"
 
 export const ApiKey = relation("ApiKey", { id: uuid, org: ClerkOrg, name: Title }, ["id"])
-export const Keys = schema("Keys", { ApiKey }, [])
+export const Keys = schema("Keys", [ApiKey], [])
 
 /** The caller's organization: the `org` claim of their verified session token. */
 export const Tenant = context("Tenant", { org: ClerkOrg })
@@ -541,7 +541,7 @@ export const Call = relation(
 	["id"]
 )
 export const Refund = relation("Refund", { call: uuid }, ["call"])
-export const Usage = schema("Usage", { Call, Refund }, [
+export const Usage = schema("Usage", [Call, Refund], [
 	contained(on(Refund, "call"), on(Call, "id"))
 ])
 
@@ -611,7 +611,7 @@ export const Account = relation("Account", { id: uuid }, ["id"])
 /** Reseller billing: an account bills through at most one parent account. */
 export const BillsThrough = relation("BillsThrough", { child: uuid, parent: uuid }, ["child"])
 export const Charge = relation("Charge", { id: uuid, account: uuid, amount: Micros }, ["id"])
-export const Resellers = schema("Resellers", { Account, BillsThrough, Charge }, [
+export const Resellers = schema("Resellers", [Account, BillsThrough, Charge], [
 	contained(on(BillsThrough, "child"), on(Account, "id")),
 	contained(on(BillsThrough, "parent"), on(Account, "id")),
 	contained(on(Charge, "account"), on(Account, "id"))
@@ -690,7 +690,7 @@ export const Booking = relation("Booking", { room: uuid, during: span(Minute), b
 	"during"
 ])
 
-export const Rooms = schema("Rooms", { Room, Opening, Booking }, [
+export const Rooms = schema("Rooms", [Room, Opening, Booking], [
 	contained(on(Opening, "room"), on(Room, "id")),
 	contained(on(Booking, "room", "during"), on(Opening, "room", "hours"))
 ])
@@ -778,7 +778,7 @@ export const Debit = relation("Debit", { call: uuid, grant: uuid, amount: Micros
 /** A grant's debits, counted; their amounts summed into what it has spent. */
 const grantDebits = counted(on(Debit, "grant"), fin(Grant, "debits"))
 
-export const Credits = schema("Credits", { Grant, Debit }, [
+export const Credits = schema("Credits", [Grant, Debit], [
 	grantDebits,
 	fold(grantDebits, Monoid.sum, on(Debit, "grant", "amount"), on(Grant, "id", "spent")),
 	check("WithinGrant", Grant, (g) => g.le(g.spent, g.amount)),
@@ -906,7 +906,7 @@ export const Posting = relation(
 /** An entry's postings, counted; their amounts summed into its total. */
 const entryPostings = counted(on(Posting, "entry"), fin(Entry, "postings"))
 
-export const Books = schema("Books", { Entry, Posting }, [
+export const Books = schema("Books", [Entry, Posting], [
 	entryPostings,
 	fold(entryPostings, Monoid.sum, on(Posting, "entry", "amount"), on(Entry, "id", "total")),
 	check("Balanced", Entry, (e) => e.total.eq(0n))
@@ -958,7 +958,7 @@ export const Payment = relation(
 )
 export const Voiding = relation("Voiding", { invoice: uuid, reason: Prose }, ["invoice"])
 
-export const Invoices = schema("Invoices", { InvoiceState, Invoice, Payment, Voiding }, [
+export const Invoices = schema("Invoices", [InvoiceState, Invoice, Payment, Voiding], [
 	alternatives(Invoice, "state", InvoiceState, { paid: Payment, void: Voiding })
 ])
 
@@ -1100,7 +1100,7 @@ export const ModelSpend = derived.materialized(
 			.find({ workspace, model, calls: r.count(), spend: r.sum(cost) })
 	})
 )
-export const Reporting = schema.extend(Usage, "Reporting", { ModelSpend }, [])
+export const Reporting = schema.extend(Usage, "Reporting", [ModelSpend], [])
 
 export const Analyst = role(Reporting, "analyst", wholeEntriesOf(Reporting), {
 	refresh: ["ModelSpend"]
@@ -1611,6 +1611,14 @@ Read the SQL `generate` drafts, edit it if you need to, and commit it with the c
 `relation(name, fields, primaryKey)` declares a table. `schema` groups tables and their rules into one PostgreSQL
 schema.
 
+- **A name is one relation.** A schema's relations are a list, each relation carrying its own name, and `S.relations`
+  holds them by name. A library's relations join an application's by concatenating lists, `schema("App", [...own,
+  ...library.relations], [...ownRules, ...library.rules])`, which drops nothing, where a spread of two records keeps
+  one of two relations of a name without a word. A relation listed twice, or an identical copy of it, is one
+  declaration. Two relations of one name that differ in anything are refused when the schema is built, in the types and
+  with `DuplicateIdentity` naming both declarations, and so is a rule built over a relation of a declared name that is
+  not the one declared, since a rule names its relations by name. A level may list a relation a level below declares,
+  exactly as declared there, and nothing else of its name.
 - **No nullable columns.** A value that may be missing is a row that may be missing, in a table of its own, like
   `PostViews`.
 - **Immutable by default.** Rows are inserted and deleted, never updated, and no role holds UPDATE on them.
@@ -1855,7 +1863,7 @@ export const Run = relation("Run", { stage: uuid, nights: span(pg.integer), show
 	"nights"
 ])
 
-export const BoxOffice = schema("BoxOffice", { Show, Ticket, Stage, Run }, [
+export const BoxOffice = schema("BoxOffice", [Show, Ticket, Stage, Run], [
 	counted(on(Ticket, "show"), fin(Show, "tickets")),
 	contained(on(Run, "stage"), on(Stage, "id")),
 	contained(on(Run, "show"), on(Show, "id")),
@@ -1927,7 +1935,7 @@ export const Place = relation(
 /** The places whose holder has not been called yet. */
 const waiting = select(Place, (p) => p.eq(p.called, false))
 
-export const Waitlist = schema.extend(BoxOffice, "Waitlist", { Place }, [
+export const Waitlist = schema.extend(BoxOffice, "Waitlist", [Place], [
 	contained(on(Place, "show"), on(Show, "id")),
 	contained(on(Place, "show", pred("at")), on(Place, "show", "at")),
 	key(on(waiting, "show", "holder"))
@@ -1987,7 +1995,7 @@ export const CatalogRecord = relation(
 
 export const Content = schema(
 	"Content",
-	{ Resource, ResourceHref, ResourceTyped, PackageFile, CatalogRecord },
+	[Resource, ResourceHref, ResourceTyped, PackageFile, CatalogRecord],
 	[
 		contained(on(ResourceHref, "resource"), on(Resource, "id")),
 		contained(on(ResourceTyped, "resource"), on(Resource, "id"))
@@ -2010,7 +2018,7 @@ export const TypedHref = derived(
 /** The typed hrefs of items. */
 const items = select(TypedHref, (t) => t.eq(t.type, "item"))
 
-export const ContentPackage = schema.extend(Content, "ContentPackage", { TypedHref }, [
+export const ContentPackage = schema.extend(Content, "ContentPackage", [TypedHref], [
 	check("ItemsInside", TypedHref, (t) =>
 		t.not(t.and(t.eq(t.type, "item"), t.eq(t.internal, false)))
 	),
@@ -2596,11 +2604,11 @@ declared once, by its own name, which no level below it takes, and there is no o
 ```ts
 /** The QTI content model, maintained on its own. */
 export const Item = relation("Item", { id: uuid, title: Title }, ["id"])
-export const Qti = schema("Qti", { Item }, [])
+export const Qti = schema("Qti", [Item], [])
 
 /** A child's sittings, over Qti: each sitting's item is one Qti holds, as the database enforces. */
 export const Sitting = relation("Sitting", { id: uuid, child: ClerkUser, item: uuid }, ["id"])
-export const Ledger = schema.extend(Qti, "Ledger", { Sitting }, [
+export const Ledger = schema.extend(Qti, "Ledger", [Sitting], [
 	contained(on(Sitting, "item"), on(Item, "id"))
 ])
 
@@ -3254,7 +3262,7 @@ SERIALIZABLE (`writers`). Publish the keys it references instead:
 
 ```ts
 export const Question = relation("Question", { id: uuid, prompt: Prose }, ["id"])
-export const Bank = schema("Bank", { Question }, [])
+export const Bank = schema("Bank", [Question], [])
 export const Author = role(Bank, "author", wholeEntriesOf(Bank), { insert: ["Question"] })
 
 export const Published = relation("Published", { question: uuid }, ["question"])
@@ -3262,7 +3270,7 @@ export const Answer = relation("Answer", { sitting: uuid, step: pg.bigint, quest
 	"sitting",
 	"step"
 ])
-export const Exam = schema.extend(Bank, "Exam", { Published, Answer }, [
+export const Exam = schema.extend(Bank, "Exam", [Published, Answer], [
 	contained(on(Published, "question"), on(Question, "id")),
 	contained(on(Answer, "question"), on(Published, "question"))
 ])

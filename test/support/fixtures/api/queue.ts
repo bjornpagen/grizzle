@@ -85,19 +85,7 @@ export const Seat = relation("Seat", { resource: closedId(Resource), seat: SeatN
  */
 export const Queue = schema(
 	"Queue",
-	{
-		Standing,
-		Kind: QueueKind,
-		Resource,
-		Outcome,
-		Reason,
-		Work: QueueWork,
-		Wanted,
-		Leased,
-		Done,
-		Denied,
-		Seat
-	},
+	[Standing, QueueKind, Resource, Outcome, Reason, QueueWork, Wanted, Leased, Done, Denied, Seat],
 	[
 		mutable(QueueWork),
 		alternatives(QueueWork, "standing", Standing, {

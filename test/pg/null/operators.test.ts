@@ -30,7 +30,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int } from "@grizzle/testing/gen"
 import { agree, exact } from "@grizzle/testing/oracle"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { ExprId, NodeId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareOps } from "#compiler/ir/desc.ts"
@@ -502,7 +502,7 @@ const Probe = itemRelation(closed, "Probe")
 
 const modelOf = (pred: Pred) => {
 	const owned = owning(
-		schema("Operators", { ...closed, Probe }, [
+		schema("Operators", [...Rec.values(closed), Probe], [
 			checkBuilder("Holds", Probe, (r: Readonly<Record<string, unknown>>) =>
 				buildPred(closed, r, pred)
 			)
@@ -516,7 +516,9 @@ const modelOf = (pred: Pred) => {
 
 /** The field types of Probe's row, as the checked schema resolves them: the numeric a rounding reads, its scale's. */
 const probeField = (name: "d" | "n"): ScalarType => {
-	const info = checking(schema("Types", { ...closed, Probe }, [] as const)).relations.get("Probe")
+	const info = checking(schema("Types", [...Rec.values(closed), Probe], [] as const)).relations.get(
+		"Probe"
+	)
 	const found = Arr.findFirst(info?.fields ?? [], (f) => f.name === name)
 	return Option.isSome(found) ? found.value.type : assert.fail(`Probe holds ${name}`)
 }
@@ -584,12 +586,14 @@ const roundingSchemas = (
 	return [
 		[
 			"check",
-			schema("Rounding", { ...closed, Probe }, [checkBuilder("Holds", Probe, pred)] as const)
+			schema("Rounding", [...Rec.values(closed), Probe], [
+				checkBuilder("Holds", Probe, pred)
+			] as const)
 		],
-		["generated field", schema("Rounding", { ...closed, Generated }, [] as const)],
+		["generated field", schema("Rounding", [...Rec.values(closed), Generated], [] as const)],
 		[
 			"containment",
-			schema("Rounding", { ...closed, Probe }, [
+			schema("Rounding", [...Rec.values(closed), Probe], [
 				contained(
 					on(selectBuilder(Probe, pred), "kind", "flag"),
 					on(closed.Allowed, "kind", "flag")
@@ -598,11 +602,13 @@ const roundingSchemas = (
 		],
 		[
 			"key",
-			schema("Rounding", { ...closed, Probe }, [key(on(selectBuilder(Probe, pred), "n"))] as const)
+			schema("Rounding", [...Rec.values(closed), Probe], [
+				key(on(selectBuilder(Probe, pred), "n"))
+			] as const)
 		],
 		[
 			"fold",
-			schema("Rounding", { ...closed, Owner, Member }, [
+			schema("Rounding", [...Rec.values(closed), Owner, Member], [
 				members,
 				fold(
 					members,
@@ -615,7 +621,7 @@ const roundingSchemas = (
 		],
 		[
 			"fold step",
-			schema("Rounding", { ...closed, Owner, Member: Stepped }, [
+			schema("Rounding", [...Rec.values(closed), Owner, Stepped], [
 				stepped,
 				fold(
 					stepped,

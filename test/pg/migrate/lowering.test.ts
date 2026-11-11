@@ -168,7 +168,7 @@ const Usage = relation("Usage", { id: pg.integer, doc: pg.integer }, ["id"])
 
 /** The version `version` under `name`, with Use contained in D or in nothing. */
 const withUseDerived = (name: string, version: Version) => {
-	const Base = schema(name, { Doc, Extra, Use }, [])
+	const Base = schema(name, [Doc, Extra, Use], [])
 	const selected = query(Base).rule((r) => {
 		const { node } = v(Doc, "d")
 		return r.match(Doc, { node, kind: version.kind }).find({ node })
@@ -191,13 +191,13 @@ const withUseDerived = (name: string, version: Version) => {
 				: selected
 	)
 	return version.shape === "none"
-		? schema.extend(Base, `${name}_1`, { D }, [])
-		: schema.extend(Base, `${name}_1`, { D }, [contained(on(Use, "doc"), on(D, "node"))])
+		? schema.extend(Base, `${name}_1`, [D], [])
+		: schema.extend(Base, `${name}_1`, [D], [contained(on(Use, "doc"), on(D, "node"))])
 }
 
 /** The version `version` under `name`, with Use contained in Doc, D a selection no law reads. */
 const withUseStored = (name: string, version: Version) => {
-	const Base = schema(name, { Doc, Extra, Use }, [contained(on(Use, "doc"), on(Doc, "node"))])
+	const Base = schema(name, [Doc, Extra, Use], [contained(on(Use, "doc"), on(Doc, "node"))])
 	const D = derived(
 		"D",
 		query(Base).rule((r) => {
@@ -205,12 +205,12 @@ const withUseStored = (name: string, version: Version) => {
 			return r.match(Doc, { node, kind: version.kind }).find({ node })
 		})
 	)
-	return schema.extend(Base, `${name}_1`, { D }, [])
+	return schema.extend(Base, `${name}_1`, [D], [])
 }
 
 /** The version `version` under `name`, with Usage contained in D or in nothing. */
 const withUsageDerived = (name: string, version: Version) => {
-	const Base = schema(name, { Doc, Extra, Usage }, [])
+	const Base = schema(name, [Doc, Extra, Usage], [])
 	const selected = query(Base).rule((r) => {
 		const { node } = v(Doc, "d")
 		return r.match(Doc, { node, kind: version.kind }).find({ node })
@@ -233,13 +233,13 @@ const withUsageDerived = (name: string, version: Version) => {
 				: selected
 	)
 	return version.shape === "none"
-		? schema.extend(Base, `${name}_1`, { D }, [])
-		: schema.extend(Base, `${name}_1`, { D }, [contained(on(Usage, "doc"), on(D, "node"))])
+		? schema.extend(Base, `${name}_1`, [D], [])
+		: schema.extend(Base, `${name}_1`, [D], [contained(on(Usage, "doc"), on(D, "node"))])
 }
 
 /** The version `version` under `name`, with Usage contained in Doc, D a selection no law reads. */
 const withUsageStored = (name: string, version: Version) => {
-	const Base = schema(name, { Doc, Extra, Usage }, [contained(on(Usage, "doc"), on(Doc, "node"))])
+	const Base = schema(name, [Doc, Extra, Usage], [contained(on(Usage, "doc"), on(Doc, "node"))])
 	const D = derived(
 		"D",
 		query(Base).rule((r) => {
@@ -247,7 +247,7 @@ const withUsageStored = (name: string, version: Version) => {
 			return r.match(Doc, { node, kind: version.kind }).find({ node })
 		})
 	)
-	return schema.extend(Base, `${name}_1`, { D }, [])
+	return schema.extend(Base, `${name}_1`, [D], [])
 }
 
 /** The version `version` under `name`, its source relation named `use`. */

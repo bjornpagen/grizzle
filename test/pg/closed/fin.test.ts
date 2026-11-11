@@ -322,7 +322,7 @@ const schemaOf = (name: string, c: FinCase) => {
 			)
 			const base = schema(
 				name,
-				{
+				[
 					Version,
 					Kind,
 					Position,
@@ -336,7 +336,7 @@ const schemaOf = (name: string, c: FinCase) => {
 					RowProbe,
 					Item,
 					ProjProbe
-				},
+				],
 				[checked, projected]
 			)
 			const membership = query(base).rule((r) => {
@@ -377,7 +377,7 @@ const schemaOf = (name: string, c: FinCase) => {
 			)
 			const base = schema(
 				name,
-				{
+				[
 					Version,
 					Kind,
 					Position,
@@ -391,7 +391,7 @@ const schemaOf = (name: string, c: FinCase) => {
 					RowProbe,
 					Item,
 					ProjProbe
-				},
+				],
 				[checked, projected]
 			)
 			const membership = query(base).rule((r) => {
@@ -450,7 +450,7 @@ const schemaOf = (name: string, c: FinCase) => {
 			)
 			const base = schema(
 				name,
-				{
+				[
 					Version,
 					Kind,
 					Position,
@@ -464,7 +464,7 @@ const schemaOf = (name: string, c: FinCase) => {
 					RowProbe,
 					Item,
 					ProjProbe
-				},
+				],
 				[checked, projected]
 			)
 			const membership = query(base).rule((r) => {

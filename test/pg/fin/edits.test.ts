@@ -73,12 +73,16 @@ const Member = relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, [
 const family = counted(on(Member, "g"), fin(Owner, "n"))
 
 /** The int4 sum over a counted family, both relations mutable so a member's put and delete are planned. */
-const Edited = schema("fin_edits", { Owner, Member }, [
-	family,
-	fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end")),
-	mutable(Owner),
-	mutable(Member)
-])
+const Edited = schema(
+	"fin_edits",
+	[Owner, Member],
+	[
+		family,
+		fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end")),
+		mutable(Owner),
+		mutable(Member)
+	]
+)
 
 /** The seat's specification: the counted int4 sum's, over this schema. */
 const SPEC = Object.freeze({
@@ -141,17 +145,21 @@ const SpanMember = relation(
 const spanFamily = counted(on(SpanMember, "g", "gd"), fin(SpanOwner, "n"))
 
 /** The int4 sum over a counted family whose owner is keyed by an id and a span WITHOUT OVERLAPS, both mutable. */
-const SpanEdited = schema("fin_span_edits", { SpanOwner, SpanMember }, [
-	spanFamily,
-	fold(
+const SpanEdited = schema(
+	"fin_span_edits",
+	[SpanOwner, SpanMember],
+	[
 		spanFamily,
-		Monoid.sum,
-		on(SpanMember, "g", "gd", "x"),
-		on(SpanOwner, "id", "during", "end")
-	),
-	mutable(SpanOwner),
-	mutable(SpanMember)
-])
+		fold(
+			spanFamily,
+			Monoid.sum,
+			on(SpanMember, "g", "gd", "x"),
+			on(SpanOwner, "id", "during", "end")
+		),
+		mutable(SpanOwner),
+		mutable(SpanMember)
+	]
+)
 
 /** The counted family's workload: a member's delete and a member's put, each from its call's facts. */
 const editPrograms = Object.freeze({

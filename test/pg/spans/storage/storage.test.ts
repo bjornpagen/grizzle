@@ -75,7 +75,7 @@ const Booking = relation("Booking", { room: uuid, during: span(pg.bigint), guest
 const Slot = relation("Slot", { id: pg.integer, fixed: span(pg.integer, slotWidth) }, ["id"])
 const Plan = relation("Plan", { id: pg.integer, ticks: span(Tick) }, ["id"])
 const Edge = relation("Edge", { id: pg.integer, s: span(pg.bigint) }, ["id"])
-const Store = schema("Store", { Booking, Slot, Plan, Edge }, [])
+const Store = schema("Store", [Booking, Slot, Plan, Edge], [])
 
 const edgeBounds = query(Store).rule((r) => {
 	const { id, s } = v(Edge, "edge")

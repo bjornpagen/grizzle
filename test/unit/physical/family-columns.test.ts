@@ -121,7 +121,11 @@ const entryName = (relationName: string): string => `${relationName}Entry`
 
 /** The installation of a case's schema with its login. */
 const installationOf = (r: Resolved): Installation => {
-	const Families = schema("Families", { ...r.built.relations, Flag, Item }, r.built.statements)
+	const Families = schema(
+		"Families",
+		[...Rec.values(r.built.relations), Flag, Item],
+		r.built.statements
+	)
 	const byName = (name: string): AnyRelation =>
 		defined(Option.getOrUndefined(Arr.findFirst(r.relations, (x) => x.name === name)), name)
 	const writer = () =>

@@ -602,10 +602,11 @@ export interface BoxParams {
 
 /** The schema of a box point under a name: its relations, its statements, and its relations' `mutable` statements. */
 const boxSchema = (p: BoxParams, name: string): AnySchema =>
-	schema(name, { Stage, ...p.point.values }, [
-		...p.point.statements,
-		...mutables(p.mutable, p.point.values)
-	])
+	schema(
+		name,
+		[Stage, ...Rec.values(p.point.values)],
+		[...p.point.statements, ...mutables(p.mutable, p.point.values)]
+	)
 
 const hostOf = (p: BoxParams): HostSchema => ({
 	relations: Arr.map(p.point.relations, (r): HostRelation => ({

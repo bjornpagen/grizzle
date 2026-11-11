@@ -216,7 +216,7 @@ const Job = relation(
 	{ id: pg.bigint, account: pg.bigint, a: pg.integer, b: pg.integer, c: pg.integer, d: pg.integer },
 	["id"]
 )
-const Jobs = schema("Jobs", { Account, Job }, [])
+const Jobs = schema("Jobs", [Account, Job], [])
 
 /** The accounts of a region a parameter names. */
 const accounts = queryOver(Jobs).rule((r: RuleValue) => {

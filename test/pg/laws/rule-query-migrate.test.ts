@@ -115,7 +115,7 @@ const Moved = relation("Moved", { id: pg.integer, k: pg.integer, a: pg.integer }
  * whose b is a T row's a, and `rule`.
  */
 const factVersion = (name: string, rule: Rule) => {
-	const Base = schema(name, { Fact, S, T }, [])
+	const Base = schema(name, [Fact, S, T], [])
 	const J2 = derived(
 		"J2",
 		query(Base).rule((r) => {
@@ -142,32 +142,43 @@ const factVersion = (name: string, rule: Rule) => {
 	)
 	switch (rule) {
 		case "none":
-			return schema.extend(Base, `${name}_1`, { J2, Unpaired }, [])
+			return schema.extend(Base, `${name}_1`, [J2, Unpaired], [])
 		case "every":
-			return schema.extend(Base, `${name}_1`, { J2, Unpaired }, [
-				contained(on(J2, "a", "b"), on(T, "a", "b"))
-			])
+			return schema.extend(
+				Base,
+				`${name}_1`,
+				[J2, Unpaired],
+				[contained(on(J2, "a", "b"), on(T, "a", "b"))]
+			)
 		case "selected":
-			return schema.extend(Base, `${name}_1`, { J2, Unpaired }, [
-				contained(
-					on(
-						select(J2, (j) => j.ne(j.b, 0)),
-						"a",
-						"b"
-					),
-					on(T, "a", "b")
-				)
-			])
+			return schema.extend(
+				Base,
+				`${name}_1`,
+				[J2, Unpaired],
+				[
+					contained(
+						on(
+							select(J2, (j) => j.ne(j.b, 0)),
+							"a",
+							"b"
+						),
+						on(T, "a", "b")
+					)
+				]
+			)
 		case "negated":
-			return schema.extend(Base, `${name}_1`, { J2, Unpaired }, [
-				contained(on(Unpaired, "a", "b"), on(T, "a", "b"))
-			])
+			return schema.extend(
+				Base,
+				`${name}_1`,
+				[J2, Unpaired],
+				[contained(on(Unpaired, "a", "b"), on(T, "a", "b"))]
+			)
 	}
 }
 
 /** The version under `name` with Fact renamed to Moved. */
 const movedVersion = (name: string, rule: Rule) => {
-	const Base = schema(name, { Moved, S, T }, [])
+	const Base = schema(name, [Moved, S, T], [])
 	const J2 = derived(
 		"J2",
 		query(Base).rule((r) => {
@@ -194,26 +205,37 @@ const movedVersion = (name: string, rule: Rule) => {
 	)
 	switch (rule) {
 		case "none":
-			return schema.extend(Base, `${name}_1`, { J2, Unpaired }, [])
+			return schema.extend(Base, `${name}_1`, [J2, Unpaired], [])
 		case "every":
-			return schema.extend(Base, `${name}_1`, { J2, Unpaired }, [
-				contained(on(J2, "a", "b"), on(T, "a", "b"))
-			])
+			return schema.extend(
+				Base,
+				`${name}_1`,
+				[J2, Unpaired],
+				[contained(on(J2, "a", "b"), on(T, "a", "b"))]
+			)
 		case "selected":
-			return schema.extend(Base, `${name}_1`, { J2, Unpaired }, [
-				contained(
-					on(
-						select(J2, (j) => j.ne(j.b, 0)),
-						"a",
-						"b"
-					),
-					on(T, "a", "b")
-				)
-			])
+			return schema.extend(
+				Base,
+				`${name}_1`,
+				[J2, Unpaired],
+				[
+					contained(
+						on(
+							select(J2, (j) => j.ne(j.b, 0)),
+							"a",
+							"b"
+						),
+						on(T, "a", "b")
+					)
+				]
+			)
 		case "negated":
-			return schema.extend(Base, `${name}_1`, { J2, Unpaired }, [
-				contained(on(Unpaired, "a", "b"), on(T, "a", "b"))
-			])
+			return schema.extend(
+				Base,
+				`${name}_1`,
+				[J2, Unpaired],
+				[contained(on(Unpaired, "a", "b"), on(T, "a", "b"))]
+			)
 	}
 }
 

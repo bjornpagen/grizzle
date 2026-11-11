@@ -72,7 +72,7 @@ const oneLead = key(
 const oneSeat = key(on(Seat, "team"))
 
 const seatsAt = (name: string) => {
-	const base = schema(name, { Seat }, [codeKey, oneLead, oneSeat])
+	const base = schema(name, [Seat], [codeKey, oneLead, oneSeat])
 	const Session = context("Session", { sub: Subject })
 	const mine = query(base).rule((r) => {
 		const { id, code, grp, lead, team, holder } = v(Seat, "seat")

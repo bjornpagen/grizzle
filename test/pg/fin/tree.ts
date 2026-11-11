@@ -26,9 +26,11 @@ const Node = relation(
 	["id"]
 )
 
-export const Trees = schema("fin_tree", { Node }, [
-	tree(on(Node, "parent", "at"), fin(Node, "children"), { root: "doc" })
-])
+export const Trees = schema(
+	"fin_tree",
+	[Node],
+	[tree(on(Node, "parent", "at"), fin(Node, "children"), { root: "doc" })]
+)
 
 export const RELATIONS = ["Node"] as const
 

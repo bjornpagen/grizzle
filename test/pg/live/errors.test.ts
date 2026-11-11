@@ -81,7 +81,7 @@ class Misclassified extends Data.TaggedError("Misclassified")<{ readonly report:
 const notebook = (name: string) => {
 	const Session = context("Session", { sub: pg.integer })
 	const Note = relation("Note", { id: pg.integer, author: pg.integer, body: pg.integer }, ["id"])
-	const base = schema(name, { Note }, [mutable(Note)])
+	const base = schema(name, [Note], [mutable(Note)])
 	const mine = query(base).rule((r) => {
 		const { id, author, body } = v(Note, "note")
 		return r

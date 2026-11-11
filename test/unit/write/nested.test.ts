@@ -75,12 +75,16 @@ const Node = relation(
 	["id"]
 )
 const lines = ordered(on(Line, "doc", "at"), fin(Doc, "lines"))
-const Nested = schema("Nested", { Doc, Line, Node }, [
-	mutable(Doc),
-	lines,
-	fold(lines, Monoid.sum, on(Line, "doc", "qty"), on(Doc, "id", "total")),
-	tree(on(Node, "parent", "at"), fin(Node, "children"), { root: "root" })
-])
+const Nested = schema(
+	"Nested",
+	[Doc, Line, Node],
+	[
+		mutable(Doc),
+		lines,
+		fold(lines, Monoid.sum, on(Line, "doc", "qty"), on(Doc, "id", "total")),
+		tree(on(Node, "parent", "at"), fin(Node, "children"), { root: "root" })
+	]
+)
 
 const nested = owning(Nested)
 const names: WriteNames = succeeded(

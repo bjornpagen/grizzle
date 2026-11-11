@@ -139,7 +139,7 @@ export const callParams = (d: DrawnInstallation, i: number, k: number, value: nu
 export const drawnShape =
 	(d: DrawnInstallation) =>
 	(name: string): Shape => {
-		const base = schema(name, relations, [])
+		const base = schema(name, Rec.values(relations), [])
 		const [firstRole, ...otherRoles] = Arr.map(d.members, (_, i) =>
 			role(base, `r${i}`, relations, { insert: writesOf(d, i) })
 		)

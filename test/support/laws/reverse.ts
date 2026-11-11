@@ -335,5 +335,10 @@ export const reverseSchema = (cases: ReadonlyArray<ReverseCase>) => {
 		return { relations, statements }
 	})
 	const statements: ReadonlyArray<Statement> = Arr.flatMap(parts, (p) => p.statements)
-	return schema("Reverse", Rec.fromEntries(Arr.flatMap(parts, (p) => p.relations)), statements, [])
+	return schema(
+		"Reverse",
+		Rec.values(Rec.fromEntries(Arr.flatMap(parts, (p) => p.relations))),
+		statements,
+		[]
+	)
 }

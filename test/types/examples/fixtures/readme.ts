@@ -106,10 +106,11 @@ export const Comment = relation(
 )
 export const PostViews = relation("PostViews", { post: uuid, views: pg.bigint }, ["post"])
 
-export const Blog = schema("Blog", { Status, Post, Comment, PostViews }, [
-	contained(on(Comment, "post"), on(Post, "id")),
-	contained(on(PostViews, "post"), on(Post, "id"))
-])
+export const Blog = schema(
+	"Blog",
+	[Status, Post, Comment, PostViews],
+	[contained(on(Comment, "post"), on(Post, "id")), contained(on(PostViews, "post"), on(Post, "id"))]
+)
 
 /** A published post by its id, with its comments nested inside it. */
 export const postPage = query(Blog)
@@ -151,10 +152,15 @@ export const Subscription = relation(
 )
 
 /** The blog, billed: an organization posts once it subscribes, within its plan's seats. */
-export const Billing = schema.extend(Blog, "Billing", { Plan, PlanLimits, Subscription }, [
-	contained(on(Post, "org"), on(Subscription, "org")),
-	check("WithinPlan", Subscription, (s) => s.le(s.seats, PlanLimits.at("seats", s.plan)))
-])
+export const Billing = schema.extend(
+	Blog,
+	"Billing",
+	[Plan, PlanLimits, Subscription],
+	[
+		contained(on(Post, "org"), on(Subscription, "org")),
+		check("WithinPlan", Subscription, (s) => s.le(s.seats, PlanLimits.at("seats", s.plan)))
+	]
+)
 
 /** README: "The relational model, by feel", "A write moves between lawful states". */
 /** A role that reads all of Billing and writes every relation in it but the closed ones. */
@@ -178,7 +184,7 @@ export const launchOrg = (
 
 /** README: "Hard in Drizzle, one declaration here", 1. Every organization sees only its own rows. */
 export const ApiKey = relation("ApiKey", { id: uuid, org: ClerkOrg, name: Title }, ["id"])
-export const Keys = schema("Keys", { ApiKey }, [])
+export const Keys = schema("Keys", [ApiKey], [])
 
 /** The caller's organization: the `org` claim of their verified session token. */
 export const Tenant = context("Tenant", { org: ClerkOrg })
@@ -204,9 +210,11 @@ export const Call = relation(
 	["id"]
 )
 export const Refund = relation("Refund", { call: uuid }, ["call"])
-export const Usage = schema("Usage", { Call, Refund }, [
-	contained(on(Refund, "call"), on(Call, "id"))
-])
+export const Usage = schema(
+	"Usage",
+	[Call, Refund],
+	[contained(on(Refund, "call"), on(Call, "id"))]
+)
 
 /** Each workspace's spend, and its three costliest models, leaving out refunded calls. */
 export const topModels = query(Usage)
@@ -238,11 +246,15 @@ export const Account = relation("Account", { id: uuid }, ["id"])
 /** Reseller billing: an account bills through at most one parent account. */
 export const BillsThrough = relation("BillsThrough", { child: uuid, parent: uuid }, ["child"])
 export const Charge = relation("Charge", { id: uuid, account: uuid, amount: Micros }, ["id"])
-export const Resellers = schema("Resellers", { Account, BillsThrough, Charge }, [
-	contained(on(BillsThrough, "child"), on(Account, "id")),
-	contained(on(BillsThrough, "parent"), on(Account, "id")),
-	contained(on(Charge, "account"), on(Account, "id"))
-])
+export const Resellers = schema(
+	"Resellers",
+	[Account, BillsThrough, Charge],
+	[
+		contained(on(BillsThrough, "child"), on(Account, "id")),
+		contained(on(BillsThrough, "parent"), on(Account, "id")),
+		contained(on(Charge, "account"), on(Account, "id"))
+	]
+)
 
 /** The root account and every account below it, at any depth. */
 const below = query(Resellers).recursive("Below", {
@@ -289,10 +301,14 @@ export const Booking = relation("Booking", { room: uuid, during: span(Minute), b
 	"during"
 ])
 
-export const Rooms = schema("Rooms", { Room, Opening, Booking }, [
-	contained(on(Opening, "room"), on(Room, "id")),
-	contained(on(Booking, "room", "during"), on(Opening, "room", "hours"))
-])
+export const Rooms = schema(
+	"Rooms",
+	[Room, Opening, Booking],
+	[
+		contained(on(Opening, "room"), on(Room, "id")),
+		contained(on(Booking, "room", "during"), on(Opening, "room", "hours"))
+	]
+)
 
 /** README: "Hard in Drizzle, one declaration here", 5. A budget no burst of requests can overdraw. */
 export const Grant = relation(
@@ -311,12 +327,16 @@ export const Debit = relation("Debit", { call: uuid, grant: uuid, amount: Micros
 /** A grant's debits, counted; their amounts summed into what it has spent. */
 const grantDebits = counted(on(Debit, "grant"), fin(Grant, "debits"))
 
-export const Credits = schema("Credits", { Grant, Debit }, [
-	grantDebits,
-	fold(grantDebits, Monoid.sum, on(Debit, "grant", "amount"), on(Grant, "id", "spent")),
-	check("WithinGrant", Grant, (g) => g.le(g.spent, g.amount)),
-	mutable(Grant)
-])
+export const Credits = schema(
+	"Credits",
+	[Grant, Debit],
+	[
+		grantDebits,
+		fold(grantDebits, Monoid.sum, on(Debit, "grant", "amount"), on(Grant, "id", "spent")),
+		check("WithinGrant", Grant, (g) => g.le(g.spent, g.amount)),
+		mutable(Grant)
+	]
+)
 
 export const Metering = role(Credits, "metering", wholeEntriesOf(Credits), { write: ["Debit"] })
 
@@ -349,11 +369,15 @@ export const Posting = relation(
 /** An entry's postings, counted; their amounts summed into its total. */
 const entryPostings = counted(on(Posting, "entry"), fin(Entry, "postings"))
 
-export const Books = schema("Books", { Entry, Posting }, [
-	entryPostings,
-	fold(entryPostings, Monoid.sum, on(Posting, "entry", "amount"), on(Entry, "id", "total")),
-	check("Balanced", Entry, (e) => e.total.eq(0n))
-])
+export const Books = schema(
+	"Books",
+	[Entry, Posting],
+	[
+		entryPostings,
+		fold(entryPostings, Monoid.sum, on(Posting, "entry", "amount"), on(Entry, "id", "total")),
+		check("Balanced", Entry, (e) => e.total.eq(0n))
+	]
+)
 
 /** README: "Hard in Drizzle, one declaration here", 7. States that carry their own data. */
 export const InvoiceState = closed("InvoiceState", ["open", "paid", "void"])
@@ -369,9 +393,11 @@ export const Payment = relation(
 )
 export const Voiding = relation("Voiding", { invoice: uuid, reason: Prose }, ["invoice"])
 
-export const Invoices = schema("Invoices", { InvoiceState, Invoice, Payment, Voiding }, [
-	alternatives(Invoice, "state", InvoiceState, { paid: Payment, void: Voiding })
-])
+export const Invoices = schema(
+	"Invoices",
+	[InvoiceState, Invoice, Payment, Voiding],
+	[alternatives(Invoice, "state", InvoiceState, { paid: Payment, void: Voiding })]
+)
 
 /** An invoice, with its payment when it is paid and its voiding when it is void. */
 export const invoiceCard = query(Invoices)
@@ -443,7 +469,7 @@ export const ModelSpend = derived.materialized(
 			.find({ workspace, model, calls: r.count(), spend: r.sum(cost) })
 	})
 )
-export const Reporting = schema.extend(Usage, "Reporting", { ModelSpend }, [])
+export const Reporting = schema.extend(Usage, "Reporting", [ModelSpend], [])
 
 export const Analyst = role(Reporting, "analyst", wholeEntriesOf(Reporting), {
 	refresh: ["ModelSpend"]
@@ -744,15 +770,19 @@ export const Run = relation("Run", { stage: uuid, nights: span(pg.integer), show
 	"nights"
 ])
 
-export const BoxOffice = schema("BoxOffice", { Show, Ticket, Stage, Run }, [
-	counted(on(Ticket, "show"), fin(Show, "tickets")),
-	contained(on(Run, "stage"), on(Stage, "id")),
-	contained(on(Run, "show"), on(Show, "id")),
-	key(on(Ticket, "show", "holder")),
-	check("SomeSeats", Show, (s) => s.seats.ge(1n)),
-	check("NoOversell", Show, (s) => s.le(s.tickets, s.seats)),
-	mutable(Show)
-])
+export const BoxOffice = schema(
+	"BoxOffice",
+	[Show, Ticket, Stage, Run],
+	[
+		counted(on(Ticket, "show"), fin(Show, "tickets")),
+		contained(on(Run, "stage"), on(Stage, "id")),
+		contained(on(Run, "show"), on(Show, "id")),
+		key(on(Ticket, "show", "holder")),
+		check("SomeSeats", Show, (s) => s.seats.ge(1n)),
+		check("NoOversell", Show, (s) => s.le(s.tickets, s.seats)),
+		mutable(Show)
+	]
+)
 
 /** README: "Rules", a side's selection and its pred term: a show's waitlist. */
 /** A show's waitlist: its places in order from 0, and whether each place's holder has been called. */
@@ -765,11 +795,16 @@ export const Place = relation(
 /** The places whose holder has not been called yet. */
 const waiting = select(Place, (p) => p.eq(p.called, false))
 
-export const Waitlist = schema.extend(BoxOffice, "Waitlist", { Place }, [
-	contained(on(Place, "show"), on(Show, "id")),
-	contained(on(Place, "show", pred("at")), on(Place, "show", "at")),
-	key(on(waiting, "show", "holder"))
-])
+export const Waitlist = schema.extend(
+	BoxOffice,
+	"Waitlist",
+	[Place],
+	[
+		contained(on(Place, "show"), on(Show, "id")),
+		contained(on(Place, "show", pred("at")), on(Place, "show", "at")),
+		key(on(waiting, "show", "holder"))
+	]
+)
 
 /** README: "Rules over queries": rules over a join no table stores. */
 /** A content package's resources, each with an href and a type, either of which it may lack. */
@@ -792,7 +827,7 @@ export const CatalogRecord = relation(
 
 export const Content = schema(
 	"Content",
-	{ Resource, ResourceHref, ResourceTyped, PackageFile, CatalogRecord },
+	[Resource, ResourceHref, ResourceTyped, PackageFile, CatalogRecord],
 	[
 		contained(on(ResourceHref, "resource"), on(Resource, "id")),
 		contained(on(ResourceTyped, "resource"), on(Resource, "id"))
@@ -815,16 +850,21 @@ export const TypedHref = derived(
 /** The typed hrefs of items. */
 const items = select(TypedHref, (t) => t.eq(t.type, "item"))
 
-export const ContentPackage = schema.extend(Content, "ContentPackage", { TypedHref }, [
-	check("ItemsInside", TypedHref, (t) =>
-		t.not(t.and(t.eq(t.type, "item"), t.eq(t.internal, false)))
-	),
-	contained(on(items, "path"), on(PackageFile, "path")),
-	contained(
-		on(CatalogRecord, "resource", "path", "type"),
-		on(TypedHref, "resource", "path", "type")
-	)
-])
+export const ContentPackage = schema.extend(
+	Content,
+	"ContentPackage",
+	[TypedHref],
+	[
+		check("ItemsInside", TypedHref, (t) =>
+			t.not(t.and(t.eq(t.type, "item"), t.eq(t.internal, false)))
+		),
+		contained(on(items, "path"), on(PackageFile, "path")),
+		contained(
+			on(CatalogRecord, "resource", "path", "type"),
+			on(TypedHref, "resource", "path", "type")
+		)
+	]
+)
 
 /** README: "Queries". */
 /** Comments per author on published posts. */
@@ -931,13 +971,16 @@ export const purge = ChangeSet.empty(Blog)
 /** README: "Levels". */
 /** The QTI content model, maintained on its own. */
 export const Item = relation("Item", { id: uuid, title: Title }, ["id"])
-export const Qti = schema("Qti", { Item }, [])
+export const Qti = schema("Qti", [Item], [])
 
 /** A child's sittings, over Qti: each sitting's item is one Qti holds, as the database enforces. */
 export const Sitting = relation("Sitting", { id: uuid, child: ClerkUser, item: uuid }, ["id"])
-export const Ledger = schema.extend(Qti, "Ledger", { Sitting }, [
-	contained(on(Sitting, "item"), on(Item, "id"))
-])
+export const Ledger = schema.extend(
+	Qti,
+	"Ledger",
+	[Sitting],
+	[contained(on(Sitting, "item"), on(Item, "id"))]
+)
 
 /** The signed-in child's own sittings; an insert fills `child` from the token. */
 export const mySittings = query(Ledger).rule((r) => {
@@ -984,7 +1027,7 @@ export default defineConfig({
 
 /** README: "READ COMMITTED writes", publishing the keys a learner's answers reference. */
 export const Question = relation("Question", { id: uuid, prompt: Prose }, ["id"])
-export const Bank = schema("Bank", { Question }, [])
+export const Bank = schema("Bank", [Question], [])
 export const Author = role(Bank, "author", wholeEntriesOf(Bank), { insert: ["Question"] })
 
 export const Published = relation("Published", { question: uuid }, ["question"])
@@ -992,10 +1035,15 @@ export const Answer = relation("Answer", { sitting: uuid, step: pg.bigint, quest
 	"sitting",
 	"step"
 ])
-export const Exam = schema.extend(Bank, "Exam", { Published, Answer }, [
-	contained(on(Published, "question"), on(Question, "id")),
-	contained(on(Answer, "question"), on(Published, "question"))
-])
+export const Exam = schema.extend(
+	Bank,
+	"Exam",
+	[Published, Answer],
+	[
+		contained(on(Published, "question"), on(Question, "id")),
+		contained(on(Answer, "question"), on(Published, "question"))
+	]
+)
 export const Publisher = role(Exam, "publisher", wholeEntriesOf(Exam), { insert: ["Published"] })
 export const ExamLearner = role(Exam, "learner", wholeEntriesOf(Exam), { insert: ["Answer"] })
 

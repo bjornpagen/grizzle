@@ -132,7 +132,7 @@ const Draft = relation(
 )
 const Sheet = relation("Sheet", { id: uuid, amount: pg.numeric(12, 2), count: pg.bigint }, ["id"])
 const Ledger = relation("Ledger", { id: uuid, amount: pg.numeric(12, 4) }, ["id"])
-const Content = schema("Content", { Tier, TierPlan, Article, Draft, Sheet, Ledger }, [])
+const Content = schema("Content", [Tier, TierPlan, Article, Draft, Sheet, Ledger], [])
 
 /** The type of the column `name` of a heading, which the test knows is there. */
 const columnType = (heading: Heading, name: string, what: string): ScalarType =>

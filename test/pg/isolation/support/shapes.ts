@@ -1,3 +1,4 @@
+import { Record as Rec } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -69,7 +70,7 @@ const Save = relation("Save", { parent: uuid, k: pg.integer, at: pg.integer, v: 
 /** The point shape under the name `name`. */
 export const pointShape = (name: string) => {
 	const relations = { Parent, Child: PointChild, Save } as const
-	const base = schema(name, relations, [
+	const base = schema(name, Rec.values(relations), [
 		contained(on(PointChild, "parent"), on(Parent, "id")),
 		contained(on(Save, "parent", "k"), on(PointChild, "parent", "k"))
 	])
@@ -126,7 +127,7 @@ const Served = relation(
  */
 export const sittingShape = (name: string, members: "start" | "named", extended: boolean) => {
 	const relations = { Doc, Pool, Sitting, Served } as const
-	const base = schema(name, relations, [
+	const base = schema(name, Rec.values(relations), [
 		contained(on(Pool, "doc"), on(Doc, "node")),
 		contained(on(Sitting, "doc"), on(Doc, "node")),
 		contained(on(Served, "sitting", "doc"), on(Sitting, "id", "doc")),
@@ -258,7 +259,7 @@ const Copied = relation("Copied", { invoice: uuid, n: pg.integer, amount: pg.int
 /** The fold shape under the name `name`. */
 export const foldShape = (name: string) => {
 	const relations = { Invoice, Line, Copied } as const
-	const base = schema(name, relations, [
+	const base = schema(name, Rec.values(relations), [
 		invoiceLines,
 		fold(invoiceLines, Monoid.sum, on(Line, "invoice", "amount"), on(Invoice, "id", "total")),
 		check("Settled", Invoice, (i) => i.eq(i.total, i.amount))
@@ -294,7 +295,7 @@ const SpanB = relation("SpanB", { v: pg.integer }, ["v"])
 /** The readers shape under the name `name`: the roles `writer`, `single` and `spanning`. */
 export const readersShape = (name: string) => {
 	const relations = { A, B, SingleA, SpanA, SpanB } as const
-	const base = schema(name, relations, [])
+	const base = schema(name, Rec.values(relations), [])
 	const writer = role(base, "writer", relations, { insert: ["A", "B"] })
 	const single = role(base, "single", relations, { insert: ["SingleA"] })
 	const spanning = role(base, "spanning", relations, { insert: ["SpanA", "SpanB"] })
@@ -367,7 +368,7 @@ const ListA = relation("ListA", { v: pg.integer }, ["v"])
  */
 export const listedShape = (name: string) => {
 	const relations = { A, B, ListA } as const
-	const base = schema(name, relations, [])
+	const base = schema(name, Rec.values(relations), [])
 	const writer = role(base, "writer", relations, { insert: ["A", "B"] })
 	const listed = role(base, "listed", relations, { insert: ["ListA"] })
 	const w = writer.relations
@@ -411,7 +412,7 @@ const C = relation("C", { v: pg.integer }, ["v"])
  */
 export const fkShape = (name: string) => {
 	const relations = { A, B, C } as const
-	const base = schema(name, relations, [contained(on(C, "v"), on(A, "v"))])
+	const base = schema(name, Rec.values(relations), [contained(on(C, "v"), on(A, "v"))])
 	const writer = role(base, "writer", relations, { insert: ["A", "B"] })
 	const checker = role(base, "checker", relations, { insert: ["C"] })
 	const w = writer.relations
@@ -455,7 +456,7 @@ const Held = relation("Held", { v: pg.integer }, ["v"])
  */
 export const deferredShape = (name: string) => {
 	const stored = { A, Holder, Held } as const
-	const below = schema(name, stored, [])
+	const below = schema(name, Rec.values(stored), [])
 	const Kind1 = derived(
 		"Kind1",
 		query(below).rule((r) => {
@@ -463,9 +464,12 @@ export const deferredShape = (name: string) => {
 			return r.match(Holder, { v: value, kind: 1 }).find({ v: value })
 		})
 	)
-	const base = schema.extend(below, `${name}_1`, { Kind1 }, [
-		contained(on(Held, "v"), on(Kind1, "v"))
-	])
+	const base = schema.extend(
+		below,
+		`${name}_1`,
+		[Kind1],
+		[contained(on(Held, "v"), on(Kind1, "v"))]
+	)
 	const copier = role(base, "copier", stored, { insert: ["Held"] })
 	const adder = role(base, "adder", stored, { insert: ["A"] })
 	const holder = role(base, "holder", stored, { insert: ["Holder"] })
@@ -515,7 +519,7 @@ const Y = relation("Y", { k: pg.integer }, ["k"])
  */
 export const carrierShape = (name: string) => {
 	const relations = { G, X, Y } as const
-	const base = schema(name, relations, [])
+	const base = schema(name, Rec.values(relations), [])
 	const twice = role(base, "twice", relations, { insert: ["X", "Y"] })
 	const grower = role(base, "grower", relations, { insert: ["G"] })
 	const mine = twice.relations
@@ -555,7 +559,7 @@ const Seen = relation("Seen", { parent: uuid, reader: pg.integer, k: pg.integer 
 /** The partial shape under the name `name`. */
 export const partialShape = (name: string) => {
 	const relations = { Parent, Child: PartialChild, Seen } as const
-	const base = schema(name, relations, [
+	const base = schema(name, Rec.values(relations), [
 		contained(on(PartialChild, "parent"), on(Parent, "id")),
 		contained(on(Seen, "parent", "k"), on(PartialChild, "parent", "k"))
 	])
@@ -603,7 +607,7 @@ const Q = relation("Q", { v: pg.integer }, ["v"])
 /** Counterexample (a) under the name `name`: the role `copier`, whose two members each copy the other's relation. */
 export const copiesShape = (name: string) => {
 	const relations = { A, B, P, Q } as const
-	const base = schema(name, relations, [])
+	const base = schema(name, Rec.values(relations), [])
 	const copier = role(base, "copier", relations, { insert: ["A", "B", "P", "Q"] })
 	const mine = copier.relations
 	const m1 = ChangeSet.sequence(
@@ -643,7 +647,7 @@ export const copiesShape = (name: string) => {
 /** (a) by point reads under the name `name`: the role `copier`, each member copying one row of the other's relation. */
 export const pointCopiesShape = (name: string) => {
 	const relations = { A, B, P, Q } as const
-	const base = schema(name, relations, [])
+	const base = schema(name, Rec.values(relations), [])
 	const copier = role(base, "copier", relations, { insert: ["A", "B", "P", "Q"] })
 	const mine = copier.relations
 	const m1 = ChangeSet.sequence(
@@ -727,7 +731,7 @@ export const publishedShape = (name: string) => {
 		Copy: PubCopy,
 		PubParent
 	} as const
-	const below = schema(name, stored, [
+	const below = schema(name, Rec.values(stored), [
 		contained(on(PubA, "v"), on(A, "v")),
 		contained(on(PubB, "v"), on(B, "v")),
 		contained(on(PubParent, "v"), on(A, "v")),
@@ -747,10 +751,12 @@ export const publishedShape = (name: string) => {
 			return r.match(PubParent, { v: value, kind: 1 }).find({ v: value })
 		})
 	)
-	const base = schema.extend(below, `${name}_1`, { DE, Kind1 }, [
-		key(on(DE, "v")),
-		contained(on(PubCopy, "v"), on(Kind1, "v"))
-	])
+	const base = schema.extend(
+		below,
+		`${name}_1`,
+		[DE, Kind1],
+		[key(on(DE, "v")), contained(on(PubCopy, "v"), on(Kind1, "v"))]
+	)
 	const writer = role(base, "writer", stored, { insert: ["A", "B", "D", "E"] })
 	const publisher = role(base, "publisher", stored, { insert: ["PubA", "PubB", "PubParent"] })
 	const learner = role(base, "learner", stored, { insert: ["SeenB", "SpanAB", "C"] })
@@ -882,7 +888,7 @@ const SaveValue = relation(
  */
 export const probeShape = (name: string) => {
 	const relations = { Served: ProbeServed, Save: ProbeSave, SaveValue } as const
-	const base = schema(name, relations, [
+	const base = schema(name, Rec.values(relations), [
 		contained(on(ProbeSave, "sitting", "step", "item"), on(ProbeServed, "sitting", "step", "item")),
 		contained(on(SaveValue, "save", "sitting", "step"), on(ProbeSave, "id", "sitting", "step"))
 	])
@@ -960,7 +966,7 @@ const Mark = relation("Y", { v: pg.integer }, ["v"])
  */
 export const skewShape = (name: string) => {
 	const relations = { Served: ProbeServed, Y: Mark } as const
-	const base = schema(name, relations, [])
+	const base = schema(name, Rec.values(relations), [])
 	const skewer = role(base, "skewer", relations, { insert: ["Y"] })
 	const starterB = role(base, "starterB", relations, { insert: ["Served"] })
 	const mark = ChangeSet.empty(skewer).insert(
@@ -1014,7 +1020,7 @@ const Pt = relation("Pt", { test: pg.integer }, ["test"])
  */
 export const claimShape = (name: string, gated: boolean) => {
 	const relations = { Sitting: ClaimSitting, Claim, Pt } as const
-	const base = schema(name, relations, [
+	const base = schema(name, Rec.values(relations), [
 		key(on(ClaimSitting, "child", "test", "attempt")),
 		contained(on(Claim, "sitting"), on(ClaimSitting, "id"))
 	])
@@ -1086,7 +1092,7 @@ export type FallbackForm = "rules" | "bound" | "recursive"
  */
 export const fallbackShape = (name: string, form: FallbackForm) => {
 	const relations = { G: FallbackG, W: FallbackW, Z: FallbackZ } as const
-	const base = schema(name, relations, [])
+	const base = schema(name, Rec.values(relations), [])
 	const fallbackRole = role(base, "fallback", relations, { insert: ["W"] })
 	const inserter = role(base, "inserter", relations, { insert: ["G"] })
 	const observer = role(base, "observer", relations, { insert: ["Z"] })

@@ -377,7 +377,7 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 		["id"],
 		(r) => ({ v: generated(pg.bigint, Compute.cast(r.k, pg.bigint)) })
 	)
-	const value = schema("Translated", { Named, Counted }, [])
+	const value = schema("Translated", [Named, Counted], [])
 
 	const installationOf = Effect.gen(function* () {
 		const substrate = yield* Substrate

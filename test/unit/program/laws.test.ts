@@ -600,14 +600,18 @@ const subjectOf = (
 	order: <A>(items: ReadonlyArray<A>) => ReadonlyArray<A>
 ): AnySchema => {
 	const { base, above } = levelsOf(c)
-	const declared = schema("Laws", Rec.fromEntries(order(base.relations)), order(base.statements))
+	const declared = schema(
+		"Laws",
+		Rec.values(Rec.fromEntries(order(base.relations))),
+		order(base.statements)
+	)
 	return Option.match(above, {
 		onNone: () => declared,
 		onSome: (level) =>
 			schema.extend(
 				declared,
 				"LawsAbove",
-				Rec.fromEntries(order(level.relations)),
+				Rec.values(Rec.fromEntries(order(level.relations))),
 				order(level.statements)
 			)
 	})

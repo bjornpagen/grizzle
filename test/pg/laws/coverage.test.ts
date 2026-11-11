@@ -55,17 +55,21 @@ const Source = relation("Source", { id: pg.int4, k: pg.int4, during: span(pg.int
 ])
 const selectedTarget = select(Target, (t) => t.eq(t.on, true))
 
-const Coverage = schema("fin_coverage", { Target, Source }, [
-	key(on(selectedTarget, "k", "during")),
-	contained(
-		on(
-			select(Source, (s) => s.eq(s.on, true)),
-			"k",
-			"during"
-		),
-		on(selectedTarget, "k", "during")
-	)
-])
+const Coverage = schema(
+	"fin_coverage",
+	[Target, Source],
+	[
+		key(on(selectedTarget, "k", "during")),
+		contained(
+			on(
+				select(Source, (s) => s.eq(s.on, true)),
+				"k",
+				"during"
+			),
+			on(selectedTarget, "k", "during")
+		)
+	]
+)
 
 const RELATIONS = ["Target", "Source"] as const
 

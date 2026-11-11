@@ -951,13 +951,17 @@ const totalIsBudget = check("totalIsBudget", JudgedOwner, (o) => o.eq(o.total, o
 
 /** The judged schema under a declared name: the counted family, its two folds, and the owner's two row CHECKs. */
 const judgedSchema = (name: string) =>
-	schema(name, { Flag, Owner: JudgedOwner, Member: JudgedMember }, [
-		judgedFamily,
-		fold(judgedFamily, Monoid.or, on(JudgedMember, "o", "x"), on(JudgedOwner, "id", "seen")),
-		fold(judgedFamily, Monoid.sum, on(JudgedMember, "o", "n"), on(JudgedOwner, "id", "total")),
-		seenIsDeclared,
-		totalIsBudget
-	])
+	schema(
+		name,
+		[Flag, JudgedOwner, JudgedMember],
+		[
+			judgedFamily,
+			fold(judgedFamily, Monoid.or, on(JudgedMember, "o", "x"), on(JudgedOwner, "id", "seen")),
+			fold(judgedFamily, Monoid.sum, on(JudgedMember, "o", "n"), on(JudgedOwner, "id", "total")),
+			seenIsDeclared,
+			totalIsBudget
+		]
+	)
 
 /** The relations a judged case writes, which each case clears first. */
 const judgedRelations: Arr.NonEmptyReadonlyArray<string> = [JudgedOwner.name, JudgedMember.name]

@@ -66,11 +66,11 @@ const copied: Arr.NonEmptyReadonlyArray<readonly [string, FieldDesc]> = [
 const setsOver = ([first, ...rest]: Arr.NonEmptyReadonlyArray<string>) =>
 	schema(
 		"Sets",
-		{
-			Flag: closed("Flag", [first, ...rest]),
-			Node: relation("Node", { id: uuid }, ["id"]),
-			Link: relation("Link", { from: uuid, to: uuid }, ["from", "to"])
-		},
+		[
+			closed("Flag", [first, ...rest]),
+			relation("Node", { id: uuid }, ["id"]),
+			relation("Link", { from: uuid, to: uuid }, ["from", "to"])
+		],
 		[]
 	)
 

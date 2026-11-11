@@ -74,7 +74,17 @@ import { agree, type Disagreement, exact } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { type Swarm, swarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order, Result, type Scope, Struct } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	Record as Rec,
+	Result,
+	type Scope,
+	Struct
+} from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
 import { scalarReader } from "#compiler/codec/read.ts"
@@ -563,7 +573,7 @@ const builtOf = (name: string, m: Model, declaration: Declaration): Built => {
 	)
 	const stored: Record<string, AnyRelation> = { R }
 	const declared: Record<string, AnyRelation | AnyClosed> = { Tier, Weight, Pair, ...stored }
-	const base = schema(name, declared, [])
+	const base = schema(name, Rec.values(declared), [])
 	const writer = role(base, "writer", stored, { write: ["R"], refresh: [] })
 	return { version: { schema: base, logins: [login(base, "desk", [writer])] }, writer }
 }

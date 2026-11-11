@@ -913,13 +913,13 @@ describe("a changed digit of an installed relation's constant", () => {
 			case "a dependent key":
 				return schema(
 					"Changed",
-					{
+					[
 						Version,
 						Kind,
 						Position,
 						Mark,
 						Model,
-						C: closed.relation(
+						closed.relation(
 							"C",
 							{ version: closedId(Version), parent: closedId(Kind), from: position, to: position },
 							["version", "parent", "from", "to"],
@@ -930,19 +930,19 @@ describe("a changed digit of an installed relation's constant", () => {
 								to: positionAt(Number(Str.slice(1)(defined(to))))
 							}))
 						)
-					},
+					],
 					[]
 				)
 			case "a set":
 				return schema(
 					"Changed",
-					{
+					[
 						Version,
 						Kind,
 						Position,
 						Mark,
 						Model,
-						C: closed.relation(
+						closed.relation(
 							"C",
 							{ version: closedId(Version), parent: closedId(Kind), at: closedId(Position) },
 							["version", "parent", "at"],
@@ -952,19 +952,19 @@ describe("a changed digit of an installed relation's constant", () => {
 								at: positionAt(Number(Str.slice(1)(defined(at))))
 							}))
 						)
-					},
+					],
 					[]
 				)
 			case "a function":
 				return schema(
 					"Changed",
-					{
+					[
 						Version,
 						Kind,
 						Position,
 						Mark,
 						Model,
-						C: closed.relation(
+						closed.relation(
 							"C",
 							{
 								version: closedId(Version),
@@ -980,7 +980,7 @@ describe("a changed digit of an installed relation's constant", () => {
 								mark: markAt(n % 3)
 							}))
 						)
-					},
+					],
 					[]
 				)
 		}

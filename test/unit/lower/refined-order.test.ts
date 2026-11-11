@@ -45,7 +45,7 @@ import { checking, checkOptions, owning } from "#test/support/policy.ts"
 const Slug = str.regex("^[a-z][a-z0-9-]*$")
 const Prose = str.regex("^.*$", "su")
 const Article = relation("Article", { id: uuid, slug: Slug, title: Prose }, ["id"])
-const Stored = schema("RefinedOrder", { Article }, [])
+const Stored = schema("RefinedOrder", [Article], [])
 const Listed = derived.materialized(
 	"Listed",
 	query(Stored).rule((r) => {
@@ -53,7 +53,7 @@ const Listed = derived.materialized(
 		return r.match(Article, { id, slug, title }).find({ id, slug, title })
 	})
 )
-const Refined = schema.extend(Stored, "Refined", { Listed }, [])
+const Refined = schema.extend(Stored, "Refined", [Listed], [])
 
 const owned = owning(Refined)
 const installation = succeeded(

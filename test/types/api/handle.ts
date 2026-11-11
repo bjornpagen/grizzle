@@ -117,8 +117,8 @@ export const handleSource = (entries: PreludeAt): string =>
 		`export const Item = relation("Item", { id: uuid, label: pg.integer }, ["id"])
 export const Note = relation("Note", { id: uuid, count: pg.bigint }, ["id"])
 export const Extra = relation("Extra", { id: uuid }, ["id"])
-export const Root = schema("Root", { Item, Note }, [])
-export const Wider = schema.extend(Root, "Wider", { Extra }, [])
+export const Root = schema("Root", [Item, Note], [])
+export const Wider = schema.extend(Root, "Wider", [Extra], [])
 export const level = role(Root, "level", wholeEntriesOf(Root))
 export const extension = role(Wider, "extension", wholeEntriesOf(Wider))
 ${Arr.join(

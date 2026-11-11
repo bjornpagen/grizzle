@@ -138,9 +138,11 @@ const Comment = relation("Comment", { id: uuid, article: uuid, slug: Slug }, ["i
 const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
 const Rate = contract("Rate", pg.numeric(7, 6), (x) => x.between(0n, 1n))
 const Price = relation("Price", { id: uuid, amount: Cents, rate: Rate }, ["id"])
-const Content = schema("Content", { Tier, TierLabel, Article, Draft, Comment, Price }, [
-	mutable(Draft)
-])
+const Content = schema(
+	"Content",
+	[Tier, TierLabel, Article, Draft, Comment, Price],
+	[mutable(Draft)]
+)
 
 /** Content's codes as a fresh installation drafts them, from no codes: what every template of it binds under. */
 const contentCodes = firstCodebook(rostersOf(owning(Content)))

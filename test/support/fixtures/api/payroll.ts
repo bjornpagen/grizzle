@@ -240,7 +240,7 @@ const timesheetShifts = counted(on(Shift, "employee", "week"), fin(Timesheet, "s
 
 export const Payroll = schema(
 	"Payroll",
-	{
+	[
 		Basis,
 		Stage,
 		ShiftStatus,
@@ -272,7 +272,7 @@ export const Payroll = schema(
 		LevyLine,
 		Posting,
 		Request
-	},
+	],
 	[
 		key(on(Employer, "ein")),
 		key(on(Employee, "employer", "code")),
@@ -408,7 +408,7 @@ const runTotalsOver = <const N extends string>(installed: PayrollNamed<N>) =>
 
 export const runTotals = runTotalsOver(Payroll)
 const RunTotal = derived.materialized("RunTotal", runTotals)
-export const Reporting = schema.extend(Payroll, "Reporting", { RunTotal }, [])
+export const Reporting = schema.extend(Payroll, "Reporting", [RunTotal], [])
 
 /**
  * Reporting and its worlds over the Payroll they are given (the declared one, or the one an installation rebuilds under
@@ -420,7 +420,7 @@ export const reportingWorlds = (installed: PayrollNamed<string>) => {
 	const reporting = schema.extend(
 		installed,
 		`${installed.name}_1`,
-		{ RunTotal: derived.materialized("RunTotal", runTotalsOver(installed)) },
+		[derived.materialized("RunTotal", runTotalsOver(installed))],
 		[]
 	)
 	/** Every relation a role holds: all but LevyRate, a closed relation, which installs as constants and no table. */

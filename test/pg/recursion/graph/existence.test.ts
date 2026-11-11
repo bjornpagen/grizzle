@@ -57,10 +57,11 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const Person = relation("Person", { id: pg.integer, name: str.regex("^.*$", "su") }, ["id"])
 const Follows = relation("Follows", { from: pg.integer, to: pg.integer }, ["from", "to"])
-const Network = declareSchema("Network", { Person, Follows }, [
-	contained(on(Follows, "from"), on(Person, "id")),
-	contained(on(Follows, "to"), on(Person, "id"))
-])
+const Network = declareSchema(
+	"Network",
+	[Person, Follows],
+	[contained(on(Follows, "from"), on(Person, "id")), contained(on(Follows, "to"), on(Person, "id"))]
+)
 
 const containments: ReadonlyArray<GenContainment> = [
 	{ from: { relation: "Follows", fields: ["from"] }, to: { relation: "Person", fields: ["id"] } },

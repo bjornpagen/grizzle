@@ -253,7 +253,7 @@ describe("workload(schema, programs)", () => {
 					},
 					(name, k) =>
 						Effect.sync(() => {
-							const renamed = schema(name, W.Work.relations, W.Work.statements)
+							const renamed = schema(name, Rec.values(W.Work.relations), W.Work.statements)
 							const plan = succeeded(
 								compileTestWorkload(
 									[

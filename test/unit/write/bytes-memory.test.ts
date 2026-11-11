@@ -53,7 +53,7 @@ const valueLength = 64 * 1024 * 1024
 
 const One = relation("One", { id: pg.integer, body: bytes }, ["id"])
 const Two = relation("Two", { id: pg.integer, body: bytes, more: bytes }, ["id"])
-const Large = schema("BytesMemory", { One, Two }, [])
+const Large = schema("BytesMemory", [One, Two], [])
 
 /** A case: the relation written, by its bytes columns, and how many facts the member holds. */
 interface Drawn {

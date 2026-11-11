@@ -55,7 +55,7 @@ import { featureCount, shapeOf } from "#test/support/kernel/shape.ts"
  * VALUES join and the N-ary OR tree R22 replaces.
  */
 const Item = relation("Item", { id: pg.bigint, account: pg.bigint, price: pg.integer }, ["id"])
-const Params = schema("Params", { Item }, [])
+const Params = schema("Params", [Item], [])
 
 const itemsByIds = query(Params).rule((r) => {
 	const wanted = r.relation("ids", { id: pg.bigint })

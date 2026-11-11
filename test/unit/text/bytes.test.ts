@@ -97,7 +97,7 @@ describe("str.bytes meets", () => {
 								containedBuilder(onBuilder(A, ["t"]), onBuilder(B, ["u"]))
 							]
 							const installation = succeeded(
-								Result.flatMap(ownedInput(schema("Meets", { A, B }, statements, [])), (owned) =>
+								Result.flatMap(ownedInput(schema("Meets", [A, B], statements, [])), (owned) =>
 									compileInstallation(owned, installOptions(owned, "owner"))
 								),
 								"the containment compiles"

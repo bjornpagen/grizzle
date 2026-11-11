@@ -120,7 +120,7 @@ const formCode: Readonly<Record<Form, number>> = { unpaired: 1, unlisted: 2, qui
  * derived over them, live, and Unused over J2 on a level above, with a rule over each.
  */
 const ruleQuery = (name: string) => {
-	const Base = schema(name, { R, S, U, T, W, V, N }, [])
+	const Base = schema(name, [R, S, U, T, W, V, N], [])
 	const J2 = derived(
 		"J2",
 		query(Base).rule((r) => {
@@ -210,7 +210,7 @@ const ruleQuery = (name: string) => {
 	const First = schema.extend(
 		Base,
 		`${name}_1`,
-		{ J2, J3, Semi, Self, Lonely, Unpaired, Unlisted, Quiet },
+		[J2, J3, Semi, Self, Lonely, Unpaired, Unlisted, Quiet],
 		[
 			contained(on(J2, "a", "b"), on(T, "a", "b")),
 			contained(on(W, "k"), on(J3, "k")),
@@ -243,10 +243,12 @@ const ruleQuery = (name: string) => {
 			return r.match(U, { id, a }).where(r.not(J2, { a })).find({ id })
 		})
 	)
-	return schema.extend(First, `${name}_2`, { Unused }, [
-		contained(on(Unused, "id"), marked("unused")),
-		contained(marked("unused"), on(Unused, "id"))
-	])
+	return schema.extend(
+		First,
+		`${name}_2`,
+		[Unused],
+		[contained(on(Unused, "id"), marked("unused")), contained(marked("unused"), on(Unused, "id"))]
+	)
 }
 
 const RELATIONS = ["R", "S", "U", "T", "W", "V", "N"] as const

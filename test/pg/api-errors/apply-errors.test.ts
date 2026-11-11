@@ -85,7 +85,7 @@ const Typed = relation(
 	["id"]
 )
 const Seed = relation("Seed", { id: uuid }, ["id"])
-const Fixture = schema("ApiErrors", { Typed, Seed }, [])
+const Fixture = schema("ApiErrors", [Typed, Seed], [])
 
 const seed = "00000000-0000-4000-8000-000000000001"
 /** The installation's one Seed fact, which every reset writes back with the case's rows (substrate/replace.ts). */

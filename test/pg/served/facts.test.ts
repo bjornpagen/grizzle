@@ -42,7 +42,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 const Tag = str.regex("^[a-z]{1,4}$")
 const Item = relation("Item", { id: pg.integer, score: pg.integer }, ["id"])
 const Label = relation("Label", { item: pg.integer, tag: Tag }, ["item", "tag"])
-const Labels = schema("Labels", { Item, Label }, [mutable(Item)])
+const Labels = schema("Labels", [Item, Label], [mutable(Item)])
 
 const tags = ["a", "bc", "def", "ghij"] as const
 

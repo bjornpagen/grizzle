@@ -204,7 +204,9 @@ const schemaOf = (c: BeyondCase) => {
 	})
 	return schema(
 		"Beyond",
-		Rec.fromEntries([["T", T], ["K", K], ...Arr.map(sources, (s, i) => [`S${i}`, s] as const)]),
+		Rec.values(
+			Rec.fromEntries([["T", T], ["K", K], ...Arr.map(sources, (s, i) => [`S${i}`, s] as const)])
+		),
 		[...keys, ...containments],
 		[]
 	)

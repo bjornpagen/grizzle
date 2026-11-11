@@ -56,7 +56,7 @@ const contractB = (d: Definition) =>
 const schemaOf = (a: Definition, b: Definition) =>
 	schema(
 		"fin_domains",
-		{ R: relation("R", { id: pg.int4, a: contractA(a), b: contractB(b) }, ["id"]) },
+		[relation("R", { id: pg.int4, a: contractA(a), b: contractB(b) }, ["id"])],
 		[]
 	)
 

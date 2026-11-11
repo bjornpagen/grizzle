@@ -42,7 +42,7 @@ const Item = relation(
 	{ id: pg.bigint, label: str.regex("^.*$", "su"), price: pg.numeric(10, 2), live: pg.boolean },
 	["id"]
 )
-const Shop = schema("Shop", { Item }, [])
+const Shop = schema("Shop", [Item], [])
 
 /** The i-th fact: a label holding a quote, a backslash and braces, which an array literal escapes. */
 const fact = (i: number) => ({

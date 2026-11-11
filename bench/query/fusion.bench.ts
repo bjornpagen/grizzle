@@ -95,10 +95,11 @@ const Note = relation(
 	["id"]
 )
 
-const Fusion = schema("Fusion", { Account, Task, Note }, [
-	contained(on(Task, "account"), on(Account, "id")),
-	contained(on(Note, "task"), on(Task, "id"))
-])
+const Fusion = schema(
+	"Fusion",
+	[Account, Task, Note],
+	[contained(on(Task, "account"), on(Account, "id")), contained(on(Note, "task"), on(Task, "id"))]
+)
 
 /** R01: an imported stage of urgent tasks, then the stage joined to Account by region. */
 const urgent = query(Fusion).rule((r) => {

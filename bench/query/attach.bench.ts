@@ -89,11 +89,15 @@ const Task = relation(
 )
 const Person = relation("Person", { id: pg.bigint, team: pg.integer }, ["id"])
 const Follows = relation("Follows", { from: pg.bigint, to: pg.bigint }, ["from", "to"])
-const Attach = schema("Attach", { Account, Task, Person, Follows }, [
-	contained(on(Task, "account"), on(Account, "id")),
-	contained(on(Follows, "from"), on(Person, "id")),
-	contained(on(Follows, "to"), on(Person, "id"))
-])
+const Attach = schema(
+	"Attach",
+	[Account, Task, Person, Follows],
+	[
+		contained(on(Task, "account"), on(Account, "id")),
+		contained(on(Follows, "from"), on(Person, "id")),
+		contained(on(Follows, "to"), on(Person, "id"))
+	]
+)
 
 /** R36. */
 const regionCards = query(Attach)

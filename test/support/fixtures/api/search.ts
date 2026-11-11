@@ -37,10 +37,14 @@ export const DocumentEmbedding = relation(
  * its ordered form, and the explicit approximate retrieval over it. The dimension is 4 rather than a production
  * embedding's 1536, so facts stay small; nothing here depends on it.
  */
-export const Search = schema("Search", { Document, DocumentCurrent, DocumentEmbedding }, [
-	contained(on(DocumentCurrent, "document"), on(Document, "id")),
-	contained(on(DocumentEmbedding, "document"), on(Document, "id"))
-])
+export const Search = schema(
+	"Search",
+	[Document, DocumentCurrent, DocumentEmbedding],
+	[
+		contained(on(DocumentCurrent, "document"), on(Document, "id")),
+		contained(on(DocumentEmbedding, "document"), on(Document, "id"))
+	]
+)
 
 /** Search under another name, as an installation under a unique schema name opens it. */
 export type SearchNamed<N extends string> = Schema<

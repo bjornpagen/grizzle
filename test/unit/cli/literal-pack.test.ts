@@ -101,11 +101,11 @@ const grids: Gen<Drawn> = (s) => ({
 const schemaOf = (d: Drawn) =>
 	schema(
 		"LitGrid",
-		{
+		[
 			Row,
 			Col,
 			Mark,
-			Grid: closed.relation(
+			closed.relation(
 				"Grid",
 				{ row: closedId(Row), col: closedId(Col), mark: closedId(Mark) },
 				["row", "col"],
@@ -115,7 +115,7 @@ const schemaOf = (d: Drawn) =>
 						: [{ row: rowAt(Math.floor(cell / 2)), col: colAt(cell % 2), mark: markAt(mark) }]
 				)
 			)
-		},
+		],
 		[]
 	)
 
