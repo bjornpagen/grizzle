@@ -1,3 +1,34 @@
+/**
+ * Every rewrite of a comparison is three-valued exactly as the comparison's plain meaning is, on PostgreSQL 19rc1:
+ * NULL where an operand it reads is NULL, as a closed read at an absent key reads.
+ *
+ * The lowering decides some comparisons by another form: a text's equation with a concatenation, `t = p || q`, by its
+ * lengths, a prefix and a suffix, so that nothing allocates (scalar/compute/lower.ts concatEquation); ends_with as
+ * `right(a, char_length(b)) = b`; a match whose pattern is a term by a CASE over the pattern's values; and, in a query,
+ * an IEEE 754 division by its guarded form, a zero divisor's infinity or NaN chosen by the dividend's sign. PostgreSQL
+ * reads BETWEEN as two comparisons and IN as one per value. A form whose conjuncts read different operands, or whose
+ * CASE ends in a constant, gives false or a value where the plain meaning is NULL, and NOT then turns it true; a form
+ * that sets two operands that read no row side by side in a comparison or a CASE fails a generation expression's
+ * installation with 42P22 (upstream/generated-column-collation-before-planning).
+ *
+ * Each case draws a roster Kind of one to three handles and Pick, a closed relation of a text t and a double f at a
+ * drawn subset of the kinds. An operand is the row's own text, Pick.at("t", kind) at the row's kind, Pick.at at a
+ * handle written in the term, or a literal, over the letters a and b, which a pattern reads as themselves. The
+ * predicates: a concatenation's equation or inequation with an operand, on either side; starts_with and ends_with; a
+ * match against a literal, or Pick's text where Pick holds a row; BETWEEN two operands; IN a list of literals; in a query, whether f over the
+ * row's double is below zero; under AND, OR and NOT.
+ * Positions, each its own relation: a row check, a generated field `Compute.cond(φ, n, m)`, a containment of a
+ * selection into a closed relation, a key over a selection, and a query's filter.
+ *
+ * The oracle is the plain meaning restated over the drawn values: strict operations NULL at a NULL operand, Kleene's
+ * AND, OR and NOT, texts ordered by code point, a pattern of letters matching where the text holds it, IEEE 754's
+ * division. The schema must install. A lawful row is accepted
+ * and an unlawful one refused by its relation's law; a generated value is n exactly where φ is true; the query returns
+ * exactly the rows φ is true of.
+ *
+ * The planted bug, the concatenation's equation as the conjunction of its three parts, accepts the downstream case's
+ * row in the containment's check and refuses it in the row check's negation.
+ */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -33,38 +64,6 @@ import { refusedLaws } from "#test/support/refused.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-
-/**
- * Every rewrite of a comparison is three-valued exactly as the comparison's plain meaning is, on PostgreSQL 19rc1:
- * NULL where an operand it reads is NULL, as a closed read at an absent key reads.
- *
- * The lowering decides some comparisons by another form: a text's equation with a concatenation, `t = p || q`, by its
- * lengths, a prefix and a suffix, so that nothing allocates (scalar/compute/lower.ts concatEquation); ends_with as
- * `right(a, char_length(b)) = b`; a match whose pattern is a term by a CASE over the pattern's values; and, in a query,
- * an IEEE 754 division by its guarded form, a zero divisor's infinity or NaN chosen by the dividend's sign. PostgreSQL
- * reads BETWEEN as two comparisons and IN as one per value. A form whose conjuncts read different operands, or whose
- * CASE ends in a constant, gives false or a value where the plain meaning is NULL, and NOT then turns it true; a form
- * that sets two operands that read no row side by side in a comparison or a CASE fails a generation expression's
- * installation with 42P22 (upstream/generated-column-collation-before-planning).
- *
- * Each case draws a roster Kind of one to three handles and Pick, a closed relation of a text t and a double f at a
- * drawn subset of the kinds. An operand is the row's own text, Pick.at("t", kind) at the row's kind, Pick.at at a
- * handle written in the term, or a literal, over the letters a and b, which a pattern reads as themselves. The
- * predicates: a concatenation's equation or inequation with an operand, on either side; starts_with and ends_with; a
- * match against a literal, or Pick's text where Pick holds a row; BETWEEN two operands; IN a list of literals; in a query, whether f over the
- * row's double is below zero; under AND, OR and NOT.
- * Positions, each its own relation: a row check, a generated field `Compute.cond(φ, n, m)`, a containment of a
- * selection into a closed relation, a key over a selection, and a query's filter.
- *
- * The oracle is the plain meaning restated over the drawn values: strict operations NULL at a NULL operand, Kleene's
- * AND, OR and NOT, texts ordered by code point, a pattern of letters matching where the text holds it, IEEE 754's
- * division. The schema must install. A lawful row is accepted
- * and an unlawful one refused by its relation's law; a generated value is n exactly where φ is true; the query returns
- * exactly the rows φ is true of.
- *
- * The planted bug, the concatenation's equation as the conjunction of its three parts, accepts the downstream case's
- * row in the containment's check and refuses it in the row check's negation.
- */
 
 const kindOf = (code: number): string => `k${code}`
 

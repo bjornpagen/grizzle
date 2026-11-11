@@ -1,3 +1,36 @@
+/**
+ * A comparison of texts that read no row field is a constant, and a schema holding one installs and judges each row by
+ * its value, on PostgreSQL 19rc1, in a generated field, a row check and a selection alike.
+ *
+ * PostgreSQL pre-evaluates a function of constants while it checks a generation expression's immutability, before it
+ * assigns the expression's collations, so a collatable comparison of constants there fails with 42P22
+ * (upstream/generated-column-collation-before-planning). The persistent lowering prints every compound subterm that
+ * reads no row as its value, which the host's exact evaluator computes as PostgreSQL does under pg_c_utf8: by code
+ * points, NULL included.
+ *
+ * Each case draws a roster Kind of one to three handles; Pick, a closed relation of a text at a drawn subset of the
+ * kinds, so a read at a kind it holds no row at is NULL; and a constant predicate over constant texts: literals over an
+ * alphabet that orders by code point unlike by UTF-16 unit or by case (Z, a, b, é and 𝒳), Pick.at at a handle written
+ * in the term, their concatenation and GREATEST (a check admits no LEAST); compared by =, <>, <, <=, > and >=, IN a list of literals,
+ * starts_with and ends_with, under AND, OR and NOT. The predicate stands alone, or beside an arm that reads the row's
+ * integer, under OR or AND, as GEN-NULL found it. Its positions, each its own relation:
+ *
+ * - a generated integer field, `Compute.cond(φ, n, m)`, a generation expression;
+ * - a generated text field, a constant text term alone;
+ * - a row check of φ;
+ * - a key over the selection of φ, a law column `CASE WHEN φ THEN n END`, a generation expression;
+ * - a containment of the selection of φ into a closed relation, a table CHECK guarded by φ.
+ *
+ * The oracle is the contract restated over the drawn texts: SQL's three-valued logic, a closed read at an absent key
+ * NULL, texts ordered by code point. A list value is a bare literal, which adopts its subject's type and is judged by it,
+ * and a concatenation is text of at most its operands' bytes together, a literal operand by its own (README,
+ * Compute.concat), so a schema whose constant lists a value of more bytes than a concatenation of two literals is
+ * refused at compile, ContractLiteral; any other schema must install. Each row written by grizzle's writer is accepted where
+ * lawful and refused by its relation's one law otherwise, and every stored generated value is the model's.
+ *
+ * The planted bug, the lowering's constant folding turned off, fails the installation of the first case whose
+ * generation expression compares constant texts, with 42P22.
+ */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -42,40 +75,6 @@ import { refusedLaws } from "#test/support/refused.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-
-/**
- * A comparison of texts that read no row field is a constant, and a schema holding one installs and judges each row by
- * its value, on PostgreSQL 19rc1, in a generated field, a row check and a selection alike.
- *
- * PostgreSQL pre-evaluates a function of constants while it checks a generation expression's immutability, before it
- * assigns the expression's collations, so a collatable comparison of constants there fails with 42P22
- * (upstream/generated-column-collation-before-planning). The persistent lowering prints every compound subterm that
- * reads no row as its value, which the host's exact evaluator computes as PostgreSQL does under pg_c_utf8: by code
- * points, NULL included.
- *
- * Each case draws a roster Kind of one to three handles; Pick, a closed relation of a text at a drawn subset of the
- * kinds, so a read at a kind it holds no row at is NULL; and a constant predicate over constant texts: literals over an
- * alphabet that orders by code point unlike by UTF-16 unit or by case (Z, a, b, é and 𝒳), Pick.at at a handle written
- * in the term, their concatenation and GREATEST (a check admits no LEAST); compared by =, <>, <, <=, > and >=, IN a list of literals,
- * starts_with and ends_with, under AND, OR and NOT. The predicate stands alone, or beside an arm that reads the row's
- * integer, under OR or AND, as GEN-NULL found it. Its positions, each its own relation:
- *
- * - a generated integer field, `Compute.cond(φ, n, m)`, a generation expression;
- * - a generated text field, a constant text term alone;
- * - a row check of φ;
- * - a key over the selection of φ, a law column `CASE WHEN φ THEN n END`, a generation expression;
- * - a containment of the selection of φ into a closed relation, a table CHECK guarded by φ.
- *
- * The oracle is the contract restated over the drawn texts: SQL's three-valued logic, a closed read at an absent key
- * NULL, texts ordered by code point. A list value is a bare literal, which adopts its subject's type and is judged by it,
- * and a concatenation is text of at most its operands' bytes together, a literal operand by its own (README,
- * Compute.concat), so a schema whose constant lists a value of more bytes than a concatenation of two literals is
- * refused at compile, ContractLiteral; any other schema must install. Each row written by grizzle's writer is accepted where
- * lawful and refused by its relation's one law otherwise, and every stored generated value is the model's.
- *
- * The planted bug, the lowering's constant folding turned off, fails the installation of the first case whose
- * generation expression compares constant texts, with 42P22.
- */
 
 const kindOf = (code: number): string => `k${code}`
 

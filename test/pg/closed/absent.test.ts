@@ -1,66 +1,3 @@
-import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import {
-	array,
-	boolean,
-	element,
-	type Gen,
-	int,
-	oneOf,
-	subarray,
-	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { boundedShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Order, Record as Rec, Result } from "effect"
-import { Db } from "#adapter/public/db.ts"
-import type { ApplyOutcome } from "#adapter/public/db.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
-import {
-	accumulated,
-	Bits,
-	bits,
-	closedId,
-	contract,
-	Decimal,
-	drawn as drawnField,
-	generated,
-	natural,
-	pg
-} from "#compiler/public/fields.ts"
-import {
-	check,
-	closed,
-	contained,
-	fin,
-	fold,
-	key,
-	Monoid,
-	mutable,
-	on,
-	ordered,
-	relation,
-	schema,
-	select
-} from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
-import type { Predicate } from "#compiler/types/core/phantom.ts"
-import type { RowScalars } from "#compiler/types/schema/statements.ts"
-import { installed } from "#test/pg/reads/support.ts"
-import { assert } from "#test/support/assert.ts"
-import { setText } from "#test/support/closed/bit-text.ts"
-import { namesOf } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { refusedLaws } from "#test/support/refused.ts"
-import { pgErrorFields } from "#test/support/substrate/errors.ts"
-import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-import { upTo } from "#test/support/up-to.ts"
-import { withLayer } from "#test/support/with-layer.ts"
-
 /**
  * A closed read at an absent key is judged by the rule that reads it, never refused by a cast, on PostgreSQL 19rc1.
  *
@@ -129,6 +66,68 @@ import { withLayer } from "#test/support/with-layer.ts"
  * so is the downstream count bound, a payload compared only where `C.has` holds the key, and the conditional that reads
  * a payload where the key is held and a literal where it is not.
  */
+import { layer } from "@effect/vitest"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import {
+	array,
+	boolean,
+	element,
+	type Gen,
+	int,
+	oneOf,
+	subarray,
+	weighted
+} from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { boundedShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, Order, Record as Rec, Result } from "effect"
+import { Db } from "#adapter/public/db.ts"
+import type { ApplyOutcome } from "#adapter/public/db.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
+import { Compute } from "#compiler/public/compute.ts"
+import {
+	accumulated,
+	Bits,
+	bits,
+	closedId,
+	contract,
+	Decimal,
+	drawn as drawnField,
+	generated,
+	natural,
+	pg
+} from "#compiler/public/fields.ts"
+import {
+	check,
+	closed,
+	contained,
+	fin,
+	fold,
+	key,
+	Monoid,
+	mutable,
+	on,
+	ordered,
+	relation,
+	schema,
+	select
+} from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
+import type { Predicate } from "#compiler/types/core/phantom.ts"
+import type { RowScalars } from "#compiler/types/schema/statements.ts"
+import { installed } from "#test/pg/reads/support.ts"
+import { assert } from "#test/support/assert.ts"
+import { setText } from "#test/support/closed/bit-text.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
+import { refusedLaws } from "#test/support/refused.ts"
+import { pgErrorFields } from "#test/support/substrate/errors.ts"
+import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
+import { withLayer } from "#test/support/with-layer.ts"
 
 /** A Pick row's payload: a flag's code, an integer, a numeric in tenths, a text, a Units value and a Short text. */
 interface Payload {

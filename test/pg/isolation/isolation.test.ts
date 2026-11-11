@@ -1,3 +1,27 @@
+/**
+ * The isolation certifier's soundness, against PostgreSQL 19: a role it certifies READ COMMITTED runs its change members
+ * at READ COMMITTED, and every run of concurrent calls must still be one some serial order of the same calls explains.
+ *
+ * The oracle is the serial reference (test/support/schedules/serial.ts runSerialRace): each call is a direct
+ * transaction of its served write's statements as the application sends them (race.ts callStatements), at its role's
+ * certified level, interleaved at statement boundaries by the one concurrency driver; a run passes when some order of
+ * the calls that respects real time, each run alone from the race's initial state, shows every statement's rows or
+ * SQLSTATE the run showed and leaves its state.
+ *
+ * Every installation is drafted as `grizzle generate` drafts it (support/race.ts installShape): generate's draft
+ * certifies each role over the statements its served writes send (cli/generate.ts draftSchema), the installation holds
+ * the certificates, each table keeping its guard unless every role that writes it is READ COMMITTED, and each role's
+ * served file records its level, at which its calls begin.
+ *
+ * - Positives (support/shapes.ts): every race over the shapes is serial at generate's levels in every run the strategy
+ *   reaches: every order where a race makes few moves, PCT beyond.
+ * - Counterexamples: each shape a flawed certifier passes (support/certify.ts), installed holding that certifier's
+ *   certificates, must give a run no serial order explains, and generate must keep every role the flaw passes
+ *   SERIALIZABLE; one the oracle does not catch, or one generate passes, is a failure.
+ * - Drawn installations (support/drawn.ts): pivots and members of two statements over four relations are serial at
+ *   generate's levels, and at the levels `certify` gives facts stated one to one with the drawing and the conditions
+ *   restated over it give, wherever those differ from generate's.
+ */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -54,31 +78,6 @@ import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { every, type Strategy } from "#test/support/schedules/interleave.ts"
 import type { Explained, RaceTxn } from "#test/support/schedules/serial.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-
-/**
- * The isolation certifier's soundness, against PostgreSQL 19: a role it certifies READ COMMITTED runs its change members
- * at READ COMMITTED, and every run of concurrent calls must still be one some serial order of the same calls explains.
- *
- * The oracle is the serial reference (test/support/schedules/serial.ts runSerialRace): each call is a direct
- * transaction of its served write's statements as the application sends them (race.ts callStatements), at its role's
- * certified level, interleaved at statement boundaries by the one concurrency driver; a run passes when some order of
- * the calls that respects real time, each run alone from the race's initial state, shows every statement's rows or
- * SQLSTATE the run showed and leaves its state.
- *
- * Every installation is drafted as `grizzle generate` drafts it (support/race.ts installShape): generate's draft
- * certifies each role over the statements its served writes send (cli/generate.ts draftSchema), the installation holds
- * the certificates, each table keeping its guard unless every role that writes it is READ COMMITTED, and each role's
- * served file records its level, at which its calls begin.
- *
- * - Positives (support/shapes.ts): every race over the shapes is serial at generate's levels in every run the strategy
- *   reaches: every order where a race makes few moves, PCT beyond.
- * - Counterexamples: each shape a flawed certifier passes (support/certify.ts), installed holding that certifier's
- *   certificates, must give a run no serial order explains, and generate must keep every role the flaw passes
- *   SERIALIZABLE; one the oracle does not catch, or one generate passes, is a failure.
- * - Drawn installations (support/drawn.ts): pivots and members of two statements over four relations are serial at
- *   generate's levels, and at the levels `certify` gives facts stated one to one with the drawing and the conditions
- *   restated over it give, wherever those differ from generate's.
- */
 
 /** A uuid of the races' small pool: parents, docs and sittings. */
 const uuidOf = (n: number): string => `00000000-0000-4000-8000-${Str.padStart(12, "0")(String(n))}`
