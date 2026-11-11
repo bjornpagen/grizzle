@@ -14,6 +14,7 @@ import { codePointsText } from "#compiler/core/text.ts"
 import type { CharSet } from "#compiler/scalar/regex/charset.ts"
 import type { Nfa } from "#compiler/scalar/regex/match.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 import { regex } from "arkregex"
 /**
@@ -533,7 +534,7 @@ const finiteShape = { chars: 3, repeats: 2, pieces: 3, arms: 3 } as const
 /** How many strings `k` distinct code points spell from `min` to `max` times over: each length's k^n. */
 const stringsCounted = (k: number, min: number, max: number): number =>
 	Arr.reduce(
-		Arr.makeBy(max - min + 1, (i) => k ** (min + i)),
+		upTo(max - min + 1, (i) => k ** (min + i)),
 		0,
 		(sum, n) => sum + n
 	)
@@ -547,7 +548,7 @@ export const mostFiniteMembers =
 
 /** The repetitions after `min`, each the next count past it up to the most: none when `min` is the most. */
 const countsAfter = (min: number): ReadonlyArray<number> =>
-	Arr.makeBy(finiteShape.repeats - min, (i) => min + 1 + i)
+	upTo(finiteShape.repeats - min, (i) => min + 1 + i)
 
 /**
  * How many times a piece of `k` distinct code points repeats, at least and at most: once, mostly, or counted, from none
