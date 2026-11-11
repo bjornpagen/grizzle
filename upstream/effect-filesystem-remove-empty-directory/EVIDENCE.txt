@@ -1,0 +1,14 @@
+EVIDENCE: effect-filesystem-remove-empty-directory
+
+Environment: macOS arm64, Node 26.13.0, effect 4.1.2, @effect/platform-node 4.1.2.
+
+1. sh repro.sh <dir with those deps>, against 4.1.2:
+   {"case":"empty directory, no options","removed":false,"reason":"Unknown","theirsKept":true}
+   {"case":"directory holding a file, no options","removed":false,"reason":"Unknown","theirsKept":true}
+   {"case":"directory holding a file, recursive","removed":true,"reason":null,"theirsKept":false}
+
+2. The semantics the patch uses (lstat, then rmdir for a directory), with node:fs directly:
+   {"path":"empty","removed":true}
+   {"path":"held","error":"ENOTEMPTY","theirsKept":true}
+   With the patch, case 1 of the repro removes the empty directory and case 2 fails and keeps the file; the new
+   shared test asserts both.

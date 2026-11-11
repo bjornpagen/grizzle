@@ -1,0 +1,40 @@
+NOTES: effect-filesystem-remove-empty-directory
+
+Status: patch written, NOT filed. Nothing has been sent anywhere. The owner files it by hand.
+
+1. What this is.
+   - effect's FileSystem.remove is documented as "Remove a file or directory". The Node implementation
+     (packages/platform/node-shared/src/NodeFileSystem.ts, shared by Bun) calls fs.rm, which refuses every directory
+     unless `recursive` is set, empty or not.
+   - So an empty directory can be removed only with `recursive: true`, and a recursive removal deletes whatever another
+     writer placed inside the directory between the caller's last look and the call. There is no rmdir: no way to
+     remove a directory only while it is empty.
+   - Present in effect 4.1.2 and on Effect-TS/effect main at ddd142f (2026-11-11).
+
+2. Who meets it.
+   - effect-openapi-cli-generator's writer creates directories for a generated package and, after a failed run,
+     removed the ones it created that are still empty, with node:fs/promises rmdir. Under the fork's Effect
+     diagnostics (nodeBuiltinImport) it moves onto FileSystem, which cannot express that, so the writer now leaves
+     those empty directories behind (recorded in the fork's TODO.md) until FileSystem can remove a directory only
+     while it is empty.
+
+3. The fix (0001-*.patch, against Effect-TS/effect main at ddd142f).
+   - Without `recursive`, remove lstats the path and removes a directory with rmdir, which takes it only while it is
+     empty and fails with the platform's error otherwise; anything else goes through rm as before. `force` still
+     ignores a missing path. `recursive: true` is unchanged.
+   - FileSystem.ts's doc for remove states the directory rule.
+   - A test in packages/effect/test/FileSystem.test-utils.ts, which every platform's suite runs: an empty directory is
+     removed without options; one holding a file fails and keeps the file.
+   - A changeset (patch) for effect and @effect/platform-node-shared.
+   - The existing shared test "remove requires recursive for non-empty directories and force for missing paths"
+     still holds: a held directory fails, a missing one is NotFound unless forced, a file path with a trailing slash
+     fails.
+
+4. Checked (EVIDENCE.txt).
+   - repro.sh against the published 4.1.2: the empty directory is refused, and only `recursive` removes the held
+     one, deleting the other writer's file.
+   - The rmdir semantics the patch relies on, on macOS with Node 26: an empty directory is removed, a held one fails
+     with ENOTEMPTY and keeps its file.
+   - Not run: the Effect repository's own vitest suites (a full monorepo install); run `pnpm vitest run
+     packages/platform/node-shared/test/NodeFileSystem.test.ts packages/platform/bun/test/BunFileSystem.test.ts`
+     there before filing, and on Windows, where rmdir of a held directory fails with ENOTEMPTY as well.
