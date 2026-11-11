@@ -22,6 +22,15 @@
  * A family's first migration drafting, and a family added to relations that stand, are the families' suites'
  * (test/pg/fin, which installs each drawn family through its first migration) and the backfill's
  * (test/unit/deploy/backfill.test.ts, which drafts and runs every drawn family added to stored rows).
+ *
+ * Oracles: the law model's natives, a second representation of what the installation must hold, and the emission
+ * audit (oracle/verify). A drawn specification the fill reference refuses is given up (test/support/families/fill.ts
+ * draws both, and builds no admitted one alone).
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): family-columns-no-cascade.patch (no foreign key cascades on update).
+ *
+ * Features: a drawn law column, alone and written by a query entry; a generated field, alone and written by a query
+ * entry; a cascading and a deferred foreign key; a decoding view; a relation written whole.
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, explore, sketched } from "@grizzle/testing/explore"

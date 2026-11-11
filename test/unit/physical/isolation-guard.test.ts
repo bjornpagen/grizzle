@@ -8,6 +8,12 @@
  *
  * Oracle: the rule restated over the case. An installation's guard objects follow this set over its own certification
  * (test/unit/physical/insert-grants.test.ts).
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): isolation-guard-update-relaxed.patch (a READ COMMITTED writer that may
+ * update leaves its relation unguarded).
+ *
+ * Features: a relation no role holds, one a role only reads, one every writer of which inserts at READ COMMITTED, one
+ * two such inserters write, one a SERIALIZABLE role writes, and one a READ COMMITTED role updates or deletes.
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -105,7 +111,10 @@ describe("the guard trigger per relation", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "no guard exactly where every writer inserts at READ COMMITTED, restated over the roles"
+						},
 						suite: "unit/physical/isolation-guard",
 						draw: drawn(rolesGen),
 						literal: Formatter.format,

@@ -29,6 +29,13 @@ import { owning } from "#test/support/policy.ts"
  *
  * The oracle is the rule restated over the case: which writes narrow is read from the case, never from the
  * installation. What PostgreSQL makes of the installed policies is the database suite's to judge.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): row-security-any-whole-writer.patch (a table some writer holds whole
+ * goes without row security, whoever else narrows it).
+ *
+ * Features: tables without row security, written whole or by a filterless entry; tables under it, a whole writer or a
+ * filterless entry holding TRUE, a filter function, two writers narrowing, and a table narrowed from one login and
+ * written from another.
  */
 const Shelf = relation("Shelf", { id: pg.integer }, ["id"])
 const Note = relation("Note", { id: uuid, shelf: pg.integer }, ["id"])
@@ -320,8 +327,11 @@ describe("row security", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "five writes for each of two roles on each of two tables, in one login or two",
+						oracle: {
+							kind: "specification",
+							name: "row security on exactly the tables some writer narrows, one policy per writer there"
+						},
 						suite: "unit/physical/row-security",
 						generator: pointGen,
 						literal: Formatter.format,

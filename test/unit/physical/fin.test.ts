@@ -17,6 +17,12 @@
  * - **A cell read as an integer:** a payload space of n codes is refused exactly when n is past 2^31 - 1, the greatest
  *   integer a cell is read as (cellCodesBound), the refusal naming the constant, the bound and n; and a declared
  *   relation over three drawn payload rosters is planned exactly when the product of their sizes is within it.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): fin-block-digits-reversed.patch (a block's codes read least
+ * significant first), fin-cell-bound-at-limit.patch (a payload space of exactly 2^31 - 1 codes is refused).
+ *
+ * Features: each count an owner holds and each slotted shape; each planted fault; a payload within the bound planned
+ * and one past it refused.
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"

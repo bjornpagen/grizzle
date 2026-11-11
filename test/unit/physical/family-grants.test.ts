@@ -27,6 +27,13 @@
  *
  * Oracles: the rule restated over the case, the control installation for the grants the role's own entries make, and a
  * host evaluator of the policies' predicates over literal rows that shares no code with the installer's rendering.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): family-grants-no-end-update.patch (a member writer of a mutable owner
+ * may update the owner's count but not its ends).
+ *
+ * Features: each way a member writer's filter is translated or refused, a narrowed owner entry refused, a member writer
+ * under its owner's row security, a serial written whole and through a query entry, and a writable entry whose key holds
+ * a drawn index refused when declared.
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -728,7 +735,10 @@ describe("a member writer's hold on its family's owner", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the rule restated over the world, the control installation, and a host evaluator of policies"
+						},
 						suite: "unit/physical/family-grants",
 						draw: drawn(worldGen),
 						literal: Formatter.format,

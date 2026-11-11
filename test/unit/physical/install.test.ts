@@ -1,17 +1,48 @@
+/**
+ * The fresh installation as a whole (physical/install/compile.ts), over generated schemas, extended types and span keys
+ * included, with the one login whose full role writes every relation (`oracleLogin`):
+ *
+ * - **Install order:** the manifest is the install order: phases in order, every edge from an earlier object to a later
+ *   one, and each object kind after the kinds PostgreSQL needs before it, as the model of object kinds states them (the
+ *   namespace before what it holds, types before tables, tables before what refers to or is built on them, a role
+ *   before its memberships, its schema, its policies and its privileges, a role's schema before its views); every
+ *   object needed and justified, and every constraint or index justified by a law or a program, but for the CHECKs
+ *   that enforce a span or vector column's own type. The model is total over src's PhysicalKind by the union itself, so
+ *   a new kind is a compile error here until its place is stated.
+ * - **Declaration order (metamorphic):** the SQL is byte for byte the same whatever order the relations and statements
+ *   are declared in.
+ * - **Identifiers:** the installed schema is the conversion of the schema's declared name, and a declared name the rule
+ *   refuses (its own, or a conversion PostgreSQL reserves with pg_) is refused at its declaration; only an admitted
+ *   identifier (plain lowercase, at most 63 bytes, outside pg_, drawn up to that bound) names the owner, the vector
+ *   schema or the extension schema, which lies outside the installed one; the installation's roles never take a schema
+ *   it names, and its relations lie in the installed schema.
+ *
+ * What the installed catalog holds is PostgreSQL's to judge, in the database suites.
+ *
+ * Oracles: the model of object kinds (kindModel); the declared order's installation, against the permuted one's; the
+ * naming door's rule of a declared name and of an identifier, restated, each broken name built by the rule it breaks.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): install-indexes-before-structure.patch (the Indexes phase is ordered
+ * before Structure, its tables'), install-64-byte-owner.patch (an owner of 64 bytes is admitted).
+ *
+ * Features: a foreign key, a constant, a domain, a law index and a type CHECK; relations and statements reordered; each
+ * broken rule refused at each slot, an extension schema that is the schema, and each spelling installed.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
+	codePoint,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
 	oneOf,
-	shuffled
+	shuffled,
+	weighted
 } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -44,25 +75,7 @@ import { ownedInput, owning } from "#test/support/policy.ts"
 import { owner } from "#test/unit/physical/fixtures.ts"
 
 import { regex } from "arkregex"
-/** A generated schema, as the physical oracle installs it.
- *
- * The fresh installation as a whole, over generated schemas, extended types and span keys included,
- * with the one login whose full role writes every relation (`oracleLogin`):
- *
- * - the manifest is the install order: phases in order, every edge from an earlier object to a later one, and each
- *   object kind after the kinds PostgreSQL needs before it, as the model of object kinds states them (the namespace
- *   before what it holds, types before tables, tables before what refers to or is built on them, a role before its
- *   memberships, its schema, its policies and its privileges, a role's schema before its views); every object needed and justified, and every constraint or index justified by a law or a program,
- *   but for the CHECKs that enforce a span or vector column's own type. The model is total over src's PhysicalKind by
- *   the union itself, so a new kind is a compile error here until its place is stated;
- * - the SQL is byte for byte the same whatever order the relations and statements are declared in;
- * - the installed schema is the conversion of the schema's declared name, and a declared name the rule refuses (its
- *   own, or a conversion PostgreSQL reserves with pg_) is refused at its declaration; only an admitted identifier (plain
- *   lowercase, at most 63 bytes, outside pg_) names the owner, the vector schema or the extension schema, which lies
- *   outside the installed one; the installation names its login role and its roles `<schema>__<name>`, each role's
- *   schema as its role, and its relations in the installed schema.
- *
- * What the installed catalog holds is PostgreSQL's to judge, in the database suites. */
+
 const generatedSketchGen = schemaSketchGen({
 	...defaultSchemaLimits,
 	extended: true,
@@ -183,11 +196,20 @@ const admitted = (name: string): boolean =>
 /** A schema name's words, and the spellings of them that are one declared name, whose conversion is the words joined by
  * single underscores: the rule compares declared names by their segments, and an underscore with no segment after it
  * adds none. */
-const wordsGen = filter(
-	array(matching(regex("^[a-z]{2,6}$")), { min: 1, max: 3 }),
-	(ws) => !Str.startsWith("pg_")(Arr.join(ws, "_")),
-	100
-)
+const wordsGen: Gen<ReadonlyArray<string>> = (source) => [
+	source.draw(matching(regex("^(?:p[a-fh-z][a-z]{0,4}|pg[a-z]{1,4}|[a-oq-z][a-z]{1,5})$"))),
+	...source.draw(array(matching(regex("^[a-z]{2,6}$")), { min: 0, max: 2 }))
+]
+
+/** A character outside the plain set a declared name or an identifier holds: no letter, digit or underscore of ASCII. */
+const outsideGen: Gen<string> = oneOf([
+	codePoint(0x20, 0x2f),
+	codePoint(0x3a, 0x40),
+	codePoint(0x5b, 0x5e),
+	constant("`"),
+	codePoint(0x7b, 0x7e),
+	codePoint(0xa0, 0x24f)
+])
 type Spelling = "snake" | "camel" | "Pascal" | "a trailing underscore"
 const spell = (words: ReadonlyArray<string>, spelling: Spelling): string => {
 	switch (spelling) {
@@ -231,13 +253,16 @@ const brokenDeclaredGen: Gen<{ readonly rule: DeclaredFault; readonly name: stri
 		})
 	),
 	map(
-		(source) => [source.draw(wordsGen), source.draw(element([" ", "-", '"', ".", "é"]))] as const,
+		(source) => [source.draw(wordsGen), source.draw(outsideGen)] as const,
 		([ws, c]) => ({
 			rule: "an outside character" as const,
 			name: `${spell(ws, "snake")}${c}x`
 		})
 	),
-	constant({ rule: "a conversion past 63 bytes" as const, name: Str.repeat(64)("a") }),
+	map(matching(regex("^[a-z][a-z0-9]{63,79}$")), (name) => ({
+		rule: "a conversion past 63 bytes" as const,
+		name
+	})),
 	constant({ rule: "the empty name" as const, name: "" }),
 	map(wordsGen, (ws) => ({ rule: "a pg_ conversion" as const, name: `Pg${spell(ws, "Pascal")}` }))
 ])
@@ -252,11 +277,18 @@ type IdentifierFault =
 	| "64 bytes"
 	| "empty"
 
-const admittedGen = filter(
-	matching(regex("^[a-z_][a-z0-9_]{0,12}$")),
-	(n) => !Str.startsWith("pg_")(n),
-	100
-)
+/** An admitted identifier, built outside pg_: short, or exactly the 63 bytes a name holds. */
+const admittedGen: Gen<string> = weighted([
+	[
+		4,
+		matching(
+			regex(
+				"^(?:[a-oq-z_][a-z0-9_]{0,12}|p(?:[a-fh-z0-9_][a-z0-9_]{0,11})?|pg(?:[a-z0-9][a-z0-9_]{0,10})?)$"
+			)
+		)
+	],
+	[1, matching(regex("^[a-oq-z_][a-z0-9_]{62}$"))]
+])
 
 const brokenIdentifierGen: Gen<{ readonly rule: IdentifierFault; readonly name: string }> = oneOf<{
 	readonly rule: IdentifierFault
@@ -269,14 +301,13 @@ const brokenIdentifierGen: Gen<{ readonly rule: IdentifierFault; readonly name: 
 	map(matching(regex("^[0-9][a-z]{0,6}$")), (name) => ({ rule: "leading digit" as const, name })),
 	map(matching(regex("^pg_[a-z]{0,6}$")), (name) => ({ rule: "pg_ prefix" as const, name })),
 	map(
-		(source) =>
-			[
-				source.draw(matching(regex("^[a-z]{1,4}$"))),
-				source.draw(element([" ", "-", '"', ".", "é"]))
-			] as const,
+		(source) => [source.draw(matching(regex("^[a-z]{1,4}$"))), source.draw(outsideGen)] as const,
 		([stem, c]) => ({ rule: "outside character" as const, name: `${stem}${c}x` })
 	),
-	constant({ rule: "64 bytes" as const, name: Str.repeat(64)("a") }),
+	map(matching(regex("^[a-oq-z][a-z0-9_]{63,79}$")), (name) => ({
+		rule: "64 bytes" as const,
+		name
+	})),
 	constant({ rule: "empty" as const, name: "" })
 ])
 /** The names the installation takes besides its schema's, each an identifier it names and never creates. */
@@ -342,7 +373,10 @@ describe("the fresh installation", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "the model of object kinds: what precedes each, and what justifies it"
+					},
 					suite: "unit/physical/install-order",
 					draw: drawn(generatedGen),
 					literal: Formatter.format,
@@ -427,7 +461,10 @@ describe("the fresh installation", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "an installation is invariant under its declaration's order"
+						},
 						suite: "unit/physical/install-declaration-order",
 						/** A generated schema and a permutation of its relations and one of its statements. */
 						draw: drawn((source) => {
@@ -473,7 +510,10 @@ describe("the fresh installation", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the naming door's rule of a declared name and of an admitted identifier"
+						},
 						suite: "unit/physical/install-identifiers",
 						draw: drawn(namesGen),
 						literal: Formatter.format,

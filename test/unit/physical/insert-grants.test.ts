@@ -27,6 +27,12 @@
  *   stratum.
  *
  * Oracles: the rule restated over the case, the control installation and the control compilation.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): insert-grants-insert-list-deletes.patch (a role writing by its insert
+ * list holds DELETE).
+ *
+ * Features: each declaration refused and admitted, each role's way of writing each relation, an owner mutable or not,
+ * and each program the control admits or the insert role is refused, with the kept case's stratum.
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -597,7 +603,10 @@ describe("roles that write by an insert list", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the rule restated over the world, the control installation and the control compilation"
+						},
 						suite: "unit/physical/insert-grants",
 						draw: drawn(worldGen),
 						literal: Formatter.format,
