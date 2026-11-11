@@ -1,16 +1,15 @@
 /**
  * The bytes a fingerprint hashes for a text (core/sha256.ts utf8, utf8Length) and the digest of a text (sha256Hex).
  *
- * - Well-formed text: utf8 writes the platform encoder's UTF-8, and utf8Length counts its bytes. Oracle: the platform's
- *   TextEncoder, a second implementation.
  * - Any UTF-16 string: utf8 writes generalized UTF-8 (WTF-8), each code point as the platform iterates the string, a
  *   lone surrogate as its own three bytes 0xE0 | cp >> 12, 0x80 | (cp >> 6) & 0x3F, 0x80 | cp & 0x3F, never U+FFFD, and
+ *   every other code point as the platform's TextEncoder writes it, so well-formed text is the platform's UTF-8; and
  *   utf8Length counts them. Oracle: that definition, code point by code point, a specification turned into a checker.
  * - sha256Hex of a text is sha256Hex of its generalized UTF-8 bytes. Oracle: the differential between the text path and
  *   the bytes path, the bytes written by the definition above.
  *
  * Inputs: a string of code units drawn by class (ASCII, any BMP unit, a surrogate unit, a supplementary character's
- * pair), so lone surrogates appear and adjacent ones also pair up; well-formed text is drawn as scalar values alone.
+ * pair), so lone surrogates appear and adjacent ones also pair up, and well-formed text is drawn among them.
  *
  * Features: each code point's UTF-8 width (one to four bytes), a lone surrogate, and an empty text.
  *
@@ -21,7 +20,7 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, codePoint, type Gen, int, map, string, weighted } from "@grizzle/testing/gen"
+import { array, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -97,60 +96,9 @@ const utf16: Gen<string> = map(
 	(units) => Arr.join(units, "")
 )
 
-/** Well-formed text by the UTF-8 width of its scalar values. */
-const wellFormed: Gen<string> = string(
-	weighted([
-		[1, codePoint(0x20, 0x7e)],
-		[1, codePoint(0x80, 0x7ff)],
-		[1, codePoint(0x800, 0xd7ff)],
-		[1, codePoint(0xe000, 0xffff)],
-		[1, codePoint(0x1_0000, 0x10_ffff)]
-	]),
-	{ min: 0, max: 10 }
-)
-
 const steered = { cases: 200, sense: notesOnly }
 
 describe("utf8", () => {
-	it.effect(
-		"equals the platform encoder on well-formed text, supplementary planes included",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: { kind: "second-implementation", name: "the platform's TextEncoder" },
-						suite: "unit/core/utf8-well-formed",
-						draw: drawn(wellFormed),
-						literal: Formatter.format,
-						coverage: required<Feature>(
-							[
-								"a one-byte point",
-								"a two-byte point",
-								"a three-byte point",
-								"a four-byte point",
-								"an empty text"
-							],
-							steered
-						),
-						kept: [],
-						runs: 500,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
-					},
-					(text, c) =>
-						Effect.sync(() => {
-							const expected = [...platform.encode(text)]
-							assert.deepEqual([...utf8(text)], expected)
-							assert.equal(utf8Length(text), expected.length)
-							noteText(text, c)
-						})
-				)
-			)
-	)
-
 	it.effect(
 		"writes any UTF-16 string as generalized UTF-8, a lone surrogate as its own three bytes",
 		(ctx) =>
