@@ -273,30 +273,31 @@ const largestIn = (
 const larger = (x: number | undefined, y: number | undefined): boolean =>
 	x !== undefined && (y === undefined || x > y)
 
-/** The record of one alternatives arm's attachment under `name`: Some of its child, or None. */
-const armRecord = (name: string, field: FieldForm): DecoderForm => ({
-	kind: "record",
-	fields: [[name, field]]
-})
+/** One write of a row's value into the record the row fills, under the key its field reads. */
+type Fill = (record: Record<string, unknown>, row: Row) => void
+
+/** The write of `read`'s value of a row under `key`. */
+const fillOf =
+	(key: string, read: (row: Row) => unknown): Fill =>
+	(record, row) => {
+		record[key] = read(row)
+	}
 
 /**
- * A decoder form bound to one layout: a record's fields each read by its own reader; a merge's two records as one; a
- * union's arm that owns the largest heading the layout delivers; an alternatives arm's parent record with Some of the
- * child where the parent's field holds the arm's handle, None elsewhere; and a refused decoder's refusal.
+ * A decoder form bound to one layout, flattened into the writes that fill one record of a row, in order: a record's
+ * fields, each read by its own reader; a merge's first record's writes, then its second's; the writes of a union's arm
+ * that owns the largest heading the layout delivers; an alternatives arm's parent's writes, then its own field, Some of
+ * the child where the field the parent wrote holds the arm's handle, None elsewhere; and a refused decoder's refusal.
+ * Every write lands in the one record, so no row builds a record per part or copies one into another.
  */
-const recordReader = (form: DecoderForm, layout: Layout, context: BindContext): RecordReader => {
+const fillsOf = (form: DecoderForm, layout: Layout, context: BindContext): ReadonlyArray<Fill> => {
 	switch (form.kind) {
-		case "record": {
-			const readers = form.fields.map(
-				([key, field]) => [key, fieldReader(field, key, layout, context)] as const
+		case "record":
+			return form.fields.map(([key, field]) =>
+				fillOf(key, fieldReader(field, key, layout, context))
 			)
-			return (row) => assembledRecord(readers, row)
-		}
-		case "merge": {
-			const first = recordReader(form.first, layout, context)
-			const second = recordReader(form.second, layout, context)
-			return (row) => Object.freeze({ ...first(row), ...second(row) })
-		}
+		case "merge":
+			return [...fillsOf(form.first, layout, context), ...fillsOf(form.second, layout, context)]
 		case "oneOf": {
 			const names = new Set([...layout.columns.keys(), ...layout.attachments.keys()])
 			const inFirst = largestIn(formHeadings(form.first), names)
@@ -308,32 +309,35 @@ const recordReader = (form: DecoderForm, layout: Layout, context: BindContext): 
 				)
 			}
 			return larger(inFirst, inSecond)
-				? recordReader(form.first, layout, context)
-				: recordReader(form.second, layout, context)
+				? fillsOf(form.first, layout, context)
+				: fillsOf(form.second, layout, context)
 		}
 		case "arm": {
-			const head = recordReader(form.parent, layout, context)
-			const some = recordReader(
-				armRecord(form.name, { kind: "some", child: form.child }),
-				layout,
-				context
-			)
-			const none = recordReader(
-				armRecord(form.name, { kind: "none", child: form.child }),
-				layout,
-				context
-			)
-			const { field, handle } = form
-			return (row) => {
-				const parent = head(row)
-				return Object.freeze({ ...parent, ...(parent[field] === handle ? some(row) : none(row)) })
+			const { name, field, handle, child } = form
+			const some = fieldReader({ kind: "some", child }, name, layout, context)
+			const none = fieldReader({ kind: "none", child }, name, layout, context)
+			const arm: Fill = (record, row) => {
+				record[name] = record[field] === handle ? some(row) : none(row)
 			}
+			return [...fillsOf(form.parent, layout, context), arm]
 		}
 		case "refused":
 			return refuseLayout(
 				"query",
 				"a query whose rows the builder can decode: one built with query(S) over sources whose fields it types"
 			)
+	}
+}
+
+/** A decoder form bound to one layout: one frozen null-prototype record per row, filled by the form's writes. */
+const recordReader = (form: DecoderForm, layout: Layout, context: BindContext): RecordReader => {
+	const fills = fillsOf(form, layout, context)
+	return (row) => {
+		const record: Record<string, unknown> = { __proto__: null }
+		for (const fill of fills) {
+			fill(record, row)
+		}
+		return Object.freeze(record)
 	}
 }
 
