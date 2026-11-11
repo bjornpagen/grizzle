@@ -4,8 +4,10 @@
  * so the cut must lose nothing a statement of the role can meet: a refusal misread by the cut is an ExecutionFailure
  * where the installation names a law, or a law where it names another.
  *
- * Over generated public schemas (test/support/oracle/public) and logins drawn over them (test/support/served-login.ts),
- * each login compiled as `grizzle generate` compiles it, for every role that writes:
+ * Over generated public schemas (test/support/oracle/public), each extended by a drawn law level (laws.ts: a roster
+ * with holes, a code key, a set, checked contracts that may share one domain, a generated column, a table CHECK), and
+ * logins drawn over them (test/support/served-login.ts), each login compiled as `grizzle generate` compiles it under the
+ * level's codes, for every role that writes:
  *
  * - cut: the role's refusals as its served file holds them, the file read back from the JSON value its text parses to,
  *   rebuilt as a layer rebuilds them (adapter/witness/index.ts servedWitness), under the codes the file holds;
@@ -24,9 +26,11 @@
  * - Narrowing (R2): a domain shared with a relation the role does not write is classified alike at a statement writing
  *   some of its columns, its uses narrowed to the written tables as the full classifier narrows them by the statement.
  *
- * Plant (~/.cache/grizzle-release/TSERVED/plants): served-domain-narrowed-wrong.patch narrows a domain constraint's
+ * Plants (~/.cache/grizzle-release/TSERVED/plants): served-domain-narrowed-wrong.patch narrows a domain constraint's
  * uses to the tables the role does not write: a shared domain's refusal names the other relations' laws, and a domain
- * typing written columns alone is dropped, so the cut reads its refusal as no law.
+ * typing written columns alone is dropped, so the cut reads its refusal as no law. served-cast-contract-chain-dropped.patch
+ * leaves a cast value's contract chain out of the domains it meets: a context claim of a checked contract whose domain
+ * types only unwritten columns is no law of the cut.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -43,20 +47,26 @@ import { type DeclaredName, identifierOf, identity } from "#compiler/core/identi
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { type Codebook, type RosterCodec, rosterCodebook } from "#compiler/ir/codes.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import type { ConcurrentChangeTag } from "#compiler/runtime/write/refusal.ts"
 import type { Refuser } from "#compiler/runtime/write/witness.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { type BuiltSchema, buildSchema } from "#test/support/oracle/public/build.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
+import {
+	type LawFeature,
+	type LawLevel,
+	lawFeatures,
+	lawLevelGen
+} from "#test/support/oracle/public/laws.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
-import type { ProgramCase } from "#test/support/oracle/public/program.ts"
 import { encodeRefusalDetail } from "#test/support/oracle/write/detail.ts"
 import {
 	compiledLogin,
 	drawnLogin,
+	drawnSchema,
+	type DrawnSchema,
 	loginGen,
 	type RoleShape,
 	roleName,
@@ -73,6 +83,7 @@ import { runtimeDifference } from "#test/support/served.ts"
 import { nothingReported, type Reported, serverError } from "#test/support/server-error.ts"
 
 type Feature =
+	| LawFeature
 	| "a table constraint classified alike"
 	| "a domain shared with a relation the role does not write, narrowed alike"
 	| "a law refusal decoded alike"
@@ -80,7 +91,8 @@ type Feature =
 	| "a concurrent change classified alike"
 	| "a fact outside a written query entry classified alike"
 	| "a statement writing some of the role's written relations"
-	| "a write reading a context field whose domain types only unwritten stored columns"
+	| "a write reading a context field whose contract domain types only unwritten stored columns"
+	| "a write reading a context field whose pattern domain types only unwritten stored columns"
 
 /**
  * One refusal a role's writes can raise, as PostgreSQL reports it, beside the relations a statement that raises it
@@ -356,12 +368,18 @@ const claimsOf = (
 		return []
 	}
 	const { target, held } = shape.entry.value
-	const writes = artifacts.derived.schema.relations.get(target.name)
-	if (writes === undefined) {
+	const writes = artifacts.derived.schema.relations.get(target)
+	const heldBy = artifacts.derived.schema.relations.get(held.relation)
+	const type = Arr.findFirst(heldBy?.fields ?? [], (f) => f.name === held.field).pipe(
+		Option.map((f) => f.type),
+		Option.getOrUndefined
+	)
+	if (writes === undefined || type === undefined) {
 		return []
 	}
-	const table = artifacts.names.relation(held.relation.name).name
-	const column = artifacts.names.column(held.relation.name, held.field.name)
+	const table = artifacts.names.relation(held.relation).name
+	const column = artifacts.names.column(held.relation, held.field)
+	const contract = contractOf(type)
 	return Arr.flatMap(artifacts.constraintLaws, (c): ReadonlyArray<Refusal> =>
 		c.kind === "domainConstraint" &&
 		Arr.some(c.uses, (u) => u.table === table && u.column === column) &&
@@ -377,7 +395,10 @@ const claimsOf = (
 						},
 						at: [writes.name],
 						feature:
-							"a write reading a context field whose domain types only unwritten stored columns"
+							contract !== undefined &&
+							c.owner === artifacts.names.contractDomain(contract.name).name
+								? "a write reading a context field whose contract domain types only unwritten stored columns"
+								: "a write reading a context field whose pattern domain types only unwritten stored columns"
 					}
 				]
 			: []
@@ -385,15 +406,16 @@ const claimsOf = (
 }
 
 const differential = (
-	c: ProgramCase,
-	built: BuiltSchema,
+	drawn: DrawnSchema,
+	level: LawLevel,
 	shapes: Arr.NonEmptyReadonlyArray<RoleShape>,
 	draw: <A>(generator: Gen<A>) => A,
 	note: (feature: Feature) => void
 ) =>
 	Effect.gen(function* () {
-		const printed = () => `${printCase(c)}\n${Formatter.format(shapes)}`
-		const compiled = yield* Effect.result(compiledLogin(drawnLogin(built, shapes)))
+		const printed = () =>
+			`${printCase(drawn.case)}\n${Formatter.format(level)}\n${Formatter.format(shapes)}`
+		const compiled = yield* Effect.result(compiledLogin(drawn, drawnLogin(drawn, shapes)))
 		if (Answered.isFailure(compiled)) {
 			return
 		}
@@ -412,6 +434,12 @@ const differential = (
 			const cut = servedWitness(role.served.refusals, back.above, codes).classify
 			const full = installationWitness(artifacts, back.above).classify
 			const raised = raisedBy(artifacts, written, castBy(role.served))
+			const writes = new Set<string>(written)
+			if (Arr.some(drawn.laws.relations, (r) => writes.has(r.name))) {
+				for (const feature of lawFeatures(level)) {
+					note(feature)
+				}
+			}
 			for (const refusal of refusalsOf(artifacts, shape, raised, draw)) {
 				const relations = draw(statementGen(refusal.at, written))
 				const failure = serverError(refusal.reported)
@@ -447,7 +475,9 @@ describe("a served login's classifier", () => {
 							name: "the installation's full classifier (adapter/served/refusals.ts installationWitness), over the refusals test/support/served-reach.ts computes"
 						},
 						suite: "unit/served/refusals",
-						draw: drawn((source) => source.draw(caseSketchGen)),
+						draw: drawn(
+							(source) => [source.draw(caseSketchGen), source.draw(lawLevelGen)] as const
+						),
 						literal: Formatter.format,
 						coverage: required<Feature>(
 							[
@@ -458,7 +488,12 @@ describe("a served login's classifier", () => {
 								"a concurrent change classified alike",
 								"a fact outside a written query entry classified alike",
 								"a statement writing some of the role's written relations",
-								"a write reading a context field whose domain types only unwritten stored columns"
+								"a write reading a context field whose contract domain types only unwritten stored columns",
+								"a roster with a hole",
+								"a generated column",
+								"a table CHECK",
+								"contracts sharing one domain",
+								"a code key"
 							],
 							{ cases: 60, sense: notesOnly }
 						),
@@ -469,11 +504,10 @@ describe("a served login's classifier", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(sketch, notes) =>
+					([sketch, level], notes) =>
 						Effect.suspend(() => {
-							const c = notes.draw(resolveCase(sketch))
-							const built = buildSchema(c.schema)
-							return differential(c, built, notes.draw(loginGen(c, built)), notes.draw, notes.note)
+							const drawn = drawnSchema(notes.draw(resolveCase(sketch)), level)
+							return differential(drawn, level, notes.draw(loginGen(drawn)), notes.draw, notes.note)
 						})
 				)
 			)

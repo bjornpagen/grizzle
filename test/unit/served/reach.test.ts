@@ -3,7 +3,8 @@
  * `served/<login>.json`, and a layer loads nothing else, so a roster or a law the file holds beyond the login's reach
  * is waste every cold start pays, and one it lacks is a load that fails or a refusal misread.
  *
- * Over generated public schemas (test/support/oracle/public) and logins drawn over them (test/support/served-login.ts:
+ * Over generated public schemas (test/support/oracle/public), each extended by a drawn law level (laws.ts), and logins
+ * drawn over them (test/support/served-login.ts:
  * roles that may write some relations, write some of those and perhaps a query entry reading a context, and read some
  * of the case's queries), each login compiled as generate compiles it (adapter/served/compile.ts snapshotCompiled,
  * then servedEntryOf) and its file read back from the JSON value its text parses to:
@@ -41,13 +42,14 @@ import type { ServedRoleForm } from "#compiler/served/forms.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { type BuiltSchema, buildSchema } from "#test/support/oracle/public/build.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
+import { type LawLevel, lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
-import type { ProgramCase } from "#test/support/oracle/public/program.ts"
 import {
 	compiledLogin,
 	drawnLogin,
+	drawnSchema,
+	type DrawnSchema,
 	loginGen,
 	type RoleShape,
 	roleName,
@@ -141,14 +143,15 @@ const refusalsReach = (role: ServedRoleForm, raised: Raised, printed: () => stri
 }
 
 const reach = (
-	c: ProgramCase,
-	built: BuiltSchema,
+	drawn: DrawnSchema,
+	level: LawLevel,
 	shapes: Arr.NonEmptyReadonlyArray<RoleShape>,
 	note: (feature: Feature) => void
 ) =>
 	Effect.gen(function* () {
-		const printed = () => `${printCase(c)}\n${Formatter.format(shapes)}`
-		const compiled = yield* Effect.result(compiledLogin(drawnLogin(built, shapes)))
+		const printed = () =>
+			`${printCase(drawn.case)}\n${Formatter.format(level)}\n${Formatter.format(shapes)}`
+		const compiled = yield* Effect.result(compiledLogin(drawn, drawnLogin(drawn, shapes)))
 		if (Answered.isFailure(compiled)) {
 			return
 		}
@@ -196,7 +199,7 @@ const reach = (
 			refusalsReach(role.served, raised, printed)
 			note(written.size > 0 ? "a role that writes" : "a role that writes nothing")
 			const writes = new Set<string>(written)
-			if (Arr.some(shape.writes, (r) => !writes.has(r.name))) {
+			if (Arr.some(shape.writes, (r) => !writes.has(r))) {
 				note("a relation a role may write and does not")
 			}
 			if (raised.rosters.size > 0) {
@@ -236,7 +239,7 @@ describe("a login's served file", () => {
 						name: "the reach computed from the compiled program and its installation (test/support/served-reach.ts)"
 					},
 					suite: "unit/served/reach",
-					draw: drawn((source) => source.draw(caseSketchGen)),
+					draw: drawn((source) => [source.draw(caseSketchGen), source.draw(lawLevelGen)] as const),
 					literal: Formatter.format,
 					coverage: required<Feature>(
 						[
@@ -259,11 +262,10 @@ describe("a login's served file", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				(sketch, notes) =>
+				([sketch, level], notes) =>
 					Effect.suspend(() => {
-						const c = notes.draw(resolveCase(sketch))
-						const built = buildSchema(c.schema)
-						return reach(c, built, notes.draw(loginGen(c, built)), notes.note)
+						const drawn = drawnSchema(notes.draw(resolveCase(sketch)), level)
+						return reach(drawn, level, notes.draw(loginGen(drawn)), notes.note)
 					})
 			)
 		)

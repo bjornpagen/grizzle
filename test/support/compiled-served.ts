@@ -10,7 +10,7 @@ import {
 	writeSnapshot
 } from "#compiler/deploy/snapshot/build.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
-import { firstCodebook } from "#compiler/ir/codes.ts"
+import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { installationsOf, type Owned, ownBuilt, rostersOf } from "#compiler/schema/own.ts"
@@ -18,15 +18,16 @@ import type { AnyLogin } from "#compiler/types/schema/world.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 
 /**
- * The JSON value of the snapshot.json `grizzle generate` writes for a fresh installation of `owned`, as an import of the
- * file yields it, compiled with no database: the installation compiled in process under the first codes of its rosters,
- * with no workload planned.
+ * The JSON value of the snapshot.json `grizzle generate` writes for an installation of `owned` under the codes `codes`,
+ * as an import of the file yields it, compiled with no database: the installation compiled in process, with no
+ * workload planned. Codes are history: a fresh installation's are its rosters' first codes, and a roster that lost a
+ * handle holds a hole there.
  */
-export const compiledSnapshot = (owned: Owned): unknown => {
+export const compiledSnapshot = (owned: Owned, codes: Codebook): unknown => {
 	const installation = succeeded(
 		compileInstallation(
 			owned,
-			completeInstallOptions(owned, installationsOf(owned), [], [], firstCodebook(rostersOf(owned)))
+			completeInstallOptions(owned, installationsOf(owned), [], [], codes)
 		),
 		"the base's installation"
 	)
@@ -54,8 +55,9 @@ export const compiledSnapshot = (owned: Owned): unknown => {
  */
 export const compiledServedFile = (login: AnyLogin): unknown => {
 	const built = defined(builtLogin(login), "a login built by login(...)")
+	const owned = succeeded(ownBuilt(built.base), "the login's base")
 	return Effect.runSync(
-		compileServed(login, compiledSnapshot(succeeded(ownBuilt(built.base), "the login's base")), [
+		compileServed(login, compiledSnapshot(owned, firstCodebook(rostersOf(owned))), [
 			...built.workload
 		])
 	)
