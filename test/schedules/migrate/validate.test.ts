@@ -39,8 +39,9 @@
  * Features: the race's ends (the migration succeeded, refused by the law or aborted), each waiting on the other, and a
  * violation committed before the law or refused by it.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): validate-rows-unvalidated and validate-race-unvalidated (a law added
- * NOT VALID over stored rows is never validated).
+ * Plants (~/.cache/grizzle-release/BR11/plants): validate-rows-unvalidated (a CHECK added NOT VALID over stored rows is
+ * never validated) and validate-race-unvalidated (a foreign key added NOT VALID over a table that may hold rows is never
+ * validated).
  */
 
 import { layer } from "@effect/vitest"

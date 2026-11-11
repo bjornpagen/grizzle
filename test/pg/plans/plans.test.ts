@@ -34,7 +34,7 @@
  * Plants (~/.cache/grizzle-release/BR11/plants): plans-take-deduplicated (every take starts DISTINCT),
  * plans-lateral-unbounded (a LATERAL take reads with no LIMIT), plans-pipelined-lateral (a take over every group goes
  * LATERAL, one scan per parent), plans-relparam-text-arrays (a relation input's arrays are sent as text),
- * plans-fold-deduplicated (every fold starts DISTINCT) and plans-probe-keys-off (no selection key is probed).
+ * plans-fold-deduplicated (every match region starts DISTINCT) and plans-probe-keys-off (no selection key is probed).
  */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
