@@ -77,6 +77,7 @@ import type { Card, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
 import { analyzeLogical } from "#compiler/logical/annotate.ts"
 import {
 	noBindings,
+	type Bindings,
 	Reference,
 	type ReferenceInput,
 	unobserved
@@ -152,28 +153,46 @@ const attachmentsOf = (dag: RelDag): ReadonlyArray<NodeOf<"Attach">> =>
 	Arr.filter(topoOrder(dag), (n): n is NodeOf<"Attach"> => n.kind === "Attach")
 
 /** The children each parent row of an attachment receives, by the reference, as counts. */
+/**
+ * The children each parent row of an attachment receives, by the reference, as counts. A child that reads its parent's
+ * columns, as an ordinal's comparison does, is evaluated once per parent row, under that row as its outer tuple; a
+ * closed child is evaluated once, whatever the tuple.
+ */
 const childCounts = (ref: Reference, a: NodeOf<"Attach">): ReadonlyArray<number> => {
 	const parent = ref.eval(a.parent, noBindings)
-	const child = ref.eval(a.child, noBindings)
 	const at = (heading: typeof parent.heading, name: string): number =>
 		Option.getOrThrowWith(
 			Arr.findFirstIndex(heading, (h) => h.name === name),
 			() => new Error("a column the case's own heading holds")
 		)
-	return Arr.map(
-		parent.rows,
-		(prow) =>
-			Arr.filter(child.rows, (crow) =>
-				Arr.every(a.correlation, (link) => {
-					const p = at(parent.heading, link.parent)
-					const c = at(child.heading, link.child)
-					const type = parent.heading[p]?.type
-					const pv = prow[p]
-					const cv = crow[c]
-					return type !== undefined && pv !== undefined && cv !== undefined && equal(pv, cv, type)
-				})
-			).length
-	)
+	return Arr.map(parent.rows, (prow) => {
+		const outer: Bindings = new Map([
+			[
+				a.parent.id,
+				{
+					get: (name: string) =>
+						Option.getOrUndefined(
+							Option.flatMap(
+								Arr.findFirstIndex(parent.heading, (h) => h.name === name),
+								(column) => Option.fromNullishOr(prow[column])
+							)
+						),
+					has: (name: string) => Arr.some(parent.heading, (h) => h.name === name)
+				}
+			]
+		])
+		const child = ref.eval(a.child, outer)
+		return Arr.filter(child.rows, (crow) =>
+			Arr.every(a.correlation, (link) => {
+				const p = at(parent.heading, link.parent)
+				const c = at(child.heading, link.child)
+				const type = parent.heading[p]?.type
+				const pv = prow[p]
+				const cv = crow[c]
+				return type !== undefined && pv !== undefined && cv !== undefined && equal(pv, cv, type)
+			})
+		).length
+	})
 }
 
 /** A physical analysis's placement: none, or a DISTINCT on the root. */
@@ -438,6 +457,14 @@ const judge = (inst: Installed, plan: Plan, c: Case<ClaimFeature>): void => {
 				}
 				for (const a of attachmentsOf(dag)) {
 					const counts = childCounts(ref, a)
+					if (a.delivered !== "array" && Arr.some(counts, (n) => n > 1)) {
+						throw new Error(
+							`${a.name} delivers ${a.delivered} and a parent receives two children or more\n${at}${facts()}`
+						)
+					}
+					if (a.delivered === "one" && Arr.some(counts, (n) => n === 0)) {
+						throw new Error(`${a.name} delivers one and a parent receives none\n${at}${facts()}`)
+					}
 					const known = truth.children.get(a.id) ?? {
 						atMostOne: true,
 						atLeastOne: true,
