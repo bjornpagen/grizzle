@@ -69,14 +69,16 @@ export interface PgErrorFields {
 /**
  * Sessions and test databases on the local cluster, over verify-full TLS as the adapter connects.
  *
- * A test connection is a direct SQL client, not grizzle: a pg Client of its own, every statement on the extended
- * protocol and unnamed, one at a time. Its values are parsed for a test to read: booleans,
+ * A test connection is a direct SQL client, not grizzle: a pg Client of its own in pg's pipeline mode, every statement
+ * on the extended protocol and unnamed, one at a time, or a pipeline of them sent in one flush (PgConnection
+ * `pipeline`). Its values are parsed for a test to read: booleans,
  * integers (int8 as bigint), floats, JSON, timestamps (as Date), intervals (months, days and microseconds), byte
  * strings and arrays of them; every other type, numeric, uuid, date, time and every user type among them, as its text.
  *
- * Concurrent statements on one connection take turns, one statement at a time; `pin` holds the connection for a scope,
- * so a transaction's statements are not interleaved with another fiber's. An interrupted statement is cancelled with
- * CancelRequests over a TLS connection of their own until it ends, so the connection is usable again.
+ * Concurrent statements on one connection take turns, one statement or one pipeline at a time; `pin` holds the
+ * connection for a scope, so a transaction's statements are not interleaved with another fiber's. An interrupted
+ * statement is cancelled with CancelRequests over a TLS connection of their own until it ends, and an interrupted
+ * pipeline until its last statement ends, so the connection is usable again.
  *
  * Test databases are created here and never dropped here. Nothing in test/ issues DROP DATABASE but the sweep
  * (test/support/substrate/shared.ts), which runs only when no test file of its caller runs: DROP DATABASE holds its
@@ -101,6 +103,16 @@ export interface RawQueryResult {
 	readonly fields: ReadonlyArray<{ readonly name: string; readonly dataTypeId: number }>
 }
 
+/**
+ * The statement of a pipeline PostgreSQL refused first: its position among the statements sent, and the refusal. The
+ * statements after it were sent with it and answered too; their answers are discarded. Inside a transaction block each
+ * of them is refused as the aborted transaction's (25P02), and outside one each ran as its own implicit transaction.
+ */
+export class PipelineRefused extends Data.TaggedError("PipelineRefused")<{
+	readonly index: number
+	readonly error: SqlError
+}> {}
+
 export interface PgConnection {
 	/** The backend's process id, from the connection's BackendKeyData. */
 	readonly processId: number
@@ -109,6 +121,14 @@ export interface PgConnection {
 		sql: string,
 		params: ReadonlyArray<unknown>
 	) => Effect.Effect<RawQueryResult, SqlError>
+	/**
+	 * Unnamed statements of no parameters, each its own extended-protocol exchange ending in a Sync, written in one
+	 * flush before any answer is read: every answer in order, its rows as records by column name, or the first statement
+	 * PostgreSQL refused (PipelineRefused).
+	 */
+	readonly pipeline: (
+		statements: ReadonlyArray<string>
+	) => Effect.Effect<ReadonlyArray<RawQueryResult>, PipelineRefused>
 	/** One unnamed statement; its rows positional. */
 	readonly queryValues: (
 		sql: string,
@@ -469,7 +489,8 @@ const connectOnce = (
 				checkServerIdentity: (...[, certificate]: readonly [string, PeerCertificate]) =>
 					checkServerIdentity(target.servername, certificate)
 			},
-			types
+			types,
+			pipeline: true
 		})
 		/** The FATAL report a server sends before it ends the session, which the next statement fails with. */
 		let ended = Option.none<DatabaseError>()
@@ -492,12 +513,22 @@ const connectOnce = (
 		const processId = numberOf(client, "processID")
 		const secretKey = numberOf(client, "secretKey")
 		const turn = yield* Semaphore.make(1)
+		/** A statement's failure: PostgreSQL's refusal, or the FATAL report of a server that ended the session. */
+		const failureOf = (error: unknown): SqlError =>
+			sqlErrorOf(error instanceof DatabaseError || Option.isNone(ended) ? error : ended.value)
 		/**
-		 * One statement, cancelled until it ends when interrupted. A cancel that reaches the backend while it is still
-		 * reading the statement is ignored, so after each cancel the server has answered, by closing its connection,
-		 * another is sent while the statement runs: one cancel is in flight at a time, each paced by the server's own
-		 * answer to the one before, and none by a clock.
+		 * Cancels the backend's running statement until `finished` says the statements sent have all ended. A cancel
+		 * that reaches the backend while it is still reading a statement is ignored, so after each cancel the server has
+		 * answered, by closing its connection, another is sent while one runs: one cancel is in flight at a time, each
+		 * paced by the server's own answer to the one before, and none by a clock.
 		 */
+		const cancelUntil = (finished: () => boolean): Effect.Effect<void> =>
+			Effect.whileLoop({
+				while: () => !finished(),
+				body: () => cancelRequest(target, processId, secretKey),
+				step: Function.constVoid
+			})
+		/** One statement, cancelled until it ends when interrupted. */
 		const run = <R>(
 			sql: string,
 			params: ReadonlyArray<unknown>,
@@ -511,40 +542,74 @@ const connectOnce = (
 					resume(
 						error === null || error === undefined
 							? Effect.succeed(read(result))
-							: Effect.fail(
-									sqlErrorOf(
-										error instanceof DatabaseError || Option.isNone(ended) ? error : ended.value
-									)
-								)
+							: Effect.fail(failureOf(error))
 					)
 				})
-				return Effect.whileLoop({
-					while: () => !finished,
-					body: () => cancelRequest(target, processId, secretKey),
-					step: Function.constVoid
-				})
+				return cancelUntil(() => finished)
 			})
+		const records = (result: Answered): RawQueryResult => ({
+			command: result.command,
+			rowCount: result.rowCount ?? 0,
+			rows: Arr.filter(result.rows, Predicate.isObject),
+			fields: Arr.map(result.fields, (f) => ({ name: f.name, dataTypeId: f.dataTypeID }))
+		})
 		const query = (sql: string, params: ReadonlyArray<unknown>) =>
-			run(sql, params, "object", (result) => ({
-				command: result.command,
-				rowCount: result.rowCount ?? 0,
-				rows: Arr.filter(result.rows, Predicate.isObject),
-				fields: Arr.map(result.fields, (f) => ({ name: f.name, dataTypeId: f.dataTypeID }))
-			}))
+			run(sql, params, "object", records)
 		const queryValues = (sql: string, params: ReadonlyArray<unknown>) =>
 			run(sql, params, "array", (result) =>
 				Arr.filter(result.rows, (row): row is Array<unknown> => Arr.isArray(row))
 			)
+		/**
+		 * Statements in one flush: pg's pipeline mode writes each one as it is submitted, and the stream is corked
+		 * across the submissions, so they leave together. Each answer is read as it arrives, in order, the first refusal
+		 * kept; the pipeline ends at its last answer, and when interrupted it is cancelled until then.
+		 */
+		const pipeline = (statements: ReadonlyArray<string>) =>
+			Effect.callback<ReadonlyArray<RawQueryResult>, PipelineRefused>((resume) => {
+				if (!Arr.isReadonlyArrayNonEmpty(statements)) {
+					resume(Effect.succeed([]))
+					return
+				}
+				const answers: Array<RawQueryResult> = []
+				let refused = Option.none<PipelineRefused>()
+				let pending = statements.length
+				const stream = client.connection.stream
+				stream.cork()
+				for (const [index, sql] of statements.entries()) {
+					client.query(queryOf(sql, [], "object"), (error: unknown, result: Answered) => {
+						pending--
+						if (error !== null && error !== undefined) {
+							refused = Option.orElse(refused, () =>
+								Option.some(new PipelineRefused({ index, error: failureOf(error) }))
+							)
+						} else {
+							answers.push(records(result))
+						}
+						if (pending === 0) {
+							resume(
+								Option.match(refused, {
+									onNone: () => Effect.succeed(answers),
+									onSome: (failure) => Effect.fail(failure)
+								})
+							)
+						}
+					})
+				}
+				stream.uncork()
+				return cancelUntil(() => pending === 0)
+			})
 		/** The connection as a pinned scope holds it: its statements take no turn, and pinning it again is itself. */
 		const pinned: PgConnection = {
 			processId,
 			query,
+			pipeline,
 			queryValues,
 			pin: Effect.sync(() => pinned)
 		}
 		return {
 			processId,
 			query: (sql, params) => turn.withPermit(query(sql, params)),
+			pipeline: (statements) => turn.withPermit(pipeline(statements)),
 			queryValues: (sql, params) => turn.withPermit(queryValues(sql, params)),
 			pin: Effect.as(
 				Effect.acquireRelease(turn.take(1), () => turn.release(1)),

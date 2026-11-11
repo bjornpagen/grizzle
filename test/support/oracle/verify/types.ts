@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, String as Str } from "effect"
+import { Array as Arr, Data, Effect, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -9,6 +9,7 @@ import type { TypeRef } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
 import { lex } from "#compiler/sql/lexer.ts"
 import { printType } from "#compiler/sql/print.ts"
+import { elementAt } from "#test/support/oracle/pick.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
 /** `text` with every placeholder replaced by NULL, read from its tokens. */
@@ -40,8 +41,31 @@ const claimedType = (names: PhysicalNames, t: ScalarType): TypeRef =>
 		? types.text
 		: columnType(names, t).type
 
+/** A delivered statement the type oracle judges, and where its problems are located. */
+export interface Judged {
+	readonly where: string
+	readonly statement: FusedStatement
+}
+
 /**
- * The type oracle: PostgreSQL's resolved type of every column a lowered statement delivers, against the IR's.
+ * PostgreSQL refused a probe statement: the view over the statement judged at `where`, or the one read of every view's
+ * columns, located at "the probes' columns".
+ */
+export class ProbeRefused extends Data.TaggedError("ProbeRefused")<{
+	readonly where: string
+	readonly sql: string
+	readonly error: SqlError
+}> {}
+
+/** A judged statement that delivers a heading column, and the temporary view it is probed through. */
+interface Probe {
+	readonly judged: Judged
+	readonly heading: ReadonlyArray<{ readonly name: string; readonly type: ScalarType }>
+	readonly view: string
+}
+
+/**
+ * The type oracle: PostgreSQL's resolved type of every column the lowered statements deliver, against the IR's.
  *
  * The IR states each delivered column's type (the statement's heading), and the lowering emits SQL whose types
  * PostgreSQL resolves on its own: a native function's result is its catalog type, a parameter is bound at its cast, a
@@ -49,9 +73,9 @@ const claimedType = (names: PhysicalNames, t: ScalarType): TypeRef =>
  * or wrong, and a value is decoded by a type it does not have. So PostgreSQL judges both sides at every column a
  * statement delivers:
  *
- * - the statement's text, every placeholder replaced by NULL (each placeholder carries its cast, so the cast still
+ * - each statement's text, every placeholder replaced by NULL (each placeholder carries its cast, so the cast still
  *   types it), becomes a temporary view, and pg_attribute states each output column's type, domains and enums
- *   included;
+ *   included, read once for every view;
  * - the IR's type of the column is printed as the DDL types a column of it (physical/ddl/names.ts columnType) and
  *   resolved by PostgreSQL's own ::regtype; a text refinement the installation names no domain for, a pattern no stored
  *   column carries (a literal's, or a closed read's query-local payload's), is typed by its base, text, as the lowering
@@ -64,63 +88,86 @@ const claimedType = (names: PhysicalNames, t: ScalarType): TypeRef =>
  * for a query: a delivered column is decoded from its text. A fused attachment's array column is no heading column, and
  * its elements are judged by their decoding.
  *
- * Each heading column of `statement` whose type PostgreSQL resolves otherwise than the IR states, as one line located
- * at `where`: none when every column agrees. `probe` names the temporary view, unique within the session's
- * transaction.
+ * The views and the read go in one flush (PgConnection pipeline), inside the caller's transaction, whose rollback drops
+ * the views: the session's temporary views of one case are named type_probe_<k>, k the judged statement's position.
+ *
+ * Each heading column whose type PostgreSQL resolves otherwise than the IR states, as one line located at its
+ * statement's `where`: none when every column agrees.
  */
 export const typeProblems = (
 	session: PgConnection,
-	statement: FusedStatement,
 	names: PhysicalNames,
-	probe: string,
-	where: string
-): Effect.Effect<ReadonlyArray<string>, SqlError> =>
+	judged: ReadonlyArray<Judged>
+): Effect.Effect<ReadonlyArray<string>, ProbeRefused> =>
 	Effect.gen(function* () {
-		const heading = statementOutput(statement.role, statement.heading, statement.fused).heading
-		if (heading.length === 0) {
+		const probes: ReadonlyArray<Probe> = Arr.flatMap(judged, (j, k) => {
+			const heading = statementOutput(
+				j.statement.role,
+				j.statement.heading,
+				j.statement.fused
+			).heading
+			return heading.length === 0 ? [] : [{ judged: j, heading, view: `type_probe_${k}` }]
+		})
+		if (!Arr.isReadonlyArrayNonEmpty(probes)) {
 			return []
 		}
-		const columns = [
-			...Arr.map(indices(heading.length), (i) => `c${i + 1}`),
-			...Arr.map(indices(statement.fused.length), (j) => `f${j + 1}`)
-		]
-		const view = `pg_temp.${probe}`
-		yield* session.query(
-			`CREATE TEMPORARY VIEW ${probe} (${Arr.join(columns, ", ")}) AS ${withNullPlaceholders(statement.sql.text)}`,
-			[]
+		const views = Arr.map(probes, (p) => {
+			const columns = [
+				...Arr.map(indices(p.heading.length), (i) => `c${i + 1}`),
+				...Arr.map(indices(p.judged.statement.fused.length), (j) => `f${j + 1}`)
+			]
+			return `CREATE TEMPORARY VIEW ${p.view} (${Arr.join(columns, ", ")}) AS ${withNullPlaceholders(p.judged.statement.sql.text)}`
+		})
+		const claimed = Arr.flatMap(probes, (p, v) =>
+			Arr.map(
+				p.heading,
+				(c, i) => `(${v}, ${i + 1}, ${quoted(printType(claimedType(names, c.type)))})`
+			)
 		)
-		const claimed = Arr.map(
-			heading,
-			(c, i) => `(${i + 1}, ${quoted(printType(claimedType(names, c.type)))})`
-		)
+		const viewed = Arr.map(probes, (p, v) => `(${v}, ${quoted(`pg_temp.${p.view}`)}::regclass)`)
 		/** Each claimed type with the types it is over, a domain's chain down to its base. */
-		const result = yield* session.query(
-			`WITH RECURSIVE claim(n, t) AS (VALUES ${Arr.join(claimed, ", ")}),
-			admitted(n, oid, typtype, typbasetype) AS (
-				SELECT c.n, ty.oid, ty.typtype, ty.typbasetype
+		const read = `WITH RECURSIVE claim(v, n, t) AS (VALUES ${Arr.join(claimed, ", ")}),
+			viewed(v, oid) AS (VALUES ${Arr.join(viewed, ", ")}),
+			admitted(v, n, oid, typtype, typbasetype) AS (
+				SELECT c.v, c.n, ty.oid, ty.typtype, ty.typbasetype
 				FROM claim AS c JOIN pg_catalog.pg_type AS ty ON ty.oid = c.t::regtype
 				UNION ALL
-				SELECT d.n, ty.oid, ty.typtype, ty.typbasetype
+				SELECT d.v, d.n, ty.oid, ty.typtype, ty.typbasetype
 				FROM admitted AS d JOIN pg_catalog.pg_type AS ty ON ty.oid = d.typbasetype
 				WHERE d.typtype = 'd'
 			)
-			SELECT a.attnum::int4 AS n, format_type(a.atttypid, NULL) AS resolved, format_type(c.t::regtype, NULL) AS claimed,
-				EXISTS (SELECT 1 FROM admitted AS d WHERE d.n = c.n AND d.oid = a.atttypid) AS admitted
-			FROM pg_catalog.pg_attribute AS a JOIN claim AS c ON c.n = a.attnum
-			WHERE a.attrelid = ${quoted(view)}::regclass ORDER BY a.attnum`,
-			[]
+			SELECT c.v, c.n, a.attnum IS NOT NULL AS found, format_type(a.atttypid, NULL) AS resolved,
+				format_type(c.t::regtype, NULL) AS claimed,
+				EXISTS (SELECT 1 FROM admitted AS d WHERE d.v = c.v AND d.n = c.n AND d.oid = a.atttypid) AS admitted
+			FROM claim AS c JOIN viewed AS w ON w.v = c.v
+			LEFT JOIN pg_catalog.pg_attribute AS a ON a.attrelid = w.oid AND a.attnum = c.n
+			ORDER BY c.v, c.n`
+		const statements = [...views, read]
+		const answers = yield* session.pipeline(statements).pipe(
+			Effect.mapError(
+				(refused) =>
+					new ProbeRefused({
+						where:
+							refused.index < probes.length
+								? elementAt(probes, refused.index, "a probe").judged.where
+								: "the probes' columns",
+						sql: elementAt(statements, refused.index, "a probe statement"),
+						error: refused.error
+					})
+			)
 		)
-		yield* session.query(`DROP VIEW ${view}`, [])
-		const byPosition = new Map(Arr.map(result.rows, (row) => [Number(row["n"]), row]))
-		return Arr.flatMap(heading, (c, i) => {
-			const row = byPosition.get(i + 1)
-			if (row === undefined) {
-				return [`${where} column ${c.name}: no column of the view at ${i + 1}`]
+		const rows = elementAt(answers, views.length, "the probes' columns").rows
+		return Arr.flatMap(rows, (row) => {
+			const probe = elementAt(probes, Number(row["v"]), "a probe")
+			const n = Number(row["n"])
+			const column = elementAt(probe.heading, n - 1, "a probed column")
+			if (row["found"] !== true) {
+				return [`${probe.judged.where} column ${column.name}: no column of the view at ${n}`]
 			}
 			return row["admitted"] === true
 				? []
 				: [
-						`${where} column ${c.name}: PostgreSQL resolves ${String(row["resolved"])}, the IR states ${String(row["claimed"])}`
+						`${probe.judged.where} column ${column.name}: PostgreSQL resolves ${String(row["resolved"])}, the IR states ${String(row["claimed"])}`
 					]
 		})
 	})

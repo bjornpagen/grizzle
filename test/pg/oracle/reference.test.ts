@@ -300,59 +300,61 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 		(ctx) =>
 			searched(
 				ctx,
-				explore(
-					{
-						suite: "oracle/reference-structure",
-						draw: drawn((source) => ({
-							case: source.draw(rootedCaseGen(attachedRoot, defaultGenConfig)),
-							pick: source.draw(pickGen)
-						})),
-						literal: Formatter.format,
-						oracle: {
-							kind: "specification",
-							name: "the structural differences a plant makes, read off the program's statement labels before and after it"
+				Effect.gen(function* () {
+					const s = yield* Substrate
+					const name = yield* s.schema({ create: false, label: "oracle" })
+					return yield* explore(
+						{
+							suite: "oracle/reference-structure",
+							draw: drawn((source) => ({
+								case: source.draw(rootedCaseGen(attachedRoot, defaultGenConfig)),
+								pick: source.draw(pickGen)
+							})),
+							literal: Formatter.format,
+							oracle: {
+								kind: "specification",
+								name: "the structural differences a plant makes, read off the program's statement labels before and after it"
+							},
+							coverage: required<PlantFeature>(["no fault", ...structureFaults], {
+								cases: 300,
+								sense: notesOnly
+							}),
+							kept: [],
+							runs: 40,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang
 						},
-						coverage: required<PlantFeature>(["no fault", ...structureFaults], {
-							cases: 300,
-							sense: notesOnly
-						}),
-						kept: [],
-						runs: 40,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
-					},
-					(drawnCase, c) =>
-						Effect.gen(function* () {
-							const chosen: Array<Offered> = []
-							const lowering: Lowering = {
-								name: planted,
-								lower: (input) =>
-									Result.map(conservative.lower(input), (program) => {
-										const offered = plantsOf(program, drawnCase.pick)
-										const aimed = Arr.filter(offered, ([feature]) =>
-											Option.exists(c.steering, (pending) => pending.has(feature))
-										)
-										const plant = c.draw(
-											element(Arr.isReadonlyArrayNonEmpty(aimed) ? aimed : offered)
-										)
-										chosen.push(plant)
-										return plant[1].program
-									})
-							}
-							const outcome = yield* runOracle(
-								drawnCase.case,
-								lowering,
-								reference,
-								defaultRunOptions
-							)
-							const [feature, plant] = defined(chosen[0], "the planted lowering's plant")
-							c.note(feature)
-							assert.equal(outcome.comparison.equal, plant.expected.length === 0)
-							unorderedEqual(outcome.comparison.structural, plant.expected)
-						})
-				)
+						(drawnCase, c) =>
+							Effect.gen(function* () {
+								const chosen: Array<Offered> = []
+								const lowering: Lowering = {
+									name: planted,
+									lower: (input) =>
+										Result.map(conservative.lower(input), (program) => {
+											const offered = plantsOf(program, drawnCase.pick)
+											const aimed = Arr.filter(offered, ([feature]) =>
+												Option.exists(c.steering, (pending) => pending.has(feature))
+											)
+											const plant = c.draw(
+												element(Arr.isReadonlyArrayNonEmpty(aimed) ? aimed : offered)
+											)
+											chosen.push(plant)
+											return plant[1].program
+										})
+								}
+								const outcome = yield* runOracle(drawnCase.case, lowering, reference, {
+									...defaultRunOptions,
+									schema: { kind: "named", name }
+								})
+								const [feature, plant] = defined(chosen[0], "the planted lowering's plant")
+								c.note(feature)
+								assert.equal(outcome.comparison.equal, plant.expected.length === 0)
+								unorderedEqual(outcome.comparison.structural, plant.expected)
+							})
+					)
+				})
 			)
 	)
 })

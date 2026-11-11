@@ -21,11 +21,12 @@ import {
 	Cause,
 	Data,
 	Effect,
+	MutableHashMap,
 	Option,
 	pipe,
 	Record as Rec,
 	Result,
-	type Scope,
+	Scope,
 	String as Str
 } from "effect"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
@@ -47,7 +48,6 @@ import {
 	type ConservativeStatement,
 	flight
 } from "#compiler/lower/conservative/types.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { hexOfText, setText } from "#test/support/closed/bit-text.ts"
@@ -78,16 +78,12 @@ import {
 	spelledRespelling,
 	type StoredRelation
 } from "#test/support/oracle/gen/restorage.ts"
-import { schemaCodes, schemaDesc } from "#test/support/oracle/gen/schema.ts"
+import { type GenSchema, schemaCodes, schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import { captureRows } from "#test/support/oracle/install/capture.ts"
 import { InputSpelling, moneyText } from "#test/support/oracle/install/literal.ts"
 import { type FactSet, factStatements } from "#test/support/oracle/install/load.ts"
 import type { InstallPlan } from "#test/support/oracle/install/model.ts"
-import {
-	oracleLogin,
-	planRealInstall,
-	type RealInstallPlan
-} from "#test/support/oracle/install/real.ts"
+import { oraclePlanUnder, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import {
 	complementOf,
 	CurrentPerturbation,
@@ -109,7 +105,7 @@ import { statingReference, unobserved } from "#test/support/oracle/reference/eva
 import { renderExpected } from "#test/support/oracle/reference/render.ts"
 import { type DeclineReason, ReferenceUnsupported } from "#test/support/oracle/reference/values.ts"
 import { checkedStatements } from "#test/support/oracle/verify/index.ts"
-import type { PgConnection, SqlError } from "#test/support/pg.ts"
+import type { PgConnection, PipelineRefused, SqlError } from "#test/support/pg.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -258,12 +254,161 @@ export class OracleOutcome extends Data.Class<{
 	readonly again: SecondReading
 }> {}
 
+/**
+ * Where a case's schema is installed. Named: under a schema name the test holds, inside the case's own transaction,
+ * which rolls the installation back with the rest, so one name serves every case of the test. Installed: once per
+ * distinct case schema of the test, committed (Installations), so a case's transaction only loads its facts.
+ */
+export type Placement =
+	| { readonly kind: "named"; readonly name: string }
+	| { readonly kind: "installed"; readonly installations: Installations }
+
 export interface RunOptions {
-	/**
-	 * The PostgreSQL schema the case installs under: a unique one the runner allocates for this case, or a named one.
-	 * Every case is rolled back, so one name serves every case of a test.
-	 */
-	readonly schema: { readonly kind: "fresh" } | { readonly kind: "named"; readonly name: string }
+	/** Where the case's schema is installed: under a unique schema the runner allocates for the case, or a Placement. */
+	readonly schema: { readonly kind: "fresh" } | Placement
+}
+
+/** Setting a case's schema up failed: its plan was refused, or PostgreSQL refused a statement installing it. */
+export class InstallationFailed extends Data.TaggedError("InstallationFailed")<{
+	readonly stage: "plan" | "install"
+	readonly message: string
+}> {}
+
+/**
+ * The installations of one test: each distinct case schema it meets, installed once and committed under a schema of its
+ * own that the substrate allocated in the test's scope, whose finalizer drops the schema's roles and the schema when the
+ * test ends. Two case schemas are one when they are structurally equal (Effect's Equal over the GenSchema, from which
+ * the plan is derived). An explicit value the test makes (installations) and passes in RunOptions, never a memo.
+ *
+ * The committed installation runs every statement of its plan, the database default's DO block among them: every test
+ * database already carries default_transaction_isolation = serializable (test/support/pg.ts testDatabaseSettings), so
+ * the default it writes is the one the database holds, and the database's settings never change.
+ */
+export interface Installations {
+	/** The plan of `schema`'s installation, installed and committed the first time the test meets the schema. */
+	readonly planOf: (schema: GenSchema) => Effect.Effect<RealInstallPlan, InstallationFailed>
+}
+
+/** The plan of `schema`'s installation under the schema `name`, owned by `owner` (install/real.ts oraclePlanUnder). */
+const planned = (
+	schema: GenSchema,
+	name: string,
+	owner: string
+): Effect.Effect<RealInstallPlan, InstallationFailed> => {
+	const plan = oraclePlanUnder(
+		schemaDesc(schema),
+		identity.schema(parsedSchemaName(name)),
+		owner,
+		schemaCodes(schema)
+	)
+	return plan.ok
+		? Effect.succeed(plan.value)
+		: Effect.fail(new InstallationFailed({ stage: "plan", message: plan.error.message }))
+}
+
+/** A statement of a case's setup, and the stage its refusal is reported under. */
+export interface Staged {
+	readonly stage: string
+	readonly sql: string
+}
+
+/** Each statement under one stage. */
+export const staged = (stage: string, statements: ReadonlyArray<string>): ReadonlyArray<Staged> =>
+	Arr.map(statements, (sql) => ({ stage, sql }))
+
+/**
+ * Statements in one flush (PgConnection pipeline), their answers discarded: the first refusal as `failed` reports it, at
+ * its statement's stage, with PostgreSQL's message and the statement's text.
+ */
+export const runStaged = <E>(
+	session: PgConnection,
+	statements: ReadonlyArray<Staged>,
+	failed: (refusal: { readonly stage: string; readonly message: string }) => E
+): Effect.Effect<void, E> =>
+	session.pipeline(Arr.map(statements, (s) => s.sql)).pipe(
+		Effect.mapError((refused: PipelineRefused) => {
+			const at = elementAt(statements, refused.index, "the refused statement")
+			return failed({ stage: at.stage, message: `${sqlMessage(refused.error)}\n${at.sql}` })
+		}),
+		Effect.asVoid
+	)
+
+/** A test's Installations, each of its schemas allocated under `label` in the test's scope. */
+export const installations = (
+	label: string
+): Effect.Effect<Installations, never, Scope.Scope | Substrate> =>
+	Effect.gen(function* () {
+		const scope = yield* Effect.scope
+		const substrate = yield* Substrate
+		const installed = MutableHashMap.empty<GenSchema, RealInstallPlan>()
+		const install = (schema: GenSchema) =>
+			Effect.gen(function* () {
+				const name = yield* Scope.provide(substrate.schema({ create: false, label }), scope).pipe(
+					Effect.mapError(
+						(e) => new InstallationFailed({ stage: "install", message: sqlMessage(e) })
+					)
+				)
+				const plan = yield* planned(schema, name, substrate.owner.role)
+				yield* runStaged(
+					substrate.admin,
+					staged("install", ["BEGIN", ...plan.sql, "COMMIT"]),
+					({ message }) => new InstallationFailed({ stage: "install", message })
+				)
+				MutableHashMap.set(installed, schema, plan)
+				return plan
+			})
+		return {
+			planOf: (schema) =>
+				Option.match(MutableHashMap.get(installed, schema), {
+					onSome: (plan) => Effect.succeed(plan),
+					onNone: () => install(schema)
+				})
+		}
+	})
+
+/** A test's named placement: a schema name the test holds, allocated under `label` in its scope. */
+export const namedPlacement = (
+	label: string
+): Effect.Effect<Placement, SqlError, Scope.Scope | Substrate> =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const name = yield* substrate.schema({ create: false, label })
+		return { kind: "named", name }
+	})
+
+/** A test's installed placement: its Installations, each schema allocated under `label` in its scope. */
+export const installedPlacement = (
+	label: string
+): Effect.Effect<Placement, never, Scope.Scope | Substrate> =>
+	Effect.map(installations(label), (i) => ({ kind: "installed", installations: i }))
+
+/**
+ * A case's installation as its transaction runs it: the plan its lowerings and facts are planned against, and the
+ * statements installing it inside the transaction, none for an installed schema.
+ */
+export interface CaseInstallation {
+	readonly plan: RealInstallPlan
+	readonly statements: ReadonlyArray<string>
+}
+
+/** The installation of a case of `schema` placed by `placement`. */
+export const caseInstallation = (
+	schema: GenSchema,
+	placement: Placement
+): Effect.Effect<CaseInstallation, InstallationFailed, Substrate> => {
+	switch (placement.kind) {
+		case "named":
+			return Effect.gen(function* () {
+				const substrate = yield* Substrate
+				const plan = yield* planned(schema, placement.name, substrate.owner.role)
+				return { plan, statements: plan.sql }
+			})
+		case "installed":
+			return Effect.map(placement.installations.planOf(schema), (plan) => ({
+				plan,
+				statements: []
+			}))
+	}
 }
 
 /** A unique schema. */
@@ -399,6 +544,12 @@ export const inputText = (literal: TypedLiteral, type: ScalarType, codes: Codebo
 
 const failure = (stage: OracleFailure["stage"], side: string, message: string) =>
 	new OracleFailure({ stage, side, message })
+
+/** A refusal of a case's setup statement: an execution failure of the stage it was staged under. */
+const executeFailure = (refusal: {
+	readonly stage: string
+	readonly message: string
+}): OracleFailure => failure("execute", refusal.stage, refusal.message)
 
 /** A failure of a statement as one line: PostgreSQL's SQLSTATE, message and DETAIL, or the error's own message. */
 export const sqlMessage = (error: unknown): string => {
@@ -570,23 +721,25 @@ const referenceRun = (
 	)
 
 /**
- * Runs the body in one transaction on a pinned owner session and rolls it back. No statement of it has a deadline: a
- * statement that never ends is a hang, which the case's hang guard (caseHang) reports, cancelling the statement it
- * interrupts (pg.ts), and no verdict rests on how long a statement took.
+ * Runs `opening` and then the body in one transaction on a pinned owner session, BEGIN and the opening statements in one
+ * flush, and rolls it back. No statement of it has a deadline: a statement that never ends is a hang, which the case's
+ * hang guard (caseHang) reports, cancelling the statement it interrupts (pg.ts), and no verdict rests on how long a
+ * statement took.
  */
 const inRolledBackTransaction = <A, E>(
+	opening: ReadonlyArray<Staged>,
 	body: (session: PgConnection) => Effect.Effect<A, E>
 ): Effect.Effect<A, E | OracleFailure, Substrate> =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
 			const session = yield* substrate.admin.pin
-			const begin = (sql: string) =>
-				session
-					.query(sql, [])
-					.pipe(Effect.mapError((e) => failure("execute", "setup", sqlMessage(e))))
-			yield* begin("BEGIN")
-			return yield* body(session).pipe(
+			return yield* runStaged(
+				session,
+				[{ stage: "setup", sql: "BEGIN" }, ...opening],
+				executeFailure
+			).pipe(
+				Effect.andThen(body(session)),
 				Effect.ensuring(Effect.ignore(session.query("ROLLBACK", [])))
 			)
 		})
@@ -597,9 +750,11 @@ const inRolledBackTransaction = <A, E>(
  *
  * runOracle(case, left, right) runs one generated case on PostgreSQL 19 and compares two sides of it:
  *
- * 1. install the case's schema under the runner's schema name with the real installer, packages/engine/src/physical/install
- *    presented as the oracle's plan (install/real.ts, adopted after test/pg/physical's equivalence check of the two
- *    installers), and load the facts as typed literal INSERTs (install/load.ts);
+ * 1. install the case's schema with the real installer, packages/engine/src/physical/install presented as the oracle's
+ *    plan (install/real.ts, adopted after test/pg/physical's equivalence check of the two installers), where its
+ *    Placement says: under the test's schema name inside the case's transaction, or once for the test, committed
+ *    (Installations); and load the facts as typed literal INSERTs (install/load.ts), BEGIN, the installation, the facts,
+ *    ANALYZE and the planner settings sent in one flush;
  * 2. lower the query with the left Lowering and run every statement of its program in order, each placeholder filled
  *    from the case's parameter values, a relation parameter as its arrays, and an attachment's parent keys
  *    from the rows its parent statement delivered, capturing each statement's rows as raw
@@ -617,8 +772,9 @@ const inRolledBackTransaction = <A, E>(
  *    harness failure.
  *
  * Everything runs in one transaction on one pinned owner session and is rolled back, so a case leaves nothing behind
- * and the next case reuses the schema name. No statement has a deadline: a mutant whose statement does not terminate is a
- * hang, which the case's hang guard reports, and the mutation tester's own timeout counts.
+ * and the next case reuses the schema name, or the installed schema. No statement has a deadline: a mutant whose
+ * statement does not terminate is a hang, which the case's hang guard reports, and the mutation tester's own timeout
+ * counts.
  *
  * oracleCheck explores a property over a suite's draw with the library's exploration (@grizzle/testing/explore), so a
  * failing case shrinks and is reported in its printable form (the suite's literal) with the comparison that failed. A
@@ -682,27 +838,25 @@ const runNamed = (
 		if (expected !== undefined && Result.isFailure(expected)) {
 			return yield* referenceFailure(expected.failure)
 		}
-		const schema =
-			options.schema.kind === "named"
-				? options.schema.name
-				: yield* Effect.scoped(substrate.schema({ create: false, label: "oracle" }))
 		/**
 		 * One full role writes every stored relation (oracleLogin), so the catalog is the one a deployment of the
 		 * schema's whole world gets.
 		 */
-		const desc = schemaDesc(c.schema)
-		const planned = planRealInstall(desc, {
-			installation: identity.schema(parsedSchemaName(schema)),
-			owner: substrate.owner.role,
-			logins: [oracleLogin(desc)],
-			extensions: [],
-			codes: schemaCodes(c.schema),
-			compile: compileInstallation
-		})
-		if (!planned.ok) {
-			return yield* failure("plan", "install", planned.error.message)
-		}
-		const plan = planned.value
+		const placement: Placement =
+			options.schema.kind === "fresh"
+				? {
+						kind: "named",
+						name: yield* Effect.scoped(substrate.schema({ create: false, label: "oracle" }))
+					}
+				: options.schema
+		const installation = yield* caseInstallation(c.schema, placement).pipe(
+			Effect.mapError((e) =>
+				e.stage === "plan"
+					? failure("plan", "install", e.message)
+					: failure("execute", "install", e.message)
+			)
+		)
+		const plan = installation.plan
 		const facts = factStatements(plan, factSet(c))
 		if (!facts.ok) {
 			return yield* failure("plan", "facts", facts.error.message)
@@ -718,116 +872,110 @@ const runNamed = (
 		const names = plan.installation.names
 		const leftProgram = yield* lowerSide(left, c, names)
 		const rightProgram = isReference(right) ? undefined : yield* lowerSide(right, c, names)
-		return yield* inRolledBackTransaction((session) =>
-			Effect.gen(function* () {
-				const exec = (sql: string, stage: string) =>
-					session
-						.query(sql, [])
-						.pipe(Effect.mapError((e) => failure("execute", stage, `${sqlMessage(e)}\n${sql}`)))
-				for (const sql of plan.sql) {
-					yield* exec(sql, "install")
-				}
-				/**
-				 * Tables created and filled in this transaction have no statistics, so the planner assumes some
-				 * thousand rows each and a few cross-joined scans estimate billions; the executor sizes its startup
-				 * of a recursive union or hash aggregate by that estimate, even for EXPLAIN and a handful of actual
-				 * rows. ANALYZE sees this transaction's own rows and is rolled back with it; results are unchanged.
-				 */
-				const tables = Arr.map(Rec.values(plan.tables), (t) => printObjectName(t.name))
-				/** Stores `statements`, analyzes the tables and sets `under`'s planner settings. */
-				const stored = (
-					statements: ReadonlyArray<string>,
-					under: Perturbation,
-					stage: string
-				): Effect.Effect<void, OracleFailure> =>
-					Effect.gen(function* () {
-						for (const sql of statements) {
-							yield* exec(sql, stage)
-						}
-						if (tables.length > 0) {
-							yield* exec(`ANALYZE ${Arr.join(tables, ", ")}`, stage)
-						}
-						for (const sql of plannerStatements(under)) {
-							yield* exec(sql, stage)
-						}
-					})
-				yield* exec("SAVEPOINT stored", "facts")
-				yield* stored(facts.value, perturbation, "facts")
-				const leftRun = yield* runProgram(session, c, leftProgram, left.name)
-				const rightRun =
-					rightProgram !== undefined
-						? yield* runProgram(session, c, rightProgram, right.name)
-						: yield* referenceRun(session, expected?.success.statements ?? [], plan)
-				const comparison = compareRuns(leftRun, rightRun)
-				yield* exec("ROLLBACK TO SAVEPOINT stored", "facts stored otherwise")
-				yield* stored(restoredStatements.value, secondPlan, "facts stored otherwise")
-				const lowered: ReadonlyArray<{
-					readonly role: SideRole
-					readonly name: string
-					readonly program: ConservativeProgram
-					readonly first: Run
-				}> = [
-					{ role: "left", name: left.name, program: leftProgram, first: leftRun },
-					...(rightProgram === undefined
-						? []
-						: [
-								{
-									role: "right" as const,
-									name: right.name,
-									program: rightProgram,
-									first: rightRun
-								}
-							])
-				]
-				const second: SecondReading = {
-					reordered: restoration.reordered,
-					respelled: restoration.respelled,
-					plan: secondPlan
-				}
-				const order = second.reordered ? "reordered" : "in their order"
-				const spelling = second.respelled ? "one value respelled" : "no value respelled"
-				for (const side of lowered) {
-					const again = yield* runProgram(session, restoration.case, side.program, side.name)
-					const itself = compareRuns(side.first, again)
-					if (comparison.equal && !itself.equal) {
-						return yield* new InvarianceFailed({
-							role: side.role,
-							side: side.name,
-							readings: new Readings({
-								case: input,
-								first: side.first,
-								again,
-								comparison: itself,
-								reading: second
-							}),
-							report: Arr.join(
-								[
-									`${side.name}: the facts stored otherwise (${order}, ${spelling}) under another plan deliver otherwise`,
-									printOracleCase(input),
-									printPerturbation(secondPlan),
-									printComparison(itself, "the first reading", "the second reading"),
-									printRun(side.first),
-									printRun(again)
-								],
-								"\n"
-							)
-						})
+		/**
+		 * Tables filled in this transaction have no statistics, so the planner assumes some thousand rows each and a few
+		 * cross-joined scans estimate billions; the executor sizes its startup of a recursive union or hash aggregate by
+		 * that estimate, even for EXPLAIN and a handful of actual rows. ANALYZE sees this transaction's own rows and is
+		 * rolled back with it; results are unchanged.
+		 */
+		const tables = Arr.map(Rec.values(plan.tables), (t) => printObjectName(t.name))
+		const analyzed = tables.length > 0 ? [`ANALYZE ${Arr.join(tables, ", ")}`] : []
+		/** Storing `statements`, analyzing the tables and setting `under`'s planner settings, all under `stage`. */
+		const stored = (
+			statements: ReadonlyArray<string>,
+			under: Perturbation,
+			stage: string
+		): ReadonlyArray<Staged> =>
+			staged(stage, [...statements, ...analyzed, ...plannerStatements(under)])
+		return yield* inRolledBackTransaction(
+			[
+				...staged("install", installation.statements),
+				{ stage: "facts", sql: "SAVEPOINT stored" },
+				...stored(facts.value, perturbation, "facts")
+			],
+			(session) =>
+				Effect.gen(function* () {
+					const leftRun = yield* runProgram(session, c, leftProgram, left.name)
+					const rightRun =
+						rightProgram !== undefined
+							? yield* runProgram(session, c, rightProgram, right.name)
+							: yield* referenceRun(session, expected?.success.statements ?? [], plan)
+					const comparison = compareRuns(leftRun, rightRun)
+					yield* runStaged(
+						session,
+						[
+							{ stage: "facts stored otherwise", sql: "ROLLBACK TO SAVEPOINT stored" },
+							...stored(restoredStatements.value, secondPlan, "facts stored otherwise")
+						],
+						executeFailure
+					)
+					const lowered: ReadonlyArray<{
+						readonly role: SideRole
+						readonly name: string
+						readonly program: ConservativeProgram
+						readonly first: Run
+					}> = [
+						{ role: "left", name: left.name, program: leftProgram, first: leftRun },
+						...(rightProgram === undefined
+							? []
+							: [
+									{
+										role: "right" as const,
+										name: right.name,
+										program: rightProgram,
+										first: rightRun
+									}
+								])
+					]
+					const second: SecondReading = {
+						reordered: restoration.reordered,
+						respelled: restoration.respelled,
+						plan: secondPlan
 					}
-				}
-				return new OracleOutcome({
-					case: input,
-					name,
-					perturbation: scaledPast ? { ...perturbation, multiplier: 1 } : perturbation,
-					plan,
-					left: { kind: "lowered", run: leftRun, program: leftProgram },
-					right:
-						rightProgram === undefined
-							? { kind: "reference", run: rightRun, declines: expected?.success.declines ?? [] }
-							: { kind: "lowered", run: rightRun, program: rightProgram },
-					comparison,
-					again: second
+					const order = second.reordered ? "reordered" : "in their order"
+					const spelling = second.respelled ? "one value respelled" : "no value respelled"
+					for (const side of lowered) {
+						const again = yield* runProgram(session, restoration.case, side.program, side.name)
+						const itself = compareRuns(side.first, again)
+						if (comparison.equal && !itself.equal) {
+							return yield* new InvarianceFailed({
+								role: side.role,
+								side: side.name,
+								readings: new Readings({
+									case: input,
+									first: side.first,
+									again,
+									comparison: itself,
+									reading: second
+								}),
+								report: Arr.join(
+									[
+										`${side.name}: the facts stored otherwise (${order}, ${spelling}) under another plan deliver otherwise`,
+										printOracleCase(input),
+										printPerturbation(secondPlan),
+										printComparison(itself, "the first reading", "the second reading"),
+										printRun(side.first),
+										printRun(again)
+									],
+									"\n"
+								)
+							})
+						}
+					}
+					return new OracleOutcome({
+						case: input,
+						name,
+						perturbation: scaledPast ? { ...perturbation, multiplier: 1 } : perturbation,
+						plan,
+						left: { kind: "lowered", run: leftRun, program: leftProgram },
+						right:
+							rightProgram === undefined
+								? { kind: "reference", run: rightRun, declines: expected?.success.declines ?? [] }
+								: { kind: "lowered", run: rightRun, program: rightProgram },
+						comparison,
+						again: second
+					})
 				})
-			})
 		)
 	})
 

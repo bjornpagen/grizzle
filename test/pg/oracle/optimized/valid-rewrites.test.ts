@@ -54,7 +54,7 @@ import {
 	witnessRoot
 } from "#test/support/oracle/mutants/cases.ts"
 import { mutants } from "#test/support/oracle/mutants/mutants.ts"
-import { oracleCheck, PropertyFailed } from "#test/support/oracle/runner.ts"
+import { namedPlacement, oracleCheck, PropertyFailed } from "#test/support/oracle/runner.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const cases = 300
@@ -207,8 +207,7 @@ const performed = (ctx: TestContext, id: ValidId, gen: Gen<QueryCase>, rule: Val
 	searched(
 		ctx,
 		Effect.gen(function* () {
-			const s = yield* Substrate
-			const schema = yield* s.schema({ create: false, label: "valid" })
+			const placement = yield* namedPlacement("valid")
 			return yield* oracleCheck(
 				sketched(gen, constant),
 				{
@@ -222,7 +221,7 @@ const performed = (ctx: TestContext, id: ValidId, gen: Gen<QueryCase>, rule: Val
 				},
 				(resolved, k) =>
 					Effect.gen(function* () {
-						const o = yield* differentialCase(k.draw(resolved), { ...plainDifferential, schema })
+						const o = yield* differentialCase(k.draw(resolved), { ...plainDifferential, placement })
 						if (!baselineIsSet(o) || !agrees(o)) {
 							return yield* new PropertyFailed({ report: printDifferential(o) })
 						}

@@ -25,7 +25,7 @@ import {
 } from "#test/support/oracle/mutants/cases.ts"
 import { mutantLowering, mutationSites } from "#test/support/oracle/mutants/index.ts"
 import { type MutantId, mutants } from "#test/support/oracle/mutants/mutants.ts"
-import { oracleCheck, PropertyFailed } from "#test/support/oracle/runner.ts"
+import { namedPlacement, oracleCheck, PropertyFailed } from "#test/support/oracle/runner.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -56,7 +56,7 @@ export const populations: ReadonlyArray<Population> = [
  *
  * Each invalid mutant I1-I8 is an optimizer rule with a named flaw, applied to the conservative lowering's
  * statements exactly where the flaw matters (test/support/oracle/mutants). The mutant suite proves the harness
- * kills each within 500 cases of its population. Here the same populations, each explored as a suite of its own, run
+ * kills each on its population's witnesses. Here the same populations, each explored as a suite of its own, run
  * through the optimized differential with the mutant beside it on the same installation and facts: on every case the
  * optimized artifact must deliver the conservative sets with no repeated row, while the mutant, on the cases it
  * rewrites, is killed at least once (required features), so the population demonstrably holds the counterexample the
@@ -73,8 +73,7 @@ export const nonReproduction = (
 	population: Population
 ): Effect.Effect<Explored, SearchFailure | SqlError, Scope.Scope | Substrate | Run> =>
 	Effect.gen(function* () {
-		const s = yield* Substrate
-		const schema = yield* s.schema({ create: false, label: "counter" })
+		const placement = yield* namedPlacement("counter")
 		const mutant = mutants[population.id]
 		const lowering = mutantLowering(mutant)
 		return yield* oracleCheck(
@@ -102,7 +101,7 @@ export const nonReproduction = (
 					}
 					const o = yield* differentialCase(c, {
 						...plainDifferential,
-						schema,
+						placement,
 						others: sites.sites > 0 ? [lowering] : []
 					})
 					if (sites.sites > 0) {

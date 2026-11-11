@@ -1,5 +1,11 @@
-import type { Draw, Explored, Run, SearchFailure } from "@grizzle/testing/explore"
-import type { Gen } from "@grizzle/testing/gen"
+import {
+	type Draw,
+	type Explored,
+	type Run,
+	type SearchFailure,
+	sketched
+} from "@grizzle/testing/explore"
+import { constant, type Gen } from "@grizzle/testing/gen"
 import type { ShrinkBudget } from "@grizzle/testing/shrink"
 import { Array as Arr, Effect, Record, type Scope } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
@@ -22,7 +28,12 @@ import {
 import { parameterNames } from "#test/support/kernel/dict.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { queryExprs } from "#test/support/oracle/gen/query.ts"
-import { type CheckOptions, oracleCheck, PropertyFailed } from "#test/support/oracle/runner.ts"
+import {
+	type CheckOptions,
+	oracleCheck,
+	type Placement,
+	PropertyFailed
+} from "#test/support/oracle/runner.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -204,6 +215,19 @@ const outcomeFeatures = (o: DifferentialOutcome): ReadonlyArray<OptimizedFeature
 }
 
 /**
+ * The search budget of each generated population (optimizer, per-evaluation, dense and param-names .test.ts): the
+ * cases of its rotating stream; its floor stream runs a quarter as many.
+ */
+export const casesPerPopulation = 1250
+
+/**
+ * A population of whole cases, each resolved as it is generated: the property's resolve draws nothing more, so a kept
+ * case replays with no draws.
+ */
+export const resolved = (gen: Gen<QueryCase>): Draw<QueryCase, Gen<QueryCase>> =>
+	sketched(gen, constant)
+
+/**
  * How far a failing case shrinks: every case runs on PostgreSQL, so shrinking a large case can take far longer than
  * finding it. Shrinking stops after this many candidates (deterministic, never wall time), at the smallest failing
  * case so far.
@@ -211,8 +235,8 @@ const outcomeFeatures = (o: DifferentialOutcome): ReadonlyArray<OptimizedFeature
 export const optimizedShrink: ShrinkBudget = { kind: "bounded", candidates: 240 }
 
 /**
- * The differential property every optimized suite runs, and the features it notes: at least 10,000 seeded cases per
- * CI run, optimized and conservative raw sets equal, and no repeated row in the optimized output.
+ * The differential property every optimized suite runs, and the features it notes: optimized and conservative raw sets
+ * equal, and no repeated row in the optimized output.
  *
  * A case passes when every optimized form (the program, each per-execution variant, the VALUES transport) delivers
  * exactly the conservative run's raw text set in every statement, repeats no row, and keeps the order of every
@@ -227,15 +251,14 @@ export const optimizedShrink: ShrinkBudget = { kind: "bounded", candidates: 240 
  */
 export const differential = <S>(
 	draw: Draw<S, Gen<QueryCase>>,
-	label: string,
+	placing: Effect.Effect<Placement, SqlError, Scope.Scope | Substrate>,
 	check: CheckOptions<S, OptimizedFeature>
 ): Effect.Effect<Explored, SearchFailure | SqlError, Scope.Scope | Substrate | Run> =>
 	Effect.gen(function* () {
-		const s = yield* Substrate
-		const schema = yield* s.schema({ create: false, label })
+		const placement = yield* placing
 		return yield* oracleCheck(draw, check, (resolved, k) =>
 			Effect.gen(function* () {
-				const o = yield* differentialCase(k.draw(resolved), { ...plainDifferential, schema })
+				const o = yield* differentialCase(k.draw(resolved), { ...plainDifferential, placement })
 				k.noteAll(outcomeFeatures(o))
 				if (!baselineIsSet(o)) {
 					return yield* new PropertyFailed({

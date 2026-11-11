@@ -2,9 +2,8 @@
  * The per-execution take forms, and the one fused attachment, against the conservative lowering: the optimized output
  * equals the conservative output in every form the runtime may execute.
  *
- * The generated population never draws a correlated take (gen/query.ts builds every take uncorrelated), so it never
- * reaches a per-execution choice and the runner's variant path (support.ts) would go unexercised. These cases are
- * hand-built, their facts generated, so every one of them does: a take of a relation's first k rows per parent, in a
+ * The cases are built over one fixed schema, their shapes and facts generated, so every one of them reaches a
+ * per-execution choice and the runner's variant path (support.ts): a take of a relation's first k rows per parent, in a
  * total order, whose parent set is the input of the execution:
  *
  * - an attachment's delivered parent keys: accounts P(id, a, e) with each one's first k entries C(k, p, v) attached by
@@ -25,7 +24,8 @@
  *
  * Every case runs through the differential (support.ts): the default program, each per-execution variant statement, and
  * the VALUES transport of a small relation parameter, each compared with the conservative run as raw text sets
- * with no repeated row.
+ * with no repeated row. The schema is installed once for the test (runner.ts installedPlacement), and each case loads
+ * its facts in its own rolled-back transaction.
  */
 import { layer } from "@effect/vitest"
 import { sketched } from "@grizzle/testing/explore"
@@ -65,6 +65,7 @@ import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { type GenParam, normalQuery } from "#test/support/oracle/gen/query.ts"
 import { type GenRelation, type GenSchema, schemaName } from "#test/support/oracle/gen/schema.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
+import { installedPlacement } from "#test/support/oracle/runner.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { plainRegion, Q } from "#test/unit/lower/conservative/fixtures.ts"
 
@@ -427,7 +428,7 @@ layer(Substrate.layer)(
 				ctx,
 				differential(
 					sketched(sketchGen, (s) => constant(resolve(s))),
-					"variants",
+					installedPlacement("variants"),
 					{
 						suite: "optimized/variants",
 						literal: Formatter.format,

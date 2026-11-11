@@ -40,7 +40,10 @@ layer(Substrate.layer)("mutation stage 2: query oracles", (it) => {
 							runs: oracleCases,
 							property: (c) =>
 								Effect.gen(function* () {
-									const o = yield* differentialCase(c, { ...plainDifferential, schema })
+									const o = yield* differentialCase(c, {
+										...plainDifferential,
+										placement: { kind: "named", name: schema }
+									})
 									if (!baselineIsSet(o) || !agrees(o)) {
 										return yield* new PropertyFailed({ report: printDifferential(o) })
 									}

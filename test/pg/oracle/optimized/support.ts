@@ -5,7 +5,6 @@ import { type PlanLabel, planEdges, planNodeTypes } from "#bench/harness/explain
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { identity } from "#compiler/core/identity.ts"
 import { ParamId } from "#compiler/core/ids.ts"
 import * as Engine from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
@@ -31,11 +30,7 @@ import {
 	type OptimizedProgram,
 	optimizedInput
 } from "#compiler/lower/optimize/pipeline.ts"
-import {
-	deliveredAsOptimized,
-	type FusedStatement,
-	type OptimizedStatement
-} from "#compiler/lower/shapes/index.ts"
+import { deliveredAsOptimized, type OptimizedStatement } from "#compiler/lower/shapes/index.ts"
 import { type FusedAttachment, fusedElement } from "#compiler/runtime/lower/fused.ts"
 
 import { canonicalTextOf, type Json } from "#compiler/core/canonical.ts"
@@ -44,7 +39,6 @@ import { explainOf } from "#compiler/sql/emit.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { admitGenerated } from "#test/support/compile.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
-import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { strictArrayText } from "#test/support/kernel/strict.ts"
 import { messageOf } from "#test/support/message.ts"
 import {
@@ -64,22 +58,25 @@ import { largeFormPrograms } from "#test/support/oracle/forms.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { printQueryCase } from "#test/support/oracle/gen/print.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
-import { schemaCodes, schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import { arrayCasts, captureRows, type RawRow } from "#test/support/oracle/install/capture.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
-import { oraclePlanUnder, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
+import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import {
 	CurrentPerturbation,
 	multiplyFacts,
 	plannerStatements
 } from "#test/support/oracle/perturb.ts"
 import {
+	caseInstallation,
 	factSet,
 	type Lowering,
+	type Placement,
 	printOracleCase,
 	PropertyFailed,
+	runStaged,
 	slotValue,
-	sqlMessage
+	sqlMessage,
+	staged
 } from "#test/support/oracle/runner.ts"
 import { fusedHeading } from "#test/support/oracle/verify/channels.ts"
 import { loweringViolations } from "#test/support/oracle/verify/index.ts"
@@ -650,8 +647,11 @@ export const orderProblems = (
 
 /** The optimized artifact is compiled for `snapshot` against the installation's own catalog. */
 export interface DifferentialOptions {
-	/** The PostgreSQL schema the case installs under; every case is rolled back, so one name serves a whole test. */
-	readonly schema: string
+	/**
+	 * Where the case's schema is installed (runner.ts Placement): under the test's schema name inside the case's
+	 * rolled-back transaction, or once for the test, committed.
+	 */
+	readonly placement: Placement
 	/**
 	 * Further lowerings (mutants of the conservative lowering) run on the same installation and facts and compared
 	 * with the conservative run.
@@ -660,7 +660,7 @@ export interface DifferentialOptions {
 }
 
 /** The plain differential: no other lowering. */
-export const plainDifferential: Omit<DifferentialOptions, "schema"> = { others: [] }
+export const plainDifferential: Omit<DifferentialOptions, "placement"> = { others: [] }
 
 /** An optimized form that runs: the default program, or the per-execution variant of one statement. */
 export type OptimizedForm =
@@ -739,18 +739,15 @@ const runDifferential = (
 			...normalized,
 			facts: multiplyFacts(normalized.schema, normalized.facts, perturbation.multiplier)
 		}
-		const desc = schemaDesc(c.schema)
 		/** The case's own codes, which its facts, its parameters and every delivered closed id are encoded by. */
-		const planned = oraclePlanUnder(
-			desc,
-			identity.schema(parsedSchemaName(options.schema)),
-			substrate.owner.role,
-			schemaCodes(c.schema)
+		const installation = yield* caseInstallation(c.schema, options.placement).pipe(
+			Effect.mapError((e) =>
+				e.stage === "plan"
+					? failure("plan", "install", e.message)
+					: failure("execute", "install", e.message)
+			)
 		)
-		if (!planned.ok) {
-			return yield* failure("plan", "install", compileMessage(planned.error))
-		}
-		const plan = planned.value
+		const plan = installation.plan
 		const facts = factStatements(plan, factSet(c))
 		if (!facts.ok) {
 			return yield* failure("plan", "facts", facts.error.message)
@@ -801,50 +798,41 @@ const runDifferential = (
 		return yield* Effect.scoped(
 			Effect.gen(function* () {
 				const session = yield* substrate.admin.pin
-				const exec = (sql: string, stage: string) =>
-					session
-						.query(sql, [])
-						.pipe(Effect.mapError((e) => failure("execute", stage, `${sqlMessage(e)}\n${sql}`)))
-				yield* exec("BEGIN", "setup")
+				/**
+				 * Statistics for this transaction's own rows (the oracle runner's reason: estimates over empty statistics
+				 * run tiny recursive cases into executor startup costs); rolled back with the rest.
+				 */
+				const tables = Arr.map(Rec.values(plan.tables), (t) => printObjectName(t.name))
 				return yield* Effect.gen(function* () {
-					for (const sql of plan.sql) {
-						yield* exec(sql, "install")
-					}
-					for (const sql of facts.value) {
-						yield* exec(sql, "facts")
-					}
-					/**
-					 * Statistics for this transaction's own rows (the oracle runner's reason: estimates over empty
-					 * statistics run tiny recursive cases into executor startup costs); rolled back with the rest.
-					 */
-					const tables = Arr.map(Rec.values(plan.tables), (t) => printObjectName(t.name))
-					if (tables.length > 0) {
-						yield* exec(`ANALYZE ${Arr.join(tables, ", ")}`, "facts")
-					}
-					for (const sql of plannerStatements(perturbation)) {
-						yield* exec(sql, "perturbation")
-					}
+					yield* runStaged(
+						session,
+						[
+							{ stage: "setup", sql: "BEGIN" },
+							...staged("install", installation.statements),
+							...staged("facts", [
+								...facts.value,
+								...(tables.length > 0 ? [`ANALYZE ${Arr.join(tables, ", ")}`] : [])
+							]),
+							...staged("perturbation", plannerStatements(perturbation))
+						],
+						(refusal) => failure("execute", refusal.stage, refusal.message)
+					)
 					/**
 					 * The type oracle (oracle/verify/types.ts): every column each artifact delivers is of the type its
 					 * heading states, as PostgreSQL resolves the statement.
 					 */
-					const typed: Array<string> = []
-					const judged: ReadonlyArray<readonly [string, FusedStatement]> = [
-						...Arr.map(
-							flight(deliveredAsOptimized(conservativeProgram).roots),
-							(s, i) => [`conservative statement ${i}`, s] as const
-						),
-						...Arr.map(
-							flight(optimizedProgram.roots),
-							(s, i) => [`optimized statement ${i}`, s] as const
-						)
-					]
-					for (const [k, [where, s]] of judged.entries()) {
-						const problems = yield* typeProblems(session, s, names, `type_probe_${k}`, where).pipe(
-							Effect.mapError((e) => failure("types", where, `${sqlMessage(e)}\n${s.sql.text}`))
-						)
-						appendAll(typed, problems)
-					}
+					const typed = yield* typeProblems(session, names, [
+						...Arr.map(flight(deliveredAsOptimized(conservativeProgram).roots), (statement, i) => ({
+							where: `conservative statement ${i}`,
+							statement
+						})),
+						...Arr.map(flight(optimizedProgram.roots), (statement, i) => ({
+							where: `optimized statement ${i}`,
+							statement
+						}))
+					]).pipe(
+						Effect.mapError((e) => failure("types", e.where, `${sqlMessage(e.error)}\n${e.sql}`))
+					)
 					if (typed.length > 0) {
 						return yield* failure("types", "both", Arr.join(typed, "\n"))
 					}

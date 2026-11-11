@@ -1,9 +1,9 @@
 /**
  * The conservative lowering against the brute-force reference evaluator on PostgreSQL 19.
  *
- * 2,000 generated cases of the generator's own population, and 2,000 more with denser facts so that fewer results are
- * empty, in the run's rotating stream (and a quarter as many in the suite's floor stream), each case under a plan
- * perturbation: one to four relations with composite and candidate keys, closed rosters, pure sets and
+ * Generated cases of the generator's own population, and of the same population with denser facts so that fewer
+ * results are empty, each population searched in the suite's floor stream and the run's rotating stream, each case
+ * under a plan perturbation: one to four relations with composite and candidate keys, closed rosters, pure sets and
  * containments, small-domain facts including NaN, -0, numeric display scales and supplementary-plane text in their
  * stored spellings, and queries over match, filter, project, semi- and anti-join, union, intersection, difference,
  * group, take, attach and recursion, at the root as a plain set, with attachments, or as a heterogeneous union. For
