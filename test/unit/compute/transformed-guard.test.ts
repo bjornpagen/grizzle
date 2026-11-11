@@ -1,3 +1,17 @@
+/**
+ * Compute's text transforms (collapse, a translation, lowerAscii, replaceWhitespace, a cast into the text's own type)
+ * as a guard and a cast read their images, each property stated in full at its own description below:
+ *
+ * - A guard over a transformed text proves a partial operation exactly when the transform's image and the guard's
+ *   pattern together lie inside the operation's form. Oracle: language inclusion of the image as README states it.
+ * - A chain of transforms cast into a byte-bounded text compiles exactly when its language lies inside the target's
+ *   pattern and its bytes within the target's bound, every image evaluated on the host within the bound. Oracle: each
+ *   step's language and bytes as README states them, by a dynamic program over counts of characters and bytes.
+ *
+ * Features: each route admitted and refused, for the guard and for the byte cast.
+ *
+ * Plants: compute-collapse-after-settle, compute-collapse-no-byte-bound.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -59,9 +73,9 @@ import { jsMatcher, patternOver } from "#test/unit/text/generators.ts"
  * nothing, which names them (ResourceBound), and a guard no value of the image matches types its branch by no value,
  * which the text analysis refuses (UnsupportedOperation).
  *
- * Planted bug: collapse writes its language over the term after settle, `{ ...node, nominal: collapseType(...) }`,
- * which drops the guard's narrowing; a type error since Lowered's type is private to settle, and run untyped, the
- * search refutes it.
+ * Plant compute-collapse-after-settle: collapse writes its language over the term after settle, `{ ...node, nominal:
+ * collapseType(...) }`, which drops the guard's narrowing; a type error since Lowered's type is private to settle, and
+ * run untyped, the search refutes it.
  */
 
 /** The characters the forms, the maps and the guards' patterns are drawn over: digits, a sign, a point, an exponent, white space and letters. */
@@ -441,8 +455,8 @@ const boundedTargets: Arr.NonEmptyReadonlyArray<{
  * - the installation: the chain stored uncast in T installs with a workload reading it, as generate drafts it
  *   (installsStored), whatever refinement its type states.
  *
- * Planted bugs, each refuted by the search: a collapse and a translation that carry no byte bound, the type before this
- * search, refused where the bound fits; a translation that keeps its operand's bound under a map to wider characters,
+ * Plant compute-collapse-no-byte-bound: a collapse that carries no byte bound, refused where the bound fits. Bugs the
+ * search refuted beside it: a translation that carries no byte bound, the type before this search; a translation that keeps its operand's bound under a map to wider characters,
  * admitted where a value outgrows it; a translation's bound read without the operand's character bound, refused where
  * few characters fit; a generated field cast into its term's computed type, which names no domain, refused at its
  * installation.

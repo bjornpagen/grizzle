@@ -1,3 +1,33 @@
+/**
+ * Compute's text terms: matches, concat, startsWith and endsWith, typed and lowered as a check and a query lower
+ * them, and evaluated on the host (scalar/compute/evaluate.ts) and by the reference evaluator
+ * (test/support/oracle/evaluate/catalog.ts).
+ *
+ * - matches: over every regex family's patterns and generated ones, some led by a code point either side of the
+ *   surrogates, a literal pattern and a dictionary of two (a conditional of literals, the values a closed payload
+ *   holds), both evaluators agree with ECMAScript's own test, the development oracle the text differential holds
+ *   against PostgreSQL; the node's pattern table holds each value the pattern can take once, in code point order by
+ *   the code points themselves, never UTF-16's, each with the ARE str.regex's own lowering prints for it; and the node
+ *   refuses exactly where str.regex refuses one of its patterns.
+ * - concat, startsWith and endsWith: by construction, a text that begins or ends with another, or a drawn pair; the
+ *   host's string methods against the reference's code point walks, and the equation with a concatenation, which no
+ *   lowering builds, against the concatenation itself.
+ * - the refusals: a fault planted in a valid term, one for each refusal (a pattern past the compile space, outside the
+ *   grammar, malformed or with no member, a pattern no measure bounds, a subject that is no text or unbounded in a
+ *   query, concat in a query, a literal the builder refuses, a literal outside a guard's language), each by its
+ *   reason and the place it states, and the term without its fault compiles; and the SQL `~` reads in the SQL the
+ *   node lowers to: a pattern whose SQL is a text literal hands it that literal's ARE, and any other a CASE over the
+ *   pattern's SQL with an arm per value it takes, one value read through a conditional among them, asserted by its
+ *   structure.
+ *
+ * Features: each family and generated pattern, led either side of the surrogates, a literal and a dictionary pattern,
+ * a match and a miss; each affix construction; each planted refusal; a literal's ARE, a CASE of one value and a
+ * dictionary's CASE.
+ *
+ * Plants: compute-matches-empty-text (the host never matches the empty text), compute-endswith-includes (endsWith
+ * evaluated as includes), compute-matches-unbounded-subject (a query's matches over a subject no pattern bounds
+ * admitted), compute-case-arm-source (a CASE arm hands `~` its source rather than its ARE).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -31,7 +61,8 @@ import {
 	refusalLoc,
 	refused,
 	succeeded,
-	throwsRefused
+	throwsRefused,
+	unorderedEqual
 } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
@@ -53,29 +84,6 @@ import {
 	patternOver,
 	stringsOver
 } from "#test/unit/text/generators.ts"
-
-/**
- * Compute's text terms: matches, concat, startsWith and endsWith, typed and lowered as a check and a query lower
- * them, and evaluated on the host (scalar/compute/evaluate.ts) and by the reference evaluator
- * (test/support/oracle/evaluate/catalog.ts).
- *
- * - matches: over every regex family's patterns and generated ones, some led by a code point either side of the
- *   surrogates, a literal pattern and a dictionary of two (a conditional of literals, the values a closed payload
- *   holds), both evaluators agree with ECMAScript's own test, the development oracle the text differential holds
- *   against PostgreSQL; the node's pattern table holds each value the pattern can take once, in code point order by
- *   the code points themselves, never UTF-16's, each with the ARE str.regex's own lowering prints for it; and the node
- *   refuses exactly where str.regex refuses one of its patterns.
- * - concat, startsWith and endsWith: by construction, a text that begins or ends with another, or a drawn pair; the
- *   host's string methods against the reference's code point walks, and the equation with a concatenation, which no
- *   lowering builds, against the concatenation itself.
- * - the refusals: a fault planted in a valid term, one for each refusal (a pattern past the compile space, outside the
- *   grammar, malformed or with no member, a pattern no measure bounds, a subject that is no text or unbounded in a
- *   query, concat in a query, a literal the builder refuses, a literal outside a guard's language), each by its
- *   reason and the place it states, and the term without its fault compiles; and the SQL `~` reads in the SQL the
- *   node lowers to: a pattern whose SQL is a text literal hands it that literal's ARE, and any other a CASE over the
- *   pattern's SQL with an arm per value it takes, one value read through a conditional among them, asserted by its
- *   structure.
- */
 
 const textColumn: LeafBinding = { kind: "column", type: testPg.text.scalar }
 /** A text whose pattern bounds its bytes, which a query's `~` reads (lower.ts regexReadable). */
@@ -859,13 +867,13 @@ describe("Compute's text terms", () => {
 						}
 						assert.deepEqual(sql.right.operand, patternSql, "the CASE reads the pattern once")
 						assert.deepEqual(sql.right.else, patternSql, "its ELSE keeps an absent read's NULL")
-						assert.deepEqual(
+						unorderedEqual(
 							Arr.map(sql.right.whens, (w): ReadonlyArray<Expr> => [w.when, w.result]),
 							Arr.map(node.patterns, (source): ReadonlyArray<Expr> => [
 								lit.text(source, types.text),
 								lit.text(areOf(source), types.text)
 							]),
-							"an arm per distinct source, its ARE beside it"
+							"an arm per distinct source, its ARE beside it, in any order"
 						)
 					})
 			)

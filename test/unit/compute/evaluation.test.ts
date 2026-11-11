@@ -1,3 +1,18 @@
+/**
+ * The test oracle's classes of evaluation (test/support/oracle/evaluate/catalog.ts): which registry nodes the
+ * reference evaluator claims exactly, estimates, or leaves to the database.
+ *
+ * - Power: numeric power's outcome is claimed only where both ends of the libm error model give it, and a base whose
+ *   estimate straddles an integer is declined. Oracle: the libm error model's two ends, the platform's log and log10
+ *   moved libmUlps units in the last place either way.
+ * - IEEE exactness: a float node the oracle evaluates exactly is one IEEE 754 rounds correctly. Oracle: IEEE 754 §5.4's
+ *   list of correctly rounded operations, over every node of the registry.
+ *
+ * Features: an outcome claimed at both ends, a declined one; an exact float node.
+ *
+ * Plants: compute-oracle-power-claims (power claims an outcome its estimates disagree on), compute-oracle-float-power-exact
+ * (float power evaluated exactly).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -276,7 +291,7 @@ describe("the oracle's classes of evaluation", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
+					box: "every node of the registry",
 					suite: "unit/compute/ieee-exact",
 					oracle: { kind: "specification", name: "IEEE 754's correctly rounded operations" },
 					generator: element(nonEmpty(nativeOps, "the registry's nodes")),

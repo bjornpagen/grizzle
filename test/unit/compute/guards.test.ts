@@ -10,8 +10,11 @@
  * proves the precondition, the term with the named guard written around it, or its operand a parameter of the target's
  * type, is admitted. Everything is read off the error's fields, never its prose.
  *
- * Planted bug: a contract's guard is Compute.within whatever its operand's type, and the text and boolean contract
- * casts fail.
+ * Features: a refusal for each precondition kind, a text operand's guard, a guard no Compute test writes, and a named
+ * guard, written, admitted.
+ *
+ * Plants: compute-guard-contract-within (a contract's guard is Compute.within whatever its operand's type, so the text
+ * and boolean contract casts name a guard no Compute test writes over them).
  */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
@@ -301,7 +304,7 @@ describe("a partial operation's refusal", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
+						box: "every precondition kind, over each operand type it plants",
 						suite: "unit/compute/guards",
 						oracle: {
 							kind: "specification",

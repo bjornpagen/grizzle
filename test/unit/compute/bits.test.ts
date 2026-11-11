@@ -14,6 +14,12 @@
  *
  * The box, exhausted: every hole pattern of a five-code roster that leaves a handle live, every pair of subsets of
  * its live handles, and each live handle and NULL as the one a set gains.
+ *
+ * Features: a singleton at the first and last code and past a hole, a hole, an empty set, a strict subset, disjoint
+ * and overlapping sets; every native operation over two rosters' sets.
+ *
+ * Plants: compute-bits-difference (difference evaluated as intersection), compute-roster-ignored (two rosters' types
+ * taken as one).
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"

@@ -1,6 +1,22 @@
+/**
+ * The Compute builders' typing (scalar/compute/builders.ts, scalar/compute/lower.ts) and the boundary where a JavaScript
+ * caller's operands meet them.
+ *
+ * - Typing: every binary builder over every pair of operands, every conditional's two branches and every span function
+ *   is typed, or refused as MalformedDescription, exactly as the builders' typing rules say, over the whole box.
+ *   Oracle: the typing rules as a checker (nominalOf, hostKindOf, the span's own endpoint).
+ * - Wild operands: a literal's type, a cast's target and a literal's value build from a descriptor a builder made and
+ *   an int8 bigint, and every wild value is refused as MalformedDescription. Oracle: the boundary's specification.
+ *
+ * Features: each binary builder typed and refused, a conditional typed and refused, each span function typed and
+ * refused; live and every wild kind at each site.
+ *
+ * Plants: compute-span-endpoint-unchecked (a span function takes any endpoint descriptor),
+ * compute-literal-number-coerced (a JavaScript number read as a bigint literal's value).
+ */
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { constant, element, type Gen, oneOf } from "@grizzle/testing/gen"
 import {
 	type Drawn,
@@ -235,63 +251,52 @@ describe("Compute builders", () => {
 	it.effect("type and refuse operands by the builders' typing rules", (ctx) =>
 		searched(
 			ctx,
-			explore(
+			exhaust(
 				{
-					oracle: { kind: "unstated" },
+					box: "every binary builder over every pair of operands, every conditional's two branches, and every span function over each endpoint, descriptor and operand",
+					oracle: { kind: "specification", name: "the builders' typing rules as a checker" },
 					suite: "unit/compute/builder-typing",
-					draw: drawn(
-						oneOf<BuilderCase>([
-							(source) => ({
-								kind: "binary",
-								op: source.draw(element<BinaryOp>(["add", "eq", "least", "greatest"])),
-								a: source.draw(element(operands)),
-								b: source.draw(element(operands))
-							}),
-							(source) => ({
-								kind: "cond",
-								first: source.draw(element(firsts)),
-								other: source.draw(element(others))
-							}),
-							(source) => ({
-								kind: "span",
-								fn: source.draw(element<SpanFn>(["lower", "upper", "width"])),
-								endpoint: source.draw(element<Endpoint>(["cents", "integer", "bigint"])),
-								descriptor: source.draw(element(["own", "other"] as const)),
-								operand: source.draw(element(["span", "no span"] as const))
-							})
-						])
-					),
+					generator: oneOf<BuilderCase>([
+						(source) => ({
+							kind: "binary",
+							op: source.draw(element<BinaryOp>(["add", "eq", "least", "greatest"])),
+							a: source.draw(element(operands)),
+							b: source.draw(element(operands))
+						}),
+						(source) => ({
+							kind: "cond",
+							first: source.draw(element(firsts)),
+							other: source.draw(element(others))
+						}),
+						(source) => ({
+							kind: "span",
+							fn: source.draw(element<SpanFn>(["lower", "upper", "width"])),
+							endpoint: source.draw(element<Endpoint>(["cents", "integer", "bigint"])),
+							descriptor: source.draw(element(["own", "other"] as const)),
+							operand: source.draw(element(["span", "no span"] as const))
+						})
+					]),
 					literal: Formatter.format,
-					coverage: required<BuilderFeature>(
-						[
-							"binary add typed",
-							"binary add refused",
-							"binary eq typed",
-							"binary eq refused",
-							"binary least typed",
-							"binary least refused",
-							"binary greatest typed",
-							"binary greatest refused",
-							"cond typed",
-							"cond refused",
-							"span lower typed",
-							"span lower refused",
-							"span upper typed",
-							"span upper refused",
-							"span width typed",
-							"span width refused"
-						],
-						{ cases: 600, sense: notesOnly }
-					),
-					kept: [],
-					/**
-					 * The rotating stream's sample: each arm is a third of the cases and each outcome of an arm at least a
-					 * fifth of those.
-					 */
-					runs: 600,
-					shrink: completeShrink,
-					concurrency: 1,
-					steerEvery: 16,
+					limit:
+						4 * operands.length * operands.length + firsts.length * others.length + 3 * 3 * 2 * 2,
+					coverage: requiredInSpace<BuilderFeature>([
+						"binary add typed",
+						"binary add refused",
+						"binary eq typed",
+						"binary eq refused",
+						"binary least typed",
+						"binary least refused",
+						"binary greatest typed",
+						"binary greatest refused",
+						"cond typed",
+						"cond refused",
+						"span lower typed",
+						"span lower refused",
+						"span upper typed",
+						"span upper refused",
+						"span width typed",
+						"span width refused"
+					]),
 					caseHang
 				},
 				(sketch: BuilderCase, c) =>
@@ -416,7 +421,10 @@ describe("a JavaScript caller's operands", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a descriptor a builder made and an int8 bigint build; every wild value is malformed"
+						},
 						suite: "unit/compute/wild-operands",
 						draw: drawn(boundaryCaseGen),
 						literal: Formatter.format,

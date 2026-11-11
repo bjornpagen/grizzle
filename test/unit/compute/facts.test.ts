@@ -13,8 +13,11 @@
  * the contract's terms is an operation's result, as its TypeScript type states: it has its SQL type's facts alone (an
  * integer is finite), whatever its branches declare, and no declaration remedies its refusal.
  *
- * Planted bugs: a fact the predicate implies admitted where the contract does not declare it (the bounds deriving it
- * again); a declaration the predicate does not imply admitted; a conditional keeping its branches' facts.
+ * Features: each base, each operand form, a declared fact a conditional drops, each fact admitted by its declaration,
+ * refused naming its declaration, and refused naming its guard, finite by its type, and a declaration compiled and one
+ * refused.
+ *
+ * Plants: compute-facts-declaration-unchecked (a declaration its predicate does not imply compiles).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -246,7 +249,10 @@ describe("a contract's facts", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a host table of each comparison's facts over every value it admits (atomFacts)"
+						},
 						suite: "unit/compute/contract-facts",
 						draw: drawn(caseGen),
 						literal: Formatter.format,

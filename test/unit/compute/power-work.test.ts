@@ -9,8 +9,10 @@
  * power's evaluation computes, and the limit is the costliest such power measured, with its margin; an evaluation that
  * computes past them, as an exact product would, passes it at the costliest power.
  *
- * Planted bug: mul_var sums every digit-pair product, its maxdigits truncation dropped, so the costliest power's
- * evaluation counts past the limit.
+ * Features: an admitted power evaluated, and a power next to exp(6000) evaluated.
+ *
+ * Plants: compute-power-work-untruncated (mul_var sums every digit-pair product, its maxdigits truncation dropped, so
+ * the costliest power's evaluation counts past the limit).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

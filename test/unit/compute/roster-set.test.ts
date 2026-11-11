@@ -9,8 +9,10 @@
  * an admitted literal holds exactly its handles, in the field roster's order, and the codec encodes the set as it
  * encodes a plain Set of the same handles.
  *
- * Planted bug: a door reads a set's handles alone, its stated roster unchecked, so Bits.of(Alpha, ["low"]) at a field
- * over Beta is admitted where Beta holds "low".
+ * Features: each door admitting and refusing, and a set of another roster whose names the field holds.
+ *
+ * Plants: compute-bits-door-unstated (the codec's door reads a set's handles alone, its stated roster unchecked, so
+ * Bits.of(Alpha, ["low"]) at a field over Beta is admitted where Beta holds "low").
  */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"

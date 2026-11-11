@@ -1,3 +1,24 @@
+/**
+ * No read raises an evaluation error: every partial operation compilation admits stands where its precondition holds,
+ * and it refuses one exactly where its operands' values leave it undefined (README "No read fails on a value").
+ *
+ * Two oracles judge the lowering's proofs. Over literal operands, whose interval is their point, the operation's
+ * definedness is read off the values themselves, independently of the bound domain: a divisor is zero or not, a
+ * radicand below zero, a value NaN; compilation must refuse a case whose values violate a fact it needs
+ * (PartialOperation naming that fact), admit one whose values satisfy every fact it needs, and the host evaluator must
+ * never meet an undefined operation in what it admits. A refusal of a precondition that rests on magnitudes (a
+ * narrowing's range) is the bound domain's residue, admitted either way. A parameter is a term of its declared type,
+ * whose value compilation never sees: a partial operation over a plain one is refused for exactly the fact it needs, and
+ * over one of a contract declaring that fact (which its binding checks of every value) admitted. Over columns and
+ * parameters, a Compute.when guard's branch is computed exactly where the guard holds and its other value elsewhere,
+ * the host evaluator judging every row.
+ *
+ * Features: each operation over a literal, a parameter and a declaring parameter, admitted and refused; each guarded
+ * form over columns and parameters, its guard holding and failing.
+ *
+ * Plants: compute-nonzero-includes-zero (an interval reaching zero taken as nonzero), compute-when-branches-swapped (a
+ * guard's branch computed where the guard fails).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -27,22 +48,6 @@ import {
 	testPg,
 	v
 } from "#test/unit/compute/support.ts"
-
-/**
- * No read raises an evaluation error: every partial operation compilation admits stands where its precondition holds,
- * and it refuses one exactly where its operands' values leave it undefined (README "No read fails on a value").
- *
- * Two oracles judge the lowering's proofs. Over literal operands, whose interval is their point, the operation's
- * definedness is read off the values themselves, independently of the bound domain: a divisor is zero or not, a
- * radicand below zero, a value NaN; compilation must refuse a case whose values violate a fact it needs
- * (PartialOperation naming that fact), admit one whose values satisfy every fact it needs, and the host evaluator must
- * never meet an undefined operation in what it admits. A refusal of a precondition that rests on magnitudes (a
- * narrowing's range) is the bound domain's residue, admitted either way. A parameter is a term of its declared type,
- * whose value compilation never sees: a partial operation over a plain one is refused for exactly the fact it needs, and
- * over one of a contract declaring that fact (which its binding checks of every value) admitted. Over columns and
- * parameters, a Compute.when guard's branch is computed exactly where the guard holds and its other value elsewhere,
- * the host evaluator judging every row.
- */
 
 /**
  * The texts of numeric's drawn literals: zero, the units, a half, a large value and NaN, the one value no finite fact
@@ -297,7 +302,10 @@ describe("totality", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "each operation's definedness read off its literal operands' own values"
+						},
 						suite: "unit/compute/totality-refusal",
 						draw: drawn(literalCaseGen),
 						literal: Formatter.format,
@@ -381,7 +389,10 @@ describe("totality", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the reference evaluator over each row (test/support/oracle/evaluate/catalog.ts)"
+						},
 						suite: "unit/compute/totality-guards",
 						draw: drawn((source) => {
 							const form = source.draw(element(guarded))

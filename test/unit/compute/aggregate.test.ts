@@ -2,8 +2,23 @@
  * Aggregates over generated inputs. min and max, LEAST and GREATEST return one of their inputs, so what a head delivers
  * keeps the contract that input has, over a contract drawn over each type they are defined on: a column of the contract
  * and a parameter of it, which a rule reads as its base, deliver the contract, and Compute.base of a column the plain
- * value. The oracle is the compiled heading's type. Planted bug: max typed by its argument's node, which computes a
- * parameter at its base and Compute.base at the contract it drops.
+ * value. The oracle is the compiled heading's type.
+ *
+ * - Conditional counts: sum(cond(p, 1, 0)) over literals of one carrier counts by FILTER, and every other shape stays
+ *   composed, over every shape of the box. Oracle: the specification of R24's rewrite.
+ * - Vocabulary: the registry lists a node for every word of the description vocabulary. Oracle: the registry's own list.
+ * - Returning input: min, max, LEAST and GREATEST deliver the contract of the input they return. Oracle: the compiled
+ *   heading's type.
+ * - Mean bound: a numeric mean's result bound holds the mean of its argument's greatest value, and that mean reaches its
+ *   integer digits. Oracle: the reference evaluator's numeric_avg.
+ *
+ * Features: counted by FILTER and left composed; each word kind; each function over each reading; each way a mean
+ * rounds.
+ *
+ * Plants: compute-conditional-count-two (the rewrite counts cond(p, 2, 0) and leaves cond(p, 1, 0)),
+ * compute-registry-between-unlisted (the registry lists no BETWEEN node), compute-minmax-drops-contract (min and max
+ * deliver their argument's base), compute-mean-no-carry-digit (a mean rounding past its argument loses the digit it
+ * carries).
  */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
@@ -112,8 +127,11 @@ describe("R24 conditional aggregates", () => {
 					ctx,
 					exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "sum or bare cond(p, a, b) over every pair of integer branches and of numeric(5,1) branches",
+							oracle: {
+								kind: "specification",
+								name: "R24: sum(cond(p, 1, 0)) over literals of one carrier is a count with a FILTER"
+							},
 							suite: "unit/compute/conditional-aggregate",
 							generator: oneOf([
 								(source) =>
@@ -303,8 +321,11 @@ describe("min, max, LEAST and GREATEST", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "every contract min, max, LEAST and GREATEST are defined on, under each, read each way",
+					oracle: {
+						kind: "specification",
+						name: "the compiled heading's type: the input's contract, none for its base"
+					},
 					suite: "unit/compute/returns-input",
 					generator: (source) =>
 						[

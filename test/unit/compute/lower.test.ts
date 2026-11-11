@@ -1,3 +1,23 @@
+/**
+ * Lowering a Compute description in query mode (scalar/compute/lower.ts).
+ *
+ * - Untyped leaves: a literal never stands first; a parameter does, at its declared type; two untyped literal branches
+ *   are typed by the literal typing rule, a number integer and a bigint bigint, and branches of the two are malformed;
+ *   a JavaScript fraction is no numeric literal. Oracle: the literal typing rule as a checker.
+ * - Casts into a contract: every partial cast of a lowered table carries a proof the kernel re-derives, and every cast
+ *   into a contract is a domain cast whose proof holds, checked or unchecked, over generated terms and planted
+ *   conditionals. Oracle: the proof kernel (oracle/proof.ts operationProofHolds).
+ * - Common type: a conditional, LEAST or GREATEST over two compatible terms has one common type whichever comes first,
+ *   each branch widening into it, and an exact value beside a plain value of its family is refused in either order.
+ *   Oracle: commonType both ways, widensTo, and mixesExact.
+ *
+ * Features: each untyped form and pair of branch kinds; a generated term, a domain cast into a checked and an unchecked
+ * contract; each planted combination in each order.
+ *
+ * Plants: compute-literal-first-admitted (an untyped literal standing first lowered at its value's type),
+ * compute-domain-cast-unproved (a domain cast carries no proof), compute-common-type-first-typmod (two typmods'
+ * common type the first's).
+ */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -5,7 +25,6 @@ import {
 	boolean,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
@@ -14,7 +33,7 @@ import {
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint, double } from "@grizzle/testing/values"
+import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
@@ -121,6 +140,9 @@ describe("lowering in query mode", () => {
 		map(bigint(-1000n, 1000n), (value): UntypedLiteral => ({ kind: "bigint", value }))
 	])
 	const numberColumns: Arr.NonEmptyReadonlyArray<string> = ["i", "b", "n", "n52"]
+	/** A JavaScript fraction: a whole number and a dyadic part of it, never whole, by construction. */
+	const fractionGen: Gen<number> = (source) =>
+		source.draw(int(-1_000_000, 999_999)) + source.draw(int(1, 2 ** 20 - 1)) / 2 ** 20
 	const literalOf = (l: UntypedLiteral): ExprDesc => ({
 		kind: "literal",
 		value: l.value
@@ -133,7 +155,10 @@ describe("lowering in query mode", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the literal typing rule: a literal never first, a number integer, a bigint bigint, no fraction for a numeric"
+						},
 						suite: "unit/compute/untyped-leaves",
 						draw: drawn((source) => ({
 							form: source.draw(
@@ -150,7 +175,7 @@ describe("lowering in query mode", () => {
 								(source) =>
 									[source.draw(untypedLiteralGen), source.draw(untypedLiteralGen)] as const
 							),
-							fraction: source.draw(filter(double(-1e6, 1e6), (x) => !Number.isInteger(x), 100))
+							fraction: source.draw(fractionGen)
 						})),
 						literal: Formatter.format,
 						coverage: required<UntypedFeature>(
@@ -427,7 +452,10 @@ describe("a conversion into a contract", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "the proof kernel re-deriving each cast's preconditions (oracle/proof.ts operationProofHolds)"
+					},
 					suite: "unit/compute/cast-into-contract",
 					/**
 					 * Planted: the conversions of one contract column each that the drawn conditionals reach about one case
@@ -686,7 +714,10 @@ describe("a combination of two compatible terms", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "commonType taken in either order, and each branch reaching it by a widening (widensTo)"
+						},
 						suite: "unit/compute/common-type",
 						draw: drawn(caseGen),
 						literal: Formatter.format,

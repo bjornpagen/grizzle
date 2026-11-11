@@ -1,3 +1,19 @@
+/**
+ * A contract predicate's check mode (scalar/compute/lower.ts, scalar/compute/total.ts), and the ContractLiteral check.
+ *
+ * - The check fragment: a contract predicate lowered in the check mode reads only its VALUE and admits only the
+ *   operations the host evaluates for the ContractLiteral check; every other verdict is the query mode's over a column
+ *   of the base. Oracle: a differential, the same predicate lowered in the query mode.
+ * - ContractLiteral: a literal opposite a contract's term, compared with it or beside it in arithmetic, is admitted
+ *   exactly when the contract's predicate holds of it. Oracle: the README's rule, a value opposite a term is a value of
+ *   its type.
+ *
+ * Features: each agreed verdict, a zero divisor, a conditional, least, greatest, abs and sign of a float admitted, and
+ * each refusal the check mode alone makes; each site admitted and refused.
+ *
+ * Plants: compute-check-admits-round (round admitted in a check), compute-contract-literal-unchecked (a literal judged
+ * against its contract only in the check mode).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"

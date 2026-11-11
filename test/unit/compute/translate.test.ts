@@ -1,3 +1,40 @@
+/**
+ * Compute.translate and Compute.lowerAscii, typed and lowered as a check lowers them, and evaluated on the host
+ * (scalar/compute/evaluate.ts) and by the reference evaluator (test/support/oracle/evaluate/catalog.ts).
+ *
+ * - translation: over a drawn map and texts that mix ASCII, other BMP and supplementary code points, both evaluators
+ *   give the map applied character by character, and lowerAscii lowers A to Z alone, every other character, non-ASCII
+ *   included, passing through unchanged.
+ * - the image type: over every regex family's patterns and generated ones, a drawn map's term is text of exactly the
+ *   image of the operand's language: a text is a member of the image type exactly when one of its preimages under the
+ *   map is a member of the operand's, which ECMAScript's own test of both patterns decides; and an operand whose
+ *   pattern bounds its length keeps the bound.
+ * - the refusals: a fault planted in a valid translation or collapse, one for each refusal (a map of two lengths, a
+ *   repeated character of from, a character no text holds, a term as from or to, a subject that is no text, each at the
+ *   builder too, and a translation's subject unbounded in a query, which a collapse of the same subject compiles), each
+ *   by its reason and the place it states, and the term without its fault compiles.
+ * - casts by inclusion: a translated finite language, its image exactly its members mapped, cast into a drawn text
+ *   type compiles exactly when ECMAScript's test of the target holds of every image member; a contract's predicate,
+ *   which no language proves, refuses the cast; a collapse is cast into the collapsed texts; any text is no refined
+ *   text's; and a language whose own automaton passes the analysis bounds is refused naming them, as text and as a
+ *   numeric's lexical form.
+ * - collapse and replaceWhitespace: over texts dense in XML's four white space characters beside ones XML does not
+ *   count (no-break space, line separator), both evaluators agree with XML Schema's definition, pieces cut at every run
+ *   and joined by one space; the term's type holds every collapse of a value of the operand's, exactly the image where
+ *   collapseSources says it is, within the operand's length bound; its refusals and its SQL by structure.
+ *
+ * Oracles: the map applied character by character; ECMAScript's own test of the operand's and the image's patterns;
+ * each refusal's reason and place; ECMAScript's test of the target over every image member; XML Schema's whiteSpace
+ * collapse; collapseSources' exactness.
+ *
+ * Features: as each search names them, every route of every property.
+ *
+ * Plants: compute-translate-units (a translation reads UTF-16 units), compute-translate-image-loose (a translation's
+ * type the looser image even where the exact one is admitted), compute-translate-repeat-admitted (a repeated character
+ * of from admitted), compute-inclusion-outer-accept-ignored (an image member at a state the target does not accept
+ * taken as inside it), compute-collapse-leading-space (a collapse keeps a space for leading white space),
+ * compute-collapse-image-wildcard (a collapse typed as any text).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -63,32 +100,6 @@ import {
 	patternOver,
 	stringsOver
 } from "#test/unit/text/generators.ts"
-
-/**
- * Compute.translate and Compute.lowerAscii, typed and lowered as a check lowers them, and evaluated on the host
- * (scalar/compute/evaluate.ts) and by the reference evaluator (test/support/oracle/evaluate/catalog.ts).
- *
- * - translation: over a drawn map and texts that mix ASCII, other BMP and supplementary code points, both evaluators
- *   give the map applied character by character, and lowerAscii lowers A to Z alone, every other character, non-ASCII
- *   included, passing through unchanged.
- * - the image type: over every regex family's patterns and generated ones, a drawn map's term is text of exactly the
- *   image of the operand's language: a text is a member of the image type exactly when one of its preimages under the
- *   map is a member of the operand's, which ECMAScript's own test of both patterns decides; and an operand whose
- *   pattern bounds its length keeps the bound.
- * - the refusals: a fault planted in a valid translation or collapse, one for each refusal (a map of two lengths, a
- *   repeated character of from, a character no text holds, a term as from or to, a subject that is no text, each at the
- *   builder too, and a translation's subject unbounded in a query, which a collapse of the same subject compiles), each
- *   by its reason and the place it states, and the term without its fault compiles.
- * - casts by inclusion: a translated finite language, its image exactly its members mapped, cast into a drawn text
- *   type compiles exactly when ECMAScript's test of the target holds of every image member; a contract's predicate,
- *   which no language proves, refuses the cast; a collapse is cast into the collapsed texts; any text is no refined
- *   text's; and a language whose own automaton passes the analysis bounds is refused naming them, as text and as a
- *   numeric's lexical form.
- * - collapse and replaceWhitespace: over texts dense in XML's four white space characters beside ones XML does not
- *   count (no-break space, line separator), both evaluators agree with XML Schema's definition, pieces cut at every run
- *   and joined by one space; the term's type holds every collapse of a value of the operand's, exactly the image where
- *   collapseSources says it is, within the operand's length bound; its refusals and its SQL by structure.
- */
 
 const textColumn: LeafBinding = { kind: "column", type: testPg.text.scalar }
 
