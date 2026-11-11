@@ -1,50 +1,3 @@
-import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { constant, element, type Gen, map, oneOf } from "@grizzle/testing/gen"
-import {
-	type Drawn,
-	type DrawnFeature,
-	drawnFeature,
-	lsw,
-	passed,
-	type Stale,
-	WILD_KINDS
-} from "@grizzle/testing/lsw"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
-import { ALLEN } from "#compiler/allen/mask.ts"
-import { catchCompileError } from "#compiler/core/canonical.ts"
-import { type CompileReasonTag, isCompileError } from "#compiler/core/errors.ts"
-import type { Built } from "#compiler/core/phantom.ts"
-import { descText } from "#compiler/ir/desc.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
-import {
-	type QueryValue,
-	queryOver as query,
-	queryValueDesc,
-	varsOver as v
-} from "#compiler/query/build/query.ts"
-import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
-import { Vector } from "#compiler/scalar/values/vector.ts"
-import { assert } from "#test/support/assert.ts"
-import { compileTemplate, testCompile } from "#test/support/compile.ts"
-import { Account, AutomaticTask, Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
-import { caseHang } from "#test/support/limits.ts"
-import {
-	Booking,
-	Document,
-	DocumentCurrent,
-	DocumentEmbedding,
-	Preference,
-	Schedule,
-	Search,
-	Settings
-} from "#test/unit/query/fixtures.ts"
-
 /**
  * The query builder's untyped core, handed Live, Stale and Wild arguments at every argument position, and the values it
  * branches on, as a JavaScript caller may hand them (G-lsw).
@@ -71,7 +24,66 @@ import {
  * Every stale source, every wild kind, every position and every near miss is a required feature. A hostile proxy and
  * an object whose getter throws are refused at the entry that receives them (query/build/host.ts), before any read of
  * the builder's own reaches them.
+ *
+ * Named scopes, exhausted over three scope shapes twice and two name pairs: a rule's two scopes of two names compile,
+ * its Description spelling each variable by its scope and field; one name given twice is DuplicateIdentity of that
+ * name, reported at the later call and naming the earlier, the calls told apart by their call sites, never by the
+ * spelling of their labels.
+ *
+ * Oracles: the contract above, a specification over the drawn argument's kind; for named scopes, the two calls' own
+ * sites.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): misuse-host-arguments-unguarded (a hostile argument let past the
+ * builder's entry) and named-scopes-calls-swapped (the duplicate reported at the earlier call).
  */
+import { describe, it } from "@effect/vitest"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { noCoverage, required } from "@grizzle/testing/features"
+import { constant, element, type Gen, map, weighted } from "@grizzle/testing/gen"
+import {
+	type Drawn,
+	type DrawnFeature,
+	drawnFeature,
+	lsw,
+	passed,
+	type Stale,
+	WILD_KINDS
+} from "@grizzle/testing/lsw"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
+import { ALLEN } from "#compiler/allen/mask.ts"
+import { catchCompileError } from "#compiler/core/canonical.ts"
+import { type CompileReasonTag, isCompileError } from "#compiler/core/errors.ts"
+import { readSite } from "#compiler/core/loc.ts"
+import type { Built } from "#compiler/core/phantom.ts"
+import { descText } from "#compiler/ir/desc.ts"
+import { pg, uuid } from "#compiler/public/fields.ts"
+import {
+	type QueryValue,
+	queryOver as query,
+	queryValueDesc,
+	varsOver as v
+} from "#compiler/query/build/query.ts"
+import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
+import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import { Vector } from "#compiler/scalar/values/vector.ts"
+import { assert, defined, refused } from "#test/support/assert.ts"
+import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { Account, AutomaticTask, Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
+import { caseHang } from "#test/support/limits.ts"
+import {
+	Booking,
+	Document,
+	DocumentCurrent,
+	DocumentEmbedding,
+	Preference,
+	Schedule,
+	Search,
+	Settings
+} from "#test/unit/query/fixtures.ts"
+
 type Vars = ReturnType<typeof v>
 
 /** The parent variables an attachment passes its child, as the builder's untyped core reads them. */
@@ -926,7 +938,10 @@ const nearCase: Gen<MisuseCase> = map(
 )
 
 /** A position case first, so a failure shrinks toward a Live argument. */
-const caseGen: Gen<MisuseCase> = oneOf([positionCase, nearCase])
+const caseGen: Gen<MisuseCase> = weighted([
+	[1, positionCase],
+	[1, nearCase]
+])
 
 /**
  * The call a position case makes: the position's Live argument, the stale source's own call whatever the position, or
@@ -970,7 +985,10 @@ describe("the query builder's untyped core", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "Live builds, Stale is MalformedDescription, Wild and near misses refuse typed or build canonically"
+						},
 						suite: "unit/query/misuse",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
@@ -1103,8 +1121,11 @@ describe("named scopes", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every pair of three scope shapes, under two names and under one name twice",
+						oracle: {
+							kind: "specification",
+							name: "the scopes' names and the two calls' own sites"
+						},
 						suite: "unit/query/named-scopes",
 						generator: twoScopes,
 						literal: (c) =>
@@ -1132,21 +1153,20 @@ describe("named scopes", () => {
 								)
 								return
 							}
-							const reason = built.ok ? undefined : built.error.reason
-							assert.deepEqual(
-								reason?._tag === "DuplicateIdentity" && reason.duplicate.kind === "scope"
-									? {
-											name: reason.duplicate.name,
-											at: reason.at.label,
-											earlier: reason.duplicate.earlier.label
-										}
-									: reason?._tag,
-								{
-									name,
-									at: `v(${c.second.label}, "${name}")`,
-									earlier: `v(${c.first.label}, "${name}")`
-								},
-								"one name given twice is DuplicateIdentity of the scope at the second call, the first its earlier"
+							const reason = refused(built, "DuplicateIdentity").reason
+							if (reason._tag !== "DuplicateIdentity" || reason.duplicate.kind !== "scope") {
+								return assert.fail("a DuplicateIdentity of a scope")
+							}
+							assert.equal(reason.duplicate.name, name)
+							const later = defined(readSite(reason.at.site), "the later call's site")
+							const earlier = defined(
+								readSite(reason.duplicate.earlier.site),
+								"the earlier call's site"
+							)
+							assert.equal(later.file, earlier.file, "both calls are the rule's")
+							assert.ok(
+								later.line > earlier.line,
+								"one name given twice is DuplicateIdentity at the second call, the first its earlier"
 							)
 						})
 				)

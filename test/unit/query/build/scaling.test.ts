@@ -1,6 +1,25 @@
+/**
+ * A query builder step reads only what it adds. A stage's Description holds its input stage, its earlier arms, an
+ * attachment's child and an imported query as the Descriptions they already are (shape.ts recognized), so the step
+ * builds a fixed number of containers whatever the query's size, where a decode of the whole would copy every one.
+ * The count is taken at every step of a chain of one drawn step kind and a drawn length. The Description is the one the
+ * whole decode gives, the old path, kept here as the oracle.
+ *
+ * The chains here are the builder's own steps (rules, named stages, attachments, imports, an order and a take) drawn by
+ * kind and length; test/unit/query/desc-order.test.ts holds the same Description contract over generated public
+ * programs, a family these chains do not reach, and these chains reach depths and attachments it does not.
+ *
+ * Oracles: the first step's count, which every later step must equal, a specification of a step's cost; the whole
+ * decode of a plain copy, a second implementation, for the Description.
+ *
+ * Features: each step kind.
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): scaling-step-copies-chain (a step that copies its whole stage, so it
+ * builds as many containers as the chain holds).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, element, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -20,14 +39,6 @@ import { assert, defined } from "#test/support/assert.ts"
 import { Task, Work } from "#test/support/fixtures/api/work.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { sitesRead } from "#test/support/sites.ts"
-
-/**
- * A query builder step reads only what it adds. A stage's Description holds its input stage, its earlier arms, an
- * attachment's child and an imported query as the Descriptions they already are (shape.ts recognized), so the step
- * builds a fixed number of containers whatever the query's size, where a decode of the whole would copy every one.
- * The count is taken at every step of a chain of one drawn step kind and a drawn length. The Description is the one the
- * whole decode gives, the old path, kept here as the oracle.
- */
 
 /** The arrays and plain objects reachable from `value`, added to `into`. */
 const containersOf = (value: unknown, into: Set<object>): Set<object> => {
@@ -184,7 +195,10 @@ describe("a query builder step reads only what it adds", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "every step builds as many containers as the first"
+					},
 					suite: "unit/query/build/step-reads",
 					/** A chain of one kind of step, two to four hundred long. */
 					draw: drawn((source) => ({
@@ -218,7 +232,10 @@ describe("a query builder step reads only what it adds", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "the whole decode of a plain copy (decodeDesc)"
+					},
 					suite: "unit/query/build/recognized",
 					draw: drawn(
 						(source) =>
@@ -228,7 +245,7 @@ describe("a query builder step reads only what it adds", () => {
 							] as const
 					),
 					literal: Formatter.format,
-					coverage: noCoverage,
+					coverage: required<StepKind>(stepKinds, { cases: 200, sense: notesOnly }),
 					kept: [],
 					runs: 200,
 					shrink: completeShrink,
@@ -236,8 +253,9 @@ describe("a query builder step reads only what it adds", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				([kinds, take]) =>
+				([kinds, take], c) =>
 					Effect.sync(() => {
+						c.noteAll(kinds)
 						for (const value of built(kinds, take)) {
 							asTheOldPath(value)
 						}

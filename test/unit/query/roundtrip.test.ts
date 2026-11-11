@@ -1,5 +1,25 @@
+/**
+ * A Description rebuilds the same query: a query value rebuilt from its QueryDesc records the same Description,
+ * carries the same heading and supports the same combinators; and the builder's output is deterministic, valid,
+ * canonical and stable over generated queries.
+ *
+ * - Generated chains (arms over the worked example's schema and over the span example's, then a chain of rules, named
+ *   stages, attachments, takes and imports, then a set or ordered ending): the Description decodes, is canonical, is
+ *   built alike twice, rebuilds to the same text through the Description and through a QueryDescription carried as
+ *   JSON, keeps its heading's names, and a prefix rebuilt and resumed is the whole chain. Oracle: the round trip, a
+ *   universal law, and the builder run twice.
+ * - Attachments: a rebuilt query keeps its attachment names, refusing what the original refuses. Oracle: the original,
+ *   a differential.
+ * - A rebuilt recursive row is typed under the schema's rosters as the original was: a literal against its handle is
+ *   checked against the roster. Oracle: the original, and the roster's own handles.
+ *
+ * Features: each op of a chain and each ending, a chain cut inside; a roster handle and a text that is none.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): roundtrip-rebuilt-attachment-lost (a rebuilt attach stage without its
+ * attachment's name) and roundtrip-rebuilt-row-untyped (a rebuilt field typed by its Description untyped).
+ */
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
@@ -10,8 +30,8 @@ import {
 	type Gen,
 	int,
 	map,
-	oneOf,
-	string
+	string,
+	weighted
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -37,17 +57,12 @@ import {
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { queryState } from "#compiler/query/build/state.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, nonEmpty } from "#test/support/assert.ts"
 import { fromQueryDescription, queryFromDesc } from "#test/support/describe.ts"
 import { AutomaticTask, Kind, Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { at, Booking, descOf, Schedule } from "#test/unit/query/fixtures.ts"
 
-/**
- * A Description rebuilds the same query: a query value rebuilt from its QueryDesc records the same Description,
- * carries the same heading and supports the same combinators; and the builder's output is deterministic, valid,
- * canonical and stable over generated queries.
- */
 const text = (q: unknown): string => {
 	const t = descText(descOf(q))
 	if (!t.ok) {
@@ -130,17 +145,20 @@ interface Grammar<A> {
 }
 
 const opGen = (armCount: number): Gen<Op> =>
-	oneOf<Op>([
-		map(int(0, armCount - 1), (arm): Op => ({ op: "rule", arm })),
-		constant({ op: "named" }),
-		constant({ op: "attach" }),
-		(source) => ({
-			op: "take",
-			k: source.draw(int(1, 5)),
-			dir: source.draw(element(directions)),
-			param: source.draw(boolean)
-		}),
-		constant({ op: "import" })
+	weighted<Op>([
+		[1, map(int(0, armCount - 1), (arm): Op => ({ op: "rule", arm }))],
+		[1, constant({ op: "named" })],
+		[1, constant({ op: "attach" })],
+		[
+			1,
+			(source) => ({
+				op: "take",
+				k: source.draw(int(1, 5)),
+				dir: source.draw(element(directions)),
+				param: source.draw(boolean)
+			})
+		],
+		[1, constant({ op: "import" })]
 	])
 
 const endingGen: Gen<Ending> = element<Ending>([
@@ -197,15 +215,29 @@ const generated =
 			source.draw(int(0, 2 ** 31 - 1))
 		] as const
 
+/** What a generated chain reaches: each op, each ending, and a cut inside the chain. */
+type ChainFeature = `op ${Op["op"]}` | `ending ${Ending["kind"]}` | "a cut inside the chain"
+
+const chainFeatures: Arr.NonEmptyReadonlyArray<ChainFeature> = [
+	"op rule",
+	"op named",
+	"op attach",
+	"op take",
+	"op import",
+	"ending set",
+	"ending ordered",
+	"a cut inside the chain"
+]
+
 const property =
 	<A>(gen: Grammar<A>) =>
-	([armsIn, ops, ending, cut]: readonly [
-		ReadonlyArray<A>,
-		ReadonlyArray<Op>,
-		Ending,
-		number
-	]): Effect.Effect<void> =>
+	(
+		[armsIn, ops, ending, cut]: readonly [ReadonlyArray<A>, ReadonlyArray<Op>, Ending, number],
+		c: Case<ChainFeature>
+	): Effect.Effect<void> =>
 		Effect.sync(() => {
+			c.noteAll(Arr.map(ops, (op): ChainFeature => `op ${op.op}`))
+			c.note(`ending ${ending.kind}`)
 			const arms = [...armsIn, ...armsIn, ...armsIn]
 			const chain = (part: ReadonlyArray<Op>, offset: number): QueryValue =>
 				applyOps(gen, query(gen.schema).rule(gen.rule(at(arms, 0))), arms, part, offset)
@@ -223,6 +255,9 @@ const property =
 			 * Rebuilding a prefix of the chain and applying the rest, then the ending, gives the whole chain's Description.
 			 */
 			const k = cut % (ops.length + 1)
+			if (k > 0 && k < ops.length) {
+				c.note("a cut inside the chain")
+			}
 			const prefix = rebuiltQuery(descOf(chain(ops.slice(0, k), 0)), gen.schema)
 			const resumed = ended(gen, applyOps(gen, prefix, arms, ops.slice(k), k), ending)
 			assert.equal(text(resumed), text(q))
@@ -443,8 +478,11 @@ describe("rebuilding from a Description", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "both ways to attach, under each operation on the attachment's name",
+						oracle: {
+							kind: "second-implementation",
+							name: "the original query, before the round trip"
+						},
 						suite: "unit/query/roundtrip-attached",
 						generator: (source) =>
 							[
@@ -513,21 +551,21 @@ describe("rebuilding from a Description", () => {
 		(ctx) => {
 			const original = kinds()
 			const back = rebuilt(descOf(original), Work)
-			assert.deepEqual(
-				queryState(back)?.heading.fields.get("kind"),
-				queryState(original)?.heading.fields.get("kind")
-			)
+			const handles: ReadonlyArray<string> = Kind.handles
 			type Handle = "a roster handle" | "no handle"
 			return searched(
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the original recursive row, and the roster's own handles"
+						},
 						suite: "unit/query/roundtrip-roster",
 						draw: drawn(
-							oneOf([
-								element(["Automatic", "Manual"]),
-								string(codePoint(0x20, 0x7e), { min: 0, max: 8 })
+							weighted([
+								[1, element(nonEmpty(handles, "Kind's handles"))],
+								[1, string(codePoint(0x20, 0x7e), { min: 0, max: 8 })]
 							])
 						),
 						literal: Formatter.format,
@@ -544,6 +582,10 @@ describe("rebuilding from a Description", () => {
 					},
 					(handle, c) =>
 						Effect.sync(() => {
+							assert.deepEqual(
+								queryState(back)?.heading.fields.get("kind"),
+								queryState(original)?.heading.fields.get("kind")
+							)
 							/**
 							 * A literal against the rebuilt row's handle is checked against the roster, as against the original's.
 							 */
@@ -554,7 +596,7 @@ describe("rebuilding from a Description", () => {
 								Result.mapError(outcome(back), (e) => e.reason),
 								Result.mapError(expected, (e) => e.reason)
 							)
-							assert.equal(expected.ok, handle === "Automatic" || handle === "Manual", handle)
+							assert.equal(expected.ok, handles.includes(handle), handle)
 							c.note(expected.ok ? "a roster handle" : "no handle")
 						})
 				)
@@ -571,11 +613,14 @@ describe("generated queries", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "the round trip through the Description and its JSON, and the builder run twice"
+						},
 						suite: "unit/query/roundtrip-58",
 						draw: drawn(generated(work)),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<ChainFeature>(chainFeatures, { cases: 300, sense: notesOnly }),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
@@ -595,11 +640,14 @@ describe("generated queries", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "the round trip through the Description and its JSON, and the builder run twice"
+						},
 						suite: "unit/query/roundtrip-109",
 						draw: drawn(generated(spans)),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<ChainFeature>(chainFeatures, { cases: 150, sense: notesOnly }),
 						kept: [],
 						runs: 150,
 						shrink: completeShrink,

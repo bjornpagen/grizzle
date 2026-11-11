@@ -1,3 +1,15 @@
+/**
+ * A query's Description as its builder makes it (query/build/query.ts) is the Description its decoder gives for it
+ * (ir/desc.ts decodeDesc): equal, a fresh copy, every object's keys in the decoder's order, and frozen throughout.
+ *
+ * Over generated public programs (test/support/oracle/public), each query built through the public builder.
+ *
+ * Oracle: the decoder, a second implementation of the Description's shapes.
+ *
+ * Features: a query, and a node of each common kind (rules, relation, var, compare).
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): desc-order-shallow-freeze (the Description frozen at its root alone).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
