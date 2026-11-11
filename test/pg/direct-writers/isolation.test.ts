@@ -47,7 +47,6 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { check, contained, mutable, on, relation, schema } from "#compiler/public/schema.ts"
@@ -55,7 +54,7 @@ import { quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
-import { parsedName } from "#test/support/kernel/naming.ts"
+import { type Names, namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
@@ -83,7 +82,7 @@ const world = fullWorld(Guarded, {})
  * payload an UPDATE sets to itself, and a fresh row.
  */
 interface Table {
-	readonly relation: string
+	readonly relation: typeof Team | typeof Member | typeof Note | typeof Tag
 	readonly mutable: boolean
 	readonly lawful: boolean
 	readonly fields: ReadonlyArray<string>
@@ -96,7 +95,7 @@ interface Table {
 
 const tables: Arr.NonEmptyReadonlyArray<Table> = [
 	{
-		relation: "Team",
+		relation: Team,
 		mutable: true,
 		lawful: true,
 		fields: ["id", "cap", "name"],
@@ -108,7 +107,7 @@ const tables: Arr.NonEmptyReadonlyArray<Table> = [
 		fresh: ["3", "5", "3"]
 	},
 	{
-		relation: "Member",
+		relation: Member,
 		mutable: false,
 		lawful: true,
 		fields: ["id", "team", "active"],
@@ -120,7 +119,7 @@ const tables: Arr.NonEmptyReadonlyArray<Table> = [
 		fresh: ["3", "1", "false"]
 	},
 	{
-		relation: "Note",
+		relation: Note,
 		mutable: false,
 		lawful: false,
 		fields: ["id", "body"],
@@ -132,7 +131,7 @@ const tables: Arr.NonEmptyReadonlyArray<Table> = [
 		fresh: ["3", "3"]
 	},
 	{
-		relation: "Tag",
+		relation: Tag,
 		mutable: true,
 		lawful: false,
 		fields: ["id", "body"],
@@ -213,14 +212,19 @@ type IsolationFeature =
 	| `${TableKind}: refused by the guard`
 	| "a write at the database's default admitted"
 
-/** The statement's SQL over the installed schema `q`. */
-const sqlOf = (q: string, statement: Statement, table: Table): string => {
-	const name = `${q}.${quoteIdent(identifierOf(identity.table(parsedName(table.relation))))}`
-	const columns = Arr.map(table.fields, (f) =>
-		quoteIdent(identifierOf(identity.column(parsedName(f))))
-	)
-	const id = quoteIdent(identifierOf(identity.column(parsedName("id"))))
-	const payload = quoteIdent(identifierOf(identity.column(parsedName(table.payload))))
+/** A table's name in the installation, schema-qualified and quoted. */
+const tableName = (names: Names, table: Table): string => names.table(table.relation)
+
+/** A field's column in the installation, quoted. */
+const columnName = (names: Names, table: Table, field: string): string =>
+	quoteIdent(names.columnIdent(table.relation, field))
+
+/** The statement's SQL over the installation `names`. */
+const sqlOf = (names: Names, statement: Statement, table: Table): string => {
+	const name = tableName(names, table)
+	const columns = Arr.map(table.fields, (f) => columnName(names, table, f))
+	const id = columnName(names, table, "id")
+	const payload = columnName(names, table, table.payload)
 	switch (statement) {
 		case "insert":
 			return `INSERT INTO ${name} (${Arr.join(columns, ", ")}) VALUES (${Arr.join(table.fresh, ", ")})`
@@ -247,19 +251,16 @@ const sqlOf = (q: string, statement: Statement, table: Table): string => {
 }
 
 /** The starting state, loaded as the owner over emptied tables. */
-const loadState = (q: string): ReadonlyArray<string> => [
+const loadState = (names: Names): ReadonlyArray<string> => [
 	`TRUNCATE ${Arr.join(
-		Arr.map(
-			tables,
-			(t) => `${q}.${quoteIdent(identifierOf(identity.table(parsedName(t.relation))))}`
-		),
+		Arr.map(tables, (t) => tableName(names, t)),
 		", "
 	)}`,
 	...Arr.map(
 		tables,
 		(t) =>
-			`INSERT INTO ${q}.${quoteIdent(identifierOf(identity.table(parsedName(t.relation))))} (${Arr.join(
-				Arr.map(t.fields, (f) => quoteIdent(identifierOf(identity.column(parsedName(f))))),
+			`INSERT INTO ${tableName(names, t)} (${Arr.join(
+				Arr.map(t.fields, (f) => columnName(names, t, f)),
 				", "
 			)}) VALUES ${Arr.join(
 				Arr.map(t.rows, (r) => `(${Arr.join(r, ", ")})`),
@@ -347,7 +348,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 							logins: [world.server],
 							label: "guardbox"
 						})
-						const q = quoteIdent(installed.schema)
+						const names = namesOf(installed)
 						const sessions: Readonly<Record<Actor, RawSession>> = {
 							writer: yield* s.session({
 								...worldSession(installed.world(world.app)),
@@ -359,18 +360,15 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 							Effect.map(
 								s.admin.queryValues(
 									`SELECT ${Arr.join(
-										Arr.map(
-											t.fields,
-											(f) => `${quoteIdent(identifierOf(identity.column(parsedName(f))))}::text`
-										),
+										Arr.map(t.fields, (f) => `${columnName(names, t, f)}::text`),
 										", "
-									)} FROM ${q}.${quoteIdent(identifierOf(identity.table(parsedName(t.relation))))}`,
+									)} FROM ${tableName(names, t)}`,
 									[]
 								),
 								(rows) => Arr.map(rows, (row) => Arr.map(row, (x) => String(x)))
 							)
 						)
-						yield* transaction(s.admin, loadState(q))
+						yield* transaction(s.admin, loadState(names))
 						const situations: Arr.NonEmptyReadonlyArray<IsolationFeature> = [
 							"truncate: refused by privilege",
 							...Arr.flatMap(writes, (w): ReadonlyArray<IsolationFeature> => [
@@ -398,7 +396,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 							},
 							([[level, actor, statement], table], c) =>
 								Effect.gen(function* () {
-									const sql = sqlOf(q, statement, table)
+									const sql = sqlOf(names, statement, table)
 									const point = `${actor} at ${level}: ${sql}`
 									const verdict = predict(level, actor, statement, table)
 									const met = yield* runPoint(sessions[actor], level, sql, statement === "select")
@@ -423,10 +421,8 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 											assert.deepEqual(
 												[met.schema, met.table],
 												[
-													Option.some(installed.schema),
-													Option.some(
-														identifierOf(identity.table(parsedName(verdict.table.relation)))
-													)
+													Option.some(names.schema),
+													Option.some(names.tableIdent(verdict.table.relation))
 												],
 												`${point}: the refusal names the table, by its schema and name`
 											)
@@ -445,9 +441,9 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 									const state = yield* Effect.orDie(readState)
 									for (const [i, t] of tables.entries()) {
 										assert.deepEqual(
-											rowsAgree(defined(state[i], `${t.relation}'s rows`), t.rows),
+											rowsAgree(defined(state[i], `${t.relation.name}'s rows`), t.rows),
 											Option.none(),
-											`${point}: ${t.relation} is as it started`
+											`${point}: ${t.relation.name} is as it started`
 										)
 									}
 								})
