@@ -2,30 +2,36 @@
  * The rewrite pipeline preserves what every query of the small closed universe delivers, on every database the
  * query's context may see.
  *
- * Every plan of the small-scope grammars (test/unit/analysis/small/plans.ts: the core grammar up to three operators,
- * the extended one up to two), under every key and containment variant and every execution context it can be read in,
- * is checked as a compilation checks it and run through the optimizer's rewrite pipeline (lower/optimize/pipeline.ts
- * rewritePipeline: demand, semantic simplification, the relational rewrites, the compile-target catalog and graph
- * specialization) under the context's own catalog, with the evidence contexts its installation gives. On every
- * database of the universe the context may see, under every binding of the plan's parameters, the reference evaluator
- * computes the same statements, headings and row sets for the rewritten query as for the checked one
- * (rewrite/support.ts delivery). A database only a transaction may see (a containment broken until commit) is where a
- * rewrite that trusted evidence the context does not hold delivers something else.
+ * Every plan of the small-scope grammars (test/unit/analysis/small/plans.ts) up to two operators, under every key and
+ * containment variant and every execution context it can be read in, is checked as a compilation checks it and run
+ * through the optimizer's rewrite pipeline (lower/optimize/pipeline.ts rewritePipeline: demand, semantic
+ * simplification, the relational rewrites, the compile-target catalog and graph specialization) under the context's
+ * own catalog, with the evidence contexts its installation gives. On every database of the universe the context may
+ * see, under every binding of the plan's parameters, the reference evaluator computes the same statements, headings
+ * and row sets for the rewritten query as for the checked one (rewrite/support.ts delivery). A database only a
+ * transaction may see (a containment broken until commit) is where a rewrite that trusted evidence the context does not
+ * hold delivers something else. Plans of the core grammar up to three operators are searched with the same property.
+ *
+ * Three-operator exhaustion costs about 28 minutes per project (49,546 cases), so two operators are exhausted and three
+ * searched.
  *
  * A refusal by the pipeline is a failure: the checker admitted the query, so the compilation must lower it.
  *
  * Oracle: the reference evaluator's delivery of the checked query (a second implementation). Features: each plan's
  * operators, the semi-join, elimination and pruning rules, the transaction context, a dangling reference a transaction
- * sees.
+ * sees; and in the search, every core operator at depth three and every context. No kept cases: the runs whose limit
+ * the three-operator space outgrew refused it before any case ran.
  *
- * Plant, failing both searches: a deferred containment read as proving existence inside a transaction
+ * Plant, failing every search: a deferred containment read as proving existence inside a transaction
  * (eliminate-deferred).
  */
 import { describe, it } from "@effect/vitest"
 import { count } from "@grizzle/testing/enumerate"
-import { type Case, exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
+import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
@@ -45,7 +51,8 @@ import {
 	type PlanFeature,
 	planOps,
 	plansUpTo,
-	printPlan
+	printPlan,
+	type Step
 } from "#test/unit/analysis/small/plans.ts"
 
 import { caseHang } from "#test/support/limits.ts"
@@ -70,6 +77,20 @@ type UniverseFeature =
 	| CertificateRule
 	| `context ${TemplateContext}`
 	| "a dangling reference seen in a transaction"
+	| `${Step["op"]} at depth three`
+
+/** The core grammar's operators after its scan (plans.ts plansUpTo), each one a search must reach at depth three. */
+const coreSteps: Arr.NonEmptyReadonlyArray<Step["op"]> = [
+	"filter",
+	"project",
+	"join",
+	"negate",
+	"count",
+	"take",
+	"union",
+	"attach",
+	"ordinal"
+]
 
 /**
  * One plan under one installed variant: in each context, the rewritten query delivers what the checked one delivers on
@@ -173,10 +194,60 @@ const exhaustUpTo = (
 	)
 }
 
+/**
+ * The plans of `grammar` up to three operators under every variant of `among`, searched: each case's plan preserves its
+ * delivery as an exhausted one does, and the search must reach every operator of the core grammar as the third and
+ * every context.
+ */
+const searchDepthThree = (grammar: Grammar, among: Arr.NonEmptyReadonlyArray<Variant>) => {
+	const installs = new Map(Arr.map(among, (variant) => [variant, installed(variant)] as const))
+	return explore(
+		{
+			oracle: {
+				kind: "second-implementation",
+				name: "the reference evaluator's delivery of the checked query"
+			},
+			suite: `unit/lower/rewrite/universe-${grammar.name}-3-search`,
+			draw: drawn(
+				(source): readonly [Variant, Plan] =>
+					[source.draw(element(among)), source.draw(plansUpTo(grammar, 3))] as const
+			),
+			literal: Formatter.format,
+			coverage: required<UniverseFeature>(
+				[
+					...Arr.map(coreSteps, (op): UniverseFeature => `${op} at depth three`),
+					"context snapshot",
+					"context transaction"
+				],
+				{ cases: 400, sense: notesOnly }
+			),
+			kept: [],
+			runs: 200,
+			shrink: completeShrink,
+			concurrency: 1,
+			steerEvery: 16,
+			caseHang
+		},
+		([variant, plan], c) =>
+			Effect.sync(() => {
+				const [, third] = plan.steps
+				if (third !== undefined) {
+					c.note(`${third.op} at depth three`)
+				}
+				preserves(defined(installs.get(variant), `the installation of ${variant.name}`), plan, c)
+			})
+	)
+}
+
 describe("the rewrite pipeline over a small closed universe", () => {
 	it.effect(
-		"every core query of up to three operators delivers what it delivered before the rewrites",
-		(ctx) => searched(ctx, exhaustUpTo(coreGrammar, variants, 3))
+		"every core query of up to two operators delivers what it delivered before the rewrites",
+		(ctx) => searched(ctx, exhaustUpTo(coreGrammar, variants, 2))
+	)
+
+	it.effect(
+		"every searched core query of up to three operators delivers what it delivered before the rewrites",
+		(ctx) => searched(ctx, searchDepthThree(coreGrammar, variants))
 	)
 
 	it.effect(
