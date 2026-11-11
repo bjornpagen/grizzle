@@ -236,7 +236,13 @@ describe("the live registry", () => {
 												refusals.queued -= 1
 												return Stream.fromIterable<SetEvent<Row>>([
 													{ kind: "reset", key: ["id"] },
-													{ kind: "error", error: callError("transient", { message: "40001" }) }
+													{
+														kind: "error",
+														error: callError("transient", {
+															message: "40001",
+															reason: "SerializationFailure"
+														})
+													}
 												])
 											}
 											return Stream.fromIterable<SetEvent<Row>>([
