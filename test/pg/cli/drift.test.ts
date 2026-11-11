@@ -463,10 +463,10 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 									identifierOf(identity.table(parsedName("Doc"))),
 									identifierOf(identity.table(parsedName("Note")))
 								],
-								editor: roleNameOf(w.editor, {}),
-								viewer: roleNameOf(w.viewer, {}),
-								keeper: roleNameOf(w.keeper, {}),
-								login: roleNameOf(w.desk, {}),
+								editor: roleNameOf(w.editor),
+								viewer: roleNameOf(w.viewer),
+								keeper: roleNameOf(w.keeper),
+								login: roleNameOf(w.desk),
 								roleSchemas: [roleSchema("editor"), roleSchema("viewer")]
 							}
 							return yield* explore(
