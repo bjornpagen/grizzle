@@ -47,9 +47,11 @@ const kindRank: Readonly<Record<GraphIdent["kind"], number>> = {
 	view: 12,
 	policy: 13,
 	rowSecurity: 14,
-	privileges: 15,
-	extension: 16,
-	other: 17
+	replicaIdentity: 15,
+	publication: 16,
+	privileges: 17,
+	extension: 18,
+	other: 19
 }
 
 const rank = (ident: string): number => kindRank[parseIdent(ident).kind]
@@ -70,6 +72,7 @@ const nameOf = (ident: GraphIdent): string => {
 		case "role":
 		case "membership":
 		case "privileges":
+		case "publication":
 			return ident.name
 		case "domain":
 		case "table":
@@ -79,6 +82,7 @@ const nameOf = (ident: GraphIdent): string => {
 		case "statistics":
 		case "function":
 		case "rowSecurity":
+		case "replicaIdentity":
 			return `${ident.schema}.${ident.name}`
 		case "column":
 		case "constraint":
@@ -91,7 +95,7 @@ const nameOf = (ident: GraphIdent): string => {
 }
 
 /** What a COMMENT names for an object identity: its object's target, or none for an identity no comment names (an
- * extension, a membership, a role's privileges, row security, a validation). */
+ * extension, a membership, a role's privileges, row security, a replica identity, a publication, a validation). */
 const commentTarget = (ident: GraphIdent): CommentTarget | undefined => {
 	switch (ident.kind) {
 		case "schema":
@@ -135,6 +139,8 @@ const commentTarget = (ident: GraphIdent): CommentTarget | undefined => {
 		case "membership":
 		case "privileges":
 		case "rowSecurity":
+		case "replicaIdentity":
+		case "publication":
 		case "other":
 			return undefined
 	}

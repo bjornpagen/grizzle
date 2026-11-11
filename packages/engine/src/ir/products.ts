@@ -434,6 +434,8 @@ export const physicalKinds = [
 	"constant",
 	"domain",
 	"table",
+	"liveSecret",
+	"replicaIdentity",
 	"lawColumn",
 	"primaryKey",
 	"unique",
@@ -452,12 +454,14 @@ export const physicalKinds = [
 	"lawFunction",
 	"lawTrigger",
 	"role",
+	"decoder",
 	"membership",
 	"roleSchema",
 	"view",
 	"worldFunction",
 	"policy",
 	"rowSecurity",
+	"publication",
 	"privileges",
 	"ledger"
 ] as const

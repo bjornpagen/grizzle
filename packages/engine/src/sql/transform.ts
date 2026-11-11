@@ -968,6 +968,7 @@ export class Transform {
 			case "dropIdentity":
 			case "enableRowSecurity":
 			case "disableRowSecurity":
+			case "replicaIdentity":
 				return a
 		}
 	}
@@ -1259,6 +1260,18 @@ export class Transform {
 				const fn = this.name(s.function, "function")
 				return table === s.table && fn === s.function ? s : { ...s, table, function: fn }
 			}
+			case "createPublication": {
+				const tables = mapList(s.tables, (p) => {
+					const table = this.name(p.table, "relation")
+					return table === p.table ? p : { ...p, table }
+				})
+				return tables === s.tables ? s : { ...s, tables }
+			}
+			case "createLiveSecret": {
+				const table = this.name(s.table, "relation")
+				return table === s.table ? s : { ...s, table }
+			}
+			case "dropPublication":
 			case "alterDatabaseDefault":
 				return s
 			case "grant":
@@ -1366,6 +1379,9 @@ export class Transform {
 			case "createFunction":
 			case "createGuardTrigger":
 			case "createConstraintTrigger":
+			case "createPublication":
+			case "dropPublication":
+			case "createLiveSecret":
 			case "createIndex":
 			case "createMaterializedView":
 			case "createPolicy":

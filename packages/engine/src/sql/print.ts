@@ -54,6 +54,7 @@ import {
 	type PerformQuery,
 	type PlBlock,
 	type PlStatement,
+	type PublishedTable,
 	type DrivenColumn,
 	type MetKey,
 	type ProbeBy,
@@ -1251,10 +1252,18 @@ const printAlterTableAction = (action: AlterTableAction): string => {
 			return "ENABLE ROW LEVEL SECURITY"
 		case "disableRowSecurity":
 			return "DISABLE ROW LEVEL SECURITY"
+		case "replicaIdentity":
+			return action.identity === "full" ? "REPLICA IDENTITY FULL" : "REPLICA IDENTITY DEFAULT"
 		case "setExpression":
 			return `ALTER COLUMN ${quoteIdent(action.column)} SET EXPRESSION AS (${printExpr(action.expr)})`
 	}
 }
+
+/** A published table: its name, and its column list where it has one. */
+const printPublishedTable = (published: PublishedTable): string =>
+	published.columns.kind === "whole"
+		? printObjectName(published.table)
+		: `${printObjectName(published.table)} (${printIdentList(published.columns.columns)})`
 
 const printAlterDomainAction = (action: AlterDomainAction): string => {
 	switch (action.kind) {
@@ -1781,6 +1790,25 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 			)
 			clauses.line("DEFERRABLE INITIALLY DEFERRED")
 			return clauses.line(`FOR EACH ROW EXECUTE FUNCTION ${printObjectName(statement.function)}()`)
+		}
+		case "createPublication": {
+			out.line(`CREATE PUBLICATION ${quoteIdent(statement.name)}`)
+			const clauses = out.nested()
+			const [first, ...rest] = statement.tables
+			if (first !== undefined) {
+				clauses.line(`FOR TABLE ${[first, ...rest].map(printPublishedTable).join(", ")}`)
+			}
+			return clauses.line(
+				"WITH (publish = 'insert, update, delete, truncate', publish_generated_columns = stored)"
+			)
+		}
+		case "dropPublication":
+			return out.line(`DROP PUBLICATION ${quoteIdent(statement.name)}`)
+		case "createLiveSecret": {
+			const draw = `${inCatalog("uuid_send")}(${inCatalog("gen_random_uuid")}())`
+			return out.line(
+				`CREATE TABLE ${printObjectName(statement.table)} (${quoteIdent("secret")}) AS SELECT ${inCatalog("sha256")}(${draw} || ${draw})`
+			)
 		}
 		case "alterDatabaseDefault":
 			return writeDo(out, databaseDefaultBlock(statement))

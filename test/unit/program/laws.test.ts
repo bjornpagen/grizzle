@@ -712,6 +712,7 @@ const reportable = (installation: Installation): ReadonlyArray<IdentifiedLaw> =>
 						case "dropConstraint":
 						case "enableRowSecurity":
 						case "disableRowSecurity":
+						case "replicaIdentity":
 						case "setExpression":
 							return []
 					}
@@ -738,6 +739,9 @@ const reportable = (installation: Installation): ReadonlyArray<IdentifiedLaw> =>
 			case "renameConstraint":
 			case "lockTable":
 			case "createGuardTrigger":
+			case "createPublication":
+			case "dropPublication":
+			case "createLiveSecret":
 			case "dropTrigger":
 			case "createMaterializedView":
 			case "drop":

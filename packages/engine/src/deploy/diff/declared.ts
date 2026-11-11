@@ -1235,6 +1235,7 @@ const withColumns = (
 			case "dropConstraint":
 			case "enableRowSecurity":
 			case "disableRowSecurity":
+			case "replicaIdentity":
 				return a
 		}
 	}
@@ -1287,6 +1288,21 @@ const withColumns = (
 			const into = renamed(s.table)
 			return into === undefined ? s : { ...s, columns: mapNonEmpty(s.columns, nameIn(into)) }
 		}
+		case "createPublication":
+			return {
+				...s,
+				tables: s.tables.map((p) => {
+					const into = renamed(p.table)
+					return into === undefined || p.columns.kind === "whole"
+						? p
+						: {
+								...p,
+								columns: { kind: "listed", columns: mapNonEmpty(p.columns.columns, nameIn(into)) }
+							}
+				})
+			}
+		case "dropPublication":
+		case "createLiveSecret":
 		case "select":
 		case "insert":
 		case "update":
@@ -1401,6 +1417,9 @@ const withRoles = (s: SqlStatement, roles: ReadonlyMap<string, string>): SqlStat
 		case "createFunction":
 		case "packConstant":
 		case "createConstant":
+		case "createPublication":
+		case "dropPublication":
+		case "createLiveSecret":
 		case "createGuardTrigger":
 		case "createConstraintTrigger":
 		case "alterDatabaseDefault":

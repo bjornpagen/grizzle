@@ -16,15 +16,18 @@ function refuse(what: string): never {
 	throw new Refusal(malformedArtifact("manifest", [], what))
 }
 
-/** A column or a constraint added after its table, or its row security enabled: the only ALTER TABLE an installation
- * runs. */
+/** A column or a constraint added after its table, its row security enabled, or its replica identity set: the only
+ * ALTER TABLE an installation runs. */
 type ManifestAlterTableAction = Extract<
 	AlterTableAction,
-	{ readonly kind: "addColumn" | "addConstraint" | "enableRowSecurity" }
+	{ readonly kind: "addColumn" | "addConstraint" | "enableRowSecurity" | "replicaIdentity" }
 >
 
 const isManifestAction = (a: AlterTableAction): a is ManifestAlterTableAction =>
-	a.kind === "addColumn" || a.kind === "addConstraint" || a.kind === "enableRowSecurity"
+	a.kind === "addColumn" ||
+	a.kind === "addConstraint" ||
+	a.kind === "enableRowSecurity" ||
+	a.kind === "replicaIdentity"
 
 /** What an installation manifest holds: each object's creating statements, a validation's queries, the database's
  * defaults, the PUBLIC revocations, and the logins' defaults (ALTER ROLE ... SET) with the query that loads
@@ -46,6 +49,8 @@ export type ManifestStatement =
 					| "createFunction"
 					| "createGuardTrigger"
 					| "createConstraintTrigger"
+					| "createPublication"
+					| "createLiveSecret"
 					| "alterDatabaseDefault"
 					| "createRole"
 					| "grantRole"
@@ -81,6 +86,8 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "createFunction":
 		case "createGuardTrigger":
 		case "createConstraintTrigger":
+		case "createPublication":
+		case "createLiveSecret":
 		case "alterDatabaseDefault":
 		case "createRole":
 		case "grantRole":
@@ -104,7 +111,7 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 				return { kind: s.kind, table: s.table, actions: [first, ...rest] }
 			}
 			return refuse(
-				"a manifest whose ALTER TABLE only adds a column or a constraint, or enables row security"
+				"a manifest whose ALTER TABLE only adds a column or a constraint, enables row security, or sets a replica identity"
 			)
 		}
 		case "rename":
@@ -117,6 +124,7 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "drop":
 		case "dropFunction":
 		case "dropTrigger":
+		case "dropPublication":
 		case "lockTable":
 		case "insert":
 		case "update":

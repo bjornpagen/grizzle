@@ -386,7 +386,8 @@ export class InstallBuilder {
 			case "index":
 			case "statistics":
 			case "function":
-			case "rowSecurity": {
+			case "rowSecurity":
+			case "replicaIdentity": {
 				const kind =
 					this.#qualified.get(ident.kind) ?? new Map<string, Map<string, Node<DeployPhase>>>()
 				const schema = kind.get(ident.schema.identifier) ?? new Map<string, Node<DeployPhase>>()
@@ -399,6 +400,7 @@ export class InstallBuilder {
 			case "role":
 			case "membership":
 			case "privileges":
+			case "publication":
 			case "extension":
 			case "column":
 			case "constraint":

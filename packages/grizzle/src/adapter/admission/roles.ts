@@ -699,6 +699,8 @@ interface RoleAttributes {
 }
 
 const roles = C.from("pg_roles", "r")
+const replicationMembers = C.from("pg_auth_members", "m")
+const grantedRoles = C.from("pg_roles", "g")
 
 /** The attributes of the role $1: one row, none when it does not exist. */
 export const attributesQuery: CatalogQuery<RoleAttributes> = {
@@ -710,7 +712,27 @@ export const attributesQuery: CatalogQuery<RoleAttributes> = {
 				C.asText(roles.col("rolsuper")),
 				C.asText(roles.col("rolcreatedb")),
 				C.asText(roles.col("rolcreaterole")),
-				C.asText(roles.col("rolreplication")),
+				C.asText(
+					C.or([
+						roles.col("rolreplication"),
+						C.exists(
+							C.query(
+								[C.bool(true)],
+								[
+									C.join(
+										members.item,
+										grantedRoles.item,
+										C.eq(grantedRoles.col("oid"), members.col("roleid"))
+									)
+								],
+								C.and([
+									C.eq(replicationMembers.col("member"), roles.col("oid")),
+									C.eq(grantedRoles.col("rolname"), C.literal("rds_replication", "name"))
+								])
+							)
+						)
+					])
+				),
 				C.asText(roles.col("rolbypassrls"))
 			],
 			[roles.item],
@@ -737,7 +759,9 @@ export const attributesQuery: CatalogQuery<RoleAttributes> = {
 
 /**
  * An attribute the role holds otherwise than the snapshot installs it, by its CREATE ROLE spelling: a login is LOGIN
- * NOINHERIT, a theory role NOLOGIN, and neither is SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS.
+ * NOINHERIT, a theory role NOLOGIN, and neither is SUPERUSER, CREATEDB, CREATEROLE or BYPASSRLS; only the decoder
+ * login holds the replication right (RoleExpectation replication), the REPLICATION attribute or, on Amazon RDS, a
+ * membership in rds_replication, which grants it there.
  */
 export interface AttributeDifference {
 	readonly attribute: string
@@ -770,7 +794,7 @@ export const attributeDifferences = (
 	want("SUPERUSER", a.superuser, false)
 	want("CREATEDB", a.createDb, false)
 	want("CREATEROLE", a.createRole, false)
-	want("REPLICATION", a.replication, false)
+	want("REPLICATION", a.replication, expectation.replication)
 	want("BYPASSRLS", a.bypassRls, false)
 	return out
 }

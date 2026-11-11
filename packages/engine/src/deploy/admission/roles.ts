@@ -1,4 +1,10 @@
-import { type InstalledRoleTooLong, roleInSpace, type RoleSpace } from "#compiler/core/identity.ts"
+import {
+	identifierOf,
+	identity,
+	type InstalledRoleTooLong,
+	roleInSpace,
+	type RoleSpace
+} from "#compiler/core/identity.ts"
 import { combine, compareStrings, mapInput } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { ManifestStatement } from "#compiler/deploy/admission/manifest.ts"
@@ -108,6 +114,11 @@ export interface RoleExpectation {
 	readonly role: string
 	/** Whether it may log in: a login, or a theory role. */
 	readonly login: boolean
+	/**
+	 * Whether it holds the replication right: the installation's decoder login (core/identity.ts identity.liveSource of
+	 * its root), which reads its live source's slot, and no other role.
+	 */
+	readonly replication: boolean
 	/** Its own defaults, by parameter. */
 	readonly settings: ReadonlyMap<string, string>
 	/** Each privilege once, by family, object, column and type. */
@@ -292,6 +303,7 @@ export const roleExpectation = (
 		role,
 		/** A role the manifest does not create logs in nowhere. */
 		login: logins.at(-1) === true,
+		replication: logins.length > 0 && role === identifierOf(identity.liveSource(schema)),
 		settings: new Map(
 			statements.flatMap((s) =>
 				s.kind === "alterRole" && s.name === role

@@ -304,6 +304,7 @@ export const builtinFunctionNames = [
 	"to_jsonb",
 	"setval",
 	"pg_advisory_xact_lock",
+	"pg_drop_replication_slot",
 	"current_setting",
 	"set_config",
 	"pg_jit_available",
@@ -1268,6 +1269,15 @@ export type AlterTableAction =
 	| { readonly kind: "disableRowSecurity" }
 	| {
 			/**
+			 * REPLICA IDENTITY FULL or DEFAULT: what an update's or a delete's WAL record keeps of the row it changed, every
+			 * column or the primary key's, which the installation's live source decodes its old routing values from
+			 * (physical/ddl/live.ts).
+			 */
+			readonly kind: "replicaIdentity"
+			readonly identity: "full" | "default"
+	  }
+	| {
+			/**
 			 * ALTER COLUMN <column> SET EXPRESSION AS (<expr>): a generated column's expression replaced, which rewrites
 			 * the table once for every column the statement re-expresses.
 			 */
@@ -1503,6 +1513,45 @@ export interface CreateConstraintTrigger {
 export type TriggerEvent =
 	| { readonly kind: "insert" | "delete" }
 	| { readonly kind: "update"; readonly columns: NonEmptyReadonlyArray<string> }
+
+/**
+ * A table a publication publishes (physical/ddl/live.ts): `whole`, every column, as a table of REPLICA IDENTITY FULL
+ * must be, which no column list may narrow; or `listed`, the columns named, which hold its replica identity.
+ */
+export interface PublishedTable {
+	readonly table: ObjectName
+	readonly columns:
+		| { readonly kind: "whole" }
+		| { readonly kind: "listed"; readonly columns: NonEmptyReadonlyArray<string> }
+}
+
+/**
+ * CREATE PUBLICATION <name> [FOR TABLE <table> [(<columns>)], ...] WITH (publish = 'insert, update, delete,
+ * truncate', publish_generated_columns = stored): the installation's live source's publication, of every footprint
+ * table, every kind of change, and a stored generated column of a table published whole, as REPLICA IDENTITY FULL asks;
+ * none, a publication of no table, where the live plan reads only materialized views.
+ */
+export interface CreatePublication {
+	readonly kind: "createPublication"
+	readonly name: string
+	readonly tables: ReadonlyArray<PublishedTable>
+}
+
+export interface DropPublication {
+	readonly kind: "dropPublication"
+	readonly name: string
+}
+
+/**
+ * CREATE TABLE <table> ("secret") AS SELECT sha256(uuid_send(gen_random_uuid()) || uuid_send(gen_random_uuid())): the
+ * installation's live secret, drawn from PostgreSQL's strong random source as the table is created, in the one
+ * statement that creates it, so a migration draws it exactly once: two version 4 UUIDs, 244 random bits, hashed into
+ * the 32 bytes of an AES-256 key.
+ */
+export interface CreateLiveSecret {
+	readonly kind: "createLiveSecret"
+	readonly table: ObjectName
+}
 
 /**
  * The current database's default of a configuration parameter, whatever the database is named, printed as a DO block
@@ -1970,6 +2019,9 @@ export type Ddl =
 	| CreateConstant
 	| CreateGuardTrigger
 	| CreateConstraintTrigger
+	| CreatePublication
+	| DropPublication
+	| CreateLiveSecret
 	| AlterDatabaseDefault
 	| CreateRole
 	| AlterRole

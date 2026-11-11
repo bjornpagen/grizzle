@@ -18,6 +18,7 @@ import {
 } from "#compiler/sql/ast.ts"
 import { storedSettingValue } from "#compiler/sql/print.ts"
 
+import { types } from "#compiler/sql/build.ts"
 import type {
 	Catalog,
 	CatalogGeneration,
@@ -450,6 +451,15 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 	}
 	for (const s of statements) {
 		switch (s.kind) {
+			case "createLiveSecret":
+				tables.set(s.table.name, {
+					name: s.table.name,
+					columns: [
+						{ name: "secret", type: types.bytea, collation: undefined, generated: undefined }
+					],
+					constraints: []
+				})
+				break
 			case "createTable": {
 				const t: CreateTable = s
 				tables.set(t.table.name, {
@@ -546,6 +556,8 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 			case "lockTable":
 			case "createGuardTrigger":
 			case "createConstraintTrigger":
+			case "createPublication":
+			case "dropPublication":
 			case "dropTrigger":
 			case "createMaterializedView":
 			case "drop":

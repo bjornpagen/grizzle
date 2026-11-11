@@ -9,9 +9,11 @@ import {
 	type CreateDomain,
 	type CreateConstraintTrigger,
 	type CreateGuardTrigger,
+	type CreateLiveSecret,
 	type CreateIndex,
 	type CreateMaterializedView,
 	type CreatePolicy,
+	type CreatePublication,
 	type CreateRole,
 	type CreateSchema,
 	type CreateStatistics,
@@ -128,6 +130,22 @@ export type Installed =
 	| { readonly kind: "view"; readonly object: ManifestObject; readonly create: CreateView }
 	| { readonly kind: "policy"; readonly object: ManifestObject; readonly create: CreatePolicy }
 	| { readonly kind: "rowSecurity"; readonly object: ManifestObject; readonly table: ObjectName }
+	| {
+			readonly kind: "replicaIdentity"
+			readonly object: ManifestObject
+			readonly table: ObjectName
+	  }
+	| {
+			readonly kind: "liveSecret"
+			readonly object: ManifestObject
+			readonly create: CreateLiveSecret
+	  }
+	| {
+			readonly kind: "publication"
+			readonly object: ManifestObject
+			readonly create: CreatePublication
+	  }
+	| { readonly kind: "decoder"; readonly object: ManifestObject; readonly create: CreateRole }
 	| {
 			readonly kind: "lawColumn"
 			readonly object: ManifestObject
@@ -280,6 +298,27 @@ export const installed = (o: ManifestObject): Installed => {
 				? { kind: o.kind, object: o, table: s.table }
 				: malformed("exactly one ALTER TABLE ... ENABLE ROW LEVEL SECURITY")
 		}
+		case "replicaIdentity": {
+			const [action, ...more] = s?.kind === "alterTable" && o.ddl.length === 1 ? s.actions : []
+			return s?.kind === "alterTable" &&
+				action?.kind === "replicaIdentity" &&
+				action.identity === "full" &&
+				more.length === 0
+				? { kind: o.kind, object: o, table: s.table }
+				: malformed("exactly one ALTER TABLE ... REPLICA IDENTITY FULL")
+		}
+		case "liveSecret":
+			return s?.kind === "createLiveSecret" && o.ddl.slice(1).every((r) => r.kind === "revoke")
+				? { kind: o.kind, object: o, create: s }
+				: malformed("the live secret's CREATE TABLE ... AS, then its revokes")
+		case "publication":
+			return o.ddl.length === 1 && s?.kind === "createPublication"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("exactly one CREATE PUBLICATION")
+		case "decoder":
+			return o.ddl.length === 1 && s?.kind === "createRole" && s.login
+				? { kind: o.kind, object: o, create: s }
+				: malformed("exactly one CREATE ROLE ... LOGIN")
 		case "privileges": {
 			const grantee = o.ddl
 				.flatMap((g) => (g.kind === "grant" ? g.to : []))
@@ -380,8 +419,10 @@ export const objectTable = (o: ManifestObject): ObjectName | undefined => {
 		case "foreignKey":
 		case "lawColumn":
 		case "rowSecurity":
+		case "replicaIdentity":
 			return v.table
 		case "policy":
+		case "liveSecret":
 			return v.create.table
 		case "constant":
 		case "domain":
@@ -394,6 +435,8 @@ export const objectTable = (o: ManifestObject): ObjectName | undefined => {
 		case "role":
 		case "membership":
 		case "privileges":
+		case "publication":
+		case "decoder":
 		case "roleSchema":
 		case "view":
 		case "schema":
@@ -540,6 +583,10 @@ export const builtOver = (
 		case "view":
 		case "policy":
 		case "rowSecurity":
+		case "replicaIdentity":
+		case "liveSecret":
+		case "publication":
+		case "decoder":
 		case "schema":
 		case "extension":
 		case "ledger":
@@ -679,6 +726,10 @@ const objectParts = (
 		case "view":
 		case "policy":
 		case "rowSecurity":
+		case "replicaIdentity":
+		case "liveSecret":
+		case "publication":
+		case "decoder":
 		case "schema":
 		case "extension":
 		case "ledger":

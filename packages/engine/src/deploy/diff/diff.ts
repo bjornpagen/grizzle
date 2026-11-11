@@ -94,6 +94,7 @@ import type {
 	TypeSchema
 } from "#compiler/sql/ast.ts"
 
+import { dropLiveSlot } from "#compiler/physical/ddl/live.ts"
 import {
 	call,
 	cast,
@@ -211,7 +212,10 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	index: 5,
 	uniqueIndex: 5,
 	rowSecurity: 5,
+	replicaIdentity: 5,
 	role: 6,
+	decoder: 6,
+	publication: 6,
 	roleSchema: 6,
 	statistics: 7,
 	materializedView: 9,
@@ -225,6 +229,7 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	lawColumn: 12,
 	column: 13,
 	table: 14,
+	liveSecret: 14,
 	domain: 15,
 	constant: 16,
 	schema: 17
@@ -1233,6 +1238,25 @@ class Differ {
 					])
 				}
 				return
+			case "liveSecret":
+			case "replicaIdentity":
+				if (before === undefined) {
+					this.sql("structure", o.ddl)
+				}
+				return
+			case "publication":
+				if (before !== undefined && !same(before.ddl, o.ddl)) {
+					this.sql("structure.drop", [{ kind: "dropPublication", name: v.create.name }])
+				}
+				if (before === undefined || !same(before.ddl, o.ddl)) {
+					this.sql("publish", o.ddl)
+				}
+				return
+			case "decoder":
+				if (before === undefined) {
+					this.sql("publish.roles", o.ddl)
+				}
+				return
 			case "privileges":
 				return
 			case "validation":
@@ -2166,10 +2190,31 @@ class Differ {
 				}
 				return
 			case "role":
+			case "decoder":
 				drop(
 					v.kind,
 					statement({ kind: "drop", object: "ROLE", name: v.create.name, ifExists: false })
 				)
+				return
+			case "liveSecret":
+				drop(
+					v.kind,
+					statement({ kind: "drop", object: "TABLE", name: v.create.table, ifExists: false })
+				)
+				return
+			case "replicaIdentity":
+				if (!tableGone) {
+					drop(
+						v.kind,
+						statement(alter(v.table, [{ kind: "replicaIdentity", identity: "default" }]))
+					)
+				}
+				return
+			case "publication":
+				this.sql("structure.drop", [
+					{ kind: "dropPublication", name: v.create.name },
+					dropLiveSlot(v.create.name)
+				])
 				return
 			case "isolationTrigger":
 				if (!tableGone) {
@@ -3086,6 +3131,10 @@ const replacementDrop = (v: Installed): Drop | undefined => {
 		case "worldFunction":
 		case "policy":
 		case "rowSecurity":
+		case "replicaIdentity":
+		case "liveSecret":
+		case "publication":
+		case "decoder":
 		case "ledger":
 			return undefined
 	}

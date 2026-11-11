@@ -97,6 +97,7 @@ import type {
 	TypeSchema
 } from "#compiler/sql/ast.ts"
 
+import { type LiveSecretTable, secretGrants } from "#compiler/physical/ddl/live.ts"
 import {
 	and,
 	binary,
@@ -1429,7 +1430,8 @@ const addLogin = (
 	cx: WorldsContext,
 	{ login, roles }: CheckedLogin,
 	advance: AdvanceFunctions,
-	carriers: ReadonlyArray<RoleOfLogin>
+	carriers: ReadonlyArray<RoleOfLogin>,
+	secret: LiveSecretTable
 ): {
 	readonly installed: InstalledLogin
 	readonly vector: boolean
@@ -1465,12 +1467,13 @@ const addLogin = (
 					privileges: ["EXECUTE"],
 					on: { kind: "FUNCTION", names: [snapshotGuardFunction(b.schema)] },
 					to: [{ kind: "role", name: role }]
-				}
+				},
+				...secretGrants(secret, role)
 			],
 			reasons: why,
 			phase: "publish"
 		},
-		[roleObject, b.schemaNode, b.snapshotGuard]
+		[roleObject, b.schemaNode, b.snapshotGuard, ...(secret.kind === "secret" ? [secret.node] : [])]
 	)
 	const outcomes = [...roles]
 		.toSorted((x, y) => compareText(x.checked.world.role.name, y.checked.world.role.name))
@@ -1668,7 +1671,8 @@ export const addWorlds = (
 	advance: AdvanceFunctions,
 	revocable: Revocable,
 	checkedLogins: ReadonlyArray<CheckedLogin>,
-	carriers: ReadonlyArray<RoleOfLogin>
+	carriers: ReadonlyArray<RoleOfLogin>,
+	secret: LiveSecretTable
 ): WorldsPlan => {
 	const logins = [...checkedLogins].toSorted((x, y) => compareText(x.login.name, y.login.name))
 	const cx = worldsContext(b)
@@ -1678,7 +1682,7 @@ export const addWorlds = (
 	const views: Array<ObjectName> = []
 	const writers: Array<Writer> = []
 	for (const login of logins) {
-		const added = addLogin(b, cx, login, advance, carriers)
+		const added = addLogin(b, cx, login, advance, carriers, secret)
 		worlds.push(added.installed)
 		appendAll(views, added.views)
 		appendAll(writers, added.writers)

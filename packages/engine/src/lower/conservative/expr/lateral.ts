@@ -76,6 +76,7 @@ const reach: { readonly [N in BuiltinFunctionName]: "row" | "rows" } = {
 	to_jsonb: "row",
 	setval: "row",
 	pg_advisory_xact_lock: "row",
+	pg_drop_replication_slot: "row",
 	current_setting: "row",
 	set_config: "row",
 	pg_jit_available: "row",

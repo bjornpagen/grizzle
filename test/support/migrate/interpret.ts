@@ -20,7 +20,7 @@ import {
 	type Update,
 	tableConstraints
 } from "#compiler/sql/ast.ts"
-import { namedType } from "#compiler/sql/build.ts"
+import { namedType, types } from "#compiler/sql/build.ts"
 import { printObjectName, printType } from "#compiler/sql/print.ts"
 import { identityHooks, transformExpr, transformSelect } from "#compiler/sql/transform.ts"
 import { textOfHex } from "#test/support/closed/bit-text.ts"
@@ -1391,6 +1391,19 @@ class Model {
 	readonly #statistics = new Map<string, Statistics>()
 	readonly #triggers = new Map<string, Map<string, Trigger>>()
 	readonly #views = new Map<string, View>()
+	/**
+	 * The database's publications, by name: each table of the schema it publishes, whole or by its column list, whose
+	 * columns it pins (pg_publication_rel's dependency on each listed column); a dropped table leaves every publication
+	 * of it, and a renamed table or column is followed.
+	 */
+	readonly #publications = new Map<
+		string,
+		Map<
+			string,
+			| { readonly kind: "whole" }
+			| { readonly kind: "listed"; readonly columns: ReadonlyArray<string> }
+		>
+	>()
 	readonly #dependents = new Map<string, View>()
 	readonly #domains = new Map<string, Domain>()
 	readonly #functions = new Map<string, Function>()
@@ -1549,7 +1562,13 @@ class Model {
 			[...(this.#triggers.get(relation) ?? new Map<string, Trigger>())],
 			([name, t]) => (t.columns.includes(column) ? [`the trigger ${name}`] : [])
 		)
-		return [...views, ...dependents, ...triggers]
+		const publications = Arr.flatMap([...this.#publications], ([name, tables]) => {
+			const published = tables.get(relation)
+			return published?.kind === "listed" && published.columns.includes(column)
+				? [`the publication ${name}`]
+				: []
+		})
+		return [...views, ...dependents, ...triggers, ...publications]
 	}
 
 	/** Drops an index; its constraint, or a foreign key bound to it, stops the drop unless the constraint itself goes. */
@@ -1898,6 +1917,12 @@ class Model {
 	/** Renames a column in everything that names it. */
 	#renameColumnIn(table: string, from: string, to: string): void {
 		const swap = (columns: ReadonlyArray<string>) => Arr.map(columns, (c) => (c === from ? to : c))
+		for (const tables of this.#publications.values()) {
+			const published = tables.get(table)
+			if (published?.kind === "listed") {
+				tables.set(table, { kind: "listed", columns: swap(published.columns) })
+			}
+		}
 		for (const [source, of] of this.#constraints) {
 			for (const [name, c] of of) {
 				const columns = source === table ? swap(c.columns) : c.columns
@@ -3047,6 +3072,7 @@ class Model {
 					break
 				case "enableRowSecurity":
 				case "disableRowSecurity":
+				case "replicaIdentity":
 					this.#table(s.table)
 					break
 			}
@@ -3069,6 +3095,13 @@ class Model {
 				this.#triggers.delete(s.name.name)
 				if (triggers !== undefined) {
 					this.#triggers.set(s.to, triggers)
+				}
+				for (const tables of this.#publications.values()) {
+					const published = tables.get(s.name.name)
+					if (published !== undefined) {
+						tables.delete(s.name.name)
+						tables.set(s.to, published)
+					}
 				}
 				this.#renameRelationIn(s.name.name, s.to)
 				return
@@ -3178,6 +3211,9 @@ class Model {
 				}
 				this.#readBy(name, `the table ${name}`)
 				this.#tables.delete(name)
+				for (const tables of this.#publications.values()) {
+					tables.delete(name)
+				}
 				this.#constraints.delete(name)
 				this.#triggers.delete(name)
 				for (const key of Arr.fromIterable(this.#dependents.keys())) {
@@ -3432,6 +3468,51 @@ class Model {
 			case "createGuardTrigger":
 				if (this.#ours(s.table)) {
 					this.#trigger(s.table, s.name, s.function, [], [])
+				}
+				return
+			case "createLiveSecret":
+				if (this.#ours(s.table)) {
+					this.#claimRelation(s.table.name, `the table ${printObjectName(s.table)}`)
+					this.#tables.set(s.table.name, {
+						columns: [
+							columnOf(
+								{ name: "secret", type: types.bytea, collation: undefined, generated: undefined },
+								this.#schema
+							)
+						],
+						rows: []
+					})
+				}
+				return
+			case "createPublication": {
+				if (this.#publications.has(s.name)) {
+					refuse("42710", `the publication ${s.name} already exists`)
+				}
+				const tables = new Map<
+					string,
+					| { readonly kind: "whole" }
+					| { readonly kind: "listed"; readonly columns: ReadonlyArray<string> }
+				>()
+				for (const published of s.tables) {
+					if (!this.#ours(published.table)) {
+						continue
+					}
+					const table = this.#table(published.table)
+					if (published.columns.kind === "listed") {
+						for (const c of published.columns.columns) {
+							this.#columnAt(table, published.table, c, "published")
+						}
+						tables.set(published.table.name, { kind: "listed", columns: published.columns.columns })
+					} else {
+						tables.set(published.table.name, { kind: "whole" })
+					}
+				}
+				this.#publications.set(s.name, tables)
+				return
+			}
+			case "dropPublication":
+				if (!this.#publications.delete(s.name)) {
+					refuse("42704", `the publication ${s.name} does not exist`)
 				}
 				return
 			case "createConstraintTrigger":

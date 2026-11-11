@@ -19,7 +19,7 @@ import { formatTimestamp } from "#cli/clock.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { type Identity, identity } from "#compiler/core/identity.ts"
+import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
@@ -148,6 +148,12 @@ export interface Installed {
 	readonly role: (role: AnyRole | RoleDesc) => string
 	/** Login credentials of a login; a login the installation does not hold is a defect of the test. */
 	readonly as: (login: AnyLogin | LoginDesc) => Credentials
+	/**
+	 * The credentials of the installation's decoder login (physical/ddl/live.ts), its role the live source's stem,
+	 * issued through the substrate as each login's; an installation whose live plan reads no relation holds none, and
+	 * asking for it is a defect of the test.
+	 */
+	readonly decoder: () => Credentials
 	/** A role as a direct SQL writer takes it on: the credentials of the login that holds it, and its theory role. */
 	readonly world: (role: AnyRole | RoleDesc) => SubstrateWorld
 }
@@ -414,6 +420,11 @@ export const installedOf = (input: {
 		}
 		const credentialsOf = (name: string): Credentials =>
 			defined(credentials.get(name), `the login ${name} of ${plan.declared}`)
+		const { live } = plan.installation
+		const decoder =
+			live.tables.length + live.views.length === 0
+				? undefined
+				: yield* substrate.login(identifierOf(identity.liveSource(plan.installation.names.schema)))
 		const world = (role: AnyRole | RoleDesc): SubstrateWorld => {
 			for (const login of Rec.values(plan.logins)) {
 				const r = login.roles[role.name]
@@ -436,6 +447,8 @@ export const installedOf = (input: {
 			ambientOwner: input.ambientOwner,
 			role: (role) => world(role).role,
 			as: (login) => credentialsOf(login.name),
+			decoder: () =>
+				defined(decoder, `the decoder login of ${plan.declared}, whose live plan reads a relation`),
 			world
 		}
 	})

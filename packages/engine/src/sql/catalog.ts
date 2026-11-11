@@ -49,6 +49,8 @@ export const catalogRelations = [
 	"pg_namespace",
 	"pg_policy",
 	"pg_proc",
+	"pg_publication",
+	"pg_publication_rel",
 	"pg_replication_slots",
 	"pg_rewrite",
 	"pg_roles",

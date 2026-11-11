@@ -48,6 +48,7 @@ import {
 } from "#compiler/plan/catalog.ts"
 import {
 	CompileError,
+	type CreatePublication,
 	emit,
 	malformedArtifact,
 	emitCatalog,
@@ -427,6 +428,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 					labelled("options ", C.asText(c.col("reloptions"))),
 					when(c.col("relrowsecurity"), C.text("row security")),
 					when(c.col("relforcerowsecurity"), C.text("forced row security")),
+					labelled("replica identity ", C.asText(c.col("relreplident"))),
 					C.caseWhen(
 						[
 							{
@@ -686,6 +688,121 @@ const extensionSchema: CatalogQuery<string> = {
 	row: ([schema]) => schema
 }
 
+const publications = C.from("pg_publication", "p")
+const published = C.from("pg_publication_rel", "r")
+const publishedTables = C.from("pg_class", "c")
+const publishedSchemas = C.from("pg_namespace", "n")
+const publishedColumns = C.from("pg_attribute", "a")
+
+/**
+ * The description of the publication $1, the installation's live source's, which no scratch schema can hold, since a
+ * publication is the database's: its own row, keyed `publication <name>`, described by the changes it publishes,
+ * whether it publishes stored generated columns, and whether it publishes every table or a partition through its root;
+ * and each table it publishes, keyed `publication <name> table <schema>.<table>`, described by its column list's
+ * columns in byte order, or `whole` for a table published with none. None where no such publication stands.
+ */
+const publicationQuery: CatalogQuery<readonly [string, string]> = {
+	sql: emitCatalog(
+		C.union([
+			C.core(
+				[
+					C.concat([C.text("publication "), C.asText(publications.col("pubname"))]),
+					C.call("concat_ws", [
+						C.text(" "),
+						C.call("concat_ws", [
+							C.text(","),
+							C.caseWhen(
+								[{ when: publications.col("pubinsert"), result: C.text("insert") }],
+								undefined
+							),
+							C.caseWhen(
+								[{ when: publications.col("pubupdate"), result: C.text("update") }],
+								undefined
+							),
+							C.caseWhen(
+								[{ when: publications.col("pubdelete"), result: C.text("delete") }],
+								undefined
+							),
+							C.caseWhen(
+								[{ when: publications.col("pubtruncate"), result: C.text("truncate") }],
+								undefined
+							)
+						]),
+						C.concat([C.text("generated "), C.asText(publications.col("pubgencols"))]),
+						C.concat([C.text("all "), C.asText(publications.col("puballtables"))]),
+						C.concat([C.text("root "), C.asText(publications.col("pubviaroot"))])
+					])
+				],
+				[publications.item],
+				C.eq(publications.col("pubname"), C.param(1, "name"))
+			),
+			C.core(
+				[
+					C.concat([
+						C.text("publication "),
+						C.asText(publications.col("pubname")),
+						C.text(" table "),
+						C.asText(publishedSchemas.col("nspname")),
+						C.text("."),
+						C.asText(publishedTables.col("relname"))
+					]),
+					C.coalesce([
+						C.scalar(
+							C.query(
+								[C.joinedSet(C.collateC(C.asText(publishedColumns.col("attname"))), C.text(", "))],
+								[publishedColumns.item],
+								C.and([
+									C.eq(publishedColumns.col("attrelid"), publishedTables.col("oid")),
+									C.any(publishedColumns.col("attnum"), published.col("prattrs"))
+								])
+							)
+						),
+						C.text("whole")
+					])
+				],
+				[
+					C.join(
+						C.join(
+							C.join(
+								published.item,
+								publications.item,
+								C.eq(publications.col("oid"), published.col("prpubid"))
+							),
+							publishedTables.item,
+							C.eq(publishedTables.col("oid"), published.col("prrelid"))
+						),
+						publishedSchemas.item,
+						C.eq(publishedSchemas.col("oid"), publishedTables.col("relnamespace"))
+					)
+				],
+				C.eq(publications.col("pubname"), C.param(1, "name"))
+			)
+		])
+	),
+	what: "a publication's key and its description",
+	row: ([key, description]) =>
+		key === undefined || description === undefined ? undefined : [key, description]
+}
+
+/** The description a CREATE PUBLICATION of the snapshot's states, as publicationQuery reads one back. */
+const expectedPublication = (s: CreatePublication): ReadonlyMap<string, string> =>
+	new Map([
+		[
+			`publication ${s.name}`,
+			"insert,update,delete,truncate generated s all false root false"
+		] as const,
+		...Arr.map(
+			s.tables,
+			(p) =>
+				[
+					`publication ${s.name} table ${p.table.schema}.${p.table.name}`,
+					p.columns.kind === "whole"
+						? "whole"
+						: Arr.join(Arr.sort(p.columns.columns, Order.String), ", ")
+				] as const
+		)
+	])
+
 /**
  * The hooks that move every name qualified by an installed schema to its scratch schema (sql/transform.ts): an object
  * name, a relation a regclass value names, a named type, a qualified function, an extension operator and an
@@ -732,7 +849,9 @@ const inScratch = (
 		case "createGuardTrigger":
 		case "createConstraintTrigger":
 		case "createStatistics":
+		case "createLiveSecret":
 			return [transformStatement(s, hooks)]
+		case "createPublication":
 		case "alterDatabaseDefault":
 		case "createRole":
 		case "alterRole":
@@ -992,6 +1111,13 @@ export const driftFlight = (
 			extension: x,
 			slot: flight.query(extensionSchema, [textParam(x.name)])
 		}))
+		const publicationReads = Arr.map(
+			Arr.flatMap(statements, (s) => (s.kind === "createPublication" ? [s] : [])),
+			(s) => ({
+				expected: expectedPublication(s),
+				slot: flight.query(publicationQuery, [textParam(s.name)])
+			})
+		)
 		const database = flight.query(databaseSettingsQuery, [])
 		const defaults = Arr.map(defaultPrivilegesExpectations(statements, schema), (expectation) => ({
 			expectation,
@@ -1041,6 +1167,14 @@ export const driftFlight = (
 								const at = yield* slot.rows(outcomes)
 								if (!at.includes(x.schema)) {
 									out.push({ kind: "missing", fact: `extension ${x.name} in schema ${x.schema}` })
+								}
+							}
+							for (const { expected, slot } of publicationReads) {
+								for (const mismatch of compareDescriptions(
+									expected,
+									new Map(yield* slot.rows(outcomes))
+								)) {
+									out.push(mismatch)
 								}
 							}
 							for (const d of databaseDifferences(yield* database.rows(outcomes))) {

@@ -93,6 +93,21 @@ const primaryKeyOf = (b: InstallBuilder, pk: NamedPrimaryKey): PrimaryKey => {
 }
 
 /**
+ * The columns of a stored relation's primary key, in key order, which its REPLICA IDENTITY DEFAULT holds and an update
+ * or a delete's WAL record keeps of the row it changed.
+ */
+export const primaryKeyColumns = (
+	b: InstallBuilder,
+	relation: string
+): NonEmptyReadonlyArray<string> => {
+	const planned = b.model.relations.get(relation)
+	if (planned === undefined) {
+		throw defect(`a stored relation ${relation} the law model plans`)
+	}
+	return mapNonEmpty(primaryKeyOf(b, planned.primaryKey).columns, (c) => c.column)
+}
+
+/**
  * A field's column's generation: a serial field's identity, or its `uuidv7()` default for a uuid (ir/desc.ts
  * serialDraw), a generated field's `GENERATED ALWAYS AS (e) STORED`, its
  * expression lowered over the row's own columns, or none for a field the caller writes and for one the host writes, a

@@ -76,6 +76,7 @@ const actionCreated = (table: ObjectName, a: AlterTableAction): ReadonlyArray<Cr
 		case "dropConstraint":
 		case "enableRowSecurity":
 		case "disableRowSecurity":
+		case "replicaIdentity":
 			return []
 	}
 }
@@ -161,6 +162,10 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 			]
 		case "createStatistics":
 			return [{ on: { kind: "STATISTICS", name: s.name }, identifier: s.name.name }]
+		case "createLiveSecret":
+			return [{ on: { kind: "TABLE", name: s.table }, identifier: s.table.name }]
+		case "createPublication":
+		case "dropPublication":
 		case "select":
 		case "insert":
 		case "update":

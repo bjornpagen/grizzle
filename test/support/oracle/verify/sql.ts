@@ -2325,6 +2325,9 @@ class StatementAuditor {
 			case "packConstant":
 			case "createGuardTrigger":
 			case "createConstraintTrigger":
+			case "createPublication":
+			case "dropPublication":
+			case "createLiveSecret":
 			case "alterDatabaseDefault":
 			case "createRole":
 			case "alterRole":
@@ -2459,6 +2462,7 @@ class StatementAuditor {
 									return
 								case "enableRowSecurity":
 								case "disableRowSecurity":
+								case "replicaIdentity":
 									return
 							}
 						})
@@ -2677,6 +2681,23 @@ class StatementAuditor {
 				this.ident(statement.name, "trigger", "name")
 				this.objectName(statement.table, "table", "table")
 				this.objectName(statement.function, "function", "function")
+				return
+			case "createPublication":
+				this.ident(statement.name, "publication", "name")
+				for (const [i, published] of statement.tables.entries()) {
+					this.objectName(published.table, "table", i)
+					if (published.columns.kind === "listed") {
+						for (const [j, column] of published.columns.columns.entries()) {
+							this.ident(column, "column", "tables", i, "columns", j)
+						}
+					}
+				}
+				return
+			case "dropPublication":
+				this.ident(statement.name, "publication", "name")
+				return
+			case "createLiveSecret":
+				this.objectName(statement.table, "table", "table")
 				return
 			case "alterDatabaseDefault":
 				return

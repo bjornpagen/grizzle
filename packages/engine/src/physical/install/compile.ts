@@ -27,6 +27,7 @@ import {
 	type TextDomain
 } from "#compiler/physical/ddl/domains.ts"
 import { readCommittedRelations } from "#compiler/physical/ddl/isolation.ts"
+import { addLiveSecret, addLiveSource } from "#compiler/physical/ddl/live.ts"
 import { addWorlds, grantedPrivileges, type InstalledLogin } from "#compiler/physical/ddl/roles.ts"
 import { addRules } from "#compiler/physical/ddl/rules.ts"
 import { addTables } from "#compiler/physical/ddl/tables.ts"
@@ -401,6 +402,8 @@ export const installationOver = (
 				}
 				planStatistics(b, statisticsRequests)
 
+				const live = liveOf(options.extensions)
+				const secret = addLiveSecret(b, live)
 				const worlds = addWorlds(
 					b,
 					advance,
@@ -410,8 +413,10 @@ export const installationOver = (
 						installedRoles(plan),
 						options.extensions.flatMap((e) => e.carriers),
 						"carrier statement"
-					)
+					),
+					secret
 				)
+				addLiveSource(b, live, secret)
 				const identities = [...ownedIdentities(owned), ...model.identities, ...b.named()]
 				const census = censusOf(identities)
 				if (!census.ok) {
@@ -446,7 +451,7 @@ export const installationOver = (
 						derivedRelations: derived.filter((d) => !claimedDerived.has(d)).toSorted(compareStrings)
 					},
 					certification,
-					live: liveOf(options.extensions)
+					live
 				}
 			})
 		)

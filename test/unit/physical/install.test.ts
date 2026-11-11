@@ -153,6 +153,8 @@ const kindModel: { readonly [K in PhysicalKind]: KindModel } = {
 	constant: { after: ["schema"], justified: "any reason" },
 	domain: { after: ["schema", "constant"], justified: "any reason" },
 	table: { after: ["schema", "constant", "domain"], justified: "any reason" },
+	liveSecret: inSchema,
+	replicaIdentity: onTable("any reason"),
 	lawColumn: onTable("a law or a program"),
 	primaryKey: onTable("a law or a program"),
 	unique: onTable("a law or a program"),
@@ -174,13 +176,18 @@ const kindModel: { readonly [K in PhysicalKind]: KindModel } = {
 	lawFunction: onTable("a law or a program"),
 	lawTrigger: { after: ["schema", "table", "lawFunction"], justified: "a law or a program" },
 	role: { after: [], justified: "any reason" },
+	decoder: { after: [], justified: "any reason" },
+	publication: { after: ["schema", "table", "replicaIdentity"], justified: "any reason" },
 	membership: { after: ["role"], justified: "any reason" },
 	roleSchema: { after: ["role"], justified: "any reason" },
 	view: { after: ["schema", "table", "roleSchema"], justified: "any reason" },
 	worldFunction: onTable("any reason"),
 	policy: { after: ["schema", "table", "role"], justified: "any reason" },
 	rowSecurity: onTable("any reason"),
-	privileges: { after: ["schema", "table", "role"], justified: "any reason" },
+	privileges: {
+		after: ["schema", "table", "role", "decoder", "liveSecret"],
+		justified: "any reason"
+	},
 	ledger: inSchema
 }
 

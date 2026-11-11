@@ -310,7 +310,8 @@ export const withNames = (previous: DeploySnapshot, names: Renamed): DeploySnaps
 			case "table":
 			case "materializedView":
 			case "index":
-			case "rowSecurity": {
+			case "rowSecurity":
+			case "replicaIdentity": {
 				const to = parsed.schema === schema ? relations.get(parsed.name) : undefined
 				return to === undefined ? id : qualifiedIdent(parsed.kind, parsed.schema, to)
 			}
@@ -343,6 +344,7 @@ export const withNames = (previous: DeploySnapshot, names: Renamed): DeploySnaps
 			case "extension":
 			case "role":
 			case "privileges":
+			case "publication":
 			case "other":
 				return id
 		}

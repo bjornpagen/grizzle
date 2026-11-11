@@ -27,7 +27,7 @@ import type { SqlStatement } from "#compiler/sql/ast.ts"
  * identities (`NodeIdent`) through `identText`, the snapshot's own objects through namedIdent, qualifiedIdent and
  * innerIdent, and a manifest read back is parsed through parseIdent, so the format has one spelling. Any other
  * spelling, such as a validation's identity, which names no kind, parses as other. */
-type NamedKind = "schema" | "extension" | "role" | "membership" | "privileges"
+type NamedKind = "schema" | "extension" | "role" | "membership" | "privileges" | "publication"
 export type QualifiedKind =
 	| "domain"
 	| "table"
@@ -37,6 +37,7 @@ export type QualifiedKind =
 	| "statistics"
 	| "function"
 	| "rowSecurity"
+	| "replicaIdentity"
 type InnerKind = "column" | "constraint" | "trigger" | "policy"
 
 export type GraphIdent =
@@ -67,7 +68,8 @@ const namedKinds: ReadonlyArray<NamedKind> = [
 	"extension",
 	"role",
 	"membership",
-	"privileges"
+	"privileges",
+	"publication"
 ]
 
 const qualifiedKinds: ReadonlyArray<QualifiedKind> = [
@@ -78,7 +80,8 @@ const qualifiedKinds: ReadonlyArray<QualifiedKind> = [
 	"index",
 	"statistics",
 	"function",
-	"rowSecurity"
+	"rowSecurity",
+	"replicaIdentity"
 ]
 const innerKinds: ReadonlyArray<InnerKind> = ["column", "constraint", "trigger", "policy"]
 
@@ -138,6 +141,7 @@ export const identText = (ident: NodeIdent): string => {
 		case "role":
 		case "membership":
 		case "privileges":
+		case "publication":
 			return namedIdent(ident.kind, identifierOf(ident.name))
 		case "extension":
 			return namedIdent(ident.kind, ident.name)
@@ -151,6 +155,7 @@ export const identText = (ident: NodeIdent): string => {
 		case "statistics":
 		case "function":
 		case "rowSecurity":
+		case "replicaIdentity":
 			return qualifiedIdent(ident.kind, identifierOf(ident.schema), identifierOf(ident.name))
 		case "column":
 		case "constraint":
@@ -192,6 +197,7 @@ const keyOf = (ident: NodeIdent): ObjectKey => {
 		case "role":
 		case "membership":
 		case "privileges":
+		case "publication":
 			return { kind: ident.kind, names: [ordered(ident.name)] }
 		case "extension":
 			return { kind: ident.kind, names: [{ kind: "readable", name: ident.name }] }
@@ -205,6 +211,7 @@ const keyOf = (ident: NodeIdent): ObjectKey => {
 		case "statistics":
 		case "function":
 		case "rowSecurity":
+		case "replicaIdentity":
 			return { kind: ident.kind, names: [ordered(ident.schema), ordered(ident.name)] }
 		case "column":
 		case "constraint":
