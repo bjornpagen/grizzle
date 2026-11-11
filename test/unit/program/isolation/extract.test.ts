@@ -74,6 +74,7 @@ import {
 	element,
 	type Gen,
 	int,
+	subset,
 	type Weighted,
 	weighted
 } from "@grizzle/testing/gen"
@@ -691,11 +692,73 @@ const cteGen: Gen<CteSpec> = weighted<CteSpec>([
 	[1, (s) => ({ kind: "dml", dml: s.draw(dmlGen) })]
 ])
 
+/**
+ * A statement shaped as the SERIALIZABLE insert protocol classifies its met rows: a query CTE, an INSERT into a drawn
+ * relation that proposes that CTE alone under DO NOTHING with no target or over columns among the row met's key, and a
+ * core reading that INSERT's met rows beside the row met for them, so the drawn pieces a seal needs meet in one case.
+ */
+const metStatementGen: Gen<StatementSpec> = (s) => {
+	const rel = s.draw(element(RELS))
+	const columns = nonEmpty(
+		Arr.dedupe(s.draw(array(element(COLUMNS), { min: 1, max: 2 }))),
+		"the row met's key"
+	)
+	const conflict = s.draw(
+		weighted<Conflict>([
+			[1, () => ({ kind: "every" })],
+			[
+				1,
+				(t) => ({
+					kind: "columns",
+					columns: nonEmpty(
+						t.draw(subset(columns, { min: 1, max: columns.length })),
+						"a key's conflict columns"
+					),
+					action: "doNothing"
+				})
+			]
+		])
+	)
+	return {
+		kind: "select",
+		ctes: [
+			{ kind: "query", query: s.draw(queryGen(1)) },
+			{
+				kind: "dml",
+				dml: {
+					kind: "insert",
+					target: { kind: "table", rel },
+					source: undefined,
+					params: false,
+					proposes: 0,
+					conflict
+				}
+			}
+		],
+		query: {
+			cores: [
+				{
+					sources: [
+						{ kind: "metRows", insert: 0, proposed: 0 },
+						{ kind: "met", rel, rows: 0, columns }
+					],
+					filters: [],
+					aggregate: { kind: "none" },
+					projection: { kind: "plain" },
+					nested: false
+				}
+			],
+			op: "UNION"
+		}
+	}
+}
+
 const statementGen: Gen<StatementSpec> = weighted<StatementSpec>([
 	[
 		6,
 		(s) => ({ kind: "dml", dml: s.draw(dmlGen), ctes: s.draw(array(cteGen, { min: 0, max: 2 })) })
 	],
+	[1, metStatementGen],
 	[
 		2,
 		(s) => ({
