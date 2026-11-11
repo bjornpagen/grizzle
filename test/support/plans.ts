@@ -7,6 +7,8 @@ import type { LoadedMember } from "#adapter/served/load.ts"
 import { type EstimatedNode, parsePlanTree, planNodes } from "#bench/harness/explain.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
+import type { ObjectName } from "#compiler/sql/ast.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import { type Counts, countingExecutor } from "#test/pg/page/support.ts"
 import { assert } from "#test/support/assert.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
@@ -14,16 +16,23 @@ import type { PgConnection, SqlError } from "#test/support/pg.ts"
 /**
  * The plan property of a workload read, as the plans suites judge every statement a read sends
  * (test/pg/e2e-platform/plans.test.ts, test/pg/e2e-work/plans.test.ts), and the doors they read the runtime and the
- * catalog through. The property is PostgreSQL's own judgment of the statement as the runtime sent it, served: with
- * sequential and index scans disabled (enable_indexscan disables index-only scans too), every scan of a relation the
- * statement restricts, by a filter of its own or by the join condition of the nested loop it is the inner side of,
- * reads by an index condition on an index the installation planned. The one scan left enabled is a bitmap scan, which
- * reads a relation only by an index condition, so a scan that still applies its restriction without one, a sequential
- * scan that survives above all, is an access no planned index serves; no data size moves that verdict. With sequential
- * scans alone disabled, an index walked whole was still an enabled scan, and PostgreSQL walks one for its order: at a
- * million usage events, spendByDay read a week of Day by walking Day's primary key, in the day order its grouping
- * wants, filtering the window that Day's GiST serves. The serving rule is never restated: PostgreSQL finds the index,
- * in its own plan (EXPLAIN FORMAT JSON through the tree's one decoder, bench/harness/explain.ts).
+ * catalog through. The property is PostgreSQL's own judgment of the statement as the runtime sent it, served, over
+ * relations it plans unanalyzed (unanalyzed): with sequential and index scans disabled (enable_indexscan disables
+ * index-only scans too) and index-only scans never considered, every scan of a relation the statement restricts, by a
+ * filter of its own or by the join condition of the nested loop it is the inner side of, reads by an index condition on
+ * an index the installation planned. The one scan left enabled is a bitmap scan, and PostgreSQL builds one from an
+ * index only at an index condition or a partial index's predicate: it builds an index path of neither only for an
+ * index-only scan, which it never considers here, or for the index's order, which a bitmap scan does not keep
+ * (indxpath.c build_index_paths, get_index_paths). Its count of disabled nodes outranks every cost, so a scan that
+ * still applies its restriction without an index condition, a sequential scan that survives above all, is an access no
+ * planned index serves, whatever rows the relations hold. That needs every restriction estimated below a selectivity of
+ * 1, which an unanalyzed relation's defaults are: PostgreSQL builds no bitmap path from an index whose order a join or
+ * a grouping can use at a selectivity of 1, which analyzed statistics of a relation holding one value estimate, so on a
+ * platform of one row a relation its reads scanned relations sequentially beside the indexes that serve them. With
+ * sequential scans alone disabled, an index walked whole was still an enabled scan, and PostgreSQL walks one for its
+ * order: at a million usage events, spendByDay read a week of Day by walking Day's primary key, in the day order its
+ * grouping wants, filtering the window that Day's GiST serves. The serving rule is never restated: PostgreSQL finds the
+ * index, in its own plan (EXPLAIN FORMAT JSON through the tree's one decoder, bench/harness/explain.ts).
  *
  * A load's series `g` spread over `distinct` values by PostgreSQL's 64-bit hash seeded with `salt`: two spread columns of
  * different salts are independent, and one alone holds each of its values on about 1 / distinct of the rows. (A salt
@@ -162,9 +171,20 @@ const explained = (admin: PgConnection, name: string, st: Sent) =>
 	})
 
 /**
+ * The settings every judged statement is planned under (see the header): sequential and index scans disabled, and
+ * index-only scans never considered, so PostgreSQL builds no index path of no condition that a bitmap scan could read.
+ */
+const judgedSettings: ReadonlyArray<string> = [
+	"SET LOCAL enable_seqscan = off",
+	"SET LOCAL enable_indexscan = off",
+	"SET LOCAL enable_indexonlyscan = off"
+]
+
+/**
  * The served property of the statements a read named `name` sent, each problem named by the read, judged against
  * `planned`, the names of the indexes the installation planned (plannedIndexes): each statement EXPLAINed with its
- * parameters on `admin` in one transaction rolled back, with sequential and index scans disabled.
+ * parameters on `admin` in one transaction rolled back, under the judged settings, over relations the caller left
+ * unanalyzed (unanalyzed).
  */
 export const sentProblems = (
 	admin: PgConnection,
@@ -176,10 +196,7 @@ export const sentProblems = (
 		admin.query("BEGIN", []),
 		() =>
 			Effect.andThen(
-				Effect.andThen(
-					admin.query("SET LOCAL enable_seqscan = off", []),
-					admin.query("SET LOCAL enable_indexscan = off", [])
-				),
+				Effect.forEach(judgedSettings, (setting) => admin.query(setting, []), { discard: true }),
 				Effect.map(
 					Effect.forEach(sent, (st) =>
 						Effect.map(explained(admin, name, st), (plan) =>
@@ -190,6 +207,46 @@ export const sentProblems = (
 				)
 			),
 		() => Effect.ignore(admin.query("ROLLBACK", []))
+	)
+
+/**
+ * The statements that clear a relation's statistics, its own, its columns' and its extended statistics', the
+ * relation's schema and name their parameters (unanalyzed).
+ */
+const clearedStatistics: ReadonlyArray<string> = [
+	"SELECT pg_catalog.pg_clear_relation_stats($1::text, $2::text)",
+	"SELECT pg_catalog.pg_clear_attribute_stats($1::text, $2::text, a.attname::text, false) " +
+		"FROM pg_catalog.pg_attribute AS a JOIN pg_catalog.pg_class AS c ON c.oid = a.attrelid " +
+		"JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace " +
+		"WHERE n.nspname = $1::text AND c.relname = $2::text AND a.attnum > 0 AND NOT a.attisdropped",
+	"SELECT pg_catalog.pg_clear_extended_stats($1::text, $2::text, s.nspname::text, e.stxname::text, false) " +
+		"FROM pg_catalog.pg_statistic_ext AS e JOIN pg_catalog.pg_namespace AS s ON s.oid = e.stxnamespace " +
+		"JOIN pg_catalog.pg_class AS c ON c.oid = e.stxrelid JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace " +
+		"WHERE n.nspname = $1::text AND c.relname = $2::text"
+]
+
+/**
+ * `relations`, each a table or a materialized view, as PostgreSQL plans a relation never vacuumed or analyzed, whatever
+ * rows it holds: autovacuum off for each, so nothing analyzes it after, and its statistics cleared. PostgreSQL then
+ * takes a relation of fewer than ten pages for ten (tableam.c table_block_relation_estimate_size), its tuples by their
+ * width, and estimates every restriction by a default selectivity below 1. Analyzed statistics of a small relation
+ * decide a plan by its rows: a restriction of a relation holding one value is estimated to keep every row, and a whole
+ * index of one page, read by a merge join, costs less than a descent a row.
+ */
+export const unanalyzed = (
+	admin: PgConnection,
+	relations: ReadonlyArray<ObjectName>
+): Effect.Effect<void, SqlError> =>
+	Effect.forEach(
+		relations,
+		(r) =>
+			Effect.andThen(
+				admin.query(`ALTER TABLE ${printObjectName(r)} SET (autovacuum_enabled = false)`, []),
+				Effect.forEach(clearedStatistics, (sql) => admin.query(sql, [r.schema, r.name]), {
+					discard: true
+				})
+			),
+		{ discard: true }
 	)
 
 /** The names of every index the installation planned: each key and enforcement index, and each it created. */

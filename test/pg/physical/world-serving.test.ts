@@ -24,14 +24,17 @@
  *
  * Each case draws how many facts each relation holds, at most the least population at which every spread field of the
  * load holds two values (mostRows), so its load, one SERIALIZABLE transaction, stays small beside its neighbours'. With
- * sequential and bitmap scans disabled the judge's structural verdicts stand at any size: a lowering that deduplicates each relation a filter reads, which PostgreSQL cannot pull
- * into its join, reads that relation's index with no index condition, and the judge names the scan. What only volume
- * shows, a scan's buffers far past its bound and an index PostgreSQL prefers by its cost, is no property here; that
- * every created index is needed is test/pg/physical/serving.test.ts's.
+ * sequential and bitmap scans disabled, over relations PostgreSQL plans unanalyzed (test/support/plans.ts unanalyzed),
+ * the judge's structural verdicts stand at any size: a lowering that deduplicates each relation a filter reads, which
+ * PostgreSQL cannot pull into its join, reads that relation's index with no index condition, and the judge names the
+ * scan. Analyzed statistics of a small load decide a plan by its rows: at forty facts a relation, a role's read of Doc
+ * by its key through its view merged Doc's row with the whole of Org's one-page primary key, which cost less than a
+ * descent into it. What only volume shows, a scan's buffers far past its bound and an index PostgreSQL prefers by its
+ * cost, is no property here; that every created index is needed is test/pg/physical/serving.test.ts's.
  *
  * Its kept cases, restated at mostRows: a negated link from Doc into OrgDocs, joined to Share by Doc's owner, whose precheck calls three world
- * functions that PostgreSQL plans at their calls, a role session's first, each reading the index ends of the join of
- * OrgDocs and Share for its selectivity (world-serving.ts callBound); and a link from Note's doc into Doc's org bound
+ * functions that PostgreSQL plans at their calls, a role session's first, each of which, over analyzed relations, read
+ * the index ends of the join of OrgDocs and Share for its selectivity (world-serving.ts callBound); and a link from Note's doc into Doc's org bound
  * by the tenant's claim, whose read by key through the role's view PostgreSQL drives from the claimed Doc into Note's
  * index on doc, rechecking no, where Note's primary key alone serves it (world-serving.ts resolveClaims); and an entry
  * over Share whose rule fixes user by the session's subject, its head doc alone, whose view a read by key names by doc

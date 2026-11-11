@@ -8,7 +8,9 @@
  * draws (worlds/generate/install.ts installGen), beside witness roles, each writing one query entry over a relation T
  * whose filter reads another source through a link, so every call the judgment asks for exists by construction. It
  * installs through its first migration, as `grizzle generate` drafts it with its roles' write filters planned
- * (installed.ts workloadOf), and the owner loads every relation at the case's size (docsLoads).
+ * (installed.ts workloadOf), and the owner loads every relation at the case's size (docsLoads) and leaves every
+ * relation unanalyzed (test/support/plans.ts unanalyzed), so PostgreSQL plans each as a relation never analyzed,
+ * whatever the size.
  *
  * Every world function of every writable query entry is called three ways, each a statement PostgreSQL plans and runs
  * twice under EXPLAIN (ANALYZE, BUFFERS) with sequential and bitmap scans disabled, the second run judged:
@@ -38,8 +40,8 @@
  *   witness's entry (write/entry/precheck.ts buildEntryCheck), bound as db.apply binds it, reading no more than its
  *   own scans and the bound of each world function's call at the fact's values (callBound): the filter function, then
  *   each key and unique probe. Its calls are the function's first in the role's session, so PostgreSQL plans each body
- *   at its call: a body that joins two relations reads their index ends for the join's selectivity, 12 buffers a call,
- *   36 of the 42 a precheck of three such calls touched, where their bodies read 6.
+ *   at its call: over analyzed relations, a body that joins two relations read their index ends for the join's
+ *   selectivity, 12 buffers a call, 36 of the 42 a precheck of three such calls touched, where their bodies read 6.
  *
  * A world function whose lowering deduplicated each relation it read, which PostgreSQL could not pull into its join,
  * reads the relation's index with no index condition on every call, which the judge names at any size.
@@ -94,7 +96,7 @@ import { type Installed, installMigrated } from "#test/support/install-migrate.t
 import { workloadOf } from "#test/support/installed.ts"
 import { roleNamesOf } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { spread } from "#test/support/plans.ts"
+import { spread, unanalyzed } from "#test/support/plans.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { paramText } from "#test/support/wire.ts"
@@ -1489,8 +1491,12 @@ export const judgeCase = (
 		for (const d of base.derived) {
 			const view = printObjectName(installed.names.relation(d.name))
 			yield* s.admin.query(`REFRESH MATERIALIZED VIEW ${view}`, [])
-			yield* s.admin.query(`VACUUM (ANALYZE) ${view}`, [])
+			yield* s.admin.query(`VACUUM ${view}`, [])
 		}
+		yield* unanalyzed(
+			s.admin,
+			Arr.map([...base.relations, ...base.derived], (r) => installed.names.relation(r.name))
+		)
 		const claims = yield* claimsOf(base)
 		const cx: Judging = {
 			installed,
