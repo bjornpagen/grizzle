@@ -3,7 +3,6 @@ import nodePath from "node:path"
 import { Effect, Schema } from "effect"
 import { afterAll, describe, expect, test } from "vitest"
 import { emitApi } from "#emit/api.ts"
-import { runtimeFiles } from "#emit/runtime-files.generated.ts"
 import { AuthorConfig } from "#model/author-config.ts"
 import { DocumentUri } from "#model/brands.ts"
 import type { Server } from "#model/entities.ts"
@@ -12,6 +11,7 @@ import { planNames } from "#names/index.ts"
 import { normalize } from "#normalize/index.ts"
 import { boundOrigins } from "#normalize/servers.ts"
 import { resolve } from "#resolve/index.ts"
+import { runtimeFiles } from "#test/support/runtime-sources.ts"
 
 // A `mutualTLS` scheme carried from the spec to the emitted `api/security.ts` (design 4.4, 6.5,
 // D-SEC3): the name plan derives `<PREFIX>_<SCHEME>_CERT`, `_KEY` and `_CA` once, holds them in an

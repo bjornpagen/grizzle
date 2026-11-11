@@ -22,8 +22,6 @@ docs/research/
 /.agents/skills/local/*
 /.agents/skills/local-*
 
-# generated before every run that reads it
-packages/generator/src/emit/runtime-files.generated.ts
 
 # tooling scratch
 .fallow/

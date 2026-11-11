@@ -3,7 +3,6 @@ import nodePath from "node:path"
 import { Effect, Schema } from "effect"
 import { afterAll, describe, expect, test } from "vitest"
 import { emitApi } from "#emit/api.ts"
-import { runtimeFiles } from "#emit/runtime-files.generated.ts"
 import { decodeAuthorConfig } from "#model/author-config.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { Api, SecurityScheme } from "#model/entities.ts"
@@ -12,6 +11,7 @@ import { planNames } from "#names/index.ts"
 import { normalize } from "#normalize/index.ts"
 import { boundOrigins } from "#normalize/servers.ts"
 import { resolve } from "#resolve/index.ts"
+import { runtimeFiles } from "#test/support/runtime-sources.ts"
 
 // The golden declares one scheme, `bearerAuth`. Each case decodes it again with the `deprecated`
 // flag the 3.2.1 document would have given it.

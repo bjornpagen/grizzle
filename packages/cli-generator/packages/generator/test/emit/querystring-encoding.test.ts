@@ -3,7 +3,6 @@ import nodePath from "node:path"
 import { Effect, Schema } from "effect"
 import { afterAll, describe, expect, test } from "vitest"
 import { emitApi } from "#emit/api.ts"
-import { runtimeFiles } from "#emit/runtime-files.generated.ts"
 import { decodeAuthorConfig } from "#model/author-config.ts"
 import { DocumentUri } from "#model/brands.ts"
 import type { Api, Server } from "#model/entities.ts"
@@ -13,6 +12,7 @@ import { boundOrigins } from "#normalize/servers.ts"
 import { nonStandardEntries } from "#report/index.ts"
 import { resolve } from "#resolve/index.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
+import { runtimeFiles } from "#test/support/runtime-sources.ts"
 
 // Audit S1 (design 6.1 querystring row): a 3.2 `querystring` parameter's form-urlencoded content
 // takes Encoding Objects as for bodies. Normalize decides them by the body form rules, the model

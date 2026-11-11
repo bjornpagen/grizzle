@@ -4,14 +4,14 @@ import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { Array as Arr, Effect, FileSystem, Layer, Order, Path, Schema, pipe } from "effect"
 import { describe, expect, test } from "vitest"
 import { emitScaffold } from "#emit/index.ts"
-import type { ScaffoldInput } from "#emit/index.ts"
 import type { EmittedFile } from "#emit/package.ts"
-import { runtimeFiles } from "#emit/runtime-files.generated.ts"
+import type { ReadmeInput } from "#emit/readme.ts"
 import { decodeAuthorConfig } from "#model/author-config.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { planNames } from "#names/index.ts"
 import { normalize } from "#normalize/index.ts"
 import { resolve } from "#resolve/index.ts"
+import { runtimeFiles } from "#test/support/runtime-sources.ts"
 
 const root = nodePath.resolve(import.meta.dirname, "../..")
 
@@ -43,7 +43,7 @@ const scaffoldInput = Effect.gen(function* prepare() {
 		configDocument
 	})
 	const plan = yield* planNames(api, { config, configDocument, strict: false })
-	const input: ScaffoldInput = {
+	const input: ReadmeInput = {
 		api,
 		config,
 		diagnostics: [...diagnostics, ...plan.diagnostics],

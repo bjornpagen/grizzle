@@ -7,7 +7,6 @@ import { emitCli } from "#emit/cli.ts"
 import { emitDomainSchemas } from "#emit/domain.ts"
 import { emitPackageFiles } from "#emit/package.ts"
 import type { EmittedFile } from "#emit/package.ts"
-import { runtimeFiles } from "#emit/runtime-files.generated.ts"
 import { decodeAuthorConfig } from "#model/author-config.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { Api } from "#model/entities.ts"
@@ -18,6 +17,7 @@ import { normalizeSchemas } from "#normalize/schemas.ts"
 import { boundOrigins } from "#normalize/servers.ts"
 import generatorPackage from "#package.json" with { type: "json" }
 import { resolve } from "#resolve/index.ts"
+import { runtimeFiles } from "#test/support/runtime-sources.ts"
 import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 // The bracket convention (design 6.1, D-OQ1 (b)) is a model marker, `nonStandard:

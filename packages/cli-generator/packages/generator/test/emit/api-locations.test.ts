@@ -4,7 +4,6 @@ import { Effect, Predicate, Schema } from "effect"
 import type { HttpBody } from "effect/http"
 import { afterAll, describe, expect, test } from "vitest"
 import { emitApi } from "#emit/api.ts"
-import { runtimeFiles } from "#emit/runtime-files.generated.ts"
 import { decodeAuthorConfig } from "#model/author-config.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { Api, Operation } from "#model/entities.ts"
@@ -14,6 +13,7 @@ import { normalize } from "#normalize/index.ts"
 import { boundOrigins } from "#normalize/servers.ts"
 import { resolve } from "#resolve/index.ts"
 import type { JsonNumber } from "#runtime-src/runtime/input.ts"
+import { runtimeFiles } from "#test/support/runtime-sources.ts"
 
 // Normalize refuses cookie and querystring parameters and form-urlencoded bodies until m2-nz7 and
 // m2-nz8, so these fixtures start from a normalized operation and swap the construct in directly.

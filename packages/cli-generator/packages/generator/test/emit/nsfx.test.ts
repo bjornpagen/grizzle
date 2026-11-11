@@ -6,7 +6,6 @@ import { emitApi } from "#emit/api.ts"
 import { emitCli } from "#emit/cli.ts"
 import { emitPackageFiles } from "#emit/package.ts"
 import type { EmittedFile } from "#emit/package.ts"
-import { runtimeFiles } from "#emit/runtime-files.generated.ts"
 import { decodeAuthorConfig } from "#model/author-config.ts"
 import { DocumentUri } from "#model/brands.ts"
 import type { Server } from "#model/entities.ts"
@@ -17,6 +16,7 @@ import { normalize } from "#normalize/index.ts"
 import { boundOrigins } from "#normalize/servers.ts"
 import generatorPackage from "#package.json" with { type: "json" }
 import { resolve } from "#resolve/index.ts"
+import { runtimeFiles } from "#test/support/runtime-sources.ts"
 import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 // Groups whose names fold to one api namespace (the Cloudflare shape: `accounts`,

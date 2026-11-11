@@ -338,9 +338,15 @@ importers:
       '@hyperjump/json-schema':
         specifier: 'catalog:'
         version: 1.18.0(@hyperjump/browser@1.6.0)
+      '@superstarter/json':
+        specifier: workspace:*
+        version: link:../json
       '@types/node':
         specifier: 26.6.6
         version: 26.6.6
+      arkregex:
+        specifier: 'catalog:'
+        version: 0.0.14
       effect:
         specifier: 'catalog:'
         version: 4.1.2
