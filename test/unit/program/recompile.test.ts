@@ -24,6 +24,11 @@ import { printCase } from "#test/support/oracle/public/print.ts"
  * compiles, and again to the same statements, so nothing one compilation leaves behind answers another.
  *
  * How every read here is compiled: as a Db's reads are, for the snapshot context, read as rows.
+ *
+ * Features: a read compiled; a read compiled again after another read.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): recompile-name-supply-shared, a count one compilation leaves behind
+ * for the next, spelled into its statements.
  */
 const request: ExecutionRequest = {
 	context: "snapshot",
@@ -53,7 +58,10 @@ describe("compiling again", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "a compilation is a function of its query and schema: compiled again after other reads, the same statements"
+						},
 						suite: "unit/program/recompile",
 						draw: drawn(caseGen),
 						literal: Formatter.format,

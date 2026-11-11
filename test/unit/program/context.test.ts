@@ -1,7 +1,9 @@
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { element, type Gen, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
@@ -12,15 +14,38 @@ import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import { AutomaticTask, Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
+import {
+	type CaseSketch,
+	caseSketchGen,
+	resolveCase
+} from "#test/support/oracle/public/generate.ts"
+import { printCase } from "#test/support/oracle/public/print.ts"
 
 /**
  * A template's execution context (program/compile.ts): a template compiled for `snapshot` may rest on committed-snapshot
  * evidence, one compiled for `transaction` rests on none, and the conservative lowering beside either rests on no
  * evidence, so it is one artifact whatever the context.
  *
- * The programs are planted: notes matches TaskNote to Task on TaskNote's deferred foreign key, which committed-snapshot
- * evidence removes and a transaction keeps; budgets attaches each budget's task, fused into the optimized program's one
- * relation beside the conservative program's two; the ordered tasks read as a page.
+ * Over two arms of one representation, each weighted in the draw: generated public programs
+ * (test/support/oracle/public), every query read compiled as rows and every ordered one as a page too; and the planted
+ * programs, named cases that reach what the generator need not: notes matches TaskNote to Task on TaskNote's deferred
+ * foreign key, which committed-snapshot evidence removes and a transaction keeps; budgets attaches each budget's task,
+ * fused into the optimized program's one relation beside the conservative program's two; the ordered tasks read as a
+ * page.
+ *
+ * - No committed-snapshot certificate: a template compiled for a transaction cites none.
+ * - One conservative artifact: the conservative statements compiled for a transaction are the ones compiled for a
+ *   snapshot, text for text (a differential between the two contexts).
+ *
+ * Oracle: the specification, a transaction's template rests on no committed-snapshot evidence, and the conservative
+ * lowering reads no evidence at all.
+ *
+ * Features: rows, page, a committed-snapshot certificate, several relations, a generated program.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): context-transaction-snapshot-evidence, a transaction's template
+ * compiled under committed-snapshot evidence; context-conservative-reads-context, the conservative lowering keyed by
+ * the context.
  */
 const notes = query(Work).rule((r) => {
 	const { task, note } = v(TaskNote, "taskNote")
@@ -51,33 +76,87 @@ const orderedTasks = query(Work)
 
 type Read = "rows" | "page"
 
-/** A planted program and the reads it is compiled for. */
-interface Program {
+/** A planted program, the reads it is compiled for, and the schema it reads. */
+interface Planted {
 	readonly name: string
 	readonly program: unknown
 	readonly reads: Arr.NonEmptyReadonlyArray<Read>
 }
 
-const programs: Arr.NonEmptyReadonlyArray<Program> = [
+const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 	{ name: "notes", program: notes, reads: ["rows"] },
 	{ name: "budgets", program: budgets, reads: ["rows"] },
 	{ name: "orderedTasks", program: orderedTasks, reads: ["rows", "page"] }
 ]
 
-const compiled = (program: unknown, context: TemplateContext, read: Read): OracleTemplate =>
-	succeeded(compileTemplate(program, undefined, { ...testCompile, context, read }), "the template")
+/** A case: a planted program and one of its reads, or a generated public program. */
+type Sketch =
+	| { readonly kind: "planted"; readonly program: Planted; readonly read: Read }
+	| { readonly kind: "generated"; readonly sketch: CaseSketch }
 
-/** A program and one of its reads. */
-const readGen: Gen<readonly [Program, Read]> = (source) => {
-	const p = source.draw(element(programs))
-	return [p, source.draw(element(p.reads))] as const
+const sketchGen: Gen<Sketch> = weighted<Sketch>([
+	[
+		1,
+		(source) => {
+			const program = source.draw(element(planted))
+			return { kind: "planted", program, read: source.draw(element(program.reads)) }
+		}
+	],
+	[3, (source) => ({ kind: "generated", sketch: source.draw(caseSketchGen) })]
+])
+
+/** One read of one program over the schema it reads, `undefined` for a planted program's own. */
+interface Compiled {
+	readonly program: unknown
+	readonly schema: unknown
+	readonly read: Read
+	readonly what: string
 }
 
 type TemplateFeature =
-	| TemplateContext
 	| Read
 	| "a committed-snapshot certificate"
 	| "several relations"
+	| "a generated program"
+
+/** The template of a read under a context. */
+const compiled = (c: Compiled, context: TemplateContext): OracleTemplate =>
+	succeeded(
+		compileTemplate(c.program, c.schema, { ...testCompile, context, read: c.read }),
+		`${c.what} compiled for ${context}`
+	)
+
+/** The properties over one read, and the features it reaches. */
+const holds = (c: Compiled, note: (feature: TemplateFeature) => void): void => {
+	const snapshot = compiled(c, "snapshot")
+	const transaction = compiled(c, "transaction")
+	assert.deepEqual(
+		Arr.filter(transaction.certificates, (x) => x.context === "committedSnapshot"),
+		[],
+		`${c.what}: a transaction's template cites committed-snapshot evidence`
+	)
+	assert.deepEqual(
+		Arr.map(transaction.conservative, (s) => s.sql),
+		Arr.map(snapshot.conservative, (s) => s.sql),
+		`${c.what}: the conservative artifact differs between the contexts`
+	)
+	if (Arr.some(snapshot.certificates, (x) => x.context === "committedSnapshot")) {
+		note("a committed-snapshot certificate")
+	}
+	if (
+		Arr.some(
+			[snapshot, transaction],
+			(t) =>
+				Math.max(
+					flight(t.programs.optimized.roots).length,
+					flight(t.programs.conservative.roots).length
+				) > 1
+		)
+	) {
+		note("several relations")
+	}
+	note(c.read)
+}
 
 describe("a template", () => {
 	it.effect(
@@ -85,54 +164,68 @@ describe("a template", () => {
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
 						suite: "unit/program/context-templates",
-						generator: readGen,
+						draw: drawn(sketchGen),
 						literal: Formatter.format,
-						/** Every read of every program: four. */
-						limit: 4,
-						coverage: requiredInSpace<TemplateFeature>([
-							"snapshot",
-							"transaction",
-							"rows",
-							"page",
-							"a committed-snapshot certificate",
-							"several relations"
-						]),
+						oracle: {
+							kind: "specification",
+							name: "a transaction's template rests on no committed-snapshot evidence, and the conservative lowering on none at all"
+						},
+						coverage: required<TemplateFeature>(
+							[
+								"rows",
+								"page",
+								"a committed-snapshot certificate",
+								"several relations",
+								"a generated program"
+							],
+							{ cases: 100, sense: notesOnly }
+						),
+						kept: [],
+						runs: 100,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
 						caseHang
 					},
-					([p, read], c) =>
+					(sketch, k) =>
 						Effect.sync(() => {
-							const [snapshot, transaction] = [
-								compiled(p.program, "snapshot", read),
-								compiled(p.program, "transaction", read)
-							]
-							assert.deepEqual(
-								Arr.filter(transaction.certificates, (x) => x.context === "committedSnapshot"),
-								[]
-							)
-							if (Arr.some(snapshot.certificates, (x) => x.context === "committedSnapshot")) {
-								c.note("a committed-snapshot certificate")
+							if (sketch.kind === "planted") {
+								holds(
+									{
+										program: sketch.program.program,
+										schema: undefined,
+										read: sketch.read,
+										what: `${sketch.program.name} as ${sketch.read}`
+									},
+									k.note
+								)
+								return
 							}
-							assert.deepEqual(
-								Arr.map(transaction.conservative, (s) => s.sql),
-								Arr.map(snapshot.conservative, (s) => s.sql)
-							)
-							c.noteAll(
-								Arr.flatMap([snapshot, transaction], (template): ReadonlyArray<TemplateFeature> => [
-									template.context,
-									...(Math.max(
-										flight(template.programs.optimized.roots).length,
-										flight(template.programs.conservative.roots).length
-									) > 1
-										? (["several relations"] as const)
-										: [])
-								])
-							)
-							c.note(read)
+							const c = k.draw(resolveCase(sketch.sketch))
+							const built = buildSchema(c.schema)
+							k.note("a generated program")
+							for (const [i, read] of c.reads.entries()) {
+								if (read.kind !== "query") {
+									continue
+								}
+								const program = buildRoot(built, built.schema, read.query)
+								const reads: ReadonlyArray<Read> =
+									read.query.delivery.kind === "ordered" ? ["rows", "page"] : ["rows"]
+								for (const as of reads) {
+									holds(
+										{
+											program,
+											schema: built.schema,
+											read: as,
+											what: `read ${i} as ${as}\n${printCase(c)}`
+										},
+										k.note
+									)
+								}
+							}
 						})
 				)
 			)

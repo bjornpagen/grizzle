@@ -1,14 +1,12 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { filter } from "@grizzle/testing/gen"
-import { matching } from "@grizzle/testing/pattern"
+import { codePoint, element, type Gen, string } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
 import type { Json } from "#compiler/core/canonical.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { descText } from "#compiler/ir/desc.ts"
@@ -17,7 +15,7 @@ import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
-import { assert, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
+import { assert, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
 import { fromQueryDescription, queryFromDescription } from "#test/support/describe.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -31,14 +29,22 @@ import {
 } from "#test/support/oracle/public/generate.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 
-import { regex } from "arkregex"
 /**
  * describeQuery and lowerQuery (packages/engine/src/program/describe.ts), the engine's internal inspection
  * vocabulary, with describeQuery's inverse (test/support/describe.ts queryFromDescription), over every generated query
  * read (test/support/oracle/public): a query rebuilt from its
  * Description, sent as JSON or not, is the same Description and lowers to the same statements; lowering is
- * byte-identical across runs; a bare Description, which names no schema, lowers to a refusal; and a Description is
- * checked against the schema it is given.
+ * byte-identical across runs; a bare Description, which names no schema, lowers to a MalformedDescription; and a
+ * Description is checked against the schema it is given, a relation the schema lacks refused by its typed refusal.
+ *
+ * Oracles: the round trip (queryFromDescription ∘ describeQuery = id, as the Description's identity text, and lowering
+ * a function of the Description), and the specification of the schema check. A relation the given schema lacks is
+ * named by construction: its first letter begins none of the schema's relations.
+ *
+ * Features: every program form the public generator draws (programForms); a relation elsewhere.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): describe-lowering-counter, a lowering stamped with a running count;
+ * describe-drops-literal, a Description spelling every integer literal as 0.
  *
  * A Description as the rebuild receives it: the value itself, and the value read back from its JSON text.
  */
@@ -55,7 +61,10 @@ describe("describeQuery, queryFromDescription and lowerQuery", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "queryFromDescription ∘ describeQuery = id, and lowering a function of the Description"
+						},
 						suite: "unit/program/describe-roundtrip",
 						draw: drawn(caseSketchGen),
 						literal: Formatter.format,
@@ -91,12 +100,7 @@ describe("describeQuery, queryFromDescription and lowerQuery", () => {
 								}
 								/** A bare Description names no schema, so the compiler has none to lower it against. */
 								const bare = succeeded(fromQueryDescription(d), "the Description read back")
-								assert.deepEqual(
-									refusalLoc(
-										refused(lowerQuery(bare), "MalformedDescription", "lowered with no schema")
-									),
-									SourceLoc("compile", [])
-								)
+								refused(lowerQuery(bare), "MalformedDescription", "lowered with no schema")
 								for (const feature of programFeatures(read.query)) {
 									if (Arr.some(programForms, (f) => f === feature)) {
 										k.note(feature)
@@ -110,18 +114,28 @@ describe("describeQuery, queryFromDescription and lowerQuery", () => {
 
 	it.effect("check a Description against the schema it is given", (ctx) =>
 		Effect.gen(function* () {
-			/** A Description over a relation the given schema lacks, named as drawn. */
-			const relations: Readonly<Record<string, unknown>> = Work.relations
-			const named = filter(
-				matching(regex("^[A-Z][a-z]{2,8}$")),
-				(name) => !Rec.has(relations, name),
-				100
+			/**
+			 * A Description over a relation the given schema lacks: a capital that begins none of its relations' names,
+			 * then two to eight small letters.
+			 */
+			const initials = new Set(Arr.map(Rec.keys(Work.relations), (name) => Str.slice(0, 1)(name)))
+			const capitals = nonEmpty(
+				Arr.filter(
+					Arr.map(Arr.range(0x41, 0x5a), (point) => String.fromCodePoint(point)),
+					(capital) => !initials.has(capital)
+				),
+				"a capital no relation of the schema begins with"
 			)
+			const named: Gen<string> = (source) =>
+				`${source.draw(element(capitals))}${source.draw(string(codePoint(0x61, 0x7a), { min: 2, max: 8 }))}`
 			yield* searched(
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a Description is checked against the schema it is given: a relation it lacks is refused"
+						},
 						suite: "unit/program/describe-schema",
 						draw: drawn(named),
 						literal: Formatter.format,

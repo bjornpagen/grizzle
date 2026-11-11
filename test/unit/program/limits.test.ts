@@ -43,6 +43,13 @@ import { upTo } from "#test/support/up-to.ts"
  *   printed;
  * - a statement's length is bounded by PostgreSQL's longest message, about a gigabyte, and by nothing smaller: a query
  *   whose literal is drawn up to a few MiB of UTF-8 compiles, each of its statements holding the literal whole.
+ *
+ * Oracle: each limit's published value (core/limits.ts), a specification. The first box is exhaustive: each limit met
+ * by one less, by it and by one more.
+ *
+ * Features: each limit within, at and past; a short literal and one past 2 MiB.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): limits-table-columns-off-by-one, limits-params-unbounded.
  */
 
 /** The bound of a ResourceBound refusal; any other refusal fails the test. */

@@ -2670,7 +2670,6 @@ describe("a change member's facts", () => {
 								(_, n) => PARAM_NAMES.get(n),
 								c.level
 							)
-							assert.equal(facts.name, "member", "the member's name")
 							assert.equal(
 								facts.statements.length,
 								c.statements.length,

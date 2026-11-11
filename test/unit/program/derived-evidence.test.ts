@@ -33,7 +33,12 @@ import { checking } from "#test/support/policy.ts"
  *
  * The oracle generators draw no derived relation, so the space is exhaustive over the public fixtures' views: Reports'
  * AccountBudget, keyed by account, and Reporting's RunTotal, keyed by run, each projected to its key and every proper
- * subset of its other columns, so every projection drops a column.
+ * subset of its other columns, so every projection drops a column. The oracle is that specification: the view's index,
+ * named by the installation's own names (viewKeyIndex), is a premise of the template's and of the write's certificates.
+ *
+ * Features: each view, a read-back over a view.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): derived-evidence-unkeyed-views, a query's evidence keying no view.
  *
  * A view of a fixture schema: the schema, the derived relation and the key it inherits from its definition
  * (test/unit/derived/keys.test.ts derives both).
@@ -130,8 +135,11 @@ describe("a query over a derived relation", () => {
 					ctx,
 					exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every projection of Reports' AccountBudget and Reporting's RunTotal that keeps the view's inherited key and drops another column",
+							oracle: {
+								kind: "specification",
+								name: "a projection keeping a view's inherited key rests on the view's unique index, in a template and in a read-back"
+							},
 							suite: "unit/program/derived-evidence",
 							generator: space,
 							literal: Formatter.format,

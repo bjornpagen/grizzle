@@ -119,8 +119,12 @@ import { outputText } from "#test/support/wire.ts"
  *   as the text cells the database returns (meaning.ts referenceCells), decoded through the query value's decoder bound
  *   to either artifact's layouts, are the reference's answer of each group, every arm's literal read as its own.
  *
- * Essay ideas: an oracle (the reference's children per parent, the language's proof) and search over generated
- * programs; Wild values at the boundary, layouts with a key taken away.
+ * Features: each stated delivery the facts break, refused, and each the program proves, bound; a column, an attachment
+ * and a nested key removed, refused; a rebuilt query, and a rebuilt arm beside a typed arm, refused; each heading group
+ * of a mixed root decoded.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): delivered-option-unchecked, an Option delivery bound over layouts
+ * that may hold many children; delivered-missing-key-skipped, a record key its layout lacks read as absent.
  */
 type QueryRead = Extract<ProgramRead, { readonly kind: "query" }>
 
@@ -1092,7 +1096,10 @@ describe("typed rows at bind", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the reference's children per parent (oracle/public/meaning.ts) and the program language's own proof (delivery.ts)"
+						},
 						suite: "unit/program/delivered",
 						draw: drawn((source) => [source.draw(caseSketchGen), source.draw(plantGen)] as const),
 						literal: Formatter.format,
@@ -1128,7 +1135,10 @@ describe("typed rows at bind", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a record binds only to layouts holding every one of its keys"
+						},
 						suite: "unit/program/delivered-layouts",
 						draw: drawn(caseSketchGen),
 						literal: Formatter.format,
@@ -1157,7 +1167,10 @@ describe("typed rows at bind", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a query rebuilt from its Description has no decoder of its own"
+						},
 						suite: "unit/program/delivered-rebuilt",
 						draw: drawn(caseSketchGen),
 						literal: Formatter.format,
@@ -1184,7 +1197,10 @@ describe("typed rows at bind", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "the reference's answer of each heading group (oracle/public/answer.ts)"
+					},
 					suite: "unit/program/delivered-mixed",
 					draw: drawn(caseSketchGen),
 					literal: Formatter.format,

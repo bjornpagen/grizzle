@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore, type Kept } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, type Gen } from "@grizzle/testing/gen"
+import { element, type Gen, oneOf } from "@grizzle/testing/gen"
 import {
 	corrupted,
 	corruptedFeature,
@@ -13,7 +13,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { formatLoc } from "#compiler/core/loc.ts"
+import { formatLoc, formatPath } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { FieldDecl, SchemaDesc } from "#compiler/ir/desc.ts"
@@ -25,7 +25,7 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { assert, containsText, defined, refusalLoc, succeeded } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty, refusalLoc, succeeded } from "#test/support/assert.ts"
 import {
 	compileTemplate,
 	compileTestWorkload,
@@ -41,7 +41,7 @@ import {
 	type Admitted,
 	admittedSchemaNames,
 	type IdentifierFeature,
-	schemaNameGen
+	schemaNameGenOtherThan
 } from "#test/support/kernel/dict.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { Spelling } from "#test/support/oracle/gen/domain.ts"
@@ -52,7 +52,6 @@ import {
 	schemaDesc,
 	schemaSketchGen
 } from "#test/support/oracle/gen/schema.ts"
-import { pickGen, pickFrom } from "#test/support/pick.ts"
 
 /**
  * The schema a compilation is given, parsed once (program/schema.ts parseSchemaInput), and the schema a query compiles
@@ -78,7 +77,16 @@ import { pickGen, pickFrom } from "#test/support/pick.ts"
  * - A schema value the decoder refuses is refused with the decoder's own path, by parseSchemaInput and by a workload
  *   compiled against it, never by a generic "a schema value or SchemaDesc". The values are generated schemas (the
  *   differential oracle's, gen/schema.ts), each broken at one site of one decoder rule (a corruption,
- *   @grizzle/testing/lsw), and the path is the site's.
+ *   @grizzle/testing/lsw), and the path is the site's, held segment by segment, never as printed text.
+ *
+ * A changed Db is drawn from every site of every change of content that installs, the finite space cut once; a rename
+ * draws a schema name other than the root's own. No case is discarded.
+ *
+ * Features: the schema itself, a level, no level; each pair of inputs; a rename to each kind of name, each change of
+ * content; a live schema and each decoder rule broken.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): schema-input-level-by-relation-names, a level compared by its
+ * relations' names alone; schema-input-decoder-pathless, a decoder refusal at the root of the value.
  *
  * The refusal a compilation answers, which a case must reach: its reason and location.
  */
@@ -138,8 +146,11 @@ describe("the schema a query compiles against", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every ordered pair of Work, Reports, Payroll and Reporting, a query over the first named against the second",
+						oracle: {
+							kind: "specification",
+							name: "the extensions the fixtures build (schema.extend): a query compiles exactly against a schema its own is a level of"
+						},
 						suite: "unit/program/schema-input-levels",
 						/** The query's schema, then the schema the caller names: every ordered pair of the four. */
 						generator: (source) => [source.draw(subjects), source.draw(subjects)] as const,
@@ -208,8 +219,11 @@ describe("the artifacts of a schema", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "each fixture schema through every ordered pair of its built value, its Owned and its description",
+					oracle: {
+						kind: "universal",
+						name: "a schema's artifacts are one value whichever input reaches it, under its declared levels' names"
+					},
 					suite: "unit/program/schema-input-artifacts",
 					/** Each fixture schema and each ordered pair of its inputs: 4 * 9. */
 					generator: (source) =>
@@ -336,75 +350,72 @@ const otherType = (field: FieldDecl): FieldDecl => ({
 	writing: { kind: "caller" }
 })
 
-/**
- * A description with one change of content made, or none where the picks select no site of the change: a relation
- * with no field outside its key, one that already holds the added field, or one already mutable.
- */
-type Changed = { readonly kind: "changed"; readonly desc: unknown } | { readonly kind: "no site" }
-
-const noSite: Changed = { kind: "no site" }
-
-/** The description of `base` with `change` made at the stored relation and the non-key field the picks select. */
-const changedDesc = (
-	base: SchemaDesc,
-	change: ContentChange,
-	relationPick: number,
-	fieldPick: number
-): Changed => {
-	const stored = Arr.flatMap(base.relations, (r, i) =>
-		r.kind === "relation" ? [{ relation: r, index: i }] : []
-	)
-	if (!Arr.isReadonlyArrayNonEmpty(stored)) {
-		throw new Error(`a stored relation of ${base.name}`)
-	}
-	const { relation, index } = pickFrom(stored, relationPick)
-	const withFields = (fields: Readonly<Record<string, FieldDecl>>): Changed => ({
-		kind: "changed",
-		desc: {
-			...base,
-			relations: Arr.map(base.relations, (r, i) => (i === index ? { ...relation, fields } : r))
-		}
-	})
-	const others = Arr.filter(
-		Rec.toEntries(relation.fields),
-		([field]) => !relation.primaryKey.includes(field)
-	)
-	switch (change) {
-		case "a field added":
-			return Rec.has(relation.fields, "extra")
-				? noSite
-				: withFields({
-						...relation.fields,
-						extra: { type: { kind: "pg", type: "integer" }, writing: { kind: "caller" } }
-					})
-		case "a field removed": {
-			if (!Arr.isReadonlyArrayNonEmpty(others)) {
-				return noSite
-			}
-			const [removed] = pickFrom(others, fieldPick)
-			return withFields(
-				Rec.fromEntries(Arr.filter(Rec.toEntries(relation.fields), ([field]) => field !== removed))
-			)
-		}
-		case "a type changed": {
-			if (!Arr.isReadonlyArrayNonEmpty(others)) {
-				return noSite
-			}
-			const [changed, type] = pickFrom(others, fieldPick)
-			return withFields({ ...relation.fields, [changed]: otherType(type) })
-		}
-		case "a statement added":
-			return Arr.some(base.statements, (s) => s.kind === "mutable" && s.relation === relation.name)
-				? noSite
-				: {
-						kind: "changed",
-						desc: {
-							...base,
-							statements: [...base.statements, { kind: "mutable", relation: relation.name }]
-						}
-					}
-	}
+/** A change of content and the description it makes. */
+interface Change {
+	readonly change: ContentChange
+	readonly desc: unknown
 }
+
+/**
+ * Every site of every change of content in `base`, each the description it makes: at each stored relation, an integer
+ * field added where it holds no `extra`, each field outside its key removed, each such field's type changed, and the
+ * relation made mutable where no statement makes it so.
+ */
+const changesOf = (base: SchemaDesc): ReadonlyArray<Change> =>
+	Arr.flatMap(base.relations, (relation, index): ReadonlyArray<Change> => {
+		if (relation.kind !== "relation") {
+			return []
+		}
+		const withFields = (
+			change: ContentChange,
+			fields: Readonly<Record<string, FieldDecl>>
+		): Change => ({
+			change,
+			desc: {
+				...base,
+				relations: Arr.map(base.relations, (r, i) => (i === index ? { ...relation, fields } : r))
+			}
+		})
+		const others = Arr.filter(
+			Rec.toEntries(relation.fields),
+			([field]) => !relation.primaryKey.includes(field)
+		)
+		return [
+			...(Rec.has(relation.fields, "extra")
+				? []
+				: [
+						withFields("a field added", {
+							...relation.fields,
+							extra: { type: { kind: "pg", type: "integer" }, writing: { kind: "caller" } }
+						})
+					]),
+			...Arr.map(others, ([removed]) =>
+				withFields(
+					"a field removed",
+					Rec.fromEntries(
+						Arr.filter(Rec.toEntries(relation.fields), ([field]) => field !== removed)
+					)
+				)
+			),
+			...Arr.map(others, ([changed, type]) =>
+				withFields("a type changed", { ...relation.fields, [changed]: otherType(type) })
+			),
+			...(Arr.some(base.statements, (s) => s.kind === "mutable" && s.relation === relation.name)
+				? []
+				: [
+						{
+							change: "a statement added" as const,
+							desc: {
+								...base,
+								statements: [
+									...base.statements,
+									{ kind: "mutable" as const, relation: relation.name }
+								]
+							}
+						}
+					])
+		]
+	})
 
 /** A case: a root of the fixtures and the Db it opens. */
 interface ContentCase {
@@ -413,66 +424,49 @@ interface ContentCase {
 }
 
 /**
- * What a case is drawn from: a root, whether it is renamed, the name it takes, and the change its content takes with
- * the picks of the relation and the field it is made at.
+ * Every changed Db of every root: each site of each change of content that installs, so its one refusal is the
+ * level's. The space is finite, cut once here, and drawn from whole: no draw is discarded.
  */
-interface ContentSketch {
-	readonly built: Root
-	readonly renamed: boolean
-	readonly name: Admitted
-	readonly change: ContentChange
-	readonly relation: number
-	readonly field: number
-}
+const changedCases: Arr.NonEmptyReadonlyArray<ContentCase> = nonEmpty(
+	Arr.flatMap(roots, (built) =>
+		Arr.flatMap(
+			changesOf(
+				defined(schemaDescOf(built.subject.schema), `the description of ${built.subject.label}`)
+			),
+			({ change, desc }): ReadonlyArray<ContentCase> =>
+				testArtifacts(desc, testCompile).ok
+					? [{ built, db: { kind: "changed", change, schema: desc } }]
+					: []
+		)
+	),
+	"a change of content that installs"
+)
 
-const contentSketchGen: Gen<ContentSketch> = (source) => ({
-	built: source.draw(element(roots)),
-	renamed: source.draw(boolean),
-	name: source.draw(schemaNameGen),
-	change: source.draw(element(contentChanges)),
-	relation: source.draw(pickGen),
-	field: source.draw(pickGen)
-})
-
-/**
- * The case of a sketch, or none. A draw that renames a root to its own name, or whose change has no site or does not
- * install, is no case: a changed description is drawn only where it installs, so its one refusal is the level's.
- */
-const contentOf = ({
+/** Each root with the schema names other than its own, which a rename draws from: no draw renames it to itself. */
+const renamings = Arr.map(roots, (built) => ({
 	built,
-	renamed,
-	name,
-	change,
-	relation,
-	field
-}: ContentSketch): Option.Option<ContentCase> => {
-	if (renamed) {
-		return name.declared === built.subject.label
-			? Option.none()
-			: Option.some({
-					built,
-					db: {
-						kind: "renamed",
-						name: name.declared,
-						feature: name.feature,
-						schema: built.renamed(name.declared)
-					}
-				})
+	names: schemaNameGenOtherThan(new Set([built.subject.label]))
+}))
+
+/** A root renamed to a schema name other than its own, which no change of content touches. */
+const renamedCase: Gen<ContentCase> = (source) => {
+	const { built, names } = source.draw(element(renamings))
+	const name = source.draw(names)
+	return {
+		built,
+		db: {
+			kind: "renamed",
+			name: name.declared,
+			feature: name.feature,
+			schema: built.renamed(name.declared)
+		}
 	}
-	const base = defined(
-		schemaDescOf(built.subject.schema),
-		`the description of ${built.subject.label}`
-	)
-	const changed = changedDesc(base, change, relation, field)
-	return changed.kind === "changed" && testArtifacts(changed.desc, testCompile).ok
-		? Option.some({ built, db: { kind: "changed", change, schema: changed.desc } })
-		: Option.none()
 }
 
-/**
- * Planted: a rename to a name of each of the dictionary's kinds, and each change of content at the first relation and
- * field of the first root.
- */
+/** A case: a rename or a change of content, each as often as the other. */
+const contentGen: Gen<ContentCase> = oneOf([renamedCase, element(changedCases)])
+
+/** The kinds of name a rename must reach: every kind a schema name is admitted of. */
 const identifierFeatures: Arr.NonEmptyReadonlyArray<IdentifierFeature> = [
 	"alias",
 	"digit boundary",
@@ -482,7 +476,11 @@ const identifierFeatures: Arr.NonEmptyReadonlyArray<IdentifierFeature> = [
 	"plain"
 ]
 
-const keptContent: ReadonlyArray<Kept<ContentSketch, ContentFeature>> = (() => {
+/**
+ * Planted: a rename to a name of each of the dictionary's kinds, and each change of content at its first site of the
+ * first root.
+ */
+const keptContent: ReadonlyArray<Kept<ContentCase, ContentFeature>> = (() => {
 	const [built] = roots
 	const nameOf = (feature: IdentifierFeature): Admitted =>
 		Option.getOrThrow(
@@ -491,27 +489,41 @@ const keptContent: ReadonlyArray<Kept<ContentSketch, ContentFeature>> = (() => {
 				(n) => n.feature === feature && n.declared !== built.subject.label
 			)
 		)
-	const base = {
-		built,
-		renamed: false,
-		name: nameOf("plain"),
-		change: contentChanges[0],
-		relation: 0,
-		field: 0
-	}
 	return [
-		...Arr.map(identifierFeatures, (feature) => ({
-			note: `a root renamed to a name of kind ${feature}`,
-			sketch: { ...base, renamed: true, name: nameOf(feature) },
-			draws: "",
-			reaches: [`renamed: ${feature}` as const] as const
-		})),
-		...Arr.map(contentChanges, (change) => ({
-			note: `a root's description with ${change}`,
-			sketch: { ...base, change },
-			draws: "",
-			reaches: [change] as const
-		}))
+		...Arr.map(identifierFeatures, (feature) => {
+			const name = nameOf(feature)
+			return {
+				note: `a root renamed to a name of kind ${feature}`,
+				sketch: {
+					built,
+					db: {
+						kind: "renamed" as const,
+						name: name.declared,
+						feature,
+						schema: built.renamed(name.declared)
+					}
+				},
+				draws: "",
+				reaches: [`renamed: ${feature}` as const] as const
+			}
+		}),
+		...Arr.flatMap(contentChanges, (change) =>
+			Arr.map(
+				Arr.take(
+					Arr.filter(
+						changedCases,
+						(c) => c.built === built && c.db.kind === "changed" && c.db.change === change
+					),
+					1
+				),
+				(sketch) => ({
+					note: `a root's description with ${change}`,
+					sketch,
+					draws: "",
+					reaches: [change] as const
+				})
+			)
+		)
 	]
 })()
 
@@ -523,9 +535,12 @@ describe("a level is its content, not its name", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a level is compared by its content: renamed, its SQL is the renamed schema's own; changed, it is MalformedDescription"
+						},
 						suite: "unit/program/schema-input-content",
-						draw: drawn(contentSketchGen),
+						draw: drawn(contentGen),
 						literal: Formatter.format,
 						coverage: required<ContentFeature>(
 							[
@@ -535,23 +550,14 @@ describe("a level is its content, not its name", () => {
 							{ cases: 100, sense: notesOnly }
 						),
 						kept: keptContent,
-						/**
-						 * The rotating stream's sample: half the cases rename over a dictionary of five kinds of name, half change
-						 * one of four parts of the content.
-						 */
 						runs: 100,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
-					(sketch, c) =>
-						Effect.gen(function* () {
-							const content = contentOf(sketch)
-							if (Option.isNone(content)) {
-								return yield* c.assume(false)
-							}
-							const { built, db } = content.value
+					({ built, db }, c) =>
+						Effect.sync(() => {
 							const query = built.subject.query
 							if (db.kind === "renamed") {
 								c.note(`renamed: ${db.feature}`)
@@ -603,11 +609,20 @@ const withRelation = (live: SchemaDesc, index: number, relation: unknown): unkno
 	relations: Arr.map(live.relations, (r, i) => (i === index ? relation : r))
 })
 
+/** A location's path, as the decoder's segments: a key, or an index. */
+type Path = ReadonlyArray<string | number>
+
+/** Whether `path` holds `site`'s segments in a row: the site is where the decode refused, under whatever it nests in. */
+const holdsPath = (path: Path, site: Path): boolean =>
+	Arr.some(Arr.range(0, path.length - site.length), (from) =>
+		Arr.every(site, (segment, i) => path[from + i] === segment)
+	)
+
 /**
- * Each rule's sites in a live schema, with the path the decoder refuses each at (ir/desc.ts schema shapes): a field is
- * named by its key, which every fixture's field names spell as a plain path segment.
+ * Each rule's sites in a live schema, with the path the decoder refuses each at (ir/desc.ts schema shapes), as its
+ * segments: a relation by its index, a field by its key.
  */
-const corruptions: Arr.NonEmptyReadonlyArray<Corruption<SchemaDesc, string, DecoderRule>> = [
+const corruptions: Arr.NonEmptyReadonlyArray<Corruption<SchemaDesc, Path, DecoderRule>> = [
 	{
 		rule: "an unnamed relation",
 		from: "wild",
@@ -615,7 +630,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<SchemaDesc, string, Deco
 		sites: (live) =>
 			Arr.map(live.relations, (r, i) => ({
 				value: withRelation(live, i, { ...r, name: "" }),
-				refusal: `relations[${i}].name`,
+				refusal: ["relations", i, "name"],
 				at: `relation ${r.name}`
 			}))
 	},
@@ -631,7 +646,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<SchemaDesc, string, Deco
 								...r,
 								fields: { ...r.fields, [field]: { kind: "nothing" } }
 							}),
-							refusal: `relations[${i}].fields.${field}.kind`,
+							refusal: ["relations", i, "fields", field, "kind"],
 							at: `field ${r.name}.${field}`
 						}))
 					: []
@@ -647,7 +662,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<SchemaDesc, string, Deco
 					...live,
 					statements: Arr.map(live.statements, (t, j) => (j === i ? { ...t, kind: "nothing" } : t))
 				},
-				refusal: `statements[${i}].kind`,
+				refusal: ["statements", i, "kind"],
 				at: `statement ${s.kind}`
 			}))
 	}
@@ -670,7 +685,10 @@ describe("a schema the decoder refuses", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the decoder's own path of each broken site, by the parser and by a workload compiled against it"
+						},
 						suite: "unit/program/schema-input-decoder",
 						draw: drawn(liveSketchGen),
 						literal: Formatter.format,
@@ -725,10 +743,9 @@ describe("a schema the decoder refuses", () => {
 							const what = `${live.name} broken at ${broken.at}`
 							for (const error of refusalsOf(broken.value, what)) {
 								assert.equal(error.reason._tag, "MalformedDescription")
-								containsText(
-									formatLoc(refusalLoc(error)),
-									broken.refusal,
-									`${what} is refused at ${formatLoc(refusalLoc(error))}, not at ${broken.refusal}`
+								assert.ok(
+									holdsPath(refusalLoc(error).path, broken.refusal),
+									`${what} is refused at ${formatLoc(refusalLoc(error))}, not at ${formatPath(broken.refusal)}`
 								)
 							}
 						})

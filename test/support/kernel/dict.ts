@@ -267,17 +267,24 @@ export const dictionaryNameGen: Gen<Admitted> = weightedNameGen(
 )
 
 /**
- * An admitted declared name of the dictionary that `excluded` does not hold, drawn as dictionaryNameGen draws one: the
- * finite pool is cut once, so no draw is retried or discarded.
+ * A name of `names` that `excluded` does not hold, drawn with every feature as often as every other: the finite pool is
+ * cut once, so no draw is retried or discarded.
  */
-export const dictionaryNameGenOtherThan = (excluded: ReadonlySet<string>): Gen<Admitted> =>
+const nameGenOtherThan = (
+	names: ReadonlyArray<Admitted>,
+	excluded: ReadonlySet<string>
+): Gen<Admitted> =>
 	weightedNameGen(
 		evenWeights,
 		nonEmpty(
-			Arr.filter(admittedNames, (n) => !excluded.has(n.declared)),
+			Arr.filter(names, (n) => !excluded.has(n.declared)),
 			"an admitted name outside the excluded ones"
 		)
 	)
+
+/** An admitted declared name of the dictionary that `excluded` does not hold, drawn as dictionaryNameGen draws one. */
+export const dictionaryNameGenOtherThan = (excluded: ReadonlySet<string>): Gen<Admitted> =>
+	nameGenOtherThan(admittedNames, excluded)
 
 /**
  * The admitted names a schema may take: every admitted name but those whose conversion starts with pg_, which
@@ -290,6 +297,10 @@ export const admittedSchemaNames: Arr.NonEmptyReadonlyArray<Admitted> = nonEmpty
 
 /** An admitted declared name a schema may take, drawn as dictionaryNameGen draws one. */
 export const schemaNameGen: Gen<Admitted> = weightedNameGen(evenWeights, admittedSchemaNames)
+
+/** An admitted declared name a schema may take that `excluded` does not hold, drawn as schemaNameGen draws one. */
+export const schemaNameGenOtherThan = (excluded: ReadonlySet<string>): Gen<Admitted> =>
+	nameGenOtherThan(admittedSchemaNames, excluded)
 
 /** The catalog-type names' conversions: the identifiers a relation shares with a PostgreSQL type or function. */
 export const catalogConversions: ReadonlySet<string> = new Set(
