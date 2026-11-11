@@ -248,6 +248,15 @@ export const soundness = (
 				: []),
 			...(owed.kind === "none" && !uniqueOn(rel.heading, rel.rows, p.columns)
 				? [{ node: id, claim: "nothing owed" }]
+				: []),
+			...(p.uniqueness.kind === "plain" &&
+			!uniqueOn(rel.heading, rel.rows, [...p.uniqueness.key.columns])
+				? [
+						{
+							node: id,
+							claim: `the uniqueness proof's key (${Arr.join(p.uniqueness.key.columns, ", ")})`
+						}
+					]
 				: [])
 		]
 	}

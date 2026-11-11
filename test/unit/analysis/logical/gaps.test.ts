@@ -1,4 +1,28 @@
-import { describe, it } from "@effect/vitest"
+/**
+ * Key inferences the logical analysis makes over four shapes, each searched against an oracle written apart from it: a
+ * closure brute-forced over the shape's own dependencies, which each inference must reach exactly, and the reference
+ * evaluator over generated facts, on which every key and dependency the analysis claims must hold (support.ts
+ * logicalUnsound, which also holds every proof to the key kernel).
+ *
+ * - Closed columns of identical values: two columns of one type a closed relation holds one value in, fact by fact,
+ *   are one class, and a column whose values are distinct is a key.
+ * - A lateral source's fixed column: a region's variable bound to a column its lateral source fixes to a region
+ *   column's value equals that column's variable, each determining the other, so the region's keys are exactly the
+ *   minimal sets its matches and that equality determine its heading by.
+ * - Projections of a join: a node keeps every attribute of its input it does not deliver as a hidden one, so whether
+ *   some columns of two stacked projections determine others is exactly their closure in the join, a dependency whose
+ *   determinants hold a dropped column included.
+ * - Keys of joined relations of two declared keys each: one proof over independent factors, the keys its factors'
+ *   choices state exactly the join's minimal keys (the work it takes is join-cost.test.ts's).
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): closed-classes-by-type-alone (two closed columns of one type are one
+ * class whatever their values); lateral-fixed-one-way (a lateral source's fixed column determines the region's
+ * variable but not back); projection-hidden-dropped (a projection keeps no hidden attribute of its input);
+ * logical-factor-no-alternatives (a key factor states no alternative of its chosen key).
+ *
+ * Features: each shape's classes, keys and dependencies (GapFeature of each search), and each claim the reference
+ * evaluator checked.
+ */ import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, boolean, constant, type Gen, int, weighted } from "@grizzle/testing/gen"
@@ -25,23 +49,7 @@ import {
 } from "#compiler/logical/annotate.ts"
 import { closure } from "#compiler/logical/closure.ts"
 import type { Props } from "#compiler/logical/props.ts"
-/**
- * Key inferences the logical analysis makes over four shapes, each searched against an oracle written apart from it: a
- * closure brute-forced over the shape's own dependencies, which each inference must reach exactly, and the reference
- * evaluator over generated facts, on which every key and dependency the analysis claims must hold (support.ts
- * logicalUnsound, which also holds every proof to the key kernel).
- *
- * - Closed columns of identical values: two columns of one type a closed relation holds one value in, fact by fact,
- *   are one class, and a column whose values are distinct is a key.
- * - A lateral source's fixed column: a region's variable bound to a column its lateral source fixes to a region
- *   column's value equals that column's variable, each determining the other, so the region's keys are exactly the
- *   minimal sets its matches and that equality determine its heading by.
- * - Projections of a join: a node keeps every attribute of its input it does not deliver as a hidden one, so whether
- *   some columns of two stacked projections determine others is exactly their closure in the join, a dependency whose
- *   determinants hold a dropped column included.
- * - Keys of joined relations of two declared keys each: one proof over independent factors, the keys its factors'
- *   choices state exactly the join's minimal keys (the work it takes is join-cost.test.ts's).
- */
+
 import { plainType } from "#compiler/scalar/native.ts"
 import { assert, deepEquals, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"

@@ -1,4 +1,20 @@
-import { describe, it } from "@effect/vitest"
+/**
+ * Order completion: the page completion policy, union roster-order completion included.
+ *
+ * completeOrder is judged against the policy written from its statement, by search over the sets of fields it may
+ * append, over generated subjects (headings, classes of equal columns, keys over them, fixed columns, a discriminant,
+ * user orders in and outside the heading), and the order it completes is checked total over generated relations the
+ * subject describes. Every type a schema can declare is ordered, so the unordered refusals are no case.
+ *
+ * - Completion: over generated subjects, completeOrder appends exactly what the policy appends, and the order is total
+ *   over generated relations. Plant: order-appends-fixed (a fixed column appended to the order).
+ * - Unions: a union of several headings read through a bound, a join, a set operation or an attachment completes as
+ *   the union itself, the discriminant ascending right after the user's fields. Plant: order-discriminant-descending
+ *   (the discriminant appended descending).
+ *
+ * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: each completion's appended parts and refusals;
+ * each wrapper completed and refused.
+ */ import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
@@ -26,17 +42,6 @@ import { asc as ascending, type BuiltQuery, Ir } from "#test/support/fixtures/ir
 import * as W from "#test/support/fixtures/ir/work.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { logicalEnv, noImmediate, theoryUnder } from "#test/unit/analysis/logical/support.ts"
-
-/**
- * Order completion: the page completion policy, union roster-order completion included.
- *
- * completeOrder is judged against the policy written from its statement, by search over the sets of fields it may
- * append, over generated subjects (headings, classes of equal columns, keys over them, fixed columns, a discriminant,
- * user orders in and outside the heading), and the order it completes is checked total over generated relations the
- * subject describes. Every type a
- * schema can declare is ordered, so the unordered refusals are no case. The subjects the analysis derives from a union
- * of several headings are the examples below.
- */
 
 const int4 = plainType("int4")
 
@@ -300,7 +305,10 @@ describe("completing an order", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the page completion policy written from its statement, searched over the field sets it may append, and the completed order total over generated relations"
+						},
 						suite: "unit/analysis/logical/order-completion",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
@@ -526,8 +534,11 @@ describe("completing an order over a union of different headings", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "a union of payloads keyed or not, read through every wrapper, under every user order",
+						oracle: {
+							kind: "specification",
+							name: "the policy's completion of the union's own subject, the discriminant right after the user's fields"
+						},
 						suite: "unit/analysis/logical/union-order",
 						generator: (source) =>
 							[

@@ -1,3 +1,27 @@
+/**
+ * The logical analysis's claims hold on the facts.
+ *
+ * Every generated query is annotated with its schema's declared keys and containments, under a drawn execution context
+ * and drawn containment contexts, and evaluated by the reference evaluator, every evaluation recorded: a correlated
+ * node once per outer tuple it was evaluated under. On every relation a node denoted, its claimed cardinality bounds its
+ * rows (at most one row unless `many`, exactly one when `one`) and no two rows agree on a claimed logical key; and for
+ * every attachment, the children each parent row receives
+ * respect the child's claims relative to the parent and the delivered type: at most one for an Option, exactly one for
+ * a bare child. A read inside a transaction may see facts that break a containment only checked at commit, so there
+ * the cases drop a target relation's facts and leave its sources orphaned: evidence the context does not admit must
+ * prove nothing. An unsound claim here would let get, an Option attachment or a dropped DISTINCT change an answer.
+ *
+ * - Soundness (keys and cardinality bounds, under every context, delivered types rooted at attachments, bare children
+ *   along declared containments and filters over one fact): every claim holds on the reference evaluator's facts.
+ *   Oracle: the reference evaluator, a second implementation. Plant: filter-keeps-exactly-one (a filter over an input
+ *   of exactly one row claims exactly one, though it may drop it).
+ * - Idempotence (generated cases, and the proving shapes' bare children): annotating an annotated DAG states what the
+ *   first annotation did, node for node. Oracle: universal. Plant: annotate-keys-accumulate (a node's claimed keys
+ *   gather its earlier claims beside the new ones).
+ *
+ * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: each claim checked (EvidenceFeature), each
+ * execution and containment context and an orphaned containment; each claim and delivered type for idempotence.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required, type Situations } from "@grizzle/testing/features"
@@ -54,20 +78,6 @@ import {
 	type LogicalFeature,
 	logicalUnsound
 } from "#test/unit/analysis/logical/support.ts"
-
-/**
- * The logical analysis's claims hold on the facts.
- *
- * Every generated query is annotated with its schema's declared keys and containments, under a drawn execution context
- * and drawn containment contexts, and evaluated by the reference evaluator, every evaluation recorded: a correlated
- * node once per outer tuple it was evaluated under. On every relation a node denoted, its claimed cardinality bounds its
- * rows (at most one row unless `many`, exactly one when `one`) and no two rows agree on a claimed logical key; and for
- * every attachment, the children each parent row receives
- * respect the child's claims relative to the parent and the delivered type: at most one for an Option, exactly one for
- * a bare child. A read inside a transaction may see facts that break a containment only checked at commit, so there
- * the cases drop a target relation's facts and leave its sources orphaned: evidence the context does not admit must
- * prove nothing. An unsound claim here would let get, an Option attachment or a dropped DISTINCT change an answer.
- */
 
 const runs = 1500
 
@@ -705,7 +715,10 @@ const holdsOn = <S>(
 		ctx,
 		explore(
 			{
-				oracle: { kind: "unstated" },
+				oracle: {
+					kind: "second-implementation",
+					name: "the reference evaluator's every evaluation of every node, each claim judged on every relation it denoted"
+				},
 				suite,
 				draw: drawn(draw.generator),
 				literal: Formatter.format,
@@ -835,7 +848,7 @@ const idempotentOn = <S>(
 		ctx,
 		explore(
 			{
-				oracle: { kind: "unstated" },
+				oracle: { kind: "universal", name: "a second annotation states what the first did" },
 				suite,
 				draw: drawn(draw.generator),
 				literal: Formatter.format,

@@ -12,14 +12,24 @@ import { analyzeLogical, checkerEvidence } from "#compiler/logical/annotate.ts"
 /**
  * The logical analysis of k relations matched in one region, each of two columns a and b, each its own declared key,
  * no variable shared: 2^k minimal keys, which one proof states over k independent factors (logical/props.ts finish).
- * Its work is counted, never timed (test/support/kernel/calls.ts), so no verdict depends on the machine: the closures
- * it computes and the minimal-key searches it runs grow linearly from k relations to 2k, where listing every minimal
- * key grew with 2^k. The counts are process-wide, so the gate runs alone in its file.
+ * Its work is counted, never timed (test/support/kernel/calls.ts), so no verdict depends on the machine.
  *
- * The box is exhausted: k at 4, 5 and 6, each against twice it.
+ * Property: the closures it computes and the minimal-key searches it runs grow no faster than linearly in k, where
+ * listing every minimal key grew with 2^k: counted at k = 2h, 4h and 6h, each count increments no more over the second
+ * step than over the first (test/support/growth.ts incrementsDoNotGrow). The counts are process-wide, so the gate runs
+ * alone in its file.
+ *
+ * Box: h at 2 and 3, exhausted. Oracle: universal, the increments of a count that grows no faster than linearly.
+ * Assumption: no count changes shape above some k.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): join-cost-key-search-per-pair (a key search run for each factor once
+ * per factor, k² of them).
+ *
+ * Features: from k = 4, from k = 6.
  */
 import { plainType } from "#compiler/scalar/native.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { defined, succeeded } from "#test/support/assert.ts"
+import { incrementsDoNotGrow } from "#test/support/growth.ts"
 import { type CallSite, callCounts } from "#test/support/kernel/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 
@@ -30,9 +40,6 @@ const sites = {
 	closure: { file: "packages/engine/src/logical/closure.ts", name: "closure" },
 	minimalKeys: { file: "packages/engine/src/logical/closure.ts", name: "minimalKeys" }
 } satisfies Readonly<Record<string, CallSite>>
-
-/** The bound on growth from k relations to 2k: linear, with room for the parts that do not grow. */
-const linear = 2.5
 
 /** k relations R0.. of columns a and b, each its own key, matched in one region delivering every variable. */
 const productOf = (k: number): ValidDag => {
@@ -79,7 +86,7 @@ const productOf = (k: number): ValidDag => {
 	])
 }
 
-type Point = "k=4" | "k=5" | "k=6"
+type Point = "from k = 4" | "from k = 6"
 
 describe("the analysis of k joined relations of two keys each", () => {
 	it.effect("computes linearly many closures and key searches in k, never 2^k", (ctx) =>
@@ -88,32 +95,33 @@ describe("the analysis of k joined relations of two keys each", () => {
 			exhaust(
 				{
 					suite: "unit/analysis/logical/join-cost",
-					box: "k relations from 4 to 6, each against twice as many",
-					generator: int(4, 6),
+					box: "k relations at 2h, 4h and 6h, h at 2 and 3",
+					generator: int(2, 3),
 					literal: Formatter.format,
-					limit: 3,
-					coverage: requiredInSpace<Point>(["k=4", "k=5", "k=6"]),
+					limit: 2,
+					coverage: requiredInSpace<Point>(["from k = 4", "from k = 6"]),
 					caseHang,
 					oracle: {
-						kind: "specification",
-						name: "the closures and key searches at 2k relations at most linear times those at k"
+						kind: "universal",
+						name: "a count that grows no faster than linearly increments no more over its second equal step than over its first"
 					}
 				},
-				(k, c) =>
+				(half, c) =>
 					Effect.gen(function* () {
-						c.note(k === 4 ? "k=4" : k === 5 ? "k=5" : "k=6")
-						const [, small] = yield* callCounts(
-							Effect.sync(() => succeeded(analyzeLogical(productOf(k), checkerEvidence))),
-							sites
-						)
-						const [, large] = yield* callCounts(
-							Effect.sync(() => succeeded(analyzeLogical(productOf(2 * k), checkerEvidence))),
-							sites
-						)
+						c.note(half === 2 ? "from k = 4" : "from k = 6")
+						const counted = new Map<number, Readonly<Record<keyof typeof sites, number>>>()
+						for (const k of [2 * half, 4 * half, 6 * half]) {
+							const [, counts] = yield* callCounts(
+								Effect.sync(() => succeeded(analyzeLogical(productOf(k), checkerEvidence))),
+								sites
+							)
+							counted.set(k, counts)
+						}
 						for (const site of ["closure", "minimalKeys"] as const) {
-							assert.ok(
-								large[site] <= linear * small[site],
-								`${site}: ${small[site]} calls at k = ${k}, ${large[site]} at ${2 * k}`
+							incrementsDoNotGrow(
+								(k) => defined(counted.get(k), `the counts at k = ${k}`)[site],
+								half,
+								`${site} calls`
 							)
 						}
 					})

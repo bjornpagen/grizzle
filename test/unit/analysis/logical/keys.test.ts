@@ -1,3 +1,23 @@
+/**
+ * Keys the logical analysis proves, each property's own documentation beside its search:
+ *
+ * - Minimal keys (logical/closure.ts minimalKeys): from the whole heading alone, closed under the exchange of a
+ *   dependency's determined columns for its determinants, every minimal key of a drawn dependency table is found.
+ *   Oracle: every column set's closure by brute force. Plant: minimal-keys-no-exchange (no exchange after the
+ *   heading's minimization).
+ * - Class keys (logical/props.ts finish): k classes of equal columns are one key, its members every other column of
+ *   each class, not 2^k keys. Oracle: the classes the filter states, as a specification. Plant: classes-ignored (every
+ *   column its own class).
+ * - Union class keys (logical/props.ts unionProps): two columns equal in every arm are equal in the union, and a key
+ *   of the union is closed under them. Oracle: each arm's partition, intersected. Plant: union-equal-first-arm-alone
+ *   (two columns the first arm makes equal are the union's equal columns).
+ * - Forged union equalities (test/support/keys/kernel.ts): the key kernel accepts an arms witness only when each
+ *   arm's derivation steps by equalities alone. Oracle: that rule. Plant: kernel-arms-unchained (the kernel reads an
+ *   arms witness's implications and not its equality chain).
+ *
+ * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: one or several minimal keys and a key of
+ * several columns; each class shape and projection; each arm's copies and equalities; each forged mapping.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept, sketched } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -88,7 +108,10 @@ describe("minimal keys", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "every column set's closure by brute force, the sets that determine the heading with no proper subset that does"
+					},
 					suite: "unit/analysis/logical/minimal-keys",
 					draw: drawn(tableGen),
 					literal: Formatter.format,
@@ -222,7 +245,10 @@ describe("keys over classes of equal columns", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "one key, each class's first column in heading order, its members every other column of its class"
+						},
 						suite: "unit/analysis/logical/class-keys",
 						draw: drawn(classedGen),
 						literal: Formatter.format,
@@ -458,7 +484,10 @@ describe("keys of a union", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "each arm's outputs partitioned by their copies and equalities, the arms' partitions intersected"
+					},
 					suite: "unit/analysis/logical/union-class-keys",
 					draw: drawn(unionCaseGen),
 					literal: Formatter.format,
@@ -659,7 +688,10 @@ describe("the key kernel's union equalities", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "an arms witness proves two union columns equal only when each arm's derivation steps by equalities alone"
+						},
 						suite: "unit/analysis/logical/forged-union-equalities",
 						draw: sketched(mappingsGen, ([head, tail]) => [head, ...tail] as const),
 						literal: Formatter.format,

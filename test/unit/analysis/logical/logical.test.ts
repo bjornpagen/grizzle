@@ -1,3 +1,24 @@
+/**
+ * Normative logical evidence: the delivered type of attachments, on the shapes the small-scope suite
+ * (test/unit/analysis/small) and the generated evidence suite (evidence.test.ts) do not draw. Keys and cardinality
+ * relative to parameters, get eligibility, aggregate-only and parameter-fixed groups, unions of several headings,
+ * closed facts, relation parameters and filters fixing a key are judged there against the universe's truth.
+ *
+ * - Approval (logical/attach.ts containmentOne): a payroll run's approval attached by a child of each named shape,
+ *   under every stage and correlation, is bare exactly where the selected-source containment proves one per parent.
+ *   Plant: bare-child-source-selection-ignored (the parent's fact need not satisfy the containment's selection).
+ * - Ordinal (logical/attach.ts reflexiveOne): a sitting's ordinal, the count of the student's sittings at or before
+ *   it, is bare exactly where the parent's own fact satisfies the child's filter. Plant: reflexive-filters-unread (a
+ *   filter the parent's fact leaves unknown counts as satisfied).
+ * - Planted shapes: a several-field containment is one from one fact of its source, a span coverage never one, a
+ *   shared child its own evidence. Plant: bare-child-coverage-admitted (a span coverage proves a bare child).
+ *
+ * Each box names its shapes, the values the delivery rule branches on, and the oracle is the rule restated per shape:
+ * these boxes are written lists of shapes, which a generated child judged against a small universe's truth (as
+ * test/unit/analysis/small judges its grammar) would replace.
+ *
+ * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: each shape's verdict and each stage.
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -27,13 +48,6 @@ import {
 	noImmediate,
 	theoryUnder
 } from "#test/unit/analysis/logical/support.ts"
-
-/**
- * Normative logical evidence: the delivered type of attachments, on the shapes the small-scope suite
- * (test/unit/analysis/small) and the generated evidence suite (evidence.test.ts) do not draw. Keys and cardinality
- * relative to parameters, get eligibility, aggregate-only and parameter-fixed groups, unions of several headings,
- * closed facts, relation parameters and filters fixing a key are judged there against the universe's truth.
- */
 
 const work = theoryUnder(W.ReportsDesc, noImmediate)
 const payroll = theoryUnder(P.ReportingDesc, noImmediate)
@@ -243,8 +257,11 @@ describe("the delivered type of an attachment", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every child shape of the approval under every stage of the run and every correlation its heading admits",
+						oracle: {
+							kind: "specification",
+							name: "the selected-source containment's proof: bare exactly where an approved run's id is correlated with a plain scan of the run"
+						},
 						suite: "unit/analysis/logical/bare-approval",
 						generator: cases,
 						literal: Formatter.format,
@@ -448,8 +465,11 @@ describe("the delivered type of an attachment", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every variant of the sitting's ordinal: strict or inclusive, its correlation, the student's source, a second scan and a further conjunct",
+						oracle: {
+							kind: "specification",
+							name: "the reflexive self-match's proof: bare exactly where the parent's own fact satisfies the child's filter"
+						},
 						suite: "unit/analysis/logical/bare-ordinal",
 						generator: variants,
 						literal: Formatter.format,

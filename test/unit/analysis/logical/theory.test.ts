@@ -1,3 +1,32 @@
+/**
+ * Theory normalization: CheckedTheory from an owned schema, judged by properties over the differential oracle's
+ * generated schemas and drawn field types, the lawful Work facts and every combination of planted violations, and small
+ * fact spaces exhausted against the laws' meaning.
+ *
+ * - every law is one Forbid node over its violation query, and the violation queries mean what the laws say: evaluated
+ *   by the reference evaluator they are empty on lawful facts and name exactly the violating witnesses, a model of each
+ *   law's meaning written from its statement;
+ * - union-find classes over containment pairings keep carrier, contract and roster identity, refuse incompatible
+ *   pairings, and keep a typmod or a refinement inside one class, over pairs of generated field types;
+ * - evidence carries its validity context: keys and checks immediate, a containment into a closed relation immediate,
+ *   every other containment committed-snapshot only unless law specialization says otherwise;
+ * - law identities are deterministic, independent of declaration order and of unrelated statements, come from the
+ *   lawId option, must be distinct, and equivalent declarations, however often stated, are one law of one statement;
+ * - a containment pairing more than one span field is UnsupportedLawFamily (the span law families themselves are
+ *   unit/laws/recognition's).
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): span-pairing-two-admitted (a containment pairing two span fields
+ * admitted) for the span pairings; field-classes-any-pairing (two fields of one carrier paired whatever their contract
+ * or roster) for the classes; key-violation-no-differs (a key's violation pairs any two facts sharing the key, a fact
+ * with itself) for the Work violations and the candidate key; check-violation-unnegated (a row check's violation names
+ * the rows it holds of) for the row check; evidence-closed-target-deferred (a containment into a closed relation only
+ * committed-snapshot evidence) for the evidence context; evidence-immediate-set-ignored (law specialization's immediate
+ * set unread) for the containment context; law-id-names-its-statement (a law's identity names the statement it comes
+ * from) for the identities' independence; the equivalent declarations share law-id-names-its-statement too, since a
+ * restated law would take its later statement's identity.
+ *
+ * Features: each search's verdicts, pairings and contexts.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -64,24 +93,6 @@ import {
 } from "#test/unit/analysis/logical/support.ts"
 import { type HostFacts, uuidOf } from "#test/unit/analysis/theory/support.ts"
 import { type DeclaredSketch, declaredGen, numericGen, textGen } from "#test/unit/ir/types.ts"
-
-/**
- * Theory normalization: CheckedTheory from an owned schema, judged by properties over the differential oracle's
- * generated schemas and drawn field types, the lawful Work facts and every combination of planted violations, and small
- * fact spaces exhausted against the laws' meaning.
- *
- * - every law is one Forbid node over its violation query, and the violation queries mean what the laws say: evaluated
- *   by the reference evaluator they are empty on lawful facts and name exactly the violating witnesses, a model of each
- *   law's meaning written from its statement;
- * - union-find classes over containment pairings keep carrier, contract and roster identity, refuse incompatible
- *   pairings, and keep a typmod or a refinement inside one class, over pairs of generated field types;
- * - evidence carries its validity context: keys and checks immediate, a containment into a closed relation immediate,
- *   every other containment committed-snapshot only unless law specialization says otherwise;
- * - law identities are deterministic, independent of declaration order and of unrelated statements, come from the
- *   lawId option, must be distinct, and equivalent declarations, however often stated, are one law of one statement;
- * - a containment pairing more than one span field is UnsupportedLawFamily (the span law families themselves are
- *   unit/laws/recognition's).
- */
 
 const lawsOf = (t: Theory, shape: string) => Arr.filter(t.laws, (l) => l.shape === shape)
 const lawOf = (t: Theory, shape: string, relation: string) =>
@@ -643,8 +654,11 @@ describe("violation queries mean what their laws say", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "three employees of a report, each managed by none, by themselves or by another",
+						oracle: {
+							kind: "specification",
+							name: "the row check's meaning: exactly the employees who are their own manager violate it"
+						},
 						suite: "unit/analysis/logical/row-check-violations",
 						generator: (source) =>
 							[source.draw(manager), source.draw(manager), source.draw(manager)] as const,
@@ -702,8 +716,11 @@ describe("violation queries mean what their laws say", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "three accounts, each named none, acme or beta, beside any set of labels",
+						oracle: {
+							kind: "specification",
+							name: "the candidate key's meaning: two accounts sharing a name violate it, witnessed by the name; a pure set's key has nothing to differ on"
+						},
 						suite: "unit/analysis/logical/candidate-key-violations",
 						generator: (source) =>
 							[
@@ -972,7 +989,10 @@ describe("law identities", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "metamorphic: every law keeps its identity under a permutation of the statements and an unrelated statement inserted"
+						},
 						suite: "unit/analysis/logical/law-ids-position",
 						draw: drawn(
 							(source) =>
