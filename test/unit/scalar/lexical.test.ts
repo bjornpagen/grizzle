@@ -56,7 +56,7 @@ import {
 	lexicalValue
 } from "#compiler/scalar/lexical.ts"
 import { inclusion } from "#compiler/scalar/regex/inclusion.ts"
-import { matches, type Nfa } from "#compiler/scalar/regex/match.ts"
+import { closure, matches, type Nfa } from "#compiler/scalar/regex/match.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
@@ -480,6 +480,39 @@ const decimalRelation = (pattern: string, route: Route, bound: DecimalBound): An
 	}))
 }
 
+/**
+ * The most characters a member of `nfa`'s language of at most `chars` characters takes, 0 where none is that short, by
+ * the host matcher's walk (match.ts closure) over every text at once: the states some text of n characters reaches, a
+ * text of n characters a member where a walk of it reached the accepting state before its end, or reaches it at its
+ * end. A language inside decimalText is ASCII, a character a byte, so for one it is the most bytes a value of its text
+ * within `chars` bytes takes, which the parse compares with the form's bound.
+ */
+const longestMember = (nfa: Nfa, chars: number): number => {
+	const mark = new Int32Array(nfa.edges.length).fill(-1)
+	let stamp = 0
+	let seeds: ReadonlyArray<number> = [nfa.start]
+	let early = false
+	let longest = 0
+	for (let n = 0; n <= chars; n += 1) {
+		const atStart = n === 0
+		if (
+			early ||
+			closure(nfa, seeds, { atStart, atEnd: true }, mark, stamp++).includes(nfa.accept)
+		) {
+			longest = n
+		}
+		const walked = closure(nfa, seeds, { atStart, atEnd: false }, mark, stamp++)
+		early ||= walked.includes(nfa.accept)
+		seeds = [
+			...Arr.flatMap(walked, (state) =>
+				Arr.flatMap(defined(nfa.edges[state]), (e) => (e.kind === "set" ? [e.to] : []))
+			),
+			nfa.start
+		]
+	}
+	return longest
+}
+
 describe("a decimal's parse", () => {
 	it.effect(
 		"is proved exactly when the operand's language is inside decimalText and its bytes within the form's, by its type or by guards",
@@ -514,7 +547,7 @@ describe("a decimal's parse", () => {
 						caseHang,
 						oracle: {
 							kind: "second-implementation",
-							name: "language inclusion of the pattern in decimalText (scalar/regex/inclusion.ts) and the bytes the text analysis and the bound prove"
+							name: "language inclusion of the pattern in decimalText (scalar/regex/inclusion.ts) and the bytes of its longest member within the bound the text analysis and the str.bytes prove, by the host matcher's walk"
 						}
 					},
 					({ pattern, route, bound }, run) =>
@@ -536,7 +569,11 @@ describe("a decimal's parse", () => {
 								patternBytes,
 								bound.kind === "bytes" ? bound.bytes : Number.POSITIVE_INFINITY
 							)
-							const withinBytes = bytes <= decimalTextMaxBytes.value
+							const withinBytes =
+								bytes <= decimalTextMaxBytes.value ||
+								(verdict === "included" &&
+									bytes < patternBytes &&
+									longestMember(nfaOf(pattern), bytes) <= decimalTextMaxBytes.value)
 							const checked = checkedIn(
 								schema("DecimalLexical", { R: decimalRelation(pattern, route, bound) }, [])
 							)
