@@ -309,8 +309,10 @@ layer(Substrate.layer)("the input boundary against PostgreSQL 19", (it) => {
 										`${column.label}: the parse of ${Formatter.format(value)} is ${Formatter.format(parsed.value)}, another value`
 									)
 									const text = codec.encode(value)
-									assert.ok(text.ok, `${column.label}: a value the parse admits encodes`)
-									sent.push({ ord, v: text.ok ? text.value : "", parsed: parsed.value })
+									if (!text.ok) {
+										return assert.fail(`${column.label}: a value the parse admits encodes`)
+									}
+									sent.push({ ord, v: text.value, parsed: parsed.value })
 								}
 								if (sent.length === 0) {
 									return
