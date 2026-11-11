@@ -1,15 +1,39 @@
+/**
+ * Scalar types and their literal and payload grammars (ir/scalar.ts, ir/scalar-shape.ts, ir/expr.ts, ir/carriers.ts,
+ * ir/decimal.ts).
+ *
+ * - Types: every generated type decodes as itself, and a corruption of one, stale or wild, is refused within the type
+ *   it breaks. Oracle: universal, decode ∘ build = id, and each rule's refusal under the type's label.
+ * - Literals: each type admits exactly the literals it holds, a contract's by its base, and numeric(p, s) exactly the
+ *   values it stores unchanged. Oracle: each literal domain restated as a checker.
+ * - Contract predicates: any allocation of a predicate normalizes to the one table numbered from the root, and every
+ *   predicate broken at one rule is refused. Oracle: the normal form and each rule a table keeps.
+ * - Payloads: the IR's money, vector and decimal payload grammars agree with the carriers that write and revive them.
+ *   Oracle: the carriers as second implementations.
+ *
+ * Features: live and every corruption; each literal kind admitted and refused, under a contract; each numeric
+ * situation; an allocation normalized and each broken rule; negative and unsigned counts, payloads and non-payloads,
+ * one and several components, special values.
+ *
+ * Plants: ir-scalar-vector-dims-past (a vector one dimension past the limit decoded), ir-literal-float4-unchecked (a
+ * float4 literal that is no float32 admitted), ir-numeric-literal-overflow-at (a literal of exactly 10^p units at
+ * numeric(p, s) admitted), ir-predicate-dangling-unchecked (a predicate naming an argument it lacks admitted),
+ * ir-money-payload-leading-zero (a money payload with a leading zero admitted), ir-vector-text-spaced (a vector's text
+ * written with spaces), ir-decimal-payload-trailing-zero (a decimal payload with a trailing fractional zero admitted).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
 	codePoint,
 	element,
-	filter,
+	type Gen,
 	int,
 	map,
 	oneOf,
+	shuffled,
 	string,
 	unicodeScalar,
 	weighted
@@ -29,12 +53,12 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, pipe, Record as Rec, String as Str } from "effect"
 import { canonicalTag, encode, everyProperty } from "#compiler/core/canonical.ts"
 import { ExprId, NodeId, ParamId } from "#compiler/core/ids.ts"
-import { formatLoc } from "#compiler/core/loc.ts"
 import {
 	cosineNormMax,
 	cosineNormMin,
 	isMoneyPayload,
 	isVectorPayload,
+	vectorMaxDimensions,
 	MoneyText,
 	VectorText
 } from "#compiler/ir/carriers.ts"
@@ -58,7 +82,7 @@ import {
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
-import { assert, defined, nonEmpty, refusalLoc, succeeded } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty, placeOf, refusalLoc, succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { normalizeExprTable, plainType, scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
@@ -155,14 +179,14 @@ const scalarCorruptions: Arr.NonEmptyReadonlyArray<Corruption<ScalarType, string
 			{ ...t, typmod: { scale: 2 } },
 			{ ...t, typmod: { precision: 5 } },
 			{ ...t, typmod: {} },
-			{ ...t, typmod: { precision: 1001, scale: 0 } }
+			{ ...t, typmod: { precision: numericMaxPrecision.value + 1, scale: 0 } }
 		]
 	),
 	breaks(
 		"a vector has 1-16000 dimensions",
 		"wild",
 		(t) => t.carrier === "vector",
-		(t) => [without(t, "typmod"), { ...t, typmod: { dims: 16001 } }]
+		(t) => [without(t, "typmod"), { ...t, typmod: { dims: vectorMaxDimensions.value + 1 } }]
 	),
 	breaks(
 		"only numeric and vector carry a typmod",
@@ -263,11 +287,10 @@ describe("ScalarType", () => {
 							}
 							const error = fail(decoded)
 							assert.equal(error.reason._tag, "MalformedDescription", `${c.rule} at ${c.at}`)
-							assert.ok(
-								formatLoc(refusalLoc(error)) === c.refusal ||
-									pipe(formatLoc(refusalLoc(error)), Str.startsWith(`${c.refusal} at`)) ||
-									pipe(formatLoc(refusalLoc(error)), Str.startsWith(`${c.refusal}.`)),
-								`${c.rule} at ${c.at}: located at ${formatLoc(refusalLoc(error))}, not within ${c.refusal}`
+							assert.equal(
+								placeOf(refusalLoc(error)).label,
+								c.refusal,
+								`${c.rule} at ${c.at}: located within the type it breaks`
 							)
 						})
 				)
@@ -484,7 +507,10 @@ describe("literals", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "each type's literal domain as a checker, a contract's its base's"
+					},
 					suite: "unit/ir/literal-rules",
 					literal: Formatter.format,
 					/**
@@ -591,7 +617,10 @@ describe("literals", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "numeric(p, s) stores a value unchanged exactly when it needs no rounding at s and fits p digits"
+						},
 						suite: "unit/ir/scalar-81",
 						literal: Formatter.format,
 						draw: drawn(
@@ -805,11 +834,14 @@ describe("contract predicates", () => {
 	]
 	/** Every spelling of the three entries from a pool of identifiers. */
 	const pool = ["e1", "e2", "e3", "e12", "e77", "e90"] as const
-	const spellings = filter(
-		(source) =>
-			[source.draw(element(pool)), source.draw(element(pool)), source.draw(element(pool))] as const,
-		([r, v, z]) => new Set([r, v, z]).size === 3,
-		1
+	const spellings: Gen<readonly [string, string, string]> = map(
+		shuffled(pool, { min: 3, max: 3 }),
+		(ids) =>
+			[
+				defined(ids[0], "a root's spelling"),
+				defined(ids[1], "a value's spelling"),
+				defined(ids[2], "a zero's spelling")
+			] as const
 	)
 	type PredicateFeature = `broken: ${string}` | "an allocation normalized"
 	type PredicateCase =
@@ -823,8 +855,11 @@ describe("contract predicates", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every spelling of the predicate's three entries by distinct identifiers of the pool, and every predicate broken at one rule",
+						oracle: {
+							kind: "specification",
+							name: "the normal form numbered from the root, and each rule a predicate table keeps"
+						},
 						suite: "unit/ir/contract-predicates",
 						literal: Formatter.format,
 						generator: oneOf<PredicateCase>([
@@ -877,20 +912,27 @@ describe("money and vector values", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the IR's money payload grammar beside the Money carrier that wrote it"
+						},
 						suite: "unit/ir/scalar-131",
 						literal: Formatter.format,
 						draw: drawn(bigint(-(2n ** 63n), 2n ** 63n - 1n)),
 						runs: 500,
 						shrink: completeShrink,
-						coverage: noCoverage,
+						coverage: required<"a negative count" | "a count of no sign">(
+							["a negative count", "a count of no sign"],
+							{ cases: 100, sense: notesOnly }
+						),
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
-					(units) =>
+					(units, c) =>
 						Effect.sync(() => {
+							c.note(units < 0n ? "a negative count" : "a count of no sign")
 							const payload = Money.of(units)[canonicalTag]().payload
 							assert.equal(isMoneyPayload(payload), true)
 							assert.equal(defined(MoneyText.parse(payload))[canonicalTag]().payload, payload)
@@ -905,7 +947,10 @@ describe("money and vector values", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the IR's money payload grammar (isMoneyPayload) beside the reviver (Money.fromCanonical)"
+						},
 						suite: "unit/ir/scalar-133",
 						literal: Formatter.format,
 						draw: drawn(
@@ -930,15 +975,20 @@ describe("money and vector values", () => {
 						),
 						runs: 1000,
 						shrink: completeShrink,
-						coverage: noCoverage,
+						coverage: required<"a payload" | "no payload">(["a payload", "no payload"], {
+							cases: 200,
+							sense: notesOnly
+						}),
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
-					(text) =>
+					(text, c) =>
 						Effect.sync(() => {
-							assert.equal(isMoneyPayload(text), Money.fromCanonical(text).ok, text)
+							const payload = isMoneyPayload(text)
+							c.note(payload ? "a payload" : "no payload")
+							assert.equal(payload, Money.fromCanonical(text).ok, text)
 						})
 				)
 			)
@@ -946,96 +996,44 @@ describe("money and vector values", () => {
 	)
 
 	it.effect("agree with the Vector carrier", (ctx) =>
-		Effect.gen(function* () {
-			yield* searched(
-				ctx,
-				explore(
-					{
-						oracle: { kind: "unstated" },
-						suite: "unit/ir/scalar-177",
-						literal: Formatter.format,
-						draw: drawn(array(float(-floatMax, floatMax), { min: 1, max: 8 })),
-						runs: 500,
-						shrink: completeShrink,
-						coverage: noCoverage,
-						kept: [],
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
+		searched(
+			ctx,
+			explore(
+				{
+					oracle: {
+						kind: "second-implementation",
+						name: "the IR's vector text (VectorText) beside the Vector carrier's canonical form and component text"
 					},
-					(components) =>
-						Effect.sync(() => {
-							const vector = Vector.make(Float32Array.from(components), components.length)
-							const payload = succeeded(Vector.canonical(vector))[canonicalTag]().payload
-							assert.equal(isVectorPayload(payload), true, payload)
-							assert.equal(payload, Vector.componentText(vector))
-							assert.equal(defined(VectorText.parse(payload))[canonicalTag]().payload, payload)
-							assert.equal(succeeded(VectorText.of(vector))[canonicalTag]().payload, payload)
-							assert.equal(
-								succeeded(encode({ v: succeeded(VectorText.of(vector)) }, everyProperty)),
-								`{"v":"~v:${payload}"}`
-							)
-						})
-				)
-			)
-			const near = oneOf([
-				element([
-					"[1]",
-					"[1.0000000116860974e-7]",
-					"[]",
-					"[-0]",
-					"[0.1]",
-					"[1, 2]",
-					"1,2",
-					"[1]@",
-					"[1,2]@docs",
-					"[NaN]",
-					"[Infinity]",
-					"[1.0]",
-					"[01]"
-				]),
-				string(codePoint(0x20, 0x7e), { min: 0, max: 12 }),
-				map(
-					array(
-						oneOf<number | string>([
-							weighted([
-								[8, double(-Number.MAX_VALUE, Number.MAX_VALUE)],
-								[1, element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])]
-							]),
-							element(["-0", "1.0", "01", " 1", "1e400"])
-						]),
-						{ min: 0, max: 4 }
+					suite: "unit/ir/scalar-177",
+					literal: Formatter.format,
+					draw: drawn(array(float(-floatMax, floatMax), { min: 1, max: 8 })),
+					runs: 500,
+					shrink: completeShrink,
+					coverage: required<"one component" | "several components">(
+						["one component", "several components"],
+						{ cases: 100, sense: notesOnly }
 					),
-					(xs) =>
-						`[${Arr.join(
-							Arr.map(xs, (x) => String(x)),
-							","
-						)}]`
-				)
-			])
-			yield* searched(
-				ctx,
-				explore(
-					{
-						oracle: { kind: "unstated" },
-						suite: "unit/ir/scalar-179",
-						literal: Formatter.format,
-						draw: drawn(near),
-						runs: 1000,
-						shrink: completeShrink,
-						coverage: noCoverage,
-						kept: [],
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
-					},
-					(text) =>
-						Effect.sync(() => {
-							assert.equal(isVectorPayload(text), Vector.fromCanonical(text).ok, text)
-						})
-				)
+					kept: [],
+					concurrency: 1,
+					steerEvery: 16,
+					caseHang
+				},
+				(components, c) =>
+					Effect.sync(() => {
+						c.note(components.length === 1 ? "one component" : "several components")
+						const vector = Vector.make(Float32Array.from(components), components.length)
+						const payload = succeeded(Vector.canonical(vector))[canonicalTag]().payload
+						assert.equal(isVectorPayload(payload), true, payload)
+						assert.equal(payload, Vector.componentText(vector))
+						assert.equal(defined(VectorText.parse(payload))[canonicalTag]().payload, payload)
+						assert.equal(succeeded(VectorText.of(vector))[canonicalTag]().payload, payload)
+						assert.equal(
+							succeeded(encode({ v: succeeded(VectorText.of(vector)) }, everyProperty)),
+							`{"v":"~v:${payload}"}`
+						)
+					})
 			)
-		})
+		)
 	)
 })
 
@@ -1077,7 +1075,10 @@ describe("decimals", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the IR's decimal payload grammar (isDecimalPayload) beside the reviver (Decimal.fromCanonical)"
+						},
 						suite: "unit/ir/decimal-payloads",
 						literal: Formatter.format,
 						draw: drawn(texts),

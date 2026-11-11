@@ -1,3 +1,15 @@
+/**
+ * The Description boundary's one default (ir/desc.ts): an import's empty bind map, which a query may omit.
+ *
+ * - A generated query written with each import's bind map as drawn, omitted, stated empty or stated with entries,
+ *   decodes to the canonical text of the same query with every bind map stated.
+ *
+ * Oracle: universal, an omitted default and its stated value decode to one canonical text.
+ *
+ * Features: a bind omitted, a bind stated, a bind with entries.
+ *
+ * Plants: ir-desc-bind-unfilled (an omitted bind map left absent rather than filled as the empty map).
+ */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -174,7 +186,10 @@ describe("the Description boundary's defaults", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "an omitted default and its stated value decode to one canonical text"
+						},
 						suite: "unit/ir/defaults",
 						literal: Formatter.format,
 						draw: drawn((source) => source.draw(queryGen(2))),

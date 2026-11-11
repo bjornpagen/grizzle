@@ -1,15 +1,41 @@
+/**
+ * The relational DAG (ir/dag.ts): its traversals, its labels, its digest and its normal form.
+ *
+ * - Traversals: topoOrder lists exactly the reachable nodes once each, every node after its inputs, and an
+ *   expression's closure is exactly what it reaches through its arguments, over generated DAGs; a chain of any depth,
+ *   past what a small stack's recursion holds, passes every entry point. Oracle: a naive reachability, and the chain's
+ *   own construction.
+ * - Labels: two distinct nodes or two distinct expressions under one label are refused where they stand, and the
+ *   validator raises a defect. Oracle: one node and one expression per label.
+ * - Digest: it ignores allocation order, label spelling and source locations, and changes with a literal, the domain or
+ *   the roots' order. Oracle: universal, the digest is a function of the DAG's meaning.
+ * - Normal form: positional names, the same whatever the labels' spelling, a table the re-reader accepts; a region's
+ *   variables allocated in either order give one digest and normal form; a contract predicate's spellings give one
+ *   digest, and one not in normal form is refused at decode. Oracle: universal invariances.
+ *
+ * Features: a shared input, a closure past its arguments; a chain a recursion holds and one past it; two nodes and two
+ * expressions clashing; each invariance and each change; several roots; y allocated first; an advanced supply and a
+ * spelling not in normal form.
+ *
+ * Plants: ir-dag-order-reversed (topoOrder lists a node before its inputs), ir-dag-postorder-recursive (postorder
+ * recurses, past a small stack), ir-dag-expr-label-shared (two expressions under one label taken as one),
+ * ir-dag-digest-reads-locations (the digest reads source locations), ir-dag-digest-domain-ignored (the digest's domain
+ * ignored), ir-dag-numbering-from-one (positional names counted from one), ir-dag-free-vars-first-only (a region's
+ * free variables its first alone), ir-predicate-spelling-unchecked (a predicate not in normal form decoded).
+ */
 import { describe, it } from "@effect/vitest"
 import { type CaseDiscarded, drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
 	codePoint,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
+	map,
+	shuffled,
 	string,
 	weighted
 } from "@grizzle/testing/gen"
@@ -234,14 +260,17 @@ describe("traversals of generated DAGs", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "a naive reachability over each node's inputs and each expression's arguments"
+						},
 						suite: "unit/ir/traversals",
 						literal: Formatter.format,
 						draw: drawn(generatedDags),
 						runs: 300,
 						shrink: completeShrink,
-						coverage: required<"a shared input" | "a deep closure">(
-							["a shared input", "a deep closure"],
+						coverage: required<"a shared input" | "a closure past its arguments">(
+							["a shared input", "a closure past its arguments"],
 							{ cases: 300, sense: notesOnly }
 						),
 						kept: [],
@@ -283,8 +312,8 @@ describe("traversals of generated DAGs", () => {
 								assert.equal(closed[0], e)
 								assert.deepEqual<ReadonlySet<ScalarExpr>>(new Set(closed), expected)
 								assert.equal(closed.length, expected.size)
-								if (expected.size > 2) {
-									c.note("a deep closure")
+								if (expected.size > 1 + new Set(e.args).size) {
+									c.note("a closure past its arguments")
 								}
 							}
 						})
@@ -468,105 +497,78 @@ describe("validateDag over a DAG of direct references", () => {
 describe("dagDigest", () => {
 	const digest = succeeded(dagDigest(dag, "dag"))
 
-	it.effect(
-		"ignores allocation order: a supply advanced by any amount builds the same digest",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: { kind: "unstated" },
-						suite: "unit/ir/dag-182",
-						literal: Formatter.format,
-						draw: drawn(
+	/** A rewrite the digest must not see: the fixture built from an advanced supply, its labels respelled, a location moved. */
+	type Invariance = "a supply advanced" | "labels respelled" | "a location moved"
+	const invariances: Arr.NonEmptyReadonlyArray<Invariance> = [
+		"a supply advanced",
+		"labels respelled",
+		"a location moved"
+	]
+
+	it.effect("ignores allocation order, label spelling and source locations", (ctx) =>
+		searched(
+			ctx,
+			explore(
+				{
+					oracle: {
+						kind: "universal",
+						name: "the digest is a function of the DAG's meaning: a rewrite that changes none of it keeps it"
+					},
+					suite: "unit/ir/dag-digest-invariance",
+					literal: Formatter.format,
+					draw: drawn((source) => ({
+						invariance: source.draw(element(invariances)),
+						d: source.draw(labelled),
+						burn: source.draw(
 							array(element(["node", "expr", "var", "occurrence", "scope"] as const), {
 								min: 0,
 								max: 40
 							})
 						),
-						runs: 50,
-						shrink: completeShrink,
-						coverage: noCoverage,
-						kept: [],
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
-					},
-					(burn) =>
-						Effect.sync(() => {
-							const supply = makeIdSupply()
-							for (const kind of burn) {
-								supply[kind]()
+						salt: source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 4 }))
+					})),
+					runs: 200,
+					shrink: completeShrink,
+					coverage: required<Invariance>(invariances, { cases: 100, sense: notesOnly }),
+					kept: [],
+					concurrency: 1,
+					steerEvery: 16,
+					caseHang
+				},
+				({ invariance, d, burn, salt }, c) =>
+					Effect.sync(() => {
+						c.note(invariance)
+						switch (invariance) {
+							case "a supply advanced": {
+								const supply = makeIdSupply()
+								for (const kind of burn) {
+									supply[kind]()
+								}
+								assert.equal(succeeded(dagDigest(everyKind(supply).dag, "dag")), digest)
+								return
 							}
-							const other = everyKind(supply).dag
-							assert.equal(succeeded(dagDigest(other, "dag")), digest)
-						})
-				)
-			)
-	)
-
-	it.effect("ignores label spelling", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: { kind: "unstated" },
-					suite: "unit/ir/dag-57",
-					literal: Formatter.format,
-					draw: drawn(string(codePoint(0x20, 0x7e), { min: 0, max: 4 })),
-					runs: 50,
-					shrink: completeShrink,
-					coverage: noCoverage,
-					kept: [],
-					concurrency: 1,
-					steerEvery: 16,
-					caseHang
-				},
-				(salt) =>
-					Effect.sync(() => {
-						const other = respelled(
-							dag,
-							(label) => `x${salt}${Arr.join(Arr.reverse(Str.split(label, "")), "")}`
-						)
-						validateDag(other)
-						assert.equal(succeeded(dagDigest(other, "dag")), digest)
-					})
-			)
-		)
-	)
-
-	it.effect("ignores source locations", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: { kind: "unstated" },
-					suite: "unit/ir/dag-digest-invariance",
-					literal: Formatter.format,
-					draw: drawn(labelled),
-					runs: 100,
-					shrink: completeShrink,
-					coverage: required<"a moved location">(["a moved location"], {
-						cases: 100,
-						sense: notesOnly
-					}),
-					kept: [],
-					concurrency: 1,
-					steerEvery: 16,
-					caseHang
-				},
-				(d, c) =>
-					Effect.sync(() => {
-						const nodes = topoOrder(d)
-						assert.ok(Arr.isReadonlyArrayNonEmpty(nodes), "a DAG has a node")
-						const moved = c.draw(element(nodes))
-						const withLoc = replacedNode(
-							d,
-							moved,
-							relNode(moved.id, { ...moved, loc: SourceLoc("moved", ["a"]) })
-						)
-						c.note("a moved location")
-						assert.equal(succeeded(dagDigest(withLoc, "dag")), succeeded(dagDigest(d, "dag")))
+							case "labels respelled": {
+								const other = respelled(
+									d,
+									(label) => `x${salt}${Arr.join(Arr.reverse(Str.split(label, "")), "")}`
+								)
+								validateDag(other)
+								assert.equal(succeeded(dagDigest(other, "dag")), succeeded(dagDigest(d, "dag")))
+								return
+							}
+							case "a location moved": {
+								const nodes = topoOrder(d)
+								assert.ok(Arr.isReadonlyArrayNonEmpty(nodes), "a DAG has a node")
+								const moved = c.draw(element(nodes))
+								const withLoc = replacedNode(
+									d,
+									moved,
+									relNode(moved.id, { ...moved, loc: SourceLoc("moved", ["a"]) })
+								)
+								assert.equal(succeeded(dagDigest(withLoc, "dag")), succeeded(dagDigest(d, "dag")))
+								return
+							}
+						}
 					})
 			)
 		)
@@ -579,7 +581,10 @@ describe("dagDigest", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "universal",
+						name: "a changed literal, another domain or the roots reordered is another DAG"
+					},
 					suite: "unit/ir/dag-digest-sensitivity",
 					literal: Formatter.format,
 					draw: drawn(labelled),
@@ -778,6 +783,8 @@ const predicate = (
 	}
 }
 
+type NormalFeature = "several roots" | "a shared input"
+
 describe("normalizeDag", () => {
 	it.effect(
 		"renames positionally, ignores label spelling, and gives a table the re-reader accepts",
@@ -786,7 +793,10 @@ describe("normalizeDag", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "the normal form is positional, the same however the DAG's labels are spelled"
+						},
 						suite: "unit/ir/dag-normal-form",
 						literal: Formatter.format,
 						draw: drawn(
@@ -803,14 +813,24 @@ describe("normalizeDag", () => {
 						),
 						runs: 100,
 						shrink: completeShrink,
-						coverage: noCoverage,
+						coverage: required<NormalFeature>(["several roots", "a shared input"], {
+							cases: 100,
+							sense: notesOnly
+						}),
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
-					([d, salt]) =>
+					([d, salt], c) =>
 						Effect.sync(() => {
+							if (new Set(d.roots).size > 1) {
+								c.note("several roots")
+							}
+							const inputs = Arr.flatMap(topoOrder(d), (node) => inputsOf(node))
+							if (new Set(inputs).size < inputs.length) {
+								c.note("a shared input")
+							}
 							const normal = succeeded(normalizeDag(d))
 							validateTable(normal)
 							unorderedEqual<string>(
@@ -844,8 +864,11 @@ describe("normalizeDag", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "both allocation orders of a region's two variables, read by a child correlated to both",
+						oracle: {
+							kind: "universal",
+							name: "allocation order is no part of the digest or the normal form, and the child's free variables are the region's"
+						},
 						suite: "unit/ir/dag-free-vars",
 						literal: Formatter.format,
 						generator: boolean,
@@ -902,31 +925,33 @@ describe("normalizeDag", () => {
 				)
 			)
 			const pool = ["e1", "e2", "e3", "e12", "e77", "e90"] as const
+			/** Three distinct identifiers, drawn in order, as the predicate's root, value and zero. */
+			const spellingOf = (
+				spelling: ReadonlyArray<string>
+			): readonly [root: string, value: string, zero: string] => [
+				defined(spelling[0], "a root's spelling"),
+				defined(spelling[1], "a value's spelling"),
+				defined(spelling[2], "a zero's spelling")
+			]
 			return searched(
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every spelling of the predicate's three entries by distinct identifiers of the pool, under a supply advanced 0 to 3 steps",
+						oracle: {
+							kind: "universal",
+							name: "a predicate's digest is its normal form's, and a spelling not in normal form is refused at decode"
+						},
 						suite: "unit/ir/dag-contract-allocation",
 						literal: Formatter.format,
 						generator: (source) =>
 							[
 								source.draw(
-									filter(
-										(spelling) =>
-											[
-												spelling.draw(element(pool)),
-												spelling.draw(element(pool)),
-												spelling.draw(element(pool))
-											] as const,
-										([r, v, z]) => new Set([r, v, z]).size === 3,
-										1
-									)
+									map(shuffled(pool, { min: 3, max: 3 }), (spelling) => spellingOf(spelling))
 								),
 								source.draw(int(0, 3))
 							] as const,
-						limit: 600,
+						limit: pool.length * (pool.length - 1) * (pool.length - 2) * 4,
 						coverage: requiredInSpace<"an advanced supply" | "a spelling not in normal form">([
 							"an advanced supply",
 							"a spelling not in normal form"

@@ -1,3 +1,18 @@
+/**
+ * Structural identity (ir/identical.ts) against the equality of canonical text, the oracle it replaces: over a drawn
+ * value and a one-leaf edit of it, both decoded, the two agree. An edit replaces one string, number, bigint or boolean
+ * anywhere in the value, or drops one key, so a field the structural comparison misses is an edit it calls identical
+ * while the canonical texts differ. A canonical value is edited inside too, rebuilt through its own constructor: a
+ * roster's name or one of its handles, replaced or dropped, and one digit of a decimal, so a canonical form that misses
+ * a part its structural comparison reads, or the reverse, is a disagreement as well.
+ *
+ * Oracle: a second implementation, canonical text equality (core/canonical.ts canonicalEquals).
+ *
+ * Features: types and tables identical and different, an edit the decoder refuses, a roster and a decimal edited
+ * inside.
+ *
+ * Plants: ir-identical-byte-bound-ignored (two texts identical whatever their byte bounds).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -26,15 +41,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { generatedDags } from "#test/unit/ir/population.ts"
 import { scalarTypeGen } from "#test/unit/ir/types.ts"
-
-/**
- * Structural identity (ir/identical.ts) against the equality of canonical text, the oracle it replaces: over a drawn
- * value and a one-leaf edit of it, both decoded, the two agree. An edit replaces one string, number, bigint or boolean
- * anywhere in the value, or drops one key, so a field the structural comparison misses is an edit it calls identical
- * while the canonical texts differ. A canonical value is edited inside too, rebuilt through its own constructor: a
- * roster's name or one of its handles, replaced or dropped, and one digit of a decimal, so a canonical form that misses
- * a part its structural comparison reads, or the reverse, is a disagreement as well.
- */
 
 type Segment = string | number
 

@@ -1,3 +1,17 @@
+/**
+ * A node's scope (ir/dag.ts nodeScopes) over generated DAGs and planted references.
+ *
+ * - Scope: each node's outer references are the references below it that no node on the way binds, its region's
+ *   source, an attachment and a semi-join among the binders, and its free variables, as a set, are the variables those
+ *   references name.
+ *
+ * Oracle: a second implementation, the definition walked over the table node by node.
+ *
+ * Features: every way a reference is made, bound and carried the search names, a free variable, a reference to a node
+ * that is no region, and a scope shared with an input.
+ *
+ * Plants: ir-scope-own-refs-dropped (a node's own references left out of its scope).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -29,7 +43,7 @@ import {
 	type ValidDag
 } from "#compiler/ir/rel.ts"
 import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { toTable } from "#test/support/dag.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { liveOf } from "#test/support/oracle/dag-validate.ts"
@@ -807,7 +821,10 @@ describe("a node's scope", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the definition: the references below a node that no node on the way binds, and the variables they name"
+						},
 						suite: "unit/ir/scope",
 						literal: Formatter.format,
 						draw: drawn(population),
@@ -854,7 +871,7 @@ describe("a node's scope", () => {
 									`the outer references of ${n.id}`
 								)
 								const vars = namedVars(d, refs)
-								assert.deepEqual(scope.freeVars, vars, `the free variables of ${n.id}`)
+								unorderedEqual(scope.freeVars, vars, `the free variables of ${n.id}`)
 								const noted = [
 									...(vars.length > 0 ? ["a free variable" as const] : []),
 									...(Arr.some([...refs.keys()], (id) => d.nodes[id]?.kind !== "MatchRegion")

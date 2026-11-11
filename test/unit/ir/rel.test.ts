@@ -1,3 +1,16 @@
+/**
+ * The RelNode family's structural readers (ir/rel.ts), over the every-kind fixture and generated DAGs.
+ *
+ * - Structural map: a node's edges and expressions are listed exactly as its structural map meets them, in its order,
+ *   and the map restates the node unchanged. Oracle: the structural map, driven, against edgesOf and exprsOf.
+ * - Kept rows: a node keeps rows only of a data input whose heading is its own, and delivers that input exactly when it
+ *   keeps every row. Oracle: the kept-rows rule as a checker.
+ *
+ * Features: every node kind; each kind that keeps rows, and one keeping every row.
+ *
+ * Plants: ir-rel-attach-child-unlisted (an attachment's child missing from its edges), ir-rel-attach-keeps-child (an
+ * attachment keeps its child's rows).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -41,7 +54,10 @@ describe("the RelNode family", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the structural map (mapNode, driven) as the edge and expression listings' reference"
+						},
 						suite: "unit/ir/rel-structural-map",
 						literal: Formatter.format,
 						draw: drawn(dags),
@@ -98,7 +114,10 @@ describe("the RelNode family", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "a node keeps rows only of a data input of its own heading, and delivers it exactly when it keeps every row"
+					},
 					suite: "unit/ir/rel-kept-rows",
 					literal: Formatter.format,
 					draw: drawn(dags),

@@ -1,3 +1,28 @@
+/**
+ * The structural decoders (ir/shape.ts) over a small shape of points, lists and marks, every one a decoder the
+ * Description boundary and the IR are built from.
+ *
+ * - Broken: a live value decodes into an equal fresh copy, and one broken at one site is refused there, by its place's
+ *   label and path, or passed over where the break is no break.
+ * - Idempotent: decoding a decoded value again gives an equal fresh copy, key order included.
+ * - Record keys: `__proto__` is an ordinary key of a record.
+ * - Unreadable: a proxy or a throwing getter is refused at its path.
+ * - Defects: a decoder's own defect escapes decodeWith as itself, at every site.
+ * - Refinements: exactly the distinct nonempty names, the nonempty lists and the safe and positive integers pass.
+ * - Depth and cycles: a value nested at any depth decodes without deepening the call stack, and one that holds itself is
+ *   refused where it meets itself.
+ *
+ * Oracles: each break's site, the decode's own idempotence, the refinements' definitions, and the value's construction.
+ *
+ * Features: each break, each decoded form, an own __proto__ key, each unreadable site, each defect site, each
+ * refinement admitted and refused, depths within and past a small stack, each cycle length and form.
+ *
+ * Plants: ir-shape-refusal-at-parent (a field's refusal placed at its container), ir-shape-frozen-passed-through (a
+ * frozen value returned as decoded), ir-shape-proto-assigned (__proto__ assigned as the prototype),
+ * ir-shape-read-unguarded (a throwing read escapes), ir-shape-defect-swallowed (a decoder's defect refused as malformed),
+ * ir-shape-zero-positive (zero taken as positive), ir-shape-deferred-inline (a recursive part read on the call stack),
+ * ir-shape-cycle-unrefused (a container that holds itself decoded until the stack overflows).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -21,11 +46,12 @@ import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { formatLoc, formatPath } from "#compiler/core/loc.ts"
 import * as S from "#compiler/ir/shape.ts"
 import {
 	assert,
 	nonEmpty,
+	type Place,
+	placeOf,
 	refusalLoc,
 	refused,
 	succeeded,
@@ -122,8 +148,8 @@ const edited = (value: unknown, path: Path, edit: (member: unknown) => unknown):
 	return value
 }
 
-/** The decode's location of a refusal at `path` of a value decoded as "v". */
-const locationOf = (path: Path): string => (path.length === 0 ? "v" : `v at ${formatPath(path)}`)
+/** The place of a refusal at `path` of a value decoded as "v": its label and path. */
+const placeAt = (path: Path): Place => ({ label: "v", path })
 
 /** A plain object's own fields in an instance of a class, whose prototype is no plain object's. */
 class Instance {
@@ -317,7 +343,10 @@ describe("shapes", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "each break's own site, compared by its label and path"
+						},
 						suite: "unit/ir/shape-broken",
 						literal: Formatter.format,
 						draw: drawn((source) => ({
@@ -351,9 +380,9 @@ describe("shapes", () => {
 							if (broken.outcome.kind === "passed over") {
 								assert.deepEqual(succeeded(result), decoded)
 							} else {
-								assert.equal(
-									formatLoc(refusalLoc(refused(result, "MalformedDescription"))),
-									locationOf(broken.outcome.at)
+								assert.deepEqual(
+									placeOf(refusalLoc(refused(result, "MalformedDescription"))),
+									placeAt(broken.outcome.at)
 								)
 							}
 						})
@@ -366,7 +395,10 @@ describe("shapes", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "universal",
+						name: "decode ∘ decode = decode, a fresh copy, key order included"
+					},
 					suite: "unit/ir/shape-idempotent",
 					literal: Formatter.format,
 					draw: drawn(liveGen),
@@ -406,7 +438,10 @@ describe("shapes", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "a record's entries are its own keys, __proto__ an ordinary one"
+					},
 					suite: "unit/ir/shape-record-keys",
 					literal: Formatter.format,
 					draw: drawn(
@@ -449,7 +484,10 @@ describe("shapes", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "a read that throws is refused at its path"
+					},
 					suite: "unit/ir/shape-unreadable",
 					literal: Formatter.format,
 					draw: drawn((source) => ({
@@ -489,7 +527,7 @@ describe("shapes", () => {
 							),
 							"MalformedDescription"
 						)
-						assert.equal(formatLoc(refusalLoc(refusal)), locationOf(path))
+						assert.deepEqual(placeOf(refusalLoc(refusal)), placeAt(path))
 					})
 			)
 		)
@@ -500,8 +538,11 @@ describe("shapes", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "each kind of decoder defect at each site a shape decodes",
+					oracle: {
+						kind: "specification",
+						name: "a decoder's own defect escapes decodeWith as itself"
+					},
 					suite: "unit/ir/shape-defect-escapes",
 					literal: Formatter.format,
 					generator: (source) =>
@@ -568,7 +609,10 @@ describe("shapes", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "distinct nonempty names, nonempty lists, safe and positive integers"
+						},
 						suite: "unit/ir/shape-refinements",
 						literal: Formatter.format,
 						draw: drawn((source) => ({

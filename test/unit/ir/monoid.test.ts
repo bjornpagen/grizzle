@@ -16,6 +16,11 @@
  * The box, exhausted: accumulators and steps over naturals 0 to 4, over every subset of a five-code roster with a
  * hole (a twos state's twos plane within its ones plane, as every fold's is), over its live codes, and over five texts:
  * the empty text, two letters, their concatenation and a supplementary-plane character.
+ *
+ * Features: every monoid's laws, and concat's two steps that do not commute; every monoid admitting and refusing.
+ *
+ * Plants: ir-monoid-concat-commutative (concat claims to commute), ir-monoid-max-admits-numeric (max admits a numeric,
+ * which has no least value to start from).
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
