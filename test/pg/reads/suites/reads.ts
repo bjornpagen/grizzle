@@ -614,7 +614,7 @@ export const readSuite = () => {
 										const reading = yield* Effect.forkChild(reads[wait.read], {
 											startImmediately: true
 										})
-										const pid = holder.backend.pid
+										const pid = holder.pid
 										yield* s.awaitBlockedBy(pid, role)
 										/**
 										 * The newest tasks of the previous case, if any, leave with what hangs on them.

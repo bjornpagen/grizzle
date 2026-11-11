@@ -165,7 +165,7 @@ const rawActor = (name: string, session: RawSession): DirectActor =>
 	directActor<SqlError>({
 		name,
 		role: session.role,
-		pid: session.backend.pid,
+		pid: session.pid,
 		sql: (text) =>
 			Effect.flatMap(session.query(text, []), (result) =>
 				Effect.map(resultRows(text, result), (found) => ({

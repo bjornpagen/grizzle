@@ -57,7 +57,7 @@ export interface PsqlWriter {
 	readonly database: string
 	/**
 	 * The server backend running the writer's statements, its pid and start as its own row of pg_stat_activity holds
-	 * them (kernel/sanitize.ts ownBackendQuery), read once when the writer starts; not counted.
+	 * them (kernel/sanitize.ts ownBackendQuery), read once when the writer starts, as its login; not counted.
 	 */
 	readonly backend: ClientBackend
 	/**

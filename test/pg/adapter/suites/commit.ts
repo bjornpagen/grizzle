@@ -155,7 +155,7 @@ export const commitSuite = (): void => {
 											 * lock, which the locker holds. An apply that ends before it waits never meets the
 											 * concurrent transaction: that is the case's failure, never a wait without end.
 											 */
-											const holder = locker.backend.pid
+											const holder = locker.pid
 											yield* Effect.raceFirst(
 												s.awaitBlockedBy(holder, writer),
 												Effect.flatMap(Fiber.await(applying), (exit) =>

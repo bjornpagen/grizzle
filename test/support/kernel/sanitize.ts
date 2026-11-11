@@ -91,15 +91,34 @@ export interface ClientBackend {
 }
 
 /**
- * The statement a session reads its own backend's identity by, once, as it opens: its own row of pg_stat_activity. A
- * backend's own entry is there from its start, before it serves any statement, with its start, which its own user
- * reads, so the session reads a state it proves exists, and no other session's listing of it.
+ * The statement a psql writer reads its own backend's identity by, once, as it opens: its own row of pg_stat_activity.
+ * A backend's own entry is there from its start, before it serves any statement (PostgreSQL 19 postinit.c,
+ * pgstat_bestart_initial and pgstat_bestart_final), and its start shows to a current user with the privileges of the
+ * backend's login (pgstatfuncs.c HAS_PGSTAT_PERMISSIONS). A psql writer reads it as its login, before any SET ROLE, so
+ * it reads a state it proves exists, and no other session's listing of it; a login whose sessions start under a role
+ * without the login's privileges sees no start, and the writer's open fails with what it read.
  */
 export const ownBackendQuery =
 	"SELECT a.pid::text, a.backend_start::text FROM pg_catalog.pg_stat_activity AS a WHERE a.pid = pg_catalog.pg_backend_pid()"
 
 /** A pid's text: a positive decimal integer. */
 const pidText = regex("^[1-9][0-9]*$")
+
+/**
+ * The statement a raw session reads its own backend's pid by, once, as it opens: pg_backend_pid(), which any current
+ * user may call, whatever role its login starts its sessions under.
+ */
+export const ownPidQuery = "SELECT pg_catalog.pg_backend_pid()::text"
+
+/** A session's answer to ownPidQuery, its backend's pid: exactly one row of a pid's text, or none. */
+export const ownPidOf = (rows: ReadonlyArray<ReadonlyArray<unknown>>): Option.Option<number> => {
+	const [only, ...more] = rows
+	if (only === undefined || more.length > 0 || only.length !== 1) {
+		return Option.none()
+	}
+	const [pid] = only
+	return Predicate.isString(pid) && pidText.test(pid) ? Option.some(Number(pid)) : Option.none()
+}
 
 /**
  * A session's answer to ownBackendQuery, its backend: exactly one row of a pid's text and a start, or none, which the
