@@ -1,3 +1,27 @@
+/**
+ * The worlds model's oracle on a write's compile phase alone, with no PostgreSQL: over an installation of the documents
+ * base built through the public builders, a lawful reality and a Db of one of its roles (a writing one where the
+ * installation holds any), one apply the worlds suites draw for that Db (generate/action.ts actionGen, its kinds
+ * cut to apply under drawn validity weights, so its stale and wild facts and relations come along). The ChangeSet is
+ * the one the executor serves (execute/session.ts plannedWrite), compiled with compileWrite against the role's
+ * artifacts and the Db's claims, and its array members served as a call supplies them (execute/offline.ts
+ * offlineServed), as the served compile compiles it. It compiles exactly where
+ * the model's outcomes for the action exclude `compile-refused`, and the model refuses it when it compiles on every
+ * branch or on none.
+ *
+ * Every refusal over a write the model admits fails here, whatever its kind, so a description the compiler builds for
+ * itself and then refuses (the class of a generated addition through an entry whose every carried field is serial)
+ * is caught on every seed of the unit tier. Required: both verdicts, and the additions the model admits whose every
+ * carried field is serial (through a query entry, and into the base's every-serial relation written whole), complete
+ * and generated, and generated ones beside carried fields. A witness aims at the additions no witness reached yet
+ * (additionAim).
+ *
+ * The oracle is a second implementation: the worlds model's compile rules against grizzle's compile of the write the
+ * executor serves.
+ *
+ * Plant: ~/.cache/grizzle-release/BR07/plants/compile-single-stratum-admitted.patch (the model admitting a
+ * single-stratum write past its compile where grizzle refuses it) turns the property red.
+ */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required, type Situations } from "@grizzle/testing/features"
@@ -43,24 +67,6 @@ import type {
 	RoleSpec
 } from "#test/support/worlds/model/types.ts"
 
-/**
- * The worlds model's oracle on a write's compile phase alone, with no PostgreSQL: over an installation of the documents
- * base built through the public builders, a lawful reality and a Db of one of its roles (a writing one where the
- * installation holds any), one apply the worlds suites draw for that Db (generate/action.ts actionGen, its kinds
- * cut to apply under drawn validity weights, so its stale and wild facts and relations come along). The ChangeSet is
- * the one the executor serves (execute/session.ts plannedWrite), compiled with compileWrite against the role's
- * artifacts and the Db's claims, and its array members served as a call supplies them (execute/offline.ts
- * offlineServed), as the served compile compiles it. It compiles exactly where
- * the model's outcomes for the action exclude `compile-refused`, and the model refuses it when it compiles on every
- * branch or on none.
- *
- * Every refusal over a write the model admits fails here, whatever its kind, so a description the compiler builds for
- * itself and then refuses (the class of a generated addition through an entry whose every carried field is serial)
- * is caught on every seed of the unit tier. Required: both verdicts, and the additions the model admits whose every
- * carried field is serial (through a query entry, and into the base's every-serial relation written whole), complete
- * and generated, and generated ones beside carried fields. A witness aims at the additions no witness reached yet
- * (additionAim).
- */
 type CompileFeature = "compiled" | "compile-refused" | AdditionFeature
 
 /** The additions the suite requires. */
@@ -136,7 +142,10 @@ describe("the worlds model's compile rules", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "the worlds model's compile rules, against grizzle's served compile of the write"
+					},
 					suite: "unit/world-model/compile",
 					draw: drawn(installGen(docsBase)),
 					literal: Formatter.format,

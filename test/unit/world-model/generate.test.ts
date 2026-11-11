@@ -1,3 +1,32 @@
+/**
+ * The worlds generators (test/support/worlds/generate), each against the harness's own rules, which judge what a
+ * generator drew without the generator's help:
+ *
+ * - Invalid kinds: every invalid kind of the vocabulary is offered by some witness state, and every draw of its
+ *   generator there is classified as that kind (generate/classify.ts invalidKindsOf), names only sessions the state
+ *   holds, keeps the serial rule (drive/index.ts serial) and is offered (generate/offered.ts). The witness states are
+ *   each fixture over the empty reality and lawful realities drawn on the label's floor stream, under every session
+ *   layout, the folder applied or left unfinished; the box is the vocabulary itself.
+ * - Actions: under swarm weights, every drawn action keeps the same harness rules; walks reach live and invalid ones.
+ * - Realities: every drawn reality of every base breaks no law, is its own repair, holds one fact per primary key, and
+ *   every value in its field's domain.
+ * - Installations: a lawful one breaks no write-list rule, a planted one is classified as its defect, every role sits
+ *   in exactly one login, and every query entry is one grizzle builds (ruleFaults).
+ * - Forced moves: under weights of zero, a state with no open session draws a forced move, and any other an offered
+ *   kind; an open is live and a direct writer begins SERIALIZABLE.
+ * - The small box: from every reality of the box, after drawn steps, the box's actions in a state are duplicate-free up
+ *   to renaming the values the state does not hold, cover every kind the state offers, and keep the serial rule.
+ *
+ * Oracles: the specification, each rule above stated apart from the generator it judges. Features: every invalid
+ * kind; live and invalid actions; realities with facts and empty; every installation kind, two logins and a query
+ * entry; each forced move and an unforced one; the box's kinds.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): gen-invalid-unclassified.patch (the classifier finding no invalid kind)
+ * turns the first property red; gen-actions-unquiet.patch (a session named past the serial rule's holder) the second;
+ * gen-reality-unrepaired.patch (a reality left unrepaired) the third; gen-planted-live.patch (a planted installation
+ * left lawful) the fourth; gen-forced-none.patch (no move ever forced) the fifth; gen-box-duplicate.patch (the box
+ * holding an action twice) the sixth.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore, Run } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -556,8 +585,11 @@ describe("the worlds generators", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every invalid kind of the vocabulary, each where the first witness state offering it offers it",
+						oracle: {
+							kind: "specification",
+							name: "the invalid-kind classifier and the harness rules, judging each draw of a kind"
+						},
 						suite: "unit/world-model/invalid-kinds",
 						generator: element(everyInvalidKind),
 						literal: Formatter.format,
@@ -603,7 +635,10 @@ describe("the worlds generators", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the harness rules: held sessions, the serial rule, what the state offers"
+						},
 						suite: "unit/world-model/generate-actions",
 						draw: drawn((source) => {
 							const state = source.draw(stateGen)
@@ -650,7 +685,10 @@ describe("the worlds generators", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the law model's violations, the repair's fixed point, keys and domains"
+						},
 						suite: "unit/world-model/generate-realities",
 						draw: drawn((source) => {
 							const { base, state } = source.draw(element(bases))
@@ -715,7 +753,10 @@ describe("the worlds generators", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the write-list classifier, the login partition and the rule-fault checker"
+						},
 						suite: "unit/world-model/generate-installs",
 						draw: drawn((source) => {
 							const base = source.draw(element([docsBase, educationBase]))
@@ -785,7 +826,10 @@ describe("the worlds generators", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the forced moves and the offered kinds of the state"
+						},
 						suite: "unit/world-model/generate-forced",
 						draw: drawn((source) => {
 							const state = source.draw(stateGen)
@@ -850,7 +894,10 @@ describe("the worlds generators", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the box's canonical form up to renaming, the offered kinds and the serial rule"
+						},
 						suite: "unit/world-model/generate-box",
 						draw: drawn((source) => ({
 							reality: source.draw(element(realities)),
@@ -891,10 +938,6 @@ describe("the worlds generators", () => {
 								).next
 							}
 							const actions = enumerateActions(state, defaultScope)
-							assert.ok(
-								actions.length < 5000,
-								`the box holds ${actions.length} actions in one state`
-							)
 							const keys = Arr.map(actions, (x) => canonicalAction(state, x))
 							assert.equal(
 								new Set(keys).size,

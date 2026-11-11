@@ -1,3 +1,30 @@
+/**
+ * The worlds model's step function by itself, over the docs installation: from its initial state over a generated
+ * reality, a walk of generated actions under swarm weights, each answered by every branch `step` allows and continued
+ * along one of them.
+ *
+ * - Every branch of every step keeps every invariant `invariantsOf` judges: the laws hold on reality, no pooled
+ *   connection keeps a role or claims, no session holds another login's role, and a whole entry shows exactly reality.
+ * - Every outcome agrees with itself as the real system shows it, each draw an integer no fact of the state holds,
+ *   and the state the branch then takes holds each draw the outcome showed as that integer; rows and read-backs agree
+ *   as keyed sets: reordered rows agree, and rows missing a fact, or repeating one, do not, nor does a read-back
+ *   repeating a row of its rows or its delta.
+ * - The walks reach every action kind, so each kind's branches are judged.
+ *
+ * The installation's names are the compiler's, read once: the model's semantics, not the compiler, is under test.
+ *
+ * The migration folders: from an installation over the docs base to another, or to it with one native law added, the
+ * files the model drafts (model/session/migrate.ts folderFiles) are the phases, in order and number, of the folder
+ * grizzle's generate drafts (execute/catalog.ts draftedPhases).
+ *
+ * Oracles: the specification for the step (invariantsOf, and the model's outcome as the real system shows it, read
+ * back by observedNext); a second implementation for the folders, grizzle's generate. Features: every action kind,
+ * rows and read-backs compared as keyed sets; a worlds change, none, and a new law.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): step-leftover-claims.patch (an opened connection left holding claims)
+ * turns the step property red; folder-worlds-unstructured.patch (a worlds change drafting no Structure file) the
+ * folders'.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -37,21 +64,6 @@ import type {
 	RelationSpec
 } from "#test/support/worlds/model/types.ts"
 
-/**
- * The worlds model's step function by itself, over the docs installation: from its initial state over a generated
- * reality, a walk of generated actions under swarm weights, each answered by every branch `step` allows and continued
- * along one of them.
- *
- * - Every branch of every step keeps every invariant `invariantsOf` judges: the laws hold on reality, no pooled
- *   connection keeps a role or claims, no session holds another login's role, and a whole entry shows exactly reality.
- * - Every outcome agrees with itself as the real system shows it, each draw an integer no fact of the state holds,
- *   and the state the branch then takes holds each draw the outcome showed as that integer; rows and read-backs agree
- *   as keyed sets: reordered rows agree, and rows missing a fact, or repeating one, do not, nor does a read-back
- *   repeating a row of its rows or its delta.
- * - The walks reach every action kind, so each kind's branches are judged.
- *
- * The installation's names are the compiler's, read once: the model's semantics, not the compiler, is under test.
- */
 type StepFeature =
 	| `step:${ActionKind}`
 	| "rows compared as keyed sets"
@@ -213,7 +225,10 @@ describe("the worlds model's step", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "invariantsOf on every branch, and each outcome read back by observedNext as the real system shows it"
+					},
 					suite: "unit/world-model/step",
 					draw: drawn(walkGen),
 					literal: Formatter.format,
@@ -360,7 +375,10 @@ describe("the worlds model's migration folders", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the phases of the folder grizzle's generate drafts"
+						},
 						suite: "unit/world-model/folder files",
 						draw: drawn(migrationGen),
 						literal: Formatter.format,

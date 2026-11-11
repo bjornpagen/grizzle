@@ -1,7 +1,48 @@
+/**
+ * evaluateRules, the worlds model's meaning of a rule set, over rules drawn over the documents base: the reference
+ * evaluator, run on the checked DAG of the same rules built as an application builds them (execute/describe.ts
+ * definitionOf, the executor's own translation), gives the same rows over the same reality, derived facts and session. The host is the oracle
+ * of the worlds suites; the reference is a second opinion that reads grizzle's own checked form, so a disagreement is
+ * a defect of one of the two, never resolved by the other's word.
+ *
+ * The rules join on shared variables, negate conjunctions of one or two occurrences (correlated, with variables of
+ * their own, reading a context), compare variables with literals, other variables and context fields by every
+ * operator, read ordinary relations, the closed roster Tier, the derived relation OrgDocs and the contexts Session and
+ * Tenant, and union two rules; the session holds each context's fact or none. Values come from small pools, so facts
+ * meet each other and the claims.
+ *
+ * A writable entry's rows are exactly the head projections of its target's facts that isMember holds in it: over the
+ * documents worlds' writable entries and drawn realities and sessions, entryRows and isMember agree.
+ *
+ * A role relation's field set is a get key exactly where grizzle's get eligibility proves one (entryKeyed against
+ * adapter/reader/eligibility.ts), over drawn installations of the documents base, each of which the builder must
+ * build: a drawn installation it refuses fails the case.
+ *
+ * The draw's weights are explicit: a field's binding is a shared variable three times in eight, a literal twice, and
+ * unnamed, another variable or a context field once each; a term of a kind is each bound variable of the kind twice as
+ * often as a literal or the kind's context field. Features: every source, join, negation, comparison and context
+ * reading the host's answer shows to matter, a union both rules feed, rows and none; a member and a non-member; a key
+ * and no key.
+ *
+ * Plants: ~/.cache/grizzle-release/BR07/plants/host-strict-order.patch (the host's < holding of equal values) turns the
+ * first property red; host-member-any.patch (every target fact a member) the second; host-every-key.patch (every field
+ * set a key) the third.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, constant, element, type Gen, int, map, oneOf, shuffled } from "@grizzle/testing/gen"
+import {
+	array,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	shuffled,
+	type Weighted,
+	weighted
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -26,7 +67,7 @@ import * as S from "#compiler/ir/shape.ts"
 import { queryOver as queryBuilt, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { sameIdentity } from "#test/support/kernel/identity.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -80,23 +121,6 @@ import type {
 	Term,
 	HostValue
 } from "#test/support/worlds/model/types.ts"
-
-/**
- * evaluateRules, the worlds model's meaning of a rule set, over rules drawn over the documents base: the reference
- * evaluator, run on the checked DAG of the same rules built as an application builds them (execute/describe.ts
- * definitionOf, the executor's own translation), gives the same rows over the same reality, derived facts and session. The host is the oracle
- * of the worlds suites; the reference is a second opinion that reads grizzle's own checked form, so a disagreement is
- * a defect of one of the two, never resolved by the other's word.
- *
- * The rules join on shared variables, negate conjunctions of one or two occurrences (correlated, with variables of
- * their own, reading a context), compare variables with literals, other variables and context fields by every
- * operator, read ordinary relations, the closed roster Tier, the derived relation OrgDocs and the contexts Session and
- * Tenant, and union two rules; the session holds each context's fact or none. Values come from small pools, so facts
- * meet each other and the claims.
- *
- * A writable entry's rows are exactly the head projections of its target's facts that isMember holds in it: over the
- * documents worlds' writable entries and drawn realities and sessions, entryRows and isMember agree.
- */
 
 type Kind = "org" | "doc" | "sub" | "plan" | "int" | "no" | "tier"
 
@@ -173,18 +197,23 @@ const headKinds: Arr.NonEmptyReadonlyArray<Kind> = [
 	"tier"
 ]
 
-/** How a drawn occurrence binds a field: most often a shared variable, then a literal, rarely another variable. */
-const uses = ["unnamed", "var", "var", "var", "other", "literal", "literal", "claim"] as const
+/** How a drawn occurrence binds a field. */
+type Use = "unnamed" | "var" | "other" | "literal" | "claim"
+
+/** How often each binding is drawn: most often a shared variable, then a literal, rarely another variable. */
+const useGen: Gen<Use> = weighted<Use>([
+	[1, constant("unnamed")],
+	[3, constant("var")],
+	[1, constant("other")],
+	[2, constant("literal")],
+	[1, constant("claim")]
+])
 
 /**
  * A field's term: unnamed; the variable of its kind every scope shares; another variable (a second one of the kind in
  * the rule, one of the negation's own inside a negation); a literal from its pool; or the context field of its kind.
  */
-const fieldTerm = (
-	use: (typeof uses)[number],
-	kind: Kind,
-	negated: boolean
-): Gen<Term | undefined> => {
+const fieldTerm = (use: Use, kind: Kind, negated: boolean): Gen<Term | undefined> => {
 	switch (use) {
 		case "unnamed":
 			return constant(undefined)
@@ -209,7 +238,7 @@ const occurrenceGen =
 			source: drawnSource,
 			fields: Rec.fromEntries(
 				Arr.flatMap(fieldKinds(drawnSource), ([field, kind]) => {
-					const term = source.draw(fieldTerm(source.draw(element(uses)), kind, negated))
+					const term = source.draw(fieldTerm(source.draw(useGen), kind, negated))
 					return term === undefined ? [] : [[field, term] as const]
 				})
 			)
@@ -229,16 +258,16 @@ const boundKinds = (matches: ReadonlyArray<Occurrence>): ReadonlyMap<string, Kin
 
 const ops: Arr.NonEmptyReadonlyArray<ComparisonOp> = ["=", "<>", "<", "<=", ">", ">="]
 
-/** A term of a kind: a bound variable of the kind (most often), a literal, or the kind's context field. */
+/** A term of a kind: a bound variable of the kind, each twice as often as a literal or the kind's context field. */
 const termOfKind = (bound: ReadonlyMap<string, Kind>, kind: Kind): Gen<Term> => {
-	const variables = Arr.flatMap([...bound], ([name, k]): ReadonlyArray<Gen<Term>> =>
-		k === kind ? [constant({ kind: "var", name })] : []
+	const variables = Arr.flatMap([...bound], ([name, k]): ReadonlyArray<Weighted<Term>> =>
+		k === kind ? [[2, constant({ kind: "var", name })]] : []
 	)
 	const claim = claimOf(kind)
-	return oneOf(
+	return weighted(
 		Arr.appendAll(
-			Arr.append([...variables, ...variables], literal(kind)),
-			claim === undefined ? [] : [constant(claim)]
+			Arr.append(variables, [1, literal(kind)] as const),
+			claim === undefined ? [] : [[1, constant(claim)] as const]
 		)
 	)
 }
@@ -847,7 +876,10 @@ describe("the worlds model's host semantics", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the reference evaluator over the checked DAG of the query an application builds from the rules"
+						},
 						...budget,
 						suite: "unit/world-model/host",
 						draw: drawn(caseGen),
@@ -896,7 +928,10 @@ describe("the worlds model's host semantics", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a writable entry's rows are the head projections of the target facts isMember holds"
+						},
 						...budget,
 						suite: "unit/world-model/host membership",
 						draw: drawn(worldGen),
@@ -945,7 +980,10 @@ describe("the worlds model's host semantics", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "grizzle's get eligibility (adapter/reader/eligibility.ts) on the get the model keys"
+						},
 						...budget,
 						suite: "unit/world-model/host get keys",
 						draw: drawn(installGen(docsBase)),
@@ -967,13 +1005,15 @@ describe("the worlds model's host semantics", () => {
 						Effect.gen(function* () {
 							const built = yield* Effect.result(buildInstall(install, "worlds_keys"))
 							if (Result.isFailure(built)) {
-								return
+								return assert.fail(
+									`the builder refuses a drawn installation, ${built.failure.message}: ${described(install)}`
+								)
 							}
 							for (const role of install.roles) {
-								const roleValue = built.success.roles[role.name]
-								if (roleValue === undefined) {
-									continue
-								}
+								const roleValue = defined(
+									built.success.roles[role.name],
+									`the role ${role.name} as built`
+								)
 								for (const [name, spec] of Rec.toEntries(role.entries)) {
 									const heading = headingOf(install.base, spec)
 									for (const fields of fieldSets(heading)) {

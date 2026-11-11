@@ -1,7 +1,35 @@
+/**
+ * classifyEntry, the writable-entry rule of README "Writing through a role" restated clause by clause over the model's
+ * entries, held to grizzle's own analysis (packages/engine/src/schema/entry.ts writableEntry) over every entry of a
+ * small space.
+ *
+ * The base holds two ordinary relations P(id, v) and Q(id, w), each keyed by id, the roster K, the derived relation
+ * D(id, v) over P, and the context C { x }. An entry's rule matches its would-be target T (P, Q, or D, which no write
+ * targets), T's two fields each written by a head variable, by the same head variable as the field before, fixed by a
+ * literal, a context term or a variable a context match binds, unnamed, or bound to a variable nothing else reads; its
+ * head adds nothing, a literal, a context term or a second field naming a head variable; one further member joins
+ * another relation, rivals T as a supplier, negates another relation or the context, compares a head variable, matches
+ * the context, filters by the roster or by the derived relation; and the entry is that rule or the same rule twice.
+ *
+ * Every entry is a query grizzle's builder admits, built as the executor builds an installation's entries (execute/describe.ts
+ * definitionOf). The rule and the analysis find it writable or not alike; a writable one
+ * alike in its target, each head field's target field and standing (keyed, claim-fixed or free), and its fills; a
+ * refused one by a clause the analysis's reason allows, since the analysis scans T's fields in its own order and the
+ * rule names the first failing clause in the README's.
+ *
+ * Every shape's head holds a field by construction: a head extra of none or a duplicate is drawn only beside a field
+ * use that puts a head variable in the head, and two rules only of such uses. The oracle is a second implementation,
+ * grizzle's writable-entry analysis. Features, required in the space: every refusal of the rule, every kind of further
+ * member beside a writable entry, every fill and every standing of a head field.
+ *
+ * Plant: ~/.cache/grizzle-release/BR07/plants/classify-rival-admitted.patch (the model's rule admitting a rival
+ * supplier) turns the property red.
+ */
+
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element, filter, type Gen, oneOf } from "@grizzle/testing/gen"
+import { element, type Gen, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec, Result } from "effect"
 import type { WritabilityReason } from "#compiler/core/causes.ts"
@@ -27,27 +55,6 @@ import type {
 	HostValue,
 	WritableRefusal
 } from "#test/support/worlds/model/types.ts"
-
-/**
- * classifyEntry, the writable-entry rule of README "Writing through a role" restated clause by clause over the model's
- * entries, held to grizzle's own analysis (packages/engine/src/schema/entry.ts writableEntry) over every entry of a
- * small space.
- *
- * The base holds two ordinary relations P(id, v) and Q(id, w), each keyed by id, the roster K, the derived relation
- * D(id, v) over P, and the context C { x }. An entry's rule matches its would-be target T (P, Q, or D, which no write
- * targets), T's two fields each written by a head variable, by the same head variable as the field before, fixed by a
- * literal, a context term or a variable a context match binds, unnamed, or bound to a variable nothing else reads; its
- * head adds nothing, a literal, a context term or a second field naming a head variable; one further member joins
- * another relation, rivals T as a supplier, negates another relation or the context, compares a head variable, matches
- * the context, filters by the roster or by the derived relation; and the entry is that rule or the same rule twice.
- *
- * Every entry is a query grizzle's builder admits, built as the executor builds an installation's entries (execute/describe.ts
- * definitionOf). The rule and the analysis find it writable or not alike; a writable one
- * alike in its target, each head field's target field and standing (keyed, claim-fixed or free), and its fills; a
- * refused one by a clause the analysis's reason allows, since the analysis scans T's fields in its own order and the
- * rule names the first failing clause in the README's. Every refusal of the rule is reached, every kind of further
- * member beside a writable entry, and every standing of a head field.
- */
 
 const integer = { kind: "integer", bits: 32 } as const
 const id = (name: string): Term => ({ kind: "var", name })
@@ -267,6 +274,10 @@ const firstUses: Arr.NonEmptyReadonlyArray<FieldUse> = [
 ]
 const allUses: Arr.NonEmptyReadonlyArray<FieldUse> = [...firstUses, "head-again"]
 const extras: Arr.NonEmptyReadonlyArray<HeadExtra> = ["none", "literal", "claim", "duplicate"]
+/** The head extras that are a head field of their own, the head's only field where no use puts a variable there. */
+const headFieldExtras: Arr.NonEmptyReadonlyArray<HeadExtra> = ["literal", "claim"]
+/** The second field's uses that put a head variable in the head where the first field's does not. */
+const headUses: Arr.NonEmptyReadonlyArray<FieldUse> = ["head", "head-again"]
 const members: Arr.NonEmptyReadonlyArray<Member> = [
 	"none",
 	"join",
@@ -280,33 +291,38 @@ const members: Arr.NonEmptyReadonlyArray<Member> = [
 ]
 const targetNames = element<Target>(["P", "Q", "D"])
 
-/** One rule's shapes, every combination of target, field uses, head extra and further member. */
-const oneRule: Gen<Shape> = (source) => ({
-	target: source.draw(targetNames),
-	uses: [source.draw(element(firstUses)), source.draw(element(allUses))],
-	extra: source.draw(element(extras)),
-	member: source.draw(element(members)),
-	rules: 1
-})
+/** Whether a shape's field uses put a head variable in its head: a head field of T's first or second field. */
+const headed = ([u0, u1]: Shape["uses"]): boolean =>
+	u0 === "head" || u1 === "head" || u1 === "head-again"
 
-/** Two rules' shapes, of each target's field uses, the rule written twice. */
-const twoRules: Gen<Shape> = (source) => ({
-	target: source.draw(targetNames),
-	uses: [source.draw(element(firstUses)), source.draw(element(allUses))],
-	extra: "none",
-	member: "none",
-	rules: 2
-})
+/** One rule's shapes, every combination of target, field uses, head extra and further member whose head holds a field. */
+const oneRule: Gen<Shape> = (source) => {
+	const target = source.draw(targetNames)
+	const uses: Shape["uses"] = [source.draw(element(firstUses)), source.draw(element(allUses))]
+	return {
+		target,
+		uses,
+		extra: source.draw(element(headed(uses) ? extras : headFieldExtras)),
+		member: source.draw(element(members)),
+		rules: 1
+	}
+}
 
-/**
- * Every shape with a head of at least one field: one rule, every combination; two rules, of each target's field uses.
- * A shape whose head holds no field is given up, never enumerated as a case.
- */
-const shapes: Gen<Shape> = filter(
-	oneOf([oneRule, twoRules]),
-	(s) => Rec.keys(ruleOfShape(s).head).length > 0,
-	1
-)
+/** Two rules' shapes, the rule written twice: each target's field uses that put a head variable in the head. */
+const twoRules: Gen<Shape> = (source) => {
+	const target = source.draw(targetNames)
+	const u0 = source.draw(element(firstUses))
+	return {
+		target,
+		uses: [u0, source.draw(element(u0 === "head" ? allUses : headUses))],
+		extra: "none",
+		member: "none",
+		rules: 2
+	}
+}
+
+/** Every shape whose head holds at least one field: one rule, every combination; two rules, of each target's uses. */
+const shapes: Gen<Shape> = oneOf([oneRule, twoRules])
 
 /**
  * What the analysis's refusal allows the rule to name: its own clause; for a field of T it finds unfixed, also a head
@@ -402,8 +418,11 @@ describe("the writable-entry rule", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every entry over P, Q or D of one rule, every field use, head extra and further member, or of the rule written twice, every head holding a field",
+						oracle: {
+							kind: "second-implementation",
+							name: "grizzle's writable-entry analysis (schema/entry.ts writableEntry)"
+						},
 						suite: "unit/world-model/classify",
 						generator: shapes,
 						literal: Formatter.format,
