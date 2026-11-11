@@ -144,10 +144,14 @@ describe("describeQuery, queryFromDescription and lowerQuery", () => {
 								})
 							)
 							succeeded(queryFromDescription(d, Elsewheres), "a schema with the relation")
-							refused(
+							const e = refused(
 								queryFromDescription(d, Work),
-								"MalformedDescription",
+								"Refused",
 								"a schema without the relation"
+							)
+							assert.equal(
+								e.reason._tag === "Refused" ? e.reason.refusal : undefined,
+								"the relation is not in this query's schema"
 							)
 							k.note("elsewhere")
 						})

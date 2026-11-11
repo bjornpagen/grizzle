@@ -327,8 +327,12 @@ describe("workload(schema, programs)", () => {
 									Board,
 									testCompile
 								),
-								"MalformedDescription",
+								"Refused",
 								"a program over another schema"
+							)
+							assert.equal(
+								r.reason._tag === "Refused" ? r.reason.refusal : undefined,
+								"the relation is not in this query's schema"
 							)
 							assert.deepEqual(
 								refusalLoc(r).path.slice(0, 2),
