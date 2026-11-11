@@ -3,6 +3,7 @@ import { assertTrue, deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
+	Cause,
 	Duration,
 	Effect,
 	Formatter,
@@ -16,6 +17,7 @@ import {
 } from "effect"
 import { everyCase, everyValue, type Fraction, fraction, shareOf } from "#chance.fixtures.ts"
 import { type Case, drawn, type Exploration, exhaust, explore, type Oracle } from "#explore.ts"
+import { failureText } from "#failure.ts"
 import { type Coverage, noCoverage, required } from "#features.ts"
 import {
 	alphabet,
@@ -1220,15 +1222,27 @@ describe("live, stale and wild values", () => {
 								const target = new Object(handed)
 								return Arr.map(Reflect.ownKeys(target), (key): unknown => Reflect.get(target, key))
 							})
-							const touched = Option.flatMap(Result.getFailure(asData), (thrown) =>
-								Schema.is(WildTouched)(thrown) ? Option.some(thrown.kind) : Option.none()
+							const thrown = Option.flatMap(Result.getFailure(asData), (failure) =>
+								Schema.is(WildTouched)(failure) ? Option.some(failure) : Option.none()
 							)
+							const touched = Option.map(thrown, (failure) => failure.touch.kind)
 							deepStrictEqual(
 								{ data: WILD_IS_DATA[wildValue.kind], touched },
 								{
 									data: isData(handed),
 									touched: isData(handed) ? Option.none() : Option.some(wildValue.kind)
 								}
+							)
+							deepStrictEqual(
+								Option.map(thrown, (failure) => {
+									const report = failureText(Cause.die(failure))
+									return {
+										said: failure.message !== "",
+										data: Str.includes(Formatter.format(failure.touch))(report),
+										message: Str.includes(failure.message)(report)
+									}
+								}),
+								Option.map(thrown, () => ({ said: true, data: true, message: true }))
 							)
 						})
 				)

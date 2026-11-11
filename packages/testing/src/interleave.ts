@@ -10,6 +10,7 @@ import {
 	Schema,
 	Struct
 } from "effect"
+import { failureText } from "#failure.ts"
 import { array, type Gen, int, shuffled } from "#gen.ts"
 import type { Observed } from "#source.ts"
 
@@ -885,7 +886,7 @@ export const interleave = <S extends string, M, O, Q, A, W, E, R, F, RJ>(
 
 		const judged = (run: Interleaving<S, M, O, Q, A, W>) =>
 			Effect.mapError(judge(run), (refusal) =>
-				failed(`${describeRun(run)}\nrefused: ${Cause.pretty(Cause.fail(refusal))}`)
+				failed(`${describeRun(run)}\nrefused: ${failureText(Cause.fail(refusal))}`)
 			)
 
 		const report = {

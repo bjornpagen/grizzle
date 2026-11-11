@@ -7,6 +7,7 @@ import {
 	type Run,
 	type SearchFailure
 } from "@grizzle/testing/explore"
+import { failureText } from "@grizzle/testing/failure"
 import type { Coverage } from "@grizzle/testing/features"
 import { array, element, type Gen } from "@grizzle/testing/gen"
 import { boundedShrink } from "@grizzle/testing/shrink"
@@ -215,7 +216,7 @@ const deltaReads = (group: WGroup, c: WChangeSet) =>
 
 const failureReport = (cause: Cause.Cause<unknown>): string => {
 	const error = Cause.squash(cause)
-	return error instanceof CaseFailed ? error.report : Cause.pretty(cause)
+	return error instanceof CaseFailed ? error.report : failureText(cause)
 }
 
 /**

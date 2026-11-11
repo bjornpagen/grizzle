@@ -12,6 +12,7 @@ import {
 	type SearchFailure,
 	sketched
 } from "@grizzle/testing/explore"
+import { failureText } from "@grizzle/testing/failure"
 import type { Coverage } from "@grizzle/testing/features"
 import { constant, type Gen } from "@grizzle/testing/gen"
 import type { ShrinkBudget } from "@grizzle/testing/shrink"
@@ -1122,5 +1123,5 @@ const reportOf = (cause: Cause.Cause<unknown>): string => {
 	if (error instanceof OracleFailure) {
 		return `${error.stage} failed on ${error.side}: ${error.message}`
 	}
-	return Cause.pretty(cause)
+	return failureText(cause)
 }

@@ -1,4 +1,4 @@
-import { Array as Arr, Option, Schema } from "effect"
+import { Array as Arr, Formatter, Option, Schema } from "effect"
 import {
 	boolean,
 	codePoint,
@@ -147,33 +147,110 @@ export const WILD_IS_DATA: Readonly<Record<WildKind, boolean>> = {
 	anything: true
 }
 
-/** What a hostile value throws when anything touches it. */
+/** The traps a proxy runs for an operation on one property, which each name it. */
+const KEYED_TRAPS = [
+	"get",
+	"set",
+	"has",
+	"deleteProperty",
+	"getOwnPropertyDescriptor",
+	"defineProperty"
+] as const
+
+/** The traps a proxy runs for an operation on the whole value, which name no property. */
+const WHOLE_TRAPS = [
+	"ownKeys",
+	"getPrototypeOf",
+	"setPrototypeOf",
+	"isExtensible",
+	"preventExtensions",
+	"apply",
+	"construct"
+] as const
+
+type KeyedTrap = (typeof KEYED_TRAPS)[number]
+
+type WholeTrap = (typeof WHOLE_TRAPS)[number]
+
+/**
+ * What touched a hostile value: a refusing proxy's trap, with the property a keyed trap names (as String names a
+ * symbol), or a throwing getter, by its key.
+ */
+export type Touch =
+	| Readonly<{ kind: "proxy"; trap: WholeTrap }>
+	| Readonly<{ kind: "proxy"; trap: KeyedTrap; key: string }>
+	| Readonly<{ kind: "throwing-getter"; key: string }>
+
+const TouchSchema = Schema.Union([
+	Schema.Struct({ kind: Schema.Literal("proxy"), trap: Schema.Literals(WHOLE_TRAPS) }),
+	Schema.Struct({
+		kind: Schema.Literal("proxy"),
+		trap: Schema.Literals(KEYED_TRAPS),
+		key: Schema.String
+	}),
+	Schema.Struct({ kind: Schema.Literal("throwing-getter"), key: Schema.String })
+])
+
+/**
+ * What a hostile value throws when anything touches it: the touch, as data, and the message it makes, so a report that
+ * meets it says what ran and why that is a failure.
+ */
 export class WildTouched extends Schema.TaggedError<
 	WildTouched,
 	{ readonly brand: unique symbol }
->()("WildTouched", { kind: Schema.Literals(["proxy", "throwing-getter"]) }) {}
+>()("WildTouched", { touch: TouchSchema, message: Schema.String }) {}
+
+/** What touching a hostile value did, as its message says it. */
+const touchedText = (touch: Touch): string => {
+	switch (touch.kind) {
+		case "proxy":
+			return "key" in touch
+				? `the code under test ran a refusing proxy's ${touch.trap} trap on ${Formatter.format(touch.key)}`
+				: `the code under test ran a refusing proxy's ${touch.trap} trap`
+		case "throwing-getter":
+			return `the code under test called the throwing getter of ${Formatter.format(touch.key)}`
+	}
+}
+
+/**
+ * The failure a touch is: a boundary reads a caller's value once, as data, and refuses one whose reading throws, so a
+ * throw that escapes it is the boundary's defect.
+ */
+const touched = (touch: Touch): WildTouched =>
+	WildTouched.make({
+		touch,
+		message: `${touchedText(touch)}: a boundary reads a caller's value once, as data, and lets no throw of the caller's code escape`
+	})
+
+/** A property a trap names, as a report states it. */
+const keyText = (key: string | symbol): string => String(key)
 
 /** A proxy that refuses every operation: reading, writing, enumerating, inspecting or calling it throws. */
 const hostileProxy = (): object => {
-	const refuse = (): never => {
-		throw WildTouched.make({ kind: "proxy" })
+	const whole = (trap: WholeTrap) => (): never => {
+		throw touched({ kind: "proxy", trap })
 	}
+	const keyed =
+		(trap: KeyedTrap) =>
+		(_target: object, key: string | symbol): never => {
+			throw touched({ kind: "proxy", trap, key: keyText(key) })
+		}
 	return new Proxy(
 		{},
 		{
-			get: refuse,
-			set: refuse,
-			has: refuse,
-			deleteProperty: refuse,
-			ownKeys: refuse,
-			getOwnPropertyDescriptor: refuse,
-			defineProperty: refuse,
-			getPrototypeOf: refuse,
-			setPrototypeOf: refuse,
-			isExtensible: refuse,
-			preventExtensions: refuse,
-			apply: refuse,
-			construct: refuse
+			get: keyed("get"),
+			set: keyed("set"),
+			has: keyed("has"),
+			deleteProperty: keyed("deleteProperty"),
+			ownKeys: whole("ownKeys"),
+			getOwnPropertyDescriptor: keyed("getOwnPropertyDescriptor"),
+			defineProperty: keyed("defineProperty"),
+			getPrototypeOf: whole("getPrototypeOf"),
+			setPrototypeOf: whole("setPrototypeOf"),
+			isExtensible: whole("isExtensible"),
+			preventExtensions: whole("preventExtensions"),
+			apply: whole("apply"),
+			construct: whole("construct")
 		}
 	)
 }
@@ -208,7 +285,7 @@ const hostile = (drawn: Wild): unknown => {
 			return Object.defineProperty({}, drawn.key, {
 				enumerable: true,
 				get: () => {
-					throw WildTouched.make({ kind: "throwing-getter" })
+					throw touched({ kind: "throwing-getter", key: drawn.key })
 				}
 			})
 		case "anything":

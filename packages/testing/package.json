@@ -11,6 +11,7 @@
 		"./commands": "./src/commands.ts",
 		"./enumerate": "./src/enumerate.ts",
 		"./explore": "./src/explore.ts",
+		"./failure": "./src/failure.ts",
 		"./fuzz": "./src/fuzz.ts",
 		"./fact": "./src/fact.ts",
 		"./features": "./src/features.ts",

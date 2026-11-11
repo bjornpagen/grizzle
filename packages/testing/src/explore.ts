@@ -15,6 +15,7 @@ import {
 	String as Str
 } from "effect"
 import { type Branch, count, firstBranch, nextBranch } from "#enumerate.ts"
+import { failureText } from "#failure.ts"
 import {
 	type Coverage,
 	keyOf,
@@ -955,7 +956,7 @@ const falsifiedReport = (
 			...(Arr.isReadonlyArrayNonEmpty(reported.drew)
 				? [`the property drew: ${Formatter.format(reported.drew)}`]
 				: []),
-			Cause.pretty(reported.cause),
+			failureText(reported.cause),
 			shrinking,
 			...Option.match(replay, {
 				onNone: () => [],

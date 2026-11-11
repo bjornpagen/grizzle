@@ -1,3 +1,4 @@
+import { failureText } from "@grizzle/testing/failure"
 import { Array as Arr } from "effect"
 import { Cause, Effect, Exit, Option, Result } from "effect"
 import type { ConnectionLost, DriverFailure, TransactionFate } from "#adapter/errors/failures.ts"
@@ -431,7 +432,7 @@ const endingOf = (exit: Exit.Exit<Value, Failure>): Ending => {
 	if (Cause.hasInterrupts(cause)) {
 		return { kind: "interrupted" }
 	}
-	throw new Error(`the call died: ${Cause.pretty(cause)}`)
+	throw new Error(`the call died: ${failureText(cause)}`)
 }
 
 /** What a call left behind, as the model predicts it and as a run observes it. */
