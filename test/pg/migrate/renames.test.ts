@@ -5,12 +5,19 @@
  *
  * A case draws one or two relations, keyed by an integer and holding integer fields and a roster's codes, the rows
  * stored in them, and what the next version does to each name: a relation renamed or kept, each field renamed, dropped
- * or kept, a roster's handle renamed or none. The model of declared identities is the oracle, PostgreSQL the judge: a
- * relation keeps its table (its OID) and every row; a field renamed or kept keeps its column (its attribute number)
- * and every value; a field dropped is gone from the table's live columns; a renamed handle keeps its code, so a
- * stored row of the old handle reads as the new one, the old handle gone from the snapshot's codes. An undeclared drop
- * is refused at the draft: the declared-identity model of test/unit/deploy/renames.test.ts and the command line's
- * project suite (test/unit/cli/project.test.ts) hold that.
+ * or kept, a roster's handle renamed or none, and another of its handles removed or none, whose code no stored row
+ * holds. The model of declared identities is the oracle, PostgreSQL the judge: a relation keeps its table (its OID) and
+ * every row; a field renamed or kept keeps its column (its attribute number) and every value; a field dropped is gone
+ * from the table's live columns; a renamed handle keeps its code, so a stored row of the old handle reads as the new
+ * one, the old handle gone from the snapshot's codes; a removed handle's code is a hole, and every other handle keeps
+ * its own. An undeclared drop is refused at the draft: the declared-identity model of test/unit/deploy/renames.test.ts
+ * and the command line's project suite (test/unit/cli/project.test.ts) hold that.
+ *
+ * The next version serves a login whose one role holds every relation whole and reads each, every field it keeps, and
+ * every stored row is read back through the login's served file (test/support/served-db.ts withServedDb), its codes
+ * decoded by the codes the file holds (served/json.ts RosterWire): each row is the model's, its codes the handles the
+ * next version names them by. Where a handle was removed below a code a stored row holds ("a served roster with a
+ * hole"), a code after a hole is decoded end to end, so a file whose codes shift past a hole reads another handle.
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -18,19 +25,31 @@ import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int, option } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { isRecord } from "#compiler/core/record.ts"
 import type { Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
 import { codebookOf } from "#compiler/deploy/snapshot/build.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
-import { closed, type Relation, relation, schema } from "#compiler/public/schema.ts"
+import {
+	closed,
+	login,
+	type Relation,
+	relation,
+	role,
+	schema,
+	wholeEntriesOf
+} from "#compiler/public/schema.ts"
+import { queryOver, varsOver } from "#compiler/query/build/query.ts"
+import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -53,41 +72,58 @@ interface Plan {
 	readonly relations: Arr.NonEmptyReadonlyArray<RelationPlan>
 	/** The handle of Kind the next version renames, by index, or none. */
 	readonly handle: Option.Option<number>
+	/** The handle of Kind the next version removes, declared dropped, by index, or none: no stored row holds it. */
+	readonly removed: Option.Option<number>
 }
 
 /** Kind's handles before the migration: each one's code is its index. */
 const handles: readonly [string, ...Array<string>] = ["h0", "h1", "h2"]
 
-const relationGen: Gen<RelationPlan> = (source) => {
-	const fields = source.draw(
-		array(
-			(inner): FieldPlan => ({
-				kind: inner.draw(element(["int4", "code"] as const)),
-				fate: inner.draw(element<Fate>(["kept", "renamed", "dropped"]))
-			}),
-			{ min: 1, max: 3 }
-		)
-	)
-	return {
-		renamed: source.draw(boolean),
-		fields,
-		rows: source.draw(
+/** A relation whose rows hold Kind's codes among `stored` alone. */
+const relationGen =
+	(stored: Arr.NonEmptyReadonlyArray<number>): Gen<RelationPlan> =>
+	(source) => {
+		const fields = source.draw(
 			array(
-				(inner) =>
-					Arr.map(fields, (f) =>
-						f.kind === "code" ? inner.draw(int(0, handles.length - 1)) : inner.draw(int(-9, 99))
-					),
+				(inner): FieldPlan => ({
+					kind: inner.draw(element(["int4", "code"] as const)),
+					fate: inner.draw(element<Fate>(["kept", "renamed", "dropped"]))
+				}),
 				{ min: 1, max: 3 }
 			)
 		)
+		return {
+			renamed: source.draw(boolean),
+			fields,
+			rows: source.draw(
+				array(
+					(inner) =>
+						Arr.map(fields, (f) =>
+							f.kind === "code" ? inner.draw(element(stored)) : inner.draw(int(-9, 99))
+						),
+					{ min: 1, max: 3 }
+				)
+			)
+		}
 	}
-}
+
+/** Kind's codes before the migration, each its handle's index. */
+const kindCodes = nonEmpty(
+	Arr.map(handles, (_, k) => k),
+	"Kind's codes"
+)
 
 const planGen: Gen<Plan> = (source) => {
-	const [first, ...rest] = source.draw(array(relationGen, { min: 1, max: 2 }))
+	const removed = source.draw(option(element(kindCodes)))
+	const kept = nonEmpty(
+		Arr.filter(kindCodes, (k) => !Option.contains(removed, k)),
+		"the codes the next version keeps"
+	)
+	const [first, ...rest] = source.draw(array(relationGen(kept), { min: 1, max: 2 }))
 	return {
 		relations: [defined(first, "a relation"), ...rest],
-		handle: source.draw(option(int(0, handles.length - 1)))
+		handle: source.draw(option(element(kept))),
+		removed
 	}
 }
 
@@ -99,9 +135,22 @@ const relationName = (i: number, after: boolean, r: RelationPlan): string =>
 const fieldName = (j: number, after: boolean, f: FieldPlan): string =>
 	after && f.fate === "renamed" ? `b${j}` : `a${j}`
 
-/** Kind's handles at a version: the renamed one under its new name after the migration. */
+/** The handle of Kind's code `k` at a version: a renamed one under its new name after the migration, a removed one none. */
+const handleAt = (p: Plan, after: boolean, k: number): Option.Option<string> =>
+	after && Option.contains(p.removed, k)
+		? Option.none()
+		: Option.some(after && Option.contains(p.handle, k) ? `g${k}` : defined(handles[k], "a handle"))
+
+/** Kind's handles at a version, in code order. */
 const handlesAt = (p: Plan, after: boolean): readonly [string, ...Array<string>] =>
-	Arr.map(handles, (h, k) => (after && Option.contains(p.handle, k) ? `g${k}` : h))
+	nonEmpty(
+		Arr.flatMap(kindCodes, (k) => Option.toArray(handleAt(p, after, k))),
+		"Kind's handles at a version"
+	)
+
+/** The codes the next version keeps, each its handle's: every one but a removed handle's. */
+const keptCodes = (p: Plan): ReadonlyArray<number> =>
+	Arr.filter(kindCodes, (k) => !Option.contains(p.removed, k))
 
 /** A relation of a version: its integer key and its fields, a code field reading the version's roster. */
 type VersionRelation = Relation<
@@ -135,6 +184,55 @@ const schemaAt = (name: string, p: Plan, after: boolean) => {
 	return schemaOf(name, relations)
 }
 
+/**
+ * The version after the migration under the declared name `name`, with its login `readers`, whose one role `reader`
+ * holds every relation whole: what reads the stored rows back through a served file.
+ */
+const nextVersion = (name: string, p: Plan) => {
+	const value = schemaAt(name, p, true)
+	const reader = role(value, "reader", wholeEntriesOf(value))
+	return { schema: value, login: login(value, "readers", [reader]) }
+}
+
+type Next = ReturnType<typeof nextVersion>
+
+/** The query of every field the next version keeps of the relation at `i`, over the next version's schema. */
+const readOf = (next: Next, r: RelationPlan, i: number) => {
+	const target = defined(
+		next.schema.relations[relationName(i, true, r)],
+		`relation ${relationName(i, true, r)}`
+	)
+	return queryOver(next.schema).rule((q: RuleValue) => {
+		const fact = varsOver(target, "fact")
+		return q.match(target, fact).find(fact)
+	})
+}
+
+/**
+ * The rows the next version holds of `r`, in key order, as a served read decodes them: the key, then every field it
+ * keeps under its next name, an integer as itself and a code as the handle the next version names it by.
+ */
+const rowsAfter = (p: Plan, r: RelationPlan): ReadonlyArray<Readonly<Record<string, unknown>>> =>
+	Arr.map(r.rows, (row, k) =>
+		Rec.fromEntries([
+			["id", k + 1] as const,
+			...Arr.flatMap(r.fields, (f, j): ReadonlyArray<readonly [string, unknown]> => {
+				const value = defined(row[j], `field ${j} of a row`)
+				return f.fate === "dropped"
+					? []
+					: [
+							[
+								fieldName(j, true, f),
+								f.kind === "code" ? Option.getOrUndefined(handleAt(p, true, value)) : value
+							]
+						]
+			})
+		])
+	)
+
+/** A decoded row's key: what orders a relation's rows read back. */
+const keyOfRow = (row: unknown): number => (isRecord(row) ? Number(row["id"]) : Number.NaN)
+
 /** What the migration declares: every relation, field and handle renamed, and every field dropped. */
 const declarationsOf = (p: Plan): Declarations => {
 	const renames: Array<Rename> = []
@@ -166,6 +264,13 @@ const declarationsOf = (p: Plan): Declarations => {
 		renames.push({
 			from: { kind: "handle", roster: parsedName("Kind"), handle: defined(handles[k], "a handle") },
 			to: { kind: "handle", roster: parsedName("Kind"), handle: `g${k}` }
+		})
+	}
+	if (Option.isSome(p.removed)) {
+		drops.push({
+			kind: "handle",
+			roster: parsedName("Kind"),
+			handle: defined(handles[p.removed.value], "a handle")
 		})
 	}
 	return { renames, drops }
@@ -250,6 +355,8 @@ type RenameFeature =
 	| "a field dropped"
 	| "a handle renamed"
 	| "a stored code under its renamed handle"
+	| "a handle removed"
+	| "a served roster with a hole"
 	| "two relations"
 
 const notesOf = (p: Plan): ReadonlyArray<RenameFeature> => {
@@ -276,6 +383,21 @@ const notesOf = (p: Plan): ReadonlyArray<RenameFeature> => {
 		)
 			? (["a stored code under its renamed handle"] as const)
 			: []),
+		...(Option.isSome(p.removed) ? (["a handle removed"] as const) : []),
+		...(Option.exists(p.removed, (hole) =>
+			Arr.some(p.relations, (r) =>
+				Arr.some(r.rows, (row) =>
+					Arr.some(
+						row,
+						(value, j) =>
+							value > hole &&
+							Option.exists(Arr.get(r.fields, j), (f) => f.kind === "code" && f.fate !== "dropped")
+					)
+				)
+			)
+		)
+			? (["a served roster with a hole"] as const)
+			: []),
 		...(p.relations.length > 1 ? (["two relations"] as const) : [])
 	]
 }
@@ -285,6 +407,7 @@ const renamesCase = (p: Plan, c: Case<RenameFeature>) =>
 		c.noteAll(notesOf(p))
 		const reads: Array<ReadonlyArray<Read>> = []
 		let schemaName = ""
+		let readers: Option.Option<Next> = Option.none()
 		const m = yield* migrated({
 			label: "renames",
 			schemaName: { kind: "unique" },
@@ -292,7 +415,13 @@ const renamesCase = (p: Plan, c: Case<RenameFeature>) =>
 				schemaName = name
 				return { schema: schemaAt(name, p, false), logins: [] }
 			},
-			later: [(name) => ({ schema: schemaAt(name, p, true), logins: [] })],
+			later: [
+				(name) => {
+					const next = nextVersion(name, p)
+					readers = Option.some(next)
+					return { schema: next.schema, logins: [next.login] }
+				}
+			],
 			apply: { kind: "noPlaceholders" },
 			declared: (v) => (v === 1 ? declarationsOf(p) : noDeclarations),
 			observe: Option.some((v: number, owner: RawSession) =>
@@ -339,14 +468,44 @@ const renamesCase = (p: Plan, c: Case<RenameFeature>) =>
 			codebookOf(m.snapshot).rosters.get(parsedName("Kind")),
 			"the snapshot's codes of Kind"
 		)
-		assert.deepEqual(
+		assert.deepEqual<ReadonlyArray<number | undefined>>(
 			Arr.map(handlesAt(p, true), (h) => codes.codeOf.get(h)),
-			Arr.map(handles, (_, k) => k),
-			"every handle keeps its code, a renamed one its old one's"
+			keptCodes(p),
+			"every handle kept keeps its code, a renamed one its old one's"
 		)
 		if (Option.isSome(p.handle)) {
 			const old = defined(handles[p.handle.value], "the renamed handle")
 			assert.equal(codes.codeOf.get(old), undefined, "the old handle is gone")
+		}
+		if (Option.isSome(p.removed)) {
+			const hole = p.removed.value
+			assert.equal(
+				codes.codeOf.get(defined(handles[hole], "the removed handle")),
+				undefined,
+				"the removed handle is gone"
+			)
+			assert.equal(codes.names[hole], "", "the removed handle's code is a hole")
+		}
+		const next = defined(Option.getOrUndefined(readers), "the next version")
+		const decoded = yield* withServedDb(m, next.login.roles.reader, {}, (db) =>
+			Effect.gen(function* () {
+				const served = yield* db.serve(
+					Rec.fromEntries(Arr.map(p.relations, (r, i) => [`read${i}`, readOf(next, r, i)] as const))
+				)
+				return yield* Effect.forEach(p.relations, (_, i) => {
+					const read = member(served, `read${i}`)
+					return read.kind === "program"
+						? Effect.flatMap(read.ops.execute({}), (result) => result.collect)
+						: Effect.die(new Error(`read${i} is served as a query`))
+				})
+			})
+		).pipe(Effect.scoped, Effect.orDie)
+		for (const [i, r] of p.relations.entries()) {
+			assert.deepEqual<ReadonlyArray<unknown>>(
+				Arr.sortWith(defined(decoded[i], `relation ${i}'s rows`), keyOfRow, Order.Number),
+				rowsAfter(p, r),
+				"every stored row reads back through the served file, each code as the handle the next version names it by"
+			)
 		}
 	})
 
@@ -375,6 +534,8 @@ layer(Substrate.layer)(
 									"a field dropped",
 									"a handle renamed",
 									"a stored code under its renamed handle",
+									"a handle removed",
+									"a served roster with a hole",
 									"two relations"
 								],
 								{ cases: 16, sense: notesOnly }
