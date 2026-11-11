@@ -4,6 +4,7 @@ import {
 	meetType,
 	metColumn,
 	refuse,
+	refuseNamed,
 	type SelfJoin,
 	type ViolationBuilder
 } from "#compiler/analysis/theory/build.ts"
@@ -588,11 +589,7 @@ const pairedTerms = (
 	mapNonEmpty(left.terms, (from, j) => {
 		const to = right.terms[j]
 		if (to === undefined || right.terms.length !== left.terms.length) {
-			return refuse(
-				"MalformedDescription",
-				loc,
-				`a containment between sides of one width; on(${left.relation}, …) names ${left.terms.length} term(s) and on(${right.relation}, …) ${right.terms.length}`
-			)
+			return refuseNamed(loc, "the arm's key does not match the parent key")
 		}
 		return { from, to }
 	})

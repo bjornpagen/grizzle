@@ -394,10 +394,7 @@ const sidePair = (left: unknown, right: unknown, label: string): readonly [SideD
 	const l = sideOf(left, `${label} left`)
 	const r = sideOf(right, `${label} right`)
 	if (l.terms.length !== r.terms.length) {
-		throw malformed(
-			label,
-			`sides of one width: ${l.terms.length} term(s) against ${r.terms.length}`
-		)
+		throw builderRefusal(label, "the sides' field types differ")
 	}
 	return [l, r]
 }
@@ -511,10 +508,7 @@ const admitAlternatives = (
 			throw builderRefusal(`${label} arm ${h}`, "an arm is a relation other than its parent")
 		}
 		if (armKey.fields.length !== parentKey.fields.length) {
-			throw malformed(
-				label,
-				`the arm ${h} keyed like the parent: ${armKey.fields.length} key field(s) against ${parentKey.fields.length}`
-			)
+			throw builderRefusal(`${label} arm ${h}`, "the arm's key does not match the parent key")
 		}
 		armDescs.push(Object.freeze({ handle: h, arm: admitOn(armKey.value, armKey.fields) }))
 	}

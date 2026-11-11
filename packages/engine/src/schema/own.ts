@@ -425,11 +425,7 @@ const pairSides = (
 	s: StatementEntry
 ): NonEmptyReadonlyArray<SidePair> => {
 	const unequal = (): never =>
-		fail(
-			"MalformedDescription",
-			s.desc.loc,
-			`${statementLabel(s.desc)} between sides of one width: ${left.terms.length} term(s) against ${right.terms.length}`
-		)
+		failWith({ _tag: "Refused", at: s.desc.loc, refusal: "the sides' field types differ" })
 	if (right.terms.length > left.terms.length) {
 		unequal()
 	}

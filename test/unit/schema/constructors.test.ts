@@ -1333,7 +1333,10 @@ describe("statements", () => {
 							`${s.statement}: ${related ? "related" : s.bare === "none" ? "widths differ" : "a bare relation"}`
 						)
 						if (!related) {
-							return void throwsRefused(build, "MalformedDescription")
+							return void throwsRefused(
+								build,
+								s.bare === "none" ? "Refused" : "MalformedDescription"
+							)
 						}
 						const built = build()
 						const [l0, r0] = [defined(sideDescOf(left)), defined(sideDescOf(right))]
@@ -1684,7 +1687,7 @@ describe("alternatives", () => {
 		"a discriminator of another roster": "MalformedDescription",
 		"an arm off the roster": "Refused",
 		"no arms": "Refused",
-		"an arm keyed unlike the parent": "MalformedDescription",
+		"an arm keyed unlike the parent": "Refused",
 		"the parent as an arm": "Refused"
 	}
 	type AlternativesFeature =
