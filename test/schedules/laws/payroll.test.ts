@@ -31,7 +31,6 @@ import type { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
 import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
-import type { PayrollInstalled } from "#test/pg/e2e-laws/payroll.ts"
 import { openFixture } from "#test/pg/e2e-laws/support.ts"
 import { defined } from "#test/support/assert.ts"
 import { closedField } from "#test/support/closed/stored.ts"
@@ -185,7 +184,7 @@ const runRace = (
 			facts: stateA,
 			after: []
 		})
-		const s: PayrollInstalled = f.rebuilt(P.Payroll)
+		const s = f.rebuilt(P.Payroll)
 		const worlds = P.reportingWorlds(s)
 		const served = yield* f.served(worlds.server)
 		const serverContext = yield* Layer.build(served.layer)

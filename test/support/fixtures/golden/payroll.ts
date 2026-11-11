@@ -1,67 +1,40 @@
 /**
- * The payroll example's golden values: the fixture states, the member facts of its ChangeSets, and the outcome table of
- * its direct psql writers, stated exactly.
+ * The payroll example's golden state: the facts after onboard, logShifts and draftRun (stateA), which the payroll's
+ * race starts from (test/schedules/laws/payroll.test.ts).
  *
  * The example's symbolic constants are fixed here: instants are epoch microseconds from 2026-01-01T00:00Z, with
- * t0 < t5 < t9 < t12 a few days apart, the run period [p0, p1) inside [t0, t9), two eight-hour pending shifts inside
- * employment, and weeks counted since the epoch. The facts of stateA are exactly the state the invalid ChangeSets and
- * the direct writers start from, after onboard, logShifts and draftRun.
+ * t0 < t5 < t9 a few days apart, the run period [p0, p1) inside [t0, t9), two eight-hour pending shifts inside
+ * employment, and weeks counted since the epoch.
  */
-import { Array as Arr, String as Str } from "effect"
-import type { ConstraintName } from "#compiler/core/ids.ts"
+import { Array as Arr } from "effect"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { id } from "#test/support/fixtures/golden/types.ts"
-import { contained, eq, field, literal, on, onWhere } from "#test/support/fixtures/ir/desc.ts"
-import * as P from "#test/support/fixtures/ir/payroll.ts"
-import { installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"
 
-/**
- * The names of the payroll installation, through the naming door: its schema is the declared `payroll`, so the quoted
- * qualified names the rows spell are the installer's.
- */
-const payroll = installationNamesOf(installationOf(P.PayrollDesc, { kind: "declared" }))
-/** The law of an approved run's approval: a foreign key from PayRun's law column, deferred on its cycle with Approval. */
-const approvedRunApproval = payroll.lawOfDesc(
-	contained(
-		onWhere("PayRun", ["id"], eq(field("stage"), literal("approved"))),
-		on("Approval", ["run"])
-	)
-)
-
-export const acme = id(1, 1)
+const acme = id(1, 1)
 export const ada = id(2, 1)
-export const bo = id(2, 2)
-export const run1 = id(3, 1)
-export const run2 = id(3, 2)
-export const run3 = id(3, 3)
-export const l1 = id(4, 1)
-export const l2 = id(4, 2)
-export const request1 = id(5, 1)
+const bo = id(2, 2)
+const run1 = id(3, 1)
+const l1 = id(4, 1)
+const l2 = id(4, 2)
 
 const base = 1_767_225_600_000_000n
 const day = 86_400_000_000n
 const hour = 3_600_000_000n
 export const t0 = base
-export const t5 = base + 5n * day
-export const t9 = base + 9n * day
-export const t12 = base + 12n * day
-export const p0 = base + day
-export const p1 = base + 8n * day
+const t5 = base + 5n * day
+const t9 = base + 9n * day
+const p0 = base + day
+const p1 = base + 8n * day
 const s1 = base + day + 9n * hour
 const s2 = s1 + 8n * hour
 const s3 = base + 2n * day + 9n * hour
-export const s4 = s3 + 8n * hour
-export const w1 = 2922n
-/** approveRun's now, run2's settlement in stateB, and the now run1 is paid at. */
-export const tApproved = p1 + hour
-export const tSettled = p1 + 2n * hour
-export const tNow = p1 + 3n * hour
-export const digest1 = Str.repeat(32)("5e")
+const s4 = s3 + 8n * hour
+const w1 = 2922n
 
 const span = (start: bigint, end: bigint) => ({ start, end })
 const dec = (exact: string): Decimal => Decimal.of(exact)
 
-export type Facts = Readonly<Record<string, ReadonlyArray<Readonly<Record<string, unknown>>>>>
+type Facts = Readonly<Record<string, ReadonlyArray<Readonly<Record<string, unknown>>>>>
 
 /** onboard, logShifts (828-831) and draftLines (847-858), as enumerated member facts. */
 const onboardFacts: Facts = {
@@ -166,301 +139,3 @@ export const stateA: Facts = {
 	LevyLine: withholdLevyLines,
 	Posting: stateAPostings
 }
-
-export interface DirectWriter {
-	readonly role: "clerk" | "hr" | "approver"
-	/** What the writer does, which names the row. */
-	readonly name: string
-	/**
-	 * The state the row starts from: the state after onboard, logShifts and draftRun (stateA), or another, named as the
-	 * outcome table names states.
-	 */
-	readonly startsFrom:
-		| { readonly kind: "stateA" }
-		| { readonly kind: "named"; readonly state: string }
-	/**
-	 * What the row's statements presuppose of that state beyond what it holds, in words, and the statements the harness
-	 * runs first, as the row's role and committed, to establish it; none for most rows.
-	 */
-	readonly precondition:
-		| { readonly kind: "none" }
-		| {
-				readonly kind: "setup"
-				readonly description: string
-				readonly setup: ReadonlyArray<string>
-		  }
-	/**
-	 * The statements, with psql variables as a psql writer spells them, a closed id by the variable its handle names, set
-	 * to its code; BEGIN and COMMIT where the row has a transaction. A row that inserts an owner of a family states its
-	 * drawn count and its ends, as a direct writer fills them.
-	 */
-	readonly sql: ReadonlyArray<string>
-	readonly outcome: DirectOutcome
-}
-
-/**
- * What a direct writer's row meets: acceptance; a refusal by its SQLSTATE and where it is raised; or a constraint's
- * refusal, naming the constraint. Every law is native (fin.md §7), so none is a law function's 23000.
- */
-type DirectOutcome =
-	| { readonly kind: "accepted" }
-	| { readonly kind: "refused"; readonly sqlstate: string; readonly at: "statement" | "commit" }
-	| {
-			readonly kind: "constraint"
-			readonly sqlstate: string
-			readonly at: "statement" | "commit"
-			readonly constraint: ConstraintName
-	  }
-
-/**
- * The direct psql writers, each with the outcome its writer meets, the state it starts from and what it presupposes. A
- * role moves an identity sequence only through the field's advance function, never setval.
- */
-export const directWriters: ReadonlyArray<DirectWriter> = [
-	{
-		startsFrom: { kind: "stateA" },
-		precondition: { kind: "none" },
-		role: "clerk",
-		name: "a clerk updates an immutable pay line",
-		sql: ["UPDATE payroll.pay_line SET net = 0 WHERE id = :'l1'"],
-		outcome: { kind: "refused", sqlstate: "42501", at: "statement" }
-	},
-	{
-		startsFrom: { kind: "stateA" },
-		precondition: { kind: "none" },
-		role: "clerk",
-		name: "a clerk truncates the postings",
-		sql: ["TRUNCATE payroll.posting"],
-		outcome: { kind: "refused", sqlstate: "42501", at: "statement" }
-	},
-	{
-		startsFrom: { kind: "stateA" },
-		precondition: { kind: "none" },
-		role: "clerk",
-		name: "a clerk writes a generated entry",
-		sql: [
-			"INSERT INTO payroll.posting (entry, line, account, side, amount) VALUES (1, :'l1', :netpay, :credit, 1)"
-		],
-		outcome: { kind: "refused", sqlstate: "428C9", at: "statement" }
-	},
-	{
-		startsFrom: { kind: "stateA" },
-		precondition: { kind: "none" },
-		role: "clerk",
-		name: "a clerk inserts a second l1",
-		sql: [
-			"INSERT INTO payroll.pay_line (id, run, employee, gross, net, off_cycle, deposits, deposited) VALUES (:'l1', :'run1', :'ada', 500000, 390000, false, 2, 390000)"
-		],
-		outcome: {
-			kind: "constraint",
-			sqlstate: "23505",
-			at: "statement",
-			constraint: payroll.fieldConstraint({ name: "PayLine" }, "pk", ["id"])
-		}
-	},
-	{
-		startsFrom: { kind: "stateA" },
-		precondition: { kind: "none" },
-		role: "clerk",
-		/**
-		 * l1's one deposit gone leaves its drawn count at one: the deposits family's last-slot foreign key, deferred on
-		 * the owner ↔ family cycle, refuses at COMMIT (fin.md §5.1).
-		 */
-		name: "a clerk deletes l1's deposit and commits",
-		sql: [
-			"BEGIN",
-			"DELETE FROM payroll.deposit WHERE line = :'l1' AND account = '000987654321'",
-			"COMMIT"
-		],
-		outcome: { kind: "refused", sqlstate: "23503", at: "commit" }
-	},
-	{
-		startsFrom: { kind: "stateA" },
-		precondition: { kind: "none" },
-		role: "clerk",
-		name: "a clerk approves run1 with no approval",
-		sql: ["BEGIN", "UPDATE payroll.pay_run SET stage = :approved WHERE id = :'run1'", "COMMIT"],
-		outcome: {
-			kind: "constraint",
-			sqlstate: "23503",
-			at: "commit",
-			constraint: payroll.constraintOf(approvedRunApproval, "ForeignKey")
-		}
-	},
-	{
-		startsFrom: { kind: "stateA" },
-		precondition: { kind: "none" },
-		role: "clerk",
-		name: "a clerk makes every constraint immediate and deletes l1's deposit",
-		sql: [
-			"BEGIN",
-			"SET CONSTRAINTS ALL IMMEDIATE",
-			"DELETE FROM payroll.deposit WHERE line = :'l1' AND account = '000987654321'",
-			"ROLLBACK"
-		],
-		outcome: { kind: "refused", sqlstate: "23503", at: "statement" }
-	},
-	{
-		startsFrom: { kind: "stateA" },
-		precondition: { kind: "none" },
-		role: "clerk",
-		name: "a clerk inserts a levy line at a rate the levy does not have",
-		sql: [
-			"INSERT INTO payroll.levy_line (line, levy, employee_rate, withheld) VALUES (:'l1', :futa, 0.006, 0)"
-		],
-		outcome: {
-			kind: "constraint",
-			sqlstate: "23514",
-			at: "statement",
-			constraint: payroll.constraintOf(
-				payroll.lawOfDesc(
-					contained(
-						on("LevyLine", ["levy", "employeeRate"]),
-						on("LevyRate", ["levy", "employeeRate"])
-					)
-				),
-				"ClosedCheck"
-			)
-		}
-	},
-	{
-		startsFrom: { kind: "stateA" },
-		precondition: { kind: "none" },
-		role: "clerk",
-		name: "a clerk inserts into a derived relation",
-		sql: ["INSERT INTO reporting.run_total (run, lines, gross, net) VALUES (:'run1', 1, 0, 0)"],
-		outcome: { kind: "refused", sqlstate: "42501", at: "statement" }
-	},
-	{
-		startsFrom: { kind: "stateA" },
-		role: "clerk",
-		name: "an explicit entry, and the writer advancing the sequence past it",
-		/**
-		 * Every line of the state after draftRun has its NetPay posting, so :'line' is a line of a fresh draft run,
-		 * lawful with no posting (key(on(PayLine, "run", "employee")) allows one line per employee per run) and no
-		 * deposit: a net of zero, which its empty family of deposits sums to, its drawn count and sum the writer's.
-		 */
-		precondition: {
-			kind: "setup",
-			description: "a line with no NetPay posting yet",
-			setup: [
-				"BEGIN",
-				"INSERT INTO payroll.pay_run (id, employer, period, stage) VALUES (:'run5', :'acme', int8range(:p0, :p1), :draft)",
-				"INSERT INTO payroll.pay_line (id, run, employee, gross, net, off_cycle, deposits, deposited) VALUES (:'line', :'run5', :'ada', 5000, 0, false, 0, 0)",
-				"COMMIT"
-			]
-		},
-		sql: [
-			"INSERT INTO payroll.posting (entry, line, account, side, amount) OVERRIDING SYSTEM VALUE VALUES (1000000, :'line', :netpay, :credit, 5000)",
-			`SELECT ${payroll.advance({ name: "Posting" }, "entry")}(1000000)`
-		],
-		outcome: { kind: "accepted" }
-	},
-	{
-		startsFrom: { kind: "stateA" },
-		precondition: { kind: "none" },
-		role: "clerk",
-		name: "a writer advancing the sequence with setval",
-		/** No role holds a privilege on an identity sequence. */
-		sql: [`SELECT setval('${payroll.sequence({ name: "Posting" }, "entry")}', 1000000)`],
-		outcome: { kind: "refused", sqlstate: "42501", at: "statement" }
-	},
-	{
-		startsFrom: { kind: "stateA" },
-		precondition: { kind: "none" },
-		role: "clerk",
-		name: "a mutable run's key change",
-		sql: [
-			"INSERT INTO payroll.pay_run (id, employer, period, stage) VALUES (:'run5', :'acme', int8range(:p0, :p1), :draft)",
-			"UPDATE payroll.pay_run SET id = :'run6' WHERE id = :'run5'"
-		],
-		outcome: { kind: "accepted" }
-	},
-	{
-		precondition: { kind: "none" },
-		role: "clerk",
-		name: "a voided run returned to approved",
-		/**
-		 * run1 is voided and keeps the Approval of its first approval; from the state after draftRun the UPDATE would
-		 * meet the approved-run approval law at COMMIT instead.
-		 */
-		startsFrom: { kind: "named", state: "after reverse" },
-		sql: [
-			"BEGIN",
-			"DELETE FROM payroll.voiding WHERE run = :'run1'",
-			"UPDATE payroll.pay_run SET stage = :approved WHERE id = :'run1'",
-			"COMMIT"
-		],
-		outcome: { kind: "accepted" }
-	},
-	{
-		startsFrom: { kind: "stateA" },
-		precondition: { kind: "none" },
-		role: "hr",
-		name: "hr inserts an overlapping employment",
-		sql: [
-			"INSERT INTO payroll.employment (employee, during, basis) VALUES (:'ada', int8range(:t5, :t12), :salaried)"
-		],
-		outcome: {
-			kind: "constraint",
-			sqlstate: "23P01",
-			at: "statement",
-			constraint: payroll.fieldConstraint({ name: "Employment" }, "pk", ["employee", "during"])
-		}
-	},
-	{
-		startsFrom: { kind: "stateA" },
-		precondition: { kind: "none" },
-		role: "hr",
-		/** A code no handle of Basis holds: its roster domain's CHECK refuses it. */
-		name: "hr inserts a basis outside the closed roster",
-		sql: [
-			"INSERT INTO payroll.employment (employee, during, basis) VALUES (:'bo', int8range(:t9, :t12), :nobasis)"
-		],
-		outcome: { kind: "refused", sqlstate: "23514", at: "statement" }
-	},
-	{
-		startsFrom: { kind: "stateA" },
-		precondition: { kind: "none" },
-		role: "hr",
-		/** A closed id's column stores its handle's code, a smallint, which a handle's text is no input of. */
-		name: "hr writes a basis as its handle's text",
-		sql: [
-			"INSERT INTO payroll.employment (employee, during, basis) VALUES (:'bo', int8range(:t9, :t12), 'salaried')"
-		],
-		outcome: { kind: "refused", sqlstate: "22P02", at: "statement" }
-	},
-	{
-		startsFrom: { kind: "stateA" },
-		precondition: { kind: "none" },
-		role: "hr",
-		name: "hr deletes the assignment bo's employment needs",
-		sql: [
-			"BEGIN",
-			"DELETE FROM payroll.assignment WHERE employee = :'bo' AND during = int8range(:t5, :t9)",
-			"COMMIT"
-		],
-		outcome: {
-			kind: "constraint",
-			sqlstate: "23503",
-			at: "commit",
-			constraint: payroll.fieldConstraint({ name: "Employment" }, "fk", ["employee", "during"])
-		}
-	},
-	{
-		startsFrom: { kind: "stateA" },
-		precondition: { kind: "none" },
-		role: "approver",
-		name: "an approver reads salaries",
-		sql: ["SELECT * FROM payroll.salary"],
-		outcome: { kind: "refused", sqlstate: "42501", at: "statement" }
-	},
-	{
-		startsFrom: { kind: "stateA" },
-		precondition: { kind: "none" },
-		role: "approver",
-		name: "an approver inserts a payment",
-		sql: ["INSERT INTO payroll.payment (run, settled) VALUES (:'run1', :now)"],
-		outcome: { kind: "refused", sqlstate: "42501", at: "statement" }
-	}
-]

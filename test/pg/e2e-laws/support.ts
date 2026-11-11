@@ -51,8 +51,6 @@ type Checked<N extends string, R, St extends ReadonlyArray<Statement>> = Schema<
 
 export interface Fixture {
 	readonly installed: Installed
-	/** The PostgreSQL schema, quoted. */
-	readonly q: string
 	/**
 	 * A relation's table or view by its declared name, as the installation places it: in the schema of the level that
 	 * declares it, schema-qualified and quoted.
@@ -97,7 +95,8 @@ const noFacts: FactSet = {}
 export const bareFixture: OpenOptions = { facts: noFacts, after: [] }
 
 /**
- * Shared helpers of the law-bearing end-to-end suites.
+ * Shared helpers of the suites that open a fixture whole: the direct writers' native errors and the queue's and the
+ * payroll's races.
  *
  * A fixture installs under a fresh schema name with its complete installation: its native laws and its derived
  * relations (packages/engine/src/physical/derived), as the fresh installer runs them. Its facts
@@ -141,7 +140,6 @@ export const openFixture = (
 		}
 		const fx: Fixture = {
 			installed: done,
-			q,
 			t: (relation) => printObjectName(done.installation.names.relation(relation)),
 			rebuilt: <
 				const N extends string,
