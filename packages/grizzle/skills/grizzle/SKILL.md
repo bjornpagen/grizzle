@@ -375,7 +375,7 @@ Applied files, which only `migrate` can check against the ledger:
 - `<folder>/<file>` was applied but is missing; restore it from git
 - `<folder>/<file>` was added after its folder was applied; move it into a new migration (grizzle generate <config> --custom --name <name>)
 
-`migrate` names the stage it stopped at, and its fix:
+`migrate`, `drift`, `roles` and `uninstall` name the stage they stopped at, and its fix:
 
 | Stage | Fix |
 | --- | --- |
@@ -394,11 +394,15 @@ Applied files, which only `migrate` can check against the ledger:
 | commit | run grizzle migrate again: the ledger tells whether the file committed |
 | drift | undo the change made outside a migration, or reach the snapshot with a new migration (grizzle generate <config> --custom --name <name>) |
 | unchecked | the check changed nothing: run grizzle drift again, and report it with this output if it is refused the same way |
+| uninstall | nothing was dropped: revoke or drop what the DETAIL names in the database it names, a grant to a role of the installation made outside it, then run grizzle uninstall again |
 
 Before `statement`, nothing ran. At `statement`, `record` or `commit`, the files before the failed one stay applied
 and a rerun resumes at it. At `drift`, every folder applied but the catalog differs from the snapshot. At `unchecked`,
 the drift check reached no verdict: the snapshot did not render, the ledger or the catalog could not be read, or the
-snapshot could not be built beside the schema to compare; the check changed nothing, since it rolls back. A refusal
+snapshot could not be built beside the schema to compare; the check changed nothing, since it rolls back. At
+`uninstall`, the installation's roles or schemas could not be read, or PostgreSQL refused the one transaction that drops
+them, most often DROP ROLE with 2BP01 while a role holds a privilege or an object in another database, its DETAIL naming
+that database; nothing was dropped. A refusal
 the server raised carries its SQLSTATE, the constraint it names, and PostgreSQL's message, DETAIL and HINT as given.
 
 A direct SQL writer, psql included, meets these refusals of its own, among the others README's Direct SQL access lists:
