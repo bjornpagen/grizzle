@@ -1,7 +1,16 @@
+/**
+ * The evidence catalog: the theory resolves each declared key to its installed constraint, and a scan proves exactly the
+ * keys whose fields it reads, at every statement, judged over Crm's two Person keys and a scan of Person reading a
+ * drawn set of its columns in either execution context.
+ *
+ * Oracle: the rules above, a specification. Plants (~/.cache/grizzle-release/BR03/plants): base-key-evidence-deferred
+ * (a declared key's proof holds only in a committed snapshot). Features: no key proves the scan, a key proves the scan,
+ * a key not read.
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element, subarray } from "@grizzle/testing/gen"
+import { element, subset } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { theoryCatalog } from "#compiler/analysis/physical/evidence.ts"
@@ -24,12 +33,6 @@ import {
 	propsOf,
 	snapshotOver
 } from "#test/unit/analysis/physical/support.ts"
-
-/**
- * The evidence catalog: the theory resolves each declared key to its installed constraint, and a scan proves exactly the
- * keys whose fields it reads, at every statement, judged over Crm's two Person keys and a scan of Person reading a
- * drawn set of its columns in either execution context.
- */
 
 const executions: Arr.NonEmptyReadonlyArray<TemplateContext> = ["snapshot", "transaction"]
 
@@ -63,17 +66,20 @@ describe("catalogs", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "both execution contexts by every nonempty set of Person's columns a scan reads",
+						oracle: {
+							kind: "specification",
+							name: "each declared key resolves to its constraint; a scan proves exactly the keys whose fields it reads, at every statement"
+						},
 						suite: "unit/analysis/physical/catalog-scan",
 						generator: (source) =>
 							[
 								source.draw(element(executions)),
-								source.draw(subarray(["id", "email", "city"]))
+								source.draw(subset(["id", "email", "city"], { min: 1, max: 3 }))
 							] as const,
 						literal: Formatter.format,
-						/** The space: 2 execution contexts, 8 sets of columns. */
-						limit: 16,
+						/** The space: 2 execution contexts, 7 nonempty sets of columns. */
+						limit: 14,
 						coverage: requiredInSpace<CatalogFeature>([
 							"no key proves the scan",
 							"a key proves the scan",
@@ -83,9 +89,6 @@ describe("catalogs", () => {
 					},
 					([context, read], c) =>
 						Effect.sync(() => {
-							if (read.length === 0) {
-								return
-							}
 							const catalog = theoryCatalog(evidence, {
 								containments: [],
 								relations: theory.relations

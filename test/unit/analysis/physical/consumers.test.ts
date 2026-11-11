@@ -19,6 +19,12 @@ import { physical } from "#test/unit/analysis/physical/support.ts"
  * enumerated by brute force: each path climbs preserving edges from the node and ends at the first edge that observes
  * or ignores, or at a preserving edge into a node no consumer reads. A node is observed exactly when one of those ends
  * observes.
+ *
+ * Property: over the differential oracle's generated queries, analyzed unplaced, every node is observed exactly when
+ * one of its observation paths ends at an edge that observes. Oracle: the paths enumerated by brute force, a second
+ * implementation. Plants (~/.cache/grizzle-release/BR03/plants): observed-preserving-unclimbed (a node is observed only
+ * by an edge into it that observes, never through a preserving edge). Features: an end that observes, an end that
+ * ignores.
  */
 
 /** The last steps of every observation path from `node`, by brute force over the paths. */
@@ -52,7 +58,10 @@ describe("the observed nodes", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "every observation path of each node enumerated by brute force"
+					},
 					suite: "unit/analysis/physical/observation-ends",
 					draw: drawn(queryCaseGen(defaultGenConfig)),
 					literal: Formatter.format,

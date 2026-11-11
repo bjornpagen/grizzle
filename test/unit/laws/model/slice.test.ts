@@ -40,6 +40,16 @@
  * two roles,
  * each holding every relation whole beside world entries over relations below; and one to three programs, each a query
  * or a ChangeSet with read-backs.
+ *
+ * A second property: ownership refuses a derived definition matching a live derived relation by its name, which stores
+ * nothing to match, directly or through a nested query (README's derived tables: a query over a live derived relation
+ * reads its definition).
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): slice-coupling-one-step (a slice's writes closed under family coupling
+ * one step only, so a chain's far end is left out) for the slice; live-derived-by-name-admitted (a definition matching a
+ * live derived relation by name admitted) for the second.
+ *
+ * Features: SliceFeature, the shapes and laws each case reached; a direct and a nested match for the second.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"

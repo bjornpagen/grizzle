@@ -1,3 +1,26 @@
+/**
+ * Soundness of the physical analysis against the rows themselves.
+ *
+ * Over generated cases (the oracle generator, test/support/oracle/gen, and the mutant suite's rooted and hand-built
+ * cases), every claim the analysis makes about a node is checked against what that node's plain SQL delivers, computed
+ * by the fragment evaluator: each physical key, each maximum cardinality, every node it says owes no elimination, every
+ * obligation it says is discharged. "Unknown evidence gets conservative duplicate elimination, never guessed
+ * uniqueness": a single counterexample fails the suite. The same check runs with every node realized
+ * `distinct`, the conservative lowering's shape, where every claim must still hold.
+ *
+ * Suites: plain and distinct realizations over generated cases, the mutant suite's population, its rooted cases, and
+ * noninjective key expressions, each against the fragment evaluator; and the order of a filter's conjuncts, which
+ * neither analysis reads, a metamorphic relation.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): closed-distinct-column-guessed (a closed relation's column of one
+ * repeated value claimed a key) for the evaluator suites; cast-numeric-scale-narrowed (a numeric cast to a smaller
+ * scale kept as a key) for the noninjective expressions; for the conjunct order, conjunct-order-first-only (a filter's
+ * first conjunct alone fixes a column).
+ *
+ * Features: each claim checked (a key, nothing owed, an obligation discharged, a bound), each node kind evaluated, a
+ * correlated node evaluated per outer tuple, a node read by two consumers, a constant read laterally; a filter of two
+ * conjuncts and a column fixed to two values for the conjunct order.
+ */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
@@ -48,17 +71,6 @@ import {
 	propsOf,
 	soundness
 } from "#test/unit/analysis/physical/support.ts"
-
-/**
- * Soundness of the physical analysis against the rows themselves.
- *
- * Over generated cases (the oracle generator, test/support/oracle/gen, and the mutant suite's rooted and hand-built
- * cases), every claim the analysis makes about a node is checked against what that node's plain SQL delivers, computed
- * by the fragment evaluator: each physical key, each maximum cardinality, every node it says owes no elimination, every
- * obligation it says is discharged. "Unknown evidence gets conservative duplicate elimination, never guessed
- * uniqueness": a single counterexample fails the suite. The same check runs with every node realized
- * `distinct`, the conservative lowering's shape, where every claim must still hold.
- */
 
 /** What a case's analysis claimed and its evaluation reached. */
 const claimFeatures = [
@@ -181,7 +193,10 @@ describe("every physical claim holds on the delivered rows", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "the fragment evaluator: what each node's plain SQL delivers"
+					},
 					suite: "unit/analysis/physical/soundness-plain",
 					draw: drawn(queryCaseGen(defaultGenConfig)),
 					literal: Formatter.format,
@@ -206,7 +221,10 @@ describe("every physical claim holds on the delivered rows", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "the fragment evaluator: what each node's plain SQL delivers"
+					},
 					suite: "unit/analysis/physical/soundness-distinct",
 					draw: drawn(queryCaseGen(defaultGenConfig)),
 					literal: Formatter.format,
@@ -233,7 +251,10 @@ describe("every physical claim holds on the delivered rows", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the fragment evaluator: what each node's plain SQL delivers"
+						},
 						suite: "unit/analysis/physical/soundness-population",
 						draw: drawn(
 							(source) =>
@@ -274,7 +295,10 @@ describe("every physical claim holds on the delivered rows", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the fragment evaluator: what each node's plain SQL delivers"
+						},
 						suite: "unit/analysis/physical/soundness-roots",
 						draw: drawn(rootedCases),
 						literal: Formatter.format,
@@ -306,7 +330,10 @@ describe("every physical claim holds on the delivered rows", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "the fragment evaluator: what each node's plain SQL delivers"
+					},
 					suite: "unit/analysis/physical/soundness-noninjective",
 					draw: drawn(noninjectiveKeyCaseGen),
 					literal: Formatter.format,
@@ -340,7 +367,10 @@ describe("neither analysis reads the order of a filter's conjuncts", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "universal",
+						name: "metamorphic: both analyses claim the same of a DAG and of it with every filter's conjuncts reversed"
+					},
 					suite: "unit/analysis/physical/conjunct-order",
 					draw: drawn(queryCaseGen(soundnessGenConfig)),
 					literal: Formatter.format,

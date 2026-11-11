@@ -41,6 +41,13 @@
  * to a role's own checks, the publication's publisher certified READ COMMITTED; and a SERIALIZABLE form left out of a
  * role's judging (the served cause), of the relations' writers (the served update) or of the absence sites (the served
  * absence), or read for the role's own conditions (the served own).
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants), two of those as patches: certify-memberless-role-certified (a role
+ * with no change member certified) and certify-fixpoint-once (the fixpoint over the roles a SERIALIZABLE role gives a
+ * reason run once).
+ *
+ * Features: each condition failed and met, each counterexample shape, each level, and each capability added or fact
+ * removed (the required situations of the search).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

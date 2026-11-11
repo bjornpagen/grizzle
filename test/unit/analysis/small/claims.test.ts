@@ -1,3 +1,41 @@
+/**
+ * The analyses' claims against the truth of a small closed universe, exhaustively.
+ *
+ * Every query of a grammar (plans.ts) of up to two operators (the scan counted as one) over the small universe, under every key and containment variant and every execution context it can be read in
+ * (universe.ts), is checked by the checker, annotated by the logical analysis and analyzed by the physical analysis
+ * exactly as a compiled template is, unplaced and with a DISTINCT placed on its root, and then evaluated by the
+ * reference on every database of at most two facts per relation the context may see, under every binding of the
+ * parameters it reads. The core grammar reads R and S; the extended one adds the closed relation C, the relation
+ * parameter P, the recursive closure of R, casts and computed columns, sums and unions of different headings.
+ *
+ * Soundness: on every database, every claim holds on every relation a node denotes: logical keys and cardinality,
+ * determinism, an attachment's delivered type and its child's claims per parent (logical/support.ts logicalUnsound);
+ * physical keys, maximum cardinality, every node said to owe nothing and every discharged obligation, on the rows the
+ * realized SQL delivers (physical/support.ts soundness).
+ *
+ * Precision: what the universe proves, the analysis claims, where a claim decides what the user gets.
+ * - get eligibility: a root that has at most one row on every database is claimed atMostOne or one, so get reads it;
+ * - delivered types: an attachment whose every parent receives at most one child delivers an Option, and one whose every
+ *   parent receives exactly one delivers the bare child;
+ * - elision: a root whose realized rows are a set on every database is proved unique, so no DISTINCT is placed on it;
+ * - obligations: an obligation left outstanding, which places a DISTINCT, is one whose input repeats on its heading on
+ *   some database.
+ * Precision is owed only where the universe is faithful: no varied source read twice by the root (two facts per
+ * relation then bound one side of a self-join only), no computed column the universe's two values collapse to one, no
+ * union for get eligibility, nor, for any of the four, a negation: excluding one of the universe's two values leaves
+ * one, where a third value shows a second row, a second child or a repeated row (precise states a witness of each);
+ * and for the bare child a stored child relation the root does not read (reading it proves existence by itself, which
+ * no containment states; C's declared facts cover the universe's values by accident). A root or a child no database
+ * gives a row owes nothing.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): filter-keeps-exactly-one (a filter over an input of exactly one row
+ * claims exactly one) and closed-distinct-column-guessed (a closed relation's column of one repeated value claimed a
+ * key), each unsound on some database of the universe; bare-child-source-selection-ignored (a bare child proved from a
+ * containment whose source selection the parent's fact need not satisfy) for the extended grammar's delivered types.
+ *
+ * Features: every claim checked, every precision situation each grammar must reach, and each elision reason
+ * (ClaimFeature).
+ */
 import { describe, it } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace, type Situations } from "@grizzle/testing/features"
@@ -58,37 +96,6 @@ import {
 	type Variant,
 	variants
 } from "#test/unit/analysis/small/universe.ts"
-
-/**
- * The analyses' claims against the truth of a small closed universe, exhaustively.
- *
- * Every query of a grammar (plans.ts) of up to two operators (the scan counted as one) over the small universe, under every key and containment variant and every execution context it can be read in
- * (universe.ts), is checked by the checker, annotated by the logical analysis and analyzed by the physical analysis
- * exactly as a compiled template is, unplaced and with a DISTINCT placed on its root, and then evaluated by the
- * reference on every database of at most two facts per relation the context may see, under every binding of the
- * parameters it reads. The core grammar reads R and S; the extended one adds the closed relation C, the relation
- * parameter P, the recursive closure of R, casts and computed columns, sums and unions of different headings.
- *
- * Soundness: on every database, every claim holds on every relation a node denotes: logical keys and cardinality,
- * determinism, an attachment's delivered type and its child's claims per parent (logical/support.ts logicalUnsound);
- * physical keys, maximum cardinality, every node said to owe nothing and every discharged obligation, on the rows the
- * realized SQL delivers (physical/support.ts soundness).
- *
- * Precision: what the universe proves, the analysis claims, where a claim decides what the user gets.
- * - get eligibility: a root that has at most one row on every database is claimed atMostOne or one, so get reads it;
- * - delivered types: an attachment whose every parent receives at most one child delivers an Option, and one whose every
- *   parent receives exactly one delivers the bare child;
- * - elision: a root whose realized rows are a set on every database is proved unique, so no DISTINCT is placed on it;
- * - obligations: an obligation left outstanding, which places a DISTINCT, is one whose input repeats on its heading on
- *   some database.
- * Precision is owed only where the universe is faithful: no varied source read twice by the root (two facts per
- * relation then bound one side of a self-join only), no computed column the universe's two values collapse to one, no
- * union for get eligibility, nor, for any of the four, a negation: excluding one of the universe's two values leaves
- * one, where a third value shows a second row, a second child or a repeated row (precise states a witness of each);
- * and for the bare child a stored child relation the root does not read (reading it proves existence by itself, which
- * no containment states; C's declared facts cover the universe's values by accident). A root or a child no database
- * gives a row owes nothing.
- */
 
 /** What the universe showed of one plan in one context, accumulated over every database it may see. */
 interface Truth {
@@ -471,8 +478,11 @@ const exhaustUpTo = (
 		ctx,
 		exhaust(
 			{
-				box: { kind: "unstated" },
-				oracle: { kind: "unstated" },
+				box: `every plan of up to ${operators} operators of the ${grammar.name} grammar under ${among.length} key and containment variants, on every database of at most two facts per relation its context may see, under every binding of its parameters`,
+				oracle: {
+					kind: "second-implementation",
+					name: "the reference evaluator on every database of the small universe"
+				},
 				suite: `unit/analysis/small/claims-${grammar.name}-${among.length}-${operators}`,
 				generator: space(grammar, among, operators),
 				literal: ([inst, plan]) =>

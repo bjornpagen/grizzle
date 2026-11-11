@@ -1,3 +1,25 @@
+/**
+ * Injective representation through a cast: which native casts keep a key, judged by evaluating them.
+ *
+ * castInjective (ir/injective.ts) decides, without values, whether a native cast maps values that are
+ * distinct under native equality to distinct values. The oracle evaluates the cast: every value of a dictionary of the
+ * values the casts branch on (integer range edges, the integers binary32 and binary64 round onto their neighbours,
+ * halves and ties, scales that round onto each other, the signed zeros, NaN and the infinities) is cast into each
+ * source type by the test kernel's evaluator of the Compute catalogue (oracle/evaluate/catalog.ts), then into each target
+ * type.
+ *
+ * - Soundness: a cast castInjective admits merges no two values of its source that native equality tells apart.
+ *   A value the cast refuses (an overflow) is no merge: the cast fails rather than conflates.
+ * - Precision, over the casts castInjective decides by rule (within a carrier, from an integer into an integer, a float
+ *   or a numeric, and from a float into a float or an integer): a cast it refuses merges two values of the dictionary.
+ *   The casts out of a numeric into another carrier and from a float into a numeric are outside the admitted set by
+ *   design (some are exact at a typmod: numeric(5,0) into integer, any float into numeric), so they are judged for
+ *   soundness only.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): cast-numeric-scale-narrowed (a numeric cast to a smaller scale
+ * admitted as injective). Features: each family pair admitted or refused with a merge witnessed, and a value the cast
+ * refuses.
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -20,25 +42,6 @@ import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
-
-/**
- * Injective representation through a cast: which native casts keep a key, judged by evaluating them.
- *
- * castInjective (ir/injective.ts) decides, without values, whether a native cast maps values that are
- * distinct under native equality to distinct values. The oracle evaluates the cast: every value of a dictionary of the
- * values the casts branch on (integer range edges, the integers binary32 and binary64 round onto their neighbours,
- * halves and ties, scales that round onto each other, the signed zeros, NaN and the infinities) is cast into each
- * source type by the test kernel's evaluator of the Compute catalogue (oracle/evaluate/catalog.ts), then into each target
- * type.
- *
- * - Soundness: a cast castInjective admits merges no two values of its source that native equality tells apart.
- *   A value the cast refuses (an overflow) is no merge: the cast fails rather than conflates.
- * - Precision, over the casts castInjective decides by rule (within a carrier, from an integer into an integer, a float
- *   or a numeric, and from a float into a float or an integer): a cast it refuses merges two values of the dictionary.
- *   The casts out of a numeric into another carrier and from a float into a numeric are outside the admitted set by
- *   design (some are exact at a typmod: numeric(5,0) into integer, any float into numeric), so they are judged for
- *   soundness only.
- */
 
 /** A type by the descriptor registry's reading of its field descriptor. */
 const typeOf = (desc: FieldDesc): ScalarType => {
@@ -301,8 +304,11 @@ describe("castInjective", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every ordered pair of the integer, floating and exact numeric types",
+						oracle: {
+							kind: "second-implementation",
+							name: "the Compute catalogue's evaluator casting every value of the dictionary into the source, then the target"
+						},
 						suite: "unit/analysis/physical/cast-injective",
 						generator: (source) =>
 							[source.draw(element(types)), source.draw(element(types))] as const,

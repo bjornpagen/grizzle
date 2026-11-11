@@ -1,3 +1,32 @@
+/**
+ * The physical analysis's dependency tables (analysis/physical/fds.ts Dependencies), against a brute-force oracle over
+ * small generated tables: a heading of up to six columns, hidden attributes beside it, dependencies that read spans at
+ * a point, point rules, evidence contexts, and an identity of alternatives of requirements of key options, the shape a
+ * rule region's identification takes, encoded as the rules encode it (one hidden attribute per requirement).
+ *
+ * - The closure of every start among the heading's columns holds exactly the columns, and the row, that firing every
+ *   dependency and point rule until none adds a fact holds: the reduction at freeze drops nothing a start can reach.
+ * - A start identifies a row exactly when that closure holds the row, which is exactly when, under the identity's own
+ *   reading (some alternative whose every requirement has an option inside the closure of the plain dependencies), the
+ *   start is a key: the encoding is the identity.
+ * - The proof is the strongest: its context is the least demanding one under which a closure of only the dependencies
+ *   holding in it reaches the row.
+ * - The canonical key lies among the start's columns, identifies a row, and drops no column it could drop on a proof no
+ *   more demanding.
+ * - Every key the capped enumeration the analysis once ran finds (at most eight minimal keys from the options and the
+ *   heading, closed under the exchange), the table identifies: the analysis without caps proves at least what the
+ *   capped one proved.
+ *
+ * And a rule region's table (analysis/physical/rules.ts regionProps), over every scan of a relation of two keys that
+ * binds some of its columns and fixes some to a literal or a parameter: a constant on a bound column fixes the column's
+ * variable, so the table closes and identifies from every start among the variables exactly as the scan without those
+ * constants does under a filter equating each such variable with its value.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): proof-most-demanding-first (a start's proof sought in the most
+ * demanding context first, so it is not the strongest) for the tables; region-bound-constant-unfixed (a constant on a
+ * bound column fixes no variable) for the region's constants. Features: each table's closures, identities and contexts;
+ * each placement of each constant.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -24,31 +53,6 @@ import { Ir, SchemaModel } from "#test/support/fixtures/ir/build.ts"
 import { f, key, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { physical, propsOf, snapshotOver } from "#test/unit/analysis/physical/support.ts"
-
-/**
- * The physical analysis's dependency tables (analysis/physical/fds.ts Dependencies), against a brute-force oracle over
- * small generated tables: a heading of up to six columns, hidden attributes beside it, dependencies that read spans at
- * a point, point rules, evidence contexts, and an identity of alternatives of requirements of key options, the shape a
- * rule region's identification takes, encoded as the rules encode it (one hidden attribute per requirement).
- *
- * - The closure of every start among the heading's columns holds exactly the columns, and the row, that firing every
- *   dependency and point rule until none adds a fact holds: the reduction at freeze drops nothing a start can reach.
- * - A start identifies a row exactly when that closure holds the row, which is exactly when, under the identity's own
- *   reading (some alternative whose every requirement has an option inside the closure of the plain dependencies), the
- *   start is a key: the encoding is the identity.
- * - The proof is the strongest: its context is the least demanding one under which a closure of only the dependencies
- *   holding in it reaches the row.
- * - The canonical key lies among the start's columns, identifies a row, and drops no column it could drop on a proof no
- *   more demanding.
- * - Every key the capped enumeration the analysis once ran finds (at most eight minimal keys from the options and the
- *   heading, closed under the exchange), the table identifies: the analysis without caps proves at least what the
- *   capped one proved.
- *
- * And a rule region's table (analysis/physical/rules.ts regionProps), over every scan of a relation of two keys that
- * binds some of its columns and fixes some to a literal or a parameter: a constant on a bound column fixes the column's
- * variable, so the table closes and identifies from every start among the variables exactly as the scan without those
- * constants does under a filter equating each such variable with its value.
- */
 
 const columnsPool = ["a", "b", "c", "d", "e", "f"] as const
 const hiddenPool = [hiddenIn("t", "h1"), hiddenIn("t", "h2")]
@@ -295,7 +299,10 @@ describe("a fragment's dependency table", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "firing every dependency and point rule by brute force until none adds a fact, under each context"
+						},
 						suite: "unit/analysis/physical/dependencies",
 						draw: drawn(specGen),
 						literal: Formatter.format,
@@ -490,8 +497,11 @@ describe("a rule region's dependency table", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every scan of Person binding any of its columns and fixing any to a literal or a parameter",
+						oracle: {
+							kind: "universal",
+							name: "differential: the constants on the occurrence close and identify as the same scan under a filter equating each bound variable with its value"
+						},
 						suite: "unit/analysis/physical/region-constants",
 						generator: (source): Scan => ({
 							bound: source.draw(subarray(scanColumns)),
