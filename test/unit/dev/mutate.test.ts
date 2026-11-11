@@ -1,3 +1,20 @@
+/**
+ * grizzle's mutation operator families, audited over the real tree they mutate: every mutant of the `sql-world` and
+ * `set-semantics` families in the files `pnpm mutate` reads (packages/engine/src and packages/grizzle/src/adapter).
+ *
+ * - Every operator of both families plants at least one mutant in the real tree: an operator whose code moved away
+ *   from the shapes it reads mutates nothing, and the measurement would lose it silently.
+ * - Every mutant parses, so a run measures a fault and never a syntax error; changes its file, so no mutant is
+ *   equivalent by construction; and has an id no other mutant of the files has, so a triage verdict names one mutant.
+ * - Every mutant plants the fault its operator names, read off the text it replaces and the text it puts there.
+ *
+ * The oracle is the specification: each operator's fault, stated apart from the operator as a judgement of the text a
+ * mutant replaces and its replacement, and TypeScript's own parser. The box is the real tree. Features, required in
+ * the space: every operator of both families.
+ *
+ * Plant: ~/.cache/grizzle-release/BR07/plants/mutate-definer-text.patch (world-definer writing a replacement other than
+ * INVOKER) turns the property red.
+ */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
@@ -18,23 +35,6 @@ import { assert, nonEmpty } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { caseHang } from "#test/support/limits.ts"
 
-/**
- * grizzle's mutation operator families, audited over the real tree they mutate: every mutant of the `sql-world` and
- * `set-semantics` families in the files `pnpm mutate` reads (packages/engine/src and packages/grizzle/src/adapter).
- *
- * - Every operator of both families plants at least one mutant in the real tree: an operator whose code moved away
- *   from the shapes it reads mutates nothing, and the measurement would lose it silently.
- * - Every mutant parses, so a run measures a fault and never a syntax error; changes its file, so no mutant is
- *   equivalent by construction; and has an id no other mutant of the files has, so a triage verdict names one mutant.
- * - Every mutant plants the fault its operator names, read off the text it replaces and the text it puts there.
- *
- * The oracle is the specification: each operator's fault, stated apart from the operator as a judgement of the text a
- * mutant replaces and its replacement, and TypeScript's own parser. The box is the real tree. Features, required in
- * the space: every operator of both families.
- *
- * Plant: ~/.cache/grizzle-release/BR07/plants/mutate-definer-text.patch (world-definer writing a replacement other than
- * INVOKER) turns the property red.
- */
 type FamilyOperator = WorldOperator | "set-semantics"
 
 const familyOperators: Arr.NonEmptyReadonlyArray<FamilyOperator> = [

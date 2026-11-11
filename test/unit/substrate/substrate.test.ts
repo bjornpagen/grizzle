@@ -1,3 +1,24 @@
+/**
+ * The database-free parts of the native PG test substrate, each against a model:
+ *
+ * - Names. A schema label and a role name are lowercase ASCII letter words joined by single underscores; an allocated
+ *   schema name is `gz_<label>_<pid>_<n>_<ten digits>`, its own conversion at the naming door, and every role and role
+ *   schema minted under it starts with its prefix, so the global setup reads the allocating process off any of them
+ *   and sweeps a dead one's; no name past maxIdentifierBytes is ever made, so PostgreSQL never cuts one. The oracle is
+ *   the generator's own words, each drawn whole or with a fault planted, and the byte count of the name they spell.
+ * - psql's verbose error report: stderr of noise lines and reports, each a severity line and its fields, is read as
+ *   the last report, its message, and each field's first value that holds no line terminator; stderr with no severity
+ *   line holds no report.
+ * - An expectation judges its one attempt: the attempt runs once, and the expectation holds exactly for a PostgreSQL
+ *   refusal of its SQLSTATE, and of its constraint where it names one.
+ *
+ * Every property states its oracle, the specification; invalid words, identifiers and allocations are named faults
+ * the generators plant, drawn by explicit weight beside the lawful ones. Features: each verdict of each property.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): substrate-limit-off-by-one.patch (an identifier one byte past the
+ * limit admitted) turns the names property red; substrate-first-report.patch (the first report read, not the last) the
+ * psql one; substrate-constraint-unchecked.patch (another constraint's refusal holding) the expectations.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -31,27 +52,6 @@ import {
 } from "#test/support/substrate/names.ts"
 import { parseVerboseError } from "#test/support/substrate/psql.ts"
 
-/**
- * The database-free parts of the native PG test substrate, each against a model:
- *
- * - Names. A schema label and a role name are lowercase ASCII letter words joined by single underscores; an allocated
- *   schema name is `gz_<label>_<pid>_<n>_<ten digits>`, its own conversion at the naming door, and every role and role
- *   schema minted under it starts with its prefix, so the global setup reads the allocating process off any of them
- *   and sweeps a dead one's; no name past maxIdentifierBytes is ever made, so PostgreSQL never cuts one. The oracle is
- *   the generator's own words, each drawn whole or with a fault planted, and the byte count of the name they spell.
- * - psql's verbose error report: stderr of noise lines and reports, each a severity line and its fields, is read as
- *   the last report, its message, and each field's first value that holds no line terminator; stderr with no severity
- *   line holds no report.
- * - An expectation judges its one attempt: the attempt runs once, and the expectation holds exactly for a PostgreSQL
- *   refusal of its SQLSTATE, and of its constraint where it names one.
- *
- * Every property states its oracle, the specification; invalid words, identifiers and allocations are named faults
- * the generators plant, drawn by explicit weight beside the lawful ones. Features: each verdict of each property.
- *
- * Plants (~/.cache/grizzle-release/BR07/plants): substrate-limit-off-by-one.patch (an identifier one byte past the
- * limit admitted) turns the names property red; substrate-first-report.patch (the first report read, not the last) the
- * psql one; substrate-constraint-unchecked.patch (another constraint's refusal holding) the expectations.
- */
 const lowercase = nonEmpty(Arr.fromIterable("abcdefghijklmnopqrstuvwxyz"), "lowercase letters")
 
 /** A word of lowercase letters joined by single underscores, its letters `max` at most. */

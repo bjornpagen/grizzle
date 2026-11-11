@@ -1,3 +1,31 @@
+/**
+ * The production dependency audit: no RegExp construction, .test or .exec, no arkregex runtime import, and no eval or
+ * Function constructor under src/.
+ *
+ * 1. The audit itself is checked first, on generated planted modules (planted.ts): every RegExp construction, match
+ *    and code generation the generator plants, in every place an expression or a statement begins, is found on its
+ *    line, and nothing in strings, templates, comments, divisions, types or an effect module's match is; every import
+ *    is read as Node runs it, type-only ones erased. So an empty finding list below means a clean tree.
+ * 2. Every module under src/, read as the JavaScript Node runs (audit.ts), has no RegExp construction, no regex
+ *    matching member, no runtime import of arkregex or its @ark packages, and no eval or Function constructor: an
+ *    exhaustion of the real tree, module by module.
+ * 3. At runtime, in a child Node process: no module but a test's or ark's own resolves an arkregex or @ark module
+ *    while every entry point loads and the text pipeline runs over every family pattern of the regex differential
+ *    tests, and src/ calls no RegExp. The trap is held to two controls: the probe's own construction, on the line it
+ *    reports, and the planted module's (fixtures/planted-regex.ts), each RegExp it builds or runs found once on the
+ *    line its text puts it on.
+ *
+ * Oracles: the specification, the findings each planted piece states (1), the audit's rules (2), and the trap's
+ * controls (3). Features: every planted piece's kind (1); the real tree and the real entry points are boxes of their
+ * own, which every module and entry point is a case of (2, 3).
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): deps-audit-instanceof-blind.patch (the audit missing `new RegExp`)
+ * turns the planted-module property red; deps-src-regexp.patch (a src module building and running a RegExp as it
+ * loads) the tree's audit and the runtime one.
+ *
+ * The layering (which areas a module may import) is fallow's boundaries (.fallowrc.json), and the packages an area may
+ * load are oxlint's no-restricted-imports (oxlint.config.ts).
+ */
 import { NodeServices } from "@effect/platform-node"
 import { describe, it, layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
@@ -41,34 +69,6 @@ import {
 	plantedModule
 } from "#test/unit/deps/planted.ts"
 
-/**
- * The production dependency audit: no RegExp construction, .test or .exec, no arkregex runtime import, and no eval or
- * Function constructor under src/.
- *
- * 1. The audit itself is checked first, on generated planted modules (planted.ts): every RegExp construction, match
- *    and code generation the generator plants, in every place an expression or a statement begins, is found on its
- *    line, and nothing in strings, templates, comments, divisions, types or an effect module's match is; every import
- *    is read as Node runs it, type-only ones erased. So an empty finding list below means a clean tree.
- * 2. Every module under src/, read as the JavaScript Node runs (audit.ts), has no RegExp construction, no regex
- *    matching member, no runtime import of arkregex or its @ark packages, and no eval or Function constructor: an
- *    exhaustion of the real tree, module by module.
- * 3. At runtime, in a child Node process: no module but a test's or ark's own resolves an arkregex or @ark module
- *    while every entry point loads and the text pipeline runs over every family pattern of the regex differential
- *    tests, and src/ calls no RegExp. The trap is held to two controls: the probe's own construction, on the line it
- *    reports, and the planted module's (fixtures/planted-regex.ts), each RegExp it builds or runs found once on the
- *    line its text puts it on.
- *
- * Oracles: the specification, the findings each planted piece states (1), the audit's rules (2), and the trap's
- * controls (3). Features: every planted piece's kind (1); the real tree and the real entry points are boxes of their
- * own, which every module and entry point is a case of (2, 3).
- *
- * Plants (~/.cache/grizzle-release/BR07/plants): deps-audit-instanceof-blind.patch (the audit missing `new RegExp`)
- * turns the planted-module property red; deps-src-regexp.patch (a src module building and running a RegExp as it
- * loads) the tree's audit and the runtime one.
- *
- * The layering (which areas a module may import) is fallow's boundaries (.fallowrc.json), and the packages an area may
- * load are oxlint's no-restricted-imports (oxlint.config.ts).
- */
 const root = repoRoot
 
 /** Every TypeScript module under dir, as paths relative to root (which ends in a slash), sorted (audit.ts modulesIn). */

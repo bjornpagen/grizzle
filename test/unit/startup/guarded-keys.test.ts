@@ -12,15 +12,15 @@
  *   second specialization decides them again. The oracle is the specification's counts: one law model for generate,
  *   none for the layer, one specialization and one decision per ordinary relation per law model.
  * - A guard's predicate is encoded once, where its unique object is built, and compared by its label: the canonical
- *   encoder's calls grow at most linearly in k. The oracle is that law over equal steps, read with no constant: at k,
- *   k + 1 and k + 2 keys the second step adds no more encodings than the first, where comparing every two guards by
- *   encoding both adds more at every step.
+ *   encoder's calls grow at most linearly in k (test/support/growth.ts incrementsDoNotGrow, at 2h, 4h and 6h keys),
+ *   where comparing every two guards by encoding both adds more at every step. No encoding changes shape above some
+ *   number of keys: every key is the same selected side, its kind its own number.
  * - The installation's objects are ordered by a binary heap of the ready ones (obligations/graph.ts order), each push
  *   comparing once per level of the heap and each pop at most twice: over the order's pushes p, its comparisons
  *   (readyFirst) are at most 3·p·⌊log2 p⌋, the heap's own bound, where comparing every ready object at each step grows
  *   with their number squared. Over r relations with no law between them every table is ready at once.
  *
- * The boxes are exhausted: k from 1 to 3, and r from 20 to 40 by tens.
+ * The boxes are exhausted: h of 1 and 2, so k of 2, 4, 6 and of 4, 8, 12; and r from 20 to 40 by tens.
  *
  * Plants (~/.cache/grizzle-release/BR07/plants): guarded-keys-encode-pairs.patch (guards compared by encoding both)
  * turns the first property red; install-order-quadratic.patch (every two ready objects compared at each pop) the
@@ -54,6 +54,7 @@ import {
 	workspace
 } from "#test/pg/cli/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { incrementsDoNotGrow } from "#test/support/growth.ts"
 import { type CallSite, callCounts } from "#test/support/kernel/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { clusterPool } from "#test/support/pg.ts"
@@ -149,8 +150,8 @@ const stepNames: ReadonlyArray<keyof Steps> = ["generate", "layer"]
 /** The law models each step compiles: generate's one, and none for the served layer, which loads and compiles nothing. */
 const lawModels: Readonly<Record<keyof Steps, number>> = { generate: 1, layer: 0 }
 
-/** The box of guarded keys: k from 1 to 3, each measured at k, k + 1 and k + 2. */
-const keysGen = int(1, 3)
+/** The box of guarded keys: h of 1 and 2, each measured at 2h, 4h and 6h keys. */
+const keysGen = int(1, 2)
 
 layer(NodeServices.layer, { excludeTestServices: true })("guarded keys at startup", (it) => {
 	it.effect(
@@ -160,7 +161,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("guarded keys at startu
 				ctx,
 				exhaust(
 					{
-						box: "k guarded keys for k from 1 to 3, each step measured at k, k + 1 and k + 2",
+						box: "2h, 4h and 6h guarded keys for h of 1 and 2",
 						oracle: {
 							kind: "specification",
 							name: "one law model, specialization and decision per relation; encodings whose second step adds no more than the first"
@@ -168,19 +169,19 @@ layer(NodeServices.layer, { excludeTestServices: true })("guarded keys at startu
 						suite: "unit/startup/guarded-keys",
 						generator: keysGen,
 						literal: Formatter.format,
-						limit: 3,
+						limit: 2,
 						coverage: noCoverage,
 						caseHang
 					},
-					(k) =>
+					(half) =>
 						Effect.gen(function* () {
-							const measured = [
-								yield* stepsAt(k),
-								yield* stepsAt(k + 1),
-								yield* stepsAt(k + 2)
-							] as const
-							const [first, second, third] = measured
-							const at = `k at ${k}, ${k + 1} and ${k + 2}`
+							const sizes = [2 * half, 4 * half, 6 * half] as const
+							const measured = yield* Effect.forEach(sizes, stepsAt)
+							const bySize = new Map(
+								Arr.map(measured, (steps, i) => [2 * half * (i + 1), steps] as const)
+							)
+							const stepsOf = (k: number): Steps => defined(bySize.get(k), `the steps at ${k} keys`)
+							const at = `k at ${Arr.join(Arr.map(sizes, String), ", ")}`
 							for (const step of stepNames) {
 								for (const steps of measured) {
 									assert.equal(
@@ -199,11 +200,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("guarded keys at startu
 										`${at}: ${step} decides each relation's objects beyond its primary key once`
 									)
 								}
-								assert.ok(
-									third[step].encode - second[step].encode <=
-										second[step].encode - first[step].encode,
-									`${at}: ${step}'s encodings ${first[step].encode}, ${second[step].encode}, ${third[step].encode} grow by more at each step`
-								)
+								incrementsDoNotGrow((k) => stepsOf(k)[step].encode, half, `${step}'s encodings`)
 							}
 						})
 				)

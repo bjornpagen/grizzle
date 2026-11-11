@@ -25,11 +25,12 @@
  *   once (ir/desc.ts AdmittedClosedRelation), so the compile's calls of the base check (ir/expr.ts literalProblem) are
  *   as many at twice the closed rows as at the rows.
  * - Every count grows at most linearly in each dimension of the schema and its worlds: relations, closed rows, roles and
- *   workload programs. The law is read over equal steps with no constant: at n, n + 1 and n + 2 the second step adds
- *   no more calls than the first, where a count that grows faster than linearly adds more at every step.
+ *   workload programs (test/support/growth.ts incrementsDoNotGrow, at 2, 4 and 6), where a count that grows faster
+ *   than linearly adds more at every step. No count changes shape above some size of a dimension: every relation,
+ *   closed row, role and program of a size is one more of the same.
  *
  * The oracle is the specification: the counts above, each stated by the module it names, and the linear law. The box
- * is exhausted: every dimension, each at n from 2 to 3 and the two sizes past it. Features: every dimension.
+ * is exhausted: every dimension at 2, 4 and 6, every other at its least. Features: every dimension.
  *
  * Plant: ~/.cache/grizzle-release/BR07/plants/work-laws-twice.patch (the installation basis compiling its law model twice) turns the
  * property red.
@@ -39,7 +40,7 @@ import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, int } from "@grizzle/testing/gen"
+import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, FileSystem, Formatter, Layer, Record as Rec } from "effect"
 import { DbLayer, served } from "#adapter/public/layer.ts"
@@ -75,6 +76,7 @@ import {
 	workspace
 } from "#test/pg/cli/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { incrementsDoNotGrow } from "#test/support/growth.ts"
 import { type CallSite, callCounts } from "#test/support/kernel/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
@@ -126,14 +128,15 @@ const dimensions: Arr.NonEmptyReadonlyArray<Dimension> = [
 	"programs"
 ]
 
+/** A point of the box: a dimension, measured at 2·half, 4·half and 6·half. */
 interface Point {
 	readonly dimension: Dimension
-	readonly n: number
+	readonly half: number
 }
 
 const pointGen: Gen<Point> = (s) => ({
 	dimension: s.draw(element(dimensions)),
-	n: s.draw(int(2, 3))
+	half: 1
 })
 
 /** The size of a generated installation: its relations, its closed relation's rows, its roles and its programs. */
@@ -399,7 +402,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("startup work", (it) =>
 				ctx,
 				exhaust(
 					{
-						box: "every dimension of the schema and its worlds, each at n from 2 to 3, n + 1 and n + 2, every other at its least",
+						box: "every dimension of the schema and its worlds at 2, 4 and 6, every other at its least",
 						oracle: {
 							kind: "specification",
 							name: "each step's counts as its modules state them, and no count whose second step adds more than its first"
@@ -407,20 +410,23 @@ layer(NodeServices.layer, { excludeTestServices: true })("startup work", (it) =>
 						suite: "unit/startup/work",
 						generator: pointGen,
 						literal: Formatter.format,
-						limit: dimensions.length * 2,
+						limit: dimensions.length,
 						coverage: requiredInSpace<Dimension>(dimensions),
 						caseHang
 					},
 					(point, c) =>
 						Effect.gen(function* () {
 							c.note(point.dimension)
-							const measured = [
-								yield* stepsAt(sizeOf(point.dimension, point.n)),
-								yield* stepsAt(sizeOf(point.dimension, point.n + 1)),
-								yield* stepsAt(sizeOf(point.dimension, point.n + 2))
-							] as const
-							const [first, second, third] = measured
-							const at = `${point.dimension} at ${point.n}, ${point.n + 1} and ${point.n + 2}`
+							const sizes = [2 * point.half, 4 * point.half, 6 * point.half] as const
+							const measured = yield* Effect.forEach(sizes, (n) =>
+								stepsAt(sizeOf(point.dimension, n))
+							)
+							const bySize = new Map(
+								Arr.map(measured, (steps, i) => [2 * point.half * (i + 1), steps] as const)
+							)
+							const stepsOf = (n: number): Steps => defined(bySize.get(n), `the steps at ${n}`)
+							const [first] = measured
+							const at = `${point.dimension} at ${Arr.join(Arr.map(sizes, String), ", ")}`
 							for (const step of stepNames) {
 								for (const site of siteNames) {
 									const want = exactly[step][site]
@@ -429,16 +435,16 @@ layer(NodeServices.layer, { excludeTestServices: true })("startup work", (it) =>
 											assert.equal(steps[step][site], want, `${at}: ${step} calls ${site}`)
 										}
 									}
-									assert.ok(
-										third[step][site] - second[step][site] <=
-											second[step][site] - first[step][site],
-										`${at}: ${step}'s calls of ${site}, ${first[step][site]}, ${second[step][site]}, ${third[step][site]}, grow by more at each step`
+									incrementsDoNotGrow(
+										(n) => stepsOf(n)[step][site],
+										point.half,
+										`${at}: ${step}'s calls of ${site}`
 									)
 								}
 							}
 							if (point.dimension === "closed rows") {
 								for (const step of ["generate", "check", "layer"] as const) {
-									for (const steps of [second, third]) {
+									for (const steps of measured) {
 										assert.equal(
 											steps[step].literalProblem,
 											first[step].literalProblem,

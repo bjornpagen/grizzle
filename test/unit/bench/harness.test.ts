@@ -1,3 +1,33 @@
+/**
+ * The bench harness's pure parts, each against an oracle:
+ *
+ * - EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) output, with WAL and SERIALIZE as captured, is read
+ *   back exactly as generated (captures.ts prints a generated capture as PostgreSQL prints one, keys no reader reads
+ *   among them): every node's figures, conditions, buffers and WAL, the triggers by call count, serialization, the
+ *   changed settings and the plan tree alone. Rows read count each stored scan's rows over its loops, a Bitmap Index
+ *   Scan's and a re-reading scan's never; rows generated count the generating scans'; a statement's totals are its
+ *   root's counters, never a sum over the tree. The roles a plan's nodes were generated in decide the oracle's counts,
+ *   never the fields the readers branch on.
+ * - Output PostgreSQL never prints, a fault planted in a generated capture, is refused as MalformedPlan, by the tree's
+ *   reader too where the fault is in what it reads.
+ * - The harness's caller-side retry retries exactly what grizzle classifies as a TransientFailure, up to its policy:
+ *   a model of the documented classification judges generated scripts of attempts.
+ * - Rows are read once as text cells; two row lists agree, and digest alike, exactly as a model of multisets says.
+ * - A verdict fails exactly on its failing checks; a record names exactly the gaps planted in it; a run's record keeps
+ *   its cases when only the release fails.
+ * - Every gate of the catalog has exactly one bench file, in its owner's directory: an audit of the real tree.
+ * - The command line of `pnpm bench` reads exactly what a model of its grammar reads, and refuses the rest.
+ *
+ * Each property states its oracle and requires the situations its oracle tells apart.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants), one a property in this order: harness-rows-read-one-loop.patch (a
+ * scan's rows read over one loop), harness-figure-not-finite-read.patch (a figure that is not finite read),
+ * harness-retry-once-more.patch (one retry past the policy), harness-rows-repeat-agrees.patch (a repeated row
+ * agreeing), harness-text-number-read.patch (a number cell read as text), harness-verdict-first-check.patch (a verdict
+ * blind to its first check), harness-record-two-verdicts.patch (two verdicts of a gate unnamed),
+ * harness-record-leak-keeps-verdicts.patch (a leaked release keeping its verdicts), harness-gate-owner-swapped.patch (a
+ * gate owned by the other directory), harness-full-takes-arguments.patch (`full` taking arguments).
+ */
 import { NodeServices } from "@effect/platform-node"
 import { describe, it, layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
@@ -106,36 +136,6 @@ import {
 	treeFaults
 } from "#test/unit/bench/captures.ts"
 
-/**
- * The bench harness's pure parts, each against an oracle:
- *
- * - EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) output, with WAL and SERIALIZE as captured, is read
- *   back exactly as generated (captures.ts prints a generated capture as PostgreSQL prints one, keys no reader reads
- *   among them): every node's figures, conditions, buffers and WAL, the triggers by call count, serialization, the
- *   changed settings and the plan tree alone. Rows read count each stored scan's rows over its loops, a Bitmap Index
- *   Scan's and a re-reading scan's never; rows generated count the generating scans'; a statement's totals are its
- *   root's counters, never a sum over the tree. The roles a plan's nodes were generated in decide the oracle's counts,
- *   never the fields the readers branch on.
- * - Output PostgreSQL never prints, a fault planted in a generated capture, is refused as MalformedPlan, by the tree's
- *   reader too where the fault is in what it reads.
- * - The harness's caller-side retry retries exactly what grizzle classifies as a TransientFailure, up to its policy:
- *   a model of the documented classification judges generated scripts of attempts.
- * - Rows are read once as text cells; two row lists agree, and digest alike, exactly as a model of multisets says.
- * - A verdict fails exactly on its failing checks; a record names exactly the gaps planted in it; a run's record keeps
- *   its cases when only the release fails.
- * - Every gate of the catalog has exactly one bench file, in its owner's directory: an audit of the real tree.
- * - The command line of `pnpm bench` reads exactly what a model of its grammar reads, and refuses the rest.
- *
- * Each property states its oracle and requires the situations its oracle tells apart.
- *
- * Plants (~/.cache/grizzle-release/BR07/plants), one a property in this order: harness-rows-read-one-loop.patch (a
- * scan's rows read over one loop), harness-figure-not-finite-read.patch (a figure that is not finite read),
- * harness-retry-once-more.patch (one retry past the policy), harness-rows-repeat-agrees.patch (a repeated row
- * agreeing), harness-text-number-read.patch (a number cell read as text), harness-verdict-first-check.patch (a verdict
- * blind to its first check), harness-record-two-verdicts.patch (two verdicts of a gate unnamed),
- * harness-record-leak-keeps-verdicts.patch (a leaked release keeping its verdicts), harness-gate-owner-swapped.patch (a
- * gate owned by the other directory), harness-full-takes-arguments.patch (`full` taking arguments).
- */
 const spec = {
 	literal: Formatter.format,
 	kept: [],
