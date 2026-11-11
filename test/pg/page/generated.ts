@@ -28,12 +28,11 @@ import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import * as EngineResult from "#compiler/core/result.ts"
-import { trusted } from "#compiler/core/trusted.ts"
 import type { Cell, ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
-import type { LogicalQuery, ParamDecl, StatementSpec } from "#compiler/ir/products.ts"
+import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import {
 	type CompletedOrder,
 	conservativeMeta,
@@ -49,13 +48,13 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import {
 	conservativeInput,
+	type ConservativeProgram,
 	type ConservativeStatement,
 	flight
 } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
+import { conservativeStatement } from "#compiler/lower/shapes/index.ts"
 import { compilePage, type PageTemplate } from "#compiler/lower/shapes/page/compile.ts"
-import { statementSpec } from "#compiler/lower/template.ts"
-import { declaredSlotOf } from "#compiler/runtime/lower/slots.ts"
 import { keyColumns, statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { mergeHeadingGroups } from "#compiler/runtime/lower/union.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
@@ -87,6 +86,7 @@ import { canonicalFacts, type GenFacts } from "#test/support/oracle/gen/facts.ts
 import { printQueryCase } from "#test/support/oracle/gen/print.ts"
 import { type GenParam, normalQuery } from "#test/support/oracle/gen/query.ts"
 import { type GenRelation, schemaDesc, schemaName } from "#test/support/oracle/gen/schema.ts"
+import type { RawCaptureError } from "#test/support/oracle/install/capture.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import { oraclePlan } from "#test/support/oracle/install/real.ts"
 import {
@@ -94,7 +94,13 @@ import {
 	multiplyFacts,
 	plannerStatements
 } from "#test/support/oracle/perturb.ts"
-import { factSet, inputText, oracleCheck, PropertyFailed } from "#test/support/oracle/runner.ts"
+import {
+	factSet,
+	inputText,
+	oracleCheck,
+	PropertyFailed,
+	sentRows
+} from "#test/support/oracle/runner.ts"
 import { loweringViolations } from "#test/support/oracle/verify/index.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { everyColumnCarried } from "#test/support/spine.ts"
@@ -654,11 +660,6 @@ const slotText = (
 	throw new Error(`no value for a ${slot.kind} placeholder`)
 }
 
-const run =
-	(session: PgConnection) =>
-	(sql: string, values: ReadonlyArray<string>): Effect.Effect<ReadonlyArray<Row>, SqlError> =>
-		Effect.map(session.queryValues(sql, values), textRows)
-
 /**
  * Rows on `heading` as values: each cell its column type's canonical text (oracle/compare.ts canonicalCell), so two
  * spellings of one value, which two statements' deduplications may keep differently, read alike.
@@ -706,9 +707,6 @@ const childrenByKey = (
 	return out
 }
 
-/** The rows PostgreSQL returns, every column as text. */
-const textRows = (rows: unknown): ReadonlyArray<Row> => trusted<ReadonlyArray<Row>>(rows)
-
 class Skip extends Data.TaggedError("Skip")<{ readonly reason: string }> {}
 
 interface Full {
@@ -718,45 +716,42 @@ interface Full {
 }
 
 /**
- * D: the conservative lowering's delivery, each heading group sorted on the page order and the groups merged on it,
- * on the template's heading, as values (valueRows); and every attachment statement's rows over every delivered parent,
- * as values too, by parent key, each read as it arrives (`childrenByKey`), so D holds one copy of every row.
+ * D: the conservative lowering's delivery, sent as the conservative program's one statement (shapes/index.ts
+ * conservativeStatement) and its rows divided into its parts as the runtime divides them (oracle/runner.ts sentRows),
+ * each heading group sorted on the page order and the groups merged on it, on the template's heading, as values
+ * (valueRows); and every attachment part's rows over every delivered parent, as values too, by parent key, each read
+ * as it arrives (`childrenByKey`), so D holds one copy of every row.
  */
 const fullResult = (
 	session: PgConnection,
 	o: OrderedCase,
 	query: LogicalQuery,
 	template: PageTemplate,
-	statements: ReadonlyArray<ConservativeStatement>,
+	conservative: ConservativeProgram,
 	codes: Codebook
-): Effect.Effect<Full, SqlError> =>
+): Effect.Effect<Full, SqlError | RawCaptureError> =>
 	Effect.gen(function* () {
-		const specs = Arr.map(statements, (s) => {
-			const spec = statementSpec({ ...s, fused: [] }, declaredSlotOf(codes, new CompilePatterns()))
-			if (!spec.ok) {
-				throw new Error(spec.error.message)
-			}
-			return spec.value
-		})
-		const groups: Array<{ readonly spec: StatementSpec; readonly rows: ReadonlyArray<Row> }> = []
+		const program = conservativeStatement(conservative)
+		const values = Arr.map(program.statement.params, (slot) => slotText(o.c, slot, codes))
+		const parts = yield* sentRows(session, program, program.statement.sql.text, values)
+		const groups: Array<{ readonly heading: Heading; readonly rows: ReadonlyArray<Row> }> = []
 		const attachments: Array<ReadonlyMap<string, ReadonlyArray<string>>> = []
-		for (const [i, statement] of statements.entries()) {
-			const spec = defined(specs[i], "statement")
-			const values = Arr.map(statement.params, (slot) => slotText(o.c, slot, codes))
-			const raw = yield* run(session)(spec.sql, values)
-			if (spec.role === "attachment") {
-				attachments.push(childrenByKey(spec.heading, raw, keyColumns(statement.role).length, codes))
+		for (const { labeled, rows } of parts) {
+			const part = labeled.statement
+			const output = statementOutput(part.role, part.heading, part.fused).heading
+			if (part.role.kind === "attachment") {
+				attachments.push(childrenByKey(output, rows, keyColumns(part.role).length, codes))
 			} else {
-				groups.push({ spec, rows: raw })
+				groups.push({ heading: output, rows })
 			}
 		}
 		const heading = template.heading
-		const project = (spec: StatementSpec, row: Row): Row =>
+		const project = (from: Heading, row: Row): Row =>
 			Arr.map(heading, (c) =>
 				defined(
 					row[
 						Option.getOrThrowWith(
-							Arr.findFirstIndex(spec.heading, (h) => h.name === c.name),
+							Arr.findFirstIndex(from, (h) => h.name === c.name),
 							() => new Error("a column the case's own heading holds")
 						)
 					],
@@ -790,8 +785,8 @@ const fullResult = (
 		const decoded = Arr.map(groups, (g) =>
 			Arr.sort(
 				Arr.map(g.rows, (row): Decoded => ({
-					row: project(g.spec, row),
-					value: headingRecord(g.spec.heading, codes)(row)
+					row: project(g.heading, row),
+					value: headingRecord(g.heading, codes)(row)
 				})),
 				pageOrder
 			)
@@ -1554,7 +1549,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 						o,
 						query,
 						template,
-						flight(conservative.value.roots),
+						conservative.value,
 						codes
 					).pipe(
 						Effect.catchDefect((defect) =>
