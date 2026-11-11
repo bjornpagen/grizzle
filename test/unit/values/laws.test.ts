@@ -1,3 +1,20 @@
+/**
+ * The value carriers' laws, Decimal, Money and Vector together.
+ *
+ * - Equality: equals, compare, the identity text and the parts of each carrier agree with the value they hold, and
+ *   equal values have one identity text. Oracle: a second implementation per carrier, a Decimal's exact rational by
+ *   cross multiplication, a Money's count, a Vector's components one by one.
+ * - Frozen: every value a constructor returns, the carriers, scalar types of every text check and the public field
+ *   descriptors, is frozen, and so is every object it reaches. Oracle: universal, Object.isFrozen over the reachable
+ *   objects.
+ * - Revival: a written payload revives to the value that writes it, and a near miss of it revives, if at all, to a
+ *   value writing exactly the near miss. Oracle: universal, fromCanonical ∘ write = id and write ∘ fromCanonical = id.
+ *
+ * Features: each carrier's equal and unequal pairs, each constructor, and each tag written and refused as a near miss.
+ *
+ * Plants: values-vector-last-component (vector order skips its last component), values-money-unfrozen (a Money
+ * left unfrozen), values-money-leading-zero (a money payload with a leading zero revived).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -363,7 +380,10 @@ describe("the value carriers' laws", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "a Decimal's exact rational by cross multiplication, a Money's count, a Vector's components"
+						},
 						suite: "unit/values/laws-equality",
 						draw: drawn(pairGen),
 						literal: Formatter.format,
@@ -414,7 +434,10 @@ describe("the value carriers' laws", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "Object.isFrozen over every object a constructed value reaches"
+						},
 						suite: "unit/values/laws-frozen",
 						draw: drawn(constructedGen),
 						literal: Formatter.format,
@@ -465,7 +488,10 @@ describe("the value carriers' laws", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "universal",
+						name: "fromCanonical ∘ write = id, and write ∘ fromCanonical = id"
+					},
 					suite: "unit/values/laws-revival",
 					draw: drawn(offeredGen),
 					literal: Formatter.format,

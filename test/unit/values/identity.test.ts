@@ -1,6 +1,25 @@
+/**
+ * A host value's admission and a fact's identity (scalar/values/identity.ts).
+ *
+ * - Admission: admitValue stores each carrier's value as its documented host type and range say, and refuses every
+ *   other value, near misses and wild values of every kind, by its fault, never throwing; Uuid.parse admits exactly as
+ *   the uuid carrier does. Oracle: each carrier's documentation as a judge of the value.
+ * - Identity: a fact rewritten as PostgreSQL's coercion reads it alike (a uuid's case, digits below the amount's scale,
+ *   a real's binary64, a span's keys or the fact's keys in another order) keeps its identity, and a fact changed past
+ *   its coercion has another. Oracle: universal, a metamorphic relation.
+ * - Refusal: a fact that is not exactly its heading is refused as factShape, naming the field a misspelt key stands
+ *   for; a value its field cannot hold, by its fault and field; a heading naming a field twice admits no fact. Oracle:
+ *   the heading's shape and each carrier's faults as a checker.
+ *
+ * Features: each carrier stored and refused; each rewrite and each change; each malformation.
+ *
+ * Plants: values-uuid-case (an upper-case uuid stored as written), values-identity-raw-part (a field's part of the
+ * identity its value's own text rather than its canonical one), values-fact-field-unnamed (a field's fault names no
+ * field).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -22,7 +41,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
-import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
+import { binary32Max, cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
 import { rosterCodec } from "#compiler/ir/codes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
@@ -36,7 +55,7 @@ import {
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Uuid } from "#compiler/scalar/values/uuid.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
-import { assert, faulted, succeeded } from "#test/support/assert.ts"
+import { assert, faulted, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
@@ -335,7 +354,10 @@ describe("admitValue", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "each carrier's documented host type and range, judging the value"
+						},
 						suite: "unit/values/admission",
 						draw: drawn(
 							oneOf(
@@ -416,36 +438,39 @@ const factOf = (f: {
 	during: { start: f.start, end: f.start + f.width }
 })
 
+/** The amount field's typmod: numeric(18, 2). */
+const amountType = { precision: 18, scale: 2 } as const
+
 describe("factIdentity", () => {
 	const heading: ReadonlyArray<HeadingField> = [
 		{ name: "id", spec: { carrier: "uuid" } },
-		{ name: "amount", spec: { carrier: "numeric", typmod: { precision: 18, scale: 2 } } },
+		{ name: "amount", spec: { carrier: "numeric", typmod: amountType } },
 		{ name: "ratio", spec: { carrier: "float4" } },
 		{ name: "during", spec: { carrier: "range8", width: undefined } }
 	]
-	const fact = {
-		id: "A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11",
-		amount: Decimal.of("10.004"),
-		ratio: 0.1,
-		during: { start: 0n, end: 30n }
-	}
+	const keys = nonEmpty(
+		Arr.map(heading, (field) => field.name),
+		"the heading's names"
+	)
 
 	/**
 	 * A fact rewritten as PostgreSQL's coercion reads it the same (a uuid's case, an amount's digits below its scale, a
-	 * real given as the binary64 it rounds from, a span's keys reordered) has the fact's identity; one value changed past
-	 * its coercion has another. The admitted fact is frozen and holds the coerced values.
+	 * real given as the binary64 it rounds from, a span's keys reordered, the fact's keys in another order) has the
+	 * fact's identity; one value changed past its coercion has another. The admitted fact is frozen.
 	 */
 	type FactRewrite =
 		| "uuid case"
 		| "digits below the scale"
 		| "a real's binary64"
 		| "span keys reordered"
+		| "fact keys reordered"
 	type FactChange = "another amount" | "another span" | "another real"
 	const factRewrites: Arr.NonEmptyReadonlyArray<FactRewrite> = [
 		"uuid case",
 		"digits below the scale",
 		"a real's binary64",
-		"span keys reordered"
+		"span keys reordered",
+		"fact keys reordered"
 	]
 	const factChanges: Arr.NonEmptyReadonlyArray<FactChange> = [
 		"another amount",
@@ -471,6 +496,15 @@ describe("factIdentity", () => {
 		width: source.draw(bigint(1n, 10n ** 6n))
 	})
 
+	/** A fact's fields set in `order`, each the value it holds. */
+	const reordered = (fact: Readonly<Record<string, unknown>>, order: ReadonlyArray<string>) => {
+		const out: Record<string, unknown> = {}
+		for (const key of order) {
+			out[key] = fact[key]
+		}
+		return out
+	}
+
 	it.effect(
 		"gives facts PostgreSQL's coercion reads alike one identity, and a changed fact another",
 		(ctx) =>
@@ -478,13 +512,17 @@ describe("factIdentity", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "metamorphic: a rewrite PostgreSQL's coercion reads alike keeps the identity, a change past it moves it"
+						},
 						suite: "unit/values/fact-identity",
 						draw: drawn((source) => ({
 							fact: source.draw(factGen),
 							same: source.draw(boolean),
 							pick: source.draw(pickGen),
-							digit: source.draw(int(0, 4))
+							digit: source.draw(int(0, 4)),
+							order: source.draw(shuffled(keys, { min: keys.length, max: keys.length }))
 						})),
 						literal: Formatter.format,
 						coverage: required<`same: ${FactRewrite}` | `changed: ${FactChange}`>(
@@ -501,7 +539,7 @@ describe("factIdentity", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					({ fact: drawnFact, same, pick, digit }, c) =>
+					({ fact: drawnFact, same, pick, digit, order }, c) =>
 						Effect.sync(() => {
 							const fact = factOf(drawnFact)
 							const admitted = succeeded(factIdentity(heading, fact))
@@ -516,10 +554,9 @@ describe("factIdentity", () => {
 											? { ...fact, amount: Decimal.of(`${drawnFact.cents}${digit}e-3`) }
 											: rewrite === "a real's binary64"
 												? { ...fact, ratio: Math.fround(fact.ratio) }
-												: { ...fact, during: { end: fact.during.end, start: fact.during.start } }
-								if (rewrite === "digits below the scale" && digit >= 5) {
-									return
-								}
+												: rewrite === "span keys reordered"
+													? { ...fact, during: { end: fact.during.end, start: fact.during.start } }
+													: reordered(fact, order)
 								assert.deepEqual(
 									succeeded(factIdentity(heading, rewritten)).identity,
 									admitted.identity,
@@ -543,44 +580,6 @@ describe("factIdentity", () => {
 						})
 				)
 			)
-	)
-
-	it.effect("is independent of key insertion order", (ctx) =>
-		searched(
-			ctx,
-			Effect.gen(function* () {
-				const values = new Map(Rec.toEntries(fact))
-				return yield* explore(
-					{
-						oracle: { kind: "unstated" },
-						suite: "unit/values/identity-1",
-						/** Every order of the fact's keys: a subarray of them all. */
-						draw: drawn(
-							shuffled(Rec.keys(fact), { min: Rec.keys(fact).length, max: Rec.keys(fact).length })
-						),
-						literal: Formatter.format,
-						coverage: noCoverage,
-						kept: [],
-						runs: 100,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
-					},
-					(order) =>
-						Effect.sync(() => {
-							const shuffled: Record<string, unknown> = {}
-							for (const key of order) {
-								shuffled[key] = values.get(key)
-							}
-							assert.deepEqual(
-								succeeded(factIdentity(heading, shuffled)).identity,
-								succeeded(factIdentity(heading, fact)).identity
-							)
-						})
-				)
-			})
-		)
 	)
 
 	/**
@@ -614,12 +613,16 @@ describe("factIdentity", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a fact's shape against its heading, and each field's carrier fault, named by its field"
+						},
 						suite: "unit/values/fact-refusals",
 						draw: drawn((source) => ({
 							fact: source.draw(factGen),
 							malformed: source.draw(element(malformations)),
-							extra: source.draw(boolean)
+							extra: source.draw(boolean),
+							digits: source.draw(int(0, 4))
 						})),
 						literal: Formatter.format,
 						coverage: required<Malformed>(malformations, { cases: 300, sense: notesOnly }),
@@ -630,7 +633,7 @@ describe("factIdentity", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					({ fact: drawnFact, malformed, extra }, c) =>
+					({ fact: drawnFact, malformed, extra, digits }, c) =>
 						Effect.sync(() => {
 							c.note(malformed)
 							const fact = factOf(drawnFact)
@@ -658,7 +661,7 @@ describe("factIdentity", () => {
 													: malformed === "a real past the range"
 														? [
 																heading,
-																{ ...fact, ratio: 1e39 },
+																{ ...fact, ratio: binary32Max.value * 2 },
 																{ fault: "realOverflow", field: "ratio" }
 															]
 														: malformed === "an amount past the precision"
@@ -666,7 +669,9 @@ describe("factIdentity", () => {
 																	heading,
 																	{
 																		...fact,
-																		amount: Decimal.of(`1e${16 + Number(drawnFact.width % 5n)}`)
+																		amount: Decimal.of(
+																			`1e${amountType.precision - amountType.scale + digits}`
+																		)
 																	},
 																	{ fault: "numericOverflow", field: "amount" }
 																]

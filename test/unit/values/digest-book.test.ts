@@ -6,6 +6,10 @@
  * another.
  *
  * Oracle: a model of the book, a map from each digest to the first bytes admitted under it.
+ *
+ * Features: a first value of its digest, the same bytes again, the same array again, and different bytes of one digest.
+ *
+ * Plants: values-digest-book-digest-only (the book holds a value whenever its digest was seen, whatever its bytes).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

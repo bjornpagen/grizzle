@@ -1,6 +1,23 @@
+/**
+ * Text at the host boundary and its orders (core/text.ts).
+ *
+ * - Validation: validateText admits exactly the well-formed, NUL-free strings, and refuses a planted NUL, a lone
+ *   surrogate of either half or a reversed pair at any position, and every non-string, by its fault. Oracle: the
+ *   boundary's specification, each plant's fault named by the plant.
+ * - Code point order: compareCodePoints orders as the UTF-8 bytes of the texts do, PostgreSQL's C collation. Oracle: a
+ *   second implementation, TextEncoder's bytes compared one by one.
+ * - Tuple orders: a tuple of texts orders as its texts' spellings do, each after its length and a colon, and as a JSON
+ *   array by code unit and by code point. Oracle: a second implementation, the tuples spelled and compared.
+ *
+ * Features: live text, a non-string and each plant at each position; equal tuples, a prefix, a difference past the
+ * first text, of two lengths, and at an escaped unit.
+ *
+ * Plants: values-text-surrogate (a lone surrogate admitted), values-codepoint-units (texts ordered by code unit),
+ * values-tuple-prefix-first (a tuple ordered before its own prefix).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	constant,
@@ -78,7 +95,10 @@ describe("text validation", () => {
 					const positions = ["first", "middle", "last"] as const
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "the boundary's rule: well-formed NUL-free strings, each plant refused by its fault"
+							},
 							suite: "unit/values/text-validation",
 							draw: drawn(plantedTextGen),
 							literal: Formatter.format,
@@ -120,6 +140,30 @@ describe("text validation", () => {
 	)
 })
 
+type CodePointFeature =
+	| "a unit past the surrogates against an astral scalar"
+	| "one text the other's prefix"
+	| "equal texts"
+
+/** Whether a code unit is a surrogate, half of an astral scalar. */
+const isSurrogate = (unit: number): boolean => unit >= 0xd800 && unit <= 0xdfff
+
+/** The situation two texts are in where they first differ. */
+const codePointFeatures = (a: string, b: string): ReadonlyArray<CodePointFeature> => {
+	const differs = Arr.findFirst(
+		Arr.range(0, Math.min(a.length, b.length) - 1),
+		(i) => a[i] !== b[i]
+	)
+	if (Option.isNone(differs) || Math.min(a.length, b.length) === 0) {
+		return [a.length === b.length ? "equal texts" : "one text the other's prefix"]
+	}
+	const x = Option.getOrElse(Str.charCodeAt(a, differs.value), () => 0)
+	const y = Option.getOrElse(Str.charCodeAt(b, differs.value), () => 0)
+	return (x >= 0xe000 && isSurrogate(y)) || (y >= 0xe000 && isSurrogate(x))
+		? ["a unit past the surrogates against an astral scalar"]
+		: []
+}
+
 describe("code point order", () => {
 	it.effect("matches UTF-8 byte order", (ctx) =>
 		searched(
@@ -138,11 +182,21 @@ describe("code point order", () => {
 				}
 				return yield* explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "TextEncoder's UTF-8 bytes compared one by one"
+						},
 						suite: "unit/values/text-2",
 						draw: drawn((source) => [source.draw(text), source.draw(text)] as const),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<CodePointFeature>(
+							[
+								"a unit past the surrogates against an astral scalar",
+								"one text the other's prefix",
+								"equal texts"
+							],
+							{ cases: 400, sense: notesOnly }
+						),
 						kept: [],
 						runs: 5000,
 						shrink: completeShrink,
@@ -150,8 +204,9 @@ describe("code point order", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					([a, b]) =>
+					([a, b], c) =>
 						Effect.sync(() => {
+							c.noteAll(codePointFeatures(a, b))
 							assert.equal(compareCodePoints(a, b), bytes(a, b))
 						})
 				)

@@ -1,3 +1,16 @@
+/**
+ * A value fault never carries the value it refuses (scalar/values/fault.ts): a refusal is one fixed word of the
+ * vocabulary, so a diagnostic never holds a parameter's value.
+ *
+ * - Secrecy: Decimal.of refuses a decimal past numeric's range, or misspelt, with a CompileError whose printed and
+ *   formatted text holds none of the refused digits.
+ *
+ * Oracle: the specification turned into a checker, the refused text's digit run sought in every text the error prints.
+ *
+ * Features: each way a decimal is refused, past the range and misspelt.
+ *
+ * Plants: values-fault-echo (the refusal's location names the refused input).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -8,11 +21,13 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect, Formatter } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
+import { numericMaxIntegerDigits } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { assert, lacksText } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 import { regex } from "arkregex"
+
 /** A decimal the admission refuses, out of range or misspelt, whose digits are a secret no refusal may repeat. */
 type Refused = "out of range" | "misspelt"
 
@@ -22,7 +37,10 @@ describe("value faults", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "no text the refusal prints holds the refused digits"
+					},
 					suite: "unit/values/fault-secrets",
 					draw: drawn((source) => ({
 						secret: source.draw(matching(regex("^[1-9]\\d{5,11}$"))),
@@ -43,7 +61,10 @@ describe("value faults", () => {
 				({ secret, refused }, c) =>
 					Effect.sync(() => {
 						c.note(refused)
-						const text = refused === "out of range" ? `${secret}.5e999999999` : `${secret}.5x`
+						const text =
+							refused === "out of range"
+								? `${secret}.5e${numericMaxIntegerDigits.value}`
+								: `${secret}.5x`
 						assert.throws(
 							() => Decimal.of(text),
 							(error: unknown) => {

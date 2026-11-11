@@ -11,6 +11,11 @@
  * normalizes to as many facts as the distinct values it holds, and a vector's buffer written by its caller after
  * admission changes neither the batch's identities nor any row its arrays carry. The PostgreSQL differential
  * (test/pg/codec/forged.test.ts) judges the same batches by PostgreSQL's DISTINCT.
+ *
+ * Features: each way an input ends (refused at admission, thrown out at construction, admitted as its value), a batch
+ * holding one value twice, a buffer written after admission, and every carrier's every forgery.
+ *
+ * Plants: values-decimal-prototype-brand (a Decimal recognized by its prototype, so a prototype object passes as one).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -45,7 +50,10 @@ describe("a forged carrier instance", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "each input's PostgreSQL text, stated apart from grizzle (test/support/forged.ts)"
+						},
 						suite: "unit/values/forged",
 						draw: drawn(forgedCases(carriers)),
 						literal: Formatter.format,

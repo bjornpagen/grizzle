@@ -1,7 +1,28 @@
+/**
+ * The Vector carrier (scalar/values/vector.ts) and its canonical payload (ir/carriers.ts VectorText).
+ *
+ * - Construction: Vector.admit takes a Float32Array of exactly its dimension count, an integer 1-vectorMaxDimensions,
+ *   never checking its components; any other buffer is vectorType and any other count vectorDimensions, and Vector.make
+ *   raises CompileError for each. Oracle: the construction rule as a checker, the count read before the buffer.
+ * - Wild values: admit refuses every wild value as vectorType, and admits a live buffer as a copy grizzle alone holds,
+ *   which a later write to the buffer never reaches. Oracle: the boundary's specification, and the buffer written after.
+ * - Payloads: a canonical payload with one corruption planted is refused as MalformedDescription. Oracle: the
+ *   payload grammar's complement, each corruption a named case.
+ * - Round trip: every float32 vector's canonical text decodes to its components bit for bit, -0 as 0; a host vector
+ *   and its canonical form write one text; the canonical form is a frozen snapshot of the buffer; a non-finite
+ *   component has no text. Oracle: universal, decode ∘ encode = id.
+ *
+ * Features: each buffer kind and count; live and every wild kind; each payload corruption; a -0 component, and one and
+ * several components.
+ *
+ * Plants: values-vector-max-dimensions (the greatest dimension count refused), values-vector-uncopied (admit keeps the
+ * caller's buffer), values-vector-payload-spelling (a payload component's spelling unchecked),
+ * values-vector-negative-zero-text (a -0 component written as -0).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { array, element, type Gen, map, weighted } from "@grizzle/testing/gen"
+import { required } from "@grizzle/testing/features"
+import { array, constant, element, type Gen, map, weighted } from "@grizzle/testing/gen"
 import { type DrawnFeature, drawnFeature, lsw, passed, WILD_KINDS } from "@grizzle/testing/lsw"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -26,6 +47,14 @@ const anyFloat: Gen<number> = weighted([
 	[9, finiteFloat],
 	[1, element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])]
 ])
+
+/** A finite component, or -0, the one zero the text writes otherwise. */
+const componentGen: Gen<number> = weighted([
+	[9, finiteFloat],
+	[1, constant(-0)]
+])
+
+type RoundTripFeature = "a -0 component" | "one component" | "several components"
 
 /** A revived Vector, failing the test where the canonical decoder revived anything else. */
 const vectorOf = (value: unknown): Vector => {
@@ -85,7 +114,10 @@ describe("Vector construction", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the construction rule: a Float32Array of exactly its count, 1-vectorMaxDimensions, the count read first"
+						},
 						suite: "unit/values/vector-construction",
 						draw: drawn((source) => ({
 							buffer: source.draw(element(buffers)),
@@ -174,7 +206,10 @@ describe("Vector admission of a JavaScript caller's value", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the boundary: every wild value vectorType, a live buffer copied"
+						},
 						suite: "unit/values/vector-wild",
 						draw: drawn(
 							lsw<Float32Array>({
@@ -258,7 +293,10 @@ describe("Vector in the canonical serializer", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "the payload grammar's complement: each corruption spells no canonical vector"
+					},
 					suite: "unit/values/vector-payloads",
 					draw: drawn((source) => ({
 						xs: source.draw(array(finiteFloat, { min: 1, max: 4 })),
@@ -314,11 +352,14 @@ describe("Vector in the canonical serializer", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "universal", name: "decode ∘ encode = id, -0 read as 0" },
 						suite: "unit/values/vector-1",
-						draw: drawn(array(finiteFloat, { min: 1, max: 8 })),
+						draw: drawn(array(componentGen, { min: 1, max: 8 })),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<RoundTripFeature>(
+							["a -0 component", "one component", "several components"],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
@@ -326,8 +367,12 @@ describe("Vector in the canonical serializer", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(xs) =>
+					(xs, c) =>
 						Effect.sync(() => {
+							c.note(xs.length === 1 ? "one component" : "several components")
+							if (Arr.some(xs, (x) => Object.is(x, -0))) {
+								c.note("a -0 component")
+							}
 							const v = Vector.make(Float32Array.from(xs), xs.length)
 							const encoded = succeeded(encode(succeeded(Vector.canonical(v)), everyProperty))
 							assert.equal(
