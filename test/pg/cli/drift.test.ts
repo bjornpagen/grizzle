@@ -54,7 +54,7 @@ import {
 } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import { roleNameOf } from "#compiler/public/schema.ts"
+import { roleNameOf } from "#adapter/served/served.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { defineConfig } from "#index.ts"
 import { worlds } from "#test/pg/cli/fixture.ts"

@@ -55,11 +55,11 @@ import {
 	login,
 	relation,
 	role,
-	roleNameOf,
 	schema,
 	schemaNameOf,
 	wholeEntriesOf
 } from "#compiler/public/schema.ts"
+import { roleNameOf } from "#adapter/served/served.ts"
 import { defineConfig } from "#index.ts"
 import {
 	cliOver,

@@ -139,9 +139,9 @@ export {
 	namedLogin,
 	namedRole
 } from "#compiler/physical/ddl/names.ts"
-export { loginRoleName } from "#compiler/program/names.ts"
 export { servedSession } from "#compiler/program/served.ts"
 export {
+export { loginStem } from "#compiler/schema/stem.ts"
 	baseArtifacts,
 	type BuiltSchema,
 	levelSchema,

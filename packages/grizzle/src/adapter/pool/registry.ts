@@ -38,7 +38,7 @@ import {
 	levelChain,
 	type LoginDesc,
 	loginDescOf,
-	loginRoleName,
+	loginStem,
 	malformedDescription,
 	ownServed,
 	prepared,
@@ -59,7 +59,7 @@ import { ledgerStatements, type ServedSnapshot } from "#compiler/plan/serve.ts"
 export interface DbSessions {
 	/** The login the layer was built for. */
 	readonly login: LoginDesc
-	/** The login's PostgreSQL role, which every session of the pool logs in as (program/names.ts loginRoleName). */
+	/** The login's PostgreSQL role, which every session of the pool logs in as (schema/stem.ts loginStem, under the connection's role space). */
 	readonly loginRole: string
 	/** What the layer and its Dbs read of the snapshot it was given, parsed once (boundary/snapshot.ts parseSnapshot). */
 	readonly snapshot: ServedSnapshot
@@ -223,7 +223,7 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	const base = yield* openStage(ownServed(config.login.base, snapshot.fingerprints))
 	const codes = snapshot.codes
 	const owned = yield* openStage(ownLoginOver(config.login, base))
-	const loginRole = yield* Effect.flatMap(openStage(loginRoleName(config.login.desc)), (stem) =>
+	const loginRole = yield* Effect.flatMap(openStage(loginStem(config.login.desc)), (stem) =>
 		Effect.fromResult(Result.mapError(connectionRole(config, dbConfig, stem), refusedConfig))
 	)
 	const slice = yield* Effect.mapError(

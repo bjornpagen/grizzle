@@ -58,12 +58,12 @@ import {
 	on,
 	relation,
 	role,
-	roleNameOf,
 	schema,
 	schemaNameOf,
 	wholeEntriesOf,
 	writableNamesOf
 } from "#compiler/public/schema.ts"
+import { roleNameOf } from "#adapter/served/served.ts"
 import { workload } from "#compiler/public/workload.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"

@@ -499,16 +499,6 @@ export const connectionRole = (
 	stem: string
 ): Result.Result<string, SettingFault> => spaceRole(connection.roles, where, stem)
 
-/**
- * The PostgreSQL role the installation of role prefix `rolePrefix` installs for the role stem `stem`, as a block of that
- * prefix would (parseRoleSpace, spaceRole), for a caller that names a role outside a layer: roleNameOf.
- */
-export const prefixedRole = (
-	rolePrefix: string | undefined,
-	where: SettingPath,
-	stem: string
-): Result.Result<string, SettingFault> =>
-	Result.flatMap(parseRoleSpace(rolePrefix, where), (space) => spaceRole(space, where, stem))
 
 /**
  * A DbConfig's pool bounds, `setting` as its block's plain data holds them (parseConnection read it as data): parsed,

@@ -25,6 +25,7 @@ import {
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
 import { writableEntry } from "#compiler/schema/entry.ts"
+import { loginStem, roleStem } from "#compiler/schema/stem.ts"
 import {
 	isLevelOf,
 	levelRelations,
@@ -568,6 +569,7 @@ export const role = <
 			...builtMark,
 			kind: "role",
 			name,
+			stem: roleStem(admitted.desc),
 			base,
 			relations: relationsValue,
 			statements: Object.freeze(base.statements.filter(kept)),
@@ -782,7 +784,7 @@ export const login = <
 	/** Role names are identifiers whose first character is no underscore, so none is an accessor of the prototype. */
 	const reached: Record<string, AnyLoginRole> = {}
 	const value = ownValue(
-		{ ...builtMark, kind: "login", name, base, roles: reached, workload },
+		{ ...builtMark, kind: "login", name, stem: loginStem(desc), base, roles: reached, workload },
 		"login",
 		desc,
 		undefined

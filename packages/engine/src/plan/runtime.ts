@@ -25,7 +25,7 @@ export {
 export { nominal } from "#compiler/core/brand.ts"
 export { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 export { outputTextOf, rowCell, rowText } from "#compiler/core/decoder.ts"
-export { malformedDescription } from "#compiler/core/errors.ts"
+export { CompileError, malformedDescription } from "#compiler/core/errors.ts"
 export { type CallerObject, type CallerRecord, readCaller } from "#compiler/core/host.ts"
 export {
 	admittedIdentifier,

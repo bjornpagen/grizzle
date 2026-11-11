@@ -19,7 +19,7 @@ import {
 	defect,
 	levelChain,
 	type LoginDesc,
-	loginRoleName,
+	loginStem,
 	prepared,
 	raisableOf,
 	servedSession,
@@ -268,7 +268,7 @@ export const servedFileOf = (
 		}
 		const schema = first.artifacts.names.schema
 		const ledger = yield* toResult(ledgerStatements(schema))
-		const role = yield* toResult(loginRoleName(login))
+		const role = yield* toResult(loginStem(login))
 		const roles = yield* Result.all(Arr.map(compiled.roles, roleOf))
 		const used = servedRosters(roles)
 		return {

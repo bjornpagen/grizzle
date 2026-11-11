@@ -1,19 +1,21 @@
 import * as Arr from "effect/Array"
-import * as Result from "effect/Result"
-import { prefixedRole } from "#adapter/connection/config.ts"
-import { OpenError } from "#adapter/errors/execution.ts"
-import { DbConfigRefused } from "#adapter/errors/failures.ts"
+import * as Formatter from "effect/Formatter"
 import type {
 	ServedConstructor,
 	ServedLogin,
 	ServedRole,
 	ServedRoles
 } from "#adapter/types/layer.ts"
-import type { AnyLogin } from "#compiler/plan/common.ts"
+import type { AnyLogin, AnyRole } from "#compiler/plan/common.ts"
 import {
 	builtMark,
+	CompileError,
 	defect,
+	installedRole,
+	malformedDescription,
 	type RoleInstallation,
+	roleSpaceOf,
+	SourceLoc,
 	servedFile
 } from "#compiler/plan/runtime.ts"
 
@@ -73,17 +75,51 @@ export const served: ServedConstructor = <L extends AnyLogin>(
 	})
 }
 
-/**
- * roleNameOf(login, installation): the PostgreSQL role a served login logs in as in the installation, the stem its file
- * names under the installation's role prefix, as its layer's pool logs in (connection/config.ts prefixedRole): what a
- * platform names the login's password or IAM credential by. The installation is the layer's connection, or any part of
- * it (`{}` for one without a prefix). It reads the one member of the file served read and evaluates no schema; it throws the OpenError
- * DbLayer.make fails with for a role prefix it refuses.
- */
-export const roleNameOf = <L>(login: ServedLogin<L>, installation: RoleInstallation): string => {
-	const role = prefixedRole(installation.rolePrefix, ["roleNameOf", "installation"], login.file.role)
-	if (Result.isFailure(role)) {
-		throw new OpenError({ reason: new DbConfigRefused(role.failure) })
+/** A value's stem, where its refusal is reported, and whether it is a login's or a role's (roleNameOf). */
+interface Stemmed {
+	readonly stem: string
+	readonly at: SourceLoc
+	readonly of: "login" | "role"
+}
+
+/** The stem `named` carries: a served login's, its file's; a login's or a role's, as login(...) or role(...) computed it,
+ * whose refusal it throws. */
+const stemmed = <L>(named: AnyLogin | AnyRole | ServedLogin<L>): Stemmed => {
+	if (named.kind === "servedLogin") {
+		return { stem: named.file.role, at: SourceLoc(`login ${named.name}`, []), of: "login" }
 	}
-	return role.success
+	if (!named.stem.ok) {
+		throw named.stem.error
+	}
+	return { stem: named.stem.value, at: SourceLoc(`${named.kind} ${named.name}`, []), of: named.kind }
+}
+
+/**
+ * roleNameOf(named, installation): the PostgreSQL role an installation installs for a login, a role or a served login,
+ * the one function that names one: the stem the value carries (a login's or a role's, computed as login(...) or
+ * role(...) built it; a served login's, its file's), under the installation's role prefix (core/identity.ts
+ * installedRole), as migrate creates it and a layer's pool logs in. A login's is the one that logs in: the role a
+ * password is set on, `rds_iam` is granted to and an IAM signer names. A role's is the one a direct SQL writer's
+ * `SET ROLE` names. The installation is the connection, or any part of it (`{}` for one without a role prefix). It
+ * reads the stem and evaluates no schema, so the runtime entry loads none of the compiler. It throws CompileError for a
+ * login's or a role's name the naming door refused (MalformedDescription, RoleNameTooLong), for a role prefix it
+ * refuses (MalformedDescription), and for a role the prefix takes past PostgreSQL's 63 bytes (RoleNameTooLong).
+ */
+export const roleNameOf = <L>(
+	named: AnyLogin | AnyRole | ServedLogin<L>,
+	installation: RoleInstallation
+): string => {
+	const { stem, at, of } = stemmed(named)
+	const space = roleSpaceOf(installation.rolePrefix)
+	if (!space.ok) {
+		throw malformedDescription(
+			SourceLoc("roleNameOf", []),
+			`the role prefix ${Formatter.format(installation.rolePrefix)} as ${space.error}`
+		)
+	}
+	const role = installedRole(space.value, stem)
+	if (!role.ok) {
+		throw CompileError.make({ _tag: "RoleNameTooLong", at, of, ...role.error })
+	}
+	return role.value
 }

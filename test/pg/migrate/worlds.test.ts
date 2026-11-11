@@ -58,9 +58,9 @@ import {
 	mutable,
 	relation,
 	role,
-	roleNameOf,
 	schema
 } from "#compiler/public/schema.ts"
+import { roleNameOf } from "#adapter/served/served.ts"
 import { str } from "#compiler/public/text.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { type Aim, aimedAt } from "#test/pg/migrate/support.ts"
