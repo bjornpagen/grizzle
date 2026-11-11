@@ -1,4 +1,4 @@
-import { Array as Arr, Cause, Formatter, Option, Result } from "effect"
+import { Array as Arr, Cause, Formatter, Option, Record as Rec, Result } from "effect"
 
 /** How each kind of reason ended a case: an error in the error channel, a thrown defect, or an interruption. */
 const endings = {
@@ -30,13 +30,17 @@ const dataOf = (value: unknown): Option.Option<string> => {
 		return Option.none()
 	}
 	const fields: Record<string, unknown> = {}
-	for (const key of Object.keys(value)) {
-		if (key !== "message") {
+	for (const key of Reflect.ownKeys(value)) {
+		if (
+			typeof key === "string" &&
+			key !== "message" &&
+			Reflect.getOwnPropertyDescriptor(value, key)?.enumerable === true
+		) {
 			const field: unknown = Reflect.get(value, key)
 			fields[key] = field
 		}
 	}
-	return Object.keys(fields).length === 0 ? Option.none() : Option.some(Formatter.format(fields))
+	return Rec.isEmptyRecord(fields) ? Option.none() : Option.some(Formatter.format(fields))
 }
 
 /**

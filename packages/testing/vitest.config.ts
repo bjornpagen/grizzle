@@ -3,7 +3,6 @@ import { defineTestConfig } from "#vitest/config.ts"
 
 export default defineTestConfig({
 	include: ["src/**/*.test.ts"],
-	exclusive: [],
 	guided: ["src/sense.test.ts"],
 	setup: [],
 	conditions: [],
