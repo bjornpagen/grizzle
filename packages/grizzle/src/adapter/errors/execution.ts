@@ -23,6 +23,7 @@ import {
 	type StaleReason,
 	type TemporaryRefused,
 	TokenError,
+	type TokenMalformed,
 	type TransientReason,
 	UnreadableAnswer,
 	UnseenOccupant
@@ -52,7 +53,7 @@ import type {
 /**
  * Why opening a Db or building a DbLayer failed, on the host, before anything is sent: a DbConfig no connection can
  * use, an environment that sets a connection option grizzle cannot override, or a served file of another login; a role no provided layer serves; a
- * token verify refused or threw, or claims that do not decode through the role's contexts; a schema, login, snapshot or
+ * token that is no token68, a token verify refused or threw, or claims that do not decode through the role's contexts; a schema, login, snapshot or
  * option value that does not compile or parse (CompileError), a login whose role name the naming door refuses
  * included.
  */
@@ -61,14 +62,15 @@ export type OpenReason =
 	| ConnectionEnvironmentRefused
 	| ServedLoginRefused
 	| RoleOutsideLayers
+	| TokenMalformed
 	| TokenError
 	| ClaimRefused
 	| CompileError
 
 /**
  * Where opening a Db or building a DbLayer failed: `config`, a DbConfig or the environment's connection options
- * refused, or a served file of another login than the one it was served as; `role`, a role no provided layer's login holds or a login with no role name; `token`, a token verify refused
- * or whose claims do not decode; or `schema`, a value that does not compile or parse.
+ * refused, or a served file of another login than the one it was served as; `role`, a role no provided layer's login holds or a login with no role name; `token`, a token that is no
+ * token68, one verify refused, or one whose claims do not decode; or `schema`, a value that does not compile or parse.
  */
 export type OpenStage = "config" | "role" | "token" | "schema"
 
@@ -80,6 +82,7 @@ const openStage = (reason: OpenReason): OpenStage => {
 			return "config"
 		case "RoleOutsideLayers":
 			return "role"
+		case "TokenMalformed":
 		case "TokenError":
 		case "ClaimRefused":
 			return "token"

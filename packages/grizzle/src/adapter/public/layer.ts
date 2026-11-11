@@ -13,7 +13,7 @@ import type { AnyLogin } from "#compiler/plan/common.ts"
 
 /**
  * Public barrel: served, DbLayer and DbConfig, a login's served workload and the connection of it with its driver,
- * transport, credentials, pool and verify.
+ * transport, credentials, pool and verify, and the Token verify is handed.
  *
  * served(file, name) is a login's committed workload, `migrations/<schema>/served/<login>.json`, which `grizzle
  * generate` compiles and `grizzle check` holds to the compile, served as the login's type: `served<typeof App>(file,
@@ -37,6 +37,7 @@ export type DbLayer<R> = DbLayerService<R>
 /** The connection configuration DbLayer.make takes for the login L. */
 export type DbConfig<L> = DbConfigShape<L>
 
+export type { Token } from "#adapter/db/token.ts"
 export type { PgDriver, PgSocket } from "#adapter/types/driver.ts"
 export type {
 	ConnectionPool,

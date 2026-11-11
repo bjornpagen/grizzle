@@ -2980,7 +2980,7 @@ throws `CompileError` for a rule that is no check of the schema.
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `config`     | `DbConfigRefused`; `ConnectionEnvironmentRefused`, a process environment that sets `PGREPLICATION`                                                     |
 | `role`       | `RoleOutsideLayers`                                                                                                                                     |
-| `token`      | `TokenError`, `verify`'s refusal or throw (the throw is its `cause`); `ClaimRefused`, a payload that does not decode through the role's contexts        |
+| `token`      | `TokenMalformed`, a token that is no token68 (a JWT is one), refused before `verify` runs; `TokenError`, `verify`'s refusal or throw (the throw is its `cause`); `ClaimRefused`, a payload that does not decode through the role's contexts |
 | `schema`     | `CompileError`                                                                                                                                          |
 
 `Db.open` contacts nothing, so a connection that can't be had is the first call's failure, never the open's.

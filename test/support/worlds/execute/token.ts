@@ -2,7 +2,7 @@ import { Effect, Option } from "effect"
 import type { TokenError } from "#adapter/errors/failures.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import { testVerify, tokenOf } from "#test/support/worlds.ts"
+import { testVerify, tokenOf, tokenText } from "#test/support/worlds.ts"
 import type { Token, TokenWild } from "#test/support/worlds/model/types.ts"
 
 /**
@@ -16,7 +16,10 @@ export interface Handed {
 	readonly wild: Option.Option<TokenWild>
 }
 
-/** The token `Db.open` is handed: none, a live or stale payload's JSON text, or a wild token's own text and kind. */
+/**
+ * The token `Db.open` is handed: none, a live or stale payload's JSON text, or a wild token's own text and kind, each
+ * as a token (worlds.ts tokenText), so verify reads the text it was drawn as.
+ */
 export const handedOf = (token: Token): Option.Option<Handed> => {
 	switch (token.kind) {
 		case "none":
@@ -25,7 +28,7 @@ export const handedOf = (token: Token): Option.Option<Handed> => {
 		case "stale":
 			return Option.some({ text: tokenOf(trusted<Json>(token.payload)), wild: Option.none() })
 		case "wild":
-			return Option.some({ text: token.text, wild: Option.some(token.wild) })
+			return Option.some({ text: tokenText(token.text), wild: Option.some(token.wild) })
 	}
 }
 

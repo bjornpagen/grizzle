@@ -61,6 +61,7 @@ export {
 	type TlsFault,
 	TlsRefused,
 	TokenError,
+	TokenMalformed,
 	type TransactionFate,
 	type TransientReason,
 	UnreadableAnswer,

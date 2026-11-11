@@ -395,6 +395,18 @@ export class RoleOutsideLayers extends Data.TaggedError("RoleOutsideLayers")<{
 }
 
 /**
+ * A token that is no token68 (RFC 7235 section 2.1, the b64token of RFC 6750 section 2.1): one or more letters, digits
+ * and `- . _ ~ + /`, then any number of `=`. Every door a token enters by reads it so (db/token.ts parseToken), Db.open's
+ * options and an HTTP call's Authorization header alike, before any verify runs, so the two doors accept exactly the
+ * same tokens. It is the reason of an OpenError at stage `token`; no token's text is quoted.
+ */
+export class TokenMalformed extends Data.TaggedError("TokenMalformed") {
+	override get message(): string {
+		return "the token is no token68: one or more letters, digits and - . _ ~ + /, then any number of ="
+	}
+}
+
+/**
  * A token was refused: the layer's verify failed with it, its `cause` the verifier's own, or verify threw, its `cause`
  * what it threw. The application's verify fails with it; grizzle builds one only for a verify that throws. It is the
  * reason of an OpenError at stage `token`. CredentialError stays the database password failing.

@@ -6,6 +6,7 @@ import * as Result from "effect/Result"
 import { type Claims, claimsOf, noClaims, type TypedContext } from "#adapter/db/claims.ts"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { servedHandles } from "#adapter/db/handles.ts"
+import { parseToken, type Token } from "#adapter/db/token.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { TokenError } from "#adapter/errors/failures.ts"
 import { readServedRole, type ServedSessions, servedSessions } from "#adapter/pool/served.ts"
@@ -42,7 +43,7 @@ const isWorkloadOf = <R, P>(
  * threw), as every read of a JavaScript caller's value that throws refuses it. An Effect it returns keeps its own
  * semantics.
  */
-const verified = (verify: Verify, token: string): Effect.Effect<unknown, TokenError> =>
+const verified = (verify: Verify, token: Token): Effect.Effect<unknown, TokenError> =>
 	Effect.flatten(
 		Effect.try({ try: () => verify(token), catch: (thrown) => new TokenError({ cause: thrown }) })
 	)
@@ -54,7 +55,7 @@ const verified = (verify: Verify, token: string): Effect.Effect<unknown, TokenEr
 const dbClaims = (
 	sessions: ServedSessions,
 	contexts: ReadonlyArray<TypedContext>,
-	token: Option.Option<string>
+	token: Option.Option<Token>
 ): Effect.Effect<Claims, OpenError> => {
 	const check = sessions.token
 	if (Option.isNone(token) || check.kind === "none") {
@@ -80,12 +81,13 @@ const optionKeys: ReadonlySet<string> = new Set()
 
 /**
  * Db.open's options as a JavaScript caller passes them, read once at the boundary (core/host.ts readCaller): the token
- * they give, a string, or none. The options are an object that is no list, every own property of which, at any depth,
- * reads as data, and the token is their own property, read off the copy; no options, null, a list, a value that is no
- * object, one whose reading throws or that holds a getter or a setter, and a token that is no string are each refused at
- * stage schema. The types require the options and type the token, so only a JavaScript caller meets a refusal here.
+ * they give, parsed as every door parses one (db/token.ts parseToken), or none. The options are an object that is no
+ * list, every own property of which, at any depth, reads as data, and the token is their own property, read off the
+ * copy; no options, null, a list, a value that is no object, one whose reading throws or that holds a getter or a
+ * setter, and a token that is no string are each refused at stage schema, and a string that is no token68 at stage
+ * token (TokenMalformed), before any verify runs, as an HTTP call's is.
  */
-export const openToken = (options: unknown): Result.Result<Option.Option<string>, OpenError> => {
+export const openToken = (options: unknown): Result.Result<Option.Option<Token>, OpenError> => {
 	if (!isRecord(options)) {
 		return Result.fail(refusedOption("Db.open's options: an object, { token } or {}"))
 	}
@@ -103,7 +105,10 @@ export const openToken = (options: unknown): Result.Result<Option.Option<string>
 		return Result.succeed(Option.none())
 	}
 	if (typeof token === "string") {
-		return Result.succeed(Option.some(token))
+		return Result.mapBoth(parseToken(token), {
+			onFailure: (reason) => new OpenError({ reason }),
+			onSuccess: Option.some
+		})
 	}
 	return Result.fail(refusedOption("Db.open's token: a string, the token the layer's verify reads"))
 }
@@ -131,7 +136,8 @@ interface OpenedServed<R, P> {
  * 1. The role and the options, each read once at the boundary into a copy every later step reads (pool/served.ts
  *    readServedRole, openToken). A value that is no role token of a served login (Web.roles.member) is
  *    OpenError{stage: "schema"} whose reason is the CompileError, and so are options a JavaScript caller passes that are
- *    no object read as data, or whose token is no string.
+ *    no object read as data, or whose token is no string; a token that is no token68 is OpenError{stage: "token"}
+ *    whose reason is TokenMalformed (db/token.ts parseToken, the one reading of a token, an HTTP call's too).
  * 2. The layer. The requirement DbLayer<R> names the role only as a type, so the layer of the token's login is resolved
  *    among the layers the context holds, at the address read off the token (pool/served.ts servedSessions): a login
  *    whose layer is not provided, or whose served file holds no role of the token's name, is OpenError{stage: "role"}.

@@ -136,6 +136,7 @@ const constructors: {
 	TemporaryRefused: Public.TemporaryRefused,
 	TlsRefused: Public.TlsRefused,
 	TokenError: Public.TokenError,
+	TokenMalformed: Public.TokenMalformed,
 	TransientFailure: Public.TransientFailure,
 	TransportFailure: Public.TransportFailure,
 	UnreadableAnswer: Public.UnreadableAnswer,

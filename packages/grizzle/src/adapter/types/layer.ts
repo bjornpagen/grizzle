@@ -1,4 +1,5 @@
 import type { Effect, Layer, Redacted } from "effect"
+import type { Token } from "#adapter/db/token.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { CredentialError, TokenError } from "#adapter/errors/failures.ts"
 import type { PgDriver, PgSocket } from "#adapter/types/driver.ts"
@@ -115,9 +116,11 @@ export interface PoolBounds {
 
 /**
  * Turns a Db's token into the payload its contexts are decoded from, once per Db.open: a JWT verifier, for instance.
- * It fails with TokenError when the token is refused.
+ * It fails with TokenError when the token is refused. It is handed only a Token, token68 text, which every door parses
+ * a token into before verify runs (Db.open's options, an HTTP call's Authorization header), refusing any other text
+ * with TokenMalformed; a verify written over any string takes one.
  */
-export type Verify = (token: string) => Effect.Effect<unknown, TokenError>
+export type Verify = (token: Token) => Effect.Effect<unknown, TokenError>
 
 /** `verify` is required exactly when a role of the login reads a context. */
 type VerifyOf<L> =

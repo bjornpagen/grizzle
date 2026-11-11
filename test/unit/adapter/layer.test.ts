@@ -39,7 +39,8 @@ import {
 	ConnectionEnvironmentRefused,
 	DbConfigRefused,
 	type SettingRule,
-	TokenError
+	TokenError,
+	TokenMalformed
 } from "#adapter/errors/failures.ts"
 import { Db } from "#adapter/public/db.ts"
 import { DbLayer, served } from "#adapter/public/layer.ts"
@@ -465,8 +466,9 @@ type EnvironmentFeature =
 	| "built beside a variable grizzle sets"
 
 /**
- * Db.open judges the token on the host and contacts nothing (adapter/db/served.ts): with a token, the layer's verify
- * runs on it once, and its refusal, or anything it throws instead of returning its Effect, is OpenError{stage:
+ * Db.open judges the token on the host and contacts nothing (adapter/db/served.ts): a token that is no token68 (RFC
+ * 7235 section 2.1) is OpenError{stage: "token"} whose reason is TokenMalformed, and verify never runs on it; with any
+ * other token, the layer's verify runs on it once, and its refusal, or anything it throws instead of returning its Effect, is OpenError{stage:
  * "token"} whose reason is a TokenError, the throw its cause; the payload it returns is decoded through the contexts
  * the role reads, Session's one uuid claim `sub` read from the payload's top level, and a payload that is no object,
  * lacks the claim or holds a value its field refuses is ClaimRefused naming the fault. A token whose claims decode
@@ -589,11 +591,38 @@ const payloadValue = (payload: Payload): unknown => {
 
 /** What the README's stages say a case's Db.open meets. */
 type TokenVerdict =
+	| { readonly kind: "TokenMalformed" }
 	| { readonly kind: "TokenError" }
 	| { readonly kind: "ClaimRefused"; readonly fault: ClaimRefused["fault"] }
 	| { readonly kind: "opened" }
 
+/** The characters RFC 7235's token68 holds before its `=` padding, as the RFC's ABNF lists them. */
+const token68Characters: ReadonlySet<string> = new Set([
+	...Str.split("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", ""),
+	"-",
+	".",
+	"_",
+	"~",
+	"+",
+	"/"
+])
+
+/** Whether `text` is RFC 7235's token68: 1*( ALPHA / DIGIT / "-" / "." / "_" / "~" / "+" / "/" ) *"=". */
+const isToken68 = (text: string): boolean => {
+	const characters = Str.split(text, "")
+	const padded = Arr.findFirstIndex(characters, (c) => c === "=")
+	const body = Option.getOrElse(padded, () => characters.length)
+	return (
+		body > 0 &&
+		Arr.every(Arr.take(characters, body), (c) => token68Characters.has(c)) &&
+		Arr.every(Arr.drop(characters, body), (c) => c === "=")
+	)
+}
+
 const tokenVerdict = (c: TokenCase): TokenVerdict => {
+	if (!isToken68(c.token)) {
+		return { kind: "TokenMalformed" }
+	}
 	const verify = c.verify
 	switch (verify.kind) {
 		case "refuses":
@@ -616,6 +645,7 @@ const tokenVerdict = (c: TokenCase): TokenVerdict => {
 }
 
 type TokenFeature =
+	| "a token that is no token68"
 	| "verify refuses"
 	| `verify throws ${Thrown}`
 	| `refused ${ClaimRefused["fault"]["kind"]}`
@@ -799,7 +829,7 @@ describe("DbLayer.make", () => {
 			)
 	)
 	it.live(
-		"judges a token at stage token before any connection: verify's refusal or throw a TokenError, a payload that does not decode a ClaimRefused",
+		"judges a token at stage token before any connection: no token68 a TokenMalformed, verify's refusal or throw a TokenError, a payload that does not decode a ClaimRefused",
 		(ctx) =>
 			searched(
 				ctx,
@@ -814,6 +844,7 @@ describe("DbLayer.make", () => {
 						},
 						coverage: required<TokenFeature>(
 							[
+								"a token that is no token68",
 								"verify refuses",
 								"verify throws an Error",
 								"verify throws a TypeError",
@@ -872,9 +903,13 @@ describe("DbLayer.make", () => {
 									Effect.scoped
 								)
 							)
-							assert.equal(verified, 1, "verify runs once on the token")
-							assert.equal(opened, 0, "Db.open opens no socket, whatever the token")
 							const verdict = tokenVerdict(c)
+							assert.equal(
+								verified,
+								verdict.kind === "TokenMalformed" ? 0 : 1,
+								"verify runs once on a token68, and never on any other token"
+							)
+							assert.equal(opened, 0, "Db.open opens no socket, whatever the token")
 							if (verdict.kind === "opened") {
 								assert.ok(
 									Exit.isSuccess(exit),
@@ -887,6 +922,11 @@ describe("DbLayer.make", () => {
 							const error = Cause.squash(exit.cause)
 							assert.ok(error instanceof OpenError, String(error))
 							switch (verdict.kind) {
+								case "TokenMalformed":
+									assert.equal(error.stage, "token")
+									assert.ok(error.reason instanceof TokenMalformed, String(error.reason))
+									k.note("a token that is no token68")
+									break
 								case "TokenError":
 									assert.equal(error.stage, "token")
 									assert.ok(error.reason instanceof TokenError, String(error.reason))

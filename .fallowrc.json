@@ -65,6 +65,7 @@
 					"packages/grizzle/src/adapter/db/handles.ts",
 					"packages/grizzle/src/adapter/db/input.ts",
 					"packages/grizzle/src/adapter/db/served.ts",
+					"packages/grizzle/src/adapter/db/token.ts",
 					"packages/grizzle/src/adapter/engine.ts",
 					"packages/grizzle/src/adapter/errors/execution.ts",
 					"packages/grizzle/src/adapter/errors/failures.ts",

@@ -3,6 +3,7 @@ import type { OpenError } from "#adapter/errors/execution.ts"
 import { TokenError } from "#adapter/errors/failures.ts"
 import { compiledDbLayer } from "#adapter/pool/registry.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
+import { base64urlDecode, base64urlEncode } from "#compiler/codec/cursor/base64url.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -73,8 +74,9 @@ export type HeldOf<B extends Reality> = {
  * whatever the schema's name; it refreshes nothing, which a type over any relations cannot name. A fixture that needs
  * more than one role, or a refresh, states its own.
  *
- * A test token is the JSON text of the payload it stands for, and testVerify, every test layer's verify, decodes it:
- * any other text is a TokenError, as a verifier's refusal is. So a test states the claims it opens a Db with by value,
+ * A test token is the JSON text of the payload it stands for, in base64url (tokenText, a token68 as every door reads
+ * one), and testVerify, every test layer's verify, decodes it: any other token is a TokenError, as a verifier's refusal
+ * is. So a test states the claims it opens a Db with by value,
  * and what grizzle decodes from them is grizzle's own, through the role's contexts.
  *
  * The full world of `base` whose login's workload holds `programs` over its role (see the header): `{}` for a world a
@@ -109,15 +111,32 @@ export type FullWorld<
 	P extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>
 > = ReturnType<typeof fullWorld<B, P>>
 
-/** The token of `payload`: its JSON text. */
-export const tokenOf = (payload: Json): string => jsonText(payload)
+/**
+ * The token of a payload's `text`, as every door reads a token (adapter/db/token.ts parseToken, a token68): the text's
+ * UTF-8 bytes in base64url (RFC 4648 section 5), as a JWT's segments are, so Db.open and an HTTP call accept it alike.
+ */
+export const tokenText = (text: string): string => base64urlEncode(utf8.encode(text))
 
-/** Every test layer's verify: the payload a token's JSON text holds, or a TokenError for text that holds none. */
-export const testVerify = (token: string): Effect.Effect<unknown, TokenError> =>
-	Effect.try({
-		try: () => trustedJson<unknown>(token),
-		catch: (cause) => new TokenError({ cause })
-	})
+/** The token of `payload`: its JSON text, as a token (tokenText). */
+export const tokenOf = (payload: Json): string => tokenText(jsonText(payload))
+
+const utf8 = new TextEncoder()
+
+const utf8Strict = new TextDecoder("utf-8", { fatal: true })
+
+/**
+ * Every test layer's verify: the payload the JSON text a token spells holds (tokenText), or a TokenError for a token
+ * that spells no UTF-8 text or a text that holds no JSON.
+ */
+export const testVerify = (token: string): Effect.Effect<unknown, TokenError> => {
+	const bytes = base64urlDecode(token)
+	return bytes === undefined
+		? Effect.fail(new TokenError({ cause: "the token spells no base64url text" }))
+		: Effect.try({
+				try: () => trustedJson<unknown>(utf8Strict.decode(bytes)),
+				catch: (cause) => new TokenError({ cause })
+			})
+}
 
 /**
  * The DbLayer of `login` over `installed`, in `database`: the snapshot its migrations reached, the cluster's connection
