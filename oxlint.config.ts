@@ -436,7 +436,7 @@ export default defineConfig(
 				})
 			},
 			{
-				files: ["test/unit/derived/fields.test.ts", "test/unit/schema/constructors.test.ts"],
+				files: ["test/unit/schema/constructors.test.ts"],
 				rules: active({
 					/** A relation's fields are its heading in declaration order, which these suites assert. */
 					"testing/no-ordered-unordered": "off"
