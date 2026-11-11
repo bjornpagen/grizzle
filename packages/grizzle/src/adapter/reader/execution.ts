@@ -5,7 +5,7 @@ import * as Result from "effect/Result"
 import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import { carried } from "#adapter/reader/analysis.ts"
 import type { RelationInputs } from "#adapter/reader/relations.ts"
-import { type PreparedStatement, preparedStatement, sentAnswer } from "#adapter/wire/batch.ts"
+import { type PreparedStatement, type RowIntake, sentAnswer } from "#adapter/wire/batch.ts"
 import type {
 	AssembledRows,
 	AttachmentLayout,
@@ -231,10 +231,14 @@ export const readBinding = (
 	}
 }
 
-/** The text and placeholder texts of one execution of `form`, each placeholder bound by `bind`. */
+/**
+ * The text and placeholder texts of one execution of `form`, each placeholder bound by `bind`, its rows going to
+ * `intake` (wire/batch.ts RowIntake).
+ */
 const executionOf = <Slot, E>(
 	form: StatementForm<Slot>,
-	bind: (slot: Slot) => Result.Result<Param, E>
+	bind: (slot: Slot) => Result.Result<Param, E>,
+	intake: RowIntake
 ): Result.Result<PreparedStatement, E> => {
 	const encoded: Array<Param> = []
 	for (const slot of form.slots) {
@@ -244,15 +248,16 @@ const executionOf = <Slot, E>(
 		}
 		encoded.push(bound.success)
 	}
-	return Result.succeed(preparedStatement(form.spec.text, encoded))
+	return Result.succeed({ _tag: "prepared", text: form.spec.text, params: encoded, intake })
 }
 
-/** One execution of `form`, its parameters encoded. */
+/** One execution of `form`, its parameters encoded, its rows going to `intake`. */
 export const encodeForm = <Slot, E>(
 	form: StatementForm<Slot>,
-	bind: (slot: Slot) => Result.Result<Param, E>
+	bind: (slot: Slot) => Result.Result<Param, E>,
+	intake: RowIntake
 ): Effect.Effect<PreparedStatement, E> =>
-	Effect.suspend(() => Effect.fromResult(executionOf(form, bind)))
+	Effect.suspend(() => Effect.fromResult(executionOf(form, bind, intake)))
 
 /** The runs of a program's answer: each part's rows, in the order of the parts, as PostgreSQL sent them. */
 export type SentRuns = ReadonlyArray<OutputRows>
@@ -559,25 +564,31 @@ const sameCells = (a: ReadonlyArray<Cell>, b: ReadonlyArray<Cell>): boolean =>
 	})
 
 /**
- * Whether two of `rows` are one row: one identity (RowIdentity), and the same bytes where a column holds bytes (sameCells),
+ * The rows of one statement seen so far, for a repeat check one row at a time: `seen(cells)` answers whether a row of
+ * one identity (RowIdentity) and the same bytes where a column holds bytes (sameCells) came before, and remembers it,
  * so two rows of one digest that differ are two. A repeat is what no statement grizzle delivers holds, since every
  * delivered statement, an attachment's and a fused child array's included, is a set by its compiled proof.
  */
-const repeats = (rows: AssembledRows, identity: RowIdentity): boolean => {
+const seenRows = (identity: RowIdentity): ((cells: ReadonlyArray<Cell>) => boolean) => {
 	const seen = new TupleMap<ReadonlyArray<string>, Array<ReadonlyArray<Cell>>>()
-	for (const cells of rows) {
+	return (cells) => {
 		const one = identity(cells)
 		const held = seen.get(one)
 		if (held === undefined) {
 			seen.set(one, [cells])
-		} else if (held.some((other) => sameCells(other, cells))) {
-			return true
-		} else {
-			held.push(cells)
+			return false
 		}
+		if (held.some((other) => sameCells(other, cells))) {
+			return true
+		}
+		held.push(cells)
+		return false
 	}
-	return false
 }
+
+/** Whether two of `rows` are one row (seenRows). */
+const repeats = (rows: AssembledRows, identity: RowIdentity): boolean =>
+	rows.some(seenRows(identity))
 
 /**
  * The server's answer holding a row twice, which its compiled proof says it cannot deliver: UnreadableAnswer at the
@@ -585,12 +596,50 @@ const repeats = (rows: AssembledRows, identity: RowIdentity): boolean => {
  */
 const repeated = (): UnreadableAnswer => new UnreadableAnswer({ index: 0, fate: "committed" })
 
+/** An attachment statement's Rows under a statement's rows, by their parent key (rowsOf). */
+interface Grouped {
+	readonly child: ChildPlan
+	readonly groups: TupleMap<ReadonlyArray<string>, Array<Row>>
+}
+
+/**
+ * The Row of `cells`, a row of a statement of plan `plan` delivered as heading group `group`, with the child Rows of
+ * every attachment slot: each attachment statement's Rows `grouped` under the row's parent key, then each fused
+ * column's children, whose repeat is UnreadableAnswer.
+ */
+const rowOf = (
+	plan: RowPlan,
+	grouped: ReadonlyArray<Grouped>,
+	cells: ReadonlyArray<Cell>,
+	group: number
+): Result.Result<Row, UnreadableAnswer> => {
+	if (plan.children.length + plan.fused.length === 0) {
+		return Result.succeed({ group, cells, children: noSlots })
+	}
+	const children: Array<ReadonlyArray<Row>> = []
+	for (const one of grouped) {
+		children.push(one.groups.get(keyOf(cells, one.child.parent)) ?? noRows)
+	}
+	for (const f of plan.fused) {
+		const elements = f.texts(rowText(cells, f.position), cells)
+		if (repeats(elements, f.identity)) {
+			return Result.fail(repeated())
+		}
+		const fusedChildren: Array<Row> = []
+		for (const child of elements) {
+			fusedChildren.push({ group: 0, cells: child, children: noSlots })
+		}
+		children.push(fusedChildren)
+	}
+	return Result.succeed({ group, cells, children })
+}
+
 /**
  * The Rows of `rows`, rows of `record` delivered as heading group `group` (0 unless the statement is one of a
  * heterogeneous union's heading groups), in a flight whose sent statements answered `sent`, each with the child Rows
  * of every attachment slot: an attachment statement's rows whose parent key equals the row's under the key's type, in
- * the statement's row order, then each fused column's children. A child Row is heading group 0: an attachment's child
- * is one statement of one layout (programRecords).
+ * the statement's row order, then each fused column's children (rowOf). A child Row is heading group 0: an
+ * attachment's child is one statement of one layout (programRecords).
  *
  * Every statement's rows are a set, and so is every fused column's children: a repeat (repeats) is UnreadableAnswer,
  * never a row delivered twice. A child statement's rows lead with their parent key, so its rows are distinct exactly
@@ -606,10 +655,7 @@ export const rowsOf = (
 	if (repeats(rows, plan.identity)) {
 		return Result.fail(repeated())
 	}
-	const grouped: Array<{
-		readonly child: ChildPlan
-		readonly groups: TupleMap<ReadonlyArray<string>, Array<Row>>
-	}> = []
+	const grouped: Array<Grouped> = []
 	for (const child of plan.children) {
 		const childRows = rowsOf(child.record, sent, runOf(child.record, sent), 0)
 		if (Result.isFailure(childRows)) {
@@ -627,29 +673,31 @@ export const rowsOf = (
 		}
 		grouped.push({ child, groups })
 	}
-	const slots = plan.children.length + plan.fused.length
 	const out: Array<Row> = []
 	for (const cells of rows) {
-		if (slots === 0) {
-			out.push({ group, cells, children: noSlots })
-			continue
+		const row = rowOf(plan, grouped, cells, group)
+		if (Result.isFailure(row)) {
+			return Result.fail(row.failure)
 		}
-		const children: Array<ReadonlyArray<Row>> = []
-		for (const one of grouped) {
-			children.push(one.groups.get(keyOf(cells, one.child.parent)) ?? noRows)
-		}
-		for (const f of plan.fused) {
-			const elements = f.texts(rowText(cells, f.position), cells)
-			if (repeats(elements, f.identity)) {
-				return Result.fail(repeated())
-			}
-			const fusedChildren: Array<Row> = []
-			for (const child of elements) {
-				fusedChildren.push({ group: 0, cells: child, children: noSlots })
-			}
-			children.push(fusedChildren)
-		}
-		out.push({ group, cells, children })
+		out.push(row.success)
 	}
 	return Result.succeed(out)
+}
+
+/**
+ * The reading of the rows of a statement whose every row is a whole Row as it arrives, one at a time: a statement of
+ * whole delivery and no attachment statement under it, whose fused attachments travel inside each row. `next(cells)`
+ * is the Row of `cells` as heading group `group`, or UnreadableAnswer for a row that repeats one before it (seenRows)
+ * or whose fused children repeat; it reads rows in arrival order, so the Rows are rowsOf's, one by one.
+ */
+export interface RowReading {
+	readonly next: (cells: ReadonlyArray<Cell>) => Result.Result<Row, UnreadableAnswer>
+}
+
+/** The reading of `record`'s rows one at a time (RowReading), for one statement's answer. */
+export const rowReading = (record: Pick<StatementRecord, "plan">, group: number): RowReading => {
+	const seen = seenRows(record.plan.identity)
+	return {
+		next: (cells) => (seen(cells) ? Result.fail(repeated()) : rowOf(record.plan, [], cells, group))
+	}
 }

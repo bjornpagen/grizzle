@@ -263,19 +263,19 @@ const caBundle = (setting: unknown): Option.Option<Arr.NonEmptyReadonlyArray<Pem
 }
 
 /**
- * The driver a block names, its three members each read once: the classes grizzle builds sessions, pools and its
- * reading of an ErrorResponse from. A module, `import pg from "pg"` or `import * as pg from "pg"`, is read only for
- * these, so a getter of another member (pg's `native`) never runs.
+ * The driver a block names, its four members each read once: the classes grizzle builds sessions, pools, the queries of
+ * its flights and its reading of an ErrorResponse from. A module, `import pg from "pg"` or `import * as pg from "pg"`,
+ * is read only for these, so a getter of another member (pg's `native`) never runs.
  */
 const driverOf = (given: PgDriver): Option.Option<PgDriver> => {
 	const passed: unknown = given
 	if (typeof passed !== "object" || passed === null) {
 		return Option.none()
 	}
-	const { Client, Pool, DatabaseError } = given
-	const members: ReadonlyArray<unknown> = [Client, Pool, DatabaseError]
+	const { Client, Pool, Query, DatabaseError } = given
+	const members: ReadonlyArray<unknown> = [Client, Pool, Query, DatabaseError]
 	return Arr.every(members, (member) => typeof member === "function")
-		? Option.some({ Client, Pool, DatabaseError })
+		? Option.some({ Client, Pool, Query, DatabaseError })
 		: Option.none()
 }
 

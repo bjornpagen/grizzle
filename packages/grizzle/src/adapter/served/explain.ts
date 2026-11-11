@@ -12,6 +12,7 @@ import type { ExecutedStatement, StatementPlan } from "#adapter/types/db.ts"
 import {
 	type BatchOutcome,
 	type BatchStatement,
+	keptRows,
 	oneShotStatement,
 	type PreparedStatement,
 	preparedStatement,
@@ -130,7 +131,7 @@ const readStatement = (
 			(reason) => new ReadFailure({ reason })
 		)
 		const statement = yield* Effect.mapError(
-			programStatement(read.program, inputs),
+			programStatement(read.program, inputs, keptRows),
 			(reason) => new ReadFailure({ reason })
 		)
 		return planned(statement, planning)
@@ -246,7 +247,7 @@ export const explainChange = (
 		const readBacks = yield* Effect.mapError(
 			Effect.forEach(
 				Arr.flatMap(change.reads.runs.runs, (run) => (run.kind === "sent" ? [run] : [])),
-				(run) => programStatement(run.program, inputs)
+				(run) => programStatement(run.program, inputs, keptRows)
 			),
 			(reason) => new ReadFailure({ reason })
 		)

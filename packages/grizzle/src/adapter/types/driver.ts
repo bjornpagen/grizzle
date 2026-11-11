@@ -1,5 +1,5 @@
 import type { ConnectionOptions } from "node:tls"
-import type { ClientBase } from "pg"
+import type { ClientBase, Submittable } from "pg"
 
 /**
  * node-postgres as grizzle uses it: the module the caller imports and passes in (DbConnection.driver), so grizzle
@@ -12,13 +12,52 @@ import type { ClientBase } from "pg"
  *   pipeline mode every flight is written in.
  * - Pool: the pool grizzle builds each session pool from (wire/releasing-pool.ts), which constructs its clients from the
  *   Client class grizzle derives from this driver's own (PgPoolConfig.Client).
+ * - Query: the query class every statement of a flight is submitted as (wire/session.ts submit), with listeners and no
+ *   callback, so pg hands over each row as it arrives and keeps none: a pipelined client takes no other submittable.
  * - DatabaseError: the class pg reports an ErrorResponse with, which grizzle tells from its other failures by
  *   `instanceof`.
  */
 export interface PgDriver {
 	readonly Client: new (config: PgClientConfig) => PgClient
 	readonly Pool: new (config: PgPoolConfig) => PgPool
+	readonly Query: new (config: PgQueryConfig) => PgQuery
 	readonly DatabaseError: abstract new (...args: never) => PgDatabaseError
+}
+
+/**
+ * One query as grizzle submits it, in array row mode: a served statement under its name, a one-shot statement as the
+ * unnamed statement on the extended protocol, or a transaction control's simple Query (wire/session.ts).
+ */
+export type PgQueryConfig =
+	| {
+			readonly name: string
+			readonly text: string
+			readonly values: Array<string | Uint8Array>
+			readonly rowMode: "array"
+	  }
+	| {
+			readonly text: string
+			readonly values: Array<string | Uint8Array>
+			readonly rowMode: "array"
+			readonly queryMode: "extended"
+	  }
+	| { readonly text: string; readonly rowMode: "array" }
+
+/**
+ * A query of pg's own class, submitted to a client, reporting what pg 8.23 query.js emits: each row as it arrives, its
+ * cells in column order; then its end, with its command tag, at the ReadyForQuery after it; or its error in place of
+ * its end. A query with a row listener and no callback keeps no row (handleRowDescription's _accumulateRows), so its
+ * end's result holds none. The listener's type follows the event as pg's own declaration states it.
+ */
+export interface PgQuery extends Submittable {
+	on<E extends "row" | "error" | "end">(
+		event: E,
+		listener: E extends "row"
+			? (row: ReadonlyArray<unknown>) => void
+			: E extends "error"
+				? (error: unknown) => void
+				: (result: PgCompletion) => void
+	): unknown
 }
 
 /**
@@ -141,8 +180,7 @@ export interface PgDatabaseError extends Error {
 	readonly constraint: string | undefined
 }
 
-/** What pg answers one query in array row mode: its command tag and its rows. */
-export interface PgArrayResult {
+/** What pg reports at a query's end: its command tag. */
+export interface PgCompletion {
 	readonly command: string
-	readonly rows: ReadonlyArray<ReadonlyArray<unknown>>
 }

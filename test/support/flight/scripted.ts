@@ -137,6 +137,25 @@ const result = (command: string, cells: Rows): Answer => ({
 /** A command that returns no rows. */
 const completed = (command: string): Answer => result(command, [])
 
+/**
+ * The answer a client is handed for `query`, as the session hands it (adapter/wire/session.ts submit): a statement
+ * whose rows its intake takes has each row taken as it is delivered, and its answer holds none.
+ */
+const taking = (query: WireQuery | undefined, answer: Answer): Answer => {
+	if (
+		query === undefined ||
+		query._tag !== "prepared" ||
+		query.intake.kind !== "taken" ||
+		answer._tag !== "result"
+	) {
+		return answer
+	}
+	for (const row of answer.outcome.rows) {
+		query.intake.take(row)
+	}
+	return result(answer.outcome.command, [])
+}
+
 const refusal = (error: ServerError): Answer => ({ _tag: "refused", error })
 
 /** The ErrorResponse after which the server ends the session. */
@@ -388,7 +407,7 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 
 	const record = (flight: Running, index: number, answer: Answer): void => {
 		flight.delivered[index] = { answer, ordinal: deliveries }
-		flight.onAnswer(index, answer)
+		flight.onAnswer(index, taking(flight.pipeline[index], answer))
 	}
 
 	const deliverOne = (): void => {

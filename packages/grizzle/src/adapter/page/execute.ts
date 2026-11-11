@@ -32,7 +32,7 @@ import {
 	type StatementRecord
 } from "#adapter/reader/execution.ts"
 import type { GroupOrder } from "#adapter/reader/run.ts"
-import { type BatchStatement, type Flight, sentAnswer } from "#adapter/wire/batch.ts"
+import { type BatchStatement, type Flight, keptRows, sentAnswer } from "#adapter/wire/batch.ts"
 import type { AssembledRows, Cell, ParamText, Row } from "#compiler/plan/common.ts"
 import type { ScalarReader } from "#compiler/plan/decode.ts"
 import type {
@@ -187,8 +187,11 @@ const sending = <F extends PageFill>(
 	const form = formFor(run, (choice: ServedChoice<ChoiceInput>) =>
 		runsLargeForm(choice, choiceCount(choice, inputs, size))
 	)
-	return encodeForm(form, (slot: PageStatementSlot<F>) =>
-		slot.kind === "page" ? Result.succeed(bind(slot.fill)) : readBinding(slot, inputs)
+	return encodeForm(
+		form,
+		(slot: PageStatementSlot<F>) =>
+			slot.kind === "page" ? Result.succeed(bind(slot.fill)) : readBinding(slot, inputs),
+		keptRows
 	)
 }
 

@@ -17,6 +17,7 @@ import {
 	readBinding,
 	rowsOf,
 	runOf,
+	rowReading,
 	runStatement,
 	type SentRuns,
 	type StatementRecord
@@ -24,10 +25,20 @@ import {
 import {
 	type BatchOutcome,
 	type Flight,
+	keptRows,
 	type PreparedStatement,
+	type RowIntake,
 	sentAnswer
 } from "#adapter/wire/batch.ts"
-import type { Carrier, Cell, Codebook, Layout, ParamId, Row } from "#compiler/plan/common.ts"
+import type {
+	Carrier,
+	Cell,
+	Codebook,
+	Layout,
+	OutputRows,
+	ParamId,
+	Row
+} from "#compiler/plan/common.ts"
 import type {
 	CarrierHost,
 	CompletedOrder,
@@ -148,15 +159,31 @@ interface DeliveryPlan {
 }
 
 /**
- * A read's program: its statement as it runs, its parts' records in flight order, what the read delivers, and the
- * layouts of its delivered Rows, one per heading group, in group order (one for a rows delivery), which a decoder
- * binds to.
+ * When a read's delivered Rows are whole as its statement's rows arrive, settled once per program (readProgram), the
+ * one table its intake reads (readIntake):
+ *
+ * - `row`: each row is a whole delivered Row the moment it arrives, so each is read and emitted then. A program's is
+ *   when its statement is one part (PartDivision one) whose rows travel whole (no bytes column, codec/delivery.ts), its
+ *   one heading group concatenated, with no attachment statement under it: its fused attachments travel inside each
+ *   row.
+ * - `end`: a delivered Row may wait on rows after it, so every Row is read once the statement has answered whole: an
+ *   attachment statement's rows, behind their tag, complete their parents only when they have all arrived, since no
+ *   proof orders a UNION ALL's arms; a numbered part's rows are put back in order by their row numbers; a bytes value's
+ *   chunks arrive in any order; and merged heading groups are merged on their order.
+ */
+type Emission = { readonly kind: "row"; readonly group: HeadingGroup } | { readonly kind: "end" }
+
+/**
+ * A read's program: its statement as it runs, its parts' records in flight order, what the read delivers, the layouts
+ * of its delivered Rows, one per heading group, in group order (one for a rows delivery), which a decoder binds to, and
+ * when its Rows are whole as its rows arrive (Emission).
  */
 export interface ReadProgram {
 	readonly run: RunStatement
 	readonly records: ReadonlyArray<StatementRecord>
 	readonly delivery: DeliveryPlan
 	readonly layouts: Arr.NonEmptyReadonlyArray<Layout>
+	readonly emission: Emission
 }
 
 /** A per-execution choice of a read: by a relation parameter's count. */
@@ -280,6 +307,18 @@ const deliveryPlan = (
 const deliveredLayouts = (delivery: DeliveryPlan): Arr.NonEmptyReadonlyArray<Layout> =>
 	Arr.map(delivery.groups, (g) => g.record.layout)
 
+/** When a program of `parts` delivering `delivery` has its Rows whole (Emission). */
+const emissionOf = (parts: PartDivision, delivery: DeliveryPlan): Emission => {
+	const [group, ...others] = delivery.groups
+	return parts.kind === "one" &&
+		delivery.merge.kind === "concat" &&
+		others.length === 0 &&
+		group.record.delivery.kind === "whole" &&
+		group.record.plan.children.length === 0
+		? { kind: "row", group }
+		: { kind: "end" }
+}
+
 /**
  * The program of a read source on its delivered spine `spine` (engine served/read.ts servedSpine), under the
  * installation's codes `codes`: built once by the compiled read that holds it (reader.ts), from the source a served file
@@ -296,7 +335,8 @@ export const readProgram = (
 		run: runStatement(source.statement, source.parts, readChoice),
 		records,
 		delivery,
-		layouts: deliveredLayouts(delivery)
+		layouts: deliveredLayouts(delivery),
+		emission: emissionOf(source.parts, delivery)
 	}
 }
 
@@ -462,12 +502,76 @@ interface Delivered {
 
 const withGroup: Emit<Delivered> = (row, group) => ({ row, group })
 
-/** The statement of one execution of a read program (see the header), in its form for `inputs`. */
+/**
+ * The statement of one execution of a read program (see the header), in its form for `inputs`, its rows going to
+ * `intake`.
+ */
 export const programStatement = (
 	program: ReadProgram,
-	inputs: ExecutionInputs
+	inputs: ExecutionInputs,
+	intake: RowIntake
 ): Effect.Effect<PreparedStatement, InputTooLarge> =>
-	encodeForm(formFor(program.run, readExceeds(inputs)), (slot) => readBinding(slot, inputs))
+	encodeForm(formFor(program.run, readExceeds(inputs)), (slot) => readBinding(slot, inputs), intake)
+
+/**
+ * A read's intake for one call: `take` is handed each of its statement's rows as it arrives (wire/batch.ts RowIntake),
+ * and `end` is called once, after the flight answered whole. Each delivered Row goes to `emit` in delivery order the
+ * moment it is whole, as its program's Emission says: a `row` program's as its row arrives, so the first is emitted
+ * while the rows after it are on the wire; an `end` program's every Row at `end`, read from the rows taken as a kept
+ * answer's are (deliveredRows). A row that repeats one before it, or a part's answer that repeats one, is
+ * UnreadableAnswer at `end`, after which nothing more is emitted; Rows emitted before it stand, and the call's error
+ * voids them.
+ */
+export interface ReadIntake {
+	readonly take: (row: OutputRows[number]) => void
+	readonly end: () => Result.Result<void, UnreadableAnswer>
+}
+
+/** The intake of one call of `program` with host parameters `params`, emitting each delivered Row to `emit`. */
+export const readIntake = (
+	program: ReadProgram,
+	params: HostParams,
+	emit: (row: Row) => void
+): ReadIntake => {
+	const emission = program.emission
+	switch (emission.kind) {
+		case "row": {
+			const reading = rowReading(emission.group.record, emission.group.group)
+			let refused: UnreadableAnswer | undefined
+			return {
+				take: (row) => {
+					if (refused !== undefined) {
+						return
+					}
+					const read = reading.next(row)
+					if (Result.isFailure(read)) {
+						refused = read.failure
+						return
+					}
+					emit(read.success)
+				},
+				end: () => (refused === undefined ? Result.void : Result.fail(refused))
+			}
+		}
+		case "end": {
+			const rows: Array<OutputRows[number]> = []
+			return {
+				take: (row) => {
+					rows.push(row)
+				},
+				end: () =>
+					Result.map(
+						deliveredRows(program, partRuns(program.run.parts, rows), params),
+						(delivered) => {
+							for (const row of delivered) {
+								emit(row)
+							}
+						}
+					)
+			}
+		}
+	}
+}
 
 /** The runs of a read program's answer `outcomes`, its one statement's: its parts' rows (execution.ts partRuns). */
 const answerRuns = (program: ReadProgram, outcomes: ReadonlyArray<BatchOutcome>): SentRuns =>
@@ -482,7 +586,7 @@ export const programFlight = <A>(
 	inputs: ExecutionInputs,
 	read: (row: Row) => A
 ): Effect.Effect<Flight<ReadonlyArray<A>, UnreadableAnswer>, InputTooLarge> =>
-	Effect.map(programStatement(program, inputs), (statement) => ({
+	Effect.map(programStatement(program, inputs, keptRows), (statement) => ({
 		statements: [statement],
 		read: (outcomes) =>
 			Effect.suspend(() =>
@@ -516,7 +620,7 @@ export const programGetFlight = <A>(
 	inputs: ExecutionInputs,
 	read: (row: Row) => A
 ): Effect.Effect<Flight<Option.Option<A>, UnreadableAnswer>, InputTooLarge> =>
-	Effect.map(programStatement(program, inputs), (statement) => ({
+	Effect.map(programStatement(program, inputs, keptRows), (statement) => ({
 		statements: [statement],
 		read: (outcomes) =>
 			Effect.suspend(() => {

@@ -34,12 +34,12 @@ import {
 	TlsRefused
 } from "#adapter/errors/failures.ts"
 import type {
-	PgArrayResult,
 	PgClient,
 	PgClientConfig,
 	PgDriver,
 	PgPool,
 	PgPoolClient,
+	PgQueryConfig,
 	PgSocket
 } from "#adapter/types/driver.ts"
 import type { ConnectionPool, PoolBounds } from "#adapter/types/layer.ts"
@@ -51,7 +51,7 @@ import type {
 } from "#adapter/wire/batch.ts"
 import { type ServerAnswer, serverFailure } from "#adapter/wire/failure.ts"
 import { releasingPool } from "#adapter/wire/releasing-pool.ts"
-import type { EmittedText, Isolation, OutputRows, Param } from "#compiler/plan/common.ts"
+import type { EmittedText, Isolation, OutputRows } from "#compiler/plan/common.ts"
 import type { ServedSession } from "#compiler/plan/serve.ts"
 
 /**
@@ -89,7 +89,8 @@ import type { ServedSession } from "#compiler/plan/serve.ts"
  *   states each it can (clientConfig), and the startup variables it cannot (connection/environment.ts) are refused
  *   before any session opens, a login's by DbLayer.make, an owner's by the command line.
  * - Values. Every type parser is the identity and results are requested as text, so every cell is the text the server
- *   sent, and parameters are bound as untyped text. grizzle's own SQL never delivers NULL (absence is zero rows), so a
+ *   sent, and parameters are bound as untyped text. Each row is read as it arrives (submit): a served statement whose
+ *   intake takes its rows hands each on at once, and every other query's are kept for its answer. grizzle's own SQL never delivers NULL (absence is zero rows), so a
  *   result with a NULL cell is an unreadable answer: the statement ran, and its rows are none grizzle reads. Every row
  *   past this module is texts only.
  * - Statements. A served statement (batch.ts PreparedStatement) is sent under its name, which pg parses on the
@@ -220,45 +221,32 @@ const backendKeyOf = (client: PgClient): BackendKey | undefined => {
 		: undefined
 }
 
-/** A result's rows whose every cell arrived as text: PostgreSQL's output texts, minted here, where they arrive. */
-const outputRows = nominal<ReadonlyArray<ReadonlyArray<string>>, OutputRows>()
+/** One result row whose every cell arrived as text: PostgreSQL's output texts, minted here, where they arrive. */
+type OutputRow = OutputRows[number]
 
-/** Rows every cell of which arrived as text: a native loop over every cell of the result. */
-const isTextRows = (
-	rows: ReadonlyArray<ReadonlyArray<unknown>>
-): rows is ReadonlyArray<ReadonlyArray<string>> => {
-	for (const row of rows) {
-		for (const cell of row) {
-			if (typeof cell !== "string") {
-				return false
-			}
+const outputRow = nominal<ReadonlyArray<string>, OutputRow>()
+
+/** A result's rows whose every cell arrived as text (outputRow). */
+const outputRows = nominal<ReadonlyArray<OutputRow>, OutputRows>()
+
+/** A row every cell of which arrived as text: a native loop over its cells. */
+const isTextRow = (row: ReadonlyArray<unknown>): row is ReadonlyArray<string> => {
+	for (const cell of row) {
+		if (typeof cell !== "string") {
+			return false
 		}
 	}
 	return true
 }
 
 /**
- * The answer of one query, from pg's callback. pg passes its DatabaseError for an ErrorResponse, its own Error for a
- * failed connection or a query it would not send, and null and the result otherwise. Every type parser is the
- * identity, so a result cell is the text the server sent; a result with a NULL, or a cell that is no text, is
- * unreadable.
+ * The answer of a query pg ended with `error`: its DatabaseError for an ErrorResponse, as the server's failure, and its
+ * own Error for a failed connection or a query it would not send.
  */
-const answerOf = (driver: PgDriver, error: unknown, result: PgArrayResult | undefined): Answer => {
-	if (error instanceof driver.DatabaseError) {
-		return serverFailure(error) ?? { _tag: "failed" }
-	}
-	if (error !== null && error !== undefined) {
-		return { _tag: "failed" }
-	}
-	if (result === undefined) {
-		return { _tag: "failed" }
-	}
-	const rows = result.rows
-	if (!isTextRows(rows)) {
-		return { _tag: "unreadable", command: result.command }
-	}
-	return { _tag: "result", outcome: { command: result.command, rows: outputRows(rows) } }
-}
+const errorAnswer = (driver: PgDriver, error: unknown): Answer =>
+	error instanceof driver.DatabaseError
+		? (serverFailure(error) ?? { _tag: "failed" })
+		: { _tag: "failed" }
 
 /** The identity of every type: each cell stays the text the server sent. */
 const rawText = { getTypeParser: () => (text: string) => text } as const
@@ -603,11 +591,11 @@ export interface Session {
  * connection parsed for another text, which only a SHA-256 collision gives (core/prepared.ts). So a pipeline is
  * written whole: no statement is skipped while the ones after it, COMMIT included, are sent.
  */
-const preparedQuery = (query: PreparedStatement) => ({
+const preparedQuery = (query: PreparedStatement): PgQueryConfig => ({
 	name: query.text.name,
 	text: query.text.sql,
 	values: query.params.slice(),
-	rowMode: "array" as const
+	rowMode: "array"
 })
 
 /**
@@ -616,14 +604,83 @@ const preparedQuery = (query: PreparedStatement) => ({
  * which pg's types leave out. pg refuses it before its bytes go out only for what preparedQuery's statements never
  * hold either.
  */
-const oneShotQuery = (query: OneShotStatement) => ({
+const oneShotQuery = (query: OneShotStatement): PgQueryConfig => ({
 	text: query.sql,
 	values: query.params.slice(),
-	rowMode: "array" as const,
-	queryMode: "extended" as const
+	rowMode: "array",
+	queryMode: "extended"
 })
 
-const controlQuery = (sql: EmittedText) => ({ text: sql, rowMode: "array" as const })
+const controlQuery = (sql: EmittedText): PgQueryConfig => ({ text: sql, rowMode: "array" })
+
+/** The rows no taken statement's outcome holds (batch.ts RowIntake). */
+const noRows: OutputRows = outputRows([])
+
+/**
+ * The configuration of one query of a pipeline, in array row mode: a served statement under its name, a one-shot
+ * statement as the unnamed statement on the extended protocol, a control as a simple Query.
+ */
+const queryConfig = (query: WireQuery, controls: ControlTexts): PgQueryConfig => {
+	switch (query._tag) {
+		case "control":
+			return controlQuery(controlText(controls, query.control))
+		case "prepared":
+			return preparedQuery(query)
+		case "oneShot":
+			return oneShotQuery(query)
+	}
+}
+
+/**
+ * Submits one query of a pipeline to `client` as the driver's own Query, with listeners and no callback, so pg keeps no
+ * row (types/driver.ts PgQuery), and reports its answer to `answer` once. Each row is admitted as it arrives,
+ * every cell a text, a native loop with no closure per row: a served statement's taken rows go to its intake's `take`
+ * at once, every other query's are kept for its answer. A row with a NULL, or a cell that is no text, makes the answer
+ * unreadable, and no row after it is taken or kept; the query ran, so its answer still carries its command tag.
+ */
+const submit = (
+	client: PgClient,
+	spec: SessionSpec,
+	query: WireQuery,
+	answer: (answer: Answer) => void
+): void => {
+	const pg = new spec.driver.Query(queryConfig(query, spec.controls))
+	const taken =
+		query._tag === "prepared" && query.intake.kind === "taken" ? query.intake.take : undefined
+	const kept: Array<OutputRow> = []
+	let readable = true
+	pg.on("row", (row) => {
+		if (!readable) {
+			return
+		}
+		if (!isTextRow(row)) {
+			readable = false
+			return
+		}
+		if (taken === undefined) {
+			kept.push(outputRow(row))
+		} else {
+			taken(outputRow(row))
+		}
+	})
+	pg.on("end", (result) => {
+		answer(
+			readable
+				? {
+						_tag: "result",
+						outcome: {
+							command: result.command,
+							rows: taken === undefined ? outputRows(kept) : noRows
+						}
+					}
+				: { _tag: "unreadable", command: result.command }
+		)
+	})
+	pg.on("error", (error) => {
+		answer(errorAnswer(spec.driver, error))
+	})
+	client.query(pg)
+}
 
 /**
  * The last chunk of every flight's corked write, a new empty one, whose callback reports how the write ended: Node calls
@@ -677,25 +734,11 @@ const makeSession = (
 			for (const query of pipeline) {
 				const index = next
 				next += 1
-				const answer = (error: unknown, result: PgArrayResult | undefined): void => {
-					onAnswer(index, answerOf(spec.driver, error, result))
+				submit(client, spec, query, (answer) => {
+					onAnswer(index, answer)
 					answered += 1
 					settle()
-				}
-				switch (query._tag) {
-					case "control":
-						client.query<Array<unknown>, Array<string>>(
-							controlQuery(controlText(spec.controls, query.control)),
-							answer
-						)
-						break
-					case "prepared":
-						client.query<Array<unknown>, Array<Param>>(preparedQuery(query), answer)
-						break
-					case "oneShot":
-						client.query<Array<unknown>, Array<Param>>(oneShotQuery(query), answer)
-						break
-				}
+				})
 			}
 			connection.stream.write(flightEnd(), (error) => {
 				if (Predicate.isError(error) && !connection.stream.destroyed) {

@@ -82,13 +82,27 @@ export type BatchStatement = PreparedStatement | OneShotStatement
 /**
  * A served statement: its text runs as its named prepared statement (core/prepared.ts), which pg parses on the
  * session's first use of its name and binds on every use after, so PostgreSQL parses and plans it once per session.
- * Its text is named where generate serves it, so nothing names it per call.
+ * Its text is named where generate serves it, so nothing names it per call. Its rows go to its intake as they arrive
+ * (RowIntake).
  */
 export interface PreparedStatement {
 	readonly _tag: "prepared"
 	readonly text: Prepared<EmittedText>
 	readonly params: ReadonlyArray<Param>
+	readonly intake: RowIntake
 }
+
+/**
+ * Where a served statement's rows go as the server sends them, each admitted as texts (wire/session.ts): kept for its
+ * outcome, or each handed to `take` the moment it arrives and none kept, so a read's program decodes a row while the
+ * rows after it are still on the wire (reader/run.ts readIntake). A taken statement's outcome holds no rows.
+ */
+export type RowIntake =
+	| { readonly kind: "kept" }
+	| { readonly kind: "taken"; readonly take: (row: OutputRows[number]) => void }
+
+/** The intake of a statement whose rows its outcome holds. */
+export const keptRows: RowIntake = { kind: "kept" }
 
 /**
  * SQL grizzle sends beside the served programs, admission's, a migration's, the ledger's, a catalog read and an
@@ -101,11 +115,11 @@ export interface OneShotStatement {
 	readonly params: ReadonlyArray<Param>
 }
 
-/** The served statement of `text` over `params`. */
+/** The served statement of `text` over `params`, its rows kept for its outcome. */
 export const preparedStatement = (
 	text: Prepared<EmittedText>,
 	params: ReadonlyArray<Param>
-): PreparedStatement => ({ _tag: "prepared", text, params })
+): PreparedStatement => ({ _tag: "prepared", text, params, intake: keptRows })
 
 /** The one-shot statement of `sql` over `params`. */
 export const oneShotStatement = (
