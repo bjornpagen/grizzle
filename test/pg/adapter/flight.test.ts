@@ -1,3 +1,36 @@
+/**
+ * The scripted session (test/support/flight/scripted.ts) against PostgreSQL, so the double the unit fuzzer trusts
+ * (test/unit/adapter/batch.test.ts) cannot drift from the server: the same flight cases, restricted to what the server
+ * can be made to answer on demand, run on the scripted session and on a real one, and the two must observe the same.
+ *
+ * On the server, a statement's rows are an INSERT ... RETURNING of its label, or a SELECT of it inside a read's
+ * transaction, which cannot write; a doomed statement inserts a row whose deferred reference has no target, so its
+ * transaction's COMMIT, or its own Sync when it runs alone, is refused 23503; a refused one calls a function that raises
+ * its SQLSTATE; a held one sleeps until a CancelRequest stops it. BEGIN is always answered and COMMIT's connection
+ * kept: a refused BEGIN, a FATAL report and a lost connection are the server's and the network's faults, out of scope.
+ *
+ * Each case runs uninterrupted when it can complete, and interrupted after every number of answers. The tap's gate
+ * holds the server's bytes after the k-th ReadyForQuery, so the call has read exactly k answers; the server is let do
+ * all it can, until it has answered every query or sleeps in a held statement; and the call is interrupted, which it
+ * takes at once. A call that cancels retires its session as it takes the interruption, before its one CancelRequest,
+ * after which it destroys its connection (batch.ts), and nothing the server answers here retires a session sooner. So
+ * the gate lets the rest through once a retired session's CancelRequest has reached the server, when the destroyed
+ * connection reads nothing more, and at once when the session is not retired, when no CancelRequest can follow. The
+ * scripted session is driven the same way: k answers, then the interruption.
+ *
+ * The observations compared are the ending, what committed, the retirement, and whether a CancelRequest was sent. A
+ * call interrupted with a statement in flight sends one CancelRequest and then destroys its connection (README "No
+ * server-side timeouts"), so the server runs none, some or all of the queries left after the statement it stopped
+ * before it notices the connection gone, a race between the backend and the client: the scripted session is run at
+ * each number of them from none to all (scripted.ts afterCancel), and the server must agree with one, every field
+ * exact.
+ *
+ * Features: a read-committed write frame, each interruption point, a CancelRequest sent, each refused ending, and a
+ * write committed after an interruption.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): flight-cancel-after-commit.patch (a CancelRequest sent while COMMIT is
+ * awaited), interrupt-no-cancel.patch.
+ */
 import { layer } from "@effect/vitest"
 import { type Case, explore, type Kept, sketched } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -38,35 +71,7 @@ import { testSql } from "#test/support/sql.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 import { backendCount, tappedSession } from "#test/support/wire-tap.ts"
 
-/**
- * The scripted session (test/support/flight/scripted.ts) against PostgreSQL, so the double the unit fuzzer trusts
- * (test/unit/adapter/batch.test.ts) cannot drift from the server: the same flight cases, restricted to what the server
- * can be made to answer on demand, run on the scripted session and on a real one, and the two must observe the same.
- *
- * On the server, a statement's rows are an INSERT ... RETURNING of its label, or a SELECT of it inside a read's
- * transaction, which cannot write; a doomed statement inserts a row whose deferred reference has no target, so its
- * transaction's COMMIT, or its own Sync when it runs alone, is refused 23503; a refused one calls a function that raises
- * its SQLSTATE; a held one sleeps until a CancelRequest stops it. BEGIN is always answered and COMMIT's connection
- * kept: a refused BEGIN, a FATAL report and a lost connection are the server's and the network's faults, out of scope.
- *
- * Each case runs uninterrupted when it can complete, and interrupted after every number of answers. The tap's gate
- * holds the server's bytes after the k-th ReadyForQuery, so the call has read exactly k answers; the server is let do
- * all it can, until it has answered every query or sleeps in a held statement; and the call is interrupted, which it
- * takes at once. A call that cancels retires its session as it takes the interruption, before its one CancelRequest,
- * after which it destroys its connection (batch.ts), and nothing the server answers here retires a session sooner. So
- * the gate lets the rest through once a retired session's CancelRequest has reached the server, when the destroyed
- * connection reads nothing more, and at once when the session is not retired, when no CancelRequest can follow. The
- * scripted session is driven the same way: k answers, then the interruption.
- *
- * The observations compared are the ending, what committed, the retirement, and whether a CancelRequest was sent. A
- * call interrupted with a statement in flight sends one CancelRequest and then destroys its connection (README "No
- * server-side timeouts"), so the server runs none, some or all of the queries left after the statement it stopped
- * before it notices the connection gone, a race between the backend and the client: the scripted session is run at
- * each number of them from none to all (scripted.ts afterCancel), and the server must agree with one, every field
- * exact.
- *
- * The kinds the server answers on demand.
- */
+/** The kinds the server answers on demand. */
 const space: CaseSpace = { failures: ["refused", "doomed", "hold"], serverFaults: false }
 
 /** A read's transaction cannot write, so its doomed statements answer their rows instead. */
@@ -350,7 +355,10 @@ const flightSuite = Effect.gen(function* () {
 
 	return yield* explore(
 		{
-			oracle: { kind: "unstated" },
+			oracle: {
+				kind: "postgresql",
+				name: "a real session interrupted at each answer, against the scripted session at each way its race ends"
+			},
 			suite: "pg/adapter/flight",
 			draw: sketched(caseGen(space), expressible),
 			literal: Formatter.format,

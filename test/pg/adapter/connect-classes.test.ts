@@ -1,3 +1,26 @@
+/**
+ * A connection that fails is classified, and every class states its own reason, the same through `grizzle migrate` and
+ * through a Db's call, never with a password (packages/grizzle/src/adapter/errors/failures.ts ConnectRefusal).
+ *
+ * The property, exhausted over planted failures, each opened by the migration identity's session (MigrateError whose
+ * reason, ConnectRefused, carries the refusal) and by a pool's lease as a Db's call takes one (ReadFailure at stage
+ * acquire, its reason; Db.open leases nothing): no
+ * answer within the attempt's connect timeout (a server that accepts and never answers), a refused socket (nothing listening), the server's
+ * SQLSTATE (a role over its connection limit, 53300; a wrong password, 28P01; no such database, 3D000), TLS (a CA that
+ * is not the server's; a server that answers the SSLRequest with N, or with neither S nor N), a server that closes the
+ * connection at once, a failing password Effect, and no password for a role SCRAM authenticates. Each attempt's
+ * connection is parsed as grizzle parses one (test/support/pg.ts parsedConnection), so an empty CA bundle never reaches
+ * a connection: the parse refuses it at stage config (test/unit/adapter/layer.test.ts). The oracle is the class each plant is: its tag and the fact that tells it apart. Both
+ * paths carry the same class; the migrate reason names the role, host and port and states the class's message; no
+ * password, given or wrong, appears in a message or anywhere in either error; and the messages of the plants are all
+ * distinct.
+ *
+ * Features: every plant through each path.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): connect-classes-closed-as-socket.patch (a connection closed at once
+ * classified as a socket failure), connect-classes-password-in-message.patch (a wrong password's message quoting the
+ * password).
+ */
 import { createServer, type Socket } from "node:net"
 import { inspect } from "node:util"
 import { layer } from "@effect/vitest"
@@ -21,23 +44,6 @@ import { noPassword } from "#test/support/pg.ts"
 import { clusterPool, clusterTransport, parsedConnection } from "#test/support/pg.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 
-/**
- * A connection that fails is classified, and every class states its own reason, the same through `grizzle migrate` and
- * through a Db's call, never with a password (packages/grizzle/src/adapter/errors/failures.ts ConnectRefusal).
- *
- * The property, exhausted over planted failures, each opened by the migration identity's session (MigrateError whose
- * reason, ConnectRefused, carries the refusal) and by a pool's lease as a Db's call takes one (ReadFailure at stage
- * acquire, its reason; Db.open leases nothing): no
- * answer within the attempt's connect timeout (a server that accepts and never answers), a refused socket (nothing listening), the server's
- * SQLSTATE (a role over its connection limit, 53300; a wrong password, 28P01; no such database, 3D000), TLS (a CA that
- * is not the server's; a server that answers the SSLRequest with N, or with neither S nor N), a server that closes the
- * connection at once, a failing password Effect, and no password for a role SCRAM authenticates. Each attempt's
- * connection is parsed as grizzle parses one (test/support/pg.ts parsedConnection), so an empty CA bundle never reaches
- * a connection: the parse refuses it at stage config (test/unit/adapter/layer.test.ts). The oracle is the class each plant is: its tag and the fact that tells it apart. Both
- * paths carry the same class; the migrate reason names the role, host and port and states the class's message; no
- * password, given or wrong, appears in a message or anywhere in either error; and the messages of the plants are all
- * distinct.
- */
 const plants = [
 	"a server that never answers",
 	"nothing listening",
@@ -316,8 +322,11 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 
 					const exhausted = yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every planted class of connection failure, through migrate and through a Db's call",
+							oracle: {
+								kind: "specification",
+								name: "ConnectRefusal: the class each plant is, told by its tag and its distinguishing fact"
+							},
 							suite: "adapter/connect-classes",
 							generator: plantPaths,
 							literal: ([plant, path]) => `${plant} through ${path}`,

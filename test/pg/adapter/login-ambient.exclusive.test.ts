@@ -23,6 +23,9 @@
  *
  * Every setting at every value it is drawn at is a required situation, beside the installation-first path, both pins,
  * a refused write and a later page.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): environment-pgoptions.patch (a session's pinned defaults left out of
+ * its startup options).
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
@@ -489,7 +492,10 @@ layer(Substrate.layer)("a login under hostile database defaults", (it) => {
 						}).pipe(withLayer(Layer.fresh(o.served.layer)))
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "universal",
+								name: "the program under the drawn defaults answers as under the database's own"
+							},
 							suite: "pg/adapter/login-ambient",
 							draw: drawn(caseGen),
 							literal: Formatter.format,
