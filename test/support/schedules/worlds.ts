@@ -110,7 +110,8 @@ export interface WorldRace {
 
 /**
  * How a race transaction ended, by README "Transactions and concurrency": committed, refused (a law, the world or the
- * server refused it, and it committed nothing), failed with a typed transient failure, or interrupted.
+ * server refused it, and it committed nothing), failed with a typed transient failure while another session's
+ * transaction contended it (Lives), or interrupted.
  */
 type Ending = "commit" | "refusal" | "transient" | "interruption"
 
@@ -275,6 +276,93 @@ const union = (footprints: ReadonlyArray<Footprint>): Footprint =>
 const isTransient = (o: Observation): boolean =>
 	o.kind === "transient" ||
 	(o.kind === "refused" && (o.sqlstate === "40001" || o.sqlstate === "40P01"))
+
+/** Whether two footprints share a relation: either touches every relation, or they name one in common. */
+const touch = (a: Footprint, b: Footprint): boolean =>
+	a.kind === "every" || b.kind === "every" || Arr.some([...a.relations], (r) => b.relations.has(r))
+
+/** A race transaction's lifetime in a run: its session, what it touches, and the ticks it began and ended at. */
+interface Lifetime {
+	readonly session: string
+	readonly footprint: Footprint
+	readonly began: number
+	/** The tick it ended at; infinitely late while it lives, so it overlaps every lifetime begun since it began. */
+	readonly ended: number
+}
+
+/**
+ * The lifetimes of a run's race transactions as the run lives them, each beginning and ending at a tick of its own, the
+ * run's begins and ends counted in the order they happen, so two overlap exactly when each began before the other ended.
+ * A transaction is contended when a transaction of another session overlapped it on a relation it touches: only such a
+ * transaction can be the other half of the conflict SSI refused it for, so a transient refusal of an uncontended one
+ * is the cluster's load (README "Transactions and concurrency": SSI refuses a lone transaction once it summarizes old
+ * ones), and a contended one's is the race's, which the serial-order judgment takes as it comes, load or not: no
+ * answer of PostgreSQL's tells the two apart there.
+ */
+interface Lives {
+	readonly begin: (session: string, footprint: Footprint) => number
+	readonly end: (life: number) => void
+	readonly contended: (life: number) => boolean
+	readonly clear: () => void
+}
+
+const livesOf = (): Lives => {
+	const lifetimes: Array<Lifetime> = []
+	let tick = 0
+	const at = (life: number): Lifetime => defined(lifetimes[life], `the race's lifetime ${life}`)
+	return {
+		begin: (session, footprint) => {
+			tick += 1
+			lifetimes.push({ session, footprint, began: tick, ended: Number.POSITIVE_INFINITY })
+			return lifetimes.length - 1
+		},
+		end: (life) => {
+			const own = at(life)
+			if (own.ended === Number.POSITIVE_INFINITY) {
+				tick += 1
+				lifetimes[life] = { ...own, ended: tick }
+			}
+		},
+		contended: (life) => {
+			const own = at(life)
+			return Arr.some(
+				lifetimes,
+				(other) =>
+					other.session !== own.session &&
+					other.began < own.ended &&
+					own.began < other.ended &&
+					touch(other.footprint, own.footprint)
+			)
+		},
+		clear: () => {
+			lifetimes.length = 0
+			tick = 0
+		}
+	}
+}
+
+/**
+ * A Db operation's answer as the race leaves it, the operation a transaction of its own: one refused transiently while
+ * uncontended (Lives) is run again, as a caller runs a refused call again (test/support/transient.ts untilAnswered),
+ * since the load, not the race, refused it; every other answer stands.
+ */
+const byTheRace = (
+	lives: Lives,
+	session: string,
+	footprint: Footprint,
+	perform: Effect.Effect<Observation>
+): Effect.Effect<Observation> =>
+	Effect.suspend(() => {
+		const life = lives.begin(session, footprint)
+		return Effect.filterOrElse(
+			Effect.ensuring(
+				perform,
+				Effect.sync(() => lives.end(life))
+			),
+			(o) => !isTransient(o) || lives.contended(life),
+			() => byTheRace(lives, session, footprint, perform)
+		)
+	})
 
 /** Whether an observation refuses its transaction: the transaction commits nothing and is judged in an order of its own. */
 const isRefusal = (o: Observation): boolean => {
@@ -652,9 +740,9 @@ const describeViolations = (found: ReadonlyArray<Violation>): string =>
 
 /**
  * Why a run is not one the worlds model allows, or undefined. The committed state keeps every law (the history
- * checker's rule, evaluated by the host). A transient failure changed nothing, wherever it falls: PostgreSQL's SSI may
- * refuse a transaction with no other transaction overlapping it once it summarizes old committed ones under load (README
- * "Transactions and concurrency"). The committed and interrupted transactions, the reads and the probes take
+ * checker's rule, evaluated by the host). A transient failure left in a run refused a contended transaction (Lives: one
+ * the load refused while uncontended ran again), and it changed nothing, wherever it falls. The committed and
+ * interrupted transactions, the reads and the probes take
  * their places in one serial order that respects real time, folded through the model from the initial state: every
  * observation is one the model allows at its place, and the order ends at the committed state. Each refused transaction
  * takes its place in a serial order of the committed ones and itself alone: SSI orders the committed transactions, and
@@ -702,12 +790,17 @@ const setupRoles = (setup: ReadonlyArray<Action>): ReadonlyMap<number, string> =
 		)
 	)
 
-/** One run's record of what each race transaction did, refilled every run. */
+/**
+ * One run's record of what each race transaction did, refilled every run, and the lifetimes it lived (Lives), each
+ * direct session's current one by its name.
+ */
 interface Recording {
 	readonly observed: Map<string, Observation>
 	readonly probes: Map<string, Probe>
 	readonly direct: Map<string, Array<Observation>>
 	readonly opened: Map<string, number>
+	readonly lives: Lives
+	readonly lifeOf: Map<string, number>
 }
 
 /**
@@ -771,21 +864,28 @@ const raceTxns = (
 					steps: Arr.map(session.ops, (op, i): WorldStep => {
 						const key = `${session.name} #${i}`
 						switch (op.kind) {
-							case "act":
+							case "act": {
+								const footprint = actionFootprint(race.install, roleOf, op.action)
 								return {
 									label: key,
 									outcome: Effect.map(
-										world.perform(op.action, unsubmitted(hidden, submittedTexts(op.action))),
+										byTheRace(
+											recording.lives,
+											session.name,
+											footprint,
+											world.perform(op.action, unsubmitted(hidden, submittedTexts(op.action)))
+										),
 										(o) => {
 											recording.observed.set(key, o)
 											return stepOutcomeOf(o)
 										}
 									),
-									footprint: actionFootprint(race.install, roleOf, op.action),
+									footprint,
 									ends: "commit",
 									backend,
 									blocked: op.blocked
 								}
+							}
 							case "probe":
 								return {
 									label: key,
@@ -859,13 +959,43 @@ const directTxn = (
 			? Effect.die(new Error(`${session.name} acts before its BEGIN opened it`))
 			: Effect.succeed(id)
 	})
-	const performed = (hidden: ReadonlySet<string>, action: (id: number) => Action) =>
-		Effect.flatMap(opened, (id) =>
-			Effect.map(world.perform(action(id), hidden), (o) => {
+	const whole = union(Arr.map(session.statements, (s) => statementFootprint(race.install, s)))
+	/** The lifetime of the session's transaction this run, from its BEGIN, or from the BEGIN it was begun again by. */
+	const life = (): number =>
+		defined(recording.lifeOf.get(session.name), `${session.name}'s lifetime, begun by its BEGIN`)
+	/**
+	 * The session's transaction begun again on its own connection after the load refused it (RealWorld.rebegin), its
+	 * first `sent` statements sent again: what they answered this time replaces what they answered before, after its
+	 * BEGIN's answer, and its lifetime starts anew.
+	 */
+	const begunAgain = (id: number, sent: number): Effect.Effect<void> =>
+		Effect.map(
+			world.rebegin(id, session.login, session.isolation, session.statements.slice(0, sent)),
+			(answers) => {
+				recording.direct.set(session.name, [...observations().slice(0, 1), ...answers])
+				recording.lives.end(life())
+				recording.lifeOf.set(session.name, recording.lives.begin(session.name, whole))
+			}
+		)
+	/**
+	 * The session's statement or end after its first `sent` statements, as the race leaves it: refused transiently while
+	 * its transaction is uncontended (Lives), the load refused it, so the transaction is begun again and the statement
+	 * sent again; every other answer stands and is recorded.
+	 */
+	const performed = (hidden: ReadonlySet<string>, sent: number, action: (id: number) => Action) => {
+		const answer = (id: number): Effect.Effect<Observation> =>
+			Effect.filterOrElse(
+				world.perform(action(id), hidden),
+				(o) => !isTransient(o) || recording.lives.contended(life()),
+				() => Effect.andThen(begunAgain(id, sent), () => answer(id))
+			)
+		return Effect.flatMap(opened, (id) =>
+			Effect.map(answer(id), (o) => {
 				observations().push(o)
 				return stepOutcomeOf(o)
 			})
 		)
+	}
 	/**
 	 * The backend the session's BEGIN opened, which the driver reads once the BEGIN has run (none when it opened no
 	 * session) and knows until the session's last move ends it.
@@ -895,8 +1025,16 @@ const directTxn = (
 						: Effect.die(new Error(`${session.name}'s release could not close it: ${o.kind}`))
 				)
 		})
+	).pipe(
+		Effect.ensuring(
+			Effect.sync(() => {
+				const own = recording.lifeOf.get(session.name)
+				if (own !== undefined) {
+					recording.lives.end(own)
+				}
+			})
+		)
 	)
-	const whole = union(Arr.map(session.statements, (s) => statementFootprint(race.install, s)))
 	return {
 		kind: "world",
 		session: session.name,
@@ -908,6 +1046,7 @@ const directTxn = (
 				label: `${session.name} BEGIN`,
 				outcome: Effect.map(world.perform(begin, hiddenTokens(modelBegun.next, began)), (o) => {
 					observations().push(o)
+					recording.lifeOf.set(session.name, recording.lives.begin(session.name, whole))
 					if (o.kind === "opened") {
 						recording.opened.set(session.name, o.session)
 					}
@@ -920,7 +1059,7 @@ const directTxn = (
 			},
 			...Arr.map(Arr.zip(session.statements, hiddenAt), ([statement, hidden], i): WorldStep => ({
 				label: `${session.name} ${statement.kind}`,
-				outcome: performed(hidden, (id) => ({ kind: "direct", session: id, statement })),
+				outcome: performed(hidden, i, (id) => ({ kind: "direct", session: id, statement })),
 				/** The first statement takes the snapshot every later one reads. */
 				footprint: i === 0 ? whole : statementFootprint(race.install, statement),
 				ends: "nothing",
@@ -929,11 +1068,14 @@ const directTxn = (
 			})),
 			{
 				label: `${session.name} ${Str.toUpperCase(session.end)}`,
-				outcome: performed(Arr.lastNonEmpty(hiddenAt), (id) => ({
-					kind: "direct-end",
-					session: id,
-					end: session.end
-				})),
+				outcome: Effect.ensuring(
+					performed(Arr.lastNonEmpty(hiddenAt), session.statements.length, (id) => ({
+						kind: "direct-end",
+						session: id,
+						end: session.end
+					})),
+					Effect.sync(() => recording.lives.end(life()))
+				),
 				footprint: whole,
 				ends: session.end,
 				backend,
@@ -1156,7 +1298,9 @@ export const runWorldRace = ({
 			observed: new Map(),
 			probes: new Map(),
 			direct: new Map(),
-			opened: new Map()
+			opened: new Map(),
+			lives: livesOf(),
+			lifeOf: new Map()
 		}
 		const txns = raceTxns(race, world, initial, recording)
 		const env = yield* Effect.mapError(exploreEnv(s), (e) => failed(`no observer: ${messageOf(e)}`))
@@ -1173,6 +1317,8 @@ export const runWorldRace = ({
 						recording.probes.clear()
 						recording.direct.clear()
 						recording.opened.clear()
+						recording.lives.clear()
+						recording.lifeOf.clear()
 					}),
 					setUp(race, world)
 				),
