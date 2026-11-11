@@ -1,0 +1,320 @@
+{
+	"openapi": "3.2.0",
+	"info": {
+		"title": "site",
+		"version": "1"
+	},
+	"paths": {
+		"/site/reader/postPage": {
+			"post": {
+				"operationId": "postPage",
+				"tags": [
+					"reader"
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"params": {
+										"type": "object"
+									},
+									"facts": {
+										"type": "object"
+									}
+								},
+								"required": [
+									"params",
+									"facts"
+								]
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "events",
+						"content": {
+							"text/event-stream": {
+								"itemSchema": {
+									"oneOf": [
+										{
+											"$ref": "#/components/schemas/read.reset"
+										},
+										{
+											"$ref": "#/components/schemas/read.upsert"
+										},
+										{
+											"$ref": "#/components/schemas/read.remove"
+										},
+										{
+											"$ref": "#/components/schemas/read.ready"
+										},
+										{
+											"$ref": "#/components/schemas/read.error"
+										},
+										{
+											"$ref": "#/components/schemas/read.end"
+										}
+									]
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/site/reader/comment": {
+			"post": {
+				"operationId": "comment",
+				"tags": [
+					"reader"
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"params": {
+										"type": "object"
+									},
+									"facts": {
+										"type": "object"
+									}
+								},
+								"required": [
+									"params",
+									"facts"
+								]
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "events",
+						"content": {
+							"text/event-stream": {
+								"itemSchema": {
+									"oneOf": [
+										{
+											"$ref": "#/components/schemas/write.outcome"
+										},
+										{
+											"$ref": "#/components/schemas/write.error"
+										},
+										{
+											"$ref": "#/components/schemas/write.end"
+										}
+									]
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	},
+	"components": {
+		"schemas": {
+			"read.reset": {
+				"type": "object",
+				"required": [
+					"event",
+					"data"
+				],
+				"properties": {
+					"event": {
+						"const": "reset"
+					},
+					"data": {
+						"type": "string",
+						"contentMediaType": "application/json",
+						"contentSchema": {
+							"type": "object"
+						}
+					}
+				}
+			},
+			"read.upsert": {
+				"type": "object",
+				"required": [
+					"event",
+					"data"
+				],
+				"properties": {
+					"event": {
+						"const": "upsert"
+					},
+					"data": {
+						"type": "string",
+						"contentMediaType": "application/json",
+						"contentSchema": {
+							"type": "object"
+						}
+					}
+				}
+			},
+			"read.remove": {
+				"type": "object",
+				"required": [
+					"event",
+					"data"
+				],
+				"properties": {
+					"event": {
+						"const": "remove"
+					},
+					"data": {
+						"type": "string",
+						"contentMediaType": "application/json",
+						"contentSchema": {
+							"type": "object"
+						}
+					}
+				}
+			},
+			"read.ready": {
+				"type": "object",
+				"required": [
+					"event",
+					"data"
+				],
+				"properties": {
+					"event": {
+						"const": "ready"
+					},
+					"data": {
+						"type": "string",
+						"contentMediaType": "application/json",
+						"contentSchema": {
+							"type": "object"
+						}
+					}
+				},
+				"x-stream": {
+					"role": "ready"
+				}
+			},
+			"read.error": {
+				"type": "object",
+				"required": [
+					"event",
+					"data"
+				],
+				"properties": {
+					"event": {
+						"const": "error"
+					},
+					"data": {
+						"type": "string",
+						"contentMediaType": "application/json",
+						"contentSchema": {
+							"type": "object"
+						}
+					}
+				},
+				"x-stream": {
+					"role": "error",
+					"retryWhen": {
+						"pointer": "/error/retry",
+						"equals": "safe"
+					}
+				}
+			},
+			"read.end": {
+				"type": "object",
+				"required": [
+					"event",
+					"data"
+				],
+				"properties": {
+					"event": {
+						"const": "end"
+					},
+					"data": {
+						"type": "string",
+						"contentMediaType": "application/json",
+						"contentSchema": {
+							"type": "object"
+						}
+					}
+				},
+				"x-stream": {
+					"role": "end"
+				}
+			},
+			"write.outcome": {
+				"type": "object",
+				"required": [
+					"event",
+					"data"
+				],
+				"properties": {
+					"event": {
+						"const": "outcome"
+					},
+					"data": {
+						"type": "string",
+						"contentMediaType": "application/json",
+						"contentSchema": {
+							"type": "object"
+						}
+					}
+				}
+			},
+			"write.error": {
+				"type": "object",
+				"required": [
+					"event",
+					"data"
+				],
+				"properties": {
+					"event": {
+						"const": "error"
+					},
+					"data": {
+						"type": "string",
+						"contentMediaType": "application/json",
+						"contentSchema": {
+							"type": "object"
+						}
+					}
+				},
+				"x-stream": {
+					"role": "error",
+					"retryWhen": {
+						"pointer": "/error/retry",
+						"equals": "safe"
+					}
+				}
+			},
+			"write.end": {
+				"type": "object",
+				"required": [
+					"event",
+					"data"
+				],
+				"properties": {
+					"event": {
+						"const": "end"
+					},
+					"data": {
+						"type": "string",
+						"contentMediaType": "application/json",
+						"contentSchema": {
+							"type": "object"
+						}
+					}
+				},
+				"x-stream": {
+					"role": "end"
+				}
+			}
+		}
+	}
+}

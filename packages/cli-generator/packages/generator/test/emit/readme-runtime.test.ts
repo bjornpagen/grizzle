@@ -195,7 +195,9 @@ describe("emitReadme, Milestone 3 runtime sections", () => {
 	})
 
 	test("is in the layout vp fmt accepts with every section present", async () => {
-		const readme = emitReadme(await input(runtimeSpec, { ...baseConfig, runtime: { retries: 4 } }))
+		const readme = emitReadme(
+			await input(runtimeSpec, { ...baseConfig, runtime: { timeoutSeconds: 4 } })
+		)
 
 		expect(formatted(readme.content)).toBe(readme.content)
 	})
@@ -217,7 +219,7 @@ describe("emitReadme, Milestone 3 runtime sections", () => {
 		const prefix = envPrefixOf(base.config)
 
 		expect(prefix).toBe("ACME_PAY")
-		for (const suffix of ["BASE_URL", "TIMEOUT", "RETRIES", "IDLE_TIMEOUT", "ERROR_FORMAT"]) {
+		for (const suffix of ["BASE_URL", "TIMEOUT", "IDLE_TIMEOUT", "ERROR_FORMAT"]) {
 			expect(readme).toContain(`\`${prefix}_${suffix}\``)
 		}
 		expect(section(readme, "## Output")).toContain("`--error-format json`")
@@ -317,15 +319,14 @@ describe("emitReadme, Milestone 3 runtime sections", () => {
 		expect(rows.map((row) => [row[0], row[1]])).toEqual([
 			["`--base-url`", `\`${prefix}_BASE_URL\``],
 			["`--timeout`", `\`${prefix}_TIMEOUT\``],
-			["`--retries`", `\`${prefix}_RETRIES\``],
+			["`--retries`", "none"],
 			["none", `\`${prefix}_IDLE_TIMEOUT\``],
 			["`--error-format`", `\`${prefix}_ERROR_FORMAT\``]
 		])
-		expect(rows.map((row) => row[3])).toEqual(["none", "30", "2", "300", "`text`"])
+		expect(rows.map((row) => row[3])).toEqual(["none", "30", "`0`", "300", "`text`"])
 		expect(rows[1]?.[2]).toContain("`runtime.timeoutSeconds`")
 		expect(rows[1]?.[2]).toContain("60")
-		expect(rows[2]?.[2]).toContain("`runtime.retries`")
-		expect(rows[2]?.[2]).not.toMatch(/\d/u)
+		expect(rows[2]?.[2]).toBe("none")
 		expect(rows[3]?.[2]).toContain("`runtime.idleTimeoutSeconds`")
 		expect(rows[4]?.[2]).toBe("none")
 	})

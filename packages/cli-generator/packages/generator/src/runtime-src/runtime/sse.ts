@@ -10,9 +10,9 @@ import {
 	String as Str
 } from "effect"
 import { Flag } from "effect/cli"
-import { ResponseStreamError } from "../domain/errors.ts"
-import { encoder } from "./redact.ts"
-import { compactJsonText } from "./sequential.ts"
+import { ResponseStreamError } from "#domain/errors.ts"
+import { encoder } from "#runtime/redact.ts"
+import { compactJsonText } from "#runtime/sequential.ts"
 
 /**
  * One event a `text/event-stream` body dispatched (WHATWG HTML, "Parsing an event stream"): its type, `message` when

@@ -122,6 +122,7 @@ Labels: decided; the operator decides the scope of token acquisition.
 Label: decided.
 
 - Output preserves the server's bytes. Sequential media types emit one JSON value per line as items arrive.
+- A `text/event-stream` response is read by the runtime's own WHATWG parser, on bytes, so `--raw` can stop where an event ends. Its `itemSchema` union is the stream's event contract: each branch names an event by its `event` property's one value, says its data is JSON by its `data` property's `contentMediaType`, and may carry an `x-stream` role, `ready`, `end`, or `error` with an optional `retryWhen` pointer and value. Each event prints as one JSON line, JSON data as the server's text compacted. The command stops after the first `ready` event unless `--follow`, which only a command whose stream names one declares; an `end` event ends it, and an `error` event, printed first, fails it with exit 1. A stream whose contract names a role and that ends before a terminal event or its stop point is truncated (exit 5). A malformed `x-stream` refuses the operation.
 - Binary output never goes to a terminal unless the operator passes `--output -`. `--force` only lets `--output` replace an existing file.
 - Response precedence is an explicit status code, then a range, then `default`. Success is decided by the 2xx status class.
 - Errors are shared tagged classes in `domain/` that carry the matched response key. One class per operation and status exceeded the 4 GiB type-check memory ceiling on the Cloudflare specification (measured).
@@ -130,13 +131,15 @@ Label: decided.
 
 ## Retries and timeouts
 
-Labels: decided; the operator confirms the defaults.
+Labels: decided; the operator confirms the timeout defaults.
 
-- Idempotent methods and `QUERY` retry transient failures with jittered backoff and `Retry-After`. Transient failures are connection, DNS and timeout failures (never TLS failures or interrupts) and the statuses 408, 429, 500, 502, 503 and 504. `Retry-After` is not waited beyond the timeout: retrying stops and the error reports the server's value.
+- A generated CLI never retries on its own initiative. `--retries <n>`, any whole number, is the one door: no environment variable, author default or built-in count stands in for it, and without it nothing is retried. One run's retries share that budget, whatever failed.
+- Within the budget, idempotent methods and `QUERY` retry transient failures with jittered backoff and `Retry-After`. Transient failures are connection, DNS and timeout failures (never TLS failures or interrupts) and the statuses 408, 429, 500, 502, 503 and 504. `Retry-After` is not waited beyond the timeout: retrying stops and the error reports the server's value.
 - Unsafe methods retry only with `--retry-unsafe` or an operator-supplied declared `Idempotency-Key`.
+- A streamed response whose event contract names an error event with a `retryWhen` rule is retried, whatever the method, when the event's data holds the rule's value: the server reports that nothing took effect. The stream's SSE reconnection time, when it set one, is the wait, capped by the timeout as `Retry-After` is. Every other error event fails at once.
 - Bodies read from standard input never retry and are never re-sent on a redirect. File bodies are read again.
 - A timeout per attempt applies to response headers, and an idle timeout applies to streams.
-- The author config sets defaults for retries and timeouts. A flag beats its environment variable (`<PREFIX>_RETRIES`, `<PREFIX>_TIMEOUT`, `<PREFIX>_IDLE_TIMEOUT`), which beats the author default.
+- The author config sets defaults for timeouts. A flag beats its environment variable (`<PREFIX>_TIMEOUT`, `<PREFIX>_IDLE_TIMEOUT`), which beats the author default.
 
 ## Schemas
 

@@ -168,12 +168,12 @@ const settings = (config: AuthorConfig): string => {
 	const builtIn = runtimeSettings(
 		new AuthorConfig({ binName: config.binName, package: config.package })
 	)
-	const authored = (key: "idleTimeoutSeconds" | "retries" | "timeoutSeconds"): string => {
+	const authored = (key: "idleTimeoutSeconds" | "timeoutSeconds"): string => {
 		const value = config.runtime?.[key]
 
 		return value === undefined
 			? `\`runtime.${key}\`, not set`
-			: `\`runtime.${key}\`: ${key === "retries" ? value : seconds(value)}`
+			: `\`runtime.${key}\`: ${seconds(value)}`
 	}
 	const rows = [
 		["`--base-url`", `\`${prefix}_BASE_URL\``, "`servers.accepted`", "none"],
@@ -183,7 +183,7 @@ const settings = (config: AuthorConfig): string => {
 			authored("timeoutSeconds"),
 			`${builtIn.timeoutSeconds}`
 		],
-		["`--retries`", `\`${prefix}_RETRIES\``, authored("retries"), `${builtIn.retries}`],
+		["`--retries`", "none", "none", "`0`"],
 		[
 			"none",
 			`\`${prefix}_IDLE_TIMEOUT\``,
@@ -219,7 +219,8 @@ const retries = (): string =>
 	[
 		"## Retries",
 		"A request is retried when the connection, the DNS lookup or the wait for headers fails, or when the server answers 408, 429, 500, 502, 503 or 504. A TLS failure is not retried. Without `--retry-unsafe`, only `GET`, `HEAD`, `OPTIONS`, `TRACE`, `PUT`, `DELETE` and `QUERY` are retried, and other methods only when the request carries an `Idempotency-Key` header. A body read from stdin is never retried, because it cannot be sent twice.",
-		"`--retries <n>` sets how many times a request is retried, and `--retries 0` turns retrying off. Waits grow exponentially with jitter, and each retry writes a note to stderr.",
+		"Nothing is retried unless the command line asks: `--retries <n>` lets a run retry up to `n` times in all, and no environment variable or default stands in for it. Waits grow exponentially with jitter, and each retry writes a note to stderr.",
+		"A streamed response whose error event says retrying is safe is retried the same way, whatever the method, because the server reports that the request took no effect; it counts against the same `--retries`.",
 		"A `Retry-After` header is honored up to the effective `--timeout`. When the server asks for a longer wait, the CLI does not wait: it stops retrying, and the error reports the server's value. `--timeout 0` removes this cap along with the timeout."
 	].join("\n\n")
 
@@ -229,8 +230,7 @@ const timeouts = (config: AuthorConfig): string => {
 	return [
 		"## Timeouts",
 		`\`--timeout <seconds>\` (\`${prefix}_TIMEOUT\`) bounds each attempt's wait for the response headers; \`0\` waits forever. A timeout exits with code 4.`,
-		`\`${prefix}_IDLE_TIMEOUT\` bounds the wait for each next chunk of a response body, streamed or not. A body that stalls longer exits with code 5. It has no flag.`,
-		`\`${prefix}_RETRIES\` sets the retry count as \`--retries\` does. Settings lists the defaults, including those this package was generated with.`
+		`\`${prefix}_IDLE_TIMEOUT\` bounds the wait for each next chunk of a response body, streamed or not. A body that stalls longer exits with code 5. It has no flag. Settings lists the defaults, including those this package was generated with.`
 	].join("\n\n")
 }
 
@@ -241,6 +241,7 @@ const output = (): string =>
 		"stdout carries only the response body, the request `--dry-run` prints, or the `--describe` JSON. Errors, notices, retry notes and `--verbose` lines go to stderr.",
 		"A response body is written to stdout as it arrives, or to a file with `--output <path>`, which `--force` lets replace an existing file. A binary body is not written to a terminal unless `--output -` asks for it.",
 		"A sequential response (Server-Sent Events, NDJSON, JSON Lines or JSON text sequences) is written one JSON value per line, each line as soon as its item arrives. Numbers keep their digits. `--raw` writes the bytes as received instead. `--max-record-bytes <n>` bounds one item; a larger item, or a stream that ends inside an item, exits with code 5.",
+		'A Server-Sent Events stream whose description names its events prints each event as `{"data":...,"event":...}`, data the description says is JSON as that JSON. When the stream names a ready event the command stops after it, and `--follow` keeps reading the live changes after it until the stream ends or the command is interrupted (exit code 130). A stream\'s end event ends the command; its error event is printed and then exits with code 1, retried as a fresh call under `--retries` only when the event says that is safe. A stream that names such events and ends before one of them exits with code 5.',
 		"`--dry-run` prints the request to stdout with every credential replaced and sends nothing. `--verbose` prints each attempt's and each redirect hop's request and response lines and headers to stderr, redacted and without bodies.",
 		'`--error-format json` writes each error to stderr as one JSON object, `{"error":{...}}`. The inner object always has `kind` and `message`, and has `operation`, `status`, `matched`, `body`, `retryAfter` and `requestId` only when they have a value. `retryAfter` is the server\'s `Retry-After` in seconds when retrying stopped at the `--timeout` cap.'
 	].join("\n\n")

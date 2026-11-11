@@ -59,7 +59,6 @@ export const reservedEnvSuffixes: readonly string[] = [
 	"BASE_URL",
 	"ERROR_FORMAT",
 	"IDLE_TIMEOUT",
-	"RETRIES",
 	"TIMEOUT"
 ]
 

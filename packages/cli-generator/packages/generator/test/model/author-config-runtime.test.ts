@@ -32,12 +32,11 @@ describe("author config runtime settings", () => {
 	test("a valid runtime object decodes to its values", () => {
 		const config = decode({
 			...base,
-			runtime: { idleTimeoutSeconds: 86_400, retries: 10, timeoutSeconds: 0 }
+			runtime: { idleTimeoutSeconds: 86_400, timeoutSeconds: 0 }
 		})
 
 		expect(runtimeSettings(config)).toEqual({
 			idleTimeoutSeconds: 86_400,
-			retries: 10,
 			timeoutSeconds: 0
 		})
 	})
@@ -45,12 +44,11 @@ describe("author config runtime settings", () => {
 	test("the lower bounds decode", () => {
 		const config = decode({
 			...base,
-			runtime: { idleTimeoutSeconds: 1, retries: 0, timeoutSeconds: 3600 }
+			runtime: { idleTimeoutSeconds: 1, timeoutSeconds: 3600 }
 		})
 
 		expect(runtimeSettings(config)).toEqual({
 			idleTimeoutSeconds: 1,
-			retries: 0,
 			timeoutSeconds: 3600
 		})
 	})
@@ -58,7 +56,6 @@ describe("author config runtime settings", () => {
 	test("an absent runtime object gives the defaults", () => {
 		expect(runtimeSettings(decode(base))).toEqual({
 			idleTimeoutSeconds: 300,
-			retries: 2,
 			timeoutSeconds: 30
 		})
 	})
@@ -66,23 +63,23 @@ describe("author config runtime settings", () => {
 	test("an empty runtime object gives the defaults", () => {
 		expect(runtimeSettings(decode({ ...base, runtime: {} }))).toEqual({
 			idleTimeoutSeconds: 300,
-			retries: 2,
 			timeoutSeconds: 30
 		})
 	})
 
 	test("an absent field gives its default", () => {
-		expect(runtimeSettings(decode({ ...base, runtime: { retries: 5 } }))).toEqual({
+		expect(runtimeSettings(decode({ ...base, runtime: { timeoutSeconds: 5 } }))).toEqual({
 			idleTimeoutSeconds: 300,
-			retries: 5,
-			timeoutSeconds: 30
+			timeoutSeconds: 5
 		})
 	})
 
 	test.each([
-		["retries above 10", { retries: 11 }, "/runtime/retries|CFG-1/invalid-value"],
-		["fractional retries", { retries: 1.5 }, "/runtime/retries|CFG-1/invalid-value"],
-		["negative retries", { retries: -1 }, "/runtime/retries|CFG-1/invalid-value"],
+		[
+			"a retry count, which only the caller gives",
+			{ retries: 2 },
+			"/runtime/retries|CFG-1/unknown-key"
+		],
 		["negative timeout", { timeoutSeconds: -1 }, "/runtime/timeoutSeconds|CFG-1/invalid-value"],
 		["timeout above 3600", { timeoutSeconds: 3601 }, "/runtime/timeoutSeconds|CFG-1/invalid-value"],
 		["fractional timeout", { timeoutSeconds: 2.5 }, "/runtime/timeoutSeconds|CFG-1/invalid-value"],
@@ -112,13 +109,13 @@ describe("author config runtime settings", () => {
 	})
 
 	test("a config with a partial runtime round-trips unchanged", () => {
-		const input = { ...base, runtime: { retries: 5 } }
+		const input = { ...base, runtime: { timeoutSeconds: 5 } }
 
 		expect(encode(input)).toEqual(input)
 	})
 
 	test("a config with a full runtime round-trips unchanged", () => {
-		const input = { ...base, runtime: { idleTimeoutSeconds: 300, retries: 2, timeoutSeconds: 30 } }
+		const input = { ...base, runtime: { idleTimeoutSeconds: 300, timeoutSeconds: 30 } }
 
 		expect(encode(input)).toEqual(input)
 	})

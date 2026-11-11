@@ -31,13 +31,13 @@ import {
 	Url,
 	UrlParams
 } from "effect/http"
-import { RedirectRefused, UsageError } from "../domain/errors.ts"
-import type { TransportError } from "../domain/errors.ts"
-import { credentialHeaders, credentialLikeResponseName, isLoopbackHost } from "./auth.ts"
-import { Servers } from "./base-url.ts"
-import { asCliError, printStderr } from "./input.ts"
-import { queryWireForm, redactedPlaceholder } from "./redact.ts"
-import { mapClientError } from "./response.ts"
+import { RedirectRefused, UsageError } from "#domain/errors.ts"
+import type { TransportError } from "#domain/errors.ts"
+import { credentialHeaders, credentialLikeResponseName, isLoopbackHost } from "#runtime/auth.ts"
+import { Servers } from "#runtime/base-url.ts"
+import { asCliError, printStderr } from "#runtime/input.ts"
+import { queryWireForm, redactedPlaceholder } from "#runtime/redact.ts"
+import { mapClientError } from "#runtime/response.ts"
 
 /**
  * The most redirects one request follows (design 6.5 Redirect loop). The response to the last
@@ -552,36 +552,23 @@ const retriedReasons: ReadonlySet<TransportError["reason"]> = new Set(["connect"
 export const wouldRetry = (method: string, idempotencyKeyPresent: boolean): boolean =>
 	idempotencyKeyPresent || idempotentMethods.has(method)
 
-/**
- * The built-in `--retries` (design D-AD7), used when no flag, environment value or author default
- * sets one.
- */
-export const defaultRetries = 2
-
-const maxRetries = 10
-
 const invalidRetries = (): UsageError =>
-	new UsageError({
-		flag: "--retries",
-		message: `--retries must be a whole number from 0 to ${maxRetries}`
-	})
-
-// A whole number from 0 to `maxRetries`. The failure names `--retries` only, never the value.
-const parseRetries = (raw: string): Effect.Effect<number, UsageError> =>
-	decodeWholeNumber(raw).pipe(
-		Effect.mapError(invalidRetries),
-		Effect.filterOrFail((retries) => retries <= maxRetries, invalidRetries)
-	)
+	new UsageError({ flag: "--retries", message: "--retries must be a whole number" })
 
 /**
- * `--retries <n>`: how many times a transient failure is retried (design D-AD7). The flag holds
- * only the operator's value; `effectiveRetries` applies the fallbacks.
+ * `--retries <n>`: how many times one run may retry, a whole number the caller gives. Retrying is
+ * the caller's decision alone, so no environment value, author default or built-in count stands in
+ * for the flag: absent, the run never retries.
  */
 export const retriesSetting = GlobalFlag.Setting("retries")({
 	flag: Flag.String("retries").pipe(
 		Flag.withMetavar("n"),
-		Flag.withDescription(`Times to retry a transient failure, 0 to ${maxRetries}`),
-		Flag.mapEffect((raw) => parseRetries(raw).pipe(Effect.mapError(asCliError))),
+		Flag.withDescription(
+			"Times to retry a transient failure or a stream error that says retrying is safe; none when absent"
+		),
+		Flag.mapEffect((raw) =>
+			decodeWholeNumber(raw).pipe(Effect.mapError(invalidRetries), Effect.mapError(asCliError))
+		),
 		Flag.optional
 	)
 })
@@ -597,30 +584,44 @@ export const retryUnsafeSetting = GlobalFlag.Setting("retry-unsafe")({
 	)
 })
 
-const flagRetries = Effect.map(Effect.serviceOption(retriesSetting), Option.flatten)
+/**
+ * Exponential from 500 ms, jittered (design D-AD7): the wait before a retry when the server names
+ * none.
+ */
+const backoff = Schedule.jittered(Schedule.exponential("500 millis"))
 
 /**
- * The effective `--retries`: the flag, then `<envPrefix>_RETRIES` read by that explicit name (as
- * `effectiveTimeoutSeconds` reads `<PREFIX>_TIMEOUT`), then `defaultRetries`. The author default
- * reaches the env read through the `ConfigProvider` `main.ts` provides. An unprefixed `RETRIES` is
- * never read.
+ * One run's retries, shared by every retry the command makes, whatever failed: how many of
+ * `--retries` are left, the attempts the run may make in all, and the backoff that spaces them.
  */
-export const effectiveRetries = (envPrefix: string): Effect.Effect<number, UsageError> =>
-	Effect.gen(function* resolveRetries() {
-		const flag = yield* flagRetries
-		if (Option.isSome(flag)) {
-			return flag.value
-		}
+export interface RetryBudget {
+	readonly backoff: (cause: string) => Effect.Effect<Duration.Duration>
+	readonly left: Ref.Ref<number>
+	readonly total: number
+}
 
-		const env = yield* Config.option(Config.String(`${envPrefix}_RETRIES`)).pipe(
-			Effect.mapError(invalidRetries)
-		)
+/**
+ * The run's retry budget, from `--retries`: none when the flag is absent or the root registers no
+ * such flag.
+ */
+export const retryBudget: Effect.Effect<RetryBudget> = Effect.gen(function* makeRetryBudget() {
+	const setting = yield* Effect.serviceOption(retriesSetting)
+	const retries = Option.getOrElse(Option.flatten(setting), () => 0)
+	const step = yield* Schedule.toStep(backoff)
+	const left = yield* Ref.make(retries)
 
-		return Option.isSome(env) ? yield* parseRetries(env.value) : defaultRetries
-	})
-
-// Exponential from 500 ms, jittered (design D-AD7). Used when the response names no `Retry-After`.
-const backoff = Schedule.jittered(Schedule.exponential("500 millis"))
+	return {
+		backoff: (cause) =>
+			Effect.flatMap(Clock.currentTimeMillis, (now) =>
+				step(now, cause).pipe(
+					Effect.map(([, next]) => next),
+					Pull.catchDone((leftover) => Effect.succeed(leftover))
+				)
+			),
+		left,
+		total: retries + 1
+	}
+})
 
 /**
  * The run's record of a `Retry-After` cap (design D-AD7): when retrying stops because the server
@@ -659,6 +660,73 @@ const exceedsCap = (delay: Duration.Duration, timeoutSeconds: number): boolean =
 	timeoutSeconds !== 0 && Duration.isGreaterThan(delay, Duration.seconds(timeoutSeconds))
 
 /**
+ * What one failure does with the run's retry budget: send the request again after `delay`; stop
+ * because the server's delay passes the `--timeout` cap, named here in whole seconds rounded up;
+ * or stop, the budget spent or the body read once.
+ */
+export type RetryDecision =
+	| Readonly<{ _tag: "Again"; delay: Duration.Duration }>
+	| Readonly<{ _tag: "Capped"; seconds: number }>
+	| Readonly<{ _tag: "Stop" }>
+
+/**
+ * The decision not to retry.
+ */
+export const stopRetrying: RetryDecision = { _tag: "Stop" }
+
+/**
+ * A request as the retry notices name it: its method and its URL redacted, then scrubbed.
+ */
+export const retryLabel = (
+	request: HttpClientRequest.HttpClientRequest,
+	scrub: (text: string) => string
+): string => `${request.method} ${scrub(UrlParams.redactUrl(request.url))}`
+
+/**
+ * Spend one retry of the run's budget on `cause`, a failure of `request`, which the notices call
+ * `label` (design D-AD7). Nothing is spent when the budget is spent; a body read once (stdin,
+ * `isOneShot`) is never sent again, which one stderr line names `unreplayableBody`; a server delay
+ * longer than the effective `--timeout` is not waited (design 13.1 R6). Otherwise one retry is
+ * spent and one stderr line names the request, the cause, the attempt and the wait: the server's
+ * delay when it names one, else the backoff.
+ */
+export const decideRetry = Effect.fnUntraced(function* decideRetry(
+	budget: RetryBudget,
+	request: HttpClientRequest.HttpClientRequest,
+	label: string,
+	cause: string,
+	server: Option.Option<Duration.Duration>
+): Effect.fn.Return<RetryDecision, UsageError, Stdio.Stdio> {
+	const left = yield* Ref.get(budget.left)
+	if (left === 0) {
+		return stopRetrying
+	}
+
+	if (isOneShot(request.body)) {
+		yield* printStderr(
+			`Notice: not retrying ${label} after ${cause}: unreplayableBody, ` +
+				"the request body was read once and cannot be sent again"
+		)
+
+		return stopRetrying
+	}
+
+	const timeout = yield* requestTimeoutSeconds
+	if (Option.isSome(server) && exceedsCap(server.value, timeout)) {
+		return { _tag: "Capped", seconds: Math.ceil(Duration.toSeconds(server.value)) }
+	}
+
+	yield* Ref.set(budget.left, left - 1)
+	const delay = Option.isSome(server) ? server.value : yield* budget.backoff(cause)
+	yield* printStderr(
+		`Notice: retrying ${label} after ${cause} ` +
+			`(attempt ${budget.total - left + 1} of ${budget.total}) in ${Math.round(Duration.toMillis(delay))} ms`
+	)
+
+	return { _tag: "Again", delay }
+})
+
+/**
  * Why an attempt's outcome is retried: the final status, or the `TransportError` reason as
  * `mapClientError` classifies it. `None` for every other outcome, interrupts and defects included.
  */
@@ -690,96 +758,60 @@ const retryCause = <E>(
  * The retry policy (design D-AD7, 5 Retries row), an `HttpClient.transform` applied outside the
  * redirect loop, so one attempt is one run of the loop with its hops, and the loop's replay rule
  * is the retry's. An attempt is retried when its method is retried (`wouldRetry`, or any method
- * with `--retry-unsafe`), its outcome is a retried status or `TransportError` reason, and attempts
- * remain (`effectiveRetries` + 1 in all). A one-shot body (stdin, `isOneShot`) is never retried:
- * one stderr line names `unreplayableBody` and the outcome stands. File and in-memory bodies
- * re-run from the start.
+ * with `--retry-unsafe`), its outcome is a retried status or `TransportError` reason, and the run's
+ * budget, which `send` shares with the retries of its stream, has one left (`decideRetry`). File
+ * and in-memory bodies re-run from the start.
  *
  * Each attempt runs in its own scope, a child of the caller's, so a discarded response is aborted
- * by closing that scope, not drained; the final response's scope closes with the caller's. Before
- * each retry one stderr note names the method, the URL through `scrub` (the RT-6 scrubber `send`
- * passes), the cause, the attempt and the delay: the response's `Retry-After` (seconds or an HTTP
- * date) when it carries one that parses, else exponential from 500 ms, jittered. A `Retry-After`
- * longer than the effective `--timeout` is not waited (design D-AD7): retrying stops and the last
- * response is returned unchanged and the server's delay is recorded in `RetryAfterCap`. Every other
- * last outcome is returned or failed unchanged. An invalid `<PREFIX>_RETRIES` or `<PREFIX>_TIMEOUT`
- * fails with a `UsageError` before anything is sent.
+ * by closing that scope, not drained; the final response's scope closes with the caller's. A retry
+ * waits the response's `Retry-After` (seconds or an HTTP date) when it carries one that parses,
+ * else the backoff. A `Retry-After` longer than the effective `--timeout` is not waited (design
+ * D-AD7): retrying stops, the last response is returned unchanged and the server's delay is
+ * recorded in `RetryAfterCap`. Every other last outcome is returned or failed unchanged. An invalid
+ * `<PREFIX>_TIMEOUT` fails with a `UsageError` before anything is sent.
  */
 export const retryTransform =
-	(scrub: (text: string) => string) =>
+	(scrub: (text: string) => string, budget: RetryBudget) =>
 	<E, R>(
 		client: HttpClient.HttpClient.With<E, R>
 	): HttpClient.HttpClient.With<E | UsageError, R | Scope.Scope | Stdio.Stdio> =>
 		HttpClient.transform(client, (attempt, request) =>
 			Effect.gen(function* retrying() {
-				// The prefix comes with the root's servers table; without it only the flag and the
-				// built-in value apply, as for the timeout.
-				const retries = yield* Effect.serviceOption(Servers).pipe(
-					Effect.flatMap(
-						Option.match({
-							onNone: () => flagRetries.pipe(Effect.map(Option.getOrElse(() => defaultRetries))),
-							onSome: ({ envPrefix }) => effectiveRetries(envPrefix)
-						})
-					)
-				)
 				const unsafe = Option.getOrElse(
 					yield* Effect.serviceOption(retryUnsafeSetting),
 					() => false
 				)
 				const retried =
 					unsafe || wouldRetry(request.method, Headers.has(request.headers, "idempotency-key"))
-				const timeout = yield* requestTimeoutSeconds
-				const total = retries + 1
-				const label = `${request.method} ${scrub(UrlParams.redactUrl(request.url))}`
+				const label = retryLabel(request, scrub)
 				const caller = yield* Scope.Scope
-				const step = yield* Schedule.toStep(backoff)
 
-				for (let made = 1; ; made += 1) {
+				for (;;) {
 					const scope = yield* Scope.fork(caller)
 					const exit = yield* Effect.exit(attempt.pipe(Scope.provide(scope)))
 					const cause = yield* retryCause(exit)
-					if (retried && made < total && Option.isSome(cause)) {
-						if (!isOneShot(request.body)) {
-							const now = yield* Clock.currentTimeMillis
-							const server = Exit.isSuccess(exit)
-								? retryAfterDelay(exit.value, now)
-								: Option.none<Duration.Duration>()
-							if (
-								Exit.isSuccess(exit) &&
-								Option.isSome(server) &&
-								exceedsCap(server.value, timeout)
-							) {
-								const record = yield* Effect.serviceOption(RetryAfterCap)
-								if (Option.isSome(record)) {
-									yield* Ref.set(
-										record.value,
-										Option.some(Math.ceil(Duration.toSeconds(server.value)))
-									)
-								}
+					const now = yield* Clock.currentTimeMillis
+					const decision =
+						retried && Option.isSome(cause)
+							? yield* decideRetry(
+									budget,
+									request,
+									label,
+									cause.value,
+									Exit.isSuccess(exit) ? retryAfterDelay(exit.value, now) : Option.none()
+								)
+							: stopRetrying
+					if (decision._tag === "Again") {
+						yield* Scope.close(scope, Exit.void)
+						yield* Effect.sleep(decision.delay)
+						continue
+					}
 
-								return exit.value
-							}
-
-							yield* Scope.close(scope, Exit.void)
-
-							const delay = Option.isSome(server)
-								? server.value
-								: yield* step(now, cause.value).pipe(
-										Effect.map(([, next]) => next),
-										Pull.catchDone((leftover) => Effect.succeed(leftover))
-									)
-							yield* printStderr(
-								`Notice: retrying ${label} after ${cause.value} ` +
-									`(attempt ${made + 1} of ${total}) in ${Math.round(Duration.toMillis(delay))} ms`
-							)
-							yield* Effect.sleep(delay)
-							continue
+					if (decision._tag === "Capped") {
+						const record = yield* Effect.serviceOption(RetryAfterCap)
+						if (Option.isSome(record)) {
+							yield* Ref.set(record.value, Option.some(decision.seconds))
 						}
-
-						yield* printStderr(
-							`Notice: not retrying ${label} after ${cause.value}: unreplayableBody, ` +
-								"the request body was read once and cannot be sent again"
-						)
 					}
 
 					if (Exit.isFailure(exit)) {

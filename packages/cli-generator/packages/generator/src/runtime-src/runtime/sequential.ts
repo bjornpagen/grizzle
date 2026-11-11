@@ -1,5 +1,5 @@
 import { Effect, Option, Schema, Stream } from "effect"
-import { ResponseStreamError } from "../domain/errors.ts"
+import { ResponseStreamError } from "#domain/errors.ts"
 
 /**
  * A sequential body's framing: NDJSON or JSONL lines, RFC 7464 JSON-seq records, or Server-Sent

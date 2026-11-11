@@ -49,7 +49,6 @@ const intBetween = (min: number, max: number) =>
 // `runtimeSettings` applies `runtimeDefaults`, the one place the defaults live.
 const RuntimeConfig = Schema.Struct({
 	idleTimeoutSeconds: Schema.optionalKey(intBetween(1, 86_400)),
-	retries: Schema.optionalKey(intBetween(0, 10)),
 	timeoutSeconds: Schema.optionalKey(intBetween(0, 3600))
 })
 
@@ -348,13 +347,11 @@ export const decodeAuthorConfig = Effect.fnUntraced(function* decodeAuthorConfig
  */
 export interface RuntimeSettings {
 	readonly idleTimeoutSeconds: number
-	readonly retries: number
 	readonly timeoutSeconds: number
 }
 
 const runtimeDefaults: RuntimeSettings = {
 	idleTimeoutSeconds: 300,
-	retries: 2,
 	timeoutSeconds: 30
 }
 

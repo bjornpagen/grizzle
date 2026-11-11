@@ -19,7 +19,7 @@ const bare = Schema.decodeUnknownSync(AuthorConfig)(base)
 
 const authored = Schema.decodeUnknownSync(AuthorConfig)({
 	...base,
-	runtime: { idleTimeoutSeconds: 11, retries: 5, timeoutSeconds: 7 }
+	runtime: { idleTimeoutSeconds: 11, timeoutSeconds: 7 }
 })
 
 const resolve = (
@@ -30,7 +30,6 @@ const resolve = (
 	Effect.runSyncExit(
 		resolver.pipe(
 			Effect.provideService(Client.timeoutSetting, Option.none()),
-			Effect.provideService(Client.retriesSetting, Option.none()),
 			Effect.provideService(
 				ConfigProvider.ConfigProvider,
 				ConfigProvider.orElse(ConfigProvider.fromEnv({ env }), ConfigProvider.fromUnknown(fallback))
@@ -47,13 +46,6 @@ const settings = [
 		variable: `${prefix}_TIMEOUT`
 	},
 	{
-		authored: 5,
-		builtIn: 2,
-		name: "retries",
-		resolver: Client.effectiveRetries(prefix),
-		variable: `${prefix}_RETRIES`
-	},
-	{
 		authored: 11,
 		builtIn: 300,
 		name: "idle timeout",
@@ -66,7 +58,6 @@ describe("runtimeFallback", () => {
 	test("keys each author default by its prefixed env name, nothing nested", () => {
 		expect(runtimeFallback(authored)).toEqual({
 			ACME_IDLE_TIMEOUT: 11,
-			ACME_RETRIES: 5,
 			ACME_TIMEOUT: 7
 		})
 	})
@@ -74,7 +65,6 @@ describe("runtimeFallback", () => {
 	test("without an author runtime object the built-in values fill every key", () => {
 		expect(runtimeFallback(bare)).toEqual({
 			ACME_IDLE_TIMEOUT: 300,
-			ACME_RETRIES: 2,
 			ACME_TIMEOUT: 30
 		})
 	})
@@ -87,7 +77,6 @@ describe("runtimeFallback", () => {
 
 		expect(Object.keys(runtimeFallback(config))).toEqual([
 			"EXAMPLE_CLI_IDLE_TIMEOUT",
-			"EXAMPLE_CLI_RETRIES",
 			"EXAMPLE_CLI_TIMEOUT"
 		])
 	})

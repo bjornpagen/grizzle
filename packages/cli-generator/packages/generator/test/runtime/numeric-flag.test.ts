@@ -297,23 +297,19 @@ const envRefused = async (
 
 describe("whole-number flag and variable messages", () => {
 	const timeout = "--timeout must be a whole number of seconds, 0 or more"
-	const retries = "--retries must be a whole number from 0 to 10"
+	const retries = "--retries must be a whole number"
 	const idle = "ACME_IDLE_TIMEOUT must be a whole number of seconds, 1 or more"
 
 	test.each(["abc", "1.5", "-1", "99999999999999999999"])("--timeout %p", async (raw) => {
 		await flagRefused(Client.timeoutSetting, "timeout", raw, timeout)
 	})
 
-	test.each(["abc", "-1", "11"])("--retries %p", async (raw) => {
+	test.each(["abc", "-1", "1.5"])("--retries %p", async (raw) => {
 		await flagRefused(Client.retriesSetting, "retries", raw, retries)
 	})
 
 	test.each(["abc", "-1", "99999999999999999999"])("ACME_TIMEOUT %p", async (raw) => {
 		await envRefused(Client.effectiveTimeoutSeconds("ACME"), { ACME_TIMEOUT: raw }, timeout)
-	})
-
-	test.each(["abc", "-1", "11"])("ACME_RETRIES %p", async (raw) => {
-		await envRefused(Client.effectiveRetries("ACME"), { ACME_RETRIES: raw }, retries)
 	})
 
 	test.each(["abc", "0", "-1", "99999999999999999999"])("ACME_IDLE_TIMEOUT %p", async (raw) => {

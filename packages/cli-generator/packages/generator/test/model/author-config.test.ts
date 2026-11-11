@@ -40,7 +40,7 @@ const full = {
 		operations: sample.naming.operations
 	},
 	retrievalUri: "https://example.com/openapi.json",
-	runtime: { idleTimeoutSeconds: 300, retries: 2, timeoutSeconds: 30 },
+	runtime: { idleTimeoutSeconds: 300, timeoutSeconds: 30 },
 	security: { bearerAuth: { env: "EXAMPLE_TOKEN" } }
 }
 

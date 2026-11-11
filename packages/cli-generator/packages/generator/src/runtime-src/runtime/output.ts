@@ -1,5 +1,5 @@
 /* oxlint-disable unicorn/throw-new-error -- Schema.TaggedError<Self>()(tag, fields) declares a class; nothing is thrown */
-import type { PlatformError } from "effect"
+import type { PlatformError, Scope } from "effect"
 import {
 	Array as Arr,
 	Bytes,
@@ -35,8 +35,8 @@ import {
 	StreamEventError,
 	TransportError,
 	UsageError
-} from "../domain/errors.ts"
-import type { Credential, Placeholder, SecurityRequirement } from "./auth.ts"
+} from "#domain/errors.ts"
+import type { Credential, Placeholder, SecurityRequirement } from "#runtime/auth.ts"
 import {
 	allowCredentialsForBaseUrl,
 	attach,
@@ -52,7 +52,7 @@ import {
 	Schemes,
 	sensitiveHeaderNames,
 	withheldCertificateClause
-} from "./auth.ts"
+} from "#runtime/auth.ts"
 import {
 	baseUrlSetting,
 	requestUrl,
@@ -61,15 +61,19 @@ import {
 	serverSetting,
 	Servers,
 	serverVariableSetting
-} from "./base-url.ts"
-import type { ServersTable } from "./base-url.ts"
+} from "#runtime/base-url.ts"
+import type { ServersTable } from "#runtime/base-url.ts"
 import {
 	decodedQueryName,
 	decodeWholeNumber,
 	querySeparator,
+	decideRetry,
 	redirectLoop,
 	RetryAfterCap,
+	retryBudget,
+	retryLabel,
 	retryTransform,
+	stopRetrying,
 	sendOrder,
 	setUserAgent,
 	Transport,
@@ -77,11 +81,11 @@ import {
 	verboseTransform,
 	withUserAgent,
 	wouldRetry
-} from "./client.ts"
-import { printStderr } from "./input.ts"
-import type { MediaDeclaration } from "./negotiate.ts"
-import { accept as acceptValue, dispatchResponse } from "./negotiate.ts"
-import type { ScrubEntry } from "./redact.ts"
+} from "#runtime/client.ts"
+import { printStderr } from "#runtime/input.ts"
+import type { MediaDeclaration } from "#runtime/negotiate.ts"
+import { accept as acceptValue, dispatchResponse } from "#runtime/negotiate.ts"
+import type { ScrubEntry } from "#runtime/redact.ts"
 import {
 	dropTrailingFragment,
 	encoder,
@@ -91,17 +95,17 @@ import {
 	RunCredentials,
 	scrub as scrubValues,
 	scrubAround
-} from "./redact.ts"
+} from "#runtime/redact.ts"
 import {
 	classify,
 	isBodiless,
 	mapClientError,
 	matchResponse,
 	toApiResponseError
-} from "./response.ts"
-import { jsonSeqRecords, ndjsonRecords, sequentialCodecOf, utf8Bytes } from "./sequential.ts"
-import type { EventContract, EventFailed, EventTable, StopAt } from "./sse.ts"
-import { eventStream, hasLifecycle, openContract, StopPoint } from "./sse.ts"
+} from "#runtime/response.ts"
+import { jsonSeqRecords, ndjsonRecords, sequentialCodecOf, utf8Bytes } from "#runtime/sequential.ts"
+import type { EventContract, EventFailed, EventTable, StopAt } from "#runtime/sse.ts"
+import { eventStream, hasLifecycle, openContract, StopPoint } from "#runtime/sse.ts"
 
 /**
  * `--output <path>` writes the response body to a file; `-` writes it to stdout.
@@ -499,20 +503,13 @@ export const writeBody = <E, R>(response: ResponseBody<E, R>) =>
 	writeStream(response.bytes, !printsAsText(response.mediaType))
 
 /**
- * Write a 2xx response body by its matched media key and, for SSE, the event plan (`responseBytes`).
- * Sequential lines are text, so the binary terminal guard does not apply to them.
+ * Write a 2xx response body by its matched media key (`responseBytes`), an SSE body under
+ * `openPlan`. Sequential lines are text, so the binary terminal guard does not apply to them.
  */
-export const writeResponseUnder =
-	(plan: EventPlan) =>
-	<E, R>(response: ResponseBody<E, R>) =>
-		Effect.flatMap(responseBytes(response, plan), (framed) =>
-			writeStream(framed.bytes, framed.binary)
-		)
-
-/**
- * Write a 2xx response body by its matched media key, an SSE body under `openPlan`.
- */
-export const writeResponse = writeResponseUnder(openPlan)
+export const writeResponse = <E, R>(response: ResponseBody<E, R>) =>
+	Effect.flatMap(responseBytes(response, openPlan), (framed) =>
+		writeStream(framed.bytes, framed.binary)
+	)
 
 /**
  * C0 except LF and TAB, DEL, C1, format characters (bidi controls among them), U+2028, U+2029 and
@@ -1560,19 +1557,16 @@ const eventPlanOf = (
 const streamEventError = (
 	operation: string,
 	failed: EventFailed,
-	scrubbed: readonly ScrubEntry[]
-) =>
-	Effect.map(
-		MaxErrorBytes,
-		(maxBytes) =>
-			new StreamEventError({
-				dataExcerpt: boundedExcerpt(failed.data, maxBytes, scrubbed),
-				event: failed.event,
-				itemIndex: failed.itemIndex,
-				operation,
-				retrySafe: failed.retrySafe
-			})
-	)
+	scrubbed: readonly ScrubEntry[],
+	maxBytes: number
+): StreamEventError =>
+	StreamEventError.make({
+		dataExcerpt: boundedExcerpt(failed.data, maxBytes, scrubbed),
+		event: failed.event,
+		itemIndex: failed.itemIndex,
+		operation,
+		retrySafe: failed.retrySafe
+	})
 
 const declaredMedia = (meta: OperationMeta, status: number): readonly string[] => {
 	const key = matchResponse(meta.media.responses, status)
@@ -2272,6 +2266,7 @@ export const send =
 			const idleSeconds = yield* effectiveIdleTimeoutSeconds(envPrefix)
 			const scrub = (text: string): string => scrubbedAndSanitized(text, scrubbed)
 			const transport = yield* Transport
+			const budget = yield* retryBudget
 			const client = redirectLoop(
 				attach(security, { credentials, origins }),
 				transport,
@@ -2279,7 +2274,7 @@ export const send =
 				// An alternative without mutualTLS presents it on no hop.
 				(url) => certificateChosen && presentsCertificate(url, servers.boundOrigins),
 				verboseTransform(scrub, sensitive)
-			).pipe(retryTransform(scrub), withUserAgent(policy.binName, policy.version))
+			).pipe(retryTransform(scrub, budget), withUserAgent(policy.binName, policy.version))
 			const cap = yield* Ref.make(Option.none<number>())
 			const table = {
 				operation,
@@ -2287,53 +2282,92 @@ export const send =
 				responses: meta.media.responses
 			}
 
-			yield* recordSent(built)
-			yield* client.execute(built).pipe(
+			const stopPoint = yield* Effect.serviceOption(StopPoint)
+			const stopAt = Option.getOrElse(stopPoint, (): StopAt => "ready")
+			const respond = client.execute(built).pipe(
 				Effect.catchTag("HttpClientError", mapClientError),
 				Effect.tap((response) => warnMissingHeaders(meta, response)),
 				Effect.flatMap((response) =>
 					classify(table, response, scrubbed).pipe(
-						Effect.matchEffect({
-							onFailure: () =>
-								readExcerpt(bodyOf(response, idleSeconds), scrubbed).pipe(
-									// A truncated excerpt is no excerpt; a stalled one is the idle timeout.
-									Effect.catchIf(
-										(error) => error.reason !== "idleTimeout",
-										() => Effect.succeed("")
-									),
-									Effect.flatMap((excerpt) =>
-										Ref.get(cap).pipe(
-											Effect.flatMap((capped) =>
-												Effect.fail(toApiResponseError(table, response, excerpt, scrubbed, capped))
-											)
+						Effect.catchTag("ApiResponseError", () =>
+							readExcerpt(bodyOf(response, idleSeconds), scrubbed).pipe(
+								Effect.catchIf(
+									(error) => error.reason !== "idleTimeout",
+									() => Effect.succeed("")
+								),
+								Effect.flatMap((excerpt) =>
+									Ref.get(cap).pipe(
+										Effect.flatMap((capped) =>
+											Effect.fail(toApiResponseError(table, response, excerpt, scrubbed, capped))
 										)
 									)
-								),
-							onSuccess: (ok) =>
-								isBodiless(ok)
-									? Effect.void
-									: Effect.gen(function* writeOk() {
-											const mediaType = dispatchResponse(
-												declaredMedia(meta, ok.status),
-												Option.getOrUndefined(Headers.get(ok.headers, "content-type"))
-											)
-											if (mediaType === undefined) {
-												yield* undeclaredMediaNotice(operation, ok, scrub)
-											}
+								)
+							)
+						)
+					)
+				)
+			)
+			const framedOf = (ok: HttpClientResponse.HttpClientResponse) =>
+				Effect.gen(function* frameOk() {
+					const mediaType = dispatchResponse(
+						declaredMedia(meta, ok.status),
+						Option.getOrUndefined(Headers.get(ok.headers, "content-type"))
+					)
+					if (mediaType === undefined) {
+						yield* undeclaredMediaNotice(operation, ok, scrub)
+					}
 
-											const stopPoint = yield* Effect.serviceOption(StopPoint)
-											const stopAt = Option.getOrElse(stopPoint, (): StopAt => "ready")
-											yield* writeResponseUnder(eventPlanOf(meta, ok.status, mediaType, stopAt))({
-												bytes: bodyOf(ok, idleSeconds),
-												mediaType
-											}).pipe(
-												Effect.catchTag("EventFailed", (failed) =>
-													Effect.flatMap(streamEventError(operation, failed, scrubbed), Effect.fail)
-												)
-											)
-										})
+					return yield* responseBytes(
+						{ bytes: bodyOf(ok, idleSeconds), mediaType },
+						eventPlanOf(meta, ok.status, mediaType, stopAt)
+					)
+				})
+			const label = retryLabel(built, scrub)
+			const maxErrorBytes = yield* MaxErrorBytes
+			const retrying = <R>(
+				bytes: Stream.Stream<Uint8Array, SendError | EventFailed, R>
+			): Stream.Stream<
+				Uint8Array,
+				SendError,
+				R | GlobalFlag.Setting.Identifier<"max-error-bytes"> | Scope.Scope | Stdio.Stdio
+			> =>
+				Stream.catchTag(bytes, "EventFailed", (failed) =>
+					Stream.unwrap(
+						Effect.gen(function* retryEvent() {
+							const decision = failed.retrySafe
+								? yield* decideRetry(
+										budget,
+										built,
+										label,
+										`the ${failed.event} event`,
+										Option.map(failed.reconnect, (digits) => Duration.millis(Number(digits)))
+									)
+								: stopRetrying
+							if (decision._tag !== "Again") {
+								return Stream.fail(streamEventError(operation, failed, scrubbed, maxErrorBytes))
+							}
+
+							yield* Effect.sleep(decision.delay)
+							const next = yield* respond
+							if (isBodiless(next)) {
+								return Stream.empty
+							}
+
+							const framed = yield* framedOf(next)
+
+							return retrying(framed.bytes)
 						})
 					)
+				)
+
+			yield* recordSent(built)
+			yield* respond.pipe(
+				Effect.flatMap((ok) =>
+					isBodiless(ok)
+						? Effect.void
+						: Effect.flatMap(framedOf(ok), (framed) =>
+								writeStream(retrying(framed.bytes), framed.binary)
+							)
 				),
 				Effect.provideService(RetryAfterCap, cap),
 				Effect.scoped,

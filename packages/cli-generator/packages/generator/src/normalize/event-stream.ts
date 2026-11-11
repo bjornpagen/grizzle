@@ -62,7 +62,18 @@ const decodeRole = Schema.decodeUnknownOption(StreamRole, strict)
 
 const decodeName = Schema.decodeUnknownOption(Schema.String)
 
-const sameRow = Schema.toEquivalence(StreamEvent)
+/**
+ * Whether two rows say the same of their event: its data, its role and its retry rule. A union's derived equivalence
+ * cannot be used: a row without a retry rule also matches the member that has one, so the two would compare equal.
+ */
+const sameRow = (left: typeof StreamEvent.Type, right: typeof StreamEvent.Type): boolean =>
+	left.data === right.data &&
+	left.role === right.role &&
+	("retryWhen" in left
+		? "retryWhen" in right &&
+			left.retryWhen.equals === right.retryWhen.equals &&
+			left.retryWhen.pointer === right.retryWhen.pointer
+		: !("retryWhen" in right))
 
 /**
  * The schema at a key after its references, and its node.

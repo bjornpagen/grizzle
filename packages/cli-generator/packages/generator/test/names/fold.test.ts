@@ -275,7 +275,6 @@ describe("reserved sets", () => {
 			"BASE_URL",
 			"ERROR_FORMAT",
 			"IDLE_TIMEOUT",
-			"RETRIES",
 			"TIMEOUT"
 		])
 	})

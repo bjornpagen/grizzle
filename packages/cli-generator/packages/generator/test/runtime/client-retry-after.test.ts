@@ -41,19 +41,24 @@ interface Outcome {
 	readonly status: number
 }
 
-// The retry transform alone over the scripted client, with `--timeout` given as a flag and the
-// clock driven in one-second steps for six minutes, so every wait elapses in virtual time.
+// The retry transform alone over the scripted client, with `--timeout` and `--retries 2` given as
+// flags and the clock driven in one-second steps for six minutes, so every wait elapses in virtual
+// time.
 const run = async (answers: readonly Answer[], timeout: number): Promise<Outcome> => {
 	const arrivals: number[] = []
-	const client = scripted(answers, arrivals).pipe(Client.retryTransform((text) => text))
 	const exchange = Effect.gen(function* exchanging() {
+		const budget = yield* Client.retryBudget
+		const client = scripted(answers, arrivals).pipe(Client.retryTransform((text) => text, budget))
 		const record = yield* Ref.make(Option.none<number>())
 		const status = yield* Effect.scoped(
 			client.execute(HttpClientRequest.get(url)).pipe(Effect.map((response) => response.status))
 		).pipe(Effect.provideService(Client.RetryAfterCap, record))
 
 		return { capped: yield* Ref.get(record), status }
-	}).pipe(Effect.provideService(Client.timeoutSetting, Option.some(timeout)))
+	}).pipe(
+		Effect.provideService(Client.timeoutSetting, Option.some(timeout)),
+		Effect.provideService(Client.retriesSetting, Option.some(2))
+	)
 	const exit = await Effect.runPromiseExit(
 		Effect.gen(function* drive() {
 			const fiber = yield* Effect.forkChild(exchange)
