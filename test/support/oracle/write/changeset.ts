@@ -307,9 +307,10 @@ interface ReadSketch {
  * - "lagging differing": the same, the generated addition's other field differing, so the read-backs hold one
  *   removal and one addition;
  * - "lagging repeat": a generated addition into the numbered relation, whose identity column lies outside its key, of a
- *   stored fact's key, its sequence lagging at that fact's identity value: the realization draws the stored fact
- *   again, its plain INSERT meets it at the key, and the change is refused there, as a draw of any fresh value would
- *   be; the stored fact never stands in for the addition;
+ *   stored fact's key, its sequence lagging at that fact's identity value: equal to the stored fact at every field it
+ *   states, met at its arbiter, the declared key that holds no field it draws (write/insert/unique.ts
+ *   generatedArbiter), it is that fact and draws nothing: the change is no change and the sequence stays behind,
+ *   never called, where a draw would take the stored fact's identity value again;
  * - "lagging retried": the lagging identical deletion beside a second generated addition, a stored fact at the
  *   sequence's second value: the realization's draws meet that fact, the attempt fails with GeneratedSerialUnique and
  *   the next draws past both stored values, so neither addition repeats the deleted fact, which the calculator's own

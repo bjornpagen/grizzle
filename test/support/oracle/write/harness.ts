@@ -281,7 +281,7 @@ export type WriteOracleFeature =
 	| "a stated-one read-back over a deferred containment that the write violates"
 	| "lagging identical netted"
 	| "lagging differing"
-	| "a generated repeat of a kept fact refused"
+	| "a generated repeat of a kept fact, drawing nothing"
 	| "counts under the realization's draws"
 	| "an UPDATE ... FROM put advancing its sequence"
 	| "facts reordered on a second reading"
@@ -1518,15 +1518,19 @@ export const runCase = (
 			if (expected.draws.size > 0) {
 				note("generated accepted")
 			}
+			if (
+				origin.kind === "planted" &&
+				origin.arm === "lagging repeat" &&
+				expected.outcome.kind === "no-change"
+			) {
+				note("a generated repeat of a kept fact, drawing nothing")
+			}
 		} else if (expected.kind === "outsideDomain") {
 			note("outcome outside a domain")
 		} else if (expected.kind === "unbound") {
 			note("outcome refused at bind")
 		} else {
 			note("outcome invariant-rejected")
-			if (origin.kind === "planted" && origin.arm === "lagging repeat") {
-				note("a generated repeat of a kept fact refused")
-			}
 			if (Arr.some(program.artifact.steps, (step) => step.kind === "single")) {
 				note("a single statement refused by a law")
 			}

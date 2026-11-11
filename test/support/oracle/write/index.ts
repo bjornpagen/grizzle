@@ -175,7 +175,7 @@ export const writeSituations = [
 	"a stated-one read-back over a deferred containment that the write violates",
 	"lagging identical netted",
 	"lagging differing",
-	"a generated repeat of a kept fact refused",
+	"a generated repeat of a kept fact, drawing nothing",
 	"counts under the realization's draws",
 	"an UPDATE ... FROM put advancing its sequence",
 	"anchored deletion",
