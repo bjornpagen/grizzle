@@ -16,7 +16,7 @@ import { fullWorld } from "#test/support/worlds.ts"
  * fence's `Probe` (probeRelation): `g` is the group a keyed read binds its parameter `g` to, the column a commit's
  * notification names its value of, `o` the order an ordered read delivers by, and `val` a value no read binds. Its
  * programs are the reads the box draws, each one of the shapes the live machinery routes and diffs differently
- * (LiveRead), the probe member, and one insert, delete and put member per relation, whose facts are each call's. A
+ * (WorldRead), the probe member, and one insert, delete and put member per relation, whose facts are each call's. A
  * subscription is a read with what its call binds (LiveBinding). A history is commits, each a grizzle call of one write
  * member, or one SERIALIZABLE transaction of a direct SQL writer of the role, which may write several rows of either
  * relation, an immutable relation's row moved as its delete and its insert at one key. Every write changes what it
@@ -48,7 +48,7 @@ export type RelationPlace = 0 | 1
  * - `join`: the pairs of a row of `relation` and a row of `other`, the same relation or not, both of the bound group,
  *   routed by both relations' `g`.
  */
-export type LiveRead =
+export type WorldRead =
 	| { readonly kind: "keyed"; readonly relation: RelationPlace }
 	| { readonly kind: "wide"; readonly relation: RelationPlace }
 	| { readonly kind: "count"; readonly relation: RelationPlace }
@@ -57,7 +57,7 @@ export type LiveRead =
 	| { readonly kind: "page"; readonly relation: RelationPlace }
 	| { readonly kind: "join"; readonly relation: RelationPlace; readonly other: RelationPlace }
 
-export type ReadKind = LiveRead["kind"]
+export type ReadKind = WorldRead["kind"]
 
 /**
  * Where a page's window starts (live/program.ts Anchor): its first rows, its last, or the rows after or before a key of
@@ -90,7 +90,7 @@ export interface LiveSubscription {
 }
 
 /** The group a subscription binds, none for one that binds none. */
-const groupOf = (subscription: LiveSubscription): number | undefined =>
+export const groupOf = (subscription: LiveSubscription): number | undefined =>
 	subscription.binding.kind === "none" ? undefined : subscription.binding.group
 
 /** A write of one row: an insert of a free key, a delete of a stored row, or a stored row moved to `to` at its key. */
@@ -118,7 +118,7 @@ export type LiveState = readonly [ReadonlyArray<LiveFact>, ReadonlyArray<LiveFac
 /** A drawn live case (see the header). */
 export interface LiveCase {
 	readonly mutable: readonly [boolean, boolean]
-	readonly reads: Arr.NonEmptyReadonlyArray<LiveRead>
+	readonly reads: Arr.NonEmptyReadonlyArray<WorldRead>
 	readonly subscriptions: Arr.NonEmptyReadonlyArray<LiveSubscription>
 	readonly facts: LiveState
 	readonly history: ReadonlyArray<LiveCommit>
@@ -145,11 +145,11 @@ export interface LiveBounds {
 const relationGen: Gen<RelationPlace> = (source) => (source.draw(boolean) ? 1 : 0)
 
 const readGen =
-	(bounds: LiveBounds): Gen<LiveRead> =>
+	(bounds: LiveBounds): Gen<WorldRead> =>
 	(source) => {
 		const at = source.draw(relationGen)
 		return source.draw(
-			weighted<LiveRead>([
+			weighted<WorldRead>([
 				[2, () => ({ kind: "keyed", relation: at })],
 				[1, () => ({ kind: "wide", relation: at })],
 				[1, () => ({ kind: "count", relation: at })],
@@ -347,7 +347,7 @@ const anchorGen =
 	}
 
 const subscriptionGen =
-	(bounds: LiveBounds, reads: Arr.NonEmptyReadonlyArray<LiveRead>): Gen<LiveSubscription> =>
+	(bounds: LiveBounds, reads: Arr.NonEmptyReadonlyArray<WorldRead>): Gen<LiveSubscription> =>
 	(source) => {
 		const place = source.draw(int(0, reads.length - 1))
 		const read = reads[place] ?? reads[0]
@@ -378,7 +378,7 @@ const subscriptionGen =
 export const liveCaseGen =
 	(bounds: LiveBounds): Gen<LiveCase> =>
 	(source) => {
-		const reads: Arr.NonEmptyReadonlyArray<LiveRead> = [
+		const reads: Arr.NonEmptyReadonlyArray<WorldRead> = [
 			source.draw(readGen(bounds)),
 			...source.draw(array(readGen(bounds), { min: 0, max: bounds.reads - 1 }))
 		]
@@ -408,7 +408,7 @@ export const writeMember = (op: "insert" | "delete" | "put", place: RelationPlac
  * The fence's relation, `Probe(id)`, which no read of a case reads and no commit of its history writes: a fence commit
  * inserts a row of it, and the probe member, a wide read of it, hears that commit after every commit before it.
  */
-const probeRelation = "Probe"
+export const probeRelation = "Probe"
 
 /** The probe member: every row of Probe. */
 export const probeMember = "probe"
@@ -443,7 +443,7 @@ export const liveWorld = (c: LiveCase, name: string) => {
 			return r.match(Item, { id, g: r.param("g", pg.integer), o, val }).find({ id, o, val })
 		})
 	}
-	const readOf = (read: LiveRead): unknown => {
+	const readOf = (read: WorldRead): unknown => {
 		switch (read.kind) {
 			case "keyed":
 				return keyed(read.relation)
@@ -502,8 +502,20 @@ export const liveWorld = (c: LiveCase, name: string) => {
 }
 
 /** The relations a read reads, by place: its footprint. */
-const footprintOf = (read: LiveRead): ReadonlyArray<RelationPlace> =>
+const footprintOf = (read: WorldRead): ReadonlyArray<RelationPlace> =>
 	read.kind === "join" ? Arr.dedupe([read.relation, read.other]) : [read.relation]
+
+/**
+ * The footprint a read's served file must record, by relation and the fields it routes by: every relation of its
+ * footprint routed by `g`, which each of its matches fixes to the parameter `g`, but a wide read's, which fixes nothing.
+ */
+export const expectedRoutes = (
+	read: WorldRead
+): ReadonlyArray<{ readonly relation: RelationPlace; readonly routes: ReadonlyArray<"g"> }> =>
+	Arr.map(footprintOf(read), (relation) => ({
+		relation,
+		routes: read.kind === "wide" ? [] : ["g"]
+	}))
 
 /** The rows a write touches: an insert's new row, a delete's old one, an update's both. */
 const touchedRows = (write: LiveWrite): ReadonlyArray<LiveFact> => {
@@ -520,7 +532,11 @@ const touchedRows = (write: LiveWrite): ReadonlyArray<LiveFact> => {
  * Whether `commit` touches a routing value of `subscription` (the routing oracle): it writes a relation of the read's
  * footprint, and the read binds no group, or one row it touches holds the bound group in `g`, before or after.
  */
-const touches = (c: LiveCase, subscription: LiveSubscription, commit: LiveCommit): boolean => {
+export const touches = (
+	c: LiveCase,
+	subscription: LiveSubscription,
+	commit: LiveCommit
+): boolean => {
 	const read = c.reads[subscription.read] ?? c.reads[0]
 	const footprint = footprintOf(read)
 	const group = groupOf(subscription)

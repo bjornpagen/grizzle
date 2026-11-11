@@ -1,6 +1,6 @@
-import { Array as Arr, Effect, Option, Record as Rec, Redacted, Stream } from "effect"
+import { Array as Arr, Effect, Option, Record as Rec, Redacted, Ref, Stream } from "effect"
 import { HttpClient } from "effect/http"
-import { memberCalls, type ServedCalls } from "#adapter/db/handles.ts"
+import { liveRead, memberCalls, type ServedCalls } from "#adapter/db/handles.ts"
 import { openServed } from "#adapter/db/served.ts"
 import { callErrorOf } from "#adapter/live/call-error.ts"
 import type { DbLayerOf, ServedLogin } from "#adapter/types/layer.ts"
@@ -16,6 +16,7 @@ import {
 	type Keyed,
 	opening,
 	type ReadEvent,
+	type ReadState,
 	RowKey
 } from "#compiler/live/index.ts"
 import { openApiText } from "#compiler/live/openapi.ts"
@@ -31,8 +32,11 @@ import type {
 	LiveCalls,
 	LiveSurfaces,
 	LiveValue,
+	MarkState,
 	RawEvent,
-	RawRequest
+	RawRequest,
+	Register,
+	Registration
 } from "#test/support/live/system.ts"
 import {
 	type LiveAnchor,
@@ -356,3 +360,89 @@ export const worldSurfaces = (
 	live: LiveInstallation
 ): Effect.Effect<LiveSurfaces, HttpConfigRefused, DbLayerOf<AnyLogin>> =>
 	liveSurfaces(live.file, "app", tokenOf({}))
+
+/**
+ * A live read registered on watch's own path (adapter/db/handles.ts liveRead), read to its first ready: its value there,
+ * its registration's state, and its turn, each batch a turn gives folded onto the value the turns before it left.
+ */
+const registeredFrom = <S extends "set" | "list", Row extends object>(
+	shape: S,
+	live: {
+		readonly initial: Stream.Stream<ReadEvent<S, Row>>
+		readonly state: Effect.Effect<MarkState>
+		readonly turn: Effect.Effect<Option.Option<ReadonlyArray<ReadEvent<S, Row>>>>
+	}
+): Effect.Effect<Registration, CallError> =>
+	Effect.gen(function* () {
+		const initial = yield* Stream.runCollect(live.initial)
+		const settled = fold(opening<S, Row>(shape), initial)
+		switch (settled.kind) {
+			case "failed":
+				return yield* Effect.fail(settled.error)
+			case "opening":
+			case "provisional":
+				return yield* Effect.die(
+					new Error("a live read's initial events end at its ready or its error")
+				)
+			case "ready": {
+				const held = yield* Ref.make<ReadState<S, Row>>(settled)
+				const turn: Effect.Effect<Option.Option<LiveValue>, CallError> = Effect.flatMap(
+					live.turn,
+					(batch) =>
+						Option.isNone(batch)
+							? Effect.succeedNone
+							: Effect.flatMap(Ref.get(held), (was) => {
+									const next = fold(was, batch.value)
+									return next.kind === "failed"
+										? Effect.fail(next.error)
+										: Effect.as(
+												Ref.set(held, next),
+												next.kind === "ready" ? Option.some(next.value) : Option.none()
+											)
+								})
+				)
+				return { state: live.state, value: settled.value, turn }
+			}
+		}
+	})
+
+/**
+ * The registrations of `role` of the served login `file`, each on a Db opened with `token` through the login's layer, by
+ * its member's name: what a suite holds to read a subscription's state while it decides when to pull its changes.
+ */
+const liveRegistrations = (
+	file: ServedLogin<AnyLogin>,
+	role: string,
+	token: string
+): Effect.Effect<Register, never, DbLayerOf<AnyLogin>> =>
+	Effect.map(
+		Effect.context<DbLayerOf<AnyLogin>>(),
+		(context) => (name, input) =>
+			Effect.gen(function* () {
+				const served = defined(file.roles[role], `the served role ${role}`)
+				const opened = yield* Effect.mapError(
+					Effect.provideContext(openServed(served, { token }), context),
+					callErrorOf
+				)
+				const member = defined(
+					Option.getOrUndefined(Arr.findFirst(opened.role.members, (m) => m.name === name)),
+					`the served member ${name} of role ${role}`
+				)
+				const started = yield* defined(
+					Option.getOrUndefined(liveRead(opened.ctx, member, input)),
+					`the served member ${name}, a read`
+				)
+				switch (started.shape) {
+					case "set":
+						return yield* registeredFrom("set", started.live)
+					case "list":
+						return yield* registeredFrom("list", started.live)
+				}
+			})
+	)
+
+/** A live world's registrations: its login's one role `app`, with the token of no claim. */
+export const worldRegistrations = (
+	live: LiveInstallation
+): Effect.Effect<Register, never, DbLayerOf<AnyLogin>> =>
+	liveRegistrations(live.file, "app", tokenOf({}))

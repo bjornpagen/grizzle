@@ -45,6 +45,27 @@ export interface LiveCalls {
 	readonly watch: (member: string, input: CallInput) => Stream.Stream<LiveValue, CallError>
 }
 
+/** A registered subscription's state (LIVE-SUBSCRIBE): no re-run pending, a re-run pending, or ended. */
+export type MarkState = "clean" | "marked" | "ended"
+
+/**
+ * A subscription registered in process and read to its first ready, its re-runs only those a suite asks for: its state,
+ * read without a race, since a subscription no one turns never re-runs; its first value; and `turn`, one turn now
+ * (LIVE-SUBSCRIBE's Live turn): a clean subscription runs nothing, a marked one re-runs exactly once and gives its value
+ * at the ready its batch ends with where the value changed, and an ended one fails with the error that ended it.
+ */
+export interface Registration {
+	readonly state: Effect.Effect<MarkState>
+	readonly value: LiveValue
+	readonly turn: Effect.Effect<Option.Option<LiveValue>, CallError>
+}
+
+/** Registers `member` with `input` in process and reads it to its first ready (Registration). */
+export type Register = (
+	member: string,
+	input: CallInput
+) => Effect.Effect<Registration, CallError, Scope.Scope>
+
 /** One server-sent event as the HTTP answer's body frames it, before any decoding: its type and its data. */
 export interface RawEvent {
 	readonly type: string

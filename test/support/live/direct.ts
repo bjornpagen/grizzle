@@ -8,6 +8,7 @@ import {
 	type LiveCase,
 	type LiveCommit,
 	type LiveWrite,
+	probeRelation,
 	relationName,
 	writesOf
 } from "#test/support/live/world.ts"
@@ -144,6 +145,10 @@ const writeStatements = (
 				: [emitted(deleteOf(table, write.from)), emitted(insertOf(table, write.to))]
 	}
 }
+
+/** The fence's statement: an INSERT of the Probe row `id` (world.ts probeRelation). */
+export const fenceStatement = (plan: InstallPlan, id: number): string =>
+	insertRow(plan, probeRelation, { id })
 
 /** Every statement a direct writer's commit sends, in order. */
 export const commitStatements = (
