@@ -1,3 +1,29 @@
+/**
+ * Compute.translate and Compute.lowerAscii on PostgreSQL 19, against the host.
+ *
+ * 1. The SQL a check holds for a drawn map, `translate(v, from, to)`, for lowerAscii, for collapse and for
+ *    replaceWhitespace, over a batch of texts that mix ASCII, Latin-1, BMP and supplementary code points in one round
+ *    trip: PostgreSQL's answer must be the reference evaluator's character by character, lowerAscii's must leave every
+ *    character but A to Z as it was, and collapse's, its chain of replace calls, must be XML Schema's (core/text.ts
+ *    collapsed) over runs of each of the four white space characters, of three or more among them, at either end and
+ *    beside supplementary code points.
+ * 2. An installed relation whose generated fields translate a title into xs:normalizedString's value space, fold a
+ *    tag's ASCII case and collapse a title's white space, each cast into its declared text type by the inclusion of the
+ *    image, and a second relation whose generated field casts a numeral to a bigint: the installer's own DDL, each
+ *    drawn row inserted. Every row is admitted, and its generated fields hold the host's values. No key holds a
+ *    generated field (README, "How a field is written": no fact carries its value, so such a schema is refused when
+ *    it compiles), so neither relation keys one.
+ *
+ * Planted bug: collapse's SQL without its step that turns each tab before a space into two tabs
+ * (lower/conservative/expr/ops.ts collapseText), so a run of three or more white space characters keeps more than one
+ * space.
+ *
+ * Oracle: the reference evaluator character by character, and XML Schema's collapse (core/text.ts collapsed).
+ *
+ * Plants: compute-translate-collapse-tab-step (the planted bug above, as a patch).
+ *
+ * Features: each map and white space situation the searches name.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -41,27 +67,6 @@ import {
 	v
 } from "#test/unit/compute/support.ts"
 import { stringsOver } from "#test/unit/text/generators.ts"
-
-/**
- * Compute.translate and Compute.lowerAscii on PostgreSQL 19, against the host.
- *
- * 1. The SQL a check holds for a drawn map, `translate(v, from, to)`, for lowerAscii, for collapse and for
- *    replaceWhitespace, over a batch of texts that mix ASCII, Latin-1, BMP and supplementary code points in one round
- *    trip: PostgreSQL's answer must be the reference evaluator's character by character, lowerAscii's must leave every
- *    character but A to Z as it was, and collapse's, its chain of replace calls, must be XML Schema's (core/text.ts
- *    collapsed) over runs of each of the four white space characters, of three or more among them, at either end and
- *    beside supplementary code points.
- * 2. An installed relation whose generated fields translate a title into xs:normalizedString's value space, fold a
- *    tag's ASCII case and collapse a title's white space, each cast into its declared text type by the inclusion of the
- *    image, and a second relation whose generated field casts a numeral to a bigint: the installer's own DDL, each
- *    drawn row inserted. Every row is admitted, and its generated fields hold the host's values. No key holds a
- *    generated field (README, "How a field is written": no fact carries its value, so such a schema is refused when
- *    it compiles), so neither relation keys one.
- *
- * Planted bug: collapse's SQL without its step that turns each tab before a space into two tabs
- * (lower/conservative/expr/ops.ts collapseText), so a run of three or more white space characters keeps more than one
- * space.
- */
 
 const textColumn: LeafBinding = { kind: "column", type: testPg.text.scalar }
 

@@ -14,6 +14,10 @@
  * Planted bug: the guard's constant adopts the subject's contract (lower.ts guardPredicate's compareTo over
  * subject.nominal), so Compute.when over isFinite of a contract of a typmod'd numeric is refused for an infinity its
  * domain cannot hold, and over nonzero of one that keeps zero out is ContractLiteral.
+ *
+ * Plants: compute-fact-guard-adopts-contract (the planted bug above, as a patch).
+ *
+ * Features: each guard in each position over each contract predicate's relation to zero.
  */
 import { layer } from "@effect/vitest"
 import { type Case as Search, drawn, explore } from "@grizzle/testing/explore"

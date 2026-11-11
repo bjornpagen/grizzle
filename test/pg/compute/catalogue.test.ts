@@ -1,3 +1,20 @@
+/**
+ * The Compute catalogue against PostgreSQL 19: every operation Compute admits over the gate types (smallint, integer,
+ * bigint, numeric, double precision, real and money), and each admitted cast between them, at operands drawn at every
+ * boundary the operation turns on and spelled as PostgreSQL may store them (a display scale past the least, a float
+ * zero's sign).
+ *
+ * - Each admitted case's SQL, as a query lowers it, runs in PostgreSQL, and its result type and value are the host
+ *   evaluator's, or the host declines it by design; the reference evaluator (test/support/oracle/evaluate/catalog.ts)
+ *   states the same.
+ * - A case refused at compilation is refused for a precondition the operands' values justify.
+ *
+ * Oracle: PostgreSQL itself, each operation's value and type, beside the host and the reference evaluators.
+ *
+ * Plants: compute-registry-int4pl-int8 (integer + integer is typed bigint).
+ *
+ * Features: each boundary and spelling situation, a declined case, power's value, and lcm past its operands' digits.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -17,13 +34,13 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError, PreconditionKind } from "#compiler/core/errors.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
-import { type Carrier, numericTypmodOf, typeLabel } from "#compiler/ir/scalar.ts"
+import { numericTypmodOf, typeLabel } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { Decimal, type FiniteDecimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
@@ -580,28 +597,6 @@ const gateCarriers: ReadonlyArray<Gate> = [
 ]
 
 /** The (operation, carrier) pairs and casts the catalogue refuses, and the operations each carrier admits. */
-const admission = () => {
-	const refusedPairs: Array<string> = []
-	const admittedPairs = new Set<string>()
-	for (const c of gateCarriers) {
-		const f = fields[c]
-		const terms = [v("a", f), v("b", f), v("c", f)]
-		for (const op of ops) {
-			if (admitted(() => op.build(terms, c))) {
-				admittedPairs.add(`${op.name}/${c}`)
-			} else {
-				refusedPairs.push(`${op.name}/${c}`)
-			}
-		}
-		for (const [name, target] of castTargets) {
-			if (!admitted(() => Compute.cast(terms[0], target))) {
-				refusedPairs.push(`cast:${typeLabel(f.scalar)}->${name}`)
-			}
-		}
-	}
-	return { refusedPairs, admittedPairs }
-}
-
 const operandNames = ["a", "b", "c"] as const
 
 /** The entries an operand of carrier `c` meets: its admitted operations and casts, width_bucket's for numeric. */
@@ -941,58 +936,12 @@ layer(Substrate.layer)("the Compute catalogue against PostgreSQL 19", (it) => {
 					const db = yield* session(ownerSession())
 					const s = yield* schema(freshSchema)
 					yield* installEvaluator(db, s)
-					/** Every Compute operation over the five gate types is admitted where PostgreSQL defines it. */
-					const { refusedPairs, admittedPairs } = admission()
-					const gate: ReadonlyArray<Carrier> = ["int2", "int4", "int8", "numeric", "float8"]
-					const exercised = (fn: string): ReadonlyArray<Carrier> =>
-						Arr.filter(gate, (c) => admittedPairs.has(`${fn}/${c}`))
-					assert.deepEqual(exercised("add"), gate)
-					assert.deepEqual(exercised("div"), gate)
-					assert.deepEqual(exercised("sign"), gate)
-					assert.deepEqual(exercised("abs"), gate)
-					assert.deepEqual(exercised("least"), gate)
-					assert.deepEqual(exercised("eq"), gate)
-					assert.deepEqual(exercised("in"), gate)
-					assert.deepEqual(exercised("cond"), gate)
-					assert.deepEqual(exercised("mod"), ["int2", "int4", "int8", "numeric"])
-					assert.deepEqual(exercised("gcd"), ["int2", "int4", "int8", "numeric"])
-					assert.deepEqual(exercised("power"), ["numeric", "float8"])
-					assert.deepEqual(exercised("sqrt"), ["numeric", "float8"])
-					assert.deepEqual(exercised("round"), ["numeric"])
-					assert.deepEqual(exercised("minScale"), ["numeric"])
-					assert.deepEqual(exercised("exact add"), gate)
-					assert.deepEqual(exercised("guarded div"), gate)
-					assert.deepEqual(
-						Arr.sort(
-							Arr.filter(refusedPairs, (p) => Arr.some(gate, (c) => Str.endsWith(`/${c}`)(p))),
-							Order.String
-						),
-						Arr.sort(
-							[
-								...Arr.flatMap(["int2", "int4", "int8", "float8"], (c) => [
-									`quot/${c}`,
-									`rem/${c}`,
-									`round/${c}`,
-									`round2/${c}`,
-									`round-1/${c}`,
-									`trunc/${c}`,
-									`trunc3/${c}`,
-									`trunc-2/${c}`,
-									`ceil/${c}`,
-									`floor/${c}`,
-									`minScale/${c}`
-								]),
-								...Arr.flatMap(["int2", "int4", "int8"], (c) => [`power/${c}`, `sqrt/${c}`]),
-								"mod/float8",
-								"gcd/float8",
-								"lcm/float8"
-							],
-							Order.String
-						)
-					)
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "postgresql",
+								name: "each operation's value and type, beside the host and the reference evaluators"
+							},
 							suite: "pg/compute/catalogue",
 							draw: drawn(catalogueCaseGen),
 							literal: Formatter.format,

@@ -13,6 +13,10 @@
  *
  * Planted bug: the guard narrows its text to its interval's low end rather than its high one (lower.ts whenGuard), so a
  * cast whose guard reaches past n compiles.
+ *
+ * Plants: compute-bytes-guard-low-end (the planted bug above, as a patch).
+ *
+ * Features: each bound of the text's type and each side of the guard's interval a case reaches.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

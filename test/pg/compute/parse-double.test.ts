@@ -1,3 +1,26 @@
+/**
+ * Compute.parseDouble on PostgreSQL 19rc1: over drawn decimal texts of doubles (test/support/lexical.ts doubleTextGen),
+ * weighted at every point binary64's rounding turns on (the greatest finite double and the overflow threshold past it,
+ * the least normal, subnormals, half the least subnormal, midpoints between neighbouring doubles, each exactly, cut
+ * short and one digit past), digits of up to 40 places and past 700 near either threshold and far past both, signed
+ * zeros, the special spellings, and every spelling the form admits, three implementations agree to the bit, -0 apart
+ * from +0 and any NaN with any:
+ *
+ * - IEEE 754-2019's conversion from decimal character sequences written from its definition in exact rational
+ *   arithmetic (test/support/oracle/evaluate/double-text.ts), apart from the engine, ECMAScript and PostgreSQL;
+ * - grizzle's host evaluator (scalar/compute/evaluate.ts) over the parse as a check lowers it;
+ * - the value PostgreSQL stores in an installed relation's generated field `parseDouble(key)`, its key typed by
+ *   doubleText, read by float8send: the installer's own DDL, so the parse's SQL is held IMMUTABLE and raising on no
+ *   member as a generation expression, every drawn row inserted.
+ *
+ * The oracle is the reference conversion. Bound: up to 48 texts a case, each case one installation in a transaction
+ * rolled back.
+ *
+ *
+ * Plants: compute-parse-double-inf (the host reads INF as no number).
+ *
+ * Features: each rounding point and spelling the form admits.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -39,25 +62,6 @@ import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { baseParams, lowerWith, spelledExpr, testPg, v } from "#test/unit/compute/support.ts"
-
-/**
- * Compute.parseDouble on PostgreSQL 19rc1: over drawn decimal texts of doubles (test/support/lexical.ts doubleTextGen),
- * weighted at every point binary64's rounding turns on (the greatest finite double and the overflow threshold past it,
- * the least normal, subnormals, half the least subnormal, midpoints between neighbouring doubles, each exactly, cut
- * short and one digit past), digits of up to 40 places and past 700 near either threshold and far past both, signed
- * zeros, the special spellings, and every spelling the form admits, three implementations agree to the bit, -0 apart
- * from +0 and any NaN with any:
- *
- * - IEEE 754-2019's conversion from decimal character sequences written from its definition in exact rational
- *   arithmetic (test/support/oracle/evaluate/double-text.ts), apart from the engine, ECMAScript and PostgreSQL;
- * - grizzle's host evaluator (scalar/compute/evaluate.ts) over the parse as a check lowers it;
- * - the value PostgreSQL stores in an installed relation's generated field `parseDouble(key)`, its key typed by
- *   doubleText, read by float8send: the installer's own DDL, so the parse's SQL is held IMMUTABLE and raising on no
- *   member as a generation expression, every drawn row inserted.
- *
- * The oracle is the reference conversion. Bound: up to 48 texts a case, each case one installation in a transaction
- * rolled back.
- */
 
 type Feature =
 	| "a special spelling"

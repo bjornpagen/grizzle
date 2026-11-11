@@ -1,21 +1,3 @@
-import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
-import {
-	explainStatementWith,
-	parsePlan,
-	type PlanNode,
-	planNodes
-} from "#bench/harness/explain.ts"
-import { identity } from "#compiler/core/identity.ts"
-import type { CodeSlot } from "#compiler/ir/cells.ts"
-import type { FieldDesc } from "#compiler/ir/desc.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
 /**
  * A guarded float form binds its compound operands once per row, never in a SubPlan PostgreSQL runs again for every
  * row (lower/conservative/expr/lateral.ts), and computes what the reference evaluator computes.
@@ -35,7 +17,33 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
  *   send is planned under EXPLAIN ANALYZE, and no SubPlan or InitPlan of it runs, since the exact paths, the only
  *   bindings left in a branch, are never taken. A binding a statement evaluated per row in a scalar subquery shows as
  *   a SubPlan that ran once per row.
+ *
+ * Oracle: the reference evaluator for the edge classes, the conservative lowering for the closed read, and EXPLAIN
+ * ANALYZE's SubPlans and InitPlans for the binding.
+ *
+ * Plants: compute-float-binding-unbound (the conservative delivery skips bindLaterally, so a compound operand is a
+ * scalar subquery PostgreSQL runs for every row).
+ *
+ * Features: every position a statement evaluates the tree in, and each float width and cast.
  */
+import { layer } from "@effect/vitest"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, boolean, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
+import {
+	explainStatementWith,
+	parsePlan,
+	type PlanNode,
+	planNodes
+} from "#bench/harness/explain.ts"
+import { identity } from "#compiler/core/identity.ts"
+import type { CodeSlot } from "#compiler/ir/cells.ts"
+import type { FieldDesc } from "#compiler/ir/desc.ts"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { canonicalZero } from "#compiler/scalar/values/float.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
@@ -513,7 +521,10 @@ layer(Substrate.layer)("guarded float forms on PostgreSQL 19", (it) => {
 					}
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the reference evaluator, the conservative lowering, and EXPLAIN ANALYZE"
+							},
 							suite: "pg/compute/float-binding",
 							draw: drawn(caseGen),
 							literal: Formatter.format,

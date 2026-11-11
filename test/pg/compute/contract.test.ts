@@ -1,7 +1,35 @@
+/**
+ * Contract predicates against PostgreSQL 19 domains: a contract over each base (bigint, integer, numeric, double
+ * precision and text), its predicate the installed domain's CHECK.
+ *
+ * - Admission: for every drawn value, the edges its predicate turns on weighted among them, a literal's cast into the
+ *   contract compiles exactly where PostgreSQL's CAST into the domain succeeds, the host evaluator's value then a value
+ *   and the literal adopting the contract; and it is refused exactly where PostgreSQL refuses it, for the reason its
+ *   SQLSTATE names (23514 for the predicate, 22003 for the typmod).
+ * - Rounding: a literal is rounded to a numeric contract's scale before its predicate, as the domain cast does: the
+ *   host admits a drawn literal about the predicate's bounds exactly where PostgreSQL does.
+ *
+ * Oracle: PostgreSQL itself, the domain cast of each value.
+ *
+ * Plants: compute-contract-literal-unchecked (the ContractLiteral check admits a literal its predicate refuses), and
+ * values-money-round-half-down (a numeric tie rounds toward zero before the predicate).
+ *
+ * Features: a value the domain admits and one it refuses, for each contract.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
-import { array, codePoint, type Gen, int, map, oneOf, string, weighted } from "@grizzle/testing/gen"
+import {
+	array,
+	codePoint,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	string,
+	weighted
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double } from "@grizzle/testing/values"
@@ -20,7 +48,7 @@ import {
 	type PgAnswer,
 	parseAnswer
 } from "#test/pg/compute/support.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { type CatalogResult, constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -39,8 +67,8 @@ import {
 import { numericText } from "#test/unit/values/support.ts"
 
 /**
- * One contract under test: its field, its base, the edge values every case sends, and the generated values a case
- * draws a batch of, up to `batch`.
+ * One contract under test: its field, its base, the edge values its predicate turns on, a dictionary its batches draw
+ * from beside the generated values, and the generated values, a case drawing a batch of up to `batch`.
  */
 interface Fixture {
 	readonly name: string
@@ -303,9 +331,17 @@ const contractSearch = (f: Fixture) =>
 		const target = `"${s}"."${Str.toLowerCase(f.name)}"`
 		return yield* explore(
 			{
-				oracle: { kind: "unstated" },
+				oracle: { kind: "postgresql", name: "the domain cast of each value" },
 				suite: `pg/compute/contract/${f.name}`,
-				draw: drawn(array(f.values, { min: 1, max: f.batch })),
+				draw: drawn(
+					array(
+						weighted<LiteralDesc>([
+							[1, element(nonEmpty(f.edges, "a contract's edges"))],
+							[8, f.values]
+						]),
+						{ min: 1, max: f.batch }
+					)
+				),
 				literal: Formatter.format,
 				coverage: required<DomainFeature>(["admitted", "refused"], {
 					cases: domainRuns,
@@ -320,7 +356,7 @@ const contractSearch = (f: Fixture) =>
 			},
 			(batch, c) =>
 				Effect.gen(function* () {
-					const cases = Arr.map([...f.edges, ...batch], (value) => {
+					const cases = Arr.map(batch, (value) => {
 						const bindings = { x: { kind: "literal", field: f.base, value } } as const
 						const lowered = lowerWith("query", cast, bindings, false, baseParams)
 						const literal = succeeded(lowerWith("query", operand, bindings, false, baseParams))
@@ -411,14 +447,25 @@ layer(Substrate.layer)("contract predicates against PostgreSQL 19 domains", (it)
 						"9.9999995",
 						"10",
 						"NaN"
-					]
+					] as const
 					const literal: Gen<string> = (source) =>
 						`${source.draw(int(-1, 1))}.${pipe(String(source.draw(int(0, 99999999))), Str.padStart(8, "0"))}`
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "postgresql",
+								name: "the domain cast of each literal into numeric(7, 6)"
+							},
 							suite: "pg/compute/contract/rounding",
-							draw: drawn(array(literal, { min: 1, max: 300 })),
+							draw: drawn(
+								array(
+									weighted<string>([
+										[1, element(edges)],
+										[8, literal]
+									]),
+									{ min: 1, max: 300 }
+								)
+							),
 							literal: Formatter.format,
 							coverage: noCoverage,
 							kept: [],
@@ -430,7 +477,7 @@ layer(Substrate.layer)("contract predicates against PostgreSQL 19 domains", (it)
 						},
 						(batch) =>
 							Effect.gen(function* () {
-								const literals = [...edges, ...batch]
+								const literals = batch
 								const rows = yield* db.values(
 									`SELECT "${s}".try_eval(c.q, c.q) FROM jsonb_to_recordset($1::text::jsonb) AS c(ord int4, q text) ORDER BY c.ord`,
 									[jsonText(Arr.map(literals, (l, ord) => ({ ord, q: `'${l}'::"${s}".rate` })))]

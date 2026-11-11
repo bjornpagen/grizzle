@@ -1,3 +1,27 @@
+/**
+ * The aggregate order arm: every sum and mean is a function of its arguments' multiset (scalar/aggregate.ts), whatever
+ * the order the rows are stored and scanned in, the plan, a parallel worker's partial aggregate, a window frame or a
+ * second aggregate in the same head.
+ *
+ * Each case draws a ledger of up to forty entries over three groups, each a double precision, a real and a money amount
+ * from the classes whose IEEE sums depend on their order (gen/domain.ts edge classes: 0.1, 0.2, 0.3, ±1e20 beside 1,
+ * ±DBL_MAX, subnormals, money at and a few steps from its int8 bounds), stored in the drawn order, and a perturbation:
+ * the planner settings and fact copies of perturb.ts, or every plan forced parallel. The reference states each exact
+ * sum once, with no order in it, and every lowering must deliver it exactly (compare.ts, canonical cells): the
+ * conservative lowering of each grouped sum and mean, alone and all in one head, and the catalog's window for R41's
+ * running total over double precision scores of the same classes.
+ *
+ * The situations are computed here from the drawn values, never by the system under test: two sequential IEEE sums of
+ * a group, forward and backward, that differ; a money or double total that one of those orders overflows and the
+ * exact total does not.
+ *
+ * Oracle: the reference evaluator's exact sums and means, which state each total once, with no order in it.
+ *
+ * Plants: compute-accumulation-float-sum-native (a double precision sum lowers to the native sum, whose total depends
+ * on the order its rows are scanned in).
+ *
+ * Features: the order situations below, each computed from the drawn values, and forced parallel plans.
+ */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -56,23 +80,6 @@ import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import * as D from "#test/unit/check/dsl.ts"
 
-/**
- * The aggregate order arm: every sum and mean is a function of its arguments' multiset (scalar/aggregate.ts), whatever
- * the order the rows are stored and scanned in, the plan, a parallel worker's partial aggregate, a window frame or a
- * second aggregate in the same head.
- *
- * Each case draws a ledger of up to forty entries over three groups, each a double precision, a real and a money amount
- * from the classes whose IEEE sums depend on their order (gen/domain.ts edge classes: 0.1, 0.2, 0.3, ±1e20 beside 1,
- * ±DBL_MAX, subnormals, money at and a few steps from its int8 bounds), stored in the drawn order, and a perturbation:
- * the planner settings and fact copies of perturb.ts, or every plan forced parallel. The reference states each exact
- * sum once, with no order in it, and every lowering must deliver it exactly (compare.ts, canonical cells): the
- * conservative lowering of each grouped sum and mean, alone and all in one head, and the catalog's window for R41's
- * running total over double precision scores of the same classes.
- *
- * The situations are computed here from the drawn values, never by the system under test: two sequential IEEE sums of
- * a group, forward and backward, that differ; a money or double total that one of those orders overflows and the
- * exact total does not.
- */
 type OrderSituation =
 	| "float sum whose IEEE orders disagree"
 	| "float mean whose IEEE orders disagree"
@@ -494,7 +501,10 @@ layer(Substrate.layer)("aggregates against the exact reference on PostgreSQL 19"
 						})
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the reference evaluator's exact sums and means"
+							},
 							suite: "pg/compute/accumulation",
 							draw: drawn(caseGen),
 							literal: Formatter.format,

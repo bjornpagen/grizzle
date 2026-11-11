@@ -1,3 +1,20 @@
+/**
+ * Compute.power on PostgreSQL 19.
+ *
+ * - Numeric: every generated power, its base and exponent drawn about the values power_var turns on (underflow to
+ *   zero, a result next to exp(6000)), agrees with PostgreSQL on its value, its display scale and its failure: a power
+ *   compilation proves is one PostgreSQL computes, and one it refuses is one whose operands' bounds admit a failure.
+ * - Guarded: a power over a base a guard bounds is never proved where PostgreSQL fails at the guard's ends.
+ * - Float: a double power over bases of every binary exponent is never proved where PostgreSQL's dpow fails.
+ *
+ * Oracle: PostgreSQL itself, power's value or failure, beside the reference evaluator's value.
+ *
+ * Plants: compute-power-range-dropped (power(numeric, numeric) requires no powerRange), compute-power-float-range-dropped
+ * (power(double precision, double precision) requires none).
+ *
+ * Features: value agreement, a refusal at compilation, an underflow to zero, each side of exp(6000), a guarded power
+ * refused and proved, and each float refusal.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -244,7 +261,10 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 				)
 				return yield* explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "postgresql",
+							name: "power's value or failure, beside the reference evaluator"
+						},
 						suite: "pg/compute/power",
 						draw: drawn(powerBatch),
 						literal: Formatter.format,
@@ -352,7 +372,7 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 					yield* installEvaluator(db, s)
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: { kind: "postgresql", name: "power's failure at the guard's ends" },
 							suite: "pg/compute/power/guarded",
 							draw: drawn(array(guardedPowerGen, { min: 1, max: 200 })),
 							literal: Formatter.format,

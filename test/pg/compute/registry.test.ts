@@ -1,3 +1,14 @@
+/**
+ * The Compute registry against PostgreSQL 19's catalog (scalar/compute/registry.ts): every entry names the operator,
+ * function, cast, input function or constructor PostgreSQL has, with the operand types, result type and volatility the
+ * catalog states, and no node has two entries over the same operands.
+ *
+ * Oracle: PostgreSQL itself, pg_operator, pg_proc, pg_cast and pg_type's rows for the object an entry names.
+ *
+ * Plants: compute-registry-int4pl-int8 (integer + integer is typed bigint).
+ *
+ * Features: an entry of each kind, operator, function, cast, input and construct.
+ */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"

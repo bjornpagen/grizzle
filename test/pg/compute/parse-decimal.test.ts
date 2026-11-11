@@ -1,3 +1,27 @@
+/**
+ * Compute.parseDecimal on PostgreSQL 19rc1: over drawn pairs of decimal texts (test/support/lexical.ts decimalTextGen),
+ * each part's count of digits at an edge the parse turns on (256 integer and 255 fraction digits, the widest
+ * numeric(p, s) form's, and the form's own 16,384 bytes, numeric's 16,383 fraction digits among them), leading and
+ * trailing zeros, signs, bare fractions, trailing points and zeros, the second of a pair the first's value spelled
+ * again, one unit either side in its last place, negated, moved a place, or drawn apart, three implementations agree
+ * exactly:
+ *
+ * - XML Schema 1.1's decimal lexical and canonical mappings written from their definition in BigInt
+ *   (test/support/oracle/evaluate/decimal-text.ts), apart from the engine and PostgreSQL;
+ * - grizzle's host evaluator (scalar/compute/evaluate.ts) over the parse as a check lowers it;
+ * - PostgreSQL: the parse's SQL as a check lowers it, over every text, read by numeric_out; and an installed relation of
+ *   the downstream's range shape, its two texts typed str.bytes(16384, str.regex(decimalText)), whose generated fields
+ *   store whether the first's value is below the second's and whether they are one value, and the first's value itself
+ *   where a guard bounds its text within 500 bytes, cast into numeric(1000, 499), which that bound proves it fits.
+ *
+ * The oracle is the reference mapping. Bound: up to 24 pairs a case, each case one installation in a transaction rolled
+ * back.
+ *
+ *
+ * Plants: compute-parse-decimal-scale (the host's decimal text reads one place too far right).
+ *
+ * Features: each digit-count edge and each relation of a pair's second text to its first.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -51,26 +75,6 @@ import {
 	spelledExpr,
 	v
 } from "#test/unit/compute/support.ts"
-
-/**
- * Compute.parseDecimal on PostgreSQL 19rc1: over drawn pairs of decimal texts (test/support/lexical.ts decimalTextGen),
- * each part's count of digits at an edge the parse turns on (256 integer and 255 fraction digits, the widest
- * numeric(p, s) form's, and the form's own 16,384 bytes, numeric's 16,383 fraction digits among them), leading and
- * trailing zeros, signs, bare fractions, trailing points and zeros, the second of a pair the first's value spelled
- * again, one unit either side in its last place, negated, moved a place, or drawn apart, three implementations agree
- * exactly:
- *
- * - XML Schema 1.1's decimal lexical and canonical mappings written from their definition in BigInt
- *   (test/support/oracle/evaluate/decimal-text.ts), apart from the engine and PostgreSQL;
- * - grizzle's host evaluator (scalar/compute/evaluate.ts) over the parse as a check lowers it;
- * - PostgreSQL: the parse's SQL as a check lowers it, over every text, read by numeric_out; and an installed relation of
- *   the downstream's range shape, its two texts typed str.bytes(16384, str.regex(decimalText)), whose generated fields
- *   store whether the first's value is below the second's and whether they are one value, and the first's value itself
- *   where a guard bounds its text within 500 bytes, cast into numeric(1000, 499), which that bound proves it fits.
- *
- * The oracle is the reference mapping. Bound: up to 24 pairs a case, each case one installation in a transaction rolled
- * back.
- */
 
 type Feature =
 	| "past 256 integer digits"

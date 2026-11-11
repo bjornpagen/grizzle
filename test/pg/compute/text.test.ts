@@ -1,3 +1,26 @@
+/**
+ * Compute's text terms on PostgreSQL 19, against the host.
+ *
+ * 1. The SQL a query or a check holds (lower/conservative/expr/ops.ts, the one spelling of every operation): a match
+ *    of a literal pattern, `~` over its ARE, and of a dictionary, `~` over a CASE from each source to its ARE; a
+ *    prefix test, a suffix test, a concatenation, lowered as a check lowers it since no query builds one, and an
+ *    equation with one, which no lowering builds. Each runs over a batch of rows in one round trip, and PostgreSQL's
+ *    answer must be the reference evaluator's (test/support/oracle/evaluate/catalog.ts, grizzle's own automaton over
+ *    the pattern's parse) and, for a match, ECMAScript's own test, the development oracle the text differential holds
+ *    the ARE translation to.
+ * 2. Installed CHECKs: the real installer's DDL, one CHECK whose pattern is a closed relation's dictionary,
+ *    `Pattern.at("pattern", domain)`, and one of a drawn literal, each probe row inserted under a savepoint; the server
+ *    admits a row exactly when ECMAScript's test of its pattern holds, and refuses every other with 23514 naming that
+ *    CHECK.
+ *
+ *
+ * Oracle: the reference evaluator and ECMAScript's own RegExp test for the SQL; PostgreSQL's CHECK for the installed
+ * patterns, against ECMAScript's test.
+ *
+ * Plants: compute-text-suffix-octets (a suffix test takes the suffix's octets for its characters).
+ *
+ * Features: each text term and each dictionary situation the searches name.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -41,22 +64,6 @@ import {
 	testPg
 } from "#test/unit/compute/support.ts"
 import { families, jsMatcher, patternOver, stringsOver } from "#test/unit/text/generators.ts"
-
-/**
- * Compute's text terms on PostgreSQL 19, against the host.
- *
- * 1. The SQL a query or a check holds (lower/conservative/expr/ops.ts, the one spelling of every operation): a match
- *    of a literal pattern, `~` over its ARE, and of a dictionary, `~` over a CASE from each source to its ARE; a
- *    prefix test, a suffix test, a concatenation, lowered as a check lowers it since no query builds one, and an
- *    equation with one, which no lowering builds. Each runs over a batch of rows in one round trip, and PostgreSQL's
- *    answer must be the reference evaluator's (test/support/oracle/evaluate/catalog.ts, grizzle's own automaton over
- *    the pattern's parse) and, for a match, ECMAScript's own test, the development oracle the text differential holds
- *    the ARE translation to.
- * 2. Installed CHECKs: the real installer's DDL, one CHECK whose pattern is a closed relation's dictionary,
- *    `Pattern.at("pattern", domain)`, and one of a drawn literal, each probe row inserted under a savepoint; the server
- *    admits a row exactly when ECMAScript's test of its pattern holds, and refuses every other with 23514 naming that
- *    CHECK.
- */
 
 /** A text whose pattern bounds its bytes, which a query's `~` reads (lower.ts regexReadable); every drawn row is short. */
 const textColumn: LeafBinding = { kind: "column", type: testPg.regex("^.{0,64}$", "su").scalar }

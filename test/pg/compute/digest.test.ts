@@ -1,3 +1,32 @@
+/**
+ * Compute.sha256 on PostgreSQL 19rc1, against the host.
+ *
+ * 1. The digest over drawn bytes, the empty value, one byte, every byte value, values about a SHA-256 block's 64 bytes,
+ *    where its padding takes one block or two, short values and a long one of a few MiB, each as a check and a query
+ *    lower it: PostgreSQL's value of the SQL each lowering renders, PostgreSQL's own `encode(sha256(v), 'hex')`, the
+ *    oracle, and the host evaluator's value over the value as a write admits it (scalar/values/bytes.ts
+ *    AdmittedBytes) are one text. That text is a member of the language the lowered term states, and the language is
+ *    exactly the digests' spelling: of the digest and of its uppercase, shortened, lengthened and non-hex neighbours,
+ *    the stated language holds exactly those that are 64 lowercase hex digits.
+ * 2. An installed Media schema whose Entry stores its bytes `content` and generates `digest`, the pantry's declaration
+ *    `generated(str.regex("^[0-9a-f]{64}$"), Compute.sha256(row.content))`, and `proved`, the same digest cast into its
+ *    type, which compilation proves with no guard; a row check holds `digest` to the digest of `content`; and Page, an
+ *    ordered family of an Entry's pages, copies its entry's generated digest along the owner axis, so each nested
+ *    insert fills each page's copy on the host from the owner's bytes and PostgreSQL's foreign key proves it. Each case
+ *    inserts entries with their pages nested; every write is accepted; both columns are STORED generated columns
+ *    holding PostgreSQL's own `encode(sha256(content), 'hex')` of each stored value, read back as the host's digest of
+ *    the bytes written; a query's head computes the same digest from a read of the bytes; every page's copy is its
+ *    entry's digest; and a direct writer's insert that states a digest, even the right one, is refused by PostgreSQL
+ *    (428C9), which alone writes a generated column. A ChangeSet's fact that states one is a type error, "a member fact
+ *    is not a fact of the relation", and a JavaScript caller's an EncodingFailure (factShape), since an insert holds
+ *    only the fields its caller writes: the ChangeSet type/engine agreement's "a generated field supplied" holds both.
+ *
+ *
+ * Plants: compute-digest-hex-upper (the digest's SQL writes uppercase hex, which the generated field's domain refuses
+ * and the host's digest never equals).
+ *
+ * Features: each class of drawn bytes and each lowering the digest is checked through.
+ */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -45,30 +74,6 @@ import {
 	renderSql
 } from "#test/unit/compute/support.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
-
-/**
- * Compute.sha256 on PostgreSQL 19rc1, against the host.
- *
- * 1. The digest over drawn bytes, the empty value, one byte, every byte value, values about a SHA-256 block's 64 bytes,
- *    where its padding takes one block or two, short values and a long one of a few MiB, each as a check and a query
- *    lower it: PostgreSQL's value of the SQL each lowering renders, PostgreSQL's own `encode(sha256(v), 'hex')`, the
- *    oracle, and the host evaluator's value over the value as a write admits it (scalar/values/bytes.ts
- *    AdmittedBytes) are one text. That text is a member of the language the lowered term states, and the language is
- *    exactly the digests' spelling: of the digest and of its uppercase, shortened, lengthened and non-hex neighbours,
- *    the stated language holds exactly those that are 64 lowercase hex digits.
- * 2. An installed Media schema whose Entry stores its bytes `content` and generates `digest`, the pantry's declaration
- *    `generated(str.regex("^[0-9a-f]{64}$"), Compute.sha256(row.content))`, and `proved`, the same digest cast into its
- *    type, which compilation proves with no guard; a row check holds `digest` to the digest of `content`; and Page, an
- *    ordered family of an Entry's pages, copies its entry's generated digest along the owner axis, so each nested
- *    insert fills each page's copy on the host from the owner's bytes and PostgreSQL's foreign key proves it. Each case
- *    inserts entries with their pages nested; every write is accepted; both columns are STORED generated columns
- *    holding PostgreSQL's own `encode(sha256(content), 'hex')` of each stored value, read back as the host's digest of
- *    the bytes written; a query's head computes the same digest from a read of the bytes; every page's copy is its
- *    entry's digest; and a direct writer's insert that states a digest, even the right one, is refused by PostgreSQL
- *    (428C9), which alone writes a generated column. A ChangeSet's fact that states one is a type error, "a member fact
- *    is not a fact of the relation", and a JavaScript caller's an EncodingFailure (factShape), since an insert holds
- *    only the fields its caller writes: the ChangeSet type/engine agreement's "a generated field supplied" holds both.
- */
 
 /** `length` bytes of a xorshift stream from `seed`, so a case draws two numbers, not MiB. */
 const streamBytes = (length: number, seed: number): Uint8Array<ArrayBuffer> => {

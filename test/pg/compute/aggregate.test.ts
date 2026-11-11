@@ -1,3 +1,19 @@
+/**
+ * Aggregate typing against PostgreSQL 19 (scalar/aggregate.ts): count(*), and every aggregate of the language, sum,
+ * mean, min and max, over a sample of each carrier a field holds, a closed id, a set and a contract among them.
+ *
+ * - An aggregate the host admits resolves to the pg_aggregate its overload names, takes the sample's base type or the
+ *   polymorphic type it instantiates, and its result call has the pg_proc result and the pg_typeof of the host's result
+ *   type; one the host refuses has no PostgreSQL counterpart, but over a closed id or a set, which are no numbers
+ *   whatever PostgreSQL computes over their storage.
+ * - min and max keep their argument's contract; a sum or a mean keeps none.
+ *
+ * Oracle: PostgreSQL itself, pg_aggregate's resolution and pg_typeof's result of each call.
+ *
+ * Plants: compute-aggregate-count-int4 (count(*) types as integer).
+ *
+ * Features: count(*), and an admitted aggregate checked over a closed id, a contract and booleans.
+ */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
