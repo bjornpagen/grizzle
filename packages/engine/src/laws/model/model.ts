@@ -1,3 +1,4 @@
+import { readBySlice } from "#compiler/analysis/closure.ts"
 import { type CheckedSchema, checkedSchema } from "#compiler/analysis/schema.ts"
 import { ViolationBuilder } from "#compiler/analysis/theory/build.ts"
 import { lawDescription } from "#compiler/analysis/theory/description.ts"
@@ -690,8 +691,9 @@ export type CycleSource =
 
 /**
  * The laws a model plans: every law of the theory when it plans its cycles, which every law's plan settles; under
- * recorded cycles, the laws a compile over its slice reads (`readBySlice`), and every contract, whose domain types its
- * values wherever a role's context field or a parameter names it, beyond any relation.
+ * recorded cycles, the laws a compile over its slice reads (analysis/closure.ts readBySlice, over the sides each law's
+ * foreign keys reference, referencedSides), and every contract, whose domain types its values wherever a role's context
+ * field or a parameter names it, beyond any relation.
  */
 const plannedLaws = (
 	laws: ReadonlyArray<TheoryLaw>,
@@ -700,7 +702,9 @@ const plannedLaws = (
 ): ReadonlyArray<TheoryLaw> =>
 	cycles.kind === "planned"
 		? laws
-		: laws.filter((l) => l.detail.kind === "contract" || readBySlice(l, slice))
+		: laws.filter(
+				(l) => l.detail.kind === "contract" || readBySlice(l.reads, referencedSides(l), slice)
+			)
 
 /**
  * The sides a law's foreign keys reference: a containment's target, and each target of the foreign keys a rule over a
@@ -723,22 +727,6 @@ const referencedSides = (law: TheoryLaw): ReadonlyArray<ResolvedSide> => {
 			return []
 	}
 }
-
-/**
- * Whether a compile over `slice` reads a law: one that reads a relation the slice writes, whose natives a write of it
- * can break, is ordered by or refuses by; one every relation of which the slice names, whose evidence a query over them
- * relies on; or one whose foreign key references a selected side of a named relation (referencedSides), a containment's
- * or a rule's lowered to foreign keys, whose UNIQUE over the side's law columns is a selection key a query's probe of
- * that relation reads (physical/ddl/names.ts selectionKeysOf). Any other law reads a relation the slice neither names
- * nor writes beside the ones it names: no write of the slice meets its natives, and no query over the slice reads its
- * evidence, which joins a relation the query never reads.
- */
-const readBySlice = (law: TheoryLaw, slice: Slice): boolean =>
-	law.reads.some((r) => slice.writes.has(r)) ||
-	law.reads.every((r) => slice.names.has(r)) ||
-	referencedSides(law).some(
-		(to) => slice.names.has(to.relation) && to.selection.conjuncts.length > 0
-	)
 
 /** The edges of the foreign key graph `plans` order a write's statements by (`#deferral`): every foreign key its family
  * does not fix deferred, and every PERIOD foreign key, from its relation to its target. */
@@ -2037,8 +2025,8 @@ const specialize = (
  *   ordinary relation, holds them all; a login's runtime, writing the relations its roles write, holds no other native
  *   and no rule that reads none of them, each a constraint no write of the login can raise. Under planned cycles
  *   (CycleSource) the model plans every law, whose plans settle the foreign key graph's cycles; under the cycles
- *   generate recorded from every law, it plans only the laws a compile over its slice reads (readBySlice). A law's plan
- *   reads the law and the recognizer's indexes of every law, and its deferral its own plan and the cycles, so each law
+ *   generate recorded from every law, it plans only the laws a compile over its slice reads (analysis/closure.ts
+ *   readBySlice). A law's plan reads the law and the recognizer's indexes of every law, and its deferral its own plan and the cycles, so each law
  *   it plans is planned, deferred, proved immediate and gives evidence as in the whole schema's model.
  *
  * The law model of an owned schema for `slice` under `cycles`, or the first refusal: a theory refusal, a law shape the
