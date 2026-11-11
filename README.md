@@ -55,9 +55,9 @@ COMMITTED, its statements pipelined into one round trip, or two when a write mus
 on. There are no interactive transactions to hold open: a read that decides a write
 is a query inside the write. The first migration makes SERIALIZABLE the database's default, and a write below it on a
 grizzle table is refused, so psql and scripts get the same isolation, on every table but one whose every writer is
-certified to run READ COMMITTED and may only insert ([Transactions and concurrency](#transactions-and-concurrency)). Every failure is typed: a broken rule is an
-outcome that names the rule, and anything else is a tagged error. A `TransientFailure` changed nothing, and grizzle
-never retries: whether to run it again is your code's decision.
+certified to run READ COMMITTED and may only insert ([Transactions and concurrency](#transactions-and-concurrency)). Every failure is typed: a call fails with one
+`CallError` of a closed set of kinds, a broken rule's `refused` naming the rule. A `transient` one changed nothing, and
+grizzle never retries: whether to run it again is your code's decision.
 
 Drizzle is a good typed SQL builder, thin by design: what you write is close to what runs. Its limits are those of the
 storage view. A rule beyond keys, foreign keys and single-row CHECKs is a trigger you write in a custom migration, or a
@@ -150,7 +150,7 @@ by this author, with this title, body and status. Three things follow:
 
 - **Every field is required.** There are no nullable columns. A post that has never been viewed has no `PostViews` row,
   and one that has been viewed has exactly one: a value that may be missing is a fact that may be missing.
-- **A relation is a set.** A fact inserted twice is one fact, and a write that changes nothing answers `no-change`.
+- **A relation is a set.** A fact inserted twice is one fact, and a write that changes nothing answers `unchanged`.
 - **Facts are inserted and deleted, not edited in place.** A relation is immutable by default, and no role holds
   UPDATE on it. A `put` states the fact that holds at a key afterwards, which is what an update means. Declaring
   `mutable(Post)` among the rules changes how a put is carried out, never what it means.
@@ -300,9 +300,9 @@ child query in each row. The result is a set, and its type follows from the quer
 ```
 
 Nothing there is annotated by hand. grizzle also knows each result's keys. `postPage` fixes `id`, `Post`'s key, to its
-one parameter, `id: Uuid`, so it returns at most one row, and served in a workload its handle's `get`,
-`db.workload.postPage.get({ id })`, returns an `Option` of that row; on a query that can return several rows, `get` is
-a type error. An aggregate is typed as PostgreSQL computes
+one parameter, `id: Uuid`, so it returns at most one row, and served in a workload its value,
+`db.workload.postPage.once({ params: { id }, facts: {} })`, is a set of at most one row, keyed by nothing: every row is
+keyed by the key grizzle proves of its result. An aggregate is typed as PostgreSQL computes
 it: `r.count()` is a `bigint`, and the `r.sum` of a bigint is an exact `Decimal`. Negation is
 `r.not(Comment, { post: id })`, a union is a second `.rule(...)`, and there is no `` sql`…` `` to fall back to.
 [Queries](#queries) has the whole language.
@@ -320,6 +320,7 @@ import {
 	type Fact,
 	role,
 	wholeEntriesOf,
+	workload,
 	writableNamesOf
 } from "@bjornpagen/grizzle"
 
@@ -329,23 +330,32 @@ export const Admin = role(Billing, "admin", wholeEntriesOf(Billing), {
 })
 
 /** An organization's subscription and its first post: one write, judged as a whole. */
-export const launch = (
-	db: Db<typeof Admin, unknown>,
+export const launch = ChangeSet.empty(Billing).insert(Subscription, []).insert(Post, [])
+export const onboarding = workload(Admin, { launch })
+
+export const launchOrg = (
+	db: Db<typeof Admin, typeof onboarding.programs>,
 	subscription: Fact<typeof Subscription>,
 	post: Fact<typeof Post>
 ) =>
-	db.apply(ChangeSet.empty(Billing).insert(Subscription, [subscription]).insert(Post, [post]), {})
+	db.workload.launch.once({
+		params: {},
+		facts: { insert: { Subscription: [subscription], Post: [post] } }
+	})
 ```
 
-`db.apply` sends the ChangeSet as one SERIALIZABLE transaction and answers with an outcome you match on: `accepted`,
-`no-change`, `invariant-rejected` or `outside-world`. The subscription and the post go in together, in either order:
-the post's containment in `Subscription` is decided at COMMIT, on the state the write leaves, and a post for an
-organization with no subscription is refused on it. Launch `org_2abc` on the Free plan with 5 seats, and nothing
-changes. The answer is:
+A ChangeSet runs as a member of a workload, compiled by `grizzle generate`; one built with `[]` takes its rows with each
+call, as its `facts`. `once` sends it as one SERIALIZABLE transaction and answers with its outcome after COMMIT,
+`accepted` or `unchanged`; a rule that refuses it is the call's error, `refused`, and a row the role may not write is
+`outsideWorld`. The subscription and the post go in together, in either order: the post's containment in
+`Subscription` is decided at COMMIT, on the state the write leaves, and a post for an organization with no subscription
+is refused on it. Launch `org_2abc` on the Free plan with 5 seats, and nothing changes. The error is:
 
 ```text
 {
-  kind: "invariant-rejected",
+  kind: "refused",
+  retry: "never",
+  message: "the schema's laws refused the write",
   refused: {
     kind: "every",
     laws: [
@@ -366,9 +376,10 @@ the one the snapshot records, and `by` the installed object that refused it. `ev
 named there broken, and the witness is the key of the fact that broke it. psql gets the same refusal from PostgreSQL,
 SQLSTATE 23514 on the constraint `within_plan`.
 
-An error is something else. A dropped connection or a serialization failure fails the Effect with a tagged error. A
-`TransientFailure` changed nothing, so your code may run the write again; grizzle never does. [Errors and outcomes](#errors-and-outcomes)
-lists every outcome and error.
+Every failure is one `CallError` like this one, `{ kind, retry, message }`: a dropped connection, a serialization
+failure, a rule's refusal. `retry: "safe"` means nothing committed and the same call may succeed, as after a
+`transient` one, whose `reason` says which concurrent transaction's work met it; your code may run the write again, and
+grizzle never does. [Errors and outcomes](#errors-and-outcomes) lists every outcome and error.
 
 That is the model in small: facts, laws over them, queries that are sets, and writes that move between lawful states.
 The rest of it arrives through eight cases that are hard when tables are storage, starting with the idea that what a
@@ -391,7 +402,7 @@ The eight cases below are where that model breaks, each a problem a large app me
 5. [A budget no burst of requests can overdraw](#5-a-budget-no-burst-of-requests-can-overdraw): a check that reads, then writes, and races.
 6. [Books that always balance](#6-books-that-always-balance): a rule over many rows, kept by a trigger.
 7. [States that carry their own data](#7-states-that-carry-their-own-data): nullable columns every reader narrows.
-8. [A usage page: cursors, a rollup and their indexes](#8-a-usage-page-cursors-a-rollup-and-their-indexes): indexes nothing ties to their queries.
+8. [A usage page: windows, a rollup and their indexes](#8-a-usage-page-windows-a-rollup-and-their-indexes): indexes nothing ties to their queries.
 
 Each case runs the same way: the problem, the Drizzle way and where it falls short, the reframe that changes the problem once you see the data relationally, the declaration, and what you get. Each introduces the grizzle feature it needs.
 
@@ -448,7 +459,7 @@ export const Dashboard = login(Keys, "dashboard", [KeyAdmin])
 
 **What you get.** The dashboard's queries and writes are written over `KeyAdmin`, where `ApiKey` already means "this organization's keys", with rows `{ id: Uuid; name: string }`. There is no `where` to forget and no `org` to pass. `orgKeys` fixes `org` to the claim, so inserting `{ id, name }` stores the caller's organization.
 
-Another organization's keys don't exist for this role: deleting one does nothing, and an insert at an `id` one already holds is `invariant-rejected` on the primary key, its witness the `id` you submitted, never the other row. Opening a `Db` of `key_admin` through the dashboard's served login doesn't compile without a token, and opening runs your `verify` function on it once.
+Another organization's keys don't exist for this role: deleting one does nothing, and an insert at an `id` one already holds is `refused` on the primary key, its witness the `id` you submitted, never the other row. Opening a `Db` of `key_admin` through the dashboard's served login doesn't compile without a token, and opening runs your `verify` function on it once.
 
 grizzle installs `KeyAdmin` as a PostgreSQL role that reads through a view in its own schema and writes the table under row-level security. The rule lives in PostgreSQL, so psql meets it too. `roleNameOf(Dashboard, {})` is the login's PostgreSQL role in an installation without a role prefix, here `keys__dashboard`; `roleNameOf(KeyAdmin, {})` and `schemaNameOf(KeyAdmin)` are the role and its schema of views, both `keys__key_admin`:
 
@@ -572,7 +583,7 @@ export const topModels = query(Usage)
 
 `calls` is a `bigint` and `spend` an exact `Decimal` at both levels, because that's what PostgreSQL computes. `.attach("models", (w) => ..., "array")` nests the child query in each row, and `w.workspace` is the parent row's value. `.orderBy(["spend", "desc"]).take(3)` keeps each workspace's three costliest models, and they arrive in that order, ties broken by `model`, the child query's key, which grizzle adds to the order because it knows the key.
 
-Both levels match each call's `id`, though neither returns it. A query is a set, so an aggregate reads each row it matches once, by its key: two calls of one model and one cost are two calls, not one. A rule with an aggregate that doesn't bind each match's key is refused with `FoldOverProjection`, naming the key to bind. And `Refund` is contained in `Call`, so a refund of a call that doesn't exist is `invariant-rejected` on that rule, whoever writes it.
+Both levels match each call's `id`, though neither returns it. A query is a set, so an aggregate reads each row it matches once, by its key: two calls of one model and one cost are two calls, not one. A rule with an aggregate that doesn't bind each match's key is refused with `FoldOverProjection`, naming the key to bind. And `Refund` is contained in `Call`, so a refund of a call that doesn't exist is `refused` on that rule, whoever writes it.
 
 ### 3. A tree of any depth
 
@@ -644,7 +655,7 @@ export const treeSpend = query(Resellers).rule((r) => {
 
 **What you get.** `query(S).recursive(name, { row, base, rec })` declares the recursive relation: `row` its fields, `base` the rules that seed it, and `rec` the rules that grow it from `self`, the set so far. `below.bind({ root })` passes it a parameter, and `r.match` joins it to `Charge` like a table. `treeSpend` takes `{ root: Uuid }`, and its rows are `{ account: Uuid; spend: Decimal }`.
 
-The recursion compiles to `WITH RECURSIVE … UNION`, and its result is a set, so a cycle in `BillsThrough` ends the walk instead of looping forever. A recursive rule reads `self` positively, never under a negation, an aggregate or a take, so the fixed point is well defined: aggregate the finished set, as `treeSpend` does. The edges' rules hold for every writer: both ends of an edge are accounts, and a second parent for one account is `invariant-rejected` on `BillsThrough`'s primary key, `child`.
+The recursion compiles to `WITH RECURSIVE … UNION`, and its result is a set, so a cycle in `BillsThrough` ends the walk instead of looping forever. A recursive rule reads `self` positively, never under a negation, an aggregate or a take, so the fixed point is well defined: aggregate the finished set, as `treeSpend` does. The edges' rules hold for every writer: both ends of an edge are accounts, and a second parent for one account is `refused` on `BillsThrough`'s primary key, `child`.
 
 When the shape is itself a rule (one root, no cycles, children in order), declare it. `tree(...)` makes PostgreSQL's constraints hold each tree's rows to one tree, every row reachable and none on a cycle, and keeps each row's pre-order interval, so a subtree is a range scan with no recursion ([Families](#families)).
 
@@ -700,7 +711,7 @@ CREATE TABLE "rooms"."booking" (
 ALTER TABLE "rooms"."booking" ADD CONSTRAINT "__booking_fk_room_during_254p6ghcbd" FOREIGN KEY ("room", PERIOD "during") REFERENCES "rooms"."opening" ("room", PERIOD "hours") MATCH SIMPLE DEFERRABLE INITIALLY DEFERRED;
 ```
 
-A booking that overlaps another comes back from its write's `apply` as `invariant-rejected`, naming the rule, `{ kind: "primaryKey", relation: "Booking", fields: ["room", "during"] }`, with the room and span you submitted as its witness. A booking outside opening hours names the coverage rule, at commit. The constraints are PostgreSQL's, so two overlapping bookings sent in the same second can't both commit, whether the app, psql or a second service sends them.
+A booking that overlaps another fails its write's `once` with `refused`, naming the rule, `{ kind: "primaryKey", relation: "Booking", fields: ["room", "during"] }`, with the room and span you submitted as its witness. A booking outside opening hours names the coverage rule, at commit. The constraints are PostgreSQL's, so two overlapping bookings sent in the same second can't both commit, whether the app, psql or a second service sends them.
 
 ### 5. A budget no burst of requests can overdraw
 
@@ -746,7 +757,8 @@ import {
 	Monoid,
 	mutable,
 	natural,
-	wholeEntriesOf
+	wholeEntriesOf,
+	workload
 } from "@bjornpagen/grizzle"
 import { Effect } from "effect"
 
@@ -776,10 +788,16 @@ export const Credits = schema("Credits", { Grant, Debit }, [
 export const Metering = role(Credits, "metering", wholeEntriesOf(Credits), { write: ["Debit"] })
 
 /** Debit a grant for one call. Your code decides the retry; grizzle never retries. */
-export const spend = (db: Db<typeof Metering, unknown>, debit: Fact<typeof Debit>) =>
-	db
-		.apply(ChangeSet.empty(Credits).insert(Debit, [debit]), {})
-		.pipe(Effect.retry({ while: (e) => e._tag === "TransientFailure", times: 3 }))
+export const debitGrant = ChangeSet.empty(Credits).insert(Debit, [])
+export const metering = workload(Metering, { debitGrant })
+
+export const spend = (
+	db: Db<typeof Metering, typeof metering.programs>,
+	debit: Fact<typeof Debit>
+) =>
+	db.workload.debitGrant
+		.once({ params: {}, facts: { insert: { Debit: [debit] } } })
+		.pipe(Effect.retry({ while: (e) => e.kind === "transient", times: 3 }))
 ```
 
 **What you get.** The rule holds at commit, for every writer. A debit is written as its own row, `{ call, grant, amount }`, a `Fact<typeof Debit>`. `debits` and `spent` are grizzle's to draw, so no insert or put takes them. `grizzle generate` compiles the family, the fold and the check to PostgreSQL's own constraints, over hidden columns of each debit that grizzle fills on every write and no query reads; abridged:
@@ -820,11 +838,13 @@ Each debit carries its slot among its grant's debits, a copy of the grant's coun
 
 The slot is a coordinate the proof counts by, never a multiplicity: a grant's debits are a set, one row per debit. There is no trigger, and a writer outside grizzle fills those columns as grizzle does or is refused ([Direct SQL access](#direct-sql-access)).
 
-Every transaction is SERIALIZABLE: the first migration makes it the database's default, and a write below it on a grizzle table is refused, psql's included. Two calls that spend one grant both rewrite its count and total, so they can't both commit: one fails with a `TransientFailure` that changed nothing. grizzle never retries on its own. `spend` runs the call again with `Effect.retry`, and the run sees the other's debit: it commits if the grant still covers it, and otherwise comes back as an outcome you match on, never a message to parse:
+Every transaction is SERIALIZABLE: the first migration makes it the database's default, and a write below it on a grizzle table is refused, psql's included. Two calls that spend one grant both rewrite its count and total, so they can't both commit: one fails with a `transient` error that changed nothing, `retry: "safe"`. grizzle never retries on its own. `spend` runs the call again with `Effect.retry`, and the run sees the other's debit: it commits if the grant still covers it, and otherwise fails with an error you match on, never a message to parse:
 
 ```text
 {
-  kind: "invariant-rejected",
+  kind: "refused",
+  retry: "never",
+  message: "the schema's laws refused the write",
   refused: {
     kind: "first",
     laws: [
@@ -893,7 +913,7 @@ export const Books = schema("Books", { Entry, Posting }, [
 ])
 ```
 
-**What you get.** An entry goes in as its written row, `{ id, memo }`, and each posting as its own row naming its entry, in one ChangeSet. grizzle draws the count and the total from the postings, and `Balanced` reads the total, so a ChangeSet that leaves an entry unbalanced comes back `invariant-rejected` on `Balanced`, and changes nothing. It compiles as the grant's rule does, to keys, CHECKs and foreign keys over the postings' hidden columns, and every writer meets it, psql included.
+**What you get.** An entry goes in as its written row, `{ id, memo }`, and each posting as its own row naming its entry, in one ChangeSet. grizzle draws the count and the total from the postings, and `Balanced` reads the total, so a ChangeSet that leaves an entry unbalanced comes back `refused` on `Balanced`, and changes nothing. It compiles as the grant's rule does, to keys, CHECKs and foreign keys over the postings' hidden columns, and every writer meets it, psql included.
 
 `Entry` is not `mutable`, so its postings are fixed once it is inserted: deleting one is a type error, and a correction is a reversing entry, as a ledger wants. The check states the bound: `e.total.eq(0n)` is an exact total, and `i.total.eq(i.amount)` makes a total equal a column instead, as in "an invoice's lines add up to its amount".
 
@@ -1000,9 +1020,9 @@ export const pay = ChangeSet.empty(Invoices)
   | { readonly id: Uuid; readonly state: "void"; readonly payment: Option.None<{ readonly charge: string }>; readonly voiding: Option.Some<{ readonly reason: string }> }
 ```
 
-`pay` takes `{ invoice: Uuid; charge: string }`. Its rows are queries, and a query in a ChangeSet reads the state before the change, in the same transaction: that is how a write depends on a read, with no interactive transaction. `pay` reads the invoice and, if it was open, marks it paid and inserts its payment, together. On an invoice that isn't open both parts are empty, so a webhook delivered twice answers `no-change` the second time. `InvoiceState.handle("paid")` is the roster's handle as a typed constant.
+`pay` takes `{ invoice: Uuid; charge: string }`. Its rows are queries, and a query in a ChangeSet reads the state before the change, in the same transaction: that is how a write depends on a read, with no interactive transaction. `pay` reads the invoice and, if it was open, marks it paid and inserts its payment, together. On an invoice that isn't open both parts are empty, so a webhook delivered twice answers `unchanged` the second time. `InvoiceState.handle("paid")` is the roster's handle as a typed constant.
 
-A paid invoice without its payment, or a payment of an invoice that isn't paid, is refused at commit, whoever writes it, as `invariant-rejected` on one of the containments `alternatives` stands for. In PostgreSQL, abridged from `grizzle generate`, `state` is a smallint code under the roster's domain, which admits only a live handle's code, and both directions are foreign keys over STORED generated columns, deferred to commit. A payment can point only at a paid invoice, and a paid invoice, its id kept only where its state is `paid` (code 1), must have its payment:
+A paid invoice without its payment, or a payment of an invoice that isn't paid, is refused at commit, whoever writes it, as `refused` on one of the containments `alternatives` stands for. In PostgreSQL, abridged from `grizzle generate`, `state` is a smallint code under the roster's domain, which admits only a live handle's code, and both directions are foreign keys over STORED generated columns, deferred to commit. A payment can point only at a paid invoice, and a paid invoice, its id kept only where its state is `paid` (code 1), must have its payment:
 
 ```sql
 CREATE FUNCTION "invoices"."__invoice_state_names_yhl4rhbevp"() RETURNS "pg_catalog"."name"[]
@@ -1028,7 +1048,7 @@ ALTER TABLE "invoices"."invoice" ADD CONSTRAINT "__invoice_fk_id_ccexml2ehq" FOR
 ALTER TABLE "invoices"."payment" ADD CONSTRAINT "__payment_fk_invoice_tag_state_paid_oj2dydnqrc" FOREIGN KEY ("invoice", "__tag_state_paid_czelpy2jmx") REFERENCES "invoices"."invoice" ("id", "state") MATCH SIMPLE DEFERRABLE INITIALLY DEFERRED;
 ```
 
-### 8. A usage page: cursors, a rollup and their indexes
+### 8. A usage page: windows, a rollup and their indexes
 
 **The problem.** A usage page lists a workspace's calls newest first, 50 at a time, with next and previous links that stay correct while calls keep arriving, and a chart reads spend per model without scanning every call. Both must stay fast as the call log grows.
 
@@ -1050,15 +1070,15 @@ CREATE UNIQUE INDEX ON model_spend (workspace_id, model);  -- REFRESH ... CONCUR
 
 Drizzle's `pgMaterializedView` declares the view and `refreshMaterializedView` refreshes it. The cursor format, the backward page and both indexes are yours, and an index that stops matching its query fails silently, as a slow page.
 
-**The reframe.** Each piece follows from something you declare anyway. A page is a slice of an ordered set, and a cursor a position in its order; the order is total once it ends in a key, which grizzle knows. A rollup is a derived relation, a query whose rows PostgreSQL stores, and its key follows from its query. An index serves the queries that need it, so the queries your app runs decide the indexes:
+**The reframe.** Each piece follows from something you declare anyway. A page is a window of an ordered set, and its anchor a row's place in that order; the order is total once it ends in a key, which grizzle knows, so a row's key is its place. A rollup is a derived relation, a query whose rows PostgreSQL stores, and its key follows from its query. An index serves the queries that need it, so the queries your app runs decide the indexes:
 
 - **`derived.materialized(name, query)`** stores a query's rows as a materialized view, uniquely indexed on the keys the query provably has. `schema.extend` declares it in a level of its own over the schema it reads, here `Reporting` over `Usage`, and a role's `refresh` list names what the role may refresh.
-- **`workload(role, programs)`** names the queries and writes your app runs on its hot paths. A login owns its workloads: `grizzle generate` compiles them into the login's served file and derives the indexes they need. An ordered query your app pages is the member `paged(query)`: only its handle has `page`, and generate compiles a page template for no other member. A materialized table is refreshed by the member `refresh(tables)`, which takes a nonempty list.
+- **`workload(role, programs)`** names the queries and writes your app runs on its hot paths. A login owns its workloads: `grizzle generate` compiles them into the login's served file and derives the indexes they need. An ordered query your app pages is the member `paged(query)`: its input holds a `window`, and generate compiles window templates for no other member. A materialized table is refreshed by the member `refresh(tables)`, which takes a nonempty list.
 
 **The declaration**, continuing the `Usage` schema of [case 2](#2-top-three-per-group-with-exact-types):
 
 ```ts
-import { derived, type PageCursor, paged, refresh, type Uuid, wholeEntriesOf, workload } from "@bjornpagen/grizzle"
+import { derived, paged, refresh, type Uuid, wholeEntriesOf, workload } from "@bjornpagen/grizzle"
 
 /** A workspace's calls, newest first. */
 export const callLog = query(Usage)
@@ -1112,21 +1132,28 @@ and the calls, on a Db of `Analyst` opened through `UsageApi`'s served file:
 ```ts
 type AnalystDb = Db<typeof Analyst, typeof usage.programs>
 
-/** The first 50 calls, and the 50 after a cursor the client sent back. */
+/** Where a window of the log starts: its first calls, or after a call's key the client sent back. */
+type CallAnchor = Parameters<AnalystDb["workload"]["callLog"]["once"]>[0]["window"]["anchor"]
+
+/** The first 50 calls, and the 50 after a key the client sent back. */
 export const firstCalls = (db: AnalystDb, workspace: Uuid) =>
-	db.workload.callLog.page({ workspace }, { first: 50 })
-export const moreCalls = (db: AnalystDb, workspace: Uuid, after: PageCursor<typeof callLog>) =>
-	db.workload.callLog.page({ workspace }, { first: 50, after })
+	db.workload.callLog.once({
+		params: { workspace },
+		facts: {},
+		window: { anchor: { kind: "start" }, size: 50 }
+	})
+export const moreCalls = (db: AnalystDb, workspace: Uuid, anchor: CallAnchor) =>
+	db.workload.callLog.once({ params: { workspace }, facts: {}, window: { anchor, size: 50 } })
 
 export const spendOn = (db: AnalystDb, workspace: Uuid, model: string) =>
-	db.workload.modelSpend.get({ workspace, model })
-export const nightly = (db: AnalystDb) => db.workload.nightly.refresh
+	db.workload.modelSpend.once({ params: { workspace, model }, facts: {} })
+export const nightly = (db: AnalystDb) => db.workload.nightly.once({ params: {}, facts: {} })
 ```
 
 **What you get.**
 
-- **Pages.** `page` answers `{ edges, pageInfo }`. Each edge is a row, `{ id, model, at, cost }` with `at` and `cost` the branded `bigint`s of their contracts, and its cursor; `pageInfo` holds the first and last edges' cursors and exact `hasNextPage` and `hasPreviousPage`. A cursor is an opaque string typed to `callLog`, and checked against it when it comes back. Ties are broken by `id`, the row's key, which grizzle adds to the order. `{ last: 50, before }` pages backward.
-- **The rollup.** `ModelSpend`'s key, `(workspace, model)`, follows from its query, so `modelSpend` returns at most one row and its handle has `get`: `spendOn` gives an `Option<{ calls: bigint; spend: Decimal }>`. `refresh([ModelSpend])` compiles only for a role whose `refresh` lists it, and `nightly` is one Effect that refreshes the view in one transaction.
+- **Windows.** `once` answers a `KeyedList` of rows, `{ id, model, at, cost }` with `at` and `cost` the branded `bigint`s of their contracts, in the query's order. Ties are broken by `id`, the row's key, which grizzle adds to the order, so `(at, id)` is each row's key: an entry's `key` is the anchor of the window after it, `{ kind: "after", key }`, and `{ kind: "end" }` and `{ kind: "before", key }` read backward. A window is one statement of `size` rows: there are no cursors and no flags, and the window after the last row holding none is the end. `watch` keeps a window live: its rows change as writes change them.
+- **The rollup.** `ModelSpend`'s key, `(workspace, model)`, follows from its query, so `modelSpend` returns at most one row: `spendOn` gives a set of at most one `{ calls: bigint; spend: Decimal }`. `refresh([ModelSpend])` compiles only for a role whose `refresh` lists it, and `nightly`'s `once` refreshes the view in one transaction, answering `{ kind: "refreshed" }`.
 - **The indexes.** `grizzle generate` derives one from the workload's `callLog` and one from the rollup's key, and grants the refresh:
 
 ```sql
@@ -1165,7 +1192,7 @@ For porting an app, each Drizzle construct and what takes its place:
 | `notExists(...)`                                       | `r.not(Comment, { post: id })`                                                                  |
 | `count()`, `sum(...)`                                  | `r.count()`, a `bigint`; `r.sum(x)`, typed as PostgreSQL types it (a `Decimal` for a `bigint`)  |
 | `db.query.post.findMany({ with: { comments: true } })` | `.attach("comments", (post) => ..., "array")`                                                   |
-| `.orderBy(...).limit(10)`                              | `.orderBy([...]).take(10)`, or a `paged(query)` member's `page` for cursors                     |
+| `.orderBy(...).limit(10)`                              | `.orderBy([...]).take(10)`, or a `paged(query)` member's windows, anchored at a row's key       |
 | `db.insert(post).values(rows)`                         | `ChangeSet.empty(Blog).insert(Post, rows)`                                                      |
 | `.onConflictDoUpdate(...)`, `db.update(post).set(...)` | `.put(Post, rows)`: after the change, the row at each key is the one given                      |
 | `db.delete(post).where(...)`                           | `.delete(Post, rows)`, the rows given or read by a query                                        |
@@ -1228,7 +1255,7 @@ The example also uses `Effect.map`, `flatMap`, `mapError`, `promise`, `tryPromis
 
 ## Example
 
-A blog behind Clerk: signed-out readers, signed-in members who write in their active organization, and a nightly job that loads view counts. It continues the blog schema at the start of this page and puts the cases' pieces together: contexts and roles from [case 1](#1-every-organization-sees-only-its-own-rows), a workload and its derived indexes from [case 8](#8-a-usage-page-cursors-a-rollup-and-their-indexes), typed outcomes, and a retry of a `TransientFailure` as in [case 5](#5-a-budget-no-burst-of-requests-can-overdraw). Each block below is the same module and imports only what it adds, and the test suite typechecks every line.
+A blog behind Clerk: signed-out readers, signed-in members who write in their active organization, and a nightly job that loads view counts. It continues the blog schema at the start of this page and puts the cases' pieces together: contexts and roles from [case 1](#1-every-organization-sees-only-its-own-rows), a workload and its derived indexes from [case 8](#8-a-usage-page-windows-a-rollup-and-their-indexes), typed outcomes, and a retry of a `transient` error as in [case 5](#5-a-budget-no-burst-of-requests-can-overdraw). Each block below is the same module and imports only what it adds, and the test suite typechecks every line.
 
 ### Who is asking
 
@@ -1323,7 +1350,7 @@ grizzle installs each role as a PostgreSQL role that reads through views in a sc
 ### The app's queries and its logins
 
 ```ts
-import { login, workload } from "@bjornpagen/grizzle"
+import { ChangeSet, login, workload } from "@bjornpagen/grizzle"
 
 const { Post: AnonPost } = AnonBlog.relations
 const { Post: MemberPost, MyPost } = MemberBlog.relations
@@ -1339,20 +1366,28 @@ export const memberFeed = query(MemberBlog).rule((r) => {
 	return r.match(MemberPost, { id, title }).find({ id, title })
 })
 
+/** A member's draft post: each call gives its fact, whose `author` and `org` the insert fills from the token. */
+export const draft = ChangeSet.empty(MemberBlog).insert(MyPost, [])
+
+/** The ETL job's view counts: each call gives the counts it puts. */
+export const recordViews = ChangeSet.empty(Etl).put(PostViews, [])
+
 export const anonReads = workload(AnonBlog, { anonFeed })
 export const memberReads = workload(MemberBlog, { memberFeed })
+export const memberWrites = workload(MemberBlog, { draft })
+export const etlWrites = workload(Etl, { recordViews })
 
 export const Web = login(Blog, "web", [AnonBlog, MemberBlog], {
-	workload: [anonReads, memberReads]
+	workload: [anonReads, memberReads, memberWrites]
 })
-export const EtlJob = login(Blog, "etl_job", [Etl])
+export const EtlJob = login(Blog, "etl_job", [Etl], { workload: [etlWrites] })
 ```
 
 A query for a role is written over the role and sees only what the role sees: `MemberPost` is already the member's filtered view of posts, so `memberFeed` has no filter to forget.
 
 A `workload` names the queries and writes your app runs. `grizzle generate` compiles them, for every role of their login, derives the indexes they need and records them in the snapshot, and commits each login's compiled programs as `migrations/blog/served/<login>.json`: the app serves that file and compiles nothing, so a program that does not compile is refused by generate, never by the app. Edit `memberFeed` so that it needs another index, and `grizzle check` refuses until you run `grizzle generate` again: the index ships in the same migration as the query that needs it. One index serves an equality lookup when it is led by a column the lookup fixes that holds many values and holds the lookup's other columns after it, so an index on `(account, flagged, tenant)` serves a lookup by `account` and `tenant`; where the columns between, here `flagged`, are booleans or closed ids, PostgreSQL reads it by a skip scan over their few values, within `account`'s rows.
 
-A served member's handle, `db.workload.memberFeed`, is a `MemberHandle<typeof memberFeed>`: the operations its program allows, `execute`, `explain` and `explainAnalyze` here, without the role it runs on, which none of them reads. A function written over `MemberHandle<typeof program>` takes the handle of that program from any login whose workload serves it, a login over a level and one over a level that extends it alike, and refuses a handle of any other program.
+A served member's handle, `db.workload.memberFeed`, is a `MemberHandle<typeof memberFeed>`: `once` and `watch`, with `explain` and `explainAnalyze` beside them, without the role it runs on, which none of them reads. A function written over `MemberHandle<typeof program>` takes the handle of that program from any login whose workload serves it, a login over a level and one over a level that extends it alike, and refuses a handle of any other program.
 
 A `login` is one PostgreSQL user, the one `roleNameOf(Web, {})` names (here `blog__web`), with its password and its own connection pool, that can act as the roles it lists. The login is the trust boundary: whoever holds its password can act as any of its roles, with any claims. So the web app and the nightly job get separate logins, and no token sent to the web app can make it write view counts.
 
@@ -1438,7 +1473,7 @@ grizzle states no number of its own, and there is no isolation level, statement 
 ### The route handler
 
 ```ts
-import { ChangeSet, Db } from "@bjornpagen/grizzle"
+import { Db } from "@bjornpagen/grizzle"
 import { ManagedRuntime, Schema } from "effect"
 
 /** A post's id: a uuid's text, typed Uuid (five hyphenated groups) and checked to be a uuid. */
@@ -1457,9 +1492,6 @@ const PostId = Schema.TemplateLiteral([
 /** The client names a draft's id, so a POST sent twice inserts it once. */
 const Draft = Schema.Struct({ id: PostId, title: Schema.String, body: Schema.String })
 
-export const draft = (post: typeof Draft.Type) =>
-	ChangeSet.empty(MemberBlog).insert(MyPost, [{ ...post, status: "Draft" }])
-
 const web = ManagedRuntime.make(WebLayer)
 const bearer = (request: Request) =>
 	/^Bearer (.+)$/.exec(request.headers.get("authorization") ?? "")?.[1]
@@ -1470,10 +1502,10 @@ export const GET = (request: Request): Promise<Response> => {
 	const feed = Effect.gen(function* () {
 		if (token === undefined) {
 			const db = yield* Db.open(WebServed.roles.anon, {})
-			return yield* (yield* db.workload.anonFeed.execute({})).collect
+			return [...(yield* db.workload.anonFeed.once({ params: {}, facts: {} }))]
 		}
 		const db = yield* Db.open(WebServed.roles.member, { token })
-		return yield* (yield* db.workload.memberFeed.execute({})).collect
+		return [...(yield* db.workload.memberFeed.once({ params: {}, facts: {} }))]
 	})
 	return web.runPromise(Effect.map(feed, (rows) => Response.json(rows)))
 }
@@ -1489,31 +1521,29 @@ export const POST = (request: Request): Promise<Response> => {
 			Schema.decodeUnknownEffect(Draft)
 		)
 		const db = yield* Db.open(WebServed.roles.member, { token })
-		const outcome = yield* db.apply(draft(post), {})
-		switch (outcome.kind) {
-			case "accepted":
-				return 201
-			case "no-change":
-				return 200
-			case "outside-world":
-				return 403
-			case "invariant-rejected":
-				return 409
-		}
+		return yield* db.workload.draft
+			.once({ params: {}, facts: { insert: { MyPost: [{ ...post, status: "Draft" }] } } })
+			.pipe(
+				Effect.map((outcome) => (outcome.kind === "accepted" ? 201 : 200)),
+				Effect.catchIf(
+					(error) => error.kind === "outsideWorld" || error.kind === "refused",
+					(error) => Effect.succeed(error.kind === "outsideWorld" ? 403 : 409)
+				)
+			)
 	})
 	return web.runPromise(Effect.map(posted, (status) => new Response(null, { status })))
 }
 ```
 
-`Db.open(role, { token })` opens a database handle as one role, for one request, contacting nothing: each call is one round trip. The types follow the roles: `Db.open(WebServed.roles.member, ...)` does not compile without a token, `Db.open(WebServed.roles.anon, {})` needs none, and each handle's `db.workload` holds exactly its login's workload programs for its role, compiled by `grizzle generate` and loaded when the layer was built. The draft is a ChangeSet built per request, so `db.apply` compiles it for the call. The handler meets Clerk's three states:
+`Db.open(role, { token })` opens a database handle as one role, for one request, contacting nothing: each call is one round trip. The types follow the roles: `Db.open(WebServed.roles.member, ...)` does not compile without a token, `Db.open(WebServed.roles.anon, {})` needs none, and each handle's `db.workload` holds exactly its login's workload programs for its role, compiled by `grizzle generate` and loaded when the layer was built. The draft is a member of the member role's workload, and each request gives its row as the call's facts. The handler meets Clerk's three states:
 
 - **Signed out.** No token: the handler opens `anon` and returns published posts.
-- **Signed in, no organization.** The token has `sub` and no `o`, so `Session` has a row and `Org` has none. The feed is the published posts, and a draft comes back `outside-world`: there is no organization to fill `org` from, so the post is not one `MyPost` can hold.
+- **Signed in, no organization.** The token has `sub` and no `o`, so `Session` has a row and `Org` has none. The feed is the published posts, and a draft comes back `outsideWorld`: there is no organization to fill `org` from, so the post is not one `MyPost` can hold.
 - **In an organization.** The feed adds the organization's drafts, and a draft is inserted with the user and the organization filled in.
 
-`db.apply` runs a ChangeSet and answers with an outcome: `accepted`; `no-change`, here the same draft posted again, since the client names its id and a table holds a row once; `outside-world`, a row the role may not write; or `invariant-rejected`, a rule said no, naming the rule and the key that broke it. A title over 200 characters is `invariant-rejected` on `Post.title`'s pattern, with the draft's `id` as its witness, and so is an id another post already holds, on `Post`'s primary key, whether or not the member can see that post.
+`once` runs the ChangeSet and answers with its outcome, `accepted`, or `unchanged`, here the same draft posted again, since the client names its id and a table holds a row once; or it fails with `outsideWorld`, a row the role may not write, or `refused`, a rule said no, naming the rule and the key that broke it. A title over 200 characters is `refused` on `Post.title`'s pattern, with the draft's `id` as its witness, and so is an id another post already holds, on `Post`'s primary key, whether or not the member can see that post.
 
-Errors stay in the Effect's error channel, and this handler lets them reject its promise; a production handler maps them by stage and reason, such as an `OpenError` at stage `token` to 401. To stop a call whose client went away, pass an `AbortSignal` as `web.runPromise(effect, { signal })`: the server stops the interrupted call's statement, and an interrupted write may still have committed, like `CommitUnknown`.
+Every other error stays in the Effect's error channel, and this handler lets it reject its promise; a production handler maps each `CallError` by its `kind`, and an `OpenError` at stage `token` to 401. To stop a call whose client went away, pass an `AbortSignal` as `web.runPromise(effect, { signal })`: the server stops the interrupted call's statement, and an interrupted write may still have committed, like `commitUnknown`.
 
 ### The nightly job
 
@@ -1536,12 +1566,14 @@ export const loadViews = (views: ReadonlyArray<{ readonly post: Uuid; readonly v
 	etl.runPromise(
 		Effect.gen(function* () {
 			const db = yield* Db.open(EtlServed.roles.etl, {})
-			return yield* db.apply(ChangeSet.empty(Etl).put(PostViews, views), {})
-		}).pipe(Effect.retry({ while: (e) => e._tag === "TransientFailure", times: 4 }))
+			return yield* db.workload.recordViews
+				.once({ params: {}, facts: { put: { PostViews: views } } })
+				.pipe(Effect.retry({ while: (e) => e.kind === "transient", times: 4 }))
+		})
 	)
 ```
 
-`put` writes rows by primary key: after the change, the row at each key is the one given. The load is one transaction, so it lands whole or not at all: a count for a post deleted since the export is `invariant-rejected` on the containment of `PostViews.post` in `Post.id`, and nothing is written. grizzle never retries on its own. A `TransientFailure`, such as a serialization failure, changed nothing, so this job runs the write again, up to four times.
+`put` writes rows by primary key: after the change, the row at each key is the one given. The load is one transaction, so it lands whole or not at all: a count for a post deleted since the export is `refused` on the containment of `PostViews.post` in `Post.id`, and nothing is written. grizzle never retries on its own. A `transient` error, such as a serialization failure, changed nothing, so this job runs the write again, up to four times.
 
 `EtlJob` needs no `verify` and opens with no token, since its role reads no claims. Its pool holds at most two connections and closes each five seconds after its last use.
 
@@ -1551,7 +1583,7 @@ Each piece is PostgreSQL's to enforce or TypeScript's to check, so the guarantee
 
 - **Every writer meets the same rules.** The blog's rules and roles are constraints, grants and row-level security policies, so a script, a second service or psql logged in as `roleNameOf(Web, connection)` meets them exactly as the app does ([Direct SQL access](#direct-sql-access)).
 - **No request leaks into the next.** `anon` and `member` share the web login's pool. Each transaction takes on its role and claims at its start, for that transaction only, so a pooled connection never carries one request's role or claims into the next.
-- **Races resolve in PostgreSQL.** Every call of the blog is one SERIALIZABLE transaction in one round trip, and none holds a connection between awaits. PostgreSQL commits only what some serial order of the calls would; a call it cannot order fails with a `TransientFailure` that changed nothing, which your code may run again, as the nightly job does.
+- **Races resolve in PostgreSQL.** Every call of the blog is one SERIALIZABLE transaction in one round trip, and none holds a connection between awaits. PostgreSQL commits only what some serial order of the calls would; a call it cannot order fails with a `transient` `CallError` that changed nothing, which your code may run again, as the nightly job does.
 - **Failures are values.** A refused write is an outcome you switch on, and anything that went wrong is a tagged error in the Effect's error channel ([Errors and outcomes](#errors-and-outcomes)). Neither is a message to parse.
 - **Trust is split by login.** Whoever holds the web login's password can act as any reader or member, but never as `etl`; whoever holds the job's can write view counts and never read a title ([Security model](#security-model)).
 
@@ -1568,7 +1600,7 @@ pnpm exec grizzle migrate grizzle.config.ts    # apply what is pending, as the o
 Read the SQL `generate` drafts, edit it if you need to, and commit it with the code: it is what `migrate` runs, and the database must end where the snapshot says. The first migration creates each login's PostgreSQL role, `roleNameOf(Web, connection)` and `roleNameOf(EtlJob, connection)`, without a password: as the owner, give each its password (psql's `\password` on the role `roleNameOf` names), and set it as `BLOG_WEB_PASSWORD` or `BLOG_ETL_PASSWORD` where the app or the job runs.
 
 - **The code and the database move together.** `grizzle check` refuses a served file that is not its login's compile under the snapshot, so the app's programs are the schema's. Every `Db` transaction refuses a database whose latest migration did not reach the snapshot its served file was compiled under. `grizzle drift`, from CI or a schedule, and `grizzle migrate` after every apply compare the whole database with the snapshot: roles, settings, privileges, view definitions and policies included.
-- **Migrations are downtime.** While one runs, every `Db` call fails at once with `StaleSnapshot` (reason `Migrating`); once it completes, a `Db` of the old code fails with `StaleSnapshot` (reason `Migrated`). Deploy the code that carries the new served files.
+- **Migrations are downtime.** While one runs, every `Db` call fails at once with a `stale` `CallError` (reason `Migrating`); once it completes, a `Db` of the old code fails with `stale` (reason `Migrated`). Deploy the code that carries the new served files.
 
 [Migrations](#migrations) covers the whole loop, with renames, drops, markers and data steps. [Deploying](#deploying) covers what `DbLayer.make` and every transaction check, Vercel, and RDS IAM authentication.
 
@@ -1636,7 +1668,7 @@ PostgreSQL's other spellings are the same fields.
   parameter takes one, no `Compute` operation reads one but `Compute.sha256`, its digest ([Text](#text)), and no
   contract, generated or accumulated field is of one: each is a type error where the types see it and
   `UnsupportedOperation` when it compiles. A query's head reads one like any field. It is written in binary and read back in chunks of 16 MiB, one result row a chunk, in the same statement and
-  round trip, wherever it is delivered: a query's rows, an attachment's, a page's, a family's stored members. grizzle
+  round trip, wherever it is delivered: a query's rows, an attachment's, a window's, a family's stored members. grizzle
   writes the chunks into a fresh `Uint8Array` you own, so a value never passes through one string. A write reads back
   only a value's SHA-256 digest, which is how the host knows it: two values of one digest that differ are a SHA-256
   collision, refused as an `EncodingFailure` (`bytesCollision`) rather than taken as one. grizzle reads your array
@@ -1717,17 +1749,17 @@ only the fields the caller writes, so reading a generated, drawn or accumulated 
 schema refuses a term that breaks these rules with `GeneratedRefused` (`readsGenerated`, `readsUnwritten`, or
 `notRowLocal` for a read beyond its row). The term has the field's type, except for a text's pattern and byte bound,
 which the field's domain checks: `generated(Ids, Compute.concat(row.head, row.tail))` fills a refined text, and a
-generated value outside the domain refuses its row, `invariant-rejected` on the pattern's rule. Nothing is cast
+generated value outside the domain refuses its row, `refused` on the pattern's rule. Nothing is cast
 implicitly: a term of another integer width, numeric typmod or contract, `natural` included, is `GeneratedRefused`
 (`type`); write the `Compute.cast`. A term with no value at a row, such as `C.at` at a key no row holds, refuses the
-row, `invariant-rejected` on `{ kind: "generated", relation, field }`, witnessed by the first row you stated whose term
+row, `refused` on `{ kind: "generated", relation, field }`, witnessed by the first row you stated whose term
 has no value. It is one outcome whoever finds the NULL: grizzle, filling a nested write or a family's values that read
 the field, before any SQL, or PostgreSQL's NOT NULL.
 
 **Keys.** A fact and a query's row hold every field. A primary key holds no set, bytes, generated or accumulated field.
 Another key may hold a generated field, such as a `value` generated from a text to keep two spellings of one value
 apart. It is compared in the statement that writes the row, never on the host, against every row the statement writes
-and every stored row: two rows of one value are `invariant-rejected` on the key, witnessed by the key's values as
+and every stored row: two rows of one value are `refused` on the key, witnessed by the key's values as
 PostgreSQL stores them. A delete compares only at keys whose fields it states. A family's member rows meet such a key
 at its index alone, which refuses them on the key with an `unreported` witness.
 
@@ -2011,7 +2043,7 @@ definition too.
   Its function runs the rule's violation query, compiled by grizzle's own query compiler, over the rows the write
   touched, and raises 23503 for a containment, 23505 for a key and 23514 for a check, naming the rule. The functions
   are SECURITY DEFINER on a pinned `search_path`, and no role may run them.
-- **Outcomes.** A write's `apply` answers `invariant-rejected` naming the rule, its witness `unreported`: the row that breaks
+- **Outcomes.** A write's `once` fails with `refused` naming the rule, its witness `unreported`: the row that breaks
   it may be one the transaction never wrote.
 - **Concurrent writers.** Every writer is SERIALIZABLE, so PostgreSQL orders each trigger's reads against the writes
   it does not see: two transactions that each keep a rule and together break it never both commit, and one fails with
@@ -2054,7 +2086,7 @@ An ordered family or a tree is a sequence. The monoids:
 - **Accumulators and ends start at the identity**, which an empty family's end holds. They are of the step value's
   type, each with its own text pattern and byte bound: concat's pieces may be any text, generated or written, and its
   accumulators of a pattern of the text they spell. Each one's domain checks every value grizzle fills into it: a
-  value outside its pattern is `invariant-rejected` on that pattern's rule. Another integer width, numeric typmod or
+  value outside its pattern is `refused` on that pattern's rule. Another integer width, numeric typmod or
   contract is another type, and such a fold is `Refused` when the schema compiles.
 - **Running values.** A fold over a sequence may name each member's running `before` and `after`; one over a counted
   family names only its step value and end, its order being hidden. concat folds only a sequence, and names its pair.
@@ -2083,7 +2115,7 @@ narrowed into its column's type unproved.
   `EncodingFailure` (`factShape`) before any SQL. An ordered member inserted alone is a type error. A tree is written
   whole: a put or a delete of one of its rows is a type error, and from JavaScript refused when the ChangeSet compiles.
 - **A put and an insert of one sequence owner at one key in one stratum are two rows** at that key, since the insert
-  states the owner's members and the put leaves them as they are. They are `invariant-rejected` on the key before any
+  states the owner's members and the put leaves them as they are. They are `refused` on the key before any
   SQL is sent; at different keys each is written.
 - **A counted member is a row**, inserted, put and deleted like any row, its group key naming its owner. One that is
   also a sequence's member or a tree's node is inserted nested there, stating its counted group key; one that owns a
@@ -2226,14 +2258,14 @@ A `write` naming any other query entry is `RoleRefused` (`writeUnwritable`), wit
 - **An insert fills the fixed columns.** It may leave out the entry's serial columns as an insert into a table may,
   also when every column of the entry is serial: `[{}]` is one new row of the fixed columns. A serial column the query
   filters on must be in every inserted row: the row is checked against the query before its identity is drawn. A row
-  the query could never return (a filter it fails, an absent claim) is the outcome `outside-world`.
+  the query could never return (a filter it fails, an absent claim) is the error `outsideWorld`.
 - **A delete of a row outside the entry does nothing**: for this role, that row does not exist.
 - **An entry over a family's owner writes the owner as a write of the table does.** No row states its counts and ends,
   and a put updates the entry's own columns in place and leaves the family as it is. Its filter may read no count or
   end, and no key of the table may hold one, else the role is `RoleRefused` (`writeUnwritable`) with `why`
   `filterReadsFamily` or `keyHoldsFamily`, naming the field.
 - **A collision with a row outside the entry**, by a put or an insert, on a key over the table or over a side of it,
-  is `invariant-rejected` on that rule. The witness is the key you submitted, in the entry's fields, never the other
+  is `refused` on that rule. The witness is the key you submitted, in the entry's fields, never the other
   row. An error PostgreSQL still raises there is a typed failure, never an outcome.
 - **A column the query binds directly to a claim**, like `author`, holds the claim's value in every row and is never
   updatable: the role holds no UPDATE on it, so a direct writer's `SET author = author` is refused with 42501. A
@@ -2312,7 +2344,7 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 | aggregate | `r.count()`, `r.sum(x)`, `r.mean(x)`, `r.min(x)`, `r.max(x)`, grouped by the other columns of `find`; a min or max is one of its values, at its type, contract included |
 | combine | a second `.rule(...)`, the union of both rules' rows. Rules of different columns need a constant that tells them apart; a rule with an attachment shares its columns with no other. A take or attachment over a union of several headings is no rule of a further union, takes once and is never paged |
 | nest | `.attach(name, (parent) => child, delivery)`, delivery `"array"`, `"option"`, `"one"` or `arm(field, name)` |
-| order and limit | `.orderBy(["title", "asc"])`, then `.take(10)`, `.take("batch")` for an integer parameter, or a `paged(query)` member's `page` |
+| order and limit | `.orderBy(["title", "asc"])`, then `.take(10)`, `.take("batch")` for an integer parameter, or a `paged(query)` member's windows |
 | recurse | `query(S).recursive(...)` |
 | compare spans | `r.allen` with `ALLEN` masks, `r.pointIn`, `r.intersection`, `r.difference`, `r.pack` |
 | compute | `Compute.add`, `Compute.mul`, `Compute.round`, `Compute.cond`, `Compute.when` and the rest of `Compute` |
@@ -2323,7 +2355,7 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 
 - **A query returns a set.** Identical rows are one row.
 - **An aggregate folds keyed rows.** It reads each matched row once, by its key: every match in its rule binds a whole key of its source by a variable, a parent's variable or a constant, as `commentsPerAuthor` binds the comment's `id`, or the query is refused with `FoldOverProjection`, naming the match and the key to bind. To aggregate distinct values, match a query of them, a set keyed by its columns.
-- **grizzle knows each result's keys**, from primary keys, equalities and constants, and keeps a key through `find` while the chosen columns still determine the row. `r.allen(a, ALLEN.equals, b)` is an equality, as is its converse; a mask written with `|` is a plain number to TypeScript, so the types read it as stating nothing. `db.get` and an `"option"` or `"one"` nested result take only a query proved to return at most one row, and a page is ordered by a key. A delivery the schema does not prove is a type error. A child query built by a function takes the parent's field as `Term<T, unknown, InputOrigin, Sql>`, not as a type parameter: an equality over a type parameter says what it fixes only at the call, so inside the function the keys that prove its `"option"` and `"one"` deliveries are lost.
+- **grizzle knows each result's keys**, from primary keys, equalities and constants, and keeps a key through `find` while the chosen columns still determine the row. `r.allen(a, ALLEN.equals, b)` is an equality, as is its converse; a mask written with `|` is a plain number to TypeScript, so the types read it as stating nothing. An `"option"` or `"one"` nested result takes only a query proved to return at most one row, and a window is ordered by a key. A delivery the schema does not prove is a type error. A child query built by a function takes the parent's field as `Term<T, unknown, InputOrigin, Sql>`, not as a type parameter: an equality over a type parameter says what it fixes only at the call, so inside the function the keys that prove its `"option"` and `"one"` deliveries are lost.
 - **`.orderBy(...).take(k)` is a set again** to whatever composes with it: a match, a further rule, a derived relation or a role's query entry. `take(1)` returns at most one row. A query or nested `"array"` that ends in a take arrives in the take's order, ties broken by the query's key; a final `orderBy` after the take orders it anew.
 - **Variables belong to their columns.** Two variables made from one column of a table the rule matches once are refused, and the error shows the rewrite: make the variable where it is bound, or match the table again.
 - **A JavaScript value takes the type of what it meets:** its column, the term it is compared with, the field a write puts it in, or the type the query's other rules give its field. Meeting nothing, a string is text, a safe integer an integer, a bigint a bigint, a `Decimal` a numeric, a `Money` money and a boolean a boolean; any other value is refused. It never stands first in a comparison, and a list such as `r.inSet`'s holds only JavaScript values. Opposite a term, at a column, for a parameter or in a fact, it is a value of its type: in a pattern's language, a uuid's hyphenated spelling, a roster's names, so `"abc"` at a uuid column is a type error, and so is a plain `string` until `Uuid.parse` reads it.
@@ -2331,7 +2363,7 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 - **Terms that meet have one type:** one SQL type, one contract and one roster. A text term never meets a uuid column, and two rosters of the same members never meet. Texts of any two patterns meet: a pattern is no part of a text's type. The rules of one query deliver each field they share at one type.
 - **A value is only its value**, the same under every plan. A `Decimal` has no display scale: `1`, `1.0` and `1.00` are one value, delivered as `1`, and a `pg.numeric(10, 2)` field holds at most two places, refusing a value of more rather than rounding it, and delivers `12.5`, not `12.50`. `new Intl.NumberFormat(undefined, { minimumFractionDigits: 2 }).format(d.toString())` prints it at the field's scale, exactly. A float's zero is `0`, never `-0`. A numeric quotient, power, square root or mean is PostgreSQL's for the values alone, as if no operand had trailing zeros: `Compute.div(x, 3n)` is the same number whatever scale `x` was stored at.
 - **Float and money sums are exact.** A sum of `real` or `double precision` values is their exact total rounded once to the result type, and of `Money` values their exact total; a mean of floats is that total over the count, rounded once. The same rows give the same sum in any order, under any plan.
-- **Every answer is a function of the facts**, but for two exceptions, both pgvector's. `.approximateNearest` returns candidates from pgvector's index: which rows, and how many, depend on the index and the database owner's pgvector settings too. grizzle pins only `hnsw.iterative_scan = strict_order`, which keeps the candidates and their cursors in exact distance order; `hnsw.ef_search`, `hnsw.max_scan_tuples` and `hnsw.scan_mem_multiplier` are the owner's, and a scan that reaches their bounds returns fewer rows than asked. `Compute.cosineDistance` is pgvector's own float arithmetic: one server gives the same result for the same vectors on every evaluation, but pgvector builds or CPUs may differ in the last place.
+- **Every answer is a function of the facts**, but for two exceptions, both pgvector's. `.approximateNearest` returns candidates from pgvector's index: which rows, and how many, depend on the index and the database owner's pgvector settings too. grizzle pins only `hnsw.iterative_scan = strict_order`, which keeps the candidates in exact distance order; `hnsw.ef_search`, `hnsw.max_scan_tuples` and `hnsw.scan_mem_multiplier` are the owner's, and a scan that reaches their bounds returns fewer rows than asked. `Compute.cosineDistance` is pgvector's own float arithmetic: one server gives the same result for the same vectors on every evaluation, but pgvector builds or CPUs may differ in the last place.
 - **No read fails on a value.** Every Compute operation is defined on every value its operands' types admit, or its precondition is proved where it stands, so no query, role view or check raises an arithmetic error on any row.
 
 ### Arithmetic
@@ -2414,16 +2446,16 @@ Its rows are `{ show: Uuid; sold: bigint }`, one per show, since `0n` takes the 
 
 ## Reading
 
-Every read takes a query and its parameters and runs in one READ ONLY transaction, so a query's nested results and a page's rows see one snapshot.
+A Db runs its login's served workload and nothing else: every call is a member, `db.workload.<name>`, compiled by `grizzle generate` and loaded when the layer was built. A member's input is one record, the same in process and over HTTP: `{ params, facts }`, both always present, `{}` where the program takes none, and a paged member's `{ params, facts, window }`. Every read runs in one READ ONLY transaction, so a query's nested results and a window's rows see one snapshot.
 
-- **`db.execute(query, params)`** gives a result whose `collect` is the rows; each run of `collect` runs the query again.
-- **`db.get(target, params)`** gives an `Option` of one row: of a table by its primary key, `db.get(Post, { id })`; of a candidate key or a closed relation by its key values; or of a query that returns at most one row.
-- **`db.page(orderedQuery, params, { first: 20 })`** pages by key, with opaque cursors: `{ first }`, `{ first, after }`, `{ last }` or `{ last, before }`. A size is any safe integer of at least 1, with no default and no largest.
-- **`db.workload.<name>.explain(params)`** returns PostgreSQL's plan of each statement the member sends for those parameters, in the order it sends them, as data: one `{ statement, plan }` per statement, `statement` the name it is prepared under on every session (`grizzle_…`, as `pg_prepared_statements` and `pg_stat_statements` show it). Each is planned by `EXPLAIN (FORMAT JSON, VERBOSE)` over the statement's served text with the call's values, which runs nothing, in one transaction of the Db's role that is rolled back, so explaining a ChangeSet member writes nothing: its carriers are created and analyzed empty, as its apply analyzes them, and every statement after them is planned against them. The plan is the one PostgreSQL makes for those values, which a session uses for a statement's first executions; a session that has run it many times may switch to a generic plan. A plan node holds its node type, its estimated startup and total cost, rows and width, its children, and `on`, what it reads, named by the login's served file and never parsed back from PostgreSQL's names: `{ kind: "relation", relation }` for a table, or a derived relation's materialized view, read whole or written; `{ kind: "index", relation, index: { name } }` for one read through an index; `{ kind: "carrier" }` for the ChangeSet's own temporary carrier; and `{ kind: "none" }` for a join, a sort or any node that reads no relation. A key member takes its key's values, as `get` does, and a paged member explains the statement `execute` and `get` send. A refresh member has no explain: REFRESH has no plan. A plan that reads a table or index the served file does not name is refused as unreadable. A served file names each index alone, so no running process loads what an index is: `indexesOf(snapshot)`, from `@bjornpagen/grizzle/compile`, takes the JSON value of the snapshot.json the file was generated beside and returns a `Result` of a map that holds, under each relation and then each index name, `{ columns, reasons }`. `columns` are the index's key columns in key order, each `{ kind: "field", field }`, a field of the relation by its declared name, or `{ kind: "law", holds, laws }`, a column a law adds, by the field whose values it holds and the laws it is added for, and each with its `direction`, `"asc"` or `"desc"` in a B-tree and `"none"` in an index that orders nothing; so a test holds a plan's index to "leads with `document`, then `start`" in field names. `reasons` are why the installation holds it: each law it serves by its identity, the `id` a refusal names that law by; the workload's access; or a derived relation's key.
-- **`db.workload.<name>.explainAnalyze(params)`**, on a read member, runs its statement under `EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE)` in a READ ONLY transaction that is rolled back, and returns each node's actual time to its first and last row, rows and loops, and the shared buffers it hit and read, beside its estimates, with the statement's planning and execution times. A ChangeSet member has none: a write that is rolled back still advances its serial fields' sequences.
+- **`once(input)`** answers the member's value: a query's rows as a `KeyedSet`, keyed by the key its rows prove, or an ordered query's as a `KeyedList`, in its order. A key member's value holds the one row at its key, or none. Every failure is one `CallError`.
+- **`watch(input)`** is a `Stream` of the member's events: `reset`, then an `upsert` of each row as PostgreSQL delivers it, then `ready` once the read's transaction has committed, then, live, an `upsert` or a `remove` of each row whose change alters the answer. An upsert before `ready` is provisional: an `error` before it voids the rows it delivered. `once` is `watch` folded until `ready`.
+- **Windows.** A member `paged(orderedQuery)` reads a window: `window: { anchor, size }`, its anchor `{ kind: "start" }`, `{ kind: "after", key }`, `{ kind: "end" }` or `{ kind: "before", key }`. A key is a row's `RowKey`, the values of the query's completed order, which the row's entry in a value carries. A window is one statement of at most `size` rows, and a window that holds no rows is past the end. A size is any safe integer of at least 1, with no default and no largest.
+- **`explain(input)`** returns PostgreSQL's plan of each statement the member sends for that input, in the order it sends them, as data: one `{ statement, plan }` per statement, `statement` the name it is prepared under on every session (`grizzle_…`, as `pg_prepared_statements` and `pg_stat_statements` show it). Each is planned by `EXPLAIN (FORMAT JSON, VERBOSE)` over the statement's served text with the call's values, which runs nothing, in one transaction of the Db's role that is rolled back, so explaining a ChangeSet member writes nothing: its carriers are created and analyzed empty, as its apply analyzes them, and every statement after them is planned against them. The plan is the one PostgreSQL makes for those values, which a session uses for a statement's first executions; a session that has run it many times may switch to a generic plan. A plan node holds its node type, its estimated startup and total cost, rows and width, its children, and `on`, what it reads, named by the login's served file and never parsed back from PostgreSQL's names: `{ kind: "relation", relation }` for a table, or a derived relation's materialized view, read whole or written; `{ kind: "index", relation, index: { name } }` for one read through an index; `{ kind: "carrier" }` for the ChangeSet's own temporary carrier; and `{ kind: "none" }` for a join, a sort or any node that reads no relation. A key member takes its key's values as its params, and a paged member explains its window's statement. A refresh member has no explain: REFRESH has no plan. A plan that reads a table or index the served file does not name is refused as unreadable. A served file names each index alone, so no running process loads what an index is: `indexesOf(snapshot)`, from `@bjornpagen/grizzle/compile`, takes the JSON value of the snapshot.json the file was generated beside and returns a `Result` of a map that holds, under each relation and then each index name, `{ columns, reasons }`. `columns` are the index's key columns in key order, each `{ kind: "field", field }`, a field of the relation by its declared name, or `{ kind: "law", holds, laws }`, a column a law adds, by the field whose values it holds and the laws it is added for, and each with its `direction`, `"asc"` or `"desc"` in a B-tree and `"none"` in an index that orders nothing; so a test holds a plan's index to "leads with `document`, then `start`" in field names. `reasons` are why the installation holds it: each law it serves by its identity, the `id` a refusal names that law by; the workload's access; or a derived relation's key.
+- **`explainAnalyze(input)`**, on a read member, runs its statement under `EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE)` in a READ ONLY transaction that is rolled back, and returns each node's actual time to its first and last row, rows and loops, and the shared buffers it hit and read, beside its estimates, with the statement's planning and execution times. A ChangeSet member has none: a write that is rolled back still advances its serial fields' sequences.
 
 ```text
-yield* db.workload.postPage.explain({ id })   // abridged
+yield* db.workload.postPage.explain({ params: { id }, facts: {} })   // abridged
 [{ statement: "grizzle_…", plan: { node: "Nested Loop", on: { kind: "none" }, rows: 1, …, children: [
   { node: "Index Scan", on: { kind: "index", relation: "Post", index: { name: "__post_pk_dyy23qj6j2" } }, … },
   { node: "Index Scan", on: { kind: "index", relation: "Comment", index: { name: "__comment_ix_post_…" } }, … }] } }]
@@ -2432,9 +2464,8 @@ yield* db.workload.postPage.explain({ id })   // abridged
   reasons: [{ kind: "law", law: "__post_pk_id_…" }, { kind: "access" }] }
 ```
 
-- **`db.workload.<name>`** is a program in the login's workloads, compiled by `grizzle generate` and loaded when the layer was built, with exactly the operations it allows: `page` only for a member `paged(orderedQuery)`, whose page template generate compiles beside its rows. A member `refresh(tables)`, of a nonempty list of tables, has one operation, `refresh`, an Effect that refreshes its materialized tables in one transaction, lower levels first. A ChangeSet member with array members, facts its `insert`, `insertAll`, `delete` or `put` was given as an array, takes them with each call: `apply(facts, params)`, where `facts` holds under each such member's op, `insert` (an `insertAll`'s members are inserts), `put` or `delete`, and then under its relation's name, the rows that member takes, typed and checked as its own (an owner's insert's with their families nested), as in `apply({ put: { Blob: stated }, delete: { Blob: removed } }, {})`. An op or relation left out, a row that is no fact of its relation and a name that is no array member's op or relation are type errors, and two array members of one op and one relation in two strata are refused where the strata meet: merge them into one. Every other member applies with its parameters alone.
-- **Any other program**, one built at run time included, still runs: `db.execute` and the others compile it for the call and send its statements prepared, each under the name its text gives it, as a workload's are, with no index promised for it. A layer compiles the laws of the relations its workloads name and write, and no others, so a program that names or writes a relation outside them first compiles the laws of its own relations where it is compiled: at every call of `db.apply`, `db.execute` and the others, and once for a `db.compile` handle. Put the programs of your hot paths in a workload.
-- **`db.compile(program)`** compiles a query, ordered query or ChangeSet once and returns a handle with exactly the operations it allows. Its compiled form drops when the handle's `Scope` ends.
+- **A member's calls** are exactly what its program allows: a read's `once`, `watch`, `explain` and `explainAnalyze`; a ChangeSet's `once`, `watch` and `explain`; a refresh's `once` and `watch`. A member `refresh(tables)`, of a nonempty list of tables, is a write that refreshes its materialized tables in one transaction, lower levels first, and answers `{ kind: "refreshed" }`. A ChangeSet member with array members, facts its `insert`, `insertAll`, `delete` or `put` was given as an array, takes them as its input's `facts`: under each such member's op, `insert` (an `insertAll`'s members are inserts), `put` or `delete`, and then under its relation's name, the rows that member takes, typed and checked as its own (an owner's insert's with their families nested), as in `once({ params: {}, facts: { put: { Blob: stated }, delete: { Blob: removed } } })`. An op or relation left out, a row that is no fact of its relation and a name that is no array member's op or relation are type errors, and two array members of one op and one relation in two strata are refused where the strata meet: merge them into one. Every other member's facts are `{}`.
+- **No other program runs.** A Db holds only the members its served file holds, each prepared under the name generate gave its text. A program built at run time runs once a workload names it and generate serves it, so put every program your application runs in a workload.
 
 ## Writes
 
@@ -2466,7 +2497,7 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   from its rows on the host. Its owner may be written through a query entry
   ([Writing through a role](#writing-through-a-role)).
 - **A relation's rows are a set.** Identical rows are one row. Two rows one stratum adds to one relation that share a
-  key and differ elsewhere are `invariant-rejected` on that key before any SQL is sent, or, at a key over a generated
+  key and differ elsewhere are `refused` on that key before any SQL is sent, or, at a key over a generated
   field, by the statement that writes them. Two rows it deletes at one key are no refusal: a deletion names its row
   exactly, so at most one of them is stored, and deleting the other changes nothing. At the primary key, an array literal of up to 1,024 such rows with literal values is a
   type error. A row one stratum both adds and deletes stays; one it both inserts and puts is the put's. Laws are
@@ -2477,7 +2508,7 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   none: PostgreSQL draws them for a new row, an integer from its identity and a uuid by `uuidv7()`, and a value the row
   states is written as it is. A row that leaves them out is the fact its other fields state. At the first declared key
   that holds no serial field and no span, a stored row equal to it at every field it states is no change, and one
-  that differs there is `invariant-rejected` on that key; two inserters racing at that key meet there, the later one
+  that differs there is `refused` on that key; two inserters racing at that key meet there, the later one
   waiting for the earlier and then reading its row. With no such key, every such row is a new row, and equal such rows
   are one. Leaving out only some is an `EncodingFailure`. A table whose every column is serial takes `[{}]`, one new
   row.
@@ -2490,9 +2521,10 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   immediate foreign keys require: a referenced row is added before the rows that name it and removed after them, so a
   family's members are deleted before their owner. Writes those keys order in a cycle are refused when the ChangeSet
   compiles (`UnorderableStratum`): move one to another stratum with `ChangeSet.sequence`.
-- **`db.apply(changes, params)`** answers `accepted`, with `counts` (each written relation's `added`, `deleted` and
-  `put`, as `bigint`s) and `reads`; `no-change`, with `reads`; `invariant-rejected`; or `outside-world`
-  ([Errors and outcomes](#errors-and-outcomes)).
+- **A ChangeSet member's `once`** answers `accepted`, with `counts` (each written relation's `added`, `deleted` and
+  `put`, as `bigint`s) and `reads`, or `unchanged`, with `reads`; a write the laws refuse, or one that writes outside
+  its role's world, fails with its `CallError`, `refused` or `outsideWorld`
+  ([Errors and outcomes](#errors-and-outcomes)). Its `watch` is that outcome, then the end.
 
 Two writes over the blog, each one transaction and one round trip:
 
@@ -2529,7 +2561,7 @@ export const purge = ChangeSet.empty(Blog)
 	)
 ```
 
-`publish` takes `{ id: Uuid }`; applied twice, the second answers `no-change`, since the query finds no draft to put.
+`publish` takes `{ id: Uuid }`; applied twice, the second answers `unchanged`, since the query finds no draft to put.
 `purge` takes `{ author: string }`, and its `accepted` outcome carries `reads.removed`, a
 `ReadonlyArray<{ comments: bigint }>`: `RETURNING`, as a query over what the change removed.
 
@@ -2545,13 +2577,12 @@ matches no context, has at least one field, and its rules share one set of colum
 and refresh, and which a query matching it reads as of its last refresh. The keys a query provably has are a choice of
 one key in each of its independent parts, such as one of the two keys of each table it joins: the view gets a unique
 index on one key and on each key one choice away from it, so k such tables make k + 1 indexes, not 2^k, and every key
-of the product stands in a `get`, a nested result or an order. A query of several rules, each finding a literal that
+of the product stands in a key member, a nested result or an order. A query of several rules, each finding a literal that
 tells its rows apart, is keyed the same way: its keys hold a key of every rule beside those literals. Columns the query
 makes equal count as one column of a key, so k equal pairs make one key, not 2^k: the index holds the first of them,
 and any of them stands for it. A materialized table changes only when a refresh refreshes it, on a role whose
-`refresh` list names it: a workload member `refresh(tables)`, whose handle `yield* db.workload.<name>.refresh`
-refreshes all its tables, or `db.refresh(...tables)`, all of one call's tables, each in one transaction, lower levels
-first. A refresh of no table is a type error: narrow a list built at run time with `Array.isReadonlyArrayNonEmpty`
+`refresh` list names it: a workload member `refresh(tables)`, whose `once` refreshes all its tables in one
+transaction, lower levels first. A refresh of no table is a type error: narrow a list built at run time with `Array.isReadonlyArrayNonEmpty`
 first. A rule over either kind reads its definition, never the view.
 
 ## Levels
@@ -2618,7 +2649,7 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
   holds every `Qti` table whole, every query over `Qti` runs on it, through those views.
 - **Every level is served.** `DbLayer.make` takes the served file of a login over any level of the installation: a
   process of `Qti` alone, such as `AuthorApp`'s, loads only what its programs over `Qti` read, and nothing above it. When a write of it breaks a law a level above states, such as deleting an `Item` a
-  `Sitting` holds or inserting one `Titled` refuses, the outcome is `invariant-rejected` with `refused.kind` `above`
+  `Sitting` holds or inserting one `Titled` refuses, the error is `refused` with `refused.kind` `above`
   and the law `{ kind: "above", level: "Ledger", law }`, which names the level and the law as that level states it
   ([Errors and outcomes](#errors-and-outcomes)). `Qti`'s own laws are named as they would be were `Ledger` not
   installed: a process holds no predicate of a law above it, so it never claims to judge one, and judges each of its
@@ -2821,23 +2852,25 @@ refusals and deploys.
 
 ## Errors and outcomes
 
-A broken rule is an outcome, not an error. Errors are tagged classes in the Effect's error channel.
+A call answers its value or fails with one `CallError`, the same in process and over HTTP: `{ kind, retry, message }`
+and the members its kind holds. `kind` is one of a closed set, `retry` says whether the same call may succeed run again
+(`"safe"`: nothing committed, and the failure was not the call's own) or meets the same answer (`"never"`), and
+`message` is the failure's own words, the server's report where the database refused. A broken rule is a refusal of
+the write, `refused`, which names the rules it broke and a row that breaks them.
 
-**Outcomes** of `db.apply` and a compiled ChangeSet's `apply`:
+**Outcomes** of a ChangeSet member's `once`, plain values a test of your code writes as they are:
 
-- **`accepted`**: each written table's counts, and the read-backs.
-- **`no-change`**: the read-backs.
-- **`invariant-rejected`**: `refused`, the broken rules, and `witness`. Each entry of `refused.laws` is `{ law, id,
+- **`accepted`**: `counts`, each written table's `added`, `deleted` and `put`, and `reads`, the read-backs.
+- **`unchanged`**: `reads`, the read-backs; nothing was written.
+
+**Refusals** of a write, each a `CallError` whose `retry` is `"never"`:
+
+- **`refused`**: `refused`, the broken rules, and `witness`. Each entry of `refused.laws` is `{ law, id,
   by }`: the rule as your schema states it, which you match directly, `law` being
   `{ kind: "check", relation: "Grant", name: "WithinGrant" }`; its identity, the one the snapshot records; and the
   installed object that refused it, a table's `constraint` or a `domain`'s by table or domain and name, a write
   `statement`, or a generated column's `notNull`.
-- **`outside-world`**: the role's table a row cannot belong to.
-
-`ApplyOutcome.committed(counts, reads)`, `ApplyOutcome.invariantRejected(refused, witness)` and
-`ApplyOutcome.outsideWorld(relation)` build these values, the ones `db.apply` answers with, so a test of your code
-builds the exact outcome. `committed` is `accepted` when some count is nonzero and `no-change` otherwise, as `db.apply`
-decides it.
+- **`outsideWorld`**: `relation`, the role's table a row cannot belong to.
 
 `refused.laws` is never empty. `every`, `first` and `some` name only the laws of your Db's own level and the levels
 below it, and a table's checks are theirs, whatever check a level above installs on the table. `refused.kind` says how
@@ -2965,45 +2998,43 @@ query reads, named from its rule (`__<readable part>_<digest>`), since its own n
 writer's refusal by the check names it, so take it from grizzle and never spell it. A lookup compiles nothing, and
 throws `CompileError` for a rule that is no check of the schema.
 
-**Errors**, by operation:
+**Errors**: `DbLayer.make` and `Db.open` fail with `OpenError` in the Effect's error channel; every call of a member
+fails with its `CallError`, by kind:
 
-| Operation                 | Fails with                                                                                                         |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `DbLayer.make`, `Db.open` | `OpenError`                                                                                                        |
-| a read                    | `ReadError`: `ReadFailure`, `TransientFailure` or `StaleSnapshot`; a page also `CursorError`                       |
-| a write or refresh        | `EncodingFailure`, `TransientFailure`, `TransportFailure`, `ExecutionFailure`, `CommitUnknown` or `StaleSnapshot` |
-| `db.compile`              | `CompileError`                                                                                                     |
+| `kind`          | `retry` | What happened                                                                                                   |
+| --------------- | ------- | --------------------------------------------------------------------------------------------------------------- |
+| `input`         | `never` | a parameter, a fact or a window the member's codecs or input boundary refuse, past a bound of its transport included |
+| `tokenRefused`  | `never` | no token where the role reads a context, a token `verify` refuses, or claims that do not decode                 |
+| `tokenExpired`  | `safe`  | the token expired, before the call or while it streamed                                                         |
+| `refused`       | `never` | the schema's laws refused the write (`refused`, `witness`)                                                      |
+| `outsideWorld`  | `never` | a row the write adds lies outside the written world relation (`relation`)                                       |
+| `transient`     | `safe`  | the attempt changed nothing, refused by a concurrent transaction (`reason`)                                     |
+| `unavailable`   | `safe`  | no session could be had: the password Effect, TLS, the server, a released layer                                 |
+| `transport`     | `safe`  | a connection broke before the call's end: a read's, which commits nothing, or a write's before COMMIT was sent |
+| `stale`         | `never` | the database is not at the Db's snapshot ([Deploying](#deploying)), so the call ran nothing                     |
+| `commitUnknown` | `never` | a write's COMMIT was sent and no answer came: it may have committed                                             |
+| `failed`        | `never` | the server refused a statement, or answered rows grizzle cannot read                                            |
+| `route`         | `never` | over HTTP, no served member at the path                                                                         |
 
-- **`reason`** is what happened, a tagged value, so `Effect.catchReason`, `catchReasons` and `unwrapReason` reach it:
-  `Effect.catchReason("TransientFailure", "PutTargetConflict", f)` handles one case and keeps the rest. `stage` follows
-  from the reason, and `message` is a sentence naming it; read details from the reason, never the message. Every error
-  and reason class is exported as a value, the class grizzle builds it with, so a test of your code builds the exact
-  value a call fails with, never a cast: `new ReadFailure({ reason: new InputTooLarge({ bound }) })`. Your `password`
-  Effect fails with `CredentialError`, and your `verify` with `TokenError`.
-- **`TransientFailure`**: the attempt changed nothing and may succeed if run again. Its reason is `SerializationFailure`
-  (40001), `Deadlock` (40P01), a concurrent transaction's work the statement met (`PutTargetConflict`,
-  `GeneratedSerialUnique`, `SpanKeyChange`, `UnseenOccupant`, `ConcurrentRefresh`); `error` is the server's report. grizzle never retries: use `Effect.retry` with
-  your own `Schedule`.
-- **`CommitUnknown`**: COMMIT was sent whole and no answer came, so the change may have committed. Read back before
-  running it again. A write the socket failed before COMMIT's last byte left the process is `TransportFailure`
-  instead: COMMIT never reached the server.
-- **`StaleSnapshot`**: the database is not at the `Db`'s snapshot, and the call ran nothing; its reason is `Migrating`
-  or `Migrated` ([Deploying](#deploying)), and its `snapshot` the `fingerprint` of the snapshot.json the `Db` was opened
-  with.
-- **`TransportFailure`**: the connection failed before the write could commit, and nothing changed. A connection that
-  can't be had (a failing `password` Effect, TLS, the server, a released layer) is this for a write, and `ReadFailure`
-  at stage `acquire` for a read. Waiting for a session never fails: a call waits until it has one or is interrupted.
-- **`ExecutionFailure`**: the server's error, a refusal before any SQL, or rows grizzle cannot read, whose `fate` says
-  what the transaction then did.
-- **`ServerError`** is on every error PostgreSQL raised: its `sqlstate`, its `message`, `detail` and `hint` exactly as
-  the server gave them, and the `constraint`, `schema`, `table`, `column` and `dataType` it named; the error's
-  `message` quotes the server's. The server writes in the language of `lc_messages`, the database owner's setting;
-  grizzle reads an error by its SQLSTATE and the fields it names, never its words. These can quote the values a
-  statement was given, though never a value outside the role's view, so what you log is your choice: grizzle logs
-  nothing. `new ServerError({ sqlstate, message, constraint, schema, table, column, dataType, detail, hint })` builds
-  one from a report as grizzle reads it, each field stated, `undefined` where the server gave none, and an empty one
-  naming nothing. `Sqlstate.parse(code)` is the `sqlstate`, or `undefined` for a code that is no SQLSTATE. A test's
-  retryable write failure is then `new TransientFailure({ reason: new SerializationFailure(), error })`.
+- **`OpenError`**'s `reason` is what happened, a tagged value, so `Effect.catchReason`, `catchReasons` and
+  `unwrapReason` reach it; `stage` follows from the reason, and `message` is a sentence naming it. Every error and
+  reason class is exported as a value, the class grizzle builds it with, so a test of your code builds the exact value
+  an open fails with, never a cast. Your `password` Effect fails with `CredentialError`, and your `verify` with
+  `TokenError`.
+- **`transient`**: its `reason` is `SerializationFailure` (40001), `Deadlock` (40P01), or a concurrent transaction's
+  work the statement met (`PutTargetConflict`, `GeneratedSerialUnique`, `SpanKeyChange`, `UnseenOccupant`,
+  `ConcurrentRefresh`). grizzle never retries: run the call again by your own `Schedule`, as
+  `Effect.retry({ schedule, while: (e) => e.retry === "safe" })` does.
+- **`commitUnknown`**: COMMIT was sent whole and no answer came, so the change may have committed. Read back before
+  running it again. A write the socket failed before COMMIT's last byte left the process is `transport` instead: COMMIT
+  never reached the server.
+- **`unavailable`** and **`transport`** change nothing. Waiting for a session never fails: a call waits until it has one
+  or is interrupted.
+- **The server's report** is in the `message` of every call PostgreSQL's refusal ends, `SQLSTATE <code>: <message>`, its
+  message exactly as the server gave it. The server writes in the language of `lc_messages`, the database owner's
+  setting; grizzle classifies a refusal by its SQLSTATE and the fields it names, never its words. A message can quote
+  the values a statement was given, though never a value outside the role's view, so what you log is your choice:
+  grizzle logs nothing.
 
 <details>
 <summary>Every error reason</summary>
@@ -3019,23 +3050,24 @@ throws `CompileError` for a rule that is no check of the schema.
 
 `Db.open` contacts nothing, so a connection that can't be had is the first call's failure, never the open's.
 
-**`ReadFailure`**, by stage:
+A call's `CallError` is read from the reason that failed it, each reason a class grizzle exports
+(adapter/live/call-error.ts):
 
-| Stage                 | Reason                                                                                                                 |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `execute`, `resource` | the server's `ServerError` (`resource` for 53200 and 54001); `LawRejected` (`execute`), `refused` the laws a contract's or a pattern's domain discharges, which refused a value a statement cast to it, a parameter's among them; `ParamRejected` (`execute`), a parameter's value outside its pattern; `TemporaryRefused` (`execute`), from a ChangeSet member's `explain` |
-| `acquire`             | `CredentialError`; `TlsRefused`; `StartupRefused`, with the server's report; `ConnectTimedOut`, `SocketFailed`, `ConnectionClosed`, `DriverRefused`, `NoCancelKey`; `LayerReleased`, a layer whose scope has closed; `HandleReleased`, a `db.compile` handle used after its `Scope` ended |
-| `transport`           | `ConnectionLost`, `CommitLost`                                                                                         |
-| `driver`              | `DriverFailure`                                                                                                        |
-| `decode`              | `UnreadableAnswer`: rows grizzle cannot read, or rows its compiled proof says the query cannot deliver                 |
-| before any SQL        | `CompileError` (`compile`), `EncodingFailure` or `InputRejected` (`encode`), `InputTooLarge` (`resource`), `PageRequestRefused` (`request`) |
+| Reason                                                                                                                                                                       | `kind`          |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| the server's `ServerError`, 53200 and 54001 among them; `TemporaryRefused`, below; `UnreadableAnswer`, rows grizzle cannot read or its compiled proof says the query cannot deliver; `CompileError` | `failed`        |
+| `CredentialError`; `TlsRefused`; `StartupRefused`, with the server's report; `ConnectTimedOut`, `SocketFailed`, `ConnectionClosed`, `DriverRefused`, `NoCancelKey`; `LayerReleased`, a layer whose scope has closed | `unavailable`   |
+| `ConnectionLost`, `CommitLost`, `DriverFailure`                                                                                                                              | `transport`     |
+| `EncodingFailure`; `ParamRejected`, a parameter's value outside its pattern; `InputTooLarge`, below; `CallInputRefused`, below                                               | `input`         |
+| `LawRejected`, the laws a contract's or a pattern's domain discharges, which refused a value a statement cast to it; `InputRejected`, below                                 | `refused`       |
+| `TransientFailure`, its reason the `CallError`'s `reason`                                                                                                                    | `transient`     |
+| `StaleSnapshot`: `Migrating` or `Migrated` ([Deploying](#deploying))                                                                                                         | `stale`         |
+| `CommitUnknown`                                                                                                                                                              | `commitUnknown` |
+| an `OpenError` of a call that opened its own Db, over HTTP: its token reasons `tokenRefused`, a role no layer serves `route`, the rest `failed`                                 | as listed       |
 
-**`TransportFailure`**: a connection's or the pool's refusal, `HandleReleased`, `ConnectionLost` or `DriverFailure`.
-**`ExecutionFailure`**: `ServerError`, `ParamRejected`, `CompileError`, `InputTooLarge`, `TemporaryRefused` or `UnreadableAnswer`.
-
-**`InputRejected`** is a ChangeSet member's `explain` of a call whose apply would be `invariant-rejected` before any
-SQL, by two rows one stratum adds at one key, or a nested row's generated field with no value: its `refused` and
-`witness` are that outcome's.
+**`InputRejected`** is a ChangeSet member's `explain` of a call whose `once` would be `refused` before any SQL, by two
+rows one stratum adds at one key, or a nested row's generated field with no value: its `refused` and `witness` are
+that refusal's.
 
 **`TemporaryRefused`**: the write creates a temporary table, a carrier of its own or one its nested rows past one Bind
 message travel through, and the role holds no `TEMPORARY` privilege on the database, which `privilege` names; `error`
@@ -3065,7 +3097,7 @@ creates one, and `grizzle drift` reports a grant revoked since.
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `Refused`                                       | the `refusal`, a rule the type errors name too, in their words                                           |
 | `MalformedDescription`                          | the rule `what` your schema or program breaks                                                            |
-| `MalformedArtifact`                             | what grizzle reads back (the snapshot, a migration folder or its meta.json, the ledger's rows, a cursor) malformed at the path `at` |
+| `MalformedArtifact`                             | what grizzle reads back (the snapshot, a migration folder or its meta.json, the ledger's rows) malformed at the path `at` |
 | `UnsupportedOperation`, `UnsupportedLawFamily`  | a `capability` grizzle lacks, such as a parameter's value of a pattern no stored field declares, naming the parameter and the pattern ([Limits](#limits)) |
 | `ResourceBound`                                 | its `bound`                                                                                              |
 | `OutsideRole`                                   | the `role` and the `access` it doesn't hold                                                              |
@@ -3092,7 +3124,9 @@ creates one, and `grizzle drift` reports a grant revoked since.
 
 **`EncodingFailure`**'s reason is its codec's fault word, never the value, the word of the exact parse that refused it:
 `numericScale` for a `Decimal` past its field's scale and `realInexact` for a `number` no binary32 value is among them;
-its `place` is the `Slot` the value fills, by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault word.
+its `place` is the `Slot` the value fills, by `name`, or a whole `Fact`. **`CallInputRefused`**'s `fault` names what
+of a call's input it refuses: `envelope`, no record of exactly `params` and `facts` (and a paged member's `window`);
+`facts`, facts given to a member that takes none; `window`, `size` or `anchor`, a paged member's window.
 
 </details>
 
@@ -3117,14 +3151,14 @@ its `place` is the `Slot` the value fills, by `name`, or a whole `Fact`. **`Curs
   continues and one per way a change reaches a refilled family's groups, then the writes filled from them with COMMIT.
   There are no interactive transactions: a read that decides a write is a query inside the ChangeSet, and reads that
   must agree are one query with nested results.
-- **No retries.** A refusal from outside the call's inputs is a `TransientFailure` (a migration's is `StaleSnapshot`)
+- **No retries.** A refusal from outside the call's inputs is a `transient` `CallError` (a migration's is `stale`)
   and changes nothing. Any transaction can meet a serialization failure, even with no other transaction in sight,
   because under load PostgreSQL's SSI summarizes old committed transactions and judges conservatively: treat it as
   retryable everywhere.
 - **No server-side timeouts.** grizzle sets no `statement_timeout` or `lock_timeout`. Interrupting the Effect is the only
   cancellation: a call interrupted while its statements run sends one CancelRequest, within the connection's
   `connectTimeoutMs`, so the server stops the statement, then destroys the session's connection, which is never used
-  again. Treat an interrupted write like `CommitUnknown`: if its statements had all finished, it may have committed.
+  again. Treat an interrupted write like `commitUnknown`: if its statements had all finished, it may have committed.
 - **Predicate locks are the operator's to size.** Set `max_pred_locks_per_transaction = 2048`; without room, PostgreSQL
   fails transactions with 53200, which is not retryable. Keep every transaction on the cluster short: a committed
   write's predicate locks are kept until every older transaction ends.
@@ -3193,7 +3227,7 @@ A SERIALIZABLE role lists each condition it failed, with how many places fail it
 A role's level is in its login's served file, so a change that moves it shows as a stale served file in `grizzle
 check`, like any change to the workload.
 
-**Reads stay SERIALIZABLE READ ONLY.** A query, a key, a page and a refresh run SERIALIZABLE READ ONLY whatever the
+**Reads stay SERIALIZABLE READ ONLY.** A query, a key, a window and a refresh run SERIALIZABLE READ ONLY whatever the
 role's level. A ChangeSet's read-backs run in its own transaction, at its level.
 
 **compileServed serves every role SERIALIZABLE.** A file `compileServed` compiles from other programs than the
@@ -3296,14 +3330,14 @@ the database does not install.
 
 **Migrations are downtime.** Each migration file takes the ledger's exclusive lock, which waits for the transactions in
 flight. From the first file until the last commits, and while a stopped run leaves a folder unfinished, every `Db` call
-fails at once with `StaleSnapshot` (reason `Migrating`) before any statement runs. After the migration, a `Db` opened at the old snapshot fails with `StaleSnapshot` (reason `Migrated`),
+fails at once with a `stale` `CallError` (`StaleSnapshot`, reason `Migrating`) before any statement runs. After the migration, a `Db` opened at the old snapshot fails with `stale` (reason `Migrated`),
 and keeps failing: deploy the code that carries the new served files and open new `Db`s with them.
 
 **Each transaction checks the snapshot.** Every transaction a `Db` sends starts with two statements in the same round
 trip: one takes the ledger's lock without waiting, so a running migration refuses it at once and the app never waits;
 one checks the snapshot and takes on the role and the claims for that transaction only. A pooled connection never
 carries one request's role or claims into the next. An apply with nothing to write still sends BEGIN, those two
-statements and COMMIT, so a stale `Db` never answers `no-change`.
+statements and COMMIT, so a stale `Db` never answers `unchanged`.
 
 **Vercel.** `attachPool: attachDatabasePool` hands each pool to Vercel, as the example does, so it closes idle
 connections before an instance suspends. grizzle depends on no platform's package.
@@ -3468,11 +3502,11 @@ grizzle fits applications that own their data end to end, with rules worth decla
 - **PostgreSQL 19 only**, tested on 19rc1 with the two patches under [PostgreSQL known issues](#postgresql-known-issues); **Node 26 or later**; **Effect 4.1**.
 - **grizzle owns the database.** Existing schemas, and tables created outside its migrations, are not supported.
 - **No nullable columns, outer joins, window functions, SKIP LOCKED or raw SQL at run time.** A query is written in grizzle's query language or not at all.
-- **No interactive transactions and no retries.** A transaction is one call; you retry `TransientFailure` yourself.
+- **No interactive transactions and no retries.** A transaction is one call; you run a `transient` call again yourself.
 - **No PgBouncer, no LISTEN/NOTIFY and no browser connections.** A browser cannot reach PostgreSQL directly; a server runs `verify`.
 - **The login is the trust boundary.** Anyone with its password can act as any of its roles, with any claims.
 - **Tables are immutable by default.** `mutable(T)` opts one in to in-place updates.
-- **Derived tables are refreshed explicitly**, by a workload's `refresh(...)` member or `db.refresh`.
+- **Derived tables are refreshed explicitly**, by a workload's `refresh(...)` member.
 - **Migrations are downtime.** No `Db` call runs while a migration is being applied.
 - **RDS IAM authentication** has not been run against RDS.
 
@@ -3534,7 +3568,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 - **A generated text is at most 536,870,888 UTF-16 code units**, about 512 MiB of ASCII: each SQL statement, migration file, `snapshot.json` and fingerprint text. `generate` and `check` refuse a schema past it with `ResourceBound`.
 - **A closed relation is as large as its key's code space**: a cell per combination of its key fields' codes, written in its migration as one hex literal of a digit per four bits of code space times its cell's bits, whatever its rows. Prefer dense coordinates, such as slots, whose space is each owner's counts, to a sparse product of rosters ([Closed relations](#closed-relations)). Its constant has at most 2,147,483,640 bits, PostgreSQL's longest bit string, payload codes whose product is at most 2,147,483,647, the most a cell read as an integer holds, and a literal of at most 536,870,888 digits. Past any, the schema is `ResourceBound` when it compiles, the literal's as `stringLength`. `grizzle check` refuses a literal its comment or its function's name does not digest, naming the first cell that differs from the declared rows, and that cell's key.
 - **PostgreSQL's own limits are `ResourceBound` where grizzle emits what they bound**: a table's 1,600 columns, a relation's generated rule columns included (checked when its schema compiles), as for a view, a derived table or a write's temporary table; a select list's 1,664 entries; and a statement's 1,073,741,822 bytes and 65,535 parameters (a 16-bit count). Dropped columns count toward the 1,600, so PostgreSQL itself refuses an added column past them. A row must fit one 8 KB heap page once its long values are stored out of line, which PostgreSQL checks when it writes the row.
-- **A page size is any safe integer of at least 1.** A cursor is at most 268,435,455 characters, the bound of its layout's four-byte varints. A page one of whose cursors would be longer fails with `CursorError` `cursorTupleOversized`, and a longer cursor sent back is `cursorOversized`.
+- **A window's size is any safe integer of at least 1**, bound as a bigint: there is no largest.
 
 ## PostgreSQL known issues
 
@@ -3571,7 +3605,7 @@ Every generated suite draws from one seed, `TEST_SEED`, which a run prints first
 
 - `packages/engine/`: `@bjornpagen/grizzle-engine`, the compiler: schemas, roles, rules, queries and ChangeSets to SQL, the migration drafter and the snapshot.
 - `packages/grizzle/`: `@bjornpagen/grizzle`, which re-exports the engine's API and adds:
-    - `src/adapter/`: the runtime over node-postgres in pipeline mode: `Db.open`, reads, writes, pages, `migrate` and `drift`.
+    - `src/adapter/`: the runtime over node-postgres in pipeline mode: `Db.open`, a member's `once` and `watch`, reads, writes, windows, `migrate` and `drift`.
     - `src/cli/`: the `grizzle` command line.
     - `skills/grizzle/`: the agent guide the package ships.
 - `test/`: the unit, pg, schedules and types tiers, and their support in `test/support/`.
