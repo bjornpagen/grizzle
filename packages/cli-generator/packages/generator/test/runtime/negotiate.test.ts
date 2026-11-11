@@ -146,7 +146,7 @@ describe("dispatchResponse", () => {
 
 	test("an undeclared or missing media type matches nothing (raw bytes)", () => {
 		expect(Negotiate.dispatchResponse(["application/json"], "text/plain")).toBeUndefined()
-		expect(Negotiate.dispatchResponse(["application/json"])).toBeUndefined()
+		expect(Negotiate.dispatchResponse(["application/json"], undefined)).toBeUndefined()
 		expect(Negotiate.dispatchResponse([], "application/json")).toBeUndefined()
 	})
 })

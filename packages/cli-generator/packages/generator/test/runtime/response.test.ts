@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit, Redacted, Runtime } from "effect"
+import { Cause, Effect, Exit, Option, Redacted, Runtime } from "effect"
 import { HttpClientError, HttpClientRequest, HttpClientResponse, UrlParams } from "effect/http"
 import { describe, expect, test } from "vitest"
 import { ApiResponseError, TransportError } from "#runtime-src/domain/errors.ts"
@@ -152,9 +152,13 @@ describe("classify", () => {
 			value: Redacted.make(secret)
 		}
 		const header = `${"r".repeat(230)}${secret}`
-		const error = toApiResponseError(table, respond(404, { "x-request-id": header }), "", [
-			credential
-		])
+		const error = toApiResponseError(
+			table,
+			respond(404, { "x-request-id": header }),
+			"",
+			[credential],
+			Option.none()
+		)
 		const rendered = renderError(error, [credential])
 
 		expect(error.requestId).toBe(`${"r".repeat(230)}<redacted:bearer>`)
@@ -168,7 +172,13 @@ describe("classify", () => {
 			value: Redacted.make("hunter2-PASSWORD-xyz")
 		}
 		const header = `${"r".repeat(250)}hunter2-PASSWORD-xyz`
-		const error = toApiResponseError(table, respond(404, { "x-request-id": header }), "", [secret])
+		const error = toApiResponseError(
+			table,
+			respond(404, { "x-request-id": header }),
+			"",
+			[secret],
+			Option.none()
+		)
 
 		expect(error.requestId).toBe(`${"r".repeat(250)}<redac`)
 	})
@@ -182,9 +192,13 @@ describe("classify", () => {
 			value: Redacted.make(secret)
 		}
 		const header = `req-${secret}-CANARY\u009B\u00AD\u0085\u0001SECRET`
-		const error = toApiResponseError(table, respond(404, { "x-request-id": header }), "", [
-			credential
-		])
+		const error = toApiResponseError(
+			table,
+			respond(404, { "x-request-id": header }),
+			"",
+			[credential],
+			Option.none()
+		)
 
 		expect(error.requestId).toBe("req-<redacted:bearer>-<redacted:bearer>")
 	})
@@ -216,13 +230,15 @@ describe("classify", () => {
 			responses: { "401": [], "500": [], "5XX": [] }
 		}
 
-		expect(toApiResponseError(declared, respond(500), "", []).matched).toBe("500")
-		expect(toApiResponseError(declared, respond(503), "", []).matched).toBe("5XX")
-		expect(toApiResponseError(declared, respond(401), "", []).matched).toBe("401")
+		expect(toApiResponseError(declared, respond(500), "", [], Option.none()).matched).toBe("500")
+		expect(toApiResponseError(declared, respond(503), "", [], Option.none()).matched).toBe("5XX")
+		expect(toApiResponseError(declared, respond(401), "", [], Option.none()).matched).toBe("401")
 	})
 
 	test("toApiResponseError keeps the excerpt it is given", () => {
-		expect(toApiResponseError(table, respond(404), "not found", []).bodyExcerpt).toBe("not found")
+		expect(
+			toApiResponseError(table, respond(404), "not found", [], Option.none()).bodyExcerpt
+		).toBe("not found")
 	})
 })
 

@@ -1,4 +1,5 @@
-import { Effect, Option, Record as Rec, Schema } from "effect"
+import { regex } from "arkregex"
+import { Array as Arr, Effect, Option, Record as Rec, Schema, String as Str } from "effect"
 import type { HttpClientError, HttpClientResponse } from "effect/http"
 import { Headers, UrlParams } from "effect/http"
 import { ApiResponseError, TransportError } from "#domain/errors.ts"
@@ -66,17 +67,21 @@ const mediaTypeOf = (response: HttpClientResponse.HttpClientResponse): string | 
  * in `output.ts` keeps), format characters, U+2028, U+2029 and lone surrogates. Its bytes are
  * pinned by `request-id.test.ts`; it is not `sanitize`'s class.
  */
-const requestIdUnsafeText = /[\p{Cc}\p{Cf}\p{Cs}\u2028\u2029]/gu
+const requestIdUnsafeText = regex("[\\p{Cc}\\p{Cf}\\p{Cs}\\u2028\\u2029]", "gu")
+
+/**
+ * A high surrogate at the end of a cut: the cut split a pair. Not a lone-surrogate test.
+ */
+const trailingHighSurrogate = regex("[\\uD800-\\uDBFF]$", "u")
 
 /**
  * The first `maxRequestIdLength` UTF-16 units of `text`, never ending in half a surrogate pair.
  */
 const boundRequestId = (text: string): string => {
-	const head = text.slice(0, maxRequestIdLength)
+	const head = Str.slice(0, maxRequestIdLength)(text)
 
-	// A trailing high surrogate, not a lone-surrogate test: it asks whether the cut split a pair.
-	return /[\uD800-\uDBFF]$/u.test(head) && text.length > maxRequestIdLength
-		? head.slice(0, -1)
+	return trailingHighSurrogate.test(head) && text.length > maxRequestIdLength
+		? Str.slice(0, -1)(head)
 		: head
 }
 
@@ -99,9 +104,7 @@ const requestIdOf = (
 
 	return header === undefined
 		? undefined
-		: boundRequestId(
-				scrubAround(header, scrubbed, (text) => text.replaceAll(requestIdUnsafeText, ""))
-			)
+		: boundRequestId(scrubAround(header, scrubbed, Str.replaceAll(requestIdUnsafeText, "")))
 }
 
 const locationNote = (response: HttpClientResponse.HttpClientResponse): string => {
@@ -118,15 +121,14 @@ const locationNote = (response: HttpClientResponse.HttpClientResponse): string =
  * `Location` there instead. `scrubbed`, the run's full recorded list, is scrubbed from the request
  * id before it is bounded; it is required so a caller cannot silently skip the scrub.
  * `retryAfterSeconds` is the server's `Retry-After` delay when retrying stopped at the cap (design
- * D-AD7, 7.1; m3 P14), and sets `ApiResponseError.retryAfterSeconds`; `None`, the default, leaves
- * it unset.
+ * D-AD7, 7.1; m3 P14), and sets `ApiResponseError.retryAfterSeconds`; `None` leaves it unset.
  */
 export const toApiResponseError = (
 	table: ResponseTable,
 	response: HttpClientResponse.HttpClientResponse,
 	bodyExcerpt: string,
 	scrubbed: readonly ScrubEntry[],
-	retryAfterSeconds: Option.Option<number> = Option.none()
+	retryAfterSeconds: Option.Option<number>
 ): ApiResponseError => {
 	const key = matchResponse(table.responses, response.status)
 	const mediaType = mediaTypeOf(response)
@@ -142,7 +144,7 @@ export const toApiResponseError = (
 	const withMediaType = mediaType === undefined ? base : { ...base, mediaType }
 	const withRequestId = requestId === undefined ? withMediaType : { ...withMediaType, requestId }
 
-	return new ApiResponseError(
+	return ApiResponseError.make(
 		Option.match(retryAfterSeconds, {
 			onNone: () => withRequestId,
 			onSome: (seconds) => ({ ...withRequestId, retryAfterSeconds: seconds })
@@ -163,7 +165,7 @@ export const classify = (
 	Effect.suspend(() =>
 		isSuccess(response.status)
 			? Effect.succeed(response)
-			: Effect.fail(toApiResponseError(table, response, "", scrubbed))
+			: Effect.fail(toApiResponseError(table, response, "", scrubbed, Option.none()))
 	)
 
 /**
@@ -179,7 +181,7 @@ interface CauseLink {
 
 const CauseLinkSchema = Schema.Struct({
 	cause: Schema.optional(Schema.Unknown),
-	code: Schema.optional(Schema.Union([Schema.String, Schema.Number])),
+	code: Schema.optional(Schema.Union([Schema.String, Schema.Finite])),
 	message: Schema.optional(Schema.String),
 	name: Schema.optional(Schema.String)
 })
@@ -220,9 +222,11 @@ const tlsCodes: ReadonlySet<string> = new Set([
 	"UNABLE_TO_VERIFY_LEAF_SIGNATURE"
 ])
 
-const tlsMessage = /certificate|\bssl\b|\btls\b/iu
+const tlsMessage = regex.as("certificate|\\bssl\\b|\\btls\\b", "iu")
 
-const dnsMessage = /getaddrinfo|\bdns\b/iu
+const tlsCode = regex("^ERR_(?:SSL|TLS)", "u")
+
+const dnsMessage = regex.as("getaddrinfo|\\bdns\\b", "iu")
 
 const isTimeout = (link: CauseLink): boolean => link.name === "TimeoutError"
 
@@ -231,7 +235,7 @@ const isAbort = (link: CauseLink): boolean => link.name === "AbortError"
 const isTls = (link: CauseLink): boolean => {
 	const code = String(link.code ?? "")
 
-	return tlsCodes.has(code) || /^ERR_(?:SSL|TLS)/u.test(code) || tlsMessage.test(link.message ?? "")
+	return tlsCodes.has(code) || tlsCode.test(code) || tlsMessage.test(link.message ?? "")
 }
 
 const isDns = (link: CauseLink): boolean =>
@@ -253,7 +257,10 @@ const classified: readonly (readonly [TransportReason, (link: CauseLink) => bool
 const transportReason = (cause: unknown): TransportReason => {
 	const chain = causeChain(cause)
 
-	return classified.find(([, matches]) => chain.some(matches))?.[0] ?? "connect"
+	return Option.match(
+		Arr.findFirst(classified, ([, matches]) => Arr.some(chain, matches)),
+		{ onNone: (): TransportReason => "connect", onSome: ([reason]) => reason }
+	)
 }
 
 /**
@@ -270,7 +277,7 @@ export const mapClientError = (
 	return Effect.suspend(() =>
 		reason._tag === "TransportError"
 			? Effect.fail(
-					new TransportError({
+					TransportError.make({
 						reason: transportReason(reason.cause ?? reason.description),
 						url: UrlParams.redactUrl(reason.request.url)
 					})

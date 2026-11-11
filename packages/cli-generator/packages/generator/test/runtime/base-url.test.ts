@@ -62,7 +62,7 @@ const run = (
 	} = {}
 ) =>
 	Effect.runPromiseExit(
-		BaseUrl.select(selection).pipe(
+		BaseUrl.select(selection, options.table ?? table).pipe(
 			Effect.provide(BaseUrl.layer(options.table ?? table, "EXAMPLE")),
 			Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnvRecord(options.env ?? {})))
 		)
@@ -427,9 +427,10 @@ const resolveServer = (
 	bound: readonly string[] = ["https://api.example.com"]
 ) =>
 	Effect.runPromiseExit(
-		BaseUrl.resolve({ provenance: "server", server: entry, variables: values }).pipe(
-			Effect.provide(BaseUrl.layer({ boundOrigins: bound, servers: [entry] }, "EXAMPLE"))
-		)
+		BaseUrl.resolve(
+			{ provenance: "server", server: entry, variables: values },
+			{ boundOrigins: bound, servers: [entry] }
+		).pipe(Effect.provide(BaseUrl.layer({ boundOrigins: bound, servers: [entry] }, "EXAMPLE")))
 	)
 
 // A client that counts the requests it is given and answers each with 204.
@@ -455,7 +456,7 @@ const counting = () => {
 const sendThrough = (selection: BaseUrl.Selection, boundTable: BaseUrl.ServersTable) => {
 	const { layer: clientLayer, urls } = counting()
 	const program = Effect.gen(function* send() {
-		const base = yield* BaseUrl.resolve(selection)
+		const base = yield* BaseUrl.resolve(selection, boundTable)
 		const client = yield* HttpClient.HttpClient
 
 		return yield* client.get(BaseUrl.requestUrl(base, "/users/1", "a=b"))
@@ -467,10 +468,13 @@ const sendThrough = (selection: BaseUrl.Selection, boundTable: BaseUrl.ServersTa
 describe("resolve: operator selection", () => {
 	test("returns the operator's base unchanged and does not check the bound set", async () => {
 		const exit = await Effect.runPromiseExit(
-			BaseUrl.resolve({
-				baseUrl: "https://elsewhere.example.org/api",
-				provenance: "operator"
-			}).pipe(Effect.provide(BaseUrl.layer(table, "EXAMPLE")))
+			BaseUrl.resolve(
+				{
+					baseUrl: "https://elsewhere.example.org/api",
+					provenance: "operator"
+				},
+				table
+			).pipe(Effect.provide(BaseUrl.layer(table, "EXAMPLE")))
 		)
 		expect(exit).toEqual(Exit.succeed("https://elsewhere.example.org/api"))
 	})
@@ -627,7 +631,7 @@ describe("requestUrl", () => {
 	})
 
 	test("omits the separator when the query is absent or empty", () => {
-		expect(BaseUrl.requestUrl("https://api.example.com", "/users")).toBe(
+		expect(BaseUrl.requestUrl("https://api.example.com", "/users", "")).toBe(
 			"https://api.example.com/users"
 		)
 		expect(BaseUrl.requestUrl("https://api.example.com", "/users", "")).toBe(
@@ -642,13 +646,13 @@ describe("requestUrl", () => {
 	})
 
 	test("a trailing slash on the base does not double the separator", () => {
-		expect(BaseUrl.requestUrl("https://api.example.com/v1/", "/users")).toBe(
+		expect(BaseUrl.requestUrl("https://api.example.com/v1/", "/users", "")).toBe(
 			"https://api.example.com/v1/users"
 		)
 	})
 
 	test("a path that looks absolute never replaces the base", () => {
-		expect(BaseUrl.requestUrl("https://api.example.com/v1", "//evil.com/x")).toBe(
+		expect(BaseUrl.requestUrl("https://api.example.com/v1", "//evil.com/x", "")).toBe(
 			"https://api.example.com/v1//evil.com/x"
 		)
 	})

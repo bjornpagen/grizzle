@@ -32,7 +32,7 @@ const textOf = async (body: HttpBody.Stream) => {
 }
 
 const formText = async (parts: readonly Part[]) =>
-	await textOf(await Effect.runPromise(formData(parts, { boundary })))
+	await textOf(await Effect.runPromise(formData(parts, Option.some(boundary))))
 
 const refusal = async (build: Effect.Effect<HttpBody.Stream, unknown>) =>
 	await Effect.runPromise(Effect.flip(build))
@@ -128,7 +128,7 @@ describe("formData bytes", () => {
 						name: "f"
 					}
 				],
-				{ boundary }
+				Option.some(boundary)
 			)
 		)
 		const chunks = await chunksOf(body)
@@ -141,14 +141,14 @@ describe("formData bytes", () => {
 
 	test("running the stream twice yields the same bytes, for retries", async () => {
 		const body = await Effect.runPromise(
-			formData([{ body: Stream.make(encoder.encode("again")), name: "f" }], { boundary })
+			formData([{ body: Stream.make(encoder.encode("again")), name: "f" }], Option.some(boundary))
 		)
 
 		expect(await textOf(body)).toBe(await textOf(body))
 	})
 
 	test("the body carries the form-data content type with its boundary", async () => {
-		const body = await Effect.runPromise(formData([], { boundary }))
+		const body = await Effect.runPromise(formData([], Option.some(boundary)))
 
 		expect(body.contentType).toBe("multipart/form-data; boundary=testboundary")
 	})
@@ -195,7 +195,7 @@ describe("refusals", () => {
 	for (const value of bad) {
 		test(`a header value with ${JSON.stringify(value)} is a UsageError`, async () => {
 			const error = await refusal(
-				formData([{ body: empty, headers: [["X-A", value]], name: "p" }], { boundary })
+				formData([{ body: empty, headers: [["X-A", value]], name: "p" }], Option.some(boundary))
 			)
 
 			expect(error).toMatchObject({ _tag: "UsageError" })
@@ -209,7 +209,9 @@ describe("refusals", () => {
 			{ body: empty, contentType: "text/plain\r\nX: y", name: "p" }
 		]
 
-		const errors = await Promise.all(parts.map((part) => refusal(formData([part], { boundary }))))
+		const errors = await Promise.all(
+			parts.map((part) => refusal(formData([part], Option.some(boundary))))
+		)
 
 		for (const error of errors) {
 			expect(error).toMatchObject({ _tag: "UsageError" })
@@ -218,14 +220,17 @@ describe("refusals", () => {
 
 	test("a refused header inside a nested part is refused", async () => {
 		const error = await refusal(
-			mixed([{ kind: "mixed", parts: [{ body: empty, headers: [["X", "a\nb"]] }] }], { boundary })
+			mixed(
+				[{ kind: "mixed", parts: [{ body: empty, headers: [["X", "a\nb"]] }] }],
+				Option.some(boundary)
+			)
 		)
 
 		expect(error).toMatchObject({ _tag: "UsageError" })
 	})
 
 	test("a form-data part without a name is refused", async () => {
-		expect(await refusal(formData([{ body: empty }], { boundary }))).toMatchObject({
+		expect(await refusal(formData([{ body: empty }], Option.some(boundary)))).toMatchObject({
 			_tag: "UsageError"
 		})
 	})
@@ -233,8 +238,8 @@ describe("refusals", () => {
 
 describe("boundary", () => {
 	test("a default boundary is long, safe and different each time", async () => {
-		const first = await Effect.runPromise(formData([]))
-		const second = await Effect.runPromise(formData([]))
+		const first = await Effect.runPromise(formData([], Option.none()))
+		const second = await Effect.runPromise(formData([], Option.none()))
 
 		expect(readBoundary(first.contentType).length).toBeGreaterThanOrEqual(40)
 		expect(readBoundary(first.contentType).length).toBeLessThanOrEqual(70)
@@ -253,7 +258,7 @@ describe("multipart/mixed, positional and nested", () => {
 				{ contentType: "application/octet-stream" }
 			]
 		})
-		const body = await Effect.runPromise(mixed(parts, { boundary }))
+		const body = await Effect.runPromise(mixed(parts, Option.some(boundary)))
 
 		expect(body.contentType).toBe("multipart/mixed; boundary=testboundary")
 		expect(await textOf(body)).toBe(

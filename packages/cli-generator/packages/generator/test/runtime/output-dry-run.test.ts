@@ -284,7 +284,7 @@ describe("Output.send --dry-run", () => {
 						name: "file"
 					}
 				],
-				{ boundary: "BOUNDARY" }
+				Option.some("BOUNDARY")
 			)
 		)
 		const result = await run({
@@ -399,7 +399,7 @@ describe("Output.send --dry-run", () => {
 						name: "note"
 					}
 				],
-				{ boundary: "BOUNDARY" }
+				Option.some("BOUNDARY")
 			)
 		)
 		const result = await run({

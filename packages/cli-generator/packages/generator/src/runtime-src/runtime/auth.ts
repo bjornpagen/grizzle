@@ -1,3 +1,4 @@
+import { regex } from "arkregex"
 import type { FileSystem, Stdio, Stream } from "effect"
 import {
 	Array as Arr,
@@ -7,9 +8,11 @@ import {
 	Layer,
 	Option,
 	Path,
+	pipe,
 	Record as Rec,
 	Redacted,
 	Result,
+	String as Str,
 	Terminal
 } from "effect"
 import { Flag, GlobalFlag, Prompt, TerminalCapabilities } from "effect/cli"
@@ -24,7 +27,7 @@ import {
 	stdinOrFile,
 	stripLineEnd
 } from "#runtime/input.ts"
-import { loneSurrogate, redactedPlaceholder } from "#runtime/redact.ts"
+import { labelledPlaceholder, loneSurrogate } from "#runtime/redact.ts"
 import { cookieOctets, headerValueBreaks } from "#runtime/serialize.ts"
 
 /**
@@ -139,25 +142,43 @@ export const maxCertificateBytes = 1_048_576
 export class Schemes extends Context.Service<
 	Schemes,
 	{ readonly envPrefix: string; readonly table: SecurityTable }
->()("openapi-cli/runtime/Schemes") {}
+>()("effect-openapi-cli-generator/runtime-src/runtime/auth/Schemes") {}
 
 export const layer = (table: SecurityTable, envPrefix: string): Layer.Layer<Schemes> =>
 	Layer.succeed(Schemes)({ envPrefix, table })
 
 /**
+ * A lower-case letter or digit before an upper-case letter: a camel-case word boundary.
+ */
+const camelBoundary = regex("(?<head>[a-z0-9])(?<tail>[A-Z])", "gu")
+
+/**
+ * A run of characters a slug cannot hold.
+ */
+const slugBreak = regex("[^A-Za-z0-9]+", "gu")
+
+/**
+ * A dash at either end of a slug.
+ */
+const edgeDash = regex("^-|-$", "gu")
+
+/**
  * The flag spelling of a scheme name: `bearerAuth` is `bearer-auth`.
  */
 export const schemeSlug = (scheme: string): string =>
-	scheme
-		.replaceAll(/(?<head>[a-z0-9])(?<tail>[A-Z])/gu, "$<head>-$<tail>")
-		.replaceAll(/[^A-Za-z0-9]+/gu, "-")
-		.replaceAll(/^-|-$/gu, "")
-		.toLowerCase()
+	pipe(
+		scheme,
+		Str.replaceAll(camelBoundary, "$<head>-$<tail>"),
+		Str.replaceAll(slugBreak, "-"),
+		Str.replaceAll(edgeDash, ""),
+		Str.toLowerCase
+	)
 
 /**
  * An identifier in `SCREAMING_SNAKE` form: upper case, with `-` as `_`.
  */
-export const screamingSnake = (name: string): string => name.toUpperCase().replaceAll("-", "_")
+export const screamingSnake = (name: string): string =>
+	Str.replaceAll("-", "_")(Str.toUpperCase(name))
 
 /**
  * The environment name of a token scheme's credential: the scheme's own `env`, else
@@ -192,7 +213,7 @@ export const credentialFileSetting = (scheme: string): FileSetting => {
 }
 
 const usage = (scheme: string, message: string): UsageError =>
-	new UsageError({ flag: `${schemeSlug(scheme)}-file`, message })
+	UsageError.make({ flag: `${schemeSlug(scheme)}-file`, message })
 
 const credentialFromSource = (
 	scheme: string,
@@ -225,8 +246,10 @@ const fromEnv = (
 	name: string
 ): Effect.Effect<Option.Option<Redacted.Redacted>, UsageError> =>
 	Config.option(Config.Redacted(name)).pipe(
-		Effect.map(Option.filter((value) => Redacted.value(value) !== "")),
-		Effect.mapError(() => usage(scheme, `cannot read ${name} for ${scheme}`))
+		Effect.mapBoth({
+			onFailure: () => usage(scheme, `cannot read ${name} for ${scheme}`),
+			onSuccess: Option.filter((value) => Redacted.value(value) !== "")
+		})
 	)
 
 /**
@@ -238,7 +261,9 @@ export interface ClientCertificatePaths {
 	readonly key: string
 }
 
-// An empty variable is unset, as for every other credential.
+/**
+ * One certificate path variable; an empty variable is unset, as for every other credential.
+ */
 const certificatePath = (name: string): Config.Config<Option.Option<string>> =>
 	Config.option(Config.String(name)).pipe(Config.map(Option.filter((path) => path !== "")))
 
@@ -260,20 +285,22 @@ export const clientCertificatePaths = (
 		)
 	)
 
-// A satisfied `mutualTLS` scheme is a credential whose value is the certificate path, held
-// redacted: never sent, and scrubbed like any other credential if a response echoes it.
+/**
+ * A satisfied `mutualTLS` scheme is a credential whose value is the certificate path, held
+ * redacted: never sent, and scrubbed like any other credential if a response echoes it.
+ */
 const certificateOf = (
 	scheme: string,
 	definition: MutualTlsScheme
 ): Effect.Effect<Option.Option<Credential>, UsageError> =>
 	clientCertificatePaths(definition).pipe(
-		Effect.map(Option.map((paths) => ({ definition, scheme, value: Redacted.make(paths.cert) }))),
-		Effect.mapError(
-			() =>
-				new UsageError({
+		Effect.mapBoth({
+			onFailure: () =>
+				UsageError.make({
 					message: `cannot read ${definition.certEnv} or ${definition.keyEnv} for ${scheme}`
-				})
-		)
+				}),
+			onSuccess: Option.map((paths) => ({ definition, scheme, value: Redacted.make(paths.cert) }))
+		})
 	)
 
 const credentialOf = (
@@ -290,7 +317,8 @@ const credentialOf = (
 			return yield* certificateOf(scheme, definition)
 		}
 
-		const file = Option.flatten(yield* Effect.serviceOption(credentialFileSetting(scheme)))
+		const setting = yield* Effect.serviceOption(credentialFileSetting(scheme))
+		const file = Option.flatten(setting)
 		const value = Option.isSome(file)
 			? yield* fromFile(scheme, file.value).pipe(
 					Effect.filterOrFail(
@@ -310,8 +338,13 @@ const credentialOf = (
 		)
 	})
 
-// A scheme name comes from the generated table, but a terminal must never see a control character.
-const unsafeName = /[\p{Cc}\p{Cf}\p{Cs}\u2028\u2029]/gu
+/**
+ * What a scheme name loses before a terminal sees it: it comes from the generated table, but a
+ * terminal must never see a control character.
+ */
+const unsafeName = regex("[\\p{Cc}\\p{Cf}\\p{Cs}\\u2028\\u2029]", "gu")
+
+const safeName = Str.replaceAll(unsafeName, "")
 
 /**
  * The one stderr notice for a chosen deprecated scheme: it names the scheme and never a value.
@@ -322,8 +355,7 @@ const noticeDeprecated = (
 	Effect.gen(function* notify() {
 		for (const { definition, scheme } of credentials) {
 			if (definition.deprecated === true) {
-				const name = scheme.replaceAll(unsafeName, "")
-				yield* printStderr(`Notice: the security scheme ${name} is deprecated`)
+				yield* printStderr(`Notice: the security scheme ${safeName(scheme)} is deprecated`)
 			}
 		}
 	})
@@ -333,8 +365,10 @@ interface PromptServices {
 	readonly terminal: Terminal.Terminal
 }
 
-// `Terminal` and `Path` are read optionally, so `evaluate` adds no requirement: `Command.run`
-// provides both, and without them the prompt is skipped as off a TTY.
+/**
+ * The prompt's services. `Terminal` and `Path` are read optionally, so `evaluate` adds no
+ * requirement: `Command.run` provides both, and without them the prompt is skipped as off a TTY.
+ */
 const promptServices: Effect.Effect<Option.Option<PromptServices>> = Effect.gen(
 	function* promptServicesOf() {
 		const { canPrompt } = yield* TerminalCapabilities.TerminalCapabilities
@@ -355,16 +389,16 @@ const ask = (
 	scheme: string,
 	{ path, terminal }: PromptServices
 ): Effect.Effect<Option.Option<Redacted.Redacted>, never, FileSystem.FileSystem> =>
-	Prompt.run(
-		Prompt.Password({ message: `Credential for ${scheme.replaceAll(unsafeName, "")}` })
-	).pipe(
+	Prompt.run(Prompt.Password({ message: `Credential for ${safeName(scheme)}` })).pipe(
 		Effect.provideService(Terminal.Terminal, terminal),
 		Effect.provideService(Path.Path, path),
 		Effect.map(Option.liftPredicate((value) => Redacted.value(value) !== "")),
 		Effect.catchTag("QuitError", () => Effect.interrupt)
 	)
 
-// The prompt reads stdin, so it takes the one stdin claim; `false` when a `-` consumer holds it.
+/**
+ * The prompt reads stdin, so it takes the one stdin claim; `false` when a `-` consumer holds it.
+ */
 const claimStdin = (scheme: string): Effect.Effect<boolean, never, StdinClaim> =>
 	Effect.flatMap(Effect.service(StdinClaim), (stdin) =>
 		stdin.claim(`${schemeSlug(scheme)}-file`)
@@ -378,8 +412,8 @@ const describeAlternative = (
 	table: SecurityTable,
 	alternative: readonly string[]
 ): string =>
-	alternative
-		.map((scheme) => {
+	Arr.join(
+		Arr.map(alternative, (scheme) => {
 			const definition = table.schemes[scheme]
 			if (definition?.kind === "mutualTLS") {
 				return `${scheme} (env ${definition.certEnv} + ${definition.keyEnv})`
@@ -388,8 +422,9 @@ const describeAlternative = (
 			const env = definition === undefined ? "" : `, env ${envName(envPrefix, scheme, definition)}`
 
 			return `${scheme} (--${schemeSlug(scheme)}-file${env})`
-		})
-		.join(" + ")
+		}),
+		" + "
+	)
 
 /**
  * The alternative the prompt fills: the first, in document order, whose schemes are all defined
@@ -402,14 +437,17 @@ const promptTarget = <R>(
 ): Effect.Effect<Option.Option<readonly string[]>, UsageError, R> =>
 	Effect.gen(function* findPromptTarget() {
 		for (const alternative of requirement) {
-			if (alternative.every((scheme) => Rec.has(table.schemes, scheme))) {
-				const certificates = alternative.filter(
-					(scheme) => table.schemes[scheme]?.kind === "mutualTLS"
-				)
-				const configured = yield* Effect.all(certificates.map((scheme) => resolve(scheme)))
-				if (configured.every(Option.isSome)) {
-					return Option.some(alternative)
-				}
+			if (!Arr.every(alternative, (scheme) => Rec.has(table.schemes, scheme))) {
+				continue
+			}
+
+			const certificates = Arr.filter(
+				alternative,
+				(scheme) => table.schemes[scheme]?.kind === "mutualTLS"
+			)
+			const configured = yield* Effect.forEach(certificates, (scheme) => resolve(scheme))
+			if (Arr.every(configured, Option.isSome)) {
+				return Option.some(alternative)
 			}
 		}
 
@@ -470,9 +508,11 @@ const configuredAlternative = <R>(
 		return Option.none()
 	})
 
-// No requirement, or a `{}` alternative: sending no credentials is allowed.
+/**
+ * No requirement, or a `{}` alternative: sending no credentials is allowed.
+ */
 const allowsAnonymous = (requirement: SecurityRequirement): boolean =>
-	requirement.length === 0 || requirement.some((alternative) => alternative.length === 0)
+	requirement.length === 0 || Arr.some(requirement, (alternative) => alternative.length === 0)
 
 /**
  * Choose the credentials one operation sends (design 6.5 Run-time choice): the first alternative,
@@ -490,7 +530,8 @@ const allowsAnonymous = (requirement: SecurityRequirement): boolean =>
  * scheme with no configured credential. It runs only when stdin and stdout are TTYs
  * (`TerminalCapabilities.canPrompt`, the check `Flag.withFallbackPrompt` makes) and stdin is
  * unclaimed: the prompt reads stdin, so it takes the one stdin claim (design 4.5), and a `-`
- * consumer that holds it skips the prompt. A skipped or unanswered prompt is `CredentialMissing`.
+ * consumer that holds it skips the prompt. Every file flag is read before the first prompt, so a
+ * `--<scheme>-file -` keeps stdin. A skipped or unanswered prompt is `CredentialMissing`.
  */
 export const evaluate = (
 	operation: string,
@@ -515,13 +556,13 @@ export const evaluate = (
 			return []
 		}
 
-		const target = Option.getOrUndefined(yield* promptTarget(table, requirement, resolve))
-		const services = target === undefined ? Option.none() : yield* promptServices
-		if (target !== undefined && Option.isSome(services)) {
-			// Every file flag is read before the first prompt, so a `--<scheme>-file -` keeps stdin.
+		const target = yield* promptTarget(table, requirement, resolve)
+		const services = Option.isNone(target) ? Option.none() : yield* promptServices
+		if (Option.isSome(target) && Option.isSome(services)) {
 			const configured: (readonly [string, Option.Option<Credential>])[] = []
-			for (const scheme of target) {
-				configured.push([scheme, yield* resolve(scheme)])
+			for (const scheme of target.value) {
+				const found = yield* resolve(scheme)
+				configured.push([scheme, found])
 			}
 
 			const credentials: Credential[] = []
@@ -548,15 +589,15 @@ export const evaluate = (
 				}
 			}
 
-			if (credentials.length === target.length) {
+			if (credentials.length === target.value.length) {
 				yield* noticeDeprecated(credentials)
 
 				return credentials
 			}
 		}
 
-		return yield* new CredentialMissing({
-			alternatives: requirement.map((alternative) =>
+		return yield* CredentialMissing.make({
+			alternatives: Arr.map(requirement, (alternative) =>
 				describeAlternative(envPrefix, table, alternative)
 			),
 			operation
@@ -598,7 +639,7 @@ export const preview = (
 		}
 
 		const first = allowsAnonymous(requirement) ? [] : (requirement[0] ?? [])
-		const placeholders = first.flatMap((scheme): Placeholder[] => {
+		const placeholders = Arr.flatMap(first, (scheme): Placeholder[] => {
 			const definition = table.schemes[scheme]
 
 			return definition === undefined ? [] : [{ definition, scheme }]
@@ -645,13 +686,17 @@ const originOf = (raw: string): Option.Option<string> =>
 export const credentialOrigins = (gate: CredentialGate): readonly string[] => {
 	const base = gate.provenance === "operator" && gate.allowUnboundBase ? [gate.baseOrigin] : []
 
-	return Arr.dedupe([...gate.boundOrigins, ...base].flatMap((raw) => Option.toArray(originOf(raw))))
+	return Arr.dedupe(
+		Arr.flatMap([...gate.boundOrigins, ...base], (raw) => Option.toArray(originOf(raw)))
+	)
 }
 
-// Whether a URL's origin is one of `origins`. An unparsable URL or origin is never bound.
+/**
+ * Whether a URL's origin is one of `origins`. An unparsable URL or origin is never bound.
+ */
 const isBound = (url: string, origins: readonly string[]): boolean => {
 	const origin = originOf(url)
-	const allowed = new Set(origins.flatMap((raw) => Option.toArray(originOf(raw))))
+	const allowed = new Set(Arr.flatMap(origins, (raw) => Option.toArray(originOf(raw))))
 
 	return Option.isSome(origin) && allowed.has(origin.value)
 }
@@ -684,24 +729,26 @@ export interface Attachment {
 
 const apiKeyNames = (table: SecurityTable, place: "cookie" | "header" | "query"): Set<string> =>
 	new Set(
-		Object.values(table.schemes).flatMap((definition) =>
+		Arr.flatMap(Rec.values(table.schemes), (definition) =>
 			definition.kind === "apiKey" && definition.in === place ? [definition.name] : []
 		)
 	)
 
-// Every kind but `apiKey` and `mutualTLS` sends `Authorization`.
+/**
+ * Every kind but `apiKey` and `mutualTLS` sends `Authorization`.
+ */
 const hasAuthorizationScheme = (table: SecurityTable): boolean =>
-	Object.values(table.schemes).some(
+	Arr.some(
+		Rec.values(table.schemes),
 		(definition) => definition.kind !== "apiKey" && definition.kind !== "mutualTLS"
 	)
 
 export const cookiePairs = (cookie: string): readonly string[] =>
-	cookie
-		.split(";")
-		.map((pair) => pair.trim())
-		.filter((pair) => pair !== "")
+	Arr.filter(Arr.map(Str.split(";")(cookie), Str.trim), (pair) => pair !== "")
 
-// The request with `name=value` appended to its `Cookie` header's existing pairs.
+/**
+ * The request with `name=value` appended to its `Cookie` header's existing pairs.
+ */
 const appendCookie = (
 	request: HttpClientRequest.HttpClientRequest,
 	name: string,
@@ -712,27 +759,30 @@ const appendCookie = (
 	return HttpClientRequest.setHeader(
 		request,
 		"cookie",
-		[...cookiePairs(existing), `${name}=${value}`].join("; ")
+		Arr.join([...cookiePairs(existing), `${name}=${value}`], "; ")
 	)
 }
 
-const cookieName = (pair: string): string => pair.split("=", 1)[0] ?? ""
+const cookieName = (pair: string): string => Arr.headNonEmpty(Str.split("=")(pair))
 
-const stripUrlQuery = (url: string, names: ReadonlySet<string>): string => {
-	const mark = url.indexOf("?")
-	if (mark === -1) {
-		return url
-	}
+/**
+ * `url` without the query pairs `names` name: the query runs from the first `?` to the fragment's
+ * `#` or the end, and the pairs it keeps stay in order.
+ */
+const stripUrlQuery = (url: string, names: ReadonlySet<string>): string =>
+	Option.match(Str.indexOf("?")(url), {
+		onNone: () => url,
+		onSome: (mark) => {
+			const after = Str.slice(mark + 1)(url)
+			const end = Option.getOrElse(Str.indexOf("#")(after), () => after.length)
+			const kept = Arr.filter(
+				Str.split("&")(Str.slice(0, end)(after)),
+				(pair) => !names.has(new URLSearchParams(pair).keys().next().value ?? "")
+			)
 
-	const hash = url.indexOf("#", mark)
-	const end = hash === -1 ? url.length : hash
-	const kept = url
-		.slice(mark + 1, end)
-		.split("&")
-		.filter((pair) => !names.has(new URLSearchParams(pair).keys().next().value ?? ""))
-
-	return `${url.slice(0, mark)}${kept.length === 0 ? "" : `?${kept.join("&")}`}${url.slice(end)}`
-}
+			return `${Str.slice(0, mark)(url)}${kept.length === 0 ? "" : `?${Arr.join(kept, "&")}`}${Str.slice(end)(after)}`
+		}
+	})
 
 /**
  * Remove every managed credential the table can name: `Authorization` when any `http`, `oauth2` or
@@ -753,11 +803,11 @@ const strip = (
 	const cookies = Option.match(Headers.get(headers, "cookie"), {
 		onNone: () => headers,
 		onSome: (cookie) => {
-			const kept = cookiePairs(cookie).filter((pair) => !cookieNames.has(cookieName(pair)))
+			const kept = Arr.filter(cookiePairs(cookie), (pair) => !cookieNames.has(cookieName(pair)))
 
 			return kept.length === 0
 				? Headers.remove(headers, "cookie")
-				: Headers.set(headers, "cookie", kept.join("; "))
+				: Headers.set(headers, "cookie", Arr.join(kept, "; "))
 		}
 	})
 
@@ -765,7 +815,7 @@ const strip = (
 		request.method,
 		stripUrlQuery(request.url, queryNames),
 		UrlParams.transform(UrlParams.fromInput(request.urlParams), (params) =>
-			params.filter(([name]) => !queryNames.has(name))
+			Arr.filter(params, ([name]) => !queryNames.has(name))
 		),
 		request.hash,
 		cookies,
@@ -773,13 +823,20 @@ const strip = (
 	)
 }
 
-// A credential also refuses any edge `trim` removes; a header parameter refuses only a tab or space
-// edge (serialize.ts `edgeSpace`). The two rules drift and stay as they are.
+/**
+ * A credential value no header can carry: it also refuses any edge `trim` removes, where a header
+ * parameter refuses only a tab or space edge (serialize.ts `edgeSpace`). The two rules drift and
+ * stay as they are.
+ */
 const unsafeHeaderValue = (value: string): boolean =>
-	headerValueBreaks(value) || value !== value.trim()
+	headerValueBreaks(value) || value !== Str.trim(value)
 
-// An RFC 6265 cookie-name is an RFC 9110 token.
-const cookieNameToken = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u
+/**
+ * An RFC 6265 cookie-name: an RFC 9110 token.
+ */
+const cookieNameToken = regex("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$", "u")
+
+const controlCharacter = regex("\\p{Cc}", "u")
 
 const refuse = (scheme: string, rule: string): Effect.Effect<never, UsageError> =>
 	Effect.fail(usage(scheme, `the credential for ${scheme} ${rule}`))
@@ -795,28 +852,30 @@ const headerValue = (scheme: string, value: string): Effect.Effect<string, Usage
 const basicParts = (
 	scheme: string,
 	value: string
-): Effect.Effect<readonly [string, string], UsageError> => {
-	const colon = value.indexOf(":")
-	if (colon === -1) {
-		return refuse(scheme, "must be <user-id>:<password>")
-	}
+): Effect.Effect<readonly [string, string], UsageError> =>
+	Option.match(Str.indexOf(":")(value), {
+		onNone: () => refuse(scheme, "must be <user-id>:<password>"),
+		onSome: (colon) => {
+			if (loneSurrogate.test(value)) {
+				return refuse(scheme, "has a lone surrogate")
+			}
 
-	if (loneSurrogate.test(value)) {
-		return refuse(scheme, "has a lone surrogate")
-	}
+			if (controlCharacter.test(value)) {
+				return refuse(scheme, "has a control character")
+			}
 
-	if (/\p{Cc}/u.test(value)) {
-		return refuse(scheme, "has a control character")
-	}
+			return Effect.succeed([Str.slice(0, colon)(value), Str.slice(colon + 1)(value)] as const)
+		}
+	})
 
-	return Effect.succeed([value.slice(0, colon), value.slice(colon + 1)])
-}
-
+/**
+ * One credential written onto a request. A `mutualTLS` certificate is presented by the hop's
+ * transport (`presentsCertificate`), never as a header.
+ */
 const attachOne = (
 	request: HttpClientRequest.HttpClientRequest,
 	{ definition, scheme, value }: Credential
 ): Effect.Effect<HttpClientRequest.HttpClientRequest, UsageError> => {
-	// The certificate is presented by the hop's transport (`presentsCertificate`), never as a header.
 	if (definition.kind === "mutualTLS") {
 		return Effect.succeed(request)
 	}
@@ -859,8 +918,10 @@ const attachOne = (
 	return Effect.succeed(appendCookie(request, definition.name, secret))
 }
 
-// Strip every managed credential, then write each entry with `one` only when the request's origin
-// is in `origins`.
+/**
+ * Strip every managed credential, then write each entry with `one` only when the request's origin
+ * is in `origins`.
+ */
 const attachWith = <C, E>(
 	table: SecurityTable,
 	entries: readonly C[],
@@ -895,10 +956,12 @@ export const attach =
 /**
  * The placeholder `--dry-run` writes for a scheme's credential (design 7.5).
  */
-export const placeholder = (scheme: string): string => redactedPlaceholder(scheme)
+export const placeholder = (scheme: string): string => labelledPlaceholder(scheme)
 
-// Write the placeholder where the credential would go, with the scheme's prefix (`Bearer`,
-// `Basic`); the value, if any, is never written.
+/**
+ * Write the placeholder where the credential would go, with the scheme's prefix (`Bearer`,
+ * `Basic`); the value, if any, is never written.
+ */
 const writePlaceholder = (
 	request: HttpClientRequest.HttpClientRequest,
 	{ definition, scheme }: Placeholder
@@ -927,8 +990,10 @@ const writePlaceholder = (
 	return Effect.succeed(appendCookie(request, definition.name, text))
 }
 
-// A configured value gets the check `attach` applies (`attachOne`, its request discarded), so the
-// preview fails where the real run would (M3-DR1); then the placeholder is written.
+/**
+ * A configured value gets the check `attach` applies (`attachOne`, its request discarded), so the
+ * preview fails where the real run would (M3-DR1); then the placeholder is written.
+ */
 const placeholderOne = (
 	request: HttpClientRequest.HttpClientRequest,
 	entry: Placeholder
@@ -964,8 +1029,10 @@ export const credentialHeaders = ["authorization", "proxy-authorization", "cooki
  * one of these words. Output redacts such a header beside `credentialHeaders`; the wire never
  * changes.
  */
-export const credentialLikeName =
-	/token|secret|password|passwd|api-key|apikey|api_key|auth|session|credential|signature/iu
+export const credentialLikeName = regex.as(
+	"token|secret|password|passwd|api-key|apikey|api_key|auth|session|credential|signature",
+	"iu"
+)
 
 /**
  * The response headers `--verbose` prints though their names are credential-like, by operator
@@ -984,8 +1051,8 @@ export const credentialLikeExemptions = [
  * A response header name `--verbose` redacts by operator policy: a credential-like name
  * (`credentialLikeName`) that `credentialLikeExemptions` does not list.
  */
-export const credentialLikeResponseName = new RegExp(
-	`^(?!(?:${credentialLikeExemptions.join("|")})$).*(?:${credentialLikeName.source})`,
+export const credentialLikeResponseName = regex.as(
+	`^(?!(?:${Arr.join(credentialLikeExemptions, "|")})$).*(?:${credentialLikeName.source})`,
 	"iu"
 )
 
@@ -1023,9 +1090,11 @@ export const redactedNames = (table: SecurityTable) =>
 		)
 	)
 
-const dottedLoopback = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/u
+const dottedLoopback = regex("^127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$", "u")
 
-const mappedLoopback = /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/u
+const mappedLoopback = regex("^\\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\\]$", "u")
+
+const trailingDot = regex("\\.$", "u")
 
 /**
  * The one loopback predicate (design 6.5 Loopback hosts). Its input is a WHATWG `URL.hostname`:
@@ -1034,11 +1103,11 @@ const mappedLoopback = /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/u
  * IPv4-mapped address in `127.0.0.0/8`, which `URL` writes in hex (`[::ffff:7f00:1]`).
  */
 export const isLoopbackHost = (hostname: string): boolean => {
-	const name = hostname.replace(/\.$/u, "")
+	const name = Str.replace(trailingDot, "")(hostname)
 
 	return (
 		name === "localhost" ||
-		name.endsWith(".localhost") ||
+		Str.endsWith(".localhost")(name) ||
 		name === "[::1]" ||
 		dottedLoopback.test(name) ||
 		mappedLoopback.test(name)

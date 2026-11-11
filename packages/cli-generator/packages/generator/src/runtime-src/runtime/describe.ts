@@ -1,4 +1,13 @@
-import { Array as Arr, Console, Context, Effect, Option, Order, Schema } from "effect"
+import {
+	Array as Arr,
+	Console,
+	Context,
+	Effect,
+	Option,
+	Order,
+	Record as Rec,
+	Schema
+} from "effect"
 import type { Command } from "effect/cli"
 import { Flag, GlobalFlag } from "effect/cli"
 import { Servers } from "#runtime/base-url.ts"
@@ -37,7 +46,9 @@ export interface CommandBinding {
 /**
  * The `Command.annotate` key under which a generated command carries its binding.
  */
-export const Binding = Context.Service<CommandBinding>("openapi-cli/runtime/describe/Binding")
+export class Binding extends Context.Service<Binding, CommandBinding>()(
+	"effect-openapi-cli-generator/runtime-src/runtime/describe/Binding"
+) {}
 
 /**
  * The `--describe` document. Fields are alphabetical, and `describeVersion` only gains fields.
@@ -77,15 +88,18 @@ type Entry = (typeof Description.Type)["commands"][number]
 
 const byName = Order.mapInput(Order.String, (flag: Entry["flags"][number]) => flag.name)
 
-// Read from the media declaration's `refused` list, the one the `--body` guard reads.
+/**
+ * The refused fields, read from the media declaration's `refused` list: the one the `--body` guard
+ * reads.
+ */
 const refusedFieldsOf = ({ refused, request }: MediaDeclaration): Entry["refusedFields"] =>
 	refused === undefined
 		? []
-		: request.flatMap((mediaType) =>
-				(Object.hasOwn(refused, mediaType) ? (refused[mediaType] ?? []) : []).map((name) => ({
-					mediaType,
-					name
-				}))
+		: Arr.flatMap(request, (mediaType) =>
+				Arr.map(
+					Option.getOrElse(Rec.get(refused, mediaType), (): readonly string[] => []),
+					(name) => ({ mediaType, name })
+				)
 			)
 
 const entryOf = (
@@ -95,7 +109,7 @@ const entryOf = (
 ): Entry => ({
 	document: binding.operation.origin.document,
 	flags: Arr.sort(
-		Object.entries(binding.parameters).map(([name, parameter]) => ({
+		Arr.map(Rec.toEntries(binding.parameters), ([name, parameter]) => ({
 			location: parameter.location,
 			name,
 			pointer: parameter.pointer,
@@ -109,9 +123,12 @@ const entryOf = (
 	pointer: binding.operation.origin.pointer,
 	refusedFields: refusedFieldsOf(binding.operation.media),
 	requestMedia: binding.operation.media.request,
-	responses: Object.keys(binding.operation.media.responses),
+	responses: Rec.keys(binding.operation.media.responses),
 	security: binding.operation.security,
-	servers: binding.operation.servers?.servers.map((server) => server.url) ?? rootServers
+	servers:
+		binding.operation.servers === undefined
+			? rootServers
+			: Arr.map(binding.operation.servers.servers, (server) => server.url)
 })
 
 const walk = (
@@ -123,8 +140,8 @@ const walk = (
 		onNone: () => [],
 		onSome: (binding) => [entryOf(path, binding, rootServers)]
 	}),
-	...command.subcommands.flatMap((group) =>
-		group.commands.flatMap((child) => walk(child, [...path, child.name], rootServers))
+	...Arr.flatMap(command.subcommands, (group) =>
+		Arr.flatMap(group.commands, (child) => walk(child, [...path, child.name], rootServers))
 	)
 ]
 
@@ -141,13 +158,15 @@ export const describeTree = (
 	describeVersion: 1
 })
 
-// The root servers from the `Servers` service `main.ts` provides around `Command.run`. An action's
-// type admits no requirement, so the service is read optionally; absent, the list is empty.
+/**
+ * The root servers from the `Servers` service `main.ts` provides around `Command.run`. An action's
+ * type admits no requirement, so the service is read optionally; absent, the list is empty.
+ */
 const rootServerUrls = Effect.serviceOption(Servers).pipe(
 	Effect.map(
 		Option.match({
 			onNone: () => [],
-			onSome: ({ table }) => table.servers.map((server) => server.url)
+			onSome: ({ table }) => Arr.map(table.servers, (server) => server.url)
 		})
 	)
 )

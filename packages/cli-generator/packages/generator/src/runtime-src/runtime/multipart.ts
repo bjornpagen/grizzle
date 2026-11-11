@@ -1,5 +1,6 @@
+import { regex } from "arkregex"
 import type { FileSystem, Stdio } from "effect"
-import { Bytes, Effect, Stream } from "effect"
+import { Array as Arr, Bytes, Effect, Option, pipe, Stream, String as Str } from "effect"
 import { Base64, Hex } from "effect/encoding"
 import { HttpBody } from "effect/http"
 import { UsageError } from "#domain/errors.ts"
@@ -38,22 +39,14 @@ export interface NestedPart {
 
 export type Part = LeafPart | NestedPart
 
-export interface WriterOptions {
-	/**
-	 * Fixed boundary for tests. Production callers omit it and get a CSPRNG boundary; a nested
-	 * part then gets `<boundary>-<index>`.
-	 */
-	readonly boundary?: string
-}
-
 type Kind = NestedPart["kind"]
 
-const crlf = encoder.encode("\r\n")
+const crlf = "\r\n"
 
 /**
  * Every lone CR or lone LF, which a CRLF pair does not contain.
  */
-const loneNewline = /\r(?!\n)|(?<!\r)\n/gu
+const loneNewline = regex("\r(?!\n)|(?<!\r)\n", "gu")
 
 const isNested = (part: Part): part is NestedPart => "parts" in part
 
@@ -71,20 +64,22 @@ const randomBoundary = (): string => {
  * becomes CRLF first; a filename is never normalized.
  */
 const escapeQuoted = (value: string, isName: boolean): string =>
-	(isName ? value.replace(loneNewline, "\r\n") : value)
-		.replaceAll("\n", "%0A")
-		.replaceAll("\r", "%0D")
-		.replaceAll('"', "%22")
+	pipe(
+		isName ? Str.replace(loneNewline, crlf)(value) : value,
+		Str.replaceAll("\n", "%0A"),
+		Str.replaceAll("\r", "%0D"),
+		Str.replaceAll('"', "%22")
+	)
 
-const refuse = (message: string) => new UsageError({ message })
+const refuse = (message: string) => UsageError.make({ message })
 
 const splitsHeader = (value: string): boolean =>
-	value.includes("\r") || value.includes("\n") || value.includes("\u0000")
+	Str.includes("\r")(value) || Str.includes("\n")(value) || Str.includes("\u0000")(value)
 
 /**
  * The first reason a part cannot be written, or null. Refuses CR, LF and NUL in every header
- * name and value and content type (design 6.1), a content encoding other than `base64` (R34) and
- * an unnamed form-data part. A reason never repeats a value.
+ * name and value and content type (design 6.1) and an unnamed form-data part; the type admits no
+ * content encoding but `base64` (R34). A reason never repeats a value.
  */
 const encodingProblem = (encoding: PartEncoding): string | null => {
 	for (const [name, value] of encoding.headers ?? []) {
@@ -93,14 +88,9 @@ const encodingProblem = (encoding: PartEncoding): string | null => {
 		}
 	}
 
-	if (splitsHeader(encoding.contentType ?? "")) {
-		return "a multipart part content type contains a CR, LF or NUL character"
-	}
-
-	// The type admits only `base64`; an untyped caller is refused rather than sent unencoded.
-	return encoding.contentEncoding === undefined || encoding.contentEncoding === "base64"
-		? null
-		: "a multipart part content encoding other than base64 is not supported"
+	return splitsHeader(encoding.contentType ?? "")
+		? "a multipart part content type contains a CR, LF or NUL character"
+		: null
 }
 
 const partsProblem = (kind: Kind, parts: readonly Part[]): string | null => {
@@ -192,21 +182,22 @@ const base64Stream = (
 const leafBody = (part: LeafPart): Stream.Stream<Uint8Array, unknown> =>
 	part.contentEncoding === "base64" ? base64Stream(bodyStream(part.body)) : bodyStream(part.body)
 
-const nestedBoundary = (injected: string | undefined, index: number): string =>
-	injected === undefined ? randomBoundary() : `${injected}-${index}`
+const nestedBoundary = (injected: Option.Option<string>, index: number): string =>
+	Option.match(injected, { onNone: randomBoundary, onSome: (fixed) => `${fixed}-${index}` })
 
 /**
- * The body as a re-runnable stream: running it again reopens every file part. `terminator` is the
+ * The body as a re-runnable stream: running it again reopens every file part. `injected` is the
+ * fixed boundary a nested part derives its own from, none for a CSPRNG one. `terminator` is the
  * text after the close delimiter: CRLF at the top level, nothing inside a part.
  */
 const encode = (
 	parts: readonly Part[],
 	kind: Kind,
 	boundary: string,
-	injected: string | undefined,
-	terminator: Uint8Array
+	injected: Option.Option<string>,
+	terminator: string
 ): Stream.Stream<Uint8Array, unknown> =>
-	Stream.fromIterable(parts.map((part, index) => [part, index] as const)).pipe(
+	Stream.fromIterable(Arr.map(parts, (part, index) => [part, index] as const)).pipe(
 		Stream.flatMap(([part, index]) => {
 			if (isNested(part)) {
 				const inner = nestedBoundary(injected, index)
@@ -214,23 +205,23 @@ const encode = (
 				return Stream.succeed(
 					partHead(boundary, kind, part, `multipart/${part.kind}; boundary=${inner}`)
 				).pipe(
-					Stream.concat(encode(part.parts, part.kind, inner, undefined, new Uint8Array(0))),
-					Stream.concat(Stream.succeed(crlf))
+					Stream.concat(encode(part.parts, part.kind, inner, Option.none(), "")),
+					Stream.concat(Stream.succeed(encoder.encode(crlf)))
 				)
 			}
 
 			return Stream.succeed(partHead(boundary, kind, part, null)).pipe(
 				Stream.concat(leafBody(part)),
-				Stream.concat(Stream.succeed(crlf))
+				Stream.concat(Stream.succeed(encoder.encode(crlf)))
 			)
 		}),
-		Stream.concat(Stream.succeed(Bytes.concat([encoder.encode(`--${boundary}--`), terminator])))
+		Stream.concat(Stream.succeed(encoder.encode(`--${boundary}--${terminator}`)))
 	)
 
 const write = (
 	kind: Kind,
 	parts: readonly Part[],
-	options: WriterOptions | undefined
+	fixed: Option.Option<string>
 ): Effect.Effect<HttpBody.Stream, UsageError> => {
 	const problem = partsProblem(kind, parts)
 
@@ -238,11 +229,11 @@ const write = (
 		return Effect.fail(refuse(problem))
 	}
 
-	const boundary = options?.boundary ?? randomBoundary()
+	const boundary = Option.getOrElse(fixed, randomBoundary)
 
 	return Effect.succeed(
 		HttpBody.stream(
-			encode(parts, kind, boundary, options?.boundary, crlf),
+			encode(parts, kind, boundary, fixed, crlf),
 			`multipart/${kind}; boundary=${boundary}`
 		)
 	)
@@ -250,30 +241,37 @@ const write = (
 
 /**
  * A `multipart/form-data` request body as one `HttpBody.stream`. Refuses before any bytes exist.
+ * `fixed` is a fixed boundary for tests, a nested part then taking `<boundary>-<index>`; production
+ * callers pass none and get CSPRNG boundaries.
  */
 export const formData = (
 	parts: readonly Part[],
-	options?: WriterOptions
-): Effect.Effect<HttpBody.Stream, UsageError> => write("form-data", parts, options)
+	fixed: Option.Option<string>
+): Effect.Effect<HttpBody.Stream, UsageError> => write("form-data", parts, fixed)
 
 /**
- * A `multipart/mixed` request body, for 3.2 positional parts.
+ * A `multipart/mixed` request body, for 3.2 positional parts. `fixed` is as for `formData`.
  */
 export const mixed = (
 	parts: readonly Part[],
-	options?: WriterOptions
-): Effect.Effect<HttpBody.Stream, UsageError> => write("mixed", parts, options)
+	fixed: Option.Option<string>
+): Effect.Effect<HttpBody.Stream, UsageError> => write("mixed", parts, fixed)
 
 /**
  * `-` names stdin, so its part uses the part name; otherwise the basename of the path. A path with
  * no basename (a trailing separator) also uses the part name.
  */
+/**
+ * A path separator, POSIX or Windows.
+ */
+const pathSeparator = regex("[/\\\\]", "u")
+
 export const partFilename = (path: string, partName: string): string => {
 	if (path === "-") {
 		return partName
 	}
 
-	const base = path.split(/[/\\]/u).at(-1) ?? ""
+	const base = Arr.lastNonEmpty(Str.split(pathSeparator)(path))
 
 	return base === "" ? partName : base
 }
@@ -288,17 +286,23 @@ export const positionalParts = (
 		readonly prefixEncoding?: readonly PartEncoding[]
 	}
 ): readonly LeafPart[] =>
-	bodies.map((body, index) => ({
-		...(encodings.prefixEncoding?.[index] ?? encodings.itemEncoding),
+	Arr.map(bodies, (body, index) => ({
+		...Option.getOrUndefined(
+			Option.orElse(Arr.get(encodings.prefixEncoding ?? [], index), () =>
+				Option.fromUndefinedOr(encodings.itemEncoding)
+			)
+		),
 		body
 	}))
 
 const partUsage = (flag: string, cause: string) =>
-	new UsageError({ flag, message: `--${flag}: ${cause}` })
+	UsageError.make({ flag, message: `--${flag}: ${cause}` })
 
-// A file part's path is checked before any request, as `--body-file`'s is: it exists, is a
-// regular file and is readable. A pipe or device has no size to trust and goes through `-`.
-// Failures name the flag, never the path or the file-system cause.
+/**
+ * A file part's path, checked before any request as `--body-file`'s is: it exists, is a regular
+ * file and is readable. A pipe or device has no size to trust and goes through `-`. Failures name
+ * the flag, never the path or the file-system cause.
+ */
 const checkedPath = (
 	fs: FileSystem.FileSystem,
 	flag: string,

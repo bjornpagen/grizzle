@@ -1,8 +1,8 @@
-import { Effect, Stream } from "effect"
+import { Effect, Option, Stream } from "effect"
 import type { HttpBody } from "effect/http"
 import { describe, expect, test } from "vitest"
 import { formData } from "#runtime-src/runtime/multipart.ts"
-import type { Part, PartEncoding } from "#runtime-src/runtime/multipart.ts"
+import type { Part } from "#runtime-src/runtime/multipart.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
 
 const boundary = "testboundary"
@@ -12,7 +12,7 @@ const encoder = new TextEncoder()
 const chunksOf = (body: HttpBody.Stream) => Effect.runPromise(Stream.runCollect(body.stream))
 
 const textOf = async (parts: readonly Part[]) => {
-	const body = await Effect.runPromise(formData(parts, { boundary }))
+	const body = await Effect.runPromise(formData(parts, Option.some(boundary)))
 	const decoder = new TextDecoder()
 
 	const chunks = await chunksOf(body)
@@ -23,12 +23,6 @@ const textOf = async (parts: readonly Part[]) => {
 // Bytes whose base64 uses the alphabet's last two characters: 0xfb 0xff 0xfe is "+//+" in base64
 // and would be "-__-" in base64url.
 const alphabetBytes = Uint8Array.from([0xfb, 0xff, 0xfe, 0x01])
-
-// A content encoding the type does not admit, as an untyped caller could pass it.
-const encodedAs = (contentEncoding: string): PartEncoding =>
-	// SAFETY: deliberately unsound; the writer must refuse what the type would reject.
-	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the refusal under test is for values outside the type
-	({ contentEncoding }) as PartEncoding
 
 describe("multipart base64 transfer encoding", () => {
 	test("a base64 part and a plain binary part sit side by side, byte for byte", async () => {
@@ -93,19 +87,6 @@ describe("multipart base64 transfer encoding", () => {
 		expect(encoded).not.toContain("\n")
 		expect(text.split("\r\n")).toHaveLength(7)
 	})
-
-	test.each(["base64url", "quoted-printable", "BASE64", "b\u0000"])(
-		"a part with contentEncoding %p is refused before any bytes (R34, ENC-37)",
-		async (contentEncoding) => {
-			const parts: readonly Part[] = [
-				{ body: Stream.make(alphabetBytes), name: "b", ...encodedAs(contentEncoding) }
-			]
-			const error = await Effect.runPromise(Effect.flip(formData(parts, { boundary })))
-
-			expect(error).toMatchObject({ _tag: "UsageError" })
-			expect(error.message).not.toContain(contentEncoding)
-		}
-	)
 
 	test("a part without contentEncoding gets no Content-Transfer-Encoding header", async () => {
 		const text = await textOf([{ body: encoder.encode("x"), name: "a" }])

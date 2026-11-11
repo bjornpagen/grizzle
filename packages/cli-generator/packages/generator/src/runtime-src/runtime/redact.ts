@@ -1,4 +1,16 @@
-import { Array as Arr, Context, Layer, Order, Redacted, Ref } from "effect"
+import { regex } from "arkregex"
+import {
+	Array as Arr,
+	Context,
+	Formatter,
+	Layer,
+	Option,
+	Order,
+	Redacted,
+	Ref,
+	Result,
+	String as Str
+} from "effect"
 import { Base64 } from "effect/encoding"
 import { UrlParams } from "effect/http"
 import type { Credential } from "#runtime/auth.ts"
@@ -21,14 +33,20 @@ export type ScrubEntry = Credential | Secret
 const isSecret = (entry: ScrubEntry): entry is Secret => "kind" in entry
 
 /**
- * The one placeholder grammar: bare `<redacted>`, or `<redacted:label>` for a scheme or secret
- * label. Every runtime module writes and matches the placeholder through this builder.
+ * The one placeholder grammar, bare: `<redacted>`. Every runtime module writes and matches the
+ * placeholder through this builder or `labelledPlaceholder`.
  */
-export const redactedPlaceholder = (label?: string): string =>
-	`<redacted${label === undefined || label === "" ? "" : `:${label}`}>`
+export const redactedPlaceholder = (): string => "<redacted>"
+
+/**
+ * The one placeholder grammar for a scheme or secret label: `<redacted:label>`, or bare
+ * `<redacted>` for an empty label.
+ */
+export const labelledPlaceholder = (label: string): string =>
+	label === "" ? redactedPlaceholder() : `<redacted:${label}>`
 
 const placeholderOf = (entry: ScrubEntry): string =>
-	redactedPlaceholder(isSecret(entry) ? entry.label : entry.scheme)
+	labelledPlaceholder(isSecret(entry) ? entry.label : entry.scheme)
 
 /**
  * The values the run recorded, so the final catch scrubs what the command handler chose: the
@@ -41,7 +59,7 @@ const placeholderOf = (entry: ScrubEntry): string =>
 export class RunCredentials extends Context.Service<
 	RunCredentials,
 	Ref.Ref<readonly ScrubEntry[]>
->()("openapi-cli/runtime/RunCredentials") {}
+>()("effect-openapi-cli-generator/runtime-src/runtime/redact/RunCredentials") {}
 
 export const runCredentialsLayer: Layer.Layer<RunCredentials> = Layer.effect(RunCredentials)(
 	Ref.make<readonly ScrubEntry[]>([])
@@ -53,16 +71,19 @@ export const runCredentialsLayer: Layer.Layer<RunCredentials> = Layer.effect(Run
  * already encoded, so the client writes the normalized bytes and redaction matches them.
  */
 export const queryWireForm = (text: string): string =>
-	encodeURIComponent(text).replaceAll("'", "%27")
+	Str.replaceAll("'", "%27")(encodeURIComponent(text))
 
-// `UrlParams.toString` writes `URLSearchParams` form, the form `HttpBody.urlParams` puts on the wire.
-const searchParamsForm = (text: string): string => UrlParams.toString([["", text]]).slice(1)
+/**
+ * A value in `URLSearchParams` form, as `UrlParams.toString` writes it: the form
+ * `HttpBody.urlParams` puts on the wire.
+ */
+const searchParamsForm = (text: string): string => Str.slice(1)(UrlParams.toString([["", text]]))
 
 /**
  * A lone surrogate (any \p{Cs} unit), which has no UTF-8 form; the one test every runtime module
  * shares.
  */
-export const loneSurrogate = /\p{Cs}/u
+export const loneSurrogate = regex("\\p{Cs}", "u")
 
 /**
  * The forms a value takes in a URL or a form-urlencoded body, shared by credentials and secrets:
@@ -75,11 +96,13 @@ const encodedForms = (text: string): readonly string[] =>
 		? [searchParamsForm(text)]
 		: [encodeURIComponent(text), queryWireForm(text), searchParamsForm(text)]
 
-const hexLower = (unit: number): string => unit.toString(16).padStart(4, "0")
+const hexLower = (unit: number): string => Str.padStart(4, "0")(unit.toString(16))
 
-const hexUpper = (unit: number): string => hexLower(unit).toUpperCase()
+const hexUpper = (unit: number): string => Str.toUpperCase(hexLower(unit))
 
-// The UTF-16 units of one code point: itself, or its surrogate pair above U+FFFF.
+/**
+ * The UTF-16 units of one code point: itself, or its surrogate pair above U+FFFF.
+ */
 const utf16Units = (point: number): readonly number[] => {
 	const offset = point - 0x1_00_00
 
@@ -88,33 +111,40 @@ const utf16Units = (point: number): readonly number[] => {
 		: [point]
 }
 
-// A JSON string body with every non-ASCII UTF-16 unit written as `\uXXXX`, as an ASCII-only JSON
-// encoder echoes it. `JSON.stringify` already escaped any lone surrogate, so every code point here
-// is whole.
+/**
+ * A JSON string body with every non-ASCII UTF-16 unit written as `\uXXXX`, as an ASCII-only JSON
+ * encoder echoes it. `JSON.stringify` already escaped any lone surrogate, so every code point here
+ * is whole.
+ */
 const asciiEscaped = (escaped: string, hex: (unit: number) => string): string => {
 	let ascii = ""
 	for (const character of escaped) {
-		const point = character.codePointAt(0) ?? 0
+		const point = Option.getOrElse(Str.codePointAt(0)(character), () => 0)
 
 		ascii +=
 			point < 0x80
 				? character
-				: utf16Units(point)
-						.map((unit) => `\\u${hex(unit)}`)
-						.join("")
+				: Arr.join(
+						Arr.map(utf16Units(point), (unit) => `\\u${hex(unit)}`),
+						""
+					)
 	}
 
 	return ascii
 }
 
-// The value without its trailing CR and LF characters, which a server reading a line drops.
+const isLineEnd = (character: string): boolean => character === "\n" || character === "\r"
+
+/**
+ * The value without its trailing CR and LF characters, which a server reading a line drops.
+ */
 const withoutLineEnd = (text: string): string => {
 	let end = text.length
-	while (end > 0 && (text.charAt(end - 1) === "\n" || text.charAt(end - 1) === "\r")) {
+	while (end > 0 && Option.exists(Str.charAt(end - 1)(text), isLineEnd)) {
 		end -= 1
 	}
 
-	return text.slice(0, end)
+	return Str.slice(0, end)(text)
 }
 
 /**
@@ -123,8 +153,8 @@ const withoutLineEnd = (text: string): string => {
  * JSON-escaped, both as written and ASCII-only with lower- and upper-case hex.
  */
 const secretForms = (secret: string): readonly string[] =>
-	[secret, withoutLineEnd(secret)].flatMap((base) => {
-		const escaped = JSON.stringify(base).slice(1, -1)
+	Arr.flatMap([secret, withoutLineEnd(secret)], (base) => {
+		const escaped = Str.slice(1, -1)(Formatter.formatJson(base))
 
 		return [
 			base,
@@ -143,21 +173,32 @@ const secretForms = (secret: string): readonly string[] =>
  */
 const wireForms = (entry: ScrubEntry): readonly string[] => {
 	const value: string = Redacted.value(entry.value)
-	const forms = isSecret(entry) ? [...secretForms(value)] : [value]
+	const forms = isSecret(entry) ? secretForms(value) : credentialForms(entry.definition, value)
 
-	if (!isSecret(entry)) {
-		const { definition } = entry
+	return Arr.filter(Arr.dedupe(forms), (form) => form !== "")
+}
 
-		if (definition.kind === "http" && definition.scheme === "basic" && value.includes(":")) {
-			forms.push(Base64.encode(value), value.slice(value.indexOf(":") + 1))
-		}
-
-		if (definition.kind === "apiKey" && definition.in === "query") {
-			forms.push(...encodedForms(value))
-		}
+/**
+ * The forms of a configured credential: the raw value; for http basic with a colon also the base64
+ * token `basicAuth` sends and the password alone; for an apiKey in the query also its
+ * `encodedForms`.
+ */
+const credentialForms = (
+	definition: Credential["definition"],
+	value: string
+): readonly string[] => {
+	if (definition.kind === "apiKey" && definition.in === "query") {
+		return [value, ...encodedForms(value)]
 	}
 
-	return Arr.dedupe(forms).filter((form) => form !== "")
+	if (definition.kind !== "http" || definition.scheme !== "basic") {
+		return [value]
+	}
+
+	return Option.match(Str.indexOf(":")(value), {
+		onNone: () => [value],
+		onSome: (colon) => [value, Base64.encode(value), Str.slice(colon + 1)(value)]
+	})
 }
 
 /**
@@ -166,9 +207,54 @@ const wireForms = (entry: ScrubEntry): readonly string[] => {
 const formsAround =
 	(strip: (text: string) => string) =>
 	(entry: ScrubEntry): readonly string[] =>
-		wireForms(entry)
-			.flatMap((form) => [form, strip(form)])
-			.filter((form) => form !== "")
+		Arr.filter(
+			Arr.flatMap(wireForms(entry), (form) => [form, strip(form)]),
+			(form) => form !== ""
+		)
+
+/**
+ * The Knuth-Morris-Pratt failure table of `form`: for each prefix, the length of its longest proper
+ * prefix that is also its suffix.
+ */
+const failureOf = (form: string): readonly number[] => {
+	const fallback = [0]
+
+	for (let at = 1, matched = 0; at < form.length; at += 1) {
+		while (matched > 0 && form[at] !== form[matched]) {
+			matched = fallback[matched - 1] ?? 0
+		}
+
+		matched += form[at] === form[matched] ? 1 : 0
+		fallback.push(matched)
+	}
+
+	return fallback
+}
+
+/**
+ * Every start of a non-empty `form` in `text`, overlapping ones included, in order
+ * (Knuth-Morris-Pratt, so a long text costs linear time).
+ */
+const startsOf = (text: string, form: string): readonly number[] => {
+	const fallback = failureOf(form)
+	const starts: number[] = []
+	let matched = 0
+
+	for (let at = 0; at < text.length; at += 1) {
+		while (matched > 0 && text[at] !== form[matched]) {
+			matched = fallback[matched - 1] ?? 0
+		}
+
+		matched += text[at] === form[matched] ? 1 : 0
+
+		if (matched === form.length) {
+			starts.push(at + 1 - form.length)
+			matched = fallback[matched - 1] ?? 0
+		}
+	}
+
+	return starts
+}
 
 interface Covered {
 	readonly start: number
@@ -188,15 +274,15 @@ const byStartThenLongest = Order.combine(
  * such as a server echoing `<redacted:` + credential + `>`, is ordinary input.
  */
 const placeholderTokens = (text: string, entries: readonly ScrubEntry[]): readonly Covered[] =>
-	Arr.dedupe([redactedPlaceholder(), ...entries.map(placeholderOf)]).flatMap((placeholder) => {
-		const found: Covered[] = []
-
-		for (let at = text.indexOf(placeholder); at !== -1; at = text.indexOf(placeholder, at + 1)) {
-			found.push({ end: at + placeholder.length, placeholder, start: at })
-		}
-
-		return found
-	})
+	Arr.flatMap(
+		Arr.dedupe([redactedPlaceholder(), ...Arr.map(entries, placeholderOf)]),
+		(placeholder) =>
+			Arr.map(startsOf(text, placeholder), (start) => ({
+				end: start + placeholder.length,
+				placeholder,
+				start
+			}))
+	)
 
 /**
  * Every occurrence of every wire form of every credential as a character range, overlapping
@@ -212,20 +298,17 @@ const occurrences = (
 ): readonly Covered[] => {
 	const tokens = placeholderTokens(text, entries)
 	const insideToken = (start: number, end: number): boolean =>
-		tokens.some((token) => token.start <= start && end <= token.end)
+		Arr.some(tokens, (token) => token.start <= start && end <= token.end)
 
-	return entries.flatMap((entry) =>
-		formsOf(entry).flatMap((form) => {
+	return Arr.flatMap(entries, (entry) =>
+		Arr.flatMap(formsOf(entry), (form) => {
 			const placeholder = placeholderOf(entry)
-			const found: Covered[] = []
 
-			for (let at = text.indexOf(form); at !== -1; at = text.indexOf(form, at + 1)) {
-				if (!insideToken(at, at + form.length)) {
-					found.push({ end: at + form.length, placeholder, start: at })
-				}
-			}
-
-			return found
+			return Arr.filterMap(startsOf(text, form), (start) =>
+				insideToken(start, start + form.length)
+					? Result.failVoid
+					: Result.succeed({ end: start + form.length, placeholder, start })
+			)
 		})
 	)
 }
@@ -260,11 +343,11 @@ const scrubForms = (
 	let at = 0
 
 	for (const run of runs) {
-		scrubbed += text.slice(at, run.start) + run.placeholder
+		scrubbed += Str.slice(at, run.start)(text) + run.placeholder
 		at = run.end
 	}
 
-	return scrubbed + text.slice(at)
+	return scrubbed + Str.slice(at)(text)
 }
 
 /**
@@ -292,26 +375,22 @@ export const scrubAround = (
  */
 export const encoder = new TextEncoder()
 
+/**
+ * The largest of `values`, 0 for none.
+ */
+const largest = (values: readonly number[]): number =>
+	Arr.reduce(values, 0, (most, value) => Math.max(most, value))
+
 export const longestFormBytes = (credentials: readonly ScrubEntry[]): number =>
-	Math.max(0, ...credentials.flatMap(wireForms).map((form) => encoder.encode(form).length))
+	largest(Arr.map(Arr.flatMap(credentials, wireForms), (form) => encoder.encode(form).length))
 
 /**
  * The length of the longest proper prefix of `form` that `text` ends with (Knuth-Morris-Pratt, so
- * a long credential costs linear time).
+ * a long credential costs linear time). Only the last `form.length - 1` characters can hold a
+ * proper prefix, so a full match never forms.
  */
 const trailingPrefixLength = (text: string, form: string): number => {
-	const fallback = [0]
-
-	for (let at = 1, matched = 0; at < form.length; at += 1) {
-		while (matched > 0 && form[at] !== form[matched]) {
-			matched = fallback[matched - 1] ?? 0
-		}
-
-		matched += form[at] === form[matched] ? 1 : 0
-		fallback.push(matched)
-	}
-
-	// Only the last form.length - 1 characters can hold a proper prefix, so a full match never forms.
+	const fallback = failureOf(form)
 	let matched = 0
 
 	for (let at = Math.max(0, text.length - form.length + 1); at < text.length; at += 1) {
@@ -325,7 +404,9 @@ const trailingPrefixLength = (text: string, form: string): number => {
 	return matched
 }
 
-// The last code point one UTF-16 unit holds; a larger one is a surrogate pair of two.
+/**
+ * The last code point one UTF-16 unit holds; a larger one is a surrogate pair of two.
+ */
 const lastSingleUnit = 0xff_ff
 
 /**
@@ -336,9 +417,10 @@ const tailKeeping = (text: string, kept: number, strip: (text: string) => string
 	let end = text.length
 
 	for (let remaining = kept; remaining > 0 && end > 0;) {
-		const start = end - ((text.codePointAt(end - 2) ?? 0) > lastSingleUnit ? 2 : 1)
+		const start =
+			end - (Option.getOrElse(Str.codePointAt(end - 2)(text), () => 0) > lastSingleUnit ? 2 : 1)
 
-		remaining -= strip(text.slice(start, end)).length
+		remaining -= strip(Str.slice(start, end)(text)).length
 		end = start
 	}
 
@@ -358,14 +440,14 @@ export const dropTrailingFragment = (
 	strip: (text: string) => string
 ): string => {
 	const stripped = strip(text)
-	const sent = Math.max(
-		0,
-		...credentials.flatMap(wireForms).map((form) => trailingPrefixLength(text, form))
+	const sent = largest(
+		Arr.map(Arr.flatMap(credentials, wireForms), (form) => trailingPrefixLength(text, form))
 	)
-	const asStripped = Math.max(
-		0,
-		...credentials.flatMap(formsAround(strip)).map((form) => trailingPrefixLength(stripped, form))
+	const asStripped = largest(
+		Arr.map(Arr.flatMap(credentials, formsAround(strip)), (form) =>
+			trailingPrefixLength(stripped, form)
+		)
 	)
 
-	return text.slice(0, text.length - Math.max(sent, tailKeeping(text, asStripped, strip)))
+	return Str.slice(0, text.length - Math.max(sent, tailKeeping(text, asStripped, strip)))(text)
 }

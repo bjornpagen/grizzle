@@ -1,4 +1,15 @@
-import { Config, Context, Effect, Layer, Option, Result } from "effect"
+import { regex } from "arkregex"
+import {
+	Array as Arr,
+	Config,
+	Context,
+	Effect,
+	Layer,
+	Option,
+	Record as Rec,
+	Result,
+	String as Str
+} from "effect"
 import { Flag, GlobalFlag } from "effect/cli"
 import { Url } from "effect/http"
 import { UsageError } from "#domain/errors.ts"
@@ -37,7 +48,7 @@ export interface ServersTable {
 export class Servers extends Context.Service<
 	Servers,
 	{ readonly table: ServersTable; readonly envPrefix: string }
->()("openapi-cli/runtime/Servers") {}
+>()("effect-openapi-cli-generator/runtime-src/runtime/base-url/Servers") {}
 
 export const layer = (table: ServersTable, envPrefix: string): Layer.Layer<Servers> =>
 	Layer.succeed(Servers, { envPrefix, table })
@@ -71,13 +82,25 @@ export interface SelectionInput {
 }
 
 const usage = (flag: string, cause: string): UsageError =>
-	new UsageError({ flag, message: `${flag}: ${cause}` })
+	UsageError.make({ flag, message: `${flag}: ${cause}` })
 
+/**
+ * The characters that end an authority: the path, query and fragment delimiters.
+ */
+const authorityDelimiter = regex("[/?#]", "u")
+
+/**
+ * The text an authority check reads: from after the first `://` (from index 2 when the text has
+ * none) up to the first `/`, `?` or `#`.
+ */
 const authorityOf = (raw: string): string => {
-	const start = raw.indexOf("://") + 3
-	const end = raw.slice(start).search(/[/?#]/u)
+	const start = Option.match(Str.indexOf("://")(raw), { onNone: () => 2, onSome: (at) => at + 3 })
+	const rest = Str.slice(start)(raw)
 
-	return end === -1 ? raw.slice(start) : raw.slice(start, start + end)
+	return Option.match(Str.search(authorityDelimiter)(rest), {
+		onNone: () => rest,
+		onSome: (end) => Str.slice(0, end)(rest)
+	})
 }
 
 /**
@@ -93,15 +116,15 @@ export const validateBaseUrl = (label: string, raw: string): Effect.Effect<strin
 				return Effect.fail(usage(label, "the scheme must be http or https"))
 			}
 
-			if (authorityOf(raw).includes("@") || parsed.username !== "" || parsed.password !== "") {
+			if (Str.includes("@")(authorityOf(raw)) || parsed.username !== "" || parsed.password !== "") {
 				return Effect.fail(usage(label, "the URL must not contain userinfo"))
 			}
 
-			if (raw.includes("?")) {
+			if (Str.includes("?")(raw)) {
 				return Effect.fail(usage(label, "the URL must not contain a query"))
 			}
 
-			if (raw.includes("#")) {
+			if (Str.includes("#")(raw)) {
 				return Effect.fail(usage(label, "the URL must not contain a fragment"))
 			}
 
@@ -114,23 +137,31 @@ export const validateBaseUrl = (label: string, raw: string): Effect.Effect<strin
  */
 export const parseServerVariable = (
 	raw: string
-): Effect.Effect<ServerVariableAssignment, UsageError> => {
-	const at = raw.indexOf("=")
+): Effect.Effect<ServerVariableAssignment, UsageError> =>
+	Option.match(
+		Option.filter(Str.indexOf("=")(raw), (at) => at > 0),
+		{
+			onNone: () => Effect.fail(usage("--server-variable", "expected name=value")),
+			onSome: (at) => Effect.succeed({ name: Str.slice(0, at)(raw), value: Str.slice(at + 1)(raw) })
+		}
+	)
 
-	return at < 1
-		? Effect.fail(usage("--server-variable", "expected name=value"))
-		: Effect.succeed({ name: raw.slice(0, at), value: raw.slice(at + 1) })
-}
+const serverIndex = regex("^\\d+$", "u")
 
-const lookupServer = (table: ServersTable, raw: string): Effect.Effect<ServerEntry, UsageError> => {
-	const byName = table.servers.find((entry) => entry.name === raw)
-	const byIndex = /^\d+$/u.test(raw) ? table.servers[Number(raw)] : undefined
-	const found = byName ?? byIndex
+const lookupServer = (table: ServersTable, raw: string): Effect.Effect<ServerEntry, UsageError> =>
+	Effect.fromOption(
+		Arr.findFirst(table.servers, (entry) => entry.name === raw).pipe(
+			Option.orElse(() =>
+				serverIndex.test(raw) ? Arr.get(table.servers, Number(raw)) : Option.none()
+			)
+		)
+	).pipe(Effect.mapError(() => usage("--server", "unknown server")))
 
-	return found === undefined
-		? Effect.fail(usage("--server", "unknown server"))
-		: Effect.succeed(found)
-}
+/**
+ * The accepted default of a table: the server at `defaultServer`, none when the author accepted none.
+ */
+const acceptedDefault = (table: ServersTable): Option.Option<ServerEntry> =>
+	table.defaultServer === undefined ? Option.none() : Arr.get(table.servers, table.defaultServer)
 
 const expandVariables = (
 	server: ServerEntry,
@@ -139,12 +170,12 @@ const expandVariables = (
 	Effect.gen(function* expandAll() {
 		const declared = server.variables ?? {}
 		const values = new Map(
-			Object.entries(declared).map(([name, variable]) => [name, variable.default] as const)
+			Arr.map(Rec.toEntries(declared), ([name, variable]) => [name, variable.default] as const)
 		)
 		const seen = new Set<string>()
 		for (const { name, value } of assignments) {
-			const variable = Object.hasOwn(declared, name) ? declared[name] : undefined
-			if (variable === undefined) {
+			const variable = Rec.get(declared, name)
+			if (Option.isNone(variable)) {
 				return yield* usage("--server-variable", "unknown server variable")
 			}
 
@@ -152,7 +183,8 @@ const expandVariables = (
 				return yield* usage("--server-variable", "a server variable was given more than once")
 			}
 
-			if (variable.enum !== undefined && !variable.enum.includes(value)) {
+			const allowed = variable.value.enum
+			if (allowed !== undefined && !Arr.contains(allowed, value)) {
 				return yield* usage("--server-variable", "value outside the variable's allowed values")
 			}
 
@@ -160,23 +192,23 @@ const expandVariables = (
 			values.set(name, value)
 		}
 
-		return Object.fromEntries(values)
+		return Rec.fromEntries(values)
 	})
 
 /**
  * Choose the base: `--base-url`, then `<PREFIX>_BASE_URL`, then `--server` with
  * `--server-variable`, then the accepted default. With none of them the error names `--base-url`.
- * `--server` and the default read the effective table (design 6.4): `effective`, the operation's
- * or path item's override, else the root table from `Servers`. Table-dependent causes are checked
- * here, not in the flags, because a flag's `mapEffect` cannot read the `Servers` service.
+ * `--server` and the default read the effective table (design 6.4): the operation's or path item's
+ * override, else the root table from `Servers`, which the caller settles. Table-dependent causes
+ * are checked here, not in the flags, because a flag's `mapEffect` cannot read the `Servers`
+ * service.
  */
 export const select = (
 	input: SelectionInput,
-	effective?: ServersTable
+	table: ServersTable
 ): Effect.Effect<Selection, UsageError, Servers> =>
 	Effect.gen(function* choose() {
-		const { table: root, envPrefix } = yield* Servers
-		const table = effective ?? root
+		const { envPrefix } = yield* Servers
 		if (Option.isSome(input.baseUrl)) {
 			const baseUrl = yield* validateBaseUrl("--base-url", input.baseUrl.value)
 
@@ -194,15 +226,15 @@ export const select = (
 		}
 
 		const server = Option.isSome(input.server)
-			? yield* lookupServer(table, input.server.value)
-			: table.servers[table.defaultServer ?? -1]
-		if (server === undefined) {
+			? yield* Effect.asSome(lookupServer(table, input.server.value))
+			: acceptedDefault(table)
+		if (Option.isNone(server)) {
 			return yield* usage("--base-url", "no server is accepted as a default; give a base URL")
 		}
 
-		const variables = yield* expandVariables(server, input.serverVariables)
+		const variables = yield* expandVariables(server.value, input.serverVariables)
 
-		return { provenance: "server", server, variables } as const
+		return { provenance: "server", server: server.value, variables } as const
 	})
 
 export const baseUrlSetting = GlobalFlag.Setting("base-url")({
@@ -231,11 +263,19 @@ export const serverVariableSetting = GlobalFlag.Setting("server-variable")({
 	)
 })
 
-const templateVariable = /\{(?<name>[^{}]*)\}/gu
+/**
+ * One `{name}` of a server template; splitting a template by it leaves the literal text at even
+ * indexes and the variable names at odd ones.
+ */
+const templateVariable = regex("\\{([^{}]*)\\}", "u")
 
-// The flag a server-derived failure names: the variables when the server has any, else the server.
+/**
+ * The flag a server-derived failure names: the variables when the server has any, else the server.
+ */
 const serverFlag = (server: ServerEntry): string =>
-	Object.keys(server.variables ?? {}).length > 0 ? "--server-variable" : "--server"
+	server.variables !== undefined && !Rec.isEmptyReadonlyRecord(server.variables)
+		? "--server-variable"
+		: "--server"
 
 /**
  * Substitute `{name}` in a server template. A value inside the scheme or authority is inserted as
@@ -249,35 +289,51 @@ const expandTemplate = (
 ): Effect.Effect<string, UsageError> => {
 	const flag = serverFlag(server)
 	const { url } = server
-	const schemeEnd = url.indexOf("://")
-	const authorityStart = schemeEnd === -1 ? 0 : schemeEnd + 3
-	const authorityEnd = authorityStart + url.slice(authorityStart).search(/[/?#]/u)
-	const inAuthority = (at: number): boolean => authorityEnd < authorityStart || at < authorityEnd
+	const authorityStart = Option.match(Str.indexOf("://")(url), {
+		onNone: () => 0,
+		onSome: (at) => at + 3
+	})
+	const authorityEnd = Option.map(
+		Str.search(authorityDelimiter)(Str.slice(authorityStart)(url)),
+		(end) => authorityStart + end
+	)
+	const inAuthority = (at: number): boolean =>
+		Option.match(authorityEnd, { onNone: () => true, onSome: (end) => at < end })
+	const pieces = Str.split(templateVariable)(url)
 
 	return Effect.gen(function* expand() {
 		let out = ""
-		let last = 0
-		for (const match of url.matchAll(templateVariable)) {
-			const [whole] = match
-			const name = match.groups?.name ?? ""
-			const value = Object.hasOwn(variables, name) ? variables[name] : undefined
-			if (value === undefined) {
+		let at = 0
+		for (const [index, piece] of pieces.entries()) {
+			if (index % 2 === 0) {
+				out += piece
+				at += piece.length
+				continue
+			}
+
+			const value = Rec.get(variables, piece)
+			if (Option.isNone(value)) {
 				return yield* usage(flag, "the server template names a variable that has no value")
 			}
 
-			const text = inAuthority(match.index)
-				? value
+			const text = inAuthority(at)
+				? value.value
 				: yield* Effect.try({
 						catch: () => usage(flag, "a server variable value is not valid text"),
-						try: () => encodeURIComponent(value)
+						try: () => encodeURIComponent(value.value)
 					})
-			out += url.slice(last, match.index) + text
-			last = match.index + whole.length
+			out += text
+			at += piece.length + 2
 		}
 
-		return out + url.slice(last)
+		return out
 	})
 }
+
+/**
+ * A brace left in an expanded template: the template was malformed.
+ */
+const templateBrace = regex("[{}]", "u")
 
 const normalizeOrigin = (origin: string): string =>
 	Result.match(Url.fromString(origin), {
@@ -288,23 +344,22 @@ const normalizeOrigin = (origin: string): string =>
 /**
  * The base URL a request is built on. An operator base is returned as validated. A server selection
  * is expanded, checked like an operator base (scheme, userinfo, query, fragment), parsed with the
- * same `URL` parser the client uses, and its origin must be in the bound set of the effective table
- * (`effective`, else the root's); otherwise a `UsageError` names `--server` or `--server-variable`,
- * before any connection. The operator's way to an unbound host is `--base-url`.
+ * same `URL` parser the client uses, and its origin must be in the bound set of the effective
+ * `table`; otherwise a `UsageError` names `--server` or `--server-variable`, before any
+ * connection. The operator's way to an unbound host is `--base-url`.
  */
 export const resolve = (
 	selection: Selection,
-	effective?: ServersTable
-): Effect.Effect<string, UsageError, Servers> =>
+	table: ServersTable
+): Effect.Effect<string, UsageError> =>
 	Effect.gen(function* resolveBase() {
 		if (selection.provenance === "operator") {
 			return selection.baseUrl
 		}
 
-		const table = effective ?? (yield* Servers).table
 		const flag = serverFlag(selection.server)
 		const expanded = yield* expandTemplate(selection.server, selection.variables)
-		if (/[{}]/u.test(expanded)) {
+		if (templateBrace.test(expanded)) {
 			return yield* usage(flag, "the server template is malformed")
 		}
 
@@ -313,7 +368,7 @@ export const resolve = (
 			onFailure: () => Effect.fail(usage(flag, "not an absolute URL")),
 			onSuccess: (parsed) => Effect.succeed(parsed.origin)
 		})
-		if (!table.boundOrigins.some((bound) => normalizeOrigin(bound) === origin)) {
+		if (!Arr.some(table.boundOrigins, (bound) => normalizeOrigin(bound) === origin)) {
 			return yield* usage(flag, "the server URL is outside the origins bound at generation")
 		}
 
@@ -325,8 +380,8 @@ export const resolve = (
  * string concatenation, never `new URL(path, base)`. One trailing `/` of the base is dropped so a
  * base of `https://host/v1/` and a path of `/users` do not double the separator.
  */
-export const requestUrl = (base: string, path: string, query = ""): string => {
-	const root = path.startsWith("/") && base.endsWith("/") ? base.slice(0, -1) : base
+export const requestUrl = (base: string, path: string, query: string): string => {
+	const root = Str.startsWith("/")(path) && Str.endsWith("/")(base) ? Str.slice(0, -1)(base) : base
 
 	return query === "" ? `${root}${path}` : `${root}${path}?${query}`
 }
