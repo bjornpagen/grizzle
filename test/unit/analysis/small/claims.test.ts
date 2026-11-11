@@ -39,7 +39,9 @@
  * containment whose source selection the parent's fact need not satisfy), unsound for the scan of every fact of S under
  * the selected containment; reflexive-filters-unread (a filter the root's own fact leaves unknown counts as
  * satisfied), unsound for an ordinal beside a conjunct; bare-child-one-field-containments (a containment of two fields
- * proves no child), imprecise for the attachment by both fields; shared-child-keys-widened (a child read twice claims
+ * proves no child), imprecise for the attachment by both fields; selection-filter-ignored (a source selection satisfied
+ * only by the scan's region, never by the filter above it, as the selected scan of S states it), imprecise for the bare
+ * child of a selected source; shared-child-keys-widened (a child read twice claims
  * its whole heading as its key), inexact for every shared child.
  *
  * Shared children: each plan whose attachment scans a source is annotated again with that child read twice, as the

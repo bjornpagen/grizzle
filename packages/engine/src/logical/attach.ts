@@ -107,8 +107,26 @@ const scanOf = (
 }
 
 /**
- * Whether a scan of the rows `parent` is read from fixes `column` of its source to `value`: a literal constant, or a
- * binding to a variable its region fixes to that literal.
+ * The nodes every row of `parent` passes through on its way up from the scan's region: the parent, each node it reads
+ * as its one input, down to the region holding `scan`, and that region, whose every row of the scan holds what it fixes.
+ */
+const throughScan = (parent: Props, region: Props): ReadonlyArray<Props> => {
+	const chain: Array<Props> = [parent]
+	for (let at = parent; at !== region;) {
+		const [only, ...more] = edgesOf<Props>(at.reading)
+		if (only === undefined || more.length > 0 || chain.includes(only)) {
+			break
+		}
+		chain.push(only)
+		at = only
+	}
+	return chain.includes(region) ? chain : [...chain, region]
+}
+
+/**
+ * Whether a scan of the rows `parent` is read from fixes `column` of its source to `value`: a literal constant of the
+ * occurrence, or a column read from that field of the scan which a node every row of the parent passes through fixes to
+ * that literal, whether the scan's region fixes it or a filter above the region does (throughScan).
  */
 const scanSelects = (
 	parent: Props,
@@ -126,12 +144,12 @@ const scanSelects = (
 		const e = constant.expr
 		return e.kind === "literal" && nativeEqualityKey(e.value) === want
 	}
-	const binding = found.occurrence.bindings.find((b) => b.column === column)
-	if (binding === undefined) {
-		return false
-	}
-	return (fixedNames(found.region, binding.var.name) ?? []).some(
-		(v) => v.name.kind === "literal" && v.name.key === want
+	return throughScan(parent, found.region).some((props) =>
+		props.columns.some(
+			(c) =>
+				provenanceOf(props, c).some((p) => p.scan === scan && p.field === column) &&
+				(fixedNames(props, c) ?? []).some((v) => v.name.kind === "literal" && v.name.key === want)
+		)
 	)
 }
 
