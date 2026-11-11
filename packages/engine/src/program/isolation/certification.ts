@@ -135,11 +135,12 @@ const extractNames = (role: RoleChanges): ExtractNames => {
 	const arbiters = new Map<string, Array<ReadonlyArray<string>>>()
 	for (const { object } of artifacts.laws.natives) {
 		const arbiter = arbiterOf(object)
-		if (arbiter !== undefined) {
-			const held = arbiters.get(arbiter.relation) ?? []
-			held.push(arbiter.fields.map((field) => names.column(arbiter.relation, field)))
-			arbiters.set(arbiter.relation, held)
+		if (arbiter === undefined) {
+			continue
 		}
+		const held = arbiters.get(arbiter.relation) ?? []
+		held.push(arbiter.fields.map((field) => names.column(arbiter.relation, field)))
+		arbiters.set(arbiter.relation, held)
 	}
 	return {
 		relationOf: (table) => relations.get([table.schema, table.name]),
