@@ -67,7 +67,10 @@ layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relati
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "the schema restated: no law, no table, and each roster's handles as drawn, as a set"
+					},
 					suite: "reads/closed-only",
 					draw: drawn(plansCaseGen),
 					literal: Formatter.format,

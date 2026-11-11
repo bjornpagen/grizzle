@@ -28,6 +28,7 @@ import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { type StateRow, tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import type { FullWorld } from "#test/support/worlds.ts"
 
 /** Inserts and puts into span primary keys through served ChangeSets, as a property against a host interval model.
@@ -158,7 +159,7 @@ interface SpanCase {
 	readonly relation: Relation
 	readonly op: Op
 	readonly form: Form
-	readonly stored: ReadonlyArray<FactSketch>
+	readonly stored: ReadonlyArray<Fact>
 	readonly requested: ReadonlyArray<FactSketch>
 }
 
@@ -173,11 +174,25 @@ const factSketchGen =
 		payload: source.draw(element<0 | 1>([0, 1]))
 	})
 
+/**
+ * A lawful stored state by construction: in each room up to two facts, each starting a drawn gap past the end of the one
+ * before it (adjacent at a gap of none) and spanning a drawn length, so no two facts of a room overlap.
+ */
+const storedGen: Gen<ReadonlyArray<Fact>> = (source) =>
+	Arr.flatMap([0, 1] as const, (room) => {
+		let end = 0n
+		return upTo(source.draw(int(0, 2)), (): Fact => {
+			const start = end + BigInt(source.draw(int(0, 4)))
+			end = start + BigInt(source.draw(int(1, 4)))
+			return { room, start, end, payload: source.draw(element<0 | 1>([0, 1])) }
+		})
+	})
+
 const spanCaseGen: Gen<SpanCase> = (source) => ({
 	relation: source.draw(element<Relation>(["Room", "Hold"])),
 	op: source.draw(element<Op>(["insert", "put"])),
 	form: source.draw(element<Form>(["enumerated", "described"])),
-	stored: source.draw(array(factSketchGen(["fresh"]), { min: 0, max: 4 })),
+	stored: source.draw(storedGen),
 	requested: source.draw(
 		array(factSketchGen(["fresh", "repeat", "other payload", "adjacent", "overlapping"]), {
 			min: 1,
@@ -192,18 +207,6 @@ const freshFact = (s: FactSketch): Fact => ({
 	end: BigInt(s.start + s.length),
 	payload: s.payload
 })
-
-/** The stored state: the drawn facts, each kept when it overlaps none kept before, so the state is lawful. */
-const storedOf = (sketches: ReadonlyArray<FactSketch>): ReadonlyArray<Fact> => {
-	const kept: Array<Fact> = []
-	for (const s of sketches) {
-		const f = freshFact(s)
-		if (!Arr.some(kept, (k) => overlap(k, f))) {
-			kept.push(f)
-		}
-	}
-	return kept
-}
 
 /** A requested fact: fresh, or planted from a stored fact the pick selects. */
 const requestedOf = (stored: ReadonlyArray<Fact>, s: FactSketch): Fact => {
@@ -357,7 +360,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							const db = yield* Db.open(o.served.login.roles.app, {})
 							return yield* explore(
 								{
-									oracle: { kind: "unstated" },
+									oracle: {
+										kind: "second-implementation",
+										name: "a host interval model of the span key over the stored and requested facts"
+									},
 									suite: "write/span-key",
 									draw: drawn(spanCaseGen),
 									literal: Formatter.format,
@@ -373,7 +379,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									Effect.gen(function* () {
 										const R = c.relation === "Room" ? Room : Hold
 										const table = names.table(R)
-										const stored = storedOf(c.stored)
+										const stored = c.stored
 										const requested = unique(Arr.map(c.requested, (r) => requestedOf(stored, r)))
 										const payload =
 											c.relation === "Room"

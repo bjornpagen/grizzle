@@ -2,7 +2,7 @@ import { layer } from "@effect/vitest"
 import { assertInstanceOf } from "@effect/vitest/utils"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, int, shuffled } from "@grizzle/testing/gen"
 import { set } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -47,6 +47,7 @@ import { explainedTextBound } from "#test/support/staged.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { makeTap, type Tap, type WireWindow } from "#test/support/wire-tap.ts"
 
 import { regex } from "arkregex"
@@ -185,19 +186,47 @@ type ShopOp =
 const labels = ["old", "new", "aisle", "bin"] as const
 
 const label = int(0, labels.length - 1)
-const shopId = int(1, 3)
 
-const shopOpGen: Gen<ShopOp> = oneOf<ShopOp>([
-	map(label, (n) => ({ kind: "seat", label: n })),
-	(source) => ({ kind: "item", id: source.draw(shopId), qty: source.draw(int(0, 9)) }),
-	(source) => ({
-		kind: "put stock",
-		id: source.draw(shopId),
-		label: source.draw(label),
-		qty: source.draw(int(0, 9))
-	}),
-	map(shopId, (id) => ({ kind: "delete stock", id }))
-])
+/** Where a stratum's operation goes: a seat, whose number its relation draws, or an operation of a kind at a key. */
+type OpSlot =
+	| { readonly kind: "seat" }
+	| { readonly kind: "item" | "put stock" | "delete stock"; readonly id: number }
+
+/**
+ * Every slot of a stratum: up to three seats, and each keyed kind at each id 1 to 3, so a stratum drawn as distinct
+ * slots holds one fact per key of each kind by construction (a same-key pair is the refusal property's below).
+ */
+const opSlots: ReadonlyArray<OpSlot> = [
+	...upTo(3, (): OpSlot => ({ kind: "seat" })),
+	...Arr.flatMap(["item", "put stock", "delete stock"] as const, (kind) =>
+		Arr.map([1, 2, 3], (id): OpSlot => ({ kind, id }))
+	)
+]
+
+/** The operation at a slot, its payload drawn. */
+const opAt =
+	(slot: OpSlot): Gen<ShopOp> =>
+	(source) => {
+		switch (slot.kind) {
+			case "seat":
+				return { kind: "seat", label: source.draw(label) }
+			case "item":
+				return { kind: "item", id: slot.id, qty: source.draw(int(0, 9)) }
+			case "put stock":
+				return {
+					kind: "put stock",
+					id: slot.id,
+					label: source.draw(label),
+					qty: source.draw(int(0, 9))
+				}
+			case "delete stock":
+				return { kind: "delete stock", id: slot.id }
+		}
+	}
+
+/** One stratum: one to three operations at distinct slots. */
+const stratumGen: Gen<ReadonlyArray<ShopOp>> = (source) =>
+	Arr.map(source.draw(shuffled(opSlots, { min: 1, max: 3 })), (slot) => source.draw(opAt(slot)))
 
 /** A drawn ChangeSet: one or two strata of operations, and what it reads back. */
 interface ChangeCase {
@@ -206,7 +235,7 @@ interface ChangeCase {
 }
 
 const changeCaseGen: Gen<ChangeCase> = (source) => ({
-	strata: source.draw(array(array(shopOpGen, { min: 1, max: 3 }), { min: 1, max: 2 })),
+	strata: source.draw(array(stratumGen, { min: 1, max: 2 })),
 	readBack: source.draw(element(["none", "seats and stock", "stock joined"] as const))
 })
 
@@ -383,7 +412,10 @@ export const explainSuite = (): void => {
 								} as const
 								return yield* explore(
 									{
-										oracle: { kind: "unstated" },
+										oracle: {
+											kind: "second-implementation",
+											name: "the execution of the same call on a tapped session: one plan per plannable statement it sent"
+										},
 										...budget,
 										suite: "reads/explain queries",
 										draw: drawn(queryCaseGen),
@@ -479,7 +511,10 @@ export const explainSuite = (): void => {
 								const context = { ...ctx, pool }
 								return yield* explore(
 									{
-										oracle: { kind: "unstated" },
+										oracle: {
+											kind: "second-implementation",
+											name: "the application of the same call on a tapped session: one plan per plannable statement it sent, and the state before it unchanged by the explain"
+										},
 										...budget,
 										/** Nothing executed: no fact written, the sequence not advanced. */
 										suite: "reads/explain changesets",
@@ -501,24 +536,8 @@ export const explainSuite = (): void => {
 									},
 									(c, notes) =>
 										Effect.gen(function* () {
-											/**
-											 * A stratum's operations, each kind's facts together: a stratum is a set of changes, one fact per
-											 * key of each kind (a same-key pair is the refusal property's below).
-											 */
-											const strata = Arr.map(c.strata, (drawnOps) => {
-												const ops = Arr.filter(
-													drawnOps,
-													(op, i) =>
-														op.kind === "seat" ||
-														Option.contains(
-															Arr.findFirstIndex(
-																drawnOps,
-																(other) =>
-																	other.kind === op.kind && "id" in other && other.id === op.id
-															),
-															i
-														)
-												)
+											/** A stratum's operations, each kind's facts together. */
+											const strata = Arr.map(c.strata, (ops) => {
 												const seats = Arr.flatMap(ops, (op) =>
 													op.kind === "seat" ? [{ label: defined(labels[op.label]) }] : []
 												)

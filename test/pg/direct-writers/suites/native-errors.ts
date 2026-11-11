@@ -250,7 +250,10 @@ export const nativeErrorsSuite = (): void =>
 							/** Back to the starting state, written whole (substrate/replace.ts). */
 							const explored = yield* explore(
 								{
-									oracle: { kind: "unstated" },
+									oracle: {
+										kind: "specification",
+										name: "PostgreSQL's order of refusals restated over the inserts (predict): a domain's CHECK, the row's CHECK, then the key's unique index, or the state committed"
+									},
 									suite: "direct-writers/native-errors",
 									draw: drawn(array(insertGen, { min: 1, max: 3 })),
 									literal: Formatter.format,

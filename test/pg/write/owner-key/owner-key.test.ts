@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int } from "@grizzle/testing/gen"
+import { array, element, type Gen, int, subset } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -107,15 +107,10 @@ interface OwnerCase {
 
 const ownerCaseGen: Gen<OwnerCase> = (source) => ({
 	form: source.draw(element<Form>(["enumerated", "described"])),
-	stored: source.draw(
-		array(
-			(owner) => ({
-				id: owner.draw(int(0, 3)),
-				members: owner.draw(array(int(1, 3), { min: 0, max: 2 }))
-			}),
-			{ min: 0, max: 3 }
-		)
-	),
+	stored: Arr.map(source.draw(subset([0, 1, 2, 3], { min: 0, max: 3 })), (id) => ({
+		id,
+		members: source.draw(array(int(1, 3), { min: 0, max: 2 }))
+	})),
 	requested: source.draw(
 		array(
 			(request) => ({
@@ -129,18 +124,11 @@ const ownerCaseGen: Gen<OwnerCase> = (source) => ({
 })
 
 /**
- * The stored state: the drawn owners, each kept when no owner kept before holds its key, so the state is lawful, its
- * payload the sum of its members, as the row check holds it.
+ * The stored state: the drawn owners, at distinct keys by construction (ownerCaseGen draws their keys as a subset), each
+ * with its payload the sum of its members, as the row check holds it.
  */
-const storedOf = (sketches: ReadonlyArray<OwnerSketch>): ReadonlyArray<StoredOwner> => {
-	const kept: Array<StoredOwner> = []
-	for (const s of sketches) {
-		if (!Arr.some(kept, (k) => k.id === s.id)) {
-			kept.push({ ...s, cap: Arr.reduce(s.members, 0, (sum, x) => sum + x) })
-		}
-	}
-	return kept
-}
+const storedOf = (sketches: ReadonlyArray<OwnerSketch>): ReadonlyArray<StoredOwner> =>
+	Arr.map(sketches, (s) => ({ ...s, cap: Arr.reduce(s.members, 0, (sum, x) => sum + x) }))
 
 /**
  * A requested owner: fresh, its payload 0 as its empty family sums to, or planted from a stored owner the pick selects,
@@ -248,7 +236,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							const db = yield* Db.open(o.served.login.roles.app, {})
 							return yield* explore(
 								{
-									oracle: { kind: "unstated" },
+									oracle: {
+										kind: "second-implementation",
+										name: "a host model of the owner's key over the stored and requested owners"
+									},
 									suite: "write/owner-key",
 									draw: drawn(ownerCaseGen),
 									literal: Formatter.format,

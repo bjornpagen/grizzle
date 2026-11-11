@@ -1,16 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import {
-	boolean,
-	constant,
-	element,
-	filter,
-	type Gen,
-	int,
-	oneOf,
-	option
-} from "@grizzle/testing/gen"
+import { boolean, constant, element, type Gen, int, map, oneOf, option } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -167,19 +158,45 @@ const withField = (s: Values, field: keyof Values, from: Values): Values => {
 	}
 }
 
-/**
- * The stored seats, lawful together; and ann's seat, drawn fresh, or a stored seat itself (her exact repeat, or carl's
- * seat at every object), or a stored seat with one field drawn again, so it meets the objects that field leaves alone.
- */
-const storedGen = filter(
-	(source) => ({ hidden: source.draw(option(valuesGen)), inside: source.draw(option(valuesGen)) }),
-	({ hidden, inside }) =>
-		Option.isNone(hidden) ||
-		Option.isNone(inside) ||
-		!Arr.some(objects, (o) => o.conflict(hidden.value, inside.value)),
-	10
-)
+/** A whole number of `lo..hi` other than `taken`, which lies in that range: drawn among the rest, never retried. */
+const apartFrom = (taken: number, lo: number, hi: number): Gen<number> =>
+	map(int(lo, hi - 1), (n) => (n >= taken ? n + 1 : n))
 
+/** A seat that meets `other` at no unique object: another id, code and team, and, where both lead, another group. */
+const besideGen =
+	(other: Values): Gen<Values> =>
+	(source) => {
+		const lead = source.draw(boolean)
+		return {
+			id: source.draw(apartFrom(other.id, 1, 3)),
+			code: source.draw(apartFrom(other.code, 1, 3)),
+			grp: source.draw(lead && other.lead ? apartFrom(other.grp, 1, 2) : int(1, 2)),
+			lead,
+			team: source.draw(apartFrom(other.team, 1, 3))
+		}
+	}
+
+/**
+ * The stored seats, lawful together by construction: carl's seat or none, then ann's own or none, drawn apart from
+ * carl's at every unique object where he holds one.
+ */
+const storedGen: Gen<Pick<OccupantCase, "hidden" | "inside">> = (source) => {
+	const hidden = source.draw(option(valuesGen))
+	const inside = source.draw(
+		option(
+			Option.match(hidden, {
+				onNone: () => valuesGen,
+				onSome: besideGen
+			})
+		)
+	)
+	return { hidden, inside }
+}
+
+/**
+ * Ann's seat, drawn fresh, or a stored seat itself (her exact repeat, or carl's seat at every object), or a stored seat
+ * with one field drawn again, so it meets the objects that field leaves alone.
+ */
 const caseGen: Gen<OccupantCase> = (source) => {
 	const { hidden, inside } = source.draw(storedGen)
 	const near = Arr.map(Arr.getSomes([hidden, inside]), (s) =>
@@ -257,7 +274,10 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 							})
 							return yield* explore(
 								{
-									oracle: { kind: "unstated" },
+									oracle: {
+										kind: "specification",
+										name: "each unique object's conflict over the drawn seats, its law and the submitted key as witness"
+									},
 									suite: "pg/write/entry-occupants",
 									draw: drawn(caseGen),
 									literal: Formatter.format,

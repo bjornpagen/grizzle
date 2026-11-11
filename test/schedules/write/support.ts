@@ -106,7 +106,7 @@ const statements = [
  * A call that states a Gate fact inserts it last, so an owner holding Gate in SHARE mode holds the call there with its
  * Badge rows written and uncommitted; a call that states none skips that statement.
  */
-export const addBadges = (inserter: Inserter) =>
+const addBadges = (inserter: Inserter) =>
 	ChangeSet.sequence(
 		ChangeSet.empty(inserter).insert(Badge, []),
 		ChangeSet.empty(inserter).insert(Gate, [])

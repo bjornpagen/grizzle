@@ -13,14 +13,15 @@
  * takes, SERIALIZABLE, READ COMMITTED, REPEATABLE READ, READ UNCOMMITTED), an actor (the `writer`, a session in the
  * schema's full world, granted every write grizzle grants, or the schema's owner, who holds every privilege), a
  * statement (an INSERT, an UPDATE, a DELETE of one row, a DELETE of no row, a TRUNCATE ... CASCADE, a MERGE that
- * inserts, a MERGE that deletes, a SELECT) and a table. The model names its outcome from that point alone, in the order
- * PostgreSQL meets each refusal:
+ * inserts, a MERGE that updates, a MERGE that deletes, a SELECT) and a table. The model names its outcome from that point
+ * alone, in the order PostgreSQL meets each refusal:
  *
  * - a SELECT is admitted at every level, and its transaction commits;
  * - the privilege check at executor start comes first: the writer's TRUNCATE (granted to no one) and its UPDATE of an
- *   immutable relation are 42501 at every level;
+ *   immutable relation, plain or a MERGE's, are 42501 at every level;
  * - then the table's guard, a BEFORE statement trigger that fires whatever rows the statement matches: below
- *   SERIALIZABLE every other write is 25000, its TABLE field naming the table, and the transaction commits nothing;
+ *   SERIALIZABLE every other write is 25000, its SCHEMA and TABLE fields naming the table, and the transaction's COMMIT
+ *   is answered with ROLLBACK, so it commits nothing;
  * - at SERIALIZABLE, and at the database's default, which the installation set to it, every other write runs (each
  *   transaction then rolls back, so every point starts from one state).
  *
@@ -29,6 +30,18 @@
  * installation runs (test/support/catalog/installed.ts).
  *
  * The file resets a database setting, so it runs in a database of its own (Substrate.isolatedLayer).
+ *
+ * - Property: at every point of the box, the outcome PostgreSQL gives is the model's, and every table holds its starting
+ *   rows after the point (a refusal that wrote anyway, or an admitted write that committed, fails).
+ * - Oracle: the specification turned into a checker (predict), the README's refusal order over the point.
+ * - Features: each statement under each verdict, the guard's refusal on each kind of table, and a write admitted at the
+ *   database's default.
+ * - Plants: ~/.cache/grizzle-release/BR08/plants/isolation-guard-admits-repeatable-read.patch (the guard compares
+ *   against REPEATABLE READ), ~/.cache/grizzle-release/BR08/plants/isolation-no-database-default.patch (the
+ *   installation leaves the database's default level alone); each must turn the property red.
+ *
+ * It holds what test/schedules/write/below.test.ts searched (deleted): a world role's and the owner's statements at every
+ * level, a MERGE that updates among them, the guard's 25000 naming its schema and table, and nothing committed.
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
@@ -152,6 +165,7 @@ const statements = [
 	"delete of no row",
 	"truncate",
 	"merge insert",
+	"merge update",
 	"merge delete",
 	"select"
 ] as const
@@ -183,7 +197,8 @@ const predict = (level: Level, actor: Actor, statement: Statement, table: Table)
 	}
 	if (
 		actor === "writer" &&
-		(statement === "truncate" || (statement === "update" && !table.mutable))
+		(statement === "truncate" ||
+			((statement === "update" || statement === "merge update") && !table.mutable))
 	) {
 		return { kind: "refused by privilege" }
 	}
@@ -225,6 +240,8 @@ const sqlOf = (q: string, statement: Statement, table: Table): string => {
 				Arr.map(columns, (c) => `"s".${c}`),
 				", "
 			)})`
+		case "merge update":
+			return `MERGE INTO ${name} AS "r" USING (VALUES (1)) AS "s" (${id}) ON "r".${id} = "s".${id} WHEN MATCHED THEN UPDATE SET ${payload} = "r".${payload}`
 		case "merge delete":
 			return `MERGE INTO ${name} AS "r" USING (VALUES (2)) AS "s" (${id}) ON "r".${id} = "s".${id} WHEN MATCHED THEN DELETE`
 		case "select":
@@ -257,7 +274,12 @@ const loadState = (q: string): ReadonlyArray<string> => [
 /** What a session met running one statement in a transaction begun at `level`, and how the transaction ended. */
 type Met =
 	| { readonly kind: "ran"; readonly committed: boolean }
-	| { readonly kind: "refused"; readonly code: string; readonly table: Option.Option<string> }
+	| {
+			readonly kind: "refused"
+			readonly code: string
+			readonly schema: Option.Option<string>
+			readonly table: Option.Option<string>
+	  }
 
 /** A point's answer as a failure message names it. */
 const shownMet = (met: Met): string => {
@@ -265,7 +287,7 @@ const shownMet = (met: Met): string => {
 		case "ran":
 			return met.committed ? "ran, committed" : "ran, not committed"
 		case "refused":
-			return `refused with ${met.code}${Option.match(met.table, { onNone: () => "", onSome: (table) => ` naming ${table}` })}`
+			return `refused with ${met.code}${Option.match(met.table, { onNone: () => "", onSome: (table) => ` naming ${Option.getOrElse(met.schema, () => "no schema")}.${table}` })}`
 	}
 }
 
@@ -290,7 +312,7 @@ const runPoint = (
 			/** The aborted transaction's COMMIT is answered with ROLLBACK: nothing it did is committed. */
 			const ended = yield* Effect.result(session.commit)
 			assert.ok(Result.isFailure(ended), `${sql}: an aborted transaction does not commit`)
-			return { kind: "refused", code: fields.code, table: fields.table }
+			return { kind: "refused", code: fields.code, schema: fields.schema, table: fields.table }
 		}
 		if (!readOnly) {
 			yield* Effect.orDie(session.rollback)
@@ -365,8 +387,11 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 						]
 						return yield* exhaust(
 							{
-								box: { kind: "unstated" },
-								oracle: { kind: "unstated" },
+								box: "every level (the database's default, SERIALIZABLE, READ COMMITTED, REPEATABLE READ, READ UNCOMMITTED), actor (a world role's writer, the schema's owner), statement (INSERT, UPDATE, DELETE of a row and of none, TRUNCATE, MERGE inserting, updating and deleting, SELECT) and table (law-bearing or lawless, mutable or immutable)",
+								oracle: {
+									kind: "specification",
+									name: "the README's refusal order restated (predict): a read admitted, then privilege, then the guard below SERIALIZABLE"
+								},
 								suite: "pg/direct-writers/isolation",
 								generator: box,
 								literal: Formatter.format,
@@ -399,11 +424,14 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 												`${point}: 25000, met ${shownMet(met)}`
 											)
 											assert.deepEqual(
-												met.table,
-												Option.some(
-													identifierOf(identity.table(parsedName(verdict.table.relation)))
-												),
-												`${point}: the refusal names the table`
+												[met.schema, met.table],
+												[
+													Option.some(installed.schema),
+													Option.some(
+														identifierOf(identity.table(parsedName(verdict.table.relation)))
+													)
+												],
+												`${point}: the refusal names the table, by its schema and name`
 											)
 											c.note(`${tableKind(table)}: refused by the guard`)
 											break

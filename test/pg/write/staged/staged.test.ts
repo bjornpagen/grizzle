@@ -40,13 +40,17 @@
  *
  * Kept: pantry's import, a fresh immutable Package whose Entry bytes pass the bound in several fills.
  *
- * Planted: a program whose statements carry no staged form sends its rows inline past the planted bound, which the
- * flight's builder refuses as InputTooLarge (message) where the inline write commits, so the search fails on pantry's
- * kept case, which the second test requires.
+ * Features: inline under the planted bound, staged in several fills, a stored mutable shelf recounted, a refusal the
+ * staged statement judges, an owner of no member, a row past one fill alone, a flight past one write, a staged write
+ * and a carrier of the program's own without TEMPORARY, and a carrier of the program's own.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/staged-no-staged-form.patch, a served program whose statements carry no
+ * staged form, sends its rows inline past the planted bound, which the flight's builder refuses as InputTooLarge
+ * (message) where the inline write commits, so the search fails on pantry's kept case.
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -311,70 +315,21 @@ const plantedPool = (
 	}))
 })
 
-/** An outcome or a failure as the comparison reads it: an outcome whole, a failure by its message. */
-const printed = (result: Result.Result<unknown, { readonly message: string }>): unknown =>
-	Result.isSuccess(result) ? result.success : `failed: ${result.failure.message}`
-
-/** How the staged arm's member reaches the write: as the served file loads it, or with its staged forms planted away. */
-type Staging = (loaded: LoadedMember) => LoadedMember
-
-const asServed: Staging = (loaded) => loaded
-
 /**
- * The planted bug, in the served write's own data: a program whose statements carry no staged form, which sends its
- * rows inline past any bound.
+ * An outcome or a failure as the comparison reads it: an outcome whole, its kind, counts, refused laws and witness; a
+ * failure by its tag, the class of failure the contract names, never its message's wording.
  */
-const unstaged: Staging = (loaded) => {
-	const change = changeOf(loaded)
-	const program = change.entry.program
-	return {
-		name: loaded.name,
-		kind: "change",
-		variants: {
-			kind: "change",
-			change: {
-				...change,
-				entry: {
-					...change.entry,
-					program: {
-						...program,
-						flight: {
-							...program.flight,
-							statements: Arr.map(program.flight.statements, (st) => ({
-								...st,
-								staged: { kind: "none" } as const
-							}))
-						}
-					}
-				}
-			}
-		}
-	}
-}
+const printed = <E extends { readonly _tag: string }>(result: Result.Result<unknown, E>): unknown =>
+	Result.isSuccess(result) ? result.success : { failed: result.failure._tag }
 
-/** The search's options but its name, kept cases, coverage and budget. */
-const search = {
-	draw: drawn(sketchGen),
-	literal: Formatter.format,
-	oracle: {
-		kind: "postgresql",
-		name: "the same write sent inline: its rows, every column, and its outcome"
-	},
-	shrink: completeShrink,
-	concurrency: 1,
-	steerEvery: 8,
-	caseHang
-} as const
+/** An outcome or a failure as a report shows it: the outcome, or the failure's message. */
+const shown = (result: Result.Result<unknown, { readonly message: string }>): string =>
+	Result.isSuccess(result) ? Formatter.format(result.success) : result.failure.message
 
-/**
- * The header's property over an installation of the schema: each case's write inline and, with its program as
- * `staging` hands it over, on the planted session.
- */
+/** The header's property over an installation of the schema: each case's write inline and on the planted session. */
 const searchOn = <A, E, R>(
 	body: (
-		property: (
-			staging: Staging
-		) => (sketch: Sketch, c: Case<Feature>) => Effect.Effect<void, unknown, Substrate>
+		property: (sketch: Sketch, c: Case<Feature>) => Effect.Effect<void, unknown, Substrate>
 	) => Effect.Effect<A, E, R>
 ) =>
 	Effect.gen(function* () {
@@ -421,8 +376,8 @@ const searchOn = <A, E, R>(
 							[]
 						)
 					)
-				/** One write sent inline and, with its member as `staging` hands it over, on the planted session. */
-				const arms = (written: LoadedMember, facts: unknown, sketch: Sketch, staging: Staging) =>
+				/** One write sent inline and on the planted session. */
+				const arms = (written: LoadedMember, facts: unknown, sketch: Sketch) =>
 					Effect.gen(function* () {
 						yield* fresh
 						const inlineResult = yield* Effect.result(appliedOn(ctx, written, facts))
@@ -436,7 +391,7 @@ const searchOn = <A, E, R>(
 						const staged = yield* Effect.result(
 							appliedOn(
 								{ ...ctx, pool: plantedPool(ctx.pool, sketch, sent, limit) },
-								staging(written),
+								written,
 								facts
 							)
 						).pipe(Effect.ensuring(sketch.temporary ? Effect.void : database(true)))
@@ -450,18 +405,17 @@ const searchOn = <A, E, R>(
 							sent
 						}
 					})
-				const property = (staging: Staging) => (sketch: Sketch, c: Case<Feature>) =>
+				const property = (sketch: Sketch, c: Case<Feature>) =>
 					Effect.gen(function* () {
 						const label = Formatter.format(sketch)
 						const facts = nestedFacts(sketch, limit)
 						const { statements, inline, inlineRows, staged, stagedRows, sent } =
 							sketch.tag === "none"
-								? yield* arms(nested, facts, sketch, staging)
+								? yield* arms(nested, facts, sketch)
 								: yield* arms(
 										tagged,
 										{ ...facts, put: { Tag: [{ id: 1, v: sketch.tag }] } },
-										sketch,
-										staging
+										sketch
 									)
 						const texts = Arr.flatMap(sent, (q) => (q._tag === "control" ? [] : [sentSql(q)]))
 						const carriers = Arr.flatMap(statements, (st) =>
@@ -482,7 +436,7 @@ const searchOn = <A, E, R>(
 									staged.failure.reason._tag === "InputTooLarge" &&
 									(staged.failure.reason.bound.kind === "flight" ||
 										(past && staged.failure.reason.bound.kind === "familyRow")),
-								`${label}: a flight past one write is InputTooLarge, not ${String(printed(staged))}`
+								`${label}: a flight past one write is InputTooLarge, not ${shown(staged)}`
 							)
 							assert.equal(texts.length, 0, `${label}: nothing is sent`)
 							assert.deepEqual(stagedRows, shelved, `${label}: nothing is stored`)
@@ -499,7 +453,7 @@ const searchOn = <A, E, R>(
 									staged.failure.reason.bound.row.kind === "message" &&
 									staged.failure.reason.bound.row.limit === limit &&
 									staged.failure.reason.bound.row.bytes > limit,
-								`${label}: a row no fill carries is InputTooLarge (familyRow), not ${String(printed(staged))}`
+								`${label}: a row no fill carries is InputTooLarge (familyRow), not ${shown(staged)}`
 							)
 							assert.equal(texts.length, 0, `${label}: nothing is sent`)
 							assert.deepEqual(stagedRows, shelved, `${label}: nothing is stored`)
@@ -516,7 +470,7 @@ const searchOn = <A, E, R>(
 									staged.failure._tag === "ExecutionFailure" &&
 									staged.failure.reason._tag === "TemporaryRefused" &&
 									staged.failure.reason.error.sqlstate === sqlstates.insufficientPrivilege,
-								`${label}: a temporary table the role may not create is TemporaryRefused, not ${String(printed(staged))}`
+								`${label}: a temporary table the role may not create is TemporaryRefused, not ${shown(staged)}`
 							)
 							assert.deepEqual(stagedRows, shelved, `${label}: nothing is stored`)
 							return
@@ -553,12 +507,6 @@ const searchOn = <A, E, R>(
 		)
 	}).pipe(Effect.scoped)
 
-const pantryKept = {
-	note: "pantry's import: a fresh immutable Package whose Entry bytes pass one Bind message",
-	sketch: pantry,
-	draws: ""
-} as const
-
 layer(Substrate.layer, { excludeTestServices: true })(
 	"a nested write whose rows are past one Bind message",
 	(it) => {
@@ -570,8 +518,17 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					searchOn((property) =>
 						explore(
 							{
-								...search,
 								suite: "pg/write/staged",
+								draw: drawn(sketchGen),
+								literal: Formatter.format,
+								oracle: {
+									kind: "postgresql",
+									name: "the same write sent inline: its rows, every column, and its outcome"
+								},
+								shrink: completeShrink,
+								concurrency: 1,
+								steerEvery: 8,
+								caseHang,
 								coverage: required<Feature>(
 									[
 										"inline under the planted bound",
@@ -589,42 +546,18 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								),
 								kept: [
 									{
-										...pantryKept,
+										note: "pantry's import: a fresh immutable Package whose Entry bytes pass one Bind message",
+										sketch: pantry,
+										draws: "",
 										reaches: ["staged in several fills", "a stored mutable shelf recounted"]
 									}
 								],
 								runs: 64
 							},
-							property(asServed)
+							property
 						)
 					)
 				)
-		)
-
-		it.effect("fails, planted with no staged form, on pantry's import past the bound", (ctx) =>
-			Effect.gen(function* () {
-				const failure = yield* Effect.flip(
-					searched(
-						ctx,
-						searchOn((property) =>
-							explore(
-								{
-									...search,
-									suite: "pg/write/staged, planted",
-									coverage: noCoverage,
-									kept: [{ ...pantryKept, reaches: ["staged in several fills"] }],
-									runs: 4
-								},
-								property(unstaged)
-							)
-						)
-					)
-				)
-				assert.ok(
-					"_tag" in failure && failure._tag === "PropertyFalsified",
-					`the search catches the planted bug, not ${Formatter.format(failure)}`
-				)
-			})
 		)
 	}
 )

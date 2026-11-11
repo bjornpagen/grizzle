@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { int, oneOf, uniqueArray } from "@grizzle/testing/gen"
+import { increasing, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -29,6 +29,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** A write's take over a relation parameter's rows chooses its form per application, by the same rule a query's does
  * (`runsLargeForm`, `sentForm`).
@@ -60,6 +61,9 @@ const build = (name: string) => schema(name, { Account, Entry, Latest }, [])
 
 const accounts = 2000
 const entriesPerAccount = 30
+
+/** How many of each account's entries the take keeps: its k. */
+const taken = 2
 
 /** A deterministic uuid of account `n`. */
 const uid = (n: number): Uuid =>
@@ -129,7 +133,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									.find({ seq, amount })
 							})
 							.orderBy(["seq", "asc"])
-							.take(2)
+							.take(taken)
 						const latest = ChangeSet.empty(S).insert(
 							Latest,
 							query(S).rule((r) => {
@@ -144,7 +148,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							})
 						)
 						const entry = names.relation("Entry").name
-						const account = int(0, accounts - 1)
+						const parentsOf = (size: Readonly<{ min: number; max: number }>) =>
+							increasing(0, accounts - 1, size)
 						return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, load }) =>
 							Effect.gen(function* () {
 								const members = yield* load({ latest })
@@ -174,18 +179,16 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								)
 								return yield* explore(
 									{
-										oracle: { kind: "unstated" },
+										oracle: {
+											kind: "specification",
+											name: "the choice's rule restated over the parents' count, and the loaded facts' first entries of each named account"
+										},
 										suite: "pg/write/take-form",
-										/** Few parents and more than the threshold, each half of the drawn cases. */
+										/** Distinct parents, a set by construction: at most the threshold, or more, each half of the drawn cases. */
 										draw: drawn(
 											oneOf([
-												uniqueArray(account, (n) => n, { min: 1, max: 8 }, 10),
-												uniqueArray(
-													account,
-													(n) => n,
-													{ min: threshold + 1, max: threshold + 200 },
-													10
-												)
+												parentsOf({ min: 1, max: threshold }),
+												parentsOf({ min: threshold + 1, max: 2 * threshold + 1 })
 											])
 										),
 										literal: Formatter.format,
@@ -240,10 +243,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											const returned = Arr.map(ran.rows, (row) => [row[0], row[1]] as const)
 											unorderedEqual(
 												returned,
-												Arr.flatMap(parents, (n) => [
-													[uid(n), "0"] as const,
-													[uid(n), "1"] as const
-												]),
+												Arr.flatMap(parents, (n) =>
+													upTo(taken, (seq) => [uid(n), String(seq)] as const)
+												),
 												"the first two entries of each named account"
 											)
 											const scans = scansOf(ran.plan, entry)
@@ -270,7 +272,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 													"the LATERAL form reads Entry by index only"
 												)
 												assert.ok(
-													rowsReadOf(ran.plan, entry) <= 3 * parents.length,
+													rowsReadOf(ran.plan, entry) <= (taken + 1) * parents.length,
 													`${rowsReadOf(ran.plan, entry)} entries read for ${parents.length} parents`
 												)
 												c.note("the LATERAL form for few parents")

@@ -6,8 +6,8 @@ import {
 	boolean,
 	constant,
 	element,
-	filter,
 	type Gen,
+	int,
 	map,
 	oneOf,
 	shuffled,
@@ -29,7 +29,7 @@ import { str } from "#compiler/public/text.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
@@ -207,22 +207,44 @@ const armGen =
 	}
 
 /** A heading's keys: one to three kinds, in any order. */
-const keysGen: Gen<readonly [CellKind, ...Array<CellKind>]> = (source) => {
-	const first = source.draw(element(kinds))
-	return [
-		first,
-		...source.draw(
-			shuffled(
-				Arr.filter(kinds, (k) => k !== first),
-				{ min: 0, max: 2 }
-			)
-		)
-	]
+type Keys = readonly [CellKind, ...Array<CellKind>]
+
+/** Every set of `size` kinds, in kinds' order. */
+const setsOf = (
+	size: number,
+	from: ReadonlyArray<CellKind>
+): ReadonlyArray<ReadonlyArray<CellKind>> => {
+	const [head, ...rest] = from
+	if (size === 0) {
+		return [[]]
+	}
+	if (head === undefined) {
+		return []
+	}
+	return [...Arr.map(setsOf(size - 1, rest), (set) => [head, ...set]), ...setsOf(size, rest)]
 }
+
+/**
+ * A heading's keys whose set is none of `taken`: its size drawn, then one of the sets of that size no taken heading
+ * holds, then its order, so every draw is a heading of its own by construction.
+ */
+const keysApart =
+	(taken: ReadonlyArray<ReadonlyArray<CellKind>>): Gen<Keys> =>
+	(source) => {
+		const size = source.draw(int(1, 3))
+		const sets = Arr.filter(setsOf(size, kinds), (set) => !Arr.some(taken, (t) => sameKeys(t, set)))
+		const set = source.draw(element(nonEmpty(sets, `the sets of ${size} kinds`)))
+		return nonEmpty(
+			source.draw(shuffled(set, { min: set.length, max: set.length })),
+			"a heading's keys"
+		)
+	}
+
+const keysGen: Gen<Keys> = keysApart([])
 
 /** A heading group of `minArms` to four arms. */
 const groupGen =
-	(minArms: number, keys: Gen<readonly [CellKind, ...Array<CellKind>]>): Gen<Group> =>
+	(minArms: number, keys: Gen<Keys>): Gen<Group> =>
 	(source) => {
 		const k = source.draw(keys)
 		return {
@@ -238,12 +260,7 @@ const groupsGen: Gen<Groups> = oneOf<Groups>([
 	map(groupGen(2, keysGen), (g): Groups => [g]),
 	(source) => {
 		const first = source.draw(groupGen(1, keysGen))
-		const second = source.draw(
-			groupGen(
-				1,
-				filter(keysGen, (keys) => !sameKeys(keys, first.keys), 10)
-			)
-		)
+		const second = source.draw(groupGen(1, keysApart([first.keys])))
 		return [first, second]
 	}
 ])
@@ -522,7 +539,10 @@ layer(Substrate.layer)("union cells", (it) => {
 					return yield* withServedDb(opened.installed, opened.server.roles.app, {}, ({ serve }) =>
 						explore(
 							{
-								oracle: { kind: "unstated" },
+								oracle: {
+									kind: "second-implementation",
+									name: "each arm read alone as a query of its own, its records' set union"
+								},
 								suite: "pg/reads/union-cells",
 								draw: drawn(caseGen),
 								literal: Formatter.format,

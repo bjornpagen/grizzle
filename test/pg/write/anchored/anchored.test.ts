@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { constant, element, type Gen, int, uniqueArray, weighted } from "@grizzle/testing/gen"
+import { constant, element, type Gen, increasing, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -91,7 +91,7 @@ const anchoredGen: Gen<Anchored> = (source) => {
 	const keys = source.draw(
 		weighted<ReadonlyArray<number>>([
 			[1, constant([])],
-			[2, uniqueArray(itemGen, (n) => n, { min: 1, max: 4 }, 8)]
+			[2, increasing(1, 2 * items, { min: 1, max: 4 })]
 		])
 	)
 	return {

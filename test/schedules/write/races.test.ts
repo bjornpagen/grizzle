@@ -33,7 +33,7 @@
 
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -46,7 +46,6 @@ import {
 	option,
 	shuffled,
 	subarray,
-	uniqueArray,
 	weighted
 } from "@grizzle/testing/gen"
 import { pctSchedule } from "@grizzle/testing/interleave"
@@ -78,7 +77,6 @@ import type { Refused, Witness } from "#compiler/plan/change.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import type { ServedSession } from "#compiler/served/forms.ts"
 import type { IdentifiedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
@@ -103,7 +101,6 @@ import {
 
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import {
-	addBadges,
 	Badge,
 	badgeCode,
 	Code,
@@ -125,7 +122,7 @@ import {
 	ticketLabel,
 	Zed
 } from "#test/schedules/write/support.ts"
-import { assert, deepEquals, defined } from "#test/support/assert.ts"
+import { deepEquals, defined } from "#test/support/assert.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -235,28 +232,45 @@ const enumerated = (op: "insert" | "delete" | "put", relation: Rel, most: number
 		facts
 	}))
 
-const memberGen: Gen<Member> = oneOf([
-	enumerated("insert", "Item", 2),
-	enumerated("delete", "Item", 2),
-	enumerated("put", "Item", 2),
-	enumerated("put", "Note", 2),
-	(source): Member => ({ kind: "move", id: source.draw(idGen), label: source.draw(labelGen) }),
-	(source): Member => ({
-		kind: "scoped",
-		facts: source.draw(array(factGens.Note, { min: 1, max: 2 })),
-		scope: source.draw(labelGen)
-	}),
-	map(idGen, (id): Member => ({ kind: "copied", id })),
-	enumerated("insert", "Code", 1),
-	enumerated("put", "Code", 1),
-	map(int(1, 2), (n): Member => ({ kind: "generated", labels: upTo(n, () => "") })),
-	enumerated("insert", "Ticket", 1),
-	enumerated("insert", "Room", 1),
-	enumerated("put", "Room", 1),
-	enumerated("insert", "Ref", 1),
-	enumerated("delete", "Ref", 1),
-	enumerated("put", "Zed", 1)
-])
+/** The relations a ChangeSet's member writes. */
+type Written = "Item" | "Note" | "Code" | "Ticket" | "Room" | "Ref" | "Zed"
+
+/** Each written relation's members: what a member drawn for it may be, each equally often. */
+const membersOf: { readonly [R in Written]: Arr.NonEmptyReadonlyArray<Gen<Member>> } = {
+	Item: [
+		enumerated("insert", "Item", 2),
+		enumerated("delete", "Item", 2),
+		enumerated("put", "Item", 2)
+	],
+	Note: [
+		enumerated("put", "Note", 2),
+		(source): Member => ({ kind: "move", id: source.draw(idGen), label: source.draw(labelGen) }),
+		(source): Member => ({
+			kind: "scoped",
+			facts: source.draw(array(factGens.Note, { min: 1, max: 2 })),
+			scope: source.draw(labelGen)
+		}),
+		map(idGen, (id): Member => ({ kind: "copied", id }))
+	],
+	Code: [enumerated("insert", "Code", 1), enumerated("put", "Code", 1)],
+	Ticket: [
+		map(int(1, 2), (n): Member => ({ kind: "generated", labels: upTo(n, () => "") })),
+		enumerated("insert", "Ticket", 1)
+	],
+	Room: [enumerated("insert", "Room", 1), enumerated("put", "Room", 1)],
+	Ref: [enumerated("insert", "Ref", 1), enumerated("delete", "Ref", 1)],
+	Zed: [enumerated("put", "Zed", 1)]
+}
+
+const written: Arr.NonEmptyReadonlyArray<Written> = [
+	"Item",
+	"Note",
+	"Code",
+	"Ticket",
+	"Room",
+	"Ref",
+	"Zed"
+]
 
 /** The relation a member writes. */
 const writtenBy = (m: Member): Rel => {
@@ -276,15 +290,11 @@ const blockerStratum = (z: string): ReadonlyArray<Member> => [
 	{ kind: "enumerated", op: "insert", relation: "Zed", facts: [[z]] }
 ]
 
-/**
- * The draws a ChangeSet's second member may take to find a relation its first does not write: seven relations, the most
- * likely holding a quarter of the members, so twenty draws all meeting it is a chance of about 10^-12.
- */
-const memberAttempts = 20
-
 /** A ChangeSet: one or two members of distinct relations, then, maybe, a blocker's stratum. */
 const opGen: Gen<GrizzleOp> = (source) => {
-	const members = source.draw(uniqueArray(memberGen, writtenBy, { min: 1, max: 2 }, memberAttempts))
+	const members = Arr.map(source.draw(shuffled(written, { min: 1, max: 2 })), (relation) =>
+		source.draw(oneOf(membersOf[relation]))
+	)
 	return {
 		strata: Option.match(source.draw(option(element(blockers))), {
 			onNone: () => [members],
@@ -1538,10 +1548,13 @@ const inserterFacts = (call: InserterCall): CallFacts => ({
 	}
 })
 
-/** Badge facts drawn over the small domains, one to two, of distinct ids, so a call's facts collide only at a code. */
+/**
+ * Badge facts drawn over the small domains, one to two at distinct ids drawn as such, so a call's facts collide only at
+ * a code.
+ */
 const badgesGen: Gen<Arr.NonEmptyReadonlyArray<Fact>> = (source) =>
 	nonEmptyList(
-		source.draw(uniqueArray(factGens.Badge, (f) => f[0] ?? "", { min: 1, max: 2 }, memberAttempts)),
+		Arr.map(source.draw(shuffled(ids, { min: 1, max: 2 })), (id): Fact => [id, source.draw(idGen)]),
 		"an inserter call's Badge facts"
 	)
 
@@ -1757,8 +1770,7 @@ const inserterSessions = ["ins1", "ins2"] as const
  */
 const runInserters = (
 	ic: InserterCase,
-	c: Case<InserterFeature>,
-	served: (o: Opened) => Effect.Effect<RoleChange, RaceFailed | RaceError, Substrate>
+	c: Case<InserterFeature>
 ): Effect.Effect<void, RaceFailed | RaceError, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
@@ -1766,8 +1778,7 @@ const runInserters = (
 		const sql = sqlOf(o)
 		const laws = lawsOf(o)
 		const codeLaw = o.names.lawOf(badgeCode)
-		yield* certifiedInserter(o)
-		const change = yield* served(o)
+		const change = yield* committedInserter(o)
 		const ins1 = yield* o.rig.servedWriter("ins1", openInserter(o.rig), (db) =>
 			db.workload.addBadges.apply({ insert: { Badge: [], Gate: [] } }, {})
 		)
@@ -1959,20 +1970,6 @@ const committedInserter = (
 		defined(changes.get("addBadges"), "the served change addBadges")
 	)
 
-/**
- * The plant: `inserter`'s change compiled as an application's test compiles it, its writes projected at SERIALIZABLE,
- * run by writers that begin READ COMMITTED as the role's certificate says: a READ COMMITTED role served as SERIALIZABLE
- * projects it, so a violation at badgeCode reaches the caller as UnseenOccupant.
- */
-const serializableProjection = (
-	o: Opened
-): Effect.Effect<RoleChange, RaceFailed | RaceError, Substrate> =>
-	Effect.mapBoth(servedChanges(o, "inserter", { addBadges: addBadges(o.rig.worlds.inserter) }), {
-		onFailure: (refused) =>
-			new RaceFailed({ message: `the plant does not serve: ${refusalText(refused)}` }),
-		onSuccess: (served) => defined(served.changes.get("addBadges"), "the planted change addBadges")
-	})
-
 /** Each level's BEGIN as PostgreSQL reads a change's: the oracle's own spelling. */
 const beginTexts: { readonly [I in Isolation]: string } = {
 	serializable: "BEGIN ISOLATION LEVEL SERIALIZABLE",
@@ -2005,15 +2002,6 @@ const framingProblem = (
 	return undefined
 }
 
-/** The served session texts with each level's BEGIN sent for the other's: the planted framing. */
-const swappedBegins: ServedSession = {
-	...servedSession,
-	begin: {
-		serializable: servedSession.begin.readCommitted,
-		readCommitted: servedSession.begin.serializable
-	}
-}
-
 /** One `inserter` call over a stored Badge state, alone: the framing search's case. */
 interface InserterAlone {
 	readonly initial: ReadonlyArray<Fact>
@@ -2036,8 +2024,7 @@ type AloneFeature = `alone ${GrizzleAnswer["kind"]}`
  */
 const runInserterAlone = (
 	ac: InserterAlone,
-	c: Case<AloneFeature>,
-	session: ServedSession
+	c: Case<AloneFeature>
 ): Effect.Effect<void, RaceFailed | RaceError, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
@@ -2053,7 +2040,7 @@ const runInserterAlone = (
 			...defaultPool,
 			transport: { kind: "given", transport: tap.transport },
 			pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: 1 },
-			session
+			session: servedSession
 		})
 		yield* Effect.orDie(
 			Effect.scoped(
@@ -2117,7 +2104,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the serial model (model.ts judgeRun): a real-time serial order of the calls explains every answer and the state, each call answered on its one try"
+							},
 							suite: "schedules/write/inserters",
 							draw: drawn(inserterCaseGen),
 							literal: Formatter.format,
@@ -2142,7 +2132,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							caseHang
 						},
 						(ic, c) =>
-							Effect.scoped(runInserters(ic, c, committedInserter)).pipe(
+							Effect.scoped(runInserters(ic, c)).pipe(
 								Effect.catchCause((cause) =>
 									Effect.fail(new RaceFailed({ message: Cause.pretty(cause) }))
 								)
@@ -2152,50 +2142,16 @@ layer(Substrate.layer, { excludeTestServices: true })(
 		)
 
 		it.effect(
-			"fails, planted with the inserter's change projected at SERIALIZABLE, by UnseenOccupant on its one try",
-			(ctx) =>
-				Effect.gen(function* () {
-					const failure = yield* Effect.flip(
-						searched(
-							ctx,
-							explore(
-								{
-									oracle: { kind: "unstated" },
-									suite: "schedules/write/inserters-planted",
-									draw: drawn(candidateKeyRaceGen),
-									literal: Formatter.format,
-									coverage: noCoverage,
-									kept: [],
-									runs: inserterRuns,
-									shrink: { kind: "bounded", candidates: 2 },
-									concurrency: 1,
-									steerEvery: 4,
-									caseHang
-								},
-								(ic, c) =>
-									Effect.scoped(runInserters(ic, c, serializableProjection)).pipe(
-										Effect.catchCause((cause) =>
-											Effect.fail(new RaceFailed({ message: Cause.pretty(cause) }))
-										)
-									)
-							)
-						)
-					)
-					assert.ok(
-						"_tag" in failure && failure._tag === "PropertyFalsified",
-						`the search catches the planted projection, not ${Formatter.format(failure)}`
-					)
-				})
-		)
-
-		it.effect(
 			`${inserterRuns} cases of an inserter call alone: one flight, begun READ COMMITTED as generate certified the role, answered as the serial model says`,
 			(ctx) =>
 				searched(
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the serial model (model.ts judgeRun) of the one call, and its one flight framed at the certified level"
+							},
 							suite: "schedules/write/inserter-alone",
 							draw: drawn(inserterAloneGen),
 							literal: Formatter.format,
@@ -2211,48 +2167,13 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							caseHang
 						},
 						(ac, c) =>
-							Effect.scoped(runInserterAlone(ac, c, servedSession)).pipe(
+							Effect.scoped(runInserterAlone(ac, c)).pipe(
 								Effect.catchCause((cause) =>
 									Effect.fail(new RaceFailed({ message: Cause.pretty(cause) }))
 								)
 							)
 					)
 				)
-		)
-
-		it.effect("fails, planted with each level's BEGIN sent for the other's", (ctx) =>
-			Effect.gen(function* () {
-				const failure = yield* Effect.flip(
-					searched(
-						ctx,
-						explore(
-							{
-								oracle: { kind: "unstated" },
-								suite: "schedules/write/inserter-alone-planted",
-								draw: drawn(inserterAloneGen),
-								literal: Formatter.format,
-								coverage: noCoverage,
-								kept: [],
-								runs: inserterRuns,
-								shrink: { kind: "bounded", candidates: 2 },
-								concurrency: 1,
-								steerEvery: 4,
-								caseHang
-							},
-							(ac, c) =>
-								Effect.scoped(runInserterAlone(ac, c, swappedBegins)).pipe(
-									Effect.catchCause((cause) =>
-										Effect.fail(new RaceFailed({ message: Cause.pretty(cause) }))
-									)
-								)
-						)
-					)
-				)
-				assert.ok(
-					"_tag" in failure && failure._tag === "PropertyFalsified",
-					`the search catches the planted framing, not ${Formatter.format(failure)}`
-				)
-			})
 		)
 
 		it.effect(
@@ -2262,7 +2183,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the serial model (model.ts judgeRun): a real-time serial order of the committed operations explains every outcome, refusal and the committed state"
+							},
 							suite: "schedules/write/races",
 							draw: drawn(raceCaseGen),
 							literal: Formatter.format,

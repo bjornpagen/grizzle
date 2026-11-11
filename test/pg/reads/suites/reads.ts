@@ -403,7 +403,10 @@ export const readSuite = () => {
 						const stored = workFacts.Task
 						return yield* explore(
 							{
-								oracle: { kind: "unstated" },
+								oracle: {
+									kind: "specification",
+									name: "a relation parameter as a set: the stored tasks its distinct keys name, whatever repeats or absent keys it holds"
+								},
 								...budget,
 								suite: "reads/relation parameters",
 								draw: drawn(relationCaseGen),
@@ -491,7 +494,10 @@ export const readSuite = () => {
 								let group = 0
 								return yield* explore(
 									{
-										oracle: { kind: "unstated" },
+										oracle: {
+											kind: "specification",
+											name: "the union's rows sorted on its completed order, the first k of them under a take"
+										},
 										...budget,
 										/** The case's facts replace the last case's whole (substrate/replace.ts). */
 										suite: "reads/union",
@@ -577,7 +583,10 @@ export const readSuite = () => {
 							let group = 0
 							return yield* explore(
 								{
-									oracle: { kind: "unstated" },
+									oracle: {
+										kind: "specification",
+										name: "the read's answer is the database before the commit or after it, each read alone, never a mix"
+									},
 									...budget,
 									/**
 									 * The read's backend waits on the holder's lock (the substrate's lock-wait barrier).

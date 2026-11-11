@@ -236,7 +236,10 @@ export const directWriterSuite = () =>
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the direct-writer model (model.ts): each statement's native error at the time PostgreSQL raises it, or the state the transaction commits"
+							},
 							suite: "direct-writers",
 							draw: drawn(directRunGen),
 							literal: Formatter.format,
