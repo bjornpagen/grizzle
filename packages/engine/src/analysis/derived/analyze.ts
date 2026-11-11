@@ -9,7 +9,7 @@ import { type AdmittedQuery, checkDefinition } from "#compiler/check/index.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
-import { type CompileError, derivedRefused } from "#compiler/core/errors.ts"
+import { type CompileError, derivedRefused, refused } from "#compiler/core/errors.ts"
 import {
 	type DeclaredName,
 	DeclaredNamespace,
@@ -92,13 +92,31 @@ type OwnedDerived = Extract<OwnedRelation, { readonly kind: "derived" }>
 /** A materialized derived relation's view, which its analysis names its rows by. */
 type MaterializedView = Extract<OwnedView, { readonly kind: "materialized" }>
 
+/** What a materialized view's definition cannot have on its delivered rows. */
+type Obstacle = "attachment" | "headingGroups"
+
+/**
+ * Each obstacle's refusal of a definition of `relation` at `at`: an attachment, a derived refusal of its own; a union of
+ * several heading groups, a rule the types name too.
+ */
+const obstacleRefusals: {
+	readonly [O in Obstacle]: (at: SourceLoc, relation: string) => CompileError
+} = {
+	attachment: (at, relation) => derivedRefused(at, { kind: "attachment", relation }),
+	headingGroups: (at) =>
+		refused(
+			at,
+			"a derived definition has one heading: a materialized view stores one heading group"
+		)
+}
+
 /**
  * The first attachment, or union of several heading groups, on the delivered rows of `root`: the spine of nodes whose
  * rows are their input's rows under the same heading (rel.ts keptRowsOf, the spine lower/conservative/deliver.ts
  * delivers), and every arm of a union of one heading group. An attachment off the spine is read as its parent, whose
  * heading is the consumer's, so it changes nothing the view stores.
  */
-const spineObstacle = (root: RelNode): "attachment" | "headingGroups" | undefined => {
+const spineObstacle = (root: RelNode): Obstacle | undefined => {
 	const seen = new Set<RelNode>()
 	const queue: Array<RelNode> = [root]
 	for (let node = queue.pop(); node !== undefined; node = queue.pop()) {
@@ -187,7 +205,7 @@ export const analyzedDefinition = (
 	const root = checked.dag.roots[0]
 	const obstacle = spineObstacle(root)
 	if (obstacle !== undefined) {
-		return Result.err(derivedRefused(at, { kind: obstacle, relation }))
+		return Result.err(obstacleRefusals[obstacle](at, relation))
 	}
 	const analyzed = analyzeLogical(checked.dag, queryEvidence)
 	if (!analyzed.ok) {
@@ -195,7 +213,7 @@ export const analyzedDefinition = (
 	}
 	const heading = root.heading
 	if (!isNonEmpty(heading)) {
-		return Result.err(derivedRefused(at, { kind: "emptyHeading", relation }))
+		return Result.err(refused(at, "a derived definition has at least one field"))
 	}
 	return Result.map(declaredHeading(relation, heading, at), (declared) => ({
 		checked,
@@ -233,9 +251,9 @@ export const analyzedDefinition = (
  * - an attachment on the definition's delivered rows (UnsupportedOperation, attachment): an attached relation is a
  *   nested set per fact, and a materialized view stores flat facts, so the heading the view would hold is not the
  *   query's;
- * - a union of several heading groups as the definition (UnsupportedOperation, headingGroups): a view has one heading,
+ * - a union of several heading groups as the definition (Refused, as the types refuse it): a view has one heading,
  *   and a union of different headings is delivered one statement per group;
- * - a definition with an empty heading (UnsupportedOperation, emptyHeading): its relation is the unit relation, true or
+ * - a definition with an empty heading (Refused, as the types refuse it): its relation is the unit relation, true or
  *   false, and a unique index, which REFRESH MATERIALIZED VIEW CONCURRENTLY needs, has at least one column;
  * - a heading whose names are no declared names of one view (`declaredHeading`): a name the declared-name rule refuses
  *   (MalformedDescription), or two that convert to one column (IdentifierCollision), each at its field;

@@ -2,6 +2,7 @@ import type { Option, Stream } from "effect"
 import type { Delivered, Delivery, FieldHost, RowDecoder } from "#compiler/core/decoder.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import type { Built, Delivering, phantom, Phantom } from "#compiler/core/phantom.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import type { Requires } from "#compiler/types/compute/scalar.ts"
 import type {
 	Carrier,
@@ -27,7 +28,6 @@ import type {
 	Simplify,
 	Source,
 	SqlOfCarrier,
-	TypeRefusal,
 	UnionHeading,
 	UnionToIntersection
 } from "#compiler/types/core/phantom.ts"
@@ -42,7 +42,7 @@ import type { FieldBase, LiteralOf } from "#compiler/types/fields/field.ts"
 import type { Rule } from "#compiler/types/query/rule.ts"
 import type {
 	Aggregate,
-	NoExcess,
+	NoStrayParameters,
 	ParentVars,
 	Producer,
 	HeadedBy,
@@ -484,7 +484,7 @@ export interface Query<
 	 * evidence, whose keys a match of it reads, with what its bindings read.
 	 */
 	bind<const B extends BindingsFor<P>>(
-		bindings: B & NoExcess<B, P> & RelationBindings<B, P>
+		bindings: B & NoStrayParameters<B, P> & RelationBindings<B, P>
 	): BoundSource<S, Head, BindParams<B>, Hc, Cx, Ev, BindReads<B>>
 	/** An order over the columns the query delivers (DeliveredKeys): never a field only some arms have, or an attachment. */
 	orderBy(
@@ -629,7 +629,7 @@ type HeadSearch<Hc, K extends number> = [CarriersOfKind<Hc, Aggregate<unknown, n
  * The spec of a search over a source the checker refuses: its refusal, beside any by and take, so the argument as a
  * whole is refused and its diagnostic prints the refusal, whatever it ranks by.
  */
-type RefusedSearch<M extends TypeRefusal, K extends number> = Refusal<M> & {
+type RefusedSearch<M extends Refused, K extends number> = Refusal<M> & {
 	readonly by: string
 	readonly take: K
 }

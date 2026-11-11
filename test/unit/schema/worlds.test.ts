@@ -21,6 +21,7 @@ import { indices } from "#compiler/core/array.ts"
 import type { LoginRule, RoleRule } from "#compiler/core/causes.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import { decodeDesc } from "#compiler/ir/desc.ts"
 import { lowerQuery } from "#compiler/program/describe.ts"
@@ -351,11 +352,25 @@ type StatedRule =
 	| Exclude<RoleRule, { readonly kind: "writeUnwritable" }>
 	| { readonly kind: "writeUnwritable"; readonly entry: string }
 
-/** A role case: its healthy spec, the planted spec, and the rule the planted defect breaks. */
+/** What a refusal states, as a case states it: a role rule, or a rule the types name too, by its refusal. */
+type Stated =
+	| { readonly kind: "rule"; readonly rule: StatedRule }
+	| { readonly kind: "named"; readonly refusal: Refused }
+
+/** The defects that break a rule the types name too, which role refuses as Refused. */
+type NamedDefect = "wholeEntryName" | "wholeEntryUndeclared" | "entryOverAnother"
+
+/** What a planted defect breaks: the feature it reaches, and what the refusal states. */
+interface Broken {
+	readonly feature: RoleRule["kind"] | NamedDefect
+	readonly stated: Stated
+}
+
+/** A role case: its healthy spec, the planted spec, and what the planted defect breaks. */
 interface RoleCase {
 	readonly healthy: RoleSpec
 	readonly planted: RoleSpec
-	readonly rule: Option.Option<StatedRule>
+	readonly broken: Option.Option<Broken>
 }
 
 /** The spec with `name` entered as `entry`, replacing an entry of that name. */
@@ -381,33 +396,35 @@ const plant = (healthy: RoleSpec, defect: Defect): RoleCase => {
 	const of = (planted: RoleSpec, rule: StatedRule): RoleCase => ({
 		healthy,
 		planted,
-		rule: Option.some(rule)
+		broken: Option.some({ feature: rule.kind, stated: { kind: "rule", rule } })
 	})
-	const base = "Reports"
+	const named = (planted: RoleSpec, feature: NamedDefect, refusal: Refused): RoleCase => ({
+		healthy,
+		planted,
+		broken: Option.some({ feature, stated: { kind: "named", refusal } })
+	})
+	const wholeRefusal: Refused = "a whole entry is a relation of the base under its own name"
 	switch (defect.kind) {
 		case "none":
-			return { healthy, planted: healthy, rule: Option.none() }
-		case "wholeEntryName": {
-			const entry = `${defect.relation}Twin`
-			return of(entered(healthy, entry, { kind: "whole", relation: defect.relation }), {
-				kind: "wholeEntryName",
-				entry,
-				relation: defect.relation
-			})
-		}
+			return { healthy, planted: healthy, broken: Option.none() }
+		case "wholeEntryName":
+			return named(
+				entered(healthy, `${defect.relation}Twin`, { kind: "whole", relation: defect.relation }),
+				"wholeEntryName",
+				wholeRefusal
+			)
 		case "wholeEntryUndeclared":
-			return of(entered(healthy, "Stray", { kind: "stray" }), {
-				kind: "wholeEntryUndeclared",
-				entry: "Stray",
-				base
-			})
+			return named(
+				entered(healthy, "Stray", { kind: "stray" }),
+				"wholeEntryUndeclared",
+				wholeRefusal
+			)
 		case "entryOverAnother":
-			return of(entered(healthy, "Far", { kind: "over another", relation: defect.relation }), {
-				kind: "entryOverAnother",
-				entry: "Far",
-				base,
-				over: { kind: "schema", schema: "Other" }
-			})
+			return named(
+				entered(healthy, "Far", { kind: "over another", relation: defect.relation }),
+				"entryOverAnother",
+				"a query entry is a query over the role's base"
+			)
 		case "entryOutsideBase":
 			return of(entered(healthy, "Far", { kind: "outside" }), {
 				kind: "entryOutsideBase",
@@ -533,9 +550,17 @@ const plant = (healthy: RoleSpec, defect: Defect): RoleCase => {
 const roleCaseGen: Gen<RoleCase> = (source) =>
 	plant(source.draw(healthyGen), source.draw(defectGen))
 
-/** The rule a role's refusal names, as a case states it. */
-const brokenRule = (e: CompileError): StatedRule | undefined =>
-	e.reason._tag === "RoleRefused" ? stated(e.reason.rule) : undefined
+/** What a role's refusal states, as a case states it: its rule, or the refusal the types name too. */
+const statedOf = (e: CompileError): Stated | undefined =>
+	e.reason._tag === "RoleRefused"
+		? { kind: "rule", rule: stated(e.reason.rule) }
+		: e.reason._tag === "Refused"
+			? { kind: "named", refusal: e.reason.refusal }
+			: undefined
+
+/** The reason a refusal stating `s` is of. */
+const tagOf = (s: Stated): "RoleRefused" | "Refused" =>
+	s.kind === "rule" ? "RoleRefused" : "Refused"
 
 /** A refusal's rule as a case states it. */
 const stated = (rule: RoleRule): StatedRule =>
@@ -574,7 +599,7 @@ const describedOf = (c: RoleCase): Option.Option<unknown> => {
 	})
 }
 
-type RoleFeature = RoleRule["kind"] | "none" | "described"
+type RoleFeature = Broken["feature"] | "none" | "described"
 
 /** A context's field: its name and its drawn type. */
 interface ContextField {
@@ -876,23 +901,23 @@ describe("role admission", () => {
 					(c, k) =>
 						Effect.sync(() => {
 							const described = describedOf(c)
-							if (Option.isNone(c.rule)) {
+							if (Option.isNone(c.broken)) {
 								k.note("none")
 								assert.equal(admitted("planted", c.planted).desc.name, "planted")
 								const desc = defined(Option.getOrUndefined(described), "the healthy description")
 								succeeded(Result.flatMap(decodeDesc("role", desc), ownRole))
 								return
 							}
-							const rule = c.rule.value
-							k.note(rule.kind)
-							const e = throwsRefused(() => admitted("planted", c.planted), "RoleRefused")
-							assert.deepEqual(brokenRule(e), rule)
+							const { feature, stated: expected } = c.broken.value
+							k.note(feature)
+							const e = throwsRefused(() => admitted("planted", c.planted), tagOf(expected))
+							assert.deepEqual(statedOf(e), expected)
 							if (Option.isNone(described)) {
 								return
 							}
 							k.note("described")
 							const owned = Result.flatMap(decodeDesc("role", described.value), ownRole)
-							if (rule.kind === "entryOrdered") {
+							if (feature === "entryOrdered") {
 								refused(
 									owned,
 									"MalformedDescription",
@@ -900,7 +925,7 @@ describe("role admission", () => {
 								)
 								return
 							}
-							assert.deepEqual(brokenRule(refused(owned, "RoleRefused")), rule)
+							assert.deepEqual(statedOf(refused(owned, tagOf(expected))), expected)
 						})
 				)
 			)

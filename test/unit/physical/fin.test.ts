@@ -391,6 +391,24 @@ describe("a fault planted in a valid slotted declaration", () => {
 		"a count relation the schema does not declare"
 	]
 
+	/**
+	 * The reason each fault's rule refuses it by: a description's malformation, or a rule the types name too (Refused),
+	 * a family counting by a closed relation's fin.
+	 */
+	const faultTags: { readonly [K in FaultKind]: "MalformedDescription" | "Refused" } = {
+		"a slot past its owner's count": "MalformedDescription",
+		"a count past the slot roster's codes": "MalformedDescription",
+		"a count that is not natural": "MalformedDescription",
+		"an owner key that does not pair": "MalformedDescription",
+		"a slot inside the owner prefix": "MalformedDescription",
+		"two owner prefixes": "MalformedDescription",
+		"a slot in the payload": "MalformedDescription",
+		"a slot in an ordinary relation": "MalformedDescription",
+		"a fin over an ordinary relation": "MalformedDescription",
+		"a family over a closed relation's fin": "Refused",
+		"a count relation the schema does not declare": "MalformedDescription"
+	}
+
 	/** The carriers a count may be declared with that are not natural. */
 	type Counting = "integer" | "bigint" | "smallint"
 
@@ -677,7 +695,7 @@ describe("a fault planted in a valid slotted declaration", () => {
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
-							name: "the planted fault: MalformedDescription at the relation and slot its rule names"
+							name: "the planted fault: its rule's reason at the relation and slot the rule names"
 						},
 						coverage: required<FaultKind>(faultKinds, { cases: 400, sense: notesOnly }),
 						kept: [],
@@ -691,10 +709,11 @@ describe("a fault planted in a valid slotted declaration", () => {
 						Effect.sync(() => {
 							succeeded(compiled(schemaOf(c.declaration)), "the declaration without its fault")
 							const planted = plant(c)
+							const tag = faultTags[c.fault.kind]
 							const refusal =
 								planted.stage === "builder"
-									? throwsRefused(planted.attempt, "MalformedDescription", c.fault.kind)
-									: refused(planted.attempt(), "MalformedDescription", c.fault.kind)
+									? throwsRefused(planted.attempt, tag, c.fault.kind)
+									: refused(planted.attempt(), tag, c.fault.kind)
 							const at = refusalLoc(refusal, c.fault.kind)
 							assert.deepEqual({ path: at.path, label: at.label }, planted.at, c.fault.kind)
 							k.note(c.fault.kind)

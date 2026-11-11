@@ -1,5 +1,5 @@
 import { nominal } from "#compiler/core/brand.ts"
-import { canonicalTextOf, sameContent } from "#compiler/core/canonical.ts"
+import { sameContent } from "#compiler/core/canonical.ts"
 import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { defined } from "#compiler/core/invariant.ts"
@@ -9,6 +9,7 @@ import { lastNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
@@ -33,6 +34,7 @@ import {
 	type Writing
 } from "#compiler/ir/desc.ts"
 import { Roster as IrRoster, rosterOf } from "#compiler/ir/scalar.ts"
+import { firstRepeatAt } from "#compiler/ir/shape.ts"
 import {
 	builtRosterParts,
 	type ClosedIdParts,
@@ -71,6 +73,7 @@ import {
 	ownedKind,
 	ownValue,
 	queryDescOf,
+	refusedAt,
 	requireName,
 	requireNames
 } from "#compiler/schema/protocol.ts"
@@ -217,16 +220,14 @@ export const accumulatedField = <F extends FieldBase>(
 	if (extra.length > 0) {
 		throw malformed("accumulated", "accumulated(type, start): two arguments")
 	}
+	const valueType: Refused =
+		"an accumulated field is of a value type: no span, vector or field of a writing of its own"
+	if (writingOf(type).kind !== "caller") {
+		throw refusedAt("accumulated", valueType)
+	}
 	const described = describedField(type, "accumulated type")
-	if (
-		described.desc.kind === "span" ||
-		described.desc.kind === "vector" ||
-		writingOf(type).kind !== "caller"
-	) {
-		throw malformed(
-			"accumulated",
-			"an accumulated field of a value type: no span, vector or field of a writing of its own"
-		)
+	if (described.desc.kind === "span" || described.desc.kind === "vector") {
+		throw refusedAt("accumulated", valueType)
 	}
 	const literal = literalFor(described.desc, start, "accumulated start", rosterHandlesOf(type))
 	const value: AccumulatedField<F> = Object.freeze({
@@ -330,6 +331,19 @@ const writtenDecls = (
 	return out
 }
 
+/** A key as its caller lists it, its fields each once: a field listed twice breaks a rule the types name too. */
+const keyListedOnce = (key: unknown, label: string): void => {
+	if (
+		isList(key) &&
+		firstRepeatAt(
+			key.filter((f): f is string => typeof f === "string"),
+			(f) => f
+		) !== undefined
+	) {
+		throw refusedAt(label, "a key lists each field once")
+	}
+}
+
 /**
  * A relation's Description over its fields' declarations, decoded where each descriptor was registered, or the
  * refusal of what its arguments described (ir/desc.ts relationOver).
@@ -339,8 +353,10 @@ const ordinaryDesc = (
 	relationName: string,
 	fields: Readonly<Record<string, FieldDecl>>,
 	primaryKey: unknown
-): OrdinaryRelationDesc =>
-	orThrow(relationOver(relationName, fields, primaryKey, builderLoc(label, [relationName])))
+): OrdinaryRelationDesc => {
+	keyListedOnce(primaryKey, label)
+	return orThrow(relationOver(relationName, fields, primaryKey, builderLoc(label, [relationName])))
+}
 
 /**
  * The admission core of relation(...): a JavaScript caller's arguments checked and described, the one path a relation's
@@ -476,9 +492,9 @@ const admitGenerated = <G>(
 	const fields: Record<string, FieldDecl> = { ...writtenDecls(descriptors, described, label) }
 	for (const [field, value] of Object.entries(generated)) {
 		if (Object.hasOwn(fields, field)) {
-			throw malformed(
-				label,
-				`a generated field named apart from the written fields; ${field} is written`
+			throw refusedAt(
+				`${label} generated field ${field}`,
+				"a generated field is named apart from the relation's written fields"
 			)
 		}
 		fields[field] = generatedDecl(value, `${label} generated field ${field}`)
@@ -579,7 +595,12 @@ export const generatedRelation = <
 
 /** A roster: nonempty, distinct, each handle at most the bytes a name holds, as its names constant stores it. */
 const handleList = (value: unknown, label: string): NonEmptyReadonlyArray<string> => {
-	const handles = requireNames(value, label, "a nonempty roster of distinct handles")
+	const handles = requireNames(
+		value,
+		label,
+		"a nonempty roster of distinct handles",
+		"a roster lists each handle once"
+	)
 	for (const h of handles) {
 		if (utf8Length(h) > handleMaxBytes.value) {
 			throw malformed(
@@ -699,12 +720,6 @@ const closedRows = (
 		desc,
 		handles: scalar.carrier === "code" ? new Set<LiteralDesc>(scalar.roster.handles) : undefined
 	}))
-	const shown = (value: LiteralDesc | undefined): string =>
-		typeof value === "string" ? value : canonicalTextOf(value)
-	const payloadOf = (row: ClosedRow): string =>
-		canonicalTextOf(
-			Object.fromEntries(names.filter((f) => !key.includes(f)).map((f) => [f, row[f]]))
-		)
 	const facts = new TupleMap<ReadonlyArray<string>, ClosedRow>()
 	const written = new Map<ClosedRow, number>()
 	for (const [i, row] of rows.entries()) {
@@ -734,9 +749,9 @@ const closedRows = (
 			continue
 		}
 		if (!sameContent(earlier, literals)) {
-			throw malformed(
-				label,
-				`one fact per key; rows ${defined(written.get(earlier), "the row's index")} and ${i} hold the key (${key.map((f) => `${f} = ${shown(literals[f])}`).join(", ")}) with the payloads ${payloadOf(earlier)} and ${payloadOf(literals)}`
+			throw refusedAt(
+				`${label} rows ${defined(written.get(earlier), "the row's index")} and ${i}`,
+				"two facts of one relation share a key with different values; a key names one fact"
 			)
 		}
 	}
@@ -770,6 +785,7 @@ export const admitClosedRelation = (
 			)
 		}
 	}
+	keyListedOnce(key, label)
 	const described = describedFields(descriptors, label)
 	/**
 	 * The description over the fields' decoded types, its caller's key and slots decoded as a decode of the whole
@@ -911,7 +927,7 @@ export const bitsOf = <C extends AnyRoster>(
 			throw malformed(label, `handles of ${roster.name}; ${JSON.stringify(h)} is none`)
 		}
 		if (members.has(h)) {
-			throw malformed(label, `each handle once; ${JSON.stringify(h)} repeats`)
+			throw refusedAt(label, "a set lists each of its handles once")
 		}
 		members.add(h)
 	}
@@ -1032,7 +1048,7 @@ export const finOf = (
 	readonly slots: SlotsDesc
 } => {
 	if (!hasProperties(value) || value["kind"] !== "fin") {
-		throw malformed(label, "the slots of a count, built by fin(owner, count)")
+		throw refusedAt(label, "a family's slots are fin(owner, count), the owner's count")
 	}
 	const owner = namedRelation(value["owner"], `${label} owner`)
 	if (owner.kind !== "relation" && owner.kind !== "closedRelation") {

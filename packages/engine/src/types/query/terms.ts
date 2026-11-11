@@ -227,6 +227,13 @@ export type NoExcess<B, H> = {
 		K in Exclude<keyof B, AdmissibleKeys<H, B>>
 	]: Refusal<"not a field of the arms the bindings select">
 }
+
+/** Refuses the keys of a bind map that name no parameter of the imported query, whose parameters are P. */
+export type NoStrayParameters<B, P> = {
+	readonly [
+		K in Exclude<keyof B, keyof P>
+	]: Refusal<"a bind map names only the imported query's parameters">
+}
 type AnyKeyOf<H> = H extends unknown ? keyof H : never
 /**
  * The fields a binding object may bind: the fields common to the arms its constants select (LiteralArms), when they

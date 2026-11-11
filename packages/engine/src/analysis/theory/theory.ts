@@ -30,7 +30,7 @@ import {
 } from "#compiler/analysis/theory/spelling.ts"
 import { checkDefinition, checkQuery } from "#compiler/check/index.ts"
 import { catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
-import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { type CompileError, refused } from "#compiler/core/errors.ts"
 import {
 	type Identity,
 	identifierOf,
@@ -44,6 +44,7 @@ import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type LabelledDag, LabelSupply } from "#compiler/ir/dag.ts"
 import {
@@ -62,6 +63,7 @@ import {
 	type EvidenceSide,
 	fieldNames,
 	type LawField,
+	type LawSource,
 	type RelationInfo,
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
@@ -86,6 +88,15 @@ import {
 } from "#compiler/scalar/registry.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
+
+/**
+ * What the statement a containment's law is from refuses two of its paired fields of other identities for: an
+ * alternatives arm's key against its parent's, or the sides of a containment it states.
+ */
+const containmentPairing = (source: LawSource): Refused =>
+	source.kind === "alternatives"
+		? "the arm's key does not match the parent key"
+		: "the sides' field types differ"
 
 /** A key of a relation as immediate evidence: the PRIMARY KEY or UNIQUE that holds at every statement. */
 interface KeyEvidence {
@@ -630,34 +641,44 @@ class Builder {
 				classes.add(FieldId(r.name, c.name), c.type)
 			}
 		}
-		/** The field `f` of `a` paired with the field `g` of `b`, each at its column's type. */
+		/**
+		 * The field `f` of `a` paired with the field `g` of `b`, each at its column's type, by a statement that refuses
+		 * two of other identities for `refusal`, a rule the types name too.
+		 */
 		const pair = (
 			a: string,
 			f: HeadingColumn,
 			b: string,
 			g: HeadingColumn,
-			loc: SourceLoc
+			loc: SourceLoc,
+			refusal: Refused
 		): void => {
 			const problem = classes.union(
 				{ field: FieldId(a, f.name), type: f.type },
 				{ field: FieldId(b, g.name), type: g.type }
 			)
 			if (problem !== undefined) {
-				throw new Refusal(
-					malformedDescription(loc, `${a}.${f.name} paired with ${b}.${g.name} between ${problem}`)
-				)
+				throw new Refusal(refused(loc, refusal))
 			}
 		}
 		for (const k of kept) {
 			const detail = k.draft.identity.detail
 			if (detail.kind === "containment") {
+				const refusal = containmentPairing(k.draft.identity.source)
 				for (const p of detail.pairs) {
-					pair(detail.from.relation, p.from.column, detail.to.relation, p.to.column, k.tracked)
+					pair(
+						detail.from.relation,
+						p.from.column,
+						detail.to.relation,
+						p.to.column,
+						k.tracked,
+						refusal
+					)
 				}
 			}
 		}
 		for (const p of families) {
-			pair(p.a, p.f, p.b, p.g, p.loc)
+			pair(p.a, p.f, p.b, p.g, p.loc, p.refusal)
 		}
 		return classes.classes()
 	}

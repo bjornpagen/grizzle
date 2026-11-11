@@ -143,9 +143,6 @@ export type KeyFault =
  * Why derived analysis refused a derived relation (analysis/derived), the cause of a DerivedRefused CompileError
  * (core/errors.ts):
  * - `attachment`: the definition attaches a nested relation to its facts: a materialized view stores flat facts.
- * - `headingGroups`: the definition is a union of several heading groups: a materialized view has one heading.
- * - `emptyHeading`: the definition delivers no field: the unique index REFRESH MATERIALIZED VIEW CONCURRENTLY needs
- *   has a column.
  * - `undeclaredContract`: a field whose type is a contract the schema declares nowhere.
  * - `exactField`: a field whose head term is an exact value (an exact integer or exact money), which no field's
  *   type holds: the head narrows it with Compute.cast into the field type it fits, an aggregate's result over the
@@ -158,8 +155,6 @@ export type KeyFault =
  */
 export type DerivedRefusal =
 	| { readonly kind: "attachment"; readonly relation: string }
-	| { readonly kind: "headingGroups"; readonly relation: string }
-	| { readonly kind: "emptyHeading"; readonly relation: string }
 	| {
 			readonly kind: "undeclaredContract"
 			readonly relation: string
@@ -207,12 +202,8 @@ export type EntryKind = "relation" | "closed" | "derived" | "query"
 
 /**
  * A rule of a role a description breaks (schema/world.ts admitRole at the builder, schema/own.ts ownRole at
- * ownership), the rule of a RoleRefused CompileError:
- * - `wholeEntryName`: a whole entry under another name than its relation's, `relation`.
- * - `wholeEntryUndeclared`: a whole entry naming no relation the base `base` declares, or one it declares differently.
- * - `wholeEntryLive`: a whole entry naming a live derived relation, which PostgreSQL stores nothing for: a role reads
- *   it through the relations its definition reads.
- * - `entryOverAnother`: a query entry built over another schema than the base or one of its levels, or over a role.
+ * ownership), the rule of a RoleRefused CompileError. A whole entry's rules and a query entry's base, which the types
+ * name too, are Refused (core/refusals.ts):
  * - `entryOrdered`: a query entry that is an Ordered, not a Query.
  * - `entryParameters`: a query entry that reads the parameters `parameters`.
  * - `entryOutsideBase`: a query entry that reads `relation`, which the base lacks.
@@ -226,17 +217,6 @@ export type EntryKind = "relation" | "closed" | "derived" | "query"
  * - `refreshKind`: a refresh list naming an entry that is no derived whole entry.
  */
 export type RoleRule =
-	| { readonly kind: "wholeEntryName"; readonly entry: string; readonly relation: string }
-	| { readonly kind: "wholeEntryUndeclared"; readonly entry: string; readonly base: string }
-	| { readonly kind: "wholeEntryLive"; readonly entry: string }
-	| {
-			readonly kind: "entryOverAnother"
-			readonly entry: string
-			readonly base: string
-			readonly over:
-				| { readonly kind: "role" }
-				| { readonly kind: "schema"; readonly schema: string }
-	  }
 	| { readonly kind: "entryOrdered"; readonly entry: string }
 	| { readonly kind: "entryParameters"; readonly entry: string; readonly parameters: Names }
 	| { readonly kind: "entryOutsideBase"; readonly entry: string; readonly relation: string }
@@ -365,10 +345,6 @@ export const derivedRefusalText = (cause: DerivedRefusal): string => {
 	switch (cause.kind) {
 		case "attachment":
 			return `derived relation ${cause.relation} over a definition that attaches a nested relation to its facts: a materialized view stores flat facts`
-		case "headingGroups":
-			return `derived relation ${cause.relation} over a union of several headings: a materialized view has one heading`
-		case "emptyHeading":
-			return `derived relation ${cause.relation} with at least one field: a definition with an empty head is the unit relation, and the unique index REFRESH MATERIALIZED VIEW CONCURRENTLY needs has a column`
 		case "undeclaredContract":
 			return `a contract the schema declares; ${cause.contract} is none`
 		case "exactField":
@@ -426,14 +402,6 @@ const entryKindText: Readonly<Record<EntryKind, string>> = {
 /** A role rule's sentence. */
 export const roleRuleText = (rule: RoleRule): string => {
 	switch (rule.kind) {
-		case "wholeEntryName":
-			return `a whole entry under its own name; ${rule.entry} names the relation ${rule.relation}`
-		case "wholeEntryLive":
-			return `a whole entry over a relation PostgreSQL stores; ${rule.entry} is a live derived relation, which a role reads through the relations its definition reads`
-		case "wholeEntryUndeclared":
-			return `a whole entry naming a relation the base ${rule.base} declares; ${rule.entry} is none`
-		case "entryOverAnother":
-			return `a query over the base ${rule.base} or one of its levels; ${rule.entry} is built over ${rule.over.kind === "role" ? "a role" : `schema ${rule.over.schema}, which is none of them`}`
 		case "entryOrdered":
 			return `a query entry that is a Query, not an Ordered: take closes an order into a set; ${rule.entry} is an Ordered`
 		case "entryParameters":

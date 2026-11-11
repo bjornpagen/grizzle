@@ -157,9 +157,9 @@ export interface OwnerShowing<out N, out C, out K> extends Showing<N, C> {
 	readonly primaryKey?: K
 }
 
-/** Slots over an owner that shows N and C, whose primary key, where it has one, is K. */
-export interface FinShows<out N, out C, out K> {
-	readonly owner: OwnerShowing<N, C, K>
+/** Slots over an owner of kind Kind that shows N and C, whose primary key, where it has one, is K. */
+export interface FinShows<out N, out C, out K, out Kind> {
+	readonly owner: OwnerShowing<N, C, K> & { readonly kind: Kind }
 }
 
 /**
@@ -326,6 +326,30 @@ export type CountedMember<C, T, OC, K> =
 		: Refusal<"a counted family's side is its owner's key">
 
 /**
+ * A family's member side: a side of a relation, whose facts are its members, never of a selection. A union, not a
+ * conditional over the side, so a side over a generic relation is read by its constraint where it is written.
+ */
+export type WholeMember =
+	| Side<AnyRelation>
+	| Refusal<"a family's member side is a relation, never a selection: its members are every fact of the relation">
+
+/**
+ * A family's slots, over an owner of kind Kind (FinShows): fin(O, n) over an ordinary relation, whose drawn count the
+ * family draws. A closed relation's count numbers the slots of its key, and slots with no owner are no fin.
+ */
+export type FamilySlots<Kind> = [Kind] extends ["relation"]
+	? unknown
+	: [Kind] extends ["closedRelation"]
+		? Refusal<"a family counts by an ordinary relation's drawn count: a closed relation's count numbers the slots of its key">
+		: Refusal<"a family's slots are fin(owner, count), the owner's count">
+
+/**
+ * `Then`, the check of a family's member side, read where its slots are over an ordinary relation, of kind Kind: other
+ * slots are refused at the slots.
+ */
+export type OverSlots<Kind, Then> = [Kind] extends ["relation"] ? Then : unknown
+
+/**
  * A tree is a family of T over itself, on(T, parent, at) with fin(T, n): over T's heading C and primary key K, parent
  * of K's one field's type, and at, n, start and end drawn. That the slots are T's own a tree's builder checks.
  */
@@ -377,16 +401,22 @@ type MonoidSql = {
 
 type NameOfMonoid<M> = M extends Monoid<infer N> ? N : never
 
-/** An accumulator of field X's type in the heading C: an accumulated field of C whose domain and SQL type are X's. */
-type Accumulator<C, A, X> = A extends keyof C
+/**
+ * What the term A of the heading C is as an accumulator of field X's type: one, an accumulated field whose domain and SQL
+ * type are X's; an accumulated field of another type; or no accumulated field.
+ */
+type AccumulatorOf<C, A, X> = A extends keyof C
 	? C[A] extends AccumulatedField<FieldBase>
 		? [FieldTypeOf<C, A>] extends [X]
 			? [X] extends [FieldTypeOf<C, A>]
-				? true
-				: false
-			: false
-		: false
-	: false
+				? "held"
+				: "type"
+			: "type"
+		: "absent"
+	: "absent"
+
+/** An accumulator of field X's type in the heading C: an accumulated field of C whose domain and SQL type are X's. */
+type Accumulator<C, A, X> = AccumulatorOf<C, A, X> extends "held" ? true : false
 
 /** The accumulators a step names after its value: none, or one (before, after) pair per plane, of the value's type. */
 type Accumulators<C, Rest, X, Planes> = Rest extends readonly []
@@ -480,22 +510,30 @@ export type FoldEnd<Fa, M, OC, K, E, C, T> = E extends readonly [
 	...Extract<K, ReadonlyArray<string>>,
 	...infer Ends extends ReadonlyArray<AnyTerm>
 ]
-	? EndsHold<OC, Ends, StepType<Fa, M, C, T>, PlanesOf<M>> extends true
-		? unknown
-		: Refusal<"a fold's end names one accumulated field of the owner per plane">
+	? {
+			readonly held: unknown
+			readonly type: Refusal<"a fold's accumulators and ends are of its plane's type: another integer width, numeric typmod or contract is another type">
+			readonly absent: Refusal<"a fold's end names one accumulated field of the owner per plane">
+		}[EndsHeld<OC, Ends, StepType<Fa, M, C, T>, PlanesOf<M>>]
 	: Refusal<"a fold's end names one accumulated field of the owner per plane">
 
-type EndsHold<OC, Ends, X, Planes> = Ends extends readonly [infer E1]
+/**
+ * What a fold's ends Ends over the owner's heading OC are, one per plane: held, accumulators of the step value's type
+ * X; of another type, accumulated fields one of which is of another type; or absent, another count of ends or one no
+ * accumulated field.
+ */
+type EndsHeld<OC, Ends, X, Planes> = Ends extends readonly [infer E1]
 	? Planes extends 1
-		? Accumulator<OC, E1, X>
-		: false
+		? AccumulatorOf<OC, E1, X>
+		: "absent"
 	: Ends extends readonly [infer E1, infer E2]
 		? Planes extends 2
-			? [Accumulator<OC, E1, X>, Accumulator<OC, E2, X>] extends [true, true]
-				? true
-				: false
-			: false
-		: false
+			? Worst<AccumulatorOf<OC, E1, X> | AccumulatorOf<OC, E2, X>>
+			: "absent"
+		: "absent"
+
+/** The worst of accumulator verdicts V: absent, then of another type, then held. */
+type Worst<V> = "absent" extends V ? "absent" : "type" extends V ? "type" : "held"
 
 /** Any mirrors statement, whatever its sides. */
 export type MirrorsBase = Mirrors<unknown, unknown>
@@ -636,13 +674,18 @@ export type DiscriminatorsOf<C, R> = {
 }[keyof FactOfFields<C>] &
 	string
 
-/** The alternatives reader: every arm's key must have the parent key's field types, P, in order. */
+/**
+ * The alternatives reader: every arm is a stored relation, whose rows a write draws, and its key has the parent key's
+ * field types, P, in order.
+ */
 export type ArmsCompatible<P, Arms> = {
-	readonly [H in keyof Arms]: [KeyHosts<Arms[H]>] extends [P]
-		? [P] extends [KeyHosts<Arms[H]>]
-			? unknown
+	readonly [H in keyof Arms]: RelationOfKey<Arms[H]> extends { readonly kind: "derived" }
+		? Refusal<"alternatives relate stored relations: a derived relation's rows are its definition's, which no write draws">
+		: [KeyHosts<Arms[H]>] extends [P]
+			? [P] extends [KeyHosts<Arms[H]>]
+				? unknown
+				: Refusal<"the arm's key does not match the parent key">
 			: Refusal<"the arm's key does not match the parent key">
-		: Refusal<"the arm's key does not match the parent key">
 }
 
 /**

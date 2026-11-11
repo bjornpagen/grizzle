@@ -10,9 +10,9 @@ import {
 	omitSourceLocs,
 	toJson
 } from "#compiler/core/canonical.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
+import { type CompileError, refused } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
-import type { SourceLoc } from "#compiler/core/loc.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	concatNonEmpty,
 	headNonEmpty,
@@ -2586,17 +2586,19 @@ export const admitLoginRoles = (
 /**
  * A side's Description over its relation, its terms and its selection, each read where it entered: a declared
  * relation's name, terms each a field or pred of a declared name, and a selection whose conjuncts the selection's
- * predicate decoded. Refused, as a decode of the side refuses it, at the first term that repeats an earlier one.
+ * predicate decoded. Refused at the first term that repeats an earlier one, a rule the types name too.
  */
 export const sideOver = (
 	relation: string,
 	terms: NonEmptyReadonlyArray<TermDesc>,
 	selection: SelectionDesc
 ): Result.Result<SideDesc, CompileError> => {
-	const repeated = S.repeatedAt("side description", ["terms"], terms, termKey, "side terms")
+	const repeated = S.firstRepeatAt(terms, termKey)
 	return repeated === undefined
 		? Result.ok(Object.freeze({ relation, terms: Object.freeze(terms), selection }))
-		: Result.err(repeated)
+		: Result.err(
+				refused(SourceLoc("side description", ["terms", repeated]), "a side lists each term once")
+			)
 }
 
 /**

@@ -887,7 +887,7 @@ describe("statements over a derived relation", () => {
 									case "an alternatives arm":
 										throwsRefused(
 											() => alternativesBuilder(Task, "kind", Kind, { Automatic: TaskIds }),
-											"MalformedDescription"
+											"Refused"
 										)
 										return
 									case "key":

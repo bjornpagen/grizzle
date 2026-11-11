@@ -1,4 +1,5 @@
 import { codeColumn } from "#compiler/core/decoder.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
@@ -27,8 +28,9 @@ import {
 	type HeadingTyping,
 	isParam,
 	malformed,
+	predicateValue,
 	type PredicateValue,
-	predicateValue
+	refusedAt
 } from "#compiler/schema/protocol.ts"
 
 export interface RowTerm extends Built {
@@ -350,19 +352,30 @@ export const checkPredicate = (built: unknown, label: string): ExprDesc => {
 	}
 	const closed = rowExpr(expr)
 	if (closed instanceof ForeignInput) {
-		throw malformed(label, `a predicate over the row's own fields only, not ${closed.what}`)
+		throw closed.refuse(label)
 	}
 	return closed
 }
 
-/** An input a row check cannot have, named as checkPredicate refuses it. */
+/** An input a row check cannot have, by the refusal checkPredicate states of it at a check's label. */
 class ForeignInput {
-	readonly what: string
+	readonly refuse: (label: string) => CompileError
 
-	constructor(what: string) {
-		this.what = what
+	constructor(refuse: (label: string) => CompileError) {
+		this.refuse = refuse
 	}
 }
+
+/** An input a row check cannot have, named `what`. */
+const foreign = (what: string): ForeignInput =>
+	new ForeignInput((label) =>
+		malformed(label, `a predicate over the row's own fields only, not ${what}`)
+	)
+
+/** A parameter, which a schema predicate never reads: a rule the types name too. */
+const parameterInput = new ForeignInput((label) =>
+	refusedAt(label, "a schema predicate reads no parameter")
+)
 
 /**
  * A row predicate's open expression as a Description's: a field or a literal as its builder made it, frozen, and every
@@ -375,15 +388,15 @@ const rowExpr = (expr: OpenExpr): ExprDesc | ForeignInput => {
 		case "literal":
 			return Object.freeze(expr)
 		case "var":
-			return new ForeignInput("a query variable")
+			return foreign("a query variable")
 		case "param":
-			return new ForeignInput("a parameter")
+			return parameterInput
 		case "parent":
-			return new ForeignInput("a parent column")
+			return foreign("a parent column")
 		case "value":
-			return new ForeignInput("a contract's value")
+			return foreign("a contract's value")
 		case "absent":
-			return new ForeignInput("a relational negation")
+			return foreign("a relational negation")
 		case "compute": {
 			const args = rowExprs(expr.args)
 			return args instanceof ForeignInput ? args : Object.freeze({ ...expr, args })

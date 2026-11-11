@@ -1,6 +1,7 @@
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { RowScalars, Statement } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -21,7 +22,6 @@ import {
 	selectBuilder,
 	treeBuilder
 } from "#compiler/schema/statements.ts"
-import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import {
 	A,
@@ -320,7 +320,7 @@ const constructs: Readonly<Record<string, Form>> = {
 
 /** The faults a statement over a generic source may plant, each with the refusal the types name it by. */
 const faults: Readonly<
-	Record<string, { readonly refusal: TypeRefusal; readonly code: Code; readonly form: Form }>
+	Record<string, { readonly refusal: Refused; readonly code: Code; readonly form: Form }>
 > = {
 	"a side of another type": {
 		refusal: "the sides' field types differ",
@@ -383,7 +383,7 @@ type Code = "TS2345" | "TS2322"
 /** What the types say of a helper: it typechecks, or its statement's line raises a diagnostic naming a refusal. */
 type Verdict =
 	| { readonly kind: "admitted" }
-	| { readonly kind: "refused"; readonly code: Code; readonly refusal: TypeRefusal }
+	| { readonly kind: "refused"; readonly code: Code; readonly refusal: Refused }
 
 /** One helper: its construct or fault, its shape, and its verdict. */
 interface GenericCase {
@@ -435,7 +435,7 @@ const verdictOf = (
 	name: string,
 	form: Form,
 	shape: Arr.NonEmptyReadonlyArray<SourceName>,
-	refusal: Option.Option<{ readonly refusal: TypeRefusal; readonly code: Code }>
+	refusal: Option.Option<{ readonly refusal: Refused; readonly code: Code }>
 ): Verdict => {
 	if (!sharesHeading(shape)) {
 		return {

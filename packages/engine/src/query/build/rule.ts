@@ -22,12 +22,7 @@ import {
 	runAttach
 } from "#compiler/query/build/attach.ts"
 
-import {
-	type Heading,
-	heading,
-	headingField,
-	withAttachment
-} from "#compiler/query/build/heading.ts"
+import { type Heading, heading, withAttachment } from "#compiler/query/build/heading.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
 import {
 	isCallback,
@@ -55,7 +50,7 @@ import {
 import * as T from "#compiler/query/build/terms.ts"
 import { spellRule } from "#compiler/query/build/walk.ts"
 import { type PredicateValue, predicateValue, type Typing } from "#compiler/scalar/compute/term.ts"
-import { malformed, requireName } from "#compiler/schema/protocol.ts"
+import { malformed, refusedAt, requireName } from "#compiler/schema/protocol.ts"
 import { headRecord, record } from "#compiler/schema/record.ts"
 import type { Carriers } from "#compiler/types/core/phantom.ts"
 import type { Evidence } from "#compiler/types/evidence/evidence.ts"
@@ -188,7 +183,10 @@ const bindingsDesc = (bindings: unknown, source: Heading, label: string): OpenBi
 				`a scalar field; ${JSON.stringify(field)} is an attachment, a nested set: match the child query to read it`
 			)
 		}
-		const typing = headingField(source, field, label)
+		const typing = source.fields.get(field)
+		if (typing === undefined) {
+			throw refusedAt(label, "not a field of the arms the bindings select")
+		}
 		if (value === undefined) {
 			throw malformed(
 				label,

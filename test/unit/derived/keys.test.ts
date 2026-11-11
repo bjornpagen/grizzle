@@ -28,6 +28,7 @@ import { derivedKeyLayout } from "#compiler/analysis/derived/keys.ts"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import type { DerivedRefusal, KeyFault } from "#compiler/core/causes.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
@@ -1255,8 +1256,12 @@ interface ModelColumn {
 	readonly desc: InferredFieldDesc
 }
 
+/** A definition no view stores for a rule the types name too: a union of several heading groups, or no field. */
+type NamedObstacle = "headingGroups" | "emptyHeading"
+
 type Expected =
 	| { readonly kind: "refused"; readonly cause: DerivedRefusal }
+	| { readonly kind: "named"; readonly feature: NamedObstacle; readonly refusal: Refused }
 	| {
 			readonly kind: "admitted"
 			readonly keys: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<string>>
@@ -1311,10 +1316,19 @@ const storableModel = (c: StorableCase): Expected => {
 		case "attached":
 			return { kind: "refused", cause: { kind: "attachment", relation: "D" } }
 		case "groups":
-			return { kind: "refused", cause: { kind: "headingGroups", relation: "D" } }
+			return {
+				kind: "named",
+				feature: "headingGroups",
+				refusal:
+					"a derived definition has one heading: a materialized view stores one heading group"
+			}
 		case "plain": {
 			if (!Arr.isReadonlyArrayNonEmpty(shape.head)) {
-				return { kind: "refused", cause: { kind: "emptyHeading", relation: "D" } }
+				return {
+					kind: "named",
+					feature: "emptyHeading",
+					refusal: "a derived definition has at least one field"
+				}
 			}
 			const heading = inHeadingOrder(Arr.map(shape.head, column))
 			return keyed(heading, Arr.contains(shape.head, 0) ? [[column(0)]] : [heading])
@@ -1362,6 +1376,7 @@ const storableModel = (c: StorableCase): Expected => {
 
 type StorableFeature =
 	| DerivedRefusal["kind"]
+	| NamedObstacle
 	| "admitted"
 	| `fault ${KeyFault["kind"]}`
 	| "one fact keyed past its first column"
@@ -1666,6 +1681,14 @@ describe("derived relation keys", () => {
 								derivedAnalysis
 							)
 							const expected = storableModel(c)
+							if (expected.kind === "named") {
+								k.note(expected.feature)
+								assert.ok(!analyzed.ok, "a definition no view stores is refused")
+								const reason = analyzed.error.reason
+								assert.ok(reason._tag === "Refused", analyzed.error.message)
+								assert.equal(reason.refusal, expected.refusal)
+								return
+							}
 							if (expected.kind === "refused") {
 								k.note(expected.cause.kind)
 								if (

@@ -19,6 +19,7 @@ import {
 	ownedDesc,
 	ownedEntry,
 	ownValue,
+	refusedAt,
 	requireName
 } from "#compiler/schema/protocol.ts"
 import { derivedDraftOf, relationDescOf, rosterHandlesOf } from "#compiler/schema/relation.ts"
@@ -48,10 +49,7 @@ interface AdmittedLevel {
  */
 const underOwnName = <D extends RelationDesc>(label: string, key: string, desc: D): D => {
 	if (desc.name !== key) {
-		throw malformed(
-			`${label} relation ${key}`,
-			`a relation under its own name; ${key} holds the relation ${desc.name}`
-		)
+		throw refusedAt(`${label} relation ${key}`, "a schema holds each relation under its own name")
 	}
 	return desc
 }

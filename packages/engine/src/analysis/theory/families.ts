@@ -1,4 +1,4 @@
-import { refuse } from "#compiler/analysis/theory/build.ts"
+import { refuse, refuseBreach, refuseNamed } from "#compiler/analysis/theory/build.ts"
 import {
 	type FamilyStated,
 	familyStatement,
@@ -10,6 +10,7 @@ import type { ColumnIdent, Identifier, LawId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { appendNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import {
 	type ExprDesc,
 	type MonoidName,
@@ -179,16 +180,13 @@ const groupOf = (
 	owner: RelationInfo,
 	member: RelationInfo,
 	terms: ReadonlyArray<TermDesc>,
-	loc: SourceLoc
+	loc: SourceLoc,
+	side: Refused
 ): FamilyShape["group"] =>
 	mapNonEmpty(owner.primaryFields, (key, j) => {
 		const t = terms[j]
 		if (t === undefined) {
-			return refuse(
-				"MalformedDescription",
-				loc,
-				`a family's side is its owner's key, then its index: ${member.name}'s side names ${terms.length} term(s) for ${owner.name}'s key of ${owner.primaryFields.length}`
-			)
+			return refuseNamed(loc, side)
 		}
 		const g = fieldTerm(member, t, "a family's group", loc)
 		if (g.writing.kind !== "caller") {
@@ -204,12 +202,21 @@ const groupOf = (
 /** A family's member side reads every fact: its members are every fact of its relation, or a tree's every row but its root. */
 const everyMember = (side: SideDesc, loc: SourceLoc): void => {
 	if (side.selection.conjuncts.length > 0) {
-		refuse(
-			"MalformedDescription",
+		refuseNamed(
 			loc,
-			`a family's side reads every fact of ${side.relation}; it selects some`
+			"a family's member side is a relation, never a selection: its members are every fact of the relation"
 		)
 	}
+}
+
+/**
+ * What each family statement refuses its member side for, a rule the types name too: a tree's shape, an ordered
+ * family's side of its owner's key then its drawn index, or a counted family's of its owner's key.
+ */
+export const familySides: { readonly [O in "ordered" | "counted" | "tree"]: Refused } = {
+	ordered: "an ordered family's side is its owner's key, then its drawn index",
+	counted: "a counted family's side is its owner's key",
+	tree: "a tree is a family of T over itself, on(T, parent, at), with drawn start and end"
 }
 
 /** The shape of `ordered(on(F, g…, i), fin(O, n))` or `counted(on(F, g…), fin(O, n))`. */
@@ -224,16 +231,11 @@ export const familyShape = (
 	const member = ordinary(relations, s.member.relation, "member", loc)
 	const count = drawnField(owner, fieldOf(owner, s.slots.count, loc), "count", loc)
 	const width = owner.primaryFields.length + (s.order === "ordered" ? 1 : 0)
+	const side = familySides[s.order]
 	if (s.member.terms.length !== width) {
-		return refuse(
-			"MalformedDescription",
-			loc,
-			s.order === "ordered"
-				? `an ordered family's side is its owner's key, then its drawn index: ${width} term(s); on(${member.name}, …) names ${s.member.terms.length}`
-				: `a counted family's side is its owner's key: ${width} term(s); on(${member.name}, …) names ${s.member.terms.length}`
-		)
+		return refuseNamed(loc, side)
 	}
-	const group = groupOf(owner, member, s.member.terms, loc)
+	const group = groupOf(owner, member, s.member.terms, loc, side)
 	const last = s.member.terms[width - 1]
 	const indexField =
 		s.order === "ordered" && last !== undefined
@@ -275,28 +277,15 @@ export const treeShape = (
 	const loc = s.loc
 	everyMember(s.member, loc)
 	const t = ordinary(relations, s.member.relation, "member", loc)
-	if (s.slots.owner !== t.name) {
-		return refuse(
-			"MalformedDescription",
-			loc,
-			`a tree is a family of its relation over itself, on(T, parent, at) in fin(T, n); on(${t.name}, …) is in fin(${s.slots.owner}, ${s.slots.count})`
-		)
-	}
 	const [key, ...more] = t.primaryFields
-	if (more.length > 0) {
-		return refuse(
-			"MalformedDescription",
-			loc,
-			`a tree relation keyed by one field, which its parent names; ${t.name}'s primary key has ${t.primaryFields.length}`
-		)
-	}
 	const [parentTerm, atTerm, ...extra] = s.member.terms
-	if (atTerm === undefined || extra.length > 0) {
-		return refuse(
-			"MalformedDescription",
-			loc,
-			`a tree's side is on(T, parent, at), two terms; on(${t.name}, …) names ${s.member.terms.length}`
-		)
+	if (
+		s.slots.owner !== t.name ||
+		more.length > 0 ||
+		atTerm === undefined ||
+		extra.length > 0
+	) {
+		return refuseNamed(loc, familySides.tree)
 	}
 	const parent = fieldTerm(t, parentTerm, "a tree's side", loc)
 	if (parent === key) {
@@ -313,21 +302,13 @@ export const treeShape = (
 	const interval = (name: "start" | "end"): LawField => {
 		const f = t.fields.find((g) => g.name === name)
 		if (f?.writing.kind !== "drawn") {
-			return refuse(
-				"MalformedDescription",
-				loc,
-				`a tree relation with drawn start and end, its pre-order interval; ${t.name} has ${f === undefined ? `no ${name}` : `${name} written by ${f.writing.kind}`}`
-			)
+			return refuseNamed(loc, familySides.tree)
 		}
 		return f
 	}
 	const root = fieldOf(t, s.root, loc)
 	if (root.writing.kind !== "caller") {
-		return refuse(
-			"MalformedDescription",
-			loc,
-			`a tree's root field is a caller's field of its relation; ${t.name}.${root.name} is written by ${root.writing.kind}`
-		)
+		return refuseNamed(loc, "a tree's root field is a caller's field of its relation")
 	}
 	const group: TreeFamilyShape["group"] = [{ member: parent, owner: key }]
 	const index: NativeColumn = { kind: "field", field: at }
@@ -790,7 +771,7 @@ export const foldEntry = (s: FoldStatement, f: FamilyShape, law: Identifier<"law
 		ends
 	})
 	if (refused !== undefined) {
-		return refuse("MalformedDescription", loc, refused)
+		return refuseBreach(loc, refused)
 	}
 	const [firstEnd] = ends
 	if (firstEnd === undefined) {

@@ -31,6 +31,7 @@ import {
 	type TreeFamily,
 	type TreeFamilyShape,
 	type TreeStatement,
+	familySides,
 	treeShape
 } from "#compiler/analysis/theory/families.ts"
 import {
@@ -44,7 +45,7 @@ import {
 	violationQuery
 } from "#compiler/analysis/theory/query.ts"
 import { unwrap } from "#compiler/check/fail.ts"
-import { combineRule } from "#compiler/check/fold.ts"
+import { combineRule, foldPlane } from "#compiler/check/fold.ts"
 import { compareText, ownedText, Refusal, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { Identifier } from "#compiler/core/ids.ts"
@@ -56,6 +57,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
 	connectiveExpr,
@@ -73,7 +75,7 @@ import {
 	termText
 } from "#compiler/ir/desc.ts"
 import { type ExprSpec, OpId, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
-import type { AxisKind, Family, FamilyFold } from "#compiler/ir/family.ts"
+import { type AxisKind, type Family, type FamilyFold, orderOf } from "#compiler/ir/family.ts"
 import {
 	type DeclaredSide,
 	type FamilyId,
@@ -1928,16 +1930,19 @@ export class Normalizer {
 		readonly b: string
 		readonly g: LawField
 		readonly loc: SourceLoc
+		readonly refusal: Refused
 	}> {
 		return [...this.#families.values()].flatMap((entry) => {
 			const shape = entry.shape
 			const loc = entry.loc
+			const side = familySides[shape.members.kind === "tree" ? "tree" : orderOf(shape)]
 			const group = shape.group.map((p) => ({
 				a: shape.member.name,
 				f: p.member,
 				b: shape.owner.name,
 				g: p.owner,
-				loc
+				loc,
+				refusal: side
 			}))
 			const tree =
 				shape.members.kind === "tree"
@@ -1947,7 +1952,8 @@ export class Normalizer {
 								f: shape.members.start,
 								b: shape.member.name,
 								g: shape.members.end,
-								loc
+								loc,
+								refusal: familySides.tree
 							}
 						]
 					: []
@@ -1956,7 +1962,16 @@ export class Normalizer {
 				return fold.named.flatMap((n) =>
 					x === undefined
 						? []
-						: [{ a: shape.member.name, f: x, b: n.relation.name, g: n.field, loc: fold.loc }]
+						: [
+								{
+									a: shape.member.name,
+									f: x,
+									b: n.relation.name,
+									g: n.field,
+									loc: fold.loc,
+									refusal: foldPlane
+								}
+							]
 				)
 			})
 			return [...group, ...tree, ...folds]

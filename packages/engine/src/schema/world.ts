@@ -1,6 +1,6 @@
 import { sameContent } from "#compiler/core/canonical.ts"
 import type { LoginRule, RoleRule } from "#compiler/core/causes.ts"
-import { CompileError } from "#compiler/core/errors.ts"
+import { CompileError, refused } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -313,19 +313,27 @@ export const admitRole = (
 		const draft = derivedDraftOf(value)
 		const kind = ownedKind(value)
 		if (draft?.storage === "live") {
-			throw roleRefused(at, { kind: "wholeEntryLive", entry: key })
+			throw refused(
+				builderLoc(at, []),
+				"a whole entry is a relation PostgreSQL stores: a role reads a live derived relation through the relations its definition reads"
+			)
 		}
 		if (draft !== undefined || kind === "relation" || kind === "closed") {
 			const own = wholeOf(value, at)
 			const declared = below.get(key)
-			if (own.name !== key) {
-				throw roleRefused(at, { kind: "wholeEntryName", entry: key, relation: own.name })
-			}
 			const held = Object.hasOwn(baseEntry.value.relations, key)
 				? baseEntry.value.relations[key]
 				: undefined
-			if (declared === undefined || held === undefined || !sameContent(wholeOf(held, at), own)) {
-				throw roleRefused(at, { kind: "wholeEntryUndeclared", entry: key, base: baseDesc.name })
+			if (
+				own.name !== key ||
+				declared === undefined ||
+				held === undefined ||
+				!sameContent(wholeOf(held, at), own)
+			) {
+				throw refused(
+					builderLoc(at, []),
+					"a whole entry is a relation of the base under its own name"
+				)
 			}
 			entries.push({ kind: "whole", name: key, loc })
 			kinds.set(key, declared.kind)
@@ -340,15 +348,7 @@ export const admitRole = (
 		if (carried !== undefined) {
 			const carriedEntry = ownedEntry(carried, "schema")
 			if (carriedEntry === undefined || !isLevelOf(carriedEntry.content, baseEntry.content)) {
-				throw roleRefused(at, {
-					kind: "entryOverAnother",
-					entry: key,
-					base: baseDesc.name,
-					over:
-						carriedEntry === undefined
-							? { kind: "role" }
-							: { kind: "schema", schema: carriedEntry.desc.name }
-				})
+				throw refused(builderLoc(at, []), "a query entry is a query over the role's base")
 			}
 		}
 		if (query.stage.kind === "order") {
@@ -702,7 +702,7 @@ const admitLogin = (base: unknown, name: unknown, roles: unknown): LoginDesc => 
 			throw malformed(`${label} role ${i}`, "a role built by role(...)")
 		}
 		const desc = entry.desc
-		const refused = (rule: LoginRule): CompileError =>
+		const loginRefused = (rule: LoginRule): CompileError =>
 			CompileError.make({
 				_tag: "LoginRefused",
 				at: builderLoc(`${label} role ${desc.name}`, []),
@@ -710,14 +710,14 @@ const admitLogin = (base: unknown, name: unknown, roles: unknown): LoginDesc => 
 				rule
 			})
 		if (desc.base.name !== baseDesc.name || !sameLevel(entry.content.base, baseEntry.content)) {
-			throw refused({ kind: "roleBase", role: desc.name, base: baseDesc.name })
+			throw loginRefused({ kind: "roleBase", role: desc.name, base: baseDesc.name })
 		}
 		if (desc.name === loginName) {
-			throw refused({ kind: "roleName", role: desc.name })
+			throw loginRefused({ kind: "roleName", role: desc.name })
 		}
 		const prior = loginOfRole(r)
 		if (prior !== undefined) {
-			throw refused({ kind: "roleTwice", role: desc.name, login: prior.name })
+			throw loginRefused({ kind: "roleTwice", role: desc.name, login: prior.name })
 		}
 		return desc
 	})

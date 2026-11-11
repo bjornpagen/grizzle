@@ -191,6 +191,19 @@ describe("relation", () => {
 		"a repeated key field",
 		"a fourth argument"
 	]
+	/** The reason each defect is refused for: a malformed call, or a rule the types name too, a key's fields each once. */
+	const relationTags: {
+		readonly [D in Exclude<RelationDefect, "none">]: "MalformedDescription" | "Refused"
+	} = {
+		"an empty name": "MalformedDescription",
+		"no fields": "MalformedDescription",
+		"a look-alike descriptor": "MalformedDescription",
+		"an empty field name": "MalformedDescription",
+		"an empty key": "MalformedDescription",
+		"an undeclared key field": "MalformedDescription",
+		"a repeated key field": "Refused",
+		"a fourth argument": "MalformedDescription"
+	}
 	/** The name, field names and primary key an ordinary relation's Description records. */
 	const recorded = (value: unknown, label: string) => {
 		const desc = relationDescOf(value, label)
@@ -297,12 +310,12 @@ describe("relation", () => {
 											primaryKey,
 											s.defect === "a fourth argument" ? [{}] : []
 										),
-									"MalformedDescription"
+									relationTags[s.defect]
 								)
 								if (s.defect !== "a fourth argument") {
 									throwsRefused(
 										() => relationDescOf(lookAlike, "look-alike"),
-										"MalformedDescription"
+										relationTags[s.defect]
 									)
 								}
 								return
@@ -466,7 +479,7 @@ describe("closed", () => {
 											: handles
 								throwsRefused(
 									() => admitRoster(s.name, roster, s.defect === "a third argument" ? [{}] : []),
-									"MalformedDescription"
+									s.defect === "a repeated handle" ? "Refused" : "MalformedDescription"
 								)
 								return
 							}
@@ -675,7 +688,9 @@ describe("closed", () => {
 							if (s.defect !== "none") {
 								throwsRefused(
 									() => admitClosedRelation(s.name, fields, key, rows, extra),
-									"MalformedDescription"
+									s.defect === "two rows of one key, other payloads"
+										? "Refused"
+										: "MalformedDescription"
 								)
 								return
 							}
@@ -1227,7 +1242,7 @@ describe("statements", () => {
 									if (planted.defect !== "none") {
 										return void throwsRefused(
 											() => onBuilder(source, terms),
-											"MalformedDescription"
+											planted.defect === "a repeated term" ? "Refused" : "MalformedDescription"
 										)
 									}
 									return assert.deepEqual<SideDesc | undefined>(
@@ -1613,7 +1628,10 @@ describe("statements", () => {
 											: e.and(built(e, predicate), plantedConjunct(e, defect))
 								)
 							if (defect !== "none") {
-								return void throwsRefused(build, "MalformedDescription")
+								return void throwsRefused(
+									build,
+									defect === "a parameter" ? "Refused" : "MalformedDescription"
+								)
 							}
 							const sums = operandsOf(predicate)
 							if (Arr.some(sums, (o) => o.kind === "sum" && o.typed)) {
@@ -1658,6 +1676,17 @@ describe("alternatives", () => {
 		"an arm keyed unlike the parent",
 		"the parent as an arm"
 	]
+	/** The reason each defect is refused for: a malformed call, or a rule the types name too. */
+	const alternativesTags: {
+		readonly [D in Exclude<AlternativesDefect, "none">]: "MalformedDescription" | "Refused"
+	} = {
+		"a discriminator of another type": "MalformedDescription",
+		"a discriminator of another roster": "MalformedDescription",
+		"an arm off the roster": "Refused",
+		"no arms": "Refused",
+		"an arm keyed unlike the parent": "MalformedDescription",
+		"the parent as an arm": "Refused"
+	}
 	type AlternativesFeature =
 		| AlternativesDefect
 		| "a Key as the parent"
@@ -1767,7 +1796,7 @@ describe("alternatives", () => {
 							const armMap = s.defect === "no arms" ? {} : arms
 							const build = () => alternativesBuilder(parent, discriminator, Mode, armMap)
 							if (s.defect !== "none") {
-								return void throwsRefused(build, "MalformedDescription")
+								return void throwsRefused(build, alternativesTags[s.defect])
 							}
 							const law = build()
 							assert.equal(Object.isFrozen(law), true)
@@ -1931,7 +1960,7 @@ describe("schema and schema.extend", () => {
 										given["task"] = Task
 										return void throwsRefused(
 											() => admitSchema("Work", given, statements, []),
-											"MalformedDescription"
+											"Refused"
 										)
 									case "a list as a statement":
 										return void throwsRefused(

@@ -15,6 +15,7 @@ import type {
 	ValueFault
 } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import {
@@ -83,7 +84,6 @@ import {
 import { rowHelpers } from "#compiler/schema/terms.ts"
 import { insertableNamesOf, role, roleDescOf } from "#compiler/schema/world.ts"
 import { regexField, str } from "#compiler/text/field.ts"
-import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation, AnyRoster } from "#compiler/types/schema/relation.ts"
@@ -374,8 +374,15 @@ type SchemaFault = (typeof schemaFaults)[number]
 const declaredClasses = ["unkeyedTarget", "castFits"] as const
 type DeclaredClass = (typeof declaredClasses)[number]
 
-/** What a probe plants: a fault the types refuse, or a declared class they accept. */
-type Planted = SchemaFault | DeclaredClass
+/**
+ * The kept faults, each a probe of the kept case every run states (keptCase) and never drawn: a family's member side
+ * over a selection, by counted, ordered and tree.
+ */
+const keptFaults = ["selectedCounted", "selectedOrdered", "selectedTree"] as const
+type KeptFault = (typeof keptFaults)[number]
+
+/** What a probe plants: a fault the types refuse, a kept one, or a declared class they accept. */
+type Planted = SchemaFault | KeptFault | DeclaredClass
 
 const isDeclared = (planted: Planted): planted is DeclaredClass =>
 	Arr.contains<Planted>(declaredClasses, planted)
@@ -390,631 +397,528 @@ const declared: { readonly [C in DeclaredClass]: Expected } = {
  * What a case reached: its constructs, the faults the engine refused, the declared classes it refused, and the
  * refusals the types named.
  */
-type SchemaNote = SchemaConstruct | SchemaForm | SchemaFault | DeclaredClass | TypeRefusal
+type SchemaNote = SchemaConstruct | SchemaForm | SchemaFault | KeptFault | DeclaredClass | Refused
 
 /** A diagnostic's code. */
 type Code = "TS2322" | "TS2339" | "TS2345" | "TS2554" | "TS2555" | "TS2739" | "TS2741"
 
-/** What a directive claims of its diagnostic: a structural refusal's reason, or the refusal grizzle's type names. */
-type Claimed =
-	| { readonly kind: "prose"; readonly why: string }
-	| { readonly kind: "refusal"; readonly message: TypeRefusal }
+/**
+ * A fault's refusal on both sides, and the diagnostic the types raise on the probe's line. Named: the types name a
+ * Refusal, and the engine states the same message as its reason (Refused), so the two are one vocabulary's and compared
+ * by equality. Structural: the types raise no Refusal, `why` says what refuses, and the engine refuses for `engine`, as
+ * reasonKey reads it.
+ */
+type Refusing =
+	| { readonly kind: "named"; readonly code: Code; readonly refusal: Refused }
+	| {
+			readonly kind: "structural"
+			readonly engine: Expected
+			readonly code: Code
+			readonly why: string
+	  }
+	| {
+			readonly kind: "typed"
+			readonly code: Code
+			readonly refusal: Refused
+			readonly engine: Expected
+	  }
+
+/** A fault the types refuse by the Refusal `refusal`, which the engine states as its reason. */
+const named = (code: Code, refusal: Refused): Refusing => ({ kind: "named", code, refusal })
 
 /**
- * A fault's refusal on both sides: the engine's reason, as reasonKey reads it, and the diagnostic the types raise on
- * the probe's line, with its claim.
+ * A fault the types refuse by the Refusal `refusal` where the engine, which reads no type, cannot state it: the oracle
+ * reads what the engine builds of it, `engine`.
  */
-interface Refusing {
-	readonly engine: Expected
-	readonly code: Code
-	readonly claim: Claimed
-}
+const typed = (code: Code, refusal: Refused, engine: Expected): Refusing => ({
+	kind: "typed",
+	code,
+	refusal,
+	engine
+})
 
-const prose = (why: string): Claimed => ({ kind: "prose", why })
-const named = (message: TypeRefusal): Claimed => ({ kind: "refusal", message })
+/** A fault the types refuse with no Refusal, for `why`, and the engine for `engine`. */
+const structural = (engine: Expected, code: Code, why: string): Refusing => ({
+	kind: "structural",
+	engine,
+	code,
+	why
+})
 
-/** Each fault's refusal: the engine's reason, and the diagnostic the types raise with its claim. */
-const refusals: { readonly [F in SchemaFault]: Refusing } = {
-	emptyKey: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("a primary key names at least one field")
-	},
-	undeclaredKeyField: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: prose("the primary key names declared fields")
-	},
-	repeatedKeyField: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named("a key lists each field once")
-	},
-	repeatedSideTerm: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named("a side lists each term once")
-	},
-	emptySide: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2555",
-		claim: prose("a side names at least one term")
-	},
-	undeclaredSideTerm: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("a side's terms are fields of its source")
-	},
-	emptyRoster: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("a roster holds at least one handle")
-	},
-	repeatedHandle: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named("a roster lists each handle once")
-	},
-	foreignHandle: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("a handle is a member of its roster")
-	},
-	sidesDiffer: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named("the sides' field types differ")
-	},
-	mutableClosed: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2739",
-		claim: prose("mutable takes ordinary relations; a closed relation is immutable by nature")
-	},
-	noArms: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named("alternatives takes at least one arm")
-	},
-	strayArm: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: named("an arm is keyed by a handle of its roster")
-	},
-	selfArm: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: named("an arm is a relation other than its parent")
-	},
-	armKeyMismatch: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: named("the arm's key does not match the parent key")
-	},
-	foreignDiscriminator: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("the discriminator is a closed id of the roster")
-	},
-	aliasedRelation: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: named("a schema holds each relation under its own name")
-	},
-	undeclaredStatementRelation: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named("a statement names a relation no level of the schema declares")
-	},
-	finMember: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: prose("a schema's members are relations, and fin(O, n) is none")
-	},
-	entryOutsideBase: {
-		engine: { tag: "RoleRefused", rule: "wholeEntryUndeclared" },
-		code: "TS2322",
-		claim: named("a whole entry is a relation of the base under its own name")
-	},
-	writeClosed: {
-		engine: { tag: "RoleRefused", rule: "writeKind" },
-		code: "TS2345",
-		claim: prose("a write list names ordinary relations and query entries only")
-	},
-	writeStranger: {
-		engine: { tag: "RoleRefused", rule: "writeOutside" },
-		code: "TS2345",
-		claim: prose("a write list names relations of the role")
-	},
-	writeDerived: {
-		engine: { tag: "RoleRefused", rule: "writeKind" },
-		code: "TS2345",
-		claim: prose("a write list never names a derived relation")
-	},
-	refreshBase: {
-		engine: { tag: "RoleRefused", rule: "refreshKind" },
-		code: "TS2345",
-		claim: prose("a refresh list names derived relations only")
-	},
-	parameterizedDefinition: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("a derived definition is parameterless")
-	},
-	derivedAtOwnLevel: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: prose("a derived relation is declared above the level its definition reads")
-	},
-	derivedInRoot: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: prose("a root schema declares no derived relation; schema.extend does")
-	},
-	keyOverDerived: {
-		engine: { tag: "UnsupportedLawFamily" },
-		code: "TS2345",
-		claim: named(
-			"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
-		)
-	},
-	sideOverDerived: {
-		engine: { tag: "UnsupportedLawFamily" },
-		code: "TS2345",
-		claim: named(
-			"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
-		)
-	},
-	mutableDerived: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2739",
-		claim: prose("mutable takes ordinary relations only")
-	},
-	checkOverDerived: {
-		engine: { tag: "UnsupportedLawFamily" },
-		code: "TS2345",
-		claim: named(
-			"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
-		)
-	},
-	selectOverDerived: {
-		engine: { tag: "UnsupportedLawFamily" },
-		code: "TS2345",
-		claim: named(
-			"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
-		)
-	},
-	derivedParent: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("alternatives takes no derived parent")
-	},
-	derivedArm: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: named("the arm's key does not match the parent key")
-	},
-	parameterizedCheck: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: named("a schema predicate reads no parameter")
-	},
-	parameterizedSelect: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: named("a schema predicate reads no parameter")
-	},
-	parameterizedContract: {
-		engine: { tag: "UnsupportedOperation" },
-		code: "TS2345",
-		claim: named("a schema predicate reads no parameter")
-	},
-	literalKind: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("a literal is a host value of its field's kind")
-	},
-	finNotDrawn: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("fin's count is a drawn natural of its owner")
-	},
-	countedPair: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named("a fold over a counted family hides its accumulators: name the step's value alone")
-	},
-	monoidMismatch: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named(
-			"the monoid admits the step value's type: sum an exact number, or and twos a set, max an ordered value with a least one, concat a text"
-		)
-	},
-	endPlanes: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named("a fold's end names one accumulated field of the owner per plane")
-	},
-	treeParentType: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named("a tree is a family of T over itself, on(T, parent, at), with drawn start and end")
-	},
-	drawnNotNatural: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2741",
-		claim: prose("a drawn field is a natural")
-	},
-	accumulatedWriting: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named(
-			"an accumulated field is of a value type: no span, vector or field of a writing of its own"
-		)
-	},
-	accumulatedStart: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("an accumulated field's start is a value of its type")
-	},
-	rowMissingField: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2741",
-		claim: prose("a closed relation's row holds every field")
-	},
-	contractOverSerial: {
-		engine: { tag: "UnsupportedOperation" },
-		code: "TS2345",
-		claim: named(
-			"a contract is a value domain; a serial is a generation declaration, so use its value type"
-		)
-	},
-	endpointType: {
-		engine: { tag: "UnsupportedOperation" },
-		code: "TS2345",
-		claim: prose("a span's endpoint is an integer or a bigint, or a contract over one")
-	},
-	widthType: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("a span's width is a value of its endpoint's host type")
-	},
-	numericArity: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2554",
-		claim: prose("a numeric declares its precision and its scale")
-	},
-	argumentKind: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("a precision, a scale and a dimension count are numbers")
-	},
-	vectorMakeBuffer: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("Vector.make takes a Float32Array, never an array of numbers")
-	},
-	vectorFromBuffer: {
-		engine: { value: "vectorType" },
-		code: "TS2345",
-		claim: prose("Vector.from takes a Float32Array or a Vector of its dimensions")
-	},
-	vectorDimensionArgument: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("the dimension count is a number")
-	},
-	vectorAssign: {
-		engine: { value: "vectorDimensions" },
-		code: "TS2322",
-		claim: prose("a vector of other dimensions is another type")
-	},
-	vectorFromOther: {
-		engine: { value: "vectorDimensions" },
-		code: "TS2345",
-		claim: prose("Vector.from refuses a vector of other dimensions, which no conversion reaches")
-	},
-	uuidSpelling: {
-		engine: { value: "uuidSyntax" },
-		code: "TS2322",
-		claim: prose("a text of other than five hyphenated groups is no uuid")
-	},
-	bitsStranger: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: prose("a set lists handles of its roster")
-	},
-	bitsRepeated: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named("a set lists each of its handles once")
-	},
-	predNotNatural: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("pred reads a natural field")
-	},
-	predUndeclared: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("pred reads a field of the side's relation")
-	},
-	predClosed: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("a closed relation has no natural field for pred to read")
-	},
-	predOfPred: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("pred is one level deep: its argument is a field name, never a pred term")
-	},
-	selectedUndeclared: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("a selected side's terms are its relation's fields")
-	},
-	keyOverClosed: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose(
-			"key takes a side of an ordinary relation; a closed relation is keyed by its declaration"
-		)
-	},
-	inSetKind: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: prose("inSet lists literals of its term's type")
-	},
-	partialBind: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("bind binds every parameter of the query it imports")
-	},
-	strayBinding: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: named("not a field of the arms the bindings select")
-	},
-	strayNegation: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: named("not a field of the arms the bindings select")
-	},
-	bindingType: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: prose("a variable binds a field of its own type, a contract's never its bare base's")
-	},
-	negatedBindingType: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: prose("a variable binds a field of its own type, a contract's never its bare base's")
-	},
-	foreignAttach: {
-		engine: { tag: "ForeignLevel" },
-		code: "TS2322",
-		claim: prose("an arm attaches a child over a level of its rule's schema")
-	},
-	serialUnderContract: {
-		engine: { tag: "UnsupportedOperation" },
-		code: "TS2345",
-		claim: named(
-			"a contract is a value domain; a serial is a generation declaration, so use its value type"
-		)
-	},
-	spanOverSerialChain: {
-		engine: { tag: "UnsupportedOperation" },
-		code: "TS2345",
-		claim: prose("a span endpoint's contract chain holds no serial")
-	},
-	setPrimaryKey: {
-		engine: { tag: "UnrepresentableKey" },
-		code: "TS2322",
-		claim: prose("a primary key lists no set")
-	},
-	setKey: {
-		engine: { tag: "UnrepresentableKey" },
-		code: "TS2345",
-		claim: named("a key lists no set: a set's bit string is too wide for an index entry")
-	},
-	conflictingRow: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named(
-			"two facts of one relation share a key with different values; a key names one fact"
-		)
-	},
-	generatedReadsGenerated: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2339",
-		claim: prose("the row holds the written fields only, so no generated field reads another")
-	},
-	generatedReadsAccumulated: {
-		engine: { tag: "GeneratedRefused" },
-		code: "TS2339",
-		claim: prose("the row holds the fields its caller writes, never one grizzle accumulates")
-	},
-	generatedReadsDrawn: {
-		engine: { tag: "GeneratedRefused" },
-		code: "TS2339",
-		claim: prose("the row holds the fields its caller writes, never one grizzle draws")
-	},
-	generatedWrongType: {
-		engine: { tag: "GeneratedRefused" },
-		code: "TS2345",
-		claim: prose(
-			"a generated field's term is of its declared type but for the pattern and byte bound its column's domain checks, at its own position"
-		)
-	},
-	generatedContract: {
-		engine: { tag: "GeneratedRefused" },
-		code: "TS2345",
-		claim: prose("a contract is a type of its own, so a bigint term fills no Tally field")
-	},
-	generatedTwiceNamed: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: named("a generated field is named apart from the relation's written fields")
-	},
-	generatedKey: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: prose("the primary key names written fields")
-	},
-	finOverClosedNotNatural: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("fin over a closed relation names a natural field, and label is a closed id")
-	},
-	slotOverOrdinary: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("a slot reads a closed relation's fin, and Owner is an ordinary relation")
-	},
-	slotNotClosed: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2741",
-		claim: prose("a slot is a closed id, and pg.integer lacks a closed id's roster")
-	},
-	familyOverClosed: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named("an ordered family's side is its owner's key, then its drawn index")
-	},
-	closedKeyNotClosed: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
-		claim: prose("a closed relation's key fields are closed ids")
-	},
-	closedFifthArgument: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("a closed relation takes four arguments, a fifth typed never")
-	},
-	crossSet: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("a set over one roster is never a set over another")
-	},
-	lookAlikeDescriptor: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2741",
-		claim: prose("a look-alike lacks the brand of a builder's descriptor")
-	},
-	concatCounted: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named(
-			"a fold over a counted family combines in a commutative monoid: concat folds an ordered family or a tree"
-		)
-	},
-	concatHidden: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named(
-			"a concat fold names its (before, after) pair after its value: its law reads each member's running value"
-		)
-	},
-	contractEnd: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named("a fold's end names one accumulated field of the owner per plane")
-	},
-	countedSide: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named("a counted family's side is its owner's key")
-	},
-	finOverDerived: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose(
-			"fin reads a relation's drawn count or a closed relation's natural field, never a derived relation's"
-		)
-	},
-	derivedOverBase: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: named("the relation is not in this query's schema")
-	},
-	emptyHead: {
-		engine: { tag: "DerivedRefused", cause: "emptyHeading" },
-		code: "TS2345",
-		claim: named("a derived definition has at least one field")
-	},
-	headingGroups: {
-		engine: { tag: "DerivedRefused", cause: "headingGroups" },
-		code: "TS2345",
-		claim: named(
-			"a derived definition has one heading: a materialized view stores one heading group"
-		)
-	},
-	atShort: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2554",
-		claim: prose("C.at takes one key value per key field")
-	},
-	atMissing: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("C.at reads a payload field the closed relation declares")
-	},
-	atSwapped: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("a key value is a handle of its own key field's roster, in key order")
-	},
-	rowShort: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2554",
-		claim: prose("C.row takes every key field but the last")
-	},
-	atKey: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("C.at reads a payload field, never a key field")
-	},
-	atWrongHandle: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("a key value is a handle of its field's roster")
-	},
-	rowWhole: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2554",
-		claim: prose("C.row takes every key field but the last, never the whole key")
-	},
-	hasShort: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2554",
-		claim: prose("C.has takes one key value per key field")
-	},
-	hasField: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2554",
-		claim: prose("C.has takes the key alone, never a payload field before it")
-	},
-	hasWrongHandle: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("a key value of C.has is a handle of its field's roster")
-	},
-	hasSwapped: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("a key value of C.has is of its own key field's roster, in key order")
-	},
-	echoRoster: {
-		engine: { tag: "MalformedDescription" },
-		code: "TS2345",
-		claim: prose("a key term is of its key field's roster, whatever its handles' spellings")
-	},
-	contractName: {
-		engine: { identity: "several" },
-		code: "TS2345",
-		claim: named("a contract's name is one literal, the brand of its values")
-	}
+/** Alternatives over a derived relation, as both sides refuse it. */
+const storedAlternatives: Refused =
+	"alternatives relate stored relations: a derived relation's rows are its definition's, which no write draws"
+
+/** A family's member side over a selection, as both sides refuse it. */
+const wholeMember: Refused =
+	"a family's member side is a relation, never a selection: its members are every fact of the relation"
+
+/** Each fault's refusal: the engine's reason, and the diagnostic the types raise. */
+const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
+	emptyKey: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"a primary key names at least one field"
+	),
+	undeclaredKeyField: structural(
+		{ tag: "MalformedDescription" },
+		"TS2322",
+		"the primary key names declared fields"
+	),
+	repeatedKeyField: named("TS2345", "a key lists each field once"),
+	repeatedSideTerm: named("TS2345", "a side lists each term once"),
+	emptySide: structural(
+		{ tag: "MalformedDescription" },
+		"TS2555",
+		"a side names at least one term"
+	),
+	undeclaredSideTerm: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"a side's terms are fields of its source"
+	),
+	emptyRoster: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"a roster holds at least one handle"
+	),
+	repeatedHandle: named("TS2345", "a roster lists each handle once"),
+	foreignHandle: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"a handle is a member of its roster"
+	),
+	sidesDiffer: named("TS2345", "the sides' field types differ"),
+	mutableClosed: structural(
+		{ tag: "MalformedDescription" },
+		"TS2739",
+		"mutable takes ordinary relations; a closed relation is immutable by nature"
+	),
+	noArms: named("TS2345", "alternatives takes at least one arm"),
+	strayArm: named("TS2322", "an arm is keyed by a handle of its roster"),
+	selfArm: named("TS2322", "an arm is a relation other than its parent"),
+	armKeyMismatch: named("TS2322", "the arm's key does not match the parent key"),
+	foreignDiscriminator: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"the discriminator is a closed id of the roster"
+	),
+	aliasedRelation: named("TS2322", "a schema holds each relation under its own name"),
+	undeclaredStatementRelation: named(
+		"TS2345",
+		"a statement names a relation no level of the schema declares"
+	),
+	finMember: structural(
+		{ tag: "MalformedDescription" },
+		"TS2322",
+		"a schema's members are relations, and fin(O, n) is none"
+	),
+	entryOutsideBase: named("TS2322", "a whole entry is a relation of the base under its own name"),
+	writeClosed: structural(
+		{ tag: "RoleRefused", rule: "writeKind" },
+		"TS2345",
+		"a write list names ordinary relations and query entries only"
+	),
+	writeStranger: structural(
+		{ tag: "RoleRefused", rule: "writeOutside" },
+		"TS2345",
+		"a write list names relations of the role"
+	),
+	writeDerived: structural(
+		{ tag: "RoleRefused", rule: "writeKind" },
+		"TS2345",
+		"a write list never names a derived relation"
+	),
+	refreshBase: structural(
+		{ tag: "RoleRefused", rule: "refreshKind" },
+		"TS2345",
+		"a refresh list names derived relations only"
+	),
+	parameterizedDefinition: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"a derived definition is parameterless"
+	),
+	derivedAtOwnLevel: structural(
+		{ tag: "MalformedDescription" },
+		"TS2322",
+		"a derived relation is declared above the level its definition reads"
+	),
+	derivedInRoot: structural(
+		{ tag: "MalformedDescription" },
+		"TS2322",
+		"a root schema declares no derived relation; schema.extend does"
+	),
+	keyOverDerived: named(
+		"TS2345",
+		"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
+	),
+	sideOverDerived: named(
+		"TS2345",
+		"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
+	),
+	mutableDerived: structural(
+		{ tag: "MalformedDescription" },
+		"TS2739",
+		"mutable takes ordinary relations only"
+	),
+	checkOverDerived: named(
+		"TS2345",
+		"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
+	),
+	selectOverDerived: named(
+		"TS2345",
+		"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
+	),
+	derivedParent: structural(
+		{ refused: storedAlternatives },
+		"TS2345",
+		"alternatives takes no derived parent"
+	),
+	derivedArm: named("TS2322", storedAlternatives),
+	parameterizedCheck: named("TS2322", "a schema predicate reads no parameter"),
+	parameterizedSelect: named("TS2322", "a schema predicate reads no parameter"),
+	parameterizedContract: named("TS2345", "a schema predicate reads no parameter"),
+	literalKind: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"a literal is a host value of its field's kind"
+	),
+	finNotDrawn: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"fin's count is a drawn natural of its owner"
+	),
+	countedPair: named(
+		"TS2345",
+		"a fold over a counted family hides its accumulators: name the step's value alone"
+	),
+	monoidMismatch: named(
+		"TS2345",
+		"the monoid admits the step value's type: sum an exact number, or and twos a set, max an ordered value with a least one, concat a text"
+	),
+	endPlanes: named("TS2345", "a fold's end names one accumulated field of the owner per plane"),
+	treeParentType: named(
+		"TS2345",
+		"a tree is a family of T over itself, on(T, parent, at), with drawn start and end"
+	),
+	drawnNotNatural: structural(
+		{ tag: "MalformedDescription" },
+		"TS2741",
+		"a drawn field is a natural"
+	),
+	accumulatedWriting: named(
+		"TS2345",
+		"an accumulated field is of a value type: no span, vector or field of a writing of its own"
+	),
+	accumulatedStart: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"an accumulated field's start is a value of its type"
+	),
+	rowMissingField: structural(
+		{ tag: "MalformedDescription" },
+		"TS2741",
+		"a closed relation's row holds every field"
+	),
+	contractOverSerial: named(
+		"TS2345",
+		"a contract is a value domain; a serial is a generation declaration, so use its value type"
+	),
+	endpointType: structural(
+		{ tag: "UnsupportedOperation" },
+		"TS2345",
+		"a span's endpoint is an integer or a bigint, or a contract over one"
+	),
+	widthType: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"a span's width is a value of its endpoint's host type"
+	),
+	numericArity: structural(
+		{ tag: "MalformedDescription" },
+		"TS2554",
+		"a numeric declares its precision and its scale"
+	),
+	argumentKind: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"a precision, a scale and a dimension count are numbers"
+	),
+	vectorMakeBuffer: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"Vector.make takes a Float32Array, never an array of numbers"
+	),
+	vectorFromBuffer: structural(
+		{ value: "vectorType" },
+		"TS2345",
+		"Vector.from takes a Float32Array or a Vector of its dimensions"
+	),
+	vectorDimensionArgument: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"the dimension count is a number"
+	),
+	vectorAssign: structural(
+		{ value: "vectorDimensions" },
+		"TS2322",
+		"a vector of other dimensions is another type"
+	),
+	vectorFromOther: structural(
+		{ value: "vectorDimensions" },
+		"TS2345",
+		"Vector.from refuses a vector of other dimensions, which no conversion reaches"
+	),
+	uuidSpelling: structural(
+		{ value: "uuidSyntax" },
+		"TS2322",
+		"a text of other than five hyphenated groups is no uuid"
+	),
+	bitsStranger: structural(
+		{ tag: "MalformedDescription" },
+		"TS2322",
+		"a set lists handles of its roster"
+	),
+	bitsRepeated: named("TS2345", "a set lists each of its handles once"),
+	predNotNatural: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"pred reads a natural field"
+	),
+	predUndeclared: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"pred reads a field of the side's relation"
+	),
+	predClosed: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"a closed relation has no natural field for pred to read"
+	),
+	predOfPred: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"pred is one level deep: its argument is a field name, never a pred term"
+	),
+	selectedUndeclared: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"a selected side's terms are its relation's fields"
+	),
+	keyOverClosed: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"key takes a side of an ordinary relation; a closed relation is keyed by its declaration"
+	),
+	inSetKind: structural(
+		{ tag: "MalformedDescription" },
+		"TS2322",
+		"inSet lists literals of its term's type"
+	),
+	partialBind: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"bind binds every parameter of the query it imports"
+	),
+	strayBinding: named("TS2322", "a bind map names only the imported query's parameters"),
+	strayNegation: named("TS2322", "not a field of the arms the bindings select"),
+	bindingType: structural(
+		{ tag: "MalformedDescription" },
+		"TS2322",
+		"a variable binds a field of its own type, a contract's never its bare base's"
+	),
+	negatedBindingType: structural(
+		{ tag: "MalformedDescription" },
+		"TS2322",
+		"a variable binds a field of its own type, a contract's never its bare base's"
+	),
+	foreignAttach: structural(
+		{ tag: "ForeignLevel" },
+		"TS2322",
+		"an arm attaches a child over a level of its rule's schema"
+	),
+	serialUnderContract: named(
+		"TS2345",
+		"a contract is a value domain; a serial is a generation declaration, so use its value type"
+	),
+	spanOverSerialChain: structural(
+		{
+			refused:
+				"a contract is a value domain; a serial is a generation declaration, so use its value type"
+		},
+		"TS2345",
+		"a span endpoint's contract chain holds no serial"
+	),
+	setPrimaryKey: structural({ tag: "UnrepresentableKey" }, "TS2322", "a primary key lists no set"),
+	setKey: named("TS2345", "a key lists no set: a set's bit string is too wide for an index entry"),
+	conflictingRow: named(
+		"TS2345",
+		"two facts of one relation share a key with different values; a key names one fact"
+	),
+	generatedReadsGenerated: structural(
+		{ tag: "MalformedDescription" },
+		"TS2339",
+		"the row holds the written fields only, so no generated field reads another"
+	),
+	generatedReadsAccumulated: structural(
+		{ tag: "GeneratedRefused" },
+		"TS2339",
+		"the row holds the fields its caller writes, never one grizzle accumulates"
+	),
+	generatedReadsDrawn: structural(
+		{ tag: "GeneratedRefused" },
+		"TS2339",
+		"the row holds the fields its caller writes, never one grizzle draws"
+	),
+	generatedWrongType: structural(
+		{ tag: "GeneratedRefused" },
+		"TS2345",
+		"a generated field's term is of its declared type but for the pattern and byte bound its column's domain checks, at its own position"
+	),
+	generatedContract: structural(
+		{ tag: "GeneratedRefused" },
+		"TS2345",
+		"a contract is a type of its own, so a bigint term fills no Tally field"
+	),
+	generatedTwiceNamed: named(
+		"TS2322",
+		"a generated field is named apart from the relation's written fields"
+	),
+	generatedKey: structural(
+		{ tag: "MalformedDescription" },
+		"TS2322",
+		"the primary key names written fields"
+	),
+	finOverClosedNotNatural: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"fin over a closed relation names a natural field, and label is a closed id"
+	),
+	slotOverOrdinary: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"a slot reads a closed relation's fin, and Owner is an ordinary relation"
+	),
+	slotNotClosed: structural(
+		{ tag: "MalformedDescription" },
+		"TS2741",
+		"a slot is a closed id, and pg.integer lacks a closed id's roster"
+	),
+	familyOverClosed: named(
+		"TS2345",
+		"a family counts by an ordinary relation's drawn count: a closed relation's count numbers the slots of its key"
+	),
+	closedKeyNotClosed: structural(
+		{ tag: "MalformedDescription" },
+		"TS2322",
+		"a closed relation's key fields are closed ids"
+	),
+	closedFifthArgument: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"a closed relation takes four arguments, a fifth typed never"
+	),
+	crossSet: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"a set over one roster is never a set over another"
+	),
+	lookAlikeDescriptor: structural(
+		{ tag: "MalformedDescription" },
+		"TS2741",
+		"a look-alike lacks the brand of a builder's descriptor"
+	),
+	concatCounted: named(
+		"TS2345",
+		"a fold over a counted family combines in a commutative monoid: concat folds an ordered family or a tree"
+	),
+	concatHidden: named(
+		"TS2345",
+		"a concat fold names its (before, after) pair after its value: its law reads each member's running value"
+	),
+	contractEnd: named(
+		"TS2345",
+		"a fold's accumulators and ends are of its plane's type: another integer width, numeric typmod or contract is another type"
+	),
+	countedSide: named("TS2345", "a family's slots are fin(owner, count), the owner's count"),
+	finOverDerived: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"fin reads a relation's drawn count or a closed relation's natural field, never a derived relation's"
+	),
+	derivedOverBase: named("TS2345", "the relation is not in this query's schema"),
+	emptyHead: named("TS2345", "a derived definition has at least one field"),
+	headingGroups: named(
+		"TS2345",
+		"a derived definition has one heading: a materialized view stores one heading group"
+	),
+	atShort: structural(
+		{ tag: "MalformedDescription" },
+		"TS2554",
+		"C.at takes one key value per key field"
+	),
+	atMissing: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"C.at reads a payload field the closed relation declares"
+	),
+	atSwapped: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"a key value is a handle of its own key field's roster, in key order"
+	),
+	rowShort: structural(
+		{ tag: "MalformedDescription" },
+		"TS2554",
+		"C.row takes every key field but the last"
+	),
+	atKey: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"C.at reads a payload field, never a key field"
+	),
+	atWrongHandle: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"a key value is a handle of its field's roster"
+	),
+	rowWhole: structural(
+		{ tag: "MalformedDescription" },
+		"TS2554",
+		"C.row takes every key field but the last, never the whole key"
+	),
+	hasShort: structural(
+		{ tag: "MalformedDescription" },
+		"TS2554",
+		"C.has takes one key value per key field"
+	),
+	hasField: structural(
+		{ tag: "MalformedDescription" },
+		"TS2554",
+		"C.has takes the key alone, never a payload field before it"
+	),
+	hasWrongHandle: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"a key value of C.has is a handle of its field's roster"
+	),
+	hasSwapped: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"a key value of C.has is of its own key field's roster, in key order"
+	),
+	echoRoster: structural(
+		{ tag: "MalformedDescription" },
+		"TS2345",
+		"a key term is of its key field's roster, whatever its handles' spellings"
+	),
+	contractName: typed("TS2345", "a contract's name is one literal, the brand of its values", {
+		identity: "several"
+	}),
+	selectedCounted: named("TS2345", wholeMember),
+	selectedOrdered: named("TS2345", wholeMember),
+	selectedTree: named("TS2345", wholeMember)
 }
 
 /**
@@ -1024,31 +928,46 @@ const refusals: { readonly [F in SchemaFault]: Refusing } = {
  */
 type Expected =
 	| {
-			readonly tag: Exclude<CompileReasonTag, "RoleRefused" | "PartialOperation" | "DerivedRefused">
+			readonly tag: Exclude<
+				CompileReasonTag,
+				"Refused" | "RoleRefused" | "PartialOperation" | "DerivedRefused"
+			>
 	  }
 	| { readonly tag: "RoleRefused"; readonly rule: RoleRule["kind"] }
 	| { readonly tag: "DerivedRefused"; readonly cause: DerivedRefusal["kind"] }
 	| { readonly tag: "PartialOperation"; readonly precondition: PreconditionKind }
 	| { readonly value: ValueFault }
 	| { readonly identity: "several" }
+	| { readonly refused: Refused }
 
 /** An expected reason as the key a verdict reads its refusal as. */
 const expectedKey = (reason: Expected): string =>
 	"identity" in reason
 		? `identity:${reason.identity}`
-		: "value" in reason
-			? `value:${reason.value}`
-			: reason.tag === "RoleRefused"
-				? `${reason.tag}:${reason.rule}`
-				: reason.tag === "PartialOperation"
-					? `${reason.tag}:${reason.precondition}`
-					: reason.tag === "DerivedRefused"
-						? `${reason.tag}:${reason.cause}`
-						: reason.tag
+		: "refused" in reason
+			? `Refused:${reason.refused}`
+			: "value" in reason
+				? `value:${reason.value}`
+				: reason.tag === "RoleRefused"
+					? `${reason.tag}:${reason.rule}`
+					: reason.tag === "PartialOperation"
+						? `${reason.tag}:${reason.precondition}`
+						: reason.tag === "DerivedRefused"
+							? `${reason.tag}:${reason.cause}`
+							: reason.tag
+
+/** A fault's refusal as the key a verdict reads the engine's reason as. */
+const refusingKey = (refusing: Refusing): string =>
+	refusing.kind === "named" ? `Refused:${refusing.refusal}` : expectedKey(refusing.engine)
+
+/** The Refusal a fault's directive names: a named or a typed fault's, none for a structural one. */
+const namedOf = (refusing: Refusing): ReadonlyArray<Refused> =>
+	refusing.kind === "structural" ? [] : [refusing.refusal]
 
 /**
  * A refusal's reason as the agreement compares it: its tag, and for a refusal of a world or a derivation the rule it
- * names, structured data the engine states and never its prose.
+ * names, or for a named refusal its message of the one vocabulary (core/refusals.ts), structured data the engine states
+ * and never its prose.
  */
 const reasonKey = (reason: CompileReason): string => {
 	switch (reason._tag) {
@@ -1065,6 +984,8 @@ const reasonKey = (reason: CompileReason): string => {
 			return `${reason._tag}:${reason.duplicate.kind}`
 		case "PartialOperation":
 			return `${reason._tag}:${reason.precondition}`
+		case "Refused":
+			return `${reason._tag}:${reason.refusal}`
 		case "MalformedDescription":
 		case "MalformedArtifact":
 		case "UnsupportedOperation":
@@ -4877,6 +4798,98 @@ const countedSideProbe = (): Probe => {
 	}
 }
 
+/**
+ * A family whose member side is a selection of its member relation, a kept fault: counted and ordered of M's members in
+ * fin(O, n), or the tree of T over itself. A family's members are every fact of its member relation, so each refuses
+ * the selection before it reads the side's terms.
+ */
+const selectedMemberProbe = (fault: KeptFault): Probe => {
+	const drawnNatural = (name: string): FieldSpec => ({
+		name,
+		type: { kind: "natural" },
+		writing: { kind: "drawn" }
+	})
+	const flag: FieldSpec = {
+		name: "flag",
+		type: { kind: "pg", spelling: "boolean" },
+		writing: callerWriting
+	}
+	const owner: RelationSpec = {
+		name: "O",
+		fields: [{ name: "id", type: { kind: "uuid" }, writing: callerWriting }, drawnNatural("n")],
+		key: ["id"]
+	}
+	const member: RelationSpec = {
+		name: "M",
+		fields: [
+			{ name: "g", type: { kind: "uuid" }, writing: callerWriting },
+			{ name: "k", type: { kind: "pg", spelling: "integer" }, writing: callerWriting },
+			drawnNatural("i"),
+			flag
+		],
+		key: ["g", "k"]
+	}
+	const node: RelationSpec = {
+		name: "T",
+		fields: [
+			{ name: "id", type: { kind: "uuid" }, writing: callerWriting },
+			{ name: "parent", type: { kind: "uuid" }, writing: callerWriting },
+			drawnNatural("at"),
+			drawnNatural("children"),
+			drawnNatural("start"),
+			drawnNatural("end"),
+			{ name: "doc", type: { kind: "uuid" }, writing: callerWriting },
+			flag
+		],
+		key: ["id"]
+	}
+	const selected = (r: string): string => `Sc.select(${r}, (t) => t.eq(t.flag, true))`
+	return {
+		construct: "familyProbe",
+		refused: fault,
+		text: (ids, own) => {
+			const mine = (name: string) =>
+				name === "O" || name === "M" || name === "T" ? `${own}_${name}` : ids(name)
+			const relations = fault === "selectedTree" ? [node] : [owner, member]
+			return {
+				head: Arr.map(
+					relations,
+					(r) => `export const ${own}_${r.name} = ${relationSource(r, mine, quoted(r.key))}`
+				),
+				line:
+					fault === "selectedCounted"
+						? `export const ${own} = Sc.counted(Sc.on(${selected(`${own}_M`)}, "g"), Sc.fin(${own}_O, "n"))`
+						: fault === "selectedOrdered"
+							? `export const ${own} = Sc.ordered(Sc.on(${selected(`${own}_M`)}, "g", "i"), Sc.fin(${own}_O, "n"))`
+							: `export const ${own} = Sc.tree(Sc.on(${selected(`${own}_T`)}, "parent", "at"), Sc.fin(${own}_T, "children"), { root: "doc" })`,
+				tail: []
+			}
+		},
+		judge: (env) =>
+			building(() => {
+				const selection = (r: AnyRelation) =>
+					selectBuilder(r, (row: Readonly<Record<string, unknown>>) =>
+						rowHelpers.eq(row["flag"], true)
+					)
+				const o = relationValue(owner, env.rosters, env.contracts)
+				const m = relationValue(member, env.rosters, env.contracts)
+				const t = relationValue(node, env.rosters, env.contracts)
+				switch (fault) {
+					case "selectedCounted":
+						return countedBuilder(onBuilder(selection(m), ["g"]), finBuilder(o, "n"))
+					case "selectedOrdered":
+						return orderedBuilder(onBuilder(selection(m), ["g", "i"]), finBuilder(o, "n"))
+					case "selectedTree":
+						return treeBuilder(
+							onBuilder(selection(t), ["parent", "at"]),
+							finBuilder(t, "children"),
+							{ root: "doc" }
+						)
+				}
+			})
+	}
+}
+
 /** A tree of its own: a node relation over itself, its parent of its key's type, or, a planted fault, of another. */
 const treeProbe = (d: Drawing): Probe => {
 	const loose = d.upTo(1) === 1
@@ -7658,22 +7671,21 @@ const statedOf = (probe: Probe, env: Env): Stated => {
 		}
 	}
 	const refusing = refusals[planted]
-	if (judged.key !== expectedKey(refusing.engine)) {
+	if (judged.key !== refusingKey(refusing)) {
 		throw new Error(
-			`the oracle refuses a probe planting ${probe.refused} for ${judged.key}, not ${expectedKey(refusing.engine)}: ${judged.message}`
+			`the oracle refuses a probe planting ${probe.refused} for ${judged.key}, not ${refusingKey(refusing)}: ${judged.message}`
 		)
 	}
-	const claim = refusing.claim
 	const directive =
-		claim.kind === "refusal"
-			? `// @ts-expect-error -- ${refusing.code} refusal: ${claim.message}`
-			: `// @ts-expect-error -- ${refusing.code}: ${claim.why}`
+		refusing.kind === "structural"
+			? `// @ts-expect-error -- ${refusing.code}: ${refusing.why}`
+			: `// @ts-expect-error -- ${refusing.code} refusal: ${refusing.refusal}`
 	return {
 		lines: (ids, own) => {
 			const text = probe.text(ids, own, env)
 			return [...text.head, directive, text.line, ...text.tail]
 		},
-		notes: [planted, ...(claim.kind === "refusal" ? [claim.message] : [])]
+		notes: [planted, ...namedOf(refusing)]
 	}
 }
 
@@ -7812,12 +7824,21 @@ export const schemaWitnesses = () =>
 		...c.notes
 	])
 
-/** Every Refusal message a fault's directive names. */
-const namedRefusals: ReadonlyArray<TypeRefusal> = Arr.dedupe(
-	Arr.flatMap(schemaFaults, (f) => {
-		const claim = refusals[f].claim
-		return claim.kind === "refusal" ? [claim.message] : []
+/**
+ * The kept case every run states beside its drawn ones: the floor stream's first base, under the kept faults' probes
+ * alone (selectedMemberProbe).
+ */
+const keptCase = (): SchemaCase =>
+	caseOf({
+		base: defined(sample(drawnGen, floorSeed(schemaLabel), 1)[0], "the floor stream's first draw")
+			.base,
+		probes: Arr.map(keptFaults, selectedMemberProbe),
+		reached: new Set()
 	})
+
+/** Every Refusal message a fault's directive names. */
+const namedRefusals: ReadonlyArray<Refused> = Arr.dedupe(
+	Arr.flatMap(schemaFaults, (f) => namedOf(refusals[f]))
 )
 
 /**
@@ -7882,6 +7903,7 @@ export const schemaModules = (
 ): Arr.NonEmptyReadonlyArray<{ readonly file: string; readonly source: string }> => {
 	const cases = [
 		...schemaWitnesses().values,
+		keptCase(),
 		...sample(caseGen, rotatingSeed(seed, floorSeed(schemaLabel)), schemaCount)
 	]
 	return [

@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, Option, Order } from "effect"
+import type { Refused } from "#compiler/core/refusals.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
-import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
 import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/support/prelude.ts"
 
 /**
@@ -170,7 +170,7 @@ export const untypedCases: ReadonlyArray<UntypedCase> = [...boxCases, keptCase]
 export const untypedRefusalAt = (c: UntypedCase): Option.Option<number> =>
 	Arr.head(Arr.sort(c.holdingAny, Order.Number))
 
-const memberRefusal: TypeRefusal =
+const memberRefusal: Refused =
 	"a member typed any, which every check admits: type each member of the list or record"
 
 /** What a schema's admitted call keeps: each family's members nested at their owner's count field. */

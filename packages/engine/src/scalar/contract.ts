@@ -1,4 +1,4 @@
-import { malformedDescription, unsupported } from "#compiler/core/errors.ts"
+import { malformedDescription, refused } from "#compiler/core/errors.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
@@ -232,9 +232,9 @@ export const contractParts = (
 	const loc = captureLoc(`contract ${contract}`, [])
 	const serial = serialNameOf(described)
 	if (serial !== undefined) {
-		throw unsupported(
+		throw refused(
 			loc,
-			`contractBase: a contract is a value domain; ${serial.serial} is a serial generation declaration, so use its value type, ${serial.value}`
+			"a contract is a value domain; a serial is a generation declaration, so use its value type"
 		)
 	}
 	const domain = contractType(contract, described.scalar, loc, undefined, [])

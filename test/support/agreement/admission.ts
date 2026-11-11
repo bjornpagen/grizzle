@@ -2,6 +2,7 @@ import { Array as Arr, Predicate, Record as Rec, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { compilePage, statedOrderOf } from "#compiler/lower/shapes/page/compile.ts"
@@ -14,7 +15,6 @@ import { paramTerm } from "#compiler/query/build/terms.ts"
 import { computeCore, handleTerm } from "#compiler/scalar/compute/builders.ts"
 import { check } from "#compiler/schema/api.ts"
 import { closedIdOf } from "#compiler/schema/relation.ts"
-import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
 import {
 	Agree,
 	AgreeAbove,
@@ -390,7 +390,7 @@ const isJavaScriptValue = (kind: ConstantKind): boolean => {
 const namedRefusal = (
 	position: AdmissionPosition,
 	kind: ConstantKind
-): { readonly code: "TS2322" | "TS2345"; readonly message: TypeRefusal } | undefined => {
+): { readonly code: "TS2322" | "TS2345"; readonly message: Refused } | undefined => {
 	switch (position) {
 		case "firstOperand":
 		case "computeFirst":
@@ -1292,7 +1292,7 @@ const groupsTaken = (base: ShapeBase, wrapper: ShapeWrapper): boolean =>
 	base === "heterogeneous" && wrapper === "take"
 
 /** The refusal the types name for an approximate search over a shape (types/query/query.ts SearchSource). */
-const searchRefusal = (base: ShapeBase, wrapper: ShapeWrapper): TypeRefusal | undefined => {
+const searchRefusal = (base: ShapeBase, wrapper: ShapeWrapper): Refused | undefined => {
 	switch (wrapper) {
 		case "take":
 			return "approximateNearest over one rule's projection; this source is a bounded subset, whose own order already selects among the rows"
@@ -1318,7 +1318,7 @@ const combinatorDiagnostic = (
 	combinator: Combinator,
 	base: ShapeBase,
 	wrapper: ShapeWrapper
-): { readonly code: "TS2322" | "TS2339" | "TS2345"; readonly message: TypeRefusal | undefined } => {
+): { readonly code: "TS2322" | "TS2339" | "TS2345"; readonly message: Refused | undefined } => {
 	switch (combinator) {
 		case "take":
 			return {
@@ -1526,7 +1526,7 @@ const scopeVerdict = (
 	axis: ScopeAxis,
 	what: string,
 	build: () => unknown
-): { readonly admitted: true } | { readonly admitted: false; readonly refusal: TypeRefusal } => {
+): { readonly admitted: true } | { readonly admitted: false; readonly refusal: Refused } => {
 	const compiled = Result.flatMap(catchCompileError(build), (q) =>
 		compileTemplate(q, undefined, { ...testCompile, read: "rows" })
 	)

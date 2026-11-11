@@ -1826,11 +1826,11 @@ export class Checker {
 		const out = this.stage(src.query.stage, inner)
 		for (const param of values.keys()) {
 			if (!resolver.used.has(param)) {
-				fail(
-					"MalformedDescription",
-					childLoc(childLoc(loc, "bind"), param),
-					`a bind map naming the imported query's parameters; it uses no parameter ${param}`
-				)
+				failWith({
+					_tag: "Refused",
+					at: childLoc(childLoc(loc, "bind"), param),
+					refusal: "a bind map names only the imported query's parameters"
+				})
 			}
 		}
 		return out.node

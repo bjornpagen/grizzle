@@ -8,6 +8,7 @@ import { readServedRole } from "#adapter/pool/served.ts"
 import { refreshTargets } from "#adapter/refresh/targets.ts"
 import { served } from "#adapter/served/served.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { writtenNames } from "#compiler/ir/desc.ts"
@@ -17,7 +18,6 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { schema } from "#compiler/schema/schema.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import { login, role, roleDescOf, wholeEntriesOf, writableNamesOf } from "#compiler/schema/world.ts"
-import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { AnyRole, EntryValue, RoleOptionRecord } from "#compiler/types/schema/world.ts"
 import {
@@ -646,9 +646,9 @@ const caseGen: Gen<AccessCase> = (source) => {
 }
 
 /** The refusal a full role's write list takes when it names a relation twice. */
-const repeatRefusal: TypeRefusal = "a write list names each role relation once"
+const repeatRefusal: Refused = "a write list names each role relation once"
 
-const contextRefusal: TypeRefusal =
+const contextRefusal: Refused =
 	"a program on a Db of a role matches only the contexts the role's relations read, whose facts its claims hold"
 
 /** The directive of a workload member over no level of the workload's schema, as workload(...) refuses it. */

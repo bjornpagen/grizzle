@@ -1,9 +1,18 @@
 import { Refusal } from "#compiler/core/canonical.ts"
-import { CompileError, type ProseTag, prose, resourceBound } from "#compiler/core/errors.ts"
+import {
+	type Breach,
+	breachReason,
+	CompileError,
+	type ProseTag,
+	prose,
+	refused,
+	resourceBound
+} from "#compiler/core/errors.ts"
 import { type LawId, makeIdSupply } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { CatalogOpId, ExprSpec, TypedLiteral, ScalarExpr } from "#compiler/ir/expr.ts"
@@ -50,6 +59,16 @@ const refusal = (tag: ProseTag, loc: SourceLoc, capability: string): Refusal =>
 /** Throws the refusal: a function declaration, so control flow knows a call never returns. */
 export function refuse(tag: ProseTag, loc: SourceLoc, capability: string): never {
 	throw refusal(tag, loc, capability)
+}
+
+/** Throws the refusal of `breach` at `loc`, a rule the types name too or one in its own words. */
+export function refuseBreach(loc: SourceLoc, breach: Breach): never {
+	throw new Refusal(CompileError.make(breachReason(loc, breach)))
+}
+
+/** Throws the refusal at `loc` for `rule`, a rule the types name too. */
+export function refuseNamed(loc: SourceLoc, rule: Refused): never {
+	throw new Refusal(refused(loc, rule))
 }
 
 const plainCarriers: ReadonlyArray<PlainCarrier> = [

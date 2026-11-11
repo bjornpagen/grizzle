@@ -1,3 +1,4 @@
+import type { Refused } from "#compiler/core/refusals.ts"
 import type { guarded } from "#compiler/scalar/compute/term.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -21,8 +22,7 @@ import type {
 	SqlOfTerm,
 	Term,
 	TermBase,
-	TypeOfTerm,
-	TypeRefusal
+	TypeOfTerm
 } from "#compiler/types/core/phantom.ts"
 import type { LiteralOf, NotStoredOnly } from "#compiler/types/fields/field.ts"
 
@@ -301,7 +301,7 @@ type ComparisonOrigin<O, B> = ComputedOrigin<O | OperandOrigin<B>>
  * A precondition on an inferred argument: `a: A & Requires<Cond, "message">` keeps A inferable from the argument and
  * names the failure when Cond is false.
  */
-export type Requires<Cond extends boolean, Message extends TypeRefusal> = [Cond] extends [true]
+export type Requires<Cond extends boolean, Message extends Refused> = [Cond] extends [true]
 	? unknown
 	: Refusal<Message>
 
@@ -429,11 +429,11 @@ export type First<A, Os extends ReadonlyArray<unknown>> =
  * does not, so an operand of another type gets its type refusal, which is the engine's reason, and never the
  * precondition's.
  */
-export type Precondition<
-	Taken extends boolean,
-	Cond extends boolean,
-	Message extends TypeRefusal
-> = [Taken] extends [true] ? Requires<Cond, Message> : unknown
+export type Precondition<Taken extends boolean, Cond extends boolean, Message extends Refused> = [
+	Taken
+] extends [true]
+	? Requires<Cond, Message>
+	: unknown
 
 /**
  * The result R of a call whose every operand its operation takes (Taken), and never for any other call, which the types

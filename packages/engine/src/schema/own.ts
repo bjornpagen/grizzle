@@ -1114,6 +1114,19 @@ class Owner {
 		return entry
 	}
 
+	/** A relation the statement `s` names, which some level of the schema declares. */
+	#statementRelation(name: string, s: StatementEntry): RelationEntry {
+		const entry = this.#relations.get(name)
+		if (entry === undefined) {
+			return failWith({
+				_tag: "Refused",
+				at: s.desc.loc,
+				refusal: "a statement names a relation no level of the schema declares"
+			})
+		}
+		return entry
+	}
+
 	/**
 	 * Derived definitions read no parameter and no context: a materialized view holds no session, so no context fact
 	 * reaches a derived definition. Each reads a live derived relation through its definition, as the query builder
@@ -1386,7 +1399,7 @@ class Owner {
 	 * which a key's, a check's and a containment's side may read (`#sideRelation`).
 	 */
 	#declared(name: string, s: StatementEntry): RelationEntry {
-		const entry = this.#relation(name, s.desc.loc, statementLabel(s.desc))
+		const entry = this.#statementRelation(name, s)
 		if (entry.level > s.level) {
 			fail(
 				"MalformedDescription",
@@ -1661,7 +1674,7 @@ class Owner {
 				const source = lower(d.left.relation)
 				const target = lower(d.right.relation)
 				if (source !== undefined) {
-					const keyed = this.#relation(d.right.relation, s.desc.loc, statementLabel(s.desc))
+					const keyed = this.#statementRelation(d.right.relation, s)
 					if (
 						target !== undefined ||
 						!plainSide(d.left, source) ||
@@ -1756,6 +1769,16 @@ class Owner {
 						s.desc.loc,
 						`a key over an ordinary relation; ${d.side.relation} is keyed by its declaration`
 					)
+				}
+				const fieldsOf = entry.desc.fields
+				if (
+					d.side.terms.some((t) => t.kind === "field" && fieldsOf[t.field]?.type.kind === "bits")
+				) {
+					failWith({
+						_tag: "Refused",
+						at: d.loc,
+						refusal: "a key lists no set: a set's bit string is too wide for an index entry"
+					})
 				}
 				const fields = candidateKeyFields(d.side)
 				return {
@@ -2297,10 +2320,19 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		if (e.kind === "whole") {
 			const relation = base.relations[e.name]
 			if (relation === undefined) {
-				broken(e.loc, { kind: "wholeEntryUndeclared", entry: e.name, base: base.name })
+				failWith({
+					_tag: "Refused",
+					at: e.loc,
+					refusal: "a whole entry is a relation of the base under its own name"
+				})
 			}
 			if (relation.kind === "derived" && relation.desc.storage === "live") {
-				broken(e.loc, { kind: "wholeEntryLive", entry: e.name })
+				failWith({
+					_tag: "Refused",
+					at: e.loc,
+					refusal:
+						"a whole entry is a relation PostgreSQL stores: a role reads a live derived relation through the relations its definition reads"
+				})
 			}
 			relations[e.name] = { kind: "whole", name: entryName, relation, loc: e.loc }
 			continue
@@ -2424,8 +2456,8 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
  * Owns a role description, its base first.
  *
  * ownRole is ownership of a role: its base owned first, then every rule of a role's relations, write and refresh lists
- * checked against it, each a RoleRefused naming the rule it breaks (core/causes.ts RoleRule): a whole entry names a relation of the base
- * under its own name; a query entry is a Query over the base that reads no parameter; a write entry is a whole ordinary
+ * checked against it, each a RoleRefused naming the rule it breaks (core/causes.ts RoleRule), or Refused for a rule the
+ * types name too: a whole entry names a relation of the base under its own name; a query entry is a Query over the base that reads no parameter; a write entry is a whole ordinary
  * relation or a query entry the writable-entry analysis admits, at most one per base relation; a refresh entry is a
  * derived whole entry; and the contexts the role's relations read agree on each context's descriptor
  * (DuplicateIdentity). The relations' names are declared names of one namespace, the role's schema of views

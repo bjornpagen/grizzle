@@ -577,7 +577,11 @@ describe("derived relation refusals", () => {
 							assert.ok(owned?.ok === true, "ownership owns a rule over a derived relation")
 							assert.ok(analyzed?.ok === true, "the analysis of derived relations reads it")
 							const e = refusal(defined(installed, "the installation's entry"))
-							assert.ok(e.reason._tag === "UnsupportedLawFamily", e.message)
+							assert.ok(e.reason._tag === "Refused", e.message)
+							assert.equal(
+								e.reason.refusal,
+								"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
+							)
 						})
 				)
 			)

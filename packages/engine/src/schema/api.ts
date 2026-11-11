@@ -85,6 +85,7 @@ import type {
 	Counted,
 	CountedMember,
 	CountFieldIn,
+	FamilySlots,
 	DiscriminatorsOf,
 	DistinctTerms,
 	Fin,
@@ -101,12 +102,14 @@ import type {
 	NoSetKey,
 	Ordered,
 	OrderedMember,
+	OverSlots,
 	OwnerRelationOf,
 	KeyShows,
 	Pred,
 	RowScalars,
 	Selection,
 	SelfFamily,
+	WholeMember,
 	Showing,
 	ShowingKeyed,
 	ShowingKind,
@@ -424,7 +427,7 @@ export const alternatives = <
 	PF,
 	C extends AnyRoster,
 	const D extends DiscriminatorsOf<PC, C>,
-	const Arms extends Partial<{ readonly [H in HandleOf<C>]: KeyRef<AnyRelation> }>
+	const Arms extends Partial<{ readonly [H in HandleOf<C>]: KeyRef<AnyRelation> | AnyDerived }>
 >(
 	parent: PK & (ShowingKeyed<PN, PC, PF> | KeyShows<PN, PC, PF>),
 	discriminator: D,
@@ -457,30 +460,32 @@ export const fin = <
  * drawn index i exactly 0 … n − 1, in order.
  */
 export const ordered = <
-	F extends Side<AnyRelation>,
-	Fi extends AnyFin,
+	F extends Side<AnyRelation | Selection<AnyRelation>>,
+	Fi,
 	N extends string,
 	C,
 	ON extends string,
 	OC,
-	OK extends ReadonlyArray<string>
+	OK extends ReadonlyArray<string>,
+	Kind
 >(
-	family: F & SideShows<N, C> & OrderedMember<C, F["terms"], OC, OK>,
-	slots: Fi & FinShows<ON, OC, OK>
+	family: F & SideShows<N, C> & WholeMember & OverSlots<Kind, OrderedMember<C, F["terms"], OC, OK>>,
+	slots: Fi & FinShows<ON, OC, OK, Kind> & FamilySlots<Kind>
 ): Ordered<F, Fi> => orderedBuilder<F, Fi>(family, slots)
 
 /** counted(on(F, g…), fin(O, n)): each owner's n members, their index hidden. */
 export const counted = <
-	F extends Side<AnyRelation>,
-	Fi extends AnyFin,
+	F extends Side<AnyRelation | Selection<AnyRelation>>,
+	Fi,
 	N extends string,
 	C,
 	ON extends string,
 	OC,
-	OK extends ReadonlyArray<string>
+	OK extends ReadonlyArray<string>,
+	Kind
 >(
-	family: F & SideShows<N, C> & CountedMember<C, F["terms"], OC, OK>,
-	slots: Fi & FinShows<ON, OC, OK>
+	family: F & SideShows<N, C> & WholeMember & OverSlots<Kind, CountedMember<C, F["terms"], OC, OK>>,
+	slots: Fi & FinShows<ON, OC, OK, Kind> & FamilySlots<Kind>
 ): Counted<F, Fi> => countedBuilder<F, Fi>(family, slots)
 
 /**
@@ -489,7 +494,7 @@ export const counted = <
  * tree's rows share.
  */
 export const tree = <
-	F extends Side<AnyRelation>,
+	F extends Side<AnyRelation | Selection<AnyRelation>>,
 	Fi extends AnyFin,
 	const Root extends string,
 	N extends string,
@@ -498,8 +503,10 @@ export const tree = <
 >(
 	family: F &
 		SideShowsKeyed<N, C, K> &
+		WholeMember &
 		(
 			| Side<Fi["owner"]>
+			| Side<Selection<unknown>>
 			| Refusal<"a tree is a family of T over itself, on(T, parent, at), with drawn start and end">
 		) &
 		SelfFamily<C, K, F["terms"], Fi["count"]>,

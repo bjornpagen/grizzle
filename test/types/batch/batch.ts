@@ -45,7 +45,7 @@ import { regex } from "arkregex"
  * - `fixtures`: a directory's fixtures, checked in place;
  * - `disarmed`: the same fixtures copied beside ./fixtures, at the same depth, so their relative imports resolve
  *   unchanged, with every directive disarmed. A directive is `// @ts-expect-error -- TSnnnn: why` for a structural
- *   refusal, or `// @ts-expect-error -- TSnnnn refusal: <message>` for one grizzle's type names, a TypeRefusal. The
+ *   refusal, or `// @ts-expect-error -- TSnnnn refusal: <message>` for one grizzle's type names, a Refused. The
  *   copy must raise exactly code nnnn on the line after each directive, and that diagnostic must print
  *   `Refusal<"<message>">` exactly when the directive names one, so a refusal cannot pass for the wrong reason;
  * - `program`: a generated program, written into a fresh directory under the type-test directory that owns it, armed
@@ -494,7 +494,7 @@ const hangGuard = Duration.millis(testTimeout.value)
 
 /**
  * Places every unit of `groups` under the run's seed, typechecks them as one program, and attributes the diagnostics.
- * A unit that cannot be placed (a directive outside the grammar, a refusal naming no TypeRefusal) reports why as a
+ * A unit that cannot be placed (a directive outside the grammar, a refusal naming no Refused) reports why as a
  * problem. Every directory it writes is removed when it returns, however it returns.
  */
 const buildBatch = (groups: ReadonlyArray<Group>, seed: number) =>

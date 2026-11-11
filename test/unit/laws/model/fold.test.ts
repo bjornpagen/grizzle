@@ -383,7 +383,11 @@ const refusedFold = (s: Shape): boolean => s.monoid === "sum" && s.carrier === "
 
 const checkShape = (s: Shape): void => {
 	if (refusedFold(s)) {
-		refused(compiledModel(schemaOf(s)), "MalformedDescription")
+		const e = refused(compiledModel(schemaOf(s)), "Refused")
+		assert.equal(
+			e.reason._tag === "Refused" ? e.reason.refusal : undefined,
+			"the monoid admits the step value's type: sum an exact number, or and twos a set, max an ordered value with a least one, concat a text"
+		)
 		return
 	}
 	const model = modelOf(schemaOf(s))

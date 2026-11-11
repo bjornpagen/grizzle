@@ -24,10 +24,11 @@
  *   is frozen, carries its Description under a non-enumerable `desc`, and is registered here, so ownership trusts
  *   exactly the values the builders made and a JavaScript look-alike is decoded strictly.
  */
-import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { type CompileError, malformedDescription, refused } from "#compiler/core/errors.ts"
 import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { isValidText } from "#compiler/core/text.ts"
 import {
@@ -70,6 +71,10 @@ export const builderLoc = (label: string, path: ReadonlyArray<string | number>):
 export const malformed = (label: string, what: string): CompileError =>
 	malformedDescription(builderLoc(label, []), what)
 
+/** A builder's refusal of the user's call for a rule the types name too, `refusal`, at `label` and the call site. */
+export const refusedAt = (label: string, refusal: Refused): CompileError =>
+	refused(builderLoc(label, []), refusal)
+
 /** The throwing form of a Result, for builders. */
 export const orThrow = <A>(result: Result.Result<A, CompileError>): A => {
 	if (!result.ok) {
@@ -92,11 +97,15 @@ export const requireName = (value: unknown, label: string, what: string): string
 	return value
 }
 
-/** A nonempty list of distinct declared names, in the order written, which is meaningful. */
+/**
+ * A nonempty list of distinct declared names, in the order written, which is meaningful: a name written twice is
+ * `repeated`, a rule the types name too.
+ */
 export const requireNames = (
 	value: unknown,
 	label: string,
-	what: string
+	what: string,
+	repeated: Refused
 ): readonly [string, ...Array<string>] => {
 	if (!isList(value) || value.length === 0) {
 		throw malformed(label, `${what}: a nonempty list of field names`)
@@ -107,7 +116,7 @@ export const requireNames = (
 			throw malformed(label, `${what}: field names that are nonempty storable strings`)
 		}
 		if (seen.has(item)) {
-			throw malformed(label, `${what}: distinct field names, ${JSON.stringify(item)} repeats`)
+			throw refusedAt(label, repeated)
 		}
 		seen.add(item)
 	}

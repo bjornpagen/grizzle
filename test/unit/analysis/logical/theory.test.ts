@@ -355,7 +355,11 @@ describe("field-compatibility classes", () => {
 							})
 							if (identityOf(a.desc) !== identityOf(b.desc)) {
 								c.note("another identity")
-								refused(result, "MalformedDescription")
+								const e = refused(result, "Refused")
+								assert.equal(
+									e.reason._tag === "Refused" ? e.reason.refusal : undefined,
+									"the sides' field types differ"
+								)
 								return
 							}
 							c.note("one identity")

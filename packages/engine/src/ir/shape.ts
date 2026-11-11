@@ -694,21 +694,33 @@ const nonEmptyOf = <A>(
 	}
 })
 
+/** The index of the first item of `items` whose key repeats an earlier one's, or none. */
+export const firstRepeatAt = <A>(
+	items: ReadonlyArray<A>,
+	key: (a: A) => string
+): number | undefined => {
+	const seen = new Set<string>()
+	for (const [at, a] of items.entries()) {
+		const k = key(a)
+		if (seen.has(k)) {
+			return at
+		}
+		seen.add(k)
+	}
+	return undefined
+}
+
 /** The first item of `items` whose key repeats an earlier one's: its index and the capability it refuses. */
 const firstRepeat = <A>(
 	items: ReadonlyArray<A>,
 	key: (a: A) => string,
 	what: string
 ): { readonly at: number; readonly capability: string } | undefined => {
-	const seen = new Set<string>()
-	for (const [at, a] of items.entries()) {
-		const k = key(a)
-		if (seen.has(k)) {
-			return { at, capability: `distinct ${what}; ${JSON.stringify(k)} repeats` }
-		}
-		seen.add(k)
-	}
-	return undefined
+	const at = firstRepeatAt(items, key)
+	const a = at === undefined ? undefined : items[at]
+	return at === undefined || a === undefined
+		? undefined
+		: { at, capability: `distinct ${what}; ${JSON.stringify(key(a))} repeats` }
 }
 
 const distinctOf = <A>(

@@ -20,6 +20,7 @@ import { catchCompileError } from "#compiler/core/canonical.ts"
 import { headingsOf } from "#compiler/core/decoder.ts"
 import type { CompileReason } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type KeyClasses, type KeyProof, keyFactors } from "#compiler/ir/keys.ts"
@@ -35,7 +36,6 @@ import { keyLookup } from "#compiler/query/build/key.ts"
 import { isQueryValue, queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
 import {
 	type AdmissionCell,
 	admissionCells,
@@ -3164,23 +3164,23 @@ interface Proved {
 interface PageVerdict {
 	readonly by: string
 	readonly request: PageRequestSpec
-	readonly refused: Refused | undefined
+	readonly refused: RefusedQuery | undefined
 	/** Whether the query itself states no order, which the engine reads none of, so paged(...) refuses it. */
 	readonly unordered: boolean
 }
 
 /** What the program states of a query the types must refuse: its diagnostic, and the refusal or prose it names. */
-interface Refused {
+interface RefusedQuery {
 	readonly code: "TS2322" | "TS2345" | "TS2353" | "TS2379" | "TS2554"
 	readonly claim:
-		| { readonly kind: "refusal"; readonly refusal: TypeRefusal }
+		| { readonly kind: "refusal"; readonly refusal: Refused }
 		| { readonly kind: "prose"; readonly reason: string }
 }
 
 /** The engine's verdict on a drawn query: what it proves of one it compiles, or the refusal its reason is. */
 type Verdict =
 	| { readonly kind: "admitted"; readonly proved: Proved }
-	| { readonly kind: "refused"; readonly refused: Refused }
+	| { readonly kind: "refused"; readonly refused: RefusedQuery }
 
 /**
  * Every key a key proof states, each over its classes: one minimal key of each of its factors (ir/keys.ts keyFactors),
@@ -3200,7 +3200,7 @@ const keysInNameOrder = (k: KeyProof): ReadonlyArray<ReadonlyArray<ReadonlyArray
 }
 
 /** A refusal the types name, under its diagnostic. */
-const named = (code: Refused["code"], refusal: TypeRefusal): Refused => ({
+const named = (code: RefusedQuery["code"], refusal: Refused): RefusedQuery => ({
 	code,
 	claim: { kind: "refusal", refusal }
 })
@@ -3210,11 +3210,12 @@ const named = (code: Refused["code"], refusal: TypeRefusal): Refused => ({
  * site's (its tag, and the builder call or field it names), and the refusal is the one the types name for that site.
  * A reason at no site of the case's fault is the generator's defect: undefined.
  */
-const refusalOf = (spec: QuerySpec, reason: CompileReason): Refused | undefined => {
+const refusalOf = (spec: QuerySpec, reason: CompileReason): RefusedQuery | undefined => {
 	const fault = spec.fault
 	const label = "at" in reason && "label" in reason.at ? reason.at.label : ""
 	const malformed = reason._tag === "MalformedDescription"
 	const unsupported = reason._tag === "UnsupportedOperation"
+	const refused = reason._tag === "Refused" ? reason.refusal : undefined
 	switch (fault) {
 		case "scopeName":
 			return malformed && label === "v"
@@ -3228,14 +3229,15 @@ const refusalOf = (spec: QuerySpec, reason: CompileReason): Refused | undefined 
 					}
 				: undefined
 		case "stranger":
-			return malformed && Str.startsWith("r.match(")(label)
+			return refused === "not a field of the arms the bindings select" &&
+				Str.startsWith("r.match(")(label)
 				? Arr.some(spec.arms[0].matches, strangerAlone)
 					? prose("TS2353", "a match's one binding names no field of its source")
-					: named("TS2322", "not a field of the arms the bindings select")
+					: named("TS2322", refused)
 				: undefined
 		case "stray":
-			return malformed && label === "r.match(Stray)"
-				? named("TS2345", "the relation is not in this query's schema")
+			return refused === "the relation is not in this query's schema" && label === "r.match(Stray)"
+				? named("TS2345", refused)
 				: undefined
 		case "unkeyedFold":
 			return reason._tag === "FoldOverProjection"
@@ -3255,8 +3257,9 @@ const refusalOf = (spec: QuerySpec, reason: CompileReason): Refused | undefined 
 				? named("TS2345", "a relation parameter has at least one field, as a relation does")
 				: undefined
 		case "strayRows":
-			return malformed && Str.startsWith("r.match(parameter ")(label)
-				? named("TS2345", "the relation is not in this query's schema")
+			return refused === "the relation is not in this query's schema" &&
+				Str.startsWith("r.match(parameter ")(label)
+				? named("TS2345", refused)
 				: undefined
 		case "unboundImport":
 			return malformed && "path" in reason.at && reason.at.path[0] === "bindings"
@@ -3336,7 +3339,7 @@ const strangerAlone = (m: Match): boolean => {
 }
 
 /** A structural refusal the types state under its diagnostic, its prose naming what the program breaks. */
-const prose = (code: Refused["code"], reason: string): Refused => ({
+const prose = (code: RefusedQuery["code"], reason: string): RefusedQuery => ({
 	code,
 	claim: { kind: "prose", reason }
 })
@@ -3345,7 +3348,7 @@ const prose = (code: Refused["code"], reason: string): Refused => ({
 const spanLabels: ReadonlyArray<string> = ["r.allen", "r.pointIn", "r.intersection", "r.difference"]
 
 /** The refusal of a scope's name spelled through a `string`, which no engine sees (see the header). */
-const widened: Refused = named("TS2345", "one literal name")
+const widened: RefusedQuery = named("TS2345", "one literal name")
 
 /**
  * The records of each arm, as its decoded heading group, the union of them the query's records: one member per arm,
@@ -3395,7 +3398,7 @@ const requestValue = (value: RequestValue): unknown => {
 const requestRefusal = (
 	request: PageRequestSpec,
 	decodes: (token: string) => boolean
-): Refused | undefined => {
+): RefusedQuery | undefined => {
 	const value = Rec.fromEntries(Arr.map(request, ([k, v]) => [k, requestValue(v)] as const))
 	if (EffectResult.isSuccess(pageRequest(value))) {
 		return Arr.some(request, ([, v]) => v === "string") && !decodes(plainToken)
@@ -4262,7 +4265,7 @@ export const reorderedVerdicts = (seed: number): ReadonlyArray<string> =>
  * The refusal a workload handle's get names for a query not proved at most one row per binding (adapter/types/db.ts
  * Compiled).
  */
-const getRefusal: TypeRefusal = "get needs a query proved at most one row per parameter binding"
+const getRefusal: Refused = "get needs a query proved at most one row per parameter binding"
 
 /** The evidence program's prelude (test/support/programs/evidence.ts), every name its modules read. */
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/evidence.ts"))

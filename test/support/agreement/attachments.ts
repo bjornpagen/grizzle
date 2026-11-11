@@ -6,6 +6,7 @@ import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effe
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { type Delivery, headingsOf, licenses } from "#compiler/core/decoder.ts"
 import type { CompileReason } from "#compiler/core/errors.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -13,7 +14,6 @@ import type { NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import { arm } from "#compiler/query/build/attach.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
 import { AccountTally, Tallies } from "#test/support/agreement/deliver-tally.ts"
 import { groupFields, recordType } from "#test/support/agreement/heading.ts"
 import { Deliver, DeliverApart } from "#test/support/agreement/schema.ts"
@@ -891,7 +891,7 @@ const handleOfArm = (rel: Rel): "Automatic" | "Manual" | undefined => armOf[rel]
 const armClaim = (
 	spec: Attachment,
 	stated: Extract<Stated, { readonly kind: "arm" }>
-): TypeRefusal | undefined => {
+): Refused | undefined => {
 	const handle = handleOfArm(spec.child.rel)
 	const keyedBy = Arr.flatMap(spec.child.bindings, ([f, t]) =>
 		f === "task" && t.kind === "parent" ? [t.name] : []
@@ -936,12 +936,12 @@ interface AttachRefused {
 	readonly at: AttachAt
 	readonly code: "TS2322" | "TS2345"
 	readonly claim:
-		| { readonly kind: "refusal"; readonly refusal: TypeRefusal }
+		| { readonly kind: "refusal"; readonly refusal: Refused }
 		| { readonly kind: "prose"; readonly reason: string }
 }
 
 /** A refusal the types name at `at`, under `code`. */
-const namedAt = (at: AttachAt, code: "TS2322" | "TS2345", refusal: TypeRefusal): AttachRefused => ({
+const namedAt = (at: AttachAt, code: "TS2322" | "TS2345", refusal: Refused): AttachRefused => ({
 	at,
 	code,
 	claim: { kind: "refusal", refusal }
@@ -1135,7 +1135,7 @@ const engineRefusal = (spec: AttachSpec, reason: CompileReason): AttachRefused |
 const foreignChild = "an attachment child is a query over a level of the parent's schema"
 
 /** The refusal the types name for a stated delivery the engine does not license, or an arm the law does not make. */
-const claimRefusal = (spec: Attachment, proved: Delivery): TypeRefusal | undefined => {
+const claimRefusal = (spec: Attachment, proved: Delivery): Refused | undefined => {
 	const stated = spec.stated
 	switch (stated.kind) {
 		case "array":
@@ -1248,7 +1248,7 @@ const sourceOf = (spec: AttachSpec): string =>
 /** What an attachment case reached: its intent's proof, its shapes, its stated delivery and the verdict. */
 export type AttachNote =
 	| `${Delivery | "arm"} admitted`
-	| `refused: ${TypeRefusal}`
+	| `refused: ${Refused}`
 	| "one into an ordinary relation"
 	| "one into a closed relation"
 	| "one through a composite containment"
@@ -1326,7 +1326,7 @@ const attachCaseGen: Gen<AttachCase> = (source) => {
 }
 
 /** The refusals the attachment population names, every one of which its witnesses reach. */
-export const attachRefusals: Arr.NonEmptyReadonlyArray<TypeRefusal> = [
+export const attachRefusals: Arr.NonEmptyReadonlyArray<Refused> = [
 	"an Option needs a child the evidence proves at most one per parent",
 	"the one child needs a child the evidence proves exactly one per parent",
 	"an arm needs a child that is the arm of one handle of an alternatives law, keyed by the parent's key",

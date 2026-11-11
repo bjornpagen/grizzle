@@ -9,13 +9,13 @@ import type { RecursionRefusal } from "#compiler/core/causes.ts"
 import { headingsOf } from "#compiler/core/decoder.ts"
 import type { CompileReason, CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
-import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
 import { groupFields, paramsType, recordType } from "#test/support/agreement/heading.ts"
 import { Edge, Graph, Node } from "#test/support/agreement/recursion-schema.ts"
 import { defined } from "#test/support/assert.ts"
@@ -66,17 +66,29 @@ type Planted = RecursionFault | DeclaredClass
 const isDeclared = (planted: Planted): planted is DeclaredClass =>
 	Arr.contains<Planted>(declaredClasses, planted)
 
-/** The engine's reason a refusal is, as the agreement compares it: its tag, and a recursion refusal's kind. */
+/**
+ * The engine's reason a refusal is, as the agreement compares it: its tag, a recursion refusal's kind, and a named
+ * refusal's message (core/refusals.ts).
+ */
 const reasonKey = (reason: CompileReason): string =>
-	reason._tag === "RecursionRefused" ? `${reason._tag}:${reason.cause.kind}` : reason._tag
+	reason._tag === "RecursionRefused"
+		? `${reason._tag}:${reason.cause.kind}`
+		: reason._tag === "Refused"
+			? `${reason._tag}:${reason.refusal}`
+			: reason._tag
 
-/** A refusal the oracle predicts: the engine's tag, and for a recursion refusal its kind. */
+/** A refusal the oracle predicts: the engine's tag, a recursion refusal's kind, or a named refusal's message. */
 type Expected =
-	| { readonly tag: Exclude<CompileReasonTag, "RecursionRefused"> }
+	| { readonly tag: Exclude<CompileReasonTag, "RecursionRefused" | "Refused"> }
 	| { readonly tag: "RecursionRefused"; readonly cause: RecursionRefusal["kind"] }
+	| { readonly tag: "Refused"; readonly refusal: Refused }
 
 const expectedKey = (e: Expected): string =>
-	e.tag === "RecursionRefused" ? `${e.tag}:${e.cause}` : e.tag
+	e.tag === "RecursionRefused"
+		? `${e.tag}:${e.cause}`
+		: e.tag === "Refused"
+			? `${e.tag}:${e.refusal}`
+			: e.tag
 
 /** Where a planted fault stands: an arm list's line, or the one arm of a list. */
 type Site = "base list" | "rec list" | "base arm" | "rec arm"
@@ -87,7 +99,7 @@ const refusals: {
 		readonly engine: Expected
 		readonly code: "TS2322"
 		readonly claim:
-			| { readonly kind: "refusal"; readonly refusal: TypeRefusal }
+			| { readonly kind: "refusal"; readonly refusal: Refused }
 			| { readonly kind: "prose"; readonly why: string }
 	}
 } = {
@@ -119,7 +131,7 @@ const refusals: {
 		}
 	},
 	"self bound at a field the row lacks": {
-		engine: { tag: "MalformedDescription" },
+		engine: { tag: "Refused", refusal: "not a field of the arms the bindings select" },
 		code: "TS2322",
 		claim: { kind: "refusal", refusal: "not a field of the arms the bindings select" }
 	},
@@ -547,7 +559,7 @@ const indentOf = (line: string): string =>
 	Str.slice(0, line.length - Str.trimStart(line).length)(line)
 
 /** The refusal a workload handle's get names for a query the engine does not prove at most one row per binding. */
-const getRefusal: TypeRefusal = "get needs a query proved at most one row per parameter binding"
+const getRefusal: Refused = "get needs a query proved at most one row per parameter binding"
 
 /** One case's statements: the recursion, under its fault's directive at its site, or its verdict asserted. */
 const blockOf = (c: RecursionCase, i: number): ReadonlyArray<string> => {

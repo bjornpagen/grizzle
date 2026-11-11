@@ -5,7 +5,8 @@ import {
 	type GuardTest,
 	type PreconditionKind,
 	prose,
-	type ProseTag
+	type ProseTag,
+	refused
 } from "#compiler/core/errors.ts"
 import { ExprId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
@@ -2043,11 +2044,7 @@ class Lowering<R extends Refs> {
 	param(param: ParamRef<R>, at: SourceLoc): Lowered {
 		const params = this.env.params
 		if (params.kind === "none") {
-			return stop(
-				"UnsupportedOperation",
-				at,
-				"a parameter: a contract predicate or a row check reads only its value or its row"
-			)
+			throw new Refusal(refused(at, "a schema predicate reads no parameter"))
 		}
 		const { spec, type } = unwrap(params.lower(param, at))
 		const entry = this.env.emit(spec)

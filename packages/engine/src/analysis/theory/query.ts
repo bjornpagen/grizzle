@@ -1,8 +1,9 @@
-import { refuse } from "#compiler/analysis/theory/build.ts"
+import { refuse, refuseNamed } from "#compiler/analysis/theory/build.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import type {
 	FieldDesc,
 	InferredBindings,
@@ -448,6 +449,11 @@ class Flattener {
 		)
 	}
 
+	/** Refuses a definition of a kind the types name too: one that aggregates, orders, recurses, searches or nests. */
+	#refuseKind(refusal: Refused): never {
+		return refuseNamed(this.env.loc, refusal)
+	}
+
 	/**
 	 * The arms of `query`, a definition of `relation`, flattened, each bare head literal typed at its column's descriptor
 	 * (LiveEnv.columnType), which the checker reads `query` for on the first such literal alone.
@@ -477,14 +483,22 @@ class Flattener {
 			case "named":
 				return this.#stage(relation, stage.input, columns)
 			case "recursive":
-				return this.#refuse(relation, "recurses")
+				return this.#refuseKind(
+					"a rule reads a derived relation whose definition joins, selects and projects: this one recurses"
+				)
 			case "attach":
-				return this.#refuse(relation, "attaches a nested query")
+				return this.#refuseKind(
+					"a rule reads a derived relation whose definition joins, selects and projects: this one attaches a nested query"
+				)
 			case "order":
 			case "take":
-				return this.#refuse(relation, "orders and takes")
+				return this.#refuseKind(
+					"a rule reads a derived relation whose definition joins, selects and projects: this one orders and takes"
+				)
 			case "approx":
-				return this.#refuse(relation, "approximates a search")
+				return this.#refuseKind(
+					"a rule reads a derived relation whose definition joins, selects and projects: this one approximates a search"
+				)
 		}
 	}
 
@@ -497,7 +511,9 @@ class Flattener {
 			return this.#refuse(relation, "nests a stage")
 		}
 		if (rule.attach.length > 0) {
-			return this.#refuse(relation, "attaches a nested query")
+			return this.#refuseKind(
+				"a rule reads a derived relation whose definition joins, selects and projects: this one attaches a nested query"
+			)
 		}
 		const prefix = `q${this.#next++}.`
 		const rename = (id: string): string => `${prefix}${id}`
@@ -631,10 +647,14 @@ class Flattener {
 
 	#headTerm(relation: string, term: InferredHead): InferredExpr {
 		if (term.kind === "aggregate") {
-			return this.#refuse(relation, "aggregates")
+			return this.#refuseKind(
+				"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
+			)
 		}
 		if (term.kind === "producer") {
-			return this.#refuse(relation, "produces spans")
+			return this.#refuseKind(
+				"a rule reads a derived relation whose definition joins, selects and projects: this one produces spans"
+			)
 		}
 		const foreign = foreignLeaf(term)
 		return foreign === undefined ? term : this.#refuse(relation, foreign)

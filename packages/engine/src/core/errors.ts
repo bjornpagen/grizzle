@@ -29,6 +29,7 @@ import type { DeclaredName } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { formatLoc, formatPath, prefixedLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 
 /** A path inside a value: object keys and array indices. */
 type Path = ReadonlyArray<string | number>
@@ -332,6 +333,8 @@ const duplicateText = (duplicate: Duplicate): string => {
  * description or program; a path inside the artifact for MalformedArtifact) and exactly the facts it states, and
  * renders its own sentence (compileReasonText).
  *
+ * - `Refused`: the user's schema or program value breaks a rule the types name too, `refusal`, the message of the one
+ *   vocabulary (core/refusals.ts) the type's Refusal names, verbatim; `at` locates what it names.
  * - `MalformedDescription`: the user's schema or program value is malformed: `what` is the rule it breaks.
  * - `MalformedArtifact`: what grizzle reads back (Artifact) is malformed at `at`: `what` is the rule it breaks.
  * - `UnsupportedOperation`: a capability the compiler does not have, `capability`. A new diagnostic for a missing
@@ -392,6 +395,7 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   declares, and no declaration of the draft (`--rename`, `--drop`) names it.
  */
 export type CompileReason =
+	| { readonly _tag: "Refused"; readonly at: SourceLoc; readonly refusal: Refused }
 	| { readonly _tag: "MalformedDescription"; readonly at: SourceLoc; readonly what: string }
 	| {
 			readonly _tag: "MalformedArtifact"
@@ -645,6 +649,26 @@ const unstatedKeyText = (
 	}
 }
 
+/**
+ * What a rule finds broken, before where: a rule the types name too, `refusal` (Refused), or one in the rule's own
+ * words, `what` (MalformedDescription).
+ */
+export type Breach =
+	| { readonly kind: "named"; readonly refusal: Refused }
+	| { readonly kind: "prose"; readonly what: string }
+
+/** A breach of a rule the types name too. */
+export const named = (refusal: Refused): Breach => ({ kind: "named", refusal })
+
+/** A breach of a rule in its own words. */
+export const broken = (what: string): Breach => ({ kind: "prose", what })
+
+/** The reason a breach found at `at` is. */
+export const breachReason = (at: SourceLoc, breach: Breach): CompileReason =>
+	breach.kind === "named"
+		? { _tag: "Refused", at, refusal: breach.refusal }
+		: { _tag: "MalformedDescription", at, what: breach.what }
+
 /** A reason whose one fact is the sentence `text`, at `at`. */
 export const prose = (tag: ProseTag, at: SourceLoc, text: string): CompileReason =>
 	tag === "MalformedDescription"
@@ -654,6 +678,8 @@ export const prose = (tag: ProseTag, at: SourceLoc, text: string): CompileReason
 /** The sentence a reason states after its tag and location. */
 export const compileReasonText = (reason: CompileReason): string => {
 	switch (reason._tag) {
+		case "Refused":
+			return reason.refusal
 		case "MalformedDescription":
 		case "MalformedArtifact":
 			return reason.what
@@ -768,6 +794,10 @@ const relocated = (reason: CompileReason, path: Path): CompileReason =>
 	reason._tag === "MalformedArtifact"
 		? { ...reason, at: [...path, ...reason.at] }
 		: { ...reason, at: prefixedLoc(path, reason.at) }
+
+/** The user's schema or program value, refused at `at` for `refusal`, a rule the types name too. */
+export const refused = (at: SourceLoc, refusal: Refused): CompileError =>
+	new CompileError({ _tag: "Refused", at, refusal })
 
 /** The user's schema or program value, malformed at `at`: `what` is the rule it breaks. */
 export const malformedDescription = (at: SourceLoc, what: string): CompileError =>

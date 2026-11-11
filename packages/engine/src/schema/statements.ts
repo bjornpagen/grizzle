@@ -31,6 +31,7 @@ import {
 	ownedEntry,
 	ownValue,
 	queryHeadingOf,
+	refusedAt,
 	requireName
 } from "#compiler/schema/protocol.ts"
 
@@ -211,9 +212,9 @@ const keyRef = (
 	}
 	const rel = namedRelation(value, label)
 	if (rel.kind === "derived") {
-		throw malformed(
+		throw refusedAt(
 			label,
-			`a stored relation; ${rel.name} is a derived relation, whose rows its definition states and no write draws`
+			"alternatives relate stored relations: a derived relation's rows are its definition's, which no write draws"
 		)
 	}
 	return { value, rel, fields: rel.primaryKey }
@@ -488,12 +489,15 @@ const admitAlternatives = (
 			`a discriminator that is a closedId(${rosterDesc.name}) field of ${parentRel.name}`
 		)
 	}
-	if (!isPlainRecord(arms) || Object.keys(arms).length === 0) {
-		throw malformed(label, "an arm map from handles to key descriptors, with at least one arm")
+	if (!isPlainRecord(arms)) {
+		throw malformed(label, "an arm map from handles to key descriptors")
+	}
+	if (Object.keys(arms).length === 0) {
+		throw refusedAt(label, "alternatives takes at least one arm")
 	}
 	for (const h of Object.keys(arms)) {
 		if (!rosterDesc.handles.includes(h)) {
-			throw malformed(label, `arms keyed by ${rosterDesc.name}'s handles; ${h} is not one`)
+			throw refusedAt(`${label} arm ${h}`, "an arm is keyed by a handle of its roster")
 		}
 	}
 	const armDescs: Array<ArmDesc> = []
@@ -504,7 +508,7 @@ const admitAlternatives = (
 		}
 		const armKey = keyRef(arm, `${label} arm ${h}`)
 		if (armKey.rel.name === parentRel.name) {
-			throw malformed(label, `the arm ${h} a relation other than its parent ${parentRel.name}`)
+			throw refusedAt(`${label} arm ${h}`, "an arm is a relation other than its parent")
 		}
 		if (armKey.fields.length !== parentKey.fields.length) {
 			throw malformed(
@@ -516,7 +520,7 @@ const admitAlternatives = (
 	}
 	const [first, ...rest] = armDescs
 	if (first === undefined) {
-		throw malformed(label, "an arm map from handles to key descriptors, with at least one arm")
+		throw refusedAt(label, "alternatives takes at least one arm")
 	}
 	const armList: readonly [ArmDesc, ...Array<ArmDesc>] = [first, ...rest]
 	Object.freeze(armList)
@@ -561,9 +565,9 @@ export const finBuilder = <O, const N extends string>(owner: O, count: N): Fin<O
 const slotsOf = (value: unknown, label: string): SlotsDesc => {
 	const fin = finOf(value, label)
 	if (fin.owner.kind !== "relation") {
-		throw malformed(
+		throw refusedAt(
 			label,
-			`an ordinary relation's count; ${fin.owner.name} is a closed relation, whose count numbers the slots of a closed relation's key`
+			"a family counts by an ordinary relation's drawn count: a closed relation's count numbers the slots of its key"
 		)
 	}
 	return Object.freeze(fin.slots)
@@ -573,9 +577,9 @@ const slotsOf = (value: unknown, label: string): SlotsDesc => {
 const memberSide = (value: unknown, label: string): SideDesc => {
 	const side = sideOf(value, `${label} member`)
 	if (side.selection.conjuncts.length > 0) {
-		throw malformed(
+		throw refusedAt(
 			label,
-			"a member side over every fact of its relation, which no selection narrows"
+			"a family's member side is a relation, never a selection: its members are every fact of the relation"
 		)
 	}
 	return side

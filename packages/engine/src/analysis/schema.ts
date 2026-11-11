@@ -901,11 +901,11 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				access: { kind: "read", relation: name, base: world.base.owned.name }
 			})
 		}
-		return fail(
-			"MalformedDescription",
-			loc,
-			`a relation the schema declares, not ${JSON.stringify(name)}`
-		)
+		return failWith({
+			_tag: "Refused",
+			at: loc,
+			refusal: "the relation is not in this query's schema"
+		})
 	}
 
 	/**

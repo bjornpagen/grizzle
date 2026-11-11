@@ -953,6 +953,23 @@ type Refusal =
 
 const atStatement: RefusedAt = { kind: "statement" }
 
+/** The reason each refusal is: a description's malformation, or a rule the types name too (Refused). */
+const ruleTags: { readonly [R in Refusal]: "MalformedDescription" | "Refused" } = {
+	"a start off the identity": "MalformedDescription",
+	"a carrier the monoid does not admit": "Refused",
+	"an accumulator pair over a counted family": "Refused",
+	"an accumulator with no partner": "MalformedDescription",
+	"a tree keyed by two fields": "Refused",
+	"a tree with no drawn start": "Refused",
+	"a drawn field no statement names": "MalformedDescription",
+	"a drawn field two families name": "MalformedDescription",
+	"one count counting two families": "MalformedDescription",
+	"a relation in two ordered families": "MalformedDescription",
+	"a relation in a tree and an ordered family": "MalformedDescription",
+	"a group key no caller writes": "MalformedDescription",
+	"a group key of another identity than its owner's key": "Refused"
+}
+
 /** One refusal, broken at the one site a case offers it: the corrupted schema, where it is refused, what it breaks. */
 const refusal = (
 	rule: Refusal,
@@ -1328,7 +1345,7 @@ describe("resolution and refusals (§3.4, §3.7, rows-first §4)", () => {
 							const at = refusalLoc(
 								refused(
 									theoryResult(drawnCase.refusal.schema),
-									"MalformedDescription",
+									ruleTags[drawnCase.rule],
 									`${drawnCase.rule} is refused`
 								)
 							)

@@ -1,5 +1,5 @@
 import { Array as Arr, String as Str } from "effect"
-import { type TypeRefusal, typeRefusals } from "#compiler/types/core/phantom.ts"
+import { type Refused, refusals } from "#compiler/core/refusals.ts"
 
 import { regex } from "arkregex"
 /**
@@ -16,19 +16,19 @@ export const diagnosticKey = (d: Diagnostic): string => `${d.file}:${d.line}:${d
 
 /**
  * What a directive claims of the diagnostic its next line raises. A structural refusal says why in prose; a
- * refusal-backed one names the message grizzle's type prints, `Refusal<"<message>">`, one of typeRefusals.
+ * refusal-backed one names the message grizzle's type prints, `Refusal<"<message>">`, one of the vocabulary (core/refusals.ts).
  */
 export type Claim =
 	| { readonly kind: "prose"; readonly reason: string }
-	| { readonly kind: "refusal"; readonly refusal: TypeRefusal }
+	| { readonly kind: "refusal"; readonly refusal: Refused }
 
 /** A disarmed directive: the diagnostic the disarmed copy must raise, and what the directive claims of it. */
 export interface Directive extends Diagnostic {
 	readonly claim: Claim
 }
 
-const refusalMessages: ReadonlySet<string> = new Set(typeRefusals)
-const isTypeRefusal = (text: string): text is TypeRefusal => refusalMessages.has(text)
+const refusalMessages: ReadonlySet<string> = new Set(refusals)
+const isRefused = (text: string): text is Refused => refusalMessages.has(text)
 
 /**
  * A directive line, trimmed, is exactly one of `// @ts-expect-error -- TSnnnn: <why>`, a structural refusal, and
@@ -38,7 +38,7 @@ const directiveLine = regex("^// @ts-expect-error -- (TS\\d+)( refusal)?: (.+)$"
 
 /**
  * Disarms every directive, returning the source and the directives: code nnnn on the line after each, with its claim.
- * A directive outside the grammar, or a refusal naming no TypeRefusal, refuses the file.
+ * A directive outside the grammar, or a refusal naming no Refused, refuses the file.
  */
 export const disarm = (
 	file: string,
@@ -63,9 +63,9 @@ export const disarm = (
 			if (parsed?.[2] === undefined) {
 				return { kind: "prose", reason: text }
 			}
-			if (!isTypeRefusal(text)) {
+			if (!isRefused(text)) {
 				throw new Error(
-					`${file}:${n}: "${text}" is no TypeRefusal (packages/engine/src/types/core/phantom.ts)`
+					`${file}:${n}: "${text}" is no Refused (packages/engine/src/core/refusals.ts)`
 				)
 			}
 			return { kind: "refusal", refusal: text }

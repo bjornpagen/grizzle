@@ -221,7 +221,13 @@ describe("a concat fold", () => {
 							k.note("an ordered family's named pair admitted")
 							return
 						}
-						refused(built, "MalformedDescription", `${Formatter.format(d)} is refused`)
+						const e = refused(built, "Refused", `${Formatter.format(d)} is refused`)
+						assert.equal(
+							e.reason._tag === "Refused" ? e.reason.refusal : undefined,
+							d.order === "counted"
+								? "a fold over a counted family combines in a commutative monoid: concat folds an ordered family or a tree"
+								: "a concat fold names its (before, after) pair after its value: its law reads each member's running value"
+						)
 						k.note("refused")
 					})
 			)

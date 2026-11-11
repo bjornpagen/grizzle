@@ -1971,8 +1971,9 @@ definition too.
   query of such rules or a derived relation whose query is one, so a rule can read "the rows of R with no S" and "the
   rows of R that no join of S and U names". A negation of a union negates each of its rules. An aggregate,
   `orderBy(...).take(k)`, `attach`, an approximate search or a recursion, in the query or in a query it negates, and a
-  negation inside a negated query, are refused: `UnsupportedLawFamily` from JavaScript naming what the query does, and
-  a type error where the query does it itself. A family and a fold read tables only.
+  negation inside a negated query, are refused: `UnsupportedLawFamily` from JavaScript naming what the query does
+  (`Refused` over a derived relation, its refusal the type error's words), and a type error where the query does it
+  itself. A family and a fold read tables only.
 - **Judged live.** A rule reads its query as the tables stand at commit, `derived.materialized(...)` included: never
   its view's rows, and never as of a refresh.
 - **What PostgreSQL gets.** A rule that reads only tables is a constraint, as above. A rule that reads a query is, on
@@ -2026,7 +2027,7 @@ An ordered family or a tree is a sequence. The monoids:
   type, each with its own text pattern and byte bound: concat's pieces may be any text, generated or written, and its
   accumulators of a pattern of the text they spell. Each one's domain checks every value grizzle fills into it: a
   value outside its pattern is `invariant-rejected` on that pattern's rule. Another integer width, numeric typmod or
-  contract is another type, and such a fold is `MalformedDescription` when the schema compiles.
+  contract is another type, and such a fold is `Refused` when the schema compiles.
 - **Running values.** A fold over a sequence may name each member's running `before` and `after`; one over a counted
   family names only its step value and end, its order being hidden. concat folds only a sequence, and names its pair.
   The family's axes key each running text, so concat's accumulators are text of a bounded pattern ([Limits](#limits)).
@@ -2150,12 +2151,14 @@ Roles:
   itself, such as `postPage`. So does a role over a higher level for each level below it whose every table, and every
   table below it, it holds whole: a role over `Ledger` holding `wholeEntriesOf(Qti)` runs every query over `Qti`
   ([Levels](#levels)).
-- **`RoleRefused`**, when you build the role, names the rule it breaks: a whole entry under another name than its
-  table's, or not the schema's own; a query entry over a role or over any schema but the role's and those it extends,
-  reading a table the schema lacks, or with parameters, nested results, vector search or an `orderBy` without `take`;
-  a `write` naming no entry of the role, a roster, a derived table or an unwritable query entry, or two entries over
-  one table, and so for an `insert`, which also names at least one entry; both a `write` and an `insert`
-  (`writeAndInsert`); a `refresh` naming anything but a derived table.
+- **`Refused`**, when you build the role, is a whole entry under another name than its table's, or not the schema's
+  own, a whole entry of a live derived table, or a query entry over a role or over any schema but the role's and those
+  it extends: the rules the type errors name, in their words.
+- **`RoleRefused`**, when you build the role, names the rule it breaks: a query entry reading a table the schema
+  lacks, or with parameters, nested results, vector search or an `orderBy` without `take`; a `write` naming no entry of
+  the role, a roster, a derived table or an unwritable query entry, or two entries over one table, and so for an
+  `insert`, which also names at least one entry; both a `write` and an `insert` (`writeAndInsert`); a `refresh` naming
+  anything but a derived table.
 
 **Installed names come from the values.** `roleNameOf(Web)` is a login's PostgreSQL role: the one its pool logs in as,
 a password is set on and `rds_iam` is granted to. `roleNameOf(MemberBlog)` is a role's, which a direct SQL writer's
@@ -2949,6 +2952,7 @@ is the server's 42501. Nothing committed. Grant the privilege to the role or to 
 
 | Reason                                          | Details                                                                                                  |
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `Refused`                                       | the `refusal`, a rule the type errors name too, in their words                                           |
 | `MalformedDescription`                          | the rule `what` your schema or program breaks                                                            |
 | `MalformedArtifact`                             | what grizzle reads back (the snapshot, a migration folder or its meta.json, the ledger's rows, a cursor) malformed at the path `at` |
 | `UnsupportedOperation`, `UnsupportedLawFamily`  | a `capability` grizzle lacks, such as a parameter's value of a pattern no stored field declares, naming the parameter and the pattern ([Limits](#limits)) |
