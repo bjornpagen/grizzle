@@ -249,10 +249,17 @@ type RequireBound<R> =
 
 /**
  * What a rule checks of a source of kind K it matches or negates: an ordinary relation is one of the schema's, held by
- * assignability, which a generic relation's constraint decides; any other source as MatchCheck checks it.
+ * assignability, which a generic relation's constraint decides; any other source as MatchCheck checks it. A schema
+ * holds each relation under its own name (UnderOwnNames), so a relation that shows the literal names N, one or a
+ * generic relation's union of them, is held against the schema's relations of those names, one property read each,
+ * never against the union of every relation of the schema, which the source's intersection would distribute over, a
+ * type per relation of the schema for each match. A relation whose name the type does not know names none of them,
+ * and is held against every relation of the schema.
  */
-type ShownMatch<S, R, K> = [K] extends ["relation"]
-	? RelationOf<S> | Refusal<"the relation is not in this query's schema">
+type ShownMatch<S, R, K, N> = [K] extends ["relation"]
+	?
+			| (string extends N ? RelationOf<S> : UnderName<RelationsOf<S>, N>)
+			| Refusal<"the relation is not in this query's schema">
 	: MatchCheck<S, R>
 
 /** The parameters a source of kind K contributes: an ordinary relation none, any other source its own. */
@@ -446,7 +453,7 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 			Bindings<ShownHeading<R, OrdinaryKind<K, BT>, C>, ShownCarriers<R, OrdinaryKind<K, BT>, C>>
 		>
 	>(
-		source: R & SourceShows<K, RN, C, PK, BT> & ShownMatch<S, R, OrdinaryKind<K, BT>>,
+		source: R & SourceShows<K, RN, C, PK, BT> & ShownMatch<S, R, OrdinaryKind<K, BT>, RN>,
 		bindings: B &
 			NoExcess<B, ShownHeading<R, OrdinaryKind<K, BT>, C>> &
 			DeadConstants<
@@ -582,7 +589,7 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 			Bindings<ShownHeading<R, OrdinaryKind<K, BT>, C>, ShownCarriers<R, OrdinaryKind<K, BT>, C>>
 		>
 	>(
-		relation: R & SourceShows<K, RN, C, PK, BT> & ShownMatch<S, R, OrdinaryKind<K, BT>>,
+		relation: R & SourceShows<K, RN, C, PK, BT> & ShownMatch<S, R, OrdinaryKind<K, BT>, RN>,
 		bindings: B &
 			NoExcess<B, ShownHeading<R, OrdinaryKind<K, BT>, C>> &
 			DeadConstants<
