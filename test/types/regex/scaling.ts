@@ -1,22 +1,23 @@
 import { Array as Arr } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { literal } from "#test/types/regex/schema.ts"
+import { type Steps, steps } from "#test/types/batch/measured.ts"
+import { literal } from "#test/types/regex/agreement.ts"
 
 /**
  * The regex-scale program: `patterns` str.regex calls, each distinct by its index, cycling through the shapes whose
  * inference costs the most: a finite alternation, a digit template, classes repeated into unions written out, of
  * 81 and 1,024 members, and cross products past TypeScript's union limit, which infer string from the count alone
  * (types/fields/source.ts LanguageCount), never by expanding them. Each call's host type is read, so its inference
- * runs; the program has no diagnostic. scaling.test.ts checks it at 50, 100 and 200 patterns, linear in types and
- * instantiations.
+ * runs; the program has no diagnostic. scaling.test.ts checks it at three sizes an equal step apart, each step a whole
+ * number of the shapes' period, six.
  */
 const shapes: Arr.NonEmptyReadonlyArray<(i: number) => string> = [
 	(i) => `^k${i}(?:draft|published|archived)$`,
 	(i) => `^v${i}\\d{2}-\\d{3}$`,
 	(i) => `^k${i}[abc]{4}$`,
 	(i) => `^k${i}[abcd]{5}$`,
-	(i) => `^k${i}[ab]{${17 + (i % 3)}}$`,
+	(i) => `^k${i}[ab]{18}$`,
 	(i) => `^k${i}(?:[abc]|xy){12,14}$`
 ]
 
@@ -42,5 +43,5 @@ export const regexScaleSource = (patterns: number, entries: PreludeAt): string =
 		)
 	)
 
-/** The sizes the program is checked at, n, 2n and 4n patterns. */
-export const regexScaleSizes: readonly [number, number, number] = [50, 100, 200]
+/** The sizes the program is checked at: 60, 120 and 180 patterns, each step ten of every shape. */
+export const regexScaleSizes: Steps = steps(10 * shapes.length)

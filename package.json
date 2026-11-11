@@ -592,7 +592,6 @@
 						"test/types/evidence/attachments.test.ts",
 						"test/types/harness/harness.test.ts",
 						"test/types/regex/agreement.test.ts",
-						"test/types/regex/schema.test.ts",
 						"test/types/schema/agreement.test.ts",
 						"test/types/schema/generic.test.ts",
 						"test/types/text/bytes.test.ts",
@@ -602,15 +601,15 @@
 				},
 				{
 					"files": [
-						"test/types/query/budget/refusals.test.ts",
+						"test/types/query/budget/invariance.test.ts",
 						"test/types/query/budget/scaling.test.ts",
 						"test/types/regex/scaling.test.ts",
 						"test/types/schema/budget/families.test.ts",
-						"test/types/schema/budget/refusals.test.ts",
+						"test/types/schema/budget/invariance.test.ts",
 						"test/types/schema/budget/scaling.test.ts",
-						"test/types/skeleton/budget/refusals.test.ts"
+						"test/types/skeleton/budget/invariance.test.ts"
 					],
-					"reason": "The type layer's cost gates: each typechecks programs generated at growing sizes in the batch and holds their types and instantiations linear in the size, a performance property, and the largest program's refusals to the directives it was generated with, never a verdict a person wrote."
+					"reason": "The type layer's cost gates: each typechecks programs generated at three sizes an equal step apart and holds their types and instantiations to grow no faster than linearly, the second step adding no more than the first (test/support/growth.ts), a performance property; or holds the largest program's inference and refusals to its twin's, the same declarations at the smallest scale its probes read. No verdict is one a person wrote."
 				}
 			]
 		},

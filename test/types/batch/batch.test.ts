@@ -1,3 +1,24 @@
+/**
+ * The type-test batch (test/types/batch/batch.ts) and its builder, against models of what they must deliver:
+ *
+ * - Attribution: a planted batch's units, fixtures and programs, armed and disarmed, each line clean or raising one of
+ *   two diagnostics, alone or under a directive of each claim (directives.ts Claim), built through any spelling of the
+ *   root. Every diagnostic reaches the unit whose file it names, each directive's line is promised, and the unit's
+ *   problems are exactly the model's: a disarmed unit with no directive, a line raising another code than its
+ *   directive claims, a twin's label on one line alone, and the lines of one label raising different diagnostics; and
+ *   a diagnostic in a file no unit owns fails the batch, naming that file. Oracle: a second implementation, the model
+ *   of each planted line's diagnostics armed and disarmed, compared as sets.
+ * - The stall guard: a compiler that makes no CPU progress for its window fails with CompilerStalled and its
+ *   goroutines, and one that checks to its end never does. Oracle: tsgo's watch mode, which idles after its first check.
+ * - The builder: a run without type tests starts no batch; with them, its builder runs in a process of its own on the
+ *   run's request, each unit's file it wrote is delivered, one it withheld is refused, and a builder that fails fails
+ *   every check, naming its status and stderr. Oracle: a model of the request and of what each planted builder writes.
+ *
+ * Plants (~/.cache/grizzle-release/BR14/plants): batch-twin-blind.patch compares no twin's diagnostics, so a twin
+ * label whose lines differ passes; batch-code-blind.patch accepts any code under a code claim; batch-unowned.patch
+ * leaves a diagnostic in a file no unit owns unattributed instead of failing the batch; batch-stall-blind.patch never
+ * judges a compiler stalled; batch-withheld-read.patch reads a unit's missing file as a unit with no diagnostic.
+ */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -37,12 +58,13 @@ import { scopedTempDir } from "#test/support/temp.ts"
 import {
 	batchLayout,
 	buildBatchAt,
+	type Problem,
 	readUnit,
 	type UnitSpec,
 	whenWritten
 } from "#test/types/batch/batch.ts"
 import { guardedRun } from "#test/types/batch/compiler.ts"
-import { diagnosticKey } from "#test/types/batch/directives.ts"
+import { type Diagnostic, type Place, placeKey } from "#test/types/batch/directives.ts"
 import { startBatch } from "#test/types/batch/global-setup.ts"
 import { type BatchAt, type TypeRun, typeRun } from "#test/types/batch/provided.ts"
 
@@ -52,17 +74,25 @@ const owner = "test/types/batch/batch.test.ts"
 /** The directory every planted file goes under, beside this file, relative to the repository. */
 const plantedIn = "test/types/batch"
 
-/** A planted directive, in the batch's grammar, naming the diagnostic the line under it raises. */
-const DIRECTIVE = "// @ts-expect-error -- TS2322: a string is no number"
+/**
+ * What a planted line's declaration raises: nothing, TS2322 (a string where a number is declared) or TS2741 (an object
+ * missing the property its declared type requires).
+ */
+const RAISES = ["nothing", "TS2322", "TS2741"] as const
+
+type Raises = (typeof RAISES)[number]
+
+/** A twin's labels: two, so a unit may hold two twins, each on one line or on several. */
+const LABELS = ["a", "b"] as const
 
 /**
- * A planted module's lines, each a declaration that typechecks or raises TS2322, either alone or under a directive: an
- * armed check reports an error alone and an unused directive (TS2578), and a disarmed copy reports every TS2322 and
- * promises one under each directive.
+ * The directive over a planted line: none; a code claim, always of TS2322; refused; or a twin of a label.
  */
-const LINE_KINDS = ["clean", "error", "expected error", "unused directive"] as const
+type Over =
+	| Readonly<{ kind: "none" | "code" | "refused" }>
+	| Readonly<{ kind: "twin"; label: (typeof LABELS)[number] }>
 
-type LineKind = (typeof LINE_KINDS)[number]
+type PlantedLine = Readonly<{ raises: Raises; over: Over }>
 
 /** The kinds of unit the batch places: a directory's fixtures, their disarmed copy, and a program armed or disarmed. */
 const UNIT_KINDS = ["fixtures", "disarmed", "program", "disarmed program"] as const
@@ -71,7 +101,7 @@ type UnitKind = (typeof UNIT_KINDS)[number]
 
 type PlantedUnit = Readonly<{
 	kind: UnitKind
-	modules: Arr.NonEmptyReadonlyArray<ReadonlyArray<LineKind>>
+	modules: Arr.NonEmptyReadonlyArray<ReadonlyArray<PlantedLine>>
 }>
 
 /**
@@ -84,12 +114,36 @@ type Planted = Readonly<{
 	symlinked: boolean
 }>
 
-const linesGen: Gen<ReadonlyArray<LineKind>> = array(element(LINE_KINDS), { min: 1, max: 3 })
+/**
+ * A line's directive in a unit of twins, whose directed lines are all twins, so its labels meet one another; and in
+ * any other unit.
+ */
+const twinOver: Gen<Over> = oneOf<Over>([
+	constant<Over>({ kind: "none" }),
+	(source) => ({ kind: "twin", label: source.draw(element(LABELS)) })
+])
 
-const plantedUnit: Gen<PlantedUnit> = (source) => ({
-	kind: source.draw(element(UNIT_KINDS)),
-	modules: Arr.prepend(source.draw(array(linesGen, { min: 0, max: 1 })), source.draw(linesGen))
-})
+const singleOver: Gen<Over> = oneOf<Over>([
+	constant<Over>({ kind: "none" }),
+	constant<Over>({ kind: "code" }),
+	constant<Over>({ kind: "refused" })
+])
+
+const lineGen =
+	(over: Gen<Over>): Gen<PlantedLine> =>
+	(source) => ({
+		raises: source.draw(element(RAISES)),
+		over: source.draw(over)
+	})
+
+const plantedUnit: Gen<PlantedUnit> = (source) => {
+	const kind = source.draw(element(UNIT_KINDS))
+	const lines = array(lineGen(source.draw(boolean) ? twinOver : singleOver), { min: 1, max: 3 })
+	return {
+		kind,
+		modules: Arr.prepend(source.draw(array(lines, { min: 0, max: 1 })), source.draw(lines))
+	}
+}
 
 const isProgram = (unit: PlantedUnit): boolean =>
 	unit.kind === "program" || unit.kind === "disarmed program"
@@ -114,6 +168,11 @@ type Feature =
 	| "a disarmed program"
 	| "an unused directive"
 	| "a disarmed unit with no directive"
+	| "a code its directive does not claim"
+	| "a refused line"
+	| "twins that agree"
+	| "twins that differ"
+	| "a twin alone"
 	| "an unowned file that raises"
 	| "an unowned file that raises nothing"
 	| "a symlinked root"
@@ -131,67 +190,202 @@ const unitFeature = (kind: UnitKind): Feature => {
 	}
 }
 
-/** A planted line as written: the line its directive sits on, the line of its declaration, and its kind. */
-type Placed = Readonly<{ kind: LineKind; directive: number; statement: number }>
+/** A planted line as written: the line its directive sits on, the line of its declaration, and the line planted. */
+type Written = Readonly<{ planted: PlantedLine; directive: number; statement: number }>
 
-/** A planted module's text, after `header` lines, and where each of its lines landed. */
-const written = (
-	lines: ReadonlyArray<LineKind>,
-	header: ReadonlyArray<string>
-): Readonly<{ text: string; placed: ReadonlyArray<Placed> }> => {
-	const text: Array<string> = [...header]
-	const placed: Array<Placed> = []
-	Arr.forEach(lines, (kind, index) => {
-		const declaration = (raises: boolean) =>
-			`export const v${index}: number = ${raises ? '"s"' : "1"}`
-		switch (kind) {
-			case "clean":
-			case "error":
-				text.push(declaration(kind === "error"))
-				placed.push({ kind, directive: text.length, statement: text.length })
-				return
-			case "expected error":
-			case "unused directive":
-				text.push(DIRECTIVE, declaration(kind === "expected error"))
-				placed.push({ kind, directive: text.length - 1, statement: text.length })
-		}
-	})
-	return { text: `${Arr.join(text, "\n")}\n`, placed }
-}
-
-/**
- * What the model expects of a module: the diagnostics a check of it reports, as the batch keys them, and the
- * diagnostics a disarmed copy's directives promise.
- */
-const expectedOf = (
-	file: string,
-	placed: ReadonlyArray<Placed>,
-	disarmed: boolean
-): Readonly<{ errors: ReadonlyArray<string>; directives: ReadonlyArray<string> }> => {
-	const key = (line: number, code: string) => diagnosticKey({ file, line, code })
-	return {
-		errors: Arr.flatMap(placed, ({ kind, directive, statement }) => {
-			switch (kind) {
-				case "clean":
-					return []
-				case "error":
-					return [key(statement, "TS2322")]
-				case "expected error":
-					return disarmed ? [key(statement, "TS2322")] : []
-				case "unused directive":
-					return disarmed ? [] : [key(directive, "TS2578")]
-			}
-		}),
-		directives: disarmed
-			? Arr.flatMap(placed, ({ kind, statement }) =>
-					kind === "clean" || kind === "error" ? [] : [key(statement, "TS2322")]
-				)
-			: []
+/** A declaration that raises what `raises` names. */
+const declaration = (raises: Raises, index: number): string => {
+	switch (raises) {
+		case "nothing":
+			return `export const v${index}: number = 1`
+		case "TS2322":
+			return `export const v${index}: number = "s"`
+		case "TS2741":
+			return `export const v${index}: { readonly a: number } = {}`
 	}
 }
 
-/** Keys sorted and distinct, as a set compares them. */
-const keySet = (keys: ReadonlyArray<string>) => Arr.sort(Arr.dedupe(keys), Order.String)
+/** The directive line over a planted line, if it has one. */
+const directiveOf = (over: Over): ReadonlyArray<string> => {
+	switch (over.kind) {
+		case "none":
+			return []
+		case "code":
+			return ["// @ts-expect-error -- TS2322: the declared type refuses the value"]
+		case "refused":
+			return ["// @ts-expect-error -- refused: the declared type refuses the value"]
+		case "twin":
+			return [`// @ts-expect-error -- twin ${over.label}: one probe at two places`]
+	}
+}
+
+/** A planted module's text, after `header` lines, and where each of its lines landed. */
+const writtenOf = (
+	lines: ReadonlyArray<PlantedLine>,
+	header: ReadonlyArray<string>
+): Readonly<{ text: string; lines: ReadonlyArray<Written> }> => {
+	const text: Array<string> = [...header]
+	const written: Array<Written> = []
+	Arr.forEach(lines, (planted, index) => {
+		const directive = directiveOf(planted.over)
+		text.push(...directive, declaration(planted.raises, index))
+		written.push({
+			planted,
+			directive: text.length - directive.length,
+			statement: text.length
+		})
+	})
+	return { text: `${Arr.join(text, "\n")}\n`, lines: written }
+}
+
+/** A module's lines, by its file name. */
+type ModuleLines = Readonly<{ file: string; lines: ReadonlyArray<Written> }>
+
+/**
+ * What the model expects of a unit's modules: the diagnostics a check of them reports, the lines a disarmed copy's
+ * directives promise, and its problems.
+ */
+const expectedOf = (
+	modules: ReadonlyArray<ModuleLines>,
+	disarmed: boolean
+): Readonly<{
+	errors: ReadonlyArray<Diagnostic>
+	directives: ReadonlyArray<Place>
+	problems: ReadonlyArray<Problem>
+}> => {
+	const lines = Arr.flatMap(modules, ({ file, lines: written }) =>
+		Arr.map(written, (w) => ({ file, ...w }))
+	)
+	const errors = Arr.flatMap(
+		lines,
+		({ file, planted, directive, statement }): ReadonlyArray<Diagnostic> => {
+			const raised: ReadonlyArray<Diagnostic> =
+				planted.raises === "nothing" ? [] : [{ file, line: statement, code: planted.raises }]
+			if (disarmed || planted.over.kind === "none") {
+				return raised
+			}
+			return planted.raises === "nothing" ? [{ file, line: directive, code: "TS2578" }] : []
+		}
+	)
+	if (!disarmed) {
+		return { errors, directives: [], problems: [] }
+	}
+	const directed = Arr.filter(lines, ({ planted }) => planted.over.kind !== "none")
+	const raisedAt = (raises: Raises): ReadonlyArray<string> => (raises === "nothing" ? [] : [raises])
+	const coded = Arr.flatMap(directed, ({ file, planted, statement }): ReadonlyArray<Problem> =>
+		planted.over.kind === "code" && planted.raises === "TS2741"
+			? [{ kind: "code", at: { file, line: statement }, claimed: "TS2322", raised: ["TS2741"] }]
+			: []
+	)
+	const twins = Arr.flatMap(LABELS, (label): ReadonlyArray<Problem> => {
+		const of = Arr.filter(
+			directed,
+			({ planted }) => planted.over.kind === "twin" && planted.over.label === label
+		)
+		const [first, ...rest] = of
+		if (first === undefined) {
+			return []
+		}
+		if (!Arr.isReadonlyArrayNonEmpty(rest)) {
+			return [{ kind: "twin alone", label, at: { file: first.file, line: first.statement } }]
+		}
+		return Arr.every(rest, ({ planted }) => planted.raises === first.planted.raises)
+			? []
+			: [
+					{
+						kind: "twins differ",
+						label,
+						lines: Arr.map(of, ({ file, planted, statement }) => ({
+							at: { file, line: statement },
+							raised: raisedAt(planted.raises)
+						}))
+					}
+				]
+	})
+	return {
+		errors,
+		directives: Arr.map(directed, ({ file, statement }) => ({ file, line: statement })),
+		problems: [
+			...(Arr.isReadonlyArrayNonEmpty(directed) ? [] : [{ kind: "vacuous" as const }]),
+			...coded,
+			...twins
+		]
+	}
+}
+
+/** Diagnostics as a set compares them: sorted by file, line and code, and distinct. */
+const diagnosticSet = (diagnostics: ReadonlyArray<Diagnostic>): ReadonlyArray<Diagnostic> =>
+	Arr.dedupeWith(
+		Arr.sort(
+			diagnostics,
+			Order.Struct({ file: Order.String, line: Order.Number, code: Order.String })
+		),
+		(a, b) => a.file === b.file && a.line === b.line && a.code === b.code
+	)
+
+/** The place a problem names first, and its kind: the order the problems of a unit are compared in, as a set. */
+const problemOrder: Order.Order<Problem> = Order.mapInput(
+	Order.Struct({ kind: Order.String, label: Order.String, file: Order.String, line: Order.Number }),
+	(problem: Problem) => {
+		const at = (place: Place) => ({ file: place.file, line: place.line })
+		switch (problem.kind) {
+			case "code":
+			case "refusal missing":
+			case "refusal unnamed":
+				return { kind: problem.kind, label: "", ...at(problem.at) }
+			case "twin alone":
+				return { kind: problem.kind, label: problem.label, ...at(problem.at) }
+			case "twins differ":
+				return { kind: problem.kind, label: problem.label, file: "", line: 0 }
+			case "unplaced":
+			case "vacuous":
+			case "lacking":
+				return { kind: problem.kind, label: "", file: "", line: 0 }
+		}
+	}
+)
+
+/** The features a unit's expected problems and lines reach. */
+const notesOf = (unit: PlantedUnit, problems: ReadonlyArray<Problem>): ReadonlyArray<Feature> => {
+	const lines = Arr.flatten(unit.modules)
+	const agreeing = Arr.some(LABELS, (label) => {
+		const of = Arr.filter(lines, ({ over }) => over.kind === "twin" && over.label === label)
+		const [first, ...rest] = of
+		return (
+			first !== undefined &&
+			Arr.isReadonlyArrayNonEmpty(rest) &&
+			Arr.every(rest, ({ raises }) => raises === first.raises)
+		)
+	})
+	return [
+		unitFeature(unit.kind),
+		...(Arr.some(lines, ({ raises, over }) => raises === "nothing" && over.kind !== "none") &&
+		!isDisarmed(unit)
+			? ["an unused directive" as const]
+			: []),
+		...(isDisarmed(unit) && Arr.some(lines, ({ over }) => over.kind === "refused")
+			? ["a refused line" as const]
+			: []),
+		...Arr.map(problems, (problem): Feature => {
+			switch (problem.kind) {
+				case "vacuous":
+					return "a disarmed unit with no directive"
+				case "code":
+					return "a code its directive does not claim"
+				case "twin alone":
+					return "a twin alone"
+				case "twins differ":
+					return "twins that differ"
+				case "unplaced":
+				case "refusal missing":
+				case "refusal unnamed":
+				case "lacking":
+					return unitFeature(unit.kind)
+			}
+		}),
+		...(isDisarmed(unit) && agreeing ? ["twins that agree" as const] : [])
+	]
+}
 
 /** The file a planted module is: a program's entry and its second module, or a directory's fixtures. */
 const fileOf = (kind: UnitKind, index: number): string =>
@@ -208,12 +402,12 @@ const linkedRoot = (repository: string) =>
 		return linked
 	})
 
-/** The prefix a planted program's directory starts with, which a disarmed program's problem names. */
+/** The prefix a planted program's directory starts with. */
 const PROGRAM_PREFIX = ".attributed-"
 
 /**
  * Plants a batch under the repository at `repository`, its real path, builds it through the root as the case spells
- * it, and holds the result to the model: every unit's errors, promised directives and problems, and no line left
+ * it, and holds the result to the model: every unit's errors, promised lines and problems, as sets, and no line left
  * unattributed; or, when the unowned file raises, BatchDiagnosticUnowned naming its real path.
  */
 const attributed = (planted: Planted, c: Case<Feature>) =>
@@ -239,10 +433,6 @@ const attributed = (planted: Planted, c: Case<Feature>) =>
 			})
 			const units = yield* Effect.forEach(planted.units, (unit, at) =>
 				Effect.gen(function* () {
-					c.note(unitFeature(unit.kind))
-					if (Arr.some(unit.modules, (lines) => Arr.contains(lines, "unused directive"))) {
-						c.note("an unused directive")
-					}
 					const header = (entry: (repoPath: string) => string): ReadonlyArray<string> =>
 						Option.match(
 							Option.filter(unownedFile, () =>
@@ -259,14 +449,19 @@ const attributed = (planted: Planted, c: Case<Feature>) =>
 					const modulesOf = (entry: (repoPath: string) => string) =>
 						Arr.map(unit.modules, (lines, index) => ({
 							file: fileOf(unit.kind, index),
-							module: written(lines, index === 0 ? header(entry) : [])
+							module: writtenOf(lines, index === 0 ? header(entry) : [])
 						}))
 					const disarmed = isDisarmed(unit)
-					const expected = Arr.map(
-						modulesOf(() => ""),
-						({ file, module }) => expectedOf(file, module.placed, disarmed)
+					const expected = expectedOf(
+						Arr.map(
+							modulesOf(() => ""),
+							({ file, module }) => ({ file, lines: module.lines })
+						),
+						disarmed
 					)
-					const directives = Arr.flatMap(expected, (e) => e.directives)
+					for (const feature of notesOf(unit, expected.problems)) {
+						c.note(feature)
+					}
 					const placeFixtures = Effect.gen(function* () {
 						const dir = yield* scopedTempDir(path.join(repository, plantedIn), ".fixtures-")
 						yield* fs.makeDirectory(path.join(dir, "fixtures"))
@@ -294,22 +489,7 @@ const attributed = (planted: Planted, c: Case<Feature>) =>
 												source: module.text
 											}))
 									}
-					const vacuous = disarmed && !Arr.isReadonlyArrayNonEmpty(directives)
-					if (vacuous) {
-						c.note("a disarmed unit with no directive")
-					}
-					const problemDir = spec.kind === "program" ? `${spec.dir}/${spec.prefix}` : spec.dir
-					return {
-						id: `batch/u${at}`,
-						spec,
-						expected: {
-							errors: keySet(Arr.flatMap(expected, (e) => e.errors)),
-							directives,
-							problems: vacuous
-								? [`${problemDir}: a disarmed unit with no directive proves nothing`]
-								: []
-						}
-					}
+					return { id: `batch/u${at}`, spec, expected }
 				})
 			)
 			if (planted.symlinked) {
@@ -336,20 +516,25 @@ const attributed = (planted: Planted, c: Case<Feature>) =>
 				)
 				return
 			}
+			const asSets = (result: {
+				readonly errors: ReadonlyArray<Diagnostic>
+				readonly directives: ReadonlyArray<Place>
+				readonly problems: ReadonlyArray<Problem>
+			}) => ({
+				errors: diagnosticSet(result.errors),
+				directives: Arr.map(result.directives, placeKey),
+				problems: Arr.sort(result.problems, problemOrder)
+			})
 			assert.deepEqual(
 				Option.map(Exit.getSuccess(built), (batch) => ({
 					unattributed: batch.unattributed,
 					units: Arr.map(units, (unit) =>
-						Option.map(Option.fromUndefinedOr(batch.units[unit.id]), (result) => ({
-							errors: keySet(Arr.map(result.errors, diagnosticKey)),
-							directives: Arr.map(result.directives, diagnosticKey),
-							problems: result.problems
-						}))
+						Option.map(Option.fromUndefinedOr(batch.units[unit.id]), asSets)
 					)
 				})),
 				Option.some({
 					unattributed: [],
-					units: Arr.map(units, (unit) => Option.some(unit.expected))
+					units: Arr.map(units, (unit) => Option.some(asSets(unit.expected)))
 				})
 			)
 		})
@@ -647,7 +832,7 @@ const delivered = (planted: PlantedRun, c: Case<RunFeature>) =>
 
 layer(NodeServices.layer, { excludeTestServices: true })("the type-test batch", (it) => {
 	it.effect(
-		"attributes every diagnostic to the unit whose file it names, through any spelling of the root, and fails on one no unit owns",
+		"attributes every diagnostic to the unit whose file it names, through any spelling of the root, holds each directive's line to its claim, and fails on a diagnostic no unit owns",
 		(ctx) =>
 			searched(
 				ctx,
@@ -668,6 +853,11 @@ layer(NodeServices.layer, { excludeTestServices: true })("the type-test batch", 
 								"a disarmed program",
 								"an unused directive",
 								"a disarmed unit with no directive",
+								"a code its directive does not claim",
+								"a refused line",
+								"twins that agree",
+								"twins that differ",
+								"a twin alone",
 								"an unowned file that raises",
 								"an unowned file that raises nothing",
 								"a symlinked root"

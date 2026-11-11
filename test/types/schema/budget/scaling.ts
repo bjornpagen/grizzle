@@ -2,9 +2,11 @@ import { Array as Arr } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
+import { type Steps, steps } from "#test/types/batch/measured.ts"
 
 /**
- * The schema-scale programs, one per schema dimension, each checked at n, 2n and 4n (scaling.test.ts). A program at a
+ * The schema-scale programs, one per schema dimension, each checked at three sizes an equal step apart (scaling.test.ts),
+ * each step a whole number of the dimension's period. A program at a
  * shape writes `relations` relations R0 … over P, each with its id, its parent and `fields` uuid fields f0 …, and
  * `laws` laws: the first contains its parent in P's ids, as issue #9's schema does; then, field by field, a key on the
  * field and a containment of the field in P's ids, in turn. Beside them stand a roster K of `handles` handles H0 …, the
@@ -32,12 +34,14 @@ type SchemaShape = {
 /** One dimension: its name, the shape at n, and the shape at a size of its own along the dimension. */
 interface SchemaDimension {
 	readonly name: string
-	readonly sizes: readonly [number, number, number]
+	readonly steps: Steps
 	readonly shape: (size: number) => SchemaShape
 }
 
 /**
- * The dimensions and their sizes. The full role's entries reach past issue #9's cliff, 1,107 relations each with a law
+ * The dimensions and their sizes, each a whole number of its period: one relation, one handle, one role or one field
+ * a unit, but for the full role's entries, one closed relation to every ten, and the laws, a key and a containment in
+ * turn after the first. The full role's entries reach past issue #9's cliff, 1,107 relations each with a law
  * under one full role, at which ChangeSet.empty(role) and query(role) failed with TS2589, and its closed relations,
  * which its entries leave out, grow with them. Each list a user grows whose names the type reads for a repeat (a full
  * role's write list, a roster's handles and a set's handles) runs past 1,200 names, where a recursive kernel failed
@@ -47,7 +51,7 @@ interface SchemaDimension {
 export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
 	{
 		name: "relations",
-		sizes: [250, 500, 1000],
+		steps: steps(334),
 		shape: (relations) => ({
 			relations,
 			closed: 1,
@@ -62,7 +66,7 @@ export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
 	},
 	{
 		name: "full-role entries",
-		sizes: [300, 600, 1200],
+		steps: steps(380),
 		shape: (relations) => ({
 			relations,
 			closed: relations / 10,
@@ -77,7 +81,7 @@ export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
 	},
 	{
 		name: "write-list names",
-		sizes: [300, 600, 1200],
+		steps: steps(420),
 		shape: (relations) => ({
 			relations,
 			closed: 1,
@@ -92,7 +96,7 @@ export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
 	},
 	{
 		name: "roster handles",
-		sizes: [325, 650, 1300],
+		steps: steps(420),
 		shape: (handles) => ({
 			relations: 25,
 			closed: 1,
@@ -107,7 +111,7 @@ export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
 	},
 	{
 		name: "set handles",
-		sizes: [325, 650, 1300],
+		steps: steps(420),
 		shape: (members) => ({
 			relations: 25,
 			closed: 1,
@@ -122,7 +126,7 @@ export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
 	},
 	{
 		name: "laws per relation",
-		sizes: [4, 8, 16],
+		steps: steps(4),
 		shape: (laws) => ({
 			relations: 100,
 			closed: 1,
@@ -137,7 +141,7 @@ export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
 	},
 	{
 		name: "roles per schema",
-		sizes: [4, 8, 16],
+		steps: steps(4),
 		shape: (roles) => ({
 			relations: 100,
 			closed: 1,
@@ -152,7 +156,7 @@ export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
 	},
 	{
 		name: "fields per relation",
-		sizes: [8, 16, 32],
+		steps: steps(10),
 		shape: (fields) => ({
 			relations: 25,
 			closed: 1,

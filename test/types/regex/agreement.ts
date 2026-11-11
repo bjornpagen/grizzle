@@ -197,7 +197,7 @@ const isAdmittedFlags = (flags: string): flags is Flags => flags === "u" || flag
  * A string as a TypeScript literal on one line: JSON's spelling, with the two line terminators JSON leaves bare,
  * U+2028 and U+2029, escaped, so a directive stays on the line above its call.
  */
-const literal = (text: string): string =>
+export const literal = (text: string): string =>
 	Str.replaceAll("\u2029", "\\u2029")(Str.replaceAll("\u2028", "\\u2028")(jsonText(text)))
 
 /** The engine's verdict: a flags word other than u and su is malformed, an admitted one's source analyzed. */

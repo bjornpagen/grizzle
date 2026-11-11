@@ -1,52 +1,57 @@
+/**
+ * Families, trees, folds and nested additions at scale (schema/budget/families.ts).
+ *
+ * Properties:
+ * - Cost: the family-scale program, checked alone at three family counts an equal step apart, each step a whole number
+ *   of its period, typechecks with no diagnostic, every relation a ChangeSet inserts at its top level inserted at once
+ *   from the rows grizzle types (a round trip), and its types and instantiations grow no faster than linearly, exactly
+ *   (test/support/growth.ts incrementsDoNotGrow): the second step adds no more than the first. Oracle: the compiler's
+ *   own counts, compared step against step.
+ * - Invariance: at the largest size, beside its twin, the same declarations over the first and the last unit of each
+ *   kind alone, checked by the type batch disarmed, every unit's additions, the relations a ChangeSet inserts at its
+ *   top level and the rows insertAll takes of them are identical to the twin's; and an ordered member written alone and
+ *   a counted member nested under its owner raise exactly the diagnostics, codes and refusals, they raise over the
+ *   twin. Oracle: the twin.
+ *
+ * Plants (~/.cache/grizzle-release/BR14/plants): families-scale-walk.patch finds a key's immutable owners by a pass
+ * over every family of the schema for each key, a cost per key that grows with the families;
+ * families-owner-recursion.patch builds the index of family owners by a recursion over the statement tuple, one level
+ * per statement, which the twin's few statements survive and the program at scale does not.
+ */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, String as Str } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { assert } from "#test/support/assert.ts"
+import { checked } from "#test/types/batch/batch.ts"
+import { assertClean, assertGrowthLaw, measuredSizes } from "#test/types/batch/measured.ts"
 import {
-	assertClean,
-	assertLinear,
-	measuredProgram,
-	measuredSizes
-} from "#test/types/batch/measured.ts"
-import { familySizes, generateFamiliesSource } from "#test/types/schema/budget/families.ts"
+	familySizes,
+	generateFamiliesSource,
+	largestFamilies
+} from "#test/types/schema/budget/families.ts"
 
 layer(NodeServices.layer, { excludeTestServices: true })("the family-scale schema", (it) => {
 	it.effect(
-		"typechecks 500, 1,000 and 2,000 families and as many folds, nested two deep and with trees, with no diagnostic, linear in types and instantiations",
+		`typechecks ${Arr.join(
+			Arr.map(familySizes.sizes, (n) => `${n}`),
+			", "
+		)} families and as many folds, nested two deep and with trees, with no diagnostic, its types and instantiations growing no faster than linearly`,
 		() =>
 			Effect.gen(function* () {
 				const sizes = yield* measuredSizes("test/types/schema", familySizes, generateFamiliesSource)
 				for (const s of sizes) {
 					assertClean(s, "the family-scale schema")
 				}
-				assertLinear("the families", sizes)
+				assertGrowthLaw("the families", familySizes, sizes)
 			})
 	)
 
-	it.effect("raises exactly the refusal its directive names at 2,000 families, disarmed", () =>
-		Effect.gen(function* () {
-			const families = Arr.lastNonEmpty(familySizes)
-			const { measured, directives } = yield* measuredProgram(
-				"test/types/schema",
-				families,
-				(entries) => generateFamiliesSource(families, entries),
-				false
-			)
-			assert.deepEqual(measured.unattributed, [], "no diagnostic outside the program")
-			assert.deepEqual(
-				Arr.map(measured.errors, (e) => ({ line: e.line, code: e.code })),
-				Arr.map(directives, (d) => ({ line: d.line, code: d.code })),
-				"each directive's line raises its code, and no other line raises any"
-			)
-			for (const d of directives) {
-				if (d.claim.kind === "refusal") {
-					const printed = `Refusal<"${d.claim.refusal}">`
-					assert.ok(
-						Arr.some(measured.errors, (e) => e.line === d.line && Str.includes(printed)(e.text)),
-						`line ${d.line} prints ${printed}`
-					)
-				}
-			}
-		})
+	it.effect(
+		`infers at ${largestFamilies} families what its twin infers, and refuses what its twin refuses, as its twin refuses it`,
+		() =>
+			Effect.gen(function* () {
+				const { expected, actual } = yield* checked("schema/families")
+				assert.deepEqual(actual, expected)
+			})
 	)
 })

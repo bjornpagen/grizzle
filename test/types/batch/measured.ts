@@ -1,10 +1,10 @@
-import { Array as Arr, Effect, FileSystem, Path, String as Str } from "effect"
+import { Array as Arr, Effect, FileSystem, Option, Path, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { incrementsDoNotGrow } from "#test/support/growth.ts"
 import type { PreludeAt } from "#test/support/prelude.ts"
 import { scopedTempDir } from "#test/support/temp.ts"
 import { compiled } from "#test/types/batch/compiler.ts"
-import { disarm } from "#test/types/batch/directives.ts"
 import { entriesFrom } from "#test/types/query/budget/generate.ts"
 
 import { regex } from "arkregex"
@@ -15,11 +15,28 @@ import { regex } from "arkregex"
  * checked by one checker: several checkers each make the types of the files they check, and how the files fall to
  * them moves the counts by more than a small dimension's step.
  *
- * A scaling test checks a program at three sizes of one dimension, n, 2n and 4n, and holds every one to no diagnostic
- * and both counts to linear growth (linearIn): for a count a + b·n^k the increment from 2n to 4n is 2^k times the one
- * from n to 2n, so a linear count gives 2 and a quadratic one 4, and a ratio of 3 or more, the midpoint, is refused. The
- * constant a, what the public barrels cost before the dimension adds anything, cancels in the increments.
+ * A scaling test checks a program at three sizes of one dimension an equal step apart, 2h, 4h and 6h (Steps), each step
+ * a whole number of the periods its generator repeats with, so every step adds the same units in the same proportions.
+ * It holds every program to no diagnostic and both counts to grow no faster than linearly, exactly
+ * (test/support/growth.ts incrementsDoNotGrow): the second step adds no more than the first, so no unit costs more for
+ * the units before it, and any count whose cost per unit grows with the program, a call that reads a schema-sized
+ * union per unit among them, adds more. No ratio is read.
  */
+
+/**
+ * The sizes a dimension is checked at: one step, two and three, as incrementsDoNotGrow reads them (2h, 4h and 6h). A
+ * step is even, and a whole number of the periods its generator repeats with, the units after which every pattern of
+ * its program recurs (a key on every fifth relation, a shape of six, a family tree on every fourth unit).
+ */
+export interface Steps {
+	readonly half: number
+	readonly sizes: readonly [number, number, number]
+}
+
+export const steps = (step: number): Steps => ({
+	half: step / 2,
+	sizes: [step, 2 * step, 3 * step]
+})
 
 /** The repository root, three levels above this directory. */
 const repoRoot = Effect.gen(function* () {
@@ -60,16 +77,11 @@ interface Measured {
 }
 
 /**
- * The program `source` writes at `size`, armed or disarmed, written into a fresh directory under the repository
- * directory `dir`, so it resolves the sources as the fixtures there do, and checked by the repository's compiler with
- * its extended diagnostics: what it reported, and the directives its disarmed copy must raise.
+ * The program `source` writes at `size`, written into a fresh directory under the repository directory `dir`, so it
+ * resolves the sources as the fixtures there do, and checked by the repository's compiler with its extended
+ * diagnostics: what it reported.
  */
-export const measuredProgram = (
-	dir: string,
-	size: number,
-	source: (entries: PreludeAt) => string,
-	armed: boolean
-) =>
+const measuredProgram = (dir: string, size: number, source: (entries: PreludeAt) => string) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const fs = yield* FileSystem.FileSystem
@@ -81,10 +93,8 @@ export const measuredProgram = (
 				const relative = path.relative(programDir, path.join(root, repoPath))
 				return Str.startsWith(".")(relative) ? relative : `./${relative}`
 			}
-			const written = source(entriesFrom(entry))
-			const placed = armed ? { source: written, directives: [] } : disarm("index.ts", written)
 			yield* fs.writeFileString(path.join(programDir, "package.json"), '{ "type": "module" }\n')
-			yield* fs.writeFileString(path.join(programDir, "index.ts"), placed.source)
+			yield* fs.writeFileString(path.join(programDir, "index.ts"), source(entriesFrom(entry)))
 			yield* fs.writeFileString(
 				path.join(programDir, "tsconfig.json"),
 				jsonText({
@@ -163,22 +173,17 @@ export const measuredProgram = (
 					`tsgo reports the instantiations of the program at ${size}`
 				)
 			}
-			return { measured, directives: placed.directives }
+			return measured
 		})
 	)
 
-/** The program at each size, armed, checked one after another: each check uses the cores tsgo takes. */
+/** The program at each of the steps' sizes, checked one after another: each check uses the cores tsgo takes. */
 export const measuredSizes = (
 	dir: string,
-	sizes: ReadonlyArray<number>,
+	at: Steps,
 	source: (size: number, entries: PreludeAt) => string
 ) =>
-	Effect.forEach(sizes, (size) =>
-		Effect.map(
-			measuredProgram(dir, size, (entries) => source(size, entries), true),
-			(checked) => checked.measured
-		)
-	)
+	Effect.forEach(at.sizes, (size) => measuredProgram(dir, size, (entries) => source(size, entries)))
 
 /** A program typechecks with no diagnostic: no error of its own and no line about anything else. */
 export const assertClean = (m: Measured, what: string): void => {
@@ -189,30 +194,29 @@ export const assertClean = (m: Measured, what: string): void => {
 	)
 }
 
-/** One count's growth over sizes n, 2n and 4n is linear: an increment ratio under 3. */
-const linearCount = (
+/**
+ * Types and instantiations of the program measured at the steps' sizes each grow no faster than linearly
+ * (incrementsDoNotGrow), and each step adds some of them, so the dimension costs what it measures.
+ */
+export const assertGrowthLaw = (
 	what: string,
-	count: string,
-	at: (m: Measured) => number,
-	sizes: ReadonlyArray<Measured>
+	at: Steps,
+	measured: ReadonlyArray<Measured>
 ): void => {
-	const [small, middle, large] = sizes
-	const s = defined(small, `${what} is measured at n`)
-	const m = defined(middle, `${what} is measured at 2n`)
-	const l = defined(large, `${what} is measured at 4n`)
-	assert.equal(m.size, 2 * s.size, `${what} is measured at n and 2n`)
-	assert.equal(l.size, 2 * m.size, `${what} is measured at 2n and 4n`)
-	const first = at(m) - at(s)
-	const second = at(l) - at(m)
-	assert.ok(first > 0, `each step of ${what} adds ${count}: ${first} from ${s.size} to ${m.size}`)
-	assert.ok(
-		second < 3 * first,
-		`${count} linear in ${what}: ${second} from ${m.size} to ${l.size} against ${first} from ${s.size} to ${m.size}, a ratio of ${(second / first).toFixed(2)}, which a linear count holds at 2 and a quadratic one at 4`
-	)
-}
-
-/** Types and instantiations both grow linearly over the sizes n, 2n and 4n of one dimension. */
-export const assertLinear = (what: string, sizes: ReadonlyArray<Measured>): void => {
-	linearCount(what, "types", (m) => m.types, sizes)
-	linearCount(what, "instantiations", (m) => m.instantiations, sizes)
+	const sized = (size: number): Measured =>
+		defined(
+			Option.getOrUndefined(Arr.findFirst(measured, (m) => m.size === size)),
+			`${what} is measured at ${size}`
+		)
+	for (const [count, of] of [
+		["types", (m: Measured) => m.types],
+		["instantiations", (m: Measured) => m.instantiations]
+	] as const) {
+		const [small, middle] = at.sizes
+		assert.ok(
+			of(sized(middle)) > of(sized(small)),
+			`each step of ${what} adds ${count}: ${of(sized(small))} at ${small}, ${of(sized(middle))} at ${middle}`
+		)
+		incrementsDoNotGrow((size) => of(sized(size)), at.half, `${count} of ${what}`)
+	}
 }

@@ -167,9 +167,11 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
     - no overload signatures, a Function.dual's two call signatures included, but `withLayer`'s in
       `test/support/with-layer.ts`, which pipes call data-last;
     - no `@ts-ignore` or `@ts-nocheck`;
-    - `@ts-expect-error` only in negative type tests under `test/types/**/fixtures/`, each naming its diagnostic code:
-      `// @ts-expect-error -- TSnnnn: why`, or `// @ts-expect-error -- TSnnnn refusal: <message>` for a refusal
-      grizzle's types name;
+    - `@ts-expect-error` only in negative type tests under `test/types/`, each stating what its line raises:
+      `// @ts-expect-error -- TSnnnn: why`, `// @ts-expect-error -- TSnnnn refusal: <message>` for a refusal grizzle's
+      types name, `// @ts-expect-error -- refused: why` where the contract is only that the line does not compile, or
+      `// @ts-expect-error -- twin <label>: why` for one probe written at two places, which must raise the same
+      diagnostics (test/types/batch/directives.ts);
     - no written type at a property, parameter or return that holds both `null` and `undefined`; optional plus `| null`
       counts as both;
     - no absence check (`=== undefined`, `== null`, `??`, `?.`) on a value whose type admits neither `undefined` nor

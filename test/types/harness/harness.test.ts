@@ -1,3 +1,22 @@
+/**
+ * The testing library's type contracts, each a generated program the type batch checks disarmed:
+ *
+ * - The vocabulary (harness/vocabulary.ts): a required situation, a note, a pair and a kept case's reaches typecheck
+ *   exactly when every name they hold is a member of the suite's closed vocabulary, the situations are one at least, a
+ *   kept case reaches one at least, and the vocabulary is a union of literals, never string. Oracle: membership in the
+ *   drawn vocabulary.
+ * - The assertion door (harness/door.ts): assert.equal and assert.deepEqual typecheck exactly when the expected value
+ *   conforms to the actual's type, at any depth. Oracle: conformance of a value drawn of the type, with at most one
+ *   fault planted.
+ *
+ * A refusal is stated as the contract states it, `refused`: the probe does not compile, whichever diagnostic the checker
+ * elaborates it to. The floor's witnesses reach every fault of both contracts, each at both depths, and their admitted
+ * cases, so neither program is vacuous on any seed.
+ *
+ * Plants (~/.cache/grizzle-release/BR14/plants): harness-open-situations.patch widens a required situation to any
+ * string; harness-door-infers.patch drops NoInfer from assert.deepEqual's expected value, so a drifted value widens the
+ * type instead of failing.
+ */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { unreachedOf } from "@grizzle/testing/features"

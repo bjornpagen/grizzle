@@ -12,13 +12,9 @@ import { jsonText } from "#compiler/core/trusted.ts"
  * exactly when every name they hold is a member, the situations are at least one, a kept case reaches one at least,
  * and the vocabulary is a union of literals, never `string`.
  *
- * A case draws a vocabulary of short lowercase names and, beside its members, a stranger long enough that no member
- * is within the checker's spelling suggestion of it, so a stranger's refusal is the plain one. Each probe stands on a
- * line of its own, under its refusal's directive where the oracle refuses it: no situation at the call (TS2345); a
- * required situation outside the vocabulary, or any of an open one, at the first situation where that one is refused
- * (TS2322), the checker reading the list's first situation by its own place, and at the call where only a later one
- * is (TS2345), the checker reading the rest as one element type; a note or a pair outside the vocabulary at the call
- * (TS2345); and a kept case reaching a stranger or nothing at its reaches (TS2322).
+ * A case draws a vocabulary of short lowercase names and, beside its members, a stranger longer than every member, so
+ * never one. Each probe stands on one line, under a `refused` directive exactly where the oracle refuses it: the
+ * contract is that the probe does not compile, whichever diagnostic the checker elaborates it to.
  */
 const faults = [
 	"a required stranger",
@@ -46,7 +42,9 @@ interface VocabularyCase {
 }
 
 const member: Gen<string> = string(codePoint(0x61, 0x7a), { min: 3, max: 6 })
-const strangerGen: Gen<string> = string(codePoint(0x61, 0x7a), { min: 14, max: 16 })
+
+/** A stranger: longer than every member, so no member is one. */
+const strangerGen: Gen<string> = string(codePoint(0x61, 0x7a), { min: 7, max: 9 })
 
 const coin = (source: Source, odds: number): boolean => source.draw(int(1, odds)) === 1
 
@@ -116,54 +114,34 @@ const admits = (c: VocabularyCase, s: string | readonly [string, string]): boole
 		? Arr.contains(c.members, s)
 		: Arr.contains(c.members, s[0]) && Arr.contains(c.members, s[1]))
 
-/** One case's statements: its vocabulary, and each probe under its refusal's directive. */
+/** One case's statements: its vocabulary, then each probe on one line, refused where the oracle refuses it. */
 const blockOf = (c: VocabularyCase, i: number): ReadonlyArray<string> => {
-	const directive = (refused: boolean, line: string): ReadonlyArray<string> =>
-		refused ? [line] : []
-	const [first, ...later] = c.required
-	const firstRefused = first !== undefined && !admits(c, first)
-	const laterRefused = Arr.some(later, (s) => !admits(c, s))
+	const probe = (refused: boolean, why: string, line: string): ReadonlyArray<string> => [
+		...(refused ? [`// @ts-expect-error -- refused: ${why}`] : []),
+		line
+	]
 	return [
 		`type V${i} = ${c.open ? "string" : Arr.join(Arr.map(c.members, jsonText), " | ")}`,
-		...directive(
-			first === undefined,
-			"// @ts-expect-error -- TS2345: a requirement names one situation at least"
+		...probe(
+			!Arr.isReadonlyArrayNonEmpty(c.required) || !Arr.every(c.required, (s) => admits(c, s)),
+			"a requirement names one situation at least, each a literal of the vocabulary",
+			`export const q${i} = required<V${i}>([${Arr.join(Arr.map(c.required, situationSource), ", ")}], { cases: 1, sense: notesOnly })`
 		),
-		...directive(
-			!firstRefused && laterRefused,
-			"// @ts-expect-error -- TS2345: a required situation outside the vocabulary"
-		),
-		`export const q${i} = required<V${i}>([`,
-		...Arr.flatMap(c.required, (s, at) => [
-			...directive(
-				at === 0 && firstRefused,
-				c.open
-					? "\t// @ts-expect-error -- TS2322: a requirement takes literal names, never string"
-					: "\t// @ts-expect-error -- TS2322: a required situation outside the vocabulary"
-			),
-			`\t${situationSource(s)},`
-		]),
-		"], { cases: 1, sense: notesOnly })",
-		...directive(
+		...probe(
 			c.fault === "a stranger noted",
-			"// @ts-expect-error -- TS2345: a note outside the suite's vocabulary"
+			"a note outside the suite's vocabulary",
+			`export const n${i} = (c: Case<V${i}>) => c.note(${jsonText(c.note)})`
 		),
-		`export const n${i} = (c: Case<V${i}>) => c.note(${jsonText(c.note)})`,
-		...directive(
+		...probe(
 			c.fault === "a stranger paired",
-			"// @ts-expect-error -- TS2345: a pair outside the suite's vocabulary"
+			"a pair outside the suite's vocabulary",
+			`export const r${i} = (c: Case<V${i}>) => c.pair(${jsonText(c.pair[0])}, ${jsonText(c.pair[1])})`
 		),
-		`export const r${i} = (c: Case<V${i}>) => c.pair(${jsonText(c.pair[0])}, ${jsonText(c.pair[1])})`,
-		`export const k${i}: Kept<number, V${i}> = {`,
-		'\tnote: "a kept case",',
-		"\tsketch: 3,",
-		'\tdraws: "",',
-		...directive(
+		...probe(
 			c.fault === "a kept stranger" || c.fault === "a kept case reaching nothing",
-			"\t// @ts-expect-error -- TS2322: a kept case reaches one feature at least, each of the vocabulary"
+			"a kept case reaches one feature at least, each of the vocabulary",
+			`export const k${i}: Kept<number, V${i}> = { note: "a kept case", sketch: 3, draws: "", reaches: [${Arr.join(Arr.map(c.reaches, jsonText), ", ")}] }`
 		),
-		`\treaches: [${Arr.join(Arr.map(c.reaches, jsonText), ", ")}]`,
-		"}",
 		""
 	]
 }

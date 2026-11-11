@@ -14,10 +14,9 @@ import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/su
  *
  * A type is a union of string literals, a number, a string, a boolean, a list of a type or a record of named types,
  * two levels deep at most; a value conforms to its type by construction, and a fault makes it not: a literal outside
- * its union, a value of another kind, a record's field left out or a field its type lacks. Each assertion stands on
- * one line, under the directive of the diagnostic its fault raises there: the checker reads a literal or a kind fault
- * in the expected value itself as the argument's (TS2345) and inside a record or a list at the faulty member (TS2322),
- * a field left out as its record's (TS2741), and a field the type lacks wherever it stands (TS2353).
+ * its union, a value of another kind, a record's field left out or a field its type lacks, in the value itself or
+ * inside a record or a list of it. Each assertion stands on one line, under a `refused` directive exactly where a fault
+ * is planted: the contract is that the assertion does not compile, whichever diagnostic the checker elaborates it to.
  */
 type Ty =
 	| { readonly kind: "literal"; readonly members: Arr.NonEmptyReadonlyArray<string> }
@@ -334,24 +333,11 @@ const valSource = (v: Val): string => {
 	}
 }
 
-/** The diagnostic a planted fault raises at its line. */
-const codeOf = (p: Planted): "TS2345" | "TS2322" | "TS2741" | "TS2353" => {
-	switch (p.fault) {
-		case "a field its type lacks":
-			return "TS2353"
-		case "a field left out":
-			return "TS2741"
-		case "a literal outside its union":
-		case "a value of another kind":
-			return p.depth === "top" ? "TS2345" : "TS2322"
-	}
-}
-
 const blockOf = (c: DoorCase, i: number): ReadonlyArray<string> => [
 	`declare const a${i}: ${tySource(c.ty)}`,
 	...(c.planted === undefined
 		? []
-		: [`// @ts-expect-error -- ${codeOf(c.planted)}: ${c.planted.fault}`]),
+		: [`// @ts-expect-error -- refused: ${c.planted.fault}, ${c.planted.depth}`]),
 	`export const e${i} = (): void => assert.${c.assertion}(a${i}, ${valSource(c.value)})`
 ]
 

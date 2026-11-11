@@ -1,6 +1,13 @@
 import { Array as Arr, Effect } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/support/prelude.ts"
+import {
+	neighbourhood,
+	type Over,
+	type RefusalProbe,
+	twinPrefix,
+	twinProbes
+} from "#test/types/batch/twins.ts"
 
 /**
  * The growing-schema program, one type test of the query facade at scale. It writes one TypeScript program over the
@@ -8,70 +15,72 @@ import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/su
  * shapes the seven statement readers see: candidate keys, containments, a closed roster, mutability, a
  * parameterized query with an attachment, a keyed lookup, a lookup fixed by a filter, a grouped aggregate, a two-arm
  * union ordered by its common fields, a bound import, and reads through the handles of a workload over the full role
- * Reader, one workload per relation.
+ * Reader, one workload per relation. Reads are typed inside a function the program never calls, on a Db typed by its
+ * relation's workload's programs.
  *
- * The program asserts what is inferred at the first relation and at the last, so it fails at any size where inference
- * widens rather than only where it stops typechecking: exact parameters, heads, evidence and retained
- * keys, and refusals that must keep firing, each with a `@ts-expect-error -- TSnnnn` directive the harness checks.
- * Reads are typed inside a function the program never calls, on a Db typed by its relation's workload's programs.
+ * Beside it stands its twin (batch/twins.ts): the same declarations over the first and the last relation's
+ * neighbourhoods alone, the relation before and after each. Every parameter, head, evidence and key inferred at the
+ * first and the last relation is the twin's, and every refusal there raises what the twin's raises: a get of a query
+ * the evidence does not prove at most one row, a parameter of another type, an order by a field one arm lacks.
  */
 export const largestQuerySize = 200
 
-const relationDeclaration = (i: number): string =>
-	`export const R${i} = relation("R${i}", { id: uuid, parent: uuid, amount: pg.bigint, label: Label, kind: closedId(Kind), qty: pg.integer }, ["id"])\n`
+const relationDeclaration = (ns: string, i: number): string =>
+	`export const ${ns}R${i} = relation("R${i}", { id: uuid, parent: uuid, amount: pg.bigint, label: ${ns}Label, kind: closedId(${ns}Kind), qty: pg.integer }, ["id"])\n`
 
-/** One relation's queries. */
-const relationBlock = (i: number, relations: number): string => {
+/** One relation's queries, workload and reads, under the prefix `ns`, in a schema of `relations` relations. */
+const relationBlock = (ns: string, i: number, relations: number): string => {
 	const child = (i + 1) % relations
+	const owner = (i + relations - 1) % relations
 	return `
-export const byParent${i} = query(S).rule((r) => {
-	const { id, parent, amount, kind } = v(R${i}, "r${i}")
-	return r.match(R${i}, { id, parent, amount, kind }).where(r.eq(parent, r.param("parent", uuid)), r.ge(amount, 0n)).find({ id, amount, kind })
-}).attach("children", (p) => query(S).rule((r) => {
-	const { id } = v(R${child}, "r${child}")
-	return r.match(R${child}, { id, parent: p.id }).find({ id })
+export const ${ns}byParent${i} = query(${ns}S).rule((r) => {
+	const { id, parent, amount, kind } = v(${ns}R${i}, "r${i}")
+	return r.match(${ns}R${i}, { id, parent, amount, kind }).where(r.eq(parent, r.param("parent", uuid)), r.ge(amount, 0n)).find({ id, amount, kind })
+}).attach("children", (p) => query(${ns}S).rule((r) => {
+	const { id } = v(${ns}R${child}, "r${child}")
+	return r.match(${ns}R${child}, { id, parent: p.id }).find({ id })
 }), "array")
-export const byId${i} = query(S).rule((r) => {
-	const { amount, label } = v(R${i}, "r${i}")
-	return r.match(R${i}, { id: r.param("id", uuid), amount, label }).find({ amount, label })
+export const ${ns}byId${i} = query(${ns}S).rule((r) => {
+	const { amount, label } = v(${ns}R${i}, "r${i}")
+	return r.match(${ns}R${i}, { id: r.param("id", uuid), amount, label }).find({ amount, label })
 })
-export const byFilter${i} = query(S).rule((r) => {
-	const { id, label } = v(R${i}, "r${i}")
-	return r.match(R${i}, { id, label }).where(r.eq(id, r.param("id", uuid))).find({ label })
+export const ${ns}byFilter${i} = query(${ns}S).rule((r) => {
+	const { id, label } = v(${ns}R${i}, "r${i}")
+	return r.match(${ns}R${i}, { id, label }).where(r.eq(id, r.param("id", uuid))).find({ label })
 })
-export const total${i} = query(S).rule((r) => {
-	const { id, kind, qty } = v(R${i}, "r${i}")
-	return r.match(R${i}, { id, kind, qty }).find({ kind, total: r.sum(qty), n: r.count() })
+export const ${ns}total${i} = query(${ns}S).rule((r) => {
+	const { id, kind, qty } = v(${ns}R${i}, "r${i}")
+	return r.match(${ns}R${i}, { id, kind, qty }).find({ kind, total: r.sum(qty), n: r.count() })
 })
-export const arms${i} = query(S).rule((r) => {
-	const { id, amount } = v(R${i}, "r${i}")
-	return r.match(R${i}, { id, kind: "A", amount }).find({ id, kind: Kind.handle("A"), amount })
+export const ${ns}arms${i} = query(${ns}S).rule((r) => {
+	const { id, amount } = v(${ns}R${i}, "r${i}")
+	return r.match(${ns}R${i}, { id, kind: "A", amount }).find({ id, kind: ${ns}Kind.handle("A"), amount })
 }).rule((r) => {
-	const { id, label } = v(R${i}, "r${i}")
-	return r.match(R${i}, { id, kind: "B", label }).find({ id, kind: Kind.handle("B"), label })
+	const { id, label } = v(${ns}R${i}, "r${i}")
+	return r.match(${ns}R${i}, { id, kind: "B", label }).find({ id, kind: ${ns}Kind.handle("B"), label })
 }).orderBy(["kind", "asc"], ["id", "desc"])
-export const imported${i} = query(S).rule((r) => {
-	const { id: parent } = v(R${child}, "r${child}")
-	const top = byParent${i}.bind({ parent })
+export const ${ns}imported${i} = query(${ns}S).rule((r) => {
+	const { id: parent } = v(${ns}R${child}, "r${child}")
+	const top = ${ns}byParent${i}.bind({ parent })
 	const { id, amount } = v(top, "top")
-	return r.match(R${child}, { id: parent }).match(top, { id, amount }).find({ parent, id, amount })
+	return r.match(${ns}R${child}, { id: parent }).match(top, { id, amount }).find({ parent, id, amount })
 })
-export const owned${i} = query(S).rule((r) => {
-	const { id, parent, kind } = v(R${i}, "r${i}")
-	return r.match(R${i}, { id, parent, kind }).find({ id, parent, kind })
-}).attach("owner", (p) => query(S).rule((r) => {
-	const { label } = v(R${(i + relations - 1) % relations}, "r${(i + relations - 1) % relations}")
-	return r.match(R${(i + relations - 1) % relations}, { id: p.parent, label }).find({ label })
-}), ${i > 0 ? '"one"' : '"option"'}).attach("handle", (p) => query(S).rule((r) => r.match(Kind, { id: p.kind }).find({ handle: p.kind })), "one")
-export const w${i} = workload(Reader, {
-	byId: byId${i},
-	byFilter: byFilter${i},
-	key: R${i},
-	byParent: byParent${i},
-	arms: arms${i},
-	top: total${i}.orderBy(["kind", "asc"]).take(1)
+export const ${ns}owned${i} = query(${ns}S).rule((r) => {
+	const { id, parent, kind } = v(${ns}R${i}, "r${i}")
+	return r.match(${ns}R${i}, { id, parent, kind }).find({ id, parent, kind })
+}).attach("owner", (p) => query(${ns}S).rule((r) => {
+	const { label } = v(${ns}R${owner}, "r${owner}")
+	return r.match(${ns}R${owner}, { id: p.parent, label }).find({ label })
+}), ${i > 0 ? '"one"' : '"option"'}).attach("handle", (p) => query(${ns}S).rule((r) => r.match(${ns}Kind, { id: p.kind }).find({ handle: p.kind })), "one")
+export const ${ns}w${i} = workload(${ns}Reader, {
+	byId: ${ns}byId${i},
+	byFilter: ${ns}byFilter${i},
+	key: ${ns}R${i},
+	byParent: ${ns}byParent${i},
+	arms: ${ns}arms${i},
+	top: ${ns}total${i}.orderBy(["kind", "asc"]).take(1)
 })
-export const reads${i} = (db: DbOf<typeof Reader, typeof w${i}.programs>) => [
+export const ${ns}reads${i} = (db: DbOf<typeof ${ns}Reader, typeof ${ns}w${i}.programs>) => [
 	db.workload.byId.get({ id: "00000000-0000-4000-8000-000000000001" }),
 	db.workload.byFilter.get({ id: "00000000-0000-4000-8000-000000000001" }),
 	db.workload.key.get({ id: "00000000-0000-4000-8000-000000000001" }),
@@ -83,88 +92,91 @@ export const reads${i} = (db: DbOf<typeof Reader, typeof w${i}.programs>) => [
 }
 
 /**
- * The schema's statements: a candidate key on every fifth relation, a containment chain, each relation's kind
- * contained in the Kind roster, and every seventh relation mutable.
+ * The statements over the relations `declared`, under the prefix `ns`: a candidate key on every fifth relation, a
+ * containment from each relation into the one before it where both are declared, each relation's kind contained in the
+ * Kind roster, and every seventh relation mutable.
  */
-const statements = (relations: number): string => {
-	const lines: Array<string> = []
-	for (let i = 0; i < relations; i++) {
-		if (i % 5 === 0) {
-			lines.push(`key(on(R${i}, "label"))`)
-		}
-		if (i > 0) {
-			lines.push(`contained(on(R${i}, "parent"), on(R${i - 1}, "id"))`)
-		}
-		lines.push(`contained(on(R${i}, "kind"), on(Kind, "id"))`)
-		if (i % 7 === 0) {
-			lines.push(`mutable(R${i})`)
-		}
-	}
-	return Arr.join(
-		Arr.map(lines, (line) => `\t${line}`),
+const statements = (ns: string, declared: ReadonlyArray<number>): string =>
+	Arr.join(
+		Arr.flatMap(declared, (i) => [
+			...(i % 5 === 0 ? [`\tkey(on(${ns}R${i}, "label"))`] : []),
+			...(i > 0 && Arr.contains(declared, i - 1)
+				? [`\tcontained(on(${ns}R${i}, "parent"), on(${ns}R${i - 1}, "id"))`]
+				: []),
+			`\tcontained(on(${ns}R${i}, "kind"), on(${ns}Kind, "id"))`,
+			...(i % 7 === 0 ? [`\tmutable(${ns}R${i})`] : [])
+		]),
 		",\n"
 	)
-}
 
 /**
- * Exact assertions over relation i, and refusals that widened inference would let through. R<i>.parent is contained
- * in R<i-1>.id for every i > 0, so a snapshot read of owned<i> delivers the owner bare there; R0's parent is in the last
- * relation, which no containment states, so R0's owner is an Option by its key.
+ * The schema over the relations `declared`, its full role Reader, and the blocks of the relations `blocked`, every
+ * identifier under the prefix `ns`, in a program of `relations` relations.
  */
-const assertions = (i: number): string => `
-export type Params${i} = Expect<Equals<ParamsOf<typeof byParent${i}>, { readonly parent: ParamType<Uuid, "uuid"> }>>
-export type Head${i} = Expect<
-	Equals<
-		HeadOf<typeof byParent${i}>,
-		{
-			readonly id: Uuid
-			readonly amount: bigint
-			readonly kind: "A" | "B" | "C"
-			readonly children: ReadonlyArray<{ readonly id: Uuid }>
-		}
-	>
->
-export type Total${i} = Expect<
-	Equals<HeadOf<typeof total${i}>, { readonly kind: "A" | "B" | "C"; readonly total: bigint; readonly n: bigint }>
->
-export type ById${i} = Expect<Equals<EvidenceOfQuery<typeof byId${i}>["card"], "atMostOne">>
-export type ByFilter${i} = Expect<Equals<EvidenceOfQuery<typeof byFilter${i}>["card"], "atMostOne">>
-export type ByParentCard${i} = Expect<Equals<EvidenceOfQuery<typeof byParent${i}>["card"], "many">>
-export type ByParentKeys${i} = Expect<
-	Equals<
-		EvidenceOfQuery<typeof byParent${i}>["keys"],
-		readonly [ReadonlyArray<"id" | "amount" | "kind">, ...ReadonlyArray<ReadonlyArray<"id">>]
-	>
->
-export type Arms${i} = Expect<
-	Equals<
-		HeadOf<typeof arms${i}>,
-		| { readonly id: Uuid; readonly kind: "A"; readonly amount: bigint }
-		| { readonly id: Uuid; readonly kind: "B"; readonly label: string }
-	>
->
-export type Imported${i} = Expect<Equals<keyof ParamsOf<typeof imported${i}>, never>>
-export type Owned${i} = Expect<
-	Equals<
-		HeadOf<typeof owned${i}>,
-		{
-			readonly id: Uuid
-			readonly parent: Uuid
-			readonly kind: "A" | "B" | "C"
-			readonly owner: ${i > 0 ? "{ readonly label: string }" : "Option.Option<{ readonly label: string }>"}
-			readonly handle: { readonly handle: "A" | "B" | "C" }
-		}
-	>
->
-export const refusals${i} = (db: DbOf<typeof Reader, typeof w${i}.programs>) => [
-	// @ts-expect-error -- TS2345 refusal: get needs a query proved at most one row per parameter binding
-	db.workload.byParent.get({ parent: "00000000-0000-4000-8000-000000000002" }),
-	// @ts-expect-error -- TS2322: the parameters are the ones the query's uses inferred
-	db.workload.byParent.execute({ parent: 1 }),
-	// @ts-expect-error -- TS2322: label is not common to every arm
-	arms${i}.take(1).orderBy(["label", "asc"])
+const declarations = (
+	ns: string,
+	declared: ReadonlyArray<number>,
+	blocked: ReadonlyArray<number>,
+	relations: number
+): string => `export const ${ns}Label = str.regex("^[a-z]{1,32}$")
+export const ${ns}Kind = closed("Kind", ["A", "B", "C"])
+${Arr.join(
+	Arr.map(declared, (i) => relationDeclaration(ns, i)),
+	""
+)}
+export const ${ns}S = schema("Gen", { Kind: ${ns}Kind, ${Arr.join(
+	Arr.map(declared, (i) => `R${i}: ${ns}R${i}`),
+	", "
+)} }, [
+${statements(ns, declared)}
+])
+/** A full role reading every relation, which every program over the schema runs on. */
+export const ${ns}Reader = role(${ns}S, "reader", wholeEntriesOf(${ns}S))
+${Arr.join(
+	Arr.map(blocked, (i) => relationBlock(ns, i, relations)),
+	""
+)}`
+
+/** What relation i's probes compare at scale and over the twin. */
+const typeProbes = (i: number): ReadonlyArray<Over> => [
+	(ns) => `ParamsOf<typeof ${ns}byParent${i}>`,
+	(ns) => `HeadOf<typeof ${ns}byParent${i}>`,
+	(ns) => `EvidenceOfQuery<typeof ${ns}byParent${i}>["card"]`,
+	(ns) => `EvidenceOfQuery<typeof ${ns}byParent${i}>["keys"]`,
+	(ns) => `ParamsOf<typeof ${ns}byId${i}>`,
+	(ns) => `HeadOf<typeof ${ns}byId${i}>`,
+	(ns) => `EvidenceOfQuery<typeof ${ns}byId${i}>["card"]`,
+	(ns) => `HeadOf<typeof ${ns}byFilter${i}>`,
+	(ns) => `EvidenceOfQuery<typeof ${ns}byFilter${i}>["card"]`,
+	(ns) => `HeadOf<typeof ${ns}total${i}>`,
+	(ns) => `HeadOf<typeof ${ns}arms${i}>`,
+	(ns) => `ParamsOf<typeof ${ns}imported${i}>`,
+	(ns) => `HeadOf<typeof ${ns}imported${i}>`,
+	(ns) => `HeadOf<typeof ${ns}owned${i}>`,
+	(ns) => `KeysOf<typeof ${ns}S, typeof ${ns}R${i}>`
 ]
-`
+
+/** Relation i's refusal probes, each one line at scale and over the twin. */
+const refusalProbes = (i: number): ReadonlyArray<RefusalProbe> => [
+	{
+		label: `q${i}-get`,
+		why: "a get of a query its evidence does not prove at most one row",
+		line: (ns) =>
+			`export const ${ns}getMany${i} = (db: DbOf<typeof ${ns}Reader, typeof ${ns}w${i}.programs>) => db.workload.byParent.get({ parent: "00000000-0000-4000-8000-000000000002" })`
+	},
+	{
+		label: `q${i}-param`,
+		why: "a parameter of another type than the one the query's uses inferred",
+		line: (ns) =>
+			`export const ${ns}wrongParam${i} = (db: DbOf<typeof ${ns}Reader, typeof ${ns}w${i}.programs>) => db.workload.byParent.execute({ parent: 1 })`
+	},
+	{
+		label: `q${i}-order`,
+		why: "an order by a field one arm lacks",
+		line: (ns) =>
+			`export const ${ns}orderHidden${i} = ${ns}arms${i}.take(1).orderBy(["label", "asc"])`
+	}
+]
 
 /** The type-cost gates' prelude (test/support/programs/budget.ts), every repository name their programs read. */
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/budget.ts"))
@@ -173,40 +185,15 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/budget.
 export const entriesFrom = (entry: (path: string) => string): PreludeAt =>
 	preludeFrom(prelude, entry)
 
+/** The program at `relations` relations and its twin, its imports read through the gates' prelude as `entries` reaches it. */
 export const generateQuerySource = (relations: number, entries: PreludeAt): string => {
-	const names = Arr.join(
-		Arr.map(indices(relations), (i) => `R${i}`),
-		", "
-	)
-	const declarations = Arr.join(
-		Arr.map(indices(relations), (i) => relationDeclaration(i)),
-		""
-	)
-	const blocks = Arr.join(
-		Arr.map(indices(relations), (i) => relationBlock(i, relations)),
-		""
-	)
-	const checked = Arr.join(
-		Arr.map([...new Set([0, relations - 1])], (i) => assertions(i)),
-		""
-	)
+	const all = indices(relations)
+	const probed = Arr.dedupe([0, relations - 1])
 	return preludeProgram(
-		`// Generated by test/types/query/budget/generate.ts with ${relations} relations.`,
+		`// Generated by test/types/query/budget/generate.ts with ${relations} relations and their twin.`,
 		entries,
-		`type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false
-type Expect<T extends true> = T
-
-export const Label = str.regex("^[a-z]{1,32}$")
-export const Kind = closed("Kind", ["A", "B", "C"])
-${declarations}
-export const S = schema("Gen", { Kind, ${names} }, [
-${statements(relations)}
-])
-/** A full role reading every relation, which every program over S runs on. */
-export const Reader = role(S, "reader", wholeEntriesOf(S))
-${blocks}${checked}`
+		`${declarations("", all, all, relations)}
+${declarations(twinPrefix, neighbourhood(relations), probed, relations)}
+${twinProbes(Arr.flatMap(probed, typeProbes), Arr.flatMap(probed, refusalProbes))}`
 	)
 }
-
-/** The number of refusals the program carries. */
-export const refusalCount = (relations: number): number => (relations === 1 ? 1 : 2) * 3

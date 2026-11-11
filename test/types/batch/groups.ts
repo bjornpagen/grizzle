@@ -23,7 +23,7 @@ import {
 	largestQuerySize
 } from "#test/types/query/budget/generate.ts"
 import { regexEntriesFrom, regexModules } from "#test/types/regex/agreement.ts"
-import { regexSchemaPatterns, regexSchemaSource } from "#test/types/regex/schema.ts"
+import { familiesTwinSource, largestFamilies } from "#test/types/schema/budget/families.ts"
 import {
 	generateStatementSource,
 	largestStatementSize
@@ -34,8 +34,6 @@ import { containedProgram } from "#test/types/text/contained.ts"
 /**
  * Every type check of test/types, by the test file that reads it (test/types/batch/batch.ts). One run of the
  * type-test files checks all of their groups as one tsgo program.
- *
- * A path from a generated program's directory into the repository.
  */
 
 /** A fixture directory's two units: its fixtures in place, and their disarmed copy. */
@@ -238,7 +236,7 @@ const typeGroups: ReadonlyArray<Group> = [
 		}
 	},
 	{
-		owner: "test/types/query/budget/refusals.test.ts",
+		owner: "test/types/query/budget/invariance.test.ts",
 		units: {
 			"query/budget": {
 				kind: "program",
@@ -248,21 +246,6 @@ const typeGroups: ReadonlyArray<Group> = [
 				heavy: true,
 				source: (entry) => [
 					{ file: "index.ts", source: generateQuerySource(largestQuerySize, entriesFrom(entry)) }
-				]
-			}
-		}
-	},
-	{
-		owner: "test/types/regex/schema.test.ts",
-		units: {
-			"regex/schema": {
-				kind: "program",
-				dir: "test/types/regex",
-				prefix: ".schema-",
-				disarm: true,
-				heavy: false,
-				source: (entry) => [
-					{ file: "index.ts", source: regexSchemaSource(regexSchemaPatterns, entriesFrom(entry)) }
 				]
 			}
 		}
@@ -307,7 +290,7 @@ const typeGroups: ReadonlyArray<Group> = [
 		}
 	},
 	{
-		owner: "test/types/schema/budget/refusals.test.ts",
+		owner: "test/types/schema/budget/invariance.test.ts",
 		units: {
 			"schema/budget": {
 				kind: "program",
@@ -325,7 +308,22 @@ const typeGroups: ReadonlyArray<Group> = [
 		}
 	},
 	{
-		owner: "test/types/skeleton/budget/refusals.test.ts",
+		owner: "test/types/schema/budget/families.test.ts",
+		units: {
+			"schema/families": {
+				kind: "program",
+				dir: "test/types/schema",
+				prefix: ".families-",
+				disarm: true,
+				heavy: true,
+				source: (entry) => [
+					{ file: "index.ts", source: familiesTwinSource(largestFamilies, entriesFrom(entry)) }
+				]
+			}
+		}
+	},
+	{
+		owner: "test/types/skeleton/budget/invariance.test.ts",
 		units: {
 			"skeleton/budget": {
 				kind: "program",

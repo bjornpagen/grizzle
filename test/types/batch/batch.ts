@@ -7,6 +7,7 @@ import {
 	Deferred,
 	Duration,
 	Effect,
+	Equivalence,
 	FileSystem,
 	Layer,
 	ManagedRuntime,
@@ -29,8 +30,9 @@ import { type CompilerStalled, compiled, type Ran } from "#test/types/batch/comp
 import {
 	type Diagnostic,
 	type Directive,
-	diagnosticKey,
-	disarm
+	disarm,
+	type Place,
+	placeKey
 } from "#test/types/batch/directives.ts"
 import { type BatchAt, typeRun } from "#test/types/batch/provided.ts"
 
@@ -44,10 +46,10 @@ import { regex } from "arkregex"
  * A unit is a set of files whose diagnostics one test reads:
  * - `fixtures`: a directory's fixtures, checked in place;
  * - `disarmed`: the same fixtures copied beside ./fixtures, at the same depth, so their relative imports resolve
- *   unchanged, with every directive disarmed. A directive is `// @ts-expect-error -- TSnnnn: why` for a structural
- *   refusal, or `// @ts-expect-error -- TSnnnn refusal: <message>` for one grizzle's type names, a Refused. The
- *   copy must raise exactly code nnnn on the line after each directive, and that diagnostic must print
- *   `Refusal<"<message>">` exactly when the directive names one, so a refusal cannot pass for the wrong reason;
+ *   unchanged, with every directive disarmed (directives.ts Claim). The copy must raise an error on the line after each
+ *   directive and on no other line, and each line's diagnostics must hold what its directive claims of them: a code, a
+ *   refusal grizzle's type names, no refusal unnamed, or the diagnostics of its twins, so a refusal cannot pass for the
+ *   wrong reason;
  * - `program`: a generated program, written into a fresh directory under the type-test directory that owns it, armed
  *   or disarmed.
  * A group is the units one test file reads. The batch places every unit of its groups, writes one tsconfig over all of
@@ -56,8 +58,7 @@ import { regex } from "arkregex"
  * root or of a file hides a diagnostic from its unit. A diagnostic in a file no unit owns (src/, test support, the
  * batch's own tsconfig) fails the batch, BatchDiagnosticUnowned, and so every check. A line that names no file (an
  * option tsgo refuses, an abnormal exit) is reported to every unit, so it fails every check rather than none. A unit's
- * problems, a placement that failed, a disarmed unit with no directive or a directive its diagnostic contradicts, fail
- * its checks the same way.
+ * problems (Problem) fail its checks the same way.
  *
  * The type tier's global setup (global-setup.ts) starts the batch of the type-test files a run runs in a builder, a
  * process of its own (build.ts), beside the files, and provides the result's directory and the run's seed to every
@@ -165,6 +166,70 @@ type PromisedDiagnostic = Pick<Diagnostic, keyof Diagnostic>
 /** An error diagnostic, with its text: its first line plus its continuation lines, joined by "\n". */
 type ErrorDiagnostic = PromisedDiagnostic & { readonly text: string }
 
+/** A Place as plain data. */
+type PromisedPlace = Pick<Place, keyof Place>
+
+/**
+ * A line's diagnostics as a twin compares them: each code it raises, beside the refusal that diagnostic prints, sorted
+ * and distinct.
+ */
+type Signature = ReadonlyArray<string>
+
+/**
+ * Why a unit's checks fail whatever tsgo reported, as plain data:
+ * - `unplaced`: its files could not be placed, a directive outside the grammar or a generator's refusal;
+ * - `vacuous`: a disarmed unit with no directive, which proves nothing;
+ * - `code`: a line raises other codes than the one its directive claims;
+ * - `refusal missing`: a line raises no diagnostic printing the refusal its directive names;
+ * - `refusal unnamed`: a line prints a refusal its directive does not name;
+ * - `twin alone`: a twin's label stands on one line, which compares it with nothing;
+ * - `twins differ`: the lines of one twin label raise different diagnostics;
+ * - `lacking`: the run's batch holds no result for it.
+ */
+export type Problem =
+	| { readonly kind: "unplaced"; readonly reason: string }
+	| { readonly kind: "vacuous" }
+	| {
+			readonly kind: "code"
+			readonly at: PromisedPlace
+			readonly claimed: string
+			readonly raised: ReadonlyArray<string>
+	  }
+	| { readonly kind: "refusal missing"; readonly at: PromisedPlace; readonly refusal: string }
+	| { readonly kind: "refusal unnamed"; readonly at: PromisedPlace; readonly printed: string }
+	| { readonly kind: "twin alone"; readonly label: string; readonly at: PromisedPlace }
+	| {
+			readonly kind: "twins differ"
+			readonly label: string
+			readonly lines: ReadonlyArray<{ readonly at: PromisedPlace; readonly raised: Signature }>
+	  }
+	| { readonly kind: "lacking"; readonly reason: string }
+
+/** A unit's problem as a check prints it. */
+const problemText = (unit: string, problem: Problem): string => {
+	switch (problem.kind) {
+		case "unplaced":
+			return `${unit}: ${problem.reason}`
+		case "vacuous":
+			return `${unit}: a disarmed unit with no directive proves nothing`
+		case "code":
+			return `${placeKey(problem.at)}: raises ${Arr.join(problem.raised, ", ")}, where its directive claims ${problem.claimed}`
+		case "refusal missing":
+			return `${placeKey(problem.at)}: the diagnostic carries no Refusal<"${problem.refusal}">`
+		case "refusal unnamed":
+			return `${placeKey(problem.at)}: the diagnostic carries ${problem.printed}: name it, "// @ts-expect-error -- TSnnnn refusal: <message>"`
+		case "twin alone":
+			return `${placeKey(problem.at)}: twin ${problem.label} stands on this line alone, which compares it with nothing`
+		case "twins differ":
+			return `twin ${problem.label} raises other diagnostics at each of its lines: ${Arr.join(
+				Arr.map(problem.lines, ({ at, raised }) => `${placeKey(at)} ${Arr.join(raised, ", ")}`),
+				"; "
+			)}`
+		case "lacking":
+			return `${unit}: ${problem.reason}`
+	}
+}
+
 /**
  * One unit's part of the batch, as the global setup writes it as JSON and each test process reads it back: plain data,
  * so it is Json as it stands.
@@ -174,13 +239,10 @@ type UnitResult = {
 	readonly output: ReadonlyArray<string>
 	/** Where each of the unit's error diagnostics is, by file name; its text is the output's. */
 	readonly errors: ReadonlyArray<PromisedDiagnostic>
-	/** The diagnostics the unit's disarmed directives promise, in order, one per directive. */
-	readonly directives: ReadonlyArray<PromisedDiagnostic>
-	/**
-	 * Why the unit's checks fail whatever tsgo reported: a placement that failed, a disarmed unit with no directive, a
-	 * directive whose diagnostic does not carry what it claims.
-	 */
-	readonly problems: ReadonlyArray<string>
+	/** The lines the unit's disarmed directives state, in order, one per directive. */
+	readonly directives: ReadonlyArray<PromisedPlace>
+	/** Why the unit's checks fail whatever tsgo reported. */
+	readonly problems: ReadonlyArray<Problem>
 }
 
 type BatchResult = {
@@ -241,7 +303,7 @@ const fixtureFiles = (root: string, dir: string) =>
  */
 interface Placement {
 	readonly directives: ReadonlyArray<Directive>
-	readonly problems: ReadonlyArray<string>
+	readonly problems: ReadonlyArray<Problem>
 }
 
 interface Placed extends Placement {
@@ -250,8 +312,8 @@ interface Placed extends Placement {
 }
 
 /** A disarmed unit proves its refusals only through its directives: with none it proves nothing. */
-const vacuous = (dir: string, directives: ReadonlyArray<Directive>): ReadonlyArray<string> =>
-	directives.length === 0 ? [`${dir}: a disarmed unit with no directive proves nothing`] : []
+const vacuous = (directives: ReadonlyArray<Directive>): ReadonlyArray<Problem> =>
+	directives.length === 0 ? [{ kind: "vacuous" }] : []
 
 /** A unit that could not be placed: why, as its problem says. */
 class PlacementFailed extends Data.TaggedError("PlacementFailed")<{
@@ -296,7 +358,7 @@ const place = (root: string, spec: UnitSpec, seed: number) =>
 				const placed: Placed = {
 					files: Arr.map(disarmed, (d) => d.file),
 					directives,
-					problems: vacuous(spec.dir, directives)
+					problems: vacuous(directives)
 				}
 				return placed
 			}
@@ -323,7 +385,7 @@ const place = (root: string, spec: UnitSpec, seed: number) =>
 				const placed: Placed = {
 					files: Arr.map(written, (w) => w.file),
 					directives,
-					problems: spec.disarm ? vacuous(`${spec.dir}/${spec.prefix}`, directives) : []
+					problems: spec.disarm ? vacuous(directives) : []
 				}
 				return placed
 			}
@@ -351,41 +413,94 @@ const refusalFragment = (text: string): Option.Option<string> =>
 		)
 	)
 
+const sameSignature = Arr.makeEquivalence(Equivalence.String)
+
+/** The diagnostics of `errors` on the line `at` names, as a twin compares them (Signature). */
+const signatureAt = (errors: ReadonlyArray<ErrorDiagnostic>, at: Place): Signature =>
+	Arr.sort(
+		Arr.dedupe(
+			Arr.filterMap(errors, (e) =>
+				e.file === at.file && e.line === at.line
+					? Result.succeed(
+							Option.match(refusalFragment(e.text), {
+								onNone: () => e.code,
+								onSome: (printed) => `${e.code} ${printed}`
+							})
+						)
+					: Result.failVoid
+			)
+		),
+		Order.String
+	)
+
 /**
- * What each directive's diagnostic contradicts in its claim: a named refusal the diagnostic does not print, or a
- * refusal the diagnostic prints that a prose directive does not name.
+ * What each directive's line contradicts in its claim (directives.ts Claim): a code other than the one claimed, a named
+ * refusal the line does not print, a refusal it prints that the directive does not name, or, across the lines of one
+ * twin label, other diagnostics at one of them, or a label on one line alone. A line that raises nothing is the
+ * expected/actual mismatch of its check, never a problem of its own.
  */
 const contradicted = (
 	directives: ReadonlyArray<Directive>,
 	errors: ReadonlyArray<ErrorDiagnostic>
-): ReadonlyArray<string> =>
-	Arr.flatMap(directives, (directive): ReadonlyArray<string> => {
-		const at = `${directive.file}:${directive.line}`
-		const matched = Arr.filter(
-			errors,
-			(e) => e.file === directive.file && e.line === directive.line && e.code === directive.code
-		)
+): ReadonlyArray<Problem> => {
+	const own = Arr.flatMap(directives, (directive): ReadonlyArray<Problem> => {
+		const at: PromisedPlace = { file: directive.file, line: directive.line }
+		const matched = Arr.filter(errors, (e) => e.file === at.file && e.line === at.line)
+		const codes = Arr.sort(Arr.dedupe(Arr.map(matched, (e) => e.code)), Order.String)
+		const printed = Arr.findFirst(matched, (e) => refusalFragment(e.text))
+		const unnamed = (): ReadonlyArray<Problem> =>
+			Option.match(printed, {
+				onNone: () => [],
+				onSome: (fragment): ReadonlyArray<Problem> => [
+					{ kind: "refusal unnamed", at, printed: fragment }
+				]
+			})
+		const coded = (code: string): ReadonlyArray<Problem> =>
+			!Arr.isReadonlyArrayNonEmpty(codes) || (codes.length === 1 && codes[0] === code)
+				? []
+				: [{ kind: "code", at, claimed: code, raised: codes }]
 		const claim = directive.claim
 		switch (claim.kind) {
-			case "refusal": {
-				const printed = `Refusal<"${claim.refusal}">`
-				return Arr.some(matched, (e) => Str.includes(printed)(e.text))
-					? []
-					: [`${at}: the diagnostic carries no ${printed}`]
-			}
-			case "prose": {
-				return Option.match(
-					Arr.findFirst(matched, (e) => refusalFragment(e.text)),
-					{
-						onNone: () => [],
-						onSome: (fragment) => [
-							`${at}: the diagnostic carries ${fragment}: name it, "// @ts-expect-error -- ${directive.code} refusal: <message>"`
-						]
-					}
-				)
-			}
+			case "code":
+				return [...coded(claim.code), ...unnamed()]
+			case "refusal":
+				return [
+					...coded(claim.code),
+					...(!Arr.isReadonlyArrayNonEmpty(matched) ||
+					Arr.some(matched, (e) => Str.includes(`Refusal<"${claim.refusal}">`)(e.text))
+						? []
+						: [{ kind: "refusal missing" as const, at, refusal: claim.refusal }])
+				]
+			case "refused":
+				return unnamed()
+			case "twin":
+				return []
 		}
 	})
+	const twins = Arr.groupBy(
+		Arr.filterMap(directives, (directive) =>
+			directive.claim.kind === "twin"
+				? Result.succeed({
+						label: directive.claim.label,
+						at: { file: directive.file, line: directive.line }
+					})
+				: Result.failVoid
+		),
+		(twin) => twin.label
+	)
+	const paired = Arr.flatMap(Rec.toEntries(twins), ([label, lines]): ReadonlyArray<Problem> => {
+		const [first, ...rest] = lines
+		if (!Arr.isReadonlyArrayNonEmpty(rest)) {
+			return [{ kind: "twin alone", label, at: first.at }]
+		}
+		const raised = Arr.map(lines, ({ at }) => ({ at, raised: signatureAt(errors, at) }))
+		const reference = signatureAt(errors, first.at)
+		return Arr.every(raised, ({ raised: signature }) => sameSignature(signature, reference))
+			? []
+			: [{ kind: "twins differ", label, lines: raised }]
+	})
+	return [...own, ...paired]
+}
 
 /**
  * Attributes every line tsgo printed to the unit whose file it names, then compares each directive with its
@@ -470,7 +585,7 @@ const attribute = Effect.fn("attribute")(function* (
 		results[unit] = {
 			output,
 			errors: Arr.map(errors, ({ file, line, code }) => ({ file, line, code })),
-			directives: Arr.map(placement.directives, ({ file, line, code }) => ({ file, line, code })),
+			directives: Arr.map(placement.directives, ({ file, line }) => ({ file, line })),
 			problems: [...placement.problems, ...contradicted(placement.directives, errors)]
 		}
 	}
@@ -529,7 +644,7 @@ const buildBatchOn = (spelled: string, groups: ReadonlyArray<Group>, seed: numbe
 						placed.failure instanceof PlacementFailed
 							? placed.failure.reason
 							: messageOf(placed.failure)
-					placements.set(unit, { directives: [], problems: [`${unit}: ${reason}`] })
+					placements.set(unit, { directives: [], problems: [{ kind: "unplaced", reason }] })
 					continue
 				}
 				for (const file of placed.success.files) {
@@ -800,34 +915,36 @@ interface Checked {
 	 * unit typechecks.
 	 */
 	readonly output: string
-	/** The diagnostics the unit's directives promise, one per directive. */
-	readonly directives: ReadonlyArray<Diagnostic>
-	/** Those, as file:line:code, sorted and distinct. */
+	/** The lines the unit's directives state, as file:line, sorted and distinct. */
 	readonly expected: ReadonlyArray<string>
 	/**
-	 * The unit's error diagnostics as file:line:code, sorted and distinct, then the unit's problems, then every line no
-	 * unit owns.
+	 * The lines the unit's error diagnostics stand on, as file:line, sorted and distinct, then the unit's problems,
+	 * then every line no unit owns.
 	 */
 	readonly actual: ReadonlyArray<string>
 }
 
-const checkedOf = (unit: UnitResult, unattributed: ReadonlyArray<string>): Checked => ({
-	output: Arr.join([...unit.output, ...unit.problems, ...unattributed], "\n"),
-	directives: unit.directives,
-	expected: Arr.sort([...new Set(Arr.map(unit.directives, diagnosticKey))], Order.String),
-	actual: [
-		...Arr.sort([...new Set(Arr.map(unit.errors, diagnosticKey))], Order.String),
-		...unit.problems,
-		...unattributed
-	]
-})
+const checkedOf = (
+	unit: string,
+	result: UnitResult,
+	unattributed: ReadonlyArray<string>
+): Checked => {
+	const problems = Arr.map(result.problems, (problem) => problemText(unit, problem))
+	const lines = (places: ReadonlyArray<Place>) =>
+		Arr.sort(Arr.dedupe(Arr.map(places, placeKey)), Order.String)
+	return {
+		output: Arr.join([...result.output, ...problems, ...unattributed], "\n"),
+		expected: lines(result.directives),
+		actual: [...lines(result.errors), ...problems, ...unattributed]
+	}
+}
 
 /** A unit the run's batch does not hold: no diagnostic, and why, the problem that fails its every check. */
-const lacking = (unit: string, why: string): UnitResult => ({
+const lacking = (reason: string): UnitResult => ({
 	output: [],
 	errors: [],
 	directives: [],
-	problems: [`${unit}: ${why}`]
+	problems: [{ kind: "lacking", reason }]
 })
 
 /** The diagnostics of `unit` in the run's batch, read in a test process of the type tier. */
@@ -840,20 +957,18 @@ const checkedOn = (unit: string) =>
 		const run = yield* Effect.sync(typeRun)
 		switch (run.batch.kind) {
 			case "none":
-				return checkedOf(lacking(unit, "the run started no type-test batch"), [])
+				return checkedOf(unit, lacking("the run started no type-test batch"), [])
 			case "batch": {
 				const index = yield* whenWritten(run.batch)
 				if (!Arr.contains(index.units, unit)) {
 					return checkedOf(
-						lacking(
-							unit,
-							"the run's batch holds no such unit: no group of its files has it (groups.ts)"
-						),
+						unit,
+						lacking("the run's batch holds no such unit: no group of its files has it (groups.ts)"),
 						index.unattributed
 					)
 				}
 				const result = yield* readUnit(run.batch, unit)
-				return checkedOf(result, index.unattributed)
+				return checkedOf(unit, result, index.unattributed)
 			}
 		}
 	})

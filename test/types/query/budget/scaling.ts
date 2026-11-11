@@ -2,21 +2,23 @@ import { Array as Arr } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
+import { type Steps, steps } from "#test/types/batch/measured.ts"
 
 /**
- * The query-scale programs, one per dimension of what a program states over a schema, each checked at n, 2n and 4n
- * (scaling.test.ts). The schema is the growing-schema program's (generate.ts): `relations` relations R0 … with candidate
- * keys, a containment chain, every relation's kind contained in the Kind roster and every seventh relation mutable,
- * and a full role Reader. Over it a program at a shape writes:
+ * The query-scale programs, one per dimension of what a program states over a schema, each checked at three sizes an
+ * equal step apart (scaling.test.ts), each step a whole number of the dimension's period. The schema: `relations` relations R0 … with a candidate
+ * key on every fifth, from the first, a containment chain, every relation's kind contained in the Kind roster and every
+ * fifth relation mutable, from the third, so the relations repeat every five; and a full role Reader. Over it a
+ * program at a shape writes:
  *
  * - `rules` queries, each a rule over relation i (round the relations) with a filter, an attachment of the relation
  *   before it keyed by the parent's field, delivered as the one child where the containment chain proves it, and a read
  *   of it through the handle of a workload over the Reader that serves it alone;
  * - one ChangeSet of `members` members in one stratum, round the relations: inserts, or inserts, deletes and puts in turn,
- *   each put of a mutable relation, so a chain's every call is checked against the stratum the call before it made; or
- *   one insertAll of the first `members` relations, each key checked as its insert is;
- * - `contexts` contexts, each read by a query entry of one role, Ctx, and each entry's query run through the handle of a
- *   workload over Ctx that serves it alone.
+ *   each put of a mutable relation, round them, so a chain's every call is checked against the stratum the call before
+ *   it made; or one insertAll of the first `members` relations, each key checked as its insert is;
+ * - `contexts` contexts, each over one of the first five relations, round them, read by a query entry of one role, Ctx,
+ *   and each entry's query run through the handle of a workload over Ctx that serves it alone.
  *
  * One dimension grows the schema with its rules and members, as an application grows: a call whose cost grows with the
  * schema it is over, rather than with what it reads, makes that dimension quadratic.
@@ -32,26 +34,49 @@ type QueryShape = {
 /** One dimension: its name, its sizes, and the shape at a size along it. */
 interface QueryDimension {
 	readonly name: string
-	readonly sizes: readonly [number, number, number]
+	readonly steps: Steps
 	readonly shape: (size: number) => QueryShape
 }
 
+/** The relations repeat every five: a key on every fifth, a mutable relation on every fifth. */
+const relationPeriod = 5
+
+/** The schema the dimensions over a fixed schema read: four periods of relations. */
+const fixedRelations = 4 * relationPeriod
+
+/**
+ * The dimensions, each sized by its period: rules round the fixed relations; members round them, inserts, deletes and
+ * puts taking turns, and each put round the four mutable relations, so every 60 members repeat; contexts round the
+ * first five relations; and relations, with or without their rules and members, every five.
+ */
 export const queryDimensions: ReadonlyArray<QueryDimension> = [
 	{
 		name: "query rules and attachments",
-		sizes: [25, 50, 100],
-		shape: (rules) => ({ relations: 25, rules, members: 0, writes: "inserts", contexts: 0 })
+		steps: steps(fixedRelations),
+		shape: (rules) => ({
+			relations: fixedRelations,
+			rules,
+			members: 0,
+			writes: "inserts",
+			contexts: 0
+		})
 	},
 	{
 		name: "ChangeSet inserts",
-		sizes: [75, 150, 300],
-		shape: (members) => ({ relations: 25, rules: 0, members, writes: "inserts", contexts: 0 })
+		steps: steps(3 * fixedRelations),
+		shape: (members) => ({
+			relations: fixedRelations,
+			rules: 0,
+			members,
+			writes: "inserts",
+			contexts: 0
+		})
 	},
 	{
 		name: "ChangeSet inserts, deletes and puts",
-		sizes: [75, 150, 300],
+		steps: steps(3 * fixedRelations),
 		shape: (members) => ({
-			relations: 25,
+			relations: fixedRelations,
 			rules: 0,
 			members,
 			writes: "inserts, deletes and puts",
@@ -60,7 +85,7 @@ export const queryDimensions: ReadonlyArray<QueryDimension> = [
 	},
 	{
 		name: "ChangeSet insertAll over every relation",
-		sizes: [25, 50, 100],
+		steps: steps(4 * relationPeriod),
 		shape: (size) => ({
 			relations: size,
 			rules: 0,
@@ -71,12 +96,18 @@ export const queryDimensions: ReadonlyArray<QueryDimension> = [
 	},
 	{
 		name: "contexts",
-		sizes: [8, 16, 32],
-		shape: (contexts) => ({ relations: 25, rules: 0, members: 0, writes: "inserts", contexts })
+		steps: steps(2 * relationPeriod),
+		shape: (contexts) => ({
+			relations: fixedRelations,
+			rules: 0,
+			members: 0,
+			writes: "inserts",
+			contexts
+		})
 	},
 	{
 		name: "relations with their rules and members",
-		sizes: [25, 50, 100],
+		steps: steps(4 * relationPeriod),
 		shape: (size) => ({
 			relations: size,
 			rules: size,
@@ -87,12 +118,15 @@ export const queryDimensions: ReadonlyArray<QueryDimension> = [
 	}
 ]
 
+/** Whether relation i is mutable: every fifth, from the third. */
+const isMutable = (i: number): boolean => i % relationPeriod === 2
+
 const statements = (relations: number): ReadonlyArray<string> =>
 	Arr.flatMap(indices(relations), (i) => [
-		...(i % 5 === 0 ? [`key(on(R${i}, "label"))`] : []),
+		...(i % relationPeriod === 0 ? [`key(on(R${i}, "label"))`] : []),
 		...(i > 0 ? [`contained(on(R${i}, "parent"), on(R${i - 1}, "id"))`] : []),
 		`contained(on(R${i}, "kind"), on(Kind, "id"))`,
-		...(i % 7 === 0 ? [`mutable(R${i})`] : [])
+		...(isMutable(i) ? [`mutable(R${i})`] : [])
 	])
 
 /** Rule q: over relation i, with the relation before it attached by the parent's field. */
@@ -116,12 +150,13 @@ const fact = `[{ id: someId, parent: someId, amount: 1n, label: "abc", kind: "A"
 
 /**
  * Member m: one fact of relation m, round the relations, inserted; or, writing inserts, deletes and puts, the m-th of
- * them in turn, each put of the mutable relations, every seventh (statements), round them.
+ * them in turn, the k-th put of the k-th mutable relation (isMutable), round them.
  */
 const memberCall = (m: number, shape: QueryShape): string => {
 	const turn = shape.writes === "inserts" ? 0 : m % 3
 	if (turn === 2) {
-		return `\t.put(R${7 * (m % Math.ceil(shape.relations / 7))}, ${fact})`
+		const put = Math.floor(m / 3) % (shape.relations / relationPeriod)
+		return `\t.put(R${relationPeriod * put + 2}, ${fact})`
 	}
 	return `\t.${turn === 0 ? "insert" : "delete"}(R${m % shape.relations}, ${fact})`
 }
@@ -138,14 +173,11 @@ const members = (shape: QueryShape): string =>
 				"\n"
 			)
 
-/** Context j and the query entry of Ctx that reads it, over relation j, round the relations. */
-const contextBlock = (
-	j: number,
-	relations: number
-): string => `export const C${j} = context("C${j}", { user: uuid })
+/** Context j and the query entry of Ctx that reads it, over relation j, round the first five. */
+const contextBlock = (j: number): string => `export const C${j} = context("C${j}", { user: uuid })
 export const inC${j} = query(S).rule((r) => {
-	const { id } = v(R${j % relations}, "e")
-	return r.match(R${j % relations}, { id }).match(C${j}, { user: id }).find({ id })
+	const { id } = v(R${j % relationPeriod}, "e")
+	return r.match(R${j % relationPeriod}, { id }).match(C${j}, { user: id }).find({ id })
 })
 `
 
@@ -187,10 +219,7 @@ export const change = ChangeSet.empty(S)
 ${members(shape)}
 `
 				: ""
-		}${Arr.join(
-			Arr.map(indices(shape.contexts), (j) => contextBlock(j, shape.relations)),
-			""
-		)}${
+		}${Arr.join(Arr.map(indices(shape.contexts), contextBlock), "")}${
 			shape.contexts > 0
 				? `export const Ctx = role(S, "ctx", { ...wholeEntriesOf(S), ${Arr.join(
 						Arr.map(indices(shape.contexts), (j) => `InC${j}: inC${j}`),
