@@ -35,7 +35,6 @@ import {
 	boolean,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
@@ -249,26 +248,6 @@ const sided = (sketch: DeclaredSketch, side: string): DeclaredSketch => {
 	}
 }
 
-/** Whether a type is a bare date, which no field declares: a date field is the builtin contract over it. */
-const bareDate = (desc: FieldDesc): boolean => {
-	switch (desc.kind) {
-		case "pg":
-			return desc.type === "date"
-		case "contract":
-			return bareDate(desc.base)
-		case "span":
-			return bareDate(desc.endpoint)
-		case "numeric":
-		case "bytes":
-		case "uuid":
-		case "text":
-		case "closedId":
-		case "bits":
-		case "vector":
-			return false
-	}
-}
-
 /** How the contained side's type is drawn against the containing side's. */
 type Pairing = "a twin" | "another typmod or refinement" | "another roster" | "drawn apart"
 
@@ -300,13 +279,7 @@ const pairedGen = (a: DeclaredSketch): Gen<readonly [Pairing, DeclaredSketch]> =
 				}
 			}
 		],
-		[
-			2,
-			map(
-				filter(declaredGen, (b) => !bareDate(b.desc), 8),
-				(b): readonly [Pairing, DeclaredSketch] => ["drawn apart", sided(b, "b")]
-			)
-		]
+		[2, map(declaredGen, (b): readonly [Pairing, DeclaredSketch] => ["drawn apart", sided(b, "b")])]
 	])
 
 type ClassFeature = "one identity" | Pairing | "another identity"
@@ -322,10 +295,7 @@ describe("field-compatibility classes", () => {
 						suite: "unit/analysis/logical/field-classes",
 						literal: Formatter.format,
 						draw: drawn((source) => {
-							const a = sided(
-								source.draw(filter(declaredGen, (sketch) => !bareDate(sketch.desc), 8)),
-								"a"
-							)
+							const a = sided(source.draw(declaredGen), "a")
 							return [a, ...source.draw(pairedGen(a))] as const
 						}),
 						runs: 300,
