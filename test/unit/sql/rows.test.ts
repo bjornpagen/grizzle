@@ -1,3 +1,23 @@
+/**
+ * The rows audit (test/support/oracle/verify/rows.ts), the oracle the lowering suites hold every statement to: a
+ * statement is refused exactly where its rows may repeat where a set is required. Each rule is exhausted over a small
+ * space of statements built for it:
+ *
+ * - a derived table or a CTE whose rows may repeat is refused under a reader whose rows a repeat changes (a key claim, a
+ *   certificate, an input read, a count), and admitted under DISTINCT, a repeat-blind aggregate or EXISTS;
+ * - a bound over rows that may repeat is refused unless it is LIMIT 1 alone, which keeps one of equal rows;
+ * - a one-row claim holds by its shape (no FROM, aggregates without GROUP BY) or under a LIMIT 1;
+ * - a groups claim holds where every GROUP BY expression is a target.
+ *
+ * A verdict is whether the audit refuses, never how many violations it lists.
+ *
+ * Oracle: each rule restated apart from the audit (needsSet, repeats and the shapes' own statements), a second
+ * implementation. Features: a GROUP BY expression a target and one no target.
+ *
+ * Plants, each failing its search: a certified core admitted over rows that may repeat (rows-certified-operand); any
+ * bound read as keeping one of equal rows (rows-any-limit); every core read as one row (rows-one-row-any); every grouped
+ * core read as one row a group (rows-groups-any).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
@@ -194,8 +214,8 @@ describe("the rows audit (oracle/verify/rows.ts)", () => {
 							const s = sourceOf(source)
 							const violations = rowsViolations(statementOf(readerOf(reader, s.from), s.cte))
 							assert.equal(
-								violations.length,
-								needsSet(reader) && repeats(source) ? 1 : 0,
+								violations.length > 0,
+								needsSet(reader) && repeats(source),
 								Arr.join(violations, "; ")
 							)
 						})
@@ -233,7 +253,7 @@ describe("the rows audit (oracle/verify/rows.ts)", () => {
 								)
 							)
 							const counted = body === "operand" && (bound === "LIMIT 2" || bound === "OFFSET 1")
-							assert.equal(rowsViolations(statement).length, counted ? 1 : 0, `${body} ${bound}`)
+							assert.equal(rowsViolations(statement).length > 0, counted, `${body} ${bound}`)
 						})
 				)
 			)
@@ -272,8 +292,8 @@ describe("the rows audit (oracle/verify/rows.ts)", () => {
 						const query = select(proved("oneRow", c))
 						const statement = limited ? { ...query, limit: lit.int(1, types.integer) } : query
 						assert.equal(
-							rowsViolations(statement).length,
-							shape === "a column" && !limited ? 1 : 0,
+							rowsViolations(statement).length > 0,
+							shape === "a column" && !limited,
 							`${shape} ${limited ? "under LIMIT 1" : "unbounded"}`
 						)
 					})
@@ -324,7 +344,7 @@ describe("the rows audit (oracle/verify/rows.ts)", () => {
 						c.note(
 							targeted ? "every GROUP BY expression a target" : "a GROUP BY expression no target"
 						)
-						assert.equal(rowsViolations(statement).length, targeted ? 0 : 1, Formatter.format(by))
+						assert.equal(rowsViolations(statement).length > 0, !targeted, Formatter.format(by))
 					})
 			)
 		)

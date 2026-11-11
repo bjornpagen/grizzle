@@ -1,3 +1,26 @@
+/**
+ * The SQL printer. A PL/pgSQL block is written through the line sink at every width, wider than one JavaScript call's
+ * argument limit included, and its statements' lines compose; its dollar quoting is checked through the public frames,
+ * each lexing back as one dollar string; a commented alternative is checked to hold no live SQL. A quoted identifier is
+ * checked over generated names, each lexing back as what was quoted, and a float literal over every double, which the
+ * snapshot reads back and the float input function reads as that double. The DDL it prints is executed on PostgreSQL by
+ * the installation and migration suites, and audited, statement and text, over every installation and drafted migration
+ * (test/unit/sql/audit.test.ts). What a printed query means is checked on PostgreSQL (test/pg/sql: generated
+ * expressions, set-operation trees and aggregates evaluated against the host, every generated statement planned), and
+ * the compiler's own SELECT forms run in the differential suites.
+ *
+ * Oracle: the lexer reading each printed text back (a round trip): a block's lines compose, a dollar string holds the
+ * block's lines whole, a commented alternative lexes as nothing, a quoted name as that name; and a float literal against
+ * the snapshot's reader and JavaScript's reading of a number's text, standing in for float8in.
+ *
+ * Features: each width a block is wide at, and a split; each dollar tag; each commentable and each line break; each
+ * class of double.
+ *
+ * Plants, each failing its search: a statement list read through one call's arguments (print-statements-spread); every
+ * body quoted under $$ (print-dollar-fixed); a commented line's carriage returns left live (commented-carriage-return);
+ * a quoted name's quotes left undoubled (quote-ident-undoubled); a float literal printed to fifteen digits
+ * (float-literal-precision).
+ */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
@@ -58,18 +81,6 @@ import { assert, succeeded } from "#test/support/assert.ts"
 import { statementGen } from "#test/support/kernel/sqlgen.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { sqlCatalog } from "#test/unit/sql/audit/catalog.ts"
-
-/**
- * The SQL printer. A PL/pgSQL block is written through the line sink at every width, wider than one JavaScript call's
- * argument limit included, and its statements' lines compose; its dollar quoting is checked through the public frames,
- * each lexing back as one dollar string; a commented alternative is checked to hold no live SQL. A quoted identifier is
- * checked over generated names, each lexing back as what was quoted, and a float literal over every double, which the
- * snapshot reads back and the float input function reads as that double. The DDL it prints is executed on PostgreSQL by
- * the installation and migration suites, and audited, statement and text, over every installation and drafted migration
- * (test/unit/sql/audit.test.ts). What a printed query means is checked on PostgreSQL (test/pg/sql: generated
- * expressions, set-operation trees and aggregates evaluated against the host, every generated statement planned), and
- * the compiler's own SELECT forms run in the differential suites.
- */
 
 /**
  * The text a block's literals and RAISE messages are built of: the dollar-quote tags themselves, parts of them, line
@@ -390,7 +401,10 @@ describe("PL/pgSQL through the line sink", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "a block's statement lines are the concatenation of any split's halves"
+						},
 						suite: "unit/sql/pl-width",
 						draw: drawn(blockSketch),
 						literal: Formatter.format,
@@ -456,7 +470,10 @@ describe("dollar quoting", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "the lexer reads a DO block and a function body back as one dollar string of the block's lines"
+						},
 						suite: "unit/sql/dollar-tag",
 						draw: drawn(plBlockGen),
 						literal: Formatter.format,
@@ -516,7 +533,10 @@ describe("a commented alternative", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "every physical line begins with --, and the lexer reads the text as nothing"
+						},
 						suite: "unit/sql/commented",
 						draw: drawn(commentable),
 						literal: Formatter.format,
@@ -541,7 +561,7 @@ describe("a commented alternative", () => {
 							const physical = Arr.flatMap(Str.split(text, "\n"), (line) => Str.split(line, "\r"))
 							for (const line of physical) {
 								assert.ok(
-									Str.startsWith("-- ")(line),
+									Str.startsWith("--")(line),
 									`${Formatter.format(line)} is live in ${Formatter.format(text)}`
 								)
 							}
@@ -618,7 +638,10 @@ describe("identifiers, types and literals", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "universal",
+						name: "the lexer reads a quoted name back as that one name"
+					},
 					suite: "unit/sql/quote-ident",
 					draw: drawn(nameGen),
 					literal: Formatter.format,
@@ -651,7 +674,10 @@ describe("identifiers, types and literals", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "the snapshot reads the literal back as itself, and its text reads as the double"
+						},
 						suite: "unit/sql/float-literal",
 						/**
 						 * The finite doubles, every scale as likely, and the specials, which a finite draw never holds and -0 which it

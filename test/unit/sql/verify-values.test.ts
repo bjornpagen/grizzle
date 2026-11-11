@@ -1,3 +1,19 @@
+/**
+ * The structural audit's checks of values, generated against oracles written apart from it: an identifier is nonempty,
+ * holds no NUL, is well-formed UTF-16 and fits 63 bytes of UTF-8; a text literal holds no NUL and is well-formed; a
+ * decimal literal is an optional minus, digits, and optionally a point and more digits, or NaN or an infinity; an
+ * integer literal lies within its type; numeric's precision lies in 1..1000 and its scale in -1000..1000. Each draws
+ * values around the edges: lone surrogates of either half, pairs, multibyte letters around the byte limit, empty digit
+ * runs, the bounds and one past them, and named malformed spellings beside drawn ones.
+ *
+ * Oracle: each check restated apart from the audit (test/support/oracle/verify/sql.ts), a second implementation.
+ * Features: each integer type within and past its bounds; a typmod valid, past either bound, or without a scale.
+ *
+ * Plants, each failing its search: an identifier measured in code units (audit-identifier-bytes); a text literal that
+ * is not well-formed admitted (audit-text-wellformed); -Infinity refused as a decimal (audit-decimal-infinity); one
+ * past an integer type's greatest value admitted (audit-integer-bound); a numeric precision of 0 admitted
+ * (audit-precision-zero).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
@@ -23,14 +39,6 @@ import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { auditStatementViolations } from "#test/support/oracle/verify/sql.ts"
 
-/**
- * The structural audit's checks of values, generated against oracles written apart from it: an identifier is nonempty,
- * holds no NUL, is well-formed UTF-16 and fits 63 bytes of UTF-8; a text literal holds no NUL and is well-formed; a
- * decimal literal is an optional minus, digits, and optionally a point and more digits, or NaN or an infinity; an
- * integer literal lies within its type; numeric's precision lies in 1..1000 and its scale in -1000..1000. Each draws
- * values around the edges: lone surrogates of either half, pairs, multibyte letters around the byte limit, empty digit
- * runs, the bounds and one past them.
- */
 const rules = (statement: SqlStatement): ReadonlyArray<string> =>
 	Arr.map(auditStatementViolations(statement), (v) => v.rule)
 const selecting = (e: Expr): SqlStatement => provedSelect("oneRow", [target(e)], [], undefined)
@@ -95,7 +103,10 @@ describe("the audit's checks of values, generated", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "nonempty, no NUL, well-formed, at most 63 UTF-8 bytes, restated apart from the audit"
+					},
 					suite: "unit/sql/audit-identifiers",
 					draw: drawn(oneOf([unitsGen(8), matching(regex("^[a-zé]{28,36}$"))])),
 					literal: Formatter.format,
@@ -128,7 +139,10 @@ describe("the audit's checks of values, generated", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "no NUL and well-formed, restated apart from the audit"
+					},
 					suite: "unit/sql/audit-text-literals",
 					draw: drawn(unitsGen(6)),
 					literal: Formatter.format,
@@ -160,7 +174,10 @@ describe("the audit's checks of values, generated", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "an optional minus, digits and an optional fraction, or NaN or an infinity, restated apart from the audit"
+						},
 						suite: "unit/sql/audit-decimals",
 						draw: drawn(
 							oneOf([
@@ -210,8 +227,11 @@ describe("the audit's checks of values, generated", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "each integer type at each bound and up to two past or within it",
+					oracle: {
+						kind: "second-implementation",
+						name: "each integer type's bounds, restated apart from the audit"
+					},
 					suite: "unit/sql/audit-integers",
 					generator: integerGen,
 					literal: Formatter.format,
@@ -247,8 +267,11 @@ describe("the audit's checks of values, generated", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "every pair of ten precisions around numeric's bounds and ten scales or none",
+					oracle: {
+						kind: "second-implementation",
+						name: "precision in 1..1000 and scale in -1000..1000, restated apart from the audit"
+					},
 					suite: "unit/sql/audit-numeric-typmods",
 					generator: typmodGen,
 					literal: Formatter.format,

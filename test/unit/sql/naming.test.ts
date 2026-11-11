@@ -1,3 +1,19 @@
+/**
+ * Outermost-only public renaming (sql/naming.ts renameToPublicHeading), over generated queries.
+ *
+ * The rename gives the statement's own output the public heading, position by position, in every arm of a set
+ * operation and in an ORDER BY that names the outputs, and touches nothing nested: so the renamed query passes both
+ * audits, whose naming rule refuses any nested name that is not a generated c<n>, and its output names are the heading.
+ * A heading of another width than the output is refused. Each query is also renamed with its set operation's first
+ * arm unaliased where it passes columns through: PostgreSQL names such an output after its column, and an ORDER BY
+ * names it so. The headings are named awkward spellings: a keyword, a space, a quote, a capital, a generated name, a
+ * letter outside ASCII.
+ *
+ * Oracle: both SQL audits and the output names PostgreSQL derives (bodyPositionNames), a specification. Features: a
+ * core, a set operation, a passthrough arm, a heading of the wrong width. Kept: a UNION of two one-column cores.
+ *
+ * Plant, failing the search: a set operation's first arm alone renamed (rename-second-arm).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -21,16 +37,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
 import { sqlCatalog } from "#test/unit/sql/audit/catalog.ts"
 
-/**
- * Outermost-only public renaming (sql/naming.ts renameToPublicHeading), over generated queries.
- *
- * The rename gives the statement's own output the public heading, position by position, in every arm of a set
- * operation and in an ORDER BY that names the outputs, and touches nothing nested: so the renamed query passes both
- * audits, whose naming rule refuses any nested name that is not a generated c<n>, and its output names are the heading.
- * A heading of another width than the output is refused. Each query is also renamed with its set operation's first
- * arm unaliased where it passes columns through: PostgreSQL names such an output after its column, and an ORDER BY
- * names it so.
- */
 const headings = ["id", "Total", "select", "is null", 'say "hi"', "c1", "c 2", "üml"] as const
 
 const admitted = (s: SqlStatement): void => {
@@ -142,7 +148,10 @@ describe("outermost-only public renaming", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "both SQL audits, and the output names PostgreSQL derives equal to the heading"
+						},
 						suite: "unit/sql/rename",
 						draw: drawn(renamedGen),
 						literal: Formatter.format,

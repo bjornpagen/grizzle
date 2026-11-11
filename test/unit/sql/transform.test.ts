@@ -1,3 +1,14 @@
+/**
+ * The SQL AST traversals (packages/engine/src/sql/transform.ts), over generated statements of every kind: a traversal that
+ * changes nothing keeps the statement's identity, and a rewrite that changes a single leaf, wherever it sits, comes back
+ * at that leaf's place and nowhere else, so no node keeps its old form after a child changed. For a query the visitor
+ * is the second traversal the rewrite is checked against.
+ *
+ * Oracle: the identity law of a traversal that changes nothing, and the visitor's leaves in order (a second
+ * traversal). Features: every statement kind.
+ *
+ * Plant, failing the search: every mapped list rebuilt, changed or not (transform-list-rebuilt).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -18,12 +29,6 @@ import { statementGen } from "#test/support/kernel/sqlgen.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { sqlCatalog } from "#test/unit/sql/audit/catalog.ts"
 
-/**
- * The SQL AST traversals (packages/engine/src/sql/transform.ts), over generated statements of every kind: a traversal that
- * changes nothing keeps the statement's identity, and a rewrite that changes a single leaf, wherever it sits, comes back
- * at that leaf's place and nowhere else, so no node keeps its old form after a child changed. For a query the visitor
- * is the second traversal the rewrite is checked against.
- */
 const isLeaf = (e: Expr): boolean =>
 	e.kind === "literal" || e.kind === "column" || e.kind === "param"
 
@@ -56,7 +61,10 @@ describe("the SQL AST traversals", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the visitor's leaves in traversal order, and identity where nothing changes"
+						},
 						suite: "unit/sql/transform-leaf",
 						draw: drawn(statementGen(sqlCatalog)),
 						literal: Formatter.format,

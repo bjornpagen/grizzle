@@ -1,7 +1,22 @@
+/**
+ * The relations a statement reads and writes (sql/access.ts) beyond DML: a CREATE TEMPORARY TABLE creates its carrier,
+ * an ANALYZE reads and writes the carriers it names, and a definition or a transaction statement touches none. And the
+ * ANALYZE statement's schema (sql/ast.ts Analyze): it admits exactly the carrier names, and no rewrite of
+ * schema-qualified names touches one.
+ *
+ * Oracle: each statement kind's access as its module states it (a specification); the carrier spelling as
+ * test/support/sql.ts isCarrierName states it, the predicate the audit suites classify names by, held to every
+ * carrierName and to named near misses, each a single edit of a carrier's spelling, beside arbitrary JSON values.
+ *
+ * Features: each access case; a live carrier name, a near miss, a JSON value.
+ *
+ * Plants, each failing its search: an ANALYZE writing none of its carriers (access-analyze-writes); a traversal copying
+ * an ANALYZE it changes nothing in (transform-analyze-copied).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int, map, oneOf, uniqueArray } from "@grizzle/testing/gen"
+import { array, element, type Gen, increasing, int, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { json } from "@grizzle/testing/values"
@@ -16,12 +31,6 @@ import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { isCarrierName, unitCarrier, unitCarrierName } from "#test/support/sql.ts"
 
-/**
- * The relations a statement reads and writes (sql/access.ts) beyond DML: a CREATE TEMPORARY TABLE creates its carrier,
- * an ANALYZE reads and writes the carriers it names, and a definition or a transaction statement touches none. And the
- * ANALYZE statement's schema (sql/ast.ts Analyze): it admits exactly the carrier names, and no rewrite of
- * schema-qualified names touches one.
- */
 const task = objectName("w", "task")
 
 /** CREATE TABLE "w"."task" ("id" uuid NOT NULL, PRIMARY KEY ("id")). */
@@ -51,9 +60,13 @@ const carrier = int(1, 1000)
 const accessCaseGen: Gen<AccessCase> = oneOf<AccessCase>([
 	map(carrier, (n): AccessCase => ({ kind: "a carrier created", n })),
 	(source): AccessCase => {
+		/** The others drawn distinct below the top ordinal, then shifted past the first: distinct by construction. */
 		const first = source.draw(carrier)
-		const more = source.draw(uniqueArray(carrier, (n) => n, { min: 0, max: 3 }, 10))
-		return { kind: "carriers analyzed", ns: [first, ...Arr.filter(more, (n) => n !== first)] }
+		const more = source.draw(increasing(1, 999, { min: 0, max: 3 }))
+		return {
+			kind: "carriers analyzed",
+			ns: [first, ...Arr.map(more, (n) => (n >= first ? n + 1 : n))]
+		}
 	},
 	map(element(["createTable", "commit"] as const), (statement): AccessCase => ({
 		kind: "a definition or a transaction",
@@ -75,7 +88,10 @@ describe("the relations a statement reads and writes (sql/access.ts)", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "sql/access.ts: a carrier created is written, an ANALYZE reads and writes its carriers, a definition or a transaction touches none"
+						},
 						suite: "unit/sql/access",
 						draw: drawn(accessCaseGen),
 						literal: Formatter.format,
@@ -181,7 +197,10 @@ describe("the ANALYZE statement", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the carrier spelling (isCarrierName), and an ANALYZE untouched by a name rewrite"
+						},
 						suite: "unit/sql/analyze-carriers",
 						draw: drawn(array(namedGen, { min: 1, max: 3 })),
 						literal: Formatter.format,
