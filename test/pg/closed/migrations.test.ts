@@ -1,3 +1,48 @@
+/**
+ * Roster migrations on PostgreSQL 19rc1, run as programs of a commands machine against a model of the roster's history.
+ *
+ * The model is A8's roster machine (test/support/closed/generate.ts rosterMachine: grow, remove, re-add, and a reorder
+ * it refuses), a list of code slots replayed command by command that shares no code with the engine's codebook,
+ * extended with what the installation stores: the codes of Held's rows, the sets of a Sets relation once a command adds
+ * it, and the rows of two closed relations under a closed-only law. Each step is one schema edit, drafted from the
+ * snapshot before it as `grizzle generate` drafts it and applied by the real runner:
+ *
+ * - **grow, re-add:** the roster takes the next code; a set column widens to bit(n′) where its codes pass a whole hex
+ *   digit, and keeps every stored set;
+ * - **remove:** the handle's code becomes a hole. Where a row or a set still holds it, the domain's VALIDATE fails with
+ *   23514 naming the table and the column of each, unless the reviewer drafted the data step into the folder; after a
+ *   refusal the data step runs and the migration applies. VALIDATE fails exactly when the model says a row holds the
+ *   removed code and no data step ran, and names exactly the columns that hold it;
+ * - **reorder:** refused before anything is drafted, naming the pair it puts out of their codes' order, which the model
+ *   names too; nothing changes;
+ * - **a removal whose drop is undeclared:** refused before anything is drafted (UndeclaredDrop), naming the handle, since
+ *   a hole is data a migration loses and only `--drop Roster#handle` loses it; nothing changes;
+ * - **write, write a set, add Sets:** a direct writer stores a live code or a set of live handles, or the schema gains
+ *   Sets, a set over the roster;
+ * - **regenerate:** no change drafts nothing, and the snapshot is the previous one;
+ * - **closed rows:** the rows of Allowed and Edge change, under `contained(on(Edge, from), on(Allowed, node))`, a law
+ *   whose sides are closed relations only, which the migration discharges once: rows that break it fail the migration
+ *   with 23000 naming the law, and leave the catalog and the ledger as they were.
+ *
+ * After every step the installation must be the model's (the oracle is PostgreSQL's catalog and verdicts against the
+ * model): each roster domain's CHECK reads one names constant, which holds the model's names in code order, a hole the
+ * empty name; the schema holds exactly the names constants its domains read, as a set; a constant's name changes exactly when its names
+ * change (a content address); Held's codes and Sets' bit strings are the model's, and the host decodes each to the
+ * model's handles.
+ *
+ * The roster is drawn by A8's generator in spellings a swarm picks per case, so its handles meet an array literal's
+ * quoting (`NULL`, a comma, a quote, a brace, a 63-byte multibyte name). Each case's commands are a swarm drawn per case
+ * (testing doctrine, rule 7); the all-off draw is guarded by keeping `write`, which applies in every state, always on,
+ * so no program stalls. Bound: programs of one to six steps over a roster installed with two to four handles. A
+ * reviewer that drafts a data step puts it in the drafted file the plan places its VALIDATE in (planFiles), read from
+ * the plan's steps, never from the SQL text.
+ *
+ * Features: a handle grown, removed and declared again, a reorder and an undeclared drop refused, VALIDATE refusing a
+ * removed code a row holds and a removed bit a set holds, a data step drafted, a set column widened and a set stored,
+ * nothing drafted, and closed rows changed and refused by their law. Plant:
+ * ~/.cache/grizzle-release/BR09/plants/migrations-domain-never-validated.patch, a domain's new CHECK added NOT VALID and
+ * never validated, applies a removal over rows that still hold the removed code.
+ */
 import { layer } from "@effect/vitest"
 import {
 	accepted,
@@ -23,7 +68,6 @@ import {
 	Order,
 	Record as Rec,
 	type Scope,
-	String as Str,
 	Struct
 } from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
@@ -36,7 +80,8 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as EngineResult from "#compiler/core/result.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import type { Declarations } from "#compiler/deploy/diff/plan.ts"
+import type { Declarations, Draft } from "#compiler/deploy/diff/plan.ts"
+import { planFiles } from "#compiler/deploy/phases/files.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { codebookOf, rosterFates } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -96,44 +141,6 @@ import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { outputText, paramText } from "#test/support/wire.ts"
-
-/**
- * Roster migrations on PostgreSQL 19rc1, run as programs of a commands machine against a model of the roster's history.
- *
- * The model is A8's roster machine (test/support/closed/generate.ts rosterMachine: grow, remove, re-add, and a reorder
- * it refuses), a list of code slots replayed command by command that shares no code with the engine's codebook,
- * extended with what the installation stores: the codes of Held's rows, the sets of a Sets relation once a command adds
- * it, and the rows of two closed relations under a closed-only law. Each step is one schema edit, drafted from the
- * snapshot before it as `grizzle generate` drafts it and applied by the real runner:
- *
- * - **grow, re-add:** the roster takes the next code; a set column widens to bit(n′) where its codes pass a whole hex
- *   digit, and keeps every stored set;
- * - **remove:** the handle's code becomes a hole. Where a row or a set still holds it, the domain's VALIDATE fails with
- *   23514 naming the table and the column of each, unless the reviewer drafted the data step into the folder; after a
- *   refusal the data step runs and the migration applies. VALIDATE fails exactly when the model says a row holds the
- *   removed code and no data step ran, and names exactly the columns that hold it;
- * - **reorder:** refused before anything is drafted, naming the pair it puts out of their codes' order, which the model
- *   names too; nothing changes;
- * - **a removal whose drop is undeclared:** refused before anything is drafted (UndeclaredDrop), naming the handle, since
- *   a hole is data a migration loses and only `--drop Roster#handle` loses it; nothing changes;
- * - **write, write a set, add Sets:** a direct writer stores a live code or a set of live handles, or the schema gains
- *   Sets, a set over the roster;
- * - **regenerate:** no change drafts nothing, and the snapshot is the previous one;
- * - **closed rows:** the rows of Allowed and Edge change, under `contained(on(Edge, from), on(Allowed, node))`, a law
- *   whose sides are closed relations only, which the migration discharges once: rows that break it fail the migration
- *   with 23000 naming the law, and leave the catalog and the ledger as they were.
- *
- * After every step the installation must be the model's (the oracle is PostgreSQL's catalog and verdicts against the
- * model): each roster domain's CHECK reads one names constant, which holds the model's names in code order, a hole the
- * empty name; the schema holds exactly one names constant per roster; a constant's name changes exactly when its names
- * change (a content address); Held's codes and Sets' bit strings are the model's, and the host decodes each to the
- * model's handles.
- *
- * The roster is drawn by A8's generator in spellings a swarm picks per case, so its handles meet an array literal's
- * quoting (`NULL`, a comma, a quote, a brace, a 63-byte multibyte name). Each case's commands are a swarm drawn per case
- * (testing doctrine, rule 7); the all-off draw is guarded by keeping `write`, which applies in every state, always on,
- * so no program stalls. Bound: programs of one to six steps over a roster installed with two to four handles.
- */
 
 /** The roster whose history a program drives. */
 const tierName = parsedName("Tier")
@@ -718,14 +725,16 @@ const namesConstantOf = (
 
 /**
  * The installation is the model's: each roster's constant holds the model's names and is renamed exactly when they
- * change; the schema holds one names constant per roster; Held's codes and Sets' sets are the model's, and decode to the
+ * change; the schema holds exactly the names constants its domains read; Held's codes and Sets' sets are the model's, and decode to the
  * model's handles; Sets' column is a domain over bit(n), n its codes rounded up to whole hex digits.
  */
 const sameAsModel = (sys: System, after: Model) =>
 	Effect.gen(function* () {
 		const owner = sys.m.owner
+		const read: Array<string> = []
 		for (const state of [after.tier, nodeState]) {
 			const constant = yield* namesConstantOf(owner, sys.names.rosterDomain(state.closed))
+			read.push(constant.name)
 			assert.deepEqual(
 				constant.names,
 				[...modelNames(state)],
@@ -741,14 +750,14 @@ const sameAsModel = (sys: System, after: Model) =>
 			}
 			sys.constants.set(state.closed, constant)
 		}
-		const constants = yield* owner.values(
-			`SELECT count(*)::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.prorettype = 'pg_catalog.name[]'::regtype`,
+		const standing = yield* owner.values(
+			`SELECT p.proname::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.prorettype = 'pg_catalog.name[]'::regtype`,
 			[sys.m.schema]
 		)
-		assert.equal(
-			Number(defined(constants[0])[0]),
-			2,
-			"one names constant per roster, every replaced one dropped"
+		unorderedEqual(
+			Arr.dedupe(Arr.map(standing, (r) => String(r[0]))),
+			Arr.dedupe(read),
+			"the schema holds exactly the names constants its roster domains read, every replaced one dropped"
 		)
 		const codes = codebookOf(sys.snapshot)
 		const n = storedNames(sys)
@@ -814,14 +823,36 @@ const migrateTo = (sys: System, after: Model, reviewer: Reviewer) =>
 		return took
 	})
 
-/** A reviewer that drafts `statements` at the top of the file that VALIDATEs, every candidate kept. */
-const withDataStep = (statements: ReadonlyArray<string>): Reviewer => ({
-	decisions: kept.decisions,
-	edit: (file) =>
-		statements.length > 0 && Str.includes("VALIDATE CONSTRAINT")(file.text)
-			? `${Arr.join(statements, "\n\n")}\n\n${file.text}`
-			: kept.edit(file)
-})
+/** Whether a drafted step VALIDATEs a constraint: ALTER DOMAIN's VALIDATE CONSTRAINT, or an ALTER TABLE action of it. */
+const validates = (d: Draft): boolean => {
+	if (d.kind !== "statement") {
+		return false
+	}
+	switch (d.statement.kind) {
+		case "alterDomain":
+			return d.statement.action.kind === "validateConstraint"
+		case "alterTable":
+			return Arr.some(d.statement.actions, (a) => a.kind === "validateConstraint")
+		default:
+			return false
+	}
+}
+
+/**
+ * A reviewer of `g` that drafts `statements` at the top of the file the plan puts its VALIDATE in, as a reviewer reads
+ * the folder's phases, every candidate kept.
+ */
+const withDataStep = (g: GenerateResult, statements: ReadonlyArray<string>): Reviewer => {
+	const validating = Arr.findFirst(planFiles(g.plan), (f) => Arr.some(f.drafts, validates))
+	return {
+		decisions: kept.decisions,
+		edit: (file) =>
+			Arr.isReadonlyArrayNonEmpty(statements) &&
+			Option.exists(validating, (f) => f.name === file.name)
+				? `${Arr.join(statements, "\n\n")}\n\n${file.text}`
+				: kept.edit(file)
+	}
+}
 
 /**
  * A removal: with the data step drafted, the migration applies; otherwise VALIDATE refuses it once per column that holds
@@ -865,12 +896,14 @@ const removal = (
 			if (holders.length > 0) {
 				note("a data step drafted")
 			}
-			const reviewer = withDataStep(Arr.map(holders, (h) => dataStepOf(sys, after, code, h.column)))
-			const { g, folder, names } = yield* draftNext(sys, built, reviewer, dropOf(before, p.handle))
-			assert.ok(
-				holders.length === 0 ||
-					Arr.some(folder.files, (f) => Str.includes("VALIDATE CONSTRAINT")(f.text)),
-				"a removal VALIDATEs its domain"
+			const { drafted, names } = yield* drafting(sys, built, dropOf(before, p.handle))
+			const g = succeeded(drafted, "the next migration")
+			const folder = reviewedSource(
+				g,
+				withDataStep(
+					g,
+					Arr.map(holders, (h) => dataStepOf(sys, after, code, h.column))
+				)
 			)
 			yield* applyWith(sys, [folder], g.snapshot)
 			sys.folders.push(folder)

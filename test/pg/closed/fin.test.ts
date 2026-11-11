@@ -19,7 +19,8 @@
  * - **C.row in a generated field:** each prefix's set in RowProbe is exactly the codes Slotted's rows complete it with,
  *   the empty set for a prefix past its owner's count, as Position's bits domain stores it, whole hex digits wide;
  * - **R07's membership read:** a query matching Item against Slotted on every key field delivers exactly the items
- *   whose key Slotted holds, read through its key set with the rewrite's certificate;
+ *   whose key Slotted holds; that R07 read its key set, its certificate recorded, is a required feature, never an
+ *   assertion of which rewrite the optimizer chose;
  * - **a containment into a projection:** a row of ProjProbe holding an owner and a slot code is accepted exactly where
  *   some row of Slotted holds both, the side (version, parent, last field) a dependent space of its own, and elsewhere
  *   refused by that containment's law.
@@ -31,6 +32,11 @@
  * installs every closed constant, the owner functions' too, as its hex literal, padded with 0 bits to whole digits, so
  * a read past the last cell reads the padding, absent. The box: 3 shapes and every assignment of no row, 1 or 2 slots
  * to the 4 live owners, 243 installations.
+ *
+ * Features: an aliasing slot digit, an owner with no row, an empty relation, every live owner counting slots, each
+ * shape, and R07's read, each required of the space. Plant: ~/.cache/grizzle-release/BR09/plants/
+ * fin-no-range-check.patch, a dependent key read without its slot digits' range checks, reads an aliasing slot digit
+ * as another key's cell.
  */
 import { layer } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"
@@ -569,6 +575,7 @@ type FinFeature =
 	| "two slots"
 	| "one slot"
 	| "a closed id before a slot"
+	| "R07 read the key set"
 
 /** Every case of the box: each live owner holding no row or counting 1 or 2 slots, under each shape. */
 const cases: Gen<FinCase> = (s) => ({
@@ -624,7 +631,8 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 							"every live owner counting slots",
 							"two slots",
 							"one slot",
-							"a closed id before a slot"
+							"a closed id before a slot",
+							"R07 read the key set"
 						]),
 						caseHang
 					},
@@ -804,11 +812,8 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 								),
 								`the membership read delivers exactly the items whose key Slotted holds:\n${defined(optimized).sql}`
 							)
-							if (held.length > 0) {
-								assert.ok(
-									Arr.some(template.certificates, (cert) => cert.rule === "R07.closedMembership"),
-									"R07 reads Slotted's key set"
-								)
+							if (Arr.some(template.certificates, (cert) => cert.rule === "R07.closedMembership")) {
+								notes.note("R07 read the key set")
 							}
 							if (c.held.includes("none")) {
 								notes.note("an owner with no row")

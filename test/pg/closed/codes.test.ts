@@ -1,3 +1,50 @@
+/**
+ * Closed ids as codes on PostgreSQL 19rc1: a roster's smallint domain, its names constant, the decoded column of a role
+ * view, and a set's bit string, each judged against A8's model of the roster's history (test/support/closed/generate.ts),
+ * a list of code slots replayed command by command that shares no code with the engine's codebook.
+ *
+ * The rosters are every hole pattern of a 5-code roster: 31 rosters, mask m live exactly at the codes whose bit m sets,
+ * each reached as a deployment reaches it, by installing every code and then migrating with the holes' handles removed
+ * (patternHistory). Each pattern's codes hold plain names in an order its mask rotates, so no name says its code and
+ * no two rosters agree on which name a code holds.
+ *
+ * Properties, and the oracle each is checked against:
+ *
+ * 1. The view's decoded column `<f>_name`, PostgreSQL's decode of a stored code through the names constant, equals the
+ *    host's decode of the same code (the column's codec), for every row: two implementations of one decode, and both the
+ *    model's handle.
+ * 2. A direct writer's code is accepted exactly when the model says it is live; every other code of −1 … size, and
+ *    400, is refused with 23514 on the roster domain's CHECK, the domain its data type. PostgreSQL is the judge. Bound:
+ *    every code from −1 to size, then 400, for every hole pattern of a 5-code roster, exhausted (248 cases).
+ * 3. A migration that removes a handle a row still holds fails at the domain's VALIDATE with 23514, naming the table and
+ *    the column; once a data step removes those rows it applies. Every table holding a removed code is named once, and no
+ *    other: set equality against the model.
+ * 4. A migration that dropped a roster's names constant before re-pointing its domain fails with 2BP01: DROP FUNCTION …
+ *    RESTRICT on the installed constant, which the domain's CHECK depends on by pg_depend (8), and RESTRICT keeps it.
+ * 5. A backend that cached a domain's CHECK before a migration swapped it judges the next write by the new one: the
+ *    same session, open across the migration, answers (2) exactly as a fresh one.
+ * 6. A role without EXECUTE on the names constant is refused with 42501, a writer at the domain's CHECK and a reader at
+ *    its view's decoded column; with the installed grants both pass, and every role that writes or decodes a roster's
+ *    codes holds EXECUTE on its constant.
+ * 7. A set round-trips through its bit(n) column, n its codes rounded up to whole hex digits: the text the writer
+ *    sends is X then the hex digits of the model's positional text (setText), PostgreSQL stores the positional text,
+ *    and the host decodes it to the set sent. After the roster grows, the column is a domain over bit(n′), every stored
+ *    set padded with 0s to it, and decodes unchanged; after a removal, VALIDATE names the column of every set that still
+ *    holds the removed handle, the data step clears its bit, and the domain then refuses a set holding it.
+ * 8. The names constant is the model's names in code order, a hole the empty name: an IMMUTABLE function of no
+ *    argument and no SET clause, returning a 1-based name[] of `size` elements, the one function its domain's CHECK
+ *    depends on; after a migration the schema holds exactly the constants its domains read, as a set, every replaced
+ *    one dropped.
+ *
+ * The bar's mixed-radix alias: a column typed bare smallint, with the roster domain left off (the mutant that drops the
+ * domain from a column), accepts 400, which (2) refuses, so (2) kills it.
+ *
+ * Features: each code's cause (below, past, a hole, the alias), a literal aligned and shifted, and patterns of no hole,
+ * one and more; the VALIDATE search's named tables; the bits histories' growth past and within a hex digit, a removal
+ * refused until its data step, and two migrations. Plant: ~/.cache/grizzle-release/BR09/plants/
+ * codes-domain-off-by-one.patch, the domain's CHECK reading the names constant at the code, not the code plus one,
+ * admits a hole whose next code is live and refuses a live code before a hole.
+ */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -73,47 +120,6 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { outputText, paramText } from "#test/support/wire.ts"
-
-/**
- * Closed ids as codes on PostgreSQL 19rc1: a roster's smallint domain, its names constant, the decoded column of a role
- * view, and a set's bit string, each judged against A8's model of the roster's history (test/support/closed/generate.ts),
- * a list of code slots replayed command by command that shares no code with the engine's codebook.
- *
- * The rosters are every hole pattern of a 5-code roster: 31 rosters, mask m live exactly at the codes whose bit m sets,
- * each reached as a deployment reaches it, by installing every code and then migrating with the holes' handles removed
- * (patternHistory). Each pattern's codes hold plain names in an order its mask rotates, so no name says its code and
- * no two rosters agree on which name a code holds.
- *
- * Properties, and the oracle each is checked against:
- *
- * 1. The view's decoded column `<f>_name`, PostgreSQL's decode of a stored code through the names constant, equals the
- *    host's decode of the same code (the column's codec), for every row: two implementations of one decode, and both the
- *    model's handle.
- * 2. A direct writer's code is accepted exactly when the model says it is live; every other code of −1 … size, and
- *    400, is refused with 23514 on the roster domain's CHECK, the domain its data type. PostgreSQL is the judge. Bound:
- *    every code from −1 to size, then 400, for every hole pattern of a 5-code roster, exhausted (248 cases).
- * 3. A migration that removes a handle a row still holds fails at the domain's VALIDATE with 23514, naming the table and
- *    the column; once a data step removes those rows it applies. Every table holding a removed code is named once, and no
- *    other: set equality against the model.
- * 4. A migration that dropped a roster's names constant before re-pointing its domain fails with 2BP01, PostgreSQL
- *    naming the domain's CHECK as the dependent: DROP FUNCTION … RESTRICT on the installed constant.
- * 5. A backend that cached a domain's CHECK before a migration swapped it judges the next write by the new one: the
- *    same session, open across the migration, answers (2) exactly as a fresh one.
- * 6. A role without EXECUTE on the names constant is refused with 42501, a writer at the domain's CHECK and a reader at
- *    its view's decoded column; with the installed grants both pass, and every role that writes or decodes a roster's
- *    codes holds EXECUTE on its constant.
- * 7. A set round-trips through its bit(n) column, n its codes rounded up to whole hex digits: the text the writer
- *    sends is X then the hex digits of the model's positional text (setText), PostgreSQL stores the positional text,
- *    and the host decodes it to the set sent. After the roster grows, the column is a domain over bit(n′), every stored
- *    set padded with 0s to it, and decodes unchanged; after a removal, VALIDATE names the column of every set that still
- *    holds the removed handle, the data step clears its bit, and the domain then refuses a set holding it.
- * 8. The names constant is the model's names in code order, a hole the empty name: an IMMUTABLE function of no
- *    argument and no SET clause, returning a 1-based name[] of `size` elements, the one function its domain's CHECK
- *    depends on.
- *
- * The bar's mixed-radix alias: a column typed bare smallint, with the roster domain left off (the mutant that drops the
- * domain from a column), accepts 400, which (2) refuses, so (2) kills it.
- */
 
 /** The codes every hole pattern spans: a 5-code roster. */
 const patternSize = 5
@@ -778,14 +784,17 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 						const next = yield* draftNext(m, m.snapshot, last.version, 2, holeDrops(patterns))
 						yield* applyNext(m, [next])
 						const codes = next.codes
-						const constants = yield* m.owner.values(
-							`SELECT count(*)::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.prorettype = 'pg_catalog.name[]'::regtype`,
+						const standing = yield* m.owner.values(
+							`SELECT p.proname::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.prorettype = 'pg_catalog.name[]'::regtype`,
 							[m.schema]
 						)
-						assert.equal(
-							Number(defined(constants[0])[0]),
-							patterns.length,
-							"the schema holds one names constant per roster, the migration having dropped every replaced one"
+						const read = yield* Effect.forEach(patterns, (state) =>
+							constantOf(m.owner, domainOf(m, state))
+						)
+						unorderedEqual(
+							Arr.dedupe(Arr.map(standing, (r) => String(r[0]))),
+							Arr.dedupe(Arr.map(read, (c) => c.name)),
+							"the schema holds exactly the names constants its roster domains read, the migration having dropped every replaced one"
 						)
 						const writer = yield* sessionOf(m, last.writer, "writer")
 						const reader = yield* sessionOf(m, last.reader, "reader")
@@ -847,15 +856,9 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 										{ lower: "1", cardinality: sizeOf(state), names: [...modelNames(state)] },
 										`the names constant of ${state.closed}`
 									)
-									const refused = yield* expectSqlstate(
+									yield* expectSqlstate(
 										m.owner.query(`DROP FUNCTION ${constant.call} RESTRICT`, []),
 										"2BP01"
-									)
-									const detail = Option.getOrElse(refused.detail, () => "")
-									assert.ok(
-										Str.includes(checkOf(state))(detail) &&
-											Str.includes(domainOf(m, state).name)(detail),
-										`dropping the constant of ${state.closed} names its domain's CHECK: ${detail}`
 									)
 									const after = yield* namesHeld(reader, constant.call)
 									assert.deepEqual(after, held, `RESTRICT keeps the constant of ${state.closed}`)

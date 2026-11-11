@@ -1,3 +1,30 @@
+/**
+ * R07 over a closed relation's installed constants (lower/optimize/closed): a query that only tests membership of a
+ * declared closed relation's every fact reads one bit of the relation's installed key set (closedHas, lowered by
+ * lower/conservative/expr closedRead to `inSet(keys, mixedRadix(key))`), and it delivers exactly what the same query
+ * delivers with the relation joined as a VALUES list of its facts' codes, the conservative artifact of the same
+ * template. PostgreSQL runs both, so the oracle is the VALUES join, a second implementation that shares nothing with
+ * the constant's packing or its mixed-radix read; the model's own verdict (each item whose key the facts hold) is
+ * checked beside it.
+ *
+ * Each case draws one to three rosters, each with a valid history of A8's model (test/support/closed/generate.ts:
+ * growth, removals weighted up, re-additions), so its codes have holes and a live handle's code is often past its
+ * declared position; a closed relation keyed by one closed id of each, holding a drawn subset of their live key
+ * points, so the key set is sparse, empty or full, with an integer payload or none; and a stored relation holding one
+ * item at every live key point. The installation is planned under the history's codes, as a deployment reaches them.
+ * The query matches the items and the relation, each key field read as an item's variable, a literal handle or a
+ * parameter, and finds the items' ids.
+ *
+ * The verdicts agree on every case. That R07 read the key set, its certificate recorded, is a required feature, so a
+ * search whose cases never reach the rewrite fails as unreached rather than comparing the conservative read with
+ * itself; which rewrite the optimizer chose, and the SQL text it printed, are its own, never asserted.
+ *
+ * Features: a key code past its declared position, a key of two fields or more, a parameter and a literal key field, a
+ * payload left unread, no fact, every live point a fact, a sparse key set, and R07's read. Plant:
+ * ~/.cache/grizzle-release/BR09/plants/membership-live-radix.patch, a product coordinate's radix its live handles
+ * (codeOf's size) where its codes run past them, so a reader's mixed radix aliases two keys on a roster with holes,
+ * which the history's removals make common.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -5,7 +32,7 @@ import { boolean, constant, element, type Gen, map, subset, weighted } from "@gr
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Codebook, codecOf, codeOf } from "#compiler/ir/codes.ts"
@@ -46,30 +73,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-
-/**
- * R07 over a closed relation's installed constants (lower/optimize/closed): a query that only tests membership of a
- * declared closed relation's every fact reads one bit of the relation's installed key set (closedHas, lowered by
- * lower/conservative/expr closedRead to `inSet(keys, mixedRadix(key))`), and it delivers exactly what the same query
- * delivers with the relation joined as a VALUES list of its facts' codes, the conservative artifact of the same
- * template. PostgreSQL runs both, so the oracle is the VALUES join, a second implementation that shares nothing with
- * the constant's packing or its mixed-radix read; the model's own verdict (each item whose key the facts hold) is
- * checked beside it.
- *
- * Each case draws one to three rosters, each with a valid history of A8's model (test/support/closed/generate.ts:
- * growth, removals weighted up, re-additions), so its codes have holes and a live handle's code is often past its
- * declared position; a closed relation keyed by one closed id of each, holding a drawn subset of their live key
- * points, so the key set is sparse, empty or full, with an integer payload or none; and a stored relation holding one
- * item at every live key point. The installation is planned under the history's codes, as a deployment reaches them.
- * The query matches the items and the relation, each key field read as an item's variable, a literal handle or a
- * parameter, and finds the items' ids.
- *
- * The rewrite's certificate is recorded and the optimized statement reads no VALUES of the facts whenever Grid holds a
- * fact (an empty Grid is the empty relation, which the simplifier propagates before R07 runs); the verdicts agree on
- * every case. A mutant that reads a handle's declared position, or
- * sizes a coordinate by its live handles, agrees only on rosters without holes, which the history's removals make
- * rare.
- */
 
 /** Every roster history installs one to four handles and then migrates up to four times. */
 const historySpace = { handles: { min: 1, max: 4 }, migrations: { min: 0, max: 4 } } as const
@@ -243,6 +246,7 @@ type MembershipFeature =
 	| "no fact"
 	| "every live point a fact"
 	| "a sparse key set"
+	| "R07 read the key set"
 
 const notesOf = (c: MembershipCase): ReadonlyArray<MembershipFeature> => {
 	const points = pointsOf(c.rosters).length
@@ -323,7 +327,8 @@ layer(Substrate.layer, { excludeTestServices: true })("R07 over closed constants
 								"a payload left unread",
 								"no fact",
 								"every live point a fact",
-								"a sparse key set"
+								"a sparse key set",
+								"R07 read the key set"
 							],
 							{ cases: 48, sense: notesOnly }
 						),
@@ -380,18 +385,8 @@ layer(Substrate.layer, { excludeTestServices: true })("R07 over closed constants
 								sorted(modelIds(c)),
 								"the VALUES join delivers the model's items"
 							)
-							const certified = Arr.some(
-								template.certificates,
-								(cert) => cert.rule === "R07.closedMembership"
-							)
-							if (c.facts.length === 0) {
-								assert.ok(!certified, "an empty Grid empties the query before R07 reads it")
-							} else {
-								assert.ok(certified, "R07 rewrites every membership of a Grid of facts")
-								assert.ok(
-									!Str.includes("VALUES")(defined(optimized).sql),
-									`the optimized statement reads Grid's key set, not its facts:\n${defined(optimized).sql}`
-								)
+							if (Arr.some(template.certificates, (cert) => cert.rule === "R07.closedMembership")) {
+								notes.note("R07 read the key set")
 							}
 							notes.noteAll(notesOf(c))
 						}).pipe(Effect.scoped)
