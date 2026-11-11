@@ -7,8 +7,8 @@
  * - Differential: one schema declares a pattern on a stored field (Slug), a pattern no field declares (Tag), a bound
  *   contract over bigint (Cents) and an exact rate contract over numeric(7, 6) (Rate). Each lookup reads one of them as
  *   a scalar parameter or as a field of a relation parameter's facts, its placeholder cast to the parameter's own
- *   pattern domain or to the contract's domain, which the installation creates for every pattern a parameter names
- *   (physical/access/extension.ts paramDomainsExtension). Every drawn value is of its base carrier, which the host
+ *   pattern domain or to the contract's domain, which installing the lookups' workload creates for every pattern a
+ *   parameter names (physical/access/extension.ts workloadExtension). Every drawn value is of its base carrier, which the host
  *   parses and binds, refusing nothing a refinement refuses, and is run: PostgreSQL refuses it with 23514 exactly where the old check refused it, the reported data type the
  *   domain it was cast to, and the role's classifier (witness/classify.ts domainRefusal, through the served witness)
  *   reads the refusal as the one grizzle reports: a pattern's as ParamRejected naming the parameter (`<parameter>.<field>`
@@ -44,13 +44,13 @@ import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
-import { paramDomainsExtension } from "#compiler/physical/access/extension.ts"
-import { paramDomainsOf, paramDomainUses } from "#compiler/physical/ddl/domains.ts"
+import { paramDomainsOf } from "#compiler/physical/ddl/domains.ts"
 import {
 	compileInstallation,
 	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
+import { workload } from "#compiler/program/workload/value.ts"
 import { contract, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -64,7 +64,8 @@ import {
 	installationSql,
 	paramValues,
 	testArtifacts,
-	testCompile
+	testCompile,
+	workloadOver
 } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -128,6 +129,12 @@ const echoed = query(Shop).rule((r) => {
 	const { slug, tag } = v(rows, "row")
 	return r.match(rows, { slug, tag }).find({ slug, tag })
 })
+
+/**
+ * The lookups' queries as the workload the installation installs, which installs the pattern domain of every pattern a
+ * parameter names (physical/access/extension.ts workloadExtension), as a served workload's installation does.
+ */
+const lookupsWorkload = workload(Shop, { bySlug, tagged, byAmount, byRate, echoed })
 
 /** One lookup: its query, the parameter it binds, and how a drawn value is bound to it. */
 interface Lookup {
@@ -284,7 +291,10 @@ layer(Substrate.layer)("the deleted host validators against PostgreSQL 19", (it)
 						...options,
 						levels: [installationName],
 						logins: [oracleOwnedLogin(owned.desc)],
-						extensions: [...options.extensions, paramDomainsExtension(paramDomainUses(params))]
+						extensions: [
+							...options.extensions,
+							workloadOver([{ login: "differential", workloads: [lookupsWorkload] }])
+						]
 					})
 					if (!installed.ok) {
 						throw new Error(`install: ${Formatter.format(installed.error)}`)

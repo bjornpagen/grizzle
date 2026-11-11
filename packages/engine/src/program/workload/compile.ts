@@ -92,9 +92,6 @@ export interface WorkloadPlan extends WorkloadPhysical {
 	readonly footprints: WorkloadFootprints
 	/** The live plan of every footprint (livePlanOf), which snapshot.json records as `live`. */
 	readonly live: LivePlan
-	/** The pattern domain of every pattern its programs' declared parameters name (physical/ddl/domains.ts
-	 * paramDomainUses), which the served workload's extension installs. */
-	readonly paramDomains: ReadonlyArray<ParamDomainUse>
 }
 
 /**
@@ -554,15 +551,19 @@ export const compileWorkload = (
 		)
 	)
 	const paths: ReadonlyArray<AccessPath> = uniquePaths(planned.flatMap((p) => p.paths))
-	const physical: WorkloadPhysical = { schema: artifacts.fingerprint, paths, statistics }
+	const physical: WorkloadPhysical = {
+		schema: artifacts.fingerprint,
+		paths,
+		statistics,
+		paramDomains
+	}
 	return Result.ok({
 		...physical,
 		schemaName: baseName(schema),
 		access,
 		requests: workloadRequests(physical, artifacts.names.vectorSchema),
 		footprints,
-		live: livePlanOf(footprints),
-		paramDomains
+		live: livePlanOf(footprints)
 	})
 }
 

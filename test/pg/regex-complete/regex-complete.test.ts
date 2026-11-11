@@ -59,13 +59,12 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { constantValidationObjects } from "#compiler/lower/shapes/refined/index.ts"
-import { paramDomainsExtension } from "#compiler/physical/access/extension.ts"
-import { paramDomainUses } from "#compiler/physical/ddl/domains.ts"
 import {
 	compileInstallation,
 	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
+import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { closedId, contract, pg, uuid, type Uuid } from "#compiler/public/fields.ts"
@@ -92,7 +91,8 @@ import {
 	paramValues,
 	realityWrite,
 	testArtifacts,
-	testCompile
+	testCompile,
+	workloadOver
 } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import {
@@ -440,8 +440,12 @@ const boundAgrees = (
 
 const changeSet = (value: unknown) => defined(changeSetDesc(value), "a ChangeSet value")
 
-/** The queries of these suites that declare parameters, whose pattern domains the installation creates. */
-const parameterized: ReadonlyArray<unknown> = [
+/**
+ * The queries of these suites that declare parameters, as the workload the installation installs: installing it
+ * installs the pattern domain of every pattern a parameter names (physical/access/extension.ts workloadExtension), as a
+ * served workload's installation does.
+ */
+const parameterized = workload(Content, {
 	bySlug,
 	echoSlug,
 	echoComments,
@@ -450,12 +454,11 @@ const parameterized: ReadonlyArray<unknown> = [
 	byAmount,
 	echoAmount,
 	echoRate
-]
+})
 
 /**
  * The fresh installation, whose Validate phase carries the closed payloads' validation (physical/install), with the
- * pattern domain of every pattern a parameter of `parameterized` names (physical/access/extension.ts
- * paramDomainsExtension), as a served workload's installation creates them.
+ * workload of the suites' parameterized queries (`parameterized`).
  */
 const install = () =>
 	Effect.gen(function* () {
@@ -470,9 +473,7 @@ const install = () =>
 				logins: [oracleOwnedLogin(owned.desc)],
 				extensions: [
 					...options.extensions,
-					paramDomainsExtension(
-						Arr.flatMap(parameterized, (q) => paramDomainUses(compiled(q, name).params))
-					)
+					workloadOver([{ login: "reader", workloads: [parameterized] }])
 				]
 			}),
 			"install"

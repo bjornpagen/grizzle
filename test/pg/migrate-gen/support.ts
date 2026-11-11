@@ -993,7 +993,12 @@ export const extensionsOf = (v: Version): ReadonlyArray<InstallExtension> => {
 		: [
 				{
 					contribute: (b) =>
-						workloadExtension({ schema: b.owned.fingerprint, paths: [], statistics }).contribute(b),
+						workloadExtension({
+							schema: b.owned.fingerprint,
+							paths: [],
+							statistics,
+							paramDomains: []
+						}).contribute(b),
 					textDomainUses: noTextDomainUses,
 					certifies: noCertificates,
 					carriers: noCarriers,
