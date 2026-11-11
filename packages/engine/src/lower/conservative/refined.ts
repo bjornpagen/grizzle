@@ -298,7 +298,9 @@ export class Tracer {
 			}
 			case "probe":
 			case "met": {
-				const stored = this.#stored.get(storedKey(item.table, column))
+				const driven = item.columns.find((c) => c.as === column)
+				const stored =
+					driven === undefined ? undefined : this.#stored.get(storedKey(item.table, driven.read))
 				return [stored !== undefined && guarantees(stored, claim.type) ? "proved" : "unproved"]
 			}
 			case "metRows":

@@ -1413,7 +1413,20 @@ class StatementAuditor {
 						})
 					}
 				})
-				const columns = this.at("columns", () => this.columnList(item.columns, "probe", true))
+				this.at("columns", () => {
+					for (const [i, c] of item.columns.entries()) {
+						this.at(i, () => {
+							this.ident(c.read, "probed stored column", "read")
+						})
+					}
+				})
+				const columns = this.at("columns", () =>
+					this.columnList(
+						Arr.map(item.columns, (c) => c.as),
+						"probe",
+						true
+					)
+				)
 				this.defineRelation(item.alias, "alias")
 				return register(item.alias, { columns })
 			}

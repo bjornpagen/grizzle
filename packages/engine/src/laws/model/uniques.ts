@@ -1,11 +1,12 @@
 import { appendAll } from "#compiler/core/array.ts"
+import { Refusal } from "#compiler/core/canonical.ts"
+import { unsupported } from "#compiler/core/errors.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { ColumnIdent, ConstraintName, LawId, NodeId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import {
 	appendNonEmpty,
 	dedupeNonEmpty,
-	isNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
@@ -65,7 +66,7 @@ export type UniqueObject = Named &
 		  }
 		| {
 				readonly kind: "span"
-				readonly equal: NonEmptyReadonlyArray<LawField>
+				readonly equal: ReadonlyArray<LawField>
 				readonly span: SpanField
 				readonly within: ReadonlyArray<UniqueGuard>
 		  }
@@ -78,7 +79,7 @@ export type PrimaryKeyObject = Named &
 		| { readonly kind: "key"; readonly equal: NonEmptyReadonlyArray<LawField> }
 		| {
 				readonly kind: "span"
-				readonly equal: NonEmptyReadonlyArray<LawField>
+				readonly equal: ReadonlyArray<LawField>
 				readonly span: SpanField
 				/** A declared key holds every fact apart: no guard. */
 				readonly within: readonly []
@@ -204,11 +205,8 @@ const spanObject = (
 		return undefined
 	}
 	const [spanField, ...equal] = c.equal
-	if (!isSpanField(spanField) || equal.includes(spanField) || !isNonEmpty(equal)) {
-		return missing(
-			relation,
-			"a span key's span column, a span field's values, beside a scalar column"
-		)
+	if (!isSpanField(spanField) || equal.includes(spanField)) {
+		return missing(relation, "a span key's span column, a span field's values")
 	}
 	return { ...named, kind: "span", equal, span: spanField, within: c.within }
 }
@@ -420,6 +418,17 @@ export const relationLaws = (
 				keys: Object.freeze(keys)
 			})
 			const beyond = Object.freeze(beyondPrimary(uniques))
+			const guardedSpan = own.find(
+				(o) => o.object.kind === "span" && o.object.equal.length === 0 && o.object.within.length > 0
+			)
+			if (guardedSpan !== undefined) {
+				throw new Refusal(
+					unsupported(
+						relation.loc,
+						`a span-alone key over a selected side of ${relation.name} (${guardedSpan.object.name}), whose selection a write's probe and pair check do not read`
+					)
+				)
+			}
 			return [
 				relation.name,
 				Object.freeze({ relation, primaryKey, uniques, beyond, named: !unnamed.has(relation.name) })

@@ -565,6 +565,13 @@ export interface ProbeColumn {
 	readonly schema: string | undefined
 }
 
+/** A column a read driven by a row delivers (FromSource `probe`, `met`): the stored table's column it reads, and the
+ * statement's own generated name it delivers it under. */
+export interface DrivenColumn {
+	readonly read: string
+	readonly as: string
+}
+
 /**
  * A column bound to a met row's column (FromSource `metRows`, `met`): a column of the bound side, `column`, equal to the
  * met rows' column `from`, compared by the builtin operator or the extension's qualified one over a vector (`schema`).
@@ -576,11 +583,13 @@ export interface MetKey {
 }
 
 /**
- * How a probe reaches a stored table's rows from its driving row: at a key, at most one row; at a group, the group's
- * rows in `order`, its columns of the table, never none; or at a group's last row in `order`, at most one.
+ * How a probe reaches a stored table's rows from its driving row: at a key, at most one row, its columns of the table,
+ * none for a span key whose scalars are none, which its span's overlap in the probe's filter reaches (laws/model/uniques.ts
+ * UniqueObject `span`); at a group, the group's rows in `order`, its columns of the table, never none; or at a group's
+ * last row in `order`, at most one.
  */
 export type ProbeBy =
-	| { readonly kind: "key"; readonly columns: NonEmptyReadonlyArray<ProbeColumn> }
+	| { readonly kind: "key"; readonly columns: ReadonlyArray<ProbeColumn> }
 	| {
 			readonly kind: "group" | "last"
 			readonly columns: NonEmptyReadonlyArray<ProbeColumn>
@@ -597,8 +606,8 @@ export type FromSource =
 	| {
 			/**
 			 * The stored rows of a table that one driving row reaches by a key or a group (ProbeBy), read once per driving
-			 * row: `LATERAL (SELECT "<inner>"."<column>", ... FROM <table> AS "<inner>" WHERE "<inner>"."<by column>" =
-			 * <value> AND ... AND <filter> <tail>) AS "<alias>"("<column>", ...)`, the tail a key's `LIMIT 1`, a group's
+			 * row: `LATERAL (SELECT "<inner>"."<read>", ... FROM <table> AS "<inner>" WHERE "<inner>"."<by column>" =
+			 * <value> AND ... AND <filter> <tail>) AS "<alias>"("<as>", ...)`, the tail a key's `LIMIT 1`, a group's
 			 * `ORDER BY <order>`, a group's last row's `ORDER BY <order> DESC LIMIT 1`. A subquery that sorts or limits is
 			 * never flattened into a join (prepjointree.c is_simple_subquery), and one in an EXISTS that reads the outer
 			 * row in its FROM is never a semi-join (subselect.c convert_EXISTS_sublink_to_join), so PostgreSQL plans it
@@ -612,7 +621,7 @@ export type FromSource =
 			readonly inner: string
 			readonly by: ProbeBy
 			readonly filter: ReadonlyArray<Expr>
-			readonly columns: NonEmptyReadonlyArray<string>
+			readonly columns: NonEmptyReadonlyArray<DrivenColumn>
 			readonly alias: string
 	  }
 	| {
@@ -649,9 +658,9 @@ export type FromSource =
 			readonly table: ObjectName
 			readonly inner: string
 			readonly rows: string
-			readonly key: NonEmptyReadonlyArray<MetKey>
+			readonly key: ReadonlyArray<MetKey>
 			readonly filter: ReadonlyArray<Expr>
-			readonly columns: NonEmptyReadonlyArray<string>
+			readonly columns: NonEmptyReadonlyArray<DrivenColumn>
 			readonly alias: string
 	  }
 	| { readonly kind: "cte"; readonly name: string; readonly alias: string | undefined }

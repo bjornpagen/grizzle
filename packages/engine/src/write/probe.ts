@@ -5,13 +5,14 @@
  * driver of no row reads nothing (sql/ast.ts). A described member's query is its application's read, which the query
  * lowering builds, never one of these.
  */
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { defined } from "#compiler/core/invariant.ts"
+import { appendNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import { columnReads, type UniqueObject } from "#compiler/laws/model/uniques.ts"
 import type { ColumnMap, Env, LowerContext } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { isVectorType } from "#compiler/lower/conservative/vector/equality.ts"
-import type { Expr, FromSource, MetKey, ProbeColumn } from "#compiler/sql/ast.ts"
+import type { DrivenColumn, Expr, FromSource, MetKey, ProbeColumn } from "#compiler/sql/ast.ts"
 import { binary, col, exists, lit, simpleSelect, target, types } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import { rowType, type WriteContext } from "#compiler/write/insert/statement.ts"
@@ -31,11 +32,13 @@ export interface DrivenRead {
 	readonly filter: (inner: string) => ReadonlyArray<Expr>
 }
 
-/** Where a driven read reaches a relation's rows: each column bound to a value of the driving row, and the conditions
- * over the probed row, read under the alias `inner` names, that narrow it further. */
+/** Where a driven read reaches a relation's rows: each column bound to a value of the driving row, none at a span key
+ * of no scalar, the conditions over the probed row, read under the alias `inner` names, that narrow it further, its
+ * span's overlap among them there, and the columns that place it, which an existence read delivers. */
 export interface Access {
-	readonly key: NonEmptyReadonlyArray<ProbeColumn>
+	readonly key: ReadonlyArray<ProbeColumn>
 	readonly filter: (inner: string) => ReadonlyArray<Expr>
+	readonly placed: NonEmptyReadonlyArray<string>
 }
 
 /**
@@ -56,10 +59,34 @@ export const withinRow = (
 			})
 		: []
 
-const delivered =
-	(alias: string): ((column: string) => Expr) =>
-	(column) =>
-		col(alias, column)
+/**
+ * The columns a driven read delivers, each stored column of `read` under a generated name of the statement's own, and
+ * each stored column read under its source's alias by that name.
+ */
+const delivered = (
+	supply: NameSupply,
+	alias: string,
+	read: NonEmptyReadonlyArray<string>
+): {
+	readonly columns: NonEmptyReadonlyArray<DrivenColumn>
+	readonly at: (column: string) => Expr
+} => {
+	const columns = mapNonEmpty(read, (column) => ({
+		read: column,
+		as: supply.column(internal("driven column"))
+	}))
+	return {
+		columns,
+		at: (column) =>
+			col(
+				alias,
+				defined(
+					columns.find((c) => c.read === column),
+					`the driven column ${column}`
+				).as
+			)
+	}
+}
 
 /** A field of `relation` bound to `value`, compared at its type: through the extension's operator over a vector. */
 export const bound = (
@@ -81,7 +108,8 @@ export const atFields = (
 	value: (f: LawField) => Expr
 ): Access => ({
 	key: mapNonEmpty(fields, (f) => bound(w, relation, f, value(f))),
-	filter: () => []
+	filter: () => [],
+	placed: mapNonEmpty(fields, (f) => w.names.column(relation, f.name))
 })
 
 /**
@@ -94,12 +122,13 @@ export const atObject = (
 	u: UniqueObject,
 	value: (f: LawField) => Expr
 ): Access => ({
-	key: mapNonEmpty(u.equal, (f) => bound(w, relation, f, value(f))),
+	key: u.equal.map((f) => bound(w, relation, f, value(f))),
 	filter: (inner) => {
 		const stored = (f: LawField): Expr => col(inner, w.names.column(relation, f.name))
 		const guards = withinRow(w.cx, u, stored)
 		return u.kind === "span" ? [...guards, binary("&&", stored(u.span), value(u.span))] : guards
-	}
+	},
+	placed: placedBy(w, relation, u)
 })
 
 /** The row of stored `relation` at a key of a driving row, at most one (FromSource `probe` by key). */
@@ -112,6 +141,7 @@ export const probeKey = (
 ): Driven => {
 	const inner = supply.relation(internal(`probed ${relation}`))
 	const alias = supply.relation(internal(`probed ${relation} row`))
+	const out = delivered(supply, alias, read)
 	return {
 		source: {
 			kind: "probe",
@@ -119,10 +149,10 @@ export const probeKey = (
 			inner,
 			by: { kind: "key", columns: access.key },
 			filter: access.filter(inner),
-			columns: read,
+			columns: out.columns,
 			alias
 		},
-		at: delivered(alias)
+		at: out.at
 	}
 }
 
@@ -139,6 +169,7 @@ export const probeGroup = (
 ): Driven => {
 	const inner = supply.relation(internal(`probed ${relation} group`))
 	const alias = supply.relation(internal(`probed ${relation} member`))
+	const out = delivered(supply, alias, read.read)
 	return {
 		source: {
 			kind: "probe",
@@ -146,10 +177,10 @@ export const probeGroup = (
 			inner,
 			by: { kind: how, columns: group, order },
 			filter: read.filter(inner),
-			columns: read.read,
+			columns: out.columns,
 			alias
 		},
-		at: delivered(alias)
+		at: out.at
 	}
 }
 
@@ -163,15 +194,7 @@ export const storedAt = (
 	exists(
 		simpleSelect(
 			[target(lit.int(1, types.integer))],
-			[
-				probeKey(
-					w,
-					supply,
-					relation,
-					access,
-					mapNonEmpty(access.key, (k) => k.column)
-				).source
-			],
+			[probeKey(w, supply, relation, access, access.placed).source],
 			undefined
 		)
 	)
@@ -180,8 +203,9 @@ export const storedAt = (
  * and the conditions over the stored row, read under the alias `inner` names, that narrow it further. */
 export interface MetAccess {
 	readonly rows: string
-	readonly key: NonEmptyReadonlyArray<MetKey>
+	readonly key: ReadonlyArray<MetKey>
 	readonly filter: (inner: string) => ReadonlyArray<Expr>
+	readonly placed: NonEmptyReadonlyArray<string>
 }
 
 /**
@@ -197,7 +221,8 @@ export const metAtObject = (
 	column: (f: LawField) => string
 ): MetAccess => ({
 	rows,
-	key: mapNonEmpty(u.equal, (f) => ({
+	placed: placedBy(w, relation, u),
+	key: u.equal.map((f) => ({
 		column: w.names.column(relation, f.name),
 		from: column(f),
 		schema: isVectorType(rowType(f)) ? w.names.vectorSchema : undefined
@@ -240,7 +265,7 @@ export const metFound = (
 					rows: access.rows,
 					key: access.key,
 					filter: access.filter(inner),
-					columns: mapNonEmpty(access.key, (k) => k.column),
+					columns: delivered(supply, alias, access.placed).columns,
 					alias
 				}
 			],
@@ -289,6 +314,18 @@ export const metRowsOf = (
 
 /** `access` narrowed further by `more`, conditions over the probed row read under the alias `inner` names. */
 export const narrowed = (access: Access, more: (inner: string) => ReadonlyArray<Expr>): Access => ({
-	key: access.key,
+	...access,
 	filter: (inner) => [...access.filter(inner), ...more(inner)]
 })
+
+/** The columns that place a row at the unique object `u`: its compared fields', then its span's at a span object. */
+const placedBy = (
+	w: WriteContext,
+	relation: string,
+	u: UniqueObject
+): NonEmptyReadonlyArray<string> => {
+	const column = (f: LawField): string => w.names.column(relation, f.name)
+	return u.kind === "span"
+		? appendNonEmpty(u.equal.map(column), column(u.span))
+		: mapNonEmpty(u.equal, column)
+}

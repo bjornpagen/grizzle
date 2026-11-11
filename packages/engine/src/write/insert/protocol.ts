@@ -495,7 +495,14 @@ export const buildInsert = (
 			...probed,
 			checks:
 				arbitration.kind === "every" && arbitration.objects.arbiter.kind === "span"
-					? [{ object: arbitration.objects.arbiter, pairs: "statement" }, ...probed.checks]
+					? [
+							{
+								object: arbitration.objects.arbiter,
+								pairs: "statement",
+								witness: spec.of === "insert" ? "requestedAnew" : "every"
+							},
+							...probed.checks
+						]
 					: probed.checks,
 			input: r1,
 			inputs,

@@ -490,15 +490,17 @@ export class Transform {
 		return mapList(list, (item) => this.fromItem(item))
 	}
 
-	probeColumns(list: NonEmptyReadonlyArray<ProbeColumn>): NonEmptyReadonlyArray<ProbeColumn> {
-		return mapNonEmptyKept(list, (c) => {
-			const value = this.expr(c.value)
-			return value === c.value ? c : { ...c, value }
-		})
+	probeColumn(c: ProbeColumn): ProbeColumn {
+		const value = this.expr(c.value)
+		return value === c.value ? c : { ...c, value }
 	}
 
 	probeBy(by: ProbeBy): ProbeBy {
-		const columns = this.probeColumns(by.columns)
+		if (by.kind === "key") {
+			const columns = mapList(by.columns, (c) => this.probeColumn(c))
+			return columns === by.columns ? by : { ...by, columns }
+		}
+		const columns = mapNonEmptyKept(by.columns, (c) => this.probeColumn(c))
 		return columns === by.columns ? by : { ...by, columns }
 	}
 
@@ -2064,7 +2066,7 @@ class Visit {
 		})
 	}
 
-	probeColumns(list: NonEmptyReadonlyArray<ProbeColumn>): undefined {
+	probeColumns(list: ReadonlyArray<ProbeColumn>): undefined {
 		each(list, (c) => {
 			inKeyOrder(Object.keys(c), [
 				[

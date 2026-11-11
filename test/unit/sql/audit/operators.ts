@@ -1810,10 +1810,11 @@ const columnOfItem = (item: FromItem): Expr | undefined => {
 		case "derived":
 		case "function":
 		case "values":
-		case "probe":
-		case "met":
 		case "metRows":
 			return at(item.alias, item.columns[0])
+		case "probe":
+		case "met":
+			return at(item.alias, item.columns[0].as)
 		case "arrays":
 			return at(
 				item.alias,

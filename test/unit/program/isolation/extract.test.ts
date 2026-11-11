@@ -160,6 +160,8 @@ const relationOf = (rel: Rel): string => (rel === "X" ? "?app.x" : rel)
 /** The columns of every table: three fields' and a law column's, which no field is. */
 const COLUMNS = ["c_id", "c_a", "c_b", "c_hidden"] as const
 type Column = (typeof COLUMNS)[number]
+/** Every column of a table as a driven read delivers it (sql/ast.ts DrivenColumn), each under its own name. */
+const DRIVEN = Arr.map(COLUMNS, (column) => ({ read: column, as: column }))
 const FIELDS: ReadonlyMap<string, string> = new Map([
 	["c_id", "id"],
 	["c_a", "a"],
@@ -1107,7 +1109,7 @@ const fromSource = (
 				inner: `${p.alias}i`,
 				by: p.by === "key" ? { kind: "key", columns } : { kind: p.by, columns, order: ["c_id"] },
 				filter: [],
-				columns: COLUMNS,
+				columns: DRIVEN,
 				alias: p.alias
 			}
 		}
@@ -1119,7 +1121,7 @@ const fromSource = (
 				rows: metRowsAlias(p, owned, scope) ?? NO_ROWS,
 				key: Arr.map(p.columns, (column) => ({ column, from: OWN_COLUMN, schema: undefined })),
 				filter: [],
-				columns: COLUMNS,
+				columns: DRIVEN,
 				alias: p.alias
 			}
 		case "metRows":

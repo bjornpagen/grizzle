@@ -68,31 +68,29 @@ export type InsertOf = "insert" | "put"
 /**
  * Which requested facts an insert statement proposes to its INSERT:
  * - `every`: each one, the arbiter settling a stored row at its key, an insertion's exact repeat or its conflict, a
- *   put's commit after its deletion. A proposed row is judged by every CHECK before any arbiter meets its key (19rc1
- *   nodeModifyTable.c ExecInsert: ExecConstraints, then the speculative insertion), so a requested fact is judged as
- *   the ChangeSet states it, stored or not: an immutable owner's family is written whole with it and never changes, so
- *   its counts and ends are those of the family the ChangeSet states with it, and a CHECK over them judges that family;
- * - `unstored`: only those at no stored key, each read there by its key: into a mutable owner, whose counts and ends the
- *   ChangeSet states for its own appends alone, so a stored owner proposed again would meet a check over an end, such
- *   as an invoice's lines summing to its amount, at counts its stored family does not hold, its families instead drawn
- *   as they are; and a generated addition that draws an identity field, whose proposed row would take the identity's
- *   next value whether it is inserted or not, so a stored repeat or conflict draws none.
+ *   put's commit after its deletion;
+ * - `unstored`: into a family owner, only those at no stored key. A proposed owner carries every
+ *   count and end its input does not carry at its start, and PostgreSQL judges a proposed row by every CHECK before any
+ *   arbiter meets its key (19rc1 nodeModifyTable.c ExecInsert: ExecConstraints, then the speculative insertion), so a
+ *   stored owner proposed again would meet a check over an end, such as an invoice's lines summing to its amount, at
+ *   that placeholder. A stored owner at a requested key is instead an insertion's exact repeat or its conflict, read
+ *   from its row, or the row a put's UPDATE wrote, its families as they are.
  */
 export type Proposal = "every" | "unstored"
 
 /** Which requested facts an insert that meets stored facts at an arbiter (`arbitered`, unique.ts insertArbitered)
- * proposes (Proposal): only those at no stored arbiter key into a mutable owner, whose rows carry counts and ends, and
- * for a generated addition that draws an identity field; every one into any other relation, whose proposed row is its
- * requested fact as the ChangeSet states it, a uuidv7 default drawing nothing a repeat would waste; and every one of a
- * plain INSERT, a generated addition with no arbiter, whose drawn key no row stores. */
+ * proposes (Proposal): only those at no stored arbiter key into a family owner, whose rows carry counts and ends, and
+ * for a generated addition that draws an identity field, whose proposed row would take the identity's next value
+ * whether it is inserted or not, so a stored repeat or conflict draws none; every one into any other relation, whose
+ * proposed row is its requested fact, a uuidv7 default drawing nothing a repeat would waste; and every one of a plain
+ * INSERT, a generated addition with no arbiter, whose drawn key no row stores. */
 export const proposalOf = (
 	relation: RelationInfo,
 	serial: SerialClass,
 	arbitered: boolean
 ): Proposal =>
 	arbitered &&
-	((relation.mutable &&
-		relation.heading.some((f) => f.writing.kind === "drawn" || f.writing.kind === "accumulated")) ||
+	(relation.heading.some((f) => f.writing.kind === "drawn" || f.writing.kind === "accumulated") ||
 		(serial.kind === "generated" &&
 			relation.fields.some(
 				(f) => serial.drawn.includes(f.name) && serialDraw(f.desc) === "identity"

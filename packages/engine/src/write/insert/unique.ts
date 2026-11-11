@@ -19,7 +19,7 @@ import {
 	witnessFields
 } from "#compiler/laws/model/uniques.ts"
 import { rowNe, typedEq } from "#compiler/lower/conservative/vector/equality.ts"
-import type { Cte, Expr, OrderItem, Select, SetCore } from "#compiler/sql/ast.ts"
+import type { Cte, Expr, OrderItem, Select, SetCore, Target } from "#compiler/sql/ast.ts"
 import {
 	and,
 	asc,
@@ -43,7 +43,7 @@ import {
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
 import { requestedValue, rowType, type WriteContext } from "#compiler/write/insert/statement.ts"
-import { atObject, storedAt, withinRow } from "#compiler/write/probe.ts"
+import { atFields, atObject, storedAt, withinRow } from "#compiler/write/probe.ts"
 import type { KeyArbiter } from "#compiler/write/put/choose.ts"
 
 /** The unique objects of a relation an insert meets: its arbiter, the primary key; every object
@@ -117,6 +117,12 @@ export const probeIdentity = (
 export interface Probed {
 	readonly object: UniqueObject
 	readonly pairs: "host" | "statement"
+	/**
+	 * Which requested fact of a pair within the input the refusal names: the least of either, by key (`every`); or, at
+	 * an insertion's span arbiter, one requested anew before one an equal stored fact repeats (`requestedAnew`), the
+	 * fact the stored state does not already hold, as the classification after a READ COMMITTED span insert names it.
+	 */
+	readonly witness: "every" | "requestedAnew"
 }
 
 /**
@@ -202,6 +208,7 @@ const probedAt = (
 		objects.map((object): Probed =>
 			Object.freeze({
 				object,
+				witness: "every",
 				pairs:
 					(object.kind === "key" || (object.kind === "span" && complete.includes(object))) &&
 					readFields(object).every(hostHeld)
@@ -433,32 +440,51 @@ export const buildProbe = (
 	const requestedAt = (alias: string): ((f: LawField) => Expr) =>
 		requestedValue(w, relation, fields, (f) => inCol(alias, f))
 	const fact = requestedAt(input)
-	const branches: Array<SetCore> = []
-	for (const [i, { object: check, pairs }] of checks.entries()) {
+	/** Each branch: its rows with any further targets `extra` after its own, and its witness rank, if it ranks one. */
+	const branches: Array<{
+		readonly core: (extra: ReadonlyArray<Target>) => SetCore
+		readonly rank: Expr | undefined
+	}> = []
+	for (const [i, { object: check, pairs, witness }] of checks.entries()) {
 		const ordinal = i + 1
 		const own = predicate(check, fact)
 		if (!spec.normalized || pairs === "statement") {
 			/** Another requested fact the object cannot hold beside this one. */
 			const other = supply.relation(internal("other requested fact"))
 			const otherCol = requestedAt(other)
-			branches.push(
-				provedCore(
-					"keyed",
-					[...fields.map((f) => target(fact(f))), target(lit.int(-ordinal, types.integer))],
-					[cteRef(input)],
-					and(
-						appendNonEmpty(
-							own,
-							exists(
-								simpleSelect(
-									one,
-									[cteRefAs(input, other)],
-									and(
-										appendNonEmpty(
-											[...predicate(check, otherCol), ...conflict(check, otherCol, fact)],
-											rowNe(
-												{ fields, typeOf: rowType, left: otherCol, right: (f) => inCol(input, f) },
-												vectorSchema
+			branches.push({
+				rank:
+					witness === "requestedAnew"
+						? storedAt(w, supply, relation.name, atFields(w, relation.name, fields, fact))
+						: undefined,
+				core: (extra) =>
+					provedCore(
+						"keyed",
+						[
+							...fields.map((f) => target(fact(f))),
+							target(lit.int(-ordinal, types.integer)),
+							...extra
+						],
+						[cteRef(input)],
+						and(
+							appendNonEmpty(
+								own,
+								exists(
+									simpleSelect(
+										one,
+										[cteRefAs(input, other)],
+										and(
+											appendNonEmpty(
+												[...predicate(check, otherCol), ...conflict(check, otherCol, fact)],
+												rowNe(
+													{
+														fields,
+														typeOf: rowType,
+														left: otherCol,
+														right: (f) => inCol(input, f)
+													},
+													vectorSchema
+												)
 											)
 										)
 									)
@@ -466,37 +492,42 @@ export const buildProbe = (
 							)
 						)
 					)
-				)
-			)
+			})
 		}
 		if (spec.occupants === "probed") {
-			branches.push(
-				provedCore(
-					"keyed",
-					[...fields.map((f) => target(fact(f))), target(lit.int(ordinal, types.integer))],
-					[cteRef(input)],
-					and(
-						appendNonEmpty(
-							[
-								...own,
-								...(requested.kind === "generated"
-									? []
-									: [
-											not(
-												storedAt(
-													w,
-													supply,
-													relation.name,
-													atObject(w, relation.name, requested.arbiter, fact)
+			branches.push({
+				rank: undefined,
+				core: (extra) =>
+					provedCore(
+						"keyed",
+						[
+							...fields.map((f) => target(fact(f))),
+							target(lit.int(ordinal, types.integer)),
+							...extra
+						],
+						[cteRef(input)],
+						and(
+							appendNonEmpty(
+								[
+									...own,
+									...(requested.kind === "generated"
+										? []
+										: [
+												not(
+													storedAt(
+														w,
+														supply,
+														relation.name,
+														atObject(w, relation.name, requested.arbiter, fact)
+													)
 												)
-											)
-										])
-							],
-							storedAt(w, supply, relation.name, atObject(w, relation.name, check, fact))
+											])
+								],
+								storedAt(w, supply, relation.name, atObject(w, relation.name, check, fact))
+							)
 						)
 					)
-				)
-			)
+			})
 		}
 	}
 	const refusal = supply.relation(internal("unique refusal"))
@@ -511,11 +542,18 @@ export const buildProbe = (
 	if (first === undefined) {
 		return undefined
 	}
+	/** Where some branch ranks its witnesses (Probed `witness`), the rank of each branch's rows, false where it ranks
+	 * none; read first by the refusal's order. It is computed only for rows of a pair, so it reads a stored row only on
+	 * a statement whose gate refuses. */
+	const ranked = branches.some((b) => b.rank !== undefined)
 	let query: Select
 	if (rest.length === 0) {
 		query = {
-			...select(first),
-			orderBy: apart.map((f) => asc(fact(f))),
+			...select(first.core([])),
+			orderBy: [
+				...(first.rank === undefined ? [] : [asc(first.rank)]),
+				...apart.map((f) => asc(fact(f)))
+			],
 			limit: lit.int(1, types.integer)
 		}
 	} else {
@@ -525,8 +563,15 @@ export const buildProbe = (
 		const probedOrdinal = supply.column(internal("probe column"))
 		const allCol = (f: LawField) => col(all, probed.of(f))
 		const allOrdinal = col(all, probedOrdinal)
+		const probedRank = ranked ? supply.column(internal("probe rank")) : undefined
+		const arm = (b: (typeof branches)[number]): SetCore =>
+			b.core(probedRank === undefined ? [] : [target(b.rank ?? lit.bool(false))])
 		ctes.push(
-			cte(all, [...probed.columns, probedOrdinal], select(unionAll("disjoint", [first, ...rest])))
+			cte(
+				all,
+				[...probed.columns, probedOrdinal, ...(probedRank === undefined ? [] : [probedRank])],
+				select(unionAll("disjoint", [arm(first), ...rest.map(arm)]))
+			)
 		)
 		query = {
 			...provedSelect(
@@ -535,7 +580,10 @@ export const buildProbe = (
 				[cteRef(all)],
 				undefined
 			),
-			orderBy: orderOf(allCol, allOrdinal),
+			orderBy: [
+				...(probedRank === undefined ? [] : [asc(col(all, probedRank))]),
+				...orderOf(allCol, allOrdinal)
+			],
 			limit: lit.int(1, types.integer)
 		}
 	}

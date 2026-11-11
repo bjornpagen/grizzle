@@ -9,12 +9,7 @@ import {
 } from "#compiler/core/limits.ts"
 import { BlockLines, CommentedLines, inlineText, type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import {
-	extendNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import {
 	type AlterDomainAction,
@@ -57,6 +52,7 @@ import {
 	type PerformQuery,
 	type PlBlock,
 	type PlStatement,
+	type DrivenColumn,
 	type MetKey,
 	type ProbeBy,
 	type ProbeColumn,
@@ -749,10 +745,7 @@ const printFromItem = (item: FromItem): string => {
 				item.inner,
 				item.columns,
 				item.alias,
-				extendNonEmpty(
-					mapNonEmpty(item.by.columns, (c) => boundColumn(item.inner, c)),
-					item.filter.map(printExpr)
-				),
+				[...item.by.columns.map((c) => boundColumn(item.inner, c)), ...item.filter.map(printExpr)],
 				probeTail(item.inner, item.by)
 			)
 		case "met":
@@ -761,10 +754,7 @@ const printFromItem = (item: FromItem): string => {
 				item.inner,
 				item.columns,
 				item.alias,
-				extendNonEmpty(
-					mapNonEmpty(item.key, (k) => metBound(item.inner, k, item.rows)),
-					item.filter.map(printExpr)
-				),
+				[...item.key.map((k) => metBound(item.inner, k, item.rows)), ...item.filter.map(printExpr)],
 				"LIMIT 1"
 			)
 		case "metRows": {
@@ -856,13 +846,13 @@ const probeTail = (inner: string, by: ProbeBy): string => {
 const printDriven = (
 	table: ObjectName,
 	inner: string,
-	columns: NonEmptyReadonlyArray<string>,
+	columns: NonEmptyReadonlyArray<DrivenColumn>,
 	alias: string,
-	conditions: NonEmptyReadonlyArray<string>,
+	conditions: ReadonlyArray<string>,
 	tail: string
 ): string => {
-	const read = columns.map((c) => `${quoteIdent(inner)}.${quoteIdent(c)}`).join(", ")
-	return `LATERAL (SELECT ${read} FROM ${printObjectName(table)} AS ${quoteIdent(inner)} WHERE ${conditions.join(" AND ")} ${tail}) AS ${quoteIdent(alias)}(${printIdentList(columns)})`
+	const read = columns.map((c) => `${quoteIdent(inner)}.${quoteIdent(c.read)}`).join(", ")
+	return `LATERAL (SELECT ${read} FROM ${printObjectName(table)} AS ${quoteIdent(inner)} ${conditions.length === 0 ? "" : `WHERE ${conditions.join(" AND ")} `}${tail}) AS ${quoteIdent(alias)}(${printIdentList(mapNonEmpty(columns, (c) => c.as))})`
 }
 
 const printFrom = (items: ReadonlyArray<FromItem>): string => items.map(printFromItem).join(", ")

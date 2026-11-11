@@ -243,11 +243,12 @@ const definedBy = (
 			return { aliases: item.alias === undefined ? [] : [item.alias], columns: [] }
 		case "derived":
 		case "function":
-		case "probe":
-		case "met":
 		case "metRows":
 		case "values":
 			return { aliases: [item.alias], columns: item.columns }
+		case "probe":
+		case "met":
+			return { aliases: [item.alias], columns: Arr.map(item.columns, (c) => c.as) }
 		case "arrays":
 			return {
 				aliases: [item.alias],

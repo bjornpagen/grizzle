@@ -166,8 +166,12 @@ class Delivered {
 					? undefined
 					: this.#installed.get(columnKey(item.table, column))
 			case "probe":
-			case "met":
-				return this.#installed.get(columnKey(item.table, column))
+			case "met": {
+				const driven = item.columns.find((c) => c.as === column)
+				return driven === undefined
+					? undefined
+					: this.#installed.get(columnKey(item.table, driven.read))
+			}
 			case "metRows":
 				return undefined
 			case "derived": {

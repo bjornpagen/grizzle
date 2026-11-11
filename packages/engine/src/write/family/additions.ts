@@ -115,6 +115,7 @@ import {
 } from "#compiler/write/family/written.ts"
 import type { MemberSlot } from "#compiler/write/frontend/compile.ts"
 import type { CopySource, OwnerCopy } from "#compiler/write/frontend/schedule.ts"
+import { primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import {
 	returnedColumn,
 	rowType,
@@ -434,7 +435,8 @@ const appendedOf = (
 					value: col(a, columnAt(facts, c.key)),
 					schema: isVectorType(c.type) ? w.names.vectorSchema : undefined
 				})),
-				filter: () => []
+				filter: () => [],
+				placed: mapNonEmpty(compared, (c) => installed(w, name, c.column))
 			})
 		return provedCore(
 			"input",
@@ -699,7 +701,11 @@ const appendScan = (
 					value: binary("-", col(g1, groups.kept), lit.int(1, bigint)),
 					schema: undefined
 				}),
-				filter: () => []
+				filter: () => [],
+				placed: appendNonEmpty(
+					mapNonEmpty(family.group, (g) => w.names.column(name, g.member.name)),
+					index
+				)
 			},
 			[index, ...reads]
 		)
@@ -772,9 +778,7 @@ const appendScan = (
 			baseLiteral(family, read.from),
 			`the base of ${name}'s owner copy ${columnKey(read.from)}, an accumulated column`
 		)
-		/** The stored owner's column, read by the probe of the owner at the row's group: none at `base`, whose owner is
-		 * either among the rows the stratum inserts or stored or missing, and then the family's owner axis refuses the
-		 * row at the statement's end whatever its copies are. */
+		/** The stored owner's column, read by the probe of the owner at the row's group (`reads`). */
 		const stored = (): Expr => {
 			const ownerRow = probeKey(
 				w,
@@ -784,7 +788,8 @@ const appendScan = (
 					key: mapNonEmpty(family.group, (g, i) =>
 						bound(w, owner.name, g.owner, defined(aGroup[i], "a group key"))
 					),
-					filter: () => []
+					filter: () => [],
+					placed: mapNonEmpty(family.group, (g) => w.names.column(owner.name, g.owner.name))
 				},
 				[installed(w, owner.name, read.to)]
 			)
@@ -820,13 +825,14 @@ const appendScan = (
 				)
 			}
 		}
-		const held = copySource(columnKey(read.from)) === "held" ? ownerShapes().map(inserted) : []
-		return firstNonNull(
-			appendNonEmpty(
-				state === "base" ? held : appendNonEmpty(held, stored()),
-				lowerLiteral(w.names, base, read.type)
-			)
-		)
+		const source = copySource(columnKey(read.from))
+		const held = source === "held" ? ownerShapes().map(inserted) : []
+		/** The stored owner is read where the group's state is stored, and at `base` where the copy is `drawn`: the
+		 * owner's own earlier statement of this call wrote the column, which only its row holds. At `base` a `held` copy
+		 * reads the call's own rows, and a `stored` one none, its owner stored, so the family's owner axis refuses the
+		 * append whatever the copy is. */
+		const reads = state === "stored" || source === "drawn" ? appendNonEmpty(held, stored()) : held
+		return firstNonNull(appendNonEmpty(reads, lowerLiteral(w.names, base, read.type)))
 	}
 	const kept = col(g2, groups.kept)
 	ctes.push(
@@ -891,7 +897,8 @@ const keyFirstFields = (relation: RelationInfo): ReadonlyArray<LawField> => [
 /**
  * The insert of a member relation's appended rows, whole: each column its families draw from their scans, each field
  * its facts carry from them, and each count and end of a family the member owns at its start, the family empty. Where
- * it is arbitrated (`memberArbitrated`), ON CONFLICT at its primary key DO NOTHING, and each appended row it did not
+ * it is arbitrated (`memberArbitrated`), ON CONFLICT at its primary key DO NOTHING, by the key's constraint where it
+ * holds a span, which no column list infers, and each appended row it did not
  * insert, a met row, is an exact repeat where the stored row the arbitration met at its key (probe.ts metFound) equals
  * it at every field it states, and else its key's law, which the statement raises (`refusals`); a stored row at
  * another unique object, its slot among them, is PostgreSQL's 23505 there, its law's.
@@ -1056,11 +1063,18 @@ const insertOf = (
 				table: w.names.relation(name),
 				alias: into,
 				overriding: undefined,
-				onConflict: {
-					kind: "columns",
-					columns: mapNonEmpty(relation.primaryFields, (f) => w.names.column(name, f.name)),
-					action: { kind: "doNothing" }
-				},
+				onConflict:
+					primaryKeyShape(relation).kind === "span"
+						? {
+								kind: "constraint",
+								constraint: w.names.primaryKey(name),
+								action: { kind: "doNothing" }
+							}
+						: {
+								kind: "columns",
+								columns: mapNonEmpty(relation.primaryFields, (f) => w.names.column(name, f.name)),
+								action: { kind: "doNothing" }
+							},
 				columns: inserted,
 				source: {
 					kind: "query",
@@ -1142,7 +1156,8 @@ const metRefusal = (
 				from: proposedColumn(f),
 				schema: isVectorType(rowType(f)) ? w.names.vectorSchema : undefined
 			})),
-			filter: () => []
+			filter: () => [],
+			placed: mapNonEmpty(pk, (f) => w.names.column(name, f.name))
 		},
 		(inner) =>
 			stated.map((f) =>
