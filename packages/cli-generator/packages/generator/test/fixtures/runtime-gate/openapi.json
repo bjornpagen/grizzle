@@ -1,0 +1,299 @@
+{
+  "openapi": "3.2.0",
+  "info": {
+    "title": "Runtime gate fixture",
+    "version": "1.0.0",
+    "description": "One package whose emitted code reaches every runtime module: each parameter location, every request codec (JSON, form, form-data, positional multipart/mixed, JSON Lines, binary, text), every sequential response codec, a binary response, a problem response with Retry-After, and every security scheme kind."
+  },
+  "servers": [
+    {
+      "url": "https://{region}.api.invalid/v1",
+      "variables": { "region": { "default": "eu", "enum": ["eu", "us"] } }
+    }
+  ],
+  "security": [{ "bearer": [] }],
+  "paths": {
+    "/records/{recordId}": {
+      "parameters": [
+        { "name": "recordId", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "get": {
+        "tags": ["records"],
+        "operationId": "records-get",
+        "parameters": [
+          {
+            "name": "filter",
+            "in": "query",
+            "style": "deepObject",
+            "explode": true,
+            "schema": {
+              "type": "object",
+              "properties": { "kind": { "type": "string" }, "size": { "type": "integer" } }
+            }
+          },
+          {
+            "name": "tags",
+            "in": "query",
+            "schema": { "type": "array", "items": { "type": "string" } }
+          },
+          { "name": "X-Trace", "in": "header", "schema": { "type": "string" } },
+          { "name": "session", "in": "cookie", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "The record.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Record" } } }
+          },
+          "404": {
+            "description": "No such record.",
+            "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } }
+          },
+          "429": {
+            "description": "Too many requests.",
+            "headers": { "Retry-After": { "schema": { "type": "integer" } } },
+            "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } }
+          }
+        }
+      },
+      "put": {
+        "tags": ["records"],
+        "operationId": "records-put",
+        "security": [{ "basic": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/Record" } },
+            "application/x-www-form-urlencoded": {
+              "schema": { "$ref": "#/components/schemas/Record" },
+              "encoding": { "labels": { "explode": false } }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The stored record.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Record" } } }
+          }
+        }
+      }
+    },
+    "/uploads": {
+      "post": {
+        "tags": ["uploads"],
+        "operationId": "uploads-create",
+        "security": [{ "header": [], "query": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                  "note": { "type": "string" },
+                  "file": { "type": "string", "contentMediaType": "application/octet-stream" },
+                  "labels": { "type": "array", "items": { "type": "string" } },
+                  "meta": {
+                    "type": "object",
+                    "properties": { "owner": { "type": "string" } }
+                  }
+                }
+              },
+              "encoding": {
+                "file": { "contentType": "application/octet-stream" },
+                "meta": { "contentType": "application/json" }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Stored.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Record" } } }
+          }
+        }
+      }
+    },
+    "/batches": {
+      "post": {
+        "tags": ["batches"],
+        "operationId": "batches-send",
+        "security": [{ "cookie": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/mixed": {
+              "schema": {
+                "type": "array",
+                "prefixItems": [
+                  { "$ref": "#/components/schemas/Record" },
+                  { "type": "string", "contentMediaType": "application/octet-stream" }
+                ]
+              },
+              "prefixEncoding": [
+                { "contentType": "application/json" },
+                { "contentType": "application/octet-stream" }
+              ]
+            }
+          }
+        },
+        "responses": { "204": { "description": "Accepted." } }
+      }
+    },
+    "/events": {
+      "post": {
+        "tags": ["events"],
+        "operationId": "events-stream",
+        "security": [{ "oauth": ["events:write"] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/jsonl": { "itemSchema": { "$ref": "#/components/schemas/Record" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Server-sent events, one item per event.",
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "type": "string" },
+                    "event": { "type": "string" },
+                    "id": { "type": "string" },
+                    "retry": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/feed": {
+      "get": {
+        "tags": ["feed"],
+        "operationId": "feed-records",
+        "security": [{ "oidc": [] }],
+        "responses": {
+          "200": {
+            "description": "JSON text sequences, one item per record.",
+            "content": {
+              "application/json-seq": { "itemSchema": { "$ref": "#/components/schemas/Record" } }
+            }
+          }
+        }
+      }
+    },
+    "/lines": {
+      "get": {
+        "tags": ["feed"],
+        "operationId": "feed-lines",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Newline-delimited JSON, one item per line.",
+            "content": {
+              "application/x-ndjson": { "itemSchema": { "$ref": "#/components/schemas/Record" } }
+            }
+          }
+        }
+      }
+    },
+    "/blobs/{id}": {
+      "parameters": [
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "get": {
+        "tags": ["blobs"],
+        "operationId": "blobs-get",
+        "security": [{ "client": [] }],
+        "responses": {
+          "200": {
+            "description": "The blob.",
+            "content": {
+              "application/octet-stream": {
+                "schema": { "type": "string", "contentMediaType": "application/octet-stream" }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": ["blobs"],
+        "operationId": "blobs-put",
+        "security": [{ "client": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": { "type": "string", "contentMediaType": "application/octet-stream" }
+            }
+          }
+        },
+        "responses": { "204": { "description": "Stored." } }
+      }
+    },
+    "/notes": {
+      "post": {
+        "tags": ["notes"],
+        "operationId": "notes-create",
+        "requestBody": {
+          "required": true,
+          "content": { "text/plain": { "schema": { "type": "string" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "The note as stored.",
+            "content": { "text/plain": { "schema": { "type": "string" } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Record": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string" },
+          "labels": { "type": "array", "items": { "type": "string" } },
+          "size": { "type": "integer" },
+          "secret": { "type": "string", "format": "password" }
+        }
+      },
+      "Problem": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string" },
+          "title": { "type": "string" },
+          "status": { "type": "integer" },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearer": { "type": "http", "scheme": "bearer" },
+      "basic": { "type": "http", "scheme": "basic" },
+      "header": { "type": "apiKey", "in": "header", "name": "X-Api-Key" },
+      "query": { "type": "apiKey", "in": "query", "name": "api_key" },
+      "cookie": { "type": "apiKey", "in": "cookie", "name": "token" },
+      "oauth": {
+        "type": "oauth2",
+        "flows": {
+          "clientCredentials": {
+            "tokenUrl": "https://auth.invalid/token",
+            "scopes": { "events:write": "Send events" }
+          }
+        }
+      },
+      "oidc": {
+        "type": "openIdConnect",
+        "openIdConnectUrl": "https://auth.invalid/.well-known/openid-configuration"
+      },
+      "client": { "type": "mutualTLS", "description": "A client certificate." }
+    }
+  }
+}

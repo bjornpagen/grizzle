@@ -51,6 +51,10 @@
 			"dependsOn": ["^source"],
 			"inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/packages/devtools/src/**"]
 		},
+		"runtime-gate": {
+			"description": "Generates the runtime-gate fixture into a scratch directory and typechecks the generated package against the installed dependencies, until the property that every emitted package typechecks covers it.",
+			"dependsOn": ["^source"]
+		},
 		"fixtures:superlint": {},
 		"fixtures:style": {},
 		"fixtures:oxlint": {},

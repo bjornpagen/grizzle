@@ -1,0 +1,5 @@
+{
+  "package": { "name": "runtime-gate-cli", "version": "0.1.0" },
+  "binName": "gate",
+  "envPrefix": "GATE"
+}
