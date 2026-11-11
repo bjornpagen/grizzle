@@ -1,14 +1,38 @@
+/**
+ * The compile-target catalog against its compositions on PostgreSQL 19 (R26-R31, R41, R42).
+ *
+ * - Agreement: every composition the catalog documents, drawn by the choices its text makes (an ordinal's directions,
+ *   a running aggregate's restriction, a neighbor's direction, source restriction and parents, an as-of's comparison,
+ *   restriction, attachment and path, a share's total and restriction, a percentile's fractions and stage, a
+ *   continuous percentile's fraction, the mode), checked and lowered twice, composed (the conservative lowering of the
+ *   checked DAG) and native (the catalog's rewrite, its targets lowered by native.ts), agrees over drawn lab facts
+ *   (support.ts factsGen: small domains, so ties, groups of one row and empty relations come up) as raw text sets, the
+ *   native run repeating no row; the rewrite applies exactly the rules the catalog's specification admits for the
+ *   shape (rulesOf), so a dropped condition shows as a wrong answer; and every native target is an overload PostgreSQL
+ *   has. The compositions of the hand-written suites this search replaces replay first as its kept cases.
+ * - Percentile fractions: R29 admits exactly the dyadic fractions in (0, 1] whose native form agrees with the
+ *   composition, and the native form, forced at any fraction, disagrees exactly where a model of both forms' positions
+ *   says (fractionCaseGen).
+ *
+ * Oracle: the composition's conservative lowering, and the catalog's specification of each shape's rules; the model of
+ * both percentile forms for the fractions.
+ *
+ * Plants: catalog-mode-recognizer-dropped (the mode's recognizer runs on no node, so R31 is never applied),
+ * catalog-percentile-cont-fraction-halved (R30's native form takes half its fraction).
+ *
+ * Features: each entry kind, each rule applied and none, a delivered row; each fraction class.
+ */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
-import type { TestContext } from "vitest"
 import { indices } from "#compiler/core/array.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
+import type { Direction } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { canonicalZero } from "#compiler/ir/carriers.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
@@ -32,7 +56,7 @@ import {
 } from "#test/pg/catalog/support.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { catalogDispatch } from "#test/support/compile.ts"
-import type { AuthoredExprDesc, QueryDesc } from "#test/support/fixtures/ir/desc.ts"
+import type { QueryDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
 	conservative,
@@ -45,15 +69,10 @@ import {
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import * as D from "#test/unit/check/dsl.ts"
 
-const f8 = (value: number) => D.typedLit(value, Q.double)
-
-/** The drawn lab facts each agreement explores: the rotating stream's cases, and a quarter as many in the floor's. */
+/** The drawn lab facts each search explores: the rotating stream's cases, and a quarter as many in the floor's. */
 const agreementRuns = 12
 
-/**
- * The facts with a price of the first sitting's student, below 105, on the sitting's day and on the day before, which
- * every as-of mode and the cheap filter meet; and a sitting where the facts hold none.
- */
+/** The facts with a price of the first sitting's student, below 105, on the sitting's day and on the day before. */
 const withPricedSitting = (f: Facts, amount: number): Facts => {
 	const [first] = f.sittings
 	const sitting = first ?? ([1000, 1, 6, 1] as const)
@@ -65,116 +84,379 @@ const withPricedSitting = (f: Facts, amount: number): Facts => {
 	}
 }
 
+/** A catalog entry's form over the as-of comparison: the native ordered pass, or the LATERAL probe the composition is. */
+type Path = "ordered" | "lateral"
+
+/** How a running aggregate's self-match is written: plainly, its first occurrence above 3, or one student fixed. */
+type Running = "plain" | "first occurrence above 3" | "student 1 on both occurrences"
+
+/** What a discrete percentile's selection reads: the ordinal joined on the group, an unjoined one, a running count. */
+type Stage = "ordinal" | "unjoined ordinal" | "running count"
+
+/**
+ * A composition of the compile-target catalog (R26-R31, R41, R42), written as an author writes it (queries.ts), by the
+ * shape its recognizer reads: each field a choice the composition's text makes, never its verdict.
+ */
+type Entry =
+	| { readonly kind: "ordinal"; readonly dirs: readonly [Direction, Direction] }
+	| { readonly kind: "running"; readonly running: Running }
+	| {
+			readonly kind: "bound neighbor"
+			readonly direction: "next" | "previous"
+			readonly restricted: boolean
+	  }
+	| {
+			readonly kind: "attached neighbor"
+			readonly direction: "next" | "previous"
+			readonly parents: "sittings" | "pointed"
+			readonly path: Path
+	  }
+	| {
+			readonly kind: "as-of"
+			readonly mode: "le" | "lt" | "ge"
+			readonly attached: boolean
+			readonly cheap: boolean
+			readonly path: Path
+	  }
+	| {
+			readonly kind: "grouped share"
+			readonly over: "Sitting" | "Price" | "filtered"
+			readonly restricted: boolean
+	  }
+	| { readonly kind: "keyed share"; readonly restricted: boolean }
+	| {
+			readonly kind: "discrete percentile"
+			readonly fractions: Arr.NonEmptyReadonlyArray<number>
+			readonly stage: Stage
+	  }
+	| { readonly kind: "continuous percentile"; readonly p: number }
+	| { readonly kind: "mode" }
+
+const directionGen: Gen<Direction> = element(["asc", "desc"] as const)
+const neighborGen: Gen<"next" | "previous"> = element(["next", "previous"] as const)
+const pathGen: Gen<Path> = element(["ordered", "lateral"] as const)
+
+/** A dyadic fraction in (0, 1] whose denominator the discrete rewrite admits: m / 2^j, j up to its largest. */
+const admittedFraction: Gen<number> = (source) => {
+	const j = source.draw(int(0, Math.log2(admittedDenominator)))
+	return source.draw(int(1, 2 ** j)) / 2 ** j
+}
+
+/** Every catalog entry's shape, each kind equally often. */
+const entryGen: Gen<Entry> = weighted<Entry>([
+	[
+		1,
+		(source) => ({ kind: "ordinal", dirs: [source.draw(directionGen), source.draw(directionGen)] })
+	],
+	[
+		1,
+		(source) => ({
+			kind: "running",
+			running: source.draw(
+				element(["plain", "first occurrence above 3", "student 1 on both occurrences"] as const)
+			)
+		})
+	],
+	[
+		1,
+		(source) => ({
+			kind: "bound neighbor",
+			direction: source.draw(neighborGen),
+			restricted: source.draw(boolean)
+		})
+	],
+	[
+		1,
+		(source) => ({
+			kind: "attached neighbor",
+			direction: source.draw(neighborGen),
+			parents: source.draw(element(["sittings", "pointed"] as const)),
+			path: source.draw(pathGen)
+		})
+	],
+	[
+		1,
+		(source) => ({
+			kind: "as-of",
+			mode: source.draw(element(["le", "lt", "ge"] as const)),
+			attached: source.draw(boolean),
+			cheap: source.draw(boolean),
+			path: source.draw(pathGen)
+		})
+	],
+	[
+		1,
+		(source) => ({
+			kind: "grouped share",
+			over: source.draw(element(["Sitting", "Price", "filtered"] as const)),
+			restricted: source.draw(boolean)
+		})
+	],
+	[1, (source) => ({ kind: "keyed share", restricted: source.draw(boolean) })],
+	[
+		1,
+		(source) => ({
+			kind: "discrete percentile",
+			fractions: nonEmpty(
+				source.draw(array(admittedFraction, { min: 1, max: 2 })),
+				"a percentile's fractions"
+			),
+			stage: source.draw(element(["ordinal", "unjoined ordinal", "running count"] as const))
+		})
+	],
+	[
+		1,
+		(source) => {
+			const j = source.draw(int(0, 3))
+			return { kind: "continuous percentile", p: source.draw(int(0, 2 ** j)) / 2 ** j }
+		}
+	],
+	[1, () => ({ kind: "mode" })]
+])
+
+const f8 = (value: number) => D.typedLit(value, Q.double)
+
+/** The lab's options with every attachment's parents whole, and with them a bound set. */
+const whole: CatalogOptions = { ...labOptions, parents: "whole" }
+const bound: CatalogOptions = { ...labOptions, parents: "bound" }
+
+/** The composition an entry is, as queries.ts writes it. */
+const descOf = (entry: Entry): QueryDesc => {
+	switch (entry.kind) {
+		case "ordinal":
+			return Q.ordinal(entry.dirs)
+		case "running":
+			switch (entry.running) {
+				case "plain":
+					return Q.running(Q.plainSelfMatch)
+				case "first occurrence above 3":
+					return Q.running({
+						...Q.plainSelfMatch,
+						extra: [D.gt(D.ref("Sitting", "score"), f8(3))]
+					})
+				case "student 1 on both occurrences":
+					return Q.running({ ...Q.plainSelfMatch, student: D.lit(1), keys: ["id"] })
+			}
+		case "bound neighbor":
+			return Q.boundNeighbor(
+				entry.direction,
+				entry.restricted ? [D.gt(D.varRef("n.score"), f8(3))] : []
+			)
+		case "attached neighbor":
+			return Q.attachedNeighbor(entry.direction, entry.parents)
+		case "as-of": {
+			const cheap = entry.cheap ? [D.lt(D.varRef("p.amount"), D.lit(105n))] : []
+			return entry.attached
+				? Q.attachedAsOf(entry.mode, cheap)
+				: Q.boundAsOf(entry.mode, cheap, "day")
+		}
+		case "grouped share":
+			return Q.groupedShare(entry.over, entry.restricted)
+		case "keyed share":
+			return Q.keyedShare(entry.restricted)
+		case "discrete percentile":
+			switch (entry.stage) {
+				case "ordinal":
+					return Q.discretePercentile(entry.fractions, Q.ordinalStage)
+				case "unjoined ordinal":
+					return Q.discretePercentile(entry.fractions, { ...Q.ordinalStage, joined: false })
+				case "running count":
+					return Q.discretePercentile(entry.fractions, { ...Q.ordinalStage, fold: "runningCount" })
+			}
+		case "continuous percentile":
+			return Q.continuousPercentile(entry.p, "score")
+		case "mode":
+			return Q.modeOfDays("asc", Q.plainMode)
+	}
+}
+
+/**
+ * The catalog options an entry's composition is rewritten under: the lab's, whose recognizers read an attachment's
+ * parents as the planner places them, except where an entry's path fixes them. An attached composition's native ordered
+ * pass reads whole parents, and its LATERAL probe the bound set the planner places; a bound as-of's LATERAL probe reads
+ * a bound parent set, its ordered pass the lab's.
+ */
+const optionsOf = (entry: Entry): CatalogOptions => {
+	switch (entry.kind) {
+		case "attached neighbor":
+			return entry.path === "ordered" ? whole : labOptions
+		case "as-of":
+			return entry.attached
+				? entry.path === "ordered"
+					? whole
+					: labOptions
+				: entry.path === "ordered"
+					? labOptions
+					: bound
+		case "ordinal":
+		case "running":
+		case "bound neighbor":
+		case "grouped share":
+		case "keyed share":
+		case "discrete percentile":
+		case "continuous percentile":
+		case "mode":
+			return labOptions
+	}
+}
+
+/**
+ * The rules the catalog's specification has its rewrite apply to an entry (README's catalog, R26-R42), a shape a
+ * recognizer must refuse applying none, so a dropped condition shows as a wrong answer:
+ *
+ * - R26 rewrites an ordinal's self-join count in every direction; R41 a running aggregate, R26 its ordinal beside it;
+ * - R27 a successor or predecessor of the parent's own source, bound, or attached over whole parents; an attachment
+ *   over the bound set the planner places keeps the LATERAL probe, which the window's columns cannot reach; a restricted
+ *   source is no successor of the parent's, and R42's strict as-of mirror takes it;
+ * - R42 an as-of in its ordered pass, bound or attached over whole parents, its Q's own restriction before the union;
+ *   its LATERAL probe stays;
+ * - R28 a share of the total grouped over the same relation, or keyed, unrestricted; a total bound to the count, or
+ *   over another relation or a filtered one, is no share;
+ * - R29 a discrete percentile of admitted fractions over a joined ordinal, R26 alone over an unjoined one, and R41 alone
+ *   over a running conditional count, which is a fold and no position;
+ * - R30 a continuous percentile; R31 the mode of days, ties to the smallest.
+ */
+const rulesOf = (entry: Entry): ReadonlyArray<CertificateRule> => {
+	switch (entry.kind) {
+		case "ordinal":
+			return ["R26"]
+		case "running":
+			return ["R26", "R41"]
+		case "bound neighbor":
+			return entry.restricted ? ["R42"] : ["R27"]
+		case "attached neighbor":
+			return entry.path === "ordered" ? ["R27"] : []
+		case "as-of":
+			return entry.path === "ordered" ? ["R42"] : []
+		case "grouped share":
+			return entry.over === "Sitting" && !entry.restricted ? ["R28"] : []
+		case "keyed share":
+			return entry.restricted ? [] : ["R28"]
+		case "discrete percentile":
+			switch (entry.stage) {
+				case "ordinal":
+					return ["R29"]
+				case "unjoined ordinal":
+					return ["R26"]
+				case "running count":
+					return ["R41"]
+			}
+		case "continuous percentile":
+			return ["R30"]
+		case "mode":
+			return ["R31"]
+	}
+}
+
+/**
+ * Whether an entry's answer is empty on most facts, so its cases need not deliver a row: a count bound to another value,
+ * parents restricted by a second occurrence, and a selection read through a stage that is no position.
+ */
+const mayDeliverNone = (entry: Entry): boolean => {
+	switch (entry.kind) {
+		case "attached neighbor":
+			return entry.parents === "pointed"
+		case "grouped share":
+		case "keyed share":
+			return entry.restricted
+		case "discrete percentile":
+			return entry.stage !== "ordinal"
+		case "ordinal":
+		case "running":
+		case "bound neighbor":
+		case "as-of":
+		case "continuous percentile":
+		case "mode":
+			return false
+	}
+}
+
+/** What a case of the catalog search reached: each entry kind, each rule the rewrite applied, none, and a delivered row. */
+type AgreementFeature =
+	| `entry ${Entry["kind"]}`
+	| `applied ${CertificateRule}`
+	| "applied none"
+	| "delivers rows"
+
+/** The entry kinds, each a feature the search must reach. */
+const entryKinds: Arr.NonEmptyReadonlyArray<Entry["kind"]> = [
+	"ordinal",
+	"running",
+	"bound neighbor",
+	"attached neighbor",
+	"as-of",
+	"grouped share",
+	"keyed share",
+	"discrete percentile",
+	"continuous percentile",
+	"mode"
+]
+
+/** A case of the catalog search: an entry and the lab facts it runs over. */
+type AgreementCase = Readonly<{ entry: Entry; facts: Facts }>
+
+/**
+ * The catalog's compositions as its hand-written suites ran them, over the lab's facts, kept: each replays before the
+ * streams, judged by the same specification.
+ */
+const keptEntries: Arr.NonEmptyReadonlyArray<Entry> = [
+	{ kind: "ordinal", dirs: ["asc", "asc"] },
+	{ kind: "ordinal", dirs: ["desc", "desc"] },
+	{ kind: "ordinal", dirs: ["desc", "asc"] },
+	{ kind: "running", running: "plain" },
+	{ kind: "running", running: "first occurrence above 3" },
+	{ kind: "running", running: "student 1 on both occurrences" },
+	{ kind: "bound neighbor", direction: "next", restricted: false },
+	{ kind: "bound neighbor", direction: "previous", restricted: false },
+	{ kind: "bound neighbor", direction: "next", restricted: true },
+	{ kind: "attached neighbor", direction: "next", parents: "sittings", path: "ordered" },
+	{ kind: "attached neighbor", direction: "previous", parents: "sittings", path: "ordered" },
+	{ kind: "attached neighbor", direction: "next", parents: "pointed", path: "ordered" },
+	{ kind: "attached neighbor", direction: "next", parents: "sittings", path: "lateral" },
+	...Arr.flatMap(["le", "lt", "ge"] as const, (mode): ReadonlyArray<Entry> => [
+		{ kind: "as-of", mode, attached: false, cheap: false, path: "ordered" },
+		{ kind: "as-of", mode, attached: true, cheap: false, path: "ordered" },
+		{ kind: "as-of", mode, attached: true, cheap: false, path: "lateral" },
+		{ kind: "as-of", mode, attached: false, cheap: false, path: "lateral" },
+		{ kind: "as-of", mode, attached: false, cheap: true, path: "ordered" }
+	]),
+	{ kind: "as-of", mode: "le", attached: true, cheap: true, path: "ordered" },
+	{ kind: "grouped share", over: "Sitting", restricted: false },
+	{ kind: "keyed share", restricted: false },
+	{ kind: "keyed share", restricted: true },
+	{ kind: "grouped share", over: "Sitting", restricted: true },
+	{ kind: "grouped share", over: "Price", restricted: false },
+	{ kind: "grouped share", over: "filtered", restricted: false },
+	{ kind: "discrete percentile", fractions: [0.5], stage: "ordinal" },
+	{ kind: "discrete percentile", fractions: [0.25, 0.75], stage: "ordinal" },
+	{ kind: "discrete percentile", fractions: [1], stage: "ordinal" },
+	{ kind: "continuous percentile", p: 0.5 },
+	{ kind: "continuous percentile", p: 0.25 },
+	{ kind: "continuous percentile", p: 0 },
+	{ kind: "discrete percentile", fractions: [0.5], stage: "unjoined ordinal" },
+	{ kind: "discrete percentile", fractions: [0.5], stage: "running count" },
+	{ kind: "mode" }
+]
+
+const kept: ReadonlyArray<Kept<AgreementCase, AgreementFeature>> = Arr.map(
+	keptEntries,
+	(entry) => ({
+		note: "a composition of the hand-written catalog suites, over the lab's facts",
+		sketch: { entry, facts: labFacts },
+		draws: "",
+		reaches: [`entry ${entry.kind}`]
+	})
+)
+
 /**
  * The facts a witness runs over, aimed at a delivered row while no witness has delivered one (Case.steering): half its
  * cases, by a draw of their own, priced for their first sitting (withPricedSitting); a rotating or kept case runs as
  * drawn.
  */
-const aimedFacts = (f: Facts, c: Case<"delivers rows">): Facts =>
+const aimedFacts = (f: Facts, c: Case<AgreementFeature>): Facts =>
 	Option.exists(c.steering, (pending) => pending.has("delivers rows")) && c.draw(boolean)
 		? withPricedSitting(f, c.draw(int(0, 104)))
 		: f
-
-/**
- * Whether an entry's cases must deliver a row: a restricted shape whose answer is empty on most facts (a count bound to
- * another value) states that it need not.
- */
-type Delivers = "rows" | "maybe none"
-
-/**
- * The compile-target catalog agrees with its compositions on PostgreSQL 19 (R26-R31, R41, R42).
- *
- * Each entry's composition is written as an author writes it, checked, and lowered twice: composed (the conservative
- * lowering of the checked DAG) and native (the catalog's rewrite, its targets lowered by native.ts). Over drawn lab
- * facts (support.ts factsGen: small domains, so ties on a group's day and score, groups of one row and empty relations
- * come up), the two runs agree as raw text sets, the native run repeats no row, and the rewrite applies exactly
- * the entry's rules: a shape a recognizer must refuse applies none, so a dropped condition shows as a wrong answer. R42
- * is run in both forms: the LATERAL probe the composition already is, for an attachment's bound parent set, and the
- * ordered pass over whole inputs. Each entry's restrictions are run where they sit: Q's own predicates before the as-of
- * union, shared constants before the windows, first-occurrence conditions after them.
- *
- * The discrete percentile's documented disagreements are a search of their own (fractionCaseGen): drawn fractions,
- * dyadic and decimal, over drawn groups of up to a hundred sittings, where p = 0, which the recognizer refuses because
- * the native form returns the first value where ceil(0) selects no ordinal, and a product like 0.07 · 100, which it
- * refuses because the composition's numeric ceil rounds it where the native form does not, come up beside every
- * fraction it admits. R24 is the aggregate shapes', held by test/pg/lower-shapes over generated groups.
- *
- * One entry's agreement over drawn lab facts.
- */
-const agree = (
-	t: TestContext,
-	label: string,
-	desc: QueryDesc,
-	rules: ReadonlyArray<CertificateRule>,
-	options: CatalogOptions,
-	delivers: Delivers
-) =>
-	searched(
-		t,
-		Effect.gen(function* () {
-			const s = yield* Substrate
-			const schema = yield* s.schema({ create: false, label: "catalog" })
-			const side = catalogLowering(options)
-			/**
-			 * Planted: the lab's facts, on which an entry whose cases must deliver a row delivers one; the drawn facts of
-			 * small groups do so in five to twelve of fifteen cases.
-			 */
-			const kept: ReadonlyArray<Kept<Facts, "delivers rows">> =
-				delivers === "rows"
-					? [{ note: "the lab's facts", sketch: labFacts, draws: "", reaches: ["delivers rows"] }]
-					: []
-			return yield* explore(
-				{
-					oracle: { kind: "unstated" },
-					suite: `catalog/${label}`,
-					draw: drawn(factsGen),
-					literal: Formatter.format,
-					coverage:
-						delivers === "rows"
-							? required<"delivers rows">(["delivers rows"], {
-									cases: agreementRuns,
-									sense: notesOnly
-								})
-							: noCoverage,
-					kept,
-					runs: agreementRuns,
-					shrink: completeShrink,
-					concurrency: 1,
-					steerEvery: 16,
-					caseHang
-				},
-				(drawnFacts, c) =>
-					Effect.gen(function* () {
-						const f = aimedFacts(drawnFacts, c)
-						const outcome = yield* runLabelledOracle(
-							oracleCase(label, desc, f),
-							conservative,
-							side,
-							{
-								...defaultRunOptions,
-								schema: { kind: "named", name: schema }
-							}
-						)
-						assert.equal(outcome.comparison.equal, true, printOutcome(outcome))
-						assert.deepEqual(appliedRules(side.last()), Arr.sort([...rules], Order.String), label)
-						for (const op of nativeTargets(side.last())) {
-							const resolved = yield* s.admin.queryValues("SELECT to_regprocedure($1)::text", [op])
-							assert.equal(
-								resolved[0]?.[0],
-								op,
-								`the native target ${op} is an overload PostgreSQL has`
-							)
-						}
-						if (Arr.some(outcome.right.run.statements, (st) => st.rows.length > 0)) {
-							c.note("delivers rows")
-						}
-					})
-			)
-		})
-	)
-
-const whole: CatalogOptions = { ...labOptions, parents: "whole" }
-const bound: CatalogOptions = { ...labOptions, parents: "bound" }
 
 /**
  * A discrete percentile's case: its fraction, drawn as a dyadic m / 2^j, j up to one past the largest the rewrite
@@ -261,309 +543,87 @@ const nativeTargets = (rewritten: CatalogResult): ReadonlyArray<string> =>
 		n.kind === "Window" || n.kind === "OrderedSetAggregate" ? [n.op] : []
 	)
 
-/** The five as-of agreements of one comparison mode: bound and attached, ordered and LATERAL, and over a filtered Q. */
-const asOfAgreements = (
-	t: TestContext,
-	mode: "le" | "lt" | "ge",
-	cheap: ReadonlyArray<AuthoredExprDesc>
-) =>
-	Effect.gen(function* () {
-		yield* agree(
-			t,
-			`as-of ${mode} bound, ordered`,
-			Q.boundAsOf(mode, [], "day"),
-			["R42"],
-			labOptions,
-			"rows"
-		)
-		yield* agree(
-			t,
-			`as-of ${mode} attached, ordered`,
-			Q.attachedAsOf(mode, []),
-			["R42"],
-			whole,
-			"rows"
-		)
-		yield* agree(
-			t,
-			`as-of ${mode} attached, LATERAL`,
-			Q.attachedAsOf(mode, []),
-			[],
-			labOptions,
-			"rows"
-		)
-		yield* agree(t, `as-of ${mode} bound, LATERAL`, Q.boundAsOf(mode, [], "day"), [], bound, "rows")
-		yield* agree(
-			t,
-			`as-of ${mode} over prices below 105`,
-			Q.boundAsOf(mode, cheap, "day"),
-			["R42"],
-			labOptions,
-			"rows"
-		)
-	})
-
 layer(Substrate.layer)("the compile-target catalog against its compositions", (it) => {
-	it.effect("R26: ordinals agree with the self-join count, ascending, descending and mixed", (t) =>
-		Effect.gen(function* () {
-			yield* agree(t, "ordinal asc", Q.ordinal(["asc", "asc"]), ["R26"], labOptions, "rows")
-			yield* agree(t, "ordinal desc (>=)", Q.ordinal(["desc", "desc"]), ["R26"], labOptions, "rows")
-			yield* agree(
-				t,
-				"ordinal day desc, id asc",
-				Q.ordinal(["desc", "asc"]),
-				["R26"],
-				labOptions,
-				"rows"
-			)
-		})
-	)
-
 	it.effect(
-		"R41: running sums, extrema, means and conditional counts agree, where no row qualifies too",
+		"every composition of the catalog agrees with its native rewrite, which applies exactly the rules its shape admits",
 		(t) =>
-			agree(
+			searched(
 				t,
-				"running aggregates",
-				Q.running(Q.plainSelfMatch),
-				["R26", "R41"],
-				labOptions,
-				"rows"
-			)
-	)
-
-	it.effect(
-		"R26 and R41: shared constants restrict before the windows, first-occurrence conditions after",
-		(t) =>
-			Effect.gen(function* () {
-				/** A condition on the first occurrence keeps the rows it selects with their positions among every row. */
-				const firstAbove3 = Q.running({
-					...Q.plainSelfMatch,
-					extra: [D.gt(D.ref("Sitting", "score"), f8(3))]
+				Effect.gen(function* () {
+					const s = yield* Substrate
+					const schema = yield* s.schema({ create: false, label: "catalog" })
+					return yield* explore(
+						{
+							oracle: {
+								kind: "second-implementation",
+								name: "the composition's conservative lowering, as raw text sets, and the catalog's specification of the rules each shape admits"
+							},
+							suite: "catalog/agreement",
+							draw: drawn((source): AgreementCase => ({
+								entry: source.draw(entryGen),
+								facts: source.draw(factsGen)
+							})),
+							literal: Formatter.format,
+							coverage: required<AgreementFeature>(
+								[
+									...Arr.map(entryKinds, (kind): AgreementFeature => `entry ${kind}`),
+									"applied R26",
+									"applied R27",
+									"applied R28",
+									"applied R29",
+									"applied R30",
+									"applied R31",
+									"applied R41",
+									"applied R42",
+									"applied none",
+									"delivers rows"
+								],
+								{ cases: 10 * agreementRuns, sense: notesOnly }
+							),
+							kept,
+							runs: 10 * agreementRuns,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang
+						},
+						({ entry, facts }, c) =>
+							Effect.gen(function* () {
+								const f = mayDeliverNone(entry) ? facts : aimedFacts(facts, c)
+								const label = Formatter.format(entry)
+								const side = catalogLowering(optionsOf(entry))
+								const outcome = yield* runLabelledOracle(
+									oracleCase(label, descOf(entry), f),
+									conservative,
+									side,
+									{ ...defaultRunOptions, schema: { kind: "named", name: schema } }
+								)
+								assert.equal(outcome.comparison.equal, true, printOutcome(outcome))
+								const applied = appliedRules(side.last())
+								assert.deepEqual(applied, Arr.sort([...rulesOf(entry)], Order.String), label)
+								for (const op of nativeTargets(side.last())) {
+									const resolved = yield* s.admin.queryValues("SELECT to_regprocedure($1)::text", [
+										op
+									])
+									assert.equal(
+										resolved[0]?.[0],
+										op,
+										`the native target ${op} is an overload PostgreSQL has`
+									)
+								}
+								c.note(`entry ${entry.kind}`)
+								c.noteAll(
+									Arr.isReadonlyArrayNonEmpty(applied)
+										? Arr.map(applied, (rule): AgreementFeature => `applied ${rule}`)
+										: ["applied none"]
+								)
+								if (Arr.some(outcome.right.run.statements, (st) => st.rows.length > 0)) {
+									c.note("delivers rows")
+								}
+							})
+					)
 				})
-				yield* agree(
-					t,
-					"running, first occurrence above 3",
-					firstAbove3,
-					["R26", "R41"],
-					labOptions,
-					"rows"
-				)
-				/** Both occurrences fixed to one student: the windows run over that student's rows only. */
-				const oneStudent = Q.running({ ...Q.plainSelfMatch, student: D.lit(1), keys: ["id"] })
-				yield* agree(
-					t,
-					"running, student 1 on both occurrences",
-					oneStudent,
-					["R26", "R41"],
-					labOptions,
-					"rows"
-				)
-			})
-	)
-
-	it.effect(
-		"R27: successors and predecessors agree with the LATERAL take(1), bound and attached",
-		(t) =>
-			Effect.gen(function* () {
-				yield* agree(t, "successor bound", Q.boundNeighbor("next", []), ["R27"], labOptions, "rows")
-				yield* agree(
-					t,
-					"predecessor bound",
-					Q.boundNeighbor("previous", []),
-					["R27"],
-					labOptions,
-					"rows"
-				)
-				yield* agree(
-					t,
-					"successor attached, whole parents",
-					Q.attachedNeighbor("next", "sittings"),
-					["R27"],
-					whole,
-					"rows"
-				)
-				yield* agree(
-					t,
-					"predecessor attached, whole parents",
-					Q.attachedNeighbor("previous", "sittings"),
-					["R27"],
-					whole,
-					"rows"
-				)
-				/**
-				 * Parents from the match's second occurrence, restricted by its first: the sittings whose score is some
-				 * point's x. The window still runs over every sitting of the student.
-				 */
-				const secondOccurrence = Q.attachedNeighbor("next", "pointed")
-				yield* agree(
-					t,
-					"successor attached to a second occurrence",
-					secondOccurrence,
-					["R27"],
-					whole,
-					"maybe none"
-				)
-				/**
-				 * An attachment's delivered parents are a bound set. R27 puts the window in the parent statement, but an
-				 * attachment statement receives only the delivered parents' columns, so the child would have to compute the
-				 * window over all of Q itself: the LATERAL probe stays until the parent statement can carry the LEAD columns
-				 * to its attachments.
-				 */
-				const boundParents = Q.attachedNeighbor("next", "sittings")
-				yield* agree(t, "successor attached, bound parents", boundParents, [], labOptions, "rows")
-				/**
-				 * A restricted Q is no successor in the parent's own source: R27 refuses it, and the strict as-of mirror
-				 * takes the nearest qualifying row past the parent.
-				 */
-				const restricted = Q.boundNeighbor("next", [D.gt(D.varRef("n.score"), f8(3))])
-				yield* agree(t, "successor of a restricted source", restricted, ["R42"], labOptions, "rows")
-			})
-	)
-
-	it.effect(
-		"R42: as-of agrees in both forms, at equal prefixes, before the first Q row and with no Q rows",
-		(t) =>
-			Effect.gen(function* () {
-				/**
-				 * A predicate on Q alone filters Q before the union: a sitting whose nearest price fails it falls back to
-				 * an earlier qualifying one, or to none.
-				 */
-				const cheap = [D.lt(D.varRef("p.amount"), D.lit(105n))]
-				yield* asOfAgreements(t, "le", cheap)
-				yield* asOfAgreements(t, "lt", cheap)
-				yield* asOfAgreements(t, "ge", cheap)
-				yield* agree(
-					t,
-					"as-of le over prices below 105, attached",
-					Q.attachedAsOf("le", cheap),
-					["R42"],
-					whole,
-					"rows"
-				)
-			})
-	)
-
-	it.effect("R28: shares of the total agree, grouped and keyed", (t) =>
-		Effect.gen(function* () {
-			yield* agree(
-				t,
-				"grouped share",
-				Q.groupedShare("Sitting", false),
-				["R28"],
-				labOptions,
-				"rows"
 			)
-			yield* agree(t, "keyed share", Q.keyedShare(false), ["R28"], labOptions, "rows")
-			/** Joins that restrict the pairs keep the composition: the windows over every row would drop the restriction. */
-			const restrictedPairs = Q.keyedShare(true)
-			yield* agree(
-				t,
-				"keyed share, count bound to the id",
-				restrictedPairs,
-				[],
-				labOptions,
-				"maybe none"
-			)
-			yield* agree(
-				t,
-				"grouped share, count bound to the total",
-				Q.groupedShare("Sitting", true),
-				[],
-				labOptions,
-				"maybe none"
-			)
-			yield* agree(
-				t,
-				"grouped share over another relation",
-				Q.groupedShare("Price", false),
-				[],
-				labOptions,
-				"rows"
-			)
-			yield* agree(
-				t,
-				"grouped share over a filtered total",
-				Q.groupedShare("filtered", false),
-				[],
-				labOptions,
-				"rows"
-			)
-		})
-	)
-
-	it.effect("R29 and R30: percentiles agree with the selections by ordinal", (t) =>
-		Effect.gen(function* () {
-			yield* agree(
-				t,
-				"median (disc)",
-				Q.discretePercentile([0.5], Q.ordinalStage),
-				["R29"],
-				labOptions,
-				"rows"
-			)
-			yield* agree(
-				t,
-				"quartiles (disc, two fractions)",
-				Q.discretePercentile([0.25, 0.75], Q.ordinalStage),
-				["R29"],
-				labOptions,
-				"rows"
-			)
-			yield* agree(
-				t,
-				"maximum (disc, p = 1)",
-				Q.discretePercentile([1], Q.ordinalStage),
-				["R29"],
-				labOptions,
-				"rows"
-			)
-			yield* agree(
-				t,
-				"median (cont)",
-				Q.continuousPercentile(0.5, "score"),
-				["R30"],
-				labOptions,
-				"rows"
-			)
-			yield* agree(
-				t,
-				"first quartile (cont)",
-				Q.continuousPercentile(0.25, "score"),
-				["R30"],
-				labOptions,
-				"rows"
-			)
-			yield* agree(
-				t,
-				"p = 0 (cont)",
-				Q.continuousPercentile(0, "score"),
-				["R30"],
-				labOptions,
-				"rows"
-			)
-			/**
-			 * Stages the selection must not be read through: an ordinal stage that leaves the group unbound meets every
-			 * group's count, and a running conditional count is a fold of the same self-match but no position.
-			 */
-			const unjoined = Q.discretePercentile([0.5], { ...Q.ordinalStage, joined: false })
-			yield* agree(
-				t,
-				"median, ordinals not joined on the group",
-				unjoined,
-				["R26"],
-				labOptions,
-				"maybe none"
-			)
-			yield* agree(
-				t,
-				"median over a running conditional count",
-				Q.discretePercentile([0.5], { ...Q.ordinalStage, fold: "runningCount" }),
-				["R41"],
-				labOptions,
-				"maybe none"
-			)
-		})
 	)
 
 	it.effect(
@@ -693,10 +753,6 @@ layer(Substrate.layer)("the compile-target catalog against its compositions", (i
 					)
 				})
 			)
-	)
-
-	it.effect("R31: the mode agrees with the count-and-take, ties to the smallest value", (t) =>
-		agree(t, "mode of days", Q.modeOfDays("asc", Q.plainMode), ["R31"], labOptions, "rows")
 	)
 })
 
