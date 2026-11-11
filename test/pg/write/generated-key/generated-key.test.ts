@@ -20,7 +20,7 @@ import {
  * README, "How a field is written": a key other than the primary key may hold a generated field. PostgreSQL computes
  * the field, and the statement that writes a row compares it there, at its term over the row's written fields, against
  * every other row it writes and every stored row: a write that would store two rows of one value at the key is
- * `invariant-rejected` on the key, its witness the key's values as PostgreSQL stores them; a deletion compares only at
+ * `refused` on the key, its witness the key's values as PostgreSQL stores them; a deletion compares only at
  * keys whose fields it states; a family's member rows meet such a key at its index, refused on the key with an
  * `unreported` witness.
  *
@@ -43,7 +43,7 @@ import {
  * a key of written fields, and a key both it and the result break is one violation, named by either's facts (model.ts
  * refusedBy). A refused write names a violated law, every immediate one before a deferred one, with a witness naming
  * one of its violators, or `unreported` for a containment and for the nested entries' key, and changes nothing; any
- * other write stores exactly the model's state, accepted where it changed a row and no-change otherwise.
+ * other write stores exactly the model's state, accepted where it changed a row and unchanged otherwise.
  *
  * Through a role (README, "Writing through a role"): Label (id, text), its `value` generated from its text, at most one
  * label of each value, written through Low, the labels below id 5, by an insert or a put of one label beside stored
@@ -1303,15 +1303,17 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 										)
 										const stratum = stratumOf(k.writes)
 										const served = yield* serve({ stratum: stratum.changes })
-										const ops = member(served, "stratum")
 										const applied = yield* Effect.result(
-											ops.kind === "facts"
-												? answered(writeOnce(ops)({ params: stratum.params, facts: stratum.facts }))
-												: answered(writeOnce(ops)({ params: stratum.params, facts: {} }))
+											answered(
+												writeOnce(member(served, "stratum"))({
+													params: stratum.params,
+													facts: stratum.facts
+												})
+											)
 										)
 										if (Result.isFailure(applied)) {
 											return assert.fail(
-												`a write over keys of generated fields is an outcome: ${applied.failure._tag}: ${applied.failure.message}`
+												`a write over keys of generated fields is an outcome: ${applied.failure.kind}: ${applied.failure.message}`
 											)
 										}
 										const outcome = applied.success
@@ -1466,16 +1468,17 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 												[]
 											)
 											const before = yield* rowsNow
-											const ops = member(served, c.edit)
-											const facts = { [c.edit]: { Low: [sentOf(c)] } }
 											const applied = yield* Effect.result(
-												ops.kind === "facts"
-													? answered(writeOnce(ops)({ params: {}, facts: facts }))
-													: answered(writeOnce(ops)({ params: {}, facts: {} }))
+												answered(
+													writeOnce(member(served, c.edit))({
+														params: {},
+														facts: { [c.edit]: { Low: [sentOf(c)] } }
+													})
+												)
 											)
 											if (Result.isFailure(applied)) {
 												return assert.fail(
-													`a write through Low is an outcome: ${applied.failure._tag}: ${applied.failure.message}`
+													`a write through Low is an outcome: ${applied.failure.kind}: ${applied.failure.message}`
 												)
 											}
 											const outcome = applied.success

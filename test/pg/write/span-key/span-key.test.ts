@@ -50,7 +50,7 @@ import type { FullWorld } from "#test/support/worlds.ts"
  * with the relation's key law and one such fact's key as the witness; failing that, one overlapping a stored fact the
  * member does not displace refuses the same way; otherwise the final state is the stored one with the displaced facts
  * gone and the requested ones in, accepted with the requested facts not already stored counted as added (insert) or put
- * (put), or no-change when there are none. A refusal leaves the stored state as it was.
+ * (put), or unchanged when there are none. A refusal leaves the stored state as it was.
  *
  * The oracle is a second implementation, the host interval model above. Plant:
  * ~/.cache/grizzle-release/BR08/plants/span-key-requested-overlap-unseen.patch, the insert's verdicts blind to another
@@ -285,11 +285,11 @@ const situations: Arr.NonEmptyReadonlyArray<SpanFeature> = [
 	"put enumerated",
 	"put described",
 	"insert accepted",
-	"insert no-change",
+	"insert unchanged",
 	"insert within the ChangeSet",
 	"insert over a stored fact",
 	"put accepted",
-	"put no-change",
+	"put unchanged",
 	"put within the ChangeSet",
 	"put over a stored fact",
 	"insert of an adjacent span accepted",
@@ -444,7 +444,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										)
 										if (want.changed === 0) {
 											assert.equal(outcome.kind, "unchanged")
-											cx.note(`${c.op} no-change`)
+											cx.note(`${c.op} unchanged`)
 											return
 										}
 										if (outcome.kind !== "accepted") {

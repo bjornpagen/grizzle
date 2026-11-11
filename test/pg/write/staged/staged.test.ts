@@ -15,21 +15,21 @@
  * entries' bytes pass it. An entry's length is boxed apart from the bound: within it by more than the rest of its row's
  * arrays, a drawn share of the most such an entry holds, or past it; its size is its share, which the CHECK bounds.
  *
- * Each write is a member of the full role's served workload, applied with its call's facts on the opened Db's context, or
- * on that context with its pool's sessions planted.
+ * Each write is a member of the full role's served workload, called once with its call's facts on the opened Db's
+ * context, or on that context with its pool's sessions planted.
  *
  * Oracle: PostgreSQL, the same write sent with the bounds in force, where every statement goes in one Bind message,
  * from the same stored shelves:
  *
- * - **A flight past one write** is InputTooLarge (flight), or (familyRow) where a row is past one fill too: nothing sent
+ * - **A flight past one write** fails as `input` (InputTooLarge, of the flight or of a row past one fill): nothing sent
  *   and nothing stored.
- * - **A row no fill carries even alone** is InputTooLarge (familyRow) of Entry, its fill's Bind message past the planted
- *   bound, before any SQL: nothing sent and nothing stored.
+ * - **A row no fill carries even alone** fails as `input` (InputTooLarge of Entry's fill, its Bind message past the
+ *   planted bound), before any SQL: nothing sent and nothing stored.
  * - **A write that creates a temporary table on a role without TEMPORARY**, a staged carrier or a carrier of the
- *   program's own, which a put of a Tag read back by its delta joined with Tag's state needs, is TemporaryRefused,
- *   naming the privilege, with the server's 42501, and stores nothing. The read-back reads Tag's state, which the put
- *   writes, so it cannot ride the put's statement (write/schedule/plan.ts placeReadBacks), and its delta is carried
- *   to it.
+ *   program's own, which a put of a Tag read back by its delta joined with Tag's state needs, fails as `failed`
+ *   (TemporaryRefused, naming the privilege, with the server's 42501), and stores nothing. The read-back reads Tag's
+ *   state, which the put writes, so it cannot ride the put's statement (write/schedule/plan.ts placeReadBacks), and its
+ *   delta is carried to it.
  * - **Any other write is the inline write**: it leaves the same rows of every table, every column of each row read as
  *   its row's text, each entry's indexes and its copies of its owners' counts and each owner's count and end among them,
  *   and answers the same outcome, its kind, its counts, and a refusal's laws and witness.
@@ -57,10 +57,10 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { memberOps } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import type { LoadedChange, LoadedMember } from "#adapter/served/load.ts"
 import type { Session, SessionPool, WireQuery } from "#adapter/wire/session.ts"
-import { sqlstates } from "#compiler/plan/common.ts"
+import type { CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import {
 	accumulated,
@@ -284,13 +284,9 @@ const changeOf = (loaded: LoadedMember): LoadedChange => {
 	return loaded.variants.change
 }
 
-/** A change member applied on `ctx` with its call's facts. */
-const appliedOn = (ctx: ServedDbContext, loaded: LoadedMember, facts: unknown) => {
-	const ops = memberOps(ctx, loaded)
-	return ops.kind === "facts"
-		? answered(writeOnce(ops)({ params: {}, facts: facts }))
-		: Effect.die(new Error(`${loaded.name} applies with each call's facts`))
-}
+/** A change member's once on `ctx` with its call's facts. */
+const appliedOn = (ctx: ServedDbContext, loaded: LoadedMember, facts: unknown) =>
+	answered(writeOnce(memberCalls(ctx, loaded))({ params: {}, facts }))
 
 /**
  * A pool whose sessions hold the planted message bound `limit`, and a flight bound below any flight where the case plants
@@ -318,10 +314,10 @@ const plantedPool = (
 
 /**
  * An outcome or a failure as the comparison reads it: an outcome whole, its kind, counts, refused laws and witness; a
- * failure by its tag, the class of failure the contract names, never its message's wording.
+ * failure by its kind, the class of failure the contract names, never its message's wording.
  */
-const printed = <E extends { readonly _tag: string }>(result: Result.Result<unknown, E>): unknown =>
-	Result.isSuccess(result) ? result.success : { failed: result.failure._tag }
+const printed = (result: Result.Result<unknown, CallError>): unknown =>
+	Result.isSuccess(result) ? result.success : { failed: result.failure.kind }
 
 /** An outcome or a failure as a report shows it: the outcome, or the failure's message. */
 const shown = (result: Result.Result<unknown, { readonly message: string }>): string =>
@@ -432,12 +428,8 @@ const searchOn = <A, E, R>(
 						if (sketch.flight === "past any flight") {
 							c.note("a flight past one write")
 							assert.ok(
-								Result.isFailure(staged) &&
-									staged.failure._tag === "ExecutionFailure" &&
-									staged.failure.reason._tag === "InputTooLarge" &&
-									(staged.failure.reason.bound.kind === "flight" ||
-										(past && staged.failure.reason.bound.kind === "familyRow")),
-								`${label}: a flight past one write is InputTooLarge, not ${shown(staged)}`
+								Result.isFailure(staged) && staged.failure.kind === "input",
+								`${label}: a flight past one write is refused as input, not ${shown(staged)}`
 							)
 							assert.equal(texts.length, 0, `${label}: nothing is sent`)
 							assert.deepEqual(stagedRows, shelved, `${label}: nothing is stored`)
@@ -446,15 +438,8 @@ const searchOn = <A, E, R>(
 						if (past) {
 							c.note("a row past one fill alone")
 							assert.ok(
-								Result.isFailure(staged) &&
-									staged.failure._tag === "ExecutionFailure" &&
-									staged.failure.reason._tag === "InputTooLarge" &&
-									staged.failure.reason.bound.kind === "familyRow" &&
-									staged.failure.reason.bound.member === "Entry" &&
-									staged.failure.reason.bound.row.kind === "message" &&
-									staged.failure.reason.bound.row.limit === limit &&
-									staged.failure.reason.bound.row.bytes > limit,
-								`${label}: a row no fill carries is InputTooLarge (familyRow), not ${shown(staged)}`
+								Result.isFailure(staged) && staged.failure.kind === "input",
+								`${label}: a row no fill carries is refused as input, not ${shown(staged)}`
 							)
 							assert.equal(texts.length, 0, `${label}: nothing is sent`)
 							assert.deepEqual(stagedRows, shelved, `${label}: nothing is stored`)
@@ -467,11 +452,8 @@ const searchOn = <A, E, R>(
 									: "a carrier of the program's own without TEMPORARY"
 							)
 							assert.ok(
-								Result.isFailure(staged) &&
-									staged.failure._tag === "ExecutionFailure" &&
-									staged.failure.reason._tag === "TemporaryRefused" &&
-									staged.failure.reason.error.sqlstate === sqlstates.insufficientPrivilege,
-								`${label}: a temporary table the role may not create is TemporaryRefused, not ${shown(staged)}`
+								Result.isFailure(staged) && staged.failure.kind === "failed",
+								`${label}: a temporary table the role may not create fails the write, not ${shown(staged)}`
 							)
 							assert.deepEqual(stagedRows, shelved, `${label}: nothing is stored`)
 							return

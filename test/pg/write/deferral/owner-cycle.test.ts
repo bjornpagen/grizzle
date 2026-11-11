@@ -566,10 +566,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												step.state.members,
 												step.state.referrers
 											)
-											const ops = member(served, `step${String(i)}`)
-											const outcome = yield* ops.kind === "facts"
-												? answered(writeOnce(ops)({ params: {}, facts: step.facts }))
-												: answered(writeOnce(ops)({ params: {}, facts: {} }))
+											const outcome = yield* answered(
+												writeOnce(member(served, `step${String(i)}`))({
+													params: {},
+													facts: step.facts
+												})
+											)
 											const label = `${Formatter.format(c)}, step ${String(i)}`
 											if (Arr.isReadonlyArrayNonEmpty(broken)) {
 												assert.equal(outcome.kind, "refused", label)

@@ -16,11 +16,11 @@ import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "e
  * A case draws a stored state, stores at three keys, each absent or in a region under a label with up to two Items, and
  * one write through one entry role: an insert, a put or a delete of a store at a stored or a fresh key, under a label
  * the label filter admits or refuses. The oracle is a model of the entry over the family: the role sees exactly the
- * north stores its filter admits; an insert or a put of a fact outside the entry is `outside-world`; one at a key a
- * store the role cannot see holds is `invariant-rejected` on Store's key, as is an insert at a key a visible store
+ * north stores its filter admits; an insert or a put of a fact outside the entry is `outsideWorld`; one at a key a
+ * store the role cannot see holds is `refused` on Store's key, as is an insert at a key a visible store
  * holds under another label; a put of a visible store sets its label and leaves its count, its stock and its Items as
  * they are; a fresh store is inserted with no Item, its count and stock at their starts; a delete of a visible store
- * with Items is `invariant-rejected` on its family's laws, and of one the role cannot see is `no-change`, as is every
+ * with Items is `refused` on its family's laws, and of one the role cannot see is `unchanged`, as is every
  * write that leaves the stores as they were, an insert of a visible store under its own label among them. A case that
  * is both outside the entry and at an unseen store's key may report either, as the README promises.
  *
@@ -36,6 +36,7 @@ import { type AnySchema, login, role } from "#compiler/public/schema.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { assert, deepEquals, defined } from "#test/support/assert.ts"
+import { answered, writeOnce } from "#test/support/calls.ts"
 import {
 	entryName,
 	entryRole,
@@ -50,7 +51,7 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { refusedLaws } from "#test/support/refused.ts"
-import { appliedWith, member, openServedDb } from "#test/support/served-db.ts"
+import { member, openServedDb } from "#test/support/served-db.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import type { BuiltRole } from "#test/support/worlds/execute/build.ts"
 
@@ -340,24 +341,26 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												qty: BigInt(qty)
 											}))
 										)
-										const seeded = yield* appliedWith(
-											member(seeds, "seed"),
-											{ insert: { Store: storeFacts, Item: itemFacts } },
-											{}
+										const seeded = yield* answered(
+											writeOnce(member(seeds, "seed"))({
+												params: {},
+												facts: { insert: { Store: storeFacts, Item: itemFacts } }
+											})
 										)
 										assert.equal(
 											seeded.kind,
-											Arr.isReadonlyArrayNonEmpty(c.stores) ? "accepted" : "no-change",
+											Arr.isReadonlyArrayNonEmpty(c.stores) ? "accepted" : "unchanged",
 											"the keeper's state"
 										)
 										const before = yield* itemCount
 										const w = c.write
 										const writer = defined(writers.get(roleName(w.holds, w.filter)), "the writer")
 										const fact = { id: uuidAt(0, w.key), label: w.label }
-										const outcome = yield* appliedWith(
-											member(writer, w.op),
-											{ [w.op]: { [entryName(w.holds, w.filter)]: [fact] } },
-											{}
+										const outcome = yield* answered(
+											writeOnce(member(writer, w.op))({
+												params: {},
+												facts: { [w.op]: { [entryName(w.holds, w.filter)]: [fact] } }
+											})
 										)
 										const after = yield* rows
 										const stored = Arr.sort(
@@ -366,7 +369,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										)
 										const { expected, situation } = expectedOf(c)
 										const laws =
-											outcome.kind === "invariant-rejected"
+											outcome.kind === "refused"
 												? Arr.sort(
 														Arr.map(refusedLaws(outcome.refused), (l) => l.kind),
 														Order.String
@@ -382,33 +385,28 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												assert.deepEqual(after, left, what)
 												assert.equal(
 													outcome.kind,
-													deepEquals(left, stored) ? "no-change" : "accepted",
+													deepEquals(left, stored) ? "unchanged" : "accepted",
 													what
 												)
 												break
 											}
 											case "key law":
-												assert.deepEqual(
-													[outcome.kind, laws],
-													["invariant-rejected", ["primaryKey"]],
-													what
-												)
+												assert.deepEqual([outcome.kind, laws], ["refused", ["primaryKey"]], what)
 												break
 											case "family laws":
 												assert.deepEqual(
 													[outcome.kind, laws],
-													["invariant-rejected", ["contained", "family"]],
+													["refused", ["contained", "family"]],
 													what
 												)
 												break
 											case "outside":
-												assert.equal(outcome.kind, "outside-world", what)
+												assert.equal(outcome.kind, "outsideWorld", what)
 												break
 											case "outside or key law":
 												assert.ok(
-													outcome.kind === "outside-world" ||
-														(outcome.kind === "invariant-rejected" &&
-															Arr.contains(laws, "primaryKey")),
+													outcome.kind === "outsideWorld" ||
+														(outcome.kind === "refused" && Arr.contains(laws, "primaryKey")),
 													what
 												)
 												break

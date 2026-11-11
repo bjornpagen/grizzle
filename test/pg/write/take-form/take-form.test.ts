@@ -6,7 +6,8 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, pipe, String as Str } from "effect"
-import { memberExplains, variantOf } from "#adapter/db/handles.ts"
+import { variantOf } from "#adapter/db/handles.ts"
+import { explainChange } from "#adapter/served/explain.ts"
 import type { Plan } from "#adapter/types/db.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import {
@@ -166,7 +167,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									if (loaded.kind !== "change") {
 										throw new Error("no ChangeSet")
 									}
-									const write = variantOf(ctx, loaded.variants).entry.program
+									const change = variantOf(ctx, loaded.variants)
+									const write = change.entry.program
 									const found = Arr.findFirst(
 										write.flight.statements,
 										(st) => st.step.kind === "write"
@@ -258,16 +260,19 @@ layer(Substrate.layer, { excludeTestServices: true })(
 													"the first two entries of each named account"
 												)
 												const scans = scansOf(ran.plan, entry)
-												/** Its explain plans the insert as the application sends it. */
-												const explains = memberExplains(ctx, tables, loaded)
-												if (explains.kind !== "params") {
+												if (change.call.kind !== "params") {
 													return assert.fail(
 														"a ChangeSet of no array member explains with its parameters"
 													)
 												}
-												const explained = yield* explains.explain({
-													accounts: Arr.map(parents, (n) => ({ id: uid(n) }))
-												})
+												/** Its explain plans the insert as the application sends it. */
+												const explained = yield* explainChange(
+													ctx,
+													tables,
+													loaded.name,
+													change,
+													change.call.call({ accounts: Arr.map(parents, (n) => ({ id: uid(n) })) })
+												)
 												const ranks = Arr.some(explained, (statement) => ranked(statement.plan))
 												if (parents.length <= threshold) {
 													assert.equal(

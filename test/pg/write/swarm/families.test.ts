@@ -7,7 +7,7 @@ import { boundedShrink } from "@grizzle/testing/shrink"
 import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
-import { memberOps } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import type { FamilyName, StaleCause } from "#compiler/core/causes.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
@@ -44,7 +44,7 @@ import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
-import { appliedWith, member, openServedDb } from "#test/support/served-db.ts"
+import { member, openServedDb } from "#test/support/served-db.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -65,9 +65,9 @@ import { fullWorld } from "#test/support/worlds.ts"
  * member and every further one a query member over a relation parameter of its own. It is compiled as the one member of
  * a served workload of its own and applied on PostgreSQL with its call's facts and parameters, from the state the
  * accepted ones before it leave, and is judged by the oracle (oracle.ts), which never consults grizzle's writer:
- * - a lawful write is accepted (no-change where nothing changes), and every relation then stores exactly the reference
+ * - a lawful write is accepted (unchanged where nothing changes), and every relation then stores exactly the reference
  *   writer's rows (test/support/families/fill.ts writtenRows) and the plain rows the ChangeSet leaves;
- * - an unlawful one is invariant-rejected naming only laws its rows break, by the law model's judgement
+ * - an unlawful one is refused naming only laws its rows break, by the law model's judgement
  *   (test/support/laws/model.ts) of every law at the end and every immediate law at the end of each stratum, two facts
  *   at one key the key's, a member naming no owner its family's; each statement's law is the one the naming door
  *   names for it (test/support/kernel/naming.ts lawOf), so a refusal by a family, tree, fold, key, check or
@@ -1855,16 +1855,13 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 											`${label}: refused when it compiles, ${error.message}, where the oracle expects ${expected.kind}`
 										)
 									}
-									const served = memberOps(flight.context, member(loaded.success, "step"))
+									const served = memberCalls(flight.context, member(loaded.success, "step"))
 									const applied = yield* Effect.result(
-										flight.judged(
-											label,
-											answered(writeOnce(served)({ params: params, facts: facts }))
-										)
+										flight.judged(label, answered(writeOnce(served)({ params, facts })))
 									)
 									if (Result.isFailure(applied)) {
 										return assert.fail(
-											`${label} failed with ${applied.failure._tag}: ${applied.failure.message}`
+											`${label} failed with ${applied.failure.kind}: ${applied.failure.message}`
 										)
 									}
 									const outcome = applied.success

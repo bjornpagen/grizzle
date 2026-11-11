@@ -15,7 +15,7 @@
  * the primary key's refusal; a high row the generated `rate`'s; an insert at a stored key that differs, the primary
  * key's; two source rows, or two rows after the write, that share `k` under two keys, the candidate key's; any other
  * write is applied, the stored rows after it each source row at its key over the rows before, every generated field
- * its expression's value, accepted where it changed a row and no-change otherwise. A refused write names one of the
+ * its expression's value, accepted where it changed a row and unchanged otherwise. A refused write names one of the
  * laws it breaks and changes nothing.
  *
  * Features: each relation's insert and put applied, a refusal by each law, and an unchanged write. Plant:
@@ -312,11 +312,11 @@ layer(Substrate.layer)(
 								const params = { rows: Arr.map(rows, writtenOf) }
 								return target === "Item"
 									? op === "insert"
-										? answered(db.workload.insertItem.once({ params: params, facts: {} }))
-										: answered(db.workload.putItem.once({ params: params, facts: {} }))
+										? answered(db.workload.insertItem.once({ params, facts: {} }))
+										: answered(db.workload.putItem.once({ params, facts: {} }))
 									: op === "insert"
-										? answered(db.workload.insertSpot.once({ params: params, facts: {} }))
-										: answered(db.workload.putSpot.once({ params: params, facts: {} }))
+										? answered(db.workload.insertSpot.once({ params, facts: {} }))
+										: answered(db.workload.putSpot.once({ params, facts: {} }))
 							}
 							return yield* explore(
 								{
@@ -372,7 +372,7 @@ layer(Substrate.layer)(
 										const applied = yield* Effect.result(write(k.target, k.op, k.source))
 										if (Result.isFailure(applied)) {
 											return assert.fail(
-												`a lawful schema's write is an outcome: ${applied.failure._tag}`
+												`a lawful schema's write is an outcome: ${applied.failure.kind}`
 											)
 										}
 										const outcome = applied.success

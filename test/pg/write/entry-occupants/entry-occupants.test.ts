@@ -30,7 +30,7 @@ import { tokenOf } from "#test/support/worlds.ts"
  * A query entry's write meets every stored fact at every unique object of its target as that object's law.
  *
  * README, "Writing through a role" and "Errors and outcomes": a put or insert that collides with a fact outside the
- * entry, at a key, is `invariant-rejected` on that key's law alone, and a key broken by a stored fact inside the entry
+ * entry, at a key, is `refused` on that key's law alone, and a key broken by a stored fact inside the entry
  * or outside it shows the key you submitted, in the fields you wrote it in.
  *
  * Seat(id, code, grp, lead, team, holder) has four unique objects, each a key (fin.md §6, "at most one"): its primary
@@ -338,7 +338,7 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 										)
 										if (Result.isFailure(applied)) {
 											return assert.fail(
-												`ann's insert of ${Formatter.format(c.submitted)} failed with ${applied.failure._tag}: ${applied.failure.message}`
+												`ann's insert of ${Formatter.format(c.submitted)} failed with ${applied.failure.kind}: ${applied.failure.message}`
 											)
 										}
 										const outcome = applied.success

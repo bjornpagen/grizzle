@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
-import { memberOps } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
@@ -41,7 +41,7 @@ import {
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
-import { appliedWith, type CallFacts, member, openServedDb } from "#test/support/served-db.ts"
+import { member, openServedDb } from "#test/support/served-db.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -121,6 +121,9 @@ const situations: Arr.NonEmptyReadonlyArray<ClusterSituation> = [
 	"a follow-up that re-places an owner of counted members",
 	"a follow-up that re-places an immutable owner of counted members"
 ]
+
+/** A call's facts: under each op of a change member's array members, the rows of each, under its relation's name. */
+type CallFacts = Readonly<Record<string, Readonly<Record<string, ReadonlyArray<unknown>>>>>
 
 /** Whether a follow-up re-places a stored row, `was` before it and `now` after: it moves the row to another slot or
  * another owner's group of an ordered family, deleting it and inserting it again. */
@@ -879,7 +882,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 								/** A member applied on the tapped context with its call's facts. */
 								const applied = (name: string, callFacts: CallFacts) =>
 									answered(
-										writeOnce(memberOps(flight.context, member(loaded, name)))({
+										writeOnce(memberCalls(flight.context, member(loaded, name)))({
 											params: {},
 											facts: callFacts
 										})
