@@ -22,6 +22,7 @@ import { type Coverage, noCoverage, required } from "#features.ts"
 import {
 	alphabet,
 	array,
+	boolean,
 	characterOf,
 	clone,
 	composition,
@@ -488,7 +489,7 @@ describe("collections", () => {
 	)
 
 	it.effect(
-		"never repeat a key in a unique array, and give a case up when its keys run out before its length",
+		"construct a unique array: no key repeated, no case given up, its length drawn unless the keys run out first, and a length past the keys refused",
 		(ctx) =>
 			searched(
 				ctx,
@@ -497,45 +498,77 @@ describe("collections", () => {
 						"unique array",
 						{
 							kind: "specification",
-							name: "no two items share a key, the length within its bounds, and a length past the keys never drawn"
+							name: "distinct keys by construction: the drawn length, or every key where fewer remain, never a discard"
 						},
 						(source) => {
 							const keys = source.draw(int(1, 6))
 							const min = source.draw(int(0, 7))
 							return {
 								keys,
+								projected: source.draw(boolean),
 								size: { min, max: source.draw(int(min, 7)) },
-								attempts: source.draw(int(1, 40)),
 								seed: source.draw(seeds)
 							}
 						},
-						required<"more items than keys" | "a case kept" | "a case given up">(
-							["more items than keys", "a case kept", "a case given up"],
+						required<
+							| "a key repeated and moved"
+							| "every key used"
+							| "a key moved by a projection"
+							| "a length past the keys refused"
+						>(
+							[
+								"a key repeated and moved",
+								"every key used",
+								"a key moved by a projection",
+								"a length past the keys refused"
+							],
 							{ cases: 200, sense: notesOnly }
 						),
 						200
 					),
-					({ keys, size, attempts, seed }, c) =>
+					({ keys, projected, size, seed }, c) =>
 						Effect.sync(() => {
-							const drawnCase = fresh(
-								uniqueArray(int(0, keys - 1), (value) => value, size, attempts),
-								seed
-							)
-							const givenUp = drawnCase.tape.status === "discarded"
-							c.note(givenUp ? "a case given up" : "a case kept")
+							const generator = projected
+								? map(
+										uniqueArray(
+											(source) => [source.draw(int(0, keys - 1)), source.draw(int(0, 2))] as const,
+											([first]) => first,
+											size,
+											1
+										),
+										(pairs) => Arr.map(pairs, ([first]) => first)
+									)
+								: uniqueArray(int(0, keys - 1), (value) => value, size, 1)
+							const drawnCase = Result.try(() => fresh(generator, seed))
 							if (size.min > keys) {
-								c.note("more items than keys")
+								c.note("a length past the keys refused")
+								strictEqual(Result.isFailure(drawnCase), true)
+								return
+							}
+							const { value: items, tape } = Result.getOrThrow(drawnCase)
+							const lengthAt = size.min < size.max ? 1 : 0
+							const length = size.min < size.max ? (tape.values[0] ?? 0) : size.min
+							const perItem = projected ? 2 : 1
+							const candidates =
+								keys > 1
+									? Arr.makeBy(
+											Math.min(length, items.length),
+											(at) => tape.values[lengthAt + perItem * at] ?? 0
+										)
+									: []
+							if (Arr.dedupe(candidates).length < candidates.length) {
+								c.note(projected ? "a key moved by a projection" : "a key repeated and moved")
+							}
+							if (items.length === keys) {
+								c.note("every key used")
 							}
 							deepStrictEqual(
 								{
-									givenUp: size.min > keys ? givenUp : true,
-									distinct:
-										givenUp || Arr.dedupe(drawnCase.value).length === drawnCase.value.length,
-									sized:
-										givenUp ||
-										(drawnCase.value.length >= size.min && drawnCase.value.length <= size.max)
+									status: tape.status === "discarded" ? "discarded" : "kept",
+									distinct: Arr.dedupe(items).length === items.length,
+									length: items.length
 								},
-								{ givenUp: true, distinct: true, sized: true }
+								{ status: "kept", distinct: true, length: Math.min(length, keys) }
 							)
 						})
 				)

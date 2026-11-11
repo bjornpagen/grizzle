@@ -1,5 +1,7 @@
 import { Array as Arr, Option, type Predicate } from "effect"
-import type { Source } from "#source.ts"
+import { enumerated, firstBranch, nextBranch } from "#enumerate.ts"
+import { forcedChooser, type Generated, generate, type Source } from "#source.ts"
+import type { Tape } from "#tape.ts"
 
 /**
  * A generator: a pure, synchronous function of the decisions it draws. Purity is what lets one generator be searched
@@ -408,16 +410,113 @@ export const composition =
 	}
 
 /**
- * Between `size.min` and `size.max` items whose keys all differ, each item drawn up to `attempts` times until its key
- * is new, and the case discarded when one never is. `key` names what makes two items the same, and its value is
- * compared as a `Set` compares, so it is a string or a number.
+ * A generator's draw from `source`, and the decisions it made there that a tape records, in order: every choice of
+ * more than one value, and every observation. Generated again on exactly these decisions (forcedChooser), it gives the
+ * same value, so a draw can be moved to a neighbour by editing them, as shrinking edits a tape.
+ */
+const drawnWithDecisions = <A>(
+	generator: Gen<A>,
+	source: Source
+): Readonly<{ value: A; decisions: Float64Array }> => {
+	const taken: Array<number> = []
+	const recorded: Source = {
+		...source,
+		choose: (lo, hi) => {
+			const value = source.choose(lo, hi)
+			if (lo < hi) {
+				taken.push(value)
+			}
+			return value
+		},
+		pick: (lo, hi) => {
+			const value = source.pick(lo, hi)
+			if (lo < hi) {
+				taken.push(value)
+			}
+			return value
+		},
+		observe: (decided) => {
+			taken.push(decided)
+			return source.observe(decided)
+		},
+		draw: (inner) => inner(recorded)
+	}
+	return { value: generator(recorded), decisions: Float64Array.from(taken) }
+}
+
+/** Whether two tapes made the same decisions. */
+const sameDecisions = (a: Tape, b: Tape): boolean =>
+	a.length === b.length && a.values.every((value, at) => value === b.values[at])
+
+/**
+ * The value nearest `drawn` whose key is new, or none when the generator's space holds no new key: first each decision
+ * of `drawn` in order, stepped up from its value through as many of its other values as `taken` keys are held, wrapping
+ * to its least (a decision the key reads one-to-one meets a new key among them), every other decision kept; then every
+ * value of the generator in its enumeration order after `drawn`, wrapping once to the first, which visits every value
+ * of a bounded generator.
+ */
+const nearestNew = <A, K>(
+	generator: Gen<A>,
+	drawn: Tape,
+	key: (item: A) => K,
+	taken: ReadonlySet<K>
+): Option.Option<A> => {
+	const isNew = (generated: Generated<A>): boolean =>
+		generated.tape.status !== "discarded" && !taken.has(key(generated.value))
+	for (let at = 0; at < drawn.length; at += 1) {
+		const lo = drawn.lo[at] ?? 0
+		const width = (drawn.hi[at] ?? 0) - lo + 1
+		const from = (drawn.values[at] ?? 0) - lo
+		for (let step = 1; step < width && step <= taken.size; step += 1) {
+			const edited = drawn.values.slice(0, drawn.length)
+			edited[at] = lo + ((from + step) % width)
+			const neighbour = generate(generator, forcedChooser(edited, edited.length))
+			if (isNew(neighbour)) {
+				return Option.some(neighbour.value)
+			}
+		}
+	}
+	let branch = nextBranch(drawn)
+	let wrapped = false
+	for (;;) {
+		if (Option.isNone(branch)) {
+			if (wrapped) {
+				return Option.none()
+			}
+			wrapped = true
+		}
+		const step = enumerated(
+			generator,
+			Option.getOrElse(branch, () => firstBranch)
+		)
+		if (wrapped && sameDecisions(step.generated.tape, drawn)) {
+			return Option.none()
+		}
+		if (isNew(step.generated)) {
+			return Option.some(step.generated.value)
+		}
+		branch = step.next
+	}
+}
+
+/**
+ * Between `size.min` and `size.max` items whose keys all differ, distinct by construction: the length is drawn first,
+ * then each item from `item`, and an item whose key an earlier item holds is moved to the nearest value whose key is
+ * new (nearestNew): one decision of it stepped, or, failing every one, the next value of `item` in its enumeration
+ * order. No case is discarded and no item drawn twice. An item whose key is new is a plain draw of `item`; one that
+ * repeats a key is a deterministic function of its draw and the keys before it, so a case replays and shrinks as its
+ * tape says, shrinking deleting items and simplifying each in place. A space whose distinct keys run out stops the
+ * array there, and one holding fewer than `size.min` of them is a defect of the caller's generator, never a case. A
+ * key decided by an item's early decisions, beside a vast space of later ones, is met by the first pass. `key` names
+ * what makes two items the same, compared as a `Set` compares, so it is a string or a number. `_attempts` is the
+ * retry budget of the filter this construction replaced, kept so callers' calls stand; nothing reads it.
  */
 export const uniqueArray =
 	<A, K extends string | number>(
 		item: Gen<A>,
 		key: (item: A) => K,
 		size: Size,
-		attempts: number
+		_attempts: number
 	): Gen<ReadonlyArray<A>> =>
 	(source) => {
 		source.open("array")
@@ -426,10 +525,26 @@ export const uniqueArray =
 		const items: Array<A> = []
 		for (let index = 0; index < length; index += 1) {
 			source.open("element")
-			const value = filter(item, (candidate) => !seen.has(key(candidate)), attempts)(source)
-			seen.add(key(value))
-			items.push(value)
+			const drawn = drawnWithDecisions(item, source)
+			const unique = seen.has(key(drawn.value))
+				? nearestNew(
+						item,
+						generate(item, forcedChooser(drawn.decisions, drawn.decisions.length)).tape,
+						key,
+						seen
+					)
+				: Option.some(drawn.value)
 			source.close()
+			if (Option.isNone(unique)) {
+				if (items.length < size.min) {
+					throw new Error(
+						`uniqueArray: the item generator holds ${items.length} distinct keys, fewer than the ${size.min} the array needs`
+					)
+				}
+				break
+			}
+			seen.add(key(unique.value))
+			items.push(unique.value)
 		}
 		source.close()
 		return items
