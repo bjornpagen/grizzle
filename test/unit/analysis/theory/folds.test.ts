@@ -1,3 +1,20 @@
+/**
+ * A fold's law means what the fold says (fin.md §4.3, w4-w7 §2.3): evaluated by the reference evaluator over every
+ * state of a small box, its violation query is empty exactly on the states a naive fold calls lawful, with its
+ * accumulators named (their copies, combine and identity pins) or hidden (the end alone). The boxes are exhausted and
+ * named in each search. A fold ranges over its family's member rows, each distinct by its key, never over the
+ * projection of its step value (rows-first §0): two members of one step value are two rows, which a sum counts twice.
+ *
+ * or's and twos' hidden folds state each handle's membership through set algebra, which the reference evaluator
+ * declines by design (test/support/oracle/evaluate/catalog.ts: PostgreSQL alone evaluates it), so the hidden-fold box
+ * judges the folds over naturals; the pg tier judges the set monoids' natives.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): fold-visible-no-first-pin (a named fold's violation omits its
+ * first-slot identity pin) for the visible box; fold-hidden-no-off-arm (a hidden fold's violation omits the arm of an
+ * end off its members' combine) for the hidden box.
+ *
+ * Features: each verdict and each broken law of each box.
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -19,18 +36,6 @@ import {
 	uuidOf,
 	violates
 } from "#test/unit/analysis/theory/support.ts"
-
-/**
- * A fold's law means what the fold says (fin.md §4.3, w4-w7 §2.3): evaluated by the reference evaluator over every
- * state of a small box, its violation query is empty exactly on the states a naive fold calls lawful, with its
- * accumulators named (their copies, combine and identity pins) or hidden (the end alone). The boxes are exhausted and
- * named in each search. A fold ranges over its family's member rows, each distinct by its key, never over the
- * projection of its step value (rows-first §0): two members of one step value are two rows, which a sum counts twice.
- *
- * or's and twos' hidden folds state each handle's membership through set algebra, which the reference evaluator
- * declines by design (test/support/oracle/evaluate/catalog.ts: PostgreSQL alone evaluates it), so the hidden-fold box
- * judges the folds over naturals; the pg tier judges the set monoids' natives.
- */
 
 /** A member of the visible fold box: its step value, whether the step skips it, and its two accumulators. */
 interface Stepped {

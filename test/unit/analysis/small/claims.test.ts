@@ -12,7 +12,7 @@ import {
 	type PhysicalEnv,
 	unplaced
 } from "#compiler/analysis/physical/analyze.ts"
-import { isUnique, keyedBy } from "#compiler/analysis/physical/props.ts"
+import { keyedBy } from "#compiler/analysis/physical/props.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { ElisionReason } from "#compiler/ir/certificate.ts"
@@ -341,7 +341,7 @@ const precise = (
 		}
 		if (truth.rootSeen && p.rootSet) {
 			c.note("precision: elision")
-			if (!isUnique(propsOf(p.analysis, root))) {
+			if (propsOf(p.analysis, root).uniqueness.kind === "none") {
 				throw new Error(
 					`the root's rows are a set on every database, and no uniqueness is proved (${p.placement})\n${at}`
 				)

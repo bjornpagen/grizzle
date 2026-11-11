@@ -1,3 +1,23 @@
+/**
+ * Families stay independent (rows-first §1, §5): a relation is a member of any number of counted families, and each
+ * family the theory resolves is its own Family, with its own axes and its own law columns, named by its own identity
+ * (owner and count, and fold and plane). Two counted families on one member, under one owner or two, by one group
+ * field or two, with or without a fold each and a sequence of another relation beside them, resolve to disjoint
+ * families; and each family's law is violated exactly when its own family is, whatever the other's state. A counted
+ * family's member is no sequence's member (analysis/theory/fill.ts), so the sequence beside them orders L, not G. The
+ * oracle is the statements read as the specification of the families they state, and for the laws each family's
+ * theorem checked on its own.
+ *
+ * - Shape: every arrangement of the two counted families (one owner or two, one group field or two, a fold each or
+ *   none, a sequence beside them or none), exhausted. Plant: family-columns-named-by-member (every family's drawn
+ *   columns named as one family's, so two families share a law column).
+ * - Laws: every state of the two counted families beside a lawful sequence, counts 0 to 2, up to two members each
+ *   naming each owner or none, exhausted, each family's law violated exactly when its own theorem fails. Plant:
+ *   counted-violation-no-off-arm (a counted family's violation omits its count's mismatch).
+ *
+ * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: each arrangement for the shape; each family's
+ * verdict, and the other's state beside it, for the laws.
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -21,17 +41,6 @@ import {
 	uuidOf,
 	violates
 } from "#test/unit/analysis/theory/support.ts"
-
-/**
- * Families stay independent (rows-first §1, §5): a relation is a member of any number of counted families, and each
- * family the theory resolves is its own Family, with its own axes and its own law columns, named by its own identity
- * (owner and count, and fold and plane). Two counted families on one member, under one owner or two, by one group
- * field or two, with or without a fold each and a sequence of another relation beside them, resolve to disjoint
- * families; and each family's law is violated exactly when its own family is, whatever the other's state. A counted
- * family's member is no sequence's member (analysis/theory/fill.ts), so the sequence beside them orders L, not G. The
- * oracle is the statements read as the specification of the families they state, and for the laws each family's
- * theorem checked on its own.
- */
 
 /** A box configuration: the owners the two counted families have, their group fields, a fold each, a sequence. */
 interface Shape {

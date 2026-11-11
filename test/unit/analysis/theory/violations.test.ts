@@ -1,3 +1,18 @@
+/**
+ * The violation queries of a family's and an accumulated copy's laws mean what the laws say (fin.md §4, §5.2, w4-w7
+ * §2.3): evaluated by the reference evaluator over every state of a small box, each is empty exactly on the states a
+ * second implementation, written from the law's statement, calls lawful. The boxes are exhausted and named in each
+ * search; every invalid kind the doctrine names that a box can hold is one of its cases.
+ *
+ * - Ordered: two owners of count 0 to 2 and up to three members, each of owner a, b or none at slot 0 to 2. Plant:
+ *   family-violation-no-last-arm (an ordered family's violation omits its last-member lemma).
+ * - Counted: two owners of count 0 to 2 and up to three members, each of owner a, b or none. Plant:
+ *   counted-violation-no-off-arm (a counted family's violation omits its count's mismatch).
+ * - Copy: one owner's family of 0 to 3 members, each state and was 0 or 1, an accumulated copy riding its axis. Plant:
+ *   copy-violation-no-pins (a riding copy's violation omits its pin at the axis's base).
+ *
+ * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: each box's verdicts and broken laws.
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -18,13 +33,6 @@ import {
 	uuidOf,
 	violates
 } from "#test/unit/analysis/theory/support.ts"
-
-/**
- * The violation queries of a family's and an accumulated copy's laws mean what the laws say (fin.md §4, §5.2, w4-w7
- * §2.3): evaluated by the reference evaluator over every state of a small box, each is empty exactly on the states a
- * second implementation, written from the law's statement, calls lawful. The boxes are exhausted and named in each
- * search; every invalid kind the doctrine names that a box can hold is one of its cases.
- */
 
 const byNumber = Order.Number
 

@@ -1,7 +1,32 @@
+/**
+ * The theory's families (fin.md §4, w4-w7 §2.1 to §2.3, §3.7): every family and tree statement resolves to one Family
+ * IR; a containment rides a family axis exactly when §2.1's rule holds, its pairs beyond the axis's key joining the
+ * axis's; every drawn and every accumulated field is named by exactly one statement; and the theory refuses what §3.7
+ * names. The oracles are §2.1's rule written again over SideDescs, a second implementation the riding box is judged
+ * against, and the statements themselves, read as the specification of the IR they resolve to.
+ *
+ * - Riding: every containment over the box's two relations of at most three typed pairs, each side selected or not,
+ *   exhausted, rides exactly the axis §2.1's rule names, carrying its pairs after the key. Plant:
+ *   ride-needs-carried-pair (a containment rides only beside a carried pair, so its key alone rides nothing).
+ * - The theory's riding: one or two drawn containments of distinct terms on each side (freshPairs: a statement lists
+ *   each term of a side once, constructed, never filtered), or two that ride one axis by construction, lower onto the
+ *   axis §2.1's rule names, its axes carrying exactly the riding pairs, an accumulated field filled by exactly one
+ *   statement. Plant: ride-needs-carried-pair.
+ * - A tree's riding: a tree's parent copy rides its owner axis exactly when its selection is one comparison of start
+ *   with zero that selects the members, over drawn comparisons. Plant: tree-members-ge-zero (start ≥ 0 read as the
+ *   tree's members, though it holds the root).
+ * - Resolution: ordered and counted families of group width 1 to 3 over uuid and bigint keys, with no fold, a hidden
+ *   or a named sum, and a tree, each lawful or under each refusal it offers, exhausted. Plant:
+ *   counted-named-fold-admitted (a counted family's fold naming its accumulators admitted).
+ *
+ * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: each verdict and near miss of the riding rule,
+ * a pair two laws carry, a key carried alone, an accumulated field filled by none, one or two statements, each
+ * comparison's verdict for a tree, and each lawful shape and refusal for the resolution.
+ */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, boolean, element, filter, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import {
 	type Corruption,
 	type CorruptedFeature,
@@ -47,7 +72,6 @@ import {
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
 	accumulatedOf,
@@ -60,14 +84,6 @@ import {
 	theoryOf,
 	theoryResult
 } from "#test/unit/analysis/theory/support.ts"
-
-/**
- * The theory's families (fin.md §4, w4-w7 §2.1 to §2.3, §3.7): every family and tree statement resolves to one Family
- * IR; a containment rides a family axis exactly when §2.1's rule holds, its pairs beyond the axis's key joining the
- * axis's; every drawn and every accumulated field is named by exactly one statement; and the theory refuses what §3.7
- * names. The oracles are §2.1's rule written again over SideDescs, a second implementation the riding box is judged
- * against, and the statements themselves, read as the specification of the IR they resolve to.
- */
 
 const field = (name: string): TermDesc => ({ kind: "field", field: name })
 const pred = (name: string): TermDesc => ({ kind: "pred", field: name })
@@ -212,10 +228,6 @@ const containmentText = (c: RideCase): string =>
 		Arr.map(c.pairs, ([l, r]) => `${l.kind} ${l.field} → ${r.kind} ${r.field}`),
 		", "
 	)}`
-
-/** Whether no term of a side repeats. */
-const distinctTerms = (terms: ReadonlyArray<TermDesc>): boolean =>
-	new Set(Arr.map(terms, (t) => `${t.kind} ${t.field}`)).size === terms.length
 
 /** A side of the box: its relation's terms, over every fact or the box's selection of it. */
 const sideOf = (rel: Rel, selected: boolean, terms: ReadonlyArray<TermDesc>): SideDesc =>
@@ -383,47 +395,82 @@ describe("riding a family axis (§2.1)", () => {
 	)
 
 	/**
-	 * A containment of the box aimed at an axis: its key pairs in order or reversed, then up to two typed pairs, each
-	 * side selected one draw in four. The uniform box draws an axis's key one case in thousands; these put every axis,
-	 * its near misses and two copies of one pair within a small search.
+	 * `count` typed pairs of `options` after `pairs`, each drawn among those whose terms neither side holds yet, as a
+	 * statement lists each term of a side once; fewer when no such pair is left.
 	 */
-	const aimedCase =
+	const freshPairs =
+		(
+			options: ReadonlyArray<readonly [TermDesc, TermDesc]>,
+			pairs: ReadonlyArray<readonly [TermDesc, TermDesc]>,
+			count: number
+		): Gen<ReadonlyArray<readonly [TermDesc, TermDesc]>> =>
+		(source) => {
+			const out = [...pairs]
+			for (let i = 0; i < count; i += 1) {
+				const open = Arr.filter(
+					options,
+					([l, r]) => !Arr.some(out, ([x, y]) => sameTerm(x, l) || sameTerm(y, r))
+				)
+				if (!Arr.isReadonlyArrayNonEmpty(open)) {
+					return out
+				}
+				out.push(Arr.getUnsafe(open, source.pick(0, open.length - 1)))
+			}
+			return out
+		}
+
+	/** A containment of the whole box whose terms are distinct on each side: one to three fresh typed pairs. */
+	const distinctBoxCase =
+		(was: boolean): Gen<RideCase> =>
+		(source) => {
+			const left = source.draw(element(["F", "O"] as const))
+			const right = source.draw(element(["O", "F"] as const))
+			return {
+				left,
+				right,
+				leftSelected: source.draw(boolean),
+				rightSelected: source.draw(boolean),
+				pairs: source.draw(freshPairs(typedPairs(left, right, was), [], source.draw(int(1, 3))))
+			}
+		}
+
+	/**
+	 * A containment aimed at an axis whose terms are distinct on each side: its key pairs in order or reversed, then up
+	 * to two fresh typed pairs, each side selected one draw in four.
+	 */
+	const distinctAimedCase =
 		(was: boolean): Gen<RideCase> =>
 		(source) => {
 			const axis = source.draw(element(boxAxes))
 			const key = Arr.zip(axis.sourceKey, axis.targetKey)
-			const options = typedPairs(axis.source, axis.target, was)
 			return {
 				left: axis.source,
 				right: axis.target,
 				leftSelected: source.draw(int(0, 3)) === 0,
 				rightSelected: source.draw(int(0, 3)) === 0,
-				pairs: [
-					...(source.draw(int(0, 3)) === 0 ? Arr.reverse(key) : key),
-					...Arr.map(source.draw(array(pickGen, { min: 0, max: 2 })), (pick) =>
-						pickFrom(options, pick)
+				pairs: source.draw(
+					freshPairs(
+						typedPairs(axis.source, axis.target, was),
+						source.draw(int(0, 3)) === 0 ? Arr.reverse(key) : key,
+						source.draw(int(0, 2))
 					)
-				]
+				)
 			}
 		}
 
 	/** A containment of the box, aimed at an axis or drawn from the whole box, its terms distinct on each side. */
 	const ridingCase = (was: boolean): Gen<RideCase> =>
-		filter(
-			weighted([
-				[1, boxCase(was)],
-				[3, aimedCase(was)]
-			]),
-			(c) =>
-				distinctTerms(Arr.map(c.pairs, ([l]) => l)) &&
-				distinctTerms(Arr.map(c.pairs, ([, r]) => r)),
-			16
-		)
+		weighted([
+			[1, distinctBoxCase(was)],
+			[3, distinctAimedCase(was)]
+		])
 
 	/**
 	 * Two containments that ride one axis by construction, its key in order and no side selected, the second the first
-	 * with one more field pair after its own: two statements that share every pair the first carries, so two laws carry
-	 * each of them. The first fills `was` half the time where the axis's source holds it, and so the second does too.
+	 * with one more fresh field pair after its own: two statements that share every pair the first carries, so two laws
+	 * carry each of them. The first fills `was` half the time where the axis's source holds it and it is not carried
+	 * already, and so the second does too. Every pair is fresh (freshPairs); the second is left out where no field pair
+	 * is fresh.
 	 */
 	const extendedCases =
 		(was: boolean): Gen<ReadonlyArray<RideCase>> =>
@@ -440,30 +487,19 @@ describe("riding a family axis (§2.1)", () => {
 				),
 				"a field pair beside the axis's key"
 			)
-			const [filling, ...fillings] = Arr.filter(fieldPairs, ([l]) => l.field === "was")
-			const carried = Arr.map(source.draw(array(pickGen, { min: 1, max: 2 })), (pick) =>
-				pickFrom(fieldPairs, pick)
+			const carried = source.draw(
+				freshPairs(fieldPairs, Arr.zip(axis.sourceKey, axis.targetKey), source.draw(int(1, 2)))
 			)
+			const fillings = Arr.filter(fieldPairs, ([l]) => l.field === "was")
 			const first: RideCase = {
 				left: axis.source,
 				right: axis.target,
 				leftSelected: false,
 				rightSelected: false,
-				pairs: [
-					...Arr.zip(axis.sourceKey, axis.targetKey),
-					...carried,
-					...(filling !== undefined && source.draw(boolean)
-						? [pickFrom([filling, ...fillings], source.draw(pickGen))]
-						: [])
-				]
+				pairs: source.draw(boolean) ? source.draw(freshPairs(fillings, carried, 1)) : carried
 			}
-			const second = {
-				...first,
-				pairs: [...first.pairs, pickFrom(fieldPairs, source.draw(pickGen))]
-			}
-			const distinct = (c: RideCase) =>
-				distinctTerms(Arr.map(c.pairs, ([l]) => l)) && distinctTerms(Arr.map(c.pairs, ([, r]) => r))
-			return Arr.filter([first, second], distinct)
+			const extended = source.draw(freshPairs(fieldPairs, first.pairs, 1))
+			return extended.length > first.pairs.length ? [first, { ...first, pairs: extended }] : [first]
 		}
 
 	type TheoryRideFeature =

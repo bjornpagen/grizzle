@@ -1,3 +1,15 @@
+/**
+ * The tree theorem through the theory (trees.md §2, w4-w7 §2.2): a tree's law, its family's lemmas over every row but
+ * its root and T0 to T6 with the root pin, evaluated by the reference evaluator, is violated exactly on the states that
+ * are not, for each value of the root field, one tree with pre-order intervals. The oracle is a direct pre-order
+ * numbering; the box is every forest of at most four rows over two root values, and every single mutation of one
+ * field in range, which holds P3's cross-tree row, a cycle and a second root.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): tree-violation-no-close-arm (the tree's violation omits T5, each
+ * parent's end its last child's end).
+ *
+ * Features: lawful forests, and each mutation kind's verdict.
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -17,14 +29,6 @@ import {
 	uuidOf,
 	violates
 } from "#test/unit/analysis/theory/support.ts"
-
-/**
- * The tree theorem through the theory (trees.md §2, w4-w7 §2.2): a tree's law, its family's lemmas over every row but
- * its root and T0 to T6 with the root pin, evaluated by the reference evaluator, is violated exactly on the states that
- * are not, for each value of the root field, one tree with pre-order intervals. The oracle is a direct pre-order
- * numbering; the box is every forest of at most four rows over two root values, and every single mutation of one
- * field in range, which holds P3's cross-tree row, a cycle and a second root.
- */
 
 const byNumber = Order.Number
 

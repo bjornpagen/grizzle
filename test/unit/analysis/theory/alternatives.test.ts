@@ -1,7 +1,19 @@
+/**
+ * An alternatives statement's laws (fin.md §7, R5): its expansion is pure and headless, one forward containment per arm
+ * relation, `eq` for an arm of one handle and `in` for an arm of several, and one reverse containment per armed
+ * handle; the theory states each as a containment law of source `alternatives`, and a containment the schema also
+ * states itself is one law with both statements. The oracle is fin.md §7's expansion written as its own checker,
+ * judged over every roster of at most four handles with every assignment of its handles to two arm relations or none.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): alternatives-forward-first-handle (an arm of several handles is
+ * contained in its first handle's parents alone, `eq` where fin.md §7 states `in`).
+ *
+ * Features: one handle per arm, an arm of several handles, an unarmed handle, a restated containment.
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, type Gen, int } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
@@ -22,28 +34,25 @@ import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { schemaOf, theoryOf } from "#test/unit/analysis/theory/support.ts"
 
-/**
- * An alternatives statement's laws (fin.md §7, R5): its expansion is pure and headless, one forward containment per arm
- * relation, `eq` for an arm of one handle and `in` for an arm of several, and one reverse containment per armed
- * handle; the theory states each as a containment law of source `alternatives`, and a containment the schema also
- * states itself is one law with both statements. The oracle is fin.md §7's expansion written as its own checker,
- * judged over every roster of at most four handles with every assignment of its handles to two arm relations or none.
- */
-
 /** Which arm relation each handle of the roster is the arm of, or none. */
 type Assignment = ReadonlyArray<"A" | "B" | undefined>
 
-/** A roster of 1 to 4 handles, each the arm of A, of B or of none, at least one armed by construction. */
+/**
+ * A roster of 1 to 4 handles, each the arm of A, of B or of none, at least one armed, built by its first armed handle:
+ * the handles before it unarmed, it the arm of A or B, and every one after it any of the three.
+ */
 const assignment: Gen<{ readonly arms: Assignment; readonly restated: boolean }> = (source) => {
-	const size = int(1, 4)(source)
-	const drawn: Assignment = upTo(
-		size,
-		(): "A" | "B" | undefined => (["A", "B", undefined] as const)[source.pick(0, 2)]
-	)
-	const arms: Assignment = Arr.some(drawn, (a) => a !== undefined)
-		? drawn
-		: ["A", ...Arr.drop(drawn, 1)]
-	return { arms, restated: boolean(source) }
+	const size = source.draw(int(1, 4))
+	const first = source.draw(int(0, size - 1))
+	const after = size - first - 1
+	return {
+		arms: [
+			...upTo(first, (): "A" | "B" | undefined => undefined),
+			source.draw(element(["A", "B"] as const)),
+			...source.draw(array(element(["A", "B", undefined] as const), { min: after, max: after }))
+		],
+		restated: source.draw(boolean)
+	}
 }
 
 const handleOf = (i: number): string => `h${i}`
@@ -142,7 +151,8 @@ describe("alternatives (fin.md §7)", () => {
 						suite: "unit/analysis/theory/alternatives",
 						generator: assignment,
 						literal: Formatter.format,
-						limit: 300,
+						/** The space: 2 + 8 + 26 + 80 armed assignments of 1 to 4 handles, each restated or not. */
+						limit: 232,
 						box: "every roster of 1 to 4 handles, each handle the arm of A, B or none, restated or not",
 						oracle: { kind: "specification", name: "fin.md §7's expansion as a checker" },
 						coverage: requiredInSpace<Feature>([

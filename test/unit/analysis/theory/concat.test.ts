@@ -1,3 +1,25 @@
+/**
+ * Monoid.concat, text's free monoid, folds a sequence (ir/monoid.ts): the empty text, then each member's step value
+ * after the running text. Its law means what the fold says: evaluated by the reference evaluator over every state of
+ * a small box, the violation query of a concat fold over an ordered family, its (before, after) pair named, is empty
+ * exactly on the states a naive left fold calls lawful. Its combine is the equation `after = before || x`, which the
+ * Compute lowering decides without building the concatenation (compute/lower.ts concatEquation), so the law reads no
+ * text longer than one PostgreSQL holds.
+ *
+ * A concat fold names its pair, and folds only a sequence: the fold rule refuses one over a counted family, whose
+ * order is hidden, and one whose accumulators are hidden, whose law would need an ordered aggregate (check/fold.ts
+ * foldRule).
+ *
+ * - The fold: over every state of one owner's ordered family of 0 to 2 members, each step '', 'a' or 'b', its
+ *   accumulators and total '', 'a', 'b' or 'ab', the violation query is empty exactly where a naive left fold holds.
+ *   Oracle: the naive left fold, a second implementation. Plant: concat-equation-tail-unchecked (the equation's
+ *   concatenation checked by its length and its head alone).
+ * - The rule: an ordered or counted family, its pair named or hidden, admitted exactly as an ordered family's named
+ *   pair, each other refused by the named refusal foldRule states. Oracle: that rule. Plant:
+ *   concat-over-counted-admitted (a counted family's hidden concat refused for its hidden pair, not its order).
+ *
+ * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: each verdict of each box.
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -18,19 +40,6 @@ import {
 	uuidOf,
 	violates
 } from "#test/unit/analysis/theory/support.ts"
-
-/**
- * Monoid.concat, text's free monoid, folds a sequence (ir/monoid.ts): the empty text, then each member's step value
- * after the running text. Its law means what the fold says: evaluated by the reference evaluator over every state of
- * a small box, the violation query of a concat fold over an ordered family, its (before, after) pair named, is empty
- * exactly on the states a naive left fold calls lawful. Its combine is the equation `after = before || x`, which the
- * Compute lowering decides without building the concatenation (compute/lower.ts concatEquation), so the law reads no
- * text longer than one PostgreSQL holds.
- *
- * A concat fold names its pair, and folds only a sequence: the fold rule refuses one over a counted family, whose
- * order is hidden, and one whose accumulators are hidden, whose law would need an ordered aggregate (check/fold.ts
- * foldRule).
- */
 
 /** A member of the box: its step value and its two accumulators. */
 interface Stepped {

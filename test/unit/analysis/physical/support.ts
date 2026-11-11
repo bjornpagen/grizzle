@@ -5,7 +5,6 @@ import {
 	type PhysicalEnv,
 	unplaced
 } from "#compiler/analysis/physical/analyze.ts"
-import { isUnique } from "#compiler/analysis/physical/props.ts"
 import type { PhysicalProps, Realization } from "#compiler/analysis/physical/props.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { Heading, KeySet, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
@@ -63,7 +62,7 @@ export const owedOf = (a: PhysicalAnalysis, node: RelNode): Owed => {
 		return { kind: "on", heading: [...outstanding.value.heading] }
 	}
 	const p = propsOf(a, node)
-	return isUnique(p) ? { kind: "none" } : { kind: "on", heading: [...p.columns] }
+	return p.uniqueness.kind !== "none" ? { kind: "none" } : { kind: "on", heading: [...p.columns] }
 }
 
 /**

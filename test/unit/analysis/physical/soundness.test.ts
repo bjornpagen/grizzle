@@ -7,7 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { type PhysicalEnv, unplaced } from "#compiler/analysis/physical/analyze.ts"
-import { isUnique, type Realization } from "#compiler/analysis/physical/props.ts"
+import type { Realization } from "#compiler/analysis/physical/props.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { inputsOf, type RelDag, type RelKind, type RelNode } from "#compiler/ir/rel.ts"
 import { assert } from "#test/support/assert.ts"
@@ -117,7 +117,7 @@ const check = (
 		) {
 			c.note("a constant read laterally")
 		}
-		if (isUnique(p)) {
+		if (p.uniqueness.kind !== "none") {
 			c.note("a key claimed")
 		}
 		if (p.maxCard.kind === "atMost") {

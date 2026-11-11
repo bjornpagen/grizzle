@@ -33,9 +33,7 @@
  * turn, alone among its filters, inside a conjunction or inside a conjunction nested in one, binding Mark's on by a
  * literal or not at all, read itself or through Item's semijoin with it under a containment into it, one out of it, a
  * check and a key. A negation of select-project-join arms is admitted, the conjunction's included, and a negation of a
- * query a rule may not read is refused UnsupportedLawFamily, naming what the query does. Planted in a scratch copy, each
- * of these fails the fourth box: a conjunction holding a negation read whole, which refuses it as a negation below a
- * condition; and a negated query that negates in turn admitted, its inner negation dropped.
+ * query a rule may not read is refused UnsupportedLawFamily, naming what the query does.
  *
  * The oracle is the builders' admission: a schema schema.extend builds compiles to its artifacts, and its laws'
  * violation queries are written as generate writes them, each rule's checked there (laws/model/violations.ts
@@ -43,6 +41,17 @@
  * table holds a constraint or a rule's trigger under reports one law, since PostgreSQL reports a violation by its table
  * and that name alone: a check over the derived relation, under its own name or Item's check's, is held under a name of
  * its law's.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): rule-literal-binding-first (an equation binding a literal written
+ * literal first, which the checker refuses) for the first box; rule-text-meet-narrowed (two texts of different
+ * patterns met as the first's pattern, not the wildcard) for the second; rule-head-literal-untyped (a bare head literal
+ * left untyped where a term of its column stands) for the third; rule-negation-conjunction-whole (a conjunction holding
+ * a negation read whole, which refuses it as a negation below a condition) and rule-negation-nested-admitted (a negated
+ * query that negates in turn admitted, its inner negation dropped) for the fourth.
+ *
+ * Features: each rule kind and each literal binding site for the first box; each pattern relation and negated note for
+ * the second; each literal kind, arm placement and reader for the third; each negated source, placement and reader,
+ * admitted and refused, for the fourth.
  */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
