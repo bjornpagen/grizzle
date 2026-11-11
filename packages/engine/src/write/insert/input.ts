@@ -575,5 +575,5 @@ export const distinctByEvidence = (
 				!relation.fields.some((r) => r.name === f && isSerialField(r)) &&
 				castKeeps(node.heading, relation, f)
 		)
-	return facts.keyedBy(node, kept)
+	return facts.keyedBy(node, kept) !== undefined
 }

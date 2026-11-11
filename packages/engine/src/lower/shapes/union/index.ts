@@ -186,7 +186,12 @@ export const armBoundedUnion = (
 	 */
 	const bounded = (arm: (typeof arms)[number][number]): Select => ({
 		...select(
-			distinctCoreWhen(!facts.keyedBy(arm.node, columns), arm.targets, [arm.source.item], undefined)
+			distinctCoreWhen(
+				facts.keyedBy(arm.node, columns) === undefined,
+				arm.targets,
+				[arm.source.item],
+				undefined
+			)
 		),
 		orderBy: orderItemsOf(order, union.heading, arm.delivered, { leading: [], total, fixed: [] }),
 		limit: k

@@ -90,12 +90,12 @@ const tieColumns = (
 		return rest
 	}
 	const chosen: Array<string> = []
-	if (facts.keyedBy(node.source, [node.score])) {
+	if (facts.keyedBy(node.source, [node.score]) !== undefined) {
 		return chosen
 	}
 	for (const c of rest) {
 		chosen.push(c)
-		if (facts.keyedBy(node.source, [node.score, ...chosen])) {
+		if (facts.keyedBy(node.source, [node.score, ...chosen]) !== undefined) {
 			return chosen
 		}
 	}

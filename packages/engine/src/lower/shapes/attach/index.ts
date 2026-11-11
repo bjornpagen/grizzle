@@ -37,7 +37,6 @@ import {
 	cast,
 	conjunction,
 	countStar,
-	distinctCore,
 	distinctCoreWhen,
 	gt,
 	keyedSet,
@@ -273,15 +272,13 @@ export interface DeliveredRows<I extends ChoiceInput> extends ParentRows {
 
 /**
  * An attachment's rows as its part delivers them, the parent key columns then the child's (deliveredHeading): its
- * query in its order; the same rows unordered, which a part with attachments of its own holds once; that order over
- * rows of those columns, the parent key's read through `parent` and the child's through `child`; and the key sets of
- * its rows, for a part under it that computes them again (ParentRows keys).
+ * query in its order; the same rows unordered, which a part with attachments of its own holds once; and that order
+ * over rows of those columns, the parent key's read through `parent` and the child's through `child`.
  */
 export interface PipelinedAttachment {
 	readonly query: Select
 	readonly rows: Select
 	readonly order: (parent: ColumnMap, child: ColumnMap) => ReadonlyArray<OrderItem>
-	readonly keys: (demand: Heading) => Select
 }
 
 /**
@@ -387,8 +384,6 @@ export const pipelinedAttachment = (
 	return {
 		query: { ...select(body), orderBy: order(parentMap, source.map) },
 		rows: select(body),
-		order,
-		keys: (demand) =>
-			select(distinctCore(headingTargets(demand, source.map), from, conjunction(where)))
+		order
 	}
 }

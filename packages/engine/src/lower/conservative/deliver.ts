@@ -18,6 +18,7 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { bindLaterally } from "#compiler/lower/conservative/expr/lateral.ts"
+import { noRowKeys, type RowKeys } from "#compiler/lower/conservative/keys.ts"
 import { refineConservative } from "#compiler/lower/conservative/refined.ts"
 import { completedOrderItems } from "#compiler/lower/conservative/take/order.ts"
 import type {
@@ -58,6 +59,7 @@ import {
 	cteRef,
 	derived,
 	distinctCore,
+	distinctCoreWhen,
 	gt,
 	keyedSet,
 	lit,
@@ -294,16 +296,28 @@ export const parentKeysSource = (
 	}
 }
 
-/** The distinct values of `demand`'s columns of the rows `query` delivers under `heading` (ParentRows keys). */
+/**
+ * The distinct values of `demand`'s columns of the rows `query` delivers under `heading` (ParentRows keys): read as they
+ * are where `keys` proves the rows a set over those columns (keys.ts DeliveredKey), so no value repeats, and through
+ * DISTINCT where it proves nothing.
+ */
 const keysOf = (
 	cx: LowerContext,
 	query: OperandSelect,
 	heading: Heading,
 	origin: NameOrigin,
-	demand: Heading
+	demand: Heading,
+	keys: RowKeys
 ): Select => {
 	const source = cx.wrap(query, heading, origin)
-	return distinctSelect(headingTargets(demand, source.map), [source.item], [])
+	return select(
+		distinctCoreWhen(
+			keys(demand.map((c) => c.name)).kind === "unproved",
+			headingTargets(demand, source.map),
+			[source.item],
+			undefined
+		)
+	)
 }
 
 /**
@@ -406,25 +420,23 @@ export const checkedAttachment = (
 	}
 }
 
-/** The parent rows of a rows statement delivering `origin`'s rows of heading `heading`, lowered again by `rel`. */
+/**
+ * The parent rows of a rows statement delivering `origin`'s rows of heading `heading`, lowered again by `rel`, and what
+ * `keys` proves of their keys (keys.ts RowKeys).
+ */
 export const statementRows = (
 	cx: LowerContext,
 	heading: Heading,
 	origin: RelNode,
-	rel: () => OperandSelect
+	rel: () => OperandSelect,
+	keys: RowKeys
 ): ParentRows => ({
 	heading,
-	keys: (demand) => keysOf(cx, rel(), heading, { kind: "node", node: origin.id }, demand)
+	keys: (demand) => keysOf(cx, rel(), heading, { kind: "node", node: origin.id }, demand, keys)
 })
 
 /** One heading group of a heterogeneous union. */
 type HeadingGroup = NodeOf<"Union">["groups"][number]
-
-/** The parent rows of an attachment statement, its child's, whose key sets `keys` lowers again. */
-const attachmentRows = (child: Heading, keys: (demand: Heading) => Select): ParentRows => ({
-	heading: child,
-	keys
-})
 
 /**
  * One attachment statement's rows in its delivery order, the parent key columns then the child's, and the key sets of
@@ -632,7 +644,7 @@ export class Delivery<Own extends PageParamSlot = never> {
 				attachments: this.groupAttachments(
 					plan,
 					group,
-					statementRows(this.cx, group.heading, plan.union, built.rel)
+					statementRows(this.cx, group.heading, plan.union, built.rel, noRowKeys)
 				)
 			}
 		})
@@ -772,12 +784,10 @@ export class Delivery<Own extends PageParamSlot = never> {
 			role: { kind: "attachment", parentKey: built.parentKey },
 			dependsOn: []
 		})
-		const attachments = this.attachments(
-			this.spine(attach.child),
-			attachmentRows(child.heading, (demand) =>
-				this.attachmentQuery(attach, spine, rows).keys(demand)
-			)
-		)
+		const attachments = this.attachments(this.spine(attach.child), {
+			heading: child.heading,
+			keys: (demand) => this.attachmentQuery(attach, spine, rows).keys(demand)
+		})
 		return { statement, attach, attachments }
 	}
 
@@ -842,7 +852,7 @@ export class ConservativeDelivery<Own extends PageParamSlot = never> extends Del
 		})
 		const attachments = this.attachments(
 			this.spine(rows),
-			statementRows(this.cx, rows.heading, rows, rel)
+			statementRows(this.cx, rows.heading, rows, rel, noRowKeys)
 		)
 		return { roots: [{ statement, attachments }], delivery: { kind: "rows" } }
 	}

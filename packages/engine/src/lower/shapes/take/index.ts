@@ -223,7 +223,7 @@ const keyedOn = (source: RelNode, columns: ReadonlySet<string>, facts: ShapeFact
 	) {
 		return true
 	}
-	return columns.size > 0 && facts.keyedBy(source, [...columns])
+	return columns.size > 0 && facts.keyedBy(source, [...columns]) !== undefined
 }
 
 /**

@@ -41,6 +41,12 @@ import {
 import { conservativeLowerers } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { bindLaterally } from "#compiler/lower/conservative/expr/lateral.ts"
+import {
+	keySetOf,
+	type ParentFixed,
+	parentFixed,
+	type RowKeys
+} from "#compiler/lower/conservative/keys.ts"
 import { orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
 import {
 	type ConservativeParamSlot,
@@ -770,9 +776,18 @@ interface PlacedAttachment {
 	readonly part: DeliveredPart
 }
 
-/** Rows a statement holds once (OptimizedDelivery #held): a read of its columns from position `from` on. */
+/** Rows a statement holds once (OptimizedDelivery #held): every column of them, a set. */
 interface HeldRows {
-	readonly read: (from: number) => OperandSelect
+	readonly rows: () => OperandSelect
+}
+
+/**
+ * An attachment part's rows a statement holds once (OptimizedDelivery #heldPairs), each a parent key and a child, and
+ * the child's columns alone: a set where the child fixes its parent key (keys.ts ParentFixed), since each pair is one
+ * row and the child names its one parent, and an operand otherwise.
+ */
+interface HeldPairs extends HeldRows {
+	readonly children: () => OperandSelect
 }
 
 /**
@@ -829,23 +844,54 @@ export class OptimizedDelivery<
 	}
 
 	/**
-	 * The rows `query` delivers, `width` columns, held once by the statement being lowered: a MATERIALIZED CTE of its
-	 * WITH, defined here, after every CTE `query` reads, which a part and every part under it read in place of
-	 * computing them again.
+	 * The rows `query` delivers, `width` columns, a set, held once by the statement being lowered: a MATERIALIZED CTE of
+	 * its WITH, defined here, after every CTE `query` reads, which a part and every part under it read in place of
+	 * computing them again. Its name and columns.
 	 */
-	#held(query: OperandSelect, width: number, origin: NameOrigin): HeldRows {
-		const cx = this.cx
-		const name = cx.relationAlias(origin)
-		const columns = cx.supply.columns(Array.from({ length: width }, () => origin))
+	#hold(query: OperandSelect, width: number, origin: NameOrigin): Omit<DefinedCte, "set"> {
+		const name = this.cx.relationAlias(origin)
+		const columns = this.cx.supply.columns(Array.from({ length: width }, () => origin))
 		this.state.log.ctes.add({ name, columns, materialized: "MATERIALIZED", query })
+		return { name, columns }
+	}
+
+	/** The rows `query` delivers, `width` columns, held once (`#hold`). */
+	#held(query: OperandSelect, width: number, origin: NameOrigin): HeldRows {
+		const held = this.#hold(query, width, origin)
+		return { rows: () => cteRead(this.cx.relationAlias(origin), { ...held, set: true }) }
+	}
+
+	/**
+	 * An attachment part's rows `query` delivers, the parent key's `keyWidth` columns then the child's `childWidth`,
+	 * held once (`#hold`), its children alone a set where `fixed` proves the child fixes its parent key.
+	 */
+	#heldPairs(
+		query: OperandSelect,
+		keyWidth: number,
+		childWidth: number,
+		origin: NameOrigin,
+		fixed: ParentFixed | undefined
+	): HeldPairs {
+		const held = this.#hold(query, keyWidth + childWidth, origin)
 		return {
-			read: (from) =>
-				cteRead(cx.relationAlias(origin), {
-					name,
-					columns: columns.slice(from),
-					set: from === 0
+			rows: () => cteRead(this.cx.relationAlias(origin), { ...held, set: true }),
+			children: () =>
+				cteRead(this.cx.relationAlias(origin), {
+					name: held.name,
+					columns: held.columns.slice(keyWidth),
+					set: fixed !== undefined
 				})
 		}
+	}
+
+	/**
+	 * What the rows a part delivers of `node` prove of their keys (keys.ts keySetOf): the physical analysis's key of one
+	 * evaluation of `node`, which holds across evaluations where `node` reads nothing of an enclosing node or, for an
+	 * attachment's child, where `fixed` proves the child fixes its parent key.
+	 */
+	#rowKeys(node: RelNode, fixed: ParentFixed | undefined): RowKeys {
+		return (columns) =>
+			keySetOf(columns, this.facts.keyedBy(node, columns), this.cx.freeRefs(node), fixed)
 	}
 
 	/**
@@ -1079,7 +1125,10 @@ export class OptimizedDelivery<
 			kind: "node",
 			node: origin.id
 		})
-		return { ...statementRows(this.cx, heading, origin, () => held.read(0)), bound }
+		return {
+			...statementRows(this.cx, heading, origin, held.rows, this.#rowKeys(origin, undefined)),
+			bound
+		}
 	}
 
 	/**
@@ -1156,13 +1205,19 @@ export class OptimizedDelivery<
 		const origin = { kind: "node", node: spec.origin.id } as const
 		const held = this.#held(spec.rel(), deliveredHeading(spec.heading).length, origin)
 		const statement = this.#place({
-			query: this.deliveredRows(held.read(0), spec.heading, spec.origin, spec.order),
+			query: this.deliveredRows(held.rows(), spec.heading, spec.origin, spec.order),
 			role: spec.role,
 			heading: spec.heading,
 			fused: []
 		})
 		const rows: DeliveredRows<I> = {
-			...statementRows(cx, spec.heading, spec.origin, () => held.read(0)),
+			...statementRows(
+				cx,
+				spec.heading,
+				spec.origin,
+				held.rows,
+				this.#rowKeys(spec.origin, undefined)
+			),
 			bound: spec.bound
 		}
 		return {
@@ -1239,10 +1294,13 @@ export class OptimizedDelivery<
 		const built = this.pipelinedQuery(attach, spine, rows, parentKey)
 		const origin = { kind: "node", node: attach.id } as const
 		const childColumns = deliveredHeading(child.heading)
-		const held = this.#held(
+		const fixed = parentFixed(attach, parentKey)
+		const held = this.#heldPairs(
 			checkedAttachment(cx, attach, built.rows, parentKey, child.heading, rows),
-			parentKey.length + childColumns.length,
-			origin
+			parentKey.length,
+			childColumns.length,
+			origin,
+			fixed
 		)
 		const statement = placed(
 			this.#place({
@@ -1253,7 +1311,7 @@ export class OptimizedDelivery<
 			})
 		)
 		const childRows: DeliveredRows<I> = {
-			...statementRows(cx, child.heading, child, () => held.read(parentKey.length)),
+			...statementRows(cx, child.heading, child, held.children, this.#rowKeys(child, fixed)),
 			bound: boundTimes(rows.bound, this.facts.maxCard(child))
 		}
 		return {
@@ -1314,7 +1372,7 @@ export class OptimizedDelivery<
 			...select(
 				keyedSet(
 					columns.map((c) => target(col(alias, c))),
-					[derived(held.read(0), alias, columns, false)],
+					[derived(held.rows(), alias, columns, false)],
 					undefined,
 					"an attachment's held rows"
 				)

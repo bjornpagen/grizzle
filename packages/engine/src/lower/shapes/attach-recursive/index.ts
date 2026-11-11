@@ -6,7 +6,6 @@ import {
 	type ColumnMap,
 	columnIn,
 	type Env,
-	headingTargets,
 	type LowerContext,
 	outputNames
 } from "#compiler/lower/conservative/context.ts"
@@ -22,17 +21,7 @@ import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
 import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Expr, Select, SelectCore, With } from "#compiler/sql/ast.ts"
-import {
-	and,
-	cast,
-	col,
-	core,
-	cteRefAs,
-	distinctCore,
-	provedCore,
-	select,
-	target
-} from "#compiler/sql/build.ts"
+import { and, cast, col, core, cteRefAs, provedCore, select, target } from "#compiler/sql/build.ts"
 
 /**
  * A parent key column of a seeded attachment, with the origin column of the state it is delivered from: the first the
@@ -245,10 +234,6 @@ export const seededAttachment = (
 	return {
 		query: { ...select(scanned), with: recursion, orderBy: order(originMap, stateMap) },
 		rows: { ...select(scanned), with: recursion },
-		order,
-		keys: (demand) => ({
-			...select(distinctCore(headingTargets(demand, stateMap), [cteRefAs(cte, scan)], undefined)),
-			with: recursion
-		})
+		order
 	}
 }

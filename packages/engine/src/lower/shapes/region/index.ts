@@ -158,7 +158,7 @@ const chainOrder = (
 			const name = p.names.get(c)
 			return name === undefined ? [] : [name]
 		})
-		if (columns.length > 0 && facts.keyedBy(p.placed.occurrence.source, columns)) {
+		if (columns.length > 0 && facts.keyedBy(p.placed.occurrence.source, columns) !== undefined) {
 			return 0
 		}
 		return fixed(p.placed).size > 0 ? 1 : 2

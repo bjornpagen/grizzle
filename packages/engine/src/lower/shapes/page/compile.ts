@@ -44,6 +44,7 @@ import {
 import { Delivery, statementRows } from "#compiler/lower/conservative/deliver.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
+import { noRowKeys } from "#compiler/lower/conservative/keys.ts"
 import { completedOrderItems, orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
 import type {
 	ConservativeOptions,
@@ -354,7 +355,7 @@ const conservativeKit = <F extends PageFill>(
 		order: (order, heading, map) => completedOrderItems(order, heading, map),
 		probeRel: (rel) => rel,
 		retained: (retained, heading, origin) => ({
-			...statementRows(cx, heading, origin, retained),
+			...statementRows(cx, heading, origin, retained, noRowKeys),
 			bound: pageBound
 		}),
 		attach: (rows, spine, attachments) => delivery.attachments({ nodes: spine, attachments }, rows)

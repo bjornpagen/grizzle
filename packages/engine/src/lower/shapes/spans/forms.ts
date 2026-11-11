@@ -42,7 +42,7 @@ const packContributions = (node: ProducerNode<"spanPack">, facts: ShapeFacts): C
 	const [span] = node.args
 	return span.kind === "column" &&
 		span.column.node === node.input.id &&
-		facts.keyedBy(node.input, [...node.carried, span.column.name])
+		facts.keyedBy(node.input, [...node.carried, span.column.name]) !== undefined
 		? "keyed"
 		: "distinct"
 }

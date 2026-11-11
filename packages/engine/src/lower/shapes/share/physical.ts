@@ -1,5 +1,6 @@
 import type { PhysicalAnalysis } from "#compiler/analysis/physical/analyze.ts"
 import { consumerIn } from "#compiler/analysis/physical/consumers.ts"
+import type { Identification } from "#compiler/analysis/physical/fds.ts"
 import { isUnique, keyedBy, type Realization } from "#compiler/analysis/physical/props.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { Cardinality } from "#compiler/ir/cardinality.ts"
@@ -30,10 +31,11 @@ export interface ShapeFacts {
 	/** Whether a node's rows, as realized, are physically unique on its whole heading. */
 	readonly unique: (node: RelNode) => boolean
 	/**
-	 * Whether `columns` determine a physical key of the node's rows: then the node has at most one row per value of
-	 * `columns`, and an order over them is total over the node.
+	 * The physical analysis's proof that `columns` determine a key of the node's rows, where they do: then one evaluation
+	 * of the node has at most one row per value of `columns`, and an order over them is total over it. A node that reads
+	 * an enclosing node is evaluated once per binding of what it reads, so the key holds within each binding.
 	 */
-	readonly keyedBy: (node: RelNode, columns: KeySet) => boolean
+	readonly keyedBy: (node: RelNode, columns: KeySet) => Identification | undefined
 	/** The node's maximum cardinality, where the analysis knows one. */
 	readonly maxCard: (node: RelNode) => Cardinality
 	/** Whether an attachment's child rows are unique per parent binding. */
@@ -86,7 +88,7 @@ export const shapeFactsFromPlan = (
 		context: analysis.context,
 		realization: (node) => analysis.of(node).realization,
 		unique: (node) => isUnique(propsOf(node)),
-		keyedBy: (node, columns) => keyedBy(propsOf(node), columns) !== undefined,
+		keyedBy: (node, columns) => keyedBy(propsOf(node), columns),
 		maxCard: (node) => propsOf(node).maxCard,
 		/**
 		 * A child edge that observes and is discharged proves the child unique per parent; a child edge that does not

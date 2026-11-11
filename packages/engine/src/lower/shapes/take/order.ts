@@ -22,4 +22,4 @@ export const orderIsTotal = (
 	facts.keyedBy(
 		input,
 		order.keys.map((k) => k.column)
-	)
+	) !== undefined
