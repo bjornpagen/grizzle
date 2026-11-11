@@ -10,6 +10,7 @@ import {
 	type TheoryLaw
 } from "#compiler/analysis/theory/laws.ts"
 import { type RefillDeferral, refillDeferral } from "#compiler/analysis/theory/refill.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
@@ -1466,17 +1467,18 @@ export class Recognizer {
 		}
 		for (const [name, sides] of keys) {
 			for (const side of sides) {
-				if (side.rel.kind !== "closed" && !side.terms.some((t) => isSpanField(t.column))) {
-					const columns = sideColumns(side)
-					at(name).uniques.push(columns)
-					at(name).columns.push(...columns)
+				if (side.rel.kind === "closed" || side.terms.some((t) => isSpanField(t.column))) {
+					continue
 				}
+				const columns = sideColumns(side)
+				at(name).uniques.push(columns)
+				appendAll(at(name).columns, columns)
 			}
 		}
 		const fixed: Array<FixedUse> = []
 		for (const part of laws.flatMap((law) => scalarParts(law, relations, discharge))) {
 			const source = sideColumns(part.from)
-			at(part.from.relation).columns.push(...source)
+			appendAll(at(part.from.relation).columns, source)
 			const run = btreeRun(source)
 			if (run !== undefined) {
 				at(part.from.relation).probes.push(run.columns)
@@ -1490,7 +1492,7 @@ export class Recognizer {
 			)
 			if (shared === undefined) {
 				at(part.to.relation).uniques.push(own)
-				at(part.to.relation).columns.push(...own)
+				appendAll(at(part.to.relation).columns, own)
 			} else {
 				fixed.push({
 					relation: part.to.relation,

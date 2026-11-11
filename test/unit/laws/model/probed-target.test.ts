@@ -592,7 +592,7 @@ const checkReports = (
 					continue
 				}
 				assert.ok(
-					meaning !== undefined && meaning(x.row, y.row),
+					meaning?.(x.row, y.row) === true,
 					`${what}: the unique index of T over (${index}) refuses ${Formatter.format([x.row, y.row])} together and reports ${reported.detail.kind} ${reported.id}, which they do not break`
 				)
 				if (generated && reported.detail.kind === "projectedKey") {
