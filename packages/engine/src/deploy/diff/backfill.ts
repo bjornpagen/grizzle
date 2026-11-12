@@ -22,8 +22,10 @@
  *   the one recursive step a migration holds: the closure of the parent relation, (r…, parent) into (r…, start), from
  *   which each row's subtree size, and its start as the sum over its ancestors of one plus the sizes of their earlier
  *   siblings. A tree whose index the migration keeps keeps its caller's sibling order: every column drawn anew reads
- *   the stored index, and only the columns the migration adds are written. The stored parent and start are its rows'
- *   structure and keys: a migration that draws either anew on a table that may hold rows is refused, naming the tree.
+ *   the stored index, and only the columns the migration adds are written. The stored start and end are its rows'
+ *   pre-order, kept as its index is (deploy/diff/declared.ts sameSequence): a parent drawn anew is drawn from them first,
+ *   each row's parent the start of the row of its root value whose interval holds its own most tightly (parentUpdate),
+ *   and a migration that draws a tree's start or end anew on a table that may hold rows is refused, naming the tree.
  *
  * - **Tree folds:** over each row's siblings in slot order, their order by start, the root alone at slot 0, its before
  *   the identity; each row's end its last child's after. A fold added to a tree that holds rows, or changed on one, is
@@ -86,10 +88,12 @@ import {
 	cteRefAs,
 	derived,
 	eq,
+	firstNonNull,
 	join,
 	lit,
 	not,
 	objectName,
+	operandSelect,
 	provedCore,
 	select,
 	setOperation,
@@ -1079,6 +1083,50 @@ const treeUpdate = (
 	}
 }
 
+/**
+ * A tree's parent drawn anew over its kept intervals (deploy/diff/declared.ts sameSequence): each row's parent is the
+ * start of the row of its own root value whose interval holds its own most tightly, the greatest start of a row of its
+ * root that starts before it and ends at or after its end, and a row no row of its root encloses is its tree's root, its
+ * own parent. Pre-order intervals nest, so the enclosing rows of a row are its ancestors and the one starting last is
+ * its parent. Intervals that make no tree under the new root values, two trees merged under one or one split across
+ * two, are drawn anyway, and VALIDATE refuses them by the tree's laws and its relation's key.
+ */
+const parentUpdate = (names: OperatorNames, shape: TreeShape, table: ObjectName): Update => {
+	const start = shape.start.column
+	const end = shape.end.column
+	const enclosing = operandSelect(
+		core(
+			[targetAs(call("max", [col("o", start)]), "__parent")],
+			[{ kind: "table", table, alias: "o" }],
+			and([
+				...mapNonEmpty(shape.root, (r) =>
+					typedEq(r.type, col("o", r.column), col("t", r.column), names)
+				),
+				binary("<", col("o", start), col("t", start)),
+				binary(">=", col("o", end), col("t", end))
+			])
+		)
+	)
+	return {
+		kind: "update",
+		with: undefined,
+		table,
+		alias: "t",
+		set: [
+			{
+				column: shape.parent.column,
+				value: cast(
+					firstNonNull([{ kind: "subquery", query: enclosing }, col("t", start)]),
+					types.bigint
+				)
+			}
+		],
+		from: [],
+		where: undefined,
+		returning: []
+	}
+}
+
 /** A tree's fold ends this migration adds: each row's end its last child's after, read off the backfilled rows; a
  * leaf keeps its placeholder, the identity, which an empty family's end is. */
 const treeEndUpdate = (
@@ -1432,12 +1480,18 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 					fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after), p.end.column])
 				)
 			]
-			const structure = [shape.parent.column, shape.start.column].filter((c) => onMember.has(c))
-			if (isNonEmpty(structure)) {
+			const intervals = [shape.start.column, shape.end.column].filter((c) => onMember.has(c))
+			if (isNonEmpty(intervals)) {
 				return refuseBackfill(
 					family,
-					`its rows' structure, ${structure.join(", ")}, drawn anew: the stored rows alone don't determine the tree`
+					`its rows' pre-order intervals, ${intervals.join(", ")}, drawn anew: the stored rows alone determine a tree only by an installed tree's intervals the migration keeps`
 				)
+			}
+			if (onMember.has(shape.parent.column)) {
+				updates.push({
+					kind: "update",
+					update: parentUpdate(input.installation.names, shape, memberTable)
+				})
 			}
 			if (!columns.some((c) => onMember.has(c))) {
 				continue

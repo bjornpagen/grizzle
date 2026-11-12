@@ -187,8 +187,12 @@ breaking change may briefly break older application instances that are still run
   (its owner re-keyed, a group field dropped and added) the index column is kept, the count, copies and folds are
   drawn again over the kept order after the data step, and Validate refuses a data step that leaves an owner's
   indices other than 0 … n − 1. `--drop M.at` while the schema still declares `M.at` gives the stored order up and
-  draws the index anew in member-key order. A fold added to or
-  changed on a tree that holds rows is drawn in the tree's stored sibling order. A family whose values the stored rows
+  draws the index anew in member-key order. A tree's `start` and `end` are kept as its index is, so a tree re-keyed by
+  its root (root fields added or replaced, an id-keyed tree moved to the keyed form `{ root: [r…] }` keyed `[...r,
+  "start"]`) keeps `at`, `start` and `end`, and its drawn `parent` is drawn from them, each row's parent the row of its
+  root value whose interval holds its own most tightly: fill the new root fields in the data step before the backfill,
+  and Validate refuses roots that merge or split stored trees. A tree added to rows no installed tree drew is refused.
+  A fold added to or changed on a tree that holds rows is drawn in the tree's stored sibling order. A family whose values the stored rows
   alone don't give is refused, naming it: copies that read each other, or a fold over a copy. A roster whose names changed has its domain's CHECK dropped and added `NOT VALID` against the new names constant,
   validated in Validate; a set over a roster that grew is converted to the new size's domain by its cast, the new
   handles absent. A table CHECK or generated field over a changed closed relation is replaced the same way, or takes its

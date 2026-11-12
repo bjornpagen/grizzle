@@ -1830,7 +1830,7 @@ key, so two runs on one stage never share a night.
 | Row check      | `check("SomeSeats", Show, (s) => s.seats.ge(1n))`                         | the condition holds on every row                                              |
 | Counted family | `counted(on(Ticket, "show"), fin(Show, "tickets"))`                       | each show's `tickets` is the number of tickets that name it                   |
 | Ordered family | `ordered(on(Line, "order", "at"), fin(Order, "n"))`                       | each order's lines hold `at` exactly 0 … n − 1                                |
-| Tree           | `tree(on(Node, "parent", "at"), fin(Node, "children"), { root: "doc" })`  | each `doc`'s rows are one tree, `[start, end)` each row's pre-order interval  |
+| Tree           | `tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["doc"] })` | Node keyed (doc, start): each `doc`'s rows one tree, `[start, end)` each row's pre-order interval |
 | Fold           | `fold(family, Monoid.sum, step, end)`                                     | each owner's end is its members' step values combined by the monoid           |
 | Selected side  | `on(select(Ticket, (t) => φ), "show")`, in any rule                       | the rule reads only the rows where φ holds                                    |
 | Predecessor    | `on(Place, "show", pred("at"))`, in any rule                              | the rule reads `at` − 1, and nothing of a row whose `at` is 0                 |
@@ -2012,12 +2012,16 @@ A family is a rule over rows the caller writes: each owner's members, counted by
 - **`counted(on(F, g…), fin(O, "n"))`**: each owner's `n` members, their group `g…` naming the owner by O's primary
   key: an unordered set, one row per member key. Its index is hidden from every field, fact and query: a coordinate,
   never a multiplicity.
-- **`tree(on(T, "parent", "at"), fin(T, "children"), { root: "doc" })`**: T over itself, with drawn `at`, `children`,
-  `start` and `end`. Each value of the root field `doc` is one tree: its root is the row whose `parent` is its own id,
-  every other row is a member of its parent's ordered family, and `[start, end)` is each row's pre-order interval.
-  PostgreSQL's own constraints keep each tree one tree, every row reachable and none on a cycle. The tree installs
-  `UNIQUE (doc, start)`: a document in order is one scan of it, and a row's descendants, its tree's rows whose `start`
-  lies in its interval, one range scan, with no recursion.
+- **`tree(on(T, "parent", "at"), fin(T, "children"), { root: ["doc"] })`**: T over itself, keyed by its root fields
+  then its drawn `start` (here `["doc", "start"]`; `{ root: ["package", "path"] }` keys T `["package", "path",
+  "start"]`), with drawn `parent`, `at`, `children`, `start` and `end`. Each value of the root fields is one tree: its
+  root is its row at start 0, its own parent, every other row is a member of its parent's ordered family, `parent` is
+  its parent's start in its own tree, and `[start, end)` is each row's pre-order interval. PostgreSQL's own constraints
+  keep each tree one tree, every row reachable and none on a cycle, each constraint led by the root fields. The primary
+  key `(doc, start)` is the document order: a document in order is one scan of it, and a row's descendants, its tree's
+  rows whose `start` lies in its interval, one range scan, with no recursion. A fold over the tree steps on
+  `on(T, "doc", "parent", …)` and ends on `on(T, "doc", "start", …)`; a copy down the tree is
+  `contained(on(select(T, (t) => t.gt(t.start, 0n)), "doc", "parent", "x"), on(T, "doc", "start", "y"))`.
 - **`fold(family, Monoid.m, step, end)`**: the members' step values, `step` a side of the member, combined by the
   monoid into the owner's `end` fields, each `accumulated`.
 
@@ -2058,8 +2062,8 @@ narrowed into its column's type unproved.
 #### Writing a family
 
 - **A sequence is written nested**: its members under their owner, in order, at its count field, without their group
-  and drawn fields: `insert(Order, [{ id, n: [{ qty }, { qty }] }])`. No tree row names its `parent`, and only the
-  root names the root field: `{ id, doc, children: [{ id, children: [] }] }`. A nested member, at any depth, states no
+  and drawn fields: `insert(Order, [{ id, n: [{ qty }, { qty }] }])`. No tree row names its key or its `parent`, and only
+  the root names the root fields: `{ doc, children: [{ children: [] }] }`. A nested member, at any depth, states no
   field its nesting supplies, grizzle draws or accumulates, or its relation lacks: a type error, and from JavaScript an
   `EncodingFailure` (`factShape`) before any SQL. An ordered member inserted alone is a type error. A tree is written
   whole: a put or a delete of one of its rows is a type error, and from JavaScript refused when the ChangeSet compiles.
@@ -2701,8 +2705,8 @@ deploy.
   `--rename <old>=<new>` or `--drop <old>`, once per name, each side a relation (`Task`), a field (`Task.title`), a
   roster's handle (`Status#done`) or a login (`@web`); swaps and chains work. A renamed relation keeps its rows, a
   field its values, a handle its code, and a login its PostgreSQL role (`ALTER ROLE ... RENAME TO`), with its password
-  and grants. A family's hidden columns (its copy of the count, a counted index, a tree's parent start, a fold's hidden
-  accumulators, each `pred` term) are named by the laws they hold the values of, so renaming the owner, the member, the
+  and grants. A family's hidden columns (its copy of the count, a counted index, a fold's hidden accumulators, each
+  `pred` term) are named by the laws they hold the values of, so renaming the owner, the member, the
   count, or a roster or handle a fold's selection reads renames them too, in place (`ALTER TABLE ... RENAME COLUMN`),
   and every key, index, CHECK and foreign key the renamed names reach is renamed to its new name by its definition,
   never built or validated again: a pure rename keeps every drawn value, with no backfill, no table rewrite and no
@@ -2746,7 +2750,14 @@ deploy.
   by the family's own key, bound or foreign keys, naming its law, and nothing is renumbered silently. To regroup and
   give up the stored order, declare it: `--drop Line.at` while the schema still declares `Line.at` drops the stored
   index, and the migration draws the target's anew in member-key order. Only an index new to the migration, or one
-  whose family changes owner, count or kind, is drawn anew undeclared. The constraints are added
+  whose family changes owner, count or kind, is drawn anew undeclared. A tree's interval is kept as its index is, so a
+  tree re-keyed by its root (a root field added, renamed or replaced, or an id-keyed tree's root and parent replaced by
+  the keyed form) keeps every row's `at`, `start` and `end`, and its `parent`, drawn anew, is drawn from them: each
+  row's parent is the row of its own root value whose interval holds its own most tightly. Your data step fills the
+  new root fields before the backfill; Validate proves the kept intervals each new root's one tree, so a data step that
+  maps two stored trees onto one root value, or splits one across two, is refused by the tree's key or its laws. A
+  tree added to rows that held none, whose intervals no installed tree drew, is refused, naming it. The constraints are
+  added
   after the backfill, `NOT VALID`, and validated, so a value drawn wrongly refuses the migration. A fold added to a
   tree that holds rows, or changed on one, is drawn in the tree's stored sibling order, which is its caller's. A family
   the stored rows alone don't determine is refused, naming it: copies that read each other, or a fold over a copy. The
@@ -2896,7 +2907,7 @@ is `unreported` where only a refill writes the row, such as a stored owner whose
 | `contained`  | `from`, `to`: a containment, foreign keys included; an `alternatives` statement and a `mirrors` are containments |
 | `coverage`   | `from`, `to`: a containment whose sides pair a span field                                                       |
 | `family`     | `order` (`"ordered"` or `"counted"`), `member` (a side), `slots` (`{ owner, count }`)                           |
-| `tree`       | `member`, `slots`, `root` (the root field)                                                                      |
+| `tree`       | `member`, `slots`, `root` (the root fields, a list)                                                             |
 | `fold`       | `family` (its slots), `monoid`, `step` and `end` (sides)                                                        |
 | `contract`   | `contract`                                                                                                      |
 | `pattern`    | `relation`, `field`, `patterns`: each `{ source, flags }` as that field spells it, one rule per field           |

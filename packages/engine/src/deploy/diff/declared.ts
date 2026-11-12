@@ -39,6 +39,7 @@ import type {
 	SnapshotRelation,
 	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
+import type { Family } from "#compiler/ir/family.ts"
 import { fillersOf } from "#compiler/laws/model/fillers.ts"
 import {
 	type PreviousNames,
@@ -590,14 +591,42 @@ const drawnBy = (w: SnapshotWriting): boolean =>
 	typeof w === "object" && ("drawn" in w || "accumulated" in w)
 
 /**
+ * The place the target draws `field` of `relation` in as a sequence's own order: an ordered family's or a tree's index,
+ * or a tree's start or end, its member's pre-order interval; none for any other field.
+ */
+const sequencePlaceOf = (
+	installation: Installation,
+	relation: string,
+	field: string
+): { readonly family: Family; readonly role: "index" | "start" | "end" } | undefined => {
+	for (const f of installation.laws.theory.families) {
+		if (f.member.name !== relation) {
+			continue
+		}
+		if (f.index.kind === "field" && f.index.field.name === field) {
+			return { family: f, role: "index" }
+		}
+		if (f.members.kind === "tree" && f.members.start.name === field) {
+			return { family: f, role: "start" }
+		}
+		if (f.members.kind === "tree" && f.members.end.name === field) {
+			return { family: f, role: "end" }
+		}
+	}
+	return undefined
+}
+
+/**
  * Whether `was`, the previous snapshot's record of a field the target draws as the index of an ordered family or a
- * tree, records the index of a family over the same sequence: a law the previous snapshot states of the target family's
- * kind (its shape, "family" or "tree"), whose index record is `was` and whose count record is the one the previous
- * snapshot holds on the target family's owner's table and count's column, as the declarations left them. The member's
- * field is the field `was` is recorded on, so the family orders the same members of the same owners: only its group, by
- * which each member names its owner, may differ. An index holds each member's place in its owner's sequence, which its
- * caller wrote, so it is kept, never drawn again; the family's laws, validated after the migration's data steps, prove
- * the kept places a sequence of each owner under the new group.
+ * tree, or as a tree's start or end, records that place in a family over the same sequence: a law the previous snapshot
+ * states of the target family's kind (its shape, "family" or "tree"), whose record of that place is `was` and whose
+ * count record is the one the previous snapshot holds on the target family's owner's table and count's column, as the
+ * declarations left them. The member's field is the field `was` is recorded on, so the family orders the same members
+ * of the same owners: only its group, by which each member names its owner, may differ, and a tree's root and parent
+ * among it. An index holds each member's place in its owner's sequence, which its caller wrote, and a tree's interval
+ * its rows' pre-order under that order, so each is kept, never drawn again; the family's laws, validated after the
+ * migration's data steps, prove the kept places a sequence of each owner under the new group, and the kept intervals
+ * each new tree's pre-order (a tree's parent drawn anew is drawn from them, deploy/diff/backfill.ts parentUpdate).
  */
 const sameSequence = (
 	previous: DeploySnapshot,
@@ -606,12 +635,11 @@ const sameSequence = (
 	field: string,
 	was: SnapshotWriting
 ): boolean => {
-	const family = installation.laws.theory.families.find(
-		(f) => f.member.name === relation && f.index.kind === "field" && f.index.field.name === field
-	)
-	if (family === undefined) {
+	const place = sequencePlaceOf(installation, relation, field)
+	if (place === undefined) {
 		return false
 	}
+	const { family, role } = place
 	const owner = Object.values(previous.theory.relations).find(
 		(r) => r.kind === "relation" && r.ident === family.owner.ident
 	)
@@ -625,7 +653,7 @@ const sameSequence = (
 		Object.entries(previous.theory.laws).some(
 			([law, stated]) =>
 				stated.shape === shape &&
-				same(was, drawnWriting({ role: { kind: "index" }, laws: [law] })) &&
+				same(was, drawnWriting({ role: { kind: role }, laws: [law] })) &&
 				same(counted.writing, drawnWriting({ role: { kind: "count" }, laws: [law] }))
 		)
 	)
