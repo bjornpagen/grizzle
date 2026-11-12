@@ -2229,22 +2229,26 @@ Facts that only accumulate keep their writers certifiable at READ COMMITTED, but
 outbox rows must go once their work is finished. A retirable unit lets them go a group at a time:
 
 ```ts
-export const Root = relation("Root", { id: uuid, retired: retirement }, ["id"])
-export const Step = relation("Step", { root: uuid, step: pg.int4 }, ["root", "step"])
-export const Claim = relation("Claim", { root: uuid, step: pg.int4, attempt: natural }, [
-	"root",
+export const Flow = relation("Flow", { id: uuid, retired: retirement }, ["id"])
+export const FlowStep = relation("FlowStep", { flow: uuid, step: pg.int4 }, ["flow", "step"])
+export const FlowClaim = relation("FlowClaim", { flow: uuid, step: pg.int4, attempt: natural }, [
+	"flow",
 	"step",
 	"attempt"
 ])
-export const Work = schema("Work", [Root, Step, Claim], [
-	retirable(Root, [on(Step, "root"), on(Claim, "root")]),
-	contained(on(Claim, "root", "step"), on(Step, "root", "step"))
-])
+export const Flows = schema(
+	"Flows",
+	[Flow, FlowStep, FlowClaim],
+	[
+		retirable(Flow, [on(FlowStep, "flow"), on(FlowClaim, "flow")]),
+		contained(on(FlowClaim, "flow", "step"), on(FlowStep, "flow", "step"))
+	]
+)
 ```
 
-- **The header** (`Root`) holds one row per group, which is never deleted: its key is the group, and its one
+- **The header** (`Flow`) holds one row per group, which is never deleted: its key is the group, and its one
   `retirement` field says whether the group is open (false, the value every insert writes) or retired (true).
-- **The bodies** (`Step`, `Claim`) are the rows of each group: each side names the fields that hold its row's group, in
+- **The bodies** (`FlowStep`, `FlowClaim`) are the rows of each group: each side names the fields that hold its row's group, in
   the order of the header's key. Every key of a body holds them, a containment or a family into a body comes from a
   body of the same unit carrying the group, and no other statement reads the retirement field; a schema that breaks one
   is refused when it compiles (`MalformedDescription`). The header is immutable, no family's, tree's or alternatives

@@ -42,6 +42,8 @@ import {
 	race,
 	refresh,
 	relation,
+	retirable,
+	retirement,
 	role,
 	schema,
 	select,
@@ -866,6 +868,23 @@ export const ContentPackage = schema.extend(
 			on(CatalogRecord, "resource", "path", "type"),
 			on(TypedHref, "resource", "path", "type")
 		)
+	]
+)
+
+/** README: "Retirable units". */
+export const Flow = relation("Flow", { id: uuid, retired: retirement }, ["id"])
+export const FlowStep = relation("FlowStep", { flow: uuid, step: pg.int4 }, ["flow", "step"])
+export const FlowClaim = relation("FlowClaim", { flow: uuid, step: pg.int4, attempt: natural }, [
+	"flow",
+	"step",
+	"attempt"
+])
+export const Flows = schema(
+	"Flows",
+	[Flow, FlowStep, FlowClaim],
+	[
+		retirable(Flow, [on(FlowStep, "flow"), on(FlowClaim, "flow")]),
+		contained(on(FlowClaim, "flow", "step"), on(FlowStep, "flow", "step"))
 	]
 )
 
