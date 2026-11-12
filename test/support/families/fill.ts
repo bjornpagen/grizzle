@@ -173,7 +173,7 @@ const sourceRelationOf = (spec: FillSpec, copy: CopySpec): number => {
 }
 
 /** The tree on relation `r`, its family's index; none when `r` is no tree's relation. */
-const treeOn = (spec: FillSpec, r: number): number | undefined =>
+export const treeOn = (spec: FillSpec, r: number): number | undefined =>
 	Option.getOrUndefined(
 		Arr.findFirstIndex(spec.families, (x) => x.kind === "tree" && x.owner === r)
 	)

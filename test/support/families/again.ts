@@ -153,6 +153,59 @@ const without = (rows: ReadonlyArray<InstanceRow>, id: number): ReadonlyArray<In
 	return Arr.filter(rows, (r) => !gone.has(r.id))
 }
 
+/**
+ * The relations a ChangeSet may delete whole (README "Families": "A group is deleted whole, through its owner"), as
+ * the generator draws them: each that owns a family and is no family's member but its own tree's, whose nested
+ * relations, through every family, are members only of families owned within the unit, so its delete is one the README
+ * admits (a delete whose nested rows include a member of a family whose owner it does not remove is refused when the
+ * ChangeSet compiles; WHOLEDEL's suite searches those refusals).
+ */
+export const unitRelations = (spec: FillSpec): ReadonlyArray<number> =>
+	Arr.filter(
+		Arr.map(spec.relations, (_, r) => r),
+		(r) => {
+			const owns = Arr.some(spec.families, (f) => f.owner === r)
+			const alone = Arr.every(
+				spec.families,
+				(f) => f.member !== r || (f.kind === "tree" && f.owner === r)
+			)
+			const nested = new Set([r])
+			let grew = true
+			while (grew) {
+				grew = false
+				for (const f of spec.families) {
+					if (nested.has(f.owner) && !nested.has(f.member)) {
+						nested.add(f.member)
+						grew = true
+					}
+				}
+			}
+			return (
+				owns &&
+				alone &&
+				Arr.every(spec.families, (f) => !nested.has(f.member) || nested.has(f.owner))
+			)
+		}
+	)
+
+/** The rows a ChangeSet may delete whole of `rows`: each top row of a relation `unitRelations` admits. */
+export const unitRowsOf = (
+	spec: FillSpec,
+	rows: ReadonlyArray<InstanceRow>
+): ReadonlyArray<InstanceRow> => {
+	const units = unitRelations(spec)
+	return Arr.filter(
+		rows,
+		(r) => units.includes(r.relation) && !Arr.isReadonlyArrayNonEmpty(r.memberOf)
+	)
+}
+
+/** The rows of `rows` a delete of the units `ids` whole leaves: each unit and every row nested under it gone. */
+export const withoutUnits = (
+	rows: ReadonlyArray<InstanceRow>,
+	ids: ReadonlyArray<number>
+): ReadonlyArray<InstanceRow> => Arr.reduce(ids, rows, (left, id) => without(left, id))
+
 /** The instance a difference makes of `rows`. */
 export const differed = (
 	spec: FillSpec,

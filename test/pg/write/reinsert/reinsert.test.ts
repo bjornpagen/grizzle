@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { constant, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { constant, element, type Gen, int, subset, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { swarm } from "@grizzle/testing/swarm"
@@ -10,6 +10,7 @@ import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { memberOps } from "#adapter/db/handles.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -26,7 +27,10 @@ import {
 	type Standing,
 	standingOf,
 	type Target,
-	targetsOf
+	targetsOf,
+	unitRelations,
+	unitRowsOf,
+	withoutUnits
 } from "#test/support/families/again.ts"
 import {
 	admittedFillSpecGen,
@@ -47,6 +51,8 @@ import {
 	plantedGen,
 	relationAt,
 	relationName,
+	rootEntries,
+	treeOn,
 	uuidOfRow,
 	writtenRows
 } from "#test/support/families/fill.ts"
@@ -70,8 +76,17 @@ import { fullWorld } from "#test/support/worlds.ts"
  * sequence's members nested under their owners and a tree's nodes under their roots, and then one to three inserts
  * of it again through the same served member, each the stored instance with none to two drawn differences
  * (test/support/families/again.ts): a row's payload changed, a member added to, removed from or moved within a tree,
- * an ordered family or a counted family, a top row left out, another instance beside it; now and then every fact
- * stated twice in the one call.
+ * an ordered family or a counted family, a top row left out, a row renamed, another instance beside it; now and then
+ * every fact stated twice in the one call; and, one insert again in three where the stored instance holds a unit, a
+ * replace (README "Families": "A replace is a delete and an insert in one stratum"), the same stratum first deleting
+ * some stored units whole: tree roots by their root fields, and top rows of a relation that owns a family and is no
+ * family's member, by their facts. The generator draws only units the README admits, whose nested relations are
+ * members only of families owned within the unit (again.ts unitRelations); WHOLEDEL's suite searches the refusals.
+ *
+ * A replace is judged by the same rule from the stored instance less its deleted units: the state it leaves is
+ * (S − units) ∪ the stated rows, it answers `no-change` where that is the stored state and `accepted` otherwise, and an
+ * identical replace writes no row, every stored row keeping its ctid and xmin ("A row the replace adds again unchanged
+ * is never written"). Its counts are not judged beyond its kind.
  *
  * The oracle is the set rule as a pure model of relations as sets of facts (again.ts againVerdict), with the reference
  * writer (fill.ts writtenRows) for every value grizzle draws:
@@ -88,8 +103,8 @@ import { fullWorld } from "#test/support/worlds.ts"
  *
  * Features: each kind of difference, alone in its insert, at each family kind and place, with its verdict, a sequence's
  * member added, removed or moved under a mutable owner and under an immutable one (an owner stated again with fewer,
- * more or reordered members, README.md:2066); the same instance again and stated twice; two differences in one insert.
- * A witness case aims at a pending one with a schema holding every family kind beside a plain relation, every relation
+ * more or reordered members, README.md:2066); the same instance again and stated twice; two differences in one insert;
+ * a replace of the same units, with a difference, and dropping a unit. A witness case aims at a pending one with a schema holding every family kind beside a plain relation, every relation
  * mutable or every one immutable, every count at its most, and one difference at it.
  *
  * Plants: ~/.cache/grizzle-release/KEYSTRESS/plants/reinsert-no-change-as-accepted.patch, a committed write answered
@@ -100,6 +115,8 @@ import { fullWorld } from "#test/support/worlds.ts"
 interface Again {
 	readonly differences: ReadonlyArray<Difference>
 	readonly twice: boolean
+	/** The stored units the same stratum deletes whole first, a replace where any (README "Families", replace). */
+	readonly units: ReadonlyArray<number>
 }
 
 /** A case: a specification, the instance its first insert writes, and the inserts again after it. */
@@ -136,6 +153,9 @@ type Situation =
 	| `a top row left out: ${VerdictLabel}`
 	| `another instance beside: ${VerdictLabel}`
 	| "two differences in one insert"
+	| `a replace of the same units: ${VerdictLabel}`
+	| `a replace with a difference: ${VerdictLabel}`
+	| `a replace dropping a unit: ${VerdictLabel}`
 
 const familyLabels: { readonly [K in FamilyKind]: FamilyLabel } = {
 	tree: "a tree",
@@ -265,6 +285,7 @@ const situationOf = (t: Target, v: VerdictLabel, owner: MutabilityLabel): Situat
 type Aim =
 	| { readonly kind: "drawn"; readonly differences: 0 | 2; readonly twice: boolean }
 	| { readonly kind: "target"; readonly target: Target; readonly mutable: boolean }
+	| { readonly kind: "replace"; readonly change: "none" | "a difference" | "a unit dropped" }
 
 /** The required situations, each with what a witness aims at to reach it, each verdict the set rule's for its aim. */
 const aims: Arr.NonEmptyReadonlyArray<readonly [Situation, Aim]> = [
@@ -365,7 +386,10 @@ const aims: Arr.NonEmptyReadonlyArray<readonly [Situation, Aim]> = [
 		"a counted member renamed: accepted",
 		{ kind: "target", target: { kind: "renamed", place: "counted member" }, mutable: true }
 	],
-	["two differences in one insert", { kind: "drawn", differences: 2, twice: false }]
+	["two differences in one insert", { kind: "drawn", differences: 2, twice: false }],
+	["a replace of the same units: no-change", { kind: "replace", change: "none" }],
+	["a replace with a difference: accepted", { kind: "replace", change: "a difference" }],
+	["a replace dropping a unit: accepted", { kind: "replace", change: "a unit dropped" }]
 ]
 
 const situations: Arr.NonEmptyReadonlyArray<Situation> = Arr.map(aims, ([s]) => s)
@@ -373,6 +397,12 @@ const situations: Arr.NonEmptyReadonlyArray<Situation> = Arr.map(aims, ([s]) => 
 /** How often an insert again states every fact twice: one in five. */
 const twiceGen: Gen<boolean> = weighted([
 	[4, constant(false)],
+	[1, constant(true)]
+])
+
+/** How often an insert again is a replace, where the stored instance holds a unit: one in three. */
+const replaceGen: Gen<boolean> = weighted([
+	[2, constant(false)],
 	[1, constant(true)]
 ])
 
@@ -406,8 +436,13 @@ const againsGen =
 				differences.push(d)
 				again = differed(spec, again, d)
 			}
-			out.push({ differences, twice: source.draw(twiceGen) })
-			stored = storedAfter(stored, againVerdict(spec, stored, again))
+			const unitIds = Arr.map(unitRowsOf(spec, stored), (r) => r.id)
+			const units =
+				Arr.isReadonlyArrayNonEmpty(unitIds) && source.draw(replaceGen)
+					? source.draw(subset(unitIds, { min: 1, max: unitIds.length }))
+					: []
+			out.push({ differences, twice: source.draw(twiceGen), units })
+			stored = storedAfter(stored, againVerdict(spec, withoutUnits(stored, units), again))
 		}
 		return nonEmpty(out)
 	}
@@ -448,7 +483,7 @@ const aimedSpecGen =
 const aimedGen =
 	(aim: Aim): Gen<ReinsertCase> =>
 	(source) => {
-		const spec = source.draw(aimedSpecGen(aim.kind === "drawn" || aim.mutable))
+		const spec = source.draw(aimedSpecGen(aim.kind !== "target" || aim.mutable))
 		const rows = fullInstance(spec)
 		const keys = keysOf(rows)
 		const kinds = source.draw(swarm(differenceKinds))
@@ -462,12 +497,29 @@ const aimedGen =
 					differences.push(d)
 					again = differed(spec, again, d)
 				}
-				return { spec, rows, again: [{ differences, twice: aim.twice }] }
+				return { spec, rows, again: [{ differences, twice: aim.twice, units: [] }] }
 			}
 			case "target": {
 				const admitted = Arr.some(targetsOf(spec, rows, keys), (t) => deepEquals(t, aim.target))
 				const d = source.draw(admitted ? differenceAt(spec, rows, keys, aim.target) : drawnAt(rows))
-				return { spec, rows, again: [{ differences: [d], twice: false }] }
+				return { spec, rows, again: [{ differences: [d], twice: false, units: [] }] }
+			}
+			case "replace": {
+				const units = Arr.map(unitRowsOf(spec, rows), (r) => r.id)
+				const differences = ((): ReadonlyArray<Difference> => {
+					switch (aim.change) {
+						case "none":
+							return []
+						case "a difference":
+							return [source.draw(drawnAt(rows))]
+						case "a unit dropped":
+							return Arr.match(units, {
+								onEmpty: () => [],
+								onNonEmpty: (ids) => [{ kind: "removed", id: source.draw(element(ids)) }]
+							})
+					}
+				})()
+				return { spec, rows, again: [{ differences, twice: false, units }] }
 			}
 		}
 	}
@@ -555,6 +607,48 @@ const judgeRefused = (
 		`${label}: the witness ${Formatter.format(witness)} is the key of a stated row breaking a law the refusal names, ${Formatter.format(named)}`
 	)
 }
+
+/** Whether two instances store one state: every relation's rows as the reference writer fills them, as sets. */
+const sameWritten = (
+	spec: FillSpec,
+	a: ReadonlyArray<InstanceRow>,
+	b: ReadonlyArray<InstanceRow>
+): boolean => {
+	const wa = writtenRows(spec, a)
+	const wb = writtenRows(spec, b)
+	const rowsOf = (
+		written: ReturnType<typeof writtenRows>,
+		rows: ReadonlyArray<InstanceRow>,
+		r: number
+	) =>
+		Arr.flatMap(rows, (x) =>
+			x.relation === r ? [defined(written.get(x.id), "a written row")] : []
+		)
+	return Arr.every(spec.relations, (_, r) => {
+		const x = rowsOf(wa, a, r)
+		const y = rowsOf(wb, b, r)
+		return (
+			x.length === y.length && Arr.every(x, (row) => Arr.some(y, (other) => deepEquals(row, other)))
+		)
+	})
+}
+
+/** Every stored row's physical identity, its relation, ctid and xmin, over every relation of `spec`. */
+const physicalRows = (done: Installed, spec: FillSpec) =>
+	Effect.gen(function* () {
+		const s = yield* Substrate
+		const out: Array<readonly [string, string, string]> = []
+		for (const [r] of spec.relations.entries()) {
+			const rows = yield* s.admin.queryValues(
+				`SELECT ctid::text, xmin::text FROM ${printObjectName(done.names.relation(relationName(r)))}`,
+				[]
+			)
+			for (const row of rows) {
+				out.push([relationName(r), String(row[0]), String(row[1])])
+			}
+		}
+		return out
+	})
 
 /** Every relation of `spec` holds exactly the reference writer's rows of `instance`. */
 const storesExactly = (
@@ -649,12 +743,51 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 									)
 								}
 							}
+							/** A replace: each unit relation deleted whole, then every relation a caller writes inserted, one stratum. */
+							const units = unitRelations(spec)
+							const replace = Arr.reduce(
+								insertedRelations(spec),
+								Arr.reduce(units, ChangeSet.empty(value), (cs, r) =>
+									cs.delete(relationAtName(r), [])
+								),
+								(cs, r) => cs.insert(relationAtName(r), [])
+							)
+							/** The facts a delete of unit rows `ids` names, by relation: a tree's root fields, any other unit's fact. */
+							const unitFacts = (
+								stored: ReadonlyArray<InstanceRow>,
+								ids: ReadonlyArray<number>
+							): Readonly<Record<string, ReadonlyArray<unknown>>> => {
+								const facts = instanceFacts(spec, stored)
+								return Rec.fromEntries(
+									Arr.map(units, (r): readonly [string, ReadonlyArray<unknown>] => [
+										relationName(r),
+										Arr.flatMap(
+											Arr.filter(stored, (x) => x.relation === r && ids.includes(x.id)),
+											(x: InstanceRow): ReadonlyArray<unknown> =>
+												Option.match(Option.fromUndefinedOr(treeOn(spec, r)), {
+													onSome: (f) => [Rec.fromEntries(rootEntries(f, x.id))],
+													onNone: () =>
+														Option.toArray(
+															Arr.findFirst(
+																facts.get(r) ?? [],
+																(fact) => fact["id"] === uuidOfRow(x.id)
+															)
+														)
+												})
+										)
+									])
+								)
+							}
 							yield* Effect.gen(function* () {
 								const db = yield* openServedDb(done, world.server.roles.app, {})
 								const flight = yield* oneFlight(db.ctx, done.as(world.server))
-								const loaded = yield* db.load({ insert })
+								const loaded = yield* db.load(
+									Arr.isReadonlyArrayNonEmpty(units) ? { insert, replace } : { insert }
+								)
 								const applied = (callFacts: CallFacts) =>
 									appliedWith(memberOps(flight.context, member(loaded, "insert")), callFacts, {})
+								const replaced = (callFacts: CallFacts) =>
+									appliedWith(memberOps(flight.context, member(loaded, "replace")), callFacts, {})
 								const first = yield* flight.judged(
 									"the first insert",
 									applied(factsOf(rows, false))
@@ -671,10 +804,21 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 									const restated = Arr.reduce(step.differences, stored, (at, d) =>
 										differed(spec, at, d)
 									)
-									const verdict = againVerdict(spec, stored, restated)
+									const left = withoutUnits(stored, step.units)
+									const verdict = againVerdict(spec, left, restated)
+									const identical =
+										Arr.isReadonlyArrayNonEmpty(step.units) &&
+										verdict.kind === "written" &&
+										sameWritten(spec, stored, verdict.rows)
+									const physicalBefore = identical ? yield* physicalRows(done, spec) : []
 									const outcome = yield* flight.judged(
 										label,
-										applied(factsOf(restated, step.twice))
+										Arr.isReadonlyArrayNonEmpty(step.units)
+											? replaced({
+													...factsOf(restated, step.twice),
+													delete: unitFacts(stored, step.units)
+												})
+											: applied(factsOf(restated, step.twice))
 									)
 									if (verdict.kind === "refused") {
 										judgeRefused(label, spec, restated, outcome, verdict, laws)
@@ -686,12 +830,23 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 											`the refused ${label}`
 										)
 									} else {
+										const changed = Arr.isReadonlyArrayNonEmpty(step.units)
+											? !sameWritten(spec, stored, verdict.rows)
+											: Arr.isReadonlyArrayNonEmpty(verdict.added)
 										assert.equal(
 											outcome.kind,
-											Arr.isReadonlyArrayNonEmpty(verdict.added) ? "accepted" : "no-change",
-											`${label}: every stated row is stored as stated, adding ${Formatter.format(Arr.map(verdict.added, (x) => x.id))}, so it is not ${Formatter.format(outcome)}`
+											changed ? "accepted" : "no-change",
+											`${label}: every stated row is stored as stated, adding ${Formatter.format(Arr.map(verdict.added, (x) => x.id))}${Arr.isReadonlyArrayNonEmpty(step.units) ? ` after deleting the units ${Formatter.format(step.units)} whole` : ""}, so it is not ${Formatter.format(outcome)}`
 										)
-										if (outcome.kind === "accepted") {
+										if (identical) {
+											const physicalAfter = yield* physicalRows(done, spec)
+											unorderedEqual(
+												physicalAfter,
+												physicalBefore,
+												`${label}: an identical replace writes no row, every row's ctid and xmin kept (README "Families", replace)`
+											)
+										}
+										if (outcome.kind === "accepted" && !Arr.isReadonlyArrayNonEmpty(step.units)) {
 											for (const [r] of spec.relations.entries()) {
 												const counted = addedOf(outcome, relationName(r))
 												assert.equal(
@@ -708,9 +863,22 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 										}
 										yield* storesExactly(done, spec, built.relations, verdict.rows, label)
 									}
-									const v = verdictLabel(verdict)
+									const v: VerdictLabel =
+										verdict.kind === "written" && Arr.isReadonlyArrayNonEmpty(step.units)
+											? sameWritten(spec, stored, verdict.rows)
+												? "no-change"
+												: "accepted"
+											: verdictLabel(verdict)
 									const [only, ...more] = step.differences
-									if (only === undefined) {
+									if (Arr.isReadonlyArrayNonEmpty(step.units)) {
+										c.note(
+											only === undefined
+												? `a replace of the same units: ${v}`
+												: only.kind === "removed" && step.units.includes(only.id)
+													? `a replace dropping a unit: ${v}`
+													: `a replace with a difference: ${v}`
+										)
+									} else if (only === undefined) {
 										c.note(
 											step.twice
 												? `the same instance stated twice in one call: ${v}`
@@ -727,7 +895,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 											)
 										)
 									}
-									stored = storedAfter(stored, verdict)
+									stored = verdict.kind === "written" ? verdict.rows : stored
 								}
 							}).pipe(Effect.scoped)
 						}).pipe(Effect.scoped)
