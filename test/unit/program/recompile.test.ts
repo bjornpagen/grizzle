@@ -7,6 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import * as Result from "#compiler/core/result.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { type QueryTemplate, queryInput } from "#compiler/program/compile.ts"
 import { type ExecutionRequest, templateFor } from "#compiler/program/template.ts"
 import { inputArtifacts, schemaInputOf, testCompile } from "#test/support/compile.ts"
@@ -32,7 +33,8 @@ import { printCase } from "#test/support/oracle/public/print.ts"
  */
 const request: ExecutionRequest = {
 	context: "snapshot",
-	read: "rows"
+	read: "rows",
+	clock: noClock
 }
 
 /** The spec of a template's optimized statement's large form, when it has one. */

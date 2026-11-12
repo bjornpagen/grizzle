@@ -1,5 +1,5 @@
 import { nominal } from "#compiler/core/brand.ts"
-import type { ProgramDesc } from "#compiler/ir/desc.ts"
+import { type ProgramDesc, unclocked } from "#compiler/ir/desc.ts"
 import type { Owned, OwnedRole, OwnedWrite } from "#compiler/schema/own.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 
@@ -110,7 +110,8 @@ export const sliceOf = (base: Owned, programs: ReadonlyArray<RoleProgram>): Slic
 			named.add(r)
 		}
 	}
-	for (const { role, program } of programs) {
+	for (const { role, program: described } of programs) {
+		const program = unclocked(described)
 		if (program.kind === "query") {
 			for (const r of queryUses(program.query).relations) {
 				name(role, r)

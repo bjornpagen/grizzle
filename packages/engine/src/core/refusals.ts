@@ -110,6 +110,8 @@ export const refusals = [
 	"arms of different headings share a field that holds a different constant in each",
 	"bind the query's parameters before matching it: Q.bind({ ... })",
 	"bytes are stored only, written and read back whole: no key, rule, computation, parameter or filter reads them",
+	"clocked binds at least one parameter of the program to the database's clock",
+	"clocked binds only parameters of the program whose values are bigints: bigint or a contract over it",
 	"delta.met names no family's members: their additions are their family statement's, which meets no stored fact at an arbiter key",
 	"insertAll names each relation by a required key: an optional key may insert nothing",
 	"no arm of the source delivers the bound constants",

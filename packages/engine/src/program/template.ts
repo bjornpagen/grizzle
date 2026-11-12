@@ -1,5 +1,6 @@
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { ClockBinding } from "#compiler/ir/clock.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import {
@@ -11,9 +12,13 @@ import {
 } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts, SchemaInput } from "#compiler/program/schema.ts"
 
-/** One execution's request: the context it runs in, and how the template is read. */
+/**
+ * One execution's request: the context it runs in, how the template is read, and the parameters its member binds to the
+ * database's clock (program/compile.ts CompileQueryOptions clock).
+ */
 export interface ExecutionRequest extends TemplateReading {
 	readonly context: TemplateContext
+	readonly clock: ClockBinding
 }
 
 /** A query compiled for an execution request: its Description and its template. */
@@ -39,7 +44,8 @@ export const templateFor = (
 			compileQuery(source, {
 				context: request.context,
 				artifacts,
-				read: request.read
+				read: request.read,
+				clock: request.clock
 			}),
 			(template): CompiledTemplate => ({ desc: source.desc, template })
 		)

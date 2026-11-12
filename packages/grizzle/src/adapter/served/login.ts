@@ -38,6 +38,7 @@ import {
 	malformedDescription,
 	type NamedLogin,
 	namedRole,
+	noClock,
 	ownBuiltLogin,
 	type Owned,
 	ownedEntry,
@@ -245,8 +246,15 @@ const programForm = (
 		case "ordered": {
 			const query = program.value
 			return Result.map(
-				compileRowsForm(role, query, () => query.rows),
+				compileRowsForm(role, query, () => query.rows, noClock),
 				(form): WorkloadForm => ({ name: program.name, kind: "read", form })
+			)
+		}
+		case "instant": {
+			const query = program.value
+			return Result.map(
+				compileRowsForm(role, query, () => query.rows, program.clock),
+				(form): WorkloadForm => ({ name: program.name, kind: "instant", form })
 			)
 		}
 		case "paged": {
@@ -260,7 +268,7 @@ const programForm = (
 			const target = program.target
 			const fact = target.relation.fact
 			return Result.map(
-				compileRowsForm(role, keyQuery(role.schema.value, target), () => fact),
+				compileRowsForm(role, keyQuery(role.schema.value, target), () => fact, noClock),
 				(form): WorkloadForm => ({ name: program.name, kind: "key", fields: target.fields, form })
 			)
 		}

@@ -12,6 +12,7 @@ import type { ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Param } from "#compiler/core/wire.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { type Codebook, emptyCodebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { SchemaDesc as EngineSchemaDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
@@ -331,7 +332,8 @@ const templateOver = (
 		compileQuery(source, {
 			context: options.context,
 			artifacts,
-			read: options.read
+			read: options.read,
+			clock: noClock
 		}),
 		(compiled) => withConservative(compiled, artifacts.reads)
 	)

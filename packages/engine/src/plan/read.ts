@@ -61,6 +61,7 @@ export { queryInput, type QueryInput, type QueryTemplate } from "#compiler/progr
 export {
 	pageKey,
 	servedFootprint,
+	servedInstantRead,
 	servedPage,
 	servedRead,
 	templateKey

@@ -1,11 +1,11 @@
-import type { ParamDecl } from "#compiler/ir/products.ts"
+import type { CallerParamDecl } from "#compiler/ir/products.ts"
 import type { PatternSource } from "#compiler/ir/scalar.ts"
 import type { ServedMatchers } from "#compiler/scalar/regex/matcher.ts"
 import { ProgramPatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { ServedMember, ServedRoleForm, ServedVariants } from "#compiler/served/forms.ts"
 
 /** The patterns a declared parameter's values are judged by: its type's, or each of its heading's column types'. */
-const paramPatterns = (decl: ParamDecl): ReadonlyArray<PatternSource> =>
+const paramPatterns = (decl: CallerParamDecl): ReadonlyArray<PatternSource> =>
 	decl.kind === "scalar"
 		? typePatterns(decl.type)
 		: decl.heading.flatMap((c) => typePatterns(c.type))
@@ -29,10 +29,14 @@ const variantPatterns = (variants: ServedVariants): ReadonlyArray<PatternSource>
 	}
 }
 
-/** The patterns a member's calls read: a read's, a key's and a page's parameters', and a ChangeSet's variants'. */
+/**
+ * The patterns a member's calls read: a read's, an instant read's, a key's and a page's parameters', and a ChangeSet's
+ * variants'.
+ */
 const memberPatterns = (member: ServedMember): ReadonlyArray<PatternSource> => {
 	switch (member.kind) {
 		case "read":
+		case "instant":
 		case "key":
 		case "paged":
 			return member.read.params.flatMap(paramPatterns)

@@ -38,6 +38,7 @@ import {
 	vectorMaxDimensions,
 	vectorTag
 } from "#compiler/ir/carriers.ts"
+import { type ClockBinding, clockUnits } from "#compiler/ir/clock.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import { decimalTag, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import { type Fact, factNames, factsSorted } from "#compiler/ir/proof.ts"
@@ -1165,6 +1166,21 @@ export interface ChangeSetDesc<L = Located> {
 export type ProgramDesc<L = Located> =
 	| { readonly kind: "query"; readonly query: QueryDesc<L> }
 	| { readonly kind: "changeSet"; readonly changeSet: ChangeSetDesc<L> }
+	| {
+			readonly kind: "clocked"
+			readonly clock: ClockBinding
+			readonly program: ClockedProgramDesc<L>
+	  }
+
+/**
+ * A program a served member binds parameters of to the database's clock, by their declared names, each with its unit
+ * (workload clocked): a query, an ordered query or a ChangeSet.
+ */
+export type ClockedProgramDesc<L = Located> = Exclude<ProgramDesc<L>, { readonly kind: "clocked" }>
+
+/** The query or ChangeSet a program runs, whatever parameters its member binds to the clock. */
+export const unclocked = <L>(program: ProgramDesc<L>): ClockedProgramDesc<L> =>
+	program.kind === "clocked" ? program.program : program
 
 /** The exported query workload. */
 export interface WorkloadDesc<L = Located> {
@@ -2442,12 +2458,25 @@ const changeSetDescShape: S.Shape<ChangeSetDesc> = S.audited(
 	}
 )
 
+const clockedProgramShape: S.Shape<ClockedProgramDesc> = S.tagged("kind", {
+	query: S.struct({ query: queryDescShape }),
+	changeSet: S.struct({ changeSet: changeSetDescShape })
+})
+
+/** A clock binding: at least one declared parameter's name, each with the unit it reads the clock in. */
+const clockBindingShape: S.Shape<ClockBinding> = S.refine(
+	S.recordShape(S.literalsShape(clockUnits), name),
+	(binding) => Object.keys(binding).length > 0,
+	"a binding of at least one parameter to the database's clock"
+)
+
 const workloadDescShape: S.Shape<WorkloadDesc> = S.struct({
 	schema: name,
 	programs: S.recordShape(
 		S.tagged("kind", {
 			query: S.struct({ query: queryDescShape }),
-			changeSet: S.struct({ changeSet: changeSetDescShape })
+			changeSet: S.struct({ changeSet: changeSetDescShape }),
+			clocked: S.struct({ clock: clockBindingShape, program: clockedProgramShape })
 		}),
 		name
 	)

@@ -951,6 +951,7 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 		case "mergeAction":
 		case "nullif":
 		case "param":
+		case "clock":
 		case "plSpecial":
 		case "plVar":
 		case "regclass":
@@ -1018,6 +1019,7 @@ const callsAggregate = (e: Expr): boolean => {
 		case "literal":
 		case "mergeAction":
 		case "param":
+		case "clock":
 		case "plSpecial":
 		case "plVar":
 		case "regclass":

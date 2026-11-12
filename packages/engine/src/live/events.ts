@@ -6,8 +6,10 @@
  * A read's answer opens with `reset`, which names the key fields its rows are keyed by; sends an `upsert` per row as it
  * decodes, provisional until `ready`, which follows the read's COMMIT; and then, live, an `upsert` or `remove` per
  * change, each sent after its re-run's COMMIT. A set read's upsert carries its row alone; an ordered read's carries the
- * key of the row it follows too, null for the first. A write's answer is its `outcome`, after its COMMIT. Every failure
- * is one `error`, and an answer ends with `end` after its error or outcome.
+ * key of the row it follows too, null for the first. An instant read's answer, a read whose member binds a parameter to
+ * the database's clock, is its read at its call's instant alone: `reset`, its upserts, `ready`, then `end`, with no
+ * `remove`, since time passing is no change. A write's answer is its `outcome`, after its COMMIT. Every failure is one
+ * `error`, and an answer ends with `end` after its error or outcome, an instant read's after its ready too.
  */
 import type { TransientTag } from "#compiler/core/errors.ts"
 import type { KeyFields, RowKey } from "#compiler/live/key.ts"
@@ -126,30 +128,31 @@ const ready = { role: "ready", payload: {} } as const
 const error = { role: "error", payload: { error: "error" } } as const
 const end = { role: "end", payload: {} } as const
 
+const setUpsert = { role: "item", payload: { row: "row" } } as const
+const listUpsert = { role: "item", payload: { row: "row", after: "after" } } as const
+
 /**
- * The events of each shape of answer, by name: a set read's, an ordered read's, whose upsert carries `after` too, and
- * a write's.
+ * The events of each shape of answer, by name: a set read's, an ordered read's, whose upsert carries `after` too, each
+ * of them read at its call's instant alone (instantSet, instantList), which no change reaches, and a write's.
  */
 export const events = {
-	set: { reset, upsert: { role: "item", payload: { row: "row" } }, remove, ready, error, end },
-	list: {
-		reset,
-		upsert: { role: "item", payload: { row: "row", after: "after" } },
-		remove,
-		ready,
-		error,
-		end
-	},
+	set: { reset, upsert: setUpsert, remove, ready, error, end },
+	list: { reset, upsert: listUpsert, remove, ready, error, end },
+	instantSet: { reset, upsert: setUpsert, ready, error, end },
+	instantList: { reset, upsert: listUpsert, ready, error, end },
 	write: { outcome: { role: "item", payload: { outcome: "outcome" } }, error, end }
 } as const satisfies {
 	readonly [shape: string]: { readonly [name: string]: EventDescriptor }
 }
 
-/** The shapes of answer: a set read's, an ordered read's, a write's. */
+/** The shapes of answer: a set read's, an ordered read's, each at an instant alone, a write's. */
 export type Shape = keyof typeof events
 
-/** The read shapes, whose answers are keyed values. */
-export type ReadShape = Exclude<Shape, "write">
+/** The shapes of a read's keyed value: a set's, and an ordered read's list. */
+export type ReadShape = Extract<Shape, "set" | "list">
+
+/** The shapes of a read at its call's instant alone, which no change reaches: a set's and an ordered read's. */
+export type InstantShape = Extract<Shape, "instantSet" | "instantList">
 
 /** The event `name` of shape S over Row and Outcome: its name as `kind`, and its payload's members. */
 type EventNamed<S extends Shape, Name extends keyof (typeof events)[S], Row, Outcome> = {
@@ -171,6 +174,12 @@ export type SetEvent<Row> = EventOfShape<"set", Row, never>
 
 /** An ordered read's events. */
 export type ListEvent<Row> = EventOfShape<"list", Row, never>
+
+/** A set read's events at its call's instant alone (InstantShape). */
+export type InstantSetEvent<Row> = EventOfShape<"instantSet", Row, never>
+
+/** An ordered read's events at its call's instant alone (InstantShape). */
+export type InstantListEvent<Row> = EventOfShape<"instantList", Row, never>
 
 /** A write's events. */
 export type WriteEvent<Outcome> = EventOfShape<"write", never, Outcome>

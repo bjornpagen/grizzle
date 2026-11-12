@@ -3,7 +3,7 @@ import type { Token } from "#adapter/db/token.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { CredentialError, TokenError } from "#adapter/errors/failures.ts"
 import type { PgDriver, PgSocket } from "#adapter/types/driver.ts"
-import type { ShapeOf } from "#compiler/live/index.ts"
+import type { ReadShape, ShapeOf } from "#compiler/live/index.ts"
 import type {
 	AnyLogin,
 	AnyRole,
@@ -201,13 +201,13 @@ export interface LiveSourceService<in out B> {
 export type LoginBase<L> = L extends { readonly base: infer B } ? B : never
 
 /**
- * Whether a workload may serve a read, `false` only where its type proves none of its members does: each member's
- * answer a write's (engine live/program.ts ShapeOf), a ChangeSet's or a refresh's. A workload whose type states no
- * programs may.
+ * Whether a workload may serve a live read, `false` only where its type proves none of its members does: each member's
+ * answer a write's (engine live/program.ts ShapeOf), a ChangeSet's or a refresh's, or a read's at its call's instant (a
+ * clocked member's), which registers no watch. A workload whose type states no programs may.
  */
 type WorkloadRead<W> =
 	W extends Workload<unknown, infer P>
-		? [Exclude<ShapeOf<P[keyof P]>, "write">] extends [never]
+		? [Extract<ShapeOf<P[keyof P]>, ReadShape>] extends [never]
 			? false
 			: true
 		: true

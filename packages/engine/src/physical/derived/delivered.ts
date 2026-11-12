@@ -117,6 +117,7 @@ class Delivered {
 		switch (e.kind) {
 			case "literal":
 			case "param":
+			case "clock":
 			case "cast":
 				return e.type
 			case "collate":

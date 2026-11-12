@@ -1,5 +1,6 @@
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Phantom } from "#compiler/core/phantom.ts"
+import type { ClockUnit } from "#compiler/ir/clock.ts"
 import type {
 	AnyChangeSet,
 	ArraysOf,
@@ -14,7 +15,9 @@ import type {
 	OrderedAt,
 	OrderedBase,
 	PageOf,
-	QueryAt
+	ParamsOf,
+	QueryAt,
+	QueryBase
 } from "#compiler/types/query/query.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema, LevelsOf, RelationOf } from "#compiler/types/schema/schema.ts"
@@ -59,6 +62,48 @@ export interface Refresh<Rs> {
 	readonly refresh: Rs
 }
 
+/**
+ * A workload member that serves the program X, a query, an ordered query or a ChangeSet, with each parameter its binding
+ * B names bound to the database's clock in that parameter's unit: clocked(X, B). The reading is the instant the call's
+ * transaction began, transaction_timestamp(), one value in every statement of the call and at or before every snapshot
+ * it takes, counted since the Unix epoch, floored: in microseconds, PostgreSQL's own resolution, or milliseconds. No call
+ * supplies it, so the member's input holds every other parameter of X alone. A clocked read is answered at that instant
+ * and never live, since time passing is no change: its handle answers `once` and no `watch`.
+ */
+export interface Clocked<X, B> {
+	readonly clocked: X
+	readonly clock: B
+}
+
+/**
+ * The parameters of X a clock reading may bind: each scalar parameter whose values are bigints, bigint or a contract
+ * over it, by the language its entry states (types/core ParamType).
+ */
+type ClockableOf<X> = {
+	readonly [N in keyof ParamsOf<X>]: ParamsOf<X>[N] extends { readonly language: bigint }
+		? N
+		: never
+}[keyof ParamsOf<X>]
+
+/**
+ * What clocked(X, B) binds: at least one parameter, each a bigint parameter of X (ClockableOf), each to a unit; any other
+ * name is refused by the Refusal the types name.
+ */
+type ClockBindingOf<X, B> = [keyof B] extends [never]
+	? Refusal<"clocked binds at least one parameter of the program to the database's clock">
+	: [Exclude<keyof B, ClockableOf<X>>] extends [never]
+		? unknown
+		: Refusal<"clocked binds only parameters of the program whose values are bigints: bigint or a contract over it">
+
+/** clocked(program, binding): the workload member that binds `program`'s parameters to the database's clock (Clocked). */
+export type ClockedConstructor = <
+	const X extends QueryBase | OrderedBase | AnyChangeSet,
+	const B extends { readonly [N in string]: ClockUnit }
+>(
+	program: X,
+	binding: B & ClockBindingOf<X, B>
+) => Clocked<X, B>
+
 /** The materialized derived relations of a level L, one level at a time. */
 type MaterializedAt<L> = L extends unknown ? Extract<RelationOf<L>, AnyMaterialized> : never
 
@@ -70,28 +115,32 @@ type RefreshableBy<S> = S extends AnyRole ? RefreshListOf<S> : MaterializedAt<Le
 
 /**
  * A program of a workload over S, over S or a level below it, L: a query, an ordered query, an ordered query that pages,
- * a ChangeSet S writes, a relation's key, or a refresh of materialized derived relations S may refresh.
+ * a ChangeSet S writes, one of a query, an ordered query or such a ChangeSet with parameters bound to the database's
+ * clock (Clocked), a relation's key, or a refresh of materialized derived relations S may refresh.
  */
 type ProgramAt<S, L> =
 	| QueryAt<L>
 	| OrderedAt<L>
 	| Paged<OrderedAt<L>>
 	| (ChangeSetAt<L> & WritableBy<S>)
+	| Clocked<QueryAt<L> | OrderedAt<L> | (ChangeSetAt<L> & WritableBy<S>), unknown>
 	| KeyAt<L>
 	| Refresh<NonEmptyReadonlyArray<RefreshableBy<S>>>
 
 /**
- * The contexts a program of a workload matches: a query's or ordered query's, a paged one's, or a ChangeSet's, its
- * members' and read-backs'; a key and a refresh match none.
+ * The contexts a program of a workload matches: a query's or ordered query's, a paged one's, a clocked one's program's,
+ * or a ChangeSet's, its members' and read-backs'; a key and a refresh match none.
  */
 type ProgramContexts<X> =
 	X extends Paged<infer O>
 		? ContextsOf<O>
-		: X extends AnyChangeSet
-			? X extends Phantom<{ readonly contexts: infer Cx }>
-				? Cx
-				: never
-			: ContextsOf<X>
+		: X extends Clocked<infer P, unknown>
+			? ProgramContexts<P>
+			: X extends AnyChangeSet
+				? X extends Phantom<{ readonly contexts: infer Cx }>
+					? Cx
+					: never
+				: ContextsOf<X>
 
 /**
  * A ChangeSet program's array members, which a served call's facts key by op and relation (FactsCheck): none two of one
@@ -102,6 +151,9 @@ type ArraysOnce<X> = X extends AnyChangeSet
 		? unknown
 		: Refusal<"a served ChangeSet's facts hold one array for each op and relation: merge the strata's array members of this op and relation into one">
 	: unknown
+
+/** The program a member serves: a clocked member's program, or the member itself. */
+type ClockedProgram<X> = X extends Clocked<infer P, unknown> ? P : X
 
 /**
  * workload(schema, programs): each program over a level of the schema (ProgramAt), a ChangeSet's appends each beside
@@ -116,8 +168,8 @@ export type WorkloadConstructor = <
 >(
 	schema: S,
 	programs: Programs & {
-		readonly [K in keyof Programs]: PlannedStrata<Programs[K]> &
-			ArraysOnce<Programs[K]> &
+		readonly [K in keyof Programs]: PlannedStrata<ClockedProgram<Programs[K]>> &
+			ArraysOnce<ClockedProgram<Programs[K]>> &
 			WithinRoleContexts<S, ProgramContexts<Programs[K]>>
 	} & MembersTyped<Programs>
 ) => Workload<S, Programs>

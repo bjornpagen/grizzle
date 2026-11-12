@@ -34,7 +34,7 @@ import { indices } from "#compiler/core/array.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { relNode, rooted } from "#compiler/ir/dag.ts"
-import type { LogicalQuery } from "#compiler/ir/products.ts"
+import { callerParams, type LogicalQuery } from "#compiler/ir/products.ts"
 import type { CompletedOrder, OrderKey } from "#compiler/ir/rel.ts"
 import { contractOf, numericTypmodOf, sameScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
@@ -489,7 +489,7 @@ describe("the page compiler and the page runtime template", () => {
 							}
 							const runtime = compiledPageRuntime({
 								page: template,
-								params: query.params,
+								params: callerParams(query.params),
 								spine: everyColumnCarried(query.dag),
 								codes
 							})

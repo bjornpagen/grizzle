@@ -251,6 +251,7 @@ class Rewriter {
 			case "literal":
 			case "mergeAction":
 			case "param":
+			case "clock":
 			case "plSpecial":
 			case "plVar":
 			case "returning":
@@ -353,6 +354,7 @@ export const readsAlias = (e: Expr, alias: string): boolean => {
 		case "literal":
 		case "mergeAction":
 		case "param":
+		case "clock":
 		case "plSpecial":
 		case "plVar":
 		case "returning":

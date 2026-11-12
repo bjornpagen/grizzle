@@ -63,6 +63,7 @@ const anyCall = (e: Expr, test: (call: CallExpr) => boolean): boolean => {
 		case "excluded":
 		case "returning":
 		case "param":
+		case "clock":
 		case "literal":
 		case "exists":
 		case "subquery":

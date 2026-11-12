@@ -27,10 +27,12 @@ import {
 import {
 	type BindContext,
 	bindGroups,
+	type CallerParamDecl,
+	type ClockBinding,
 	type Codebook,
 	CompileError,
 	Engine,
-	type ParamDecl,
+	noClock,
 	prose,
 	type QueryDesc,
 	type RowDecoder,
@@ -74,17 +76,21 @@ export const boundReads = <R>(
 const context = "snapshot"
 
 /**
- * The template of a query compiled for `role` and the program its rows are delivered through (run.ts), whose
- * attachments the analysis describes (analysis.ts), with its parameters' codecs. The caller's value is parsed here, once
- * (program/compile.ts queryInput), and the compiler takes the parsed query.
+ * The template of a query compiled for `role`, with the parameters `clock` binds to the database's clock, and the
+ * program its rows are delivered through (run.ts), whose attachments the analysis describes (analysis.ts), with the
+ * codecs of the parameters a call supplies. The caller's value is parsed here, once (program/compile.ts queryInput), and
+ * the compiler takes the parsed query.
  */
 const compileArtifacts = (
 	role: RoleContext,
-	query: unknown
+	query: unknown,
+	clock: ClockBinding
 ): Result.Result<ReadArtifacts, CompileError> =>
 	Result.map(
 		toResult(
-			Engine.flatMap(queryInput(query), (input) => role.compile(input, { context, read: "rows" }))
+			Engine.flatMap(queryInput(query), (input) =>
+				role.compile(input, { context, read: "rows", clock })
+			)
 		),
 		({ compiled }): ReadArtifacts => ({
 			compiled,
@@ -111,14 +117,18 @@ const bindArtifacts = <A>(
 		read
 	}))
 
-/** The rows form of `query` for `role`, its rows read by `decoder`: a query that does not compile is its CompileError. */
+/**
+ * The rows form of `query` for `role`, the parameters `clock` names bound to the database's clock, its rows read by
+ * `decoder`: a query that does not compile is its CompileError.
+ */
 export const compileRowsForm = <A>(
 	role: RoleContext,
 	query: unknown,
-	decoder: () => RowDecoder<A>
+	decoder: () => RowDecoder<A>,
+	clock: ClockBinding
 ): Result.Result<RowsForm<A>, CompileError> =>
 	Result.gen(function* () {
-		const compiled = yield* compileArtifacts(role, query)
+		const compiled = yield* compileArtifacts(role, query, clock)
 		const bound = yield* bindArtifacts(role, compiled, decoder)
 		return { query, decoder, bound }
 	})
@@ -133,7 +143,7 @@ export const compileReadForm = <A>(
 	decoder: () => RowDecoder<A>
 ): Result.Result<ReadForm<A>, CompileError> =>
 	Result.gen(function* () {
-		const rows = yield* compileRowsForm(role, query, decoder)
+		const rows = yield* compileRowsForm(role, query, decoder, noClock)
 		const page = yield* compiledPageTemplate(role, query)
 		return { ...rows, page }
 	})
@@ -183,7 +193,7 @@ export const compiledPageTemplateFor = (
 /** A compiled page and what its runtime is built from: its read's parameters and spine, and its codes. */
 interface CompiledPageParts {
 	readonly page: PageTemplate
-	readonly params: ReadonlyArray<ParamDecl>
+	readonly params: ReadonlyArray<CallerParamDecl>
 	readonly codes: Codebook
 	readonly spine: ServedSpine
 }
@@ -224,7 +234,8 @@ const compiledPageTemplate = (
 			Engine.flatMap(queryInput(query), (input) =>
 				role.compile(input, {
 					context: "snapshot",
-					read: "page"
+					read: "page",
+					clock: noClock
 				})
 			)
 		),
@@ -289,8 +300,9 @@ const writeEntry = (
 	Result.flatMap(
 		toResult(role.programArtifacts({ kind: "changeSet", changeSet: change.desc })),
 		({ artifacts, witness }) =>
-			Result.map(toResult(compileParsed(artifacts, change, claims, "serializable")), (entry) =>
-				runtimeEntry(entry, artifacts.names.codes, witness, role.bind)
+			Result.map(
+				toResult(compileParsed(artifacts, change, claims, "serializable", noClock)),
+				(entry) => runtimeEntry(entry, artifacts.names.codes, witness, role.bind)
 			)
 	)
 

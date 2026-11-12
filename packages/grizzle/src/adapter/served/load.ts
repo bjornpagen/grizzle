@@ -16,11 +16,11 @@ import { type InstallationWitness, servedWitness } from "#adapter/witness/index.
 import type { ArrayMember, ClosedTable } from "#compiler/plan/change.ts"
 import type {
 	BindContext,
+	CallerParamDecl,
 	Codebook,
 	CompileError,
 	EncodingFailure,
 	Isolation,
-	ParamDecl,
 	ParamValue,
 	PatternReads,
 	Row,
@@ -40,6 +40,7 @@ import type {
 	ServedChange,
 	ServedFile,
 	ServedFootprint,
+	ServedInstantRead,
 	ServedKey,
 	ServedLive,
 	ServedMember,
@@ -60,16 +61,21 @@ import type {
  * layouts, each ChangeSet's read-backs, codecs and read-backs decoder, and each role's refusal classifier and claims'
  * codecs, all under the codebook of the file's own rosters. Nothing is compiled and no schema is evaluated.
  *
- * A read of a role's workload, loaded: its declared parameters and their codecs, its program, its rows' reader (its
- * decoder bound to the program's layouts), its key, the shape of its answer and the head fields its rows are keyed by
- * (served/forms.ts ServedKey), and its footprint, the tables a change of which its subscriptions route by.
+ * A read of a role's workload as one call reads it, loaded: the declared parameters a call supplies and their codecs,
+ * its program, its rows' reader (its decoder bound to the program's layouts), its key, the shape of its answer and the
+ * head fields its rows are keyed by (served/forms.ts ServedKey). An instant member's read is this alone.
  */
-export interface LoadedRead {
-	readonly params: ReadonlyArray<ParamDecl>
+export interface LoadedInstantRead {
+	readonly params: ReadonlyArray<CallerParamDecl>
 	readonly codecs: ParamCodecs
 	readonly program: ReadProgram
 	readonly read: (row: Row) => DecodedRow
 	readonly key: ServedKey
+}
+
+/** A read a call may watch, loaded: its instant read, and its footprint, the tables a change of which its subscriptions
+ * route by. */
+export interface LoadedRead extends LoadedInstantRead {
 	readonly footprint: ServedFootprint
 }
 
@@ -142,6 +148,7 @@ export type LoadedVariants =
  */
 export type LoadedMember = { readonly name: string; readonly wire: ServedMember["wire"] } & (
 	| { readonly kind: "read"; readonly read: LoadedRead }
+	| { readonly kind: "instant"; readonly read: LoadedInstantRead }
 	| { readonly kind: "paged"; readonly read: LoadedRead; readonly page: LoadedPage }
 	| { readonly kind: "key"; readonly fields: ReadonlyArray<string>; readonly read: LoadedRead }
 	| { readonly kind: "change"; readonly variants: LoadedVariants }
@@ -185,7 +192,7 @@ export interface LoadedLogin {
 
 /** A read's decoder bound to `layouts` under `bind`, its refusal a defect of the compile that wrote the file. */
 const boundReader = (
-	read: Pick<ServedRead, "decoder">,
+	read: Pick<ServedInstantRead, "decoder">,
 	layouts: Arr.NonEmptyReadonlyArray<ReadProgram["layouts"][number]>,
 	bind: BindContext
 ): Result.Result<(row: Row) => DecodedRow, CompileError> =>
@@ -207,21 +214,31 @@ const servedReads = (
 }
 
 /** A read, loaded under the codes `codes` and the bind context `bind`. */
-const loadRead = (
-	read: ServedRead,
+const loadInstantRead = (
+	read: ServedInstantRead,
 	codes: Codebook,
 	bind: BindContext
-): Result.Result<LoadedRead, CompileError> => {
+): Result.Result<LoadedInstantRead, CompileError> => {
 	const program = readProgram(read.source, read.spine, codes)
 	return Result.map(boundReader(read, program.layouts, bind), (reader) => ({
 		params: read.params,
 		codecs: paramCodecs(read.params, codes),
 		program,
 		read: reader,
-		key: read.key,
-		footprint: read.footprint
+		key: read.key
 	}))
 }
+
+/** A read a call may watch, loaded: its instant read (loadInstantRead) and its footprint. */
+const loadRead = (
+	read: ServedRead,
+	codes: Codebook,
+	bind: BindContext
+): Result.Result<LoadedRead, CompileError> =>
+	Result.map(loadInstantRead(read, codes, bind), (loaded) => ({
+		...loaded,
+		footprint: read.footprint
+	}))
 
 /** A paged member's page, loaded over its read's parameters and spine. */
 const loadPage = (
@@ -323,6 +340,13 @@ const loadMember = (
 				name: member.name,
 				wire: member.wire,
 				kind: "read",
+				read
+			}))
+		case "instant":
+			return Result.map(loadInstantRead(member.read, codes, bind), (read): LoadedMember => ({
+				name: member.name,
+				wire: member.wire,
+				kind: "instant",
 				read
 			}))
 		case "key":

@@ -71,7 +71,7 @@ import type {
 	EncodingFailure,
 	LiteralBound,
 	MessageBound,
-	ParamDecl,
+	CallerParamDecl,
 	ParamValue,
 	Row
 } from "#compiler/plan/common.ts"
@@ -151,14 +151,14 @@ export const inputApplyError = (failure: InputFailure): EncodingFailure | Execut
 
 /** A Stream relation parameter collected on the host, whole: one that fails encodes nothing. */
 const collectParam = (
-	decl: ParamDecl,
+	decl: CallerParamDecl,
 	stream: Stream.Stream<unknown, unknown>
 ): Effect.Effect<ReadonlyArray<unknown>, EncodingFailure> =>
 	Stream.runCollect(Stream.mapError(stream, () => encodeFailure("factShape", slotPlace(decl.name))))
 
 /** The values of the declared parameters by name: a ChangeSet.bind value under its private name, else the caller's. */
 const declaredParams = (
-	declared: ReadonlyArray<ParamDecl>,
+	declared: ReadonlyArray<CallerParamDecl>,
 	params: unknown,
 	bindings: ReadonlyMap<string, ParamValue>
 ): Effect.Effect<HostParams, EncodingFailure> =>

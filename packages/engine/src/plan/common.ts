@@ -101,6 +101,7 @@ export {
 	type RosterCodec,
 	type RosterRenames
 } from "#compiler/ir/codes.ts"
+export { type ClockBinding, noClock } from "#compiler/ir/clock.ts"
 export {
 	type AttachDesc,
 	type ContextDesc,
@@ -115,6 +116,8 @@ export {
 } from "#compiler/ir/desc.ts"
 export { constraintLaw } from "#compiler/ir/products.ts"
 export type {
+	CallerParamDecl,
+	ClockParamDecl,
 	ConstraintLaws,
 	ConstraintOwner,
 	Encoder,
@@ -201,7 +204,7 @@ export type {
 	ParamValue,
 	Refusal
 } from "#compiler/types/core/phantom.ts"
-export type { AnyWorkload, Paged, Refresh, Workload } from "#compiler/types/db/workload.ts"
+export type { AnyWorkload, Clocked, Paged, Refresh, Workload } from "#compiler/types/db/workload.ts"
 export type { Evidence } from "#compiler/types/evidence/evidence.ts"
 export type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 export type { AnySchema, LevelsOf } from "#compiler/types/schema/schema.ts"

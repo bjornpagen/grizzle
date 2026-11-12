@@ -41,6 +41,7 @@ import { explainChange, explainRead, explainReadAnalyzed } from "#adapter/served
 import type {
 	ChangeCall,
 	LoadedChange,
+	LoadedInstantRead,
 	LoadedMember,
 	LoadedPage,
 	LoadedRead,
@@ -54,12 +55,15 @@ import {
 	diffList,
 	diffSet,
 	fold,
+	type InstantListEvent,
+	type InstantSetEvent,
 	type Keyed,
 	type KeyedList,
 	type KeyedSet,
 	type ListEvent,
 	opening,
 	type ReadShape,
+	type ReadState,
 	type Refreshed,
 	type SetEvent,
 	type WriteEvent,
@@ -102,6 +106,16 @@ export type ServedCalls =
 			readonly watch: (input: unknown) => Stream.Stream<ListEvent<DecodedRow>>
 	  }
 	| {
+			readonly shape: "instantSet"
+			readonly once: (input: unknown) => Effect.Effect<KeyedSet<DecodedRow>, CallError>
+			readonly answer: (input: unknown) => Stream.Stream<InstantSetEvent<DecodedRow>>
+	  }
+	| {
+			readonly shape: "instantList"
+			readonly once: (input: unknown) => Effect.Effect<KeyedList<DecodedRow>, CallError>
+			readonly answer: (input: unknown) => Stream.Stream<InstantListEvent<DecodedRow>>
+	  }
+	| {
 			readonly shape: "write"
 			readonly once: (input: unknown) => Effect.Effect<WrittenOutcome, CallError>
 			readonly watch: (input: unknown) => Stream.Stream<WriteEvent<WrittenOutcome>>
@@ -120,7 +134,10 @@ export interface ParsedRead {
 }
 
 /** A read's execution inputs from the caller's parameters (reader/params.ts hostParams, reader/relations.ts). */
-const readInputs = (read: LoadedRead, params: unknown): Effect.Effect<ExecutionInputs, ReadError> =>
+const readInputs = (
+	read: LoadedInstantRead,
+	params: unknown
+): Effect.Effect<ExecutionInputs, ReadError> =>
 	Effect.flatMap(hostParams(read.params, params), (values) =>
 		Effect.mapError(
 			Effect.fromResult(executionInputs(read.codecs, values)),
@@ -129,7 +146,10 @@ const readInputs = (read: LoadedRead, params: unknown): Effect.Effect<ExecutionI
 	)
 
 /** A read member's call over `params`, each call's rows read by its program's intake (reader/run.ts readIntake). */
-const programCall = (read: LoadedRead, params: unknown): Effect.Effect<ParsedRead, ReadError> =>
+const programCall = (
+	read: LoadedInstantRead,
+	params: unknown
+): Effect.Effect<ParsedRead, ReadError> =>
 	Effect.map(readInputs(read, params), (inputs) => ({
 		inputs,
 		call: {
@@ -159,7 +179,7 @@ const readInput = (input: unknown): Effect.Effect<CallInput, ReadError> =>
 
 /** A read member's call (programCall) from its input. */
 const parseRead =
-	(read: LoadedRead) =>
+	(read: LoadedInstantRead) =>
 	(input: unknown): Effect.Effect<ParsedRead, ReadError> =>
 		Effect.flatMap(readInput(input), (given) => programCall(read, given.params))
 
@@ -243,6 +263,29 @@ const listAnswer: ShapeAnswer<"list", ListEvent<DecodedRow>> = {
 }
 
 /**
+ * How a read at its call's instant answers (a clocked member's), beside how its events are made: its `end`, which
+ * follows its ready, and its events folded from before its reset into its value of keyed shape S.
+ */
+interface InstantAnswer<S extends ReadShape, E> extends ShapeEvents<E> {
+	readonly end: E
+	readonly settle: (events: ReadonlyArray<E>) => ReadState<S, DecodedRow>
+}
+
+/** A set read's answer at its call's instant. */
+const instantSetAnswer: InstantAnswer<"set", InstantSetEvent<DecodedRow>> = {
+	...setEvents,
+	end: { kind: "end" },
+	settle: (events) => fold(opening<"set", DecodedRow>("set"), events)
+}
+
+/** An ordered read's answer at its call's instant. */
+const instantListAnswer: InstantAnswer<"list", InstantListEvent<DecodedRow>> = {
+	...listEvents,
+	end: { kind: "end" },
+	settle: (events) => fold(opening<"list", DecodedRow>("list"), events)
+}
+
+/**
  * A read call registered live on its Db's layer's registry (live/subscriptions.ts), what its watch runs: its run is the
  * call's own statement through the Db's read frame (reader/stream.ts readStream), its routing keys its served
  * footprint's bound with the call's inputs (live/router.ts routeKeys), and its expiry its Db's.
@@ -302,6 +345,7 @@ export const liveRead = (
 			return Option.some(live(member.read, parseKey(member.read, member.fields)))
 		case "paged":
 			return Option.some(live(member.read, parseWindow(member.read, member.page)))
+		case "instant":
 		case "change":
 		case "refresh":
 			return Option.none()
@@ -326,13 +370,6 @@ const readCalls = <S extends ReadShape, E>(
 } => {
 	const refused = (failure: ReadError): Stream.Stream<E> =>
 		Stream.make(answer.error(callErrorOf(failure)))
-	const events = (input: unknown): Stream.Stream<E> =>
-		Stream.unwrap(
-			Effect.match(parse(input), {
-				onFailure: refused,
-				onSuccess: (parsed) => readStream(ctx, parsed.call, answer)
-			})
-		)
 	const live = (parsed: ParsedRead): Stream.Stream<E> =>
 		Stream.unwrap(
 			Effect.map(registered(ctx, read, answer, parsed), (registration) =>
@@ -347,19 +384,75 @@ const readCalls = <S extends ReadShape, E>(
 					onSuccess: live
 				})
 			),
-		once: (input) =>
-			Effect.flatMap(Stream.runCollect(events(input)), (collected) => {
-				const state = answer.settle(collected)
-				switch (state.kind) {
-					case "ready":
-						return Effect.succeed(state.value)
-					case "failed":
-						return Effect.fail(state.error)
-					case "opening":
-					case "provisional":
-						return Effect.die(defect("a read's events end at its ready or its error"))
-				}
+		once: readOnce(callEvents(ctx, answer, parse), answer.settle)
+	}
+}
+
+/**
+ * One call's events of a read, its input parsed by `parse`: a refusal of the input its one error event; else its run
+ * (reader/stream.ts readStream), from its reset to its ready or its error.
+ */
+const callEvents =
+	<E>(
+		ctx: ServedDbContext,
+		events: ShapeEvents<E>,
+		parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
+	) =>
+	(input: unknown): Stream.Stream<E> =>
+		Stream.unwrap(
+			Effect.match(parse(input), {
+				onFailure: (failure) => Stream.make(events.error(callErrorOf(failure))),
+				onSuccess: (parsed) => readStream(ctx, parsed.call, events)
 			})
+		)
+
+/** A read's once: one call's events (`events`) settled to ready by `settle`, the read's value, or the error that ended them. */
+const readOnce =
+	<S extends ReadShape, E>(
+		events: (input: unknown) => Stream.Stream<E>,
+		settle: (events: ReadonlyArray<E>) => ReadState<S, DecodedRow>
+	) =>
+	(input: unknown): Effect.Effect<Keyed<S, DecodedRow>, CallError> =>
+		Effect.flatMap(Stream.runCollect(events(input)), (collected) => {
+			const state = settle(collected)
+			switch (state.kind) {
+				case "ready":
+					return Effect.succeed(state.value)
+				case "failed":
+					return Effect.fail(state.error)
+				case "opening":
+				case "provisional":
+					return Effect.die(defect("a read's events end at its ready or its error"))
+			}
+		})
+
+/**
+ * A read's calls at its call's instant (a clocked member's): its answer, one call's events then `end`, which no change
+ * follows, since time passing is no change; and its once, those events settled to ready. It registers no subscription.
+ */
+const instantCalls = <S extends ReadShape, E>(
+	ctx: ServedDbContext,
+	answer: InstantAnswer<S, E>,
+	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
+): {
+	readonly once: (input: unknown) => Effect.Effect<Keyed<S, DecodedRow>, CallError>
+	readonly answer: (input: unknown) => Stream.Stream<E>
+} => {
+	const events = callEvents(ctx, answer, parse)
+	return {
+		answer: (input) => Stream.concat(events(input), Stream.make(answer.end)),
+		once: readOnce(events, answer.settle)
+	}
+}
+
+/** An instant member's calls by the shape of its key (served/forms.ts ServedKey), its input its read's params alone. */
+const instantMemberCalls = (ctx: ServedDbContext, read: LoadedInstantRead): ServedCalls => {
+	const parse = parseRead(read)
+	switch (read.key.kind) {
+		case "set":
+			return { shape: "instantSet", ...instantCalls(ctx, instantSetAnswer, parse) }
+		case "list":
+			return { shape: "instantList", ...instantCalls(ctx, instantListAnswer, parse) }
 	}
 }
 
@@ -512,8 +605,8 @@ export const variantOf = (ctx: ServedDbContext, variants: LoadedVariants): Loade
 }
 
 /**
- * The parse of a read member's input into its call (ParsedRead), by the member's kind: a read's, a key's and a paged
- * member's; a write member has none. What a suite reads a member's statement and rows through when it runs flights of
+ * The parse of a read member's input into its call (ParsedRead), by the member's kind: a read's, an instant one's, a
+ * key's and a paged member's; a write member has none. What a suite reads a member's statement and rows through when it runs flights of
  * its own beside the read's (two artifacts in one snapshot, a flight's statements counted).
  */
 export const readCallOf = (
@@ -521,6 +614,7 @@ export const readCallOf = (
 ): Option.Option<(input: unknown) => Effect.Effect<ParsedRead, ReadError>> => {
 	switch (member.kind) {
 		case "read":
+		case "instant":
 			return Option.some(parseRead(member.read))
 		case "key":
 			return Option.some(parseKey(member.read, member.fields))
@@ -537,6 +631,8 @@ export const memberCalls = (ctx: ServedDbContext, member: LoadedMember): ServedC
 	switch (member.kind) {
 		case "read":
 			return readMemberCalls(ctx, member.read, parseRead(member.read))
+		case "instant":
+			return instantMemberCalls(ctx, member.read)
 		case "key":
 			return readMemberCalls(ctx, member.read, parseKey(member.read, member.fields))
 		case "paged":
@@ -598,6 +694,7 @@ export const memberExplains = (
 ): MemberExplains => {
 	switch (member.kind) {
 		case "read":
+		case "instant":
 			return readExplains(ctx, installed, parseRead(member.read))
 		case "key":
 			return readExplains(ctx, installed, parseKey(member.read, member.fields))
@@ -635,8 +732,24 @@ const explainsOf = (explains: MemberExplains): object => {
 }
 
 /**
- * The record of a Db's workload handles: each member's once and watch (memberCalls) beside its explains
- * (memberExplains), named by the login's served tables `installed`, under its name.
+ * The calls a handle holds of its member's (memberCalls): its once and watch, an instant member's once alone, whose
+ * answer only the HTTP handler sends (types/db MemberCalls).
+ */
+const handleCalls = (calls: ServedCalls): object => {
+	switch (calls.shape) {
+		case "set":
+		case "list":
+		case "write":
+			return { once: calls.once, watch: calls.watch }
+		case "instantSet":
+		case "instantList":
+			return { once: calls.once }
+	}
+}
+
+/**
+ * The record of a Db's workload handles: each member's calls (handleCalls) beside its explains (memberExplains), named
+ * by the login's served tables `installed`, under its name.
  */
 export const servedHandles = (
 	ctx: ServedDbContext,
@@ -645,10 +758,8 @@ export const servedHandles = (
 ): object => {
 	const handles: Record<string, object> = {}
 	for (const member of members) {
-		const calls = memberCalls(ctx, member)
 		handles[member.name] = Object.freeze({
-			once: calls.once,
-			watch: calls.watch,
+			...handleCalls(memberCalls(ctx, member)),
 			...explainsOf(memberExplains(ctx, installed, member))
 		})
 	}

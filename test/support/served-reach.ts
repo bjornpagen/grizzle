@@ -127,6 +127,7 @@ export const writtenBy = (role: ServedRoleForm): ReadonlySet<StoredRelationName>
 const memberRosters = (member: ServedMember): ReadonlyArray<string> => {
 	switch (member.kind) {
 		case "read":
+		case "instant":
 		case "key":
 			return [
 				...decoderRosters(member.read.decoder),

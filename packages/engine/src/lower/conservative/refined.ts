@@ -208,6 +208,8 @@ export class Tracer {
 		switch (e.kind) {
 			case "param":
 				return [isDomain(e.type, claim) ? "proved" : this.#supplied(e.slot.number, claim)]
+			case "clock":
+				return [isDomain(e.type, claim) ? "proved" : "unproved"]
 			case "literal":
 				return [
 					isDomain(e.type, claim) || admittedLiteral(e, claim, this.#patterns)

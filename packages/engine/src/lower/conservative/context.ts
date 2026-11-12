@@ -795,14 +795,18 @@ export class LowerContext {
 	 * The placeholder of the declared scalar parameter `param`, read as a value of `type`: cast to the type its declared
 	 * type's values are checked against as they are bound (paramTypeRef), whatever type the expression reading it has,
 	 * so every placeholder of a refined parameter is checked by PostgreSQL; an undeclared one is a malformed description.
+	 * A parameter its served member binds to the database's clock is no slot but the reading itself (sql/ast.ts Expr
+	 * clock), cast as its placeholder would be, so its contract judges the reading as it judges a caller's value.
 	 */
 	scalarParam(param: ParamId, type: ScalarType, at: string): Expr {
-		for (const p of this.options.params) {
-			if (p.id === param && p.kind === "scalar") {
-				return this.params.scalar(param, type, this.paramTypeRef(p.type, { kind: "scalar", param }))
-			}
+		const p = this.options.params.find((d) => d.id === param)
+		if (p === undefined || p.kind === "relation") {
+			return refuse("MalformedDescription", at, `a declared scalar parameter ${param}`)
 		}
-		return refuse("MalformedDescription", at, `a declared scalar parameter ${param}`)
+		const cast = this.paramTypeRef(p.type, { kind: "scalar", param })
+		return p.kind === "clock"
+			? { kind: "clock", param: p.name, unit: p.unit, type: cast }
+			: this.params.scalar(param, type, cast)
 	}
 
 	/**
@@ -826,19 +830,28 @@ export class LowerContext {
 
 	/**
 	 * The type of a take or page bound parameter: its declaration's, which the checker states for every bound parameter
-	 * (integer, or the wider type another use of the parameter fixes). An undeclared one is a malformed description.
+	 * (integer, or the wider type another use of the parameter fixes). An undeclared one is a malformed description, and
+	 * so is one its member binds to the database's clock: a bound is a count of rows the call states, never an instant.
 	 */
 	boundParam(bound: TakeBound & { readonly kind: "param" }): Expr {
-		for (const p of this.options.params) {
-			if (p.id === bound.param && p.kind === "scalar") {
+		const p = this.options.params.find((d) => d.id === bound.param)
+		switch (p?.kind) {
+			case "scalar":
 				return this.params.scalar(bound.param, p.type, this.baseTypeRef(p.type))
-			}
+			case "clock":
+				return refuse(
+					"MalformedDescription",
+					"take bound",
+					`a take bound the call states; ${bound.param} is bound to the database's clock`
+				)
+			case "relation":
+			case undefined:
+				return refuse(
+					"MalformedDescription",
+					"take bound",
+					`a declared scalar parameter ${bound.param}`
+				)
 		}
-		return refuse(
-			"MalformedDescription",
-			"take bound",
-			`a declared scalar parameter ${bound.param}`
-		)
 	}
 
 	boundExpr(bound: TakeBound): Expr {

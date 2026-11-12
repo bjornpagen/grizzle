@@ -1,11 +1,20 @@
+import { clockParams } from "#compiler/check/clock.ts"
 import { type AdmittedQuery, checkQuery } from "#compiler/check/index.ts"
 import { catchCompileError, catchRefusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { ClockBinding } from "#compiler/ir/clock.ts"
 import { decodeDesc, isOrderedQuery, type QueryDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
-import type { ProgramArtifacts, LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
+import {
+	type CallerParamDecl,
+	type ClockParamDecl,
+	callerParams,
+	clockedParams,
+	type LogicalQuery,
+	type ProgramArtifacts
+} from "#compiler/ir/products.ts"
 import type { Heading, RootedDag } from "#compiler/ir/rel.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
@@ -31,7 +40,13 @@ export interface QueryTemplate extends ProgramArtifacts {
 	readonly kind: "query" | "ordered"
 	/** The public result heading. */
 	readonly heading: Heading
-	readonly params: ReadonlyArray<ParamDecl>
+	/** The declared parameters a call supplies: every one but those its member binds to the database's clock. */
+	readonly params: ReadonlyArray<CallerParamDecl>
+	/**
+	 * The declared parameters its member binds to the database's clock, which its statement prints as the reading, cast
+	 * as a placeholder of each is: none but an instant member's.
+	 */
+	readonly clocked: ReadonlyArray<ClockParamDecl>
 	/** How the runtime delivers the result. */
 	readonly delivery: ProgramDelivery
 	/**
@@ -67,6 +82,11 @@ export interface TemplateReading {
 export interface CompileQueryOptions extends TemplateReading {
 	/** The execution context the template is compiled for. */
 	readonly context: TemplateContext
+	/**
+	 * The parameters the query's served member binds to the database's clock (check/clock.ts clockParams), which the
+	 * template's statement prints as the reading itself: none but an instant member's.
+	 */
+	readonly clock: ClockBinding
 	/** The schema's artifacts: its installed names, law model and evidence catalog (program/schema.ts). */
 	readonly artifacts: SchemaArtifacts
 }
@@ -180,7 +200,11 @@ export const compileQuery = (
 	if (!checkedQuery.ok) {
 		return checkedQuery
 	}
-	const checked = checkedQuery.value
+	const params = clockParams(checkedQuery.value.params, options.clock, "clocked")
+	if (!params.ok) {
+		return params
+	}
+	const checked: AdmittedQuery = { ...checkedQuery.value, params: params.value }
 	const analyzed = analyzeLogical(checked.dag, {
 		context,
 		containments: artifacts.laws.theory.evidence.containments,
@@ -222,7 +246,8 @@ export const compileQuery = (
 		optimized: [run.value.statement.spec],
 		certificates: optimized.certificates,
 		heading: checked.dag.roots[0].heading,
-		params: checked.params,
+		params: callerParams(checked.params),
+		clocked: clockedParams(checked.params),
 		delivery: optimized.delivery,
 		programs: { optimized, checked: judged },
 		run: run.value,

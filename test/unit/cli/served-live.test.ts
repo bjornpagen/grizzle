@@ -198,6 +198,7 @@ const liveIsTheUnion = (
 						case "paged":
 						case "key":
 							return [member.read.footprint]
+						case "instant":
 						case "change":
 						case "refresh":
 							return []

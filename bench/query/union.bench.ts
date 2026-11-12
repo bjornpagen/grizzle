@@ -44,6 +44,7 @@ import {
 } from "#bench/query/support/kit.ts"
 import { dedupNodes, plansOf, summaryOf } from "#bench/query/support/plans.ts"
 import * as Engine from "#compiler/core/result.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { templateFor } from "#compiler/program/template.ts"
@@ -417,7 +418,8 @@ export default defineGate({
 				Engine.flatMap(queryInput(noteActivity), (input) =>
 					templateFor(input, appInput, artifacts, {
 						context: "snapshot",
-						read: "rows"
+						read: "rows",
+						clock: noClock
 					})
 				)
 			)

@@ -1625,7 +1625,8 @@ schema.
   `mutable(Post)` among a schema's rules allows in-place updates; it changes how a `put` runs, never what it means. A
   family's owner whose family changes after it is inserted is mutable too ([Families](#families)).
 - **No timestamp type.** An instant is a `bigint` contract, such as milliseconds since the epoch, and the current time
-  is a parameter. A calendar day is a `date`.
+  is a parameter: the caller's, or the database's clock where a member binds it
+  ([The database's clock](#the-databases-clock)). A calendar day is a `date`.
 
 | Field                                              | PostgreSQL                                                          | TypeScript                                                             |
 | -------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------- |
@@ -2516,8 +2517,33 @@ yield* db.workload.postPage.explain({ params: { id }, facts: {} })   // abridged
   reasons: [{ kind: "law", law: "__post_pk_id_…" }, { kind: "access" }] }
 ```
 
-- **A member's calls** are exactly what its program allows: a read's `once`, `watch`, `explain` and `explainAnalyze`; a ChangeSet's `once`, `watch` and `explain`; a refresh's `once` and `watch`. A member `refresh(tables)`, of a nonempty list of tables, is a write that refreshes its materialized tables in one transaction, lower levels first, and answers `{ kind: "refreshed" }`. A ChangeSet member with array members, facts its `insert`, `insertAll`, `delete` or `put` was given as an array, takes them as its input's `facts`: under each such member's op, `insert` (an `insertAll`'s members are inserts), `put` or `delete`, and then under its relation's name, the rows that member takes, typed and checked as its own (an owner's insert's with their families nested), as in `once({ params: {}, facts: { put: { Blob: stated }, delete: { Blob: removed } } })`. An op or relation left out, a row that is no fact of its relation and a name that is no array member's op or relation are type errors, and two array members of one op and one relation in two strata are refused where the strata meet: merge them into one. Every other member's facts are `{}`.
+- **A member's calls** are exactly what its program allows: a read's `once`, `watch`, `explain` and `explainAnalyze`; a clocked read's `once`, `explain` and `explainAnalyze` ([The database's clock](#the-databases-clock)); a ChangeSet's `once`, `watch` and `explain`; a refresh's `once` and `watch`. A member `refresh(tables)`, of a nonempty list of tables, is a write that refreshes its materialized tables in one transaction, lower levels first, and answers `{ kind: "refreshed" }`. A ChangeSet member with array members, facts its `insert`, `insertAll`, `delete` or `put` was given as an array, takes them as its input's `facts`: under each such member's op, `insert` (an `insertAll`'s members are inserts), `put` or `delete`, and then under its relation's name, the rows that member takes, typed and checked as its own (an owner's insert's with their families nested), as in `once({ params: {}, facts: { put: { Blob: stated }, delete: { Blob: removed } } })`. An op or relation left out, a row that is no fact of its relation and a name that is no array member's op or relation are type errors, and two array members of one op and one relation in two strata are refused where the strata meet: merge them into one. Every other member's facts are `{}`.
 - **No other program runs.** A Db holds only the members its served file holds, each prepared under the name generate gave its text. A program built at run time runs once a workload names it and generate serves it, so put every program your application runs in a workload.
+
+### The database's clock
+
+A lease, a timer or a due instant judged by the caller's clock is judged differently by two hosts whose clocks disagree. `clocked(program, binding)` serves a query, an ordered query or a ChangeSet with each parameter its binding names bound to the database's clock: the instant the call's transaction began, `transaction_timestamp()`, counted since the Unix epoch and floored, in `"micros"`, PostgreSQL's own resolution, or `"millis"`, JavaScript's and Effect's. The program is unchanged: it declares the parameter, a `bigint` or a contract over one, and a test serves the same program unclocked with a `now` of its own.
+
+```ts
+/** The calls that ran at or before the database's instant. */
+export const ranBefore = query(Usage).rule((r) => {
+	const { id, at } = v(Call, "call")
+	return r
+		.match(Call, { id, at })
+		.where(r.le(at, r.param("now", Millis)))
+		.find({ id, at })
+})
+
+export const UsageClock = workload(Usage, { ranBefore: clocked(ranBefore, { now: "millis" }) })
+```
+
+`db.workload.ranBefore.once({ params: {}, facts: {} })` takes no `now`: the database reads it.
+
+- **One reading per call.** Every statement, row and flight of a call reads the same instant, so a row a write stamps and the read-back that judges it agree. The reading is no later than any snapshot the call takes, so every call that committed before it is visible to the call's reads: a read of what is due at or before the reading misses nothing committed before it.
+- **A reading is an observation, not an order.** Calls that do not overlap read non-decreasing instants, unless the server's wall clock steps back, as an NTP step or a failover to another host can. Overlapping calls read in neither their commit order nor the serial order their isolation proves, so a stamp is no cursor over what is visible: a read at an instant can miss a row stamped before it that commits after the read's snapshot. Keys fence a write; the clock decides only when work is due.
+- **Never live.** Time passing is no change, so a clocked read is answered at its call's instant alone: its handle holds `once`, `explain` and `explainAnalyze`, and no `watch`, and over HTTP its answer is `reset`, its upserts, `ready`, then `end`. It needs no live source. To wake at an instant, watch a read of the due instants that reads no clock, and read the clocked one when an instant passes. A clocked ChangeSet is a ChangeSet member like any other, whose `watch` is its outcome, then the end.
+- **The reading is the parameter's value.** It stands wherever the parameter does, cast to the parameter's type, so a contract judges it as it judges a caller's value, `refused` on the contract. The member's input holds the program's other parameters alone. A law, a check, a contract, a generated field, a derived relation and a role's entry read no parameter, so none reads the clock: a law judged against the clock would turn false with no write. PostgreSQL accepts `now()` in a table's or a domain's CHECK and judges it only at write; grizzle emits none.
+- **What a binding binds.** A binding names at least one parameter of the program whose values are `bigint`s, each with its unit; any other name is a type error, a take's or a page's bound is refused, and a paged member, a key and a refresh are never clocked. A micros reading past the year 294,247 on the server's clock is out of bigint's range, and refuses the call.
 
 ## Writes
 
@@ -3606,7 +3632,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 
 ### Values
 
-- **No timestamp type.** An instant is a bigint contract. A `date` holds 0001-01-01 to 9999-12-31; a lexical form has no timezone, so a timezoned `xs:date` has no typed value.
+- **No timestamp type.** An instant is a bigint contract, and the database's clock a parameter a member binds ([The database's clock](#the-databases-clock)). A `date` holds 0001-01-01 to 9999-12-31; a lexical form has no timezone, so a timezoned `xs:date` has no typed value.
 - **A span is over `integer`, `bigint`, `date` or a contract over one** (int4range, int8range, daterange), never `smallint`, which PostgreSQL has no range over. A date span's ends are `CalendarDate`s within 0001-01-01 and an excluded 9999-12-31, as an integer span's excluded end is at most its type's greatest value; its width is a `number` of days.
 - **A numeric field declares its precision and scale**, `pg.numeric(p, s)`: p at most 1,000, s within ±1,000, NaN but no infinity. A computed numeric (a sum, a mean, an operation's result, a derived field) carries the digits its computation proves; past 131,072 integer digits, PostgreSQL's limit, it is `ResourceBound` at compile time. `Compute.numeric(x)` is `x::numeric` of an integer, money or a float, a float to the 6 or 15 significant digits PostgreSQL writes.
 - **A parse reads integer, numeric(p, s), double precision, boolean and date forms.** A numeric form has at most 255 digits either side of its point; a double's, 15 significant digits either side and an exponent of at most 293, so float8in neither overflows nor underflows. `Compute.parseDouble` reads a double's text of any digits and exponent, and `Compute.parseDecimal` a decimal text of any digits within 16,384 bytes, the most whose every value numeric holds. An `xs:duration` has no typed value, since PostgreSQL's interval orders 1 month as 30 days.

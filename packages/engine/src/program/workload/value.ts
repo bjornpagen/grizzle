@@ -3,6 +3,7 @@ import { hostRead } from "#compiler/core/host.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { deepFreeze, hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
+import { type ClockBinding, type ClockUnit, isClockUnit, noClock } from "#compiler/ir/clock.ts"
 import { declaredNameAt, type ProgramDesc, type WorkloadDesc } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import {
@@ -18,10 +19,10 @@ import {
 	type OrderedValue,
 	type QueryValue
 } from "#compiler/query/build/query.ts"
-import { builderLoc, malformed } from "#compiler/schema/protocol.ts"
+import { builderLoc, builderRefusal, malformed } from "#compiler/schema/protocol.ts"
 import { derivedDraftOf } from "#compiler/schema/relation.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
-import type { Paged, Refresh, Workload } from "#compiler/types/db/workload.ts"
+import type { Clocked, Paged, Refresh, Workload } from "#compiler/types/db/workload.ts"
 import {
 	type ChangeSetValue,
 	changeSetState,
@@ -32,16 +33,25 @@ type QueryProgramDesc = Extract<ProgramDesc, { readonly kind: "query" }>
 
 /**
  * A program value of a workload, by kind, as the builders made it, with its Description: an ordered query read only,
- * or one that pages (paged), whose Description is its ordered query's.
+ * or one that pages (paged), whose Description is its ordered query's; a query or ordered query whose member binds
+ * parameters to the database's clock (clocked), read at its call's instant and never live; or a ChangeSet, with the
+ * parameters its member binds to the clock, none but a clocked one's.
  */
 type ProgramValue =
 	| { readonly kind: "query"; readonly value: QueryValue; readonly desc: QueryProgramDesc }
 	| { readonly kind: "ordered"; readonly value: OrderedValue; readonly desc: QueryProgramDesc }
+	| {
+			readonly kind: "instant"
+			readonly value: QueryValue | OrderedValue
+			readonly desc: QueryProgramDesc
+			readonly clock: ClockBinding
+	  }
 	| { readonly kind: "paged"; readonly value: OrderedValue; readonly desc: QueryProgramDesc }
 	| {
 			readonly kind: "changeSet"
 			readonly value: ChangeSetValue
 			readonly desc: Extract<ProgramDesc, { readonly kind: "changeSet" }>
+			readonly clock: ClockBinding
 	  }
 
 /**
@@ -117,6 +127,73 @@ export const pagedMember = <O>(ordered: O, ...extra: ReadonlyArray<unknown>): Pa
 	return value
 }
 
+/** The program each value clocked(...) made serves, with the parameters it binds to the clock (clockedMember). */
+const clockedValues = new WeakMap<
+	object,
+	{ readonly program: QueryValue | OrderedValue | ChangeSetValue; readonly clock: ClockBinding }
+>()
+
+/**
+ * The binding `binding` states, read once at the boundary (core/host.ts hostRead) into a frozen copy: a plain record of
+ * at least one declared parameter name, each to a clock unit; or the refusal of any other value.
+ */
+const clockBinding = (binding: unknown): ClockBinding => {
+	const refused = (): CompileError =>
+		malformed(
+			"clocked",
+			'a binding of at least one declared parameter name to a clock unit, "micros" or "millis"'
+		)
+	const read = hostRead(refused, () => {
+		if (!isPlainRecord(binding)) {
+			return Result.err(refused())
+		}
+		const copy: Record<string, ClockUnit> = {}
+		for (const name of Object.keys(binding)) {
+			const unit: unknown = binding[name]
+			if (!isClockUnit(unit) || !declaredNameAt("workload", ["clock", name], name).ok) {
+				return Result.err(refused())
+			}
+			copy[name] = unit
+		}
+		return Object.keys(copy).length > 0
+			? Result.ok(Object.freeze(copy))
+			: Result.err(
+					builderRefusal(
+						"clocked",
+						"clocked binds at least one parameter of the program to the database's clock"
+					)
+				)
+	})
+	return orThrow(read)
+}
+
+/**
+ * clocked(program, binding): the workload member that serves `program`, a query, an ordered query or a ChangeSet, with
+ * each parameter `binding` names bound to the database's clock in its unit: the instant the call's transaction began,
+ * transaction_timestamp(), one value in every statement of the call, which no call supplies. A clocked read is read at
+ * that instant and never live, since time passing is no change: its handle answers `once` alone. Whether each name is
+ * a bigint parameter of the program is the compile's to judge (check/clock.ts clockParams); a program that is none of
+ * the three, a paged one among them, and a binding of no parameter or of a unit that is no clock unit throw CompileError
+ * MalformedDescription synchronously.
+ */
+export const clockedMember = <X, B>(
+	program: X,
+	binding: B,
+	...extra: ReadonlyArray<unknown>
+): Clocked<X, B> => {
+	if (extra.length > 0) {
+		throw malformed("clocked", "clocked(program, binding): two arguments")
+	}
+	const clock = clockBinding(binding)
+	const served: unknown = program
+	if (!isQueryValue(served) && !isOrderedValue(served) && !isChangeSetValue(served)) {
+		throw malformed("clocked", "a query, an ordered query or a ChangeSet the builders made")
+	}
+	const value: Clocked<X, B> = Object.freeze({ clocked: program, clock: binding })
+	clockedValues.set(value, { program: served, clock })
+	return value
+}
+
 /** The relations each value refresh(relations) made refreshes, as its list held them at the call (refreshMember). */
 const refreshValues = new WeakMap<object, NonEmptyReadonlyArray<unknown>>()
 
@@ -159,6 +236,10 @@ export const refreshMember = <Rs extends NonEmptyReadonlyArray<unknown>>(
  * ordered query or ChangeSet value; undefined otherwise.
  */
 const programDescOf = (program: unknown): ProgramFound | undefined => {
+	const clocked = hasProperties(program) ? clockedValues.get(program) : undefined
+	if (clocked !== undefined) {
+		return clockedFound(clocked.program, clocked.clock)
+	}
 	const pagedQuery = hasProperties(program) ? pagedValues.get(program) : undefined
 	if (pagedQuery !== undefined) {
 		return queryFound((desc) => ({ kind: "paged", value: pagedQuery, desc }), pagedQuery)
@@ -169,6 +250,11 @@ const programDescOf = (program: unknown): ProgramFound | undefined => {
 	if (isOrderedValue(program)) {
 		return queryFound((desc) => ({ kind: "ordered", value: program, desc }), program)
 	}
+	return changeSetFound(program, noClock)
+}
+
+/** A ChangeSet value with its Description and the schema it was built over, its member binding `clock`. */
+const changeSetFound = (program: unknown, clock: ClockBinding): ProgramFound | undefined => {
 	const change = changeSetState(program)
 	if (change === undefined || !isChangeSetValue(program)) {
 		return undefined
@@ -178,9 +264,44 @@ const programDescOf = (program: unknown): ProgramFound | undefined => {
 		program: {
 			kind: "changeSet",
 			value: program,
-			desc: { kind: "changeSet", changeSet: change.desc }
+			desc: { kind: "changeSet", changeSet: change.desc },
+			clock
 		},
 		schema: over
+	}
+}
+
+/**
+ * The program a clocked member serves, with its Description and the schema it was written over: a query or ordered
+ * query read at its call's instant (`instant`), or a ChangeSet with its binding.
+ */
+const clockedFound = (
+	program: QueryValue | OrderedValue | ChangeSetValue,
+	clock: ClockBinding
+): ProgramFound | undefined =>
+	isQueryValue(program) || isOrderedValue(program)
+		? queryFound((desc) => ({ kind: "instant", value: program, desc, clock }), program)
+		: changeSetFound(program, clock)
+
+/**
+ * The Description a workload records of a program: its own, or, where its member binds parameters to the clock, the
+ * program under that binding (ir/desc.ts ProgramDesc clocked).
+ */
+const workloadDescOf = (
+	program: Exclude<WorkloadProgram, { readonly kind: "refresh" }>
+): ProgramDesc => {
+	switch (program.kind) {
+		case "instant":
+			return { kind: "clocked", clock: program.clock, program: program.desc }
+		case "changeSet":
+			return Object.keys(program.clock).length > 0
+				? { kind: "clocked", clock: program.clock, program: program.desc }
+				: program.desc
+		case "query":
+		case "ordered":
+		case "paged":
+		case "key":
+			return program.desc
 	}
 }
 
@@ -213,7 +334,7 @@ const workloadProgram = (
 	if (lookup === undefined) {
 		throw malformed(
 			label,
-			`program ${JSON.stringify(name)}: a query, an ordered query, a paged ordered query, a ChangeSet, a relation's key or a refresh the builders made`
+			`program ${JSON.stringify(name)}: a query, an ordered query, a paged ordered query, a ChangeSet, a clocked one of them, a relation's key or a refresh the builders made`
 		)
 	}
 	return {
@@ -290,7 +411,7 @@ export const workload = <S, P extends object>(
 			continue
 		}
 		Object.defineProperty(descs, name, {
-			value: program.desc,
+			value: workloadDescOf(program),
 			enumerable: true,
 			writable: true,
 			configurable: true

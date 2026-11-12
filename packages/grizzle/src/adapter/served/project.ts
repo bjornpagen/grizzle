@@ -20,7 +20,8 @@ import {
 	levelChain,
 	type LoginDesc,
 	loginStem,
-	type ParamDecl,
+	type CallerParamDecl,
+	type ClockParamDecl,
 	prepared,
 	raisableOf,
 	type SchemaArtifacts,
@@ -42,6 +43,7 @@ import {
 	pageKey,
 	type QueryTemplate,
 	servedFootprint,
+	servedInstantRead,
 	servedRead,
 	servedReadBacks,
 	templateKey
@@ -52,6 +54,7 @@ import {
 	type ServedChange,
 	type ServedContext,
 	type ServedFile,
+	type ServedInstantRead,
 	type ServedKey,
 	type ServedMember,
 	type ServedMemberForm,
@@ -131,6 +134,20 @@ const readOf = (
 }
 
 /**
+ * A rows form's read at its call's instant, served: as readOf serves a read, with no footprint, since no change reaches
+ * an instant member's answer.
+ */
+const instantReadOf = (form: RowsForm<unknown>): ServedInstantRead => {
+	const { compiled } = form.bound.compiled
+	return servedInstantRead(
+		compiled.template,
+		compiled.desc,
+		form.decoder(),
+		templateKey(compiled.template)
+	)
+}
+
+/**
  * A ChangeSet's variants, served: each compiled change its program, projected at the level it was compiled for, its
  * role's (write/program/served.ts servedWrite), its read-backs, its reads decoder's form, the values its
  * declaration bound and the array members a call supplies (servedMembers), or every reason no call can serve it
@@ -190,6 +207,8 @@ const memberOf = (
 				kind: "read",
 				read: readOf(member.form, footprint(), names, templateKey)
 			})
+		case "instant":
+			return Result.succeed({ name, kind: "instant", read: instantReadOf(member.form) })
 		case "key":
 			return Result.succeed({
 				name,
@@ -272,6 +291,7 @@ const refusalsOf = (role: LayerRole): ServedRefusals => {
 		Arr.map(context.fields, (field) => field.type)
 	)
 	const params = Arr.flatMap(role.workload, memberParams)
+	const clocked = Arr.flatMap(role.workload, memberClocked)
 	return servedRefusals(
 		role.artifacts,
 		raisableOf(role.artifacts, {
@@ -283,7 +303,8 @@ const refusalsOf = (role: LayerRole): ServedRefusals => {
 				...(writes.length === 0 ? [] : claims),
 				...Arr.flatMap(params, (param) =>
 					param.kind === "scalar" ? [param.type] : Arr.map(param.heading, (c) => c.type)
-				)
+				),
+				...Arr.map(clocked, (param) => param.type)
 			]
 		}),
 		params
@@ -291,12 +312,14 @@ const refusalsOf = (role: LayerRole): ServedRefusals => {
 }
 
 /**
- * The parameters a member declares, each of whose values PostgreSQL checks against its refinement's domain as it binds
- * it: a read's, a page's, and every variant's of a ChangeSet; a refresh declares none.
+ * The parameters a member declares that a call supplies, each of whose values PostgreSQL checks against its
+ * refinement's domain as it binds it: a read's, an instant read's, a page's, and every variant's of a ChangeSet; a
+ * refresh declares none.
  */
-const memberParams = (member: WorkloadForm): ReadonlyArray<ParamDecl> => {
+const memberParams = (member: WorkloadForm): ReadonlyArray<CallerParamDecl> => {
 	switch (member.kind) {
 		case "read":
+		case "instant":
 		case "key":
 			return member.form.bound.compiled.compiled.template.params
 		case "paged":
@@ -306,6 +329,24 @@ const memberParams = (member: WorkloadForm): ReadonlyArray<ParamDecl> => {
 			]
 		case "change":
 			return Arr.flatMap(variantsWrites(member.variants), (write) => write.params)
+		case "refresh":
+			return []
+	}
+}
+
+/**
+ * The parameters a member binds to the database's clock, each of whose readings PostgreSQL checks against its
+ * contract's domain as its statement casts it: an instant read's, and every variant's of a ChangeSet.
+ */
+const memberClocked = (member: WorkloadForm): ReadonlyArray<ClockParamDecl> => {
+	switch (member.kind) {
+		case "instant":
+			return member.form.bound.compiled.compiled.template.clocked
+		case "change":
+			return Arr.flatMap(variantsWrites(member.variants), (write) => write.clocked)
+		case "read":
+		case "key":
+		case "paged":
 		case "refresh":
 			return []
 	}

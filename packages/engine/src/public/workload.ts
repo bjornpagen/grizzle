@@ -1,11 +1,13 @@
 import * as runtime from "#compiler/program/workload/value.ts"
 import type {
+	ClockedConstructor,
 	PagedConstructor,
 	RefreshConstructor,
 	WorkloadConstructor
 } from "#compiler/types/db/workload.ts"
 
-export type { Paged, Refresh, Workload } from "#compiler/types/db/workload.ts"
+export type { ClockUnit } from "#compiler/ir/clock.ts"
+export type { Clocked, Paged, Refresh, Workload } from "#compiler/types/db/workload.ts"
 
 /**
  * Public barrel: workload, the query workload. packages/grizzle/src/index.ts re-exports it.
@@ -25,3 +27,10 @@ export const paged: PagedConstructor = runtime.pagedMember
  * (program/workload/value.ts refreshMember).
  */
 export const refresh: RefreshConstructor = runtime.refreshMember
+
+/**
+ * clocked(program, binding): the workload member that serves a query, an ordered query or a ChangeSet with each
+ * parameter `binding` names bound to the database's clock in its unit, read at the instant the call's transaction began
+ * (program/workload/value.ts clockedMember).
+ */
+export const clocked: ClockedConstructor = runtime.clockedMember

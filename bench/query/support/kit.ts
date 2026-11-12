@@ -40,6 +40,7 @@ import * as Engine from "#compiler/core/result.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { codeNames, codeOf } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
@@ -385,7 +386,7 @@ export const compile = <S>(
 	if (!Number.isInteger(options.warm) || options.warm < 1) {
 		throw new RangeError(`${options.warm} warm compilations`)
 	}
-	const request = { context: options.context, read: options.read } as const
+	const request = { context: options.context, read: options.read, clock: noClock } as const
 	const reading = schemaInputOf(options.role)
 	/**
 	 * The role reads through the views its installation created, in the role schema named after the installed schema:

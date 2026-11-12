@@ -10,7 +10,7 @@
  */
 import type { Prepared } from "#compiler/core/prepared.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import type { ParamDecl, WriteSlot } from "#compiler/ir/products.ts"
+import type { CallerParamDecl, WriteSlot } from "#compiler/ir/products.ts"
 import type { ServedSlot, WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
@@ -65,7 +65,7 @@ export interface ServedStatement {
  * flight sends them; and the relations it writes, in code point order, whose facts its rows net by identity.
  */
 export interface ServedWrite {
-	readonly params: ReadonlyArray<ParamDecl>
+	readonly params: ReadonlyArray<CallerParamDecl>
 	readonly binding: Binding
 	readonly statements: ReadonlyArray<ServedStatement>
 	readonly written: ReadonlyArray<WrittenHeading>
@@ -92,7 +92,7 @@ export interface FlightStatement {
  * and what reads its rows.
  */
 export interface FlightWrite {
-	readonly params: ReadonlyArray<ParamDecl>
+	readonly params: ReadonlyArray<CallerParamDecl>
 	readonly binding: Binding
 	readonly prepared: PreparedBinding
 	readonly codes: Codebook

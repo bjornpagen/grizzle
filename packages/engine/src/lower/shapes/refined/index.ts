@@ -123,6 +123,7 @@ const refineFused = (cx: LowerContext, tracer: Tracer, t: Target, outer: Scope):
 			case "excluded":
 			case "returning":
 			case "param":
+			case "clock":
 			case "literal":
 			case "collate":
 			case "binary":

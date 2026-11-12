@@ -8,13 +8,21 @@ import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
+import { type ClockBinding, noClock } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import { type FillColumn, layoutKey } from "#compiler/ir/fill.ts"
 import { type FamilyId, familyKey, type RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import type { ParamDecl, ProgramArtifacts, StatementSpec } from "#compiler/ir/products.ts"
+import {
+	type CallerParamDecl,
+	type ClockParamDecl,
+	callerParams,
+	clockedParams,
+	type ProgramArtifacts,
+	type StatementSpec
+} from "#compiler/ir/products.ts"
 import type { DeltaSide, RelDag, RelNode } from "#compiler/ir/rel.ts"
 import { completeClass, type ReadBack, type SerialClass } from "#compiler/ir/write.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
@@ -112,7 +120,7 @@ import {
 import type { FamilyWriteSql } from "#compiler/write/family/written.ts"
 import {
 	type ActionEntry,
-	compileChangeSet,
+	compileClockedChangeSet,
 	type MemberSlot,
 	type SlotGroup,
 	type StratumEdit,
@@ -224,8 +232,13 @@ export interface CompiledWrite extends ProgramArtifacts<WriteParamSlot> {
 	readonly artifact: WriteArtifact
 	/** Where each family statement is placed in its stratum's schedule, which every realization places it by. */
 	readonly placements: ReadonlyArray<FamilyPlacement>
-	/** The parameters the members and read-backs declare, and the enumerated member slots binding fills. */
-	readonly params: ReadonlyArray<ParamDecl>
+	/**
+	 * The parameters the members and read-backs declare that a call supplies, every one but those its member binds to the
+	 * database's clock, and the enumerated member slots binding fills.
+	 */
+	readonly params: ReadonlyArray<CallerParamDecl>
+	/** The parameters its member binds to the database's clock, which its statements print as the reading. */
+	readonly clocked: ReadonlyArray<ClockParamDecl>
 	readonly slots: ReadonlyArray<SlotGroup>
 	/** What binding one application reads besides its values, decided here (decide.ts decideBinding). */
 	readonly binding: Binding
@@ -1691,16 +1704,22 @@ const checkReads = (step: Extract<PlanStep, { readonly kind: "check" }>): Readon
 const compile = (
 	schema: CheckedSchema,
 	desc: ChangeSetDesc,
-	options: CompileWriteOptions
+	options: CompileWriteOptions,
+	clock: ClockBinding
 ): CompiledWrite => {
 	const frontend = unwrap(
-		compileChangeSet(schema, desc, {
-			claims: options.claims,
-			laws: options.laws,
-			derived: options.derived,
-			world: options.world,
-			codes: options.names.codes
-		})
+		compileClockedChangeSet(
+			schema,
+			desc,
+			{
+				claims: options.claims,
+				laws: options.laws,
+				derived: options.derived,
+				world: options.world,
+				codes: options.names.codes
+			},
+			clock
+		)
 	)
 	const chosen = choosePutTargets(frontend)
 	/** The optimized artifact lowers the restated write DAG (`WriteFrontend.restated`), its actions and read-backs each
@@ -1751,7 +1770,8 @@ const compile = (
 		plan,
 		artifact: optimized,
 		placements: family.placements,
-		params: frontend.params,
+		params: callerParams(frontend.params),
+		clocked: clockedParams(frontend.params),
 		slots: frontend.slots,
 		binding: decideBinding(frontend)
 	}
@@ -1789,4 +1809,17 @@ export const compileWrite = (
 	schema: CheckedSchema,
 	desc: ChangeSetDesc,
 	options: CompileWriteOptions
-): Result.Result<CompiledWrite, CompileError> => catchRefusal(() => compile(schema, desc, options))
+): Result.Result<CompiledWrite, CompileError> => compileClockedWrite(schema, desc, options, noClock)
+
+/**
+ * The WriteProgram of `desc` as compileWrite compiles it, each parameter `clock` names bound to the database's clock
+ * (check/clock.ts clockParams): the ChangeSet a clocked member serves, whose statements print each such parameter as the
+ * reading itself.
+ */
+export const compileClockedWrite = (
+	schema: CheckedSchema,
+	desc: ChangeSetDesc,
+	options: CompileWriteOptions,
+	clock: ClockBinding
+): Result.Result<CompiledWrite, CompileError> =>
+	catchRefusal(() => compile(schema, desc, options, clock))

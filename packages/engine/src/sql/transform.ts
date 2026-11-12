@@ -252,6 +252,7 @@ export class Transform {
 				return relation === e.relation ? e : { ...e, relation }
 			}
 			case "param":
+			case "clock":
 			case "literal": {
 				const type = this.type(e.type)
 				return type === e.type ? e : { ...e, type }
@@ -2006,6 +2007,7 @@ class Visit {
 			case "excluded":
 			case "returning":
 			case "param":
+			case "clock":
 			case "literal":
 			case "mergeAction":
 			case "domainValue":

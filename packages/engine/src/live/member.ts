@@ -25,9 +25,10 @@ import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty
 import * as Result from "#compiler/core/result.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { familyKey } from "#compiler/ir/law.ts"
-import type { ParamDecl } from "#compiler/ir/products.ts"
+import type { CallerParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import type { InstantShape, ReadShape } from "#compiler/live/events.ts"
 import {
 	type MemberShape,
 	type MemberWire,
@@ -47,8 +48,8 @@ import { encodeScalar, sameJson, type WireJson, type WireScalar } from "#compile
 import type { InputData } from "#compiler/runtime/write/normalize.ts"
 import type {
 	ServedChange,
+	ServedInstantRead,
 	ServedMemberForm,
-	ServedRead,
 	ServedRoleForm,
 	ServedVariants
 } from "#compiler/served/forms.ts"
@@ -444,8 +445,14 @@ const scalarHeading = (heading: Heading): WireHeading<ServedLeaf> =>
 		field: { kind: "scalar", scalar: leafOf(column.type) }
 	}))
 
-/** A program's declared parameters on the wire. */
-const paramsOf = (params: ReadonlyArray<ParamDecl>): ReadonlyArray<WireParam<ServedLeaf>> =>
+/** The instant shape of a read at its call's instant alone, by its keyed shape (live/events.ts InstantShape). */
+const instantShapes: { readonly [S in ReadShape]: InstantShape } = {
+	set: "instantSet",
+	list: "instantList"
+}
+
+/** A program's declared parameters a call supplies on the wire. */
+const paramsOf = (params: ReadonlyArray<CallerParamDecl>): ReadonlyArray<WireParam<ServedLeaf>> =>
 	params.map((p) => ({
 		name: p.name,
 		param:
@@ -479,7 +486,7 @@ const keyOf = (
 	})
 
 /** A read's record, over its program's typed layouts. */
-const readRecord = (binding: Binding, read: ServedRead): Bound<WireRecord<ServedLeaf>> =>
+const readRecord = (binding: Binding, read: ServedInstantRead): Bound<WireRecord<ServedLeaf>> =>
 	recordOf(binding, read.decoder, programLayouts(read.source.roots, read.spine))
 
 /** The input a member's slot's facts are admitted by (runtime/write/normalize.ts InputData): the one naming the slot. */
@@ -670,6 +677,19 @@ export const memberShape = (
 						member.kind === "paged"
 							? { kind: "window", params: paramsOf(read.params), key }
 							: { kind: "call", params: paramsOf(read.params), facts: [] },
+					record,
+					key,
+					witness
+				}))
+			)
+		}
+		case "instant": {
+			const read = member.read
+			return Result.flatMap(readRecord(binding, read), (record) =>
+				Result.map(keyOf(binding, record, read.key.fields), (key): MemberShape<ServedLeaf> => ({
+					shape: instantShapes[read.key.kind],
+					fields: read.key.fields,
+					input: { kind: "call", params: paramsOf(read.params), facts: [] },
 					record,
 					key,
 					witness

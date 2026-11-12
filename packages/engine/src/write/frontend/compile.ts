@@ -2,6 +2,7 @@ import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import type { CheckedEntry, CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
 import { readsOf, withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
+import { clockParams } from "#compiler/check/clock.ts"
 import { checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
 import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
@@ -17,6 +18,7 @@ import {
 } from "#compiler/core/nonempty.ts"
 import * as Order from "#compiler/core/order.ts"
 import type * as Result from "#compiler/core/result.ts"
+import { type ClockBinding, noClock } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { rooted } from "#compiler/ir/dag.ts"
 import type { ChangeSetDesc, MemberDesc } from "#compiler/ir/desc.ts"
@@ -854,7 +856,20 @@ export const compileChangeSet = (
 	checked: CheckedSchema,
 	desc: ChangeSetDesc,
 	options: FrontendOptions
-): Result.Result<WriteFrontend, CompileError> => catchRefusal(() => compile(checked, desc, options))
+): Result.Result<WriteFrontend, CompileError> =>
+	compileClockedChangeSet(checked, desc, options, noClock)
+
+/**
+ * The write front end of `desc` as compileChangeSet compiles it, each parameter `clock` names bound to the database's
+ * clock (check/clock.ts clockParams): the ChangeSet a clocked member serves.
+ */
+export const compileClockedChangeSet = (
+	checked: CheckedSchema,
+	desc: ChangeSetDesc,
+	options: FrontendOptions,
+	clock: ClockBinding
+): Result.Result<WriteFrontend, CompileError> =>
+	catchRefusal(() => compile(checked, desc, options, clock))
 
 /** A write into a query entry is judged against the entry's filter at its own statement, in the middle of its stratum
  * (, and the role's row security), so a stratum that also writes a relation the filter reads
@@ -865,7 +880,8 @@ export const compileChangeSet = (
 const compile = (
 	checked: CheckedSchema,
 	desc: ChangeSetDesc,
-	options: FrontendOptions
+	options: FrontendOptions,
+	clock: ClockBinding
 ): WriteFrontend => {
 	const at = SourceLoc("ChangeSet", [])
 	const { laws, derived, codes } = options
@@ -2509,8 +2525,12 @@ const compile = (
 	)
 
 	const slotParams = slots.flatMap((g) => g.inputs.flatMap((i) => inputSlots(i).map((s) => s.slot)))
-	const userParams = [...params.values()].toSorted(
-		Order.mapInput(Order.compareStrings, (p: ParamDecl) => p.name)
+	const userParams = unwrap(
+		clockParams(
+			[...params.values()].toSorted(Order.mapInput(Order.compareStrings, (p: ParamDecl) => p.name)),
+			clock,
+			"clocked"
+		)
 	)
 	const drafted: Drafted = {
 		strata,

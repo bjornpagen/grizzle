@@ -12,6 +12,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
+import type { ClockUnit } from "#compiler/ir/clock.ts"
 import {
 	type AlterDomainAction,
 	type AlterRoleAction,
@@ -169,6 +170,27 @@ const printCatalogType = (name: CatalogTypeName): string => {
 			return name
 		case "qualified":
 			return inCatalog(name)
+	}
+}
+
+/** The seconds since the Unix epoch at which the call's transaction began: numeric, exact to the microsecond. */
+const clockSeconds = (): string =>
+	`${inCatalog("extract")}(${printLiteral({ kind: "text", value: "epoch" }, types.text).text}, ${inCatalog("transaction_timestamp")}())`
+
+/** The factor that counts seconds in a clock unit. */
+const clockFactors: { readonly [U in ClockUnit]: bigint } = { micros: 1_000_000n, millis: 1_000n }
+
+/**
+ * The instant the call's transaction began counted in `unit` since the Unix epoch, floored (sql/ast.ts Expr clock): its
+ * seconds times the unit's factor, which counts microseconds exactly and milliseconds with a fraction `floor` drops.
+ */
+const clockReading = (unit: ClockUnit): string => {
+	const counted = `${clockSeconds()} * ${printLiteral({ kind: "int", value: clockFactors[unit] }, types.numeric).text}`
+	switch (unit) {
+		case "micros":
+			return counted
+		case "millis":
+			return `${inCatalog("floor")}(${counted})`
 	}
 }
 
@@ -541,6 +563,8 @@ const expr = (e: Expr): Printed => {
 			return printed(`${e.side}.${quoteIdent(e.column)}`, "atom")
 		case "param":
 			return printed(`$${e.slot.number}::${printType(e.type)}`, "cast")
+		case "clock":
+			return printed(`(${clockReading(e.unit)})::${printType(e.type)}`, "cast")
 		case "literal":
 			return printLiteral(e.value, e.type)
 		case "cast":

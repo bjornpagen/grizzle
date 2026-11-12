@@ -6,7 +6,7 @@ import {
 	type StatementRecord
 } from "#adapter/reader/execution.ts"
 import { type GroupOrder, groupOrder } from "#adapter/reader/run.ts"
-import type { Carrier, Cell, Codebook, Layout, ParamDecl } from "#compiler/plan/common.ts"
+import type { Carrier, Cell, Codebook, Layout, CallerParamDecl } from "#compiler/plan/common.ts"
 import type { ScalarReader } from "#compiler/plan/decode.ts"
 import type {
 	CarrierHost,
@@ -128,7 +128,7 @@ interface RunArtifact {
  */
 export interface PageRuntime {
 	readonly page: ServedPage
-	readonly params: ReadonlyArray<ParamDecl>
+	readonly params: ReadonlyArray<CallerParamDecl>
 	readonly artifact: RunArtifact
 	readonly anchors: ReadonlyArray<ScalarCodec>
 }
@@ -136,7 +136,7 @@ export interface PageRuntime {
 /** What a page's runtime is built from: its served form, its read's parameters and spine, and the installation's codes. */
 interface PageRuntimeParts {
 	readonly page: ServedPage
-	readonly params: ReadonlyArray<ParamDecl>
+	readonly params: ReadonlyArray<CallerParamDecl>
 	/** The installation's codes, which every value codec, anchor boundary and placeholder encoder of a closed id or a set
 	 * reads. */
 	readonly codes: Codebook

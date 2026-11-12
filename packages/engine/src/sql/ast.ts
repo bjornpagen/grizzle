@@ -1,6 +1,7 @@
 import type { IndexMethod } from "#compiler/core/identity.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { ClockUnit } from "#compiler/ir/clock.ts"
 import type { CarrierName, NameMap } from "#compiler/sql/naming.ts"
 
 /** A schema object's name, always schema-qualified: every object grizzle installs or names lives in a named schema. */
@@ -411,11 +412,23 @@ export interface ValuePlaceholder {
 	readonly number: number
 }
 
+/**
+ * An expression. A `clock` is the placeholder of the declared parameter `param` its served member binds to the
+ * database's clock (ir/clock.ts): the instant the call's transaction began, transaction_timestamp(), counted in `unit`
+ * since the Unix epoch and floored, cast to `type` as the placeholder would be. It fills no slot: the server reads it,
+ * never the call.
+ */
 export type Expr =
 	| { readonly kind: "column"; readonly table: string | undefined; readonly column: string }
 	| { readonly kind: "excluded"; readonly column: string }
 	| { readonly kind: "returning"; readonly side: "old" | "new"; readonly column: string }
 	| { readonly kind: "param"; readonly slot: ValuePlaceholder; readonly type: TypeRef }
+	| {
+			readonly kind: "clock"
+			readonly param: string
+			readonly unit: ClockUnit
+			readonly type: TypeRef
+	  }
 	| { readonly kind: "literal"; readonly value: LiteralValue; readonly type: TypeRef }
 	| { readonly kind: "cast"; readonly expr: Expr; readonly type: TypeRef }
 	| { readonly kind: "collate"; readonly expr: Expr; readonly collation: Collation }

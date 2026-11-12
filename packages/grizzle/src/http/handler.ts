@@ -207,8 +207,9 @@ const openingToken = (
 		: Result.succeed(given)
 
 /**
- * A member's events as their frames, by the member's shape: a set read's, an ordered read's or a write's, each event
- * framed by its payload (events.ts), its slots encoded by the member's wire.
+ * A member's events as their frames, by the member's shape: a set read's, an ordered read's, either at its call's
+ * instant alone, whose answer ends after its ready, or a write's, each event framed by its payload (events.ts), its slots
+ * encoded by the member's wire.
  */
 const framed = (
 	calls: ServedCalls,
@@ -220,6 +221,10 @@ const framed = (
 			return Stream.map(calls.watch(input), (event) => setFrame(slots, event))
 		case "list":
 			return Stream.map(calls.watch(input), (event) => listFrame(slots, event))
+		case "instantSet":
+			return Stream.map(calls.answer(input), (event) => setFrame(slots, event))
+		case "instantList":
+			return Stream.map(calls.answer(input), (event) => listFrame(slots, event))
 		case "write":
 			return Stream.map(calls.watch(input), (event) => writeFrame(slots, event))
 	}
@@ -302,7 +307,8 @@ const answerEvents = (
  * grizzle builds no runtime of its own.
  *
  * Every request is answered 200 with a text/event-stream body (sse.ts) carrying its call's events: its member's watch
- * (db/handles.ts memberCalls), reset, upserts, ready and the live changes for a read, its outcome then end for a write.
+ * (db/handles.ts memberCalls), reset, upserts, ready and the live changes for a read, reset, upserts, ready then end
+ * for a read at its call's instant (a clocked member's answer), its outcome then end for a write.
  * Every failure is one `error` event carrying its CallError, then `end`: a request line no route serves; a request
  * naming no `grizzle-wire` digest, or one naming another form of the member than the one served (`stale`, so a client
  * never decodes by a form the server no longer serves); a token refused, or missing where the role reads a context; a

@@ -322,7 +322,8 @@ const callsOf = <St, V, Ev extends { readonly kind: string }, E>(
 
 /**
  * A member's operations with the shape its wire form reads them by: a set read's and a list read's, whose values are
- * keyed values, and a write's, whose value is its outcome.
+ * keyed values, each at its call's instant alone a clocked member's, whose once alone it serves, since its answer ends
+ * at its value; and a write's, whose value is its outcome.
  */
 export type ShapedCalls<E> =
 	| {
@@ -333,11 +334,23 @@ export type ShapedCalls<E> =
 			readonly shape: "list"
 			readonly calls: ProgramCalls<Keyed<"list", object>, ReadEvent<"list", object>, E>
 	  }
+	| {
+			readonly shape: "instantSet"
+			readonly calls: Pick<ProgramCalls<Keyed<"set", object>, ReadEvent<"set", object>, E>, "once">
+	  }
+	| {
+			readonly shape: "instantList"
+			readonly calls: Pick<
+				ProgramCalls<Keyed<"list", object>, ReadEvent<"list", object>, E>,
+				"once"
+			>
+	  }
 	| { readonly shape: "write"; readonly calls: ProgramCalls<unknown, WriteEvent<unknown>, E> }
 
 /**
- * A member's operations by its wire form's shape: a set read's and a list read's through the live fold, a write's
- * through the write fold, each chosen once, here, where the member's shape is read.
+ * A member's operations by its wire form's shape: a set read's and a list read's through the live fold, an instant
+ * one's once alone through the same fold, a write's through the write fold, each chosen once, here, where the member's
+ * shape is read.
  */
 export const memberCalls = <E>(
 	member: ClientMember,
@@ -348,6 +361,16 @@ export const memberCalls = <E>(
 			return { shape: "set", calls: callsOf(member, readReading("set"), token) }
 		case "list":
 			return { shape: "list", calls: callsOf(member, readReading("list"), token) }
+		case "instantSet":
+			return {
+				shape: "instantSet",
+				calls: { once: callsOf(member, readReading("set"), token).once }
+			}
+		case "instantList":
+			return {
+				shape: "instantList",
+				calls: { once: callsOf(member, readReading("list"), token).once }
+			}
 		case "write":
 			return { shape: "write", calls: callsOf(member, writeReading, token) }
 	}

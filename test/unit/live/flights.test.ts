@@ -275,6 +275,10 @@ const answerOf = (calls: ServedCalls, input: unknown): Effect.Effect<ReadonlyArr
 			return read(calls.watch(input), (e) => (e.kind === "error" ? e.error : undefined))
 		case "list":
 			return read(calls.watch(input), (e) => (e.kind === "error" ? e.error : undefined))
+		case "instantSet":
+			return read(calls.answer(input), (e) => (e.kind === "error" ? e.error : undefined))
+		case "instantList":
+			return read(calls.answer(input), (e) => (e.kind === "error" ? e.error : undefined))
 		case "write":
 			return read(calls.watch(input), (e) => (e.kind === "error" ? e.error : undefined))
 	}
@@ -286,6 +290,10 @@ const onceOf = (calls: ServedCalls, input: unknown): Effect.Effect<Exit.Exit<voi
 		case "set":
 			return Effect.exit(Effect.asVoid(calls.once(input)))
 		case "list":
+			return Effect.exit(Effect.asVoid(calls.once(input)))
+		case "instantSet":
+			return Effect.exit(Effect.asVoid(calls.once(input)))
+		case "instantList":
 			return Effect.exit(Effect.asVoid(calls.once(input)))
 		case "write":
 			return Effect.exit(Effect.asVoid(calls.once(input)))

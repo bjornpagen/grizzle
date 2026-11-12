@@ -9,7 +9,7 @@ import type {
 	EncodingFailure,
 	LiteralBound,
 	Param,
-	ParamDecl,
+	CallerParamDecl,
 	ParamId,
 	ParamText,
 	RelationParamDecl,
@@ -42,7 +42,7 @@ type SlotColumns = ReadonlyArray<{ readonly name: string; readonly type: ScalarT
 
 /** One relation input, normalized. */
 interface RelationInput {
-	readonly decl: ParamDecl
+	readonly decl: CallerParamDecl
 	readonly normalized: NormalizedRelation
 	/**
 	 * The array at `part` of the input over a statement's `columns`, the columns its placeholders in that statement
@@ -99,7 +99,7 @@ type Normalizer = ReturnType<typeof normalizerOver>
 export type ParamCodec =
 	| {
 			readonly kind: "scalar"
-			readonly decl: Extract<ParamDecl, { readonly kind: "scalar" }>
+			readonly decl: Extract<CallerParamDecl, { readonly kind: "scalar" }>
 			readonly encode: Encoder
 	  }
 	| {
@@ -116,7 +116,10 @@ export type ParamCodec =
  */
 export type ParamCodecs = ReadonlyArray<ParamCodec>
 
-export const paramCodecs = (declared: ReadonlyArray<ParamDecl>, codes: Codebook): ParamCodecs =>
+export const paramCodecs = (
+	declared: ReadonlyArray<CallerParamDecl>,
+	codes: Codebook
+): ParamCodecs =>
 	Arr.map(declared, (decl): ParamCodec =>
 		decl.kind === "relation"
 			? {

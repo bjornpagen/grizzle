@@ -8,6 +8,7 @@ import {
 	arm,
 	ChangeSet,
 	check,
+	clocked,
 	closed,
 	closedId,
 	contained,
@@ -935,6 +936,18 @@ export const sold = query(BoxOffice)
 			.where(r.not(Ticket, { show: id }))
 			.find({ show: id, sold: 0n })
 	})
+
+/** README: "Reading", the database's clock. */
+/** The calls that ran at or before the database's instant. */
+export const ranBefore = query(Usage).rule((r) => {
+	const { id, at } = v(Call, "call")
+	return r
+		.match(Call, { id, at })
+		.where(r.le(at, r.param("now", Millis)))
+		.find({ id, at })
+})
+
+export const UsageClock = workload(Usage, { ranBefore: clocked(ranBefore, { now: "millis" }) })
 
 /** README: "Writes". */
 /** Publish a draft: the new row is read from the old one, in the same transaction. */

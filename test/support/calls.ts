@@ -51,8 +51,10 @@ export const readOnce =
 	(input: unknown): Effect.Effect<ReadonlyArray<DecodedRow>, CallError> => {
 		switch (calls.shape) {
 			case "set":
+			case "instantSet":
 				return rowsOf(calls.once(input))
 			case "list":
+			case "instantList":
 				return rowsOf(calls.once(input))
 			case "write":
 				return Effect.die(defect("a read of a write member"))

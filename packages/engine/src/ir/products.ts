@@ -13,6 +13,7 @@ import type { Direction } from "#compiler/core/order.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { Param, ParamBinary, ParamText } from "#compiler/core/wire.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
+import type { ClockUnit, Int8Type } from "#compiler/ir/clock.ts"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { IndexOpclass, LawIndexRequest, NormalizedLaw } from "#compiler/ir/law.ts"
@@ -170,12 +171,31 @@ export interface CheckedTheory {
 	readonly capabilities: ReadonlyArray<string>
 }
 
-/** A declared parameter: a relation parameter of a heading, or a scalar parameter of a type. */
+/**
+ * A declared parameter: a relation parameter of a heading, a scalar parameter of a type, or a scalar parameter of an
+ * int8 type its served member binds to the database's clock, read in `unit` (ir/clock.ts ClockBinding), whose
+ * placeholder the lowering prints as the reading itself, so no call supplies it.
+ */
 export type ParamDecl = { readonly id: ParamId; readonly name: string } & (
 	| { readonly kind: "relation"; readonly heading: Heading }
 	| { readonly kind: "scalar"; readonly type: ScalarType }
+	| { readonly kind: "clock"; readonly type: Int8Type; readonly unit: ClockUnit }
 )
 export type RelationParamDecl = Extract<ParamDecl, { readonly kind: "relation" }>
+
+/** A parameter a call supplies: a relation or a scalar parameter, never one its member binds to the clock. */
+export type CallerParamDecl = Exclude<ParamDecl, { readonly kind: "clock" }>
+
+/** A parameter its served member binds to the database's clock. */
+export type ClockParamDecl = Extract<ParamDecl, { readonly kind: "clock" }>
+
+/** The parameters of `params` a call supplies (CallerParamDecl), in their order. */
+export const callerParams = (params: ReadonlyArray<ParamDecl>): ReadonlyArray<CallerParamDecl> =>
+	params.flatMap((p) => (p.kind === "clock" ? [] : [p]))
+
+/** The parameters of `params` their member binds to the database's clock (ClockParamDecl), in their order. */
+export const clockedParams = (params: ReadonlyArray<ParamDecl>): ReadonlyArray<ClockParamDecl> =>
+	params.flatMap((p) => (p.kind === "clock" ? [p] : []))
 
 /** The columns a parameter binds: a relation parameter's heading, a scalar parameter's one column, named by it. */
 export const paramColumns = (p: ParamDecl): Heading =>

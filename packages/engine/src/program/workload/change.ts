@@ -5,6 +5,7 @@ import { defined } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { ClockBinding } from "#compiler/ir/clock.ts"
 import type { NamedLogin, NamedRole } from "#compiler/physical/ddl/names.ts"
 import {
 	levelSchema,
@@ -21,16 +22,17 @@ import {
 } from "#compiler/write/changeset/value.ts"
 import { fillContexts } from "#compiler/write/frontend/entry.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
-import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
+import { type CompiledWrite, compileClockedWrite } from "#compiler/write/program/compile.ts"
 
 /**
- * A ChangeSet compiled for a role: its write program as it compiled, the value parsed whole, the fingerprint of the
- * schema it compiled against and the installed names it read. What a served file projects of it (served/project.ts),
- * and what the shell's runtime entry is built over.
+ * A ChangeSet compiled for a role: its write program as it compiled, the value parsed whole, the parameters its member
+ * binds to the database's clock, the fingerprint of the schema it compiled against and the installed names it read.
+ * What a served file projects of it (served/project.ts), and what the shell's runtime entry is built over.
  */
 export interface ChangeEntry {
 	readonly compiled: CompiledWrite
 	readonly change: ParsedChangeSet
+	readonly clock: ClockBinding
 	readonly schema: SchemaFingerprint
 	readonly names: WriteNames
 }
@@ -75,28 +77,36 @@ export const parsedChange = (
 
 /**
  * A parsed ChangeSet compiled against `artifacts`, a role's or reality's, for the contexts `claims` holds a fact of, to
- * run at `level` (write/program/compile.ts compileWrite).
+ * run at `level`, each parameter `clock` names bound to the database's clock (write/program/compile.ts
+ * compileClockedWrite).
  */
 export const compileParsed = (
 	artifacts: SchemaArtifacts,
 	change: ParsedChangeSet,
 	claims: ReadonlySet<string>,
-	level: Isolation
+	level: Isolation,
+	clock: ClockBinding
 ): Result.Result<ChangeEntry, CompileError> => {
 	const world = artifacts.world
 	return Result.map(
-		compileWrite(world.kind === "role" ? world.checked : artifacts.derived.schema, change.desc, {
-			names: artifacts.names,
-			reads: artifacts.reads,
-			claims: { kind: "facts", present: claims },
-			world: world.kind === "role" ? { kind: "role", names: world.names } : { kind: "reality" },
-			laws: artifacts.laws,
-			derived: artifacts.derived,
-			level
-		}),
+		compileClockedWrite(
+			world.kind === "role" ? world.checked : artifacts.derived.schema,
+			change.desc,
+			{
+				names: artifacts.names,
+				reads: artifacts.reads,
+				claims: { kind: "facts", present: claims },
+				world: world.kind === "role" ? { kind: "role", names: world.names } : { kind: "reality" },
+				laws: artifacts.laws,
+				derived: artifacts.derived,
+				level
+			},
+			clock
+		),
 		(compiled): ChangeEntry => ({
 			compiled,
 			change,
+			clock,
 			schema: artifacts.fingerprint,
 			names: artifacts.names
 		})
@@ -113,6 +123,7 @@ const changeVariants = (
 	role: ParsedRole,
 	artifacts: SchemaArtifacts,
 	changes: ChangeSetValue,
+	clock: ClockBinding,
 	level: Isolation,
 	undecided: ReadonlyArray<string>,
 	holding: ReadonlyArray<string>
@@ -121,17 +132,17 @@ const changeVariants = (
 	if (context === undefined) {
 		return Result.map(
 			Result.flatMap(parsedChange(role, changes), (change) =>
-				compileParsed(artifacts, change, new Set(holding), level)
+				compileParsed(artifacts, change, new Set(holding), level, clock)
 			),
 			(entry): CompiledVariants => ({ kind: "form", entry, decoder: changes.reads })
 		)
 	}
 	const before = undecided.slice(0, -1)
 	return Result.flatMap(
-		changeVariants(role, artifacts, changes, level, before, holding),
+		changeVariants(role, artifacts, changes, clock, level, before, holding),
 		(lacking) =>
 			Result.map(
-				changeVariants(role, artifacts, changes, level, before, [context, ...holding]),
+				changeVariants(role, artifacts, changes, clock, level, before, [context, ...holding]),
 				(held): CompiledVariants => ({ kind: "split", context, holding: held, lacking })
 			)
 	)
@@ -210,7 +221,15 @@ const roleChanges = <L extends Isolation>(
 			continue
 		}
 		const fill = fillContexts(owned.writes, program.desc.changeSet)
-		const variants = changeVariants(input, artifacts.value, program.value, level, fill, [])
+		const variants = changeVariants(
+			input,
+			artifacts.value,
+			program.value,
+			program.clock,
+			level,
+			fill,
+			[]
+		)
 		if (!variants.ok) {
 			return Result.err({ role: name, program: program.name, error: variants.error })
 		}
@@ -250,7 +269,13 @@ const variantsAt = (
 	switch (variants.kind) {
 		case "form":
 			return Result.map(
-				compileParsed(artifacts, variants.entry.change, new Set(holding), level),
+				compileParsed(
+					artifacts,
+					variants.entry.change,
+					new Set(holding),
+					level,
+					variants.entry.clock
+				),
 				(entry): CompiledVariants => ({ kind: "form", entry, decoder: variants.decoder })
 			)
 		case "split":

@@ -6,7 +6,7 @@ import * as Stream from "effect/Stream"
 import { readHost } from "#adapter/engine.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import type { HostParams } from "#adapter/reader/execution.ts"
-import type { ParamDecl } from "#compiler/plan/common.ts"
+import type { CallerParamDecl } from "#compiler/plan/common.ts"
 import {
 	encodeFailure,
 	factPlace,
@@ -99,7 +99,7 @@ const valuesAt = (
 
 /** A declared relation parameter whose value is a Stream, with its Stream. */
 interface RelationStream {
-	readonly decl: ParamDecl
+	readonly decl: CallerParamDecl
 	readonly stream: Stream.Stream<unknown, unknown>
 }
 
@@ -117,7 +117,7 @@ const isParamStream = (value: unknown): value is Stream.Stream<unknown, unknown>
  * once collected, and a failure that arrives anyway is mapped to the read's encoding failure.
  */
 export const relationStreams = <F>(
-	declared: ReadonlyArray<ParamDecl>,
+	declared: ReadonlyArray<CallerParamDecl>,
 	params: ParamValues,
 	fault: F
 ): Result.Result<ReadonlyArray<RelationStream>, F> =>
@@ -134,7 +134,7 @@ export const relationStreams = <F>(
 
 /** Collects the Stream relation parameter `decl`, whole; a Stream that fails encodes nothing of the parameter. */
 const collect = (
-	decl: ParamDecl,
+	decl: CallerParamDecl,
 	stream: Stream.Stream<unknown, unknown>
 ): Effect.Effect<ReadonlyArray<unknown>, ReadFailure> =>
 	Stream.runCollect(
@@ -146,7 +146,7 @@ const collect = (
 
 /** The read's parameters, read once (readParams), with every Stream relation parameter collected. */
 export const hostParams = (
-	declared: ReadonlyArray<ParamDecl>,
+	declared: ReadonlyArray<CallerParamDecl>,
 	params: unknown
 ): Effect.Effect<HostParams, ReadFailure> =>
 	Effect.suspend(() => {

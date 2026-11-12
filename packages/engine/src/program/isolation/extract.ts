@@ -277,6 +277,7 @@ const operandsOf = (e: Expr): ReadonlyArray<Expr> => {
 		case "literal":
 		case "mergeAction":
 		case "param":
+		case "clock":
 		case "plSpecial":
 		case "plVar":
 		case "regclass":
@@ -464,6 +465,21 @@ const paramName = (n: number, paramOf: (n: number) => string | undefined): strin
 	return named === undefined ? `$${n}` : `:${named}`
 }
 
+/**
+ * The canonical name of what a placeholder carries, where `e` is one: a slot's parameter (paramName), or the declared
+ * parameter a clock reading binds, which is one value for the call as a parameter is, so a column equal to it is bound
+ * to one value.
+ */
+const placeholderName = (
+	e: Expr,
+	paramOf: (n: number) => string | undefined
+): string | undefined => {
+	if (e.kind === "param") {
+		return paramName(e.slot.number, paramOf)
+	}
+	return e.kind === "clock" ? `:${e.param}` : undefined
+}
+
 /** The query and column names a source of the call's own rows reads, a derived table's or a query CTE's; none else. */
 const definedOf = (
 	source: FromSource,
@@ -497,8 +513,9 @@ const valueOf = (
 	if (e.kind === "cast" || e.kind === "collate") {
 		return valueOf(e.expr, from, ctes, paramOf)
 	}
-	if (e.kind === "param") {
-		return paramName(e.slot.number, paramOf)
+	const placeholder = placeholderName(e, paramOf)
+	if (placeholder !== undefined) {
+		return placeholder
 	}
 	if (e.kind !== "column" || e.table === undefined) {
 		return undefined
@@ -1222,8 +1239,9 @@ const bindingsOf = (
 		if (column === undefined) {
 			return []
 		}
-		if (other.kind === "param") {
-			return [{ column, by: paramName(other.slot.number, paramOf), rows: "one" }]
+		const placeholder = placeholderName(other, paramOf)
+		if (placeholder !== undefined) {
+			return [{ column, by: placeholder, rows: "one" }]
 		}
 		if (other.kind !== "column" || other.table === undefined) {
 			return []

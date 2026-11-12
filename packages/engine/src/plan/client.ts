@@ -13,6 +13,7 @@ export {
 	callError,
 	type EventDescriptor,
 	events,
+	type InstantShape,
 	type ReadShape,
 	type Retry,
 	type Shape,
@@ -35,6 +36,7 @@ export type {
 	InputOf,
 	Refreshed,
 	RelationCounts,
+	ShapeOf,
 	ValueOf,
 	Window,
 	WriteOutcome

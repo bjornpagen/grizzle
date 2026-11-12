@@ -64,26 +64,28 @@ type Feature =
 	| "an ordered read"
 	| "a paged read"
 
-/** A served member that reads, with its read; none for a ChangeSet or a refresh. */
+/** A served member that reads live, with its read; none for a ChangeSet, a refresh or a read at its call's instant. */
 const readOf = (member: ServedMember): ServedRead | undefined => {
 	switch (member.kind) {
 		case "read":
 		case "paged":
 		case "key":
 			return member.read
+		case "instant":
 		case "change":
 		case "refresh":
 			return undefined
 	}
 }
 
-/** A compiled workload member's rows form, where it reads. */
+/** A compiled workload member's rows form, where it reads live. */
 const formOf = (member: WorkloadForm) => {
 	switch (member.kind) {
 		case "read":
 		case "paged":
 		case "key":
 			return member.form
+		case "instant":
 		case "change":
 		case "refresh":
 			return undefined

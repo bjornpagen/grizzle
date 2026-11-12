@@ -831,7 +831,7 @@ const decodeOutcome = (wire: MemberWire, json: WireJson, options: WireOptions): 
 }
 
 /** A read's key columns and fields, which a write's answer never carries: a defect asked of one. */
-const readOf = (wire: MemberWire): Extract<MemberWire, { readonly shape: "set" | "list" }> => {
+const readOf = (wire: MemberWire): Exclude<MemberWire, { readonly shape: "write" }> => {
 	if (wire.shape === "write") {
 		throw defect("a write's answer holds no row, key or key fields")
 	}

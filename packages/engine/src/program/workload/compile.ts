@@ -105,8 +105,8 @@ export type ProgramFootprints = ReadonlyMap<string, Footprint>
 
 /**
  * Whether a login serves a read, by its programs' footprints `footprints`: its workload plans a query program, as every
- * read member does, a query, an ordered query, a paged read and a key's lookup alike, while a ChangeSet and a refresh
- * plan none. A login that serves one watches, so its installation holds a live source (livePlanOf) and its served file
+ * read member does, a query, an ordered query, a paged read and a key's lookup alike, while a ChangeSet, a refresh and a
+ * clocked read, answered at its call's instant and never watched, plan none. A login that serves one watches, so its installation holds a live source (livePlanOf) and its served file
  * names it (adapter served/project.ts).
  */
 export const servesRead = (footprints: ProgramFootprints): boolean => footprints.size > 0
@@ -124,11 +124,14 @@ interface ProgramIr {
 
 /**
  * One program's plan, as the database would compile it on the workload schema: a query's access and footprint, both
- * read from its one checked IR (queryRead); a ChangeSet's access alone, since no read subscribes to a write. A ChangeSet
- * over a role is the role's, whose statements write the base's tables.
+ * read from its one checked IR (queryRead); a ChangeSet's access alone, since no read subscribes to a write; and a
+ * query a clocked member reads at its call's instant (`instant`), its access alone, since no change reaches its answer.
+ * A ChangeSet over a role is the role's, whose statements write the base's tables. A parameter a member binds to the
+ * database's clock reads as a parameter does: its access paths are the ones a caller's value of it plans.
  */
 type ProgramPlan = { readonly params: ReadonlyArray<ParamDecl> } & (
 	| { readonly kind: "query"; readonly access: ProgramAccess; readonly footprint: Footprint }
+	| { readonly kind: "instant"; readonly access: ProgramAccess }
 	| { readonly kind: "changeSet"; readonly access: ProgramAccess }
 )
 
@@ -136,24 +139,38 @@ const programPlan = (
 	program: ProgramDesc,
 	reads: WorkloadReads
 ): Result.Result<ProgramPlan, CompileError> => {
-	if (program.kind === "query") {
-		const ordered = isOrderedQuery(program.query)
-		return Result.map(queryRead(program.query, reads), (read): ProgramPlan => ({
-			kind: "query",
-			params: read.params,
-			access: irAccess(rowsIr(read, ordered)),
-			footprint: footprintOf(read.dag, read.analysis, read.params)
-		}))
+	switch (program.kind) {
+		case "query": {
+			const ordered = isOrderedQuery(program.query)
+			return Result.map(queryRead(program.query, reads), (read): ProgramPlan => ({
+				kind: "query",
+				params: read.params,
+				access: irAccess(rowsIr(read, ordered)),
+				footprint: footprintOf(read.dag, read.analysis, read.params)
+			}))
+		}
+		case "changeSet": {
+			const world = reads.world
+			return Result.map(
+				changeSetIr(
+					program.changeSet,
+					world.kind === "role" ? world.checked : reads.artifacts.derived.schema,
+					reads
+				),
+				(ir): ProgramPlan => ({ kind: "changeSet", params: ir.params, access: irAccess(ir) })
+			)
+		}
+		case "clocked":
+			return Result.map(programPlan(program.program, reads), (plan): ProgramPlan => {
+				switch (plan.kind) {
+					case "query":
+					case "instant":
+						return { kind: "instant", params: plan.params, access: plan.access }
+					case "changeSet":
+						return plan
+				}
+			})
 	}
-	const world = reads.world
-	return Result.map(
-		changeSetIr(
-			program.changeSet,
-			world.kind === "role" ? world.checked : reads.artifacts.derived.schema,
-			reads
-		),
-		(ir): ProgramPlan => ({ kind: "changeSet", params: ir.params, access: irAccess(ir) })
-	)
 }
 
 /**

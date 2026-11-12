@@ -80,7 +80,11 @@ export default defineConfig({
   for a read; `input` is `{ params, facts }`, both always present, `{}` where the program takes none. An ordered query
   the application pages is the member `paged(query)`, whose input adds `window: { anchor, size }`, the anchor
   `{ kind: "start" }`, `{ kind: "after", key }`, `{ kind: "end" }` or `{ kind: "before", key }`, a key a row's
-  `RowKey`; generate compiles a page template for no other member. The member `refresh(tables)`, of a nonempty list,
+  `RowKey`; generate compiles a page template for no other member. The member `clocked(program, { now: "millis" })`
+  binds the bigint parameter `now` of a query, an ordered query or a ChangeSet to the database's clock, the instant
+  the call's transaction began, in `"micros"` or `"millis"`: the input omits it, every statement of the call reads the
+  one instant, and a clocked read answers `once` alone, never live. Bind a lease's, a timer's or a due instant's `now`
+  so, never the host's clock. The member `refresh(tables)`, of a nonempty list,
   refreshes materialized derived tables the role's `refresh` list names, all of them in one transaction, lower levels
   first. Two programs of one name across a login's workloads are refused when the login is built. A ChangeSet member
   whose `insert`, `insertAll`, `delete` or `put` was given its facts as an array takes them as its input's `facts`:

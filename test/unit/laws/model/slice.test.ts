@@ -77,11 +77,12 @@ import { identifierOf } from "#compiler/core/identity.ts"
 import type { LawId, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import {
 	type ChangeSetDesc,
+	type ClockedProgramDesc,
 	decodeDesc,
-	type ProgramDesc,
 	type QueryDesc
 } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
@@ -613,7 +614,7 @@ const queryOver = (
 }
 
 /** The program a use runs: its query, or its ChangeSet of an insert into each of its writes, reading back its reads. */
-const programOf = (c: SliceCase, u: Use): ProgramDesc => {
+const programOf = (c: SliceCase, u: Use): ClockedProgramDesc => {
 	if (u.kind === "query") {
 		const [first, ...more] = u.reads
 		return {
@@ -1010,7 +1011,7 @@ const compiledQuery = (
 		Result.flatMap(namedRole(role, base.names.levels), (named) => roleArtifacts(named, base)),
 		(artifacts) =>
 			Result.flatMap(querySchema({ kind: "described", desc: query }, schema), (source) =>
-				compileQuery(source, { context, artifacts, read: "rows" })
+				compileQuery(source, { context, artifacts, read: "rows", clock: noClock })
 			)
 	)
 

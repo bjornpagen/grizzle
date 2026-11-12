@@ -1,6 +1,7 @@
 import type { Json } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { toQueryDescription } from "#compiler/ir/describe.ts"
 import type { LoweredProgram } from "#compiler/ir/products.ts"
@@ -66,7 +67,8 @@ export const lowerQuery = (query: unknown): Result.Result<LoweredProgram, Compil
 	const template = compileQuery(source.value, {
 		context: "snapshot",
 		artifacts: artifacts.value,
-		read: "rows"
+		read: "rows",
+		clock: noClock
 	})
 	if (!template.ok) {
 		return template

@@ -251,6 +251,10 @@ export const sidedMembers = (
 		const conservativeOf = (member: ServedMember): Result.Result<ServedMember, CompileError> => {
 			const query = queries.get(member.name)
 			switch (member.kind) {
+				case "instant":
+					throw new Error(
+						`the conservative oracle compiles no clocked member, and ${member.name} is one`
+					)
 				case "read":
 				case "key":
 					return Result.map(toResult(compileTemplate(query, undefined, options)), (oracle) => ({

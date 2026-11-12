@@ -200,8 +200,10 @@ const byName = (callsOf: (name: string) => Effect.Effect<ServedCalls, CallError>
 		Effect.flatMap(callsOf(name), (member): Effect.Effect<LiveValue, CallError> => {
 			switch (member.shape) {
 				case "set":
+				case "instantSet":
 					return member.once(input)
 				case "list":
+				case "instantList":
 					return member.once(input)
 				case "write":
 					return Effect.die(misnamed(name, "a write"))
@@ -219,6 +221,9 @@ const byName = (callsOf: (name: string) => Effect.Effect<ServedCalls, CallError>
 						return readiesOf("set", member.watch(input))
 					case "list":
 						return readiesOf("list", member.watch(input))
+					case "instantSet":
+					case "instantList":
+						return Stream.die(misnamed(name, "a read at its call's instant, never watched"))
 					case "write":
 						return Stream.die(misnamed(name, "a write"))
 				}
@@ -304,8 +309,10 @@ const httpCalls = (
 			const shaped = shapedOf(name)
 			switch (shaped.shape) {
 				case "set":
+				case "instantSet":
 					return Effect.provideService(shaped.calls.once(input), HttpClient.HttpClient, client)
 				case "list":
+				case "instantList":
 					return Effect.provideService(shaped.calls.once(input), HttpClient.HttpClient, client)
 				case "write":
 					return Effect.die(misnamed(name, "a write"))
@@ -332,6 +339,9 @@ const httpCalls = (
 						HttpClient.HttpClient,
 						client
 					)
+				case "instantSet":
+				case "instantList":
+					return Stream.die(misnamed(name, "a read at its call's instant, never watched"))
 				case "write":
 					return Stream.die(misnamed(name, "a write"))
 			}

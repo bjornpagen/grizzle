@@ -275,9 +275,9 @@ const placeUses = (place: ParamPlace, t: ScalarType): ReadonlyArray<ParamDomainU
  */
 export const paramDomainUses = (params: ReadonlyArray<ParamDecl>): ReadonlyArray<ParamDomainUse> =>
 	params.flatMap((p) =>
-		p.kind === "scalar"
-			? placeUses({ kind: "scalar", param: p.id }, p.type)
-			: p.heading.flatMap((c) => placeUses({ kind: "field", param: p.id, field: c.name }, c.type))
+		p.kind === "relation"
+			? p.heading.flatMap((c) => placeUses({ kind: "field", param: p.id, field: c.name }, c.type))
+			: placeUses({ kind: "scalar", param: p.id }, p.type)
 	)
 
 /** A parameter's pattern domain as a refusal by it names the parameter: its place's text and its patterns. */

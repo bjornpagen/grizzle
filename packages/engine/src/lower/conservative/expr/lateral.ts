@@ -262,6 +262,7 @@ class CoreBinder {
 			case "excluded":
 			case "returning":
 			case "param":
+			case "clock":
 			case "literal":
 			case "exists":
 			case "array":

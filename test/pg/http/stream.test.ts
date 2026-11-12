@@ -205,6 +205,10 @@ const inProcess = (
 			return Stream.map(calls.watch(body), (event) => carried(setFrame(slots, event)))
 		case "list":
 			return Stream.map(calls.watch(body), (event) => carried(listFrame(slots, event)))
+		case "instantSet":
+			return Stream.map(calls.answer(body), (event) => carried(setFrame(slots, event)))
+		case "instantList":
+			return Stream.map(calls.answer(body), (event) => carried(listFrame(slots, event)))
 		case "write":
 			return Stream.map(calls.watch(body), (event) => carried(writeFrame(slots, event)))
 	}
@@ -377,8 +381,10 @@ layer(Substrate.layer, { excludeTestServices: true })("a call over HTTP", (it) =
 								}
 								notes.note(readFeature(call))
 								const shape = calls.shape
-								if (shape === "write") {
-									return assert.fail(`member ${call.member}'s calls are a read's\n${printed()}`)
+								if (shape !== "set" && shape !== "list") {
+									return assert.fail(
+										`member ${call.member}'s calls are a live read's\n${printed()}`
+									)
 								}
 								const local = yield* Queue.unbounded<StreamEvent>()
 								yield* Effect.forkScoped(

@@ -31,7 +31,7 @@ import type { Cell, ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
-import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
+import { callerParams, type LogicalQuery, type ParamDecl } from "#compiler/ir/products.ts"
 import {
 	type CompletedOrder,
 	conservativeMeta,
@@ -1432,7 +1432,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 			const { compiled, paged: template } = page.value
 			const runtime = compiledPageRuntime({
 				page: template,
-				params: query.params,
+				params: callerParams(query.params),
 				codes,
 				spine: everyColumnCarried(query.dag)
 			})

@@ -15,7 +15,7 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Prepared } from "#compiler/core/prepared.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
-import type { ConstraintLaws, PageFill, ParamDecl } from "#compiler/ir/products.ts"
+import type { CallerParamDecl, ConstraintLaws, PageFill } from "#compiler/ir/products.ts"
 import type { CompletedOrder, Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import type { Patterns } from "#compiler/ir/scalar.ts"
 import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
@@ -226,13 +226,15 @@ export interface ServedContext {
 }
 
 /**
- * One program of a role's workload, by name, as its compile serves it: a query or ordered query read for its rows; an
- * ordered query that pages, with its page; a key, whose lookup reads by the key's values; a ChangeSet, compiled for each
- * set of its fill contexts that may hold a fact; or a refresh of materialized derived relations, its targets in refresh
- * order.
+ * One program of a role's workload, by name, as its compile serves it: a query or ordered query read for its rows; one
+ * whose member binds a parameter to the database's clock, read at the instant its call's transaction began and never
+ * live, since time passing is no change; an ordered query that pages, with its page; a key, whose lookup reads by the
+ * key's values; a ChangeSet, compiled for each set of its fill contexts that may hold a fact; or a refresh of
+ * materialized derived relations, its targets in refresh order.
  */
 export type ServedMemberForm = { readonly name: string } & (
 	| { readonly kind: "read"; readonly read: ServedRead }
+	| { readonly kind: "instant"; readonly read: ServedInstantRead }
 	| { readonly kind: "paged"; readonly read: ServedRead; readonly page: ServedPage }
 	| { readonly kind: "key"; readonly fields: ReadonlyArray<string>; readonly read: ServedRead }
 	| { readonly kind: "change"; readonly variants: ServedVariants }
@@ -277,15 +279,21 @@ export interface ServedRefresh {
 }
 
 /**
- * A query or ordered query compiled for a role's rows: its declared parameters, its artifact, its delivered spine,
- * the decoder of its records, the key each of its delivered rows is told apart by, and its footprint.
+ * A query or ordered query compiled for a role's rows, as one call reads it: the declared parameters a call supplies,
+ * its artifact, which prints a parameter its member binds to the database's clock as the reading itself, its delivered
+ * spine, the decoder of its records, and the key each of its delivered rows is told apart by. An instant member's read
+ * is this alone.
  */
-export interface ServedRead {
-	readonly params: ReadonlyArray<ParamDecl>
+export interface ServedInstantRead {
+	readonly params: ReadonlyArray<CallerParamDecl>
 	readonly source: ServedSource
 	readonly spine: ServedSpine
 	readonly decoder: DecoderForm
 	readonly key: ServedKey
+}
+
+/** A read a call may watch: its instant read, and its footprint, by which a change reaches a watch of it. */
+export interface ServedRead extends ServedInstantRead {
 	readonly footprint: ServedFootprint
 }
 

@@ -121,6 +121,7 @@ const roleOf = (e: Expr): Role => {
 		case "returning":
 			return "column"
 		case "param":
+		case "clock":
 			return "param"
 		case "literal":
 			return "literal"
@@ -259,6 +260,7 @@ const exprFeature = (e: Expr): ReadonlyArray<ShapeFeature> => {
 		case "excluded":
 		case "returning":
 		case "param":
+		case "clock":
 		case "literal":
 		case "cast":
 		case "collate":

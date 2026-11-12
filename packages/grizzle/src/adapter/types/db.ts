@@ -1,13 +1,21 @@
 import type { Effect, Stream } from "effect"
 import type { OpenError, ReadError } from "#adapter/errors/execution.ts"
 import type { DbLayerService, ServedRole } from "#adapter/types/layer.ts"
-import type { CallError, EventOf, InputOf, ValueOf } from "#compiler/live/index.ts"
+import type {
+	CallError,
+	EventOf,
+	InputOf,
+	InstantShape,
+	ShapeOf,
+	ValueOf
+} from "#compiler/live/index.ts"
 import type { AnyChangeSet, Refused, Witness } from "#compiler/plan/change.ts"
 import type {
 	AnyClosed,
 	AnyRelation,
 	AnyRole,
 	CandidateKey,
+	Clocked,
 	Invariant,
 	OnlyParams,
 	Phantom,
@@ -71,9 +79,10 @@ export type WorkloadHandles<R, P> = {
 /**
  * The calls of a served member of program X, whatever login serves X and whatever role it runs on: exactly `once` and
  * `watch`, each taking the program's input (live/program.ts InputOf: `{ params, facts }`, a paged member's
- * `{ params, facts, window }`), and a read's or a change's explains. X itself is in the type, so a handle of one program
- * is no handle of another, whatever calls the two share, and a function over one served program takes any login's
- * handle of it.
+ * `{ params, facts, window }`), and a read's or a change's explains; a clocked read's (workload Clocked) `once` alone,
+ * since its answer is its read at its call's instant, which no change reaches. X itself is in the type, so a handle of
+ * one program is no handle of another, whatever calls the two share, and a function over one served program takes any
+ * login's handle of it.
  *
  * - `watch(input)`: the call's events (live/events.ts), typed by the program's shape (EventOf). A read's are `reset`,
  *   an `upsert` per row as it decodes, provisional, then `ready` after its COMMIT, then, live, an `upsert` or `remove`
@@ -87,14 +96,24 @@ export type MemberHandle<X> = MemberCalls<X> &
 	Phantom<{ readonly program: Invariant<X> }>
 
 /**
- * A served member's once and watch (MemberHandle). Each takes an input I inferred apart from X and checked after, as
- * InputOf<X> and exactly so (ExactInput), so a literal's parameters take part in no inference that would widen them
- * ("Front" to string), and a variable of a wider type is refused where the runtime refuses it, as a literal is.
+ * A served member's calls (MemberHandle): its once, and its watch but for a clocked read's, whose shape is an instant's
+ * (live/events.ts InstantShape). Each takes an input I inferred apart from X and checked after, as InputOf<X> and exactly
+ * so (ExactInput), so a literal's parameters take part in no inference that would widen them ("Front" to string), and a
+ * variable of a wider type is refused where the runtime refuses it, as a literal is.
  */
-export interface MemberCalls<X> {
+export type MemberCalls<X> = [ShapeOf<X>] extends [InstantShape]
+	? OnceCall<X>
+	: OnceCall<X> & WatchCall<X>
+
+/** A served member's once: its events taken to ready, folded, the value or the CallError that ended them. */
+interface OnceCall<X> {
 	once<const I>(
 		input: I & NoInfer<InputOf<X>> & NoInfer<ExactInput<I, X>>
 	): Effect.Effect<ValueOf<X>, CallError>
+}
+
+/** A served member's watch: its events, a read's live after its ready. */
+interface WatchCall<X> {
 	watch<const I>(
 		input: I & NoInfer<InputOf<X>> & NoInfer<ExactInput<I, X>>
 	): Stream.Stream<EventOf<X>>
@@ -116,9 +135,16 @@ type ExactInput<I, X> = ([Exclude<keyof I, keyof InputOf<X>>] extends [never]
 	: Refusal<"an input holds its params and facts, and a paged member's window, alone">) &
 	(X extends KeyTarget ? unknown : OnlyParams<ParamsIn<I>, InputOf<X>["params"]>)
 
-/** A served member's explains by its program's kind: a read's, a change's, and a refresh's none. */
+/**
+ * A served member's explains by its program's kind: a read's, a change's, a clocked member's by its program's, each
+ * taking the member's own input, and a refresh's none.
+ */
 type ExplainOf<X> =
-	X extends Refresh<unknown> ? unknown : X extends AnyChangeSet ? ChangeExplain<X> : ReadExplain<X>
+	X extends Refresh<unknown>
+		? unknown
+		: (X extends Clocked<infer P, unknown> ? P : X) extends AnyChangeSet
+			? ChangeExplain<X>
+			: ReadExplain<X>
 
 /**
  * A served read member's plans for a call's input, as its once takes it: the one statement its once sends, a paged

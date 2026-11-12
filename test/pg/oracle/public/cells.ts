@@ -524,8 +524,10 @@ const valueOf =
 	(input: unknown): Effect.Effect<ReadValue, CallError> => {
 		switch (calls.shape) {
 			case "set":
+			case "instantSet":
 				return calls.once(input)
 			case "list":
+			case "instantList":
 				return calls.once(input)
 			case "write":
 				return Effect.die(new Error("a read of a write member"))
@@ -561,10 +563,14 @@ export interface StrictReader {
 	readonly sentRows: () => ReadonlyArray<SentRow>
 }
 
-/** The loaded read a member reads through: a read's, a key's, a paged member's; none for a change or a refresh. */
+/**
+ * The loaded read a member reads through: a read's, an instant read's, a key's, a paged member's; none for a change or
+ * a refresh.
+ */
 const readOf = (member: LoadedMember) => {
 	switch (member.kind) {
 		case "read":
+		case "instant":
 		case "key":
 		case "paged":
 			return member.read
