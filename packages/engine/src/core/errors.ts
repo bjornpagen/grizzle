@@ -27,6 +27,7 @@ import {
 } from "#compiler/core/causes.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
+import { regexTextMaxBytes } from "#compiler/core/limits.ts"
 import { formatLoc, formatPath, prefixedLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
@@ -184,7 +185,7 @@ const boundText = (bound: CompileBound): string => {
  * What a partial operation needs of its operands beyond their types (scalar/compute/registry.ts Precondition, by
  * kind): a nonzero divisor, a nonnegative radicand, a finite operand, a value that fits its target, a contract that
  * holds, a text inside a refinement's language, power's base's sign and its result's range, width_bucket's domain, a
- * parse's lexical form.
+ * parse's lexical form, a regex function's subject within the bytes PostgreSQL's regex engine reads.
  */
 export type PreconditionKind =
 	| "nonzero"
@@ -197,6 +198,7 @@ export type PreconditionKind =
 	| "powerRange"
 	| "bucketDomain"
 	| "lexical"
+	| "bounded"
 
 /**
  * The test a PartialOperation's guard puts in Compute.when over its operand, which fits the operand's type: over a
@@ -260,6 +262,8 @@ const preconditionText = (kind: PreconditionKind, operand: string): string => {
 			return `${operand} lies where width_bucket is defined`
 		case "lexical":
 			return `${operand} is a member of its target's lexical form`
+		case "bounded":
+			return `${operand} is at most ${regexTextMaxBytes.value} UTF-8 bytes, the longest text PostgreSQL's regex engine reads`
 	}
 }
 

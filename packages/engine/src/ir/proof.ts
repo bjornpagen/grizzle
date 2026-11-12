@@ -25,12 +25,15 @@ export type OperandIndex = 0 | 1 | 2 | 3
  * - `powerRange`: power's result over those operands stays inside its carrier's range;
  * - `bucketDomain`: width_bucket's bounds differ and its count lies in 1..2147483646;
  * - `lexical`: a text a parse reads is a member of the lexical form `form` names (ParseForm), so the parse reads it
- *   without raising, to the value the form's mapping gives it (scalar/lexical.ts lexicalValue).
+ *   without raising, to the value the form's mapping gives it (scalar/lexical.ts lexicalValue);
+ * - `bounded`: a text a regex function reads is at most regexTextMaxBytes UTF-8 bytes (core/limits.ts), the longest
+ *   subject PostgreSQL's regex engine widens without refusing its allocation, so the read never raises.
  *
  * nonzero, nonnegative and finite are facts a term's TypeScript type states (Facts), exactly, and powerDomain rests on
  * them; fits, contract, powerRange and bucketDomain rest on numeric bounds no TypeScript type can state, which the
  * lowering's bound domain proves (scalar/compute/bounds.ts); language and lexical rest on the operand's text
- * refinement, whose language the lowering proves included in the target's pattern or form (scalar/regex/inclusion.ts).
+ * refinement, whose language the lowering proves included in the target's pattern or form (scalar/regex/inclusion.ts);
+ * bounded rests on the operand's byte bound, its type's or a guard's.
  */
 export type Precondition =
 	| { readonly kind: "nonzero"; readonly operand: OperandIndex }
@@ -43,6 +46,7 @@ export type Precondition =
 	| { readonly kind: "powerRange" }
 	| { readonly kind: "bucketDomain" }
 	| { readonly kind: "lexical"; readonly form: ParseForm }
+	| { readonly kind: "bounded" }
 
 /**
  * The lexical form a parse reads its text by, which its `lexical` precondition names: its target type's own (`target`,
@@ -52,7 +56,8 @@ export type Precondition =
  * it per overload and a proof carries it, so a language proved inside one form never stands for another's
  * precondition: the forms over one type differ, and the proof kernel compares them.
  */
-export type ParseForm = "target" | "doubleText" | "decimalText"
+export const parseForms = ["target", "doubleText", "decimalText"] as const
+export type ParseForm = (typeof parseForms)[number]
 
 /** A fact about every value of a term that its type states: never zero, never below zero, never NaN or an infinity. */
 export type Fact = "nonzero" | "nonnegative" | "finite"
@@ -117,6 +122,17 @@ export type OperandPremise =
 			readonly operand: OperandIndex
 			readonly patterns: Patterns
 			readonly bytes: number | undefined
+	  }
+	| {
+			/**
+			 * An operand whose every value is at most `bytes` UTF-8 bytes: a text literal by its own bytes, any other
+			 * term by its text refinement's byte bound, a str.bytes bound or a bounded pattern's, or the one the
+			 * Compute.within(Compute.octetLength(x), 0, bytes) guard of the Compute.when whose branch it stands in gives
+			 * it. A regex function's bounded precondition rests on it, its bytes within regexTextMaxBytes.
+			 */
+			readonly kind: "octets"
+			readonly operand: OperandIndex
+			readonly bytes: number
 	  }
 
 /** The proof of one precondition: the precondition and the premises it rests on. */

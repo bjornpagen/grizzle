@@ -282,6 +282,7 @@ export const builtinFunctionNames = [
 	"mod",
 	"char_length",
 	"octet_length",
+	"regexp_count",
 	"starts_with",
 	"right",
 	"translate",

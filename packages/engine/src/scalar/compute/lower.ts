@@ -571,6 +571,7 @@ const checkMembers: ReadonlySet<string> = new Set([
 	"sign",
 	"charLength",
 	"octetLength",
+	"utf16Length",
 	"concat",
 	"startsWith",
 	"endsWith",
@@ -1240,6 +1241,8 @@ const guardTest = (
 			return languageRemedy(operand, target, mode, patterns)
 		case "lexical":
 			return lexicalRemedy(precondition.form, operand, target, mode, patterns)
+		case "bounded":
+			return { kind: "octets", bytes: regexTextMaxBytes.value }
 	}
 }
 
@@ -1864,6 +1867,13 @@ class Lowering<R extends Refs> {
 						? undefined
 						: lexicalPremise(a, parseTargetOf(precondition.form, target), at, this.env.patterns)
 				return premise === undefined ? refuse(0) : { precondition, premises: [premise] }
+			}
+			case "bounded": {
+				const a = args[0]
+				const bytes = a === undefined ? undefined : textBytes(a)
+				return bytes === undefined || bytes > regexTextMaxBytes.value
+					? refuse(0)
+					: { precondition, premises: [{ kind: "octets", operand: 0, bytes }] }
 			}
 		}
 	}
@@ -2741,6 +2751,41 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
+	 * Compute.utf16Length(x): x's UTF-16 code units, JavaScript's String.length (registry.ts textUtf16Length), at most
+	 * MaxAllocSize as char_length is. It exists where char_length does, in contract predicates, row checks and generated
+	 * fields, never in a query, and it is defined where x is within regexTextMaxBytes (`bounded`), which x's byte bound
+	 * proves: its type's, or the guard Compute.when(Compute.within(Compute.octetLength(x), 0, bytes), ...) whose branch
+	 * it stands in; nothing else does, so no law that reads it raises on a long text.
+	 */
+	utf16Length(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Lowered {
+		if (this.env.mode === "query") {
+			return stop(
+				"UnsupportedOperation",
+				at,
+				"utf16Length in a query: it exists only in contract predicates and row checks, because queries have no text functions"
+			)
+		}
+		const x = this.term(subjectDesc, childLoc(at, 0))
+		if (baseOf(x.actual).carrier !== "text") {
+			return stop(
+				"MalformedDescription",
+				at,
+				`a text term for utf16Length, not ${typeLabel(x.nominal)}`
+			)
+		}
+		const op = this.overload("utf16Length", [x.actual], at)
+		const bounds = ofRange(0n, BigInt(maxAllocSize.value), String(maxAllocSize.value).length)
+		return this.native(
+			op,
+			[x],
+			this.resultType(op, bounds),
+			bounds,
+			at,
+			`Compute.utf16Length(${exprText(x.expr)})`
+		)
+	}
+
+	/**
 	 * Compute.parseDecimal(x): the numeric x's decimal text names, exactly, by xs:decimal's lexical mapping, a computed
 	 * numeric of no typmod. The registry's one overload, text to numeric, admits its operand, and it is defined where x
 	 * is a member of every decimal text within decimalTextMaxBytes, the grammar of XML Schema 1.1's xs:decimal lexical
@@ -3497,7 +3542,7 @@ class Lowering<R extends Refs> {
 			return stop(
 				"UnsupportedOperation",
 				here,
-				`${fn} in a contract predicate or row check: a check admits the operations the host evaluates for the ContractLiteral check, which are comparisons, between, in, boolean composition, abs, sign, arithmetic, Compute.cond, Compute.when, casts, charLength, octetLength, span endpoints, greatest and the set algebra`
+				`${fn} in a contract predicate or row check: a check admits the operations the host evaluates for the ContractLiteral check, which are comparisons, between, in, boolean composition, abs, sign, arithmetic, Compute.cond, Compute.when, casts, charLength, octetLength, utf16Length, span endpoints, greatest and the set algebra`
 			)
 		}
 		const arity: Readonly<Record<string, number | undefined>> = {
@@ -3516,6 +3561,7 @@ class Lowering<R extends Refs> {
 			width: 1,
 			charLength: 1,
 			octetLength: 1,
+			utf16Length: 1,
 			concat: 2,
 			startsWith: 2,
 			endsWith: 2,
@@ -3801,6 +3847,8 @@ class Lowering<R extends Refs> {
 				const bounds = ofRange(0n, BigInt(maxAllocSize.value), String(maxAllocSize.value).length)
 				return this.native(op, [a], this.resultType(op, bounds), bounds, here, desc.fn)
 			}
+			case "utf16Length":
+				return this.utf16Length(arg(0), here)
 			case "concat": {
 				if (this.env.mode === "query") {
 					return stop(
@@ -4911,6 +4959,7 @@ export const intervalCastProof = (
 			case "powerRange":
 			case "bucketDomain":
 			case "lexical":
+			case "bounded":
 				return undefined
 		}
 	}

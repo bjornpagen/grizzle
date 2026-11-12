@@ -219,6 +219,8 @@ const exactIn = (
 		case "widthBucket":
 		case "charLength":
 		case "octetLength":
+		case "utf16Length":
+		case "regexpCount":
 		case "concat":
 		case "startsWith":
 		case "endsWith":

@@ -1,4 +1,5 @@
 import { Array as Arr, Option } from "effect"
+import { regexTextMaxBytes } from "#compiler/core/limits.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/ir/carriers.ts"
 import type { OpId } from "#compiler/ir/expr.ts"
@@ -38,7 +39,8 @@ import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
  * arithmetic scalar/compute/lower.ts writes once for each, fits over the values but NaN and the others over intervals
  * that hold no NaN; lexical by a language premise whose language the judge finds inside the parse's form again, within
  * the form's byte bound where it has one, or a literal it parses; a contract into a regex-refined text with no contract by a language premise whose language it
- * finds inside the target's again. A proof no premise of the needed kind supports is no proof.
+ * finds inside the target's again; bounded by an octets premise on the operand within regexTextMaxBytes. A proof no
+ * premise of the needed kind supports is no proof.
  */
 const checkProof = (
 	proof: PreconditionProof,
@@ -63,6 +65,7 @@ const checkProof = (
 		case "powerRange":
 		case "bucketDomain":
 		case "lexical":
+		case "bounded":
 			return judge(p, proof.premises)
 	}
 }
@@ -190,6 +193,11 @@ const proofHolds = (
 					)
 				)
 			}
+			case "bounded":
+				return Arr.some(
+					premises,
+					(p) => p.kind === "octets" && p.operand === 0 && p.bytes <= regexTextMaxBytes.value
+				)
 			case "nonzero":
 			case "nonnegative":
 			case "finite":

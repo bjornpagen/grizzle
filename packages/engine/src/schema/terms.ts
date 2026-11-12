@@ -276,6 +276,20 @@ export const rowHelpers = Object.freeze({
 			throw malformed("octetLength", "a text term: octetLength counts the UTF-8 bytes of text")
 		}
 		return rowTerm({ kind: "compute", fn: "octetLength", args: [arg.expr] }, integerType)
+	},
+	/**
+	 * A text's UTF-16 code units, JavaScript's String.length: admitted in contract predicates and row checks only, never
+	 * in a query, over a text its type or a guard bounds within the bytes PostgreSQL's regex engine reads.
+	 */
+	utf16Length: (s: unknown): RowTerm => {
+		const arg = termOperand(s, "utf16Length")
+		if (arg.type !== undefined && !isTextDesc(arg.type.desc)) {
+			throw malformed(
+				"utf16Length",
+				"a text term: utf16Length counts the UTF-16 code units of text"
+			)
+		}
+		return rowTerm({ kind: "compute", fn: "utf16Length", args: [arg.expr] }, integerType)
 	}
 })
 
@@ -300,7 +314,7 @@ const rowOf = <A>(
  * `check(name, R, (row) => predicate)` runs its callback once, at construction, over a RowScalars value and records the
  * predicate's ExprDesc (callbacks build descriptions; they never run per row). RowScalars exposes each field
  * of R as a Scalar, a term with the comparisons eq, ne, lt, le, gt, ge, between and in, beside the Compute helpers a
- * check may use: eq, ne, lt, le, gt, ge, between, in, and, or, not and charLength.
+ * check may use: eq, ne, lt, le, gt, ge, between, in, and, or, not, charLength, octetLength and utf16Length.
  *
  * A literal operand adopts the type of the term it meets and is checked at construction:
  * over a numeric field a JavaScript number is refused. Whether each partial operation's precondition is proved, a

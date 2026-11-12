@@ -53,6 +53,7 @@ const reach: { readonly [N in BuiltinFunctionName]: "row" | "rows" } = {
 	mod: "row",
 	char_length: "row",
 	octet_length: "row",
+	regexp_count: "row",
 	starts_with: "row",
 	right: "row",
 	translate: "row",

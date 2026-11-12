@@ -1,7 +1,8 @@
 /**
  * Every precondition kind's refusal names a guard its operand's type can write (core/errors.ts GuardTest), over an
  * exhaustive box of planted faults: each kind's partial operation, over a column of each operand type the registry
- * admits for it, with its precondition left unproved.
+ * admits for it, with its precondition left unproved, in a query, or in a check for a text's UTF-16 units, which no
+ * query reads.
  *
  * The oracle: the refusal is PartialOperation of exactly the planted kind; its guard's test is one Compute writes over
  * the operand's type (a number's Compute.nonzero, Compute.nonnegative, Compute.positive, Compute.isFinite or
@@ -23,6 +24,7 @@ import { element, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import type { GuardTest, PreconditionKind } from "#compiler/core/errors.ts"
+import { regexTextMaxBytes } from "#compiler/core/limits.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
@@ -55,7 +57,8 @@ const kinds: Arr.NonEmptyReadonlyArray<PreconditionKind> = [
 	"powerDomain",
 	"powerRange",
 	"bucketDomain",
-	"lexical"
+	"lexical",
+	"bounded"
 ]
 
 /** The term with its fault mended: the named guard written around it, its operand a typed parameter, or neither. */
@@ -244,7 +247,40 @@ const plants: { readonly [K in PreconditionKind]: Arr.NonEmptyReadonlyArray<Plan
 					)
 			}
 		})
-	)
+	),
+	bounded: [
+		{
+			operand: testPg.text,
+			faulty: (x) => Compute.utf16Length(x),
+			mended: {
+				kind: "guarded",
+				term: (x) =>
+					Compute.when(
+						Compute.within(Compute.octetLength(x), 0, regexTextMaxBytes.value),
+						() => Compute.utf16Length(x),
+						0
+					)
+			}
+		}
+	]
+}
+
+/**
+ * Where each kind's plant is lowered: a query's, whose operations are the widest, or a check's for a text's UTF-16
+ * units, which only a check, a contract predicate or a generated field reads.
+ */
+const modeOf: { readonly [K in PreconditionKind]: "query" | "check" } = {
+	nonzero: "query",
+	nonnegative: "query",
+	finite: "query",
+	fits: "query",
+	contract: "query",
+	language: "query",
+	powerDomain: "query",
+	powerRange: "query",
+	bucketDomain: "query",
+	lexical: "query",
+	bounded: "check"
 }
 
 /** The tests Compute writes over a value of a carrier: a number's facts and bounds, a text's patterns, or none. */
@@ -284,9 +320,9 @@ type Feature =
 	| "a guard no Compute test writes"
 	| "a named guard, written, admitted"
 
-const lowered = (expr: { readonly expr: OpenExpr }, operand: TestOperand) =>
+const lowered = (kind: PreconditionKind, expr: { readonly expr: OpenExpr }, operand: TestOperand) =>
 	lowerWith(
-		"query",
+		modeOf[kind],
 		spelledExpr(expr.expr),
 		{ x: { kind: "column", type: operand.scalar } },
 		false,
@@ -326,7 +362,7 @@ describe("a partial operation's refusal", () => {
 							const list = plants[kind]
 							const plant = defined(list[pick % list.length], "a plant of the kind")
 							const x = v("x", plant.operand)
-							const faulty = lowered(plant.faulty(x), plant.operand)
+							const faulty = lowered(kind, plant.faulty(x), plant.operand)
 							if (faulty.ok) {
 								return assert.fail(`the unguarded ${kind} operation is refused`)
 							}
@@ -352,14 +388,14 @@ describe("a partial operation's refusal", () => {
 							const mended = plant.mended
 							switch (mended.kind) {
 								case "guarded": {
-									const admitted = lowered(mended.term(x), plant.operand)
+									const admitted = lowered(kind, mended.term(x), plant.operand)
 									assert.ok(admitted.ok, `the ${kind} operation under its named guard is admitted`)
 									c.note("a named guard, written, admitted")
 									return
 								}
 								case "typed": {
 									assert.equal(reason.guard.remedy.kind, "typed")
-									const admitted = lowered(mended.term(), plant.operand)
+									const admitted = lowered(kind, mended.term(), plant.operand)
 									assert.ok(admitted.ok, `the ${kind} operation over a typed parameter is admitted`)
 									c.note("a named guard, written, admitted")
 									return

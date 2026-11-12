@@ -52,6 +52,7 @@ const catalogue: ComputeApi = {
 	width: (s, endpoint) => C.width(s, endpoint),
 	charLength: (s) => C.charLength(s),
 	octetLength: (s) => C.octetLength(s),
+	utf16Length: (s) => C.utf16Length(s),
 	concat: (a, b) => C.concat(a, b),
 	startsWith: (a, b) => C.startsWith(a, b),
 	endsWith: (a, b) => C.endsWith(a, b),

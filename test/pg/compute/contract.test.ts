@@ -11,8 +11,10 @@
  *
  * Oracle: PostgreSQL itself, the domain cast of each value.
  *
- * Plants: compute-contract-literal-unchecked (the ContractLiteral check admits a literal its predicate refuses), and
- * values-money-round-half-down (a numeric tie rounds toward zero before the predicate).
+ * Plants: compute-contract-literal-unchecked (the ContractLiteral check admits a literal its predicate refuses),
+ * values-money-round-half-down (a numeric tie rounds toward zero before the predicate), and
+ * compute-utf16-host-code-points (the host counts a text's code points for its UTF-16 units, so units and three-units
+ * disagree with PostgreSQL over a supplementary character).
  *
  * Features: a value the domain admits and one it refuses, for each contract.
  */
@@ -166,6 +168,23 @@ const fixtures = (): ReadonlyArray<Fixture> => {
 		Compute.and(x.between(0, 1), Compute.ne(Compute.abs(x), 0.5))
 	)
 	const Short = testContract("Short", testPg.text, (x) => Compute.charLength(x).le(3))
+	/**
+	 * Effect Schema's isMaxLength(3) and isMinLength(3) over a string, which count UTF-16 code units: utf16Length under
+	 * the guard of the text's bytes that README states, three bytes a unit, so a text past 9 bytes is past 3 units and
+	 * one of at least 9 bytes holds at least 3, and the regex reads only a bounded text.
+	 */
+	const Units = testContract("Units", testPg.text, (x) =>
+		Compute.le(
+			Compute.when(Compute.within(Compute.octetLength(x), 0, 9), () => Compute.utf16Length(x), 4),
+			3
+		)
+	)
+	const ThreeUnits = testContract("ThreeUnits", testPg.text, (x) =>
+		Compute.ge(
+			Compute.when(Compute.within(Compute.octetLength(x), 0, 8), () => Compute.utf16Length(x), 3),
+			3
+		)
+	)
 	const numericEdges = Arr.map(
 		[
 			"NaN",
@@ -195,6 +214,26 @@ const fixtures = (): ReadonlyArray<Fixture> => {
 		(x) => (x === 0 ? 0 : x)
 	)
 	const textEdges = ["", "abc", "abcd", "😀😀😀", "😀😀😀😀", "é"]
+	/**
+	 * The texts three UTF-16 units turns on: two and three and four units of one, two and three bytes each, an emoji
+	 * that is two units, and three code points of nine bytes past U+FFFF's edge, U+FFFF itself.
+	 */
+	const unitEdges = [
+		"",
+		"ab",
+		"abc",
+		"abcd",
+		"😀",
+		"😀a",
+		"a😀",
+		"😀😀",
+		"ééé",
+		"éééé",
+		"\uffff\uffff",
+		"\uffff\uffff\uffff",
+		"\uffff\uffff\uffffa",
+		"\u{10000}\u{10ffff}"
+	]
 	/**
 	 * Texts of up to five characters, each well-formed and never NUL: printable ASCII, the rest of the BMP outside the
 	 * surrogates, and the supplementary planes, where a character is two UTF-16 units but one code point.
@@ -282,7 +321,16 @@ const fixtures = (): ReadonlyArray<Fixture> => {
 			values: doubles,
 			batch: 300
 		},
-		{ name: "short", field: Short, base: testPg.text, edges: textEdges, values: texts, batch: 200 }
+		{ name: "short", field: Short, base: testPg.text, edges: textEdges, values: texts, batch: 200 },
+		{ name: "units", field: Units, base: testPg.text, edges: unitEdges, values: texts, batch: 200 },
+		{
+			name: "three-units",
+			field: ThreeUnits,
+			base: testPg.text,
+			edges: unitEdges,
+			values: texts,
+			batch: 200
+		}
 	]
 }
 

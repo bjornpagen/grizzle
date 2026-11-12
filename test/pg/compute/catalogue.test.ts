@@ -723,6 +723,7 @@ const justified = (precondition: PreconditionKind, read: ReadonlyArray<Operand>)
 		case "powerRange":
 		case "bucketDomain":
 		case "lexical":
+		case "bounded":
 			return true
 	}
 }

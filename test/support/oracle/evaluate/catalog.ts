@@ -1,7 +1,9 @@
 import { Array as Arr, Option, Result } from "effect"
 import type { ParamId } from "#compiler/core/ids.ts"
+import { regexTextMaxBytes } from "#compiler/core/limits.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
+import { codePoints } from "#compiler/core/text.ts"
 import {
 	type ColumnRef,
 	describeOp,
@@ -89,6 +91,7 @@ export const evaluationOf = (op: NativeOp): Evaluation => {
 		case "complement":
 		case "replace":
 		case "btrim":
+		case "regexpCount":
 		case "sha256":
 			return "database"
 		case "union":
@@ -123,6 +126,7 @@ export const evaluationOf = (op: NativeOp): Evaluation => {
 		case "upper":
 		case "charLength":
 		case "octetLength":
+		case "utf16Length":
 		case "concat":
 		case "startsWith":
 		case "endsWith":
@@ -200,6 +204,16 @@ const unsupported = (what: string): CatalogResult => Result.fail({ kind: "unsupp
 
 /** UTF-8, the database's encoding, by the host's own encoder: what octet_length counts. */
 const utf8Encoder = new TextEncoder()
+
+/** The last code point of the Basic Multilingual Plane, the widest UTF-16 writes as one code unit. */
+const lastSingleUnit = 0xffff
+
+/**
+ * A text's UTF-16 code units counted from its code points, as Unicode's UTF-16 encoding form writes them: one for a code
+ * point of the Basic Multilingual Plane, two, a surrogate pair, for a supplementary one, past U+FFFF.
+ */
+const utf16Units = (text: string): number =>
+	Arr.reduce(codePoints(text), 0, (n, point) => n + (point > lastSingleUnit ? 2 : 1))
 
 /**
  * A node the oracle declines: PostgreSQL alone computes its value, which the host does not reproduce bit for bit,
@@ -605,6 +619,12 @@ const catalogApply = (
 			return isString(a) ? Result.succeed(BigInt(Array.from(a).length)) : mismatch(op)
 		case "octetLength":
 			return isString(a) ? Result.succeed(BigInt(utf8Encoder.encode(a).length)) : mismatch(op)
+		case "utf16Length":
+			return isString(a)
+				? utf8Encoder.encode(a).length > regexTextMaxBytes.value
+					? undefinedAt("bounded")
+					: Result.succeed(BigInt(utf16Units(a)))
+				: mismatch(op)
 		case "concat":
 			return isString(a) && isString(b) ? Result.succeed(`${a}${b}`) : mismatch(op)
 		case "startsWith":
@@ -662,6 +682,7 @@ const catalogApply = (
 		case "complement":
 		case "replace":
 		case "btrim":
+		case "regexpCount":
 		case "sha256":
 			return declined(op, "database", "PostgreSQL alone evaluates it")
 		case "collapse":

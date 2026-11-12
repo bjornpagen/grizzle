@@ -204,6 +204,8 @@ const identicalPremise = (a: OperandPremise, b: OperandPremise): boolean => {
 				samePatterns(a.patterns, b.patterns) &&
 				a.bytes === b.bytes
 			)
+		case "octets":
+			return b.kind === "octets" && a.operand === b.operand && a.bytes === b.bytes
 	}
 }
 
@@ -223,6 +225,7 @@ const identicalPrecondition = (a: Precondition, b: Precondition): boolean => {
 		case "powerDomain":
 		case "powerRange":
 		case "bucketDomain":
+		case "bounded":
 			return b.kind === a.kind
 	}
 }

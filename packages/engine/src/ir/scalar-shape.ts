@@ -45,7 +45,8 @@ import {
 	type OperandPremise,
 	type OperationProof,
 	type Precondition,
-	type PreconditionProof
+	type PreconditionProof,
+	parseForms
 } from "#compiler/ir/proof.ts"
 
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
@@ -606,16 +607,22 @@ const exactShape: S.Shape<Exact> = S.struct({ units: S.bigint, scale: S.nonNegat
 
 const operandIndexShape: S.Shape<OperandIndex> = S.literalsShape([0, 1, 2, 3])
 
-const preconditionShape: S.Shape<Precondition> = S.tagged("kind", {
+/** Every precondition's case, each kind's own: a kind the decoder lacks is a type error here, never a refusal of a proof. */
+const preconditionCases = Object.freeze({
 	nonzero: S.struct({ operand: operandIndexShape }),
 	nonnegative: S.struct({ operand: operandIndexShape }),
 	finite: S.struct({ operand: operandIndexShape }),
 	fits: S.struct({}),
 	contract: S.struct({}),
+	language: S.struct({}),
 	powerDomain: S.struct({}),
 	powerRange: S.struct({}),
-	bucketDomain: S.struct({})
-})
+	bucketDomain: S.struct({}),
+	lexical: S.struct({ form: S.literalsShape(parseForms) }),
+	bounded: S.struct({})
+}) satisfies { readonly [K in Precondition["kind"]]: unknown }
+
+const preconditionShape: S.Shape<Precondition> = S.tagged("kind", preconditionCases)
 
 const factSourceShape: S.Shape<FactSource> = S.tagged("kind", {
 	literal: S.struct({}),
@@ -624,7 +631,8 @@ const factSourceShape: S.Shape<FactSource> = S.tagged("kind", {
 	type: S.struct({})
 })
 
-const premiseShape: S.Shape<OperandPremise> = S.tagged("kind", {
+/** Every premise's case, each kind's own: a kind the decoder lacks is a type error here, never a refusal of a proof. */
+const premiseCases = Object.freeze({
 	fact: S.struct({ operand: operandIndexShape, fact: factShape, source: factSourceShape }),
 	interval: S.struct({
 		operand: operandIndexShape,
@@ -635,8 +643,16 @@ const premiseShape: S.Shape<OperandPremise> = S.tagged("kind", {
 	checked: S.struct({
 		operand: operandIndexShape,
 		by: S.literalsShape(["literal", "parameter", "write"])
-	})
-})
+	}),
+	language: S.structStated(
+		{ operand: operandIndexShape, patterns: patternsShape },
+		{ bytes: S.nonNegativeInteger },
+		{}
+	),
+	octets: S.struct({ operand: operandIndexShape, bytes: S.nonNegativeInteger })
+}) satisfies { readonly [K in OperandPremise["kind"]]: unknown }
+
+const premiseShape: S.Shape<OperandPremise> = S.tagged("kind", premiseCases)
 
 const preconditionProofShape: S.Shape<PreconditionProof> = S.struct({
 	precondition: preconditionShape,

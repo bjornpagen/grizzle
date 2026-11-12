@@ -1025,6 +1025,18 @@ export interface ComputeApi {
 		s: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Admitted<TakesFirst<A, "text">, Scalar<number, PA, ComputedOrigin<OA>, "integer">>
 	/**
+	 * A text's UTF-16 code units, JavaScript's String.length: its code points, and its supplementary ones once more,
+	 * `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`; admitted only in contract predicates and row
+	 * checks, never in a query. PostgreSQL's regex engine reads at most 268,435,454 bytes, so the text is bounded within
+	 * them by its type or by a guard, `Compute.when(Compute.within(Compute.octetLength(x), 0, bytes), (x) =>
+	 * Compute.utf16Length(x), otherwise)`, or the operation is PartialOperation (`bounded`), and no law that reads it
+	 * raises on a long text. A UTF-16 code unit is at most three UTF-8 bytes, so a text of more than 3n bytes is more than
+	 * n units.
+	 */
+	utf16Length<A extends TermBase | FirstValue, X, PA, OA>(
+		s: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
+	): Admitted<TakesFirst<A, "text">, Scalar<number, PA, ComputedOrigin<OA>, "integer">>
+	/**
 	 * a || b, PostgreSQL's textcat: text of no pattern, which compilation reads within a's bytes and b's where both are
 	 * bounded, a string by its own. The second operand is a text term the first meets, a parameter among them, or a
 	 * string. Admitted in contract predicates, row checks, generated fields and folds; in a query only as a side of
@@ -1250,4 +1262,5 @@ export type ScalarHelpers = Pick<
 	| "not"
 	| "charLength"
 	| "octetLength"
+	| "utf16Length"
 >

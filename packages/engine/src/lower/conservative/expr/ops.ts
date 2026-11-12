@@ -166,6 +166,9 @@ const textSuffix = (args: ReadonlyArray<Expr>): Expr | undefined => {
 		: undefined
 }
 
+/** U+10000 to U+10FFFF, the supplementary planes, as an ARE's bracket expression: UTF-16's pairs. */
+const supplementaryClass = "[\\U00010000-\\U0010FFFF]"
+
 /** `replace(x, from, to)` over two text literals. */
 const replaced = (x: Expr, from: string, to: string): Expr =>
 	call("replace", [x, lit.text(from, types.text), lit.text(to, types.text)])
@@ -192,6 +195,22 @@ const bytesDigest = (args: ReadonlyArray<Expr>): Expr | undefined => {
 	const [x] = args
 	return args.length === 1 && x !== undefined
 		? call("encode", [call("sha256", [x]), lit.text("hex", types.text)])
+		: undefined
+}
+
+/**
+ * A text's UTF-16 code units (scalar/compute/registry.ts textUtf16Length), JavaScript's String.length: its code points
+ * and its supplementary ones once more, `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`, the class an
+ * ARE writes with its own eight-digit escapes, which reads code points in a UTF8 database.
+ */
+const utf16Units = (args: ReadonlyArray<Expr>): Expr | undefined => {
+	const [x] = args
+	return args.length === 1 && x !== undefined
+		? binary(
+				"+",
+				call("char_length", [x]),
+				call("regexp_count", [x, lit.text(supplementaryClass, types.text)])
+			)
 		: undefined
 }
 
@@ -315,6 +334,8 @@ const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined => 
 			return args.length === 1 && first !== undefined ? cast(first, types.numeric) : undefined
 		case "sha256":
 			return bytesDigest(args)
+		case "utf16Length":
+			return utf16Units(args)
 	}
 }
 

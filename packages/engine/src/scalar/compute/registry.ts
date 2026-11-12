@@ -75,6 +75,7 @@ const nonzero = (operand: OperandIndex): Precondition => Object.freeze({ kind: "
 const finite = (operand: OperandIndex): Precondition => Object.freeze({ kind: "finite", operand })
 const fits: Precondition = Object.freeze({ kind: "fits" })
 const lexical = (form: ParseForm): Precondition => Object.freeze({ kind: "lexical", form })
+const bounded: Precondition = Object.freeze({ kind: "bounded" })
 const divisor: Totality = requires([nonzero(1)])
 const narrowing: Totality = requires([fits])
 const finiteNarrowing: Totality = requires([finite(0), fits])
@@ -110,7 +111,8 @@ type Owner = "catalog" | "vector"
  * `right(a, char_length(b)) = b`, since PostgreSQL has no ends_with; a double's parse is a reading of its text's digits
  * and exponent into a numeric rounded to a double (lower/conservative/expr/parse-double.ts); a decimal's parse is the
  * I/O conversion into numeric of no typmod, `x::numeric`, an op node of its own beside Compute.cast's cast nodes; a
- * bytes value's digest is its SHA-256 written as lowercase hex, `encode(sha256(x), 'hex')`.
+ * bytes value's digest is its SHA-256 written as lowercase hex, `encode(sha256(x), 'hex')`; a text's UTF-16 code units
+ * are its code points and its supplementary ones once more, `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`.
  */
 type SqlForm =
 	| { readonly kind: "infix"; readonly op: Infix; readonly owner: Owner }
@@ -135,6 +137,7 @@ type SqlForm =
 				| "parseDecimal"
 				| "sha256"
 				| "collapse"
+				| "utf16Length"
 	  }
 
 /**
@@ -174,7 +177,8 @@ type CatalogRef =
  * The Compute operation a native node serves (computeNodes), the comparisons, the boolean constructs, the set algebra
  * over a roster, the text operations, a bytes value's digest and the casts; cond has no entry, it is the IR's cond node. The complement serves
  * only the difference and the subset test: it sets a set's hole and padding bits, so no Compute operation yields it;
- * right serves only the suffix test, endsWith, and replace and btrim only the whiteSpace collapse.
+ * right serves only the suffix test, endsWith, replace and btrim only the whiteSpace collapse, and regexp_count only a
+ * text's UTF-16 code units, utf16Length.
  */
 export type NativeFn =
 	| "add"
@@ -203,6 +207,8 @@ export type NativeFn =
 	| "upper"
 	| "charLength"
 	| "octetLength"
+	| "utf16Length"
+	| "regexpCount"
 	| "concat"
 	| "startsWith"
 	| "endsWith"
@@ -273,6 +279,7 @@ export const computeNodes: { readonly [F in ComputeFn]: NonEmptyReadonlyArray<Na
 		width: ["upper", "lower", "sub"],
 		charLength: ["charLength"],
 		octetLength: ["octetLength"],
+		utf16Length: ["utf16Length"],
 		concat: ["concat"],
 		startsWith: ["startsWith"],
 		endsWith: ["endsWith"],
@@ -740,6 +747,33 @@ const textCollapse: FixedOverload = frozen({
 })
 
 /**
+ * A text's UTF-16 code units, JavaScript's String.length: one for each code point, and one more for each supplementary
+ * one, which UTF-16 writes as a surrogate pair, `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`
+ * (lower/conservative/expr/ops.ts utf16Units). A text holds at most MaxAllocSize bytes, so at most that many code points
+ * and a quarter as many supplementary ones, and the sum stays within integer. regexp_count widens its subject to one
+ * pg_wchar for every byte before it matches, so it is defined where the text is within regexTextMaxBytes (`bounded`),
+ * which the lowering proves from the operand's byte bound, its type's or a guard's. Both functions are IMMUTABLE in
+ * pg_proc, so it is one value wherever it stands, a generated column among them.
+ */
+const textUtf16Length: FixedOverload = frozen({
+	fn: "utf16Length",
+	operands: positional(["text"]),
+	result: "int4",
+	sql: { kind: "utf16Length" },
+	catalog: {
+		kind: "construct",
+		uses: Object.freeze([
+			opId("char_length(text)"),
+			opId("regexp_count(text,text)"),
+			opId("int4pl")
+		])
+	},
+	volatility: "immutable",
+	totality: requires([bounded]),
+	reads: "value"
+})
+
+/**
  * A double's parse from its decimal text (scalar/lexical.ts doubleOfText), IEEE 754-2019's conversion from decimal
  * character sequences, defined where the text is one ("lexical" over `doubleText`), which the lowering proves by
  * language inclusion: its digits and exponent read by ltrim, rtrim, split_part, replace, left, char_length and
@@ -1045,6 +1079,15 @@ const catalogOverloads = {
 	),
 	"char_length(text)": fnCall("charLength", "char_length", ["text"], "int4", total, "value"),
 	"octet_length(text)": fnCall("octetLength", "octet_length", ["text"], "int4", total, "value"),
+	"utf16Length:text": textUtf16Length,
+	"regexp_count(text,text)": fnCall(
+		"regexpCount",
+		"regexp_count",
+		["text", "text"],
+		"int4",
+		requires([bounded]),
+		"value"
+	),
 	textcat: infix("concat", "||", "text", "text", total, "value"),
 	"starts_with(text,text)": fnCall(
 		"startsWith",

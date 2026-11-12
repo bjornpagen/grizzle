@@ -1,6 +1,7 @@
 import { floatSpecialNameOf } from "#compiler/core/canonical.ts"
 import type { ExprId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
+import { regexTextMaxBytes } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { collapsed, compareCodePoints, translated } from "#compiler/core/text.ts"
@@ -398,7 +399,7 @@ const gcdOf = (a: bigint, b: bigint): bigint => {
  * The native operations a check admits (lower.ts checkMembers) applied to their evaluated operands, each defined on
  * every value or where its proved precondition holds: integer and money arithmetic exactly (an exact integer, exact
  * money), numeric as numeric.c computes it, floats as IEEE 754, comparisons, BETWEEN, IN, NOT, char_length, a text's
- * concatenation, prefix and suffix tests, regex match (by the pattern's automaton) and translation (by code points,
+ * UTF-16 code units (String.length, within the bytes PostgreSQL's regex engine reads), a text's concatenation, prefix and suffix tests, regex match (by the pattern's automaton) and translation (by code points,
  * as PostgreSQL's translate reads them), a double's parse from its decimal text, a decimal's from its text, a bytes
  * value's SHA-256 digest, which its value is (literal.ts CarrierValue), worked out by core/sha256.ts sha256Hex where
  * the value was admitted (scalar/values/bytes.ts AdmittedBytes), span endpoints, LEAST and GREATEST by the type's
@@ -513,6 +514,12 @@ const apply = (
 			return isString(a) ? Result.ok(BigInt(Array.from(a).length)) : mismatch(op)
 		case "octetLength":
 			return isString(a) ? Result.ok(BigInt(utf8Length(a))) : mismatch(op)
+		case "utf16Length":
+			return isString(a)
+				? utf8Length(a) > regexTextMaxBytes.value
+					? undefinedAt("bounded")
+					: Result.ok(BigInt(a.length))
+				: mismatch(op)
 		case "concat":
 			return isString(a) && isString(b) ? Result.ok(a + b) : mismatch(op)
 		case "startsWith":
@@ -530,6 +537,8 @@ const apply = (
 		case "replace":
 		case "btrim":
 			return unsupported(`${op.fn} alone, which only collapse's SQL reads`)
+		case "regexpCount":
+			return unsupported("regexp_count alone, which only utf16Length's SQL reads")
 		case "parseDouble": {
 			if (!isString(a)) {
 				return mismatch(op)
@@ -912,6 +921,7 @@ const nullAware = (
 		case "parseDouble":
 		case "power":
 		case "quot":
+		case "regexpCount":
 		case "rem":
 		case "replace":
 		case "right":
@@ -926,6 +936,7 @@ const nullAware = (
 		case "trunc":
 		case "union":
 		case "upper":
+		case "utf16Length":
 		case "widthBucket":
 			return Result.ok(sqlNull)
 	}
