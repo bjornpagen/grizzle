@@ -21,7 +21,8 @@
  *   or in `--body`, with text past ASCII and text needing encoding, numbers past 2^53 and empty objects. A list gives
  *   each query parameter or not. A planted fault is a refused field in `--body`, a refused element's flag, or a value
  *   outside its field's schema. Oracles: the pairs the rules give, in property and member order, read back off the
- *   wire as the WHATWG URL Standard reads a form; and exit 2 with no connection for each fault.
+ *   wire by each wire's own rules (a form body as the WHATWG URL Standard reads it, where `+` is a space; a query as
+ *   RFC 3986 percent-encoding, where `+` is a plus); and exit 2 with no connection for each fault.
  *
  * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
