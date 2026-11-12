@@ -104,7 +104,7 @@ import type { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** The roster the set monoids fold over: five handles, codes 0 to 4. */
-const Tag = closed("Tag", ["a", "b", "c", "d", "e"])
+export const Tag = closed("Tag", ["a", "b", "c", "d", "e"])
 
 /** K, the handles at most one member may hold each of: the twos fold's check reads its plane against it. */
 const K = ["a", "b"] as const
@@ -345,7 +345,7 @@ const orCounted = (() => {
 })()
 
 /** How a carrier's values are written, read and encoded: SQL text from the reference's value, and back. */
-interface Carrier {
+export interface Carrier {
 	/** The SQL literal of a value. */
 	readonly write: (v: bigint) => string
 	/** The SQL expression that reads a column as text the parse reads. */
@@ -374,7 +374,7 @@ const integer: Omit<Carrier, "toHost"> = {
 }
 
 /** int4, whose host value is a number. */
-const int4: Carrier = { ...integer, toHost: (v) => Number(v) }
+export const int4: Carrier = { ...integer, toHost: (v) => Number(v) }
 
 /** natural, whose host value is a bigint. */
 const naturals: Carrier = { ...integer, toHost: (v) => v }
@@ -405,7 +405,7 @@ const hundredths: Carrier = {
  * A set of codes 0 to 4 as its bit mask, written as the hex literal of the bit string whose position c is code c, its
  * codes rounded up to whole hex digits (test/support/closed/bit-text.ts setText).
  */
-const setOf = (size: number): Carrier => ({
+export const setOf = (size: number): Carrier => ({
 	write: (v) =>
 		`X'${hexOfText(
 			setText(
