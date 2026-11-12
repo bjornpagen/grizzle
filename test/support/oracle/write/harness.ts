@@ -283,6 +283,7 @@ export type WriteOracleFeature =
 	| "an UPDATE ... FROM put advancing its sequence"
 	| "facts reordered on a second reading"
 	| "a fact respelled on a second reading"
+	| "a read-back refused as crossing statements"
 
 const identityOf = (group: WGroup, relation: string, fact: unknown): FactIdentity => {
 	const r = relationIn(group, relation)
@@ -1229,13 +1230,36 @@ export interface Ran {
  *
  * The calculator draws past a stored fact a lagging sequence repeats, and the fresh fact meets its key.
  */
+/**
+ * `changes` with every read-back its compile refuses as crossing statements (ReadBackCrossesStatements) left out, and
+ * whether one was: a read-back is evaluated inside the one statement that makes its delta (write/schedule/plan.ts
+ * placeReadBacks), and the conservative realization's state comparison, the oracle, knows no statement, so the case
+ * judges the read-backs that ride.
+ */
+const settledReads = (
+	t: WriteTarget,
+	group: WGroup,
+	changes: WChangeSet
+): { readonly changes: WChangeSet; readonly dropped: boolean } => {
+	const entry = programOf(t, buildChangeSet(t.value, t.built.relations, group, changes).changes)
+	if (Result.isSuccess(entry) || entry.failure.reason._tag !== "ReadBackCrossesStatements") {
+		return { changes, dropped: false }
+	}
+	const read = entry.failure.reason.read
+	const rest = settledReads(t, group, {
+		...changes,
+		reads: Arr.filter(changes.reads, (r) => r.name !== read)
+	})
+	return { changes: rest.changes, dropped: true }
+}
+
 export const runCase = (
 	t: WriteTarget,
 	rc: ResolvedCase,
 	note: Case<WriteOracleFeature>["note"]
 ): Effect.Effect<Ran, CaseFailed | CompileError | SqlError | TransactionRolledBack, Substrate> =>
 	Effect.gen(function* () {
-		const { origin, group, facts: drawn, behind, changes: c } = rc
+		const { origin, group, facts: drawn, behind } = rc
 		/** Notes `feature` when the case reaches it. */
 		const noteIf = (reached: boolean, feature: WriteOracleFeature): void => {
 			if (reached) {
@@ -1248,6 +1272,9 @@ export const runCase = (
 		 */
 		const perturbation = yield* CurrentPerturbation
 		const facts: WFacts = multiplyWriteFacts(group, drawn, perturbation.multiplier)
+		const settled = settledReads(t, group, rc.changes)
+		const c = settled.changes
+		noteIf(settled.dropped, "a read-back refused as crossing statements")
 		const { changes, params } = buildChangeSet(t.value, t.built.relations, group, c)
 		const sequences: Record<string, SequenceState> = Rec.fromEntries(
 			behind

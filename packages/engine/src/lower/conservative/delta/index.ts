@@ -16,11 +16,11 @@ import { col, cteRefAs, target, unitTargets } from "#compiler/sql/build.ts"
  *   SELECT DISTINCT r12.c4, r12.c5 FROM r9 AS r12
  *
  * A delta is the write program's: the write compiler hands the lowering the relation that holds it, whose columns are
- * the delta's heading position by position (DeltaRelation). Where the read-back rides the one statement that writes R,
- * it is a CTE of that statement over the rows its RETURNING returns; where R's rows cross statements, the
- * transaction-scoped carrier they filled; the conservative realization's, computed by comparing the states before and
- * after the change, a carrier too. The delta of a relation no statement writes is the empty relation, as an empty closed
- * relation lowers. Outside a write program there is no delta, and the node is UnsupportedOperation.
+ * the delta's heading position by position (DeltaRelation). A read-back over a delta a statement makes rides that
+ * statement, and the delta is a CTE of it over the rows its RETURNING returns; the conservative realization's, computed
+ * by comparing the states before and after the change, is a carrier. A side of a delta no statement makes is the empty
+ * relation, as an empty closed relation lowers. Outside a write program there is no delta, and the node is
+ * UnsupportedOperation.
  */
 const lowerDelta: NodeLowerer<"Delta"> = (node, cx) => {
 	const at = nodeLabel(node)

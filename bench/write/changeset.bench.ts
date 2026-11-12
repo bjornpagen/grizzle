@@ -58,9 +58,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * two, whose members all read the stratum's starting state (write/schedule/plan.ts, write/program/single.ts); every
  * other stratum sequentially. This gate measures both:
  *
- * - a described put with a read-back over post-change state, on an immutable target (a displacing DELETE and the put's
- *   INSERT, carriers for the member both read and for the deltas the read-back reads), sequential because the pair
- *   writes one relation, and on the same schema with the target `mutable` (one statement that updates in place): the
+ * - a described put with a read-back of the row it puts, on an immutable target (a displacing DELETE and the put's
+ *   INSERT, a carrier for the member both read, the read-back riding the INSERT), sequential because the pair writes
+ *   one relation, and on the same schema with the target `mutable` (one statement that updates in place): the
  *   statements each program holds, by their steps, the catalog rows a transaction writes (read from
  *   pg_stat_sys_tables after the measuring Db's backend exits, which reports its counters), and the operation's time;
  *   and two concurrent appliers whose described members overlap, in both declarations, which must reach the same final
@@ -87,7 +87,7 @@ const build = (name: string) => schema(name, Rec.values(relations), [])
 const buildMutable = (name: string) => schema(name, Rec.values(relations), [mutable(Account)])
 
 /**
- * The described put: credit `amount` to account `id`, reading its balance; the read-back reads the post-change row. The
+ * The described put: credit `amount` to account `id`, reading its balance; the read-back reads the row it put. The
  * credited balance is an exact integer, narrowed back into the bigint field under a guard that it fits; a credit past
  * bigint's range leaves the balance as it was.
  */
@@ -115,13 +115,8 @@ const credit = <St extends ReadonlyArray<Statement>>(
 		)
 		.read("after", (d) =>
 			query(s).rule((r) => {
-				const { id, balance } = v(Account, "account")
-				const added = v(d.added(Account), "addedAccount")
-				return r
-					.match(d.added(Account), { id: added.id, balance: added.balance })
-					.match(Account, { id, balance })
-					.where(r.eq(id, added.id))
-					.find({ id, balance })
+				const { id, balance } = v(d.added(Account), "addedAccount")
+				return r.match(d.added(Account), { id, balance }).find({ id, balance })
 			})
 		)
 

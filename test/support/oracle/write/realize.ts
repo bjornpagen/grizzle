@@ -23,6 +23,8 @@ import { freshNames } from "#compiler/sql/naming.ts"
 import {
 	buildCreateCarrier,
 	buildFillCarrier,
+	carrierColumns,
+	carrierField,
 	type WriteCarrier,
 	CarrierSupply,
 	relationCarrier
@@ -64,7 +66,6 @@ import {
 import { castsNothing } from "#compiler/write/program/artifact.ts"
 import { inPlaceOf } from "#compiler/write/put/choose.ts"
 import { buildUpdateFrom, type PutStatement } from "#compiler/write/put/statement.ts"
-import { deltaSourceIn } from "#compiler/write/readback/lower.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
 import { buildSequenceAdvances, explicitSerials } from "#compiler/write/serial/advance.ts"
 
@@ -362,14 +363,25 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		deltas[named.name] = Object.freeze({ added, removed: create() })
 	}
 
-	/** 4. The read-backs over the post-change state. */
-	const deltaSource = (relation: string, side: DeltaSide): DeltaRelation | undefined =>
-		deltaSourceIn(relation, frontend.deltaEntries, (target) => {
-			const d = deltas[target]
-			return d === undefined || side === "met"
-				? undefined
-				: { kind: "carrier", carrier: side === "added" ? d.added : d.removed }
-		})
+	/** 4. The read-backs over the post-change state, each delta read from its state-comparison carrier: the relation's
+	 * own, or, for a query entry, its target's with the entry's head columns, position by position in the entry's
+	 * heading, as the optimized artifact reads its delta CTE (write/readback/lower.ts deltaSourceIn). */
+	const deltaSource = (relation: string, side: DeltaSide): DeltaRelation | undefined => {
+		const entry = frontend.deltaEntries.get(relation)
+		const d = deltas[entry === undefined ? relation : entry.target.name]
+		if (d === undefined || side === "met") {
+			return undefined
+		}
+		const carrier = side === "added" ? d.added : d.removed
+		return {
+			kind: "carrier",
+			carrier: carrier.name,
+			columns:
+				entry === undefined
+					? carrierColumns(carrier)
+					: Arr.map([...entry.head], ([, { field }]) => carrierField(carrier, field.name).column)
+		}
+	}
 	for (const read of ir.reads) {
 		const program = lowerConservative(
 			{ dag: ir.dag, root: read.node },

@@ -26,10 +26,10 @@
  * - **A row no fill carries even alone** fails as `input` (InputTooLarge of Entry's fill, its Bind message past the
  *   planted bound), before any SQL: nothing sent and nothing stored.
  * - **A write that creates a temporary table on a role without TEMPORARY**, a staged carrier or a carrier of the
- *   program's own, which a put of a Tag read back by its delta joined with Tag's state needs, fails as `failed`
- *   (TemporaryRefused, naming the privilege, with the server's 42501), and stores nothing. The read-back reads Tag's
- *   state, which the put writes, so it cannot ride the put's statement (write/schedule/plan.ts placeReadBacks), and its
- *   delta is carried to it.
+ *   program's own, which a put of Tags from a query over the call's relation parameter needs, fails as `failed`
+ *   (TemporaryRefused, naming the privilege, with the server's 42501), and stores nothing. The put is a displacing
+ *   deletion and an insert (write/put/choose.ts), and both read the query's rows, which the program carries from one
+ *   to the other (write/schedule/plan.ts).
  * - **Any other write is the inline write**: it leaves the same rows of every table, every column of each row read as
  *   its row's text, each entry's indexes and its copies of its owners' counts and each owner's count and end among them,
  *   and answers the same outcome, its kind, its counts, and a refusal's laws and witness.
@@ -85,6 +85,7 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { keyTextBytes, str } from "#compiler/public/text.ts"
+import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
@@ -190,8 +191,8 @@ const sizeOf = (member: Member): bigint => BigInt(member.kind === "past" ? whole
 interface Sketch {
 	readonly packages: ReadonlyArray<ReadonlyArray<Member>>
 	readonly temporary: boolean
-	/** A put of a Tag read back by its delta joined with Tag's state beside the packages, which the program carries to
-	 * the read-back through carriers of its own. */
+	/** A put of a Tag from a query over the call's relation parameter beside the packages, whose rows the program
+	 * carries from the put's deletion to its insert in a carrier of its own. */
 	readonly tag: "none" | number
 	readonly flight: "in force" | "past any flight"
 }
@@ -260,7 +261,8 @@ const shelfFacts = Object.freeze({ insert: { Shelf: [{ id: shelfId(0) }, { id: s
 
 /**
  * The role's workload: the stored shelves' insert; and the case's write, both bins and its packages with their entries
- * nested, alone or with a put of a Tag beside it, read back by its delta. Each takes its call's facts.
+ * nested, alone or with a put of Tags from a query over the relation parameter `tags` beside it. Each takes its call's
+ * facts, and the put its parameter.
  */
 const programs = Object.freeze({
 	shelves: ChangeSet.empty(Staged).insert(Shelf, []),
@@ -268,14 +270,12 @@ const programs = Object.freeze({
 	tagged: ChangeSet.empty(Staged)
 		.insert(Bin, [])
 		.insert(Package, [])
-		.put(Tag, [])
-		.read("tags", (d) =>
+		.put(
+			Tag,
 			query(Staged).rule((r) => {
-				const { id, v: value } = v(Tag, "added")
-				return r
-					.match(d.added(Tag), { id, v: value })
-					.match(Tag, { id, v: value })
-					.find({ id, v: value })
+				const rows = r.relation("tags", { id: Tag.fields.id, v: Tag.fields.v })
+				const { id, v: value } = v(Tag, "tag")
+				return r.match(rows, { id, v: value }).find({ id, v: value })
 			})
 		)
 })
@@ -288,9 +288,9 @@ const changeOf = (loaded: LoadedMember): LoadedChange => {
 	return loaded.variants.change
 }
 
-/** A change member's once on `ctx` with its call's facts. */
-const appliedOn = (ctx: ServedDbContext, loaded: LoadedMember, facts: unknown) =>
-	answered(writeOnce(memberCalls(ctx, loaded))({ params: {}, facts }))
+/** A change member's once on `ctx` with its call's facts and parameters. */
+const appliedOn = (ctx: ServedDbContext, loaded: LoadedMember, facts: unknown, params: ParamMap) =>
+	answered(writeOnce(memberCalls(ctx, loaded))({ params, facts }))
 
 /**
  * A pool whose sessions hold the planted message bound `limit`, and a flight bound below any flight where the case plants
@@ -364,7 +364,7 @@ const searchOn = <A, E, R>(
 				)
 				const fresh = Effect.gen(function* () {
 					yield* Effect.orDie(replaceRows(s.admin, installationGroup(names), []))
-					const stored = yield* appliedOn(ctx, member(loaded, "shelves"), shelfFacts)
+					const stored = yield* appliedOn(ctx, member(loaded, "shelves"), shelfFacts, {})
 					assert.equal(stored.kind, "accepted", "the shelves are stored")
 				})
 				const shelved = yield* Effect.andThen(fresh, state)
@@ -378,10 +378,10 @@ const searchOn = <A, E, R>(
 						)
 					)
 				/** One write sent inline and on the planted session. */
-				const arms = (written: LoadedMember, facts: unknown, sketch: Sketch) =>
+				const arms = (written: LoadedMember, facts: unknown, params: ParamMap, sketch: Sketch) =>
 					Effect.gen(function* () {
 						yield* fresh
-						const inlineResult = yield* Effect.result(appliedOn(ctx, written, facts))
+						const inlineResult = yield* Effect.result(appliedOn(ctx, written, facts, params))
 						const inline = printed(inlineResult)
 						const inlineRows = yield* state
 						yield* fresh
@@ -393,7 +393,8 @@ const searchOn = <A, E, R>(
 							appliedOn(
 								{ ...ctx, pool: plantedPool(ctx.pool, sketch, sent, limit) },
 								written,
-								facts
+								facts,
+								params
 							)
 						).pipe(Effect.ensuring(sketch.temporary ? Effect.void : database(true)))
 						const stagedRows = yield* state
@@ -412,12 +413,8 @@ const searchOn = <A, E, R>(
 						const facts = nestedFacts(sketch, limit)
 						const { statements, inline, inlineRows, staged, stagedRows, sent } =
 							sketch.tag === "none"
-								? yield* arms(nested, facts, sketch)
-								: yield* arms(
-										tagged,
-										{ ...facts, put: { Tag: [{ id: 1, v: sketch.tag }] } },
-										sketch
-									)
+								? yield* arms(nested, facts, {}, sketch)
+								: yield* arms(tagged, facts, { tags: [{ id: 1, v: sketch.tag }] }, sketch)
 						const texts = Arr.flatMap(sent, (q) => (q._tag === "control" ? [] : [sentSql(q)]))
 						const carriers = Arr.flatMap(statements, (st) =>
 							st.staged.kind === "carriers" ? st.staged.carriers : []

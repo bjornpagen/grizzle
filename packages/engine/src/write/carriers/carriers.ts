@@ -62,10 +62,11 @@ export interface CarrierColumn extends HeadingColumn {
  *
  * A described member is a leading CTE of the statement that consumes it, or a carrier with the same ON COMMIT DROP
  * and NOT NULL shape, filled by INSERT ... SELECT, when sequential statements consume it: a same-key deletion and
- * addition on an immutable relation, the sequence advance after explicit serial values (serial/), or a read-back of
- * post-change state. A carrier is a temporary relation, so it lives in pg_temp and is never
- * schema-qualified, it drops at COMMIT, and every column is NOT NULL; a carrier of a relation's facts is keyed by the
- * relation's primary key (`relationCarrier`):
+ * addition on an immutable relation, or the sequence advance after explicit serial values (serial/). No carrier holds a
+ * delta: a read-back is evaluated inside the statement that makes its delta (write/readback/deltas.ts). A carrier is a
+ * temporary relation, so it lives in pg_temp and is never schema-qualified, it drops at COMMIT, and every column is NOT
+ * NULL; a carrier of a relation's facts, the write oracle's state snapshot, is keyed by the relation's primary key
+ * (`relationCarrier`):
  *
  *   CREATE TEMPORARY TABLE "__carrier_<k>" ("c1" uuid NOT NULL, "c2" uuid NOT NULL, "c3" "work"."kind" NOT NULL)
  *     ON COMMIT DROP
@@ -94,7 +95,7 @@ export interface WriteCarrier extends CarrierDecl {
 	 * Its CREATE TEMPORARY TABLE's columns, each typed as its value is written, and the columns of its primary key, in
 	 * key order: a carrier of a relation's facts (`relationCarrier`) holds a set of them, keyed as the relation is, so
 	 * the key a reader of it relies on is the carrier's own constraint; a member's or a share's rows, a set by their
-	 * fill (`memberRows`) that no constraint keys, and a world relation's empty delta have none. Its name digests it.
+	 * fill (`memberRows`), have none. Its name digests it.
 	 */
 	readonly declaration: CarrierDeclaration
 }
@@ -371,7 +372,8 @@ export const buildFillCarrier = (
 
 /** A carrier for the facts of a relation, its fields in heading order, the order a read-back's Delta node reads
  * position by position, keyed by the relation's primary key: what it holds is some of the relation's facts as they
- * stand before or after a change, a set by that key. */
+ * stand before or after a change, a set by that key, as the write oracle's state comparison holds them
+ * (test/support/oracle/write/realize.ts). */
 export const relationCarrier = (supply: CarrierSupply, relation: RelationInfo): WriteCarrier =>
 	supply.next(
 		relation.heading.map((f) => ({ name: f.name, type: f.type })),

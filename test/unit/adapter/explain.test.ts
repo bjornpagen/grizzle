@@ -25,22 +25,22 @@ import { caseHang } from "#test/support/limits.ts"
  * the same names across tables, and drawn plan trees over them: each node of a type
  * PostgreSQL names, its estimates drawn apart from each other so no two coincide by accident, reading nothing, a table
  * whole, a table through an index, a table by a bitmap whose Bitmap Index Scans name their index alone, or a carrier,
- * a table of the session's temporary schema, read whole, through its key or by a bitmap of its key, beside members
- * PostgreSQL prints that the Plan drops. The answer's json text decodes to
+ * a table of the session's temporary schema, read whole, or through an index or by a bitmap of one, which no carrier
+ * holds, beside members PostgreSQL prints that the Plan drops. The answer's json text decodes to
  * the tree's projection onto the Plan's fields, or is refused exactly where some node names a table the file does not
- * hold or an index its table does not. The oracle is that projection, written from the documented mapping ("Node Type"
- * to node, "Startup Cost", "Total Cost", "Plan Rows" and "Plan Width" to the estimates, "Plans" to the children,
- * "Schema" and "Relation Name" to the relation the file names for that table, "Index Name" to that table's index by its
- * name, under a Bitmap Heap Scan the heap's table, and the temporary schema to the carrier, its key's index too).
+ * hold, an index its table does not, or an index of a carrier. The oracle is that projection, written from the
+ * documented mapping ("Node Type" to node, "Startup Cost", "Total Cost", "Plan Rows" and "Plan Width" to the estimates,
+ * "Plans" to the children, "Schema" and "Relation Name" to the relation the file names for that table, "Index Name" to
+ * that table's index by its name, under a Bitmap Heap Scan the heap's table, and the temporary schema to the carrier).
  *
  * Plants: ~/.cache/grizzle-release/BR04/plants/explain-children-reversed.patch (a node's children in reverse order);
  * ~/.cache/grizzle-release/EXPLAIN/plants/index-wrong-relation.patch (an index node naming the relation of another
- * table of its schema); ~/.cache/grizzle-release/EXPLAINRB/plants/carrier-index-refused.patch (a carrier's key index
- * refused as an index the file does not name).
+ * table of its schema); ~/.cache/grizzle-release/CARRIER/plants/explain-carrier-index-read.patch (an index under a
+ * carrier read as the carrier).
  *
  * Features: a leaf, a node with several children, a tree nested three deep, members the Plan drops, a table read
- * whole, an index scan, a bitmap index scan under its heap, a carrier, a carrier through its key, a carrier by a bitmap,
- * and a plan refused for a table or an index the file does not name.
+ * whole, an index scan, a bitmap index scan under its heap, a carrier, a plan refused for a table or an index the file
+ * does not name, and one refused for an index under a carrier.
  */
 
 /** The schemas, tables and indexes a case names, each name shared across its owners so a lookup must take its owner. */
@@ -99,7 +99,7 @@ const installedJson = (tables: ReadonlyArray<TableDraw>): Json =>
 		})
 	)
 
-/** How a node reads a carrier: whole, through its key's index, or by a bitmap of its key's index. */
+/** How a node reads a carrier: whole, or, as no carrier can since it holds no index, through an index or by a bitmap. */
 type CarrierAccess = "whole" | "key" | "bitmap"
 
 /** What a drawn node reads: nothing, a table whole, a table through an index, a bitmap of a table, or a carrier. */
@@ -256,7 +256,7 @@ const estimatesJson = (e: Estimates): Readonly<Record<string, Json>> => ({
 	"Plan Width": e.width
 })
 
-/** A carrier's table, and the index of its key, as PostgreSQL names a PRIMARY KEY's index. */
+/** A carrier's table, and an index of it, as PostgreSQL would name a PRIMARY KEY's index. */
 const carrierName = "__carrier_1"
 const carrierKey = `${carrierName}_pkey`
 
@@ -286,7 +286,7 @@ const readJson = (read: Read): Readonly<Record<string, Json>> => {
 	}
 }
 
-/** The index names a node's Bitmap Index Scans print: a table's drawn ones, a carrier's key, or none. */
+/** The index names a node's Bitmap Index Scans print: a table's drawn ones, a carrier's index, or none. */
 const bitmapIndexes = (read: Read): ReadonlyArray<string> =>
 	read.kind === "heap"
 		? Arr.map(read.bitmaps, (index) => indexNames[index] ?? "")
@@ -339,7 +339,7 @@ const targetOf = (c: Case, read: Read): PlanTarget | undefined => {
 		case "none":
 			return { kind: "none" }
 		case "carrier":
-			return { kind: "carrier" }
+			return read.access === "whole" ? { kind: "carrier" } : undefined
 		case "scan":
 		case "heap": {
 			const table = tableAt(c, read.schema, read.table)
@@ -354,7 +354,8 @@ const targetOf = (c: Case, read: Read): PlanTarget | undefined => {
 	}
 }
 
-/** The targets of a node's Bitmap Index Scans: its table's index each, or none the file does not name; a carrier. */
+/** The targets of a node's Bitmap Index Scans: its table's index each, or none the file does not name; none of a carrier,
+ * which holds no index. */
 const bitmapTargets = (c: Case, read: Read): ReadonlyArray<PlanTarget | undefined> => {
 	if (read.kind === "heap") {
 		const table = tableAt(c, read.schema, read.table)
@@ -362,7 +363,7 @@ const bitmapTargets = (c: Case, read: Read): ReadonlyArray<PlanTarget | undefine
 			table === undefined ? undefined : indexTarget(table, index)
 		)
 	}
-	return read.kind === "carrier" && read.access === "bitmap" ? [{ kind: "carrier" }] : []
+	return read.kind === "carrier" && read.access === "bitmap" ? [undefined] : []
 }
 
 /** The documented mapping onto the Plan, or none where some node reads what the file does not name. */
@@ -397,6 +398,13 @@ const projected = (c: Case, node: Node): Plan | undefined => {
 			}
 }
 
+/** `node` with every carrier it reads read whole: a tree refused for an index under a carrier alone projects so. */
+const carriersWhole = (node: Node): Node => ({
+	...node,
+	read: node.read.kind === "carrier" ? { kind: "carrier", access: "whole" } : node.read,
+	children: Arr.map(node.children, carriersWhole)
+})
+
 const depthOf = (node: Node): number =>
 	1 + Arr.reduce(node.children, 0, (deepest, child) => Math.max(deepest, depthOf(child)))
 
@@ -411,9 +419,8 @@ type PlanFeature =
 	| "an index scan"
 	| "a bitmap index scan under its heap"
 	| "a carrier"
-	| "a carrier through its key"
-	| "a carrier by a bitmap"
 	| "a plan refused"
+	| "an index under a carrier refused"
 
 describe("EXPLAIN (FORMAT JSON, VERBOSE) decoding", () => {
 	it.effect(
@@ -440,9 +447,8 @@ describe("EXPLAIN (FORMAT JSON, VERBOSE) decoding", () => {
 								"an index scan",
 								"a bitmap index scan under its heap",
 								"a carrier",
-								"a carrier through its key",
-								"a carrier by a bitmap",
-								"a plan refused"
+								"a plan refused",
+								"an index under a carrier refused"
 							],
 							{ cases: 300, sense: notesOnly }
 						),
@@ -455,12 +461,16 @@ describe("EXPLAIN (FORMAT JSON, VERBOSE) decoding", () => {
 					},
 					(c, k) =>
 						Effect.sync(() => {
+							const nodes = all(c.root)
 							const installed = trustedJson<ServedTables>(jsonText(installedJson(c.tables)))
 							const decoded = decodePlan(jsonText([{ Plan: printed(c.root, c.bitmap) }]), installed)
 							const expected = projected(c, c.root)
 							if (expected === undefined) {
 								assert.ok(Result.isFailure(decoded), "a plan the file does not name is refused")
 								k.note("a plan refused")
+								if (projected(c, carriersWhole(c.root)) !== undefined) {
+									k.note("an index under a carrier refused")
+								}
 							} else {
 								assert.deepEqual(decoded, Result.succeed(expected))
 								const plans = (plan: Plan): ReadonlyArray<Plan> => [
@@ -485,26 +495,7 @@ describe("EXPLAIN (FORMAT JSON, VERBOSE) decoding", () => {
 								if (Arr.some(targets, (t) => t.kind === "carrier")) {
 									k.note("a carrier")
 								}
-								if (
-									Arr.some(
-										plans(expected),
-										(p) =>
-											p.on.kind === "carrier" &&
-											Arr.contains(["Index Scan", "Index Only Scan"], p.node)
-									)
-								) {
-									k.note("a carrier through its key")
-								}
-								if (
-									Arr.some(
-										plans(expected),
-										(p) => p.on.kind === "carrier" && p.node === "Bitmap Index Scan"
-									)
-								) {
-									k.note("a carrier by a bitmap")
-								}
 							}
-							const nodes = all(c.root)
 							if (c.root.children.length === 0) {
 								k.note("a leaf")
 							}

@@ -12,7 +12,6 @@ import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalo
 import type { DeltaRelation } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized, type OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import type { NameSupplyStart } from "#compiler/sql/naming.ts"
-import { carrierColumns, carrierField } from "#compiler/write/carriers/carriers.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import type { DeltaHeld } from "#compiler/write/readback/deltas.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
@@ -32,14 +31,12 @@ interface ReadBackOptions {
 /** Where a read-back's Delta nodes read each delta it names, by the relation the Delta names and its side. */
 export type DeltasOf = (relation: string, side: DeltaSide) => DeltaRelation | undefined
 
-/** The column of `held` that holds the relation field `field`. */
-const heldColumn = (held: Exclude<DeltaHeld, { readonly kind: "empty" }>, field: string): string =>
-	held.kind === "carrier"
-		? carrierField(held.carrier, field).column
-		: defined(
-				held.heading.find((c) => c.name === field),
-				`the field ${field} in the delta CTE ${held.cte}`
-			).column
+/** The column of the delta CTE `held` that holds the relation field `field`. */
+const heldColumn = (held: Extract<DeltaHeld, { readonly kind: "cte" }>, field: string): string =>
+	defined(
+		held.heading.find((c) => c.name === field),
+		`the field ${field} in the delta CTE ${held.cte}`
+	).column
 
 /** The delta source of `relation` from what `heldOf` holds of the relation the ChangeSet writes: the relation it holds
  * whole, or, for a query entry, its target's with the entry's head columns, position by position in the entry's
@@ -60,20 +57,17 @@ export const deltaSourceIn = (
 	}
 	const columns =
 		entry === undefined
-			? held.kind === "carrier"
-				? carrierColumns(held.carrier)
-				: held.heading.map((c) => c.column)
+			? held.heading.map((c) => c.column)
 			: [...entry.head].map(([, { field }]) => heldColumn(held, field.name))
-	return held.kind === "carrier"
-		? { kind: "carrier", carrier: held.carrier.name, columns }
-		: { kind: "cte", cte: held.cte, columns }
+	return { kind: "cte", cte: held.cte, columns }
 }
 
 /** The statements of one read-back: the optimized lowering of its query, its root a node of the WriteIR's DAG, in the transaction
- * context, its Delta nodes reading the plan's delta carriers, after the last stratum's statements.
- * A read-back that reads post-change state is a separate statement pipelined after the writes in the same
- * transaction, because sibling CTEs share the pre-statement snapshot; the deltas it needs are carried to it in a
- * transaction-scoped carrier filled from those RETURNING CTEs. It may attach, order, take and union like any query, so
+ * context, its Delta nodes reading what `deltas` gives: a CTE of the write statement it rides, over that statement's
+ * RETURNING, or the empty relation (write/readback/deltas.ts DeltaHeld). A read-back over a delta some statement
+ * writes is a part of that statement, evaluated over its snapshot, which the schedule placed after every write of the
+ * state it reads (write/schedule/plan.ts placeReadBacks); one that reads no written delta is a statement of its own
+ * pipelined after the writes in the same transaction. It may attach, order, take and union like any query, so
  * its lowering is a program of statements, delivered to the host as a query's are (heading groups merged, attachments
  * stitched on their parent keys).
  *

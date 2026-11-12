@@ -37,7 +37,7 @@ import type { ServedCarried, ServedReadBack } from "#compiler/plan/serve.ts"
  *
  * - its statements: the artifact delivers each read-back's statements as the runtime runs them, each with its spec in
  *   the artifact and its large form's, and how their rows combine (write/program/artifact.ts ReadBackDelivery; the
- *   optimized artifact lowers each read-back over the plan's RETURNING-filled delta carriers, the conservative
+ *   optimized artifact lowers each read-back over the RETURNING of the statement it rides, the conservative
  *   realization over its state-comparison carriers);
  * - its attachments' delivered types: the write front end analyzed the read-backs' DAG with immediate-constraint
  *   evidence only (frontend/compile.ts), so each Attach node already carries the type that evidence proves; a

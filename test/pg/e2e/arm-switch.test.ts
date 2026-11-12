@@ -9,8 +9,8 @@
  * budget (the stored one, or a stale one). The oracle is a model of the switch over the stored facts:
  *
  * - Enumerated members, a put of the parent among them: on an automatic task with its budget, accepted with Task put 1,
- *   AutomaticTask deleted 1 and ManualTask added 1 (as a set of counts), its read-backs the replaced Task as removed old
- *   plus added new, the removed budget fact and the added arm; with a stale budget the deletion matches nothing, the
+ *   AutomaticTask deleted 1 and ManualTask added 1 (as a set of counts), its read-backs the new Task added and the old
+ *   one removed, each in a read-back of its own, the removed budget fact and the added arm; with a stale budget the deletion matches nothing, the
  *   remaining arm's tagged composite foreign key fails at COMMIT, and the call is refused with the
  *   Automatic arm's law, a native violation whose witness carries no key; on a manual task the put and the deletion
  *   change nothing, so its own operator is unchanged and another one the key law of ManualTask, witnessed by the task's
@@ -64,20 +64,17 @@ type Work = typeof W.Work
  */
 const withReads = (s: Work) =>
 	ChangeSet.empty(s)
-		.read("tasks", (d) =>
-			query(s)
-				.rule((r) => {
-					const { id, account, kind } = v(W.Task, "task")
-					return r
-						.match(d.added(W.Task), { id, account, kind })
-						.find({ side: "added", id, account, kind })
-				})
-				.rule((r) => {
-					const { id, account, kind } = v(W.Task, "task")
-					return r
-						.match(d.removed(W.Task), { id, account, kind })
-						.find({ side: "removed", id, account, kind })
-				})
+		.read("tasksAdded", (d) =>
+			query(s).rule((r) => {
+				const { id, account, kind } = v(W.Task, "task")
+				return r.match(d.added(W.Task), { id, account, kind }).find({ id, account, kind })
+			})
+		)
+		.read("tasksRemoved", (d) =>
+			query(s).rule((r) => {
+				const { id, account, kind } = v(W.Task, "task")
+				return r.match(d.removed(W.Task), { id, account, kind }).find({ id, account, kind })
+			})
 		)
 		.read("previous", (d) =>
 			query(s).rule((r) => {
@@ -347,9 +344,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												counts("ManualTask", 1n, 0n, 0n),
 												counts("Task", 0n, 0n, 1n)
 											])
-											unorderedEqual(reads.tasks, [
-												bareRecord({ side: "added", id: w.task, account, kind: "Manual" }),
-												bareRecord({ side: "removed", id: w.task, account, kind: "Automatic" })
+											assert.deepEqual(reads.tasksAdded, [
+												bareRecord({ id: w.task, account, kind: "Manual" as const })
+											])
+											assert.deepEqual(reads.tasksRemoved, [
+												bareRecord({ id: w.task, account, kind: "Automatic" as const })
 											])
 											assert.deepEqual(reads.previous, [
 												bareRecord({ task: w.task, budget: Cents(budget.value.budget) })
@@ -375,7 +374,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										if (w.form === "described") {
 											assert.ok(outcome.kind === "unchanged", outcome.kind)
 											assert.deepEqual(outcome.reads.previous, [])
-											assert.deepEqual(outcome.reads.tasks, [])
+											assert.deepEqual(outcome.reads.tasksAdded, [])
+											assert.deepEqual(outcome.reads.tasksRemoved, [])
 											assert.deepEqual(outcome.reads.manual, [])
 											unchanged()
 											c.note(`${w.form} ${kind} unchanged`)
@@ -387,14 +387,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												counts("ManualTask", 1n, 0n, 0n),
 												counts("Task", 0n, 0n, 1n)
 											])
-											assert.deepEqual(reads.tasks, [
-												bareRecord({
-													side: "added" as const,
-													id: w.task,
-													account,
-													kind: "Manual" as const
-												})
+											assert.deepEqual(reads.tasksAdded, [
+												bareRecord({ id: w.task, account, kind: "Manual" as const })
 											])
+											assert.deepEqual(reads.tasksRemoved, [])
 											assert.deepEqual(reads.previous, [])
 											assert.deepEqual(reads.manual, [
 												bareRecord({ task: w.task, operator: w.operator })

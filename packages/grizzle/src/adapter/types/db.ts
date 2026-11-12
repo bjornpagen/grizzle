@@ -239,8 +239,8 @@ export interface PlanIndex {
  * - `relation`: a relation's table or a materialized derived relation's view, by the relation's declared name, read
  *   whole or by a bitmap (Seq Scan, Bitmap Heap Scan), or written (Insert, Update, Delete, Merge);
  * - `index`: a relation read through one of its indexes (Index Scan, Index Only Scan, Bitmap Index Scan);
- * - `carrier`: a temporary table the explained ChangeSet itself created and filled for its statements, read whole, by a
- *   bitmap or through its key, the one index a carrier holds;
+ * - `carrier`: a temporary table the explained ChangeSet itself created and filled for its statements, read whole, since
+ *   a carrier holds no index;
  * - `none`: no relation, as a join, a sort, an aggregate or a scan of a CTE, a function or VALUES reads none.
  */
 export type PlanTarget =

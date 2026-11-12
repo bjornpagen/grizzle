@@ -22,9 +22,9 @@ import type { ServedTable, ServedTables } from "#compiler/plan/serve.ts"
  * What a node reads is named by the login's served file (served/forms.ts ServedFile tables), never parsed from
  * PostgreSQL's names: its table by schema and name, an index by name among its table's index names, a Bitmap Index
  * Scan's, which names no relation, among the table of its nearest ancestor that names one, its Bitmap Heap Scan. A table in the
- * session's temporary schema is the explained ChangeSet's own carrier, read whole or through its key, the one index a
- * carrier holds (write/carriers/carriers.ts WriteCarrier), which PostgreSQL names and the file does not. A table or
- * index the file does not name is a plan the explain cannot read, refused like an answer that is no plan.
+ * session's temporary schema is the explained ChangeSet's own carrier, read whole: a carrier holds no index
+ * (write/carriers/carriers.ts WriteCarrier), so an index under one is refused. A table or index the file does not name
+ * is a plan the explain cannot read, refused like an answer that is no plan.
  */
 
 /** A node as PostgreSQL prints it, read for the members a Plan keeps; a relation, a schema or an index it does not name
@@ -93,13 +93,13 @@ const indexOn = (table: ServedTable, name: string): Result.Result<PlanTarget, st
 		? Result.succeed({ kind: "index", relation: table.relation, index: { name } })
 		: Result.fail(`the index ${name}, which the served file names on no table of ${table.relation}`)
 
-/** What a node reads through the index `name` of `heap`'s table: a carrier through its key, or a table's index. */
+/** What a node reads through the index `name` of `heap`'s table: a table's index; a carrier holds none. */
 const indexUnder = (heap: Heap, name: string): Result.Result<PlanTarget, string> => {
 	switch (heap.kind) {
 		case "none":
 			return Result.fail(`the index ${name}, under no table the served file names`)
 		case "carrier":
-			return Result.succeed(carrier)
+			return Result.fail(`the index ${name}, of a carrier, which holds none`)
 		case "table":
 			return indexOn(heap.table, name)
 	}

@@ -312,15 +312,27 @@ const followsOnRelation = (a: Scheduled, b: Scheduled): boolean =>
 	phaseOf(a.action) < phaseOf(b.action) &&
 	!(a.meeting === "nowhere" && a.action.op === "delete" && !isGenerated(b.action))
 
-/** The canonical order of a stratum's actions: relation, phase, then (the sort being stable) the order given. */
-const scheduledOrder: Order.Comparator<Scheduled> = Order.combine(
-	Order.mapInput(Order.compareStrings, (s: Scheduled) => s.action.relation),
-	Order.mapInput(Order.compareNumbers, (s: Scheduled) => phaseOf(s.action))
-)
+/** The canonical order of a stratum's actions: an action of a relation in `last` after every other, then relation,
+ * phase, then (the sort being stable) the order given. */
+const scheduledOrder = (last: ReadonlySet<string>): Order.Comparator<Scheduled> =>
+	Order.combineAll([
+		Order.mapInput(Order.compareBooleans, (s: Scheduled) => last.has(s.action.relation)),
+		Order.mapInput(Order.compareStrings, (s: Scheduled) => s.action.relation),
+		Order.mapInput(Order.compareNumbers, (s: Scheduled) => phaseOf(s.action))
+	])
 
+/**
+ * A stratum's actions in canonical order (`scheduledOrder`), the actions of the relations `deltas` names after every
+ * other: relations whose deltas a read-back reads beside a relation it reads as state, which the stratum's order wrote
+ * after them (frontend/compile.ts). A read-back over such a delta is evaluated inside the statement that makes it
+ * (write/schedule/plan.ts placeReadBacks), which sees the state every earlier statement wrote, so where no key orders the
+ * actions this runs the writes of the state it reads first. Every member of a stratum reads the stratum's starting
+ * state, so the order of actions no key orders changes no result.
+ */
 export const canonicalActionOrder = <A extends Scheduled>(
-	actions: ReadonlyArray<A>
-): ReadonlyArray<A> => actions.toSorted(scheduledOrder)
+	actions: ReadonlyArray<A>,
+	deltas: ReadonlySet<string>
+): ReadonlyArray<A> => actions.toSorted(scheduledOrder(deltas))
 
 /** Orders one stratum's actions, given in canonical order (canonicalActionOrder): each in execution order with the
  * positions of the earlier actions it depends on. Each action is a vertex holding the actions an edge orders before it;
@@ -378,9 +390,10 @@ export const canonicalActionOrder = <A extends Scheduled>(
  * of its own relation, whose planner reads the stratum's own writes of an owner as landed. A refill is ordered as its
  * `refills` require, members first (`RefillOrder`).
  *
- * The actions are numbered in a canonical order (relation, then the phases above, then member order), sorted
- * topologically with that order breaking ties, and each action's dependsOn lists the earlier actions an edge orders
- * before it; family statements follow the actions in the order given, where nothing places them earlier. */
+ * The actions are numbered in a canonical order (the relations the caller names last, then relation, the phases above,
+ * then member order: canonicalActionOrder), sorted topologically with that order breaking ties, and each
+ * action's dependsOn lists the earlier actions an edge orders before it; family statements follow the actions in the
+ * order given, where nothing places them earlier. */
 export const scheduleStratum = <A extends Scheduled>(
 	actions: ReadonlyArray<A>,
 	family: ReadonlyArray<FamilyNode>,

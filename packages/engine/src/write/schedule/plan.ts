@@ -1,7 +1,11 @@
 import type { CheckedEntry } from "#compiler/analysis/schema.ts"
 import { appendAll } from "#compiler/core/array.ts"
+import { Refusal } from "#compiler/core/canonical.ts"
+import { CompileError, type NamedSide, type ReadBackCrossing } from "#compiler/core/errors.ts"
 import type { EntryName, StoredRelationName } from "#compiler/core/ids.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
+import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LawField, RelationInfo, SpanField } from "#compiler/ir/law.ts"
 import { type DeltaSide, inputsOf, type RelNode } from "#compiler/ir/rel.ts"
@@ -40,7 +44,7 @@ import {
 	unproved,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
-import { insertShape } from "#compiler/write/insert/protocol.ts"
+import { insertShape, writesMet } from "#compiler/write/insert/protocol.ts"
 import {
 	compareHeading,
 	factHeading,
@@ -55,12 +59,6 @@ import type {
 	KeyArbiter
 } from "#compiler/write/put/choose.ts"
 import type { MergeScope } from "#compiler/write/put/proof.ts"
-import {
-	type CarriedDelta,
-	carriersOf,
-	type DeltaPlan,
-	planDeltas
-} from "#compiler/write/readback/deltas.ts"
 import { explicitSerials } from "#compiler/write/serial/advance.ts"
 
 /** An action a planned statement realizes: its stratum, its position among the stratum's actions
@@ -123,7 +121,7 @@ export type PlannedWrite = {
 } & WriteOpStep
 
 /** One step of a write plan:
- * - `createCarrier`, a carrier created in a stratum, or with no stratum a delta carrier before them;
+ * - `createCarrier`, a carrier created at the start of its stratum: a member's or a shared sub-query's;
  * - `fillMember`, a member's carrier, filled from its node: the facts its action writes into `relation`, cast into its
  *   columns' types;
  * - `fillShare`, the carrier of a sub-query several statements of the stratum read, filled from the share's copy;
@@ -134,7 +132,7 @@ export type PlannedWrite = {
  * - `advance`, a sequence advance after an addition whose facts carry explicit serial values;
  * - `classify`, the classification after an insert into a span primary key, of an insertion or of a put's insert half,
  *   `span` the key's span field;
- * - `readBack`, a read-back after the last stratum, one no statement it reads from carries;
+ * - `readBack`, a read-back after the last stratum, one that reads no delta a statement writes;
  * - `check`, a query entry's check of an addition's facts, `input`;
  * - `family`, a family statement of the stratum (frontend/schedule.ts FamilyNode), where its schedule runs it among
  *   the stratum's writes. */
@@ -142,7 +140,7 @@ export type PlanStep =
 	| {
 			readonly kind: "createCarrier"
 			readonly carrier: WriteCarrier
-			readonly stratum: StratumAt | undefined
+			readonly stratum: StratumAt
 	  }
 	| {
 			readonly kind: "fillMember"
@@ -196,7 +194,9 @@ export type PlanStep =
 export interface WritePlan {
 	readonly steps: ReadonlyArray<PlanStep>
 	readonly carriers: ReadonlyArray<WriteCarrier>
-	readonly deltas: DeltaPlan
+	/** The sides of each relation's delta some statement makes, by the relation's name; every other side, a world
+	 * relation's whose definition reads nothing the ChangeSet writes included, is empty by construction. */
+	readonly made: ReadonlyMap<string, ReadonlySet<DeltaSide>>
 }
 
 /** One statement of an action before its stratum's inputs are placed: an exact deletion's excepted additions are
@@ -711,106 +711,236 @@ const ridden = (step: Rideable, riders: NonEmptyReadonlyArray<ReadBack>): PlanSt
 				readBacks: riders
 			}
 
-/** Where each read-back runs and where its deltas come from: the strata's statements with the read-backs riding them,
- * the read-backs after the last stratum, the deltas whose rows cross statements to those, which carriers hold, with the
- * sides they name, and the deltas that are empty by construction. */
+/** Where each read-back runs: the strata's statements with the read-backs riding them, the read-backs after the last
+ * stratum, which read no delta a statement makes, and the sides of each relation's delta some statement makes, every
+ * other side empty by construction. */
 interface ReadBackPlacement {
 	readonly strata: ReadonlyArray<PlanStep>
 	readonly after: ReadonlyArray<ReadBack>
-	readonly carried: ReadonlyArray<CarriedDelta>
-	readonly empty: ReadonlySet<string>
+	readonly made: ReadonlyMap<string, ReadonlySet<DeltaSide>>
 }
 
+/** The sides of its relation's delta a write's statement makes, by the rows it returns (write/program/artifact.ts
+ * changeTags): an insertion's, a put's insert half's and an upsert's the facts they made present, an arbitrated
+ * insertion's also the stored facts it met (insert/protocol.ts writesMet), a deletion's and a put's displacing
+ * deletion's those they made absent, an update's and a MERGE's the facts made present and absent. */
+const opSides = (write: PlannedWrite): ReadonlyArray<DeltaSide> => {
+	switch (write.op) {
+		case "insert":
+			return writesMet(write.relation, write.serial, "insert") ? ["added", "met"] : ["added"]
+		case "putInsert":
+		case "upsert":
+			return ["added"]
+		case "exactDelete":
+		case "anchoredDelete":
+		case "displace":
+			return ["removed"]
+		case "updateFrom":
+		case "merge":
+			return ["added", "removed"]
+	}
+}
+
+/** Both sides of a relation's delta. */
+const bothSides: ReadonlyArray<DeltaSide> = ["added", "removed"]
+
+/** The side whose pending facts a statement's rows of `side` net against (runtime/write/net.ts): an addition cancels
+ * a pending removal of the same fact, a removal a pending addition, and a met fact is no met one where an earlier
+ * statement of the write added it. */
+const nettedAgainst = (side: DeltaSide): DeltaSide => (side === "added" ? "removed" : "added")
+
+/** One side of a relation's delta a statement makes: by a write of it, or by a family statement, which no read-back's
+ * delta names (frontend/compile.ts refuses one) and which is never one half of a put. */
+type SideWrite = {
+	readonly relation: string
+	readonly side: DeltaSide
+} & ({ readonly kind: "write"; readonly write: PlannedWrite } | { readonly kind: "family" })
+
+/** The sides of the relations' deltas a step's statements make: a write's by its op, a single statement's by its
+ * parts', a family statement's both sides of each relation it writes; a carrier's, a check's, a sequence advance's and
+ * a classification's none. */
+const stepSides = (step: PlanStep): ReadonlyArray<SideWrite> => {
+	const ofWrite = (write: PlannedWrite): ReadonlyArray<SideWrite> =>
+		opSides(write).map((side): SideWrite => ({
+			kind: "write",
+			relation: write.relation.name,
+			side,
+			write
+		}))
+	switch (step.kind) {
+		case "write":
+			return ofWrite(step)
+		case "single":
+			return step.writes.flatMap(ofWrite)
+		case "family":
+			return familyNodeRelations(step.node).flatMap((relation) =>
+				bothSides.map((side): SideWrite => ({ kind: "family", relation, side }))
+			)
+		case "createCarrier":
+		case "fillMember":
+		case "fillShare":
+		case "advance":
+		case "classify":
+		case "check":
+		case "readBack":
+			return []
+	}
+}
+
+/** Whether `a` and `b` are the two statements of one put realized as the DELETE-then-insert pair: its displacing
+ * deletion and its insert half. The deletion makes only removals and the insert half only additions, and no fact is
+ * both: a displaced occupant differs in its payload from the one fact the put names at its key (write/delete/exact.ts
+ * buildDisplacingDelete), and the insert half adds only facts the put names, so the pair's sides never cancel. */
+const putHalves = (a: SideWrite, b: SideWrite): boolean =>
+	a.kind === "write" &&
+	b.kind === "write" &&
+	a.write.action === b.write.action &&
+	((a.write.op === "displace" && b.write.op === "putInsert") ||
+		(a.write.op === "putInsert" && b.write.op === "displace"))
+
+/** Where a read-back's named side is made whole: the position of the one statement that makes it, or the crossing
+ * that leaves it made by no one statement. */
+type Completion =
+	| { readonly kind: "at"; readonly position: number }
+	| { readonly kind: "crossing"; readonly crossing: ReadBackCrossing }
+
 /**
- * The read-backs placed by their data dependencies among the strata's statements `strata`.
+ * The read-backs placed by their data dependencies among the strata's statements `strata`, each riding the one
+ * statement that makes every delta it reads, or after the last stratum where it reads no delta a statement writes;
+ * any other is refused as ReadBackCrossesStatements.
  *
  * A read-back reads the deltas it names and the post-change state of the relations it reads. A delta is what its
- * relation's write statements return, so a read-back is evaluated inside the one statement S that writes every delta
- * it reads, over S's RETURNING (write/readback/deltas.ts deltaCte), when what it reads is settled there: every delta
- * it names is of a relation S alone writes, S runs once (a lone write or a single statement), and no statement at or
- * after S writes a stored relation it reads as state, directly, through a role's view, or through a cascading foreign
- * key, since S's snapshot is from before S's own writes and the state after S is the state after the last stratum only
- * where no later statement changes it. It rides S, and its delta never leaves S. Otherwise its deltas' rows cross
- * statements: it runs after the last stratum, reading them from carriers its relations' write statements fill. A
- * read-back that names no delta a statement writes rides nothing and needs no carrier.
+ * relation's write statements return, and those rows exist only inside the statement that returns them, so a read-back
+ * over a delta some statement writes is evaluated inside the one statement S that makes every side it names, over S's
+ * RETURNING (write/readback/deltas.ts deltaCte), and its delta never leaves S. That is sound exactly where:
  *
- * A relation no statement writes has an empty delta by construction, as has a world relation whose definition reads
- * nothing the ChangeSet writes (`NamedDelta` "empty"): every read-back reads it as the empty relation, and no carrier
- * holds it.
+ * - every side it names is made whole by S: S is the only statement that makes that side of the relation, and every
+ *   other statement that makes the side it nets against (`nettedAgainst`) is the other half of S's own put
+ *   (`putHalves`), whose rows never cancel S's; so S's rows of the side are the netted delta (runtime/write/net.ts);
+ * - no statement at or after S writes a stored relation it reads as state, directly, through a role's view, or through
+ *   a cascading foreign key, S's own writes included: S's snapshot is from before S's own writes, and the state after S
+ *   is the state after the last stratum only where no later statement changes it.
+ *
+ * Each crossing is refused as the one it is: a named side two statements make, or one whose netting another statement
+ * takes part in (`sideWrittenTwice`); two named sides that two statements make (`sidesApart`); and state written at or
+ * after the statement that makes the delta (`stateAfter`). A stratum whose order would write a relation such a
+ * read-back reads as state after its delta's relation is ordered again with the delta's relation last where no key
+ * orders it (frontend/compile.ts, frontend/schedule.ts canonicalActionOrder), so the state it reads is written before the
+ * statement it rides wherever the stratum's keys allow it.
+ *
+ * A side of a relation's delta no statement makes is empty by construction, as is a relation's no statement writes and
+ * a world relation's whose definition reads nothing the ChangeSet writes (`NamedDelta` "empty"): every read-back reads
+ * it as the empty relation, and a read-back that names no other side runs after the last stratum.
  */
 const placeReadBacks = (
 	frontend: WriteFrontend,
 	strata: ReadonlyArray<PlanStep>
 ): ReadBackPlacement => {
+	const sides = strata.map(stepSides)
 	const writes = strata.map(stepWrites)
-	const writersOf = (relation: string): ReadonlyArray<number> =>
-		writes.flatMap((w, position) => (w.includes(relation) ? [position] : []))
 	/** The relation a Delta names the delta of: its own, or a query entry's target. */
 	const targetOf = (relation: string): string =>
 		frontend.deltaEntries.get(relation)?.target.name ?? relation
-	/** The statement `read` rides, by its position among `strata`, none where its deltas cross statements. */
-	const rides = (read: ReadBack): Rideable | undefined => {
-		const writers = read.deltas.map((d) => writersOf(targetOf(d.relation)))
-		if (writers.some((w) => w.length > 1)) {
-			return undefined
+	const made = new Map<string, Set<DeltaSide>>()
+	for (const write of sides.flat()) {
+		const own = made.get(write.relation) ?? new Set<DeltaSide>()
+		own.add(write.side)
+		made.set(write.relation, own)
+	}
+	/** The writes, by position, of `side` of `relation`'s delta. */
+	const makers = (relation: string, side: DeltaSide) =>
+		sides.flatMap((own, position) =>
+			own.flatMap((write) =>
+				write.relation === relation && write.side === side ? [{ position, write }] : []
+			)
+		)
+	/** Where the side `named` is made whole. */
+	const completion = (named: NamedSide): Completion => {
+		const twice: Completion = { kind: "crossing", crossing: { kind: "sideWrittenTwice", ...named } }
+		const [maker, ...others] = makers(named.relation, named.side)
+		if (maker === undefined) {
+			throw defect(`a statement making the ${named.side} side of ${named.relation}'s delta`)
 		}
-		const [position, ...others] = [...new Set(writers.flat())]
-		if (position === undefined || others.length > 0) {
-			return undefined
+		if (others.length > 0) {
+			return twice
 		}
+		const netting = makers(named.relation, nettedAgainst(named.side)).filter(
+			(other) => other.position !== maker.position
+		)
+		return netting.every((other) => putHalves(maker.write, other.write))
+			? { kind: "at", position: maker.position }
+			: twice
+	}
+	/** The statement `read` rides, or the crossing that leaves it no statement to ride; none where it reads no delta a
+	 * statement writes. */
+	const placement = (
+		read: ReadBack
+	):
+		| { readonly kind: "after" }
+		| { readonly kind: "rides"; readonly step: Rideable }
+		| { readonly kind: "crossing"; readonly crossing: ReadBackCrossing } => {
+		const named = read.deltas.flatMap((d) => {
+			const relation = targetOf(d.relation)
+			return made.get(relation)?.has(d.side) === true ? [{ relation, side: d.side }] : []
+		})
+		const [first, ...rest] = named
+		if (first === undefined) {
+			return { kind: "after" }
+		}
+		const at = completion(first)
+		if (at.kind === "crossing") {
+			return at
+		}
+		for (const side of rest) {
+			const other = completion(side)
+			if (other.kind === "crossing") {
+				return other
+			}
+			if (other.position !== at.position) {
+				return { kind: "crossing", crossing: { kind: "sidesApart", first, second: side } }
+			}
+		}
+		const position = at.position
 		const step = strata[position]
 		if (step?.kind !== "write" && step?.kind !== "single") {
-			return undefined
+			throw defect(`a read-back's delta made by a statement no read-back rides, at ${position}`)
 		}
 		const later = withCascades(writes.slice(position).flat(), frontend)
-		return read.node.meta.reads.some((r) => storedReads(frontend, r).some((s) => later.has(s)))
-			? undefined
-			: step
+		const state = read.node.meta.reads.find((r) =>
+			storedReads(frontend, r).some((s) => later.has(s))
+		)
+		return state === undefined
+			? { kind: "rides", step }
+			: { kind: "crossing", crossing: { kind: "stateAfter", delta: first, state } }
 	}
 	const riders = new Map<Rideable, [ReadBack, ...Array<ReadBack>]>()
 	const after: Array<ReadBack> = []
+	const changeSet = SourceLoc("ChangeSet", [])
 	for (const read of frontend.ir.reads) {
-		const step = rides(read)
-		if (step === undefined) {
-			after.push(read)
-			continue
-		}
-		const riding = riders.get(step)
-		if (riding === undefined) {
-			riders.set(step, [read])
-		} else {
-			riding.push(read)
-		}
-	}
-	const empty = new Set(
-		frontend.deltas.flatMap((d) =>
-			d.kind === "empty"
-				? [d.name]
-				: writersOf(d.relation.name).length === 0
-					? [d.relation.name]
-					: []
-		)
-	)
-	/** The sides the read-backs after the last stratum name of each written relation's delta. */
-	const sides = new Map<string, Set<DeltaSide>>()
-	for (const read of after) {
-		for (const d of read.deltas) {
-			const relation = targetOf(d.relation)
-			if (empty.has(relation)) {
-				continue
+		const placed = placement(read)
+		switch (placed.kind) {
+			case "after":
+				after.push(read)
+				break
+			case "crossing":
+				throw new Refusal(
+					CompileError.make({
+						_tag: "ReadBackCrossesStatements",
+						at: childLoc(changeSet, "reads", read.name),
+						read: read.name,
+						crossing: placed.crossing
+					})
+				)
+			case "rides": {
+				const riding = riders.get(placed.step)
+				if (riding === undefined) {
+					riders.set(placed.step, [read])
+				} else {
+					riding.push(read)
+				}
 			}
-			const named = sides.get(relation) ?? new Set()
-			named.add(d.side)
-			sides.set(relation, named)
 		}
 	}
-	const carried = frontend.deltas.flatMap((d): ReadonlyArray<CarriedDelta> => {
-		const named = d.kind === "relation" ? sides.get(d.relation.name) : undefined
-		if (d.kind !== "relation" || named === undefined) {
-			return []
-		}
-		return [{ ...d, sides: named }]
-	})
 	return {
 		strata: strata.map((step) => {
 			if (step.kind !== "write" && step.kind !== "single") {
@@ -820,8 +950,7 @@ const placeReadBacks = (
 			return riding === undefined ? step : ridden(step, riding)
 		}),
 		after,
-		carried,
-		empty
+		made
 	}
 }
 
@@ -868,10 +997,10 @@ const placeReadBacks = (
  * source at the start of its stratum, before any of the stratum's writes, where its source reads the stratum's
  * starting state.
  *
- * Read-backs are placed by what they read (`placeReadBacks`): a read-back whose deltas one statement writes, and whose
- * state reads that statement and every later one leave alone, rides that statement, evaluated in it over its RETURNING;
- * any other comes last, its deltas' rows carried to it in carriers created before the first stratum, filled by the
- * write statements themselves, and read by its statements after the last stratum.
+ * Read-backs are placed by what they read (`placeReadBacks`): a read-back whose deltas one statement makes whole, and
+ * whose state reads that statement and every later one leave alone, rides that statement, evaluated in it over its
+ * RETURNING; one that reads no delta a statement makes comes last, after the last stratum; any other is refused
+ * (ReadBackCrossesStatements), since a delta never leaves the statement that makes it.
  *
  * A stratum is realized sequentially, one statement per write action plus the member carriers, sequence advances and
  * classifications the rules above require, or as a single statement where one snapshot suffices: its statements are at
@@ -886,7 +1015,6 @@ export const planWrite = (
 	chosen: ChosenTargets,
 	evidence: PlanEvidence
 ): WritePlan => {
-	const ir = frontend.ir
 	const supply = new CarrierSupply(evidence.carrierTyping)
 	/** The strata's statements, the read-backs placed among them below. */
 	const strata: Array<PlanStep> = []
@@ -974,20 +1102,13 @@ export const planWrite = (
 	}
 
 	const placement = placeReadBacks(frontend, strata)
-	const deltas = planDeltas(ir, placement.carried, placement.empty, supply)
-	const steps: Array<PlanStep> = []
-	for (const carriers of deltas.carriers.values()) {
-		for (const carrier of carriersOf(carriers)) {
-			steps.push({ kind: "createCarrier", carrier, stratum: undefined })
-		}
-	}
-	appendAll(steps, placement.strata)
+	const steps: Array<PlanStep> = [...placement.strata]
 	for (const read of placement.after) {
 		steps.push({ kind: "readBack", read })
 	}
 	return Object.freeze({
 		steps: Object.freeze(steps),
 		carriers: Object.freeze(supply.all()),
-		deltas
+		made: placement.made
 	})
 }

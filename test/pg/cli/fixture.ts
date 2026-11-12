@@ -244,8 +244,9 @@ const subject = str.regex("^u_[a-z]{1,8}$")
  * The worlds schema under `name`, for the drift suite: documents and the notes on them, and the session's subject;
  * `editor` reads Doc and writes Mine, the notes of the documents the session's subject owns, under row security through
  * a filter that reads Doc beside Note; `viewer` reads Doc; `keeper` holds Doc whole and writes it, and the login serves
- * it `keep`, a put of Doc with a read-back of both sides of its delta, whose flight creates a carrier; all three in the
- * login `desk`. Each call builds a schema of its own.
+ * it `keep`, a put of Doc from a query over the relation parameter `docs`, read back by its added facts, whose flight
+ * creates a carrier: the put's displacing deletion and its insert both read the query's rows; all three in the login
+ * `desk`. Each call builds a schema of its own.
  */
 export const worlds = (name: string) => {
 	const Doc = relation("Doc", { id: uuid, owner: subject, words: pg.integer }, ["id"])
@@ -265,21 +266,23 @@ export const worlds = (name: string) => {
 	const viewer = role(base, "viewer", { Doc })
 	const keeper = role(base, "keeper", { Doc }, { write: ["Doc"] })
 	const keep = ChangeSet.empty(keeper)
-		.put(Doc, [])
-		.read("delta", (d) =>
-			query(keeper)
-				.rule((r) => {
-					const { id, owner, words } = v(Doc, "added")
-					return r
-						.match(d.added(Doc), { id, owner, words })
-						.find({ side: "added", id, owner, words })
+		.put(
+			Doc,
+			query(keeper).rule((r) => {
+				const rows = r.relation("docs", {
+					id: Doc.fields.id,
+					owner: Doc.fields.owner,
+					words: Doc.fields.words
 				})
-				.rule((r) => {
-					const { id, owner, words } = v(Doc, "removed")
-					return r
-						.match(d.removed(Doc), { id, owner, words })
-						.find({ side: "removed", id, owner, words })
-				})
+				const { id, owner, words } = v(Doc, "doc")
+				return r.match(rows, { id, owner, words }).find({ id, owner, words })
+			})
+		)
+		.read("kept", (d) =>
+			query(keeper).rule((r) => {
+				const { id, owner, words } = v(Doc, "added")
+				return r.match(d.added(Doc), { id, owner, words }).find({ id, owner, words })
+			})
 		)
 	return {
 		schema: base,

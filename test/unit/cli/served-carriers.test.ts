@@ -48,8 +48,9 @@ import { draftActions } from "#test/support/migrate/review.ts"
  * The box: one relation, R(k, v) keyed by k and mutable, and two drafts of its logins, the second migrating from the
  * first's snapshot: each the login `app` of one to three roles, beside it none or a second login `other` of one role, a
  * role named by its login and its place, so a role the second draft holds no more is dropped. Every role holds R whole
- * and writes it, and owns a drawn change member: none, an insert of R, or a put of R with a read-back of both sides of
- * its delta, every member supplied by the call.
+ * and writes it, and owns a drawn change member: none, an insert of R, or a put of R from a query over a relation
+ * parameter, whose displacing deletion and insert both read the query's rows from a carrier, every member supplied by
+ * the call.
  *
  * Oracle: the texts each role's served file holds, as `grizzle generate` writes them (draftSchema, then servedFiles): a
  * role creates a carrier exactly when one of them is a CREATE TEMPORARY TABLE, whatever step, staged form or variant
@@ -68,7 +69,7 @@ import { draftActions } from "#test/support/migrate/review.ts"
  * temporary-model-skips-database (the model leaves a GRANT or REVOKE on the database unread).
  */
 
-/** A role's change member: none, an insert of R, or a put of R with a read-back of both sides of its delta. */
+/** A role's change member: none, an insert of R, or a put of R from a query over a relation parameter. */
 const kinds = ["none", "insert", "put"] as const
 type Kind = (typeof kinds)[number]
 
@@ -111,21 +112,17 @@ const Base = schema("served_carriers", [R], [mutable(R)])
 /** A role of the box: R whole, written. */
 const writer = (name: string) => role(Base, name, wholeEntriesOf(Base), { write: ["R"] })
 
-/** The put of R by the role `r`, with a read-back of both sides of its delta. */
+/** The put of R by the role `r`, from a query over the relation parameter `rows`: its displacing deletion and its
+ * insert both read the query's rows, from a carrier of the program's own. */
 const putOf = (r: ReturnType<typeof writer>) =>
-	ChangeSet.empty(r)
-		.put(R, [])
-		.read("delta", (d) =>
-			query(r)
-				.rule((q) => {
-					const { k, v: value } = v(R, "added")
-					return q.match(d.added(R), { k, v: value }).find({ side: "added", k, v: value })
-				})
-				.rule((q) => {
-					const { k, v: value } = v(R, "removed")
-					return q.match(d.removed(R), { k, v: value }).find({ side: "removed", k, v: value })
-				})
-		)
+	ChangeSet.empty(r).put(
+		R,
+		query(r).rule((q) => {
+			const rows = q.relation("rows", { k: R.fields.k, v: R.fields.v })
+			const { k, v: value } = v(R, "r")
+			return q.match(rows, { k, v: value }).find({ k, v: value })
+		})
+	)
 
 /** The insert of R by the role `r`. */
 const insertOf = (r: ReturnType<typeof writer>) => ChangeSet.empty(r).insert(R, [])

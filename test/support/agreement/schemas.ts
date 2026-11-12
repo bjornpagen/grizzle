@@ -876,6 +876,7 @@ const reasonKey = (reason: CompileReason): string => {
 		case "CascadedCopyAppend":
 		case "StaleDerivedRead":
 		case "UnorderableStratum":
+		case "ReadBackCrossesStatements":
 		case "MissingDiscriminant":
 		case "AttachedParentUnbound":
 		case "AttachedPage":
@@ -5428,7 +5429,10 @@ const statementType = (desc: StatementDesc, ids: Ids): string => {
 		case "alternatives":
 			return `St.Alternatives<typeof ${ids(desc.parent.relation)}, ${jsonText(desc.discriminator)}, typeof ${ids(desc.roster)}, ${objectType(Arr.map(desc.arms, (a) => [a.handle, `typeof ${ids(a.arm.relation)}`] as const))}>`
 		case "retirable":
-			return `St.Retirable<typeof ${ids(desc.header.relation)}, readonly [${Arr.join(Arr.map(desc.bodies, (b) => sideType(b, ids)), ", ")}]>`
+			return `St.Retirable<typeof ${ids(desc.header.relation)}, readonly [${Arr.join(
+				Arr.map(desc.bodies, (b) => sideType(b, ids)),
+				", "
+			)}]>`
 	}
 }
 

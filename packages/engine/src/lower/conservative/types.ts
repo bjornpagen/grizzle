@@ -28,9 +28,10 @@ import type { CarrierName, NameSupply, NameSupplyStart } from "#compiler/sql/nam
 
 /**
  * The relation a Delta node reads in a read-back, each column of the delta's heading position by position: a CTE of
- * the statement the read-back rides, over the rows that statement's RETURNING returns, where one statement writes the
- * delta's relation (write/readback/deltas.ts deltaCte); a carrier the write's statements filled, where the delta's rows
- * cross statements; or the empty relation, the delta of a relation no statement writes.
+ * the statement the read-back rides, over the rows that statement's RETURNING returns (write/readback/deltas.ts
+ * deltaCte); a carrier, which only the write oracle's conservative realization fills, by comparing the states before
+ * and after the change (test/support/oracle/write/realize.ts); or the empty relation, a side of a delta no statement
+ * makes.
  */
 export type DeltaRelation =
 	| { readonly kind: "cte"; readonly cte: string; readonly columns: ReadonlyArray<string> }

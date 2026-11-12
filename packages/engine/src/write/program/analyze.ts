@@ -92,7 +92,7 @@ type Move = (position: number) => number
 /** The artifact of the statements `placed` and its carriers, analyzed before the statements that join them.
  * A transaction-scoped carrier is a temporary relation created empty in the transaction that fills it, so PostgreSQL
  * has never analyzed it when a later statement reads it, and the planner then assumes at least ten pages of rows: a
- * one-row delta carrier of five narrow columns is estimated at about 1200 rows. Against that guess a statement that
+ * one-row carrier of five narrow columns is estimated at about 1200 rows. Against that guess a statement that
  * joins the carrier with a stored relation prefers a hash join over a sequential scan of the stored relation to a
  * nested loop over its key, and under SERIALIZABLE a sequential scan takes a relation-level SIRead lock, which makes
  * every concurrent writer of that relation a conflict. ANALYZE counts the rows the transaction itself inserted, so

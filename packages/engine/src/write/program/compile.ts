@@ -181,14 +181,12 @@ import {
 	type PutStatement
 } from "#compiler/write/put/statement.ts"
 import {
-	carriersOf,
 	type DeltaCteName,
 	type DeltaHeld,
 	deltaCte,
 	deltaCteName,
 	deltaIn,
-	plannedDelta,
-	withDeltaFills
+	emptyDelta
 } from "#compiler/write/readback/deltas.ts"
 import { type DeltasOf, deltaSourceIn, lowerReadBack } from "#compiler/write/readback/lower.ts"
 import {
@@ -303,12 +301,6 @@ const inputReads = (inputs: ReadonlyArray<WriteInput>): ReadonlyArray<string> =>
 				? input.node.meta.reads.map((r) => `relation:${r}`)
 				: []
 	)
-
-/** The delta carriers of a relation a read-back names, none for any other. */
-const deltaCarrierNames = (plan: WritePlan, relation: string): ReadonlyArray<string> => {
-	const carriers = plan.deltas.carriers.get(relation)
-	return carriers === undefined ? [] : carriersOf(carriers).map((c) => `carrier:${c.name}`)
-}
 
 export interface ArtifactBuilder {
 	/** Each statement placed so far, a read-back's naming its read-back, with its audited AST for the carriers'
@@ -1001,28 +993,6 @@ const optimizedPlacement = (
 				? [r.position]
 				: []
 		)
-	/** The relations an earlier write statement of this artifact wrote, in plan order, which is R's statements' order. */
-	const writtenRelations = new Set<string>()
-	/** Whether an earlier write statement of this artifact wrote `relation`, the next one writing it: a netted relation's
-	 * write statements after its first net against the pending sets. */
-	const writtenBefore = (relation: string): boolean => {
-		const earlier = writtenRelations.has(relation)
-		writtenRelations.add(relation)
-		return earlier
-	}
-	/** A planned write's statement in `context` with the CTEs that fill its delta carriers, netted against the pending
-	 * sets when `earlier` (writtenBefore). */
-	const writeOf = (
-		context: WriteContext,
-		step: PlannedWrite,
-		earlier: boolean
-	): ModifyingStatement<InsertResult> | ModifyingStatement<DeleteResult> | PutStatement =>
-		withDeltaFills(
-			buildWriteOp(context, frontend, step),
-			plan.deltas.carriers.get(step.relation.name),
-			earlier,
-			context.names
-		)
 	/** A planned write's step, of its statement `filled`. */
 	const writeStep = (
 		step: PlannedWrite,
@@ -1043,7 +1013,7 @@ const optimizedPlacement = (
 		const inputs = [step.input, ...(step.op === "exactDelete" ? step.except : [])]
 		return [
 			[...inputReads(inputs), ...describedReads(inputs), `relation:${step.relation.name}`],
-			[`relation:${step.relation.name}`, ...deltaCarrierNames(plan, step.relation.name)],
+			[`relation:${step.relation.name}`],
 			actionDeps(step.action)
 		]
 	}
@@ -1120,9 +1090,8 @@ const optimizedPlacement = (
 				break
 			}
 			case "write": {
-				const earlier = writtenBefore(step.relation.name)
 				const position = placed(
-					() => writeOf(w, step, earlier),
+					() => buildWriteOp(w, frontend, step),
 					tracker.addAfter(...writeAccess(step)),
 					(filled) => writeStep(step, filled)
 				)
@@ -1130,10 +1099,6 @@ const optimizedPlacement = (
 				break
 			}
 			case "single": {
-				const parts = mapNonEmpty(step.writes, (planned) => ({
-					planned,
-					earlier: writtenBefore(planned.relation.name)
-				}))
 				/** The shared sub-queries and the writes, each a statement of its own whose names start past the parts
 				 * before it, and where the names after them start. */
 				const buildParts = (): BuiltParts => {
@@ -1167,10 +1132,10 @@ const optimizedPlacement = (
 							columns: names.columns
 						})
 					}
-					const writes = mapNonEmpty(parts, (part) => {
-						const statement = writeOf({ ...w, start }, part.planned, part.earlier)
+					const writes = mapNonEmpty(step.writes, (planned) => {
+						const statement = buildWriteOp({ ...w, start }, frontend, planned)
 						start = namesPast(statement.sql.nameMap, ownStatement)
-						return { step: writeStep(part.planned, statement), statement }
+						return { step: writeStep(planned, statement), statement }
 					})
 					return { shares, writes, start }
 				}
@@ -1178,7 +1143,7 @@ const optimizedPlacement = (
 				const { single, writes, forms, riders } = isNonEmpty(step.readBacks)
 					? ridingSingle(step.readBacks, formedParts(buildParts), {
 							frontend,
-							deltas: plan.deltas,
+							made: plan.made,
 							lower: (read, deltas, start) => lowerReadBack(read, deltas, start, readBackOptions)
 						})
 					: (() => {
@@ -1310,18 +1275,10 @@ const optimizedPlacement = (
 			case "readBack": {
 				const deltas: DeltasOf = (relation, side) =>
 					deltaSourceIn(relation, frontend.deltaEntries, (target) =>
-						plannedDelta(plan.deltas, target, side)
+						emptyDelta(plan.made, target, side)
 					)
 				const program = lowerReadBack(step.read, deltas, startNames, readBackOptions)
-				const reads = [
-					...step.read.node.meta.reads.map((r) => `relation:${r}`),
-					...step.read.deltas.flatMap((d) =>
-						deltaCarrierNames(
-							plan,
-							frontend.deltaEntries.get(d.relation)?.target.name ?? d.relation
-						)
-					)
-				]
+				const reads = step.read.node.meta.reads.map((r) => `relation:${r}`)
 				placeReadBack(b, step.read, program, tracker.add(reads, []))
 				break
 			}
@@ -1404,11 +1361,11 @@ const ridingPartOf = (
 	}
 }
 
-/** What riding a single statement reads beside its parts: the write's front end, its delta plan, and how a read-back
- * lowers over the deltas and naming start it is given. */
+/** What riding a single statement reads beside its parts: the write's front end, the sides of the deltas some statement
+ * makes, and how a read-back lowers over the deltas and naming start it is given. */
 interface RidingContext {
 	readonly frontend: WriteFrontend
-	readonly deltas: WritePlan["deltas"]
+	readonly made: WritePlan["made"]
 	readonly lower: (read: ReadBack, deltas: DeltasOf, start: NameSupplyStart) => OptimizedProgram
 }
 
@@ -1475,7 +1432,7 @@ const ridingSingle = (
 	const held = (target: string, side: DeltaSide): DeltaHeld | undefined => {
 		const cte = names.get(target)?.get(side)
 		return cte === undefined
-			? plannedDelta(context.deltas, target, side)
+			? emptyDelta(context.made, target, side)
 			: deltaIn(statementOf(small, target), cte)
 	}
 	const deltas: DeltasOf = (relation, side) =>
@@ -1793,12 +1750,11 @@ const compile = (
  * 2. The put targets: each put's statement, chosen with the proofs the whole ChangeSet and its DAG
  *    give.
  * 3. The schedule: the statements in order, each described member a leading CTE or a carrier, each read-back riding
- *    the one statement that writes its deltas or after the strata with the delta carriers its rows cross statements
- *    in, and each stratum where one snapshot suffices one single statement.
+ *    the one statement that makes its deltas, or after the strata where it reads none a statement makes, and each
+ *    stratum where one snapshot suffices one single statement.
  * 4. The optimized artifact: each planned statement built by its package (insert/, delete/, serial/, carriers/, put/),
- *    each write statement extended with the CTEs that fill its delta carriers from its RETURNING,
- *    a single statement's writes its parts,
- *    and each read-back lowered over the post-change state. Each carrier is analyzed after it is filled and before
+ *    a single statement's writes its parts, each riding read-back a part of its statement over that statement's
+ *    RETURNING, and each read-back after the strata lowered over the post-change state. Each carrier is analyzed after it is filled and before
  *    the first statement that joins it against a stored relation. The conservative realization, the write oracle's
  *    baseline, is no part of it (test/support/conservative.ts conservativeWrite).
  * 5. The template: its requirements, and the outcome: count rules, the witness decoder and the constraint-to-law map.

@@ -18,11 +18,11 @@
  *   EXPLAIN ANALYZE, one plan per statement its execute sends, under its name, over its text, every node reading within
  *   the footprint;
  * - a ChangeSet drawn over the Shop fixture (one or two strata of generated additions, inserts, puts and deletes,
- *   with or without read-backs of delta.added and delta.removed, one joining a delta carrier with a stored relation), a
+ *   with or without read-backs of delta.added and delta.removed, one joining Item's added facts with Stock), a
  *   change member whose first stratum's rows are the call's facts and whose second's are query members over the call's
  *   relation parameters, is explained one plan per plannable statement its apply sends, under its name, over its text,
  *   in a transaction that is rolled back: no fact written, no identity sequence advanced, which EXPLAIN ANALYZE would
- *   have done; a read-back joining a delta carrier plans the empty, analyzed carrier at one row, as the apply does;
+ *   have done; a read-back rides the statement that makes its delta, so no plan reads a carrier;
  * - a served ChangeSet inserting a box with its parts nested, each part's body a drawn share of the session's message
  *   bound, within it or past it, on a session whose bound is planted at the longest Parse message of the texts explain
  *   sends of the write, each planned one as its EXPLAIN (test/support/staged.ts explainedTextBound), as a server whose
@@ -45,9 +45,7 @@
  * whose table holds the index, the reads' and the ChangeSets'; ~/.cache/grizzle-release/EXPLAIN/plants/unprepared-statement.patch,
  * each plan reported under its unnamed EXPLAIN's own name rather than the served statement's, the reads' and the
  * ChangeSets'; ~/.cache/grizzle-release/EXPLAIN/plants/change-analyzed.patch, a ChangeSet's statements run under EXPLAIN
- * ANALYZE, the ChangeSets' (its serial field's sequence advanced); ~/.cache/grizzle-release/EXPLAINRB/plants/carrier-index-refused.patch,
- * a carrier's key index refused as one the served file does not name, the ChangeSets' (a put read back joined, whose
- * statement probes a delta carrier through its key). ~/.cache/grizzle-release/EXPLAIN/plants/rollback-dropped.patch,
+ * ANALYZE, the ChangeSets' (its serial field's sequence advanced). ~/.cache/grizzle-release/EXPLAIN/plants/rollback-dropped.patch,
  * explain's transactions committed, leaves the database's state as a ROLLBACK does, since an estimate-only explain runs
  * nothing but a carrier's CREATE TEMPORARY TABLE ... ON COMMIT DROP and its ANALYZE and an analyzed read runs READ ONLY,
  * so no state here witnesses it: test/pg/adapter/round-trips.test.ts, which reads each explain's transaction off the
@@ -424,16 +422,27 @@ const opAt =
 const stratumGen: Gen<ReadonlyArray<ShopOp>> = (source) =>
 	Arr.map(source.draw(shuffled(opSlots, { min: 1, max: 3 })), (slot) => source.draw(opAt(slot)))
 
-/** A drawn ChangeSet: one or two strata of operations, and what it reads back. */
+/**
+ * A drawn ChangeSet: one or two strata of operations, and what it reads back: nothing, both sides of Seat's delta, or
+ * Item's added facts joined with Stock. Every stratum writes Seat, Item and Stock, so a delta of one is made by one
+ * statement only where there is one stratum, and a ChangeSet of two reads nothing back (write/schedule/plan.ts
+ * placeReadBacks refuses a delta two statements make).
+ */
 interface ChangeCase {
 	readonly strata: ReadonlyArray<ReadonlyArray<ShopOp>>
-	readonly readBack: "none" | "seats and stock" | "stock joined"
+	readonly readBack: "none" | "seats" | "items joined"
 }
 
-const changeCaseGen: Gen<ChangeCase> = (source) => ({
-	strata: source.draw(array(stratumGen, { min: 1, max: 2 })),
-	readBack: source.draw(element(["none", "seats and stock", "stock joined"] as const))
-})
+const changeCaseGen: Gen<ChangeCase> = (source) => {
+	const strata = source.draw(array(stratumGen, { min: 1, max: 2 }))
+	return {
+		strata,
+		readBack:
+			strata.length === 1
+				? source.draw(element(["none", "seats", "items joined"] as const))
+				: "none"
+	}
+}
 
 /**
  * A drawn ChangeSet of note inserts, up to four over three tasks and three texts, over Work or over a schema no role of
@@ -712,17 +721,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 										/** Nothing executed: no fact written, the sequence not advanced. */
 										suite: "reads/explain changesets",
 										draw: drawn(changeCaseGen),
-										kept: [
-											{
-												note: "a put read back joined: the put's statement probes a delta carrier through the carrier's key, an index explain refused as one the served file does not name",
-												sketch: {
-													strata: [[{ kind: "put stock", id: 1, label: 0, qty: 0 }]],
-													readBack: "stock joined"
-												},
-												draws: "",
-												reaches: ["a put", "a read-back", "a read-back joining a stored relation"]
-											}
-										],
+										kept: [],
 										runs: 40,
 										coverage: required<ChangeFeature>(
 											[
@@ -804,12 +803,12 @@ layer(Substrate.layer)("workload explain", (it) => {
 											const changes =
 												c.readBack === "none"
 													? sequenced
-													: c.readBack === "stock joined"
-														? sequenced.read("stock", (d) =>
+													: c.readBack === "items joined"
+														? sequenced.read("items", (d) =>
 																query(o.schema).rule((r) => {
 																	const { id, label, qty } = v(Stock, "stock")
 																	return r
-																		.match(d.added(Stock), { id })
+																		.match(d.added(Item), { id })
 																		.match(Stock, { id, label, qty })
 																		.find({ id, label, qty })
 																})
@@ -885,18 +884,17 @@ layer(Substrate.layer)("workload explain", (it) => {
 												notes.note("a refused apply")
 											}
 											if (c.readBack !== "none") {
+												assert.deepEqual(
+													Arr.filter(
+														Arr.flatMap(plans.value, (p) => nodes(p.plan)),
+														(n) => n.on.kind === "carrier"
+													),
+													[],
+													"a read-back rides the statement that makes its delta and creates no carrier"
+												)
 												notes.note("a read-back")
 											}
-											if (c.readBack === "stock joined") {
-												/** The empty, analyzed carrier, planned at one row as the apply plans it. */
-												const readBack = defined(plans.value.at(-1), "a read-back plan")
-												nonEmpty(
-													Arr.filter(
-														nodes(readBack.plan),
-														(n) => n.node === "Seq Scan" && n.on.kind === "carrier" && n.rows === 1
-													),
-													"the read-back plans its carrier at one row"
-												)
+											if (c.readBack === "items joined") {
 												notes.note("a read-back joining a stored relation")
 											}
 										})

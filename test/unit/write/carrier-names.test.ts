@@ -27,9 +27,11 @@ import { checking, owning } from "#test/support/policy.ts"
  * whose texts name one carrier must declare it alike, or the second meets the plan the first cached with another row
  * type ("cached plan must not change result type").
  *
- * The programs: a put of R with a read-back of both sides of its delta, in both realizations, the optimized and the
- * conservative, under one schema name for every layout of R, whose fields are named alike and whose v is a pattern's
- * text, of a domain over text naming pg_catalog.pg_c_utf8, or a bigint, a boolean or a uuid. The oracle, a
+ * The programs: a put of R from a query over a relation parameter, which the optimized realization carries from the
+ * put's deletion to its insert, with a read-back of its added facts, which the conservative realization reads from
+ * carriers of state, in both realizations, under one schema name for every layout of R, whose fields are named alike
+ * and whose v is a pattern's text, of a domain over text naming pg_catalog.pg_c_utf8, or a bigint, a boolean or a
+ * uuid. The oracle, a
  * specification: over every carrier of every program of the layouts drawn together, one name stands for one CREATE
  * TEMPORARY TABLE, its text with the name set aside. Exhausted over every set of layouts.
  *
@@ -45,7 +47,11 @@ type Layout = (typeof layouts)[number]
 /** The schema every layout is compiled under, so its programs name their carriers as one session's programs do. */
 const schemaName = "carrier_names"
 
-/** A layout's schema and its put of R, with a read-back of both sides of R's delta. */
+/**
+ * A layout's schema and its put of R from a query over the relation parameter `rows`, with a read-back of its added
+ * facts: the put is described, so its displacing deletion and its insert both read the query's rows from a carrier of
+ * the program's own (write/schedule/plan.ts), declared by R's layout.
+ */
 const layoutOf = (layout: Layout) => {
 	switch (layout) {
 		case "text": {
@@ -54,7 +60,14 @@ const layoutOf = (layout: Layout) => {
 			return {
 				S,
 				changes: ChangeSet.empty(S)
-					.put(R, [{ id: 0, v: "x" }])
+					.put(
+						R,
+						query(S).rule((r) => {
+							const rows = r.relation("rows", { id: R.fields.id, v: R.fields.v })
+							const { id, v: value } = v(R, "r")
+							return r.match(rows, { id, v: value }).find({ id, v: value })
+						})
+					)
 					.read("r", (d) =>
 						query(S).rule((r) => {
 							const { id, v: value } = v(R, "added")
@@ -69,7 +82,14 @@ const layoutOf = (layout: Layout) => {
 			return {
 				S,
 				changes: ChangeSet.empty(S)
-					.put(R, [{ id: 0, v: 1n }])
+					.put(
+						R,
+						query(S).rule((r) => {
+							const rows = r.relation("rows", { id: R.fields.id, v: R.fields.v })
+							const { id, v: value } = v(R, "r")
+							return r.match(rows, { id, v: value }).find({ id, v: value })
+						})
+					)
 					.read("r", (d) =>
 						query(S).rule((r) => {
 							const { id, v: value } = v(R, "added")
@@ -84,7 +104,14 @@ const layoutOf = (layout: Layout) => {
 			return {
 				S,
 				changes: ChangeSet.empty(S)
-					.put(R, [{ id: 0, v: true }])
+					.put(
+						R,
+						query(S).rule((r) => {
+							const rows = r.relation("rows", { id: R.fields.id, v: R.fields.v })
+							const { id, v: value } = v(R, "r")
+							return r.match(rows, { id, v: value }).find({ id, v: value })
+						})
+					)
 					.read("r", (d) =>
 						query(S).rule((r) => {
 							const { id, v: value } = v(R, "added")
@@ -99,7 +126,14 @@ const layoutOf = (layout: Layout) => {
 			return {
 				S,
 				changes: ChangeSet.empty(S)
-					.put(R, [{ id: 0, v: "00000000-0000-4000-8000-000000000001" }])
+					.put(
+						R,
+						query(S).rule((r) => {
+							const rows = r.relation("rows", { id: R.fields.id, v: R.fields.v })
+							const { id, v: value } = v(R, "r")
+							return r.match(rows, { id, v: value }).find({ id, v: value })
+						})
+					)
 					.read("r", (d) =>
 						query(S).rule((r) => {
 							const { id, v: value } = v(R, "added")
@@ -200,7 +234,7 @@ describe("a write program's carriers", () => {
 					suite: "unit/write/carrier-names",
 					generator: layoutsGen,
 					literal: Formatter.format,
-					box: "every set of R's layouts, v text, bigint, boolean or uuid, each a put with a read-back of both sides in both realizations",
+					box: "every set of R's layouts, v text, bigint, boolean or uuid, each a put from a query read back by its added facts, in both realizations",
 					oracle: {
 						kind: "second-implementation",
 						name: "the CREATE TEMPORARY TABLE text of each carrier, its name set aside"

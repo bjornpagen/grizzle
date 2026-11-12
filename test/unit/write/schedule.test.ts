@@ -1237,7 +1237,8 @@ describe("a stratum's schedule", () => {
 											: ("nowhere" as const),
 										relation,
 										op
-									}))
+									})),
+									new Set()
 								),
 								[],
 								[],
@@ -1395,7 +1396,7 @@ describe("a stratum's schedule", () => {
 							const required = requiredEdges(stratum)
 							const cyclic = hasCycle(stratum, required)
 							const schedule = scheduleStratum(
-								canonicalActionOrder(stratum.actions),
+								canonicalActionOrder(stratum.actions, new Set()),
 								stratum.family,
 								stratum.pairs,
 								stratum.references,

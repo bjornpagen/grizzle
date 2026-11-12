@@ -2907,12 +2907,76 @@ interface Drawn {
 	readonly reached: ReadonlySet<ChangeSetFeature>
 }
 
+/**
+ * The read-back a compile of `spec`'s ChangeSet refuses as crossing statements (ReadBackCrossesStatements), over
+ * reality or as its applying role's workload member; none where no compile refuses one so. Where a statement makes a
+ * delta is the schedule's (write/schedule/plan.ts placeReadBacks), which no type sees.
+ */
+const crossingRead = (spec: CaseSpec): string | undefined => {
+	const built = Result.try(() => buildChange(spec.change))
+	const desc = Result.isFailure(built) ? undefined : changeSetDesc(built.success)
+	if (desc === undefined) {
+		return undefined
+	}
+	const reality = realities[levelOf(spec.change)]
+	const worlds = spec.apply === undefined ? [] : [roleWorlds[spec.apply.role]]
+	for (const world of [reality, ...worlds]) {
+		const compiled = compileWrite(world.checked, desc, world.options)
+		if (!compiled.ok && compiled.error.reason._tag === "ReadBackCrossesStatements") {
+			return compiled.error.reason.read
+		}
+	}
+	return undefined
+}
+
+/** `change` without its read-back `name`. */
+const withoutRead = (change: ChangeSpec, name: string): ChangeSpec =>
+	change.kind === "built"
+		? { ...change, reads: Arr.filter(change.reads, (r) => r.name !== name) }
+		: { ...change, a: withoutRead(change.a, name), b: withoutRead(change.b, name) }
+
+/** The features a read-back reaches (readOf). */
+const readFeatures = (read: ReadSpec): ReadonlyArray<ChangeSetFeature> =>
+	read.kind === "derived"
+		? []
+		: [
+				read.source === "added"
+					? "read-back of added facts"
+					: read.source === "removed"
+						? "read-back of removed facts"
+						: "read-back of the state",
+				...(read.fold === "keyed" ? ["a keyed fold" as const] : [])
+			]
+
+/**
+ * A drawn case with every read-back a compile refuses as crossing statements left out, and the features its read-backs
+ * reach read again from those it keeps: the types judge no statement's place, so the agreement holds no such case.
+ */
+const settled = (drawnCase: Drawn): Drawn => {
+	const read = crossingRead(drawnCase.spec)
+	if (read === undefined) {
+		return drawnCase
+	}
+	const spec = { ...drawnCase.spec, change: withoutRead(drawnCase.spec.change, read) }
+	const kept = Arr.flatMap(builtsOf(spec.change), (b) => Arr.flatMap(b.reads, readFeatures))
+	const dropped = Arr.flatMap(builtsOf(drawnCase.spec.change), (b) =>
+		Arr.flatMap(b.reads, readFeatures)
+	)
+	return settled({
+		spec,
+		reached: new Set([
+			...Arr.filter([...drawnCase.reached], (f) => !Arr.contains(dropped, f)),
+			...kept
+		])
+	})
+}
+
 /** A case drawn aimed at the features `aim` names: none for a plain draw. */
 const drawnGen =
 	(aim: ReadonlySet<ChangeSetFeature>): Gen<Drawn> =>
 	(source) => {
 		const d = new Drawing(source, source.draw(swarm(changeSetFeatures)), aim)
-		return { spec: caseOver(d), reached: d.reached }
+		return settled({ spec: caseOver(d), reached: d.reached })
 	}
 
 const caseOf = ({ spec, reached }: Drawn): ChangeSetCase => {

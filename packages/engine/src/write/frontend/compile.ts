@@ -2279,16 +2279,52 @@ const compile = (
 		]
 	}
 
+	/** The relation whose delta a read-back's Delta of `name` is: its own, or a writable query entry's target. */
+	const deltaTarget = (name: string): string => {
+		const world = checked.world
+		if (world.kind === "reality") {
+			return name
+		}
+		const held = world.role.relations[name]
+		const write = world.writes.get(name)
+		return held === undefined || held.kind === "whole" || write?.kind !== "rows"
+			? name
+			: write.writable.target.name
+	}
+	/** Each delta a read-back names, by its relation, with the relations the read-back reads as state. */
+	const deltaReads = readBacks.flatMap((r) =>
+		r.deltas.map((d) => ({ delta: deltaTarget(d.relation), state: r.root.meta.reads }))
+	)
 	/** 4. Schedule, with the final sources: a stratum whose actions an immediate key orders in a cycle is refused,
-	 * since no order of its statements keeps every key at every statement. */
+	 * since no order of its statements keeps every key at every statement. A read-back over a delta is evaluated inside
+	 * the statement that makes it (write/schedule/plan.ts placeReadBacks), which sees only the state earlier statements
+	 * wrote: where the stratum's order runs a delta's relation before a relation the same read-back reads as state, the
+	 * stratum is ordered again with that delta's relation after every action no key orders before it
+	 * (schedule.ts canonicalActionOrder), and any other stratum keeps its order. */
 	const strata = placedByStratum.map(({ stratum, built, outside }): WriteStratum => {
-		const schedule = scheduleStratum(
-			canonicalActionOrder(built.map((b) => ({ ...b, meeting: meetingOf(b.info.relation) }))),
-			familyNodesOf(stratum),
-			pairs,
-			references,
-			refillOf(stratum)?.order ?? { precedes: [], edges: [] }
+		const scheduleOf = (last: ReadonlySet<string>) =>
+			scheduleStratum(
+				canonicalActionOrder(
+					built.map((b) => ({ ...b, meeting: meetingOf(b.info.relation) })),
+					last
+				),
+				familyNodesOf(stratum),
+				pairs,
+				references,
+				refillOf(stratum)?.order ?? { precedes: [], edges: [] }
+			)
+		const natural = scheduleOf(new Set())
+		const order: ReadonlyArray<string> =
+			natural.kind === "cycle" ? [] : natural.actions.map((a) => a.scheduled.action.relation)
+		const late = new Set(
+			deltaReads.flatMap(({ delta, state }) => {
+				const made = order.lastIndexOf(delta)
+				return made >= 0 && state.some((s) => s !== delta && order.lastIndexOf(s) > made)
+					? [delta]
+					: []
+			})
 		)
+		const schedule = late.size === 0 ? natural : scheduleOf(late)
 		if (schedule.kind === "cycle") {
 			throw new Refusal(
 				CompileError.make({
@@ -2412,7 +2448,8 @@ const compile = (
 	}
 	/** The relations a family write writes through its families' statements: every reached family's member, a tree's
 	 * relation among them, every edited member relation, and the owners of its families, whose count statements return
-	 * only their keys, counts and ends. Their statements fill no delta carrier, so no read-back names their deltas. */
+	 * only their keys, counts and ends. Their statements return no delta a read-back rides, so no read-back names
+	 * their deltas. */
 	const stratumRefills = occupied.flatMap(([stratum, { s }]) => {
 		const refill = refills.get(s)
 		return refill === undefined ? [] : [Object.freeze({ stratum, refill })]

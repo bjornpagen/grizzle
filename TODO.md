@@ -12,13 +12,22 @@ post-beta swarm's fixes for the next release.
   READ COMMITTED role's reads stay SERIALIZABLE READ ONLY (one snapshot across their statements). SSI does not track
   READ COMMITTED writers, so such a read conflicts only with SERIALIZABLE writers, pantry's importWrite among them, in a
   dangerous structure among SERIALIZABLE transactions. Measure it under a live import once the goal ships.
-- **A read-back keeps a per-call carrier where its delta crosses statements (CARRIER, 2026-11-10):** since CARRIER-01
-  a read-back whose deltas one statement writes rides that statement's RETURNING, and two kinds still fill a temporary
-  carrier on every call: a read-back over a delta two statements write (a relation written in two strata, or a put
-  realized as a DELETE then an INSERT), the cost of rows crossing statements on stock PostgreSQL; and a read-back that
-  joins a delta with state written at or after the delta's statement (the queue claim in bench/queue/claim.bench.ts,
-  delta.added(Leased) with QueueWork). Neither downstream has one. CARRIER-01 numbers delta carriers after member
-  carriers; no write the kit generates holds both.
+- **A read-back over a delta no one statement makes is refused (CARRIER, 2026-11-11):** a read-back runs inside the
+  one statement that makes its delta, whose rows exist nowhere else, and no delta carrier is left, so
+  ReadBackCrossesStatements refuses three crossings: a side two statements make or net (a delete and an insert of one
+  relation, one relation in two strata, an ownerPut's UPDATE and insert half); two sides two statements make (a put's
+  added and removed read in one read-back); and a relation it reads as state written at or after the delta's
+  statement (another part of a one-statement stratum, a write an immediate key holds after it, a later stratum).
+  Neither downstream reads one. Follow-ups, each on a downstream's ask: (1) state written in the riding statement
+  itself, read as that statement's snapshot less the keys it changed plus its added rows, which needs the isolation
+  extractor to push key equalities into UNION ALL arms; (2) a mutable put read back on both sides as one ON CONFLICT
+  DO UPDATE with RETURNING old; (3) an ownerPut's added side in one statement, its UPDATE and insert half touching
+  disjoint keys.
+- **Member and shared sub-query carriers stay per call (CARRIER, 2026-11-11):** a stratum realized statement by
+  statement still carries, in a temporary table created on every call, a described member two of its statements read
+  (an immutable put's displacing deletion and insert half, an insert and its sequence advance, a deletion's D EXCEPT A)
+  and a sub-query several members share, and the statements reading one plan again on every call. The queue fixture's
+  claim keeps two (Work mutable) or three (Work immutable). Removing them is "One statement per write stratum" below.
 - **startSitting's insert into Served replans under COMMIT (CARRIER, 2026-11-10):** the cause is not found. Finding it
   needs runs of ~/.cache/grizzle-release/CARRIER/m/replay.mjs.
 - **Qti content is not provably sealed per import:** pantry mints node ids on the host (pantry/src/import/write.ts
@@ -129,8 +138,8 @@ post-beta swarm's fixes for the next release.
   predates COMPUTE-02, found by reading); a tree over a selection may print the tree's refusal beside the member
   refusal, since types/schema/statements.ts SideShowsKeyed reads no selection. A primary key over a set is still refused
   as UnrepresentableKey.
-- **One statement per write stratum (waste):** the write executor keeps carriers (a TEMPORARY table per write) and the
-  sequential realization, with UnorderableStratum refusing what it cannot order. Making every stratum one statement
+- **One statement per write stratum (waste):** the write executor keeps member and shared sub-query carriers (a
+  TEMPORARY table per write) and the sequential realization, with UnorderableStratum refusing what it cannot order. Making every stratum one statement
   (sibling data-modifying CTEs reading the stratum's state) deletes both, but rewrites the insert, put, delete, serial
   and entry protocols (4-5k lines). Deferred 2026-11-08 behind ONERTT-WRITE's one-flight family writer (F2).
 - **Patterns held as data (G3, punted by the owner 2026-11-08):** a check that a value matches every pattern a closed
