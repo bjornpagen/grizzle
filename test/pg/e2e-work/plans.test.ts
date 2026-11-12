@@ -1,26 +1,30 @@
 /**
- * The worked example's plans, read as a tenant through its world: every selective workload read is planned through
- * its indexes, judged by PostgreSQL's planner with the scans that need no index disabled, which no data size moves.
+ * The worked example's plans, read as a tenant through its world: every selective workload read is planned through its
+ * indexes, judged by PostgreSQL's planner with the scans that need no index disabled, over relations it plans
+ * unanalyzed, which no data size moves.
  *
  * Work installs through its first migration with one login holding a tenant role, as `grizzle generate` drafts it, the
  * access paths planned from the tenant's workload (test/support/installed.ts migrated). The tenant reads every relation
  * through a query entry its token's account claim filters (tenantWorld): the accounts it is, their tasks, and each
  * task's automatic, manual and note facts through the task's account, so every view of its world is a security-barrier
- * view, and it writes every relation but Account through those entries, so each of them is under row-level security,
- * a policy filtering it for the tenant. Each case draws small sizes and loads Work at them over emptied tables in one
+ * view, and it writes every relation but Account through those entries, so each of them is under row-level security, a
+ * policy filtering it for the tenant. Each case draws small sizes and loads Work at them over emptied tables in one
  * SERIALIZABLE transaction, every law judged at COMMIT: accounts, tasks alternating automatic and manual over them,
- * each automatic task's budget and each manual task's operator, and a note on every third task; then ANALYZE. It draws
- * which account, which tasks and which range of names the selective reads ask about, opens the tenant's Db with a token
- * naming that account through its login's served file, runs every selective read of its workload as a served member
- * through a counting executor, and EXPLAINs each statement it sent with its parameters (test/support/plans.ts): planned
- * with sequential and index scans disabled, so that a bitmap scan, which reads only by an index condition, is the one
- * scan left, every scan of a relation a statement restricts reads by an index condition on an index the installation
- * planned. The oracle is PostgreSQL's planner. That every created index is needed is test/pg/physical/serving.test.ts's:
- * a free plan's choice of index is the cost model's, which only volume decides, so it is judged nowhere here.
+ * each automatic task's budget and each manual task's operator, and a note on every third task; then leaves every
+ * relation unanalyzed (test/support/plans.ts unanalyzed), since analyzed statistics of a small load decide a plan by
+ * its rows. It draws which account, which tasks and which range of names the selective reads ask about, opens the
+ * tenant's Db with a token naming that account through its login's served file, runs every selective read of its
+ * workload as a served member through a counting executor, and EXPLAINs each statement it sent with its parameters
+ * (test/support/plans.ts): planned with sequential and index scans disabled and index-only scans never considered, so
+ * that a bitmap scan, which reads only by an index condition, is the one scan left, every scan of a relation a
+ * statement restricts reads by an index condition on an index the installation planned. The oracle is PostgreSQL's
+ * planner. That every created index is needed is test/pg/physical/serving.test.ts's: a free plan's choice of index is
+ * the cost model's, which only volume decides, so it is judged nowhere here.
  *
  * Features: a read by a busy account and by another.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): plans-access-index-dropped.patch.
+ * Plants: ~/.cache/grizzle-release/PLANIDX/plants/plans-requests-unplanned.patch (the index engine planning no
+ * requested index, access or law).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -48,7 +52,13 @@ import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
-import { plannedIndexes, recordingMembers, sentProblems, spread } from "#test/support/plans.ts"
+import {
+	plannedIndexes,
+	recordingMembers,
+	sentProblems,
+	spread,
+	unanalyzed
+} from "#test/support/plans.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { beginSerializable } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -308,7 +318,7 @@ const planSuite = (ctx: TestContext) =>
 				quoteIdent(names.column(relation, field))
 			const kind = defined(names.codes.rosters.get(parsedName("Kind")), "the codes of Kind")
 			const relations = ["Account", "Task", "AutomaticTask", "ManualTask", "TaskNote"] as const
-			/** Work at `sizes`, written whole in one SERIALIZABLE transaction over emptied tables, then analyzed. */
+			/** Work at `sizes`, written whole in one SERIALIZABLE transaction over emptied tables, then left unanalyzed. */
 			const loadAt = (sizes: Sizes) =>
 				Effect.gen(function* () {
 					const load = [
@@ -335,9 +345,10 @@ const planSuite = (ctx: TestContext) =>
 						}),
 						() => Effect.ignore(s.admin.query("ROLLBACK", []))
 					)
-					for (const r of relations) {
-						yield* s.admin.query(`ANALYZE ${table(r)}`, [])
-					}
+					yield* unanalyzed(
+						s.admin,
+						Arr.map(relations, (r) => names.relation(r))
+					)
 					const busiest = yield* s.admin.queryValues(
 						`SELECT ${column("Task", "account")}::text FROM ${table("Task")} GROUP BY 1 ORDER BY count(*) DESC, 1`,
 						[]

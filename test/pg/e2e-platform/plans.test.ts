@@ -1,25 +1,28 @@
 /**
  * The platform's plans: every workload read is planned through an index, and law maintenance and every law's probe
- * read through an index, judged by PostgreSQL's planner with the scans that need no index disabled, which no data size
- * moves.
+ * read through an index, judged by PostgreSQL's planner with the scans that need no index disabled, over relations it
+ * plans unanalyzed, which no data size moves.
  *
  * The platform installs with its workload's access paths, as its first migration drafts them, beside an org tenant's
  * login (tenantOf). Each case draws a small volume platform's sizes (test/support/platform/generate.ts volumePlatform),
- * empties the tables, stores the platform through the workload's load, refreshes DailySpend and ANALYZEs every table;
- * and draws which of its entities and windows the reads ask about (the busiest workspace, key, organization and grant,
+ * empties the tables, stores the platform through the workload's load, refreshes DailySpend and leaves every relation
+ * unanalyzed (test/support/plans.ts unanalyzed): analyzed statistics of a platform of one row a relation estimated each
+ * read's restrictions to keep every row, and PostgreSQL read relations sequentially beside the indexes that serve them.
+ * It draws which of its entities and windows the reads ask about (the busiest workspace, key, organization and grant,
  * or another). Then:
  *
  * - served: every workload read runs as a served member through a counting executor (test/support/plans.ts
  *   recordingMembers), as billing, whose whole entries are plain views, and as the tenant, its Db opened with a token
  *   naming the drawn organization, through the tenant's security-barrier views over relations under row-level
- *   security; each statement the runtime sent, planned with its parameters and with sequential and index scans
- *   disabled, so that a bitmap scan, which reads only by an index condition, is the one scan left, reads every relation
- *   it restricts by an index condition on an index the installation planned;
+ *   security; each statement the runtime sent, planned with its parameters, with sequential and index scans disabled
+ *   and index-only scans never considered, so that a bitmap scan, which reads only by an index condition, is the one
+ *   scan left, reads every relation it restricts by an index condition on an index the installation planned;
  * - law maintenance: each write that fires the platform's laws on the drawn entities (a usage event with its charges
- *   and debits, a refund, a month closed with a plan line and its allocation, an invoice paid, a key revoked with its
- *   span cut, and a delete of each relation another references) runs in one rolled-back transaction with sequential
- *   scans disabled, is accepted or refused as the laws say, and scans no relation its laws count sequentially, read
- *   from the transaction's own statistics (pg_stat_xact_user_tables).
+ *   and debits by the busiest key active when it is written, a refund, a month closed with a plan line and its
+ *   allocation, an invoice paid, that key revoked with its span cut, and a delete of each relation another references)
+ *   runs in one rolled-back transaction with sequential scans disabled, is accepted or refused as the laws say, and
+ *   scans no relation its laws count sequentially, read as the scans between two reads of the transaction statistics
+ *   within it (pg_stat_xact_user_tables), which also hold an earlier transaction's scans PostgreSQL has not flushed.
  *
  * After the cases every law's probe, as the index engine states it, is EXPLAINed generically with sequential and bitmap
  * scans disabled, and reads through an index scan with an index condition on an index the installation planned. The
@@ -30,8 +33,9 @@
  * Features: a read by the busiest entities and by another, a week's window and a whole month's, and a usage event with
  * its charges and debits written.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): plans-access-index-dropped.patch (the index engine planning no access
- * index), plans-probe-unindexed.patch (the index engine planning no law probe index).
+ * Plants: ~/.cache/grizzle-release/PLANIDX/plants/plans-requests-unplanned.patch (the index engine planning no
+ * requested index, access or law), ~/.cache/grizzle-release/BR13/plants/plans-probe-unindexed.patch (the index engine
+ * planning no law probe index).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -62,7 +66,7 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
-import { plannedIndexes, recordingMembers, sentProblems } from "#test/support/plans.ts"
+import { plannedIndexes, recordingMembers, sentProblems, unanalyzed } from "#test/support/plans.ts"
 import {
 	buildPlatform,
 	DAY,
@@ -75,7 +79,7 @@ import {
 	volumePlatform
 } from "#test/support/platform/generate.ts"
 import type { DirectStatement, RelationName } from "#test/support/platform/laws.ts"
-import { platformSpan } from "#test/support/platform/model.ts"
+import { coveredBy, platformSpan } from "#test/support/platform/model.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { untilAnswered } from "#test/support/transient.ts"
@@ -1268,7 +1272,15 @@ type Referenced = readonly [RelationName, Readonly<Record<string, unknown>>, Rea
  */
 const lawWrites = (o: OpenedPlatform, p: Platform, e: Entities): ReadonlyArray<LawWrite> => {
 	const view = viewOf(p.facts)
-	const key = Arr.head(e.keys)
+	const month = Arr.get(p.plan.months, 2)
+	const instant = Option.map(month, (m) => m.during.start + 7n * DAY + 11n)
+	/**
+	 * The busiest key active when the usage event is written: a key revoked before then refuses the event and has no
+	 * span to cut, and the platform revokes its first key mid-calendar, which on a small platform is often the busiest.
+	 */
+	const key = Option.flatMap(instant, (at) =>
+		Arr.findFirst(e.keys, (k) => coveredBy(view.keyActive.get(k) ?? [], platformSpan(at, at + 3n)))
+	)
 	const route = Option.orElse(
 		Arr.findFirst(p.facts.Route, (r) =>
 			Arr.some(
@@ -1278,7 +1290,6 @@ const lawWrites = (o: OpenedPlatform, p: Platform, e: Entities): ReadonlyArray<L
 		),
 		() => Arr.head(p.facts.Route)
 	)
-	const month = Arr.get(p.plan.months, 2)
 	const left = new Map<string, bigint>(Arr.map(p.facts.CreditGrant, (g) => [g.id, g.amount]))
 	for (const d of p.facts.CreditDebit) {
 		left.set(d.grant, (left.get(d.grant) ?? 0n) - d.amount)
@@ -1290,7 +1301,6 @@ const lawWrites = (o: OpenedPlatform, p: Platform, e: Entities): ReadonlyArray<L
 			(spent.get(`${c.workspace}|${c.month}`) ?? 0n) + c.amount
 		)
 	}
-	const instant = Option.map(month, (m) => m.during.start + 7n * DAY + 11n)
 	const record = Option.flatMap(Option.all({ key, route, instant }), (at) =>
 		Arr.head(
 			settleRequests(
@@ -1482,24 +1492,41 @@ const lawWrites = (o: OpenedPlatform, p: Platform, e: Entities): ReadonlyArray<L
 type XactRow = readonly [string, string, string]
 
 /**
+ * Each table's sequential scans this connection's backend has counted and not yet flushed, by table name
+ * (pg_stat_xact_user_tables). PostgreSQL flushes its pending counts only between transactions, at most once a second, so
+ * the view holds the scans of earlier transactions not yet flushed beside the current one's; two reads of it within one
+ * transaction bracket exactly the scans between them.
+ */
+const pendingSeqScans = (o: OpenedPlatform) =>
+	Effect.gen(function* () {
+		const { admin } = yield* Substrate
+		const rows = yield* admin.queryValues(
+			"SELECT relname::text, seq_scan::text, idx_scan::text FROM pg_catalog.pg_stat_xact_user_tables WHERE schemaname = $1::text",
+			[o.installed.schema]
+		)
+		return new Map(Arr.map(trusted<ReadonlyArray<XactRow>>(rows), ([t, seq]) => [t, Number(seq)]))
+	})
+
+/**
  * Runs a law write in one rolled-back transaction: every deferred law judged at SET CONSTRAINTS ALL IMMEDIATE, then the
- * transaction's statistics read; the outcome is whether the laws accepted it. The transaction plans with sequential
- * scans disabled, so a law's probe reads a relation by an index exactly when one serves it: at the volume's sizes the
- * calendar, the routes, the rate cards and the provider prices are a few pages each, which PostgreSQL rightly reads
- * whole when it may choose, and the property is that an index serves every probe, not the planner's choice on a small
- * relation. The law's plans are made in these transactions alone: no other statement on this connection fires them.
+ * sequential scans it made read as the difference of the pending counts at its start and its end (pendingSeqScans); the
+ * outcome is whether the laws accepted it. The transaction plans with sequential scans disabled, so a law's probe reads
+ * a relation by an index exactly when one serves it: at the volume's sizes the calendar, the routes, the rate cards and
+ * the provider prices are a few pages each, which PostgreSQL rightly reads whole when it may choose, and the property is
+ * that an index serves every probe, not the planner's choice on a small relation. The law's plans are made in these
+ * transactions alone: no other statement on this connection fires them.
  *
- * A refused write's statistics are read again from a replay with each statement in a savepoint: the counters
- * PostgreSQL keeps per transaction survive into the abort only as pending totals.
+ * A refused write's scans are read again from a replay with each statement in a savepoint: the counters PostgreSQL keeps
+ * per transaction survive into the abort only as pending totals.
  */
 const runLawWrite = (o: OpenedPlatform, w: LawWrite) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		const begin = Effect.andThen(
-			admin.query("BEGIN", []),
-			admin.query("SET LOCAL enable_seqscan = off", [])
+			Effect.andThen(admin.query("BEGIN", []), admin.query("SET LOCAL enable_seqscan = off", [])),
+			pendingSeqScans(o)
 		)
-		yield* begin
+		const opened = yield* begin
 		const applied = yield* Effect.result(
 			Effect.gen(function* () {
 				for (const st of w.statements) {
@@ -1508,9 +1535,10 @@ const runLawWrite = (o: OpenedPlatform, w: LawWrite) =>
 				yield* admin.query("SET CONSTRAINTS ALL IMMEDIATE", [])
 			})
 		)
-		if (Result.isFailure(applied)) {
+		/** The refused write replayed with each statement in a savepoint, from the pending counts at its start. */
+		const replayed = Effect.gen(function* () {
 			yield* admin.query("ROLLBACK", [])
-			yield* begin
+			const reopened = yield* begin
 			for (const st of w.statements) {
 				yield* admin.query("SAVEPOINT s", [])
 				const one = yield* Effect.result(
@@ -1521,18 +1549,16 @@ const runLawWrite = (o: OpenedPlatform, w: LawWrite) =>
 					[]
 				)
 			}
-		}
-		const tableRows = yield* admin.queryValues(
-			"SELECT relname::text, seq_scan::text, idx_scan::text FROM pg_catalog.pg_stat_xact_user_tables WHERE schemaname = $1::text",
-			[o.installed.schema]
-		)
-		const tables = trusted<ReadonlyArray<XactRow>>(tableRows)
+			return reopened
+		})
+		const before = Result.isSuccess(applied) ? opened : yield* replayed
+		const after = yield* pendingSeqScans(o)
 		yield* admin.query("ROLLBACK", [])
 		return {
 			accepted: Result.isSuccess(applied),
 			/** Why the laws refused it, read off PostgreSQL's error; none for an accepted write. */
 			refusal: Result.isFailure(applied) ? messageOf(applied.failure) : undefined,
-			seqScans: new Map(Arr.map(tables, ([t, seq]) => [t, Number(seq)]))
+			seqScans: new Map(Arr.map([...after], ([t, n]) => [t, n - (before.get(t) ?? 0)]))
 		}
 	})
 
@@ -1638,8 +1664,8 @@ const runs = 8
 
 /**
  * A small volume platform's sizes, drawn: at least three months, for the law writes that close the third, and at least
- * one of every entity a law write names. Every property here is PostgreSQL's planner under disabled scans, which no
- * size moves, so the platform is as small as the writes allow.
+ * one of every entity a law write names. Every property here is PostgreSQL's planner under disabled scans over
+ * unanalyzed relations, which no size moves, so the platform is as small as the writes allow.
  */
 const sizesGen: Gen<VolumeSizes> = (source) => ({
 	months: source.draw(int(3, 4)),
@@ -1710,9 +1736,10 @@ const planSuite = (ctx: TestContext) =>
 								)
 							)
 						)
-						for (const r of [...loadOrder, "DailySpend"]) {
-							yield* s.admin.query(`ANALYZE ${o.table(r)}`, [])
-						}
+						yield* unanalyzed(
+							s.admin,
+							Arr.map([...loadOrder, "DailySpend"], (r) => o.installed.names.relation(r))
+						)
 						const e = entitiesOf(p)
 						const problems: Array<string> = []
 						/** One read's statements as `who` sent them, judged under disabled scans. */

@@ -4,7 +4,9 @@
  * (ir/law.ts KeyColumnSet), and PostgreSQL matches a foreign key's referenced columns to a unique index in any order
  * (tablecmds.c transformFkeyCheckAttrs), so a relation holds one key per column set: a containment into a superkey of
  * its target's key needs a UNIQUE over the target's columns, and a fixed target, whose selection fixes a field by a
- * literal beyond its terms, one over its terms and then that field (laws/model/plan.ts); each over a set a declared key
+ * literal beyond its terms, one over its terms and then that field, which its sources meet by a constant each, or one
+ * over its own columns, each term generated under its selection, whichever adds fewer objects to the whole schema
+ * (laws/model/plan.ts; test/unit/laws/model/probed-target.test.ts judges that choice); each over a set a declared key
  * or an earlier plan states is that key, in its order (laws/model/model.ts nativeIdentity); and a declared key over the
  * set of another key of its relation is refused (schema/own.ts distinctKeys).
  *
@@ -16,8 +18,10 @@
  *
  * - the schema compiles exactly when no two of T's keys, its primary key and its distinct declared keys, are over one
  *   column set, and is refused MalformedDescription otherwise;
- * - T holds one unique index per column set, its primary key's, each declared key's and each set a reference names, and
- *   no other;
+ * - each source holds one foreign key into T, a superkey reference's over its set and a fixed target's over its terms
+ *   and its fixed field or over its own columns;
+ * - T holds one unique index per column set, its primary key's, each declared key's and each set a reference's foreign
+ *   key lands on, and no other;
  * - every foreign key into T lands on exactly one unique index over its referenced columns, as a set;
  * - each reference's foreign key holds: a source row meeting a row of T commits, all at once, and a source row naming a
  *   key T does not hold is refused by that reference's own foreign key (23503).
@@ -36,8 +40,9 @@
  * read by the name the installation gives it.
  *
  * Features: two references over one set in two orders, a fixed target and a superkey reference over one set,
- * references over two sets, a declared key and a reference over one set, a clash refused, a source row committed and
- * one refused by its own foreign key; the walk must move a kept foreign key off the UNIQUE it landed on. Plant:
+ * references over two sets, a declared key and a reference over one set, a fixed target referenced at its own columns,
+ * a clash refused, a source row committed and one refused by its own foreign key; the walk must move a kept foreign key
+ * off the UNIQUE it landed on. Plant:
  * ~/.cache/grizzle-release/BR09/plants/superkey-orders-unique-per-order.patch, a UNIQUE's identity read in its plan's
  * order instead of as its column set, installs two unique indexes over one set.
  */
@@ -120,6 +125,13 @@ type Reference =
 const columnsOf = (r: Reference): Arr.NonEmptyReadonlyArray<Column> =>
 	r.kind === "superkey" ? r.order : Arr.append(r.order, r.fixed)
 
+/**
+ * The columns of T a fixed target's own UNIQUE holds: each of its terms generated under its selection, as the seat
+ * names a column generated from a field (test/pg/fin/installed.ts).
+ */
+const ownColumnsOf = (r: Extract<Reference, { readonly kind: "fixed" }>): ReadonlyArray<string> =>
+	Arr.map(r.order, (c) => `‹gen ${c}›`)
+
 /** A column set as one text, its columns in code-unit order. */
 const setText = (columns: ReadonlyArray<string>): string =>
 	Arr.join(Arr.sort(columns, Order.String), ",")
@@ -190,6 +202,7 @@ type Feature =
 	| "a fixed target and a superkey reference over one set"
 	| "references over two sets"
 	| "a declared key and a reference over one set"
+	| "a fixed target referenced at its own columns"
 	| "a declared key over the set of another key of T refused"
 	| "a source row meeting T committed"
 	| "a source row naming no row of T refused by its own foreign key"
@@ -263,6 +276,15 @@ const declaredBesideGen: Gen<Drawn> = (source) => {
 	return { keys: [columnsOf(r)], refs: [source.draw(superkeyOver(r))] }
 }
 
+/**
+ * Two fixed targets over T's key alone under one selection, each from its own source: the shared UNIQUE adds its index
+ * and a constant on each source, the own one its index and one generated column (laws/model/plan.ts).
+ */
+const sameTargetGen: Gen<Drawn> = (source) => {
+	const r: Reference = { kind: "fixed", order: ["k"], fixed: source.draw(element(others)) }
+	return { keys: [], refs: [r, r] }
+}
+
 /** A declared key over T's primary key's set, or two declared keys over one set of two columns in both orders. */
 const clashGen: Gen<Drawn> = (source) => {
 	const first = source.draw(element(others))
@@ -298,6 +320,7 @@ const aims: ReadonlyArray<readonly [Feature, Gen<Drawn>]> = [
 		})
 	],
 	["a declared key and a reference over one set", declaredBesideGen],
+	["a fixed target referenced at its own columns", sameTargetGen],
 	["a declared key over the set of another key of T refused", clashGen]
 ]
 
@@ -381,14 +404,40 @@ const referencesCase = (d: Drawn, note: (feature: Feature) => void) =>
 		const seat = yield* seatOf(schemaOf(d), relations, "superkey orders")
 		const keys = keysOfT(seat.constraints)
 		const sets = Arr.map(keys, (c) => setText(c.columns))
-		const expected = Arr.dedupe([
-			...Arr.map(keysOf(d.keys), setText),
-			...Arr.map(refs, (r) => setText(columnsOf(r)))
-		])
+		const landings = Arr.map(refs, (r, i) => {
+			const into = Arr.filter(
+				seat.constraints,
+				(c) =>
+					c.kind === "foreign" &&
+					c.relation === sourceName(i) &&
+					Option.exists(c.target, (t) => t.relation === "T")
+			)
+			const [fk, ...more] = into
+			if (fk === undefined || more.length > 0) {
+				return assert.fail(`${sourceName(i)} holds one foreign key into T, not ${into.length}`)
+			}
+			const landing = Option.match(fk.target, {
+				onNone: () => "",
+				onSome: (t) => setText(t.columns)
+			})
+			const allowed =
+				r.kind === "superkey"
+					? [setText(columnsOf(r))]
+					: [setText(columnsOf(r)), setText(ownColumnsOf(r))]
+			assert.ok(
+				Arr.contains(allowed, landing),
+				`${sourceName(i)}'s foreign key lands on ${Arr.join(allowed, " or ")}, not ${landing}`
+			)
+			if (r.kind === "fixed" && landing === setText(ownColumnsOf(r))) {
+				note("a fixed target referenced at its own columns")
+			}
+			return landing
+		})
+		const expected = Arr.dedupe([...Arr.map(keysOf(d.keys), setText), ...landings])
 		assert.deepEqual(
 			Arr.sort(sets, Order.String),
 			Arr.sort(expected, Order.String),
-			"T holds one unique index per column set: each declared key's and each set a reference names"
+			"T holds one unique index per column set: each declared key's and each a reference's foreign key lands on"
 		)
 		for (const fk of seat.constraints) {
 			if (fk.kind !== "foreign" || Option.isNone(fk.target) || fk.target.value.relation !== "T") {
@@ -569,6 +618,7 @@ layer(Substrate.layer)("references into one relation's superkeys in different or
 								"a fixed target and a superkey reference over one set",
 								"references over two sets",
 								"a declared key and a reference over one set",
+								"a fixed target referenced at its own columns",
 								"a declared key over the set of another key of T refused",
 								"a source row meeting T committed",
 								"a source row naming no row of T refused by its own foreign key"

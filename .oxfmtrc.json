@@ -25,6 +25,7 @@
 		"packages/devtools/src/*/fixtures/**",
 		"test/types/**/.*-??????/**",
 		"test/pg/cli/.ws-*/**",
-		".probe-*/**"
+		".probe-*/**",
+		"upstream/**"
 	]
 }
