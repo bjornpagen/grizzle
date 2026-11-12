@@ -57,7 +57,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { memberCalls } from "#adapter/db/handles.ts"
+import { onceCalls } from "#adapter/db/handles.ts"
 import type { LoadedChange, LoadedMember } from "#adapter/served/load.ts"
 import type { Session, SessionPool, WireQuery } from "#adapter/wire/session.ts"
 import type { CallError } from "#compiler/live/index.ts"
@@ -290,7 +290,7 @@ const changeOf = (loaded: LoadedMember): LoadedChange => {
 
 /** A change member's once on `ctx` with its call's facts and parameters. */
 const appliedOn = (ctx: ServedDbContext, loaded: LoadedMember, facts: unknown, params: ParamMap) =>
-	answered(writeOnce(memberCalls(ctx, loaded))({ params, facts }))
+	answered(writeOnce(onceCalls(ctx, loaded))({ params, facts }))
 
 /**
  * A pool whose sessions hold the planted message bound `limit`, and a flight bound below any flight where the case plants

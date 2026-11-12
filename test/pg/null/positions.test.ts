@@ -60,7 +60,7 @@ import {
 	Record as Rec,
 	Result
 } from "effect"
-import type { ServedCalls, WrittenOutcome } from "#adapter/db/handles.ts"
+import type { OnceCalls, WrittenOutcome } from "#adapter/db/handles.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
@@ -587,7 +587,7 @@ const lawName = (law: Law): string => {
  * those laws, every one the row breaks, never a defect.
  */
 /** A change member of array members, applied with the call's facts. */
-const appliedFacts = (change: ServedCalls, facts: unknown) => {
+const appliedFacts = (change: OnceCalls, facts: unknown) => {
 	assertVariant(change, "shape", "write", "a write's change member takes its call's facts")
 	return answered(change.once({ params: {}, facts }))
 }
@@ -919,7 +919,7 @@ const nullCase = (drawnCase: NullCase, notes: Case<Feature>) =>
 							.find({ total: r.sum(x["n"]) })
 					)
 				})
-				const collect = (served: ReadonlyMap<string, ServedCalls>, name: string) =>
+				const collect = (served: ReadonlyMap<string, OnceCalls>, name: string) =>
 					readOnce(member(served, name))({ params: {}, facts: {} })
 				const filtered = yield* collect(reads, "filtered")
 				const grouped = yield* collect(reads, "grouped")

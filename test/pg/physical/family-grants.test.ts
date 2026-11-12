@@ -47,7 +47,7 @@ import {
 	String as Str
 } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { memberCalls, variantOf } from "#adapter/db/handles.ts"
+import { onceCalls, variantOf } from "#adapter/db/handles.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn, natural, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
@@ -604,7 +604,7 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 										"facts",
 										`the member ${name} takes its call's facts`
 									)
-									return answered(writeOnce(memberCalls(db.ctx, change))({ params: {}, facts }))
+									return answered(writeOnce(onceCalls(db.ctx, change))({ params: {}, facts }))
 								}
 								return yield* explore(
 									{

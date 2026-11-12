@@ -1,5 +1,5 @@
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
-import type { ServedCalls } from "#adapter/db/handles.ts"
+import type { OnceCalls } from "#adapter/db/handles.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
 import type { DecodedRow } from "#adapter/reader/stream.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
@@ -37,7 +37,7 @@ const windowInput = (params: unknown, anchor: Anchor, size: number) => ({
 
 /** The rows of the window of `size` rows from `anchor` of the paged member `calls`, in presentation order. */
 export const windowOf = (
-	calls: ServedCalls,
+	calls: OnceCalls,
 	params: unknown,
 	anchor: Anchor,
 	size: number
@@ -209,7 +209,7 @@ export interface Walk {
  * row. A walk over D of `rows` rows ends within rows + 1 windows at any size; one that does not is a defect.
  */
 export const walk = (
-	calls: ServedCalls,
+	calls: OnceCalls,
 	fields: KeyFields,
 	params: unknown,
 	size: number,

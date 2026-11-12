@@ -1,5 +1,5 @@
 import { Effect, Option } from "effect"
-import type { ServedCalls, WrittenOutcome } from "#adapter/db/handles.ts"
+import type { OnceCalls, WrittenOutcome } from "#adapter/db/handles.ts"
 import type { DecodedRow } from "#adapter/reader/stream.ts"
 import type { CallError, CallErrorOf } from "#compiler/live/index.ts"
 import { defect } from "#compiler/plan/runtime.ts"
@@ -47,7 +47,7 @@ export const answered = <O, R>(
 
 /** A read member's once over its rows, from its untyped calls: a write member here is a defect of the test. */
 export const readOnce =
-	(calls: ServedCalls) =>
+	(calls: OnceCalls) =>
 	(input: unknown): Effect.Effect<ReadonlyArray<DecodedRow>, CallError> => {
 		switch (calls.shape) {
 			case "set":
@@ -63,6 +63,6 @@ export const readOnce =
 
 /** A write member's once, from its untyped calls: a read member here is a defect of the test. */
 export const writeOnce =
-	(calls: ServedCalls) =>
+	(calls: OnceCalls) =>
 	(input: unknown): Effect.Effect<WrittenOutcome, CallError> =>
 		calls.shape === "write" ? calls.once(input) : Effect.die(defect("a write of a read member"))

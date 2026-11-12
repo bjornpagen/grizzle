@@ -1,12 +1,13 @@
 /**
  * The HNSW search policy as login defaults, on PostgreSQL 19 over the approximate-retrieval fixture (test/pg/vector/ann):
  * the installer stores the fixed search policy (physical/ddl/roles.ts searchPolicySettings) as the defaults of the login
- * whose role names a vector, and every session of that login, and a Db's typed read, runs under it.
+ * whose role names a vector, and every session of that login, and a Db's read, runs under it.
  *
  * - Stored: the login's settings for every database hold each of the policy's settings, the snapshot's role defaults
  *   name exactly the policy, and the login's session shows each setting before and after the vector library loads.
- * - Served: for every account and drawn query vector, a Db's typed approximateNearest read fills its request up to the
- *   account's eligible facts, each candidate an eligible fact, at a number distance.
+ * - Served: for every account and drawn query vector, a Db's approximateNearest read, served by its once
+ *   (test/support/served-db.ts withServedDb), fills its request up to the account's eligible facts, each candidate an
+ *   eligible fact, at a number distance.
  *
  * Oracle: the specification of the policy (its settings, stored and shown as stated) and of a filtered search under a
  * strict-order iterative scan, which fills its request whenever the eligible facts allow.
@@ -24,7 +25,6 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
-import { openServed } from "#adapter/db/served.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import {
@@ -38,16 +38,16 @@ import {
 	vectorParam
 } from "#test/pg/vector/ann/support.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
-import { rowsOf } from "#test/support/calls.ts"
+import { readOnce } from "#test/support/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
-import { withLayer } from "#test/support/with-layer.ts"
 
 const policySettings = Object.freeze(
 	Arr.map(searchPolicySettings, (s) => `${s.parameter}=${s.value}`)
 )
 
-/** The candidates the typed read requests (ann/support.ts candidates). */
+/** The candidates the read requests (ann/support.ts candidates). */
 const candidatesTake = 20
 
 /** An account of the fixture, by the letter its size is listed under. */
@@ -63,7 +63,7 @@ const labels = nonEmpty(Rec.keys(sizes), "the fixture's accounts")
 
 layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 	it.effect(
-		"stores the policy as the login's defaults, whose session and typed approximateNearest read run under it",
+		"stores the policy as the login's defaults, whose session and approximateNearest read run under it",
 		(ctx) =>
 			searched(
 				ctx,
@@ -106,59 +106,55 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 								: []
 						)
 					)
-					return yield* Effect.gen(function* () {
-						const { db } = yield* openServed(fx.opened.served.login.roles.app, {})
-						return yield* explore(
-							{
-								suite: "pg/vector/policy",
-								draw: drawn(
-									(source) =>
-										[source.draw(element(labels)), source.draw(int(0, 2 ** 31 - 1))] as const
-								),
-								literal: Formatter.format,
-								oracle: {
-									kind: "specification",
-									name: "a strict-order iterative scan fills a filtered request up to the eligible facts"
+					return yield* withServedDb(fx.installed, fx.opened.server.roles.app, {}, ({ serve }) =>
+						Effect.gen(function* () {
+							const served = yield* serve(fx.opened.programs)
+							const read = readOnce(member(served, "candidates"))
+							return yield* explore(
+								{
+									suite: "pg/vector/policy",
+									draw: drawn(
+										(source) =>
+											[source.draw(element(labels)), source.draw(int(0, 2 ** 31 - 1))] as const
+									),
+									literal: Formatter.format,
+									oracle: {
+										kind: "specification",
+										name: "a strict-order iterative scan fills a filtered request up to the eligible facts"
+									},
+									coverage: required<`account ${AccountLabel}`>(
+										Arr.map(labels, (label) => `account ${label}` as const),
+										{ cases: 12, sense: notesOnly }
+									),
+									kept: [],
+									runs: 12,
+									shrink: completeShrink,
+									concurrency: 1,
+									steerEvery: 4,
+									caseHang
 								},
-								coverage: required<`account ${AccountLabel}`>(
-									Arr.map(labels, (label) => `account ${label}` as const),
-									{ cases: 12, sense: notesOnly }
-								),
-								kept: [],
-								runs: 12,
-								shrink: completeShrink,
-								concurrency: 1,
-								steerEvery: 4,
-								caseHang
-							},
-							([label, n], c) =>
-								Effect.gen(function* () {
-									const account = accountOf[label]
-									const rows = yield* rowsOf(
-										db.workload.candidates.once({
-											params: {
-												account,
-												vector: vectorParam(fx.probe(n))
-											},
+								([label, n], c) =>
+									Effect.gen(function* () {
+										const account = accountOf[label]
+										const rows = yield* read({
+											params: { account, vector: vectorParam(fx.probe(n)) },
 											facts: {}
 										})
-									)
-									assert.equal(
-										rows.length,
-										Math.min(candidatesTake, eligible(account)),
-										`account ${label}: the request filled up to the eligible facts`
-									)
-									for (const row of rows) {
-										assert.ok(
-											current.has(`${row.document}/${row.revision}`),
-											`${row.document}/${row.revision} is an eligible fact`
+										assert.equal(
+											rows.length,
+											Math.min(candidatesTake, eligible(account)),
+											`account ${label}: the request filled up to the eligible facts`
 										)
-										assert.equal(typeof row.distance, "number")
-									}
-									c.note(`account ${label}`)
-								})
-						)
-					}).pipe(Effect.scoped, withLayer(fx.opened.served.layer))
+										for (const row of rows) {
+											const fact = `${Formatter.format(row["document"])}/${Formatter.format(row["revision"])}`
+											assert.ok(current.has(fact), `${fact} is an eligible fact`)
+											assert.equal(typeof row["distance"], "number")
+										}
+										c.note(`account ${label}`)
+									})
+							)
+						})
+					).pipe(Effect.scoped)
 				})
 			)
 	)

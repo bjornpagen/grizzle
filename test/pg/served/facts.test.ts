@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
-import { memberCalls, variantOf } from "#adapter/db/handles.ts"
+import { onceCalls, variantOf } from "#adapter/db/handles.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -244,14 +244,14 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											}
 											const applied = yield* Effect.result(
 												answered(
-													writeOnce(memberCalls(db, change))({
+													writeOnce(onceCalls(db, change))({
 														params: {},
 														facts: plantedFacts(facts, plant)
 													})
 												)
 											)
 											const everyRow = (name: string) =>
-												readOnce(memberCalls(db, member(loaded, name)))({ params: {}, facts: {} })
+												readOnce(onceCalls(db, member(loaded, name)))({ params: {}, facts: {} })
 											const storedItems = yield* everyRow("items")
 											const storedLabels = yield* everyRow("labels")
 											const expectedItems = itemsAfter(stored, facts)

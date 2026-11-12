@@ -1,10 +1,10 @@
 import { Array as Arr, Effect, Layer, Option, Record as Rec, Result, type Scope } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { changeApplication, memberCalls, type ServedCalls, variantOf } from "#adapter/db/handles.ts"
+import { changeApplication, onceCalls, type OnceCalls, variantOf } from "#adapter/db/handles.ts"
 import { openServed } from "#adapter/db/served.ts"
 import { fromEngine, toResult } from "#adapter/engine.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
-import { compileServed, type ServedRefusal } from "#adapter/public/compile.ts"
+import { compileServed, compileServedOnce, type ServedRefusal } from "#adapter/public/compile.ts"
 import { served } from "#adapter/public/layer.ts"
 import { compiledWrite } from "#adapter/served/forms.ts"
 import { type LoadedMember, loadServed } from "#adapter/served/load.ts"
@@ -47,7 +47,8 @@ import { testVerify, tokenOf } from "#test/support/worlds.ts"
  *   `db.workload.<member>`.
  * - withServedDb: one Db of a role per installation, opened through its login's served layer, whose `serve` compiles a
  *   test's drawn programs into members of the role's workload, each loaded and run on that Db's context: the same pool,
- *   prologue and claims, and the calls a workload handle makes (adapter/db/handles.ts memberCalls).
+ *   prologue and claims, each by its once alone (adapter/db/handles.ts onceCalls): the programs are drawn after the
+ *   installation, which installed no live source for them, so a watch through `serve` does not compile.
  * - servedOn: the same `load` and `serve` over a served Db's context a test opened itself.
  *
  * The served file of `login` with `workloads` in place of its own, compiled under the snapshot the installation reached
@@ -218,8 +219,8 @@ export const servedFixture = <L extends AnyLogin>(
  * One Db of a role over an installation: its context, which every member it serves runs over; `load`, which compiles
  * `programs`, each a program workload(...) admits (a query, an ordered query, paged(...) of one, a ChangeSet, a
  * relation's key or refresh(relations)), into members of the role's workload under their names, and gives each one loaded, by
- * name, for a test that runs it over a context of its own (adapter/db/handles.ts memberCalls) or reads its loaded
- * program; and `serve`, which gives each one's calls over the context, by name (once and watch, by its answer's shape).
+ * name, for a test that runs it over a context of its own (adapter/db/handles.ts onceCalls) or reads its loaded
+ * program; and `serve`, which gives each one's once over the context, by name, by its answer's shape (OnceCalls).
  */
 export interface ServedDb {
 	readonly ctx: ServedDbContext
@@ -236,7 +237,7 @@ export interface ServedDb {
 	>
 	readonly serve: (
 		programs: Readonly<Record<string, unknown>>
-	) => Effect.Effect<ReadonlyMap<string, ServedCalls>, ServedRefusal | OpenError>
+	) => Effect.Effect<ReadonlyMap<string, OnceCalls>, ServedRefusal | OpenError>
 }
 
 /** The operations `load` and `serve` give over one served Db's context (ServedDb). */
@@ -309,15 +310,15 @@ export const withServedDb = <A, E, R>(
 /**
  * `load` and `serve` over `ctx`, a Db of `role` a test opened through its login's served layer, whose file was compiled
  * under `snapshot`, the JSON value of a snapshot.json: each call compiles its programs into one served file of the login
- * under that snapshot (adapter/public/compile.ts compileServed), the role's workload holding exactly them, loads it, and
- * gives each member loaded, or its calls on `ctx`, by name.
+ * under that snapshot for once calls alone (adapter/public/compile.ts compileServedOnce, whose file's live is none), the
+ * role's workload holding exactly them, loads it, and gives each member loaded, or its once on `ctx`, by name.
  */
 const servedOn = (snapshot: unknown, role: AnyLoginRole, ctx: ServedDbContext): ServedOn => {
 	const login = role.login
 	const loadWithTables: ServedDb["loadWithTables"] = (programs) =>
 		Effect.gen(function* () {
 			const json = yield* Effect.suspend(() =>
-				compileServed(login, snapshot, [workload(role.role, programs)])
+				compileServedOnce(login, snapshot, [workload(role.role, programs)])
 			)
 			const loaded = yield* Effect.fromResult(loadServed(servedFile(json), login.name))
 			return {
@@ -337,9 +338,9 @@ const servedOn = (snapshot: unknown, role: AnyLoginRole, ctx: ServedDbContext): 
 			load(programs),
 			(loaded) =>
 				new Map(
-					Arr.map([...loaded], ([name, m]): readonly [string, ServedCalls] => [
+					Arr.map([...loaded], ([name, m]): readonly [string, OnceCalls] => [
 						name,
-						memberCalls(ctx, m)
+						onceCalls(ctx, m)
 					])
 				)
 		)

@@ -7,7 +7,7 @@ import { boundedShrink } from "@grizzle/testing/shrink"
 import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
-import { memberCalls } from "#adapter/db/handles.ts"
+import { onceCalls } from "#adapter/db/handles.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import type { FamilyName, StaleCause } from "#compiler/core/causes.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
@@ -1922,7 +1922,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 											`${label}: refused when it compiles, ${error.message}, where the oracle expects ${expected.kind}`
 										)
 									}
-									const served = memberCalls(flight.context, member(loaded.success, "step"))
+									const served = onceCalls(flight.context, member(loaded.success, "step"))
 									const applied = yield* Effect.result(
 										flight.judged(label, answered(writeOnce(served)({ params, facts })))
 									)

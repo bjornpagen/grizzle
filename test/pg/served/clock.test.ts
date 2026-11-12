@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result, Stream } from "effect"
-import { memberCalls } from "#adapter/db/handles.ts"
+import { memberCalls, onceCalls } from "#adapter/db/handles.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { clockedMember } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -216,7 +216,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									({ ctx: db, load }) =>
 										Effect.gen(function* () {
 											const loaded = yield* load(programs)
-											const calls = (name: string) => memberCalls(db, member(loaded, name))
+											const calls = (name: string) => onceCalls(db, member(loaded, name))
 											const call = { params: {}, facts: {} }
 
 											const firstRows = yield* readOnce(calls("reading"))(call)
@@ -249,7 +249,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												facts: { insert: { Wanted: wanted } }
 											})
 
-											const dueCalls = calls("due")
+											const dueCalls = memberCalls(db, member(loaded, "due"))
 											if (dueCalls.shape !== "instantSet") {
 												return assert.fail("a clocked set read is served at its call's instant")
 											}

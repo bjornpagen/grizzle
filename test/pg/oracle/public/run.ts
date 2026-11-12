@@ -13,7 +13,7 @@ import {
 	Result,
 	type Scope
 } from "effect"
-import { memberCalls, type WrittenOutcome } from "#adapter/db/handles.ts"
+import { onceCalls, type WrittenOutcome } from "#adapter/db/handles.ts"
 import type { StatementRoots, StatementTree } from "#compiler/runtime/lower/tree.ts"
 import { type ValueIdentity, sameIdentity } from "#test/support/kernel/identity.ts"
 import { type ReferenceObserver, unobserved } from "#test/support/oracle/reference/evaluate.ts"
@@ -1681,7 +1681,7 @@ export const runCase = (
 						refused("the case's workload did not compile")
 					)
 					const strict = strictReaderOf(perturbedContext(ctx, c.perturbation))
-					const served = (name: string) => memberCalls(ctx, member(loaded, name))
+					const served = (name: string) => onceCalls(ctx, member(loaded, name))
 					const members: Members = {
 						plain: (name) => readCalls(ctx, member(loaded, name)),
 						strict: (name) => strict.calls(member(loaded, name)),

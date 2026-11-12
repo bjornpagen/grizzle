@@ -18,7 +18,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
-import type { ServedCalls } from "#adapter/db/handles.ts"
+import type { OnceCalls } from "#adapter/db/handles.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
@@ -513,7 +513,7 @@ const reached = (c: {
 }
 
 /** The rows a served member delivers, run without parameters. */
-const records = (calls: ServedCalls) => readOnce(calls)({ params: {}, facts: {} })
+const records = (calls: OnceCalls) => readOnce(calls)({ params: {}, facts: {} })
 
 layer(Substrate.layer)("union cells", (it) => {
 	it.effect(

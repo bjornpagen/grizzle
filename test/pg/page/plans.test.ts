@@ -39,7 +39,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, pipe, Record as Rec, String as Str } from "effect"
-import { memberCalls } from "#adapter/db/handles.ts"
+import { onceCalls } from "#adapter/db/handles.ts"
 import { explainStatementWith, parsePlan, rowsRead } from "#bench/harness/explain.ts"
 import { planNodeTypes } from "#bench/harness/explain.ts"
 import type { Param } from "#compiler/core/wire.ts"
@@ -136,7 +136,7 @@ const explorePlans = Effect.gen(function* () {
 			const loaded = yield* load(Rec.map(orders, (q) => pagedMember(q)))
 			const recording = recordingContext(ctx)
 			/** The paged member of an order, what its windows send recorded. */
-			const pager = (order: Order) => memberCalls(recording.ctx, member(loaded, order))
+			const pager = (order: Order) => onceCalls(recording.ctx, member(loaded, order))
 			const params = { account: paged }
 			/** The statement the runtime sends for a window: the one statement of its flight. */
 			const sentFor = (order: Order, anchor: Anchor, size: number) =>

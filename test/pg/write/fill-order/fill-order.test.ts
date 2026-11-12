@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
-import { memberCalls } from "#adapter/db/handles.ts"
+import { onceCalls } from "#adapter/db/handles.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
@@ -882,7 +882,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 								/** A member applied on the tapped context with its call's facts. */
 								const applied = (name: string, callFacts: CallFacts) =>
 									answered(
-										writeOnce(memberCalls(flight.context, member(loaded, name)))({
+										writeOnce(onceCalls(flight.context, member(loaded, name)))({
 											params: {},
 											facts: callFacts
 										})

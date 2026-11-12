@@ -36,7 +36,6 @@ import { compileTestWorkload, lowerAligned, testCompile } from "#test/support/co
 import { installedCatalog } from "#test/support/evidence.ts"
 import { type Installed, installMigrated } from "#test/support/install-migrate.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
-import { servedFixture } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
@@ -397,10 +396,11 @@ const checked = (q: unknown) =>
 type AnnPrograms = Readonly<Record<string, unknown>>
 
 /**
- * The installed schema with the HNSW index each of `programs` requests and no other access path, its full world's login
- * serving them as its workload's members. generate installs every access path a workload justifies, so this one
- * fixture installs through its first migration with its own index extension (installMigrated), and its login's served
- * file is compiled over that snapshot, which installs no live source: its reads run by once alone.
+ * The installed schema with the HNSW index each of `programs` requests and no other access path, its full world over the
+ * installed name, whose login serves no program, and the programs. generate installs every access path a workload
+ * justifies, so this one fixture installs through its first migration with its own index extension (installMigrated),
+ * which installs no live source: a suite runs the programs through a per-case door (test/support/served-db.ts
+ * withServedDb `serve`), each by its once alone, and a watch of one does not compile.
  */
 const openAnn = <const P extends AnnPrograms>(programs: P) =>
 	Effect.gen(function* () {
@@ -411,17 +411,17 @@ const openAnn = <const P extends AnnPrograms>(programs: P) =>
 			logins: [fullWorld(AnnSearch, programs).server]
 		})
 		const rebuilt = schema(done.declared, Rec.values(AnnSearch.relations), AnnSearch.statements)
-		const world = fullWorld(rebuilt, programs)
+		const world = fullWorld(rebuilt, {})
 		return {
 			installed: done,
 			schema: rebuilt,
 			app: world.app,
 			server: world.server,
-			served: yield* Effect.orDie(servedFixture(done, world.server))
+			programs
 		}
 	})
 
-/** The installed schema whose full world's login serves the programs P (openAnn). */
+/** The installed schema, its full world, and the programs P its door serves (openAnn). */
 export type AnnOpened<P extends AnnPrograms> = Effect.Success<ReturnType<typeof openAnn<P>>>
 
 /** The installation and its population, which a direct writer reads as the full world's role `app`. */
@@ -434,7 +434,7 @@ export interface Fixture {
 	readonly probe: (n: number) => ReadonlyArray<number>
 }
 
-/** A fixture whose full world's login serves the programs P, opened through `opened.served`. */
+/** A fixture whose door serves the programs P (`opened`). */
 interface ServedAnn<P extends AnnPrograms> extends Fixture {
 	readonly opened: AnnOpened<P>
 }

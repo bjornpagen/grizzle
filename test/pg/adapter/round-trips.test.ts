@@ -40,7 +40,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { memberCalls } from "#adapter/db/handles.ts"
+import { onceCalls } from "#adapter/db/handles.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { ServedLogin } from "#adapter/types/layer.ts"
@@ -854,7 +854,7 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 								const loaded = yield* load({ studentWeekly: refresh([fixture.StudentWeekly]) })
 								const { pool, tap } = yield* tappedPool(installation.as(fixture.server))
 								const refreshing = writeOnce(
-									memberCalls({ ...ctx, pool }, member(loaded, "studentWeekly"))
+									onceCalls({ ...ctx, pool }, member(loaded, "studentWeekly"))
 								)({ params: {}, facts: {} })
 								return yield* explore(
 									{

@@ -32,7 +32,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec, Result, Stream } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { memberCalls, variantOf } from "#adapter/db/handles.ts"
+import { onceCalls, variantOf } from "#adapter/db/handles.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { CredentialError } from "#adapter/errors/failures.ts"
 import type { ChangeCall, LoadedMember } from "#adapter/served/load.ts"
@@ -163,7 +163,7 @@ const applied = (ctx: ServedDbContext, change: LoadedMember, facts: unknown) => 
 		"facts",
 		"a change member of array members takes its call's facts"
 	)
-	return answered(writeOnce(memberCalls(ctx, change))({ params: {}, facts }))
+	return answered(writeOnce(onceCalls(ctx, change))({ params: {}, facts }))
 }
 
 /** A change member of no array member, applied on `ctx` with `params`. */
@@ -173,7 +173,7 @@ const appliedWith = (ctx: ServedDbContext, change: LoadedMember, params: ParamMa
 		"params",
 		"a change member of no array member takes its parameters alone"
 	)
-	return answered(writeOnce(memberCalls(ctx, change))({ params, facts: {} }))
+	return answered(writeOnce(onceCalls(ctx, change))({ params, facts: {} }))
 }
 
 layer(Substrate.layer)("a change member's apply", (it) => {

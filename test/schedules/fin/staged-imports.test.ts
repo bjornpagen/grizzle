@@ -25,7 +25,7 @@
  */
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec, Result, String as Str } from "effect"
-import { memberCalls } from "#adapter/db/handles.ts"
+import { onceCalls } from "#adapter/db/handles.ts"
 import { openServed } from "#adapter/db/served.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import type { Session, SessionPool } from "#adapter/wire/session.ts"
@@ -177,7 +177,7 @@ const explored = Effect.gen(function* () {
 	/** An import on `writer`'s Db context, its pool's sessions holding the planted message bound. */
 	const imported = (writer: typeof a, facts: ReturnType<typeof importOf>) =>
 		answered(
-			writeOnce(memberCalls({ ...writer.ctx, pool: plantedPool(writer.ctx.pool, limit) }, member))({
+			writeOnce(onceCalls({ ...writer.ctx, pool: plantedPool(writer.ctx.pool, limit) }, member))({
 				params: {},
 				facts
 			})

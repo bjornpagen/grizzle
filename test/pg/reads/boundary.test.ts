@@ -16,7 +16,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Cause, Effect, Exit, Formatter, Option, Scope, Struct } from "effect"
-import { memberCalls, type ServedCalls } from "#adapter/db/handles.ts"
+import { onceCalls, type OnceCalls } from "#adapter/db/handles.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import type { CallError, CallErrorKind, RowKey } from "#compiler/live/index.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -96,9 +96,9 @@ interface Subject {
 
 /** The members a case's commands call, each over the tapped pool: a read by account, a key and a paged member. */
 interface Reads {
-	readonly live: ServedCalls
-	readonly task: ServedCalls
-	readonly ordered: ServedCalls
+	readonly live: OnceCalls
+	readonly task: OnceCalls
+	readonly ordered: OnceCalls
 }
 
 /**
@@ -332,7 +332,7 @@ const stepsOf = (real: Subject): Real<Model, BoundaryParameters, never, never, n
 })
 
 /** The key of the first row of the paged member `other`, read live. */
-const foreignKeyOf = (other: ServedCalls): Effect.Effect<RowKey, CallError> => {
+const foreignKeyOf = (other: OnceCalls): Effect.Effect<RowKey, CallError> => {
 	assertVariant(other, "shape", "list", "the other paged member reads a list")
 	return Effect.flatMap(other.once({ params: {}, facts: {}, window: first(1) }), (value) =>
 		Option.match(Arr.head(Arr.fromIterable(value.entries())), {
@@ -438,8 +438,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 														)
 													)
 													const tapped = { ...context, pool }
-													const callsOf = (name: string) =>
-														memberCalls(tapped, member(loaded, name))
+													const callsOf = (name: string) => onceCalls(tapped, member(loaded, name))
 													const real: Subject = {
 														reads: {
 															live: callsOf("live"),

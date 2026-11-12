@@ -43,7 +43,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Exit, Fiber, Formatter, Option, Order } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { memberCalls, variantOf } from "#adapter/db/handles.ts"
+import { onceCalls, variantOf } from "#adapter/db/handles.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -342,7 +342,7 @@ const applyFacts = (ctx: ServedDbContext, change: LoadedMember, facts: unknown) 
 		"facts",
 		"the write's member takes its call's facts"
 	)
-	return answered(writeOnce(memberCalls(ctx, change))({ params: {}, facts }))
+	return answered(writeOnce(onceCalls(ctx, change))({ params: {}, facts }))
 }
 
 /** The search: the Work installed once, a Db opened on it whose context and members every case's tapped pools reuse,
@@ -376,7 +376,7 @@ const interruptCases = Effect.gen(function* () {
 	)
 	/** A member's calls over `pool`. */
 	const on = (pool: SessionPool, name: string) =>
-		memberCalls({ ...context, pool }, member(members, name))
+		onceCalls({ ...context, pool }, member(members, name))
 	const notesNow = Effect.map(
 		s.admin.queryValues(
 			`SELECT ${noteTask}::text, ${noteText} FROM ${notes} ORDER BY ${noteTask}`,

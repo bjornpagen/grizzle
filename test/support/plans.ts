@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, Option, Result } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { memberCalls, type ServedCalls } from "#adapter/db/handles.ts"
+import { onceCalls, type OnceCalls } from "#adapter/db/handles.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import { type EstimatedNode, parsePlanTree, planNodes } from "#bench/harness/explain.ts"
@@ -318,14 +318,14 @@ export const recordingContext = (
 
 /**
  * The calls of any loaded member of the served Db of `ctx` (test/support/served-db.ts ServedDb.load, adapter/db/handles.ts
- * memberCalls), every statement they send recorded (recordingContext), and the counts every member's calls share.
+ * onceCalls), every statement they send recorded (recordingContext), and the counts every member's calls share.
  */
 export const recordingMembers = (
 	ctx: ServedDbContext
 ): {
-	readonly calls: (member: LoadedMember) => ServedCalls
+	readonly calls: (member: LoadedMember) => OnceCalls
 	readonly counts: Counts
 } => {
 	const recording = recordingContext(ctx)
-	return { calls: (member) => memberCalls(recording.ctx, member), counts: recording.counts }
+	return { calls: (member) => onceCalls(recording.ctx, member), counts: recording.counts }
 }

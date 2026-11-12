@@ -83,7 +83,7 @@ export const refusedWith = (observation: Observation, error: unknown): Seen => (
  * Each program an action runs is a member of the role's workload, compiled as generate compiles it
  * (adapter/public/compile.ts compileServed) into a served file of the login under `snapshot`, the snapshot its layer's
  * file was compiled under, then loaded as a layer loads it and run on the Db's context (adapter/db/handles.ts
- * memberCalls); `compile` is the installation's allocation and codes, under which the read differential compiles a read
+ * onceCalls); `compile` is the installation's allocation and codes, under which the read differential compiles a read
  * again (artifacts.ts).
  */
 export interface DbSession {

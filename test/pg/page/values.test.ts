@@ -32,7 +32,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, pipe, Record as Rec, String as Str } from "effect"
-import { memberCalls } from "#adapter/db/handles.ts"
+import { onceCalls } from "#adapter/db/handles.ts"
 import { windowCall } from "#adapter/page/window.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -308,11 +308,11 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 												Option.getOrThrow
 											)
 											const pagedMember = member(loaded, `paged${at}`)
-											const q = memberCalls(dbCtx, pagedMember)
+											const q = onceCalls(dbCtx, pagedMember)
 											const compiled = pageTemplate(pagedMember, opened.installed.names.codes)
 											const runtime = compiled.runtime
 											const rows = yield* readOnce(
-												memberCalls(dbCtx, member(loaded, `unpaged${at}`))
+												onceCalls(dbCtx, member(loaded, `unpaged${at}`))
 											)({
 												params: {},
 												facts: {}

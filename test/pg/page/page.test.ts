@@ -61,7 +61,7 @@ import {
 	Result,
 	String as Str
 } from "effect"
-import { memberCalls } from "#adapter/db/handles.ts"
+import { onceCalls } from "#adapter/db/handles.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { CallInputRefused, type CallInputFault } from "#adapter/errors/failures.ts"
 import { callErrorOf } from "#adapter/live/call-error.ts"
@@ -734,8 +734,8 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 										Effect.gen(function* () {
 											/** A paged member's calls, their flights counted. */
 											const pagedCalls = (handle: Handle) =>
-												memberCalls(recording.ctx, member(loaded, memberName(walk.query, handle)))
-											const unpaged = memberCalls(
+												onceCalls(recording.ctx, member(loaded, memberName(walk.query, handle)))
+											const unpaged = onceCalls(
 												dbCtx,
 												member(loaded, memberName(walk.query, "unpaged"))
 											)
@@ -1029,7 +1029,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 									(c, notes) =>
 										Effect.gen(function* () {
 											const paging = member(loaded, memberName(c.query, "member"))
-											const calls = memberCalls(recording.ctx, paging)
+											const calls = onceCalls(recording.ctx, paging)
 											const compiled = pageTemplate(paging, opened.installed.names.codes)
 											const [first] = yield* windowOf(calls, params, { kind: "start" }, 1)
 											const row = keyOf(compiled.fields, defined(first, "a row of D"))

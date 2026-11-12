@@ -9,7 +9,7 @@ import {
 	String as Str
 } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { memberCalls, type ServedCalls } from "#adapter/db/handles.ts"
+import { onceCalls, type OnceCalls } from "#adapter/db/handles.ts"
 import { windowIntake } from "#adapter/page/execute.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
 import { windowCall } from "#adapter/page/window.ts"
@@ -520,7 +520,7 @@ export interface ReadCalls {
 
 /** A read member's once, its value as it answers: a write member's is a defect of the test. */
 const valueOf =
-	(calls: ServedCalls) =>
+	(calls: OnceCalls) =>
 	(input: unknown): Effect.Effect<ReadValue, CallError> => {
 		switch (calls.shape) {
 			case "set":
@@ -539,7 +539,7 @@ const everyRow: Window = { anchor: { kind: "start" }, size: Number.MAX_SAFE_INTE
 
 /** A loaded member's reads over a Db's context `ctx` (ReadCalls). */
 export const readCalls = (ctx: ServedDbContext, member: LoadedMember): ReadCalls => {
-	const once = valueOf(memberCalls(ctx, member))
+	const once = valueOf(onceCalls(ctx, member))
 	const windowed = (params: HostParams, window: unknown) => once({ params, facts: {}, window })
 	return {
 		read: (params) =>

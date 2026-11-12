@@ -68,7 +68,7 @@ import {
 	Record as Rec,
 	Result as EffectResult
 } from "effect"
-import { type MemberExplains, memberCalls, memberExplains, variantOf } from "#adapter/db/handles.ts"
+import { type MemberExplains, onceCalls, memberExplains, variantOf } from "#adapter/db/handles.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import type { ExecutedPlan, Plan, PlanTarget, StatementPlan } from "#adapter/types/db.ts"
 import type { Prologue } from "#adapter/wire/batch.ts"
@@ -613,7 +613,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 											)
 											const executed = yield* observe(
 												tap,
-												readOnce(memberCalls(context, program))({ params, facts: {} })
+												readOnce(onceCalls(context, program))({ params, facts: {} })
 											)
 											const sent = plannedStatements(tap, executed.window, context.prologue)
 											ofTheServed(
@@ -862,7 +862,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 												estimateOnly(plan.plan)
 												readsWithin(plan.plan, footprint, tableOf, indexes)
 											}
-											const calls = memberCalls(context, change)
+											const calls = onceCalls(context, change)
 											assertVariant(
 												calls,
 												"shape",
@@ -1048,7 +1048,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 									variantOf(served, boxes.variants).entry.program.flight
 								)
 								const bound = { ...served, pool: boundPool(served.pool, limit) }
-								const handle = memberCalls(bound, boxes)
+								const handle = onceCalls(bound, boxes)
 								if (handle.shape !== "write") {
 									return assert.fail("a ChangeSet with array members loads as a write handle")
 								}

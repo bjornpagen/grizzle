@@ -79,7 +79,7 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
-import { memberCalls, type WrittenOutcome } from "#adapter/db/handles.ts"
+import { onceCalls, type WrittenOutcome } from "#adapter/db/handles.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/served/compile.ts"
 import { appendAll } from "#compiler/core/array.ts"
@@ -1342,7 +1342,7 @@ const runRace = (
 						const key = `${session.actor}#${i}`
 						steps.push({
 							label: describeOp(op),
-							outcome: writeOnce(memberCalls(ctx, change.member))({
+							outcome: writeOnce(onceCalls(ctx, change.member))({
 								params,
 								facts: factsOf(op)
 							}).pipe(
@@ -1851,7 +1851,7 @@ const runInserters = (
 						outcome: Effect.map(
 							Effect.result(
 								answered(
-									writeOnce(memberCalls(writers[actor].ctx, change.member))({
+									writeOnce(onceCalls(writers[actor].ctx, change.member))({
 										params: {},
 										facts: inserterFacts(call)
 									})
@@ -2285,7 +2285,7 @@ const runClaimers = (
 						outcome: Effect.map(
 							Effect.result(
 								answered(
-									writeOnce(memberCalls(writers[actor].ctx, change.member))({
+									writeOnce(onceCalls(writers[actor].ctx, change.member))({
 										params: {},
 										facts: claimerFacts(call)
 									})
@@ -2513,7 +2513,7 @@ const runInserterAlone = (
 		const mark = tap.mark()
 		const result = yield* Effect.result(
 			answered(
-				writeOnce(memberCalls({ ...writer.ctx, pool }, change.member))({
+				writeOnce(onceCalls({ ...writer.ctx, pool }, change.member))({
 					params: {},
 					facts: inserterFacts(ac.call)
 				})

@@ -49,7 +49,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
-import { memberCalls, variantOf } from "#adapter/db/handles.ts"
+import { onceCalls, variantOf } from "#adapter/db/handles.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
@@ -337,7 +337,7 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 										const mark = tap.mark()
 										const change = member(members, c.form)
 										assertVariant(change, "kind", "change", "a ChangeSet loads as a change member")
-										const calls = memberCalls(tapped, change)
+										const calls = onceCalls(tapped, change)
 										const takes = variantOf(tapped, change.variants).call.kind
 										const outcome = yield* Effect.result(
 											c.form === "parameter"

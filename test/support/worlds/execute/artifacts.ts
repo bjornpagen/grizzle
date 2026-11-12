@@ -1,6 +1,6 @@
 import { Array as Arr, Deferred, Effect, Exit, Option, Ref, Result } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { memberCalls, readCallOf } from "#adapter/db/handles.ts"
+import { onceCalls, readCallOf } from "#adapter/db/handles.ts"
 import { toResult } from "#adapter/engine.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import type { DecodedRow } from "#adapter/reader/stream.ts"
@@ -352,7 +352,7 @@ export const artifactsAgree = <E>(
 /**
  * Whether a member's public once delivers what its flight does (sameDelivery): `read` reads through the member as the
  * Db's read did, once with each call's statement sent in a flight of its own (readerOf over flown), and once through the
- * member's once (adapter/db/handles.ts memberCalls), its stream folded to its value, each call its own transaction at
+ * member's once (adapter/db/handles.ts onceCalls), its stream folded to its value, each call its own transaction at
  * the one state no writer moves between them. The flight's rows are the ones the differential holds to the model and to
  * the conservative artifact, so a once that agrees with them answers the model's rows. A once that fails where the
  * flight answered is a defect of the run.
@@ -368,7 +368,7 @@ export const onceAgrees = <E>(
 	Effect.gen(function* () {
 		const flight = readerOf(member, (statements) => flown(ctx, statements))
 		const viaFlight = yield* read(flight)
-		const once = readOnce(memberCalls(ctx, member))
+		const once = readOnce(onceCalls(ctx, member))
 		const viaOnce = yield* read({
 			fields: flight.fields,
 			read: (input) => Effect.orDie(once(input))
