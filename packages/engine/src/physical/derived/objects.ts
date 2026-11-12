@@ -36,6 +36,7 @@ import {
 	type InstallContribution,
 	type InstallExtension,
 	noCarriers,
+	noHolds,
 	noCertificates,
 	noContribution
 } from "#compiler/physical/install/extension.ts"
@@ -280,6 +281,7 @@ const derivedRelationExtension = (): InstallExtension => {
 		textDomainUses: (checked: CheckedSchema) => Result.ok(textColumnUses(derivedAnalysis(checked))),
 		certifies: noCertificates,
 		carriers: noCarriers,
+		holds: noHolds,
 		live: noLive
 	}
 }

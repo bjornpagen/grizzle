@@ -1476,7 +1476,11 @@ describe("a compile's law model", () => {
 									return [...chainOf(t), ...(pattern === undefined ? [] : [pattern.name])]
 								})
 							)
-							const narrowed = raisableOf(wholeArtifacts, { written: changed, cast })
+							const narrowed = raisableOf(wholeArtifacts, {
+								written: changed,
+								cast,
+								held: new Set()
+							})
 							const constraintOf = (e: {
 								readonly kind: string
 								readonly owner: string

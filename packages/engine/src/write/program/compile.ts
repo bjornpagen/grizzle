@@ -131,6 +131,8 @@ import {
 import type { EntryClaims } from "#compiler/write/frontend/entry.ts"
 import { plainRefills, type StratumRefill } from "#compiler/write/frontend/refill.ts"
 import { type FamilyNode, sameNode } from "#compiler/write/frontend/schedule.ts"
+import { heldUnits } from "#compiler/write/hold/stated.ts"
+import { buildHold } from "#compiler/write/hold/statement.ts"
 import { distinctByEvidence, type WriteInput } from "#compiler/write/insert/input.ts"
 import {
 	buildInsert,
@@ -807,7 +809,15 @@ const placeSpec = (
 	step: Extract<
 		WriteStep,
 		{
-			readonly kind: "write" | "advance" | "carrier" | "single" | "check" | "family" | "familyWrite"
+			readonly kind:
+				| "write"
+				| "advance"
+				| "carrier"
+				| "single"
+				| "check"
+				| "family"
+				| "familyWrite"
+				| "hold"
 		}
 	>,
 	spec: StatementSpec<WriteParamSlot>,
@@ -974,7 +984,7 @@ const optimizedPlacement = (
 		dependsOn: ReadonlyArray<number>,
 		step: (
 			statement: S
-		) => Extract<WriteStep, { readonly kind: "write" | "advance" | "carrier" | "check" }>
+		) => Extract<WriteStep, { readonly kind: "write" | "advance" | "carrier" | "check" | "hold" }>
 	): number => {
 		const { statement, forms } = formed(build, sentOf)
 		return placeSpec(
@@ -1283,6 +1293,21 @@ const optimizedPlacement = (
 				if (step.check.kind === "membership") {
 					record(step.check.action, position)
 				}
+				break
+			}
+			case "hold": {
+				/** A hold reads its unit's header, after a statement of the write that inserts one, and every statement
+				 * that touches a body of its unit follows it. */
+				const { unit } = step.hold
+				const deps = tracker.add(
+					[`relation:${unit.header}`],
+					[...unit.bodies.keys()].map((body) => `relation:${body}`)
+				)
+				placed(
+					() => buildHold(w, step.hold),
+					deps,
+					() => ({ kind: "hold", header: unit.header })
+				)
 				break
 			}
 			case "readBack": {
@@ -1718,12 +1743,17 @@ const compile = (
 			level: options.level
 		})
 	}
-	const plan = planWrite(restated, chosenIn(chosen, frontend.restate), {
-		level: options.level,
-		distinct: (node, relation) => distinctByEvidence(placed.facts, node, relation),
-		shares: (members) => unwrap(planStatementShares(sharing.index, members)),
-		carrierTyping: (t, at) => lowering.w.cx.typeRef(t, at)
-	})
+	const plan = planWrite(
+		restated,
+		chosenIn(chosen, frontend.restate),
+		{
+			level: options.level,
+			distinct: (node, relation) => distinctByEvidence(placed.facts, node, relation),
+			shares: (members) => unwrap(planStatementShares(sharing.index, members)),
+			carrierTyping: (t, at) => lowering.w.cx.typeRef(t, at)
+		},
+		heldUnits(frontend)
+	)
 	const optimized = optimizedArtifact(restated, plan, lowering, options)
 	unwrap(insertOnly(schema, optimized.statements, options.names, options.laws))
 	const family = familyProgram(frontend, lowering.w)

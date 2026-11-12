@@ -18,6 +18,7 @@ import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import {
 	type InstallExtension,
 	noCarriers,
+	noHolds,
 	noCertificates,
 	noContribution
 } from "#compiler/physical/install/extension.ts"
@@ -384,6 +385,7 @@ const workloadRequests = (programs: Readonly<Record<string, unknown>>): InstallE
 	textDomainUses: noTextDomainUses,
 	certifies: noCertificates,
 	carriers: noCarriers,
+	holds: noHolds,
 	live: noLive
 })
 

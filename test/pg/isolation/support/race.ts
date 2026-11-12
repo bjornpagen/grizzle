@@ -35,9 +35,11 @@ import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import {
 	type InstallExtension,
 	noCarriers,
-	noContribution
+	noContribution,
+	type RoleHold
 } from "#compiler/physical/install/extension.ts"
 import { changesAt } from "#compiler/program/workload/change.ts"
+import { servedHolds } from "#compiler/program/workload/compile.ts"
 import type { AnyLogin, AnyRole, AnySchema } from "#compiler/public/schema.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { servedFile } from "#compiler/served/json.ts"
@@ -186,16 +188,22 @@ const draftOf = (shape: Shape) =>
 	)
 
 /**
- * The installer extension that states `roles`' certificates and contributes nothing else, which the installation reads
- * as it reads the served workload's (physical/access/extension.ts servedWorkloadExtension): each table's guard follows
- * them. The workload's access paths, the rest of that extension, are indexes, which decide no outcome a race compares;
- * its carrier roles are TEMPORARY grants, which the test cluster's PUBLIC already holds.
+ * The installer extension that states `roles`' certificates and the roles whose served ChangeSets hold a retirable
+ * unit, `holds`, and contributes nothing else, which the installation reads as it reads the served workload's
+ * (physical/access/extension.ts servedWorkloadExtension): each table's guard follows the certificates, and each holding
+ * role holds EXECUTE on its unit's hold. The workload's access paths, the rest of that extension, are indexes, which
+ * decide no outcome a race compares; its carrier roles are TEMPORARY grants, which the test cluster's PUBLIC already
+ * holds.
  */
-const certifying = (roles: ReadonlyArray<RoleIsolation>): InstallExtension => ({
+const certifying = (
+	roles: ReadonlyArray<RoleIsolation>,
+	holds: ReadonlyArray<RoleHold>
+): InstallExtension => ({
 	contribute: () => Result.ok(noContribution),
 	textDomainUses: noTextDomainUses,
 	certifies: roles,
 	carriers: noCarriers,
+	holds,
 	live: noLive
 })
 
@@ -292,7 +300,12 @@ export const installShape = (
 			ambient: ordinarySession,
 			label: "iso",
 			logins: [declared.login],
-			extensions: [certifying(certified)]
+			extensions: [
+				certifying(
+					certified,
+					servedHolds(new Map(Arr.map([...first.served.logins], ([l, p]) => [l, p.roles] as const)))
+				)
+			]
 		})
 		const shape = build(installed.declared)
 		const { compiled, draft, served } = yield* draftOf(shape)

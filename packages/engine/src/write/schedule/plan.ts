@@ -35,6 +35,7 @@ import {
 	familyNodeRelations
 } from "#compiler/write/frontend/schedule.ts"
 import { payloadOf } from "#compiler/write/frontend/targets.ts"
+import type { HeldUnit } from "#compiler/write/hold/stated.ts"
 import {
 	type InputProof,
 	keyUniqueByEvidence,
@@ -135,7 +136,9 @@ export type PlannedWrite = {
  * - `readBack`, a read-back after the last stratum, one that reads no delta a statement writes;
  * - `check`, a query entry's check of an addition's facts, `input`;
  * - `family`, a family statement of the stratum (frontend/schedule.ts FamilyNode), where its schedule runs it among
- *   the stratum's writes. */
+ *   the stratum's writes;
+ * - `hold`, the hold of the groups a write states of a retirable unit it touches, before the first statement that
+ *   touches it (`placeHolds`). */
 export type PlanStep =
 	| {
 			readonly kind: "createCarrier"
@@ -190,6 +193,7 @@ export type PlanStep =
 			readonly check: PlannedCheck
 	  }
 	| { readonly kind: "family"; readonly stratum: StratumAt; readonly node: FamilyNode }
+	| { readonly kind: "hold"; readonly hold: HeldUnit }
 
 export interface WritePlan {
 	readonly steps: ReadonlyArray<PlanStep>
@@ -638,7 +642,7 @@ const sequentialSteps = (
 }
 
 /** The stored relations a step's statements change: a write's relation, a single statement's writes', a family
- * statement's; a carrier's, a check's, a sequence advance's and a classification's change none. */
+ * statement's; a carrier's, a check's, a sequence advance's, a classification's and a hold's change none. */
 const stepWrites = (step: PlanStep): ReadonlyArray<string> => {
 	switch (step.kind) {
 		case "write":
@@ -654,6 +658,7 @@ const stepWrites = (step: PlanStep): ReadonlyArray<string> => {
 		case "classify":
 		case "check":
 		case "readBack":
+		case "hold":
 			return []
 	}
 }
@@ -757,8 +762,8 @@ type SideWrite = {
 } & ({ readonly kind: "write"; readonly write: PlannedWrite } | { readonly kind: "family" })
 
 /** The sides of the relations' deltas a step's statements make: a write's by its op, a single statement's by its
- * parts', a family statement's both sides of each relation it writes; a carrier's, a check's, a sequence advance's and
- * a classification's none. */
+ * parts', a family statement's both sides of each relation it writes; a carrier's, a check's, a sequence advance's, a
+ * classification's and a hold's none. */
 const stepSides = (step: PlanStep): ReadonlyArray<SideWrite> => {
 	const ofWrite = (write: PlannedWrite): ReadonlyArray<SideWrite> =>
 		opSides(write).map((side): SideWrite => ({
@@ -783,6 +788,7 @@ const stepSides = (step: PlanStep): ReadonlyArray<SideWrite> => {
 		case "classify":
 		case "check":
 		case "readBack":
+		case "hold":
 			return []
 	}
 }
@@ -954,6 +960,66 @@ const placeReadBacks = (
 	}
 }
 
+/** Whether `step` reads or writes a relation of `held`'s unit the write touches: a body it writes, by an action, a
+ * classification or a family statement, or a relation a member, a shared sub-query or a read-back of it reads,
+ * through a role's views (`storedReads`). A header written touches nothing; a member reading the header the unit
+ * holds for its retirement field touches it, and is held before it reads it. */
+const touchesUnit = (frontend: WriteFrontend, step: PlanStep, held: HeldUnit): boolean => {
+	const reads = (node: RelNode): boolean =>
+		node.meta.reads.some((r) => storedReads(frontend, r).some((s) => held.observed.has(s)))
+	const body = (relation: string): boolean => held.unit.bodies.has(relation)
+	const input = (i: WriteInput): boolean => i.kind === "described" && reads(i.node)
+	const write = (w: PlannedWrite): boolean =>
+		body(w.relation.name) || input(w.input) || (w.op === "exactDelete" && w.except.some(input))
+	switch (step.kind) {
+		case "write":
+			return write(step)
+		case "single":
+			return (
+				step.writes.some(write) ||
+				step.shares.some((share) => reads(share.node)) ||
+				step.readBacks.some((read) => reads(read.node))
+			)
+		case "fillMember":
+			return reads(step.node)
+		case "fillShare":
+			return reads(step.share.node)
+		case "classify":
+			return body(step.relation.name) || input(step.input)
+		case "check":
+			return input(step.input)
+		case "readBack":
+			return reads(step.read.node)
+		case "family":
+			return familyNodeRelations(step.node).some(body)
+		case "createCarrier":
+		case "advance":
+		case "hold":
+			return false
+	}
+}
+
+/**
+ * `steps` with each unit of `holds` held right before the first of them that touches it (`touchesUnit`), in its
+ * header's order: from the hold until the transaction ends, no retirement of a group the write states commits, so the
+ * rows of the unit's bodies each statement after it reads and writes are, for the call, as an insert-only relation's
+ * (write/hold/stated.ts heldUnits). A write that inserts a header and the bodies of its group holds them after the
+ * header's statement, which the action order runs first (`planWrite`), so the group it creates is open when the hold
+ * locks it.
+ */
+const placeHolds = (
+	frontend: WriteFrontend,
+	steps: ReadonlyArray<PlanStep>,
+	holds: ReadonlyArray<HeldUnit>
+): ReadonlyArray<PlanStep> =>
+	holds.reduce<ReadonlyArray<PlanStep>>((placed, hold) => {
+		const at = placed.findIndex((step) => touchesUnit(frontend, step, hold))
+		if (at < 0) {
+			throw defect(`a statement touching the retirable unit ${hold.unit.header} the write holds`)
+		}
+		return [...placed.slice(0, at), { kind: "hold", hold }, ...placed.slice(at)]
+	}, steps)
+
 /** The sequence of statements a compiled ChangeSet runs inside its one transaction, from the write front end's order of
  * each stratum's actions by their dependency graph and the statement chosen for each put.
  *
@@ -1002,6 +1068,10 @@ const placeReadBacks = (
  * RETURNING; one that reads no delta a statement makes comes last, after the last stratum; any other is refused
  * (ReadBackCrossesStatements), since a delta never leaves the statement that makes it.
  *
+ * Each retirable unit the write touches, `holds`, is held before the first statement that touches it (`placeHolds`). A
+ * stratum that writes the header of one is realized sequentially, so its hold can stand after the header's statement
+ * and before its bodies'.
+ *
  * A stratum is realized sequentially, one statement per write action plus the member carriers, sequence advances and
  * classifications the rules above require, or as a single statement where one snapshot suffices: its statements are at
  * least two writes of distinct relations and nothing else, so no statement reads what another writes, a deletion
@@ -1013,7 +1083,8 @@ const placeReadBacks = (
 export const planWrite = (
 	frontend: WriteFrontend,
 	chosen: ChosenTargets,
-	evidence: PlanEvidence
+	evidence: PlanEvidence,
+	holds: ReadonlyArray<HeldUnit>
 ): WritePlan => {
 	const supply = new CarrierSupply(evidence.carrierTyping)
 	/** The strata's statements, the read-backs placed among them below. */
@@ -1078,7 +1149,12 @@ export const planWrite = (
 		 * stratum's starting state, so one whose schedule runs a family statement before any of its actions is realized
 		 * sequentially, its members carried where an earlier statement wrote what they read. */
 		const before = family.some((f) => f.at < actions.length)
-		const realization: Realization = before ? { kind: "sequential" } : realizationOf(drafted)
+		/** A stratum that writes a held unit's header holds the unit after the header's statement. */
+		const creates = holds.some((h) =>
+			drafted.some((d) => d.action.info.relation.name === h.unit.header)
+		)
+		const realization: Realization =
+			before || creates ? { kind: "sequential" } : realizationOf(drafted)
 		switch (realization.kind) {
 			case "single":
 				strata.push({
@@ -1107,7 +1183,7 @@ export const planWrite = (
 		steps.push({ kind: "readBack", read })
 	}
 	return Object.freeze({
-		steps: Object.freeze(steps),
+		steps: Object.freeze(placeHolds(frontend, steps, holds)),
 		carriers: Object.freeze(supply.all()),
 		made: placement.made
 	})

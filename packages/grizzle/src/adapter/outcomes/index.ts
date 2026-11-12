@@ -141,8 +141,8 @@ const unstated: StatementAt = Object.freeze({ kind: "unstated" })
  * What the statement at `origin` states, as the host reads it: a write statement's action, a single statement's parts'
  * actions, at its stratum; a family statement's relation; the fill of an action's member's carrier, which casts the
  * facts the action writes into its relation's types (CarrierCasts); a query entry's precheck, which casts the entry's
- * facts into its target's types; nothing for another carrier's statement, an ANALYZE or a serial advance, a read-back,
- * a family's stored-suffix read, or the COMMIT.
+ * facts into its target's types; nothing for another carrier's statement, an ANALYZE, a serial advance or a hold, whose
+ * refusal names its law and key in its DETAIL, a read-back, a family's stored-suffix read, or the COMMIT.
  */
 const statementAt = (origin: FailureOrigin): StatementAt => {
 	if (origin.kind !== "statement") {
@@ -175,6 +175,7 @@ const statementAt = (origin: FailureOrigin): StatementAt => {
 		case "analyze":
 		case "advance":
 		case "readBack":
+		case "hold":
 			return unstated
 	}
 }
@@ -210,6 +211,8 @@ const stepText = (step: WriteStep): string => {
 				Arr.dedupe(Arr.map(step.parts, (p) => p.relation)),
 				", "
 			)}`
+		case "hold":
+			return `the hold of the groups of ${step.header}`
 	}
 }
 

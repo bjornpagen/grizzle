@@ -87,6 +87,7 @@ export type WriteStep =
 			readonly skipWhenEmpty: ParamId | undefined
 	  }
 	| { readonly kind: "readBack"; readonly name: string }
+	| HoldStep
 	| {
 			readonly kind: "check"
 			readonly stratum: StratumAt
@@ -102,6 +103,17 @@ export type WriteStep =
 	  }
 	| FamilyStep
 	| FamilyWriteStep
+
+/**
+ * A retirable unit's hold of the groups a write states (write/hold/statement.ts), by its header: before the first
+ * statement of the write that touches the unit, wherever that stands among the strata and the read-backs after them,
+ * so it belongs to no stratum. Its one row carries nothing to decode, and a group it finds absent or retired is a
+ * refusal the refusal function raises on the fence of the unit's first body.
+ */
+export interface HoldStep {
+	readonly kind: "hold"
+	readonly header: StoredRelationName
+}
 
 /**
  * A stratum's family additions or removals as one statement (write/family/additions.ts): its rows are each part's
@@ -187,6 +199,7 @@ export const writeRows = (
 		case "advance":
 		case "readBack":
 		case "check":
+		case "hold":
 			return []
 	}
 }
@@ -194,10 +207,11 @@ export const writeRows = (
 /** The step of a statement of the write program's own: every step but a read-back's. */
 export type OwnStep = Exclude<WriteStep, { readonly kind: "readBack" }>
 
-/** The stratum a step belongs to, none for a carrier around the strata and a read-back's statement. */
+/** The stratum a step belongs to, none for a carrier around the strata, a read-back's statement and a hold. */
 export const stratumOf = (step: WriteStep): StratumAt | undefined => {
 	switch (step.kind) {
 		case "readBack":
+		case "hold":
 			return undefined
 		case "carrier":
 		case "analyze":

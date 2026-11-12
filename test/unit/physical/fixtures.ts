@@ -7,7 +7,8 @@ import {
 	type InstallExtension,
 	noCarriers,
 	noCertificates,
-	noContribution
+	noContribution,
+	noHolds
 } from "#compiler/physical/install/extension.ts"
 import { eq, key, on, onWhere, type SchemaDesc, textDesc } from "#test/support/fixtures/ir/desc.ts"
 
@@ -23,6 +24,7 @@ export const requesting = (requests: ReadonlyArray<IndexRequest>): InstallExtens
 	textDomainUses: noTextDomainUses,
 	certifies: noCertificates,
 	carriers: noCarriers,
+	holds: noHolds,
 	live: noLive
 })
 

@@ -18,7 +18,6 @@ import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { IndexRequest, InstallationManifest } from "#compiler/ir/products.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
 import { addAdvanceFunctions } from "#compiler/physical/ddl/advance.ts"
-import { addUnitFunctions } from "#compiler/physical/ddl/retire.ts"
 import { addClosedRelations, addRosters } from "#compiler/physical/ddl/constants.ts"
 import { InstallBuilder, type InstallSettings } from "#compiler/physical/ddl/context.ts"
 import {
@@ -29,6 +28,7 @@ import {
 } from "#compiler/physical/ddl/domains.ts"
 import { readCommittedRelations } from "#compiler/physical/ddl/isolation.ts"
 import { addLiveSource } from "#compiler/physical/ddl/live.ts"
+import { addUnitFunctions } from "#compiler/physical/ddl/retire.ts"
 import { addWorlds, grantedPrivileges, type InstalledLogin } from "#compiler/physical/ddl/roles.ts"
 import { addRules } from "#compiler/physical/ddl/rules.ts"
 import { addTables } from "#compiler/physical/ddl/tables.ts"
@@ -382,7 +382,7 @@ export const installationOver = (
 				]
 				const { keyIndexes, tables, sequences } = addTables(b)
 				const advance = addAdvanceFunctions(b)
-				addUnitFunctions(b)
+				const units = addUnitFunctions(b)
 				const ruleRequests = addRules(b)
 				addSpanStorage(b, plan.spans)
 
@@ -415,13 +415,15 @@ export const installationOver = (
 				const worlds = addWorlds(
 					b,
 					advance,
+					units,
 					{ tables, sequences, domains: [...domains, ...extensionDomains] },
 					plan.logins,
 					statedOnce(
 						installedRoles(plan),
 						options.extensions.flatMap((e) => e.carriers),
 						"carrier statement"
-					)
+					),
+					options.extensions.flatMap((e) => e.holds)
 				)
 				addLiveSource(b, live)
 				const identities = [...ownedIdentities(owned), ...model.identities, ...b.named()]

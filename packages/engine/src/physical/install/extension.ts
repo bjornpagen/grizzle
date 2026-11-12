@@ -59,6 +59,13 @@ export interface InstallExtension {
 	 */
 	readonly carriers: ReadonlyArray<RoleOfLogin>
 	/**
+	 * The roles whose served ChangeSets hold a retirable unit (write/hold/statement.ts), each with the unit's header,
+	 * which the installation grants EXECUTE on the unit's hold function (physical/ddl/roles.ts addWorlds): the served
+	 * workload's, derived from the ChangeSets it serves (program/workload/compile.ts servedWorkload); every other
+	 * extension's, none (`noHolds`).
+	 */
+	readonly holds: ReadonlyArray<RoleHold>
+	/**
 	 * The live plan of the programs it serves (live/notify.ts LivePlan), whose footprint tables the installation's live
 	 * source publishes (physical/ddl/live.ts): the served workload's, derived from its read programs
 	 * (program/workload/compile.ts servedWorkload); every other extension's, none (noLive).
@@ -77,3 +84,11 @@ export const noCertificates: ReadonlyArray<RoleIsolation> = []
 
 /** No role that creates a carrier: what an extension that compiles no served workload states. */
 export const noCarriers: ReadonlyArray<RoleOfLogin> = []
+
+/** A role of a login whose served ChangeSets hold the retirable unit headed by `header`. */
+export interface RoleHold extends RoleOfLogin {
+	readonly header: string
+}
+
+/** No role that holds a unit: what an extension that compiles no served workload states. */
+export const noHolds: ReadonlyArray<RoleHold> = []

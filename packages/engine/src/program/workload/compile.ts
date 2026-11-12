@@ -38,7 +38,7 @@ import { extractAccess } from "#compiler/physical/access/extract.ts"
 import { uniquePaths } from "#compiler/physical/access/paths.ts"
 import { type ParamDomainUse, paramDomainUses } from "#compiler/physical/ddl/domains.ts"
 import { namedRole, type WorldNames, worldNames } from "#compiler/physical/ddl/names.ts"
-import type { RoleOfLogin } from "#compiler/physical/install/extension.ts"
+import type { RoleHold, RoleOfLogin } from "#compiler/physical/install/extension.ts"
 import {
 	mergeStatistics,
 	type StatisticsRequest,
@@ -615,6 +615,9 @@ export interface ServedWorkloadPlan extends WorkloadPlan {
 	/** The roles whose served ChangeSets create a carrier (servedCarriers), which the installation grants TEMPORARY on the
 	 * database. */
 	readonly carriers: ReadonlyArray<RoleOfLogin>
+	/** The roles whose served ChangeSets hold a retirable unit, each with the unit's header (servedHolds), which the
+	 * installation grants EXECUTE on the unit's hold function. */
+	readonly holds: ReadonlyArray<RoleHold>
 }
 
 /** Whether a ChangeSet's variants may create a carrier: any variant's flight (write/program/artifact.ts
@@ -635,6 +638,30 @@ const servedCarriers = (
 	[...served].flatMap(([login, roles]) =>
 		[...roles].flatMap(([role, changes]): ReadonlyArray<RoleOfLogin> =>
 			[...changes.members.values()].some(variantsCreateCarrier) ? [{ login, role }] : []
+		)
+	)
+
+/** The headers of the retirable units a ChangeSet's variants hold: any variant's flight's holds (write/hold/statement.ts). */
+const variantHolds = (variants: CompiledVariants): ReadonlyArray<string> =>
+	variants.kind === "form"
+		? variants.entry.compiled.artifact.statements.flatMap((s) =>
+				s.step.kind === "hold" ? [s.step.header] : []
+			)
+		: [...variantHolds(variants.holding), ...variantHolds(variants.lacking)]
+
+/**
+ * The roles of `served`, each login's ChangeSets in the forms their certificates serve them by role, with each
+ * retirable unit any of their served ChangeSets holds, by its header, in login, role and header order: the roles whose
+ * calls execute the unit's hold function.
+ */
+export const servedHolds = (
+	served: ReadonlyMap<string, ReadonlyMap<string, RoleChanges>>
+): ReadonlyArray<RoleHold> =>
+	[...served].flatMap(([login, roles]) =>
+		[...roles].flatMap(([role, changes]): ReadonlyArray<RoleHold> =>
+			[...new Set([...changes.members.values()].flatMap(variantHolds))]
+				.toSorted(compareText)
+				.map((header) => ({ login, role, header }))
 		)
 	)
 
@@ -677,7 +704,8 @@ export const servedWorkload = (
 			...planned.value,
 			changes: certified.served,
 			certification: certified.certificates,
-			carriers: servedCarriers(certified.served)
+			carriers: servedCarriers(certified.served),
+			holds: servedHolds(certified.served)
 		})
 	)
 }

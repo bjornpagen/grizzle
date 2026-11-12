@@ -395,6 +395,9 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   that makes its delta, whose rows exist nowhere else (write/schedule/plan.ts placeReadBacks).
  * - `UndeclaredDrop`: a migration drops `dropped`, which the previous installation holds and the schema no longer
  *   declares, and no declaration of the draft (`--rename`, `--drop`) names it.
+ * - `UnheldGroup`: the ChangeSet at `at` reads or writes `relation`, a body of the retirable unit headed by `header`, or
+ *   reads that header's retirement field, at a group it does not state, as `why` says (UnheldWhy): a served call holds
+ *   every group it touches before it touches it (write/hold/stated.ts), so no retirement of one commits while it runs.
  */
 export type CompileReason =
 	| { readonly _tag: "Refused"; readonly at: SourceLoc; readonly refusal: Refused }
@@ -578,7 +581,63 @@ export type CompileReason =
 			readonly read: string
 			readonly crossing: ReadBackCrossing
 	  }
+	| {
+			readonly _tag: "UnheldGroup"
+			readonly at: SourceLoc
+			readonly relation: string
+			readonly header: string
+			readonly why: UnheldWhy
+	  }
 export type CompileReasonTag = CompileReason["_tag"]
+
+/**
+ * Why a ChangeSet touches a retirable unit's relation at a group it does not state (UnheldGroup), the group's fields
+ * being the body's fields that name its header's key, or that key itself where it reads the header's retirement field:
+ *
+ * - `unbound`: a rule matches it with the group field `field` bound to no parameter: neither a parameter in the match's
+ *   bindings nor a variable one conjunct of the rule's where equates to a parameter;
+ * - `derived`: it reads it through `through`, a role's query entry, a derived relation or an imported query, whose rows
+ *   no parameter of the ChangeSet names;
+ * - `written`: a query member writes it with the group field `field` of its head bound to no parameter;
+ * - `drawn`: its member's facts leave the group field `field` for its sequence to draw;
+ * - `entry`: it writes it through the query entry `entry`, whose facts are stated in the entry's words;
+ * - `filter`: the filter of the query entry `entry` the ChangeSet writes through reads it at the row the entry checks;
+ * - `family`: a family statement reads its rows under owners of other groups: its family `family`'s owner is no body of
+ *   its unit;
+ * - `nested`: the ChangeSet nests its rows under facts of `owner`, which is no body of its unit.
+ */
+export type UnheldWhy =
+	| { readonly kind: "unbound" | "written" | "drawn"; readonly field: string }
+	| { readonly kind: "derived"; readonly through: string }
+	| { readonly kind: "entry" | "filter"; readonly entry: string }
+	| { readonly kind: "family"; readonly family: string }
+	| { readonly kind: "nested"; readonly owner: string }
+
+/**
+ * A served call holds every group of a retirable unit it touches before it touches it, so it must state each: say how
+ * the ChangeSet touches one it does not, and what states it.
+ */
+const unheldGroupText = (relation: string, header: string, why: UnheldWhy): string => {
+	const touched = `${relation}, ${relation === header ? "whose retirement field states its group's state" : `a body of the retirable unit ${header}`}, is touched at a group the ChangeSet does not state, and a call holds every group of ${header} it touches before it touches it`
+	switch (why.kind) {
+		case "unbound":
+			return `${touched}: a rule reads it with ${why.field} bound to no parameter; bind ${why.field} to a parameter in the match, or equate its variable to one in the rule's where`
+		case "derived":
+			return `${touched}: it is read through ${why.through}, whose rows no parameter names; match ${relation} itself, its group bound to parameters`
+		case "written":
+			return `${touched}: a query writes it with ${why.field} of its head bound to no parameter; state ${why.field} by a parameter, or write its rows from an array`
+		case "drawn":
+			return `${touched}: its facts leave ${why.field} for its sequence to draw; state ${why.field} in every fact`
+		case "entry":
+			return `${touched}: it is written through the query entry ${why.entry}, whose facts are the entry's; write ${relation} through a whole entry`
+		case "filter":
+			return `${touched}: the filter of the query entry ${why.entry} reads it at the row it checks; filter ${why.entry} by no body of ${header}`
+		case "family":
+			return `${touched}: the family ${why.family} reads its rows under owners of other groups; own its family by a body of ${header}`
+		case "nested":
+			return `${touched}: its rows are nested under facts of ${why.owner}, which state no group of ${header}; write them as a body's own facts`
+	}
+}
 
 /** One side of a relation's delta a read-back names: `side` of `relation`'s, the relation a stored one, a query entry's
  * delta named by its target. */
@@ -790,6 +849,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return `the stratum's ${reason.cycle.map((w) => `${w.op} of ${w.relation}`).join(", then ")} must each run before the next, and the last before the first, by the immediate keys and foreign keys between them, so no order of its statements keeps them all: write one of them in another stratum (ChangeSet.sequence)`
 		case "ReadBackCrossesStatements":
 			return readBackCrossingText(reason.read, reason.crossing)
+		case "UnheldGroup":
+			return unheldGroupText(reason.relation, reason.header, reason.why)
 		case "UndeclaredDrop": {
 			const spelled = droppedText(reason.dropped)
 			return `${spelled} is dropped but not declared: declare it with --drop ${spelled}, or --rename it`

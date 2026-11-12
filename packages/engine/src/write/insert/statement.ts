@@ -50,6 +50,8 @@ export interface WriteNames extends PhysicalNames {
 	readonly schema: string
 	/** A serial field's advance function. */
 	readonly advance: (relation: string, field: string) => ObjectName
+	/** A retirable header's hold function (physical/ddl/retire.ts), which a write that touches its unit calls. */
+	readonly hold: (header: string) => ObjectName
 	readonly primaryKey: (relation: string) => ConstraintName
 }
 
@@ -141,6 +143,13 @@ export interface SequenceAdvanceResult {
 	readonly field: string
 }
 
+/** A retirable unit's hold of the groups a write states (write/hold/statement.ts), by its header; its row carries
+ * nothing to decode. */
+export interface HoldResult {
+	readonly kind: "hold"
+	readonly header: StoredRelationName
+}
+
 /** A carrier's creation or fill; no rows. */
 export interface CarrierResult {
 	readonly kind: "carrier"
@@ -166,6 +175,7 @@ export type WriteResult =
 	| DeleteResult
 	| SpanClassifyResult
 	| SequenceAdvanceResult
+	| HoldResult
 	| CarrierResult
 	| AnalyzeResult
 	| EntryCheckResult

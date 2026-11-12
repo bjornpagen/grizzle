@@ -1,5 +1,5 @@
-import type { LawId } from "#compiler/core/ids.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { rowEq } from "#compiler/ir/compare.ts"
@@ -15,6 +15,7 @@ import type {
 	Expr,
 	FromItem,
 	FromSource,
+	FunctionName,
 	FunctionParam,
 	ObjectName,
 	PerformQuery,
@@ -185,12 +186,7 @@ const statedGroups = (
 	if (first === undefined) {
 		throw defect(`a retirable header ${unit.header} keyed by one field at least`)
 	}
-	return derived(
-		select(distinctCore([first, ...rest], [unnest], undefined)),
-		alias,
-		columns,
-		false
-	)
+	return derived(select(distinctCore([first, ...rest], [unnest], undefined)), alias, columns, false)
 }
 
 /** The header row at a group: its key fields, each equal to the group's column of its position, at its type. */
@@ -384,16 +380,23 @@ const unitFunctionDdl = (
 	]
 }
 
+/** A unit function as a grant names it and orders after it: its object, and its name with its parameters' types. */
+export interface UnitFunction {
+	readonly node: Node<"structure">
+	readonly name: FunctionName
+}
+
 /** Each unit's hold and retire functions, by its header relation. */
 export interface UnitFunctions {
-	readonly hold: Node<"structure">
-	readonly retire: Node<"structure">
+	readonly hold: UnitFunction
+	readonly retire: UnitFunction
 }
 
 /**
  * Every retirable unit's two functions, each after the unit's tables, named for its header (identity.hold,
  * identity.retire), SECURITY DEFINER, so a role needs no privilege on a unit's table beyond what it holds to call one,
- * and PUBLIC holds none, revoked right after its creation as every grizzle function's is.
+ * and PUBLIC holds none, revoked right after its creation as every grizzle function's is. A role whose served workload
+ * holds the unit holds EXECUTE on its hold (physical/ddl/roles.ts addWorlds).
  *
  * - The hold, `<hold>(keys_1 <key 1>[], …) RETURNS void`, which a change member that touches a unit's body calls before
  *   its first statement that does, with the groups it states: it locks the open header of each, KEY SHARE, in key
@@ -420,18 +423,20 @@ export const addUnitFunctions = (b: InstallBuilder): ReadonlyMap<string, UnitFun
 			name: ObjectName,
 			body: NonEmptyReadonlyArray<PlStatement>,
 			why: string
-		): Node<"structure"> => {
+		): UnitFunction => {
 			b.name(named)
-			return b.add(
+			const ddl = unitFunctionDdl(name, params, body)
+			const node = b.add(
 				{
 					kind: "unitFunction",
 					ident: b.qualifiedOf("function", unit.header, named),
-					ddl: unitFunctionDdl(name, params, body),
+					ddl,
 					reasons: [enforcement(why)],
 					phase: "structure"
 				},
 				after
 			)
+			return { node, name: functionNameOf(ddl[0]) }
 		}
 		const hold = add(
 			identity.hold(unit.header),

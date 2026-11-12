@@ -39,6 +39,7 @@ import type { Installation } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallExtension,
 	noCarriers,
+	noHolds,
 	noCertificates
 } from "#compiler/physical/install/extension.ts"
 import { installBasis } from "#compiler/physical/install/plan.ts"
@@ -409,6 +410,7 @@ const workloadExtensionOver = (
 	textDomainUses: noTextDomainUses,
 	certifies: noCertificates,
 	carriers: noCarriers,
+	holds: noHolds,
 	live: noLive
 })
 

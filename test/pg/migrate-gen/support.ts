@@ -48,7 +48,8 @@ import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallExtension,
 	noCarriers,
-	noCertificates
+	noCertificates,
+	noHolds
 } from "#compiler/physical/install/extension.ts"
 import {
 	type StatisticsRequest,
@@ -1002,6 +1003,7 @@ export const extensionsOf = (v: Version): ReadonlyArray<InstallExtension> => {
 					textDomainUses: noTextDomainUses,
 					certifies: noCertificates,
 					carriers: noCarriers,
+					holds: noHolds,
 					live: noLive
 				}
 			]

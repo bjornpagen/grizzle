@@ -67,12 +67,13 @@ import {
 } from "#compiler/physical/ddl/domains.ts"
 import { snapshotGuardFunction } from "#compiler/physical/ddl/ledger.ts"
 import { levelIn, missing, type NamedRole, roleView } from "#compiler/physical/ddl/names.ts"
+import type { UnitFunction, UnitFunctions } from "#compiler/physical/ddl/retire.ts"
 import {
 	derivedReading,
 	type LoweredDefinition,
 	lowerDefinition
 } from "#compiler/physical/derived/definition.ts"
-import type { RoleOfLogin } from "#compiler/physical/install/extension.ts"
+import type { RoleHold, RoleOfLogin } from "#compiler/physical/install/extension.ts"
 import {
 	enforcement,
 	type Node,
@@ -1184,14 +1185,16 @@ const roleExecutes = (
  * whose policies `addRowSecurity` adds. A roster whole entry has no view: its handles are read as codes, typed by its
  * domain, which the role uses. The filter function a policy calls, then the probes, each come
  * after every relation, type and function their statements read. TEMPORARY on the database is among its grants where
- * `carriers`, its served workload creating a carrier. */
+ * `carriers`, its served workload creating a carrier, and EXECUTE on each hold function of `held`, the retirable units
+ * its served workload holds. */
 const addRole = (
 	b: InstallBuilder,
 	cx: WorldsContext,
 	{ theory: named, checked }: CheckedRole,
 	login: { readonly role: string; readonly object: Node<"publish"> },
 	advance: AdvanceFunctions,
-	carriers: boolean
+	carriers: boolean,
+	held: ReadonlyArray<UnitFunction>
 ): RoleOutcome => {
 	const role = checked.world.role
 	const theory = b.name(named)
@@ -1406,6 +1409,11 @@ const addRole = (
 	if (carriers) {
 		privileges.push(grant(["TEMPORARY"], { kind: "DATABASE" }))
 	}
+	if (isNonEmpty(held)) {
+		privileges.push(
+			grant(["EXECUTE"], { kind: "FUNCTION", names: mapNonEmpty(held, (h) => h.name) })
+		)
+	}
 	b.add(
 		{
 			kind: "privileges",
@@ -1414,7 +1422,7 @@ const addRole = (
 			reasons: why,
 			phase: "publish"
 		},
-		[...after, ...usedNodes(use), ...executes.map((e) => e.node)]
+		[...after, ...usedNodes(use), ...executes.map((e) => e.node), ...held.map((h) => h.node)]
 	)
 	return {
 		installed: { name: role.name, role: theory, schema },
@@ -1429,7 +1437,8 @@ const addLogin = (
 	cx: WorldsContext,
 	{ login, roles }: CheckedLogin,
 	advance: AdvanceFunctions,
-	carriers: ReadonlyArray<RoleOfLogin>
+	carriers: ReadonlyArray<RoleOfLogin>,
+	held: (role: string) => ReadonlyArray<UnitFunction>
 ): {
 	readonly installed: InstalledLogin
 	readonly vector: boolean
@@ -1481,7 +1490,8 @@ const addLogin = (
 				r,
 				{ role, object: roleObject },
 				advance,
-				carriers.some((c) => c.login === login.name && c.role === r.checked.world.role.name)
+				carriers.some((c) => c.login === login.name && c.role === r.checked.world.role.name),
+				held(r.checked.world.role.name)
 			)
 		)
 	return {
@@ -1647,6 +1657,9 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   role a transaction's SET ROLE takes on, never its login. No other login or role is granted it, and PUBLIC's, which
  *   PostgreSQL gives every database, is the database owner's: grizzle neither relies on it nor revokes it. A later
  *   migration revokes it from a role whose workload no longer creates one, as it replaces any role's changed grants.
+ *   EXECUTE on the hold function of each retirable unit its served workload holds (`holds`, stated by the served
+ *   workload's extension; physical/ddl/retire.ts addUnitFunctions), which every served call that touches the unit
+ *   calls before it touches it; no role holds EXECUTE on any other unit function.
  *
  * Row security is enabled on exactly the tables some role writes through a query entry with a filter, once their
  * policies stand, `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`; its owner, the migration identity, bypasses it, and FORCE
@@ -1666,9 +1679,11 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
 export const addWorlds = (
 	b: InstallBuilder,
 	advance: AdvanceFunctions,
+	units: ReadonlyMap<string, UnitFunctions>,
 	revocable: Revocable,
 	checkedLogins: ReadonlyArray<CheckedLogin>,
-	carriers: ReadonlyArray<RoleOfLogin>
+	carriers: ReadonlyArray<RoleOfLogin>,
+	holds: ReadonlyArray<RoleHold>
 ): WorldsPlan => {
 	const logins = [...checkedLogins].toSorted((x, y) => compareText(x.login.name, y.login.name))
 	const cx = worldsContext(b)
@@ -1678,7 +1693,13 @@ export const addWorlds = (
 	const views: Array<ObjectName> = []
 	const writers: Array<Writer> = []
 	for (const login of logins) {
-		const added = addLogin(b, cx, login, advance, carriers)
+		const held = (role: string): ReadonlyArray<UnitFunction> =>
+			holds.flatMap((h) =>
+				h.login === login.login.name && h.role === role
+					? [defined(units.get(h.header), `the hold function of retirable ${h.header}`).hold]
+					: []
+			)
+		const added = addLogin(b, cx, login, advance, carriers, held)
 		worlds.push(added.installed)
 		appendAll(views, added.views)
 		appendAll(writers, added.writers)

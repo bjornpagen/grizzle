@@ -877,6 +877,7 @@ const reasonKey = (reason: CompileReason): string => {
 		case "StaleDerivedRead":
 		case "UnorderableStratum":
 		case "ReadBackCrossesStatements":
+		case "UnheldGroup":
 		case "MissingDiscriminant":
 		case "AttachedParentUnbound":
 		case "AttachedPage":

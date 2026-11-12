@@ -45,15 +45,20 @@ interface SentStatement {
 }
 
 /**
- * Every statement a compiled write's flight may send, in the order it sends them (adapter/apply/run.ts): its write
- * statements, each in every form an execution may send (write/program/served.ts projectWrite), then its read-backs',
- * which run in the change's own transaction at its level: a read-back riding a write statement is parts of that
- * statement's own forms (write/program/artifact.ts ReadBackCarried), and sends nothing of its own. A staged statement reads its nested rows from carriers in
- * place of its arrays and reads the stored relations its inline form reads (write/program/staged.ts), so its inline
- * form stands for it.
+ * Every statement a compiled write's flight may send, in the order it sends them (adapter/apply/run.ts), but its holds:
+ * its write statements, each in every form an execution may send (write/program/served.ts projectWrite), then its
+ * read-backs', which run in the change's own transaction at its level: a read-back riding a write statement is parts
+ * of that statement's own forms (write/program/artifact.ts ReadBackCarried), and sends nothing of its own. A staged
+ * statement reads its nested rows from carriers in place of its arrays and reads the stored relations its inline form
+ * reads (write/program/staged.ts), so its inline form stands for it. A hold (write/hold/statement.ts) states no fact: it reads only its unit's header, whose key no
+ * call changes, and its lock keeps every group the call states unretired until the call ends, so each body's rows are,
+ * for the call, an insert-only relation's, which is how the certifier reads them (analysis/isolation/certify.ts, a
+ * retirement no change); a read fact of it would cut the clean prefix the reads after it are sealed by.
  */
 const flightStatements = (compiled: CompiledWrite): ReadonlyArray<SentStatement> => [
-	...compiled.artifact.statements.filter((s) => s.step.kind !== "readBack").flatMap(sentForms),
+	...compiled.artifact.statements
+		.filter((s) => s.step.kind !== "readBack" && s.step.kind !== "hold")
+		.flatMap(sentForms),
 	...compiled.artifact.readBacks.flatMap((r) =>
 		r.carried.kind === "sent" ? sentForms(r.carried.statement) : []
 	)

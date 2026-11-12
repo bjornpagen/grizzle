@@ -295,6 +295,7 @@ export type StatementLabel =
 	| { readonly kind: "advance"; readonly position: number; readonly relation: string }
 	| { readonly kind: "readBack"; readonly position: number; readonly name: string }
 	| { readonly kind: "check"; readonly position: number; readonly entry: string }
+	| { readonly kind: "hold"; readonly position: number; readonly header: string }
 	| {
 			readonly kind: "single"
 			readonly position: number
@@ -337,6 +338,8 @@ const statementLabel = (statement: ArtifactStatement): StatementLabel => {
 			return { kind: "readBack", position, name: step.name }
 		case "check":
 			return { kind: "check", position, entry: step.entry }
+		case "hold":
+			return { kind: "hold", position, header: step.header }
 		case "single":
 			return {
 				kind: "single",
@@ -397,6 +400,8 @@ export const labelText = (label: StatementLabel): string => {
 			return `read ${label.name}`
 		case "check":
 			return `check ${label.entry}`
+		case "hold":
+			return `hold ${label.header}`
 		case "single":
 			return `single (${Arr.join(
 				Arr.map(label.parts, (p) => writeText(p.relation, p.result)),

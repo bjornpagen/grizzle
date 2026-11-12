@@ -16,10 +16,12 @@ import type { InstallOptions } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallContribution,
 	type InstallExtension,
+	type RoleHold,
 	type RoleOfLogin,
 	noCarriers,
 	noCertificates,
-	noContribution
+	noContribution,
+	noHolds
 } from "#compiler/physical/install/extension.ts"
 import type { StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
 
@@ -92,25 +94,29 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
 	textDomainUses: noTextDomainUses,
 	certifies: noCertificates,
 	carriers: noCarriers,
+	holds: noHolds,
 	live: noLive
 })
 
 /**
  * The served workload's extension: the workload's (workloadExtension), its parameters' pattern domains among it; the
  * certificate of every role of every login its plan certified (program/workload/compile.ts servedWorkload), which the
- * installation's guards follow; and the roles whose served ChangeSets create a carrier, which it grants TEMPORARY on
- * the database.
+ * installation's guards follow; the roles whose served ChangeSets create a carrier, which it grants TEMPORARY on
+ * the database; and the roles whose served ChangeSets hold a retirable unit, which it grants EXECUTE on the unit's hold
+ * function.
  */
 export const servedWorkloadExtension = (
 	workload: WorkloadPhysical & {
 		readonly certification: ReadonlyArray<RoleIsolation>
 		readonly carriers: ReadonlyArray<RoleOfLogin>
+		readonly holds: ReadonlyArray<RoleHold>
 		readonly live: LivePlan
 	}
 ): InstallExtension => ({
 	...workloadExtension(workload),
 	certifies: workload.certification,
 	carriers: workload.carriers,
+	holds: workload.holds,
 	live: workload.live
 })
 

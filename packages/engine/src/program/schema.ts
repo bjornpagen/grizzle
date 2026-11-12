@@ -406,6 +406,11 @@ export const roleArtifacts = (
 export interface Judged {
 	readonly written: ReadonlySet<string>
 	readonly cast: ReadonlyArray<ScalarType>
+	/**
+	 * The headers of the retirable units its writes hold (write/hold/statement.ts): a hold refuses a group that is not
+	 * open on the fence law of its unit's first body, at that body's group (physical/ddl/retire.ts refuseClosed).
+	 */
+	readonly held: ReadonlySet<string>
 }
 
 /**
@@ -414,9 +419,10 @@ export interface Judged {
  * delete or a key's update there meets; each domain constraint whole whose domain a cast value's type meets (its
  * contract chain's domains and its pattern's), and otherwise with its uses narrowed to the written relations' columns,
  * which a value written there breaks, kept while one stays, its laws theirs; each law of the theory reading a written
- * relation, which a write statement's refusal raises; the written relations, whose generated fields a NOT NULL names
- * and whose keys a refusal's DETAIL decodes; and the rosters typing a column of them or a cast value, by declared name,
- * whose code or bits domain such a value meets. A write meets no other constraint and raises no other law: no foreign
+ * relation, which a write statement's refusal raises, and each fence law of a unit its writes hold, which the hold
+ * raises; the written relations, whose generated fields a NOT NULL names and whose keys a refusal's DETAIL decodes,
+ * and the relations those fence laws read, at whose groups a hold's DETAIL names them; and the rosters typing a column
+ * of them or a cast value, by declared name, whose code or bits domain such a value meets. A write meets no other constraint and raises no other law: no foreign
  * key cascades beyond what writesOf closes over, a rule's trigger fires only on its own table, and every literal is
  * judged by its type before it is served.
  */
@@ -489,16 +495,26 @@ export const raisableOf = (
 		into.set(n.owner, named)
 	}
 	const cast = new Set(judged.cast.flatMap((t) => castDomains(artifacts.names, t)))
-	const raised = new Set(
-		artifacts.laws.theory.laws.flatMap((l) => (l.reads.some((r) => written.has(r)) ? [l.id] : []))
+	const fences = artifacts.laws.theory.laws.filter(
+		(l) => l.source.kind === "retirable" && l.reads.some((r) => judged.held.has(r))
 	)
-	const typed = [...relations.flatMap((r) => r.fields.map((f) => f.type)), ...judged.cast]
+	const raised = new Set([
+		...artifacts.laws.theory.laws.flatMap((l) =>
+			l.reads.some((r) => written.has(r)) ? [l.id] : []
+		),
+		...fences.map((l) => l.id)
+	])
+	const fenced = new Set(fences.flatMap((l) => l.reads))
+	const decoded = [...artifacts.derived.schema.relations.values()].filter(
+		(r) => written.has(r.name) || fenced.has(r.name)
+	)
+	const typed = [...decoded.flatMap((r) => r.fields.map((f) => f.type)), ...judged.cast]
 	return {
 		constraintLaws: artifacts.constraintLaws.flatMap((c) =>
 			raisableConstraint(c, tables, into, cast)
 		),
 		theoryLaws: artifacts.theoryLaws.filter((l) => raised.has(l.law)),
-		relations,
+		relations: decoded,
 		rosters: new Set(typed.flatMap((t) => rosterOf(t)?.closed ?? []))
 	}
 }
