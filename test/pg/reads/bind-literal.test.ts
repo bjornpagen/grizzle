@@ -124,11 +124,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const opened = yield* installed(
-						Scores,
-						{},
-						{ label: "real", extensions: [], programs: {} }
-					)
+					const opened = yield* installed(Scores, {}, { label: "real", programs: {} })
 					const names = namesOf(opened.installed)
 					const itemInsert = `INSERT INTO ${names.table(Item)} (${names.column(Item, "id")}, ${names.column(Item, "grp")}, ${names.column(Item, "score")}) VALUES ($1::int4, $2::int4, $3::int4)`
 					const markInsert = `INSERT INTO ${names.table(Mark)} (${names.column(Mark, "item")}, ${names.column(Mark, "tag")}) VALUES ($1::int4, $2::text)`

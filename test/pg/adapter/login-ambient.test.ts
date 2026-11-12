@@ -402,7 +402,6 @@ layer(Substrate.isolatedLayer)("a login under hostile database defaults", (it) =
 						{},
 						{
 							label: "login_ambient",
-							extensions: [],
 							programs: {
 								addTexts: ChangeSet.empty(Shadowed).insert(TextRelation, []),
 								addLinks: ChangeSet.empty(Shadowed).insert(UuidRelation, []),

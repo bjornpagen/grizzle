@@ -282,11 +282,7 @@ layer(Layer.merge(Substrate.layer, Digest.layerWebCrypto), { excludeTestServices
 									for (const feature of notes(d)) {
 										c.note(feature)
 									}
-									const o = yield* installed(
-										Blobs,
-										{},
-										{ label: "bytes", extensions: [], programs }
-									)
+									const o = yield* installed(Blobs, {}, { label: "bytes", programs })
 									const s = yield* Substrate
 									const names = namesOf(o.installed)
 									const facts = Arr.map(d.values, (x, id) => ({

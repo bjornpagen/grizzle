@@ -322,11 +322,7 @@ layer(Substrate.layer, { excludeTestServices: true })("bytes edited by their dig
 								for (const feature of notes(d)) {
 									c.note(feature)
 								}
-								const o = yield* installed(
-									Edits,
-									{},
-									{ label: "bytesedits", extensions: [], programs }
-								)
+								const o = yield* installed(Edits, {}, { label: "bytesedits", programs })
 								yield* Effect.gen(function* () {
 									const db = yield* Db.open(o.served.login.roles.app, {})
 									if (d.stored.length > 0) {

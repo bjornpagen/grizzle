@@ -189,11 +189,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							Effect.scoped(
 								Effect.gen(function* () {
 									const { S, R, Sets, programs } = schemaOf(d)
-									const o = yield* installed(
-										Sets,
-										{},
-										{ label: "setpadding", extensions: [], programs }
-									)
+									const o = yield* installed(Sets, {}, { label: "setpadding", programs })
 									const s = yield* Substrate
 									const names = namesOf(o.installed)
 									const all = Array.from({ length: d.size }, (_, code) => code)

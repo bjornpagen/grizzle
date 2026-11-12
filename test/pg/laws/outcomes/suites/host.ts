@@ -246,7 +246,7 @@ export const hostWitnessSuite = (): void => {
 					ctx,
 					Effect.gen(function* () {
 						const s = yield* Substrate
-						const o = yield* installed(Accounts, {}, { label: "real", extensions: [], programs })
+						const o = yield* installed(Accounts, {}, { label: "real", programs })
 						const names = namesOf(o.installed)
 						const group = installationGroup(names)
 						return yield* Effect.gen(function* () {

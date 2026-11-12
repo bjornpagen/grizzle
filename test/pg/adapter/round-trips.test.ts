@@ -271,7 +271,6 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 				Effect.gen(function* () {
 					const o = yield* installed(W.Work, workFacts, {
 						label: "real",
-						extensions: [],
 						programs: {}
 					})
 					const s = o.schema
@@ -518,7 +517,6 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 				Effect.gen(function* () {
 					const o = yield* installed(W.Work, workFacts, {
 						label: "real",
-						extensions: [],
 						programs: {}
 					})
 					const s = o.schema
@@ -652,7 +650,6 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 				Effect.gen(function* () {
 					const o = yield* installed(W.Work, workFacts, {
 						label: "real",
-						extensions: [],
 						programs: {
 							task: W.Task,
 							tasksFor: W.workReads(W.Work).automaticTasksFor,

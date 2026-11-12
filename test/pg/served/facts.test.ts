@@ -214,7 +214,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								const opened = yield* installed(
 									Labels,
 									{ Item: stored, Label: [] },
-									{ label: "real", extensions: [], programs: {} }
+									{ label: "real", programs: {} }
 								)
 								const s = opened.schema
 								const add = ChangeSet.empty(s).insert(Label, []).put(Item, []).delete(Item, [])

@@ -54,7 +54,7 @@ const work = (c: ExitCase) =>
 			const o = yield* installed(
 				Notes,
 				{ Note: [{ id: 1 }] },
-				{ label: "exit", extensions: [], programs: { notes } }
+				{ label: "exit", programs: { notes } }
 			)
 			for (let opened = 0; opened < c.dbs; opened++) {
 				yield* Effect.scoped(

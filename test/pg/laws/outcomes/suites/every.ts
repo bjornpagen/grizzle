@@ -267,7 +267,6 @@ export const everyLawSuite = (): void => {
 								{},
 								{
 									label: "forward",
-									extensions: [],
 									programs: programsOf(forwardCells)
 								}
 							)
@@ -277,7 +276,6 @@ export const everyLawSuite = (): void => {
 								{},
 								{
 									label: "backward",
-									extensions: [],
 									programs: programsOf(backwardCells)
 								}
 							)

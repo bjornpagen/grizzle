@@ -414,7 +414,7 @@ layer(Substrate.layer, { excludeTestServices: true })("Compute.sha256 on Postgre
 								for (const feature of storedNotes(d)) {
 									c.note(feature)
 								}
-								const o = yield* installed(Media, {}, { label: "digest", extensions: [], programs })
+								const o = yield* installed(Media, {}, { label: "digest", programs })
 								const facts = Arr.map(d.entries, (e, i) => ({
 									id: uuidOf(i + 1),
 									content: bodyOf(e.value),

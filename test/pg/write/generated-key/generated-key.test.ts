@@ -1003,7 +1003,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const o = yield* installed(Keys, {}, { label: "genkey", extensions: [], programs })
+					const o = yield* installed(Keys, {}, { label: "genkey", programs })
 					const names = namesOf(o.installed)
 					const group = installationGroup(names)
 					const laws: KeysLaws = {

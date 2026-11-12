@@ -228,7 +228,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const o = yield* installed(Owners, {}, { label: "ownerkey", extensions: [], programs })
+						const o = yield* installed(Owners, {}, { label: "ownerkey", programs })
 						const s = yield* Substrate
 						const names = namesOf(o.installed)
 						const ownerRow = (owner: StoredOwner) => ({

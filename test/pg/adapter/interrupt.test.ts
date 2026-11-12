@@ -320,7 +320,7 @@ const applyFacts = (ctx: ServedDbContext, change: LoadedMember, facts: unknown) 
  * and the cases. */
 const interruptCases = Effect.gen(function* () {
 	const s = yield* Substrate
-	const o = yield* installed(W.Work, workFacts, { label: "real", extensions: [], programs: {} })
+	const o = yield* installed(W.Work, workFacts, { label: "real", programs: {} })
 	const names = namesOf(o.installed)
 	const notes = names.table(W.TaskNote)
 	const noteTask = names.column(W.TaskNote, "task")

@@ -672,11 +672,7 @@ const rewriteCase = (drawnCase: RewriteCase, notes: Case<Feature>) =>
 	Effect.gen(function* () {
 		const c = aimed(drawnCase, notes)
 		const built = schemaOf(c)
-		const o = yield* installed(
-			built.Rewrites,
-			{},
-			{ label: "rewrites", extensions: [], programs: built.programs }
-		)
+		const o = yield* installed(built.Rewrites, {}, { label: "rewrites", programs: built.programs })
 		const names = namesOf(o.installed)
 		const where = (relation: string, id: number) =>
 			`${relation} row ${id} of ${Formatter.format(c)}`

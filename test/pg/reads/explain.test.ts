@@ -522,7 +522,6 @@ layer(Substrate.layer)("workload explain", (it) => {
 				Effect.gen(function* () {
 					const o = yield* installed(W.Work, workFacts, {
 						label: "real",
-						extensions: [],
 						programs: {}
 					})
 					const accountTasks = query(W.Work)
@@ -657,7 +656,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const o = yield* installed(Shop, {}, { label: "real", extensions: [], programs: {} })
+					const o = yield* installed(Shop, {}, { label: "real", programs: {} })
 					const sequence = o.installed.installation.names.sequence("Seat", "no")
 					const lastValue = () =>
 						s.admin.queryValues(
@@ -913,7 +912,6 @@ layer(Substrate.layer)("workload explain", (it) => {
 				Effect.gen(function* () {
 					const o = yield* installed(W.Work, workFacts, {
 						label: "real",
-						extensions: [],
 						programs: {}
 					})
 					const before = yield* tableState(o.installed, W.TaskNote)
@@ -1032,7 +1030,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const o = yield* installed(Boxes, {}, { label: "boxes", extensions: [], programs: {} })
+					const o = yield* installed(Boxes, {}, { label: "boxes", programs: {} })
 					return yield* withServedDb(
 						o.installed,
 						o.server.roles.app,

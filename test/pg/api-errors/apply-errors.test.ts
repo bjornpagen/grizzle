@@ -267,11 +267,7 @@ const encodingKept: ReadonlyArray<Kept<EncodingCase, EncodingFeature>> = [
 ]
 
 layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the public API", (it) => {
-	const opened = installed(
-		Fixture,
-		{ Seed: [{ id: seed }] },
-		{ label: "real", extensions: [], programs: {} }
-	)
+	const opened = installed(Fixture, { Seed: [{ id: seed }] }, { label: "real", programs: {} })
 
 	it.effect(
 		"a value its codec refuses is refused as input naming its fault and slot, before any SQL; one it admits is answered",

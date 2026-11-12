@@ -334,7 +334,7 @@ const searchOn = <A, E, R>(
 	) => Effect.Effect<A, E, R>
 ) =>
 	Effect.gen(function* () {
-		const o = yield* installed(Staged, {}, { label: "stagedrows", extensions: [], programs: {} })
+		const o = yield* installed(Staged, {}, { label: "stagedrows", programs: {} })
 		const s = yield* Substrate
 		const names = namesOf(o.installed)
 		return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, load }) =>

@@ -209,7 +209,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const o = yield* installed(Texts, {}, { label: "textarrays", extensions: [], programs })
+					const o = yield* installed(Texts, {}, { label: "textarrays", programs })
 					const s = yield* Substrate
 					const names = namesOf(o.installed)
 					return yield* Effect.gen(function* () {

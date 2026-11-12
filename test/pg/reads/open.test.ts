@@ -242,13 +242,12 @@ layer(Substrate.layer)("Db.open", (it) => {
 				Effect.gen(function* () {
 					const work = yield* installed(W.Work, workFacts, {
 						label: "real",
-						extensions: [],
 						programs: { task: W.Task, vectorProbe }
 					})
 					const stamping = yield* installed(
 						Stamps,
 						{},
-						{ label: "real", extensions: [], programs: { stamp: Stamp } }
+						{ label: "real", programs: { stamp: Stamp } }
 					)
 					const s = yield* Substrate
 					const stampNames = namesOf(stamping.installed)
@@ -257,7 +256,6 @@ layer(Substrate.layer)("Db.open", (it) => {
 						{},
 						{
 							label: "real",
-							extensions: [],
 							programs: { document: search.Document, searchProbe }
 						}
 					)

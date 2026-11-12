@@ -329,11 +329,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a call over HTTP", (it) =
 					},
 					({ stored, call, write, heartbeatMs }, notes) =>
 						Effect.gen(function* () {
-							const o = yield* installed(
-								Items,
-								{ Item: stored },
-								{ label: "http", extensions: [], programs }
-							)
+							const o = yield* installed(Items, { Item: stored }, { label: "http", programs })
 							const printed = () => Formatter.format({ stored, call, write, heartbeatMs })
 							const login = o.served.login
 							const role = login.roles.app

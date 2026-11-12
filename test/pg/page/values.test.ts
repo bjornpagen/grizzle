@@ -235,11 +235,7 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const opened = yield* installed(
-						Measures,
-						{},
-						{ label: "real", extensions: [], programs: {} }
-					)
+					const opened = yield* installed(Measures, {}, { label: "real", programs: {} })
 					const names = namesOf(opened.installed)
 					const table = names.table(Measure)
 					const column = (field: Field | "id"): string => names.column(Measure, field)

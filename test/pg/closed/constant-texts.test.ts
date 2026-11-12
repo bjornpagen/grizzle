@@ -572,11 +572,7 @@ const verdict = (
 const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 	Effect.gen(function* () {
 		const built = schemaOf(c)
-		const install = installed(
-			built.Constants,
-			{},
-			{ label: "constants", extensions: [], programs: built.programs }
-		)
+		const install = installed(built.Constants, {}, { label: "constants", programs: built.programs })
 		if (
 			Arr.some([c.generated, c.checked, c.keyed, c.contained], (phi) => listsStray(phi.constant))
 		) {

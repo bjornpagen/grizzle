@@ -130,7 +130,6 @@ layer(Substrate.layer, { excludeTestServices: true })("a program's parameter arg
 				Effect.gen(function* () {
 					const o = yield* installed(W.Work, workFacts, {
 						label: "real",
-						extensions: [],
 						programs: {}
 					})
 					const s = o.schema

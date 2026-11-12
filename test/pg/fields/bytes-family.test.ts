@@ -180,11 +180,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a family's bytes members"
 								for (const feature of notes(d)) {
 									c.note(feature)
 								}
-								const o = yield* installed(
-									Files,
-									{},
-									{ label: "bytesfamily", extensions: [], programs }
-								)
+								const o = yield* installed(Files, {}, { label: "bytesfamily", programs })
 								yield* Effect.gen(function* () {
 									const db = yield* Db.open(o.served.login.roles.app, {})
 									const owner = uuidOf(1)

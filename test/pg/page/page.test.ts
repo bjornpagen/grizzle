@@ -686,11 +686,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const opened = yield* installed(
-						Paging,
-						{},
-						{ label: "real", extensions: [], programs: {} }
-					)
+					const opened = yield* installed(Paging, {}, { label: "real", programs: {} })
 					return yield* withServedDb(
 						opened.installed,
 						opened.server.roles.app,
@@ -990,7 +986,6 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 				Effect.gen(function* () {
 					const opened = yield* installed(Paging, inputFacts, {
 						label: "real",
-						extensions: [],
 						programs: {}
 					})
 					return yield* withServedDb(

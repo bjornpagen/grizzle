@@ -109,11 +109,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					ctx,
 					Effect.gen(function* () {
 						const s = yield* Substrate
-						const o = yield* installed(
-							build("Takes"),
-							{},
-							{ label: "takeform", extensions: [], programs: {} }
-						)
+						const o = yield* installed(build("Takes"), {}, { label: "takeform", programs: {} })
 						const S = o.schema
 						const names = o.installed.installation.names
 						const table = (r: string) => printObjectName(names.relation(r))

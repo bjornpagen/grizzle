@@ -178,7 +178,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					Effect.gen(function* () {
 						const o = yield* installed(W.Work, workFacts, {
 							label: "real",
-							extensions: [],
 							programs: {
 								enumerated: switchToManual(W.Work),
 								described: switchToManualDescribed(W.Work)

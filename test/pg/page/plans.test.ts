@@ -2,9 +2,9 @@
  * The plans of the statements the page runtime sends: what the installation's access paths serve, over drawn tasks and
  * drawn requests, with PostgreSQL's alternatives to an access path disabled.
  *
- * The paging example's Task installs with one workload holding every order a page reads (program/workload,
- * physical/access workloadExtension): priority ascending, priority descending with the id ascending (mixed), and every
- * key descending. An access index is identified by its columns and a direction vector canonical under reversal, so the
+ * The paging example's Task installs as generate installs it, its login's workload holding a paged member of every
+ * order a page reads (test/pg/reads/support.ts installed): priority ascending, priority descending with the id
+ * ascending (mixed), and every key descending. An access index is identified by its columns and a direction vector canonical under reversal, so the
  * descending order is the ascending one's index read backward and the mixed order has its own; the three orders
  * install together, which is the case a workload naming an order and its exact reverse must reach. Each case replaces
  * the task table's facts with drawn tasks of the paged account and of another (substrate/replace.ts), and reads a drawn
@@ -44,13 +44,11 @@ import { explainStatementWith, parsePlan, rowsRead } from "#bench/harness/explai
 import { planNodeTypes } from "#bench/harness/explain.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { type Anchor, keyOf } from "#compiler/live/index.ts"
-import { workload } from "#compiler/program/workload/value.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { paged as pagedMember } from "#compiler/public/workload.ts"
 import { pageTemplate, windowOf } from "#test/pg/page/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { workloadOver } from "#test/support/compile.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
@@ -65,7 +63,6 @@ import {
 	Paging,
 	Task
 } from "#test/unit/page/fixtures.ts"
-import { fixtureLogin } from "#test/unit/workload/fixtures.ts"
 
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
@@ -128,24 +125,7 @@ const explorePlans = Effect.gen(function* () {
 	const opened = yield* installed(
 		Paging,
 		{},
-		{
-			label: "real",
-			extensions: [
-				workloadOver([
-					{
-						login: fixtureLogin,
-						workloads: [
-							workload(Paging, {
-								ascending: ascendingTasks,
-								mixed: priorityDescendingTasks,
-								descending: descendingTasks
-							})
-						]
-					}
-				])
-			],
-			programs: {}
-		}
+		{ label: "real", programs: Rec.map(orders, (q) => pagedMember(q)) }
 	)
 	const names = namesOf(opened.installed)
 	const task = names.table(Task)

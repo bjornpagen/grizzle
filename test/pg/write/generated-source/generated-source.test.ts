@@ -289,7 +289,7 @@ layer(Substrate.layer)(
 					ctx,
 					Effect.gen(function* () {
 						const s = yield* Substrate
-						const o = yield* installed(Items, {}, { label: "genquery", extensions: [], programs })
+						const o = yield* installed(Items, {}, { label: "genquery", programs })
 						const group = installationGroup(namesOf(o.installed))
 						return yield* Effect.gen(function* () {
 							const db = yield* Db.open(o.served.login.roles.app, {})

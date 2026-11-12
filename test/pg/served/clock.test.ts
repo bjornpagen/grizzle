@@ -153,7 +153,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								const opened = yield* installed(
 									Clock,
 									{ Wanted: [], Stamp: [], Mark: [], Bounds: [] },
-									{ label: "clock", extensions: [], programs: {} }
+									{ label: "clock", programs: {} }
 								)
 								const s = opened.schema
 								const instant = () => query(s).rule((r) => r.find({ now: r.param("now", Instant) }))

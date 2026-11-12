@@ -213,11 +213,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const o = yield* installed(
-							Edited,
-							{},
-							{ label: "edits", extensions: [], programs: editPrograms }
-						)
+						const o = yield* installed(Edited, {}, { label: "edits", programs: editPrograms })
 						const seat = yield* seatOfInstalled(o.installed, ["Owner", "Member"], "edits")
 						const f = foldSeatOf(SPEC, seat)
 						const m = SPEC.monoid
@@ -325,7 +321,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const o = yield* installed(
 							SpanEdited,
 							{},
-							{ label: "span_edits", extensions: [], programs: spanPrograms }
+							{ label: "span_edits", programs: spanPrograms }
 						)
 						const seat = yield* seatOfInstalled(
 							o.installed,

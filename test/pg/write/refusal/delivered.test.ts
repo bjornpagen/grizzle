@@ -277,7 +277,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							{},
 							{
 								label: "real",
-								extensions: [],
 								programs: { write: write(Notes) }
 							}
 						)

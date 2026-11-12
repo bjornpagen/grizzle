@@ -13,16 +13,16 @@ import {
 import { schema as builtSchema } from "#compiler/schema/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { defined } from "#test/support/assert.ts"
 import {
 	type Installed,
-	installMigrated as install,
+	installGenerated,
 	loadMigrated as load
 } from "#test/support/install-migrate.ts"
 import { quietPolls } from "#test/support/kernel/sanitize.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
-import type { RealInstallOptions } from "#test/support/oracle/install/real.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { type ServedFixture, servedFixture } from "#test/support/served-db.ts"
+import { type ServedFixture, servedFixtureOf } from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { randomHex } from "#test/support/substrate/names.ts"
 import { connect } from "#test/support/substrate/session.ts"
@@ -146,7 +146,8 @@ export interface Opened<S extends Reality, P extends Readonly<Record<string, unk
 	readonly app: WorldOver<S, P>["app"]
 	readonly server: WorldOver<S, P>["server"]
 	/**
-	 * The login served as an application serves it (test/support/served-db.ts servedFixture): a Db opens through
+	 * The login served as an application serves it, from the file generate wrote (test/support/served-db.ts
+	 * servedFixtureOf): a Db opens through
 	 * `served.login.roles.app` on `served.layer`, in the substrate's database, and runs the programs as
 	 * `db.workload.<name>`.
 	 */
@@ -154,21 +155,20 @@ export interface Opened<S extends Reality, P extends Readonly<Record<string, unk
 }
 
 /**
- * What an installation of a read fixture states: the label of its allocated schema name, the installer extensions it
- * gives, and the programs its login's workload holds, each a member a Db of its full world runs by its name. Its one
- * world is its full world.
+ * What an installation of a read fixture states: the label of its allocated schema name, and the programs its login's
+ * workload holds, each a member a Db of its full world runs by its name. Its one world is its full world.
  */
-export type FixtureInstall<P extends Readonly<Record<string, unknown>>> = Pick<
-	RealInstallOptions,
-	"label" | "extensions"
-> & {
+export interface FixtureInstall<P extends Readonly<Record<string, unknown>>> {
+	readonly label: string
 	readonly programs: P
 }
 
 /**
- * Installs `fixture` under a fresh schema, loads `facts`, rebuilds the fixture under the installed name, and serves its
- * full world's login, whose workload holds `options.programs`: a program of its own the compile refuses is a defect of
- * the test. The fixture is a schema value whose relations sit under their own names and whose statements name only its
+ * Installs `fixture` under a fresh schema as `grizzle generate` drafts and serves it (test/support/install-migrate.ts
+ * installGenerated), with its full world's login, whose workload holds `options.programs`, so the installation holds
+ * the live source of every read the programs serve; loads `facts`, rebuilds the fixture under the installed name, and
+ * serves that login from the file generate wrote: a program of its own the compile refuses is a defect of the test.
+ * The fixture is a schema value whose relations sit under their own names and whose statements name only its
  * relations and read back from their names as themselves, as schema(...) checked when it was built.
  */
 export const installed = <
@@ -197,29 +197,32 @@ export const installed = <
 	Substrate | Scope.Scope
 > =>
 	Effect.gen(function* () {
-		const done = yield* install(fixture, {
-			ambient: ordinarySession,
-			label: options.label,
-			extensions: options.extensions,
-			logins: [fullWorld(fixture, {}).server]
-		})
-		yield* load(done, facts)
 		const relations: Array<R[keyof R]> = []
 		for (const name in fixture.relations) {
 			relations.push(fixture.relations[name])
 		}
-		const rebuilt = builtSchema<string, ReadonlyArray<R[keyof R]>, St>(
-			done.schema,
-			relations,
-			fixture.statements,
-			[]
+		const named = (name: string) =>
+			builtSchema<string, ReadonlyArray<R[keyof R]>, St>(name, relations, fixture.statements, [])
+		const generated = yield* installGenerated(
+			(name) => ({
+				schema: named(name),
+				logins: [fullWorld(named(name), options.programs).server]
+			}),
+			{ label: options.label, ambient: ordinarySession }
 		)
+		const done = generated.installed
+		yield* load(done, facts)
+		const rebuilt = named(done.declared)
 		const world = fullWorld(rebuilt, options.programs)
 		return {
 			installed: done,
 			schema: rebuilt,
 			app: world.app,
 			server: world.server,
-			served: yield* Effect.orDie(servedFixture(done, world.server))
+			served: servedFixtureOf(
+				done,
+				world.server,
+				defined(generated.served.get(world.server.name), `login ${world.server.name}'s served file`)
+			)
 		}
 	})

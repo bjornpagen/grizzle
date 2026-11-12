@@ -97,11 +97,7 @@ layer(Substrate.layer)(
 					ctx,
 					Effect.gen(function* () {
 						const s = yield* Substrate
-						const o = yield* installed(
-							Events,
-							{},
-							{ label: "dates", extensions: [], programs: { days } }
-						)
+						const o = yield* installed(Events, {}, { label: "dates", programs: { days } })
 						const names = namesOf(o.installed)
 						const group = installationGroup(names)
 						const range = identifierOf(identity.dateCheck("Event", "day"))

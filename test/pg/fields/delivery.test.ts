@@ -240,11 +240,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a delivery at chunk bound
 								for (const feature of notes(d)) {
 									c.note(feature)
 								}
-								const o = yield* installed(
-									Blobs,
-									{},
-									{ label: "delivery", extensions: [], programs }
-								)
+								const o = yield* installed(Blobs, {}, { label: "delivery", programs })
 								const s = yield* Substrate
 								if (d.rows.length > 0) {
 									yield* Effect.gen(function* () {

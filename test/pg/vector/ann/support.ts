@@ -2,7 +2,7 @@ import { int } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed, type Stream } from "@grizzle/testing/random"
 import { sample } from "@grizzle/testing/source"
 import { runOfProcess } from "@grizzle/testing/vitest/run"
-import { Array as Arr, Effect, Option, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Option, pipe, Record as Rec, String as Str } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { indices } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -30,13 +30,15 @@ import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { quoteIdent, storedSettingValue } from "#compiler/sql/print.ts"
-import { installed } from "#test/pg/reads/support.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { compileTestWorkload, lowerAligned, testCompile } from "#test/support/compile.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
-import type { Installed } from "#test/support/install-migrate.ts"
+import { type Installed, installMigrated } from "#test/support/install-migrate.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
+import { servedFixture } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 export const dimensions = 8
 const DocumentVector = pg.vector(dimensions)
@@ -395,13 +397,31 @@ const checked = (q: unknown) =>
 type AnnPrograms = Readonly<Record<string, unknown>>
 
 /**
- * The installed schema with the HNSW index each of `programs` requests, its full world's login serving them as its
- * workload's members.
+ * The installed schema with the HNSW index each of `programs` requests and no other access path, its full world's login
+ * serving them as its workload's members. generate installs every access path a workload justifies, so this one
+ * fixture installs through its first migration with its own index extension (installMigrated), and its login's served
+ * file is compiled over that snapshot, which installs no live source: its reads run by once alone.
  */
 const openAnn = <const P extends AnnPrograms>(programs: P) =>
-	installed(AnnSearch, {}, { label: "ann", extensions: [workloadRequests(programs)], programs })
+	Effect.gen(function* () {
+		const done = yield* installMigrated(AnnSearch, {
+			ambient: ordinarySession,
+			label: "ann",
+			extensions: [workloadRequests(programs)],
+			logins: [fullWorld(AnnSearch, programs).server]
+		})
+		const rebuilt = schema(done.declared, Rec.values(AnnSearch.relations), AnnSearch.statements)
+		const world = fullWorld(rebuilt, programs)
+		return {
+			installed: done,
+			schema: rebuilt,
+			app: world.app,
+			server: world.server,
+			served: yield* Effect.orDie(servedFixture(done, world.server))
+		}
+	})
 
-/** The installed schema whose full world's login serves the programs P (test/pg/reads/support.ts installed). */
+/** The installed schema whose full world's login serves the programs P (openAnn). */
 export type AnnOpened<P extends AnnPrograms> = Effect.Success<ReturnType<typeof openAnn<P>>>
 
 /** The installation and its population, which a direct writer reads as the full world's role `app`. */

@@ -74,7 +74,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					Effect.gen(function* () {
 						const o = yield* installed(W.Work, workFacts, {
 							label: "real",
-							extensions: [],
 							programs: {
 								/** A described member over a stored relation: a note at the target task copying the source's note. */
 								copy: ChangeSet.empty(W.Work).insert(

@@ -398,7 +398,6 @@ layer(Substrate.layer)("reads through Db", (it) => {
 				Effect.gen(function* () {
 					const opened = yield* installed(W.Work, workFacts, {
 						label: "real",
-						extensions: [],
 						programs: { tasksById: W.tasksById }
 					})
 					const sessions = yield* Layer.build(opened.served.layer)
@@ -490,11 +489,7 @@ layer(Substrate.layer)("reads through Db", (it) => {
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const opened = yield* installed(
-						W.Work,
-						{},
-						{ label: "real", extensions: [], programs: {} }
-					)
+					const opened = yield* installed(W.Work, {}, { label: "real", programs: {} })
 					return yield* withServedDb(opened.installed, opened.server.roles.app, {}, ({ serve }) =>
 						Effect.gen(function* () {
 							const unions = yield* serve(unionMembers)
@@ -563,7 +558,6 @@ layer(Substrate.layer)("reads through Db", (it) => {
 					const s = yield* Substrate
 					const opened = yield* installed(W.Work, workFacts, {
 						label: "real",
-						extensions: [],
 						programs: { taskPayloads: W.taskPayloads, accountTaskNotes }
 					})
 					const names = namesOf(opened.installed)

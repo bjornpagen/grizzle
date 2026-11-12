@@ -131,7 +131,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const o = yield* installed(Sets, {}, { label: "setchecks", extensions: [], programs })
+						const o = yield* installed(Sets, {}, { label: "setchecks", programs })
 						const s = yield* Substrate
 						const names = namesOf(o.installed)
 						return yield* Effect.gen(function* () {

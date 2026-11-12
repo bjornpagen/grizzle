@@ -104,11 +104,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const o = yield* installed(
-							Bodies,
-							{},
-							{ label: "nestedbodies", extensions: [], programs }
-						)
+						const o = yield* installed(Bodies, {}, { label: "nestedbodies", programs })
 						const s = yield* Substrate
 						const names = namesOf(o.installed)
 						return yield* Effect.gen(function* () {

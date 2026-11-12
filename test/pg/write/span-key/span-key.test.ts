@@ -347,7 +347,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const o = yield* installed(Spans, {}, { label: "real", extensions: [], programs })
+						const o = yield* installed(Spans, {}, { label: "real", programs })
 						const s = yield* Substrate
 						const names = namesOf(o.installed)
 						const keyOf = (f: Fact): Readonly<Record<string, KeyHost>> => ({

@@ -118,7 +118,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relati
 						const opened = yield* installed(
 							Plans,
 							{},
-							{ label: "real", extensions: [], programs: { tiers, regions } }
+							{ label: "real", programs: { tiers, regions } }
 						)
 						assert.deepEqual(opened.installed.installation.laws.theory.laws, [])
 						assert.ok(

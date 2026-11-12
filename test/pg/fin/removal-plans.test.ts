@@ -204,11 +204,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					ctx,
 					Effect.gen(function* () {
 						const substrate = yield* Substrate
-						const o = yield* installed(
-							Removals,
-							{},
-							{ label: "removal_plans", extensions: [], programs }
-						)
+						const o = yield* installed(Removals, {}, { label: "removal_plans", programs })
 						const seat = yield* seatOfInstalled(o.installed, RELATIONS, "removal_plans")
 						const login = quoteIdent(o.installed.as(o.server).role)
 						for (const setting of judgedSettings) {

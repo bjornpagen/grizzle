@@ -753,7 +753,7 @@ const nullCase = (drawnCase: NullCase, notes: Case<Feature>) =>
 				)
 			})
 		}
-		const o = yield* installed(built.Null, {}, { label: "null", extensions: [], programs: {} })
+		const o = yield* installed(built.Null, {}, { label: "null", programs: {} })
 		const names = namesOf(o.installed)
 		const where = (relation: string, id: number) =>
 			`${relation} row ${id} of ${Formatter.format(nc)}`

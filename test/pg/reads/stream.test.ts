@@ -89,11 +89,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a read's rows", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const opened = yield* installed(
-						Notes,
-						{},
-						{ label: "stream", extensions: [], programs: {} }
-					)
+					const opened = yield* installed(Notes, {}, { label: "stream", programs: {} })
 					const names = namesOf(opened.installed)
 					const insert = `INSERT INTO ${names.table(Note)} (${names.column(Note, "id")}, ${names.column(Note, "body")}) VALUES ($1::int4, $2::text)`
 					const role = opened.server.roles.app

@@ -116,7 +116,7 @@ layer(Substrate.layer)(
 						const o = yield* installed(
 							Notes,
 							{ Note: [{ id: noteId, code: "abc" }] },
-							{ label: "real", extensions: [], programs: { echoed, tagged } }
+							{ label: "real", programs: { echoed, tagged } }
 						)
 						return yield* Effect.gen(function* () {
 							const db = yield* Db.open(o.served.login.roles.app, {})

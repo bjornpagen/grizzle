@@ -68,9 +68,8 @@ const clubFacts = {
 /**
  * The full role's workload: a member's insert, a club's, and a club's with its members, each from its call's facts.
  */
-const extensions = {
+const clubInstall = {
 	label: "real",
-	extensions: [],
 	programs: {
 		insertMember: ChangeSet.empty(Clubs).insert(Member, []),
 		insertClub: ChangeSet.empty(Clubs).insert(Club, []),
@@ -286,7 +285,7 @@ export const witnessSuite = (): void => {
 					ctx,
 					Effect.gen(function* () {
 						const s = yield* Substrate
-						const o = yield* installed(Clubs, clubFacts, extensions)
+						const o = yield* installed(Clubs, clubFacts, clubInstall)
 						const q = quoteIdent(o.installed.schema)
 						const insertMember = `INSERT INTO ${q}."member" ("id", "region", "number", "code", "email", "captain") VALUES ($1::uuid, $2::smallint, $3::bigint, $4::text, $5::text, $6::boolean)`
 						const insertCaptains = `INSERT INTO ${q}."member" ("id", "region", "number", "code", "email", "captain") VALUES ($1::uuid, $2::smallint, $3::bigint, $4::text, $5::text, true), ($6::uuid, $2::smallint, $3::bigint, $4::text, $7::text, true)`

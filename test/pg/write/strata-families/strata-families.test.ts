@@ -184,11 +184,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const o = yield* installed(
-						Strata,
-						{},
-						{ label: "strata_families", extensions: [], programs }
-					)
+					const o = yield* installed(Strata, {}, { label: "strata_families", programs })
 					const group = installationGroup(namesOf(o.installed))
 					return yield* Effect.gen(function* () {
 						const db = yield* Db.open(o.served.login.roles.app, {})

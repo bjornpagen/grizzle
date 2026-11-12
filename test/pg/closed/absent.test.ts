@@ -1415,7 +1415,6 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 			{},
 			{
 				label: "absent",
-				extensions: [],
 				programs: built.programs
 			}
 		)
@@ -1767,11 +1766,7 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 const guardedCase = (c: GuardedCase, notes: Case<GuardedFeature>) =>
 	Effect.gen(function* () {
 		const built = guardedSchemaOf(c)
-		const o = yield* installed(
-			built.Lookup,
-			{},
-			{ label: "lookup", extensions: [], programs: built.programs }
-		)
+		const o = yield* installed(built.Lookup, {}, { label: "lookup", programs: built.programs })
 		yield* Effect.gen(function* () {
 			const db = yield* Db.open(o.served.login.roles.app, {})
 			for (const [id, row] of c.rows.entries()) {

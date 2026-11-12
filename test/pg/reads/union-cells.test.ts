@@ -523,11 +523,7 @@ layer(Substrate.layer)("union cells", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const opened = yield* installed(
-						Cells,
-						{},
-						{ label: "real", extensions: [], programs: {} }
-					)
+					const opened = yield* installed(Cells, {}, { label: "real", programs: {} })
 					const names = namesOf(opened.installed)
 					const kinds = defined(
 						opened.installed.names.codes.rosters.get(parsedName("Kind")),

@@ -134,7 +134,7 @@ layer(Substrate.layer, { excludeTestServices: true })("plain foreign keys on a c
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const o = yield* installed(Cycle, {}, { label: "cycle", extensions: [], programs })
+					const o = yield* installed(Cycle, {}, { label: "cycle", programs })
 					const s = yield* Substrate
 					const names = namesOf(o.installed)
 					const laws = {
