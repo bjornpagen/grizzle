@@ -94,9 +94,14 @@ const passThrough = (input: ReadmeInput): string | undefined => {
 			].join("\n\n")
 }
 
-// The `mutualTLS` schemes' certificate, key and CA paths: environment only, no file flag (6.5).
-const certificates = (plan: NamePlan): string | undefined =>
-	plan.certificates.length === 0
+/**
+ * The `mutualTLS` schemes' certificate, key and CA paths: environment only, no file flag (6.5).
+ * The files are read at start-up, before the command line is parsed, so their errors render by
+ * `<PREFIX>_ERROR_FORMAT` alone, as a parse-time error does (design 7.4).
+ */
+const certificates = (input: ReadmeInput): string | undefined => {
+	const { plan } = input
+	return plan.certificates.length === 0
 		? undefined
 		: [
 				"### Client certificates",
@@ -107,8 +112,10 @@ const certificates = (plan: NamePlan): string | undefined =>
 							`- \`${certificate.certEnv}\`, \`${certificate.keyEnv}\` and \`${certificate.caEnv}\``
 					)
 					.join("\n"),
+				`The files are read once at start-up, before the command line is parsed. A file that cannot be read, is not a regular file or is too large fails with exit code 2 before any flag is read, so its error follows \`${envPrefixOf(input.config)}_ERROR_FORMAT\` alone, never \`--error-format\`, and names the environment variable, never the path.`,
 				"The certificate is presented only to the origins this package accepts. It is never presented on a cross-origin redirect, or to an origin `--base-url` or its environment variable names outside them, even with `--allow-credentials-for-base-url`: such a request is sent without it, and stderr says so."
 			].join("\n\n")
+}
 
 const credentials = (input: ReadmeInput): string => {
 	const { plan } = input
@@ -125,7 +132,7 @@ const credentials = (input: ReadmeInput): string => {
 		)
 	}
 
-	return [...parts, passThrough(input), certificates(plan)]
+	return [...parts, passThrough(input), certificates(input)]
 		.filter((part) => part !== undefined)
 		.join("\n\n")
 }
