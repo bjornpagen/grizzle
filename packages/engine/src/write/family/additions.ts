@@ -139,8 +139,11 @@ import { refusalGuard, refusalRank } from "#compiler/write/refusal.ts"
  *   at no key a row stores are appended, a new member or one the stratum's removals deleted from its old groups
  *   (write/family/removals.ts); every family draws them;
  * - the rows a nested write of its stratum fills (write/family/nesting.ts), every column of its row layout but those
- *   its counted families fill after the walk (`sentLayout`), those no stored row repeats exactly: its counted families
- *   draw them, and the walk drew its sequences'.
+ *   its counted families fill after the walk (`sentLayout`), those no stored row repeats at every field the walk fills
+ *   (`walked`), which they state: a nested owner's counts and ends of its counted families are drawn as its stratum's
+ *   appends to it would leave a fresh owner (write/program/bind.ts freshOwners), and where it is stored, they are its
+ *   stored group's, which its counted families' appends recount. Its counted families draw them, and the walk drew its
+ *   sequences'.
  */
 export type RowSource =
 	| {
@@ -150,7 +153,20 @@ export type RowSource =
 				readonly slot: MemberSlot
 			}>
 	  }
-	| { readonly kind: "nestedRows"; readonly stratum: StratumAt; readonly layout: RowLayout }
+	| {
+			readonly kind: "nestedRows"
+			readonly stratum: StratumAt
+			readonly layout: RowLayout
+			readonly walked: ReadonlySet<ColumnKey>
+	  }
+
+/** Whether the rows of `source` state the column `key`, at which an appended row repeats a stored one: a slot's stated
+ * fields (insert/input.ts RelationInput), and a nested row's every column the walk fills; never a column a counted
+ * family draws, which its stored group holds. */
+const statesColumn = (source: RowSource, key: ColumnKey): boolean =>
+	source.kind === "slots"
+		? source.slots.some(({ slot }) => slot.input.stated.some((c) => fieldKey(c.name) === key))
+		: source.walked.has(key)
 
 /** A source of the rows of an owner relation the stratum inserts that an additions statement reads an owner copy from
  * (schedule.ts CopySource `held`): one of its slots' stated facts, or the stratum's nested rows of it. */
@@ -489,7 +505,9 @@ const appendedOf = (
 				"appended nested row",
 				columns.map((c) => c.key)
 			)
-			const compared = columns.filter((c) => c.column.kind === "field")
+			const compared = columns.filter(
+				(c) => c.column.kind === "field" && statesColumn(source, c.key)
+			)
 			const [first, ...rest] = compared
 			if (first === undefined) {
 				throw defect(`the fields of ${name}'s nested rows`)
@@ -507,10 +525,13 @@ const appendedOf = (
 }
 
 /** A reader of a stratum's nested rows of a relation, each relation's CTE pushed once (`nestedRowsOf`). */
-type NestedReader = (
-	relation: RelationInfo,
-	source: Extract<RowSource, { readonly kind: "nestedRows" }>
-) => Shaped
+type NestedReader = (relation: RelationInfo, source: NestedSent) => Shaped
+
+/** A stratum's nested rows of a relation as its statements send them: its stratum and their sent layout. */
+interface NestedSent {
+	readonly stratum: StratumAt
+	readonly layout: RowLayout
+}
 
 /** A stratum's nested rows of `relation` as a CTE: each column of their sent layout, read from their arrays and cast into
  * its column's type as a write stores it, by key. */
@@ -519,7 +540,7 @@ export const nestedRowsOf = (
 	supply: NameSupply,
 	ctes: Array<Cte>,
 	relation: RelationInfo,
-	source: Extract<RowSource, { readonly kind: "nestedRows" }>
+	source: NestedSent
 ): Shaped => {
 	const columns = [...source.layout.key, ...source.layout.columns]
 	const origin = internal("nested rows")
@@ -1138,7 +1159,9 @@ const metRefusal = (
 	const pk = relation.primaryFields
 	const proposedColumn = (f: LawField): string =>
 		defined(made.columnOf(fieldKey(f.name)), `the proposed column of ${name}.${f.name}`)
-	const stated = relation.fields.filter((f) => d.appended.columns.has(fieldKey(f.name)))
+	const stated = relation.fields.filter(
+		(f) => d.appended.columns.has(fieldKey(f.name)) && statesColumn(d.source, fieldKey(f.name))
+	)
 	const met = metRowsOf(w, supply, {
 		insert: made.insert,
 		proposed: made.proposed,

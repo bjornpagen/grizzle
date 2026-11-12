@@ -15,6 +15,14 @@
  * A row of a counted family's member, at any depth, is written whole only once that family's own fill completes it
  * (write/family/edit.ts planEdits), from the stored family the read flight finds: the walk fills every other column of
  * it and leaves those the counted family fills (`NestedLayout` pending), which the fill order lets no walked column read.
+ *
+ * What a nested fact states is every column the walk fills of its row (`walkedAt`): its key and its caller's fields,
+ * and each column a sequence draws from where the nesting places the row, an owner's count and ends of each sequence it
+ * nests and a member's place, copies and accumulators along its sequence, a tree node's interval among them, so an owner
+ * inserted again states its whole sequence. A column a counted family fills, its member's index, copies and accumulators
+ * and its owner's count and ends, is drawn from the family's stored group, a counted family being a set its inserts
+ * append to, so no fact states it: an owner inserted again beside a new member of its counted family is the same fact,
+ * and the member is appended.
  */
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
@@ -23,7 +31,7 @@ import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import { type FillOrder, type FillPosition, layoutKey } from "#compiler/ir/fill.ts"
 import { type FamilyId, familyKey, type LawRelation, type RelationInfo } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { type ColumnKey, columnKey } from "#compiler/runtime/write/fill.ts"
+import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import type { LevelAt, NestingData } from "#compiler/runtime/write/nesting.ts"
 import { walkStart } from "#compiler/write/family/fold.ts"
 import { laidLayout, type RowLayout, rowLayout } from "#compiler/write/family/statements.ts"
@@ -62,13 +70,14 @@ export type NestingRoot =
 
 /**
  * A relation whose rows a nesting's family statements write: its row layout (statements.ts rowLayout), the columns of it
- * the counted families it is a member of fill after the walk, none for a relation of no counted family, and where its
- * rows stand in the walk, at which the counts and ends of the counted families they own are filled (write/program/
- * bind.ts freshOwners).
+ * the counted families it is a member of fill after the walk, none for a relation of no counted family, the columns of
+ * it the walk fills, which its rows state (`walkedAt`), and where its rows stand in the walk, at which the counts and
+ * ends of the counted families they own are filled (write/program/bind.ts freshOwners).
  */
 export interface NestedLayout {
 	readonly layout: RowLayout
 	readonly pending: ReadonlySet<ColumnKey>
+	readonly walked: ReadonlySet<ColumnKey>
 	readonly position: FillPosition
 }
 
@@ -129,6 +138,8 @@ export interface Nesting {
 	readonly layouts: ReadonlyMap<StoredRelationName, NestedLayout>
 	/** The fields the insert's own row writes: every field of its relation but a generated one. */
 	readonly top: Heading
+	/** The columns of the insert's own row the walk fills where it starts (`walkedAt`), which its facts state. */
+	readonly walked: ReadonlySet<ColumnKey>
 }
 
 /** The fields of a level a fact supplies: its caller's and its serial ones, but those its nesting supplies: a member's
@@ -164,6 +175,26 @@ const pendingOf = (fill: FillOrder, relation: string): ReadonlySet<ColumnKey> =>
 				)
 			})
 	)
+
+/**
+ * The columns of `relation` the walk fills where its rows stand at `position` (ir/fill.ts FillWriter `walk`): its key and
+ * caller's fields, and every column a sequence draws from where the nesting places the row; never one a counted family
+ * fills, which its stored group draws.
+ */
+const walkedAt = (
+	fill: FillOrder,
+	relation: RelationInfo,
+	position: FillPosition
+): ReadonlySet<ColumnKey> => {
+	const layout = fill.layouts.get(layoutKey(relation.name, position))
+	if (layout === undefined) {
+		throw defect(`the layout of ${relation.name} where a nesting writes its rows`)
+	}
+	return new Set([
+		...relation.primaryFields.map((f) => fieldKey(f.name)),
+		...layout.columns.flatMap((c) => (c.writer.kind === "walk" ? [columnKey(c.column)] : []))
+	])
+}
 
 /**
  * The nesting of an insert into `relation` by the schema's fill order: every family it reaches, each at its depth, and
@@ -214,6 +245,7 @@ export const nestingOf = (relation: RelationInfo, fill: FillOrder): Nesting => {
 			layouts.set(member.name, {
 				layout: rowLayout(member, families),
 				pending: pendingOf(fill, member.name),
+				walked: walkedAt(fill, member, position),
 				position
 			})
 		}
@@ -236,6 +268,7 @@ export const nestingOf = (relation: RelationInfo, fill: FillOrder): Nesting => {
 		layouts,
 		top: relation.fields
 			.filter((f) => f.writing.kind !== "generated")
-			.map((f) => ({ name: f.name, type: f.type }))
+			.map((f) => ({ name: f.name, type: f.type })),
+		walked: walkedAt(fill, relation, start)
 	})
 }

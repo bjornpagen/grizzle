@@ -30,14 +30,14 @@ import { buildDisplacingDelete, buildExactDelete } from "#compiler/write/delete/
 import { buildEntryCheck, type EntryCheck, outsideProbes } from "#compiler/write/entry/precheck.ts"
 import type { WriteFrontend, WrittenRelation } from "#compiler/write/frontend/compile.ts"
 import type { FamilyNode } from "#compiler/write/frontend/schedule.ts"
-import { payloadOf } from "#compiler/write/frontend/targets.ts"
+import { payloadOf, primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import {
 	outsideInput,
 	type RereadInput,
 	unproved,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
-import { buildInsert, buildSpanClassify, insertShape } from "#compiler/write/insert/protocol.ts"
+import { buildInsert, buildSpanClassify } from "#compiler/write/insert/protocol.ts"
 import {
 	type CarrierResult,
 	compareHeading,
@@ -262,9 +262,9 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 			const insert = (serial: SerialClass, of: InsertOf) => {
 				const spec = { relation, serial, input, of } as const
 				statement(buildInsert(w, spec))
-				const shape = insertShape(relation, serial)
-				if (shape.variant === "spanKey") {
-					statement(buildSpanClassify(w, spec, shape.span))
+				const key = primaryKeyShape(relation)
+				if (serial.kind === "complete" && key.kind === "span") {
+					statement(buildSpanClassify(w, spec, key.span))
 				}
 				for (const advance of buildSequenceAdvances(
 					w,

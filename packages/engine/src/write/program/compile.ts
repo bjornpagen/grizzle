@@ -584,13 +584,20 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 					)
 				const w0 = { ...w, start: ownStatement }
 				if (node.kind === "additions") {
-					/** The rows the stratum's nested writes fill, by relation, as each sends them (nesting.ts sentLayout). */
+					/** The rows the stratum's nested writes fill, by relation, as each sends them (nesting.ts sentLayout), with
+					 * the columns of them the walk fills, which they state. */
 					const nestedRows = new Map(
 						frontend.nested.flatMap((n) =>
 							n.stratum === s
-								? [...n.nesting.layouts].map(
-										([relation, at]) => [relation, sentLayout(at)] as const
-									)
+								? [...n.nesting.layouts].map(([relation, at]) => {
+										const source: Extract<RowSource, { readonly kind: "nestedRows" }> = {
+											kind: "nestedRows",
+											stratum: s,
+											layout: sentLayout(at),
+											walked: at.walked
+										}
+										return [relation, source] as const
+									})
 								: []
 						)
 					)
@@ -609,8 +616,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 							sourced.set(edit.relation.name, [{ kind: "slots", slots }])
 						}
 					}
-					for (const [name, layout] of nestedRows) {
-						const source: RowSource = { kind: "nestedRows", stratum: s, layout }
+					for (const [name, source] of nestedRows) {
 						const known = sourced.get(name)
 						if (known === undefined) {
 							sourced.set(name, [source])
@@ -663,13 +669,8 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 											)
 										: []
 								)
-								const layout = nestedRows.get(owner)
-								return [
-									owner,
-									layout === undefined
-										? fromSlots
-										: [...fromSlots, { kind: "nestedRows" as const, stratum: s, layout }]
-								] as const
+								const rows = nestedRows.get(owner)
+								return [owner, rows === undefined ? fromSlots : [...fromSlots, rows]] as const
 							}
 						)
 					)

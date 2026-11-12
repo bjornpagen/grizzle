@@ -14,6 +14,7 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
+import { type ColumnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import type {
 	Cte,
 	Expr,
@@ -150,27 +151,34 @@ export interface RelationInput {
 	readonly kind: "relation"
 	readonly slot: ParamId
 	readonly relation: string
-	/** The fields its facts state: its key and its caller's and serial fields, the ones a statement compares. */
+	/** The fields its facts state, the ones a statement compares: its key and its caller's and serial fields, and a
+	 * nested insert's every field the walk fills from the members its facts nest, each sequence's count and ends
+	 * (write/family/nesting.ts Nesting `walked`), since an owner's insert states its sequences' members. */
 	readonly stated: Heading
-	/** The fields its slot carries beside them that its families draw (statement.ts isCarried): an owner's counts and
-	 * ends, at their starts or as its stratum's appends drew them (frontend/compile.ts EnumeratedInput), which an insert
-	 * writes and no statement compares, since a stored owner's hold its members'. None for any other slot. */
+	/** The fields its slot carries beside them that its families draw (statement.ts isCarried) and its facts do not
+	 * state: an owner's counts and ends, at their starts or as its stratum's appends drew them (frontend/compile.ts
+	 * EnumeratedInput), which an insert writes and no statement compares, since a stored owner's hold its stored members':
+	 * a counted family's, which its inserts append to, and on any slot but a nested insert's, a sequence's, which a put
+	 * leaves as stored. None for any other slot. */
 	readonly family: Heading
 }
 
 /** The relation input of the slot `slot` whose facts carry `heading`, of `relation`, each column in its part by how the
- * relation writes its field: built once, with its slot (`MemberSlot.input`), and a slot is one action's, so the plan and
- * the conservative realization read one input, and the statements each builds over it are one request
- * (`StatementShare`). */
+ * relation writes its field, `walked` the columns its facts state through the members they nest beside their key and
+ * caller's fields (a nested insert's Nesting `walked`, none for any other slot): built once, with its slot
+ * (`MemberSlot.input`), and a slot is one action's, so the plan and the conservative realization read one input, and the
+ * statements each builds over it are one request (`StatementShare`). */
 export const relationInput = (
 	slot: ParamId,
 	heading: Heading,
-	relation: RelationInfo
+	relation: RelationInfo,
+	walked: ReadonlySet<ColumnKey>
 ): RelationInput => {
 	const carried = keyFirst(relation).flatMap((f) =>
 		heading.filter((c) => c.name === f.name).map((c) => ({ field: f, column: c }))
 	)
-	const states = (f: LawField): boolean => relation.primaryFields.includes(f) || isCarried(f)
+	const states = (f: LawField): boolean =>
+		relation.primaryFields.includes(f) || isCarried(f) || walked.has(fieldKey(f.name))
 	return Object.freeze({
 		kind: "relation",
 		slot,

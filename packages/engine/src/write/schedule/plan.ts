@@ -26,7 +26,7 @@ import {
 	type FamilyNode,
 	familyNodeRelations
 } from "#compiler/write/frontend/schedule.ts"
-import { payloadOf } from "#compiler/write/frontend/targets.ts"
+import { payloadOf, primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import {
 	type InputProof,
 	keyUniqueByEvidence,
@@ -36,7 +36,6 @@ import {
 	unproved,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
-import { insertShape } from "#compiler/write/insert/protocol.ts"
 import {
 	compareHeading,
 	factHeading,
@@ -423,9 +422,9 @@ const classify = (
 	of: InsertOf,
 	level: Isolation
 ): ReadonlyArray<DraftStep> => {
-	const shape = insertShape(relation, serial)
-	return shape.variant === "spanKey" && level === "readCommitted"
-		? [{ op: "classify", serial, span: shape.span, of }]
+	const key = primaryKeyShape(relation)
+	return serial.kind === "complete" && key.kind === "span" && level === "readCommitted"
+		? [{ op: "classify", serial, span: key.span, of }]
 		: []
 }
 

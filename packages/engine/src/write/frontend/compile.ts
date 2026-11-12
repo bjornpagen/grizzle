@@ -254,6 +254,9 @@ export interface SlotFacts {
 /** Facts stated in their written relation's own words. */
 const statedInRelation: StatedIn = Object.freeze({ kind: "relation" })
 
+/** What a slot of facts that nest no member states beside their key and caller's fields: nothing. */
+const noneWalked: ReadonlySet<ColumnKey> = new Set()
+
 /** A stratum's edits of one member relation: its slots, each normalized as any slot is, by operation. */
 export interface StratumEdit {
 	readonly stratum: StratumAt
@@ -1574,14 +1577,19 @@ const compile = (
 				const queries = ofOp.flatMap((m) => (m.source.kind === "described" ? [m.source] : []))
 				const loc = firstOfOp.loc
 				const transport = enumerated.some((m) => m.kind === "stream") ? "stream" : "enumerated"
-				/** The member slot of one class of the operation's enumerated members, its facts carrying `carried`. */
-				const classSlot = (act: ActionOp, carried: Heading): MemberSlot => {
+				/** The member slot of one class of the operation's enumerated members, its facts carrying `carried` and
+				 * stating `walked` beside their key and caller's fields (insert/input.ts relationInput). */
+				const classSlot = (
+					act: ActionOp,
+					carried: Heading,
+					walked: ReadonlySet<ColumnKey>
+				): MemberSlot => {
 					const id = writeSlotId(s, act, classes, written.name)
 					return Object.freeze({
 						slot: id,
 						transport,
 						heading: carried,
-						input: relationInput(id, carried, relation)
+						input: relationInput(id, carried, relation, walked)
 					})
 				}
 				/** The names of the operation's enumerated members, when it has any. */
@@ -1598,7 +1606,7 @@ const compile = (
 					if (memberNames === undefined) {
 						return undefined
 					}
-					const slot = classSlot(act, carried)
+					const slot = classSlot(act, carried, noneWalked)
 					const starts = slot.input.family.map((c): StartData => {
 						const field = defined(
 							relation.fields.find((f) => f.name === c.name),
@@ -1632,8 +1640,16 @@ const compile = (
 					if (memberNames === undefined) {
 						return undefined
 					}
-					const complete = classSlot({ op: "insert", serial: completeClass }, classed.complete)
-					const generated = classSlot({ op: "insert", serial: classed.drawn }, classed.generated)
+					const complete = classSlot(
+						{ op: "insert", serial: completeClass },
+						classed.complete,
+						noneWalked
+					)
+					const generated = classSlot(
+						{ op: "insert", serial: classed.drawn },
+						classed.generated,
+						noneWalked
+					)
 					groupInputs.push(
 						Object.freeze({
 							kind: "classed",
@@ -1775,7 +1791,7 @@ const compile = (
 								/** A nested insert's facts are its rows as its nesting writes them (Nesting.top), each count and end
 								 * drawn from its members: never a put's, which state their caller's fields, so the host refuses the
 								 * two at one key (normalize/ step 3). */
-								const slot = classSlot(complete, nesting.top)
+								const slot = classSlot(complete, nesting.top, nesting.walked)
 								groupInputs.push(
 									Object.freeze({
 										kind: "nested",
