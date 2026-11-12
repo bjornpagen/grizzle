@@ -189,14 +189,17 @@ interface BlockedStep {
 }
 
 /**
- * A deadlock PostgreSQL broke: the blocked sessions of its cycle in the order they began to wait, the sessions that
- * could have moved meanwhile, and the victim, the session whose blocked step failed with 40P01, or none when
- * PostgreSQL granted a lock of the cycle instead.
+ * A deadlock PostgreSQL broke: a step that answered 40P01, deadlock_detected, by its session, the victim; and what the
+ * driver saw of it where it saw the cycle of waits standing before PostgreSQL broke it (the library's Deadlock): the
+ * cycle's blocked sessions in the order they began to wait, and the sessions that could have moved meanwhile. A victim
+ * PostgreSQL aborted before its wait was seen has none.
  */
 interface BrokenDeadlock {
-	readonly cycle: Arr.NonEmptyReadonlyArray<string>
-	readonly runnable: ReadonlyArray<string>
-	readonly victim: string | undefined
+	readonly victim: string
+	readonly seen: Option.Option<{
+		readonly cycle: Arr.NonEmptyReadonlyArray<string>
+		readonly runnable: ReadonlyArray<string>
+	}>
 }
 
 /**
@@ -282,7 +285,7 @@ export interface Interleaving {
 	readonly spans: Readonly<Record<string, { readonly start: number; readonly end: number }>>
 	/** Every step observed blocked on another session's lock, in the order observed. */
 	readonly waits: ReadonlyArray<BlockedStep>
-	/** Every deadlock PostgreSQL broke, in the order broken. */
+	/** Every deadlock PostgreSQL broke, one per step that answered 40P01, in the order those steps ended. */
 	readonly deadlocks: ReadonlyArray<BrokenDeadlock>
 	/** Every move issued, in order, as observed. */
 	readonly moves: ReadonlyArray<MoveRecord>
@@ -857,6 +860,14 @@ const interleavingOf = (
 					: { _tag: "Unfinished" }
 		}
 	})
+	const victims = Arr.sort(
+		Arr.flatMap(moves, (m) =>
+			m.result._tag === "Finished" && isDeadlockVictim(m.result.outcome)
+				? [{ session: m.session, at: m.result.at }]
+				: []
+		),
+		Order.mapInput(Order.Number, (victim: { readonly at: number }) => victim.at)
+	)
 	const order = Arr.map(run.order, (m) =>
 		Option.match(Option.map(m.result, outcomeOf), {
 			onNone: () => `${m.session}: ${compact(m.move.label)} (blocked)`,
@@ -931,10 +942,15 @@ const interleavingOf = (
 				}))
 			)
 		),
-		deadlocks: Arr.map(run.deadlocks, (d) => ({
-			cycle: d.cycle,
-			runnable: d.runnable,
-			victim: Option.getOrUndefined(d.victim)
+		deadlocks: Arr.map(victims, (m, i) => ({
+			victim: m.session,
+			seen: Option.map(
+				Arr.get(
+					Arr.filter(run.deadlocks, (d) => Option.contains(d.victim, m.session)),
+					Arr.filter(Arr.take(victims, i), (earlier) => earlier.session === m.session).length
+				),
+				(d) => ({ cycle: d.cycle, runnable: d.runnable })
+			)
 		})),
 		moves,
 		reads: Arr.map(run.reads, (read) => ({ at: read.at, sql: read.query, outcome: read.value })),

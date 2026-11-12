@@ -31,8 +31,7 @@
  *   inserts it again, then finding the committed state; a fenced write's lock waiting on a learner's check, which only
  *   the immediate checks of PubA and PubZ can hold across a move; the learner committing before the replace begins; a
  *   key removed; a check waiting on an in-flight publish; and a deadlock a fenced removal meets, which PostgreSQL breaks
- *   with 40P01, a transient abort the serial reference places nowhere. PostgreSQL breaks a deadlock within the wait the
- *   driver settles before its next decision, so a run shows it as the 40P01 its victim answered. Plants
+ *   with 40P01, a transient abort the serial reference places nowhere. Plants
  *   (~/.cache/grizzle-release/G3VERIFY/plants): certify-fence-omitted, served writes with no lock, whose same-key
  *   replace the learner's deferred check refuses with a spurious 23503.
  */
@@ -966,8 +965,8 @@ type FencedFeature =
 /**
  * The features one run of a fenced race reaches: s0 is the publisher's session and s1 the learner's, but in the
  * in-flight publish, whose learner is s2; a wait is a move observed waiting on the other's lock; the learner's deferred
- * check is its COMMIT waiting for ROW SHARE on a relation; the publisher's lock is its move sending one of `locks`, its
- * served writes' exclusions; and a deadlock is a move PostgreSQL answered 40P01.
+ * check is its COMMIT waiting for ROW SHARE on a relation; and the publisher's lock is its move sending one of `locks`,
+ * its served writes' exclusions.
  */
 const noteFencedRun =
 	(kind: FencedKind, locks: ReadonlySet<string>, note: (feature: FencedFeature) => void) =>
@@ -1017,15 +1016,7 @@ const noteFencedRun =
 		) {
 			note("a fenced write's lock waited on a learner's check")
 		}
-		if (
-			Arr.some(
-				e.run.moves,
-				(m) =>
-					m.result._tag === "Finished" &&
-					m.result.outcome._tag === "PgError" &&
-					m.result.outcome.fields.code === "40P01"
-			)
-		) {
+		if (e.run.deadlocks.length > 0) {
 			note("a deadlock a fenced removal met")
 		}
 	}
