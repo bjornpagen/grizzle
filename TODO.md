@@ -339,6 +339,26 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   LOCK-based lease (a table per slot locked IN EXCLUSIVE MODE by an open transaction, NOWAIT first; holder and waiter
   show backend_xmin and backend_xid NULL; ACCESS EXCLUSIVE would assign an xid), done when no lane runs an old tree.
   Parked: ~/.cache/grizzle-release/SSIDIAG/SSIDIAG-04.parked.patch.
+- **The connection lease has one slot on cassowary (PGLINUX, 2026-11-12):** testPoolMax is availableParallelism(), 64
+  there (test/support/limits.ts:107), so connectionsPerLease is 67 (test/support/substrate/shared.ts:127), and
+  leaseSlotsQuery (shared.ts:131-133) gives (100 - 3 - 0 - 5) / 67 = 1 slot on PostgreSQL's default max_connections,
+  against 7 on the 10-core VM (read on the cluster). Every network test file on the machine, every lane's, takes that
+  one slot in turn: nothing fails, but runs go one file at a time, and workers.ts:8-10 ("seven", "a run alone never
+  waits") no longer holds. The fix is the owner's policy: max_connections in scripts/pg/init.sh, or the pool's bound.
+- **The type tier's stall guard reads whole seconds of CPU on Linux (PGLINUX, 2026-11-12):**
+  test/types/batch/compiler.ts:165 reads a tree's CPU time with `ps -A -o pid=,ppid=,time=`, which procps-ng 4.0.4
+  prints as hh:mm:ss with no fraction, where macOS printed hundredths. The guard's own property draws windows of 1000
+  to 3000 ms (test/types/batch/batch.test.ts:574), so a short clean check could read no progress for a whole window
+  and be judged stalled. Unverified (not run). /proc/<pid>/stat gives the time in 10 ms ticks.
+- **Limit evidence names the macOS VM (PGLINUX, 2026-11-12):** measured limits whose environment is the 10-core macOS VM
+  need revalidating on cassowary: packages/engine/src/core/limits.ts:141, 362, 461 and 626, test/support/limits.ts:27,
+  test/support/power-pairs.ts:250, test/support/oracle/evaluate/power.ts:474 and test/types/batch/compiler.ts:46.
+  flightMaxBytes (limits.ts:815-823) cites macOS refusing a write past INT_MAX with EINVAL; Linux caps one write at
+  0x7ffff000 bytes and writes part of it instead.
+- **The PostgreSQL build's optional features follow the host (PGLINUX, 2026-11-12):** scripts/pg/build.sh names only
+  the features it needs, and meson's auto-detection turned plpython, selinux, systemd and nls on on cassowary and left
+  libxml and uuid off; the VM's set was never recorded. No test reads them (test/support/kernel/catalog-alphabet.ts
+  reads only share/postgres.bki); pinning them would make the build the same on every host.
 
 ### Parked by the scope lock (the owner, 2026-11-10)
 - **UPSTREAM:** an audit of every upstream/ and scripts/pg/patches patch to maintainer quality (the owner's order,
