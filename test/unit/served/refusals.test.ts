@@ -449,7 +449,7 @@ const differential = (
 			const { artifacts } = role.compiled
 			const cut = servedWitness(role.served.refusals, back.above, codes).classify
 			const full = installationWitness(artifacts, back.above).classify
-			const raised = raisedBy(artifacts, written, castBy(role.served))
+			const raised = raisedBy(artifacts, written, castBy(role.served, role.compiled))
 			const writes = new Set<string>(written)
 			if (Arr.some(drawn.laws.relations, (r) => writes.has(r.name))) {
 				for (const feature of lawFeatures(level)) {

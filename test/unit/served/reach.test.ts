@@ -79,6 +79,7 @@ type Feature =
 	| "a domain shared with a relation the role does not write"
 	| "a law a write statement raises"
 	| "a write through a query entry reading a context"
+	| "a clocked member with a contract-typed param"
 
 /** Whether the JSON value of a served file loads as a layer loads it: no defect, no refusal. */
 const loads = (json: unknown, login: string): boolean => {
@@ -200,7 +201,10 @@ const reach = (
 				note("a roster of the installation no role reaches")
 			}
 			const written = writtenBy(role.served)
-			const raised = raisedBy(artifacts, written, castBy(role.served))
+			const raised = raisedBy(artifacts, written, castBy(role.served, role.compiled))
+			if (shape.clocked) {
+				note("a clocked member with a contract-typed param")
+			}
 			refusalsReach(role.served, raised, printed)
 			note(written.size > 0 ? "a role that writes" : "a role that writes nothing")
 			const writes = new Set<string>(written)
@@ -256,7 +260,8 @@ describe("a login's served file", () => {
 							"a written column typed by a roster",
 							"a domain shared with a relation the role does not write",
 							"a law a write statement raises",
-							"a write through a query entry reading a context"
+							"a write through a query entry reading a context",
+							"a clocked member with a contract-typed param"
 						],
 						{ cases: 60, sense: notesOnly }
 					),

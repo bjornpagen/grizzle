@@ -12,7 +12,9 @@ import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { contextFieldAdmits, type SchemaDesc } from "#compiler/ir/desc.ts"
-import { workload } from "#compiler/program/workload/value.ts"
+import { clockedMember, workload } from "#compiler/program/workload/value.ts"
+import { Compute } from "#compiler/public/compute.ts"
+import { contract, pg } from "#compiler/public/fields.ts"
 import { context, login, role, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { paged } from "#compiler/public/workload.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -52,7 +54,10 @@ import type { ProgramCase, Root } from "#test/support/oracle/public/program.ts"
  *   checked contract's of the level;
  * - its workload's ChangeSets, each an insert or a delete into one relation it writes or into `Mine`, the facts the
  *   call's;
- * - and its workload's reads, some of the case's queries, an ordered one read whole or paged.
+ * - its workload's reads, some of the case's queries, an ordered one read whole or paged;
+ * - and perhaps a clocked read (clockedRead): the schema's first relation's facts at or after `now`, a parameter typed
+ *   by the checked contract `Instant` over bigint, which the member binds to the database's clock in milliseconds, so
+ *   its statement casts the reading to the contract's domain.
  *
  * A login of the live suites (liveLoginGen) holds besides, in its first role, constructed rather than drawn: the query
  * entry, and a read through it, `Mine`'s facts at the key a parameter binds; and a read of the law level's materialized
@@ -128,7 +133,17 @@ export interface RoleShape {
 	readonly changes: ReadonlyArray<ChangeShape>
 	readonly reads: ReadonlyArray<ReadShape>
 	readonly worldReads: ReadonlyArray<WorldRead>
+	readonly clocked: boolean
 }
+
+/**
+ * The type of a clocked read's `now` (see the header): a checked contract over bigint, an instant in milliseconds, never
+ * negative, whose domain's CHECK a reading cast to it meets.
+ */
+const Instant = contract("Instant", pg.bigint, (m) => m.ge(0n))
+
+/** The name of a role's clocked read, by the role's place. */
+export const clockedReadName = (place: number): string => `${roleName(place)}clock`
 
 /** The name of the query entry a role writes through, and of the login every case draws. */
 const entryName = "Mine"
@@ -221,7 +236,7 @@ const roleGen =
 			...read,
 			paged: read.query.delivery.kind === "ordered" && source.draw(boolean)
 		}))
-		return { writes, entry, changes, reads, worldReads: [] }
+		return { writes, entry, changes, reads, worldReads: [], clocked: source.draw(boolean) }
 	}
 
 /** The roles of a login over the drawn schema, one or more (see the header). */
@@ -327,7 +342,29 @@ const roleOf = (drawn: DrawnSchema, shape: RoleShape, place: number) => {
 			(query) => [worldReadName(place, world), query] as const
 		)
 	)
-	return { value: made, programs: Rec.fromEntries([...changes, ...reads, ...worldReads]) }
+	const clocked = shape.clocked ? [[clockedReadName(place), clockedRead(drawn)] as const] : []
+	return {
+		value: made,
+		programs: Rec.fromEntries([...changes, ...reads, ...worldReads, ...clocked])
+	}
+}
+
+/**
+ * A role's clocked read (see the header): the schema's first relation's facts, kept while `now`, the clock's reading
+ * typed by `Instant`, is at least 0, its member binding `now` to the database's clock in milliseconds.
+ */
+const clockedRead = (drawn: DrawnSchema): unknown => {
+	const target = relationValue(drawn, Arr.headNonEmpty(drawn.relations).name)
+	return clockedMember(
+		queryOver(drawn.laws.schema).rule((r: RuleValue) => {
+			const fact = varsOver(target, "fact")
+			return r
+				.match(target, fact)
+				.where(r.ge(r.param("now", Instant), Compute.literal(Instant, 0n)))
+				.find(fact)
+		}),
+		{ now: "millis" }
+	)
 }
 
 /** The name of a role's read of its own world (WorldRead), by the role's place. */

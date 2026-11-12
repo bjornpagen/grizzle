@@ -1,4 +1,6 @@
 import { Array as Arr, Order, Record as Rec, String as Str } from "effect"
+import type { ChangeVariants, WorkloadForm } from "#adapter/db/workload.ts"
+import type { LayerRole } from "#adapter/served/login.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { DecoderForm } from "#compiler/core/decoder.ts"
 import { type DeclaredName, identifierOf } from "#compiler/core/identity.ts"
@@ -9,11 +11,12 @@ import type {
 	StoredRelationName
 } from "#compiler/core/ids.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
-import type { CallerParamDecl, ParamDecl } from "#compiler/ir/products.ts"
+import type { CallerParamDecl, ClockParamDecl, ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
+import type { CompiledWrite } from "#compiler/plan/change.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import type {
 	ServedMember,
@@ -40,7 +43,8 @@ import type {
  * and its cast values hold; and a fact outside each query entry it writes through into a written relation, which the
  * entry's precheck refuses. A cast value is every parameter of every member of the role, a read's, an instant read's,
  * a key's and a paged read's as a ChangeSet's, a scalar's of its type and a relation's of each column of its heading,
- * which its statement casts at the boundary, so a code outside a closed roster is refused there; and, where the role
+ * which its statement casts at the boundary, so a code outside a closed roster is refused there; every parameter a
+ * member binds to the database's clock, whose reading its statement casts to its type; and, where the role
  * writes, every claim of a context it reads, which each of its write statements casts to its type. A cast value meets
  * each contract domain of its type's contract chain, outermost first, and its pattern's text domain. A role that writes
  * nothing raises what its cast values meet alone: those domains' CHECKs and their rosters' domains.
@@ -220,11 +224,37 @@ const memberParams = (member: ServedMember): ReadonlyArray<CallerParamDecl> => {
 	}
 }
 
+/** A compiled ChangeSet's writes, one per variant (ChangeVariants), the forms its served variants were printed from. */
+const compiledWrites = (variants: ChangeVariants): ReadonlyArray<CompiledWrite> =>
+	variants.kind === "form"
+		? [variants.form.entry.compiled]
+		: [...compiledWrites(variants.holding), ...compiledWrites(variants.lacking)]
+
 /**
- * The types of the values a role's statements cast (see the header): every parameter of its members, a scalar's type
- * and a relation's heading's, and, where it writes, its contexts' claims.
+ * The parameters a compiled member binds to the database's clock (ClockParamDecl): an instant read's and each of a
+ * ChangeSet's writes'. No served form carries them, since the runtime binds and casts nothing for them: each statement
+ * prints its reading cast to the parameter's type, so the oracle reads them where the statement was printed from.
  */
-export const castBy = (role: ServedRoleForm): ReadonlyArray<ScalarType> => {
+const memberClocked = (member: WorkloadForm): ReadonlyArray<ClockParamDecl> => {
+	switch (member.kind) {
+		case "instant":
+			return member.form.bound.compiled.compiled.template.clocked
+		case "change":
+			return Arr.flatMap(compiledWrites(member.variants), (write) => write.clocked)
+		case "read":
+		case "key":
+		case "paged":
+		case "refresh":
+			return []
+	}
+}
+
+/**
+ * The types of the values a role's statements cast (see the header): every parameter of its served members, a
+ * scalar's type and a relation's heading's, every parameter its compiled members bind to the database's clock, and,
+ * where it writes, its contexts' claims.
+ */
+export const castBy = (role: ServedRoleForm, compiled: LayerRole): ReadonlyArray<ScalarType> => {
 	const params: ReadonlyArray<CallerParamDecl> = Arr.flatMap(role.members, (member) =>
 		memberParams(member)
 	)
@@ -234,6 +264,9 @@ export const castBy = (role: ServedRoleForm): ReadonlyArray<ScalarType> => {
 			: []),
 		...Arr.flatMap(params, (param): ReadonlyArray<ScalarType> =>
 			param.kind === "scalar" ? [param.type] : Arr.map(param.heading, (column) => column.type)
+		),
+		...Arr.flatMap(compiled.workload, (member): ReadonlyArray<ScalarType> =>
+			Arr.map(memberClocked(member), (param) => param.type)
 		)
 	]
 }
