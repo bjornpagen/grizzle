@@ -493,7 +493,13 @@ const drafted = (
 	}
 	const placeholders = Arr.flatMap(g.value.plan.steps, (s) =>
 		Arr.flatMap(draftActions(s.draft), (a) =>
-			a.kind === "placeholderRetype" ? [{ column: a.column.name, reason: a.reason }] : []
+			a.kind === "alteration"
+				? Arr.flatMap(a.actions, (sub) =>
+						sub.kind === "placeholderRetype"
+							? [{ column: sub.column.name, reason: sub.reason }]
+							: []
+					)
+				: []
 		)
 	)
 	for (const field of fieldNames) {

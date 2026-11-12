@@ -2,9 +2,18 @@ import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { Lines } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
-import type { Action, Draft, Loss, LossDecision, RetypeReason } from "#compiler/deploy/diff/plan.ts"
+import {
+	type Action,
+	type Alteration,
+	alterationStatement,
+	type Draft,
+	type Loss,
+	type LossDecision,
+	type PlaceholderAlteration,
+	type RetypeReason
+} from "#compiler/deploy/diff/plan.ts"
 import type { DraftFile } from "#compiler/deploy/phases/files.ts"
 import type { MetaFile, MetaLosses, MetaStep } from "#compiler/deploy/render/folder.ts"
 import {
@@ -13,7 +22,7 @@ import {
 	noTransactionMarker,
 	placeholderMarker
 } from "#compiler/deploy/render/markers.ts"
-import type { ColumnDef, PlBlock, SqlStatement } from "#compiler/sql/ast.ts"
+import type { ColumnDef, ObjectName, PlBlock, SqlStatement } from "#compiler/sql/ast.ts"
 import { cast, exists, lit, tableCol, types } from "#compiler/sql/build.ts"
 import {
 	commented,
@@ -88,7 +97,7 @@ const bare = (statement: SqlStatement): Spelled => ({
 	write: (out) => writeStatement(out, statement)
 })
 
-/** A statement printed on its one line, then rewritten: a placeholder draft's ALTER TABLE of one action. */
+/** A statement printed on its one line, which the SQL AST has no form for: ANALYZE and DROP STATISTICS. */
 const oneLine = (above: ReadonlyArray<string>, text: string): Spelled => ({
 	above,
 	write: (out) => out.line(text)
@@ -104,55 +113,56 @@ const retypeAdvice: { readonly [R in RetypeReason]: (column: ColumnDef) => strin
 		"a closed id's or a set's code names a handle only under its own roster, which this conversion leaves, so a cast would read each value as another handle or a bare number: replace the placeholder below with the expression computing each row's new value from what its value before means"
 }
 
+/** The marker a placeholder of an alteration of `table` drafts above it: what the reviewer supplies there, and how. */
+const placeholderNote = (table: ObjectName, p: PlaceholderAlteration): string => {
+	switch (p.kind) {
+		case "placeholderColumn":
+			return `${placeholderMarker}: every existing row of ${printObjectName(table)} needs a value for the new column ${quoteIdent(p.column.name)} (${printType(p.column.type)}); replace the placeholder below with it, optionally compute the real value with an UPDATE before the DROP DEFAULT, and delete this line.`
+		case "placeholderRetype":
+			return `${placeholderMarker}: every row of ${printObjectName(table)} needs ${quoteIdent(p.column.name)} converted in place to ${printType(p.column.type)}; ${retypeAdvice[p.reason](p.column)}, and delete this line.`
+	}
+}
+
+/** The placeholders of an alteration's subcommands, in its order. */
+const placeholdersOf = (actions: ReadonlyArray<Alteration>): ReadonlyArray<PlaceholderAlteration> =>
+	actions.flatMap((a): ReadonlyArray<PlaceholderAlteration> =>
+		a.kind === "placeholderColumn" || a.kind === "placeholderRetype" ? [a] : []
+	)
+
+/** The statements a table's alteration drafts: its one ALTER TABLE, under a marker for each placeholder it holds, in
+ * its order; then, when it adds a column at a placeholder, one ALTER TABLE dropping each such column's DEFAULT, which
+ * follows the reviewer's optional UPDATE. */
+const spellAlteration = (
+	table: ObjectName,
+	actions: NonEmptyReadonlyArray<Alteration>
+): NonEmptyReadonlyArray<Spelled> => {
+	const placeholders = placeholdersOf(actions)
+	const dropped = placeholders.flatMap((p) =>
+		p.kind === "placeholderColumn" ? [p.column.name] : []
+	)
+	const alteration: Spelled = {
+		above: placeholders.map((p) => placeholderNote(table, p)),
+		write: (out) => writeStatement(out, alterationStatement(table, actions))
+	}
+	return isNonEmpty(dropped)
+		? [
+				alteration,
+				bare({
+					kind: "alterTable",
+					table,
+					actions: mapNonEmpty(dropped, (column) => ({ kind: "dropDefault", column }))
+				})
+			]
+		: [alteration]
+}
+
 /** The statements an action drafts, in order, as the file spells them: every action drafts one at least. */
 const spellAction = (action: Action): NonEmptyReadonlyArray<Spelled> => {
 	switch (action.kind) {
 		case "statement":
 			return [bare(action.statement)]
-		case "placeholderColumn": {
-			return [
-				{
-					above: [
-						`${placeholderMarker}: every existing row of ${printObjectName(action.table)} needs a value for the new column ${quoteIdent(action.column.name)} (${printType(action.column.type)}); replace the placeholder below with it, optionally compute the real value with an UPDATE before the DROP DEFAULT, and delete this line.`
-					],
-					write: (out) =>
-						writeStatement(out, {
-							kind: "alterTable",
-							table: action.table,
-							actions: [{ kind: "addColumnPlaceholder", column: action.column }]
-						})
-				},
-				bare({
-					kind: "alterTable",
-					table: action.table,
-					actions: [{ kind: "dropDefault", column: action.column.name }]
-				})
-			]
-		}
-		case "placeholderRetype": {
-			const column = action.column
-			return [
-				{
-					above: [
-						`${placeholderMarker}: every row of ${printObjectName(action.table)} needs ${quoteIdent(column.name)} converted in place to ${printType(column.type)}; ${retypeAdvice[action.reason](column)}, and delete this line.`
-					],
-					write: (out) =>
-						writeStatement(out, {
-							kind: "alterTable",
-							table: action.table,
-							actions: [
-								{
-									kind: "alterColumnType",
-									column: column.name,
-									type: column.type,
-									collation: column.collation,
-									using: { kind: "placeholder" }
-								}
-							]
-						})
-				}
-			]
-		}
+		case "alteration":
+			return spellAlteration(action.table, action.actions)
 		case "violation": {
 			const block: PlBlock = {
 				declare: [],
@@ -198,8 +208,7 @@ const spellAction = (action: Action): NonEmptyReadonlyArray<Spelled> => {
 const renderDraft = (out: Lines, draft: Draft): void => {
 	switch (draft.kind) {
 		case "statement":
-		case "placeholderColumn":
-		case "placeholderRetype":
+		case "alteration":
 		case "violation":
 		case "analyze":
 		case "dropStatistics":
@@ -230,10 +239,10 @@ const renderDraft = (out: Lines, draft: Draft): void => {
  * structural audit, never here). A few drafted forms are fixed templates around printed pieces, because they are
  * reviewer-facing or the SQL AST has no form for them:
  *
- * - a placeholder column: the ADD COLUMN statement whose default is the placeholder (sql/ast.ts addColumnPlaceholder),
- *   then the DROP DEFAULT that follows the reviewer's value;
- * - a placeholder conversion: the ALTER COLUMN ... TYPE statement whose USING is the placeholder (sql/ast.ts Using): a
- *   field converted in place;
+ * - a table's alteration holding placeholders: a marker line for each above its one ALTER TABLE, whose ADD COLUMN takes
+ *   the placeholder as its default (sql/ast.ts addColumnPlaceholder) or whose ALTER COLUMN ... TYPE takes it as its
+ *   USING (sql/ast.ts Using), a field converted in place; then the DROP DEFAULT of each column added at a placeholder,
+ *   which follows the reviewer's value;
  * - a violation check: a DO block whose condition is the violation query, raising SQLSTATE 23000 with the law's
  *   identity as the constraint name, as the law function itself does, so a violating Validate file rolls back with the
  *   law's identity;
@@ -265,8 +274,7 @@ export const renderFile = (file: DraftFile): Result.Result<string, CompileError>
 const recordStep = (d: Draft): ReadonlyArray<MetaStep> => {
 	switch (d.kind) {
 		case "statement":
-		case "placeholderColumn":
-		case "placeholderRetype":
+		case "alteration":
 		case "violation":
 		case "analyze":
 		case "dropStatistics":

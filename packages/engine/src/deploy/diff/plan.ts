@@ -1,8 +1,15 @@
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { DeployPhase } from "#compiler/ir/products.ts"
-import type { ColumnDef, ObjectName, Select, SqlStatement } from "#compiler/sql/ast.ts"
+import type {
+	AlterTable,
+	AlterTableAction,
+	ColumnDef,
+	ObjectName,
+	Select,
+	SqlStatement
+} from "#compiler/sql/ast.ts"
 
 /**
  * A name a draft's declarations speak of, as `--rename` and `--drop` spell it: a relation (`Relation`), a field of one
@@ -53,10 +60,11 @@ export interface Declarations {
  *   then extensions, new constants and new domains;
  * - structure.drop, structure, structure.backfill, structure.constraints, structure.worlds: the roles' views, world
  *   functions and policies the migration changes or removes, then recreated materialized views dropped top-down and
- *   what is built over a column converted in place dropped before its conversion, then new tables, new columns,
- *   conversions, and new or recreated materialized views WITH NO DATA with their unique indexes; then the backfill of
- *   the families new to stored rows (backfill.ts) and the DROP DEFAULT of each column it drew; then the constraints
- *   added to tables that may hold rows, NOT VALID, after every value they read is drawn; and last the roles' changed
+ *   what is built over a column converted in place dropped before its conversion, then new tables, each table's one
+ *   alteration (its new columns, conversions, identities and law columns, and a new table's own constraints), and new
+ *   or recreated materialized views WITH NO DATA with their unique indexes; then the backfill of the families new to
+ *   stored rows (backfill.ts) and the DROP DEFAULT of each column it drew; then each table's one alteration adding the
+ *   constraints of tables that may hold rows, NOT VALID, after every value they read is drawn; and last the roles' changed
  *   views, world functions and policies created again with their grants, each whose role stands before the migration:
  *   in the one transaction that dropped them, so no committed state lacks one an existing role relies on;
  * - indexes: ordinary CREATE INDEX on relations this migration creates, which are empty, and CREATE STATISTICS
@@ -94,6 +102,16 @@ export const slots = [
 	"publish.comments"
 ] as const
 export type Slot = (typeof slots)[number]
+
+/** The slots that alter each table once (Action alteration): every subcommand a slot drafts on one table is one ALTER
+ * TABLE, at the place of the table's first, so PostgreSQL rewrites a table at most once for the whole Structure file,
+ * however many columns a migration adds to it, converts or generates. Structure's drops and backfill alter no table
+ * that way: a drop never rewrites, and the drops' order among tables is the foreign keys' (dropOrder); the backfill's
+ * DROP DEFAULT is already one statement per table. */
+export type TableSlot = Extract<Slot, "structure" | "structure.constraints">
+
+export const isTableSlot = (slot: Slot): slot is TableSlot =>
+	slot === "structure" || slot === "structure.constraints"
 
 /** A file of a phase holding its slots' steps, in one transaction or none. */
 export interface SlotsFile {
@@ -137,41 +155,165 @@ export const slotFile: { readonly [S in Slot]: SlotsFile } = {
 	"publish.comments": publishFile
 }
 
-/** One drafted action:
- * - `statement`: one statement, audited and printed by `emit`;
- * - `placeholderColumn`: ALTER TABLE ... ADD COLUMN ... NOT NULL DEFAULT <placeholder>, then ALTER COLUMN ... DROP
- *   DEFAULT: a field added to a relation that may hold rows needs a value for every row, which the generator cannot
- *   invent;
- * - `placeholderRetype`: ALTER TABLE ... ALTER COLUMN ... TYPE ... USING <placeholder>: a column converted in place to
- *   `column`'s type, by the expression the reviewer writes: a field whose type changes to one that holds other values
- *   (a `ColumnConversion`), for its `reason` (RetypeReason);
- * - `violation`: the full violation query of a law the migration discharges once, which raises with the law's identity
- *   when it has a row;
- * - `analyze`: ANALYZE of a table that may hold rows, after a new statistics object;
- * - `dropStatistics`: DROP STATISTICS, which the SQL AST has no form for. */
 /** Why no cast converts a column in place: `values`, the new type's values are other values; or `roster`, a value of one
  * side is a code, which names a handle only under its own roster and the conversion leaves that roster, so a cast would
  * read it as another handle or a bare number. */
 export type RetypeReason = "values" | "roster"
 
-export type Action =
-	| { readonly kind: "statement"; readonly statement: SqlStatement }
-	| { readonly kind: "placeholderColumn"; readonly table: ObjectName; readonly column: ColumnDef }
+/** A subcommand of a table's alteration whose value the reviewer writes at its placeholder, which a marker above the
+ * alteration explains:
+ * - `placeholderColumn`: ADD COLUMN ... NOT NULL DEFAULT <placeholder>, its DROP DEFAULT drafted after the alteration: a
+ *   field added to a relation that may hold rows needs a value for every row, which the generator cannot invent;
+ * - `placeholderRetype`: ALTER COLUMN ... TYPE ... USING <placeholder>: a column converted in place to `column`'s type,
+ *   by the expression the reviewer writes: a field whose type changes to one that holds other values (a
+ *   `ColumnConversion`), for its `reason` (RetypeReason). */
+export type PlaceholderAlteration =
+	| { readonly kind: "placeholderColumn"; readonly column: ColumnDef }
 	| {
 			readonly kind: "placeholderRetype"
-			readonly table: ObjectName
 			readonly column: ColumnDef
 			readonly reason: RetypeReason
+	  }
+
+/** One subcommand of a table's alteration: an ALTER TABLE action, or a placeholder's (PlaceholderAlteration), which
+ * prints as the ADD COLUMN ... DEFAULT <placeholder> or the ALTER COLUMN ... TYPE ... USING <placeholder> under its
+ * marker, the one way the diff drafts a placeholder. */
+export type Alteration = AlterTableAction | PlaceholderAlteration
+
+/**
+ * The passes one ALTER TABLE runs its subcommands in, in order, each pass's subcommands in the order the statement lists
+ * them (PostgreSQL 19rc1, src/backend/commands/tablecmds.c: AlterTablePass at 150-166, run in order by
+ * ATRewriteCatalogs at 5345-5396, a CommandCounterIncrement after each subcommand at 5738, so each sees the ones before
+ * it): the drops, the type conversions, the added columns, the re-expressed generations, the re-added indexes and
+ * constraints of the converted columns, the constraints as first examined, the columns' attributes, the keys, the
+ * indexes, then the other constraints, identities and defaults, and the rest.
+ */
+export const alterTablePasses = [
+	"drop",
+	"alterType",
+	"addColumn",
+	"setExpression",
+	"oldIndex",
+	"oldConstraint",
+	"addConstraint",
+	"columnAttributes",
+	"addIndexConstraint",
+	"addIndex",
+	"addOtherConstraint",
+	"misc"
+] as const
+export type AlterTablePass = (typeof alterTablePasses)[number]
+
+/** The pass a subcommand runs in (alterTablePasses): ATPrepCmd's (tablecmds.c 4977-5191), an added constraint's as
+ * ATParseTransformCmd moves it on (5807-5840), a key's to the keys and a CHECK's or foreign key's to the other
+ * constraints. */
+export const alterationPass = (a: Alteration): AlterTablePass => {
+	switch (a.kind) {
+		case "dropColumn":
+		case "dropConstraint":
+		case "dropIdentity":
+		case "dropDefault":
+			return "drop"
+		case "alterColumnType":
+		case "placeholderRetype":
+			return "alterType"
+		case "addColumn":
+		case "addColumnPlaceholder":
+		case "addColumnDefault":
+		case "placeholderColumn":
+			return "addColumn"
+		case "setExpression":
+			return "setExpression"
+		case "addConstraint":
+			return a.constraint.kind === "check" || a.constraint.kind === "foreignKey"
+				? "addOtherConstraint"
+				: "addIndexConstraint"
+		case "addConstraintUsingIndex":
+			return "addIndexConstraint"
+		case "addIdentity":
+		case "setUuidv7Default":
+		case "setRetirementDefault":
+			return "addOtherConstraint"
+		case "validateConstraint":
+		case "enableRowSecurity":
+		case "disableRowSecurity":
+		case "replicaIdentity":
+			return "misc"
+	}
+}
+
+/** The ALTER TABLE action a subcommand prints as: a placeholder's with its placeholder token (sql/ast.ts
+ * addColumnPlaceholder, Using placeholder), any other as it is. */
+const printedAction = (a: Alteration): AlterTableAction => {
+	switch (a.kind) {
+		case "placeholderColumn":
+			return { kind: "addColumnPlaceholder", column: a.column }
+		case "placeholderRetype":
+			return {
+				kind: "alterColumnType",
+				column: a.column.name,
+				type: a.column.type,
+				collation: a.column.collation,
+				using: { kind: "placeholder" }
+			}
+		case "addColumn":
+		case "addColumnPlaceholder":
+		case "addColumnDefault":
+		case "dropColumn":
+		case "dropDefault":
+		case "setUuidv7Default":
+		case "setRetirementDefault":
+		case "alterColumnType":
+		case "addIdentity":
+		case "dropIdentity":
+		case "addConstraint":
+		case "addConstraintUsingIndex":
+		case "validateConstraint":
+		case "dropConstraint":
+		case "enableRowSecurity":
+		case "disableRowSecurity":
+		case "replicaIdentity":
+		case "setExpression":
+			return a
+	}
+}
+
+/** The one ALTER TABLE a table's alteration runs: its subcommands as they print, in its order. */
+export const alterationStatement = (
+	table: ObjectName,
+	actions: NonEmptyReadonlyArray<Alteration>
+): AlterTable => ({ kind: "alterTable", table, actions: mapNonEmpty(actions, printedAction) })
+
+/** One drafted action:
+ * - `statement`: one statement, audited and printed by `emit`;
+ * - `alteration`: a table's one ALTER TABLE in a slot that alters each table once (TableSlot), its subcommands in
+ *   PostgreSQL's pass order (alterationPass), so PostgreSQL rewrites the table at most once for all of them: in its one
+ *   phase 3 (tablecmds.c ATRewriteTables at 5882, the rewrite at 5929-6053, fired once per table at 6006), which also
+ *   checks every CHECK the statement adds (ATRewriteTable at 6236-6237); then one DROP DEFAULT of each placeholder column (PlaceholderAlteration),
+ *   after the reviewer's optional UPDATE;
+ * - `violation`: the full violation query of a law the migration discharges once, which raises with the law's identity
+ *   when it has a row;
+ * - `analyze`: ANALYZE of a table that may hold rows, after a new statistics object;
+ * - `dropStatistics`: DROP STATISTICS, which the SQL AST has no form for. */
+export type Action =
+	| { readonly kind: "statement"; readonly statement: SqlStatement }
+	| {
+			readonly kind: "alteration"
+			readonly table: ObjectName
+			readonly actions: NonEmptyReadonlyArray<Alteration>
 	  }
 	| { readonly kind: "violation"; readonly law: LawId; readonly query: Select }
 	| { readonly kind: "analyze"; readonly table: ObjectName }
 	| { readonly kind: "dropStatistics"; readonly name: ObjectName }
 
-/** A column's conversion in place to a new type: the statement converting it by its cast, when the new type holds the
- * old one's values (its domains read through, the two are one base type under one collation, so the cast keeps every
- * value and only the laws its domains carry change, which judge the stored values as it runs); otherwise the
- * expression the reviewer writes at its placeholder (`placeholderRetype`). */
-export type ColumnConversion = Extract<Action, { readonly kind: "statement" | "placeholderRetype" }>
+/** A column's conversion in place to a new type: by its cast, when the new type holds the old one's values (its domains
+ * read through, the two are one base type under one collation, so the cast keeps every value and only the laws its
+ * domains carry change, which judge the stored values as it runs); otherwise by the expression the reviewer writes at
+ * its placeholder (`placeholderRetype`). */
+export type ColumnConversion = Extract<
+	Alteration,
+	{ readonly kind: "alterColumnType" | "placeholderRetype" }
+>
 
 /** A schema the migrations directory holds that the configuration no longer lists: its PostgreSQL schema and its
  * directory, as the command line names it. */
