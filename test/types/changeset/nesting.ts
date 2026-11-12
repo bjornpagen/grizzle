@@ -8,8 +8,8 @@ import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
  * of parts. A case's root type nests a chain of node member types T1 … Tk at `children`, the last one's children of the
  * type `back` names (the root itself, or one of T1 … Tk, so the types recur at every depth, each its own or the others'
  * member), and every node type nests lines at `n`, every line parts at `m`. A case may state, in one of those types, a
- * field its nesting does not take: a node's parent, root field, drawn index or a stranger, a line's drawn index or
- * group, a part's group or drawn index. The types are written as interfaces, as object type aliases, or as an Omit of a
+ * field its nesting does not take: a node's drawn parent or index, its root field or a stranger, a line's drawn index
+ * or group, a part's group or drawn index. The types are written as interfaces, as object type aliases, or as an Omit of a
  * row interface intersected with the nestings.
  *
  * The oracle: every type a case declares is reached from its root, so its insert is refused exactly when one of them
@@ -21,8 +21,8 @@ import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
 export type Form = "interface" | "alias" | "intersection"
 
 /** The fields a member type may state that its nesting does not take, by the member type that states it. */
-const nodeExcess = { parent: "Uuid", doc: "Uuid", at: "bigint", note: "number" } as const
-const lineExcess = { at: "bigint", node: "Uuid" } as const
+const nodeExcess = { parent: "bigint", doc: "Uuid", at: "bigint", note: "number" } as const
+const lineExcess = { at: "bigint", node: "bigint" } as const
 const partExcess = { line: "bigint", at: "bigint" } as const
 
 /** A field the nesting does not take, and the member type stating it: node type Ti, a line or a part. */
@@ -119,7 +119,7 @@ const caseBlock = (c: NestingCase, index: number): string => {
 			memberType(
 				c.form,
 				t(i),
-				["id: Uuid", "label: number", ...stated(c.excess, "node", i)],
+				["label: number", ...stated(c.excess, "node", i)],
 				[
 					`children: ReadonlyArray<${t(i === c.members ? c.back : i + 1)}>`,
 					`n: ReadonlyArray<${lines}>`
@@ -127,7 +127,7 @@ const caseBlock = (c: NestingCase, index: number): string => {
 			)
 	)
 	return `// ${c.form}, T1 … T${c.members}, the last nesting ${c.back === 0 ? "the root" : `T${c.back}`}, ${c.excess.kind === "none" ? "no field beyond its nesting's" : `${c.excess.kind === "node" ? `T${c.excess.member}` : c.excess.kind} stating ${c.excess.field}`}
-${memberType(c.form, parts, ["y: number", ...stated(c.excess, "part", 0)], [])}${memberType(c.form, lines, ["qty: number", ...stated(c.excess, "line", 0)], [`m: ReadonlyArray<${parts}>`])}${Arr.join(nodes, "")}${memberType(c.form, t(0), ["id: Uuid", "doc: Uuid", "label: number"], [`children: ReadonlyArray<${t(1)}>`, `n: ReadonlyArray<${lines}>`])}declare const root${index}: ${t(0)}
+${memberType(c.form, parts, ["y: number", ...stated(c.excess, "part", 0)], [])}${memberType(c.form, lines, ["qty: number", ...stated(c.excess, "line", 0)], [`m: ReadonlyArray<${parts}>`])}${Arr.join(nodes, "")}${memberType(c.form, t(0), ["doc: Uuid", "label: number"], [`children: ReadonlyArray<${t(1)}>`, `n: ReadonlyArray<${lines}>`])}declare const root${index}: ${t(0)}
 export const insert${index} = ChangeSet.empty(Nesting).insert(
 	Node,
 ${nestingRefused(c) ? "\t// @ts-expect-error -- refusal: a member fact is not a fact of the relation\n" : ""}	[root${index}]
@@ -142,14 +142,14 @@ export const nestingSource = (entries: PreludeAt, cases: ReadonlyArray<NestingCa
 		entries,
 		`export const Node = relation(
 	"Node",
-	{ id: uuid, parent: uuid, at: drawn(natural), children: drawn(natural), start: drawn(natural), end: drawn(natural), doc: uuid, label: pg.integer, n: drawn(natural) },
-	["id"]
+	{ doc: uuid, parent: drawn(natural), at: drawn(natural), children: drawn(natural), start: drawn(natural), end: drawn(natural), label: pg.integer, n: drawn(natural) },
+	["doc", "start"]
 )
-export const Line = relation("Line", { node: uuid, at: drawn(natural), qty: pg.integer, m: drawn(natural) }, ["node", "at"])
-export const Part = relation("Part", { node: uuid, line: natural, at: drawn(natural), y: pg.integer }, ["node", "line", "at"])
-export const nodes = tree(on(Node, "parent", "at"), fin(Node, "children"), { root: "doc" })
-export const lines = ordered(on(Line, "node", "at"), fin(Node, "n"))
-export const parts = ordered(on(Part, "node", "line", "at"), fin(Line, "m"))
+export const Line = relation("Line", { doc: uuid, node: natural, at: drawn(natural), qty: pg.integer, m: drawn(natural) }, ["doc", "node", "at"])
+export const Part = relation("Part", { doc: uuid, node: natural, line: natural, at: drawn(natural), y: pg.integer }, ["doc", "node", "line", "at"])
+export const nodes = tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["doc"] })
+export const lines = ordered(on(Line, "doc", "node", "at"), fin(Node, "n"))
+export const parts = ordered(on(Part, "doc", "node", "line", "at"), fin(Line, "m"))
 export const Nesting = schema("Nesting", { Node, Line, Part }, [nodes, lines, parts])
 
 ${Arr.join(Arr.map(cases, caseBlock), "\n")}`

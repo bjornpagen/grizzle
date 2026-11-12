@@ -7,10 +7,9 @@
  * included (write/changeset/value.ts encodeAddition). Each row's caller fields are the caller's; every other column the
  * host writes is grizzle's, and PostgreSQL proves each one again through the native that reads it:
  *
- * - a member's group, its owner's key, and a tree node's root field, its parent's;
+ * - a member's group, its owner's key: a tree node's root fields, its parent's, and its parent, its parent's start;
  * - the drawn columns: an ordered family's index, a counted one's ‹i›, each family's count and ‹n›, and a tree's
- *   `children`, `start`, `end` and ‹ps›, its end its start plus its subtree's size, drawn in one iterative pre-order
- *   pass;
+ *   `children`, `start` and `end`, its end its start plus its subtree's size, drawn in one iterative pre-order pass;
  * - the accumulated columns, each the copy the one axis pair that carries it gives it (ir/family.ts AxisPair): along the
  *   owner axis from its owner, along the predecessor axis from its predecessor, along the last axis from its owner's
  *   last member, and at the axis's base (a family's first slot, an empty family, a tree's root) its writing's `start`;
@@ -92,7 +91,7 @@ export const fieldKey = (field: string): ColumnKey => `field:${field}`
 /**
  * A row of a nesting as its caller wrote it: its relation, its caller fields' values by field key (`ColumnKey`), each the
  * host value its carrier's codec admitted (scalar/values/identity.ts CarrierHost), and each family it owns, by its id,
- * with its members in slot order. A member holds no field its nesting supplies: its group, and a tree node's root field.
+ * with its members in slot order. A member holds no field its nesting supplies: its group, a tree node's root fields.
  */
 export interface HostNode {
 	readonly relation: StoredRelationName
@@ -250,7 +249,7 @@ export interface FillFold {
  * A tree root's parent (`self`) is its own column, as `own` is.
  */
 export type FillRuleData =
-	| { readonly kind: "given" | "index" | "copy" | "start" | "end" | "parentStart" }
+	| { readonly kind: "given" | "index" | "copy" | "start" | "end" }
 	| { readonly kind: "owner" | "own" | "ownerCopy"; readonly to: ColumnKey }
 	| { readonly kind: "count"; readonly family: FamilyId }
 	| { readonly kind: "predecessor"; readonly to: ColumnKey; readonly base: TypedLiteral }
@@ -307,7 +306,7 @@ export interface HostFill {
  * as host values:
  * - given: the caller's, the row's own value;
  * - owner: its owner's column `to`; own: its own column `to`, a tree root's parent and copies of itself;
- * - index, copy, count, start, end, parentStart: a drawn natural, from where the row stands;
+ * - index, copy, count, start, end: a drawn natural, from where the row stands;
  * - ownerCopy, predecessor, last: a column carried along an axis, the target row's column `to`, and `base` at the
  *   predecessor and last axes' base;
  * - after: a fold plane's after;
@@ -322,7 +321,6 @@ type Rule =
 	| { readonly kind: "count"; readonly family: string }
 	| { readonly kind: "start" }
 	| { readonly kind: "end" }
-	| { readonly kind: "parentStart" }
 	| { readonly kind: "ownerCopy"; readonly to: ColumnKey }
 	| { readonly kind: "predecessor"; readonly to: ColumnKey; readonly base: unknown }
 	| {
@@ -373,7 +371,6 @@ const hostRule = (rule: FillRuleData, spec: CarrierSpec): Rule => {
 		case "copy":
 		case "start":
 		case "end":
-		case "parentStart":
 			return { kind: rule.kind }
 		case "owner":
 		case "own":
@@ -784,10 +781,8 @@ interface Row {
 	readonly counts: ReadonlyMap<string, number>
 	/** Each family it owns, by key, with its last member once filled; none for an empty family. */
 	readonly last: Map<string, Row>
-	/** A tree node's interval, its end its start plus its subtree's size, and its parent's start. */
-	readonly tree:
-		| { readonly start: number; readonly end: number; readonly parentStart: number }
-		| undefined
+	/** A tree node's interval, its end its start plus its subtree's size. */
+	readonly tree: { readonly start: number; readonly end: number } | undefined
 }
 
 /** The value of a column of a row, filling it and every column it reads first; a refusal when it has none. */
@@ -917,8 +912,6 @@ const ruleValue = (
 			return Result.ok(BigInt(treeOf(row).start))
 		case "end":
 			return Result.ok(BigInt(treeOf(row).end))
-		case "parentStart":
-			return Result.ok(BigInt(treeOf(row).parentStart))
 		case "ownerCopy":
 			if (row.owner === undefined) {
 				throw defect(`an owner of ${row.layout.relation.name}'s member`)
@@ -1145,19 +1138,19 @@ export const filler = (fill: HostFill, codes: Codebook, evaluate: HostEvaluator)
 	return (root: HostNode, position: FillAt): Result.Result<FilledNode, FillRefusal> => {
 		const tree = position.kind === "root" ? position.family.id : undefined
 		const sizes = tree === undefined ? new Map<HostNode, number>() : subtreeSizes(root, tree)
-		const intervalOf = (node: HostNode, start: number, parentStart: number): Row["tree"] => {
+		const intervalOf = (node: HostNode, start: number): Row["tree"] => {
 			const size = sizes.get(node)
 			if (size === undefined) {
 				throw defect(`the subtree size of a node of ${node.relation}`)
 			}
-			return { start, end: start + size, parentStart }
+			return { start, end: start + size }
 		}
 		const first = rowOf(root, position, {
 			step: undefined,
 			owner: undefined,
 			predecessor: undefined,
 			at: 0,
-			tree: tree === undefined ? undefined : intervalOf(root, 0, 0)
+			tree: tree === undefined ? undefined : intervalOf(root, 0)
 		})
 		const entered = fillStage(first, first.layout.entering, evaluate)
 		if (!entered.ok) {
@@ -1199,7 +1192,7 @@ export const filler = (fill: HostFill, codes: Codebook, evaluate: HostEvaluator)
 						owner: frame.row,
 						predecessor: frame.previous,
 						at,
-						tree: start === undefined ? undefined : intervalOf(node, start, treeOf(frame.row).start)
+						tree: start === undefined ? undefined : intervalOf(node, start)
 					}
 				)
 				const filled = fillStage(row, row.layout.entering, evaluate)

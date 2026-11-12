@@ -310,7 +310,6 @@ const memberValues = (
 			case "count":
 			case "start":
 			case "end":
-			case "parentStart":
 			case "last":
 			case "generated":
 				throw defect(

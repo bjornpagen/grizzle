@@ -182,9 +182,6 @@ export const rowLayout = (relation: RelationInfo, families: ReadonlyArray<Family
 	const law = mine.flatMap((f): ReadonlyArray<RowColumn> => [
 		...(f.index.kind === "law" ? [of(f.index, f.count.type)] : []),
 		of({ kind: "law", column: f.copy }, f.count.type),
-		...(f.members.kind === "tree"
-			? [of({ kind: "law", column: f.members.parentStart }, f.members.start.type)]
-			: []),
 		...f.folds.flatMap((fold) =>
 			fold.planes.flatMap((plane) =>
 				[plane.before, plane.after].flatMap((c) =>
@@ -996,10 +993,10 @@ export const chainReadSql = (
 	/** The owner's key field a group field of `family` pairs with, as a position among the owner's key fields. */
 	const ownerPosition = (family: Family, owner: LawField): number =>
 		family.owner.primaryFields.findIndex((f) => f.name === owner.name)
-	/** The fields a set of `family`'s groups holds: its group fields, or a tree's root field. */
+	/** The fields a set of `family`'s groups holds: its group fields, or a tree's root fields. */
 	const groupFields = (family: Family): NonEmptyReadonlyArray<LawField> =>
 		family.members.kind === "tree"
-			? [family.members.root]
+			? family.members.root
 			: mapNonEmpty(family.group, (g) => g.member)
 	interface RowsCte {
 		readonly name: string

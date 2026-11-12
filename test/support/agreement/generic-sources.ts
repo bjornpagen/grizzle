@@ -273,8 +273,10 @@ const constructs: Readonly<Record<string, Form>> = {
 		(o) => [countedBuilder(onBuilder(A, ["owner"]), finBuilder(o, "k"))]
 	),
 	"a tree": over("tree", [])(
-		(v) => `tree(on(${v}, "parent", "at"), fin(${v}, "children"), { root: "doc" })`,
-		(t) => [treeBuilder(onBuilder(t, ["parent", "at"]), finBuilder(t, "children"), { root: "doc" })]
+		(v) => `tree(on(${v}, "parent", "at"), fin(${v}, "children"), { root: ["doc"] })`,
+		(t) => [
+			treeBuilder(onBuilder(t, ["parent", "at"]), finBuilder(t, "children"), { root: ["doc"] })
+		]
 	),
 	"a query's match": overScope(
 		(v) => `return r.match(${v}, { id: x.id, owner: x.owner }).find({ id: x.id })`,
@@ -351,11 +353,12 @@ const faults: Readonly<Record<string, { readonly refusal: Refused; readonly form
 		)
 	},
 	"a tree over another tree's slots": {
-		refusal: "a tree is a family of T over itself, on(T, parent, at), with drawn start and end",
+		refusal:
+			"a tree is a family of T over itself, on(T, parent, at), keyed by its root fields then start, with drawn parent, start and end",
 		form: over("tree", [T1])(
-			(v) => `tree(on(${v}, "parent", "at"), fin(T1, "children"), { root: "doc" })`,
+			(v) => `tree(on(${v}, "parent", "at"), fin(T1, "children"), { root: ["doc"] })`,
 			(t) => [
-				treeBuilder(onBuilder(t, ["parent", "at"]), finBuilder(T1, "children"), { root: "doc" })
+				treeBuilder(onBuilder(t, ["parent", "at"]), finBuilder(T1, "children"), { root: ["doc"] })
 			]
 		)
 	},

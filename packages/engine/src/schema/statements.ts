@@ -33,7 +33,8 @@ import {
 	ownValue,
 	queryHeadingOf,
 	builderRefusal,
-	requireName
+	requireName,
+	requireNames
 } from "#compiler/schema/protocol.ts"
 
 import { canonicalStatementOf } from "#compiler/schema/own.ts"
@@ -608,8 +609,8 @@ export const orderedBuilder = <F, Fi>(family: F, slots: Fi): Ordered<F, Fi> =>
 export const countedBuilder = <F, Fi>(family: F, slots: Fi): Counted<F, Fi> =>
 	ownedStatement({ kind: "counted", family, slots }, admitFamily("counted", family, slots))
 
-/** tree(on(T, "parent", "at"), fin(T, n), { root }): the value holds its inputs, `root` the root field's name. */
-export const treeBuilder = <F, Fi, const Root extends string>(
+/** tree(on(T, "parent", "at"), fin(T, n), { root }): the value holds its inputs, `root` the root fields' names. */
+export const treeBuilder = <F, Fi, const Root extends ReadonlyArray<string>>(
 	family: F,
 	slots: Fi,
 	root: { readonly root: Root }
@@ -617,18 +618,23 @@ export const treeBuilder = <F, Fi, const Root extends string>(
 	const member = memberSide(
 		family,
 		"tree",
-		"a tree is a family of T over itself, on(T, parent, at), with drawn start and end"
+		"a tree is a family of T over itself, on(T, parent, at), keyed by its root fields then start, with drawn parent, start and end"
 	)
 	const slotsDesc = slotsOf(slots, "tree slots")
 	if (!isPlainRecord(root)) {
-		throw malformed("tree", "{ root }: the root field each tree's rows share")
+		throw malformed("tree", "{ root }: the root fields each tree's rows share")
 	}
-	const rootField = requireName(root.root, "tree", "the root field each tree's rows share")
+	const rootFields = requireNames(
+		root.root,
+		"tree",
+		"the root fields each tree's rows share",
+		"a tree's root fields are distinct caller fields of its relation"
+	)
 	const desc = admitted({
 		kind: "tree",
 		member,
 		slots: slotsDesc,
-		root: rootField,
+		root: rootFields,
 		loc: builderLoc(`tree ${member.relation}`, [member.relation, "tree"])
 	})
 	return ownedStatement({ kind: "tree", family, slots, root: root.root }, desc)

@@ -132,17 +132,10 @@ export interface Nesting {
 }
 
 /** The fields of a level a fact supplies: its caller's and its serial ones, but those its nesting supplies: a member's
- * group, a tree node's root field, and a tree root's parent, which is itself. */
+ * group, a tree node's root fields among them. A tree's root states its root fields; its parent is drawn. */
 const ownHeading = (relation: LawRelation, at: LevelOf): Heading => {
 	const supplied = new Set<string>(
-		at.kind === "top"
-			? []
-			: [
-					...at.family.group.map((g) => g.member.name),
-					...(at.kind === "member" && at.family.members.kind === "tree"
-						? [at.family.members.root.name]
-						: [])
-				]
+		at.kind === "member" ? at.family.group.map((g) => g.member.name) : []
 	)
 	return relation.fields
 		.filter(

@@ -825,7 +825,7 @@ const familyStatement = (
 	switch (kind) {
 		case "tree":
 			return treeBuilder(onBuilder(member, [groupName(f), indexName(f)]), slots, {
-				root: rootName(f)
+				root: [rootName(f)]
 			})
 		case "ordered":
 			return orderedBuilder(onBuilder(member, [groupName(f), indexName(f)]), slots)

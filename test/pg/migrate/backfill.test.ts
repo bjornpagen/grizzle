@@ -6,29 +6,30 @@
  *
  * - **A second implementation:** the reference fold (test/support/families/fold.ts) of each owner's members in key
  *   order states every backfilled value of a family, each owner's tag is what its members' copy holds, and for a tree
- *   the direct pre-order numbering (test/support/families/tree.ts), its children in key order, states every node's
- *   slot, count, interval, sibling count and parent's kind; what the migration leaves must be exactly that.
+ *   the direct pre-order numbering of each tree under its root value (test/support/families/tree.ts) states every
+ *   node's slot, count, interval, fold and parent's kind; what the migration leaves must be exactly that.
  * - **PostgreSQL as the judge:** the migration commits, and no constraint of the installation is left NOT VALID.
  *
  * The spaces, generated: one to three owners whose members fall among them in any counts, so a backfill meets empty
  * families, families of one (the first slot the last) and families whose predecessor chain the running sum must close;
  * member keys drawn apart and written out of their order, and each member's value; and the same family with each
  * owner's tag copied onto its members along the owner axis, or without. And one or two trees of one to five nodes,
- * each under its own root value, folded by count over each node's children, as NP's fold suite folds it
- * (test/pg/fin/fold.test.ts), each node's parent's kind copied down the parent axis, the root its own, node keys drawn
- * apart and written out of their order. And members stored by a vector key that the migration which keys them by their
+ * keyed by their root value (doc, page) and start, each under its own root value, two of which may share a doc or a
+ * page, stored lawful by a direct writer, then folded by count over each node's children, as NP's fold suite folds it
+ * (test/pg/fin/fold.test.ts), and each node's parent's kind copied down the parent axis, the root its own, both added by
+ * the migration. And members stored by a vector key that the migration which keys them by their
  * group and a new drawn index keeps as a field, renames or drops, declared: its backfill orders and joins the stored
  * members by that key at the extension's operators, the dropped one's column standing until the migration's removals.
  *
  * Features: an empty family, a family of one and of several, members written out of their key order, tags copied or
- * not; two trees, a root alone, a node of several children, a grandchild, siblings written out of their key order; and
- * each fate of a vector key. Each pending situation is aimed at by a case constructed to reach it (a leading owner of a
+ * not; two trees, a root alone, a node of several children, a grandchild; and each fate of a vector key. Each pending situation is aimed at by a case constructed to reach it (a leading owner of a
  * drawn size, keys written from the highest down, a fixed tree shape, a fixed fate), never by filtering draws.
  *
  * Plants (~/.cache/grizzle-release/BR11/plants): backfill-family-index-from-one (a family's backfilled index counts
- * from 1), backfill-tree-siblings-unordered (a tree's siblings are numbered in no stated order) and
- * backfill-vector-stored-key-ignored (members keyed anew are ordered by their new key, not the one their rows were
- * distinct by).
+ * from 1) and backfill-vector-stored-key-ignored (members keyed anew are ordered by their new key, not the one their
+ * rows were distinct by); (~/.cache/grizzle-release/TREEKEY/plants) tree-copy-crosses-roots (a copy along a tree's
+ * parent drawn from the node at the parent's start under any root value) and tree-fold-crosses-roots (a fold over a
+ * tree's siblings partitioned by their parent's start alone).
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -64,17 +65,23 @@ import {
 	select,
 	tree
 } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { byMember, FOLD_SPECS, foldRead, foldSeatOf } from "#test/pg/fin/folds.ts"
 import { seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { type Aim, aimedAt } from "#test/pg/migrate/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { foldStoredOf } from "#test/support/families/fold.ts"
-import { type Node, numbered, type Rooted } from "#test/support/families/tree.ts"
+import {
+	type Forest as KeyedForest,
+	type Node as TreeNode,
+	numbered,
+	treeOfParents
+} from "#test/support/families/tree.ts"
 import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { asDrafted, compile, noDeclarations } from "#test/support/migrate/kit.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -141,24 +148,38 @@ const copyAfter = (name: string) => {
 	])
 }
 
-/** A tree of Node, one per doc, folded by count over each node's children (FoldedTree's), each node's parent's kind
- * copied down. */
-const treeBefore = (name: string) =>
-	schema(
-		name,
+/**
+ * A tree of Node keyed by its root value (doc, page) and its start, installed and holding rows; then folded by count over
+ * each node's children (FoldedTree's), each node's parent's kind copied down the parent axis, the root its own, both
+ * added by the migration over the stored rows.
+ */
+const treeBefore = (name: string) => {
+	const Node_ = relation(
+		"Node",
 		{
-			Node: relation("Node", { id: pg.int4, parent: pg.int4, doc: pg.int4, kind: pg.int4 }, ["id"])
+			doc: pg.int4,
+			page: str.regex("^p[0-9]{1,2}$"),
+			parent: drawnField(natural),
+			at: drawnField(natural),
+			children: drawnField(natural),
+			start: drawnField(natural),
+			end: drawnField(natural),
+			kind: pg.int4
 		},
-		[]
+		["doc", "page", "start"]
 	)
+	return schema(name, { Node: Node_ }, [
+		tree(on(Node_, "parent", "at"), fin(Node_, "children"), { root: ["doc", "page"] })
+	])
+}
 
 const treeAfter = (name: string) => {
 	const Node_ = relation(
 		"Node",
 		{
-			id: pg.int4,
 			doc: pg.int4,
-			parent: pg.int4,
+			page: str.regex("^p[0-9]{1,2}$"),
+			parent: drawnField(natural),
 			at: drawnField(natural),
 			children: drawnField(natural),
 			start: drawnField(natural),
@@ -169,19 +190,26 @@ const treeAfter = (name: string) => {
 			after: accumulated(natural, 0n),
 			total: accumulated(natural, 0n)
 		},
-		["id"]
+		["doc", "page", "start"]
 	)
-	const t = tree(on(Node_, "parent", "at"), fin(Node_, "children"), { root: "doc" })
+	const t = tree(on(Node_, "parent", "at"), fin(Node_, "children"), { root: ["doc", "page"] })
 	return schema(name, { Node: Node_ }, [
 		t,
-		fold(t, Monoid.count, on(Node_, "parent", "before", "after"), on(Node_, "id", "total")),
+		fold(
+			t,
+			Monoid.count,
+			on(Node_, "doc", "page", "parent", "before", "after"),
+			on(Node_, "doc", "page", "start", "total")
+		),
 		contained(
 			on(
 				select(Node_, (n) => n.gt(n.start, 0n)),
+				"doc",
+				"page",
 				"parent",
 				"parentKind"
 			),
-			on(Node_, "id", "kind")
+			on(Node_, "doc", "page", "start", "kind")
 		)
 	])
 }
@@ -275,62 +303,47 @@ const familyAims: ReadonlyArray<Aim<Family, FamilyFeature>> = [
 	["a fold without a copy", familyOf(countsGen, anyOrder, constant(false))]
 ]
 
-/** One node as written: its key, its parent's (its own at a root), its tree's root value and its kind. */
-interface WrittenNode {
-	readonly id: number
-	readonly parent: number
-	readonly doc: number
-	readonly kind: number
-}
-
-/** A forest as written: every tree's nodes, each tree in its node order, its root first. */
+/** A forest as stored: each tree under its root value (doc, page), its shape and kinds, numbered as NP numbers it. */
 interface Forest {
-	readonly trees: ReadonlyArray<ReadonlyArray<WrittenNode>>
+	readonly trees: ReadonlyArray<KeyedForest[number]>
 }
 
 /**
- * A forest: as many trees as `trees` draws, each tree's shape what `shape` draws (its nodes' parents), each tree's root
- * value apart from the others', every node keyed apart, the keys as `keys` draws them, written tree by tree, and each
- * node's kind.
+ * A forest: as many trees as `trees` draws, each tree's shape what `shape` draws (its nodes' parents) and each node's
+ * kind, each tree's root value apart from the others' and drawn from a few docs and pages, so two trees may share a
+ * doc or a page, every tree holding the same starts.
  */
 const forestOf =
-	(
-		trees: Gen<number>,
-		shape: Gen<ReadonlyArray<number>>,
-		keys: (total: number) => Gen<ReadonlyArray<number>>
-	): Gen<Forest> =>
+	(trees: Gen<number>, shape: Gen<ReadonlyArray<number>>): Gen<Forest> =>
 	(source) => {
-		const shapes = upTo(source.draw(trees), () => source.draw(shape))
-		const total = Arr.reduce(shapes, 0, (sum, nodes) => sum + nodes.length + 1)
-		const drawnKeys = source.draw(keys(total))
-		const docs = source.draw(
-			shuffled(Arr.range(1, valueBound), { min: shapes.length, max: shapes.length })
+		const count = source.draw(trees)
+		const roots = source.draw(
+			shuffled(
+				Arr.flatMap(Arr.range(1, 2), (doc) =>
+					Arr.map(Arr.range(0, 1), (page) => [String(doc), `p${page}`] as const)
+				),
+				{ min: count, max: count }
+			)
 		)
-		let offset = 0
-		const forest = Arr.map(shapes, (nodes, t) => {
-			const idOf = (node: number) => defined(drawnKeys[offset + node], "a node's key")
-			const doc = defined(docs[t], "a tree's root value")
-			const written = upTo(nodes.length + 1, (node) => ({
-				id: idOf(node),
-				parent: idOf(node === 0 ? 0 : defined(nodes[node - 1], "a node's parent")),
-				doc,
-				kind: source.draw(int(0, valueBound))
-			}))
-			offset += nodes.length + 1
-			return written
-		})
-		return { trees: forest }
+		return {
+			trees: upTo(count, (t) => {
+				const parentOf = source.draw(shape)
+				return {
+					root: defined(roots[t], "a tree's root value"),
+					tree: treeOfParents(
+						parentOf,
+						upTo(parentOf.length + 1, () => source.draw(int(0, valueBound)))
+					)
+				}
+			})
+		}
 	}
 
 /** A tree of one to five nodes, its shape drawn by its parents. */
 const treeShape: Gen<ReadonlyArray<number>> = parents({ min: 1, max: 5 })
 
-/**
- * One or two trees of one to five nodes, each tree's shape drawn by its parents, its root value apart from the other's,
- * every node keyed apart, the keys drawn in any order, so siblings are written out of their key order, and each node's
- * kind.
- */
-const forestGen: Gen<Forest> = forestOf(int(1, 2), treeShape, anyOrder)
+/** One or two trees of one to five nodes, each tree's shape drawn by its parents, its root value apart from the other's. */
+const forestGen: Gen<Forest> = forestOf(int(1, 2), treeShape)
 
 /** A root and its two children; a root, its child and its grandchild: by their parents. */
 const twoChildren: Gen<ReadonlyArray<number>> = constant([0, 0])
@@ -338,14 +351,16 @@ const chain: Gen<ReadonlyArray<number>> = constant([0, 1])
 
 /** The forest each required situation of a tree is aimed at while it is pending (Case.steering). */
 const treeAims: ReadonlyArray<Aim<Forest, TreeFeature>> = [
-	["two trees", forestOf(constant(2), treeShape, anyOrder)],
-	["a root alone", forestOf(int(1, 2), parents({ min: 1, max: 1 }), anyOrder)],
-	["a node of several children", forestOf(int(1, 2), twoChildren, anyOrder)],
-	["a grandchild", forestOf(int(1, 2), chain, anyOrder)],
-	["siblings written out of their key order", forestOf(int(1, 2), twoChildren, descending)]
+	["two trees", forestOf(constant(2), treeShape)],
+	["a root alone", forestOf(int(1, 2), parents({ min: 1, max: 1 }))],
+	["a node of several children", forestOf(int(1, 2), twoChildren)],
+	["a grandchild", forestOf(int(1, 2), chain)]
 ]
 
-/** A relation's stored rows, each a value per field, a number or the text of a vector's literal. */
+/**
+ * A relation's stored rows, each a value per field, a number or a literal's text, or per `‹n›`, its family's copy of
+ * its owner's count, the drawn law column a tree's direct writer writes.
+ */
 interface Stored {
 	readonly relation: string
 	readonly rows: ReadonlyArray<Readonly<Record<string, number | string>>>
@@ -361,14 +376,29 @@ const namesOf = (schemaName: string) => {
 	}
 }
 
-/** Writes stored rows, as the owner, in one SERIALIZABLE transaction, into the first version's tables. */
+/**
+ * Writes stored rows, as the owner, in one SERIALIZABLE transaction, into the first version's tables, `before`'s: each
+ * field's column by its name, and `‹n›` the column of the copy of the family whose member the relation is, by the law
+ * that names it in `before` compiled.
+ */
 const inserted = (
 	owner: RawSession,
 	schemaName: string,
+	before: AnySchema,
 	stored: ReadonlyArray<Stored>
 ): Effect.Effect<void> =>
 	Effect.gen(function* () {
 		const { table, column } = namesOf(schemaName)
+		const families = compile(before, asDrafted).laws.families
+		const columnOf = (relation: string, f: string): string =>
+			f === "‹n›"
+				? quoteIdent(
+						defined(
+							Option.getOrUndefined(Arr.findFirst(families, (g) => g.member.name === relation)),
+							`the family whose member is ${relation}`
+						).copy
+					)
+				: column(f)
 		yield* owner.query("BEGIN ISOLATION LEVEL SERIALIZABLE", [])
 		for (const r of stored) {
 			const [first] = r.rows
@@ -377,7 +407,10 @@ const inserted = (
 			}
 			const fields = Rec.keys(first)
 			yield* owner.query(
-				`INSERT INTO ${table(r.relation)} (${Arr.join(Arr.map(fields, column), ", ")}) VALUES ${Arr.join(
+				`INSERT INTO ${table(r.relation)} (${Arr.join(
+					Arr.map(fields, (f) => columnOf(r.relation, f)),
+					", "
+				)}) VALUES ${Arr.join(
 					Arr.map(
 						r.rows,
 						(row) =>
@@ -427,7 +460,7 @@ const declaredMigratedOver = (
 			apply: { kind: "noPlaceholders" },
 			declared: (version) => (version === 0 ? noDeclarations : declarations),
 			observe: Option.some((v: number, owner: RawSession) =>
-				v !== 0 ? Effect.void : inserted(owner, schemaName, stored)
+				v !== 0 ? Effect.void : inserted(owner, schemaName, before(schemaName), stored)
 			)
 		})
 		const unvalidated = yield* s.admin.queryValues(
@@ -472,12 +505,7 @@ type FamilyFeature =
 	| "tags copied"
 	| "a fold without a copy"
 
-type TreeFeature =
-	| "two trees"
-	| "a root alone"
-	| "a node of several children"
-	| "a grandchild"
-	| "siblings written out of their key order"
+type TreeFeature = "two trees" | "a root alone" | "a node of several children" | "a grandchild"
 
 /** Each owner of a family: its id, its tag, and its members in the order they are written. */
 const ownersOf = (family: Family) =>
@@ -502,34 +530,27 @@ const familyFeatures = (family: Family): ReadonlyArray<FamilyFeature> => [
 	family.copied ? "tags copied" : "a fold without a copy"
 ]
 
-/** The written node of key `id` among `nodes`. */
-const nodeIn = (nodes: ReadonlyArray<WrittenNode>, id: number): WrittenNode =>
-	defined(Option.getOrUndefined(Arr.findFirst(nodes, (n) => n.id === id)), "a written node")
+/** The depth of a node's subtree: 1 for a leaf. */
+const depthOf = (node: TreeNode): number =>
+	1 + Arr.reduce(node.children, 0, (deepest, child) => Math.max(deepest, depthOf(child)))
 
-/** The children of the node of key `id` among `nodes`, in the order they are written. */
-const childrenIn = (nodes: ReadonlyArray<WrittenNode>, id: number): ReadonlyArray<WrittenNode> =>
-	Arr.filter(nodes, (n) => n.parent === id && n.id !== id)
+/** Every node of a tree, itself first. */
+const nodesOf = (node: TreeNode): ReadonlyArray<TreeNode> => [
+	node,
+	...Arr.flatMap(node.children, nodesOf)
+]
 
-/** What a forest reaches: two trees, a root alone, a node of several children, a grandchild, siblings out of order. */
-const forestFeatures = (forest: Forest): ReadonlyArray<TreeFeature> => {
-	const nodes = Arr.flatten(forest.trees)
-	return [
-		...(forest.trees.length > 1 ? ["two trees" as const] : []),
-		...Arr.flatMap(nodes, (n): ReadonlyArray<TreeFeature> => {
-			const children = childrenIn(nodes, n.id)
-			return [
-				...(n.parent === n.id && children.length === 0 ? ["a root alone" as const] : []),
-				...(children.length > 1 ? ["a node of several children" as const] : []),
-				...(outOfOrder(Arr.map(children, (child) => child.id))
-					? ["siblings written out of their key order" as const]
-					: []),
-				...(n.parent !== n.id && nodeIn(nodes, n.parent).parent !== n.parent
-					? ["a grandchild" as const]
-					: [])
-			]
-		})
-	]
-}
+/** What a forest reaches: two trees, a root alone, a node of several children, a grandchild. */
+const forestFeatures = (forest: Forest): ReadonlyArray<TreeFeature> => [
+	...(forest.trees.length > 1 ? ["two trees" as const] : []),
+	...Arr.flatMap(forest.trees, ({ tree: t }): ReadonlyArray<TreeFeature> => [
+		...(t.children.length === 0 ? ["a root alone" as const] : []),
+		...(Arr.some(nodesOf(t), (n) => n.children.length > 1)
+			? ["a node of several children" as const]
+			: []),
+		...(depthOf(t) >= 3 ? ["a grandchild" as const] : [])
+	])
+]
 
 /**
  * What the migration that keys the members by their group and a new drawn index declares of the vector key they were
@@ -787,7 +808,7 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 	)
 
 	it.effect(
-		"draw a forest's numbering, its count fold over each node's siblings, the root its one admitted state, and each parent copy, the root its own",
+		"draw a count fold over each node's siblings, the root its one admitted state, and each parent copy, the root its own, over a stored keyed forest, each tree's rows by its own root value",
 		(ctx) =>
 			searched(
 				ctx,
@@ -797,13 +818,7 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 						draw: drawn(forestGen),
 						literal: Formatter.format,
 						coverage: required<TreeFeature>(
-							[
-								"two trees",
-								"a root alone",
-								"a node of several children",
-								"a grandchild",
-								"siblings written out of their key order"
-							],
+							["two trees", "a root alone", "a node of several children", "a grandchild"],
 							{ cases: 12, sense: notesOnly }
 						),
 						kept: [],
@@ -814,49 +829,40 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 						caseHang,
 						oracle: {
 							kind: "second-implementation",
-							name: "the direct pre-order numbering of the forest, its children in key order, and each parent's kind"
+							name: "the direct pre-order numbering of each tree under its root value, NP's lawful count fold, and each parent's kind"
 						}
 					},
 					(drawnForest: Forest, c: Case<TreeFeature>) =>
 						Effect.gen(function* () {
 							const forest = aimedAt(treeAims)(drawnForest, c)
 							c.noteAll(forestFeatures(forest))
-							const nodes = Arr.flatten(forest.trees)
-							const byId = (id: number): WrittenNode => nodeIn(nodes, id)
-							const childrenOf = (id: number): ReadonlyArray<WrittenNode> => childrenIn(nodes, id)
+							const rows = numbered(forest.trees)
 							const m = yield* migratedOver("backfilltree", treeBefore, treeAfter, [
 								{
 									relation: "Node",
-									rows: Arr.map(nodes, (n) => ({
-										id: n.id,
-										parent: n.parent,
-										doc: n.doc,
-										kind: n.kind
-									}))
+									rows: Arr.map(rows, (r) => {
+										const [doc, page] = r.root
+										return {
+											doc: Number(doc),
+											page: `'${page}'`,
+											parent: r.parent,
+											at: r.at,
+											children: r.children,
+											start: r.start,
+											end: r.end,
+											kind: r.kind,
+											"‹n›": r.copy
+										}
+									})
 								}
 							])
-							const nodeOf = (id: number): Node => ({
-								id,
-								children: Arr.map(
-									Arr.sort(
-										childrenOf(id),
-										Order.mapInput(Order.Number, (n: WrittenNode) => n.id)
-									),
-									(n) => nodeOf(n.id)
-								)
-							})
-							const roots: ReadonlyArray<Rooted> = Arr.sort(
-								Arr.map(
-									Arr.filter(nodes, (n) => n.parent === n.id),
-									(r): Rooted => ({ root: r.doc, tree: nodeOf(r.id) })
-								),
-								Order.mapInput(Order.Number, (r: Rooted) => r.root)
-							)
-							const numberedRows = yield* rowsOf(m.declared, "Node", [
-								"id",
+							const migratedRows = yield* rowsOf(m.declared, "Node", [
+								"doc",
+								"page",
+								"start",
+								"parent",
 								"at",
 								"children",
-								"start",
 								"end",
 								"before",
 								"after",
@@ -864,21 +870,22 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 								"parentKind"
 							])
 							assert.deepEqual(
-								numberedRows,
+								migratedRows,
 								Arr.sort(
-									Arr.map(numbered(roots), (r) =>
+									Arr.map(rows, (r) =>
 										Arr.join(
 											Arr.map(
 												[
-													r.id,
+													...r.root,
+													r.start,
+													r.parent,
 													r.at,
 													r.children,
-													r.start,
 													r.end,
 													r.at,
 													r.at + 1,
 													r.children,
-													byId(byId(r.id).parent).kind
+													r.parentKind
 												],
 												String
 											),
@@ -887,7 +894,7 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 									),
 									Order.String
 								),
-								"NP's numbering, NP's lawful count fold, each parent's kind"
+								"each tree's stored numbering kept, NP's lawful count fold, each parent's kind in its own tree"
 							)
 						})
 				)

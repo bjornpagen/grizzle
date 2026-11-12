@@ -277,7 +277,6 @@ const ruleData = (rule: FillRule): FillRuleData => {
 		case "copy":
 		case "start":
 		case "end":
-		case "parentStart":
 			return { kind: rule.kind }
 		case "owner":
 		case "ownerCopy":

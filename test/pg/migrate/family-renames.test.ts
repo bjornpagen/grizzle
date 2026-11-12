@@ -2,9 +2,10 @@
  * A family over stored rows across a migration that renames it or changes what fills it, on PostgreSQL 19rc1,
  * generated.
  *
- * A history: relations with rows stored at their first version, a roster's kinds among them; a family over them at the
- * second, counted, ordered or a tree, with a fold whose accumulators are hidden, named or absent, stepping over every
- * member or over those of one kind, and an axis copy or none, backfilled over the rows; then a third version that either
+ * A history: relations with rows stored at their first version, a roster's kinds among them, a tree's keyed by its
+ * root field and start and so a tree already; a family over them at the second, counted, ordered or that tree, with a
+ * fold whose accumulators are hidden, named or absent, stepping over every member or over those of one kind, and an
+ * axis copy or none, backfilled over the rows; then a third version that either
  *
  * - **renames** it: the relations mapped injectively onto their own names, each other's or fresh ones, so swaps, chains
  *   and cycles occur, the owner, the member and a spare relation among them; the owner's count and caller fields
@@ -19,8 +20,8 @@
  * - **A rename changes no stored byte and builds nothing.** Every table keeps its OID and its relfilenode, so nothing
  *   rewrote it; every column its attribute number and its values, so no law column or drawn field was dropped and added
  *   again; every row its xmin, so no backfill UPDATE touched it; and every constraint and index its OID, so none was
- *   built or validated again. The family's law columns (‹n›, a counted index, a tree's ‹ps›, a fold's hidden
- *   accumulators, the generated terms), its drawn fields, its keys and its CHECKs and foreign keys are renamed in place.
+ *   built or validated again. The family's law columns (‹n›, a counted index, a fold's hidden accumulators, the
+ *   generated terms), its drawn fields, its keys and its CHECKs and foreign keys are renamed in place.
  * - **A changed filler is drawn again.** The migration commits, so PostgreSQL validated every constraint it added over
  *   the values it drew; a field kept with its old filler's values fails the fold's CHECK or the axis's foreign key, and
  *   a fold over a tree is drawn in the tree's stored sibling order.
@@ -59,6 +60,7 @@ import {
 	reviewedSource
 } from "#test/pg/migrate/support.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { numbered, treeOfParents } from "#test/support/families/tree.ts"
 import {
 	type AuthoredStatementDesc,
 	closed,
@@ -265,17 +267,19 @@ const familySchema = (shape: Shape, naming: Naming, reading: Reading) => {
 	}
 }
 
-/** A tree's relation and statements at a version: its sum fold of a tag over each node's children, and its copy of
- * the parent's tag down the owner axis. */
-const treeSchema = (shape: Shape, naming: Naming, reading: Reading) => {
+/**
+ * A tree's relation and statements at a version, keyed by its root field doc and its start, `folded` with its sum fold
+ * of a tag over each node's children and its copy of the parent's tag down the owner axis, as `shape` states them, or
+ * bare, the tree alone, as its first version stores its rows.
+ */
+const treeSchema = (shape: Shape, naming: Naming, reading: Reading, folded: boolean) => {
 	const node = naming.relation("Node")
 	const count = naming.field("n")
 	const slots = fin(node, count)
-	const named = shape.fold === "named"
+	const named = folded && shape.fold === "named"
 	const fields: Record<string, FixtureField> = {
-		id: integer,
-		parent: integer,
 		doc: integer,
+		parent: f.drawn,
 		[naming.field("tag")]: integer,
 		[naming.field("tag2")]: integer,
 		at: f.drawn,
@@ -283,13 +287,16 @@ const treeSchema = (shape: Shape, naming: Naming, reading: Reading) => {
 		start: f.drawn,
 		end: f.drawn,
 		kind: f.closedId(naming.roster),
-		...(shape.fold === "none" ? {} : { total: f.accumulated(integer, 0) }),
+		...(!folded || shape.fold === "none" ? {} : { total: f.accumulated(integer, 0) }),
 		...(named ? { before: f.accumulated(integer, 0), after: f.accumulated(integer, 0) } : {}),
-		...(shape.copy ? { parentTag: f.accumulated(integer, 0) } : {})
+		...(folded && shape.copy ? { parentTag: f.accumulated(integer, 0) } : {})
 	}
 	const statements: Array<AuthoredStatementDesc> = [
-		{ kind: "tree", member: on(node, ["parent", "at"]), slots, root: "doc" }
+		{ kind: "tree", member: on(node, ["parent", "at"]), slots, root: ["doc"] }
 	]
+	if (!folded) {
+		return { relations: [relation(node, fields, ["doc", "start"])], statements }
+	}
 	if (shape.fold !== "none") {
 		const step = naming.field(reading.step === "first" ? "tag" : "tag2")
 		statements.push(
@@ -300,42 +307,42 @@ const treeSchema = (shape: Shape, naming: Naming, reading: Reading) => {
 					shape,
 					naming,
 					node,
-					named ? ["parent", step, "before", "after"] : ["parent", step]
+					named ? ["doc", "parent", step, "before", "after"] : ["doc", "parent", step]
 				),
-				on(node, ["id", "total"])
+				on(node, ["doc", "start", "total"])
 			)
 		)
 	}
 	if (shape.copy) {
 		statements.push(
 			contained(
-				onWhere(node, ["parent", "parentTag"], nonRoot),
-				on(node, ["id", naming.field(reading.copied)])
+				onWhere(node, ["doc", "parent", "parentTag"], nonRoot),
+				on(node, ["doc", "start", naming.field(reading.copied)])
 			)
 		)
 	}
-	return { relations: [relation(node, fields, ["id"])], statements }
+	return { relations: [relation(node, fields, ["doc", "start"])], statements }
 }
 
-/** A history's relations before its family: the caller's fields alone. */
+/**
+ * A history's relations before its family, and their statements: the caller's fields alone, or a tree's bare relation
+ * and its tree, which keys the rows it stores by their root field and start.
+ */
 const plainSchema = (shape: Shape) => {
 	const kind = f.closedId(roster)
 	return shape.kind === "tree"
-		? [
-				relation(
-					"Node",
-					{ id: integer, parent: integer, doc: integer, tag: integer, tag2: integer, kind },
-					["id"]
-				)
-			]
-		: [
-				relation("Owner", { id: integer, tag: integer, tag2: integer }, ["id"]),
-				relation(
-					"Member",
-					{ member: integer, g: integer, h: integer, x: integer, y: integer, kind },
-					["member"]
-				)
-			]
+		? treeSchema(shape, asFirst, firstReading, false)
+		: {
+				relations: [
+					relation("Owner", { id: integer, tag: integer, tag2: integer }, ["id"]),
+					relation(
+						"Member",
+						{ member: integer, g: integer, h: integer, x: integer, y: integer, kind },
+						["member"]
+					)
+				],
+				statements: []
+			}
 }
 
 /** A version's schema under the declared name `name`: the plain relations, or the family as `naming` and `reading`
@@ -357,16 +364,17 @@ const versionOf = (
 		Arr.map(handles, (h, code) => ({ kind: naming.handle(h), w: code }))
 	)
 	if (at.kind === "plain") {
+		const plain = plainSchema(shape)
 		return {
 			name,
-			relations: [kinds, weights, ...plainSchema(shape), spare],
-			statements: [],
+			relations: [kinds, weights, ...plain.relations, spare],
+			statements: plain.statements,
 			extends: undefined
 		}
 	}
 	const family =
 		shape.kind === "tree"
-			? treeSchema(shape, at.naming, at.reading)
+			? treeSchema(shape, at.naming, at.reading, true)
 			: familySchema(shape, at.naming, at.reading)
 	return {
 		name,
@@ -376,7 +384,10 @@ const versionOf = (
 	}
 }
 
-/** The rows a history stores at its first version: each relation's, each a value per caller field. */
+/**
+ * The rows a history stores at its first version: each relation's, each a value per field, or per `‹n›`, a tree's copy
+ * of its parent's count, which its direct writer writes beside the tree's drawn fields.
+ */
 interface Stored {
 	readonly relation: RelationName
 	readonly rows: ReadonlyArray<Readonly<Record<string, number>>>
@@ -423,26 +434,27 @@ const familyRows: Gen<ReadonlyArray<Stored>> = (source) => {
 	]
 }
 
-/** One or two trees of one to five nodes, each tree's shape drawn by its parents, its root value apart from the
- * other's, every node keyed apart in any order, and each node's two tags. */
+/**
+ * One or two trees of one to five nodes, each tree's shape drawn by its parents, its root value apart from the other's,
+ * stored as NP numbers it, and each node's two tags and kind.
+ */
 const treeRows: Gen<ReadonlyArray<Stored>> = (source) => {
-	const shapes = upTo(source.draw(int(1, 2)), () => source.draw(parents({ min: 1, max: 5 })))
-	const total = Arr.reduce(shapes, 0, (sum, shape) => sum + shape.length + 1)
-	const keys = source.draw(shuffled(keyRange, { min: total, max: total }))
-	let offset = 0
-	const rows = Arr.flatMap(shapes, (shape, doc) => {
-		const idOf = (node: number) => defined(keys[offset + node], "a node's key")
-		const nodes = upTo(shape.length + 1, (node) => ({
-			id: idOf(node),
-			parent: idOf(node === 0 ? 0 : defined(shape[node - 1], "a node's parent")),
-			doc,
-			tag: source.draw(valueGen),
-			tag2: source.draw(valueGen),
-			kind: source.draw(codeGen)
-		}))
-		offset += shape.length + 1
-		return nodes
-	})
+	const forest = upTo(source.draw(int(1, 2)), (doc) => ({
+		root: [String(doc)],
+		tree: treeOfParents(source.draw(parents({ min: 1, max: 5 })), [])
+	}))
+	const rows = Arr.map(numbered(forest), (r) => ({
+		doc: Number(Arr.headNonEmpty(nonEmpty(r.root, "a tree's root value"))),
+		parent: r.parent,
+		at: r.at,
+		n: r.children,
+		start: r.start,
+		end: r.end,
+		"‹n›": r.copy,
+		tag: source.draw(valueGen),
+		tag2: source.draw(valueGen),
+		kind: source.draw(codeGen)
+	}))
 	return [{ relation: "Node", rows }]
 }
 
@@ -696,12 +708,25 @@ const notValid = (schemaName: string) =>
 		return texts(rows)
 	})
 
-/** Writes the stored rows into the first version's tables, in one transaction. */
-const store = (schemaName: string, stored: ReadonlyArray<Stored>) =>
+/**
+ * Writes the stored rows into the first version's tables, in one transaction: each field's column by its name, and
+ * `‹n›` the column of the copy of the family whose member the relation is, as `installation` names it.
+ */
+const store = (schemaName: string, installation: Installation, stored: ReadonlyArray<Stored>) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const schemaIdent = quoteIdent(identifierOf(identity.schema(parsedSchemaName(schemaName))))
-		const column = (name: string) => quoteIdent(identifierOf(identity.column(parsedName(name))))
+		const columnOf = (relation: string, name: string) =>
+			quoteIdent(
+				name === "‹n›"
+					? defined(
+							Option.getOrUndefined(
+								Arr.findFirst(installation.laws.families, (g) => g.member.name === relation)
+							),
+							`the family whose member is ${relation}`
+						).copy
+					: identifierOf(identity.column(parsedName(name)))
+			)
 		const inserts = Arr.flatMap(stored, (r) => {
 			const [first] = r.rows
 			if (first === undefined) {
@@ -710,7 +735,7 @@ const store = (schemaName: string, stored: ReadonlyArray<Stored>) =>
 			const fields = Rec.keys(first)
 			return [
 				`INSERT INTO ${schemaIdent}.${quoteIdent(identifierOf(identity.table(parsedName(r.relation))))} (${Arr.join(
-					Arr.map(fields, column),
+					Arr.map(fields, (field) => columnOf(r.relation, field)),
 					", "
 				)}) VALUES ${Arr.join(
 					Arr.map(
@@ -780,7 +805,7 @@ const migrateHistory = <A>(
 				)
 				previous = fromSnapshot(g.snapshot)
 				if (i === 0) {
-					yield* store(name, stored)
+					yield* store(name, installation, stored)
 				}
 				const pending = yield* notValid(name)
 				assert.deepEqual(pending, [], `step ${i + 1} leaves no constraint NOT VALID`)

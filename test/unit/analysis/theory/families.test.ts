@@ -674,16 +674,15 @@ describe("riding a family axis (§2.1)", () => {
 			relation(
 				"T",
 				{
-					id: f.uuid,
-					parent: f.uuid,
 					doc: f.uuid,
+					parent: drawnNatural,
 					kind: natural,
 					at: drawnNatural,
 					children: drawnNatural,
 					start: drawnNatural,
 					end: drawnNatural
 				},
-				["id"]
+				["doc", "start"]
 			)
 		],
 		[
@@ -691,7 +690,7 @@ describe("riding a family axis (§2.1)", () => {
 				kind: "tree",
 				member: on("T", ["parent", "at"]),
 				slots: { owner: "T", count: "children" },
-				root: "doc"
+				root: ["doc"]
 			}
 		]
 	)
@@ -797,8 +796,12 @@ describe("riding a family axis (§2.1)", () => {
 								{ relation: "T", selection: { conjuncts: [] } },
 								[
 									{
+										from: { ...field("doc"), column: column("doc") },
+										to: { ...field("doc"), column: column("doc") }
+									},
+									{
 										from: { ...field("parent"), column: column("parent") },
-										to: { ...field("id"), column: column("id") }
+										to: { ...field("start"), column: column("start") }
 									},
 									{
 										from: { ...field("kind"), column: column("kind") },
@@ -878,9 +881,8 @@ const treeRelation = (fields: Readonly<Record<string, FixtureField>>, key: Reado
 	relation(
 		"T",
 		{
-			id: f.uuid,
-			parent: f.uuid,
 			doc: f.uuid,
+			parent: drawnNatural,
 			at: drawnNatural,
 			children: drawnNatural,
 			start: drawnNatural,
@@ -890,11 +892,14 @@ const treeRelation = (fields: Readonly<Record<string, FixtureField>>, key: Reado
 		key
 	)
 
+/** A tree's key: its root field, then its start. */
+const treeKey = ["doc", "start"] as const
+
 const treeStatement: SchemaDesc["statements"][number] = {
 	kind: "tree",
 	member: on("T", ["parent", "at"]),
 	slots: { owner: "T", count: "children" },
-	root: "doc"
+	root: ["doc"]
 }
 
 /** A family case's group fields and its owner's key fields, in key order. */
@@ -959,7 +964,7 @@ const familyParts = (
 
 const partsOf = (c: FamilyCase): Parts =>
 	c.kind === "tree"
-		? { relations: [treeRelation({}, ["id"])], statements: [treeStatement] }
+		? { relations: [treeRelation({}, treeKey)], statements: [treeStatement] }
 		: familyParts(c, f.bigint, 0n)
 
 const schemaOfParts = (parts: Parts): SchemaDesc => schemaOf(parts.relations, parts.statements)
@@ -976,7 +981,7 @@ type Refusal =
 	| "a carrier the monoid does not admit"
 	| "an accumulator pair over a counted family"
 	| "an accumulator with no partner"
-	| "a tree keyed by two fields"
+	| "a tree keyed by its start before its root"
 	| "a tree with no drawn start"
 	| "a drawn field no statement names"
 	| "a drawn field two families name"
@@ -994,7 +999,7 @@ const ruleTags: { readonly [R in Refusal]: "MalformedDescription" | "Refused" } 
 	"a carrier the monoid does not admit": "Refused",
 	"an accumulator pair over a counted family": "Refused",
 	"an accumulator with no partner": "MalformedDescription",
-	"a tree keyed by two fields": "Refused",
+	"a tree keyed by its start before its root": "Refused",
 	"a tree with no drawn start": "Refused",
 	"a drawn field no statement names": "MalformedDescription",
 	"a drawn field two families name": "MalformedDescription",
@@ -1106,10 +1111,10 @@ const refusals: Arr.NonEmptyReadonlyArray<Corruption<FamilyCase, Refused, Refusa
 		atStatement
 	),
 	refusal(
-		"a tree keyed by two fields",
+		"a tree keyed by its start before its root",
 		(c) =>
 			c.kind === "tree"
-				? { relations: [treeRelation({ id2: f.uuid }, ["id", "id2"])], statements: [treeStatement] }
+				? { relations: [treeRelation({}, ["start", "doc"])], statements: [treeStatement] }
 				: undefined,
 		atStatement
 	),
@@ -1117,7 +1122,7 @@ const refusals: Arr.NonEmptyReadonlyArray<Corruption<FamilyCase, Refused, Refusa
 		"a tree with no drawn start",
 		(c) =>
 			c.kind === "tree"
-				? { relations: [treeRelation({ start: natural }, ["id"])], statements: [treeStatement] }
+				? { relations: [treeRelation({ start: natural }, treeKey)], statements: [treeStatement] }
 				: undefined,
 		atStatement
 	),
@@ -1219,7 +1224,7 @@ const refusals: Arr.NonEmptyReadonlyArray<Corruption<FamilyCase, Refused, Refusa
 				? {
 						relations: [
 							relation("O", { id: f.uuid, n: drawnNatural }, ["id"]),
-							treeRelation({ o: f.uuid, slot: drawnNatural }, ["id"])
+							treeRelation({ o: f.uuid, slot: drawnNatural }, treeKey)
 						],
 						statements: [
 							treeStatement,
@@ -1270,24 +1275,31 @@ const resolvesAsStated = (c: FamilyCase, t: Theory, k: Case<FamilyFeature>): voi
 		assert.equal<string>(fam.member.name, "T", "and its own member")
 		assert.deepEqual(
 			Arr.map(fam.group, (p) => [p.member.name, p.owner.name]),
-			[["parent", "id"]],
-			"its parent pairs with its key"
+			[
+				["doc", "doc"],
+				["parent", "start"]
+			],
+			"its root field pairs with itself and its parent with its start, its key in key order"
 		)
 		assert.equal(columnText(fam.index), "at", "its index is at")
 		if (fam.members.kind !== "tree") {
-			return assert.fail("a tree's members are every row but its root")
+			return assert.fail("a tree's members are every row but its roots")
 		}
 		assert.deepEqual(
-			[fam.members.root.name, fam.members.start.name, fam.members.end.name],
-			["doc", "start", "end"],
-			"its root field and interval"
+			[
+				...Arr.map(fam.members.root, (r) => r.name),
+				fam.members.parent.name,
+				fam.members.start.name,
+				fam.members.end.name
+			],
+			["doc", "parent", "start", "end"],
+			"its root field, parent and interval"
 		)
 		const law = lawOfShape(t, "tree").id
-		const ps = `‹${fam.members.parentStart}›`
 		assert.deepEqual(
 			pairsText(fam.axes.owner),
-			[`${ps}→start`, "doc→doc"],
-			"T3 and T0 ride the owner axis"
+			[],
+			"T0 and T3's parent start are the owner axis's key, no pair of their own"
 		)
 		assert.deepEqual(pairsText(fam.axes.predecessor), ["start→end"], "T4 rides the predecessor")
 		assert.deepEqual(pairsText(fam.axes.last), ["end→end"], "T5 rides the last")

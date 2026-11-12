@@ -280,9 +280,8 @@ const requiredOf = (spec: FoldSpec): ReadonlyArray<FoldFeature> => {
 const FoldedNode = relation(
 	"Node",
 	{
-		id: pg.int4,
 		doc: pg.int4,
-		parent: pg.int4,
+		parent: drawn(natural),
 		at: drawn(natural),
 		children: drawn(natural),
 		start: drawn(natural),
@@ -291,18 +290,18 @@ const FoldedNode = relation(
 		after: accumulated(natural, 0n),
 		total: accumulated(natural, 0n)
 	},
-	["id"]
+	["doc", "start"]
 )
 
 const FoldedTree = (() => {
-	const t = tree(on(FoldedNode, "parent", "at"), fin(FoldedNode, "children"), { root: "doc" })
+	const t = tree(on(FoldedNode, "parent", "at"), fin(FoldedNode, "children"), { root: ["doc"] })
 	return schema("fin_fold_tree", { Node: FoldedNode }, [
 		t,
 		fold(
 			t,
 			Monoid.count,
-			on(FoldedNode, "parent", "before", "after"),
-			on(FoldedNode, "id", "total")
+			on(FoldedNode, "doc", "parent", "before", "after"),
+			on(FoldedNode, "doc", "start", "total")
 		)
 	])
 })()
@@ -315,7 +314,6 @@ interface FoldedRow extends TreeRow {
 }
 
 const TREE_COLUMNS = [
-	"id",
 	"doc",
 	"parent",
 	"at",
@@ -323,7 +321,6 @@ const TREE_COLUMNS = [
 	"start",
 	"end",
 	"‹n›",
-	"‹ps›",
 	"before",
 	"after",
 	"total"
@@ -498,18 +495,16 @@ layer(Substrate.layer)("folds through grizzle's lowering on PostgreSQL 19rc1", (
 								const committed: Array<{ readonly before: number; readonly after: number }> = []
 								for (const candidate of candidates) {
 									const rows = Arr.map(lawful(forest), (r) =>
-										r.parent === r.id ? { ...r, ...candidate } : r
+										r.start === 0 ? { ...r, ...candidate } : r
 									)
 									const values = (r: FoldedRow) => [
-										r.id,
 										r.root,
-										r.parent,
+										r.parentStart,
 										r.at,
 										r.children,
 										r.start,
 										r.end,
 										r.copy,
-										r.parentStart,
 										r.before,
 										r.after,
 										r.total

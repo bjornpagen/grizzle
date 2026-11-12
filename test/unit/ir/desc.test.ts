@@ -504,7 +504,7 @@ const statements: ReadonlyArray<StatementDesc> = [
 			selection: everyFact
 		},
 		slots: { owner: "Node", count: "children" },
-		root: "document"
+		root: ["document"]
 	}
 ]
 

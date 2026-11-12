@@ -18,11 +18,12 @@
  *   PRECEDING AND CURRENT ROW, never RANGE, which would merge peers; each before its predecessor's after, the identity
  *   at the first slot (lag); and the owner's end its last member's after, the identity for an empty group (the
  *   placeholder default).
- * - **Trees:** each row's sibling index by its key, its count and its parent's count, its pre-order interval and its
- *   parent's start, by the one recursive step a migration holds: the closure of the parent relation, from which each
- *   row's subtree size, and its start as the sum over its ancestors of one plus the sizes of their earlier siblings. A
- *   tree whose index the migration keeps keeps its caller's sibling order: every column drawn anew reads the stored
- *   index, and only the columns the migration adds are written.
+ * - **Trees:** each row's sibling index by its key, its count and its parent's count, and its pre-order interval, by
+ *   the one recursive step a migration holds: the closure of the parent relation, (r…, parent) into (r…, start), from
+ *   which each row's subtree size, and its start as the sum over its ancestors of one plus the sizes of their earlier
+ *   siblings. A tree whose index the migration keeps keeps its caller's sibling order: every column drawn anew reads
+ *   the stored index, and only the columns the migration adds are written. The stored parent and start are its rows'
+ *   structure and keys: a migration that draws either anew on a table that may hold rows is refused, naming the tree.
  *
  * - **Tree folds:** over each row's siblings in slot order, their order by start, the root alone at slot 0, its before
  *   the identity; each row's end its last child's after. A fold added to a tree that holds rows, or changed on one, is
@@ -176,8 +177,8 @@ const identityOf = (installation: Installation, plane: FoldPlane): Expr =>
 
 /**
  * The columns the target's families draw (DrawnColumns): on a member, the counted index ‹i› or the ordered index, the
- * copy ‹n›, each fold plane's before and after; on an owner, the count and each fold plane's end; a tree's interval and
- * its parent's start among them; and every copy an axis carries (Copy) on its source. Each holds 0 where its family is
+ * copy ‹n›, each fold plane's before and after; on an owner, the count and each fold plane's end; a tree's parent and
+ * interval among them; and every copy an axis carries (Copy) on its source. Each holds 0 where its family is
  * empty, but an accumulator or an end, which holds its plane's identity, and a copy, which holds its base.
  */
 export const drawnColumns = (installation: Installation): DrawnColumns => {
@@ -196,9 +197,9 @@ export const drawnColumns = (installation: Installation): DrawnColumns => {
 		put(member, family.copy, nothing)
 		put(owner, family.count.column, nothing)
 		if (family.members.kind === "tree") {
+			put(member, family.members.parent.column, nothing)
 			put(member, family.members.start.column, nothing)
 			put(member, family.members.end.column, nothing)
-			put(member, family.members.parentStart, nothing)
 		}
 		for (const fold of family.folds) {
 			for (const plane of fold.planes) {
@@ -710,9 +711,9 @@ const foldedName = "__folded"
  *   root alone at slot 0 (planeLayers): the root's before the identity, as its first-slot pin holds it, and its after
  *   its own step's, the one state NP's fold suite admits a root (test/pg/fin/fold.test.ts).
  *
- * Its end is its start plus its size, its copy of the count its siblings' count (the root's own count, as the root pin
- * reads it), and its parent's start the start of its parent's row, the root's own 0. A row the closure reaches from no
- * root, under stored parents that make no tree, is drawn anyway, and VALIDATE refuses it by the tree's laws. Each fold's
+ * Its end is its start plus its size, and its copy of the count its siblings' count (each root's own count, as the root
+ * pin reads it). A row the closure reaches from no root, under stored parents that make no tree, is drawn anyway, and
+ * VALIDATE refuses it by the tree's laws. Each fold's
  * end is a row's last child's after (treeEndUpdate). It sets the columns `added` holds alone, none where it holds none
  * of them.
  */
@@ -1019,7 +1020,6 @@ const treeUpdate = (
 					cast(binary("+", col("s", "__start"), col("st", "__size")), types.bigint),
 					"__end"
 				),
-				targetAs(cast(col("ps", "__start"), types.bigint), "__ps"),
 				...planes.map(({ name }) => targetAs(col("f", name), name))
 			],
 			[
@@ -1036,20 +1036,6 @@ const treeUpdate = (
 										groupType(family, k),
 										col("s", descendantName(k)),
 										col("st", c),
-										installation.names
-									)
-								)
-							)
-						},
-						{
-							kind: "on",
-							source: cteRefAs(startedName, "ps"),
-							on: and(
-								mapNonEmpty(parent, (p, k) =>
-									typedEq(
-										groupType(family, k),
-										col("ps", descendantName(k)),
-										col("st", p),
 										installation.names
 									)
 								)
@@ -1076,7 +1062,6 @@ const treeUpdate = (
 		{ column: family.copy, value: col("b", "__n") },
 		{ column: shape.start.column, value: col("b", "__start") },
 		{ column: shape.end.column, value: col("b", "__end") },
-		{ column: shape.parentStart, value: col("b", "__ps") },
 		...planes.map(({ column, name }) => ({ column, value: col("b", name) }))
 	].filter((a) => added.has(a.column))
 	if (!isNonEmpty(set)) {
@@ -1140,7 +1125,7 @@ const treeEndUpdate = (
 }
 
 /** The columns a family draws beside its copies: its index, copy and count, its folds' planes and ends, and a tree's
- * interval and parent's start. */
+ * parent and interval. */
 const familyColumns = (family: Family): ReadonlySet<string> =>
 	new Set<string>([
 		columnOf(family.index),
@@ -1150,7 +1135,7 @@ const familyColumns = (family: Family): ReadonlySet<string> =>
 			fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after), p.end.column])
 		),
 		...(family.members.kind === "tree"
-			? [family.members.start.column, family.members.end.column, family.members.parentStart]
+			? [family.members.parent.column, family.members.start.column, family.members.end.column]
 			: [])
 	])
 
@@ -1442,13 +1427,18 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 				columnOf(family.index),
 				family.count.column,
 				family.copy,
-				shape.start.column,
 				shape.end.column,
-				shape.parentStart,
 				...family.folds.flatMap((fold) =>
 					fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after), p.end.column])
 				)
 			]
+			const structure = [shape.parent.column, shape.start.column].filter((c) => onMember.has(c))
+			if (isNonEmpty(structure)) {
+				return refuseBackfill(
+					family,
+					`its rows' structure, ${structure.join(", ")}, drawn anew: the stored rows alone don't determine the tree`
+				)
+			}
 			if (!columns.some((c) => onMember.has(c))) {
 				continue
 			}

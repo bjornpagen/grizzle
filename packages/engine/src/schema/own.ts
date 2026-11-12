@@ -1858,7 +1858,7 @@ class Owner {
 						`${statementLabel(d)} counted over its own relation; ${d.slots.owner} is another`
 					)
 				}
-				this.#requireFields(tree, [d.root], s)
+				this.#requireFields(tree, d.root, s)
 				return d
 			}
 			case "fold": {

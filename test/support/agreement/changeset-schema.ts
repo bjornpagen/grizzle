@@ -137,20 +137,22 @@ export const Page = relation(
 const books = counted(on(Book, "shelf"), fin(Shelf, "books"))
 const pages = ordered(on(Page, "book", "at"), fin(Book, "pages"))
 
-/** A document's nodes, a tree: each row's drawn index, children, start and end, its root field doc its tree's. */
+/**
+ * A document's nodes, a tree keyed by its root field doc and its start: each row's drawn parent, index, children, start
+ * and end, its root field doc its tree's.
+ */
 export const Node = relation(
 	"Node",
 	{
-		id: uuid,
-		parent: uuid,
+		doc: uuid,
+		parent: drawn(natural),
 		at: drawn(natural),
 		children: drawn(natural),
 		start: drawn(natural),
 		end: drawn(natural),
-		doc: uuid,
 		label: pg.integer
 	},
-	["id"]
+	["doc", "start"]
 )
 
 export const Work = schema(
@@ -193,7 +195,7 @@ export const Work = schema(
 		fold(chips, Monoid.count, on(Chip, "owner"), on(Bin, "id", "size")),
 		books,
 		pages,
-		tree(on(Node, "parent", "at"), fin(Node, "children"), { root: "doc" }),
+		tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["doc"] }),
 		mutable(Cart),
 		mutable(Bin),
 		mutable(Shelf),

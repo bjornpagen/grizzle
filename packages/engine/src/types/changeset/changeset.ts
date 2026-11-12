@@ -1,6 +1,7 @@
 import type { Stream } from "effect"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import type { ConstraintName, GeneratedLawId, LawId } from "#compiler/core/ids.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Built, Delivering, delta, Phantom } from "#compiler/core/phantom.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import type { MonoidName, SideDesc, SlotsDesc } from "#compiler/ir/desc.ts"
@@ -175,7 +176,7 @@ type FitsAnArm<Ha, F, Seen> = F extends unknown
  * The nested members of an arm that fit no arm of their nesting: at each key where F nests its members, an array of
  * facts (AdditionIn), each member of Ha's array is held to the nesting's arms as a member fact is (UnfitArms), so a
  * member nested at any depth supplies no field beyond its relation's own written ones, such as one its nesting supplies
- * (a tree member's root field or parent, an ordered member's group) or one grizzle draws. Assignability alone checks no
+ * (a tree member's root fields, an ordered member's group) or one grizzle draws. Assignability alone checks no
  * excess field of a nested object. An array of values, a vector's, nests no fact and is no nesting.
  *
  * A member type of any depth, `children: ReadonlyArray<Member>`, meets the pair of its member type and its nesting's
@@ -264,7 +265,7 @@ type OmitEach<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
 type SequenceOf<S> = Extract<StatementsOf<S>[number], Ordered<unknown, unknown> | AnyTree>
 
 /** Any tree: Tree is covariant in what it names. */
-type AnyTree = Tree<unknown, unknown, string>
+type AnyTree = Tree<unknown, unknown, ReadonlyArray<string>>
 
 /**
  * S's sequences by owner, each under the name of the relation its slots count over and none under any other name:
@@ -284,44 +285,28 @@ type SequencesOwnedBy<S, R> = SequenceIndexOf<S>[NameOf<R>]
 /** A family's member relation. */
 type MemberRelationOf<Fa> = Fa extends { readonly family: Side<infer F> } ? F : never
 
-/** What a member's nesting supplies: an ordered member's group, a tree member's parent and root field. */
+/** What a member's nesting supplies: an ordered member's group, a tree member's root fields. */
 type NestedOf<Fa> =
 	Fa extends Ordered<
 		Side<unknown, readonly [...infer G extends ReadonlyArray<string>, AnyTerm]>,
 		unknown
 	>
 		? G[number]
-		: Fa extends Tree<
-					Side<unknown, readonly [infer P extends string, AnyTerm]>,
-					unknown,
-					infer Root
-			  >
-			? P | Root
+		: Fa extends Tree<unknown, unknown, infer Root extends ReadonlyArray<string>>
+			? Root[number]
 			: never
-
-/**
- * The parent field of R where R is a tree's: grizzle sets it, the root's to itself and a member's by its nesting. A
- * tree is a family of its relation over itself, so R's tree is among the sequences R owns.
- */
-type TreeParentOf<S, R> = TreeParent<SequencesOwnedBy<S, R>>
-
-/** A tree's parent field; of no tree, none. Distributive, so a relation that is no tree's omits nothing. */
-type TreeParent<T> =
-	T extends Tree<Side<unknown, readonly [infer P extends string, AnyTerm]>, unknown, string>
-		? P
-		: never
 
 /**
  * R's addition in S: the row its caller writes (Addition<R>), and at each count field of a sequence R owns, an ordered
  * family's or a tree's, its members nested in slot order, each the member relation's addition in S less what the
  * nesting supplies. Order is the caller's data only in a sequence, so only a sequence nests: a counted family's owner
- * and its members are their rows, a member's group key naming its owner. A tree's parent is no caller's field. A
- * relation with no drawn field owns no family and is no tree, so its addition is Addition<R>, read off R alone: a
- * schema whose statements are generic still types it.
+ * and its members are their rows, a member's group key naming its owner. A tree's parent, start and end are drawn,
+ * so no addition states them. A relation with no drawn field owns no family and is no tree, so its addition is
+ * Addition<R>, read off R alone: a schema whose statements are generic still types it.
  */
 export type AdditionIn<S, R> = [DrawnFieldOf<R>] extends [never]
 	? Addition<R>
-	: OmitEach<Addition<R>, TreeParentOf<S, R>> & {
+	: Addition<R> & {
 			readonly [Fa in SequencesOwnedBy<S, R> as CountOf<Fa>]: ReadonlyArray<
 				OmitEach<AdditionIn<S, MemberRelationOf<Fa>>, NestedOf<Fa>>
 			>
@@ -1338,7 +1323,8 @@ export type RefusingObject =
  * - `coverage`: a containment whose sides pair a span field, the source's span covered by the target's;
  * - `family`: an ordered or counted family, by its member side and its owner's slots: each owner's members indexed by
  *   exactly 0 … n − 1 (an alternatives law states plain containments, each a `contained` law);
- * - `tree`: a tree, by its member side, its slots and its root field: each root field's rows one tree in pre-order;
+ * - `tree`: a tree, by its member side, its slots and its root fields: the rows of each value of its root fields one
+ *   tree in pre-order;
  * - `fold`: a fold, by its family's slots, its monoid and its step and end sides: each owner's ends its members'
  *   combination;
  * - `contract`: a contract's predicate, by its name;
@@ -1373,7 +1359,7 @@ export type OwnLaw =
 			readonly kind: "tree"
 			readonly member: SideDesc
 			readonly slots: SlotsDesc
-			readonly root: string
+			readonly root: NonEmptyReadonlyArray<string>
 	  }
 	| {
 			readonly kind: "fold"

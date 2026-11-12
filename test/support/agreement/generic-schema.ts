@@ -46,20 +46,19 @@ export const Folded = relation(
 export const Target = relation("Target", { id: uuid }, ["id"])
 export const Arm = relation("Arm", { id: uuid }, ["id"])
 
-/** The trees' one heading: a self-parented tree's parent, its drawn index, count and interval, and its root field. */
+/** The trees' one heading: a tree's root field, its drawn parent, index, count and interval. */
 const treeHeading = {
-	id: uuid,
-	parent: uuid,
+	doc: uuid,
+	parent: drawn(natural),
 	at: drawn(natural),
 	children: drawn(natural),
 	start: drawn(natural),
-	end: drawn(natural),
-	doc: uuid
+	end: drawn(natural)
 } as const
 
-export const T1 = relation("T1", treeHeading, ["id"])
-export const T2 = relation("T2", treeHeading, ["id"])
-export const TM = relation("TM", { ...treeHeading, doc: pg.integer }, ["id"])
+export const T1 = relation("T1", treeHeading, ["doc", "start"])
+export const T2 = relation("T2", treeHeading, ["doc", "start"])
+export const TM = relation("TM", { ...treeHeading, doc: pg.integer }, ["doc", "start"])
 
 /** The schema the agreement's queries are over: every member and the relation a join reads. */
 export const Members = schema("Members", { Kind, Other, Target, A, B, W, MOwner, MKind, MN }, [])

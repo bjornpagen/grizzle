@@ -631,7 +631,7 @@ export const foldSchema = (kind: FamilyKind): FoldSchema => {
 		const family =
 			kind === "tree"
 				? treeBuilder(onBuilder(g.member, ["parent", "at"]), finBuilder(g.member, "children"), {
-						root: "doc"
+						root: ["doc"]
 					})
 				: kind === "ordered"
 					? orderedBuilder(onBuilder(g.member, ["o", "at"]), finBuilder(owner, g.count))

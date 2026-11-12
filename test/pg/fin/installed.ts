@@ -5,8 +5,8 @@
  * allocated, so its verdicts read off what grizzle installed and nothing the suite restates.
  *
  * A column's role is its field's name for a field, and for a law column what its native says it holds: `‹n›` (a
- * family's copy of its owner's count), `‹i›` (a counted family's index), `‹ps›` (a tree's parent start), `‹before f.p›`
- * and `‹after f.p›` (fold f's plane p accumulators), and `‹gen x›` for a column generated from field x (a selected
+ * family's copy of its owner's count), `‹i›` (a counted family's index), `‹before f.p›` and `‹after f.p›` (fold f's
+ * plane p accumulators), and `‹gen x›` for a column generated from field x (a selected
  * group's guarded term, or a pred of the index or the count). A constraint is described by its kind, its relation and
  * its columns' roles in key order, a foreign key also by its target's, with its deferral and its update action as the
  * catalog states them, and the law the installation's constraint map says it reports.
@@ -87,8 +87,6 @@ const lawColumnRole = (
 			return "‹n›"
 		case "index":
 			return "‹i›"
-		case "parentStart":
-			return "‹ps›"
 		case "before":
 		case "after":
 			return `‹${d.kind} ${d.fold}.${d.plane}›`

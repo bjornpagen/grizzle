@@ -228,7 +228,6 @@ const readsOfRule = (relation: LawRelation, rule: FillRule): ReadonlyArray<Nativ
 		case "count":
 		case "start":
 		case "end":
-		case "parentStart":
 		case "ownerCopy":
 		case "predecessor":
 		case "last":
@@ -297,15 +296,8 @@ const entriesAt = (
 	const f = position.family
 	const root = position.kind === "root"
 	const writer = writerOf(f)
-	for (const g of f.group) {
-		set(
-			fieldColumn(g.member),
-			g.member.type,
-			root
-				? { kind: "self", to: fieldColumn(g.owner) }
-				: { kind: "owner", to: fieldColumn(g.owner) },
-			walk
-		)
+	for (const g of root ? [] : f.group) {
+		set(fieldColumn(g.member), g.member.type, { kind: "owner", to: fieldColumn(g.owner) }, walk)
 	}
 	set(
 		f.index,
@@ -318,9 +310,8 @@ const entriesAt = (
 		const t = f.members
 		set(fieldColumn(t.start), t.start.type, { kind: "start" }, walk)
 		set(fieldColumn(t.end), t.end.type, { kind: "end" }, walk)
-		set({ kind: "law", column: t.parentStart }, t.start.type, { kind: "parentStart" }, walk)
-		if (!root) {
-			set(fieldColumn(t.root), t.root.type, { kind: "owner", to: fieldColumn(t.root) }, walk)
+		if (root) {
+			set(fieldColumn(t.parent), t.parent.type, { kind: "self", to: fieldColumn(t.start) }, walk)
 		}
 	}
 	const typeOf = (column: NativeColumn): ScalarType => {
@@ -428,7 +419,6 @@ const lawAndFamily = (
 		case "count":
 		case "start":
 		case "end":
-		case "parentStart":
 		case "generated":
 			throw defect(`a column filled ${rule.kind}, which reads nothing a write fills after it`)
 	}

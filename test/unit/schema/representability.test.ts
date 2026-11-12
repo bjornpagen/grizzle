@@ -1446,7 +1446,7 @@ const treeAxis = (bytes: number, spelling: Spelling) => {
 		[]
 	)
 	const nodes = treeBuilder(onBuilder(Node, ["parent", "at"]), finBuilder(Node, "children"), {
-		root: "doc"
+		root: ["doc"]
 	})
 	const statements: ReadonlyArray<Statement> = [
 		nodes,

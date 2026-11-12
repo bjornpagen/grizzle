@@ -14,7 +14,8 @@
  * from its sixth (PostgreSQL 19 plancache.c choose_custom_plan), so an application's read of a tree or a family runs on
  * either.
  *
- * - **the export**, `WHERE doc = $1 ORDER BY start`: one scan of T1's UNIQUE (r, start), reading each row once;
+ * - **the export**, `WHERE doc = $1 ORDER BY start`: one scan of T1, the tree's primary key (r, start), reading each
+ *   row once;
  * - **descendants** of a row, `start > n.start AND start < n.end`: a range scan of T1 reading exactly them;
  * - **an ordered family's members**, `WHERE g = $1 ORDER BY at`: a scan of the family key UNIQUE (g, at) reading
  *   exactly its members, whether the planner sorts them after a bitmap scan or reads them in order.
@@ -23,8 +24,8 @@
  *   (installed.ts), never by an allocated name; and each read's rows against the tree's parent links
  *   (families/tree.ts descendantsOf) or the family as written, a second implementation that reads no interval.
  *
- * Plant: ~/.cache/grizzle-release/BR08/plants/fin-plans-tree-key-start-first.patch, T1's UNIQUE over (start, r), leaves
- * the export no index in its order and must turn the property red.
+ * Plant: ~/.cache/grizzle-release/TREEKEY/plants/fin-plans-tree-key-start-first.patch, the tree's primary key planned
+ * as (start, r), leaves the export no index in its order and must turn the property red.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -180,6 +181,9 @@ layer(Substrate.layer)(
 							)
 						).name
 						const byDepth = rowsByDepth(rows)
+						const starts = new Map(Arr.map(rows, (r) => [r.id, r.start] as const))
+						/** A row's start by its substrate key: the key the keyed tree names it by. */
+						const startOf = (id: number): number => defined(starts.get(id), "a loaded row's start")
 						const modes: ReadonlyArray<PlanMode> = ["custom", "generic"]
 						const situations = nonEmpty(
 							Arr.flatMap(modes, (mode): ReadonlyArray<PlanFeature> => [
@@ -226,14 +230,14 @@ layer(Substrate.layer)(
 											case "the export":
 												return {
 													name: `the export, ${mode} plan` as const,
-													sql: `SELECT ${t("id")} FROM ${trees.table("Node")} WHERE ${t("doc")} = $1::int4 ORDER BY ${t("start")}`,
+													sql: `SELECT ${t("start")} FROM ${trees.table("Node")} WHERE ${t("doc")} = $1::int4 ORDER BY ${t("start")}`,
 													params: ["0"]
 												}
 											case "descendants": {
 												const { row, subject } = subjectAt(read.depth, read.pick)
 												return {
 													name: `the descendants of ${subject}, ${mode} plan` as const,
-													sql: `SELECT ${t("id")} FROM ${trees.table("Node")} WHERE ${t("doc")} = $1::int4 AND ${t("start")} > $2::int8 AND ${t("start")} < $3::int8`,
+													sql: `SELECT ${t("start")} FROM ${trees.table("Node")} WHERE ${t("doc")} = $1::int4 AND ${t("start")} > $2::int8 AND ${t("start")} < $3::int8`,
 													params: ["0", String(row.start), String(row.end)]
 												}
 											}
@@ -272,7 +276,7 @@ layer(Substrate.layer)(
 											assert.equal(facts.read, load.tree, `${name} reads each row once`)
 											assert.deepEqual(
 												got,
-												Arr.map(rows, (r) => r.id),
+												Arr.map(rows, (r) => startOf(r.id)),
 												`${name} is the pre-order`
 											)
 											break
@@ -285,7 +289,7 @@ layer(Substrate.layer)(
 											)
 											assert.deepEqual(
 												Arr.sort(got, Order.Number),
-												Arr.sort(descendantsOf(rows, row.id), Order.Number),
+												Arr.sort(Arr.map(descendantsOf(rows, row.id), startOf), Order.Number),
 												`${name} are the rows under it by their parent links`
 											)
 											break

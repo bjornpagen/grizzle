@@ -74,9 +74,12 @@ export const sideDisplay = (side: ResolvedSide, spell: Spelling): string => {
 export const spelledSlots = (id: FamilyId, spell: Spelling): string =>
 	`fin(${spell.relation(id.owner)}, ${spell.field(id.owner, id.count)})`
 
-/** What kind of family a law states: a tree, under its root field, or an ordered or counted family. */
+/**
+ * What kind of family a law states: a tree, whose terms are its root fields, its parent and its index, or an ordered or
+ * counted family.
+ */
 export type FamilyKind =
-	| { readonly kind: "tree"; readonly root: LawField }
+	| { readonly kind: "tree" }
 	| { readonly kind: "family"; readonly order: "ordered" | "counted" }
 
 /** What a family's or a tree's law states: its slots, its member, the member's terms (its group fields in key order,
@@ -90,8 +93,8 @@ export interface FamilyStated {
 
 /**
  * A family's or a tree's law as the naming door states it: a family by its order, its slots and its member's terms, a
- * tree by its slots, its member's terms and its root field, each led by the law's shape. The one statement both the
- * law and the drawn law columns it names (analysis/theory/families.ts) are minted from.
+ * tree by its slots and its member's terms, its root fields first, each led by the law's shape. The one statement both
+ * the law and the drawn law columns it names (analysis/theory/families.ts) are minted from.
  */
 export const familyStatement = (f: FamilyStated, spell: Spelling): LawStatement => {
 	const member = spell.relation(f.member)
@@ -100,14 +103,12 @@ export const familyStatement = (f: FamilyStated, spell: Spelling): LawStatement 
 	const terms = f.terms.map((x) => spell.field(f.member, x.name))
 	const slots = spelledSlots(f.id, spell)
 	switch (f.kind.kind) {
-		case "tree": {
-			const root = spell.field(f.member, f.kind.root.name)
+		case "tree":
 			return {
-				parts: ["tree", owner, count, terms, root],
+				parts: ["tree", owner, count, terms],
 				stem: [member, "tree", count],
-				display: `tree ${member}(${terms.join(", ")}) in ${slots} by ${root}`
+				display: `tree ${member}(${terms.join(", ")}) in ${slots}`
 			}
-		}
 		case "family": {
 			const order = f.kind.order
 			return {

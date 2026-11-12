@@ -64,22 +64,22 @@ const Line = relation("Line", { id: uuid, doc: uuid, at: drawn(natural), qty: pg
 const Node = relation(
 	"Node",
 	{
-		id: uuid,
-		parent: uuid,
+		root: uuid,
+		parent: drawn(natural),
 		at: drawn(natural),
 		children: drawn(natural),
 		start: drawn(natural),
 		end: drawn(natural),
-		root: uuid
+		label: pg.bigint
 	},
-	["id"]
+	["root", "start"]
 )
 const lines = ordered(on(Line, "doc", "at"), fin(Doc, "lines"))
 const Nested = schema("Nested", { Doc, Line, Node }, [
 	mutable(Doc),
 	lines,
 	fold(lines, Monoid.sum, on(Line, "doc", "qty"), on(Doc, "id", "total")),
-	tree(on(Node, "parent", "at"), fin(Node, "children"), { root: "root" })
+	tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["root"] })
 ])
 
 const nested = owning(Nested)
@@ -114,40 +114,45 @@ const caseGen: Gen<NestedCase> = (source) => ({
 	trees: source.draw(array(parents({ min: 1, max: 4 }), { min: 1, max: 2 }))
 })
 
-/** A tree's nested facts, node ids from `base`: each node its id and its children at `children`. */
-const treeFacts = (
-	parentOf: ReadonlyArray<number>,
-	base: number
-): { readonly id: string; readonly children: ReadonlyArray<unknown> } => {
+/** A node as its tree's facts nest it: its label and its children at `children`. */
+interface LabelledNode {
+	readonly label: bigint
+	readonly children: ReadonlyArray<LabelledNode>
+}
+
+/** A tree's nested facts, node labels from `base`: each node its label and its children at `children`. */
+const treeFacts = (parentOf: ReadonlyArray<number>, base: number): LabelledNode => {
 	const count = parentOf.length + 1
 	const kids: Array<Array<number>> = Array.from({ length: count }, () => [])
 	for (const [i, p] of parentOf.entries()) {
 		defined(kids[p], "a parent").push(i + 1)
 	}
-	const built: Array<{ readonly id: string; readonly children: ReadonlyArray<unknown> }> = []
+	const built: Array<LabelledNode> = []
 	for (let n = count - 1; n >= 0; n -= 1) {
 		built[n] = {
-			id: uuidOf(base + n),
-			children: Arr.map(defined(kids[n], "a node's children"), (c) => built[c])
+			label: BigInt(base + n),
+			children: Arr.map(defined(kids[n], "a node's children"), (c) =>
+				defined(built[c], "a child built before its parent")
+			)
 		}
 	}
 	return defined(built[0], "the root")
 }
 
-/** A tree's direct pre-order numbering: each node's id, start and end. */
+/** A tree's direct pre-order numbering: each node's label, start and end. */
 const numberedOf = (
 	parentOf: ReadonlyArray<number>,
 	base: number
-): ReadonlyArray<{ readonly id: string; readonly start: number; readonly end: number }> => {
+): ReadonlyArray<{ readonly label: string; readonly start: number; readonly end: number }> => {
 	const count = parentOf.length + 1
 	const kids: Array<Array<number>> = Array.from({ length: count }, () => [])
 	for (const [i, p] of parentOf.entries()) {
 		defined(kids[p], "a parent").push(i + 1)
 	}
-	const rows: Array<{ readonly id: string; readonly start: number; readonly end: number }> = []
+	const rows: Array<{ readonly label: string; readonly start: number; readonly end: number }> = []
 	const size = (n: number): number => Arr.reduce(defined(kids[n], "kids"), 1, (s, c) => s + size(c))
 	const visit = (n: number, start: number): void => {
-		rows.push({ id: uuidOf(base + n), start, end: start + size(n) })
+		rows.push({ label: String(base + n), start, end: start + size(n) })
 		let next = start + 1
 		for (const c of defined(kids[n], "kids")) {
 			visit(c, next)
@@ -254,11 +259,22 @@ describe("a nested write through the program", () => {
 									c.note("an empty family")
 								}
 							}
-							const nodeIds = nestedRowsColumn(program, chunks, "Node", 0)
-							const expectedIds = Arr.flatMap(box.trees, (parentOf, t) =>
-								Arr.map(numberedOf(parentOf, 300 + 10 * t), (r) => r.id)
+							const nodeLabels = nestedRowsColumn(program, chunks, "Node", 6)
+							const expectedLabels = Arr.flatMap(box.trees, (parentOf, t) =>
+								Arr.map(numberedOf(parentOf, 300 + 10 * t), (r) => r.label)
 							)
-							assert.deepEqual(nodeIds, expectedIds, "a tree's nodes go in pre-order, tree by tree")
+							assert.deepEqual(
+								nodeLabels,
+								expectedLabels,
+								"a tree's nodes go in pre-order, tree by tree"
+							)
+							assert.deepEqual(
+								nestedRowsColumn(program, chunks, "Node", 0),
+								Arr.flatMap(box.trees, (parentOf, t) =>
+									Arr.map(numberedOf(parentOf, 300 + 10 * t), () => uuidOf(900 + t))
+								),
+								"each node holds its tree's root value"
+							)
 							const starts = nestedRowsColumn(program, chunks, "Node", 4)
 							const expectedStarts = Arr.flatMap(box.trees, (parentOf, t) =>
 								Arr.map(numberedOf(parentOf, 300 + 10 * t), (r) => String(r.start))
@@ -428,28 +444,19 @@ describe("a nested write's facts are a set by identity (rule 0, ruling 1)", () =
 	)
 })
 
-/** A chain of `n` nodes, each the one child of the one before, ids from `base`, built from its leaf up. */
-const chainOf = (
-	n: number,
-	base: number
-): { readonly id: string; readonly children: ReadonlyArray<unknown> } => {
-	let node: { readonly id: string; readonly children: ReadonlyArray<unknown> } = {
-		id: uuidOf(base + n - 1),
-		children: []
-	}
+/** A chain of `n` nodes, each the one child of the one before, labels from `base`, built from its leaf up. */
+const chainOf = (n: number, base: number): LabelledNode => {
+	let node: LabelledNode = { label: BigInt(base + n - 1), children: [] }
 	for (let k = n - 2; k >= 0; k -= 1) {
-		node = { id: uuidOf(base + k), children: [node] }
+		node = { label: BigInt(base + k), children: [node] }
 	}
 	return node
 }
 
 /** A star of `n` nodes: a root and its n − 1 leaves. */
-const starOf = (
-	n: number,
-	base: number
-): { readonly id: string; readonly children: ReadonlyArray<unknown> } => ({
-	id: uuidOf(base),
-	children: Array.from({ length: n - 1 }, (_, i) => ({ id: uuidOf(base + 1 + i), children: [] }))
+const starOf = (n: number, base: number): LabelledNode => ({
+	label: BigInt(base),
+	children: Array.from({ length: n - 1 }, (_, i) => ({ label: BigInt(base + 1 + i), children: [] }))
 })
 
 type ShapeFeature = "a chain" | "a star" | "a hundred thousand nodes"

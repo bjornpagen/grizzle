@@ -121,7 +121,7 @@ const schemaOf = (s: Shape): SchemaDesc => {
 		kind: "tree",
 		member: on("Node", ["parent", "at"]),
 		slots: fin("Node", "children"),
-		root: "doc"
+		root: ["doc"]
 	}
 	const members = {
 		kind: "compare" as const,

@@ -251,7 +251,7 @@ const contractStatement = (contract: string): LawStatement => ({
  * What a law is, independent of where its statement sits among the others, as the naming door states it under
  * `spell`: a key by its relation and fields, a key over a projected side by that side, a check by its relation and
  * name, a contract by its name, a containment by its sides (terms and selections included), a family by its order, its
- * slots and its member's terms, a tree by its slots, its member's terms and its root field (spelling.ts
+ * slots and its member's terms, a tree by its slots and its member's terms, its root fields first (spelling.ts
  * familyStatement), and a fold by its slots, its monoid and its two sides, each led by the law's shape. Adding or
  * removing an unrelated statement never changes it: a fold's position among its family's folds is no part of it.
  */

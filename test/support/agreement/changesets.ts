@@ -1067,20 +1067,16 @@ const orderOf = (d: Drawing, index: number, fault: ChangeSetFault | undefined): 
 }
 
 /**
- * A tree, its root with up to two children and a child with a child of its own, every node of a distinct id; a planted
- * fault gives the first child, or the first child's first child, the root field its nesting supplies.
+ * A tree, its root with up to two children and a child with a child of its own, the root stating its root field and no
+ * node its key, which its nesting draws; a planted fault gives the first child, or the first child's first child, the
+ * root field its nesting supplies.
  */
 const treeOf = (d: Drawing, fault: ChangeSetFault | undefined): FamilyFact => {
-	let next = 0
-	const nodeOf = (rooted: boolean, children: ReadonlyArray<FamilyFact>): FamilyFact => {
-		next += 1
-		return [
-			["id", familyValue(uuidLit(next))],
-			...(rooted ? [["doc", familyValue(uuidLit(1))] as const] : []),
-			["label", familyValue(d.from(labels))],
-			["children", nestedRows(children)]
-		]
-	}
+	const nodeOf = (rooted: boolean, children: ReadonlyArray<FamilyFact>): FamilyFact => [
+		...(rooted ? [["doc", familyValue(uuidLit(1))] as const] : []),
+		["label", familyValue(d.from(labels))],
+		["children", nestedRows(children)]
+	]
 	const nested = fault === "a nested root field"
 	const deep = fault === "a deep root field"
 	const children = Arr.map(
@@ -1169,8 +1165,6 @@ const plantedFamilyMember = (d: Drawing, fault: FamilyFault): MemberSpec => {
 		case "a tree row edited":
 			return familyOf(d, d.choose(["delete", "put"] as const), "Node", [
 				[
-					["id", familyValue(d.from(uuids))],
-					["parent", familyValue(d.from(uuids))],
 					["doc", familyValue(d.from(uuids))],
 					["label", familyValue(d.from(labels))]
 				]
