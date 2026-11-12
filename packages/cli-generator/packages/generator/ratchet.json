@@ -546,11 +546,11 @@
 		}
 	},
 	"dead-code": {
-		"total": 11,
+		"total": 10,
 		"files": {
 			"packages/generator/src/emit/api.ts": 2,
 			"packages/generator/src/model/author-config.ts": 1,
-			"packages/generator/src/model/entities.ts": 6,
+			"packages/generator/src/model/entities.ts": 5,
 			"packages/generator/test/support/generated-cli.ts": 1,
 			"packages/generator/test/tools/memguard.test.ts": 1
 		}

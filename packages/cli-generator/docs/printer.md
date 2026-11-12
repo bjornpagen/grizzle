@@ -216,9 +216,9 @@ chains, union and intersection types, and assignment layouts. It shares the widt
 through `textWidth` in `src/emit/printer.ts`. Code outside the grammar it parses is refused as
 `unprintable-code`, never printed unformatted.
 
-- Its conformance check is `vp fmt --check` over two inputs: the seeded definition fuzz in
-  `tests/emit/domain.test.ts`, and the corpus domain probe (normalize a cached spec's schemas, emit
-  every validation key as a root, diff against `vp fmt`). Both must show no change.
+- Its conformance check is the formatter's fixed point over two inputs: the generated definition
+  sets of `test/emit/domain-module.test.ts`, and every generated package's `domain/schemas.ts` in
+  `test/emit/emitted-package.test.ts`. Both must show no change.
 - Measured rules it follows beyond the subset:
   - Two or more call arguments where one is a call taking an arrow function, as in
     `Schema.Record(Schema.String, Schema.suspend(() => X))`, are always broken.
