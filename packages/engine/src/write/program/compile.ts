@@ -15,7 +15,7 @@ import { type FillColumn, layoutKey } from "#compiler/ir/fill.ts"
 import { type FamilyId, familyKey, type RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ParamDecl, ProgramArtifacts, StatementSpec } from "#compiler/ir/products.ts"
-import type { RelDag, RelNode } from "#compiler/ir/rel.ts"
+import type { DeltaSide, RelDag, RelNode } from "#compiler/ir/rel.ts"
 import { completeClass, type ReadBack, type SerialClass } from "#compiler/ir/write.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
@@ -111,6 +111,7 @@ import {
 } from "#compiler/write/family/statements.ts"
 import type { FamilyWriteSql } from "#compiler/write/family/written.ts"
 import {
+	type ActionEntry,
 	compileChangeSet,
 	type MemberSlot,
 	type SlotGroup,
@@ -123,7 +124,11 @@ import type { EntryClaims } from "#compiler/write/frontend/entry.ts"
 import { plainRefills, type StratumRefill } from "#compiler/write/frontend/refill.ts"
 import { type FamilyNode, sameNode } from "#compiler/write/frontend/schedule.ts"
 import { distinctByEvidence, type WriteInput } from "#compiler/write/insert/input.ts"
-import { buildInsert, buildSpanClassify } from "#compiler/write/insert/protocol.ts"
+import {
+	buildInsert,
+	buildSpanClassify,
+	type InsertEntry
+} from "#compiler/write/insert/protocol.ts"
 import {
 	type DeleteResult,
 	type InsertResult,
@@ -1000,7 +1005,7 @@ const optimizedPlacement = (
 		earlier: boolean
 	): ModifyingStatement<InsertResult> | ModifyingStatement<DeleteResult> | PutStatement =>
 		withDeltaFills(
-			buildWriteOp(context, step),
+			buildWriteOp(context, frontend, step),
 			plan.deltas.carriers.get(step.relation.name),
 			earlier,
 			context.names
@@ -1430,7 +1435,7 @@ const ridingSingle = (
 	const supply = new NameSupply(start)
 	/** Each delta a riding read-back names of a relation the statement writes, by relation and side, in the order of
 	 * the statement's writes. */
-	const names = new Map<string, Map<"added" | "removed", DeltaCteName>>()
+	const names = new Map<string, Map<DeltaSide, DeltaCteName>>()
 	for (const x of small.writes) {
 		const relation = x.step.relation
 		const delta = named.get(relation)
@@ -1442,8 +1447,8 @@ const ridingSingle = (
 		if (delta === undefined || sides.size === 0) {
 			continue
 		}
-		const own = new Map<"added" | "removed", DeltaCteName>()
-		for (const side of (["added", "removed"] as const).filter((s) => sides.has(s))) {
+		const own = new Map<DeltaSide, DeltaCteName>()
+		for (const side of deltaSides.filter((s) => sides.has(s))) {
 			own.set(side, deltaCteName(delta.relation, side, supply))
 		}
 		names.set(relation, own)
@@ -1454,7 +1459,7 @@ const ridingSingle = (
 			built.writes.find((x) => x.step.relation === relation),
 			`the write of ${relation} in the statement a read-back rides`
 		).statement
-	const held = (target: string, side: "added" | "removed"): DeltaHeld | undefined => {
+	const held = (target: string, side: DeltaSide): DeltaHeld | undefined => {
 		const cte = names.get(target)?.get(side)
 		return cte === undefined
 			? plannedDelta(context.deltas, target, side)
@@ -1525,9 +1530,28 @@ const ridingSingle = (
 	}
 }
 
+/** Every side of a delta, in the order a statement names their CTEs. */
+const deltaSides: ReadonlyArray<DeltaSide> = ["added", "removed", "met"]
+
+/** Whose stored facts an insert of an action writing `entry` may meet (insert/protocol.ts InsertEntry): any, or a
+ * query entry's, by its membership as its precheck judges it. */
+const insertEntryOf = (frontend: WriteFrontend, entry: ActionEntry): InsertEntry =>
+	entry.kind === "whole"
+		? { kind: "whole" }
+		: {
+				kind: "entry",
+				membership: {
+					entry: entry.entry,
+					base: frontend.schema.definitions(),
+					catalog: evidenceCatalog(frontend),
+					world: entry.names
+				}
+			}
+
 /** The statement of one planned write op. */
 const buildWriteOp = (
 	w: WriteContext,
+	frontend: WriteFrontend,
 	step: PlannedWrite
 ): ModifyingStatement<InsertResult> | ModifyingStatement<DeleteResult> | PutStatement => {
 	const { relation, input } = step
@@ -1537,7 +1561,8 @@ const buildWriteOp = (
 				relation,
 				serial: step.serial,
 				input,
-				of: "insert"
+				of: "insert",
+				entry: insertEntryOf(frontend, step.entry)
 			})
 		case "exactDelete":
 			return buildExactDelete(w, { relation, input, except: step.except })
@@ -1550,7 +1575,8 @@ const buildWriteOp = (
 				relation,
 				serial: completeClass,
 				input,
-				of: "put"
+				of: "put",
+				entry: insertEntryOf(frontend, step.entry)
 			})
 		case "upsert":
 			return buildUpsert(w, {

@@ -41,6 +41,7 @@ import {
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import { decimalTag, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import { type Fact, factNames, factsSorted } from "#compiler/ir/proof.ts"
+import type { DeltaSide } from "#compiler/ir/rel.ts"
 import { calendarDateShape, patternsShape, textLanguageShape } from "#compiler/ir/scalar-shape.ts"
 import {
 	type NumericBound,
@@ -474,7 +475,7 @@ export type SourceDesc<L = Located, R extends Refs = Spelled> =
 	| ({ readonly kind: "paramOf"; readonly relation: string } & R["param"])
 	| { readonly kind: "interior"; readonly id: R["interior"] }
 	| { readonly kind: "self" }
-	| { readonly kind: "delta"; readonly side: "added" | "removed"; readonly relation: string }
+	| { readonly kind: "delta"; readonly side: DeltaSide; readonly relation: string }
 	| { readonly kind: "context"; readonly context: ContextDesc }
 	| RowSourceDesc
 
@@ -1755,7 +1756,7 @@ const sourceDescBody: S.Shape<SourceDesc> = S.tagged("kind", {
 	paramOf: S.struct({ name, relation: name }),
 	interior: S.struct({ id: name }),
 	self: S.struct({}),
-	delta: S.struct({ side: S.literalsShape(["added", "removed"]), relation: name }),
+	delta: S.struct({ side: S.literalsShape(["added", "removed", "met"]), relation: name }),
 	context: S.struct({ context: S.ref("a context description", () => contextDescShape) }),
 	row: S.struct({ heading: fieldMapShape })
 })

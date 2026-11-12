@@ -968,6 +968,22 @@ export const purge = ChangeSet.empty(Blog)
 		})
 	)
 
+/** README: "Rows an insertion met". */
+/** File a post at its id, or meet the one filed there: either way, read back the post its id holds. */
+export const filePost = ChangeSet.empty(Blog)
+	.insert(Post, [])
+	.read("post", (delta) =>
+		query(Blog)
+			.rule((r) => {
+				const { id, title } = v(delta.added(Post), "added")
+				return r.match(delta.added(Post), { id, title }).find({ id, title })
+			})
+			.rule((r) => {
+				const { id, title } = v(delta.met(Post), "met")
+				return r.match(delta.met(Post), { id, title }).find({ id, title })
+			})
+	)
+
 /** README: "Levels". */
 /** The QTI content model, maintained on its own. */
 export const Item = relation("Item", { id: uuid, title: Title }, ["id"])
@@ -1365,3 +1381,15 @@ type LaunchRefusal = Extract<
 >["refused"]["laws"][number]
 export const overPlan = (entry: LaunchRefusal): boolean =>
 	entry.law.kind === "check" && entry.law.name === "WithinPlan"
+
+/** "A family's members are a type error, since their family statement writes them". */
+export const debitMet = ChangeSet.empty(Credits)
+	.insert(Debit, [])
+	.read("met", (d) => {
+		// @ts-expect-error -- refusal: delta.met names no family's members: their additions are their family statement's, which meets no stored fact at an arbiter key
+		const met = d.met(Debit)
+		return query(Credits).rule((r) => {
+			const { call } = v(met, "met")
+			return r.match(met, { call }).find({ debits: r.count() })
+		})
+	})

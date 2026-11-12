@@ -1072,6 +1072,17 @@ type DeltaCheck<S, R> =
 		? unknown
 		: Refusal<"a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes">
 
+/**
+ * delta.met names what delta.added and delta.removed name but a family's members, whose additions their family
+ * statement writes, so no insertion of them meets a stored fact at an arbiter key. A relation whose primary key holds a
+ * span is refused where the ChangeSet compiles: its exclusion constraint arbitrates by ON CONFLICT DO NOTHING ON
+ * CONSTRAINT alone, so no statement tells a fact an insertion met from one it made.
+ */
+type MetCheck<S, R> =
+	IsFamilyMember<S, R> extends true
+		? Refusal<"delta.met names no family's members: their additions are their family statement's, which meets no stored fact at an arbiter key">
+		: DeltaCheck<S, R>
+
 export interface Delta<S> {
 	/** Facts of R this application made present. */
 	added<R extends (AnyRelation | AnyWorld) & Headed<Carriers>>(
@@ -1080,6 +1091,14 @@ export interface Delta<S> {
 	/** Facts of R this application made absent. */
 	removed<R extends (AnyRelation | AnyWorld) & Headed<Carriers>>(
 		relation: R & DeltaCheck<S, R>
+	): DeltaSource<R>
+	/**
+	 * Stored facts of R this application's insertions met at their arbiter key and did not refuse, each whole as stored:
+	 * an exact repeat, equal to the inserted fact at every field it states, a field the database draws taken from the
+	 * stored fact. A fact an earlier write of the application added is added, never met.
+	 */
+	met<R extends (AnyRelation | AnyWorld) & Headed<Carriers>>(
+		relation: R & MetCheck<S, R>
 	): DeltaSource<R>
 }
 

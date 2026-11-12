@@ -1,6 +1,7 @@
 import { extendNonEmpty } from "#compiler/core/nonempty.ts"
 import { type OperatorNames, rowEq } from "#compiler/ir/compare.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
+import type { DeltaSide } from "#compiler/ir/rel.ts"
 import type { WriteIR } from "#compiler/ir/write.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
 import type { Cte, Delete, Expr, Insert } from "#compiler/sql/ast.ts"
@@ -62,11 +63,12 @@ export const carriersOf = (carriers: DeltaCarriers): ReadonlyArray<WriteCarrier>
 	}
 }
 
-/** The carrier of one side of a relation's delta, when a read-back names that side. */
-const sideCarrier = (
-	carriers: DeltaCarriers,
-	side: "added" | "removed"
-): WriteCarrier | undefined => {
+/** The carrier of one side of a relation's delta, when a read-back names that side; none of its met side, which never
+ * leaves the statement that writes it. */
+const sideCarrier = (carriers: DeltaCarriers, side: DeltaSide): WriteCarrier | undefined => {
+	if (side === "met") {
+		return undefined
+	}
 	switch (carriers.kind) {
 		case "added":
 			return side === "added" ? carriers.added : undefined
@@ -101,7 +103,7 @@ export type DeltaHeld =
 export const plannedDelta = (
 	plan: DeltaPlan,
 	name: string,
-	side: "added" | "removed"
+	side: DeltaSide
 ): DeltaHeld | undefined => {
 	if (plan.empty.has(name)) {
 		return { kind: "empty" }
@@ -185,17 +187,15 @@ export const planDeltas = (
 			carriers.set(name, { kind: "netted", added, removed: carrier() })
 			continue
 		}
-		switch (delta.sides) {
-			case "added":
-				carriers.set(name, { kind: "added", added: carrier() })
-				break
-			case "removed":
-				carriers.set(name, { kind: "removed", removed: carrier() })
-				break
-			case "both": {
-				const added = carrier()
-				carriers.set(name, { kind: "both", added, removed: carrier() })
-			}
+		const added = delta.sides.has("added")
+		const removed = delta.sides.has("removed")
+		if (added && removed) {
+			const first = carrier()
+			carriers.set(name, { kind: "both", added: first, removed: carrier() })
+		} else if (added) {
+			carriers.set(name, { kind: "added", added: carrier() })
+		} else if (removed) {
+			carriers.set(name, { kind: "removed", removed: carrier() })
 		}
 	}
 	return { carriers, empty }
@@ -218,7 +218,8 @@ export const withDeltaFills = <
 	}
 	const returned = statement.returning
 	const added = returned.kind === "removed" ? undefined : returned.added
-	const removed = returned.kind === "added" ? undefined : returned.removed
+	const removed =
+		returned.kind === "removed" || returned.kind === "both" ? returned.removed : undefined
 	const supply = new NameSupply(namesPast(statement.sql.nameMap, ownStatement))
 	const extra: Array<Cte> = []
 	const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
@@ -382,7 +383,7 @@ export const withDeltaFills = <
  * (`relationCarrier`). */
 export interface DeltaCteName {
 	readonly relation: RelationInfo
-	readonly side: "added" | "removed"
+	readonly side: DeltaSide
 	readonly cte: string
 	readonly heading: ReadonlyArray<CarrierColumn>
 }
@@ -391,7 +392,7 @@ export interface DeltaCteName {
  * alike, so a read-back riding the statement reads it by one name in either. */
 export const deltaCteName = (
 	relation: RelationInfo,
-	side: "added" | "removed",
+	side: DeltaSide,
 	supply: NameSupply
 ): DeltaCteName => {
 	const origin = { kind: "internal", purpose: `delta ${side} of ${relation.name}` } as const
@@ -408,19 +409,21 @@ export const deltaCteName = (
 }
 
 /** The rows of `named`'s side `statement`'s RETURNING returns, none where it returns no rows of that side, as an
- * insertion removes nothing. */
+ * insertion removes nothing and only an insertion meets stored facts it did not refuse (insert/protocol.ts
+ * writesMet). */
 const returnedSideOf = (
 	statement: ModifyingStatement<InsertResult | DeleteResult> | PutStatement,
-	side: "added" | "removed"
+	side: DeltaSide
 ): ReturnedSide | undefined => {
 	const returned = statement.returning
-	return side === "added"
-		? returned.kind === "removed"
-			? undefined
-			: returned.added
-		: returned.kind === "added"
-			? undefined
-			: returned.removed
+	switch (side) {
+		case "added":
+			return returned.kind === "removed" ? undefined : returned.added
+		case "removed":
+			return returned.kind === "removed" || returned.kind === "both" ? returned.removed : undefined
+		case "met":
+			return returned.kind === "insertion" ? returned.met : undefined
+	}
 }
 
 /**

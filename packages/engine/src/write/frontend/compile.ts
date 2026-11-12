@@ -5,7 +5,7 @@ import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
 import { checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
 import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
-import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
+import { CompileError, type ProseTag, prose, ruleRefused } from "#compiler/core/errors.ts"
 import { type EntryName, type LawId, ParamId, type StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
@@ -24,7 +24,7 @@ import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import { layoutKey } from "#compiler/ir/fill.ts"
 import { familyKey, type LawField, type NativeColumn, type RelationInfo } from "#compiler/ir/law.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
-import type { Heading, HeadingColumn, RelNode, ValidDag } from "#compiler/ir/rel.ts"
+import type { DeltaSide, Heading, HeadingColumn, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import { slotSpelling } from "#compiler/ir/slots.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
@@ -110,7 +110,7 @@ import {
 	scheduleStratum,
 	updateChanges
 } from "#compiler/write/frontend/schedule.ts"
-import { payloadOf } from "#compiler/write/frontend/targets.ts"
+import { payloadOf, primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import { type RelationInput, relationInput } from "#compiler/write/insert/input.ts"
 import { isCarried, isSerialField } from "#compiler/write/insert/statement.ts"
 import { type RelationUniques, relationUniques } from "#compiler/write/insert/unique.ts"
@@ -302,14 +302,14 @@ export type NamedDelta =
 	| {
 			readonly kind: "relation"
 			readonly relation: RelationInfo
-			readonly sides: "added" | "removed" | "both"
+			readonly sides: ReadonlySet<DeltaSide>
 			readonly via: DeltaVia
 	  }
 	| {
 			readonly kind: "empty"
 			readonly name: string
 			readonly heading: Heading
-			readonly sides: "added" | "removed" | "both"
+			readonly sides: ReadonlySet<DeltaSide>
 	  }
 
 /** The law of a written relation's primary key, the insert protocol's arbiter. */
@@ -558,14 +558,36 @@ const writeSlotId = (
 	relation: string
 ): ParamId => ParamId(slotSpelling("slot", stratum, act.op, slotKind(act, classes), relation))
 
-/** The sides a read-back names of one delta: both, or the one it names. */
-const sidesOf = (
-	named: ReadonlyArray<{ readonly side: "added" | "removed" }>
-): NamedDelta["sides"] => {
-	const added = named.some((d) => d.side === "added")
-	const removed = named.some((d) => d.side === "removed")
-	return added && removed ? "both" : added ? "added" : "removed"
+/**
+ * Refuses delta.met of `name` where no statement tells a stored fact an insertion met from one it made: a relation
+ * whose primary key holds a span, whose exclusion constraint arbitrates by ON CONFLICT DO NOTHING ON CONSTRAINT alone,
+ * and a family's member relation, whose additions its family statement writes (`managed`).
+ */
+const refuseUnmet = (
+	relation: RelationInfo,
+	loc: SourceLoc,
+	managed: (name: string) => boolean
+): void => {
+	if (managed(relation.name)) {
+		throw new Refusal(
+			ruleRefused(
+				loc,
+				"delta.met names no family's members: their additions are their family statement's, which meets no stored fact at an arbiter key"
+			)
+		)
+	}
+	if (primaryKeyShape(relation).kind === "span") {
+		refuse(
+			"UnsupportedOperation",
+			loc,
+			`a delta.met of ${relation.name}, whose primary key holds a span: its exclusion constraint arbitrates by ON CONFLICT DO NOTHING ON CONSTRAINT alone, so no statement tells a fact an insertion met from one it made`
+		)
+	}
 }
+
+/** The sides the read-backs name of one delta, each once. */
+const sidesOf = (named: ReadonlyArray<{ readonly side: DeltaSide }>): NamedDelta["sides"] =>
+	new Set(named.map((d) => d.side))
 
 const sameHeading = (a: Heading, b: Heading): boolean =>
 	a.length === b.length &&
@@ -2432,13 +2454,18 @@ const compile = (
 	const classified = readBacks.flatMap((r) =>
 		r.deltas.map((d) => ({ read: r.name, delta: d, side: d.side, of: deltaOf(d.relation) }))
 	)
-	for (const { read, delta, of } of classified) {
+	for (const { read, delta, side, of } of classified) {
 		if (of.kind === "relation" && nestedRelations.has(of.relation)) {
 			refuse(
 				"UnsupportedOperation",
 				childLoc(at, "reads", read),
 				`a delta of ${delta.relation}, which a family write writes through its family's statements: read ${delta.relation} itself after the change`
 			)
+		}
+		const met =
+			side === "met" && of.kind === "relation" ? base.relations.get(of.relation) : undefined
+		if (met !== undefined) {
+			refuseUnmet(met, childLoc(at, "reads", read), managed)
 		}
 	}
 	const relationDeltas = groupBy(

@@ -91,7 +91,9 @@ interface Bound {
 
 /**
  * What a CTE name refers to: a query, read where a source names it, under the scope and the CTEs it was defined in; a
- * data-modifying CTE, whose RETURNING rows the call itself makes; or a recursive CTE's own working rows.
+ * data-modifying CTE, whose RETURNING rows are the call's: the rows it makes, and an INSERT's ON CONFLICT DO SELECT's
+ * rows its arbitration met, the arbitration's own read (`arbitrations`), whose values bind no read as one value, a
+ * column of them binding one group per row; or a recursive CTE's own working rows.
  */
 type CteRef =
 	| {

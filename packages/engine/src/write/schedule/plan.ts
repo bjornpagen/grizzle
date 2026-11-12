@@ -4,7 +4,7 @@ import type { EntryName, StoredRelationName } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LawField, RelationInfo, SpanField } from "#compiler/ir/law.ts"
-import { inputsOf, type RelNode } from "#compiler/ir/rel.ts"
+import { type DeltaSide, inputsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import {
 	completeAddition,
@@ -20,7 +20,11 @@ import {
 } from "#compiler/write/carriers/carriers.ts"
 import { type DeleteAnchor, deleteAnchor } from "#compiler/write/delete/anchor.ts"
 import type { CheckNames } from "#compiler/write/entry/precheck.ts"
-import type { WriteFrontend, WrittenRelation } from "#compiler/write/frontend/compile.ts"
+import type {
+	ActionEntry,
+	WriteFrontend,
+	WrittenRelation
+} from "#compiler/write/frontend/compile.ts"
 import {
 	type FamilyAt,
 	type FamilyNode,
@@ -91,11 +95,11 @@ export type PlannedCheck =
  * relation input, a MERGE carries the scope it was proved over); the deletion a MERGE absorbs has no statement of its
  * own. */
 type WriteOpStep =
-	| { readonly op: "insert"; readonly serial: SerialClass }
+	| { readonly op: "insert"; readonly serial: SerialClass; readonly entry: ActionEntry }
 	| { readonly op: "exactDelete"; readonly except: ReadonlyArray<WriteInput> }
 	| { readonly op: "anchoredDelete"; readonly anchor: DeleteAnchor }
 	| { readonly op: "displace"; readonly payload: NonEmptyReadonlyArray<LawField> }
-	| { readonly op: "putInsert" }
+	| { readonly op: "putInsert"; readonly entry: ActionEntry }
 	| {
 			readonly op: "upsert"
 			readonly input: RelationInput
@@ -392,7 +396,7 @@ const opsOf = (action: ChosenAction, level: Isolation): ReadonlyArray<DraftStep>
 		case "insert":
 			return [
 				...precheckOf(action, action.serial),
-				{ op: "insert", serial: action.serial },
+				{ op: "insert", serial: action.serial, entry: action.info.entry },
 				...classify(action.info.relation, action.serial, "insert", level),
 				...advanceOf(action.info.relation, action.serial)
 			]
@@ -444,7 +448,7 @@ const putOps = (
 					? []
 					: [{ op: "displace", payload: payload.fields } as const]),
 				...precheckOf(put, completeClass),
-				{ op: "putInsert" },
+				{ op: "putInsert", entry: put.info.entry },
 				...classify(relation, completeClass, "put", level)
 			]
 		}
@@ -465,7 +469,7 @@ const putOps = (
 				...(choice.inPlace === undefined
 					? []
 					: [{ op: "updateFrom", inPlace: choice.inPlace } as const]),
-				{ op: "putInsert" },
+				{ op: "putInsert", entry: put.info.entry },
 				...classify(relation, completeClass, "put", level)
 			]
 		case "merge":
@@ -788,7 +792,7 @@ const placeReadBacks = (
 		)
 	)
 	/** The sides the read-backs after the last stratum name of each written relation's delta. */
-	const sides = new Map<string, Set<"added" | "removed">>()
+	const sides = new Map<string, Set<DeltaSide>>()
 	for (const read of after) {
 		for (const d of read.deltas) {
 			const relation = targetOf(d.relation)
@@ -805,7 +809,7 @@ const placeReadBacks = (
 		if (d.kind !== "relation" || named === undefined) {
 			return []
 		}
-		return [{ ...d, sides: named.size === 2 ? "both" : named.has("added") ? "added" : "removed" }]
+		return [{ ...d, sides: named }]
 	})
 	return {
 		strata: strata.map((step) => {

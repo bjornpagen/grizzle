@@ -179,7 +179,7 @@ export interface RefusalArm {
 }
 
 /** One arm as the refusal CTE reads it: the rows of `from` that `when` holds of. */
-interface SourcedArm extends RefusalArm {
+export interface SourcedArm extends RefusalArm {
 	readonly from: FromItem
 }
 
@@ -366,6 +366,14 @@ export const refusalGuard = (
 		mapNonEmpty(input.arms, (a) => ({ ...a, from }))
 	)
 }
+
+/** The refusal CTE and guard (see `refusalGuard`) of arms over sources of their own, each arm reading its rows: a
+ * statement whose refusals stand in more than its verdict rows, ranked and ordered together as one guard's. */
+export const sourcedRefusalGuard = (
+	supply: NameSupply,
+	schema: string,
+	arms: NonEmptyReadonlyArray<SourcedArm>
+): { readonly cte: Cte; readonly guard: Expr } => sourcedGuard(supply, schema, arms)
 
 const breachArm = (b: DeliveredBreach): SourcedArm => ({
 	rank: refusalRank.breach,

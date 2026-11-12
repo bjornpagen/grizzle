@@ -6,6 +6,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { rooted } from "#compiler/ir/dag.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
+import type { DeltaSide } from "#compiler/ir/rel.ts"
 import type { ReadBack } from "#compiler/ir/write.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { DeltaRelation } from "#compiler/lower/conservative/types.ts"
@@ -29,7 +30,7 @@ interface ReadBackOptions {
 }
 
 /** Where a read-back's Delta nodes read each delta it names, by the relation the Delta names and its side. */
-export type DeltasOf = (relation: string, side: "added" | "removed") => DeltaRelation | undefined
+export type DeltasOf = (relation: string, side: DeltaSide) => DeltaRelation | undefined
 
 /** The column of `held` that holds the relation field `field`. */
 const heldColumn = (held: Exclude<DeltaHeld, { readonly kind: "empty" }>, field: string): string =>

@@ -8,12 +8,6 @@ The one plan: only work still to do. A finished item is deleted, not ticked.
 post-beta swarm's fixes for the next release.
 
 ### After the 1,000-children goal (the owner's pinned goal, 2026-11-10)
-- **An exact repeat returns the row it met (delta.met, REACH's design):** a generated addition that meets a stored row
-  at its arbiter key is a no-change whose delta.added is empty, so a double Start's loser learns its sitting's drawn id
-  only through a read member. A third delta side, delta.met(R), holds the stored facts an insertion met as exact
-  repeats: the arbiter becomes `ON CONFLICT (key) DO SELECT` with no WHERE, PostgreSQL 19's `RETURNING old.<key> IS
-  NULL` marks an inserted row, and verdict rows are inserted, met equal or met differing (the conflict witness). It
-  rewrites every insert's RETURNING, so it waits for the goal.
 - **A SERIALIZABLE READ ONLY read beside a concurrent SERIALIZABLE import can still fail with 40001:** a certified
   READ COMMITTED role's reads stay SERIALIZABLE READ ONLY (one snapshot across their statements). SSI does not track
   READ COMMITTED writers, so such a read conflicts only with SERIALIZABLE writers, pantry's importWrite among them, in a

@@ -2,7 +2,14 @@ import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { LogicalQuery, PageFill, ParamDecl } from "#compiler/ir/products.ts"
-import type { CompletedOrder, Heading, RelNode, TakeBound, ValidDag } from "#compiler/ir/rel.ts"
+import type {
+	CompletedOrder,
+	DeltaSide,
+	Heading,
+	RelNode,
+	TakeBound,
+	ValidDag
+} from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { StatementRole, StatementRoots, StatementTree } from "#compiler/runtime/lower/tree.ts"
@@ -67,7 +74,7 @@ export type BreachGuard = (
  */
 export interface ReadBackLowering {
 	readonly kind: "readBack"
-	readonly deltas: (relation: string, side: "added" | "removed") => DeltaRelation | undefined
+	readonly deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined
 	readonly breach: BreachGuard
 	/**
 	 * Where its first statement's names start: r1 and c1 for a statement of its own (sql/naming.ts freshNames), and past

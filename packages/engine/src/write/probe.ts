@@ -243,36 +243,49 @@ export const metNarrowed = (
 ): MetAccess => ({ ...access, filter: (inner) => [...access.filter(inner), ...more(inner)] })
 
 /**
- * Whether the arbitration met a stored row of `relation` where `access` reaches it from the evaluating met row: EXISTS
- * over the row it met (FromSource `met`), which only the SERIALIZABLE lowering states (sql/ast.ts).
+ * The stored row of `relation` the arbitration met where `access` reaches it from the evaluating met row, delivering
+ * its columns `read` (FromSource `met`), which only the SERIALIZABLE lowering states (sql/ast.ts).
  */
+export const metRow = (
+	w: WriteContext,
+	supply: NameSupply,
+	relation: string,
+	access: MetAccess,
+	read: NonEmptyReadonlyArray<string>
+): Driven => {
+	const inner = supply.relation(internal(`met ${relation}`))
+	const alias = supply.relation(internal(`met ${relation} row`))
+	const out = delivered(supply, alias, read)
+	return {
+		source: {
+			kind: "met",
+			table: w.names.relation(relation),
+			inner,
+			rows: access.rows,
+			key: access.key,
+			filter: access.filter(inner),
+			columns: out.columns,
+			alias
+		},
+		at: out.at
+	}
+}
+
+/** Whether the arbitration met a stored row of `relation` where `access` reaches it from the evaluating met row: EXISTS
+ * over the row it met (`metRow`). */
 export const metFound = (
 	w: WriteContext,
 	supply: NameSupply,
 	relation: string,
 	access: MetAccess
-): Expr => {
-	const inner = supply.relation(internal(`met ${relation}`))
-	const alias = supply.relation(internal(`met ${relation} row`))
-	return exists(
+): Expr =>
+	exists(
 		simpleSelect(
 			[target(lit.int(1, types.integer))],
-			[
-				{
-					kind: "met",
-					table: w.names.relation(relation),
-					inner,
-					rows: access.rows,
-					key: access.key,
-					filter: access.filter(inner),
-					columns: delivered(supply, alias, access.placed).columns,
-					alias
-				}
-			],
+			[metRow(w, supply, relation, access, access.placed).source],
 			undefined
 		)
 	)
-}
 
 /**
  * The met rows of the INSERT `insert`, which proposes the CTE `proposed` alone (FromSource `metRows`): `proposed`'s

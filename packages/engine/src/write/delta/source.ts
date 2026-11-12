@@ -1,4 +1,5 @@
 import type { Built } from "#compiler/core/phantom.ts"
+import type { DeltaSide } from "#compiler/ir/rel.ts"
 import type { SchemaInfo } from "#compiler/query/build/scope.ts"
 import { relationHeading, sourceInfo, sourceValue } from "#compiler/query/build/state.ts"
 import { malformed } from "#compiler/schema/protocol.ts"
@@ -12,6 +13,7 @@ import type { BuiltOver } from "#compiler/write/changeset/levels.ts"
 export interface DeltaValue {
 	readonly added: (relation: unknown) => Built
 	readonly removed: (relation: unknown) => Built
+	readonly met: (relation: unknown) => Built
 }
 
 /** The relation a member names, by its name: an ordinary relation of the schema, or of a ChangeSet over a role a whole
@@ -88,7 +90,7 @@ export const memberRelationNamed = (name: string, over: BuiltOver, label: string
 const deltaSource = <C extends Carriers>(
 	over: BuiltOver,
 	info: SchemaInfo,
-	side: "added" | "removed",
+	side: DeltaSide,
 	relation: unknown,
 	carriers: C
 ): Built & Headed<C> => {
@@ -111,7 +113,10 @@ const deltaSource = <C extends Carriers>(
  * `read(name, (delta) => query)` calls its callback once, with a Delta over the ChangeSet's schema. delta.added(R) and
  * delta.removed(R) are sources of R's heading, recorded in the read-back's Description as a delta source
  * ({ kind: "delta", side, relation }): the facts of R this application made present, R in the final state minus R in
- * the initial state, and the facts it made absent, the reverse. Both are netted across strata. R is an ordinary
+ * the initial state, and the facts it made absent, the reverse. Both are netted across strata. delta.met(R), a source
+ * of R's heading too, holds the stored facts of R the application's insertions met at their arbiter key and did not
+ * refuse, each whole as stored (insert/protocol.ts writesMet), read where the one statement inserting R returns them.
+ * R is an ordinary
  * relation of some level of the schema (`WritableOf`), or of a ChangeSet over a role a whole ordinary entry or a query
  * entry, a source of the entry's heading (`deltaEntries` says which entries' deltas a write can deliver): a closed or
  * derived relation changes only through its declaration or db.refresh, never through a ChangeSet, so it has no delta.
@@ -122,7 +127,8 @@ const deltaSource = <C extends Carriers>(
 export const delta = <S>(over: BuiltOver, info: SchemaInfo): Delta<S> => {
 	const value: Delta<S> = {
 		added: (relation) => deltaSource(over, info, "added", relation, relation.heading),
-		removed: (relation) => deltaSource(over, info, "removed", relation, relation.heading)
+		removed: (relation) => deltaSource(over, info, "removed", relation, relation.heading),
+		met: (relation) => deltaSource(over, info, "met", relation, relation.heading)
 	}
 	return Object.freeze(value)
 }

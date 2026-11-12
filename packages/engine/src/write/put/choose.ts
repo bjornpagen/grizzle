@@ -215,7 +215,7 @@ export const choosePutTargets = (frontend: WriteFrontend): ChosenTargets => {
 	const { ir } = frontend
 	const removedOf = new Set(
 		frontend.deltas.flatMap((d) =>
-			d.kind !== "relation" || d.sides === "added" ? [] : [d.relation.name]
+			d.kind !== "relation" || !d.sides.has("removed") ? [] : [d.relation.name]
 		)
 	)
 	const writtenIn = ir.strata.map((stratum) => new Set(stratum.actions.map((a) => a.relation)))

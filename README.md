@@ -2525,7 +2525,7 @@ A write is a ChangeSet: rows to insert, delete and put, applied as one transacti
 
 ```text
 ChangeSet.empty(Blog)               a write over a schema, or over a role: ChangeSet.empty(MemberBlog)
-  .insert(Post, rows)               add these rows; a row already present is no change
+  .insert(Post, rows)               add these rows; a row already present is no change, which delta.met returns
   .insertAll({ Post: rows })        an insert of each relation the record names by its key
   .delete(Comment, rows)            remove these rows
   .put(PostViews, rows)             after the change, the row at each key is the one given
@@ -2561,11 +2561,12 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   states is written as it is. A row that leaves them out is the fact its other fields state. At the first declared key
   that holds no serial field and no span, a stored row equal to it at every field it states is no change, and one
   that differs there is `refused` on that key; two inserters racing at that key meet there, the later one
-  waiting for the earlier and then reading its row. With no such key, every such row is a new row, and equal such rows
-  are one. Leaving out only some is an `EncodingFailure`. A table whose every column is serial takes `[{}]`, one new
-  row.
+  waiting for the earlier and then reading its row, which `delta.met` delivers with the values PostgreSQL drew for it.
+  With no such key, every such row is a new row, and equal such rows are one. Leaving out only some is an
+  `EncodingFailure`. A table whose every column is serial takes `[{}]`, one new row.
 - **`read`** runs its query after the change, before COMMIT. `delta.added(T)` and `delta.removed(T)` are the rows the
-  change added and removed. A read-back name used twice in one ChangeSet is a type error.
+  change added and removed, and `delta.met(T)` the stored rows its insertions met ([Rows an insertion
+  met](#rows-an-insertion-met)). A read-back name used twice in one ChangeSet is a type error.
 - **Strata.** Every write in a stratum reads the state before it, so build order means nothing.
   `ChangeSet.union(a, b)` merges two ChangeSets stratum by stratum; `ChangeSet.sequence(a, b)` runs `b`'s strata after
   `a`'s. Either is one transaction, over the higher of the two schemas.
@@ -2616,6 +2617,48 @@ export const purge = ChangeSet.empty(Blog)
 `publish` takes `{ id: Uuid }`; applied twice, the second answers `unchanged`, since the query finds no draft to put.
 `purge` takes `{ author: string }`, and its `accepted` outcome carries `reads.removed`, a
 `ReadonlyArray<{ comments: bigint }>`: `RETURNING`, as a query over what the change removed.
+
+### Rows an insertion met
+
+`delta.met(T)` holds each stored row of `T` an insertion of the ChangeSet met at its arbiter key and did not refuse:
+the row as stored, every field of it, a field PostgreSQL drew for it included. Without it, an insertion that repeats a
+stored row learns nothing about that row in the same call. The arbiter key is the primary key for complete rows, and
+for an insertion that leaves out its serial fields the first declared key that holds none of them. A row equal at every
+field the insertion states is an exact repeat: no change, and met. One that differs at a field it states is `refused`
+on the key, as always, and the ChangeSet commits nothing. A put meets nothing: an equal row at its key is its own no
+change.
+
+So a call that may lose a race to another learns the row that won, in the same round trip:
+
+```ts
+/** File a post at its id, or meet the one filed there: either way, read back the post its id holds. */
+export const filePost = ChangeSet.empty(Blog)
+	.insert(Post, [])
+	.read("post", (delta) =>
+		query(Blog)
+			.rule((r) => {
+				const { id, title } = v(delta.added(Post), "added")
+				return r.match(delta.added(Post), { id, title }).find({ id, title })
+			})
+			.rule((r) => {
+				const { id, title } = v(delta.met(Post), "met")
+				return r.match(delta.met(Post), { id, title }).find({ id, title })
+			})
+	)
+```
+
+Exactly one rule finds each post the call states. At READ COMMITTED the later of two racing calls waits at the key
+for the earlier, then reads the row it committed, even though that commit came after its own statement began, and
+never fails with 40001. The row is fixed from its commit on, since a READ COMMITTED role writes only relations no role
+updates or deletes. At SERIALIZABLE the met row is read again under the transaction's snapshot, so SSI sees it as a
+read, and a met row the snapshot cannot see fails the call with 40001, a TransientFailure, as before. Through a query
+entry, an insertion meets only rows inside the entry: a row outside it at the key, committed after the entry's
+precheck, refuses the call on the key's law, as the precheck refuses one committed before it.
+
+`delta.met` of a relation whose primary key holds a span is refused when the ChangeSet compiles: its exclusion
+constraint arbitrates only by `ON CONFLICT DO NOTHING`, so no statement can tell a row it met from one it made. A
+family's members are a type error, since their family statement writes them. A met side never crosses statements: a
+read-back over `delta.met(T)` rides the one statement that writes `T`, and one that cannot is refused.
 
 ## Derived tables
 

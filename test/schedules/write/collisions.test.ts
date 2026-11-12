@@ -22,21 +22,26 @@
  *   pg_locks until B's call ends, so a wait the model does not predict, and one it predicts that never comes, fails
  *   the case where it happens.
  * - Each call answers what the serial order A, then B, answers:
- *   - an exact repeat at the arbiter key, a row equal at every field the addition states, is no change;
+ *   - an exact repeat at the arbiter key, a row equal at every field the addition states, is no change, and the call
+ *     reads that stored row back whole through delta.met, its id the one the database drew for it, a row in flight it
+ *     waited for included, on the first try;
  *   - a differing row at the arbiter key refuses the key (child, test, attempt), its witness that key;
  *   - a row at slot with the arbiter key free refuses slot: by the probe, its witness the requested slot, where the
  *     statement's snapshot sees the occupant; otherwise by PostgreSQL's 23505 after the wait, a typed refusal on slot's
  *     law, never an abort or a defect, its witness the stated slot where the call states one distinct slot value, and
  *     `unreported` where it states several;
- *   - every other request is inserted, and a call that inserts any row is accepted with that count.
+ *   - every other request is inserted, and a call that inserts any row is accepted with that count, reading back
+ *     through delta.added exactly the rows it made.
  * - The table ends as the serial order leaves it: one row per key, each stored row with its id, every id a version 7
  *   uuid.
  *
  * Oracle: the serial model below, over the stated rows alone. The probe's refusal, both arbiter waits and both 23505
  * witnesses are required features, among every other kind of answer.
  *
- * Plant: ~/.cache/grizzle-release/BR08/plants/collisions-generated-arbiter-last-key.patch, a generated addition
- * arbitrated at the last declared key holding no drawn field (slot) instead of the first, must turn the property red.
+ * Plants: ~/.cache/grizzle-release/BR08/plants/collisions-generated-arbiter-last-key.patch, a generated addition
+ * arbitrated at the last declared key holding no drawn field (slot) instead of the first, must turn the property red;
+ * so must ~/.cache/grizzle-release/DELTAMET/plants/met-keep-where.patch, the arbiter's DO SELECT returning only an
+ * occupant whose payload differs, so an exact repeat meets nothing it reads back.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
@@ -50,9 +55,10 @@ import { openServed } from "#adapter/db/served.ts"
 import type { CallError, WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet, sameLaw } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
 import { key, lawsByStatement, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
-import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
+import type { DeltaSource, Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import { type WriteAnswer, answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -81,11 +87,19 @@ const statedFields = ["child", "test", "attempt", "note", "slot"] as const
 const sittingKey = key(on(Sitting, "child", "test", "attempt"))
 const slotKey = key(on(Sitting, "slot"))
 
-/** The schema, the role `learner`, which inserts Sitting and Gate and nothing else, and its two logins. */
+/** The schema, the role `learner`, which inserts Sitting and Gate and nothing else, and its two logins. Each call reads
+ * back the sittings it added and the stored sittings it met, every field of each. */
 const collisions = (name: string) => {
 	const base = schema(name, [Sitting, Gate], [sittingKey, slotKey])
 	const learner = role(base, "learner", { Sitting, Gate }, { insert: ["Sitting", "Gate"] })
 	const direct = role(base, "direct", { Sitting, Gate })
+	const sittingsOf = (side: DeltaSource<typeof Sitting>) =>
+		query(base).rule((r) => {
+			const { id, child, test, attempt, note, slot } = v(side, "sitting")
+			return r
+				.match(side, { id, child, test, attempt, note, slot })
+				.find({ id, child, test, attempt, note, slot })
+		})
 	return {
 		schema: base,
 		learner,
@@ -93,11 +107,16 @@ const collisions = (name: string) => {
 		server: login(base, "server", [learner], {
 			workload: [
 				workload(learner, {
-					start: ChangeSet.empty(base).insert(Sitting, []),
+					start: ChangeSet.empty(base)
+						.insert(Sitting, [])
+						.read("added", (d) => sittingsOf(d.added(Sitting)))
+						.read("met", (d) => sittingsOf(d.met(Sitting))),
 					held: ChangeSet.sequence(
 						ChangeSet.empty(base).insert(Sitting, []),
 						ChangeSet.empty(base).insert(Gate, [])
 					)
+						.read("added", (d) => sittingsOf(d.added(Sitting)))
+						.read("met", (d) => sittingsOf(d.met(Sitting)))
 				})
 			]
 		}),
@@ -183,7 +202,12 @@ type KeyName = "sitting" | "slot"
 
 /** What one call answers in the serial order, over the rows its statement sees and the rows it meets in flight. */
 type Expected =
-	| { readonly kind: "inserted"; readonly rows: ReadonlyArray<Request> }
+	| {
+			readonly kind: "inserted"
+			readonly rows: ReadonlyArray<Request>
+			/** The requests that repeat a stored or a committed row exactly, each of which meets that row. */
+			readonly met: ReadonlyArray<Request>
+	  }
 	| {
 			readonly kind: "refused"
 			readonly law: KeyName
@@ -291,7 +315,7 @@ const judge = (
 	}
 	const inserted = Arr.filter(call, free)
 	return {
-		expected: { kind: "inserted", rows: inserted },
+		expected: { kind: "inserted", rows: inserted, met: Arr.filter(call, (r) => !free(r)) },
 		waits,
 		features: [
 			...Arr.map(
@@ -341,8 +365,48 @@ const doubleStarts: ReadonlyArray<Kept<Collision, CollisionFeature>> = [
 	}
 ]
 
+/** A sitting as a call reads it back: every field, its id the database's. */
+interface SittingRow {
+	readonly id: string
+	readonly child: number
+	readonly test: number
+	readonly attempt: number
+	readonly note: number
+	readonly slot: number
+}
+
+/** What a call reads back: the sittings it added and the stored sittings it met. */
+interface SittingReads {
+	readonly added: ReadonlyArray<SittingRow>
+	readonly met: ReadonlyArray<SittingRow>
+}
+
 /** What a call answered: its outcome, or the failure it met. */
-type Ran = Result.Result<WriteAnswer<WriteOutcome<unknown>>, CallError>
+type Ran = Result.Result<WriteAnswer<WriteOutcome<SittingReads>>, CallError>
+
+/** A sitting as a plain record, in key order among others: a read-back's row and a state row alike. */
+const plainSittings = (rows: ReadonlyArray<SittingRow>): ReadonlyArray<SittingRow> =>
+	Arr.sort(
+		Arr.map(rows, (r) => ({
+			id: r.id,
+			child: r.child,
+			test: r.test,
+			attempt: r.attempt,
+			note: r.note,
+			slot: r.slot
+		})),
+		byKey
+	)
+
+/** A row of the table's state, its stated fields then its id as text, as a sitting. */
+const storedSitting = (row: ReadonlyArray<string>): SittingRow => ({
+	child: Number(row[0]),
+	test: Number(row[1]),
+	attempt: Number(row[2]),
+	note: Number(row[3]),
+	slot: Number(row[4]),
+	id: defined(row[5], "a stored sitting's id")
+})
 
 /** A relation's added count in an accepted outcome, none where it adds none. */
 const addedTo = (outcome: WriteAnswer<WriteOutcome<unknown>>, relation: string): bigint =>
@@ -400,15 +464,43 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 					Arr.map(rows, (row) => Arr.map(row, textOf))
 				)
 
-				/** Where a call's answer departs from its expectation, why; none where it is the expected one. */
-				const departure = (ran: Ran, expected: Expected, label: string): string | undefined => {
+				/**
+				 * Where a call's answer departs from its expectation, why; none where it is the expected one. An answer that
+				 * inserts reads back as added exactly the stored rows at the keys it inserted at, and as met exactly the stored
+				 * rows at the keys it repeats, each whole, its drawn id the stored row's (`final`, the table's last state, every
+				 * stored row of which is fixed once committed).
+				 */
+				const departure = (
+					ran: Ran,
+					expected: Expected,
+					label: string,
+					final: ReadonlyArray<ReadonlyArray<string>>
+				): string | undefined => {
 					if (expected.kind === "inserted") {
-						return Result.isSuccess(ran) &&
-							(expected.rows.length === 0
-								? ran.success.kind === "unchanged" || addedTo(ran.success, "Sitting") === 0n
-								: addedTo(ran.success, "Sitting") === BigInt(expected.rows.length))
+						if (
+							!(
+								Result.isSuccess(ran) &&
+								ran.success.kind !== "refused" &&
+								ran.success.kind !== "outsideWorld" &&
+								(expected.rows.length === 0
+									? ran.success.kind === "unchanged" || addedTo(ran.success, "Sitting") === 0n
+									: addedTo(ran.success, "Sitting") === BigInt(expected.rows.length))
+							)
+						) {
+							return `${label} adds every free request, ${expected.rows.length}: ${Formatter.format(ran)}`
+						}
+						const at = (requests: ReadonlyArray<Request>) =>
+							plainSittings(
+								Arr.filter(Arr.map(final, storedSitting), (s) =>
+									Arr.some(requests, (r) => sameKey(r, s))
+								)
+							)
+						const reads = ran.success.reads
+						const added = plainSittings(reads.added)
+						const met = plainSittings(reads.met)
+						return deepEquals(added, at(expected.rows)) && deepEquals(met, at(expected.met))
 							? undefined
-							: `${label} adds every free request, ${expected.rows.length}: ${Formatter.format(ran)}`
+							: `${label} reads back as added the rows it made, ${Formatter.format(at(expected.rows))}, and as met the stored rows it repeats, ${Formatter.format(at(expected.met))}: added ${Formatter.format(added)}, met ${Formatter.format(met)}`
 					}
 					if (Result.isFailure(ran) || ran.success.kind !== "refused") {
 						return `${label} is a typed refusal of ${expected.law}, never an abort or a defect: ${Formatter.format(ran)}`
@@ -534,13 +626,14 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 							}
 							const ranHeld = ranA ?? (yield* Fiber.join(fiberA))
 							const ranB = yield* Fiber.join(fiberB)
+							const final = yield* state
 							const departures = Arr.filter(
 								[
 									together && !holding
 										? "A ended before its Gate insert, where the model has it write its sittings and wait at Gate"
 										: undefined,
-									departure(ranHeld, first.expected, "A"),
-									departure(ranB, second.expected, "B"),
+									departure(ranHeld, first.expected, "A", final),
+									departure(ranB, second.expected, "B", final),
 									holding && (observed === "waited") !== second.waits
 										? `B ${second.waits ? "ended without waiting for A, where it meets a row A holds" : "waited for A, where it meets none of A's rows"}`
 										: undefined
@@ -553,7 +646,6 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 							const after = afterA.concat(
 								second.expected.kind === "inserted" ? second.expected.rows : []
 							)
-							const final = yield* state
 							assert.deepEqual(
 								Arr.map(final, (row) => Arr.take(row, 5)),
 								Arr.map(Arr.sort(after, byKey), (r) =>

@@ -217,14 +217,16 @@ export interface ReturnedSide {
 	readonly conditions: ReadonlyArray<Expr>
 }
 
-/** What a write statement's data-modifying CTE `cte` returns, by side: the facts it made present (an insert's, an upsert's),
- * those it made absent (a deletion's), or both (an update's new facts and the old ones they displaced, a MERGE's by its
- * action). The delta carriers are filled from it. Its names are the statement's own, so it stays
- * beside the result, which is compared across a statement's per-execution forms. */
+/** What a write statement's CTE `cte` holds, by side: the facts it made present (an insert's, an upsert's), those it
+ * made absent (a deletion's), or both (an update's new facts and the old ones they displaced, a MERGE's by its action);
+ * or an insertion's facts it made present beside the stored facts it met and did not refuse (`insertion`, protocol.ts
+ * writesMet), each side its verdict rows of one class. The read-backs' deltas are read from it. Its names are the
+ * statement's own, so it stays beside the result, which is compared across a statement's per-execution forms. */
 export type Returning = { readonly cte: string } & (
 	| { readonly kind: "added"; readonly added: ReturnedSide }
 	| { readonly kind: "removed"; readonly removed: ReturnedSide }
 	| { readonly kind: "both"; readonly added: ReturnedSide; readonly removed: ReturnedSide }
+	| { readonly kind: "insertion"; readonly added: ReturnedSide; readonly met: ReturnedSide }
 )
 
 /** A SELECT whose WITH holds a write statement's data-modifying CTE and the CTEs around it. */

@@ -1,7 +1,7 @@
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
-import type { RelNode, ValidDag } from "#compiler/ir/rel.ts"
+import type { DeltaSide, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 
 export type ActionSource =
 	| { readonly kind: "enumerated"; readonly slot: ParamId }
@@ -62,10 +62,10 @@ export interface Stratum<Info> {
 	readonly actions: ReadonlyArray<Action<Info>>
 }
 
-/** A delta source a read-back names: delta.added(R) or delta.removed(R). */
+/** A delta source a read-back names: delta.added(R), delta.removed(R) or delta.met(R). */
 interface DeltaSource {
 	readonly relation: string
-	readonly side: "added" | "removed"
+	readonly side: DeltaSide
 }
 
 export interface ReadBack {

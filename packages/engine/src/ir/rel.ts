@@ -447,10 +447,16 @@ export interface InputSet<R extends RefKinds> extends NodeCommon<R> {
 	readonly input: InputSetInput
 }
 
+/**
+ * A side of a ChangeSet's delta of a relation: the facts it made present (`added`), those it made absent (`removed`),
+ * and the stored facts its insertions met at their arbiter key and did not refuse (`met`).
+ */
+export type DeltaSide = "added" | "removed" | "met"
+
 export interface Delta<R extends RefKinds> extends NodeCommon<R> {
 	readonly kind: "Delta"
 	readonly relation: string
-	readonly side: "added" | "removed"
+	readonly side: DeltaSide
 	/**
 	 * Its relation's declared keys, the primary key first: an ordinary relation's; none for a world relation, whose keys
 	 * are its definition's.
