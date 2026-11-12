@@ -31,7 +31,6 @@ import {
 } from "@superstarter/testing/gen"
 import { notesOnly } from "@superstarter/testing/sense"
 import { searched } from "@superstarter/testing/vitest"
-import { regex } from "arkregex"
 import {
 	Array as Arr,
 	Context,
@@ -60,6 +59,7 @@ import {
 	runBin
 } from "#test/support/cli-package.ts"
 import { valuesOf, type WireRequest } from "#test/support/http.ts"
+import { boundaryOf, partsOf, partType } from "#test/support/multipart.ts"
 
 /** The operations of the box. */
 type Operation = "messages" | "uploads" | "events"
@@ -323,8 +323,8 @@ const faultArgs = (fault: Fault, file: string): ReadonlyArray<string> => {
 	}
 }
 
-/** A multipart part as the reference reader reads it: its name, file name, content type and bytes. */
-type Part = Readonly<{
+/** A multipart part as the oracle compares it: its name, file name, content type essence and bytes. */
+type ReadPart = Readonly<{
 	name: string
 	filename: Option.Option<string>
 	contentType: Option.Option<string>
@@ -335,7 +335,7 @@ type Part = Readonly<{
 type Reading =
 	| Readonly<{ kind: "json"; value: Schema.Json }>
 	| Readonly<{ kind: "form"; pairs: ReadonlyArray<readonly [string, string]> }>
-	| Readonly<{ kind: "multipart"; parts: ReadonlyArray<Part> }>
+	| Readonly<{ kind: "multipart"; parts: ReadonlyArray<ReadPart> }>
 	| Readonly<{ kind: "bytes"; bytes: Uint8Array; chunked: boolean }>
 
 /** What the oracle compares of a run: its exit code, its connections, and each request's media type and reading. */
@@ -344,51 +344,6 @@ type Outcome = Readonly<{
 	connections: number
 	requests: ReadonlyArray<Readonly<{ mediaType: string; reading: Reading }>>
 }>
-
-const BOUNDARY = regex("^multipart/form-data; boundary=(.+)$", "u")
-
-const DISPOSITION_NAME = regex('name="([^"]*)"', "u")
-
-const DISPOSITION_FILE = regex('filename="([^"]*)"', "u")
-
-/** A multipart body's parts: split at each boundary delimiter, each a head and a body before its trailing CRLF. */
-const partsOf = (body: Uint8Array, boundary: string): ReadonlyArray<Part> => {
-	const sections = Str.split(`--${boundary}`)(Buffer.from(body).toString("latin1"))
-	return Arr.flatMap(Arr.drop(sections, 1), (section) =>
-		Option.match(Str.indexOf("\r\n\r\n")(section), {
-			onNone: () => [],
-			onSome: (headEnd) => {
-				const head = Str.slice(2, headEnd)(section)
-				const content = Str.slice(headEnd + 4, section.length - 2)(section)
-				const lines = Str.split("\r\n")(head)
-				const disposition = Arr.findFirst(lines, (line) =>
-					Str.startsWith("content-disposition:")(Str.toLowerCase(line))
-				)
-				return Option.match(
-					Option.flatMap(disposition, (line) => Option.fromNullishOr(DISPOSITION_NAME.exec(line))),
-					{
-						onNone: () => [],
-						onSome: ([, name]) => [
-							{
-								name,
-								filename: Option.flatMap(disposition, (line) =>
-									Option.map(Option.fromNullishOr(DISPOSITION_FILE.exec(line)), ([, file]) => file)
-								),
-								contentType: Option.map(
-									Arr.findFirst(lines, (line) =>
-										Str.startsWith("content-type:")(Str.toLowerCase(line))
-									),
-									(line) => Str.trim(Str.slice(13)(line))
-								),
-								body: Uint8Array.from(Buffer.from(content, "latin1"))
-							}
-						]
-					}
-				)
-			}
-		})
-	)
-}
 
 /** A form body's pairs, each name and value percent-decoded. */
 const pairsOf = (body: Uint8Array): ReadonlyArray<readonly [string, string]> =>
@@ -420,11 +375,21 @@ const receivedOf = (request: WireRequest): Effect.Effect<Received, Schema.Schema
 		() => ""
 	)
 	const mediaType = essenceOf(contentType)
-	return Option.match(Option.fromNullishOr(BOUNDARY.exec(contentType)), {
-		onSome: ([, boundary]): Effect.Effect<Received, Schema.SchemaError> =>
+	return Option.match(boundaryOf(contentType), {
+		onSome: (boundary): Effect.Effect<Received, Schema.SchemaError> =>
 			Effect.succeed({
 				mediaType,
-				reading: { kind: "multipart", parts: sortedParts(partsOf(request.body, boundary)) }
+				reading: {
+					kind: "multipart",
+					parts: sortedParts(
+						Arr.map(partsOf(request.body, boundary), (part) => ({
+							name: part.name,
+							filename: part.filename,
+							contentType: partType(part),
+							body: part.body
+						}))
+					)
+				}
 			}),
 		onNone: (): Effect.Effect<Received, Schema.SchemaError> => {
 			if (mediaType === "application/json") {
@@ -452,10 +417,10 @@ const receivedOf = (request: WireRequest): Effect.Effect<Received, Schema.Schema
 }
 
 /** Parts in name order: the contract names each part, not their order. */
-const sortedParts = (parts: ReadonlyArray<Part>): ReadonlyArray<Part> =>
+const sortedParts = (parts: ReadonlyArray<ReadPart>): ReadonlyArray<ReadPart> =>
 	Arr.sort(
 		parts,
-		Order.mapInput(Order.String, (part: Part) => part.name)
+		Order.mapInput(Order.String, (part: ReadPart) => part.name)
 	)
 
 /** The JSON a message's fields make: each given field, and none that was not. */
@@ -502,8 +467,8 @@ const expectedOf = (s: Send): Outcome => {
 					parts: sortedParts(
 						Arr.appendAll(
 							Option.match(s.content, {
-								onNone: (): ReadonlyArray<Part> => [],
-								onSome: (value): ReadonlyArray<Part> => [
+								onNone: (): ReadonlyArray<ReadPart> => [],
+								onSome: (value): ReadonlyArray<ReadPart> => [
 									{
 										name: "content",
 										filename: Option.none(),
