@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 7881,
+		"total": 7853,
 		"files": {
 			"packages/generator/src/emit/api.ts": 125,
 			"packages/generator/src/emit/cli.ts": 123,
@@ -67,7 +67,6 @@
 			"packages/generator/test/emit/sec-fixes.test.ts": 12,
 			"packages/generator/test/emit/security-mtls.test.ts": 16,
 			"packages/generator/test/emit/security-token.test.ts": 17,
-			"packages/generator/test/emit/sequential-body.test.ts": 28,
 			"packages/generator/test/emit/typed-parameter-flag.test.ts": 30,
 			"packages/generator/test/emitted-proof.test.ts": 18,
 			"packages/generator/test/fixtures/capture-server-sequence.test.ts": 16,
@@ -257,7 +256,7 @@
 		}
 	},
 	"superlint": {
-		"total": 97,
+		"total": 96,
 		"files": {
 			"packages/generator/src/emit/api.ts": 8,
 			"packages/generator/src/emit/cli.ts": 14,
@@ -277,7 +276,6 @@
 			"packages/generator/test/emit/nsfx.test.ts": 1,
 			"packages/generator/test/emit/querystring-encoding.test.ts": 1,
 			"packages/generator/test/emit/s30-fixes.test.ts": 3,
-			"packages/generator/test/emit/sequential-body.test.ts": 1,
 			"packages/generator/test/fixtures/capture-server.ts": 2,
 			"packages/generator/test/generate.test.ts": 1,
 			"packages/generator/test/generated/auth.test.ts": 1,
@@ -308,7 +306,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 4151,
+		"total": 4133,
 		"files": {
 			"packages/generator/src/emit/api.ts": 110,
 			"packages/generator/src/emit/cli.ts": 148,
@@ -373,7 +371,6 @@
 			"packages/generator/test/emit/sec-fixes.test.ts": 3,
 			"packages/generator/test/emit/security-mtls.test.ts": 13,
 			"packages/generator/test/emit/security-token.test.ts": 18,
-			"packages/generator/test/emit/sequential-body.test.ts": 18,
 			"packages/generator/test/emit/typed-parameter-flag.test.ts": 20,
 			"packages/generator/test/emitted-proof.test.ts": 23,
 			"packages/generator/test/generate.test.ts": 21,
