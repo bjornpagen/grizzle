@@ -1,3 +1,4 @@
+import { appendAll } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
@@ -838,7 +839,7 @@ class Differ {
 		const key = nameKey(table)
 		const held = this.alterations[slot].get(key)
 		if (held !== undefined) {
-			held.rest.push(...actions)
+			appendAll(held.rest, actions)
 			return
 		}
 		const [first, ...rest] = actions
@@ -2903,11 +2904,11 @@ const fieldChange = (b: ColumnDef, c: ColumnDef, retyped: Retyped): FieldChange 
 				: wasRetirement
 					? { kind: "retirement" }
 					: was === undefined
-					? { kind: "none" }
-					: {
-							kind: now !== undefined && nameKey(now) === nameKey(was) ? "recreated" : "dropped",
-							sequence: was
-						}
+						? { kind: "none" }
+						: {
+								kind: now !== undefined && nameKey(now) === nameKey(was) ? "recreated" : "dropped",
+								sequence: was
+							}
 		}
 	}
 	if (was !== undefined) {

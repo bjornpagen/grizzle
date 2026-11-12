@@ -777,8 +777,12 @@ type Told =
 	| { readonly kind: "transport"; readonly stage: string }
 	| { readonly kind: "other"; readonly failure: unknown }
 
+/** Whether `failure` is a transient refusal, of any of the reasons one can carry. */
+const isTransient = (failure: unknown): failure is TransientFailure =>
+	failure instanceof TransientFailure
+
 const told = (failure: unknown): Told => {
-	if (failure instanceof TransientFailure) {
+	if (isTransient(failure)) {
 		return failure.reason._tag === "ConcurrentRefresh"
 			? { kind: "concurrent refresh", relation: failure.reason.relation }
 			: { kind: "transient", reason: failure.reason._tag, sqlstate: failure.error.sqlstate }
