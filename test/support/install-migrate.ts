@@ -94,7 +94,8 @@ import { regex } from "arkregex"
  *    database is at the empty snapshot, the first Prepare file creates the schema and its ledger, every file records its
  *    row in its own transaction, and the drift check after it refuses any drift. A history of versions
  *    (installMigratedThrough) drafts each later version's folder from the snapshot the one before it reached, and the
- *    runner applies each in turn.
+ *    runner applies each in turn; a generated history (installGeneratedThrough) drafts each as `grizzle generate` does,
+ *    with its logins' served files, and applies its later versions when the test says.
  * 4. The equality check. The migration must install the catalog the fresh-install compiler's script of the same
  *    installation installs, the ledger aside: the two paths must produce identical catalogs. An installation is
  *    certified from its statements when the migration runs the script's statements and otherwise only statements that
@@ -170,14 +171,11 @@ const installTimestamp = (step: number): string =>
 const installName = "install"
 
 /**
- * How a version's installation is planned under an identity the naming door mints from a substrate's allocated name,
- * owned by a role: the complete installation (oracle/install/real.ts) with the codes its migration drafted, under the
- * history's own identity or another, a fresh install's.
+ * How a version's installation is planned for a fresh install of it (expectFreshCatalog): under the identity the
+ * naming door mints from another allocated name, owned by a role, the complete installation (oracle/install/real.ts)
+ * with the codes its migration drafted.
  */
-type VersionPlanner = (
-	installation: Identity<"schema">,
-	owner: string
-) => Engine.Result<RealInstallPlan, CompileError>
+type VersionPlanner = (fresh: string, owner: string) => Effect.Effect<RealInstallPlan, CompileError>
 
 /** The installation's script with every name minted under its schema's identity abstracted
  * (installationAbstraction): one key per installation shape. */
@@ -353,9 +351,7 @@ export const expectFreshCatalog = (
 			return
 		}
 		const fresh = yield* substrate.schema({ create: false, label: "fresh" })
-		const plan = yield* fromEngine(
-			planned(identity.schema(parsedSchemaName(fresh)), substrate.owner.role)
-		)
+		const plan = yield* planned(fresh, substrate.owner.role)
 		assert.equal(
 			shapeKey(plan.installation),
 			shapeKey(migrated),
@@ -419,12 +415,37 @@ const applyFolders = (
 		)
 	}).pipe(Effect.scoped)
 
+/** The decoder login's role of `plan`'s installation, none where its live plan is none (no login serves a read). */
+const decoderRole = (plan: RealInstallPlan): ReadonlyArray<string> =>
+	plan.installation.live.kind === "none"
+		? []
+		: [identifierOf(identity.liveSource(plan.installation.names.schema))]
+
+/**
+ * The credentials of every login role of `plan` and of its decoder login (decoderRole), by PostgreSQL role: each one
+ * `kept` holds kept, as a later version of a history keeps every login it continues, whose served layers log in with
+ * that password, and each other given a password in the scope through the substrate.
+ */
+export const loginCredentials = (
+	plan: RealInstallPlan,
+	kept: ReadonlyMap<string, Credentials>
+): Effect.Effect<ReadonlyMap<string, Credentials>, SqlError, Substrate | Scope.Scope> =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const credentials = new Map(kept)
+		for (const role of [...Arr.map(Rec.values(plan.logins), (l) => l.role), ...decoderRole(plan)]) {
+			credentials.set(role, credentials.get(role) ?? (yield* substrate.login(role)))
+		}
+		return credentials
+	})
+
 /**
  * The installation of `plan` under the declared name `declared`, migrated by `folders` to `snapshot` in the
- * substrate's database as `ambientOwner`: every login given a password in the scope, through the substrate, so a test
- * logs in as it over verify-full TLS, and the lookups of its roles and logins by their values. The one representation
- * of an installation a test migrated, whether by one first migration (installMigrated) or a history of versions
- * (test/support/installed.ts migrated).
+ * substrate's database as `ambientOwner`, each login and its decoder logging in with its `credentials`
+ * (loginCredentials), so a test logs in as it over verify-full TLS, and the lookups of its roles and logins by their
+ * values. The one representation of an installation a test migrated, whether by one first migration (installMigrated),
+ * a history of versions (installMigratedThrough, test/support/installed.ts migrated) or generate's
+ * (installGeneratedThrough).
  */
 export const installedOf = (input: {
 	readonly plan: RealInstallPlan
@@ -432,26 +453,20 @@ export const installedOf = (input: {
 	readonly folders: Arr.NonEmptyReadonlyArray<FolderSource>
 	readonly snapshot: DeploySnapshot
 	readonly ambientOwner: AmbientOwner
-}): Effect.Effect<Installed, SqlError, Substrate | Scope.Scope> =>
+	readonly credentials: ReadonlyMap<string, Credentials>
+}): Effect.Effect<Installed, never, Substrate> =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
-		const { plan } = input
-		const credentials = new Map<string, Credentials>()
-		for (const login of Rec.values(plan.logins)) {
-			const issued = yield* substrate.login(login.role)
-			credentials.set(login.name, issued)
-		}
-		const credentialsOf = (name: string): Credentials =>
-			defined(credentials.get(name), `the login ${name} of ${plan.declared}`)
-		const decoder =
-			plan.installation.live.kind === "none"
-				? undefined
-				: yield* substrate.login(identifierOf(identity.liveSource(plan.installation.names.schema)))
+		const { plan, credentials } = input
+		const credentialsOf = (role: string): Credentials =>
+			defined(credentials.get(role), `the login role ${role} of ${plan.declared}`)
+		const loginOf = (name: string) =>
+			defined(plan.logins[name], `the login ${name} of ${plan.declared}`)
 		const world = (role: AnyRole | RoleDesc): SubstrateWorld => {
 			for (const login of Rec.values(plan.logins)) {
 				const r = login.roles[role.name]
 				if (r !== undefined) {
-					return { login: credentialsOf(login.name), role: r.role }
+					return { login: credentialsOf(login.role), role: r.role }
 				}
 			}
 			throw new Error(`no role ${role.name} in ${plan.declared}`)
@@ -468,9 +483,14 @@ export const installedOf = (input: {
 			snapshot: input.snapshot,
 			ambientOwner: input.ambientOwner,
 			role: (role) => world(role).role,
-			as: (login) => credentialsOf(login.name),
+			as: (login) => credentialsOf(loginOf(login.name).role),
 			decoder: () =>
-				defined(decoder, `the decoder login of ${plan.declared}, whose live plan reads a relation`),
+				credentialsOf(
+					defined(
+						decoderRole(plan)[0],
+						`the decoder login of ${plan.declared}, whose live plan reads a relation`
+					)
+				),
 			world
 		}
 	})
@@ -560,7 +580,7 @@ export const draftVersion = (
 	Effect.gen(function* () {
 		const desc = yield* fromEngine(schemaDescIn(version.schema))
 		const codes = yield* fromEngine(draftCodes(desc, at.previous, version.declarations))
-		const planned: VersionPlanner = (installation, owner) =>
+		const plannedUnder = (installation: Identity<"schema">, owner: string) =>
 			planRealInstall(desc, {
 				installation,
 				owner,
@@ -569,7 +589,7 @@ export const draftVersion = (
 				codes,
 				compile: options.compile
 			})
-		const plan = yield* fromEngine(planned(at.installation, at.owner))
+		const plan = yield* fromEngine(plannedUnder(at.installation, at.owner))
 		const g = yield* fromEngine(
 			generate({
 				installation: plan.installation,
@@ -583,7 +603,8 @@ export const draftVersion = (
 		const reviewed = review(g, { losses: "written", value: noPlaceholder })
 		return {
 			plan,
-			planned,
+			planned: (fresh, owner) =>
+				fromEngine(plannedUnder(identity.schema(parsedSchemaName(fresh)), owner)),
 			folder: { name: g.folder.name, metaText: g.folder.metaText, files: reviewed.files },
 			snapshot: g.snapshot
 		}
@@ -636,7 +657,8 @@ export const installMigratedThrough = (
 			declared: name,
 			folders,
 			snapshot: last.snapshot,
-			ambientOwner: owner
+			ambientOwner: owner,
+			credentials: yield* loginCredentials(last.plan, new Map())
 		})
 		yield* checkInstallation(installed)
 		return installed
@@ -662,13 +684,47 @@ export const installMigrated = (
 	})
 
 /**
- * A schema installed as `grizzle generate` drafts it with its logins (installGenerated): the installation, which holds
- * each role at the level its served workload certifies (program/isolation/certification.ts) and keeps each table's
- * guard by those levels, and each login's served file, projected from the same plan at the same levels (servedFiles),
- * by the login's declared name.
+ * A schema installed as `grizzle generate` drafts it with its logins (installGenerated), at one version of its history:
+ * the installation, which holds each role at the level its served workload certifies (program/isolation/certification.ts)
+ * and keeps each table's guard by those levels, and each login's served file of that version, projected from the same
+ * plan at the same levels (servedFiles), by the login's declared name.
  */
 export interface Generated {
 	readonly installed: Installed
+	readonly served: ReadonlyMap<string, unknown>
+}
+
+/**
+ * One version of a generated history, built under the installation's allocated name: its schema, the logins `grizzle
+ * generate` serves over it, and the renames and drops its migration declares (`--rename`, `--drop`; noDeclarations for
+ * none).
+ */
+export interface GeneratedVersion {
+	readonly schema: AnySchema
+	readonly logins: ReadonlyArray<AnyLogin>
+	readonly declarations: Declarations
+}
+
+/**
+ * A generated history installed at its first version, and `migrate`, which migrates it through each later version in
+ * turn and gives it at the last, serving the files generate wrote for that version: a test serves its first version,
+ * runs `migrate` when its case says, a watch open across it, and serves the last.
+ */
+export interface GeneratedHistory {
+	readonly first: Generated
+	readonly migrate: Effect.Effect<
+		Generated,
+		CompileError | SqlError | TransactionRolledBack,
+		Substrate | Scope.Scope
+	>
+}
+
+/** One version of a generated history as its migration drafts it: its plan and reviewed folder, the snapshot it
+ * reaches, and each login's served file of it, by declared name. */
+interface GeneratedDraft {
+	readonly plan: RealInstallPlan
+	readonly folder: FolderSource
+	readonly snapshot: DeploySnapshot
 	readonly served: ReadonlyMap<string, unknown>
 }
 
@@ -676,34 +732,28 @@ export interface Generated {
 const generatedConfig = `${repoRoot}app/grizzle.config.ts`
 
 /**
- * Installs `build(name)` under a unique schema name `name` in the scope as `grizzle generate` drafts and serves it: its
- * configuration resolved and compiled as the command line compiles it (cli/config.ts), its first migration drafted from
- * the empty snapshot with its logins' served workload certified once (cli/generate.ts draftSchema), named, reviewed
- * and applied by the real runner as installMigrated's is, as an owner login of its own whose sessions start under
- * `options.ambient`, and each login's served file projected from the same plan (servedFiles). Its catalog is the fresh
- * install's, since its migration runs the installation's script alone (runsInstallScript); a draft that does not, or
- * one the command line refuses, is a defect of the setup.
+ * `version` as `grizzle generate` drafts and serves it `at` its step of a history: its configuration resolved and
+ * compiled as the command line compiles it (cli/config.ts), drafted from the snapshot before it with its logins' served
+ * workload certified once (cli/generate.ts draftSchema), its folder named at its step's instant and reviewed as
+ * installMigrated's is, its plan (oracle/install/real.ts) the drafted installation under the identity and owner `at`
+ * gives, with the codes its draft continues, the snapshot it reaches, and each login's served file projected from the
+ * same plan (servedFiles). A version that drafts no migration, or one the command line refuses, is a defect of the
+ * setup.
  */
-export const installGenerated = (
-	build: (name: string) => {
-		readonly schema: AnySchema
-		readonly logins: ReadonlyArray<AnyLogin>
-	},
-	options: { readonly label: string; readonly ambient: AmbientSession }
-): Effect.Effect<Generated, CompileError | SqlError, Substrate | Scope.Scope> =>
+const generatedDraft = (
+	version: GeneratedVersion,
+	at: DraftAt
+): Effect.Effect<GeneratedDraft, CompileError> =>
 	Effect.gen(function* () {
-		const substrate = yield* Substrate
-		const name = yield* substrate.schema({ create: false, label: options.label })
-		const declared = build(name)
-		const desc = yield* fromEngine(schemaDescIn(declared.schema))
-		const codes = yield* fromEngine(draftCodes(desc, fromEmpty, noDeclarations))
+		const desc = yield* fromEngine(schemaDescIn(version.schema))
+		const codes = yield* fromEngine(draftCodes(desc, at.previous, version.declarations))
 		const { draft, entries } = yield* Effect.orDie(
 			Effect.provideService(
 				Effect.gen(function* () {
 					const config = yield* resolveConfig(
 						defineConfig({
-							schemas: [declared.schema],
-							logins: declared.logins,
+							schemas: [version.schema],
+							logins: version.logins,
 							migrations: "migrations",
 							connection: () => offlineOwner
 						}),
@@ -713,9 +763,11 @@ export const installGenerated = (
 					const compiled = yield* Effect.fromResult(compileSchema(configured))
 					const drafted = yield* draftSchema(
 						compiled,
-						emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
-						[],
-						noDeclarations
+						at.previous.kind === "snapshot"
+							? at.previous.snapshot
+							: emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
+						at.previous.kind === "empty" ? at.previous.abandoned : [],
+						version.declarations
 					)
 					const served = yield* servedFiles(compiled, drafted.snapshotFiles, drafted.served)
 					return { draft: drafted, entries: served }
@@ -724,47 +776,150 @@ export const installGenerated = (
 				paths
 			)
 		)
+		assert.equal(draft.change, "schema", "each version of a generated history drafts a migration")
 		const folderAt = yield* fromEngine(
-			folderName(installTimestamp(0), parsedMigrationName(installName))
+			folderName(installTimestamp(at.step), parsedMigrationName(installName))
 		)
 		const reviewed = review(
 			{ ...draft, folder: { name: folderAt, ...draft.folder } },
 			{ losses: "written", value: noPlaceholder }
 		)
-		const folder: FolderSource = {
-			name: folderAt,
-			metaText: draft.folder.metaText,
-			files: reviewed.files
-		}
-		assert.ok(
-			runsInstallScript([folder], draft.installation, substrate.database),
-			"generate's first migration runs the installation's script alone"
-		)
-		const owner = yield* ambientOwner(options.ambient, installedSchemas(draft.installation))
-		yield* applyFolders(owner, substrate.database, draft.snapshot, [folder])
 		const plan = yield* fromEngine(
-			planRealInstall(declared.schema, {
-				installation: identity.schema(parsedSchemaName(name)),
-				owner: substrate.owner.role,
-				logins: declared.logins,
+			planRealInstall(version.schema, {
+				installation: at.installation,
+				owner: at.owner,
+				logins: version.logins,
 				extensions: [],
 				codes,
 				compile: () => Engine.ok(draft.installation)
 			})
 		)
-		const installed = yield* installedOf({
-			plan,
-			declared: name,
-			folders: [folder],
-			snapshot: draft.snapshot,
-			ambientOwner: owner
-		})
-		yield* checkInstallation(installed)
 		return {
-			installed,
+			plan,
+			folder: { name: folderAt, metaText: draft.folder.metaText, files: reviewed.files },
+			snapshot: draft.snapshot,
 			served: new Map(Arr.map(entries, (e) => [e.login, trustedJson<unknown>(e.text)] as const))
 		}
 	})
+
+/**
+ * Every version of `versions` as `grizzle generate` drafts and serves it under the name `name`, owned by `owner`
+ * (generatedDraft): the first from the empty snapshot, each later one from the snapshot the one before it reached.
+ */
+const generatedHistory = (
+	versions: Arr.NonEmptyReadonlyArray<(name: string) => GeneratedVersion>,
+	name: string,
+	owner: string
+): Effect.Effect<Arr.NonEmptyReadonlyArray<GeneratedDraft>, CompileError> =>
+	Effect.gen(function* () {
+		const installation = identity.schema(parsedSchemaName(name))
+		const drafts: Array<GeneratedDraft> = []
+		let previous: Previous = fromEmpty
+		for (const [step, build] of versions.entries()) {
+			const drafted = yield* generatedDraft(build(name), { installation, owner, previous, step })
+			drafts.push(drafted)
+			previous = fromSnapshot(drafted.snapshot)
+		}
+		return nonEmpty(drafts, "a generated history has its first version")
+	})
+
+/** A generated installation at one version, served at it (Generated), from its draft, as `owner`, with `credentials`. */
+const generatedAt = (
+	drafted: GeneratedDraft,
+	input: {
+		readonly declared: string
+		readonly folders: Arr.NonEmptyReadonlyArray<FolderSource>
+		readonly ambientOwner: AmbientOwner
+		readonly credentials: ReadonlyMap<string, Credentials>
+	}
+): Effect.Effect<Generated, never, Substrate> =>
+	Effect.gen(function* () {
+		const installed = yield* installedOf({
+			plan: drafted.plan,
+			snapshot: drafted.snapshot,
+			...input
+		})
+		yield* checkInstallation(installed)
+		return { installed, served: drafted.served }
+	})
+
+/**
+ * Installs the history `versions` under a unique schema name `name` in the scope as `grizzle generate` drafts and
+ * serves each version (generatedHistory), every version drafted before the first applies, and gives it at its first
+ * version (GeneratedHistory): that version's migration, which runs the installation's script alone (runsInstallScript)
+ * and so installs the fresh install's catalog, applied by the real runner as installMigrated's is, as an owner login
+ * of its own whose sessions start under `options.ambient`, the grizzle-first path listing the last version's schemas,
+ * made before the first migration. `migrate` applies each later version's migration in turn by the same runner, as the
+ * same owner, and holds the catalog the last reached to the fresh install of that version, drafted by the same history
+ * under another allocated name so its codes are the same (expectFreshCatalog). Every login a later version continues
+ * keeps its password, so a layer served at an earlier version still logs in, and only a login it adds gets one. Every
+ * version a test is given holds the installed-catalog posture.
+ */
+export const installGeneratedThrough = (
+	versions: Arr.NonEmptyReadonlyArray<(name: string) => GeneratedVersion>,
+	options: { readonly label: string; readonly ambient: AmbientSession }
+): Effect.Effect<GeneratedHistory, CompileError | SqlError, Substrate | Scope.Scope> =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const name = yield* substrate.schema({ create: false, label: options.label })
+		const history = yield* generatedHistory(versions, name, substrate.owner.role)
+		const first = Arr.headNonEmpty(history)
+		const last = Arr.lastNonEmpty(history)
+		const folders = Arr.map(history, (d) => d.folder)
+		/** Each version's migration as the runner applies it: the snapshot it reaches and every folder through it. */
+		const applies = Arr.map(history, (draft, step) => ({
+			snapshot: draft.snapshot,
+			folders: Arr.take(folders, step + 1)
+		}))
+		assert.ok(
+			runsInstallScript([first.folder], first.plan.installation, substrate.database),
+			"generate's first migration runs the installation's script alone"
+		)
+		const owner = yield* ambientOwner(options.ambient, installedSchemas(last.plan.installation))
+		yield* applyFolders(owner, substrate.database, first.snapshot, [first.folder])
+		const credentials = yield* loginCredentials(first.plan, new Map())
+		return {
+			first: yield* generatedAt(first, {
+				declared: name,
+				folders: [first.folder],
+				ambientOwner: owner,
+				credentials
+			}),
+			migrate: Effect.gen(function* () {
+				for (const later of Arr.drop(applies, 1)) {
+					yield* applyFolders(owner, substrate.database, later.snapshot, later.folders)
+				}
+				yield* expectFreshCatalog(last.plan.installation, folders, (fresh, freshOwner) =>
+					Effect.map(generatedHistory(versions, fresh, freshOwner), (h) => Arr.lastNonEmpty(h).plan)
+				)
+				return yield* generatedAt(last, {
+					declared: name,
+					folders,
+					ambientOwner: owner,
+					credentials: yield* loginCredentials(last.plan, credentials)
+				})
+			})
+		}
+	})
+
+/**
+ * Installs `build(name)` under a unique schema name `name` in the scope as `grizzle generate` drafts and serves it: a
+ * generated history of one version (installGeneratedThrough), at that version.
+ */
+export const installGenerated = (
+	build: (name: string) => {
+		readonly schema: AnySchema
+		readonly logins: ReadonlyArray<AnyLogin>
+	},
+	options: { readonly label: string; readonly ambient: AmbientSession }
+): Effect.Effect<Generated, CompileError | SqlError, Substrate | Scope.Scope> =>
+	Effect.map(
+		installGeneratedThrough(
+			[(name) => ({ ...build(name), declarations: noDeclarations })],
+			options
+		),
+		(history) => history.first
+	)
 
 /**
  * Installs an installation once more in another database of the cluster, through the same migration, since Db.open

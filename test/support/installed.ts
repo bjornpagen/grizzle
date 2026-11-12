@@ -31,7 +31,7 @@ import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { deployedWorkloadOver, inputArtifacts, testCompile } from "#test/support/compile.ts"
-import { type Installed, installedOf } from "#test/support/install-migrate.ts"
+import { type Installed, installedOf, loginCredentials } from "#test/support/install-migrate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	draftCodes,
@@ -337,7 +337,8 @@ export const migrated = (options: MigrateOptions) =>
 			declared: name,
 			folders: history,
 			snapshot,
-			ambientOwner: ownerLogin
+			ambientOwner: ownerLogin,
+			credentials: yield* loginCredentials(plan, new Map())
 		})
 		const quoted = quoteIdent(installed.schema)
 		const result: Migrated = {
