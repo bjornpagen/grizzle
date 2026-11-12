@@ -115,10 +115,11 @@ export const Comment = relation(
 )
 export const PostViews = relation("PostViews", { post: uuid, views: pg.bigint }, ["post"])
 
-export const Blog = schema("Blog", [Status, Post, Comment, PostViews], [
-	contained(on(Comment, "post"), on(Post, "id")),
-	contained(on(PostViews, "post"), on(Post, "id"))
-])
+export const Blog = schema(
+	"Blog",
+	[Status, Post, Comment, PostViews],
+	[contained(on(Comment, "post"), on(Post, "id")), contained(on(PostViews, "post"), on(Post, "id"))]
+)
 
 /** A published post by its id, with its comments nested inside it. */
 export const postPage = query(Blog)
@@ -246,10 +247,15 @@ export const Subscription = relation(
 )
 
 /** The blog, billed: an organization posts once it subscribes, within its plan's seats. */
-export const Billing = schema.extend(Blog, "Billing", [Plan, PlanLimits, Subscription], [
-	contained(on(Post, "org"), on(Subscription, "org")),
-	check("WithinPlan", Subscription, (s) => s.le(s.seats, PlanLimits.at("seats", s.plan)))
-])
+export const Billing = schema.extend(
+	Blog,
+	"Billing",
+	[Plan, PlanLimits, Subscription],
+	[
+		contained(on(Post, "org"), on(Subscription, "org")),
+		check("WithinPlan", Subscription, (s) => s.le(s.seats, PlanLimits.at("seats", s.plan)))
+	]
+)
 ```
 
 `schema.extend` builds a level named `Billing` on `Blog`: all of its relations and rules, three relations more and two
@@ -541,9 +547,11 @@ export const Call = relation(
 	["id"]
 )
 export const Refund = relation("Refund", { call: uuid }, ["call"])
-export const Usage = schema("Usage", [Call, Refund], [
-	contained(on(Refund, "call"), on(Call, "id"))
-])
+export const Usage = schema(
+	"Usage",
+	[Call, Refund],
+	[contained(on(Refund, "call"), on(Call, "id"))]
+)
 
 /** Each workspace's spend, and its three costliest models, leaving out refunded calls. */
 export const topModels = query(Usage)
@@ -611,11 +619,15 @@ export const Account = relation("Account", { id: uuid }, ["id"])
 /** Reseller billing: an account bills through at most one parent account. */
 export const BillsThrough = relation("BillsThrough", { child: uuid, parent: uuid }, ["child"])
 export const Charge = relation("Charge", { id: uuid, account: uuid, amount: Micros }, ["id"])
-export const Resellers = schema("Resellers", [Account, BillsThrough, Charge], [
-	contained(on(BillsThrough, "child"), on(Account, "id")),
-	contained(on(BillsThrough, "parent"), on(Account, "id")),
-	contained(on(Charge, "account"), on(Account, "id"))
-])
+export const Resellers = schema(
+	"Resellers",
+	[Account, BillsThrough, Charge],
+	[
+		contained(on(BillsThrough, "child"), on(Account, "id")),
+		contained(on(BillsThrough, "parent"), on(Account, "id")),
+		contained(on(Charge, "account"), on(Account, "id"))
+	]
+)
 
 /** The root account and every account below it, at any depth. */
 const below = query(Resellers).recursive("Below", {
@@ -690,10 +702,14 @@ export const Booking = relation("Booking", { room: uuid, during: span(Minute), b
 	"during"
 ])
 
-export const Rooms = schema("Rooms", [Room, Opening, Booking], [
-	contained(on(Opening, "room"), on(Room, "id")),
-	contained(on(Booking, "room", "during"), on(Opening, "room", "hours"))
-])
+export const Rooms = schema(
+	"Rooms",
+	[Room, Opening, Booking],
+	[
+		contained(on(Opening, "room"), on(Room, "id")),
+		contained(on(Booking, "room", "during"), on(Opening, "room", "hours"))
+	]
+)
 ```
 
 **What you get.** A `span` in a primary key makes it a no-overlap key: rows that agree on `room` never share a point of `during`. `contained` between two spans is coverage: the room's opening hours cover each booking. A span includes its start and excludes its end, so back-to-back bookings don't overlap.
@@ -778,12 +794,16 @@ export const Debit = relation("Debit", { call: uuid, grant: uuid, amount: Micros
 /** A grant's debits, counted; their amounts summed into what it has spent. */
 const grantDebits = counted(on(Debit, "grant"), fin(Grant, "debits"))
 
-export const Credits = schema("Credits", [Grant, Debit], [
-	grantDebits,
-	fold(grantDebits, Monoid.sum, on(Debit, "grant", "amount"), on(Grant, "id", "spent")),
-	check("WithinGrant", Grant, (g) => g.le(g.spent, g.amount)),
-	mutable(Grant)
-])
+export const Credits = schema(
+	"Credits",
+	[Grant, Debit],
+	[
+		grantDebits,
+		fold(grantDebits, Monoid.sum, on(Debit, "grant", "amount"), on(Grant, "id", "spent")),
+		check("WithinGrant", Grant, (g) => g.le(g.spent, g.amount)),
+		mutable(Grant)
+	]
+)
 
 export const Metering = role(Credits, "metering", wholeEntriesOf(Credits), { write: ["Debit"] })
 
@@ -906,11 +926,15 @@ export const Posting = relation(
 /** An entry's postings, counted; their amounts summed into its total. */
 const entryPostings = counted(on(Posting, "entry"), fin(Entry, "postings"))
 
-export const Books = schema("Books", [Entry, Posting], [
-	entryPostings,
-	fold(entryPostings, Monoid.sum, on(Posting, "entry", "amount"), on(Entry, "id", "total")),
-	check("Balanced", Entry, (e) => e.total.eq(0n))
-])
+export const Books = schema(
+	"Books",
+	[Entry, Posting],
+	[
+		entryPostings,
+		fold(entryPostings, Monoid.sum, on(Posting, "entry", "amount"), on(Entry, "id", "total")),
+		check("Balanced", Entry, (e) => e.total.eq(0n))
+	]
+)
 ```
 
 **What you get.** An entry goes in as its written row, `{ id, memo }`, and each posting as its own row naming its entry, in one ChangeSet. grizzle draws the count and the total from the postings, and `Balanced` reads the total, so a ChangeSet that leaves an entry unbalanced comes back `refused` on `Balanced`, and changes nothing. It compiles as the grant's rule does, to keys, CHECKs and foreign keys over the postings' hidden columns, and every writer meets it, psql included.
@@ -958,9 +982,11 @@ export const Payment = relation(
 )
 export const Voiding = relation("Voiding", { invoice: uuid, reason: Prose }, ["invoice"])
 
-export const Invoices = schema("Invoices", [InvoiceState, Invoice, Payment, Voiding], [
-	alternatives(Invoice, "state", InvoiceState, { paid: Payment, void: Voiding })
-])
+export const Invoices = schema(
+	"Invoices",
+	[InvoiceState, Invoice, Payment, Voiding],
+	[alternatives(Invoice, "state", InvoiceState, { paid: Payment, void: Voiding })]
+)
 
 /** An invoice, with its payment when it is paid and its voiding when it is void. */
 export const invoiceCard = query(Invoices)
@@ -1869,15 +1895,19 @@ export const Run = relation("Run", { stage: uuid, nights: span(pg.integer), show
 	"nights"
 ])
 
-export const BoxOffice = schema("BoxOffice", [Show, Ticket, Stage, Run], [
-	counted(on(Ticket, "show"), fin(Show, "tickets")),
-	contained(on(Run, "stage"), on(Stage, "id")),
-	contained(on(Run, "show"), on(Show, "id")),
-	key(on(Ticket, "show", "holder")),
-	check("SomeSeats", Show, (s) => s.seats.ge(1n)),
-	check("NoOversell", Show, (s) => s.le(s.tickets, s.seats)),
-	mutable(Show)
-])
+export const BoxOffice = schema(
+	"BoxOffice",
+	[Show, Ticket, Stage, Run],
+	[
+		counted(on(Ticket, "show"), fin(Show, "tickets")),
+		contained(on(Run, "stage"), on(Stage, "id")),
+		contained(on(Run, "show"), on(Show, "id")),
+		key(on(Ticket, "show", "holder")),
+		check("SomeSeats", Show, (s) => s.seats.ge(1n)),
+		check("NoOversell", Show, (s) => s.le(s.tickets, s.seats)),
+		mutable(Show)
+	]
+)
 ```
 
 A price is never negative. Every ticket's show, and every run's stage and show, exists. A person holds at most one
@@ -1941,11 +1971,16 @@ export const Place = relation(
 /** The places whose holder has not been called yet. */
 const waiting = select(Place, (p) => p.eq(p.called, false))
 
-export const Waitlist = schema.extend(BoxOffice, "Waitlist", [Place], [
-	contained(on(Place, "show"), on(Show, "id")),
-	contained(on(Place, "show", pred("at")), on(Place, "show", "at")),
-	key(on(waiting, "show", "holder"))
-])
+export const Waitlist = schema.extend(
+	BoxOffice,
+	"Waitlist",
+	[Place],
+	[
+		contained(on(Place, "show"), on(Show, "id")),
+		contained(on(Place, "show", pred("at")), on(Place, "show", "at")),
+		key(on(waiting, "show", "holder"))
+	]
+)
 ```
 
 A show's places run from 0 with no gap. A holder waits at most once per show, and may hold any number of places
@@ -2024,16 +2059,21 @@ export const TypedHref = derived(
 /** The typed hrefs of items. */
 const items = select(TypedHref, (t) => t.eq(t.type, "item"))
 
-export const ContentPackage = schema.extend(Content, "ContentPackage", [TypedHref], [
-	check("ItemsInside", TypedHref, (t) =>
-		t.not(t.and(t.eq(t.type, "item"), t.eq(t.internal, false)))
-	),
-	contained(on(items, "path"), on(PackageFile, "path")),
-	contained(
-		on(CatalogRecord, "resource", "path", "type"),
-		on(TypedHref, "resource", "path", "type")
-	)
-])
+export const ContentPackage = schema.extend(
+	Content,
+	"ContentPackage",
+	[TypedHref],
+	[
+		check("ItemsInside", TypedHref, (t) =>
+			t.not(t.and(t.eq(t.type, "item"), t.eq(t.internal, false)))
+		),
+		contained(on(items, "path"), on(PackageFile, "path")),
+		contained(
+			on(CatalogRecord, "resource", "path", "type"),
+			on(TypedHref, "resource", "path", "type")
+		)
+	]
+)
 ```
 
 A typed href is a resource with both parts. An item's href is inside the package and names one of its files, and
@@ -2735,9 +2775,12 @@ export const Qti = schema("Qti", [Item], [])
 
 /** A child's sittings, over Qti: each sitting's item is one Qti holds, as the database enforces. */
 export const Sitting = relation("Sitting", { id: uuid, child: ClerkUser, item: uuid }, ["id"])
-export const Ledger = schema.extend(Qti, "Ledger", [Sitting], [
-	contained(on(Sitting, "item"), on(Item, "id"))
-])
+export const Ledger = schema.extend(
+	Qti,
+	"Ledger",
+	[Sitting],
+	[contained(on(Sitting, "item"), on(Item, "id"))]
+)
 
 /** The signed-in child's own sittings; an insert fills `child` from the token. */
 export const mySittings = query(Ledger).rule((r) => {
@@ -3487,10 +3530,15 @@ export const Answer = relation("Answer", { sitting: uuid, step: pg.bigint, quest
 	"sitting",
 	"step"
 ])
-export const Exam = schema.extend(Bank, "Exam", [Published, Answer], [
-	contained(on(Published, "question"), on(Question, "id")),
-	contained(on(Answer, "question"), on(Published, "question"))
-])
+export const Exam = schema.extend(
+	Bank,
+	"Exam",
+	[Published, Answer],
+	[
+		contained(on(Published, "question"), on(Question, "id")),
+		contained(on(Answer, "question"), on(Published, "question"))
+	]
+)
 export const Publisher = role(Exam, "publisher", wholeEntriesOf(Exam), { insert: ["Published"] })
 export const ExamLearner = role(Exam, "learner", wholeEntriesOf(Exam), { insert: ["Answer"] })
 ```
