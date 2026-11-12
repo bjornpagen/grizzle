@@ -20,31 +20,19 @@ import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
-import { type FillOrder, type FillPosition, layoutKey } from "#compiler/ir/fill.ts"
+import { type FillAt, type FillOrder, type FillPosition, layoutKey } from "#compiler/ir/fill.ts"
 import { type FamilyId, familyKey, type LawRelation, type RelationInfo } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { type ColumnKey, columnKey } from "#compiler/runtime/write/fill.ts"
-import type { LevelAt, NestingData } from "#compiler/runtime/write/nesting.ts"
+import type { NestingData } from "#compiler/runtime/write/nesting.ts"
 import { walkStart } from "#compiler/write/family/fold.ts"
 import { laidLayout, type RowLayout, rowLayout } from "#compiler/write/family/statements.ts"
 
 /** A family a nesting reaches, at its depth: 1 for a family of the insert's own rows, n + 1 for one whose owners are a
- * depth-n family's members. */
+ * depth-n family's members; with the heading each of its members' own fields are admitted by, the level they stand at. */
 export interface Reached {
 	readonly family: Family
 	readonly depth: number
-}
-
-/** Where a level of a nesting stands: the insert's own rows, a tree's roots, or a family's members. */
-type LevelOf =
-	| { readonly kind: "top" }
-	| { readonly kind: "root"; readonly family: Family }
-	| { readonly kind: "member"; readonly family: Family }
-
-/** One level of a nesting: its relation, where it stands, and the heading its own fields are admitted by. */
-interface Level {
-	readonly relation: StoredRelationName
-	readonly at: LevelOf
 	readonly heading: Heading
 }
 
@@ -82,7 +70,7 @@ const idData = (id: FamilyId): { readonly id: FamilyId } => ({
 })
 
 /** A position as a binding holds it, its family by id. */
-const atData = (at: LevelOf | FillPosition): LevelAt =>
+const atData = (at: FillPosition): FillAt =>
 	at.kind === "top" ? { kind: "top" } : { kind: at.kind, family: idData(at.family.id) }
 
 /** A nesting as a binding holds it (`NestingData`). */
@@ -93,18 +81,15 @@ export const nestingData = (nesting: Nesting): NestingData => ({
 		nesting.root.kind === "tree"
 			? { kind: "tree", family: idData(nesting.root.family.id) }
 			: { kind: nesting.root.kind },
-	sequences: nesting.families.filter(isSequence).map((f) => ({
-		id: idData(f.id).id,
-		owner: f.owner.name,
-		member: f.member.name,
-		count: f.count.name
+	own: headingData(nesting.own),
+	sequences: nesting.reached.map(({ family, heading }) => ({
+		id: idData(family.id).id,
+		owner: family.owner.name,
+		member: family.member.name,
+		count: family.count.name,
+		heading: headingData(heading)
 	})),
 	start: atData(nesting.start),
-	levels: nesting.levels.map((l) => ({
-		relation: l.relation,
-		at: atData(l.at),
-		heading: headingData(l.heading)
-	})),
 	layouts: new Map(
 		[...nesting.layouts].map(([relation, at]) => [
 			relation,
@@ -123,7 +108,8 @@ export interface Nesting {
 	readonly reached: ReadonlyArray<Reached>
 	/** Where the walk starts its rows: a tree's root, or the insert's own row. */
 	readonly start: FillPosition
-	readonly levels: ReadonlyArray<Level>
+	/** The heading the fact's own fields are admitted by, where its own rows stand: the insert's own or a tree's root. */
+	readonly own: Heading
 	/** Each relation whose rows its family statements write: every reached member relation, and the insert's own unless
 	 * its root is plain. */
 	readonly layouts: ReadonlyMap<StoredRelationName, NestedLayout>
@@ -133,7 +119,7 @@ export interface Nesting {
 
 /** The fields of a level a fact supplies: its caller's and its serial ones, but those its nesting supplies: a member's
  * group, a tree node's root field, and a tree root's parent, which is itself. */
-const ownHeading = (relation: LawRelation, at: LevelOf): Heading => {
+const ownHeading = (relation: LawRelation, at: FillPosition): Heading => {
 	const supplied = new Set<string>(
 		at.kind === "top"
 			? []
@@ -195,7 +181,11 @@ export const nestingOf = (relation: RelationInfo, fill: FillOrder): Nesting => {
 		const next: Array<{ readonly relation: StoredRelationName; readonly depth: number }> = []
 		for (const { relation: owner, depth } of frontier) {
 			for (const f of families.filter((g) => g.owner.name === owner && isSequence(g))) {
-				reached.push({ family: f, depth })
+				reached.push({
+					family: f,
+					depth,
+					heading: ownHeading(f.member, { kind: "member", family: f })
+				})
 				if (!isTreeOf(f, owner)) {
 					next.push({ relation: f.member.name, depth: depth + 1 })
 				}
@@ -225,21 +215,16 @@ export const nestingOf = (relation: RelationInfo, fill: FillOrder): Nesting => {
 			})
 		}
 	}
-	const rootAt: LevelOf = tree === undefined ? { kind: "top" } : { kind: "root", family: tree }
-	const levels: Array<Level> = [
-		{ relation: relation.name, at: rootAt, heading: ownHeading(relation, rootAt) },
-		...reached.map(({ family }) => {
-			const at: LevelOf = { kind: "member", family }
-			return { relation: family.member.name, at, heading: ownHeading(family.member, at) }
-		})
-	]
 	return Object.freeze({
 		relation,
 		root,
 		families,
 		reached: Object.freeze(reached.toSorted((a, b) => a.depth - b.depth)),
 		start,
-		levels: Object.freeze(levels),
+		own: ownHeading(
+			relation,
+			tree === undefined ? { kind: "top" } : { kind: "root", family: tree }
+		),
 		layouts,
 		top: relation.fields
 			.filter((f) => f.writing.kind !== "generated")

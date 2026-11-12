@@ -69,16 +69,18 @@ export interface NestedLayoutData {
 	readonly position: FillAt
 }
 
-/** Where a level of a nesting stands (`LevelOf`), its family by id. */
-export type LevelAt =
-	| { readonly kind: "top" }
-	| { readonly kind: "root" | "member"; readonly family: { readonly id: FamilyId } }
+/** A sequence a nesting reaches (`Reached`), the level of its members: what its facts split along, with the heading
+ * each member's own fields are admitted by. */
+export interface NestedSequence extends SplitFamily {
+	readonly heading: Heading
+}
 
 /**
  * A nested write as a binding holds it (`Nesting`), every family by id and every relation by name: its relation and its
- * primary key's fields, where its own rows stand, the sequences its facts split along, where the walk starts, its
- * levels with the heading each one's own fields are admitted by, the layout of each relation its family statements
- * write, and the fields its own row writes.
+ * primary key's fields, where its own rows stand, the heading its facts' own fields are admitted by, each sequence it
+ * reaches with its members' heading, where the walk starts, the layout of each relation its family statements write,
+ * and the fields its own row writes. A fact's levels are its own and then each sequence's, so a level of a nesting is
+ * its fact's or exactly one sequence's members, wherever its own rows stand: the insert's own rows or a tree's roots.
  */
 export interface NestingData {
 	readonly relation: StoredRelationName
@@ -86,13 +88,10 @@ export interface NestingData {
 	readonly root:
 		| { readonly kind: "plain" | "counted" }
 		| { readonly kind: "tree"; readonly family: { readonly id: FamilyId } }
-	readonly sequences: ReadonlyArray<SplitFamily>
+	readonly own: Heading
+	/** Every sequence the nesting reaches, each once, since a relation is a member of at most one. */
+	readonly sequences: ReadonlyArray<NestedSequence>
 	readonly start: FillAt
-	readonly levels: ReadonlyArray<{
-		readonly relation: StoredRelationName
-		readonly at: LevelAt
-		readonly heading: Heading
-	}>
 	readonly layouts: ReadonlyMap<StoredRelationName, NestedLayoutData>
 	readonly top: Heading
 }
@@ -103,12 +102,6 @@ export interface NestedWalk {
 	readonly fill: Filler
 	readonly codes: Codebook
 }
-
-/** A level's key in a nesting's normalizers. */
-const levelKey = (relation: StoredRelationName, at: LevelAt): string =>
-	at.kind === "top"
-		? `${relation}\u0000top`
-		: `${relation}\u0000${at.kind}\u0000${familyKey(at.family.id)}`
 
 /** A fact's host values by field name, as its codecs admitted them (scalar/values/identity.ts CarrierHost). */
 export type NestedFact = { readonly [field: string]: unknown }
@@ -201,18 +194,20 @@ export const nestedRows = (
 	ReadonlyArray<NestedFact>,
 	EncodingFailure | MessageBound | NestedGeneratedNull
 > => {
-	const normalizers = new Map(
-		nesting.levels.map((l): readonly [string, RelationNormalizer] => [
-			levelKey(l.relation, l.at),
-			relationNormalizer({
-				relation: l.relation,
-				columns: positionalColumns(l.heading),
-				slot: { kind: "slot", name: member },
-				codes: walk.codes
-			})
-		])
-	)
+	const normalizerOf = (relation: StoredRelationName, heading: Heading): RelationNormalizer =>
+		relationNormalizer({
+			relation,
+			columns: positionalColumns(heading),
+			slot: { kind: "slot", name: member },
+			codes: walk.codes
+		})
 	const sequences = nesting.sequences
+	const normalizers: LevelNormalizers = {
+		own: normalizerOf(nesting.relation, nesting.own),
+		members: new Map(
+			sequences.map((f) => [familyKey(f.id), normalizerOf(f.member, f.heading)] as const)
+		)
+	}
 	const tops: Array<NestedFact> = []
 	const relation = nesting.relation
 	const byKey =
@@ -226,7 +221,7 @@ export const nestedRows = (
 		if (!split.ok) {
 			return Result.err(encodeFailure(split.error.fault, slotPlace(member)))
 		}
-		const host = hostNodes(nesting, normalizers, split.value, { member, book, transport })
+		const host = hostNodes(normalizers, split.value, { member, book, transport })
 		if (!host.ok) {
 			return host
 		}
@@ -343,13 +338,19 @@ const text = (codes: Codebook, type: ScalarType, value: unknown): ParamText =>
 const canonical = (codes: Codebook, type: ScalarType, value: unknown): string =>
 	admittedText(carrierSpecOf(type, codes), value)
 
+/** The normalizers of a nesting's levels: its facts' own, and each sequence's members', by the sequence's key. */
+interface LevelNormalizers {
+	readonly own: RelationNormalizer
+	readonly members: ReadonlyMap<string, RelationNormalizer>
+}
+
 /**
- * A split fact as the filler's nesting: each level's own fields admitted through its normalizer, iteratively, members
- * built before their owners, so any depth converts.
+ * A split fact as the filler's nesting: each level's own fields admitted through its normalizer, the fact's own
+ * through its own and each member's through its sequence's, iteratively, members built before their owners, so any
+ * depth converts.
  */
 const hostNodes = (
-	nesting: NestingData,
-	normalizers: ReadonlyMap<string, RelationNormalizer>,
+	normalizers: LevelNormalizers,
 	root: NestedAddition,
 	write: {
 		readonly member: string
@@ -357,34 +358,30 @@ const hostNodes = (
 		readonly transport: Transport
 	}
 ): Result.Result<HostNode, EncodingFailure | MessageBound> => {
-	/** Every addition in pre-order, with the level it stands at. */
-	const order: Array<{ readonly addition: NestedAddition; readonly at: LevelAt }> = []
-	const pending: Array<{ readonly addition: NestedAddition; readonly at: LevelAt }> = [
-		{
-			addition: root,
-			at:
-				nesting.root.kind === "tree"
-					? { kind: "root", family: nesting.root.family }
-					: { kind: "top" }
-		}
-	]
-	const byId = new Map(nesting.sequences.map((f) => [familyKey(f.id), f] as const))
+	/** Every addition in pre-order, with the normalizer of the level it stands at. */
+	const order: Array<{
+		readonly addition: NestedAddition
+		readonly normalize: RelationNormalizer
+	}> = []
+	const pending: Array<{
+		readonly addition: NestedAddition
+		readonly normalize: RelationNormalizer
+	}> = [{ addition: root, normalize: normalizers.own }]
 	for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
 		order.push(next)
 		for (const g of next.addition.families) {
-			const family = defined(byId.get(familyKey(g.family)), "a sequence the nesting splits along")
+			const normalize = defined(
+				normalizers.members.get(familyKey(g.family)),
+				"a sequence the nesting splits along"
+			)
 			for (const m of g.members) {
-				pending.push({ addition: m, at: { kind: "member", family } })
+				pending.push({ addition: m, normalize })
 			}
 		}
 	}
 	const built = new Map<NestedAddition, HostNode>()
 	for (let i = order.length - 1; i >= 0; i -= 1) {
-		const { addition, at } = defined(order[i], "a nested addition met in pre-order")
-		const normalize = normalizers.get(levelKey(addition.relation, at))
-		if (normalize === undefined) {
-			throw defect(`the level of ${addition.relation} a nesting reaches`)
-		}
+		const { addition, normalize } = defined(order[i], "a nested addition met in pre-order")
 		const read = normalize.read([addition.fact])
 		if (!read.ok) {
 			return read

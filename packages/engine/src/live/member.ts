@@ -19,12 +19,12 @@ import {
 	formHeadings
 } from "#compiler/core/decoder.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
+import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
-import { familyKey } from "#compiler/ir/law.ts"
 import type { CallerParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
@@ -497,66 +497,34 @@ const inputOfSlot = (change: ServedChange, slot: string): InputData | undefined 
 
 /**
  * The fact of a member's input, as its levels: a single input's admitted heading; a classed input's complete and
- * generated headings, a fact of either; or a nested input's levels, the fact's own first, each with the families its
- * relation owns, a family's count field holding its members, facts of the member relation's level.
+ * generated headings, a fact of either; or a nested input's levels, the fact's own first, wherever its own rows stand,
+ * then each sequence its nesting reaches, at its place among them plus one (runtime/write/nesting.ts NestingData): each
+ * level with the families its relation owns, a family's count field holding its members, facts of that family's level.
  */
-const factOf = (
-	binding: Binding,
-	input: InputData
-): Bound<NonEmptyReadonlyArray<WireLevel<ServedLeaf>>> => {
+const factOf = (input: InputData): NonEmptyReadonlyArray<WireLevel<ServedLeaf>> => {
 	switch (input.kind) {
 		case "single":
-			return Result.ok([{ headings: [scalarHeading(input.admitted)], families: [] }])
+			return [{ headings: [scalarHeading(input.admitted)], families: [] }]
 		case "classed":
-			return Result.ok([
+			return [
 				{
 					headings: [scalarHeading(input.complete.heading), scalarHeading(input.generated.heading)],
 					families: []
 				}
-			])
+			]
 		case "nested": {
 			const nesting = input.nesting
-			const levels = nesting.levels
-			const top = levels.findIndex((level) => level.at.kind === "top")
-			if (top < 0) {
-				return Result.err(refusedAt(binding.role, binding.member, "a nested fact's own level"))
-			}
-			const ordered = [top, ...levels.keys()].filter((index, at, all) => all.indexOf(index) === at)
-			const position = new Map(ordered.map((index, at) => [index, at] as const))
-			return Result.flatMap(
-				each(ordered, (index): Bound<WireLevel<ServedLeaf>> => {
-					const level = levels[index]
-					if (level === undefined) {
-						return Result.err(refusedAt(binding.role, binding.member, "a nested fact's level"))
-					}
-					return Result.map(
-						each(
-							nesting.sequences.filter((family) => family.owner === level.relation),
-							(family) => {
-								const member = levels.findIndex(
-									(l) =>
-										l.relation === family.member &&
-										l.at.kind !== "top" &&
-										familyKey(l.at.family.id) === familyKey(family.id)
-								)
-								const at = position.get(member)
-								return at === undefined
-									? Result.err(
-											refusedAt(binding.role, binding.member, `the level of ${family.member}`)
-										)
-									: Result.ok({ count: family.count, level: at })
-							}
-						),
-						(families) => ({ headings: [scalarHeading(level.heading)], families })
-					)
-				}),
-				(built) => {
-					const [first, ...rest] = built
-					return first === undefined
-						? Result.err(refusedAt(binding.role, binding.member, "a nested fact's own level"))
-						: Result.ok([first, ...rest])
-				}
-			)
+			const familiesOf = (relation: StoredRelationName): WireLevel<ServedLeaf>["families"] =>
+				nesting.sequences.flatMap((family, at) =>
+					family.owner === relation ? [{ count: family.count, level: at + 1 }] : []
+				)
+			return [
+				{ headings: [scalarHeading(nesting.own)], families: familiesOf(nesting.relation) },
+				...nesting.sequences.map((family): WireLevel<ServedLeaf> => ({
+					headings: [scalarHeading(family.heading)],
+					families: familiesOf(family.member)
+				}))
+			]
 		}
 	}
 }
@@ -571,11 +539,7 @@ const changeInput = (binding: Binding, change: ServedChange): Bound<WireInput<Se
 					refusedAt(binding.role, binding.member, `the input of the member slot ${member.slot}`)
 				)
 			}
-			return Result.map(factOf(binding, input), (levels) => ({
-				op: member.op,
-				relation: member.relation,
-				levels
-			}))
+			return Result.ok({ op: member.op, relation: member.relation, levels: factOf(input) })
 		}),
 		(facts) => ({ kind: "call", params: paramsOf(change.program.params), facts })
 	)
