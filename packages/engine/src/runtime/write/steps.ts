@@ -104,7 +104,8 @@ export type WriteStep =
 	| FamilyWriteStep
 
 /**
- * A stratum's family additions or removals as one statement (write/family/additions.ts): its rows are each part's
+ * A stratum's family additions or removals as one statement (write/family/additions.ts, removals.ts), or its deletes of
+ * whole units (write/delete/unit.ts): its rows are each part's
  * behind the part's tag, as a single statement's are, each part's facts of its relation as its result says, a recount's
  * an owner's key, counts and ends after and before. It is sent once, and its violations are the family laws' natives,
  * which the installation's classifier names; it aborts nothing.
@@ -112,7 +113,7 @@ export type WriteStep =
 export interface FamilyWriteStep {
 	readonly kind: "familyWrite"
 	readonly stratum: StratumAt
-	readonly statement: "additions" | "removals"
+	readonly statement: "additions" | "removals" | "unit"
 	readonly parts: NonEmptyReadonlyArray<FamilyPart>
 }
 

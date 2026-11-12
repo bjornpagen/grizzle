@@ -80,6 +80,12 @@ export default defineConfig({
   `insertAll`'s members are too, `put` or `delete`) and then its relation's name one array, typed and checked as that
   member's own facts, as in `apply({ put: { Blob: stated }, delete: { Blob: removed } }, {})`; every other member is
   `apply(params)`. Two array members of one op and one relation in two strata are refused: merge them into one.
+- A delete of a tree names trees by their root value (`delete(Node, [{ package, path }])`), and a delete of a relation
+  that owns a family and is no family's member names its rows; each removes every row nested under them through every
+  family, so a group goes whole. A replace is `delete(...)` and `insertAll(...)` in one stratum: the delete runs first,
+  an identical replace answers `no-change`, and the counts are the difference. The role's write list names every
+  relation the delete reaches. Delete a family's other members through their owner, never one by one when the owner is
+  immutable.
 - `connection` is the migration role's: `driver` (the pg module), `transport` (`kind: "sslRequest"`, `host`, `port`,
   `open`, which returns a new socket, `ca` and `servername`; TLS is always verify-full, the server certificate chaining
   to `ca` and naming `servername`), `database`, `role`, `password` (a Redacted, or an Effect yielding one, evaluated for

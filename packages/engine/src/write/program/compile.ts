@@ -81,6 +81,7 @@ import { sentLayout } from "#compiler/runtime/write/nesting.ts"
 import type { FamilyStep, FamilyWriteStep } from "#compiler/runtime/write/steps.ts"
 import type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
+import { unitSql } from "#compiler/write/delete/unit.ts"
 import {
 	type AppendedMember,
 	additionsSql,
@@ -468,6 +469,16 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 		)
 	const placements = strataAt(frontend.ir.strata).flatMap(([s, stratum]) =>
 		stratum.family.map(({ node }): FamilyPlacement => {
+			if (node.kind === "unit") {
+				const sql = unitSql({ ...w, start: ownStatement }, node.units)
+				const step: FamilyWriteStep = {
+					kind: "familyWrite",
+					stratum: s,
+					statement: "unit",
+					parts: sql.parts
+				}
+				return Object.freeze({ kind: "write", stratum: s, node, step: Object.freeze(step), sql })
+			}
 			if (node.kind === "additions" || node.kind === "removals") {
 				const stratumEdits = frontend.edits.filter((edit) => edit.stratum === s)
 				/** The families a family write draws its rows of `relation` by: every one it is a member of but its own tree,
@@ -1711,7 +1722,7 @@ const compile = (
 	})
 	const optimized = optimizedArtifact(restated, plan, lowering, options)
 	unwrap(insertOnly(schema, optimized.statements, options.names, options.laws))
-	const family = familyProgram(frontend, lowering.w)
+	const family = familyProgram(restated, lowering.w)
 	const program: CompiledWrite = {
 		level: options.level,
 		edits: family.edits,

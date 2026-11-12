@@ -271,6 +271,8 @@ const refillOrder = (
 					return `additions:${n.member}`
 				case "removals":
 					return `removals:${n.member}`
+				case "unit":
+					return "unit"
 			}
 		}
 		edges.set(`${key(first)}\u0000${key(second)}`, { before: first, after: second })

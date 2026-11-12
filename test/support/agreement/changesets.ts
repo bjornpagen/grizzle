@@ -96,7 +96,7 @@ import { upTo } from "#test/support/up-to.ts"
  * nesting takes it (a root field below a tree's root, a field its relation lacks or a drawn one in a nested member, a
  * nested member missing a field, a counted member nested, an accumulated field or a count in a put, a generated field
  * in an insert), a family write the engine cannot plan (a sequence's member written
- * alone or by its row, a tree's row put or deleted, a counted member that owns a sequence put or deleted, an immutable
+ * alone or by its row, a tree's row put, a counted member that owns a sequence put or deleted, an immutable
  * owner put, a member of an immutable owner's family deleted), a fold over a delta reading no key, ChangeSets over schemas that are no levels of one another, a role that
  * does not write the relation (or a member its insert nests), a parameter left unbound, a compiled ChangeSet read as a
  * query, an argument naming no parameter, ChangeSet.bind given a value that is no record. The floor's witnesses (changeSetWitnesses), the same in every run, each aimed at a requirement, reach every
@@ -364,6 +364,7 @@ const changeSetFeatures = [
 	"family member",
 	"nested members",
 	"a nested tree",
+	"a tree deleted by its root",
 	"a counted member",
 	"a mutable family",
 	"an immutable family",
@@ -994,7 +995,7 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined, clean: boolean)
 
 /**
  * The faults a family's member fact carries, and the writes of a family's relation the engine cannot plan: a sequence's
- * member written alone or by its row, a tree's row put or deleted, a counted member that owns a sequence put or deleted,
+ * member written alone or by its row, a tree's row put, a counted member that owns a sequence put or deleted,
  * an immutable owner put, a member of an immutable owner's family deleted.
  */
 const familyFaults = [
@@ -1163,7 +1164,7 @@ const plantedFamilyMember = (d: Drawing, fault: FamilyFault): MemberSpec => {
 				keyedRow(d)
 			])
 		case "a tree row edited":
-			return familyOf(d, d.choose(["delete", "put"] as const), "Node", [
+			return familyOf(d, "put", "Node", [
 				[
 					["doc", familyValue(d.from(uuids))],
 					["label", familyValue(d.from(labels))]
@@ -1206,7 +1207,7 @@ const plantedFamilyMember = (d: Drawing, fault: FamilyFault): MemberSpec => {
  * A member of one of Work's families, each over an immutable owner and a mutable one: an ordered family's owner
  * inserted with its members nested, or deleted, and put where it is mutable; a counted family's owner inserted, deleted,
  * and put where it is mutable; a counted member put, inserted where its owner is mutable and beside an insert of its
- * owner where it is not, and deleted where its owner is mutable; or a tree inserted from its root. A counted member is
+ * owner where it is not, and deleted where its owner is mutable; or a tree inserted from its root, or deleted by it. A counted member is
  * an edit of its family, which a ChangeSet writes in one stratum: a sequence of two cases that write one is refused, so
  * only a case that plants no fault (`clean`) writes one, and no planted fault meets that refusal first.
  */
@@ -1214,7 +1215,7 @@ const familyMemberOf = (d: Drawing, clean: boolean): MemberSpec => {
 	d.note("family member")
 	const relation = d.aimed("nested members")
 		? d.from(["Order", "Cart"] as const)
-		: d.aimed("a nested tree")
+		: d.aimed("a nested tree") || d.aimed("a tree deleted by its root")
 			? "Node"
 			: d.aimed("an append beside its owner")
 				? "Item"
@@ -1228,6 +1229,9 @@ const familyMemberOf = (d: Drawing, clean: boolean): MemberSpec => {
 								? d.from(["Order", "Cart", "Pool", "Bin", "Item", "Chip", "Node"] as const)
 								: d.from(["Order", "Cart", "Pool", "Bin", "Node"] as const)
 	if (relation === "Node") {
+		if (d.choose(["a nested tree", "a tree deleted by its root"] as const) !== "a nested tree") {
+			return familyOf(d, "delete", relation, [[["doc", familyValue(d.from(uuids))]]])
+		}
 		return familyOf(d, "insert", relation, [treeOf(d, undefined)])
 	}
 	const op = d.choose(
@@ -3139,6 +3143,7 @@ const prerequisites: { readonly [F in ChangeSetFeature]?: ReadonlyArray<ChangeSe
 	"a head literal": ["described member"],
 	"nested members": ["family member", "insert"],
 	"a nested tree": ["family member"],
+	"a tree deleted by its root": ["family member", "delete"],
 	"a counted member": ["family member"],
 	"a mutable family": ["family member"],
 	"an immutable family": ["family member"],

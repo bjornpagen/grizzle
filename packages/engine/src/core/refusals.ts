@@ -73,6 +73,7 @@ export const refusals = [
 	"a term first: a literal takes its place opposite a term, never first",
 	"a tree is a family of T over itself, on(T, parent, at), keyed by its root fields then start, with drawn parent, start and end",
 	"a tree is rewritten whole: insert its root with the whole tree nested",
+	"a tree whose nodes are another family's members is deleted with that family's owner",
 	"a tree's root fields are distinct caller fields of its relation",
 	"a union's arms deliver each field at one type",
 	"a value its contract refuses: it lacks a fact the contract declares",

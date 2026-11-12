@@ -467,7 +467,11 @@ type EditCheck<S, R, Op extends "put" | "delete"> = [R] extends [AnyRelation]
 /** EditCheck of an ordinary relation of one name. */
 type EditOf<S, R, Op extends "put" | "delete"> =
 	IsTreeRow<S, R> extends true
-		? Refusal<"a tree is rewritten whole: insert its root with the whole tree nested">
+		? Op extends "delete"
+			? IsFamilyMember<S, R> extends true
+				? Refusal<"a tree whose nodes are another family's members is deleted with that family's owner">
+				: unknown
+			: Refusal<"a tree is rewritten whole: insert its root with the whole tree nested">
 		: UnstatedKey<S, R, Op> extends true
 			? Refusal<"a put or a delete names its rows by their key, and no fact states a key field grizzle writes: key the relation by fields its caller writes">
 			: Op extends "delete"
@@ -488,6 +492,55 @@ type MemberOwningSequence<S, R> =
 			? unknown
 			: Refusal<"a family's member that owns a sequence is written by inserting its owner with its rows nested">
 		: unknown
+
+/**
+ * The facts a delete of R in S takes: a tree's root value, which names one tree, removed whole with every row nested
+ * under its nodes; any other relation's row as its caller writes it (Written), an owner's removed with every row nested
+ * under it (UnitWrites).
+ */
+export type DeletedRow<S, R> =
+	IsTreeRow<S, R> extends true ? Pick<Written<R>, TreeRootOf<S, R> & keyof Written<R>> : Written<R>
+
+/** The root fields of R's tree in S: a tree is a family of its relation over itself, so it is among R's sequences. */
+type TreeRootOf<S, R> =
+	SequencesOwnedBy<S, R> extends infer T
+		? T extends Tree<unknown, unknown, infer Root extends ReadonlyArray<string>>
+			? Root[number]
+			: never
+		: never
+
+/**
+ * The relations a delete of R in S removes rows of besides R: the members of every family R owns, through every family
+ * they own, a tree's relation its own family's member. Seen holds the relations walked, so the walk stops at a relation
+ * met again.
+ */
+export type UnitWrites<S, R, Seen = never> =
+	Visited<R, Seen> extends true
+		? never
+		: [DrawnFieldOf<R>] extends [never]
+			? never
+			: MemberRelationOf<FamiliesOwnedBy<S, R>> extends infer M
+				? M extends unknown
+					? NameOf<M> | UnitWrites<S, M, Seen | R>
+					: never
+				: never
+
+/** The families of S whose owner is R: its ordered and counted families and its tree. */
+type FamiliesOwnedBy<S, R> =
+	Extract<StatementsOf<S>[number], RowFamily | AnyTree> extends infer Fa
+		? Fa extends unknown
+			? OwnerNameOf<Fa> extends NameOf<R>
+				? Fa
+				: never
+			: never
+		: never
+
+/** The relations a delete of R in S removes rows of besides R: none for a family's member, whose delete is an edit of
+ * its family, and its units' relations below it for a tree or an owner (UnitWrites). */
+type DeletedWrites<S, R> = IsFamilyMember<S, R> extends true ? never : UnitWrites<S, R>
+
+/** Any ordered or counted family. */
+type RowFamily = Ordered<unknown, unknown> | Counted<unknown, unknown>
 
 /** Whether R is a tree's relation in S. */
 type IsTreeRow<S, R> = [DrawnFieldOf<R>] extends [never]
@@ -661,20 +714,21 @@ export interface ChangeSet<
 	>
 	/**
 	 * Removes each member fact, stated as its caller writes it (Written<R>): the fields PostgreSQL and grizzle write are
-	 * no part of a fact's identity a caller states, so an insert and a delete of one fact state one row. A tree's row, a
-	 * row whose primary key holds a field grizzle writes, and a member of an immutable owner's family are no delete's
-	 * (EditCheck).
+	 * no part of a fact's identity a caller states, so an insert and a delete of one fact state one row. A tree's delete
+	 * states its root value, each one tree (DeletedRow). A tree, and an owner of a family that is no family's member,
+	 * go with every row nested under them, through every family (UnitWrites), so a group goes whole. A row whose primary
+	 * key holds a field grizzle writes, and a member of an immutable owner's family, are no delete's (EditCheck).
 	 */
 	delete<R extends AnyRelation | AnyWorld, const M extends Member<S, unknown>>(
 		relation: R &
 			WritableCheck<S, R> &
 			EditCheck<S, R, "delete"> &
 			EditsOnce<Done, EditsWith<Last, S, R>>,
-		facts: M & MemberCheck<M, Written<R>, R>
+		facts: M & MemberCheck<M, DeletedRow<S, R>, R>
 	): ChangeSet<
 		S,
 		JointParams<Params, ParamsOf<M>>,
-		Writes | NameOf<R>,
+		Writes | NameOf<R> | DeletedWrites<S, R>,
 		Reads,
 		Cx | ContextsOf<M>,
 		Done,
@@ -837,7 +891,13 @@ type RecordOf<S, A> =
 	>
 		? LevelAt<S, Depth> extends infer L
 			? RelationIn<Spelled, RelationsOf<L>> extends infer R
-				? (Op extends "insert" ? AdditionIn<L, R> : Written<R>) extends infer Row
+				? (
+						Op extends "insert"
+							? AdditionIn<L, R>
+							: Op extends "delete"
+								? DeletedRow<L, R>
+								: Written<R>
+					) extends infer Row
 					? {
 							readonly [O in Op]: { readonly [N in NameOfSpelled<Spelled>]: ArrayFacts<R, Row, At> }
 						}
