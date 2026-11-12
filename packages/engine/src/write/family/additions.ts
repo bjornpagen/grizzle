@@ -1,4 +1,3 @@
-import type { LawId } from "#compiler/core/ids.ts"
 /**
  * A stratum's family additions as one statement: every member its edits append, inserted with the values its families
  * draw, and every owner those appends recount, computed by PostgreSQL from the groups as the statement finds them, so
@@ -38,6 +37,7 @@ import type { LawId } from "#compiler/core/ids.ts"
  * never at the (group, index) key both drew from their snapshots, as the family planner's count statement before its
  * inserts did.
  */
+import { appendAll } from "#compiler/core/array.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import {
 	appendNonEmpty,
@@ -60,13 +60,22 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
-import type { Assignment, Cte, Expr, FromItem, JoinStep, SetArm } from "#compiler/sql/ast.ts"
+import type {
+	Assignment,
+	Cte,
+	Expr,
+	FromItem,
+	JoinStep,
+	Select,
+	SetArm
+} from "#compiler/sql/ast.ts"
 import {
 	and,
 	arrays,
 	binary,
 	cast,
 	col,
+	conjunction,
 	cte,
 	cteRef,
 	cteRefAs,
@@ -97,7 +106,13 @@ import {
 	scanOf,
 	type Shaped
 } from "#compiler/write/family/scan.ts"
-import { endColumns, type RowLayout } from "#compiler/write/family/statements.ts"
+import {
+	candidateGate,
+	endColumns,
+	type LaidRows,
+	type RowColumn,
+	type RowLayout
+} from "#compiler/write/family/statements.ts"
 import {
 	columnAt,
 	countOver,
@@ -127,6 +142,7 @@ import {
 	startOf,
 	type WriteContext
 } from "#compiler/write/insert/statement.ts"
+import type { RelationUniques } from "#compiler/write/insert/unique.ts"
 import {
 	bound,
 	metFound,
@@ -166,8 +182,11 @@ export type OwnerRows =
 /** A member relation a stratum appends to, with where its rows come from and what draws them. */
 export interface AppendedMember {
 	readonly relation: RelationInfo
-	/** The law a stored row at its primary key with other stated fields raises (write/frontend/compile.ts arbiterLaw). */
-	readonly keyLaw: LawId
+	/**
+	 * Its unique objects (write/insert/unique.ts RelationUniques): its primary key, whose law a stored row at its key with
+	 * other stated fields raises, and every other object its insert's probe checks.
+	 */
+	readonly uniques: RelationUniques
 	/** Every column its rows are written with (statements.ts rowLayout). */
 	readonly layout: RowLayout
 	readonly sources: NonEmptyReadonlyArray<RowSource>
@@ -290,21 +309,38 @@ export const additionsSql = (
 		}
 		return sources.map((x) => ({ member, source: x.source, appended: x.appended, scans: x.scans }))
 	})
-	const inserts = drawn.map((d) =>
-		insertOf(
+	const inserts = members.flatMap((member) => {
+		const [first, ...rest] = drawn.filter((d) => d.member === member)
+		if (first === undefined) {
+			return []
+		}
+		const arbitrated = memberArbitrated(w, member)
+		const candidates = mapNonEmpty([first, ...rest], (d) => ({
+			d,
+			rows: candidatesOf(
+				w,
+				supply,
+				ctes,
+				d,
+				d.source.kind === "nestedRows"
+					? scanned.filter(
+							(x) => x.family.owner.name === member.relation.name && !isSequence(x.family)
+						)
+					: []
+			)
+		}))
+		const gates = probeGates(
 			w,
 			supply,
 			ctes,
-			d,
-			d.source.kind === "nestedRows"
-				? scanned.filter(
-						(x) => x.family.owner.name === d.member.relation.name && !isSequence(x.family)
-					)
-				: [],
-			memberArbitrated(w, d.member),
-			refusals
+			member,
+			mapNonEmpty(candidates, (c) => c.rows),
+			arbitrated
 		)
-	)
+		return candidates.map(({ d, rows }) =>
+			insertOf(w, supply, ctes, d, rows, gates, arbitrated, refusals)
+		)
+	})
 	/** Each mutable owner relation's recounted families, each with its appends' scan and the facts of its put, by owner
 	 * name. */
 	const owners = new Map<string, Map<Family, Recounted>>()
@@ -906,24 +942,22 @@ const keyFirstFields = (relation: RelationInfo): ReadonlyArray<LawField> => [
 	...relation.heading.filter((f) => !relation.primaryFields.includes(f))
 ]
 
+/** Every column of a member's row layout, key first (statements.ts rowLayout): what its insert writes. */
+const layoutColumns = (member: AppendedMember): NonEmptyReadonlyArray<RowColumn> =>
+	extendNonEmpty(member.layout.key, member.layout.columns)
+
 /**
- * The insert of a member relation's appended rows, whole: each column its families draw from their scans, each field
- * its facts carry from them, and each count and end of a family the member owns at its start, the family empty. Where
- * it is arbitrated (`memberArbitrated`), ON CONFLICT at its primary key DO NOTHING, by the key's constraint where it
- * holds a span, which no column list infers, and each appended row it did not
- * insert, a met row, is an exact repeat where the stored row the arbitration met at its key (probe.ts metFound) equals
- * it at every field it states, and else its key's law, which the statement raises (`refusals`); a stored row at
- * another unique object, its slot among them, is PostgreSQL's 23505 there, its law's.
+ * One source's appended rows of a member relation as its insert writes them, whole: each column its families draw from
+ * their scans, each field its facts carry from them, and each count and end of a family the member owns at its start,
+ * the family empty. A CTE of its own, which the member's probe (`probeGates`) and its insert (`insertOf`) read.
  */
-const insertOf = (
+const candidatesOf = (
 	w: WriteContext,
 	supply: NameSupply,
 	ctes: Array<Cte>,
 	d: Drawn,
-	owned: ReadonlyArray<{ readonly family: Family; readonly scan: Scanned }>,
-	arbitrated: boolean,
-	refusals: Array<Expr>
-): FamilyReturning => {
+	owned: ReadonlyArray<{ readonly family: Family; readonly scan: Scanned }>
+): LaidRows => {
 	const relation = d.member.relation
 	const name = relation.name
 	const a = supply.relation(internal("inserted fact"))
@@ -1016,20 +1050,142 @@ const insertOf = (
 		}
 		return start
 	}
-	const columns = [...d.member.layout.key, ...d.member.layout.columns]
+	const columns = layoutColumns(d.member)
+	const candidates = supply.relation(internal("candidate member"))
+	const out = mapNonEmpty(columns, () => supply.column(internal("candidate member column")))
+	ctes.push(
+		cte(
+			candidates,
+			out,
+			select(
+				provedCore(
+					"keyed",
+					columns.map((c, i) =>
+						targetAs(
+							written(
+								w,
+								valueOf(c.key, c.column.kind === "field" ? c.column.field : undefined),
+								c.type
+							),
+							defined(out[i], "a candidate column")
+						)
+					),
+					[from],
+					undefined
+				)
+			)
+		)
+	)
+	return { name: candidates, columns: out }
+}
+
+/**
+ * The gates of a member relation's inserts (statements.ts candidateGate) over its candidate rows, every source's
+ * (`candidatesOf`): the probe at every other unique object where its inserts arbitrate its primary key
+ * (`memberArbitrated`), at every one, the primary key first, where they are plain INSERTs of rows no stored row repeats
+ * (`appendedOf`), so a stated row that meets one is refused by its law with its own key there, a pair between two
+ * sources' rows among them.
+ */
+const probeGates = (
+	w: WriteContext,
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	member: AppendedMember,
+	candidates: NonEmptyReadonlyArray<LaidRows>,
+	arbitrated: boolean
+): ReadonlyArray<Expr> => {
+	const [first, ...rest] = candidates
+	const gate = candidateGate(
+		w,
+		supply,
+		{
+			relation: member.relation,
+			layout: member.layout,
+			uniques: member.uniques,
+			arbiter: arbitrated ? "primaryKey" : "none"
+		},
+		isNonEmpty(rest) ? candidatesUnion(supply, ctes, [first, ...rest]) : first
+	)
+	appendAll(ctes, gate.ctes)
+	return gate.guards
+}
+
+/** The union of a member's sources' candidate rows, at every layout column, as its probe reads them. */
+const candidatesUnion = (
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	candidates: NonEmptyReadonlyArray<LaidRows>
+): LaidRows => {
+	const name = supply.relation(internal("candidate union"))
+	const columns = mapNonEmpty(candidates[0].columns, () =>
+		supply.column(internal("candidate union column"))
+	)
+	ctes.push(
+		cte(
+			name,
+			columns,
+			select(
+				unionAll(
+					"disjoint",
+					mapNonEmpty(candidates, (c) => {
+						const a = supply.relation(internal("candidate source"))
+						return provedCore(
+							"keyed",
+							columns.map((out, i) =>
+								targetAs(col(a, defined(c.columns[i], "a candidate column")), out)
+							),
+							[cteRefAs(c.name, a)],
+							undefined
+						)
+					})
+				)
+			)
+		)
+	)
+	return { name, columns }
+}
+
+/**
+ * The insert of one source's candidate rows of a member relation (`candidatesOf`), gated by the member's probe
+ * (`probeGates`). Where it is arbitrated (`memberArbitrated`), ON CONFLICT at its primary key DO NOTHING, by the key's
+ * constraint where it holds a span, which no column list infers, over the candidates the gates pass, and each
+ * appended row it did not insert, a met row, is an exact repeat where the stored row the arbitration met at its key
+ * (probe.ts metFound) equals it at every field it states, and else its key's law, which the statement raises
+ * (`refusals`).
+ */
+const insertOf = (
+	w: WriteContext,
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	d: Drawn,
+	candidates: LaidRows,
+	gates: ReadonlyArray<Expr>,
+	arbitrated: boolean,
+	refusals: Array<Expr>
+): FamilyReturning => {
+	const relation = d.member.relation
+	const name = relation.name
+	const columns = layoutColumns(d.member)
 	const returned = keyFirstFields(relation).map((field) => ({
 		field,
 		alias: supply.column(internal("inserted returned"))
 	}))
 	const into = supply.relation(internal("inserted table"))
 	const insert = supply.relation(internal("family insert"))
-	const values = columns.map((c) =>
-		written(w, valueOf(c.key, c.column.kind === "field" ? c.column.field : undefined), c.type)
-	)
 	const inserted = columns.map((c) => installed(w, name, c.column))
 	const returning = returned.map((r) =>
 		targetAs(col(into, w.names.column(name, r.field.name)), r.alias)
 	)
+	/** The candidates the gates pass, every column of `from` in layout order. */
+	const passed = (from: LaidRows): Select =>
+		select(
+			provedCore(
+				"keyed",
+				from.columns.map((c) => target(col(from.name, c))),
+				[cteRef(from.name)],
+				conjunction(gates)
+			)
+		)
 	if (!arbitrated) {
 		ctes.push(
 			cte(insert, [], {
@@ -1040,38 +1196,18 @@ const insertOf = (
 				overriding: undefined,
 				onConflict: undefined,
 				columns: inserted,
-				source: {
-					kind: "query",
-					query: select(
-						provedCore(
-							"keyed",
-							values.map((v) => targetAs(v, supply.column(internal("inserted column")))),
-							[from],
-							undefined
-						)
-					)
-				},
+				source: { kind: "query", query: passed(candidates) },
 				returning
 			})
 		)
 	} else {
-		/** The rows the arbitrated INSERT proposes, alone (sql/ast.ts FromSource `metRows`), by layout column. */
-		const proposed = supply.relation(internal("proposed member"))
-		const proposedColumns = columns.map(() => supply.column(internal("proposed member column")))
-		ctes.push(
-			cte(
-				proposed,
-				proposedColumns,
-				select(
-					provedCore(
-						"keyed",
-						values.map((v, i) => targetAs(v, defined(proposedColumns[i], "a proposed column"))),
-						[from],
-						undefined
-					)
-				)
-			)
-		)
+		/** The rows the arbitrated INSERT proposes, alone (sql/ast.ts FromSource `metRows`), by layout column: the
+		 * candidates the gates pass. */
+		const proposed: LaidRows = {
+			name: supply.relation(internal("proposed member")),
+			columns: mapNonEmpty(columns, () => supply.column(internal("proposed member column")))
+		}
+		ctes.push(cte(proposed.name, proposed.columns, passed(candidates)))
 		ctes.push(
 			cte(insert, [], {
 				kind: "insert",
@@ -1097,8 +1233,8 @@ const insertOf = (
 					query: select(
 						provedCore(
 							"keyed",
-							proposedColumns.map((c) => target(col(proposed, c))),
-							[cteRef(proposed)],
+							proposed.columns.map((c) => target(col(proposed.name, c))),
+							[cteRef(proposed.name)],
 							undefined
 						)
 					)
@@ -1108,9 +1244,11 @@ const insertOf = (
 		)
 		const columnOf = (key: ColumnKey): string | undefined => {
 			const i = columns.findIndex((c) => c.key === key)
-			return i < 0 ? undefined : proposedColumns[i]
+			return i < 0 ? undefined : proposed.columns[i]
 		}
-		refusals.push(metRefusal(w, supply, ctes, d, { insert, proposed, columnOf }, returned))
+		refusals.push(
+			metRefusal(w, supply, ctes, d, { insert, proposed: proposed.name, columnOf }, returned)
+		)
 	}
 	return {
 		cte: insert,
@@ -1242,7 +1380,7 @@ const metRefusal = (
 				when: lit.bool(true),
 				refusal: {
 					kind: "law",
-					law: d.member.keyLaw,
+					law: d.member.uniques.arbiter.law,
 					relation: name,
 					key: pk.map((f, i) => ({
 						field: f.name,

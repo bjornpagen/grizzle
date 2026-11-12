@@ -588,9 +588,9 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 							return [
 								{
 									relation,
-									keyLaw: relationUniques(
+									uniques: relationUniques(
 										defined(frontend.laws.relations.get(name), `the laws of ${name}`)
-									).arbiter.law,
+									),
 									layout: layoutOf(name),
 									sources,
 									families: familiesOf(relation)
@@ -707,7 +707,20 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 			const sql: FamilySql =
 				node.kind === "owners"
 					? unwrap(countStatement(familyOf(node.family), w, stored))
-					: unwrap(rowStatement(info(node.relation), layoutOf(node.relation), node.statement, w))
+					: unwrap(
+							rowStatement(
+								info(node.relation),
+								layoutOf(node.relation),
+								relationUniques(
+									defined(
+										frontend.laws.relations.get(node.relation),
+										`the laws of ${node.relation}`
+									)
+								),
+								node.statement,
+								w
+							)
+						)
 			const step: FamilyStep = {
 				kind: "family",
 				stratum: s,

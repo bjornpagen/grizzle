@@ -22,7 +22,12 @@ import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	appendNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { typedEq } from "#compiler/ir/compare.ts"
 import type { Family } from "#compiler/ir/family.ts"
@@ -64,6 +69,7 @@ import {
 	cast,
 	col,
 	columnDefinition,
+	conjunction,
 	core,
 	cte,
 	cteRef,
@@ -87,6 +93,7 @@ import {
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
+import { fieldColumns } from "#compiler/write/defined.ts"
 import {
 	type GroupsOf,
 	type RefillRead,
@@ -103,6 +110,13 @@ import {
 	rowType,
 	type WriteContext
 } from "#compiler/write/insert/statement.ts"
+import {
+	buildProbe,
+	type Probed,
+	probeGuard,
+	type RelationUniques,
+	type Requested
+} from "#compiler/write/insert/unique.ts"
 import type { PutResult } from "#compiler/write/put/statement.ts"
 
 /**
@@ -319,13 +333,14 @@ const returnedFields = (
 	}))
 
 /**
- * The data-modifying CTE `name` and the SELECT of its returned columns' texts, as every write statement returns rows
- * (write/insert/statement.ts returnedRows).
+ * The data-modifying CTE `name`, after the CTEs `before` it reads, and the SELECT of its returned columns' texts, as every
+ * write statement returns rows (write/insert/statement.ts returnedRows).
  */
 const returningSelect = (
 	name: string,
 	body: CteBody,
-	returned: ReadonlyArray<Returned>
+	returned: ReadonlyArray<Returned>,
+	before: ReadonlyArray<Cte>
 ): SqlStatement => ({
 	...returnedRows(
 		"keyed",
@@ -333,7 +348,7 @@ const returningSelect = (
 		[cteRef(name)],
 		undefined
 	),
-	with: { recursive: false, ctes: [cte(name, [], body)] }
+	with: { recursive: false, ctes: appendNonEmpty(before, cte(name, [], body)) }
 })
 
 /** The deleted facts' result. */
@@ -404,6 +419,79 @@ const begun = (w: WriteContext): NameSupply => {
 
 const carriedOf = (c: RowColumn): Carried => ({ column: c.column, type: c.type })
 
+/** A member relation's rows as a CTE of each column of its row layout, key first, in layout order (`RowLayout`). */
+export interface LaidRows {
+	readonly name: string
+	readonly columns: NonEmptyReadonlyArray<string>
+}
+
+/**
+ * A member relation's INSERT as its gate reads it: its relation, its row layout, its unique objects, and the key it
+ * arbitrates: its primary key, ON CONFLICT at which meets an exact repeat and the key's conflict witness
+ * (write/family/additions.ts insertOf); or none, a plain INSERT of rows no stored row repeats.
+ */
+interface GatedInsert {
+	readonly relation: RelationInfo
+	readonly layout: RowLayout
+	readonly uniques: RelationUniques
+	readonly arbiter: "primaryKey" | "none"
+}
+
+/**
+ * The gate of a member relation's INSERT of `candidates`: the probe (write/insert/unique.ts buildProbe) of the
+ * candidates under the statement's snapshot at every unique object the INSERT does not arbitrate, every other one where
+ * it arbitrates its primary key, for a candidate whose key no stored row holds (Requested `complete`), and every one,
+ * the primary key first, where it arbitrates none (Requested `none`); and the refusal guard that raises the probe's
+ * refusal (probeGuard), none where it probes nothing. As every insert of the insert protocol probes each unique object
+ * besides its arbiter, a stated row that meets one, a stored occupant or another candidate, is refused by the object's
+ * law, its witness the row's values at the object's fields (witnessFields), never by PostgreSQL's 23505, which names no
+ * row. The candidates are drawn on the host and in the statement (a tree's starts, a sequence's indexes), which no host
+ * check of a pair within an input reads, so a pair is the statement's at every object. A 23505 or 23P01 the INSERT still
+ * raises at a probed object is an occupant its snapshot did not see; one at an object over a drawn law column, which no
+ * field names and the scans draw apart, is no stated row's.
+ */
+export const candidateGate = (
+	w: WriteContext,
+	supply: NameSupply,
+	insert: GatedInsert,
+	candidates: LaidRows
+): { readonly ctes: ReadonlyArray<Cte>; readonly guards: ReadonlyArray<Expr> } => {
+	const { relation, layout, uniques } = insert
+	const columns = [...layout.key, ...layout.columns]
+	const fields = relation.fields.filter((f) => f.writing.kind !== "generated")
+	const inputs = fieldColumns(fields, (f) =>
+		defined(
+			candidates.columns[
+				columns.findIndex((c) => c.column.kind === "field" && c.column.field.name === f.name)
+			],
+			`the candidate column of ${relation.name}.${f.name}`
+		)
+	)
+	const probed: { readonly requested: Requested; readonly checks: ReadonlyArray<Probed> } =
+		insert.arbiter === "primaryKey"
+			? { requested: { kind: "complete", arbiter: uniques.arbiter }, checks: uniques.checks }
+			: {
+					requested: { kind: "none", fields },
+					checks: [
+						{ object: uniques.arbiter, pairs: "statement", witness: "every" },
+						...uniques.checks
+					]
+				}
+	const probe = buildProbe(w, supply, {
+		relation,
+		...probed,
+		input: candidates.name,
+		inputs,
+		normalized: false,
+		occupants: "probed"
+	})
+	if (probe === undefined) {
+		return { ctes: [], guards: [] }
+	}
+	const guarded = probeGuard(w, supply, relation.name, probe)
+	return { ctes: [...probe.ctes, guarded.cte], guards: [guarded.guard] }
+}
+
 /**
  * A member relation's statement of kind `kind` over its row layout: a delete by key; an update in place by key of every
  * settable column; a refill, an update in place by key of every column but its key and its groups, its copies of its
@@ -413,6 +501,7 @@ const carriedOf = (c: RowColumn): Carried => ({ column: c.column, type: c.type }
 export const rowStatement = (
 	relation: RelationInfo,
 	layout: RowLayout,
+	uniques: RelationUniques,
 	kind: "delete" | "refill" | "update" | "insert",
 	w: WriteContext
 ): Result.Result<FamilySql, CompileError> => {
@@ -444,7 +533,8 @@ export const rowStatement = (
 						targetAs(stored({ kind: "field", field: f.field }), f.column)
 					)
 				},
-				returned
+				returned,
+				[]
 			)
 			return Result.ok({
 				kind,
@@ -492,7 +582,8 @@ export const rowStatement = (
 					),
 					returning: newAndOld(w, relation, fresh, old)
 				},
-				[...fresh, ...old]
+				[...fresh, ...old],
+				[]
 			)
 			return Result.ok({
 				kind,
@@ -505,6 +596,25 @@ export const rowStatement = (
 		}
 		case "insert": {
 			const input = arraysOf(w, supply, all)
+			const candidates = supply.relation(internal("family candidate"))
+			const candidate = mapNonEmpty(all, () => supply.column(internal("candidate column")))
+			const at = (i: number): string => defined(candidate[i], "a candidate column")
+			const read = cte(
+				candidates,
+				candidate,
+				provedSelect(
+					"input",
+					all.map((_, i) => targetAs(input.value(i), at(i))),
+					[input.from],
+					undefined
+				)
+			)
+			const gate = candidateGate(
+				w,
+				supply,
+				{ relation, layout, uniques, arbiter: "none" },
+				{ name: candidates, columns: candidate }
+			)
 			const returned = returnedFields(supply, keyFirst(relation))
 			const ast = returningSelect(
 				r,
@@ -519,19 +629,20 @@ export const rowStatement = (
 					source: {
 						kind: "query",
 						query: provedSelect(
-							"input",
+							"keyed",
 							all.map((_, i) =>
-								targetAs(input.value(i), supply.column(internal("inserted column")))
+								targetAs(col(candidates, at(i)), supply.column(internal("inserted column")))
 							),
-							[input.from],
-							undefined
+							[cteRef(candidates)],
+							conjunction(gate.guards)
 						)
 					},
 					returning: returned.map((f) =>
 						targetAs(stored({ kind: "field", field: f.field }), f.column)
 					)
 				},
-				returned
+				returned,
+				[read, ...gate.ctes]
 			)
 			return Result.ok({
 				kind,
@@ -603,7 +714,8 @@ export const countStatement = (
 			),
 			returning: newAndOld(w, owner, fresh, old)
 		},
-		[...fresh, ...old]
+		[...fresh, ...old],
+		[]
 	)
 	return Result.ok({
 		kind: "count",

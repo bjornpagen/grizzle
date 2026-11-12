@@ -336,6 +336,12 @@ const unreported: Witness = Object.freeze({ kind: "unreported" })
  * row the statement writes of `relation` being a stated fact whose value there the host holds and all of them holding
  * the same one there, as a Start or a save states one fact; else unreported, since the value PostgreSQL met is only in
  * its message's DETAIL, which grizzle never parses.
+ *
+ * Every insert probes each unique object it does not arbitrate in its own statement (write/insert/unique.ts buildProbe),
+ * a family's members' and a tree's nodes' included (write/family/statements.ts candidateGate), so a stated row meeting
+ * one is refused by the statement with its key there, never here. What reaches this judgement is a 23505 or 23P01 no
+ * probe saw: an occupant the statement's snapshot did not see, an object over a law column the statement draws, which
+ * no field names, and a family removals statement's re-placing INSERT and its UPDATEs in place.
  */
 const uniqueJudgement = (
 	w: Witnessing,

@@ -3,7 +3,6 @@ import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import {
 	concatNonEmpty,
-	flatMapNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -13,7 +12,6 @@ import { fieldNames, type LawField } from "#compiler/ir/law.ts"
 import type { StatementRole } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import { completeClass } from "#compiler/ir/write.ts"
-import { witnessFields } from "#compiler/laws/model/uniques.ts"
 import {
 	type ColumnMap,
 	emptyEnv,
@@ -85,15 +83,10 @@ import {
 	type WithSelect,
 	type WriteContext
 } from "#compiler/write/insert/statement.ts"
-import { buildProbe } from "#compiler/write/insert/unique.ts"
+import { buildProbe, probeArms } from "#compiler/write/insert/unique.ts"
 import type { InPlace, KeyArbiter } from "#compiler/write/put/choose.ts"
 import type { MergeScope } from "#compiler/write/put/proof.ts"
-import {
-	type ArmRefusal,
-	type RefusalArm,
-	refusalGuard,
-	refusalRank
-} from "#compiler/write/refusal.ts"
+import { type RefusalArm, refusalGuard, refusalRank } from "#compiler/write/refusal.ts"
 import { explicitSerials } from "#compiler/write/serial/advance.ts"
 
 /** What the rows of a put statement that updates in place mean. A refusal is never a row: a same-key pair within the
@@ -497,31 +490,7 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 			supply,
 			ctes,
 			{ body, columns: [...returned.columns, cU] },
-			(rv) =>
-				flatMapNonEmpty(probe.checks, (u, i): NonEmptyReadonlyArray<RefusalArm> => {
-					const refusal: ArmRefusal = {
-						kind: "law",
-						law: u.law,
-						relation: relation.name,
-						key: witnessFields(u).map((f) => ({
-							field: f.name,
-							expr: col(rv, returned.of(f)),
-							type: rowType(f)
-						}))
-					}
-					return [
-						{
-							rank: refusalRank.uniqueWithin,
-							when: eq(col(rv, cU), lit.int(-(i + 1), types.integer)),
-							refusal
-						},
-						{
-							rank: refusalRank.uniqueStored,
-							when: eq(col(rv, cU), lit.int(i + 1, types.integer)),
-							refusal
-						}
-					]
-				}),
+			(rv) => probeArms(relation.name, probe.checks, col(rv, cU), (f) => col(rv, returned.of(f))),
 			text
 		)
 		return { ast, result, skip: input.slot, returning }

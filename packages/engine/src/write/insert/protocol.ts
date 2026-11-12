@@ -3,7 +3,6 @@ import type { LawId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import {
 	appendNonEmpty,
-	flatMapNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -97,6 +96,8 @@ import {
 	generatedChecks,
 	insertArbitered,
 	type Probed,
+	probeArms,
+	probeGuard,
 	type ProbeSql,
 	type Requested
 } from "#compiler/write/insert/unique.ts"
@@ -118,7 +119,6 @@ import type { KeyArbiter } from "#compiler/write/put/choose.ts"
 import type { ConcurrentChangeTag } from "#compiler/runtime/write/refusal.ts"
 import {
 	type ArmRefusal,
-	type RefusalArm,
 	type RefusedValue,
 	refusalGuard,
 	refusalRank,
@@ -562,9 +562,7 @@ export const buildInsert = (
 		serial.kind === "generated"
 			? {
 					requested:
-						stated === undefined
-							? { kind: "generated", fields }
-							: { kind: "stated", arbiter: stated },
+						stated === undefined ? { kind: "none", fields } : { kind: "stated", arbiter: stated },
 					checks: generatedChecks(relation.uniques, serial.drawn, stated)
 				}
 			: {
@@ -651,37 +649,6 @@ export const buildInsert = (
 		if (probe !== undefined) {
 			appendAll(ctes, probe.ctes)
 		}
-		/** The probe's arms, one per sign of each object's ordinal (`buildProbe`), the refused fact's values read by
-		 * `value` at the object's fields. */
-		const probeArms = (
-			found: ProbeSql,
-			ordinal: Expr,
-			value: (f: LawField) => Expr
-		): NonEmptyReadonlyArray<RefusalArm> =>
-			flatMapNonEmpty(found.checks, (u, i): NonEmptyReadonlyArray<RefusalArm> => {
-				const refusal: ArmRefusal = {
-					kind: "law",
-					law: u.law,
-					relation: relation.name,
-					key: witnessFields(u).map((f) => ({
-						field: f.name,
-						expr: value(f),
-						type: rowType(f)
-					}))
-				}
-				return [
-					{
-						rank: refusalRank.uniqueWithin,
-						when: eq(ordinal, lit.int(-(i + 1), types.integer)),
-						refusal
-					},
-					{
-						rank: refusalRank.uniqueStored,
-						when: eq(ordinal, lit.int(i + 1, types.integer)),
-						refusal
-					}
-				]
-			})
 		/** Where the probe's refusal is raised (see `buildInsert`): at the INSERT's own gate for a generated addition,
 		 * whose verdict rows are the complete facts the INSERT made, which a refused addition never becomes; else as a
 		 * verdict row marked by its object's signed ordinal, beside the rows of the arms that read what the INSERT
@@ -690,15 +657,7 @@ export const buildInsert = (
 			probe === undefined
 				? { kind: "none" }
 				: atGate
-					? {
-							kind: "gate",
-							guarded: refusalGuard({
-								supply,
-								schema: w.names.schema,
-								verdicts: probe.refusal,
-								arms: probeArms(probe, probe.ordinal, probe.refusalCol)
-							})
-						}
+					? { kind: "gate", guarded: probeGuard(w, supply, relation.name, probe) }
 					: { kind: "verdict", probe, marker: supply.column(internal("unique marker")) }
 		if (unique.kind === "gate") {
 			ctes.push(unique.guarded.cte)
@@ -1284,10 +1243,12 @@ export const buildInsert = (
 		if (unique.kind === "verdict") {
 			appendAll(
 				arms,
-				probeArms(unique.probe, verdict(unique.marker), verdictAt).map((a) => ({
-					...a,
-					from: fromVerdicts
-				}))
+				probeArms(relation.name, unique.probe.checks, verdict(unique.marker), verdictAt).map(
+					(a) => ({
+						...a,
+						from: fromVerdicts
+					})
+				)
 			)
 		}
 		if (cV !== undefined) {

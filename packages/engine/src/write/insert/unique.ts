@@ -1,6 +1,7 @@
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import {
 	appendNonEmpty,
+	flatMapNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -28,6 +29,7 @@ import {
 	cte,
 	cteRef,
 	cteRefAs,
+	eq,
 	exists,
 	lit,
 	not,
@@ -45,6 +47,12 @@ import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
 import { requestedValue, rowType, type WriteContext } from "#compiler/write/insert/statement.ts"
 import { atFields, atObject, storedAt, withinRow } from "#compiler/write/probe.ts"
 import type { KeyArbiter } from "#compiler/write/put/choose.ts"
+import {
+	type ArmRefusal,
+	type RefusalArm,
+	refusalGuard,
+	refusalRank
+} from "#compiler/write/refusal.ts"
 
 /** The unique objects of a relation an insert meets: its arbiter, the primary key; every object
  * besides it, in law order, probed or not, on which a 23505 or 23P01 aborts the apply; the objects an insert of
@@ -292,14 +300,15 @@ export const relationUniques = (laws: RelationLaws): RelationUniques => {
 /** The facts a probed statement requests: complete facts, every field key first, each probed only where its arbiter key
  * is free in the snapshot (an occupied one is the arbiter's to settle, a repeat or its conflict witness, and is never
  * inserted into another index), told apart by their primary key; a generated addition's with an arbiter
- * (`generatedArbiter`), its fields the ones it states, probed the same way, told apart by its arbiter key; or a
- * generated addition's with none, its `fields` the relation's fields but the ones it draws, key first, each probed,
- * since the identity may draw its arbiter key at the insert, and told apart by every field it holds, equal generated
- * additions being one. */
+ * (`generatedArbiter`), its fields the ones it states, probed the same way, told apart by its arbiter key; or the facts
+ * of an INSERT with no arbiter, each probed at every object it checks and told apart by every field it holds (`none`):
+ * a generated addition's with none, its `fields` the relation's fields but the ones it draws, key first, since the
+ * identity may draw its arbiter key at the insert, equal generated additions being one; or a family member's plain
+ * insert's, every field its row layout writes, rows no stored row repeats (write/family/additions.ts insertOf). */
 export type Requested =
 	| { readonly kind: "complete"; readonly arbiter: UniqueObject }
 	| { readonly kind: "stated"; readonly arbiter: KeyArbiter }
-	| { readonly kind: "generated"; readonly fields: ReadonlyArray<LawField> }
+	| { readonly kind: "none"; readonly fields: ReadonlyArray<LawField> }
 
 /** What the probe needs of the statement it extends. */
 interface ProbeSpec {
@@ -342,6 +351,57 @@ export interface ProbeSql {
 }
 
 const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
+
+/**
+ * The refusal arms of a probe's refusal rows over `relation` (`buildProbe`), two for each object it probed: a pair within
+ * the statement's facts, the object's ordinal negated (rank uniqueWithin), and a stored occupant, its ordinal
+ * (uniqueStored), each raising the object's law with the refused fact's values, read by `value`, at the object's fields
+ * (witnessFields).
+ */
+export const probeArms = (
+	relation: string,
+	checks: NonEmptyReadonlyArray<UniqueObject>,
+	ordinal: Expr,
+	value: (f: LawField) => Expr
+): NonEmptyReadonlyArray<RefusalArm> =>
+	flatMapNonEmpty(checks, (u, i): NonEmptyReadonlyArray<RefusalArm> => {
+		const refusal: ArmRefusal = {
+			kind: "law",
+			law: u.law,
+			relation,
+			key: witnessFields(u).map((f) => ({ field: f.name, expr: value(f), type: rowType(f) }))
+		}
+		return [
+			{
+				rank: refusalRank.uniqueWithin,
+				when: eq(ordinal, lit.int(-(i + 1), types.integer)),
+				refusal
+			},
+			{
+				rank: refusalRank.uniqueStored,
+				when: eq(ordinal, lit.int(i + 1, types.integer)),
+				refusal
+			}
+		]
+	})
+
+/**
+ * The guard an INSERT into `relation` is gated by on its probe's refusal (`buildProbe`): the refusal CTE over the probe's
+ * refusal row, its arms `probeArms` at the refused fact's values (ProbeSql `refusalValue`), and the guard that raises it
+ * through the installation's refusal function, so a refused statement inserts nothing.
+ */
+export const probeGuard = (
+	w: WriteContext,
+	supply: NameSupply,
+	relation: string,
+	probe: ProbeSql
+): { readonly cte: Cte; readonly guard: Expr } =>
+	refusalGuard({
+		supply,
+		schema: w.names.schema,
+		verdicts: probe.refusal,
+		arms: probeArms(relation, probe.checks, probe.ordinal, probe.refusalValue)
+	})
 
 /** The probe CTEs of an insert or an upsert over `spec.input` (see `buildProbe`); undefined when there is nothing to
  * probe. Its names are drawn after every name the statement already holds, so a statement without one is unchanged.
@@ -407,7 +467,7 @@ export const buildProbe = (
 	/** The fields a requested fact holds, as `inputs` holds them, and those that tell two apart (`Requested`): a complete
 	 * fact's are every field its input carries, which `inputs` pairs. */
 	const fields: ReadonlyArray<LawField> =
-		requested.kind === "generated" ? requested.fields : inputs.pairs.map((p) => p.field)
+		requested.kind === "none" ? requested.fields : inputs.pairs.map((p) => p.field)
 	const apart: ReadonlyArray<LawField> =
 		requested.kind === "complete"
 			? relation.primaryFields
@@ -509,7 +569,7 @@ export const buildProbe = (
 							appendNonEmpty(
 								[
 									...own,
-									...(requested.kind === "generated"
+									...(requested.kind === "none"
 										? []
 										: [
 												not(
