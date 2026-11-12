@@ -3,7 +3,7 @@
  * tree's law, its family's lemmas over every row but its roots and T2 to T6 with the root pin, beside its relation's
  * primary key (r, start), evaluated by the reference evaluator, is violated exactly on the states that are not, for
  * each value of the root field, one tree with pre-order intervals. The oracle is a direct pre-order numbering
- * (test/support/families/tree.ts numbered); the box is every forest of at most four rows over two root values, and every
+ * (test/support/families/tree.ts lawful); the box is every forest of at most four rows over two root values, and every
  * single mutation of one field in range, which holds a row under another tree, a parent after its child and a second
  * root.
  *
@@ -17,15 +17,9 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { assert, deepEquals, defined } from "#test/support/assert.ts"
-import {
-	canonicalRows,
-	forestOf,
-	type KeyedRow,
-	numbered,
-	treeOfParents
-} from "#test/support/families/tree.ts"
+import { type KeyedRow, lawful, numbered, treeOfParents } from "#test/support/families/tree.ts"
 import { f, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -112,21 +106,6 @@ const rowsOf = (s: TreeState): ReadonlyArray<KeyedRow> =>
 		}),
 		(a, b) => deepEquals(structureOf(a), structureOf(b))
 	)
-
-/**
- * trees.md §2's theorem over the facts the theory reads: the rows are the direct pre-order numbering of the forest
- * their keys and parent links describe (test/support/families/tree.ts forestOf, numbered), in every field the facts
- * state.
- */
-const isTree = (rows: ReadonlyArray<KeyedRow>): boolean =>
-	Option.match(forestOf(rows), {
-		onNone: () => false,
-		onSome: (forest) =>
-			deepEquals(
-				Arr.map(canonicalRows(numbered(forest)), structureOf),
-				Arr.map(canonicalRows(rows), structureOf)
-			)
-	})
 
 /** A row's root value, its one field's. */
 const rOf = (row: KeyedRow): string => defined(row.root[0], "a row's root value")
@@ -224,7 +203,7 @@ describe("a tree's law", () => {
 					(s, k) =>
 						Effect.sync(() => {
 							const rows = rowsOf(s)
-							const isLawful = isTree(rows)
+							const isLawful = lawful(rows, structureOf)
 							k.note(isLawful ? "lawful" : "unlawful")
 							for (const named of namedOf(s)) {
 								k.note(named)

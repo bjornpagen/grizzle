@@ -21,14 +21,20 @@
  * a node's kind differs from, a fold over a node's children, the same forest written again, a differing tree refused
  * on the key with its witness.
  *
+ * A second property writes the same kind of forest by a direct SQL writer, the owner, each row's every column the
+ * numbering's or one named mutation of it (a field one past, or a row moved under another tree's root value), and
+ * PostgreSQL must commit exactly the states the theorem as a checker calls lawful (test/support/families/tree.ts
+ * lawful): the numbering of the forest the state's keys and parent links describe.
+ *
  * Plants (~/.cache/grizzle-release/TREEKEY/plants): tree-parent-fk-rootless (the owner axis keyed by parent and start
  * alone), tree-family-key-rootless (the family's key, UNIQUE (‹parent₀›, at), without the root), tree-count-rootless
- * (the last axis, a parent's last child by its count, keyed without the root).
+ * (the last axis, a parent's last child by its count, keyed without the root), tree-root-pin-dropped (a root admitted
+ * off slot 0).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { element, type Gen, int, parents, shuffled } from "@grizzle/testing/gen"
+import { constant, element, type Gen, int, parents, shuffled, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -49,12 +55,14 @@ import {
 	tree
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { seatOf } from "#test/pg/fin/installed.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import {
 	canonicalRows,
 	type Forest,
 	type KeyedRow,
+	lawful,
 	type Node,
 	numbered,
 	treeOfParents
@@ -62,6 +70,7 @@ import {
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
+import { attemptChecked, refusalText } from "#test/support/substrate.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -367,6 +376,134 @@ const forestFeatures = (
 	...(Arr.some(rows, (r) => r.total > 0) ? ["a fold over a node's children" as const] : [])
 ]
 
+/** The direct writer's tree: keyed by (site, page, start), its parent's kind copied down, folded by nothing. */
+const Copied = relation(
+	"Node",
+	{
+		site: pg.int4,
+		page: RootText,
+		parent: drawnField(natural),
+		at: drawnField(natural),
+		children: drawnField(natural),
+		start: drawnField(natural),
+		end: drawnField(natural),
+		kind: pg.int4,
+		parentKind: accumulated(pg.int4, 0)
+	},
+	["site", "page", "start"]
+)
+const CopiedRoots = schema("KeyedCopied", { Node: Copied }, [
+	tree(on(Copied, "parent", "at"), fin(Copied, "children"), { root: ["site", "page"] }),
+	contained(
+		on(
+			select(Copied, (n) => n.gt(n.start, 0n)),
+			"site",
+			"page",
+			"parent",
+			"parentKind"
+		),
+		on(Copied, "site", "page", "start", "kind")
+	)
+])
+
+/** A field of a stored row a direct writer may write wrong, by its role on the installed table. */
+type Written = "parent" | "at" | "children" | "start" | "end" | "‹n›" | "parentKind"
+
+const writtenFields: Arr.NonEmptyReadonlyArray<Written> = [
+	"parent",
+	"at",
+	"children",
+	"start",
+	"end",
+	"‹n›",
+	"parentKind"
+]
+
+/**
+ * What a direct writer does to a lawful forest's rows before it writes them, each a named choice (doctrine rule 3):
+ * nothing; one row's field one past its numbering's, the first tree's root's slot among them, which only the root pin
+ * refuses; or one row moved under another tree's root value.
+ */
+type Mutation =
+	| { readonly kind: "none" }
+	| { readonly kind: "field"; readonly row: number; readonly field: Written }
+	| { readonly kind: "root"; readonly row: number; readonly tree: number }
+
+/** A direct writer's case: a forest of the Copied relation's root values and what is done to its rows. */
+interface DirectCase {
+	readonly forest: Forest
+	readonly mutation: Mutation
+}
+
+const directGen: Gen<DirectCase> = (source) => {
+	const forest = source.draw(forestGen(2, source.draw(int(0, 2)), source.draw(int(1, 2))))
+	const rows = numbered(forest).length
+	const row = source.draw(int(0, rows - 1))
+	const mutation = source.draw(
+		weighted<Mutation>([
+			[2, constant({ kind: "none" })],
+			[5, (s) => ({ kind: "field", row, field: s.draw(element(writtenFields)) })],
+			[1, constant({ kind: "field", row: 0, field: "at" })],
+			[
+				2,
+				(s) =>
+					forest.length > 1
+						? { kind: "root", row, tree: s.draw(int(0, forest.length - 1)) }
+						: { kind: "none" }
+			]
+		])
+	)
+	return { forest, mutation }
+}
+
+/** A forest's numbered rows with its mutation applied. */
+const mutatedRows = (c: DirectCase): ReadonlyArray<KeyedRow> =>
+	Arr.map(numbered(c.forest), (r, i): KeyedRow => {
+		const m = c.mutation
+		if (m.kind === "none" || m.row !== i) {
+			return r
+		}
+		if (m.kind === "root") {
+			return { ...r, root: defined(c.forest[m.tree], "a tree of the forest").root }
+		}
+		switch (m.field) {
+			case "parent":
+				return { ...r, parent: r.parent + 1 }
+			case "at":
+				return { ...r, at: r.at + 1 }
+			case "children":
+				return { ...r, children: r.children + 1 }
+			case "start":
+				return { ...r, start: r.start + 1 }
+			case "end":
+				return { ...r, end: r.end + 1 }
+			case "‹n›":
+				return { ...r, copy: r.copy + 1 }
+			case "parentKind":
+				return { ...r, parentKind: r.parentKind + 1 }
+		}
+	})
+
+/** A row as the Copied relation holds it: every field of KeyedRow but the fold's total, which it does not state. */
+const copiedView = (r: KeyedRow): Omit<KeyedRow, "total"> => ({
+	root: r.root,
+	parent: r.parent,
+	at: r.at,
+	children: r.children,
+	start: r.start,
+	end: r.end,
+	copy: r.copy,
+	kind: r.kind,
+	parentKind: r.parentKind
+})
+
+type DirectFeature =
+	| "a lawful forest committed"
+	| "an unlawful state refused"
+	| `a wrong ${Written} refused`
+	| "a row under another tree's root refused"
+	| "a root off slot 0 refused"
+
 layer(Substrate.layer, { excludeTestServices: true })(
 	"a tree keyed by its root fields then its start",
 	(it) => {
@@ -617,6 +754,104 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							)
 						}).pipe((body) =>
 							Effect.flatMap(Layer.build(layers), (context) => Effect.provideContext(body, context))
+						)
+					}).pipe(Effect.scoped)
+				)
+		)
+		it.effect(
+			"commits exactly the lawful states a direct writer writes, each root value's rows one tree with its parent's start, slots, intervals and copies",
+			(ctx) =>
+				searched(
+					ctx,
+					Effect.gen(function* () {
+						const seat = yield* seatOf(CopiedRoots, ["Node"], "keyed direct")
+						const columns = [
+							"site",
+							"page",
+							"parent",
+							"at",
+							"children",
+							"start",
+							"end",
+							"‹n›",
+							"kind",
+							"parentKind"
+						] as const
+						const valuesOf = (r: KeyedRow): ReadonlyArray<string> => [
+							defined(r.root[0], "a site"),
+							`'${defined(r.root[1], "a page")}'`,
+							String(r.parent),
+							String(r.at),
+							String(r.children),
+							String(r.start),
+							String(r.end),
+							String(r.copy),
+							String(r.kind),
+							String(r.parentKind)
+						]
+						return yield* explore(
+							{
+								suite: "pg/fin/tree-keyed-direct",
+								draw: drawn(directGen),
+								literal: Formatter.format,
+								oracle: {
+									kind: "specification",
+									name: "the theorem as a checker: a state is lawful exactly when it is the direct pre-order numbering of the forest its keys and parent links describe (test/support/families/tree.ts lawful)"
+								},
+								coverage: required<DirectFeature>(
+									[
+										"a lawful forest committed",
+										"an unlawful state refused",
+										...Arr.map(writtenFields, (f): DirectFeature => `a wrong ${f} refused`),
+										"a row under another tree's root refused",
+										"a root off slot 0 refused"
+									],
+									{ cases: 64, sense: notesOnly }
+								),
+								kept: [],
+								runs: 32,
+								shrink: completeShrink,
+								concurrency: 1,
+								steerEvery: 8,
+								caseHang
+							},
+							(c, cx) =>
+								Effect.gen(function* () {
+									const rows = mutatedRows(c)
+									const isLawful = lawful(rows, copiedView)
+									const [first, ...rest] = rows
+									if (first === undefined) {
+										return assert.fail("a forest holds a row")
+									}
+									const insert = `INSERT INTO ${seat.table("Node")} (${Arr.join(
+										Arr.map(columns, (role) => seat.column("Node", role)),
+										", "
+									)}) VALUES ${Arr.join(
+										Arr.map([first, ...rest], (r) => `(${Arr.join(valuesOf(r), ", ")})`),
+										", "
+									)}`
+									const real = yield* attemptChecked(seat.session, [insert], Effect.void)
+									if ((real.kind === "committed") !== isLawful) {
+										return assert.fail(
+											`PostgreSQL ${real.kind === "committed" ? "committed" : `refused (${refusalText(real.fields)})`} a state the theorem calls ${isLawful ? "lawful" : "unlawful"}: ${Formatter.format(rows)}`
+										)
+									}
+									const m = c.mutation
+									if (isLawful) {
+										cx.note("a lawful forest committed")
+										return
+									}
+									cx.note("an unlawful state refused")
+									if (m.kind === "field") {
+										cx.note(`a wrong ${m.field} refused`)
+										if (m.field === "at" && defined(rows[m.row], "the mutated row").start === 0) {
+											cx.note("a root off slot 0 refused")
+										}
+									}
+									if (m.kind === "root") {
+										cx.note("a row under another tree's root refused")
+									}
+								})
 						)
 					}).pipe(Effect.scoped)
 				)

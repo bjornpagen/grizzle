@@ -173,12 +173,14 @@ export const canonicalRows = (rows: ReadonlyArray<KeyedRow>): ReadonlyArray<Keye
 
 /**
  * The theorem as a checker: a state is lawful exactly when it is the direct pre-order numbering of the forest its keys
- * and parent links describe, every slot, count, interval and copy included.
+ * and parent links describe, in every field `view` reads of a row, the fields its relation holds: its slots, counts,
+ * intervals and whatever copies and folds it states.
  */
-export const lawful = (rows: ReadonlyArray<KeyedRow>): boolean =>
+export const lawful = (rows: ReadonlyArray<KeyedRow>, view: (row: KeyedRow) => unknown): boolean =>
 	Option.match(forestOf(rows), {
 		onNone: () => false,
-		onSome: (forest) => deepEquals(canonicalRows(numbered(forest)), canonicalRows(rows))
+		onSome: (forest) =>
+			deepEquals(Arr.map(canonicalRows(numbered(forest)), view), Arr.map(canonicalRows(rows), view))
 	})
 
 /**
