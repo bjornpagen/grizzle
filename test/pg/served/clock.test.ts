@@ -150,17 +150,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						(c, notes) =>
 							Effect.gen(function* () {
 								notes.note(c.unit)
-								const opened = yield* installed(
-									Clock,
-									{ Wanted: [], Stamp: [], Mark: [], Bounds: [] },
-									{ label: "clock", programs: {} }
-								)
-								const s = opened.schema
-								const instant = () => query(s).rule((r) => r.find({ now: r.param("now", Instant) }))
+								const instant = () =>
+									query(Clock).rule((r) => r.find({ now: r.param("now", Instant) }))
 								const stampsOf = (target: typeof Stamp | typeof Mark) =>
-									ChangeSet.empty(s).insert(
+									ChangeSet.empty(Clock).insert(
 										target,
-										query(s).rule((r) => {
+										query(Clock).rule((r) => {
 											const { key, due } = v(Wanted, "wanted")
 											return r
 												.match(Wanted, { key, due })
@@ -170,14 +165,14 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								const programs = {
 									reading: clockedMember(instant(), { now: c.unit }),
 									both: clockedMember(
-										query(s).rule((r) =>
+										query(Clock).rule((r) =>
 											r.find({ us: r.param("us", pg.bigint), ms: r.param("ms", pg.bigint) })
 										),
 										{ us: "micros", ms: "millis" }
 									),
-									want: ChangeSet.empty(s).insert(Wanted, []),
+									want: ChangeSet.empty(Clock).insert(Wanted, []),
 									due: clockedMember(
-										query(s).rule((r) => {
+										query(Clock).rule((r) => {
 											const { key, due } = v(Wanted, "wanted")
 											return r
 												.match(Wanted, { key, due })
@@ -192,23 +187,28 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										),
 										{ now: c.unit }
 									),
-									stamps: query(s).rule((r) => {
+									stamps: query(Clock).rule((r) => {
 										const { key, at: stamped } = v(Stamp, "stamp")
 										return r.match(Stamp, { key, at: stamped }).find({ key, at: stamped })
 									}),
-									marks: query(s).rule((r) => {
+									marks: query(Clock).rule((r) => {
 										const { key, at: marked } = v(Mark, "mark")
 										return r.match(Mark, { key, at: marked }).find({ key, at: marked })
 									}),
 									before: clockedMember(
-										query(s).rule((r) => r.find({ now: r.param("now", Before2100) })),
+										query(Clock).rule((r) => r.find({ now: r.param("now", Before2100) })),
 										{ now: "millis" }
 									),
 									after: clockedMember(
-										query(s).rule((r) => r.find({ now: r.param("now", After2100) })),
+										query(Clock).rule((r) => r.find({ now: r.param("now", After2100) })),
 										{ now: "millis" }
 									)
 								}
+								const opened = yield* installed(
+									Clock,
+									{ Wanted: [], Stamp: [], Mark: [], Bounds: [] },
+									{ label: "clock", programs }
+								)
 								yield* withServedDb(
 									opened.installed,
 									opened.server.roles.app,

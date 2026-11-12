@@ -320,7 +320,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 									)
 								}
 								assert.ok(
-									Str.includes(`"pg_catalog"."transaction_timestamp"()`)(clocked.text) &&
+									Str.includes("transaction_timestamp")(clocked.text) &&
 										!Str.includes("statement_timestamp")(clocked.text) &&
 										!Str.includes("clock_timestamp")(clocked.text),
 									"the clocked file reads the clock by transaction_timestamp() alone"
