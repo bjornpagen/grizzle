@@ -34,13 +34,14 @@ library, with the tests, benches and scripts at its root:
 
 ## Development environment
 
-Everything runs natively on one macOS machine through Homebrew. There is no Docker, no container image and no hosted
-CI and no commit gate. The typecheck and lint, `pnpm check`, run by hand before a release.
+Everything runs natively on one Linux machine, Ubuntu. There is no Docker, no container image and no hosted CI and no
+commit gate. The typecheck and lint, `pnpm check`, run by hand before a release.
 
-- **Toolchain:** `brew install node pnpm meson ninja pkgconf bison flex openssl@3 lz4 zstd readline`. You need
-  Node 26 or later, and pnpm at the version `packageManager` pins; `pnpm install` patches TypeScript 7.1 beta for
-  `@effect/tsgo` (the `prepare` script). Development has no build step: Node runs each package's `src/*.ts` directly
-  through type stripping, and tests and scripts import src. The repository resolves its own package names to their
+- **Toolchain:** `apt install build-essential meson ninja-build pkg-config bison flex libssl-dev liblz4-dev libzstd-dev
+  libreadline-dev zlib1g-dev python3 curl git`. You need Node 26 or later, and pnpm at the version `packageManager`
+  pins; `pnpm install` patches TypeScript 7.1 beta for `@effect/tsgo` (the `prepare` script). Development has no build
+  step: Node runs each package's `src/*.ts` directly through type stripping, and tests and scripts import src. The
+  repository resolves its own package names to their
   `src/` (`packages/grizzle/src/index.ts`, `packages/engine/src/index.ts`) through the `grizzle-source` export
   condition, which comes first in each package's `exports`: `tsconfig.json`, `packages/grizzle/tsconfig.json` and the
   type-test batch's programs name it in `customConditions`, and every Node process the repository starts on its own code

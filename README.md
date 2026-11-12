@@ -3593,13 +3593,13 @@ grizzle fits applications that own their data end to end, with rules worth decla
 
 ## Status
 
-grizzle 1.0.0-beta.1 is the first public beta, published on npm under the `beta` tag. It is tested against PostgreSQL 19rc1, patched as above; PostgreSQL 19 GA is due 2026-11-19. The test suite runs on macOS against that pinned build.
+grizzle 1.0.0-beta.1 is the first public beta, published on npm under the `beta` tag. It is tested against PostgreSQL 19rc1, patched as above; PostgreSQL 19 GA is due 2026-11-19. The test suite runs on Linux against that pinned build.
 
 There are no stability guarantees. Every release is a hard cutover, with no deprecations and no compatibility path for the API, snapshots or migration files.
 
 ## Development
 
-Everything runs natively on macOS through Homebrew, with no Docker. Development has no build step: Node runs each package's `src/*.ts` directly, resolving the packages' names to their `src/` through the `grizzle-source` export condition. `pnpm build` emits each package's published `dist/`; packing or publishing a package runs it first.
+Everything runs natively on Linux, with no Docker. Development has no build step: Node runs each package's `src/*.ts` directly, resolving the packages' names to their `src/` through the `grizzle-source` export condition. `pnpm build` emits each package's published `dist/`; packing or publishing a package runs it first.
 
 ```sh
 pnpm install
