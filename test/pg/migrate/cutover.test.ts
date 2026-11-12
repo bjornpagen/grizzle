@@ -14,6 +14,9 @@
  * - a relation re-keyed from its uuid to the compound key, every relation that references it re-pointed to the new key
  *   (its uuid field dropped, three fields added), the new fields filled by the reviewer's data step; several re-keys in
  *   one version make chains and diamonds of re-keyed references;
+ * - a relation re-keyed from its uuid to one text, a manifest identifier's shape, every reference to it keeping its
+ *   name and changing its type from the uuid to the text (CONTRACT's `package`), each referencing row's value the
+ *   reviewer's correlated read of the re-keyed row's new key through the old uuid;
  * - an ordered family switched to counted: the position goes, the set remains;
  * - an ordered family dropped, its member keeping a plain containment of its owner (Entry losing `at`);
  * - stored generated columns added in bulk to one relation;
@@ -51,7 +54,8 @@
  * Oracle: the world model, a second implementation of what every fact is after each delta, judged by PostgreSQL: the
  * rows it holds, the catalog of a fresh install, and the table_rewrite events it fires.
  *
- * Features: each delta; a re-keyed relation referenced by two relations, and by a re-keyed relation; an ordered
+ * Features: each delta, a reference re-pointed under its own name among them; a re-keyed relation referenced by two
+ * relations, and by a re-keyed relation; an ordered
  * family's owner re-keyed and an ordered member re-keyed; ordered to counted with a fold over the family; a dropped
  * position a fold read; a key near BTMaxItemSize admitted and one past it refused; and a version with all six deltas.
  * Each is aimed at by a steered case, drawn over a world that holds every structure, never by filtering draws.
@@ -59,8 +63,10 @@
  * Plants (~/.cache/grizzle-release/MIGSTRESS/plants): cutover-fk-keeps-old-key (a re-pointed foreign key keeps the
  * referenced table's old key), cutover-backfill-skips-rows (the family backfill skips a row of each group),
  * cutover-alter-per-column (each added column its own ALTER TABLE, one rewrite per column),
- * cutover-counted-keeps-ordered-check (ordered to counted leaves the ordered family's index CHECK), and
- * cutover-fold-reads-dropped-position (a fold keeps reading the position its family dropped).
+ * cutover-counted-keeps-ordered-index (ordered to counted, or a family dropped, leaves the ordered index `at` its CHECK
+ * read), cutover-fold-reads-dropped-position (a family dropped leaves its fold's end on the owner), and
+ * cutover-order-renumbered (a re-pointed sequence's stored index drawn again in its members' key order, which
+ * a3b86f66 fixed).
  *
  * The file builds Substrate.isolatedLayer: the rewrite observer's event trigger is the database's.
  */
@@ -162,8 +168,15 @@ interface Widths {
 	readonly near: boolean
 }
 
-/** A relation's key: its uuid `id`, or the compound (`ka`, `kb`, `kc`) of two texts of its widths and a bigint. */
-type Key = { readonly kind: "uuid" } | { readonly kind: "compound"; readonly widths: Widths }
+/** A relation's key: its uuid `id`; the compound (`ka`, `kb`, `kc`) of two texts of its widths and a bigint; or the one
+ * text `ki` of its width, a manifest identifier's shape, which a reference holds under the reference's own name. */
+type Key =
+	| { readonly kind: "uuid" }
+	| { readonly kind: "compound"; readonly widths: Widths }
+	| { readonly kind: "identifier"; readonly width: number; readonly near: boolean }
+
+/** A key a re-key gives: compound or an identifier. */
+type NewKey = Exclude<Key, { readonly kind: "uuid" }>
 
 /** How a relation references one before it: a plain containment, or as the member of the target's ordered or counted
  * family, folded by a sum of its `x` into the target's end or not. */
@@ -204,7 +217,7 @@ type Facts = ReadonlyArray<ReadonlyArray<Fact>>
 
 /** One delta a pending version holds, by the relation it changes. */
 type Delta =
-	| { readonly kind: "re-key"; readonly rel: number; readonly widths: Widths }
+	| { readonly kind: "re-key"; readonly rel: number; readonly key: NewKey }
 	| { readonly kind: "ordered to counted"; readonly rel: number }
 	| { readonly kind: "position dropped"; readonly rel: number }
 	| { readonly kind: "generated in bulk"; readonly rel: number; readonly count: number }
@@ -320,6 +333,10 @@ const nearWidth: number = (() => {
 /** Half of BTMaxItemSize, 2,704 bytes: two texts wider than it make a key no B-tree entry holds. */
 const halfLimit = 1352
 
+/** The widest one text grizzle's documented bound admits beside four bigints: the width "near" draws for an
+ * identifier. */
+const nearIdentifier: number = keyTextBytes([pg.bigint, pg.bigint, pg.bigint, pg.bigint])
+
 /** A re-key's widths: short ones, or at the documented bound, each text drawn apart. */
 const widthsGen =
 	(near: boolean): Gen<Widths> =>
@@ -348,12 +365,13 @@ const uuidOf = (r: number, serial: number): string =>
  * the prefix then four-byte characters of a Park-Miller sequence seeded by the fact, which no compression shortens,
  * then ASCII to the width.
  */
-const textOf = (tag: "a" | "b", r: number, serial: number, width: number): string => {
+const textOf = (tag: "a" | "b" | "i", r: number, serial: number, width: number): string => {
 	const prefix = `${tag}${r}.${serial}.`
 	if (serial % 2 === 1) {
 		return prefix
 	}
-	let state = (serial * 7919 + r * 104_729 + (tag === "a" ? 1 : 2)) % 2_147_483_647
+	let state =
+		(serial * 7919 + r * 104_729 + (tag === "a" ? 1 : tag === "b" ? 2 : 3)) % 2_147_483_647
 	const wide = Math.floor((width - prefix.length) / 4)
 	const chars = Arr.map(indices(wide), () => {
 		state = (state * 48_271) % 2_147_483_647
@@ -367,18 +385,27 @@ const filledOf = (serial: number, k: number): number => (serial * 31 + k * 17) %
 
 /** A key's fields, by name. */
 const keyFields = (key: Key): Arr.NonEmptyReadonlyArray<string> =>
-	key.kind === "uuid" ? ["id"] : ["ka", "kb", "kc"]
+	key.kind === "uuid" ? ["id"] : key.kind === "identifier" ? ["ki"] : ["ka", "kb", "kc"]
 
 /** The fields a reference to `t` holds, as `t`'s key is. */
 const refFields = (w: World, t: number): Arr.NonEmptyReadonlyArray<string> =>
-	nth(w.rels, t, "relation").key.kind === "uuid" ? [`p${t}`] : [`p${t}a`, `p${t}b`, `p${t}c`]
+	nth(w.rels, t, "relation").key.kind === "compound" ? [`p${t}a`, `p${t}b`, `p${t}c`] : [`p${t}`]
 
 /** The key values of a fact of `r`, as text, in key field order. */
 const keyValues = (w: World, r: number, serial: number): Arr.NonEmptyReadonlyArray<string> => {
 	const key = nth(w.rels, r, "relation").key
-	return key.kind === "uuid"
-		? [uuidOf(r, serial)]
-		: [textOf("a", r, serial, key.widths.a), textOf("b", r, serial, key.widths.b), String(serial)]
+	switch (key.kind) {
+		case "uuid":
+			return [uuidOf(r, serial)]
+		case "identifier":
+			return [textOf("i", r, serial, key.width)]
+		case "compound":
+			return [
+				textOf("a", r, serial, key.widths.a),
+				textOf("b", r, serial, key.widths.b),
+				String(serial)
+			]
+	}
 }
 
 /** The fields of a relation's row the model states, in order: key, references, payload, position, owned counts and
@@ -450,21 +477,33 @@ const builtOf = (w: World, declared: string) => {
 	const valueAt = (t: number): AnyRelation => nth(values, t, "relation value")
 	for (const [r, rel] of w.rels.entries()) {
 		const fields: Record<string, FieldBase> = {}
-		if (rel.key.kind === "uuid") {
-			fields["id"] = uuid
-		} else {
-			fields["ka"] = textField(rel.key.widths.a)
-			fields["kb"] = textField(rel.key.widths.b)
-			fields["kc"] = pg.bigint
+		switch (rel.key.kind) {
+			case "uuid":
+				fields["id"] = uuid
+				break
+			case "identifier":
+				fields["ki"] = textField(rel.key.width)
+				break
+			case "compound":
+				fields["ka"] = textField(rel.key.widths.a)
+				fields["kb"] = textField(rel.key.widths.b)
+				fields["kc"] = pg.bigint
+				break
 		}
 		for (const ref of rel.refs) {
 			const target = nth(w.rels, ref.target, "relation")
-			if (target.key.kind === "uuid") {
-				fields[`p${ref.target}`] = uuid
-			} else {
-				fields[`p${ref.target}a`] = textField(target.key.widths.a)
-				fields[`p${ref.target}b`] = textField(target.key.widths.b)
-				fields[`p${ref.target}c`] = pg.bigint
+			switch (target.key.kind) {
+				case "uuid":
+					fields[`p${ref.target}`] = uuid
+					break
+				case "identifier":
+					fields[`p${ref.target}`] = textField(target.key.width)
+					break
+				case "compound":
+					fields[`p${ref.target}a`] = textField(target.key.widths.a)
+					fields[`p${ref.target}b`] = textField(target.key.widths.b)
+					fields[`p${ref.target}c`] = pg.bigint
+					break
 			}
 		}
 		fields["x"] = pg.integer
@@ -665,6 +704,11 @@ const batchGen =
 
 type Params = {
 	readonly "re-key a relation": { readonly rel: number; readonly widths: Widths }
+	readonly "re-key a relation to an identifier its references keep their names over": {
+		readonly rel: number
+		readonly width: number
+		readonly near: boolean
+	}
 	readonly "re-key a relation past BTMaxItemSize": { readonly rel: number; readonly widths: Widths }
 	readonly "switch an ordered family to counted": { readonly rel: number }
 	readonly "drop an ordered family's position": { readonly rel: number }
@@ -680,6 +724,14 @@ const pendingDelta = (m: Model, delta: Delta, pending: World): Model => ({
 	pending,
 	deltas: [...m.deltas, delta]
 })
+
+/** The model with `r` re-keyed to `key` in the pending version. */
+const reKeyed = (m: Model, r: number, key: NewKey): Model =>
+	pendingDelta(
+		m,
+		{ kind: "re-key", rel: r, key },
+		withRel(m.pending, r, (rel) => ({ ...rel, key }))
+	)
 
 const generable = (m: Model): ReadonlyArray<number> =>
 	Arr.filter(
@@ -712,17 +764,24 @@ const machineOf = (
 				),
 				widths: source.draw(near ? widthsGen(true) : (s) => s.draw(widthsGen(s.draw(boolean))))
 			}),
-			judge: (m, p) =>
-				accepted(
-					pendingDelta(
-						m,
-						{ kind: "re-key", rel: p.rel, widths: p.widths },
-						withRel(m.pending, p.rel, (rel) => ({
-							...rel,
-							key: { kind: "compound", widths: p.widths }
-						}))
-					)
+			judge: (m, p) => accepted(reKeyed(m, p.rel, { kind: "compound", widths: p.widths }))
+		},
+		"re-key a relation to an identifier its references keep their names over": {
+			weight: 2,
+			applies: (m) => keyedBy(m.pending, "uuid").length > 0,
+			parameters: (m) => (source) => {
+				const rel = source.draw(
+					element(nonEmptyList(keyedBy(m.pending, "uuid"), "a uuid-keyed relation"))
 				)
+				const atBound = near || source.draw(boolean)
+				return {
+					rel,
+					width: atBound ? nearIdentifier - source.draw(int(0, 3)) : source.draw(int(16, 64)),
+					near: atBound
+				}
+			},
+			judge: (m, p) =>
+				accepted(reKeyed(m, p.rel, { kind: "identifier", width: p.width, near: p.near }))
 		},
 		"re-key a relation past BTMaxItemSize": {
 			weight: 1,
@@ -903,6 +962,7 @@ type Feature =
 	| "a key near BTMaxItemSize admitted"
 	| "a key past BTMaxItemSize refused"
 	| "a version with all six deltas"
+	| "a reference re-pointed under its own name"
 
 const features: Arr.NonEmptyReadonlyArray<Feature> = [
 	"a relation re-keyed",
@@ -919,7 +979,8 @@ const features: Arr.NonEmptyReadonlyArray<Feature> = [
 	"a field filled by a data step over stored rows",
 	"a key near BTMaxItemSize admitted",
 	"a key past BTMaxItemSize refused",
-	"a version with all six deltas"
+	"a version with all six deltas",
+	"a reference re-pointed under its own name"
 ]
 
 /** Whether a version re-keys a relation a relation it re-keys references: delta 4, re-keyed relations chained. */
@@ -958,6 +1019,12 @@ const aimOf = (f: Feature, m: Model): ReadonlyArray<CommandName> => {
 			return or(lacking("data-step field", "add a field filled by a data step"))
 		case "a key past BTMaxItemSize refused":
 			return ["re-key a relation past BTMaxItemSize"]
+		case "a reference re-pointed under its own name":
+			return or(
+				Arr.some(deltasOf(m, "re-key"), (d) => d.key.kind === "identifier")
+					? []
+					: ["re-key a relation to an identifier its references keep their names over"]
+			)
 		case "a version with all six deltas":
 			return or([
 				...(chainedReKeys(m) ? [] : (["re-key a relation"] as const)),
@@ -985,6 +1052,9 @@ const aimedAt = (
 		initial: base.initial,
 		commands: {
 			"re-key a relation": aimed("re-key a relation"),
+			"re-key a relation to an identifier its references keep their names over": aimed(
+				"re-key a relation to an identifier its references keep their names over"
+			),
 			"re-key a relation past BTMaxItemSize": aimed("re-key a relation past BTMaxItemSize"),
 			"switch an ordered family to counted": aimed("switch an ordered family to counted"),
 			"drop an ordered family's position": aimed("drop an ordered family's position"),
@@ -1003,6 +1073,7 @@ interface Cutover {
 
 const deltaCommands: Arr.NonEmptyReadonlyArray<CommandName> = [
 	"re-key a relation",
+	"re-key a relation to an identifier its references keep their names over",
 	"re-key a relation past BTMaxItemSize",
 	"switch an ordered family to counted",
 	"drop an ordered family's position",
@@ -1065,7 +1136,7 @@ const declarationsOf = (m: Model): Declarations => {
 	const drops: Array<Named> = []
 	for (const d of deltasOf(m, "re-key")) {
 		drops.push({ kind: "field", relation: parsedName(relName(d.rel)), field: parsedName("id") })
-		for (const s of referencersOf(m.installed, d.rel)) {
+		for (const s of d.key.kind === "compound" ? referencersOf(m.installed, d.rel) : []) {
 			drops.push({
 				kind: "field",
 				relation: parsedName(relName(s)),
@@ -1083,13 +1154,27 @@ const placeholdersOf = (h: History, m: Model): ReadonlyMap<string, string> => {
 	const add = (r: number, field: string, value: string) =>
 		out.set(`${tableOf(h, r)}\u0000${identifierOf(identity.column(parsedName(field)))}`, value)
 	for (const d of deltasOf(m, "re-key")) {
-		add(d.rel, "ka", "''")
-		add(d.rel, "kb", "''")
-		add(d.rel, "kc", "0")
-		for (const s of referencersOf(m.installed, d.rel)) {
-			add(s, `p${d.rel}a`, "''")
-			add(s, `p${d.rel}b`, "''")
-			add(s, `p${d.rel}c`, "0")
+		switch (d.key.kind) {
+			case "compound":
+				add(d.rel, "ka", "''")
+				add(d.rel, "kb", "''")
+				add(d.rel, "kc", "0")
+				for (const s of referencersOf(m.installed, d.rel)) {
+					add(s, `p${d.rel}a`, "''")
+					add(s, `p${d.rel}b`, "''")
+					add(s, `p${d.rel}c`, "0")
+				}
+				break
+			case "identifier":
+				add(d.rel, "ki", "''")
+				for (const s of referencersOf(m.installed, d.rel)) {
+					add(
+						s,
+						`p${d.rel}`,
+						`(SELECT "r".${column("ki")} FROM ${tableOf(h, d.rel)} AS "r" WHERE "r".${column("id")} = "t".${column(`p${d.rel}`)})`
+					)
+				}
+				break
 		}
 	}
 	for (const d of deltasOf(m, "data-step field")) {
@@ -1109,9 +1194,14 @@ const int8Literal = (value: string): string => `${value}::"pg_catalog"."int8"`
 /** The literals of a fact's key of `r` in world `w`, in key field order. */
 const keyLiterals = (w: World, r: number, serial: number): ReadonlyArray<string> => {
 	const values = keyValues(w, r, serial)
-	return nth(w.rels, r, "relation").key.kind === "uuid"
-		? Arr.map(values, uuidLiteral)
-		: Arr.map(values, (v, i) => (i === 2 ? int8Literal(v) : textLiteral(v)))
+	switch (nth(w.rels, r, "relation").key.kind) {
+		case "uuid":
+			return Arr.map(values, uuidLiteral)
+		case "identifier":
+			return Arr.map(values, textLiteral)
+		case "compound":
+			return Arr.map(values, (v, i) => (i === 2 ? int8Literal(v) : textLiteral(v)))
+	}
 }
 
 /** VALUES of rows, each its literals. */
@@ -1139,12 +1229,19 @@ const dataStepOf = (h: History, m: Model): ReadonlyArray<string> => {
 			uuidLiteral(uuidOf(d.rel, f.serial)),
 			...keyLiterals(after, d.rel, f.serial)
 		])
+		const fields = keyFields(d.key)
 		return [
-			`UPDATE ${tableOf(h, d.rel)} AS "t" SET ${column("ka")} = "m"."ka", ${column("kb")} = "m"."kb", ${column("kc")} = "m"."kc" FROM ${valuesOf(rows)} AS "m" ("old", "ka", "kb", "kc") WHERE "t".${column("id")} = "m"."old";`
+			`UPDATE ${tableOf(h, d.rel)} AS "t" SET ${Arr.join(
+				Arr.map(fields, (k, i) => `${column(k)} = "m"."k${i}"`),
+				", "
+			)} FROM ${valuesOf(rows)} AS "m" ("old", ${Arr.join(
+				Arr.map(fields, (_, i) => `"k${i}"`),
+				", "
+			)}) WHERE "t".${column("id")} = "m"."old";`
 		]
 	})
 	const pointing = Arr.flatMap(rekeys, (d) =>
-		Arr.flatMap(referencersOf(before, d.rel), (s) =>
+		Arr.flatMap(d.key.kind === "compound" ? referencersOf(before, d.rel) : [], (s) =>
 			nth(m.facts, s, "facts").length === 0
 				? []
 				: [
@@ -1174,33 +1271,56 @@ const dataStepOf = (h: History, m: Model): ReadonlyArray<string> => {
 	return [...own, ...pointing, ...filled]
 }
 
+/** The words of a placeholder marker that asks for a new column's value (deploy/render/sql.ts), never a set-aside
+ * column's fill, which runs after every new column's and reads what the data step writes. */
+const newColumnMarker = "needs a value for the new column"
+
 /**
- * A drafted folder with the data step below the last placeholder of the file that holds placeholders: after the two
- * statements that follow its marker, the column's ADD and its DROP DEFAULT, each ending a line at its semicolon. A
- * draft whose placeholders are not where the model put them is a failure of the property.
+ * A drafted folder with the data step below the last placeholder of a new column: after the two statements that follow
+ * its marker, the table's ADD and its DROP DEFAULT, each ending a line at its semicolon, so it runs after every new
+ * column is added and before any set-aside column's fill, the backfill and the constraints read them. A data step the
+ * draft gives no such place to is a failure of the property.
  */
 const withDataStep = (g: GenerateResult, step: ReadonlyArray<string>): GenerateResult => {
 	if (step.length === 0) {
 		return g
 	}
-	const files = Arr.map(g.folder.files, (f) => {
-		const lines = Str.split(f.text, "\n")
-		const last = Arr.findLastIndex(lines, (l) =>
-			pipe(Str.trimStart(l), Str.startsWith(placeholderMarker))
+	const at = (text: string): Option.Option<number> => {
+		const lines = Str.split(text, "\n")
+		return Option.map(
+			Arr.findLastIndex(
+				lines,
+				(l) =>
+					pipe(Str.trimStart(l), Str.startsWith(placeholderMarker)) &&
+					pipe(l, Str.includes(newColumnMarker))
+			),
+			(last) =>
+				nth(
+					Arr.filter(
+						indices(lines.length),
+						(i) => i > last && pipe(nth(lines, i, "line"), Str.trimEnd, Str.endsWith(";"))
+					),
+					1,
+					"the end of the last new column's DROP DEFAULT"
+				)
 		)
-		if (Option.isNone(last)) {
-			return f
-		}
-		const ends = Arr.filter(
-			indices(lines.length),
-			(i) => i > last.value && pipe(nth(lines, i, "line"), Str.trimEnd, Str.endsWith(";"))
-		)
-		const at = nth(ends, 1, "the end of the last placeholder's DROP DEFAULT")
-		return {
-			...f,
-			text: Arr.join([...lines.slice(0, at + 1), "", ...step, ...lines.slice(at + 1)], "\n")
-		}
-	})
+	}
+	assert.ok(
+		Arr.some(g.folder.files, (f) => Option.isSome(at(f.text))),
+		`the draft ${g.folder.name} has no new column below which its data step goes`
+	)
+	const files = Arr.map(g.folder.files, (f) =>
+		Option.match(at(f.text), {
+			onNone: () => f,
+			onSome: (end) => {
+				const lines = Str.split(f.text, "\n")
+				return {
+					...f,
+					text: Arr.join([...lines.slice(0, end + 1), "", ...step, ...lines.slice(end + 1)], "\n")
+				}
+			}
+		})
+	)
 	return { ...g, folder: { ...g.folder, files } }
 }
 
@@ -1294,6 +1414,14 @@ const noteMigration = (m: Model, note: (f: Feature) => void): void => {
 	if (rekeys.length > 1) {
 		note("several relations re-keyed in one migration")
 	}
+	if (
+		Arr.some(
+			rekeys,
+			(d) => d.key.kind === "identifier" && Arr.some(referencersOf(m.pending, d.rel), holds)
+		)
+	) {
+		note("a reference re-pointed under its own name")
+	}
 	for (const r of rekeyed) {
 		const referencers = referencersOf(m.pending, r)
 		if (referencers.length > 1) {
@@ -1312,7 +1440,9 @@ const noteMigration = (m: Model, note: (f: Feature) => void): void => {
 	if (
 		Arr.some(
 			rekeys,
-			(d) => d.widths.near && Arr.some(nth(m.facts, d.rel, "facts"), (f) => f.serial % 2 === 0)
+			(d) =>
+				(d.key.kind === "compound" ? d.key.widths.near : d.key.near) &&
+				Arr.some(nth(m.facts, d.rel, "facts"), (f) => f.serial % 2 === 0)
 		)
 	) {
 		note("a key near BTMaxItemSize admitted")
@@ -1458,7 +1588,7 @@ const migration = (
 	)
 
 /** A re-key past the limit: the draft of the pending version with it is refused as UnrepresentableKey over the
- * relation's two texts, and nothing is applied. */
+ * relation's two texts, as its own key holds them or a reference to it does, and nothing is applied. */
 const pastLimit = (h: History, before: Model, p: Params["re-key a relation past BTMaxItemSize"]) =>
 	Effect.sync(() => {
 		const world = withRel(before.pending, p.rel, (rel) => ({
@@ -1480,8 +1610,8 @@ const pastLimit = (h: History, before: Model, p: Params["re-key a relation past 
 		const reason = plan.error.reason
 		assert.ok(
 			reason._tag === "UnrepresentableKey" &&
-				reason.key.includes("ka") &&
-				reason.key.includes("kb"),
+				((reason.key.includes("ka") && reason.key.includes("kb")) ||
+					(reason.key.includes(`p${p.rel}a`) && reason.key.includes(`p${p.rel}b`))),
 			`a re-key of ${relName(p.rel)} past the limit is refused otherwise: ${plan.error.message}`
 		)
 		return refused<"UnrepresentableKey">("UnrepresentableKey")
@@ -1501,6 +1631,7 @@ const real = (
 	const modelOnly = () => Effect.succeed(took)
 	return {
 		"re-key a relation": modelOnly,
+		"re-key a relation to an identifier its references keep their names over": modelOnly,
 		"re-key a relation past BTMaxItemSize": (p, before) =>
 			Effect.tap(pastLimit(h, before, p), (answer) =>
 				Effect.sync(() => {
