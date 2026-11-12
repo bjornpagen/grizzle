@@ -1072,7 +1072,7 @@ export const uuidOfRow = (id: number): string =>
 	`00000000-0000-4000-8000-${pipe(id.toString(16), Str.padStart(12, "0"))}`
 
 /** A row's fields as the reference writer fills them, by name: a uuid's text, every number a bigint. */
-type WrittenRow = Readonly<Record<string, string | bigint>>
+export type WrittenRow = Readonly<Record<string, string | bigint>>
 
 /**
  * Every field of every row of an instance, as the reference writer fills it: see the module's header. A tree's root
@@ -1189,11 +1189,11 @@ export const writtenRows = (
 					fields["start"] = sourceValue(row, { kind: "start" })
 					fields["end"] = sourceValue(row, { kind: "end" })
 				} else {
-					const owner = up === undefined ? row : rowOf(up.owner)
 					const ownerTree = treeOn(spec, family.owner)
 					if (ownerTree === undefined) {
-						fields[groupName(f)] = uuidOfRow(owner.id)
+						fields[groupName(f)] = uuidOfRow(up === undefined ? row.id : up.owner)
 					} else {
+						const owner = up === undefined ? row : rowOf(up.owner)
 						fields[groupRootName(f)] = uuidOfRow(rootOf(owner, ownerTree).id)
 						fields[groupName(f)] = sourceValue(owner, { kind: "start" })
 					}
@@ -1230,7 +1230,7 @@ export const instanceFacts = (
  * The group fields of family `f` naming `owner`, as a fact states them: the values of the owner's primary key, its id
  * or its root and start, as the reference writer fills them in `written`.
  */
-const groupEntries = (
+export const groupEntries = (
 	spec: FillSpec,
 	written: ReadonlyMap<number, WrittenRow>,
 	f: number,

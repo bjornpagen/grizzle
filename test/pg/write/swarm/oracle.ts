@@ -45,6 +45,7 @@ import {
 	followUpRows,
 	groupName,
 	type InstanceRow,
+	keyOfRelation,
 	relationName,
 	uuidOfRow,
 	writesVerdict,
@@ -195,7 +196,7 @@ export const hostSchema = (spec: SwarmSpec, built: BuiltSwarm, laws: Laws): Host
 			name: relationName(i),
 			table: relationName(i),
 			fields: Arr.map(fieldNames(spec, { kind: "core", r: i }), (name) => ({ name, column: name })),
-			key: ["id"],
+			key: keyOfRelation(spec.fill, i),
 			mutable: r.mutable
 		})),
 		...Arr.map(spec.plains, (p, j) => ({
@@ -331,11 +332,14 @@ const numberAt = (fact: HostFact, field: string): number => {
  */
 const hostState = (spec: SwarmSpec, state: State): HostState => {
 	const stored = storedRows(spec, state)
+	const held = new Set(Arr.map(state.rows, (row) => row.id))
 	const groups = new Map(
 		Arr.map(state.rows, (row) => [
 			uuidOfRow(row.id),
 			Rec.fromEntries(
-				Arr.map(row.memberOf, (m) => [groupName(m.family), uuidOfRow(m.owner)] as const)
+				Arr.flatMap(row.memberOf, (m) =>
+					held.has(m.owner) ? [] : [[groupName(m.family), uuidOfRow(m.owner)] as const]
+				)
 			)
 		])
 	)

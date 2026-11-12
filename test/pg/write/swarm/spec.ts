@@ -56,8 +56,10 @@ import {
 	type CopySource,
 	type FamilyKind,
 	type FillSpec,
+	groupFieldsOf,
 	groupName,
 	type InstanceRow,
+	keyOfRelation,
 	relationName,
 	sourcesFor,
 	uuidOfRow
@@ -368,7 +370,9 @@ export const nonEmptyRelations = (
 
 /** The families a law over members may name: the ordered and counted ones. */
 const memberFamilies = (core: FillSpec): ReadonlyArray<number> =>
-	Arr.flatMap(core.families, (f, k) => (f.kind === "tree" ? [] : [k]))
+	Arr.flatMap(core.families, (f, k) =>
+		f.kind === "tree" || groupFieldsOf(core, k).length > 1 ? [] : [k]
+	)
 
 /**
  * The extra ends, plain relations and laws of a core under a swarm: an end of max or or over each family the swarm
@@ -635,14 +639,18 @@ const fieldsOf = (spec: SwarmSpec, r: number): Record<string, FieldBase> => {
 			}
 		}
 		if (family.member === r) {
-			fields[groupName(f)] = uuid
-			if (family.kind !== "counted") {
-				fields[indexName(f)] = drawn(natural)
-			}
 			if (family.kind === "tree") {
 				fields[rootName(f)] = uuid
+				fields[groupName(f)] = drawn(natural)
 				fields["start"] = drawn(natural)
 				fields["end"] = drawn(natural)
+			} else {
+				for (const [i, name] of groupFieldsOf(core, f).entries()) {
+					fields[name] = groupFieldsOf(core, f).length > 1 && i === 1 ? natural : uuid
+				}
+			}
+			if (family.kind !== "counted") {
+				fields[indexName(f)] = drawn(natural)
 			}
 		}
 	}
@@ -784,11 +792,11 @@ const relationValue = (spec: SwarmSpec, r: number): BuiltRelation => {
 		? generatedRelation(
 				name,
 				fields,
-				["id"],
+				keyOfRelation(spec.fill, r),
 				(row) => ({ g: generatedField(pg.bigint, row["v"], []) }),
 				[]
 			)
-		: relation(name, fields, ["id"], [])
+		: relation(name, fields, keyOfRelation(spec.fill, r), [])
 }
 
 /** A tree's member side reads every row but its root, the rows whose start is above zero. */
@@ -817,20 +825,20 @@ const schemaOf = (
 
 /** A family's statement of its kind over its member and its slots. */
 const familyStatement = (
-	kind: FamilyKind,
+	core: FillSpec,
 	f: number,
 	member: AnyRelation,
 	slots: unknown
 ): AnyFamily => {
-	switch (kind) {
+	switch (defined(core.families[f], `family ${f}`).kind) {
 		case "tree":
 			return treeBuilder(onBuilder(member, [groupName(f), indexName(f)]), slots, {
 				root: [rootName(f)]
 			})
 		case "ordered":
-			return orderedBuilder(onBuilder(member, [groupName(f), indexName(f)]), slots)
+			return orderedBuilder(onBuilder(member, [...groupFieldsOf(core, f), indexName(f)]), slots)
 		case "counted":
-			return countedBuilder(onBuilder(member, [groupName(f)]), slots)
+			return countedBuilder(onBuilder(member, groupFieldsOf(core, f)), slots)
 	}
 }
 
@@ -855,7 +863,7 @@ export const buildSwarm = (spec: SwarmSpec): BuiltSwarm => {
 		const owner = valueAt(family.owner)
 		const member = valueAt(family.member)
 		const slots = finBuilder(owner, countName(f))
-		const stated = familyStatement(family.kind, f, member, slots)
+		const stated = familyStatement(core, f, member, slots)
 		families.push(stated)
 		if (family.fold !== "none") {
 			folds.set(
@@ -863,8 +871,13 @@ export const buildSwarm = (spec: SwarmSpec): BuiltSwarm => {
 				foldBuilder(
 					stated,
 					family.fold === "sum" ? monoids.sum : monoids.count,
-					onBuilder(member, family.fold === "sum" ? [groupName(f), stepField(f)] : [groupName(f)]),
-					onBuilder(owner, ["id", foldName(f)])
+					onBuilder(
+						member,
+						family.fold === "sum"
+							? [...groupFieldsOf(core, f), stepField(f)]
+							: groupFieldsOf(core, f)
+					),
+					onBuilder(owner, [...keyOfRelation(core, family.owner), foldName(f)])
 				)
 			)
 		}
@@ -877,10 +890,13 @@ export const buildSwarm = (spec: SwarmSpec): BuiltSwarm => {
 				defined(families[end.family], "an end's family"),
 				end.monoid === "max" ? monoids.max : monoids.or,
 				onBuilder(valueAt(family.member), [
-					groupName(end.family),
+					...groupFieldsOf(core, end.family),
 					end.monoid === "max" ? "v" : "b"
 				]),
-				onBuilder(valueAt(family.owner), ["id", endName(end.family)])
+				onBuilder(valueAt(family.owner), [
+					...keyOfRelation(core, family.owner),
+					endName(end.family)
+				])
 			)
 		)
 	}
@@ -890,25 +906,23 @@ export const buildSwarm = (spec: SwarmSpec): BuiltSwarm => {
 		const member = valueAt(family.member)
 		const side = family.kind === "tree" ? treeMembers(member) : member
 		const read = sourceField(copy.source)
+		const group = groupFieldsOf(core, copy.family)
+		const key = keyOfRelation(core, family.owner)
 		switch (copy.axis) {
 			case "owner":
 				return containedBuilder(
-					onBuilder(side, [groupName(copy.family), copyName(j)]),
-					onBuilder(owner, ["id", read])
+					onBuilder(side, [...group, copyName(j)]),
+					onBuilder(owner, [...key, read])
 				)
 			case "predecessor":
 				return containedBuilder(
-					onBuilder(side, [
-						groupName(copy.family),
-						predBuilder(indexName(copy.family)),
-						copyName(j)
-					]),
-					onBuilder(side, [groupName(copy.family), indexName(copy.family), read])
+					onBuilder(side, [...group, predBuilder(indexName(copy.family)), copyName(j)]),
+					onBuilder(side, [...group, indexName(copy.family), read])
 				)
 			case "last":
 				return containedBuilder(
-					onBuilder(owner, ["id", predBuilder(countName(copy.family)), copyName(j)]),
-					onBuilder(side, [groupName(copy.family), indexName(copy.family), read])
+					onBuilder(owner, [...key, predBuilder(countName(copy.family)), copyName(j)]),
+					onBuilder(side, [...group, indexName(copy.family), read])
 				)
 		}
 	})

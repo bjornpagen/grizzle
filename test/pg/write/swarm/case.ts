@@ -39,7 +39,8 @@ import {
 	type FillSpec,
 	followUpGen,
 	followUpRows,
-	type InstanceRow
+	type InstanceRow,
+	keyOfRelation
 } from "#test/support/families/fill.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -340,7 +341,10 @@ export const stepsGen =
 				!Arr.some(r.memberOf, (m) => familyOf(spec, m.family).kind === "tree")
 		)
 		const counted = Arr.filter(rows, (r) =>
-			Arr.some(r.memberOf, (m) => familyOf(spec, m.family).kind === "counted")
+			Option.exists(
+				Arr.findFirst(r.memberOf, (m) => familyOf(spec, m.family).kind === "counted"),
+				(m) => keyOfRelation(spec.fill, familyOf(spec, m.family).owner).length === 1
+			)
 		)
 		const breakFirst = firstBreaks ? source.draw(int(0, 2)) : -1
 		const conflict =
