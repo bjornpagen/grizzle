@@ -108,11 +108,18 @@ interface MigrateOptions {
 	readonly later: ReadonlyArray<(name: string) => AnyVersion>
 	/**
 	 * The placeholder values of every generated folder's review. A folder with a placeholder under `noPlaceholders` is a
-	 * defect of the test.
+	 * defect of the test. A `reviewed` folder also takes the reviewer's data steps: each reviewed file of a version's
+	 * folder as `edit` writes it, given the version's index, as a person adds an UPDATE before a placeholder's DROP
+	 * DEFAULT.
 	 */
 	readonly apply:
 		| { readonly kind: "noPlaceholders" }
 		| { readonly kind: "values"; readonly value: Decisions["value"] }
+		| {
+				readonly kind: "reviewed"
+				readonly value: Decisions["value"]
+				readonly edit: (version: number, file: ReviewedText) => string
+		  }
 	/**
 	 * The renames and drops each version's migration declares (`--rename`, `--drop`), by the version's index, 0 the
 	 * first: every drop of stored data is declared, a roster's removed handle among them, and a renamed handle keeps its
@@ -124,6 +131,12 @@ interface MigrateOptions {
 	 * between versions, such as a role's OID that a later rename keeps; none for a test that reads nothing there.
 	 */
 	readonly observe: Option.Option<Observe>
+}
+
+/** A reviewed file of a drafted folder: its name and its text. */
+interface ReviewedText {
+	readonly name: string
+	readonly text: string
 }
 
 /** A reading between versions, given the version's index and the owner's session. */
@@ -265,8 +278,11 @@ export const migrated = (options: MigrateOptions) =>
 		const session = yield* substrate.session({ ...ownerSession(), label: `owner ${options.label}` })
 		const ownerLogin = yield* ambientOwner(ordinarySession, [identifierOf(installation)])
 		const migrator = yield* openMigrator(substrate, ownerLogin.credentials)
+		const reviewing = options.apply
 		const placeholderValue =
-			options.apply.kind === "values" ? options.apply.value : noValue(options.label)
+			reviewing.kind === "noPlaceholders" ? noValue(options.label) : reviewing.value
+		const edited = (version: number, file: ReviewedText): string =>
+			reviewing.kind === "reviewed" ? reviewing.edit(version, file) : file.text
 		const folders: Array<FolderSource> = []
 		const steps: Array<{
 			readonly version: AnyVersion
@@ -305,7 +321,7 @@ export const migrated = (options: MigrateOptions) =>
 			folders.push({
 				name: g.folder.name,
 				metaText: g.folder.metaText,
-				files: reviewed.files
+				files: Arr.map(reviewed.files, (f) => ({ name: f.name, text: edited(i, f) }))
 			})
 			yield* apply(migrator, { snapshot: g.snapshot, folders: [...folders] }, noFurther)
 			yield* Option.match(options.observe, {
