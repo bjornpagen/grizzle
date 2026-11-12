@@ -59,6 +59,18 @@ post-beta swarm's fixes for the next release.
   reordering that index, under a boolean loaded half and half: btree_gist splits the boolean cleanly, so the needed
   check would call the fix's B-tree unneeded. That is a false red of the suite, never a false claim of the engine. The
   Shift and Rota kept cases pin the mechanism with a skewed boolean.
+- **One backfill UPDATE per table and level (MIGBATCH, after the swarm gate):** each UPDATE writes a new version of
+  every row it names, which holds its space until the migration's transaction ends, so N UPDATEs of a table grow it N
+  times over before COMMIT. A table's member parts already share one UPDATE where their reads allow
+  (deploy/diff/backfill.ts merged), since each covers every row of its table and an inner join keeps them exact. An
+  owner's UPDATE (its owners with a member), a copy's (the rows its axis names) and a tree's ends (its owners) name only
+  some rows, so joining one beside another drops the rows the other names: they need `UPDATE T t ... FROM T k LEFT JOIN
+  <part> ON <its predicate over k> WHERE t.ctid = k.ctid`, each column set by CASE WHEN its part matched, which the SQL
+  AST cannot state (JoinStep is `on` or `cross`). The change is a LEFT JOIN step through sql/ast.ts, print.ts,
+  transform.ts, every exhaustive JoinStep reader and the test interpreter's UPDATE model, reviewed on its own; then each
+  part's level is 1 + the highest level of any part whose drawn columns it reads, one UPDATE per (table, level). Its
+  property: pg/migrate/backfill's values against the existing oracle, and exactly one UPDATE per (table, level); its
+  plant, one UPDATE per part again.
 - **Multi-schema follow-ups:** the guards, the planted bugs and every PostgreSQL suite's multi-level fixtures, landed
   after its first commit.
 - **Stopped 2026-11-08 to focus on speed, resume before the full verification run:**
