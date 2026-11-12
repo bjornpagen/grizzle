@@ -36,15 +36,15 @@ import {
 	type FamilyKind,
 	type FillSpec,
 	fullInstance,
-	groupName,
+	groupFieldsOf,
 	indexName,
+	keyOfRelation,
 	type InstanceRow,
 	insertedRelations,
 	instanceFacts,
 	instanceGen,
 	mutableOrDrawn,
 	plantedGen,
-	rootName,
 	relationName,
 	uuidOfRow,
 	writtenRows
@@ -119,6 +119,7 @@ type Situation =
 	| `the same instance again: ${VerdictLabel}`
 	| `the same instance stated twice in one call: ${VerdictLabel}`
 	| `${PlaceLabel}'s payload changed: ${VerdictLabel}`
+	| `${PlaceLabel} renamed: ${VerdictLabel}`
 	| `a member added to ${FamilyLabel}: ${VerdictLabel}`
 	| `a member removed from ${FamilyLabel}: ${VerdictLabel}`
 	| `a member moved in ${FamilyLabel}: ${VerdictLabel}`
@@ -156,7 +157,8 @@ const targetOf = (spec: FillSpec, stored: ReadonlyArray<InstanceRow>, d: Differe
 		)
 	switch (d.kind) {
 		case "payload":
-			return { kind: "payload", place: standingOf(spec, row(d.id)) }
+		case "renamed":
+			return { kind: d.kind, place: standingOf(spec, row(d.id)) }
 		case "added":
 			return {
 				kind: "added",
@@ -187,6 +189,8 @@ const situationOf = (t: Target, v: VerdictLabel): Situation => {
 	switch (t.kind) {
 		case "payload":
 			return `${placeLabels[t.place]}'s payload changed: ${v}`
+		case "renamed":
+			return `${placeLabels[t.place]} renamed: ${v}`
 		case "added":
 			return `a member added to ${familyLabels[t.family]}: ${v}`
 		case "removed":
@@ -266,6 +270,14 @@ const aims: Arr.NonEmptyReadonlyArray<readonly [Situation, Aim]> = [
 	],
 	["a top row left out: no-change", { kind: "target", target: { kind: "left out" } }],
 	["another instance beside: accepted", { kind: "target", target: { kind: "beside" } }],
+	[
+		"a tree node renamed: refused on a key",
+		{ kind: "target", target: { kind: "renamed", place: "tree node" } }
+	],
+	[
+		"a counted member renamed: accepted",
+		{ kind: "target", target: { kind: "renamed", place: "counted member" } }
+	],
 	["two differences in one insert", { kind: "drawn", differences: 2, twice: false }]
 ]
 
@@ -384,13 +396,10 @@ interface Laws {
 	readonly family: (family: number) => LawId
 }
 
-/**
- * The fields a witness of family `f`'s own key names: its group and index, and, for a tree, its root and start, the
- * tree's UNIQUE (root, start).
- */
-const familyKeys = (spec: FillSpec, f: number): ReadonlyArray<ReadonlyArray<string>> => [
-	[groupName(f), indexName(f)],
-	...(familyAt(spec, f).kind === "tree" ? [[rootName(f), "start"]] : [])
+/** The fields of family `f`'s own key: its group and index, a tree's root, parent and slot. */
+const familyKey = (spec: FillSpec, f: number): ReadonlyArray<string> => [
+	...groupFieldsOf(spec, f),
+	indexName(f)
 ]
 
 /**
@@ -439,13 +448,15 @@ const judgeRefused = (
 		relationName(x.relation) === witness.relation &&
 		((named.includes(laws.primaryKey(x.relation)) &&
 			Arr.some(v.keyed, (k) => k.id === x.id) &&
-			at(x, ["id"])) ||
+			at(x, keyOfRelation(spec, x.relation))) ||
 			Arr.some(
 				v.placed,
 				(p) =>
 					p.row.id === x.id &&
 					named.includes(laws.family(p.family)) &&
-					Arr.some([["id"], ...familyKeys(spec, p.family)], (fields) => at(x, fields))
+					Arr.some([keyOfRelation(spec, x.relation), familyKey(spec, p.family)], (fields) =>
+						at(x, fields)
+					)
 			))
 	assert.ok(
 		Arr.some(again, breaks),
@@ -586,7 +597,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 										assert.equal(
 											outcome.kind,
 											Arr.isReadonlyArrayNonEmpty(verdict.added) ? "accepted" : "no-change",
-											`${label}: every stated row is stored as stated, adding ${Formatter.format(Arr.map(verdict.added, (x) => x.id))}`
+											`${label}: every stated row is stored as stated, adding ${Formatter.format(Arr.map(verdict.added, (x) => x.id))}, so it is not ${Formatter.format(outcome)}`
 										)
 										if (outcome.kind === "accepted") {
 											for (const [r] of spec.relations.entries()) {

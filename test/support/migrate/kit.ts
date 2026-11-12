@@ -39,7 +39,7 @@ import {
 } from "#test/support/compile.ts"
 import type { SchemaDesc as AuthoredSchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { atDeclaredName, type InstalledAt } from "#test/support/kernel/naming.ts"
-import { owning } from "#test/support/policy.ts"
+import { ownedInput, owning } from "#test/support/policy.ts"
 
 /** What a deployment test compiles: a schema value, a decoded SchemaDesc, or a description authored as a fixture. */
 export type DeploySubject = AnySchema | SchemaDesc | AuthoredSchemaDesc
@@ -109,23 +109,25 @@ export { noDeclarations } from "#cli/renames.ts"
  * The codes `grizzle generate` drafts for `desc` from `previous` (cli/generate.ts draftInput): each roster's codes
  * continued from those of the roster it continues (previousRosters) under the handle renames `declared` declares
  * (cli/renames.ts rosterRenames), or D1's
- * refusal of a roster declared out of its codes' order. A malformed rename is a defect of the test.
+ * refusal of a roster declared out of its codes' order, or the schema's own refusal where it does not own, as the CLI
+ * meets it before it drafts (cli/generate.ts draftInput reads an owned schema). A malformed rename is a defect of the test.
  */
 export const draftCodes = (
 	desc: DeploySubject,
 	previous: Previous,
 	declared: Declarations
-): Result.Result<Codebook, CompileError> => {
-	const rosters = rostersOf(owning(desc))
-	const renames = rosterRenames(declared, rosters)
-	if (EffectResult.isFailure(renames)) {
-		throw new Error(`the test declares a rename the CLI refuses: ${renames.failure.message}`)
-	}
-	return Result.mapError(
-		draftCodebook(previousRosters(previous, declared, rosters), renames.success, rosters),
-		reorderRefusal
-	)
-}
+): Result.Result<Codebook, CompileError> =>
+	Result.flatMap(ownedInput(desc), (owned) => {
+		const rosters = rostersOf(owned)
+		const renames = rosterRenames(declared, rosters)
+		if (EffectResult.isFailure(renames)) {
+			throw new Error(`the test declares a rename the CLI refuses: ${renames.failure.message}`)
+		}
+		return Result.mapError(
+			draftCodebook(previousRosters(previous, declared, rosters), renames.success, rosters),
+			reorderRefusal
+		)
+	})
 
 /** 2026-10-12T00:00:00Z, the instant before a history's first draft. */
 const epoch = 1_791_763_200_000

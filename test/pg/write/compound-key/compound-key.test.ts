@@ -37,6 +37,7 @@ import {
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
+import { rowOf } from "#test/pg/page/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, deepEquals, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
@@ -733,8 +734,8 @@ layer(Substrate.layer, { excludeTestServices: true })("compound text keys", (it)
 							const k = aimedCase(drawnCase, c)
 							const s = k.shape
 							const b = built(s)
-							const declared = b.rename("Keyed")
 							const widestRow = widest(s, k.salt)
+							const declared = b.rename("Keyed")
 							const installedOrNot = yield* Effect.result(
 								installMigrated(declared, {
 									ambient: ordinarySession,
@@ -850,25 +851,25 @@ layer(Substrate.layer, { excludeTestServices: true })("compound text keys", (it)
 								delete: ChangeSet.empty(value).delete(b.Parent, []),
 								byKey: query(value).rule((r) => {
 									const p = v(b.Parent, "p")
-									return r
-										.match(b.Parent, p)
-										.where(
-											...Arr.map(s.key, (f) =>
-												r.eq(defined(p[f], "a key variable"), r.param(`k_${f}`, field(f)))
-											)
+									const bound = Rec.fromEntries(
+										Arr.map(Rec.keys(b.Parent.fields), (f) =>
+											Arr.some(s.key, (x) => x === f)
+												? ([f, r.param(`k_${f}`, field(f))] as const)
+												: ([f, defined(p[f], "a variable")] as const)
 										)
-										.find(p)
+									)
+									return r.match(b.Parent, bound).find(bound)
 								}),
 								byUnique: query(value).rule((r) => {
 									const p = v(b.Parent, "p")
-									return r
-										.match(b.Parent, p)
-										.where(
-											...Arr.map(s.unique, (f) =>
-												r.eq(defined(p[f], "a key variable"), r.param(`u_${f}`, field(f)))
-											)
+									const bound = Rec.fromEntries(
+										Arr.map(Rec.keys(b.Parent.fields), (f) =>
+											Arr.some(s.unique, (x) => x === f)
+												? ([f, r.param(`u_${f}`, field(f))] as const)
+												: ([f, defined(p[f], "a variable")] as const)
 										)
-										.find(p)
+									)
+									return r.match(b.Parent, bound).find(bound)
 								}),
 								childParent: query(value).rule((r) => {
 									const ch = v(b.Child, "c")
@@ -957,7 +958,8 @@ layer(Substrate.layer, { excludeTestServices: true })("compound text keys", (it)
 									Effect.gen(function* () {
 										const before = counts.sent.length
 										const result = yield* ops(member(loaded, name)).execute(params)
-										const rows = yield* result.collect
+										const collected = yield* result.collect
+										const rows = Arr.map(collected, (row) => ({ ...rowOf(row) }))
 										const problems = yield* sentProblems(
 											sub.admin,
 											name,

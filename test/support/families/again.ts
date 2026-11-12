@@ -11,16 +11,18 @@
  * index, an interval and every copy are drawn by grizzle from the rows the write leaves, never stated. So, for an
  * insert of `again` over the stored instance `stored`:
  *
+ * - rows meet at their relation's primary key, a row's uuid `id`, or a tree node's root and start (fill.ts
+ *   keyOfRelation), where `id` is one more field it states;
  * - a stated row at a key no stored row holds is added, a counted member under a stored owner joining its family;
  * - a stated row equal to the stored row at its key, at every field it states, is no change;
- * - a stated row that differs there, in its `v`, a counted owner or its place, or as a sequence's owner whose members
+ * - a stated row that differs there, in its `v`, its id, a counted owner or its place, or as a sequence's owner whose members
  *   or any member's own fact below it differ from the stored ones, is invariant-rejected on its relation's primary key
- *   (`keyed`), and the write changes nothing; a stated row at a sequence's place, or a tree's (root, start), that a
- *   different stored row holds breaks that family's key too (`placed`).
+ *   (`keyed`), and the write changes nothing; a stated row at a sequence's place (its group and index, a tree's root,
+ *   parent and slot) that a stored row at another key holds breaks that family's key too (`placed`).
  *
  * The differences are drawn from the stored instance by construction, each leaving a valid instance: a row's payload
  * changed, a member added to a family under one of its owners, a row and everything nested under it or naming it as a
- * counted owner removed, a member moved to another place, and another instance beside it under fresh keys. A counted
+ * counted owner removed, a member moved to another place, a row renamed, and another instance beside it under fresh keys. A counted
  * member is added only under mutable owners: the README fixes an immutable owner's family when the owner is inserted
  * and states no outcome for an insert joining a stored one.
  */
@@ -32,12 +34,14 @@ import {
 	familyAt,
 	type FamilyKind,
 	type FillSpec,
+	groupFieldsOf,
+	indexName,
 	type InstanceRow,
 	instanceGen,
 	isSequence,
+	keyOfRelation,
 	membershipIn,
 	relationAt,
-	rootName,
 	writtenRows
 } from "#test/support/families/fill.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -55,7 +59,9 @@ export type Standing = "tree node" | "ordered member" | "counted member" | "top 
  *   sequence it joins a slot further on;
  * - `removed`: row `id` and every row nested under it or naming it as a counted owner, each sequence closing up;
  * - `moved`: row `id` placed at `to` in `to`'s family, the sequence it leaves closing up and the one it joins opening;
- * - `beside`: another instance under fresh keys.
+ * - `beside`: another instance under fresh keys;
+ * - `renamed`: row `id` stated under the fresh id `to`, every row naming it as an owner naming `to`: a new row where the
+ *   id is its key, and a tree node's id changed at its place, where its key is its root and start.
  */
 export type Difference =
 	| { readonly kind: "payload"; readonly id: number; readonly v: bigint }
@@ -63,9 +69,17 @@ export type Difference =
 	| { readonly kind: "removed"; readonly id: number }
 	| { readonly kind: "moved"; readonly id: number; readonly to: Membership }
 	| { readonly kind: "beside"; readonly rows: ReadonlyArray<InstanceRow> }
+	| { readonly kind: "renamed"; readonly id: number; readonly to: number }
 
 /** The kinds of difference, the first the one every instance admits. */
-export const differenceKinds = ["beside", "payload", "added", "removed", "moved"] as const
+export const differenceKinds = [
+	"beside",
+	"payload",
+	"added",
+	"removed",
+	"moved",
+	"renamed"
+] as const
 
 type DifferenceKind = (typeof differenceKinds)[number]
 
@@ -167,6 +181,12 @@ export const differed = (
 		}
 		case "beside":
 			return [...rows, ...d.rows]
+		case "renamed":
+			return Arr.map(rows, (r) => ({
+				...r,
+				id: r.id === d.id ? d.to : r.id,
+				memberOf: Arr.map(r.memberOf, (m) => (m.owner === d.id ? { ...m, owner: d.to } : m))
+			}))
 	}
 }
 
@@ -195,81 +215,77 @@ const sameMemberships = (spec: FillSpec, a: InstanceRow, b: InstanceRow): boolea
 		)
 	})
 
-/** A tree node's (root, start) by the reference writer, keyed by its id, for each relation a tree holds. */
-const treePlaces = (
-	spec: FillSpec,
-	rows: ReadonlyArray<InstanceRow>
-): ReadonlyMap<number, { readonly family: number; readonly at: string }> => {
-	const written = writtenRows(spec, rows)
-	return new Map(
-		Arr.flatMap(rows, (r) =>
-			Arr.flatMap(spec.families, (f, k) => {
-				if (f.kind !== "tree" || f.member !== r.relation) {
-					return []
-				}
-				const fields = defined(written.get(r.id), "a written row")
-				return [
-					[r.id, { family: k, at: `${String(fields[rootName(k)])}/${String(fields["start"])}` }]
-				] as const
-			})
-		)
-	)
-}
-
-/** The set rule's verdict on inserting `again` over the stored instance `stored` (see the module's header). */
+/**
+ * The set rule's verdict on inserting `again` over the stored instance `stored` (see the module's header). Rows meet at
+ * their relation's primary key as the reference writer fills it (fill.ts keyOfRelation): a row's id, or a tree node's
+ * root and start, so a tree node at a stored node's place is that node again or a different fact at its key.
+ */
 export const againVerdict = (
 	spec: FillSpec,
 	stored: ReadonlyArray<InstanceRow>,
 	again: ReadonlyArray<InstanceRow>
 ): AgainVerdict => {
-	const storedOf = new Map(Arr.map(stored, (r) => [r.id, r] as const))
-	const collides = (x: InstanceRow): boolean => {
-		const s = storedOf.get(x.id)
-		if (s === undefined) {
-			return false
-		}
-		if (s.relation !== x.relation || s.v !== x.v || !sameMemberships(spec, x, s)) {
-			return true
-		}
-		return Arr.some(spec.families, (f, k) => {
-			if (!isSequence(f) || f.owner !== x.relation) {
-				return false
-			}
-			const now = membersUnder(again, k, x.id)
-			const was = membersUnder(stored, k, x.id)
-			return (
-				now.length !== was.length || Arr.some(now, (y, i) => y.id !== was[i]?.id || collides(y))
-			)
-		})
+	const storedRows = writtenRows(spec, stored)
+	const againRows = writtenRows(spec, again)
+	const valuesOf = (
+		written: ReadonlyMap<number, Readonly<Record<string, string | bigint>>>,
+		x: InstanceRow,
+		fields: ReadonlyArray<string>
+	): ReadonlyArray<string | bigint | undefined> => {
+		const row = defined(written.get(x.id), "a written row")
+		return Arr.map(fields, (f) => row[f])
 	}
+	const sameAt = (x: InstanceRow, z: InstanceRow, fields: ReadonlyArray<string>): boolean => {
+		const a = valuesOf(againRows, x, fields)
+		const b = valuesOf(storedRows, z, fields)
+		return Arr.every(a, (value, i) => value === b[i])
+	}
+	const storedAt = (x: InstanceRow): Option.Option<InstanceRow> =>
+		Arr.findFirst(
+			stored,
+			(z) => z.relation === x.relation && sameAt(x, z, keyOfRelation(spec, x.relation))
+		)
+	const collides = (x: InstanceRow): boolean =>
+		Option.match(storedAt(x), {
+			onNone: () => false,
+			onSome: (z) =>
+				z.id !== x.id ||
+				z.v !== x.v ||
+				!sameMemberships(spec, x, z) ||
+				Arr.some(spec.families, (f, k) => {
+					if (!isSequence(f) || f.owner !== x.relation) {
+						return false
+					}
+					const now = membersUnder(again, k, x.id)
+					const was = membersUnder(stored, k, z.id)
+					return (
+						now.length !== was.length || Arr.some(now, (y, i) => y.id !== was[i]?.id || collides(y))
+					)
+				})
+		})
 	const keyed = Arr.filter(again, collides)
 	if (!Arr.isReadonlyArrayNonEmpty(keyed)) {
-		const added = Arr.filter(again, (x) => !storedOf.has(x.id))
+		const added = Arr.filter(again, (x) => Option.isNone(storedAt(x)))
 		return { kind: "written", rows: [...stored, ...added], added }
 	}
-	const storedPlaces = treePlaces(spec, stored)
-	const againPlaces = treePlaces(spec, again)
-	const placed = Arr.flatMap(again, (y) => [
-		...Arr.flatMap(y.memberOf, (m) =>
-			isSequence(familyAt(spec, m.family)) &&
-			Arr.some(stored, (z) => {
-				const at = membershipIn(z, m.family)
-				return z.id !== y.id && at?.owner === m.owner && at.slot === m.slot
-			})
+	const placed = Arr.flatMap(again, (y) =>
+		Arr.flatMap(y.memberOf, (m) => {
+			if (!isSequence(familyAt(spec, m.family))) {
+				return []
+			}
+			const place = [...groupFieldsOf(spec, m.family), indexName(m.family)]
+			return Arr.some(
+				stored,
+				(z) =>
+					z.relation === y.relation &&
+					membershipIn(z, m.family) !== undefined &&
+					sameAt(y, z, place) &&
+					!sameAt(y, z, keyOfRelation(spec, y.relation))
+			)
 				? [{ row: y, family: m.family }]
 				: []
-		),
-		...Option.match(Option.fromUndefinedOr(againPlaces.get(y.id)), {
-			onNone: () => [],
-			onSome: (p) =>
-				Arr.some(
-					[...storedPlaces],
-					([id, q]) => id !== y.id && q.family === p.family && q.at === p.at
-				)
-					? [{ row: y, family: p.family }]
-					: []
 		})
-	])
+	)
 	return { kind: "refused", keyed, placed }
 }
 
@@ -278,7 +294,7 @@ export const againVerdict = (
  * left out, or another instance beside.
  */
 export type Target =
-	| { readonly kind: "payload"; readonly place: Standing }
+	| { readonly kind: "payload" | "renamed"; readonly place: Standing }
 	| { readonly kind: "added" | "removed" | "moved"; readonly family: FamilyKind }
 	| { readonly kind: "left out" }
 	| { readonly kind: "beside" }
@@ -402,10 +418,10 @@ export const targetsOf = (
 	keys: Keys
 ): Arr.NonEmptyReadonlyArray<Target> => [
 	{ kind: "beside" },
-	...Arr.map(Arr.dedupe(Arr.map(rows, (r) => standingOf(spec, r))), (place) => ({
-		kind: "payload" as const,
-		place
-	})),
+	...Arr.flatMap(Arr.dedupe(Arr.map(rows, (r) => standingOf(spec, r))), (place) => [
+		{ kind: "payload" as const, place },
+		{ kind: "renamed" as const, place }
+	]),
 	...(Arr.some(rows, (r) => standingOf(spec, r) === "top row")
 		? [{ kind: "left out" as const }]
 		: []),
@@ -504,6 +520,19 @@ export const differenceAt =
 				)
 				return { kind: "payload", id: x.id, v }
 			}
+			case "renamed":
+				return {
+					kind: "renamed",
+					id: source.draw(
+						element(
+							nonEmpty(
+								Arr.filter(rows, (r) => standingOf(spec, r) === target.place),
+								"a row at the target's place"
+							)
+						)
+					).id,
+					to: freshKey(keys)
+				}
 			case "left out":
 				return {
 					kind: "removed",
