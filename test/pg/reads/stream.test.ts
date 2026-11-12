@@ -32,10 +32,8 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Stream, String as Str } from "effect"
 import { readCallOf } from "#adapter/db/handles.ts"
 import { openServed } from "#adapter/db/served.ts"
-import { served } from "#adapter/public/layer.ts"
 import { type DecodedRow, type ReadCall, readStream, setEvents } from "#adapter/reader/stream.ts"
 import type { SetEvent } from "#compiler/live/index.ts"
-import { workload } from "#compiler/program/workload/value.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -46,7 +44,6 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
-import { servedJson } from "#test/support/served-db.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { backendCount, makeTap } from "#test/support/wire-tap.ts"
@@ -55,6 +52,12 @@ import { testVerify, tokenOf } from "#test/support/worlds.ts"
 
 const Note = relation("Note", { id: pg.integer, body: str.regex("^[a-z]*$") }, ["id"])
 const Notes = schema("Notes", [Note], [])
+
+/** Every note: the one read of the login's workload, a member of its full world's role. */
+const all = query(Notes).rule((r) => {
+	const { id, body } = v(Note, "note")
+	return r.match(Note, { id, body }).find({ id, body })
+})
 
 /** A case: the table's rows, n of them, each a text of `width` characters. */
 interface Case {
@@ -89,18 +92,11 @@ layer(Substrate.layer, { excludeTestServices: true })("a read's rows", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const opened = yield* installed(Notes, {}, { label: "stream", programs: {} })
+					const opened = yield* installed(Notes, {}, { label: "stream", programs: { all } })
 					const names = namesOf(opened.installed)
 					const insert = `INSERT INTO ${names.table(Note)} (${names.column(Note, "id")}, ${names.column(Note, "body")}) VALUES ($1::int4, $2::text)`
 					const role = opened.server.roles.app
-					const all = query(opened.schema).rule((r) => {
-						const { id, body } = v(Note, "note")
-						return r.match(Note, { id, body }).find({ id, body })
-					})
-					const json = yield* servedJson(opened.installed, opened.server, [
-						workload(role.role, { all })
-					])
-					const file = served<typeof opened.server>(json, opened.server.name)
+					const file = opened.served.login
 					return yield* explore(
 						{
 							oracle: {

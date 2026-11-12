@@ -250,6 +250,105 @@ type RefreshFeature = "a refresh of an unpopulated view" | "a refresh of a popul
  */
 const refreshesGen = array(boolean, { min: 1, max: 4 })
 
+/**
+ * The reads the first suite calls, over `s`: a plain read, a heterogeneous union, fused and pipelined attachments, a
+ * relation's key, and two ordered pages, one with an attachment, each also as its deferrable(...) member: the full
+ * world's served workload.
+ */
+const roundTripReads = (s: W.WorkNamed<string>) => {
+	const reads = W.workReads(s)
+	const payloads = query(s)
+		.rule((r) => {
+			const { id, account } = v(W.Task, "task")
+			const { budget } = v(W.AutomaticTask, "automaticTask")
+			return r
+				.match(W.Task, { id, account, kind: "Automatic" })
+				.match(W.AutomaticTask, { task: id, budget })
+				.find({ id, account, kind: W.Kind.handle("Automatic"), budget })
+		})
+		.rule((r) => {
+			const { id, account } = v(W.Task, "task")
+			const { operator } = v(W.ManualTask, "manualTask")
+			return r
+				.match(W.Task, { id, account, kind: "Manual" })
+				.match(W.ManualTask, { task: id, operator })
+				.find({ id, account, kind: W.Kind.handle("Manual"), operator })
+		})
+	/** An attachment whose child has an attachment of its own stays pipelined. */
+	const accountTaskNotes = query(s)
+		.rule((r) => {
+			const { id, name } = v(W.Account, "account")
+			return r.match(W.Account, { id, name }).find({ id, name })
+		})
+		.attach(
+			"tasks",
+			(a) =>
+				query(s)
+					.rule((r) => {
+						const { id, kind } = v(W.Task, "task")
+						return r.match(W.Task, { id, account: a.id, kind }).find({ id, kind })
+					})
+					.attach(
+						"note",
+						(t) =>
+							query(s).rule((r) => {
+								const { note } = v(W.TaskNote, "taskNote")
+								return r.match(W.TaskNote, { task: t.id, note }).find({ note })
+							}),
+						"option"
+					),
+			"array"
+		)
+	/** Ordered pages: one of one part, and one whose attachment is a part over the page it holds. */
+	const budgets = query(s)
+		.rule((r) => {
+			const { id } = v(W.Task, "task")
+			const { budget } = v(W.AutomaticTask, "automaticTask")
+			return r
+				.match(W.Task, {
+					id,
+					account: r.param("account", W.Task.fields.account),
+					kind: "Automatic"
+				})
+				.match(W.AutomaticTask, { task: id, budget })
+				.find({ id, budget })
+		})
+		.orderBy(["budget", "desc"], ["id", "asc"])
+	const noted = query(s)
+		.rule((r) => {
+			const { id } = v(W.Task, "task")
+			return r
+				.match(W.Task, { id, account: r.param("account", W.Task.fields.account) })
+				.find({ id })
+		})
+		.attach(
+			"notes",
+			(t) =>
+				query(s).rule((r) => {
+					const { note } = v(W.TaskNote, "taskNote")
+					return r.match(W.TaskNote, { task: t.id, note }).find({ note })
+				}),
+			"option"
+		)
+		.orderBy(["id", "asc"])
+	return {
+		oneRelation: reads.automaticTasksFor,
+		headingGroups: payloads,
+		fusedAttachments: reads.taskCards,
+		pipelinedAttachment: accountTaskNotes,
+		task: W.Task,
+		budgets: paged(budgets),
+		noted: paged(noted),
+		deferredOneRelation: deferrable(reads.automaticTasksFor),
+		deferredHeadingGroups: deferrable(payloads),
+		deferredFusedAttachments: deferrable(reads.taskCards),
+		deferredPipelinedAttachment: deferrable(accountTaskNotes),
+		deferredTask: deferrable(W.Task),
+		deferredBudgets: deferrable(paged(budgets)),
+		deferredNoted: deferrable(paged(noted))
+	}
+}
+
 layer(Substrate.layer, { excludeTestServices: true })("one round trip per public call", (it) => {
 	/**
 	 * A tapped pool of one session for `credentials`, warmed, which a served Db's members run on.
@@ -279,103 +378,9 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 				Effect.gen(function* () {
 					const o = yield* installed(W.Work, workFacts, {
 						label: "real",
-						programs: {}
+						programs: roundTripReads(W.Work)
 					})
-					const s = o.schema
-					const reads = W.workReads(s)
-					const payloads = query(s)
-						.rule((r) => {
-							const { id, account } = v(W.Task, "task")
-							const { budget } = v(W.AutomaticTask, "automaticTask")
-							return r
-								.match(W.Task, { id, account, kind: "Automatic" })
-								.match(W.AutomaticTask, { task: id, budget })
-								.find({ id, account, kind: W.Kind.handle("Automatic"), budget })
-						})
-						.rule((r) => {
-							const { id, account } = v(W.Task, "task")
-							const { operator } = v(W.ManualTask, "manualTask")
-							return r
-								.match(W.Task, { id, account, kind: "Manual" })
-								.match(W.ManualTask, { task: id, operator })
-								.find({ id, account, kind: W.Kind.handle("Manual"), operator })
-						})
-					/** An attachment whose child has an attachment of its own stays pipelined. */
-					const accountTaskNotes = query(s)
-						.rule((r) => {
-							const { id, name } = v(W.Account, "account")
-							return r.match(W.Account, { id, name }).find({ id, name })
-						})
-						.attach(
-							"tasks",
-							(a) =>
-								query(s)
-									.rule((r) => {
-										const { id, kind } = v(W.Task, "task")
-										return r.match(W.Task, { id, account: a.id, kind }).find({ id, kind })
-									})
-									.attach(
-										"note",
-										(t) =>
-											query(s).rule((r) => {
-												const { note } = v(W.TaskNote, "taskNote")
-												return r.match(W.TaskNote, { task: t.id, note }).find({ note })
-											}),
-										"option"
-									),
-							"array"
-						)
-					/** Ordered pages: one of one part, and one whose attachment is a part over the page it holds. */
-					const budgets = query(s)
-						.rule((r) => {
-							const { id } = v(W.Task, "task")
-							const { budget } = v(W.AutomaticTask, "automaticTask")
-							return r
-								.match(W.Task, {
-									id,
-									account: r.param("account", W.Task.fields.account),
-									kind: "Automatic"
-								})
-								.match(W.AutomaticTask, { task: id, budget })
-								.find({ id, budget })
-						})
-						.orderBy(["budget", "desc"], ["id", "asc"])
-					const noted = query(s)
-						.rule((r) => {
-							const { id } = v(W.Task, "task")
-							return r
-								.match(W.Task, { id, account: r.param("account", W.Task.fields.account) })
-								.find({ id })
-						})
-						.attach(
-							"notes",
-							(t) =>
-								query(s).rule((r) => {
-									const { note } = v(W.TaskNote, "taskNote")
-									return r.match(W.TaskNote, { task: t.id, note }).find({ note })
-								}),
-							"option"
-						)
-						.orderBy(["id", "asc"])
-					const fixture = yield* servedFixture(
-						o.installed,
-						fullWorld(s, {
-							oneRelation: reads.automaticTasksFor,
-							headingGroups: payloads,
-							fusedAttachments: reads.taskCards,
-							pipelinedAttachment: accountTaskNotes,
-							task: W.Task,
-							budgets: paged(budgets),
-							noted: paged(noted),
-							deferredOneRelation: deferrable(reads.automaticTasksFor),
-							deferredHeadingGroups: deferrable(payloads),
-							deferredFusedAttachments: deferrable(reads.taskCards),
-							deferredPipelinedAttachment: deferrable(accountTaskNotes),
-							deferredTask: deferrable(W.Task),
-							deferredBudgets: deferrable(paged(budgets)),
-							deferredNoted: deferrable(paged(noted))
-						}).server
-					)
+					const fixture = o.served
 					const substrate = yield* Substrate
 					const tap = makeTap(substrate.cluster)
 					return yield* Effect.gen(function* () {

@@ -13,7 +13,6 @@ import {
 import { schema as builtSchema } from "#compiler/schema/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { defined } from "#test/support/assert.ts"
 import {
 	type Installed,
 	installGenerated,
@@ -22,7 +21,7 @@ import {
 import { quietPolls } from "#test/support/kernel/sanitize.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { type ServedFixture, servedFixtureOf } from "#test/support/served-db.ts"
+import { type ServedFixture, servedGenerated } from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { randomHex } from "#test/support/substrate/names.ts"
 import { connect } from "#test/support/substrate/session.ts"
@@ -147,7 +146,7 @@ export interface Opened<S extends Reality, P extends Readonly<Record<string, unk
 	readonly server: WorldOver<S, P>["server"]
 	/**
 	 * The login served as an application serves it, from the file generate wrote (test/support/served-db.ts
-	 * servedFixtureOf): a Db opens through
+	 * servedGenerated): a Db opens through
 	 * `served.login.roles.app` on `served.layer`, in the substrate's database, and runs the programs as
 	 * `db.workload.<name>`.
 	 */
@@ -219,10 +218,6 @@ export const installed = <
 			schema: rebuilt,
 			app: world.app,
 			server: world.server,
-			served: servedFixtureOf(
-				done,
-				world.server,
-				defined(generated.served.get(world.server.name), `login ${world.server.name}'s served file`)
-			)
+			served: servedGenerated(generated, world.server)
 		}
 	})

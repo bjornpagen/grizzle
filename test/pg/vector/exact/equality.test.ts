@@ -83,12 +83,16 @@ import {
 	testCompile
 } from "#test/support/compile.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
+import {
+	type Installed,
+	installGenerated,
+	installMigrated as install
+} from "#test/support/install-migrate.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { realizeConservative } from "#test/support/oracle/write/realize.ts"
 import { checking } from "#test/support/policy.ts"
-import { servedFixture } from "#test/support/served-db.ts"
+import { servedGenerated } from "#test/support/served-db.ts"
 import { headingRecord } from "#test/support/statement-rows.ts"
 import { type PgErrorFields, pgErrorFields } from "#test/support/substrate/errors.ts"
 import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
@@ -293,6 +297,46 @@ const changeSet = (): ChangeSetValue => ChangeSet.empty(Pairs)
 
 /** The full world a direct SQL writer takes on. */
 const pairsWorld = Object.freeze(fullWorld(Pairs, {}))
+
+/**
+ * Pairs under `name` and its full world, whose served workload holds `twins`, an attachment correlated on a parent's
+ * vector, its child a correlated take, read through the real reader: as a read, and as `readBack`, the read-back of a
+ * ChangeSet that writes nothing, which runs inside the write transaction and so reads the conservative artifact.
+ */
+const servedPairs = (name: string) => {
+	const value = schema(name, Rec.values(Pairs.relations), Pairs.statements)
+	const twins = query(value)
+		.rule((r) => {
+			const { id: key, value: pair } = v(A, "a")
+			return r.match(A, { id: key, value: pair }).find({ id: key, value: pair })
+		})
+		.attach(
+			"twins",
+			(a) =>
+				query(value).rule((r) => {
+					const { id: key } = v(B, "b")
+					return r.match(B, { id: key, value: a.value }).find({ id: key })
+				}),
+			"array"
+		)
+		.attach(
+			"first",
+			(a) =>
+				query(value)
+					.rule((r) => {
+						const { id: key } = v(B, "b")
+						return r.match(B, { id: key, value: a.value }).find({ id: key })
+					})
+					.orderBy(["id", "asc"])
+					.take(1),
+			"option"
+		)
+	const world = fullWorld(value, {
+		twins,
+		readBack: PublicChangeSet.empty(value).read("readBack", () => twins)
+	})
+	return { value, server: world.server }
+}
 
 const idOf = (c: unknown): string =>
 	hasProperties(c) && typeof c["id"] === "string"
@@ -593,12 +637,14 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const installed = yield* install(Pairs, {
-						ambient: ordinarySession,
-						label: "vpairs",
-						logins: [pairsWorld.server],
-						extensions: []
-					})
+					const generated = yield* installGenerated(
+						(name) => {
+							const world = servedPairs(name)
+							return { schema: world.value, logins: [world.server] }
+						},
+						{ label: "vpairs", ambient: ordinarySession }
+					)
+					const installed = generated.installed
 					const names = namesOf(installed)
 					const writer = yield* s.session({
 						...worldSession(installed.world(pairsWorld.app)),
@@ -644,39 +690,6 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 						}),
 						installed
 					)
-					/**
-					 * An attachment correlated on a parent's vector, its child a correlated take, read through the real
-					 * reader: as a read, and as the read-back of a ChangeSet that writes nothing, which runs inside the
-					 * write transaction and so reads the conservative artifact, each a member of the full world's served
-					 * workload. The queries are built over the installed schema.
-					 */
-					const value = schema(installed.declared, Rec.values(Pairs.relations), Pairs.statements)
-					const twins = query(value)
-						.rule((r) => {
-							const { id: key, value: pair } = v(A, "a")
-							return r.match(A, { id: key, value: pair }).find({ id: key, value: pair })
-						})
-						.attach(
-							"twins",
-							(a) =>
-								query(value).rule((r) => {
-									const { id: key } = v(B, "b")
-									return r.match(B, { id: key, value: a.value }).find({ id: key })
-								}),
-							"array"
-						)
-						.attach(
-							"first",
-							(a) =>
-								query(value)
-									.rule((r) => {
-										const { id: key } = v(B, "b")
-										return r.match(B, { id: key, value: a.value }).find({ id: key })
-									})
-									.orderBy(["id", "asc"])
-									.take(1),
-							"option"
-						)
 					/** Writes the case's facts in place of the last case's, each vector in its drawn spelling. */
 					const load = (c: PairsCase) =>
 						Effect.gen(function* () {
@@ -707,11 +720,7 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 								[]
 							)
 						})
-					const world = fullWorld(value, {
-						twins,
-						readBack: PublicChangeSet.empty(value).read("readBack", () => twins)
-					})
-					const served = yield* servedFixture(installed, world.server)
+					const served = servedGenerated(generated, servedPairs(installed.declared).server)
 					return yield* Effect.gen(function* () {
 						const db = yield* Db.open(served.login.roles.app, {})
 						return yield* explore(

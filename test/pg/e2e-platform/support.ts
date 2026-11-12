@@ -10,7 +10,6 @@ import {
 	String as Str
 } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
-import type { ServedRefusal } from "#adapter/public/compile.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { DbOf } from "#adapter/types/db.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -29,9 +28,9 @@ import type { AnyLogin } from "#compiler/types/schema/world.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
-import { compileTemplate, testCompile, workloadOver } from "#test/support/compile.ts"
+import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
-import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
+import { type Installed, installGenerated } from "#test/support/install-migrate.ts"
 import { Identities } from "#test/support/kernel/identity.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
@@ -45,7 +44,7 @@ import { distinctRows, equal, type Row, type Value } from "#test/support/oracle/
 import type { SqlError } from "#test/support/pg.ts"
 import { loadOrder, type PlatformFacts } from "#test/support/platform/generate.ts"
 import { stateOf, withDrawn } from "#test/support/platform/laws.ts"
-import { type ServedFixture, servedFixture } from "#test/support/served-db.ts"
+import { type ServedFixture, servedGenerated } from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -54,13 +53,10 @@ type PlatformWorld = ReturnType<typeof P.platformAt>
 
 export type PlatformDb = DbOf<PlatformWorld["billing"], P.BillingPrograms>
 
-/** The platform's workload, installed compiled against the schema the installation installs. */
-const platformWorkload = workloadOver([{ login: "server", workloads: [P.platformWorkload] }])
-
 export interface OpenedPlatform {
 	readonly installed: Installed
 	readonly schema: PlatformWorld
-	/** The login `server` served as an application serves it: billing's workload (P.BillingPrograms). */
+	/** The login `server` served from the file generate wrote for it: billing's workload (P.BillingPrograms). */
 	readonly served: ServedFixture<PlatformWorld["server"]>
 	/** A relation's table, schema-qualified and quoted. */
 	readonly table: (relation: string) => string
@@ -78,11 +74,13 @@ export interface OpenedPlatform {
 /**
  * Shared helpers of the platform's end-to-end suites (test/pg/e2e-platform).
  *
- * The platform (test/support/fixtures/api/platform.ts) installs as a deployment installs it: its first migration,
- * drafted with its workload's access paths and applied by the real apply runner (test/support/install-migrate.ts), under a name
- * the substrate allocates, with its login. Its login is served from its own served file, and a Db is opened through
- * Db.open as the full role `billing` of the schema rebuilt under that name (platformAt), whose levels hold the declared
- * schemas' types, so every workload read and write runs on it unchanged, as a member of billing's served workload.
+ * The platform (test/support/fixtures/api/platform.ts) installs as a deployment installs it, as `grizzle generate`
+ * drafts and serves it (test/support/install-migrate.ts installGenerated): built under a name the substrate allocates
+ * (platformAt), its first migration drafted with its logins' workloads, their access paths and the live source of their
+ * reads, and applied by the real apply runner. Its login is served from the file generate wrote for it, and a Db is
+ * opened through Db.open as the full role `billing` of the schema rebuilt under that name, whose levels hold the
+ * declared schemas' types, so every workload read and write runs on it unchanged, as a member of billing's served
+ * workload.
  *
  * Facts load through the public API only: the workload's `load`, one ChangeSet inserting every relation's facts given
  * with each call, within the input limit, each call of which the laws must accept. A generated platform is lawful by construction (test/support/platform/generate.ts), so a
@@ -99,34 +97,35 @@ export const openPlatform = (
 	label: string
 ): Effect.Effect<
 	OpenedPlatform,
-	CompileError | SqlError | TransactionRolledBack | ServedRefusal,
+	CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
 > => openPlatformWith(label, () => [])
 
 /**
  * openPlatform, installing `also`'s logins beside billing's: the logins a suite reads the platform through besides
- * billing, built by `also` over the declared platform to install and, by the suite, over the installed one
- * (OpenedPlatform's `schema`) to open.
+ * billing, built by `also` over the platform under the allocated name to install and, by the suite, over the installed
+ * one (OpenedPlatform's `schema`) to open.
  */
 export const openPlatformWith = (
 	label: string,
 	also: (world: PlatformWorld) => ReadonlyArray<AnyLogin>
 ): Effect.Effect<
 	OpenedPlatform,
-	CompileError | SqlError | TransactionRolledBack | ServedRefusal,
+	CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
 > =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const declared = P.platformAt("Platform")
-		const installed = yield* install(declared.Billing, {
-			ambient: ordinarySession,
-			label,
-			logins: [declared.server, ...also(declared)],
-			extensions: [platformWorkload]
-		})
+		const generated = yield* installGenerated(
+			(name) => {
+				const world = P.platformAt(name)
+				return { schema: world.Billing, logins: [world.server, ...also(world)] }
+			},
+			{ label, ambient: ordinarySession }
+		)
+		const installed = generated.installed
 		const schema = P.platformAt(installed.declared)
-		const served = yield* servedFixture(installed, schema.server)
+		const served = servedGenerated(generated, schema.server)
 		const table = (relation: string): string => {
 			const q = installed.names.relation(relation)
 			return `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`

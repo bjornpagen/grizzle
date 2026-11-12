@@ -2,10 +2,9 @@
  * The published package against the dev cluster: a consumer's program, run by Node from a project whose node_modules
  * holds the built packages (test/unit/dev/published.ts), serves its login's committed served file with the runtime
  * entry's served(file, name), builds the login's DbLayer of it and the cluster's connection, opens a Db of the role with
- * Db.open, and reads every note once through its workload's member. The schema is installed through its first
- * migration under an allocated name (test/support/install-migrate.ts); the login's served file is compiled over that
- * installation's snapshot by the one compile generate commits (test/support/served-db.ts servedJson) and written as
- * generate writes it. The test writes each case's notes through a Db of its own, and the consumer must read exactly
+ * Db.open, and reads every note once through its workload's member. The schema is installed under an allocated name as
+ * `grizzle generate` drafts and serves it with its login (test/support/install-migrate.ts installGenerated), and the
+ * login's served file is the one generate wrote, written as generate writes it. The test writes each case's notes through a Db of its own, and the consumer must read exactly
  * every note written so far: a model of the table, the notes the cases wrote, compared as a set.
  *
  * Features: a case of one note and one of several, and a read after an earlier case's write.
@@ -38,12 +37,12 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { pgPin } from "#test/support/env.ts"
-import { installMigrated } from "#test/support/install-migrate.ts"
+import { installGenerated } from "#test/support/install-migrate.ts"
 import { caseHang, testConnectTimeout, testIdleTimeout } from "#test/support/limits.ts"
-import { member, servedJson, withServedDb } from "#test/support/served-db.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 import { exitedCleanly, publishedProject, runChild } from "#test/unit/dev/published.ts"
@@ -133,17 +132,20 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 					const fs = yield* FileSystem.FileSystem
 					const path = yield* Path.Path
 					const published = yield* publishedProject
-					const Consumer = declared("Consumer")
-					const world = fullWorld(Consumer, { notes: notesOf(Consumer) })
-					const installed = yield* installMigrated(Consumer, {
-						ambient: ordinarySession,
-						label: "consumer",
-						logins: [world.server],
-						extensions: []
-					})
+					const generated = yield* installGenerated(
+						(name) => {
+							const at = declared(name)
+							return { schema: at, logins: [fullWorld(at, { notes: notesOf(at) }).server] }
+						},
+						{ label: "consumer", ambient: ordinarySession }
+					)
+					const installed = generated.installed
 					const App = declared(installed.declared)
 					const own = fullWorld(App, { notes: notesOf(App) })
-					const file = yield* servedJson(installed, own.server, own.server.workload)
+					const file = defined(
+						generated.served.get(own.server.name),
+						`the served file of login ${own.server.name}`
+					)
 					const served = path.join(published.project, "server.json")
 					yield* fs.writeFileString(
 						served,
@@ -159,7 +161,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 							port: pgPin.port,
 							ca: installed.cluster.caPem,
 							database: installed.database,
-							password: Redacted.value(installed.as(world.server).password),
+							password: Redacted.value(installed.as(own.server).password),
 							connectTimeoutMs: testConnectTimeout.value,
 							idleTimeoutMs: testIdleTimeout.value,
 							served

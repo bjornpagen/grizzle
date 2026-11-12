@@ -47,11 +47,11 @@ import {
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, refused } from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
-import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
+import { type Installed, installGenerated } from "#test/support/install-migrate.ts"
 import { roleNamesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
-import { type ServedFixture, servedFixture, servedJson } from "#test/support/served-db.ts"
+import { type ServedFixture, servedGenerated, servedJson } from "#test/support/served-db.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -134,7 +134,7 @@ const policySettings = Object.freeze(
 interface Opened {
 	readonly installed: Installed
 	readonly fixture: ReturnType<typeof build>
-	/** The fixture's login served as an application serves it. */
+	/** The fixture's login served from the file generate wrote for it. */
 	readonly served: ServedFixture<ReturnType<typeof build>["server"]>
 	/** A relation's qualified, quoted name in the installation. */
 	readonly table: (relation: string) => string
@@ -142,21 +142,23 @@ interface Opened {
 }
 
 /**
- * Installs the fixture under a fresh schema, loads the documents, rebuilds the fixture under the installed name, so
- * Db.open takes on the installed roles (test/pg/reads/support.ts), serves its login, and refreshes the view through the
- * refresher's workload member.
+ * Installs the fixture under a fresh schema as `grizzle generate` drafts and serves it with its login
+ * (test/support/install-migrate.ts installGenerated), loads the documents, rebuilds the fixture under the installed
+ * name, so Db.open takes on the installed roles (test/pg/reads/support.ts), serves its login from the file generate
+ * wrote, and refreshes the view through the refresher's workload member.
  */
 const opened = Effect.gen(function* () {
 	const s = yield* Substrate
 	const probe = yield* runProbes
 	const documents = documentsOf(probe)
-	const declared = build("VectorView")
-	const installed = yield* install(declared.Reports, {
-		ambient: ordinarySession,
-		label: "vecview",
-		logins: [declared.server],
-		extensions: []
-	})
+	const generated = yield* installGenerated(
+		(name) => {
+			const at = build(name)
+			return { schema: at.Reports, logins: [at.server] }
+		},
+		{ label: "vecview", ambient: ordinarySession }
+	)
+	const installed = generated.installed
 	const table = (relation: string): string => {
 		const name = installed.names.relation(relation)
 		return `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
@@ -180,7 +182,7 @@ const opened = Effect.gen(function* () {
 		[]
 	)
 	const fixture = build(installed.declared)
-	const served = yield* servedFixture(installed, fixture.server)
+	const served = servedGenerated(generated, fixture.server)
 	yield* Effect.gen(function* () {
 		const db = yield* Db.open(served.login.roles.refresher, {})
 		yield* db.workload.embeddings.once({ params: {}, facts: {} })

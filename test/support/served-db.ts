@@ -27,7 +27,7 @@ import type { UnservedMember } from "#compiler/served/unserved.ts"
 import type { AnyWorkload } from "#compiler/types/db/workload.ts"
 import { defined } from "#test/support/assert.ts"
 import { conservativeChange } from "#test/support/conservative.ts"
-import type { Installed } from "#test/support/install-migrate.ts"
+import type { Generated, Installed } from "#test/support/install-migrate.ts"
 import { type SourcedLayer, sourcedDbLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { type RoleSetupError, servedRoleContext } from "#test/support/served-role.ts"
@@ -190,6 +190,20 @@ export const servedFixtureOf = <L extends AnyLogin>(
 		})
 	}
 }
+
+/**
+ * `login` serving the file `grizzle generate` wrote for it over a generated installation (test/support/install-migrate.ts
+ * Generated, servedFixtureOf): a login generate served no file for is a defect of the test.
+ */
+export const servedGenerated = <L extends AnyLogin>(
+	generated: Generated,
+	login: L
+): ServedFixture<L> =>
+	servedFixtureOf(
+		generated.installed,
+		login,
+		defined(generated.served.get(login.name), `the served file of login ${login.name}`)
+	)
 
 /** `login` serving its own workloads over `installed` (servedFixtureOf), its served file compiled by servedJson. */
 export const servedFixture = <L extends AnyLogin>(

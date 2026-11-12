@@ -4,8 +4,9 @@
  *
  * Two installations of the worked example, each with two logins: `web`, holding the roles `reader` and `auditor`, and
  * `ops`, holding `operator`; every role reads Account whole, and each login's workload holds, for each of its roles,
- * the read of every account over that role. All four logins are served from their own served files and their layers
- * built in one scope, as one process builds them, and each case runs a drawn program of requests, each opening a Db per
+ * the read of every account over that role. Each installation is drafted and served as `grizzle generate` drafts it
+ * with both logins (test/support/install-migrate.ts installGenerated), and all four logins are served from the files
+ * generate wrote for them, their layers built in one scope, as one process builds them, and each case runs a drawn program of requests, each opening a Db per
  * request for a drawn role of a drawn login of a drawn installation and reading every account through its workload,
  * some at once; or one installation's web login at volume, a Db per request alternating its two roles, many at once on
  * its one pool.
@@ -41,10 +42,10 @@ import { assert, defined } from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { workFacts } from "#test/support/fixtures/golden/work.ts"
-import { installMigrated as install, loadMigrated as load } from "#test/support/install-migrate.ts"
+import { installGenerated, loadMigrated as load } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { clusterPool } from "#test/support/pg.ts"
-import { servedFixture } from "#test/support/served-db.ts"
+import { servedGenerated } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -164,21 +165,22 @@ layer(Substrate.layer)("logins in one process", (it) => {
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const declared = worldsOver(W.Work)
+					const workAt = (name: string) =>
+						schema(name, Rec.values(W.Work.relations), W.Work.statements)
 					const installs = yield* Effect.forEach(["one", "two"] as const, (label) =>
 						Effect.gen(function* () {
-							const done = yield* install(W.Work, {
-								ambient: ordinarySession,
-								label,
-								extensions: [],
-								logins: [declared.web, declared.ops]
-							})
-							yield* load(done, workFacts)
-							const worlds = worldsOver(
-								schema(done.declared, Rec.values(W.Work.relations), W.Work.statements)
+							const generated = yield* installGenerated(
+								(name) => {
+									const at = worldsOver(workAt(name))
+									return { schema: workAt(name), logins: [at.web, at.ops] }
+								},
+								{ label, ambient: ordinarySession }
 							)
-							const web = yield* servedFixture(done, worlds.web)
-							const ops = yield* servedFixture(done, worlds.ops)
+							const done = generated.installed
+							yield* load(done, workFacts)
+							const worlds = worldsOver(workAt(done.declared))
+							const web = servedGenerated(generated, worlds.web)
+							const ops = servedGenerated(generated, worlds.ops)
 							return { done, worlds, web, ops, read: readsOf(web.login, ops.login) }
 						})
 					)

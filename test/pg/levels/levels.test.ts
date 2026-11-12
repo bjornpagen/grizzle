@@ -3,7 +3,9 @@
  * on it under its own name (sittings of those items), each in its own PostgreSQL schema, the upper level's sitting
  * contained in the lower level's item by a deferred foreign key across schemas over one contract domain, the root's.
  * A login over each level opens the one installation's snapshot: the lower one compiled from the lower level alone,
- * the upper one's role holding the lower level whole, read only, and writing only sittings.
+ * the upper one's role holding the lower level whole, read only, and writing only sittings. The installation is drafted
+ * and served as `grizzle generate` drafts it with both logins (test/support/install-migrate.ts installGenerated), so it
+ * holds the live source of the upper login's reads, and each login is served from the file generate wrote for it.
  *
  * The oracle is the installed catalog and the rule restated over the facts:
  * - the catalog, exhausted over its box: each declared relation's table lives in the schema of the level that declares
@@ -72,11 +74,11 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
 import { levelNameAt } from "#test/support/compile.ts"
-import { installMigrated } from "#test/support/install-migrate.ts"
+import { installGenerated } from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
-import { servedFixture } from "#test/support/served-db.ts"
+import { servedGenerated } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const Code = contract("Code", uuid)
@@ -303,14 +305,15 @@ const expectedOf = (
 
 /** The installation of the two levels and their logins under an allocated name, and the levels under that name. */
 const installedLevels = Effect.gen(function* () {
-	const declared = levelsAt("Levels")
-	const done = yield* installMigrated(declared.upper, {
-		ambient: ordinarySession,
-		label: "levels",
-		logins: [declared.authorApp, declared.app],
-		extensions: []
-	})
-	return { done, at: levelsAt(done.schema) }
+	const generated = yield* installGenerated(
+		(name) => {
+			const at = levelsAt(name)
+			return { schema: at.upper, logins: [at.authorApp, at.app] }
+		},
+		{ label: "levels", ambient: ordinarySession }
+	)
+	const done = generated.installed
+	return { generated, done, at: levelsAt(done.declared) }
 })
 
 layer(Substrate.layer, { excludeTestServices: true })(
@@ -399,10 +402,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const { done, at } = yield* installedLevels
+						const { generated, done, at } = yield* installedLevels
 						const seat = yield* seatOfInstalled(done, ["Item", "Sitting"], "levels")
-						const lowerServed = yield* servedFixture(done, at.authorApp)
-						const upperServed = yield* servedFixture(done, at.app)
+						const lowerServed = servedGenerated(generated, at.authorApp)
+						const upperServed = servedGenerated(generated, at.app)
 						const lowerContext = yield* Layer.build(lowerServed.layer)
 						const upperContext = yield* Layer.build(upperServed.layer)
 						const author = yield* Db.open(lowerServed.login.roles.author, {}).pipe(
