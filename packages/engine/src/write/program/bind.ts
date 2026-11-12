@@ -252,7 +252,7 @@ export const legacyFlights =
 							at.push(reads.length)
 							reads.push({
 								family: read.family.id,
-								sql: read.sql.sql.text,
+								text: read.sql.text,
 								params: [
 									...readLiterals(target.relation.name, part.keys, target.layout.key.length),
 									...readLiterals(target.relation.name, part.groups, read.family.group.length)
@@ -306,7 +306,7 @@ export const legacyFlights =
 							at.push(reads.length)
 							reads.push({
 								family: read.kind === "groups" ? read.groups.family.id : read.family.id,
-								sql: sql.sql.text,
+								text: sql.text,
 								params:
 									root.kind === "put"
 										? readLiterals(relation, part.keys, widths.key)

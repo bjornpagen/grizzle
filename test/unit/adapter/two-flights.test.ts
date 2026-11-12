@@ -27,8 +27,6 @@ import { constant, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, String as Str } from "effect"
 import {
-	type OneShotStatement,
-	oneShotStatement,
 	type PreparedStatement,
 	preparedStatement,
 	runFramedTwice,
@@ -71,8 +69,8 @@ interface TwoFlights {
 const readSql = (at: number): string => `select ${at} as read`
 const writeSql = (at: number): string => `select ${at} as write`
 
-/** A read of the first flight, one-shot as a write's family reads are (apply/run.ts runWrite). */
-const read = (sql: string): OneShotStatement => oneShotStatement(testSql(sql), [])
+/** A read of the first flight, its text named as a write's family reads are (apply/run.ts runWrite). */
+const read = (sql: string): PreparedStatement => preparedStatement(prepared(testSql(sql)), [])
 
 /** A write of the second flight, a served write's statement, its text named. */
 const write = (sql: string): PreparedStatement => preparedStatement(prepared(testSql(sql)), [])
@@ -192,7 +190,7 @@ describe("a write that reads before it writes", () => {
 									made = true
 									assert.deepEqual(
 										firstCells(outcomes),
-										Arr.map(reads, (r) => r.sql),
+										Arr.map(reads, (r) => r.text.sql),
 										"the writes are made from the reads' rows"
 									)
 									return c.fault.kind === "making"
@@ -205,7 +203,7 @@ describe("a write that reads before it writes", () => {
 						const firstTexts = texts(first)
 						assert.deepEqual(
 							Arr.drop(firstTexts, 3),
-							Arr.map(reads, (r) => r.sql),
+							Arr.map(reads, (r) => r.text.sql),
 							"the first flight is BEGIN, the prologue and the reads"
 						)
 						assert.ok(
@@ -213,7 +211,7 @@ describe("a write that reads before it writes", () => {
 							"the first flight begins the transaction"
 						)
 						const allTexts: ReadonlyArray<string> = [
-							...Arr.map(reads, (r) => r.sql),
+							...Arr.map(reads, (r) => r.text.sql),
 							...Arr.map(writes, (w) => w.text.sql)
 						]
 						const committed: ReadonlyArray<string> = Arr.filter(session.committed(), (sql) =>

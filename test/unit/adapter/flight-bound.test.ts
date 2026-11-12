@@ -36,6 +36,7 @@ import {
 	type BatchStatement,
 	type FlightFailure,
 	oneShotStatement,
+	type PreparedStatement,
 	preparedStatement,
 	runAlongside,
 	runApart,
@@ -402,7 +403,7 @@ const statementOfSpec = (spec: StatementSpec): BatchStatement =>
 	oneShotStatement(testSql(textOf(spec.pad)), spec.params)
 
 /** A statement of the case as a Db call's flight sends it, a served one: its text named, parsed once per flight. */
-const servedOfSpec = (spec: StatementSpec): BatchStatement =>
+const servedOfSpec = (spec: StatementSpec): PreparedStatement =>
 	preparedStatement(prepared(testSql(textOf(spec.pad))), spec.params)
 
 const write: Transaction = { access: "readWrite", isolation: "serializable", end: "COMMIT" }
@@ -443,7 +444,7 @@ const callOf = (
 				runFramedTwice(
 					session,
 					writeFrame(flightPrologue, "serializable"),
-					Arr.map(c.first, statementOfSpec),
+					Arr.map(c.first, servedOfSpec),
 					() => Effect.succeed(Arr.map(c.second, servedOfSpec))
 				)
 			)

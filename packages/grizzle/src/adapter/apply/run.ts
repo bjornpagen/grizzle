@@ -43,7 +43,6 @@ import {
 	type FlightFailure,
 	type Frame,
 	joinFlights,
-	oneShotStatement,
 	preparedStatement,
 	runFramed,
 	runFramedTwice
@@ -524,7 +523,7 @@ export const runWrite = <R>(
 				runFramedTwice(
 					session,
 					frame,
-					Arr.map(flights.reads, (r) => oneShotStatement(r.sql, r.params)),
+					Arr.map(flights.reads, (r) => preparedStatement(r.text, r.params)),
 					(outcomes) => {
 						sent = read
 						const filled = flights.writes(Arr.map(outcomes, (o) => o.rows))

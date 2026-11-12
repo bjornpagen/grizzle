@@ -1320,7 +1320,8 @@ const rollbackOpening = (session: Session, frame: Frame): Effect.Effect<void> =>
  * A Db call's two flights in one transaction of `frame`: `first` behind BEGIN and the prologue, then the statements
  * `second` makes from `first`'s outcomes, and the frame's end. A write whose plan reads before it writes runs so: the
  * reads and the writes see one snapshot, and under SERIALIZABLE a concurrent writer of what the reads read meets
- * 40001 at a statement or at COMMIT, which the call reports and never retries.
+ * 40001 at a statement or at COMMIT, which the call reports and never retries. Its reads are named statements
+ * (PreparedStatement), each parsed once per session, as every statement of a write is.
  *
  * The outcomes are both flights', `first`'s then `second`'s, and a failure counts statements across both: a statement
  * of the second flight is numbered after every statement of the first (`shifted`), as the call sent them. Whatever
@@ -1333,7 +1334,7 @@ const rollbackOpening = (session: Session, frame: Frame): Effect.Effect<void> =>
 export const runFramedTwice = <E>(
 	session: Session,
 	frame: Frame,
-	first: ReadonlyArray<BatchStatement>,
+	first: ReadonlyArray<PreparedStatement>,
 	second: (outcomes: ReadonlyArray<BatchOutcome>) => Effect.Effect<ReadonlyArray<BatchStatement>, E>
 ): Effect.Effect<ReadonlyArray<BatchOutcome>, FlightFailure | E> =>
 	Effect.uninterruptibleMask((restore) =>

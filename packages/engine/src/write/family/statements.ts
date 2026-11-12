@@ -23,6 +23,7 @@ import { defined } from "#compiler/core/invariant.ts"
 import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { type Prepared, prepared } from "#compiler/core/prepared.ts"
 import * as Result from "#compiler/core/result.ts"
 import { typedEq } from "#compiler/ir/compare.ts"
 import type { Family } from "#compiler/ir/family.ts"
@@ -49,6 +50,7 @@ import type {
 	Cte,
 	CteBody,
 	EmittedSql,
+	EmittedText,
 	Expr,
 	FromItem,
 	FromSource,
@@ -654,10 +656,13 @@ export const readShape = (family: Family, layout: RowLayout): ReadShape => ({
 	member: { key: layout.key.length, columns: layout.columns.length }
 })
 
-/** A family's read statement and the shape of its rows. */
+/**
+ * A family's read statement, its text named as a served statement's is (core/prepared.ts), so a write's read flight
+ * binds it by its name, and the shape of its rows.
+ */
 export interface ReadSql {
 	readonly ast: SqlStatement
-	readonly sql: EmittedSql
+	readonly text: Prepared<EmittedText>
 	readonly arrays: number
 	readonly shape: ReadShape
 }
@@ -878,7 +883,7 @@ export const suffixReadSql = (
 	}
 	return Result.ok({
 		ast,
-		sql: emitText(ast, supply.map()),
+		text: prepared(emitText(ast, supply.map()).text),
 		arrays: keyCarried.length + groupCarried.length,
 		shape
 	})
@@ -917,10 +922,13 @@ export interface ChainShape {
 		| { readonly kind: "rows" }
 }
 
-/** A chain's read statement: its AST and text, where its rows begin, and the shape of its rows. */
+/**
+ * A chain's read statement: its AST and its text, named as a served statement's is (core/prepared.ts), where its rows
+ * begin, and the shape of its rows.
+ */
 export interface ChainSql {
 	readonly ast: SqlStatement
-	readonly sql: EmittedSql
+	readonly text: Prepared<EmittedText>
 	readonly root: ChainRoot
 	readonly shape: ChainShape
 }
@@ -1289,7 +1297,7 @@ export const chainReadSql = (
 	}
 	return {
 		ast,
-		sql: emitText(ast, supply.map()),
+		text: prepared(emitText(ast, supply.map()).text),
 		root,
 		shape: { rows: sets, end }
 	}
