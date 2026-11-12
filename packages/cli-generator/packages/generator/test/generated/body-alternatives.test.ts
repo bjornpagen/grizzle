@@ -58,6 +58,7 @@ import {
 	harnessLayer,
 	runBin
 } from "#test/support/cli-package.ts"
+import { formPairs, type Pair } from "#test/support/form.ts"
 import { valuesOf, type WireRequest } from "#test/support/http.ts"
 import { boundaryOf, partsOf, partType } from "#test/support/multipart.ts"
 
@@ -334,7 +335,7 @@ type ReadPart = Readonly<{
 /** What a body says, read by its media type's own rules. */
 type Reading =
 	| Readonly<{ kind: "json"; value: Schema.Json }>
-	| Readonly<{ kind: "form"; pairs: ReadonlyArray<readonly [string, string]> }>
+	| Readonly<{ kind: "form"; pairs: ReadonlyArray<Pair> }>
 	| Readonly<{ kind: "multipart"; parts: ReadonlyArray<ReadPart> }>
 	| Readonly<{ kind: "bytes"; bytes: Uint8Array; chunked: boolean }>
 
@@ -344,20 +345,6 @@ type Outcome = Readonly<{
 	connections: number
 	requests: ReadonlyArray<Readonly<{ mediaType: string; reading: Reading }>>
 }>
-
-/** A form body's pairs, each name and value percent-decoded. */
-const pairsOf = (body: Uint8Array): ReadonlyArray<readonly [string, string]> =>
-	Arr.map(
-		Arr.filter(Str.split("&")(Buffer.from(body).toString("latin1")), Str.isNonEmpty),
-		(pair): readonly [string, string] =>
-			Option.match(Str.indexOf("=")(pair), {
-				onNone: () => [decodeURIComponent(pair), ""],
-				onSome: (at) => [
-					decodeURIComponent(Str.slice(0, at)(pair)),
-					decodeURIComponent(Str.slice(at + 1)(pair))
-				]
-			})
-	)
 
 const decodeJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Json))
 
@@ -401,7 +388,7 @@ const receivedOf = (request: WireRequest): Effect.Effect<Received, Schema.Schema
 			if (mediaType === "application/x-www-form-urlencoded") {
 				return Effect.succeed({
 					mediaType,
-					reading: { kind: "form", pairs: pairsOf(request.body) }
+					reading: { kind: "form", pairs: formPairs(request.body) }
 				})
 			}
 			return Effect.succeed({

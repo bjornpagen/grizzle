@@ -51,6 +51,7 @@ import {
 	harnessLayer,
 	runBin
 } from "#test/support/cli-package.ts"
+import { type Pair, queryPairs } from "#test/support/form.ts"
 import { valuesOf, type WireRequest } from "#test/support/http.ts"
 
 /** One GET with a JSON object and a JSON array in the query, a text header and a text cookie, each by `content`. */
@@ -190,28 +191,10 @@ type Carried = Readonly<{
 	cookie: ReadonlyArray<string>
 }>
 
-/** The query's pairs, names and values percent-decoded. */
-const queryPairs = (target: string): ReadonlyArray<readonly [string, string]> =>
-	Option.match(Str.indexOf("?")(target), {
-		onNone: () => [],
-		onSome: (at) =>
-			Arr.map(
-				Arr.filter(Str.split("&")(Str.slice(at + 1)(target)), Str.isNonEmpty),
-				(pair): readonly [string, string] =>
-					Option.match(Str.indexOf("=")(pair), {
-						onNone: () => [decodeURIComponent(pair), ""],
-						onSome: (equals) => [
-							decodeURIComponent(Str.slice(0, equals)(pair)),
-							decodeURIComponent(Str.slice(equals + 1)(pair))
-						]
-					})
-			)
-	})
-
 const decodeJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Json))
 
 /** The JSON each value of a query parameter holds. */
-const jsonValues = (pairs: ReadonlyArray<readonly [string, string]>, name: string) =>
+const jsonValues = (pairs: ReadonlyArray<Pair>, name: string) =>
 	Effect.forEach(
 		Arr.flatMap(pairs, ([key, value]) => (key === name ? [value] : [])),
 		(value) => decodeJson(value)
