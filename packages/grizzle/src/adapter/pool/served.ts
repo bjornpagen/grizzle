@@ -23,7 +23,7 @@ import {
 	type SettingFault
 } from "#adapter/errors/failures.ts"
 import { liveSourceSessions } from "#adapter/live/layer.ts"
-import type { Subscriptions } from "#adapter/live/subscriptions.ts"
+import { type Subscriptions, unsourced } from "#adapter/live/subscriptions.ts"
 import { type LoadedLogin, type LoadedRole, loadServed } from "#adapter/served/load.ts"
 import type {
 	ConnectionPool,
@@ -37,13 +37,7 @@ import type {
 } from "#adapter/types/layer.ts"
 import { type LoginConnection, makePool, type SessionPool } from "#adapter/wire/session.ts"
 import type { AnyLogin, Invariant } from "#compiler/plan/common.ts"
-import {
-	defect,
-	SourceLoc,
-	malformedDescription,
-	nominal,
-	readCaller
-} from "#compiler/plan/runtime.ts"
+import { SourceLoc, malformedDescription, nominal, readCaller } from "#compiler/plan/runtime.ts"
 import type { ServedFile } from "#compiler/plan/serve.ts"
 
 /**
@@ -360,24 +354,21 @@ const makeServedSessions = Effect.fn("makeServedSessions")(function* <L>(
 })
 
 /**
- * The registry the layer's watches register on: its installation's live source's, which the layer requires where its
- * login serves a read (types/layer.ts LiveOf) and finds by its base (live/layer.ts liveSourceSessions); a login that
- * serves none registers no watch.
+ * The registry the layer's routed reads' watches register on: its installation's live source's, which the layer
+ * requires where its login serves a read (types/layer.ts LiveOf) and finds by its base (live/layer.ts
+ * liveSourceSessions). A login whose served file holds no live source has no watched read (served/forms.ts ServedLive
+ * `none`: no read, or reads called once alone), so its layer holds the registry of no source (live/subscriptions.ts
+ * unsourced), which none of its calls reaches.
  */
 const liveSubscriptions = <L>(
 	login: LoadedLogin
 ): Effect.Effect<Subscriptions, OpenError, LiveOf<L>> => {
 	switch (login.live.kind) {
 		case "none":
-			return Effect.succeed(readFree)
+			return Effect.succeed(unsourced)
 		case "source":
 			return Effect.map(liveSourceSessions<LiveOf<L>>(login.base), (live) => live.subscriptions)
 	}
-}
-
-/** The registry of a login that serves no read, which no watch of its Dbs registers on. */
-const readFree: Subscriptions = {
-	register: () => Effect.die(defect("a login that serves no read registers no live read"))
 }
 
 /**

@@ -72,11 +72,6 @@ export class Keyed<S extends ReadShape, Row extends object> implements Iterable<
 		return this.#nodes.get(form)
 	}
 
-	/** The row of `key`, none where no row has it. */
-	get(key: RowKey): Row | undefined {
-		return this.#nodes.get(formOf(key))?.row
-	}
-
 	/** Every entry, in order. */
 	*entries(): IterableIterator<Entry<Row>> {
 		for (let node = this.#head; node !== undefined; node = node.next) {

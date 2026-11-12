@@ -4,7 +4,8 @@ import type {
 	ListenerLost,
 	ServerError,
 	SlotAbsent,
-	SourceInvalidated
+	SourceInvalidated,
+	SourceMigrated
 } from "#adapter/errors/failures.ts"
 import type { LeaderFailed, SecretUnreadable } from "#adapter/live/leader.ts"
 import type { ApartFailure } from "#adapter/wire/batch.ts"
@@ -25,10 +26,10 @@ export type SourceRefusal =
 
 /**
  * Why an open change source ended, after which no change reaches its sink: its listening session ended (ListenerLost),
- * the installation's slot was invalidated (SourceInvalidated), or the process's candidacy for the installation's leader
- * failed (LeaderFailed).
+ * the installation's slot was invalidated (SourceInvalidated), the installation was migrated (SourceMigrated), or the
+ * process's candidacy for the installation's leader failed (LeaderFailed).
  */
-export type SourceLoss = ListenerLost | SourceInvalidated | LeaderFailed
+export type SourceLoss = ListenerLost | SourceInvalidated | SourceMigrated | LeaderFailed
 
 /**
  * Where an open change source delivers: `touched`, a committed change touched the rows `key` names; `lost`, the source

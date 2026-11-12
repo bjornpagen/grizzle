@@ -1,9 +1,11 @@
 /**
  * The replication protocol commands the leader of an installation's live source sends on its decoder login's
- * replication connection (`replication=database`), and the one SQL query it reads its stream's deadline with there,
- * printed here and nowhere else. A replication command takes no bind
- * parameter, and its slot's name is the installation's live source stem under the role space a layer reads at load
- * (core/identity.ts roleInSpace), so the runtime prints each once its slot is named. Migrate's variables filler
+ * replication connection (`replication=database`), each printed once at generate into the login's served file
+ * (program/live.ts servedLiveOf) and nowhere else. A walsender reads simple Queries alone, so a command takes no bind
+ * parameter, and the one thing in it no generate knows is its slot's name: the installation's live source stem under
+ * the role space a layer reads at load (core/identity.ts roleInSpace), as the decoder login it connects as is. So a
+ * command is served as its text around that one name (served/forms.ts SlotCommand), and the runtime fills it once its
+ * layer names the slot (slotCommand), quoting it as generate quotes every identifier. Migrate's variables filler
  * (deploy/render/variables.ts resolveVariables), the one door of every drafted role-spaced text, reads the SQL lexer,
  * which no runtime module loads, so no drafted text with a variable reaches the runtime.
  */
@@ -13,14 +15,16 @@ import type { LiveTextRefused } from "#compiler/live/notify.ts"
 
 declare const replicationCommandBrand: unique symbol
 
-/**
- * A text sent alone as a simple Query on a replication connection: a replication protocol command, or the SQL query of
- * the stream's deadline (senderTimeoutQuery), which a walsender of a database runs between its commands. Minted only
- * here.
- */
+/** A replication protocol command, sent alone as a simple Query on a replication connection. Minted only here. */
 export type ReplicationCommand = string & { readonly [replicationCommandBrand]: true }
 
 const command = nominal<string, ReplicationCommand>()
+
+/** A replication command's text around the slot's quoted name: served/forms.ts SlotCommand's shape. */
+interface SlotText {
+	readonly before: string
+	readonly after: string
+}
 
 /**
  * The version of pgoutput's protocol the leader reads: 1, whose messages every later version keeps, with no streaming
@@ -37,41 +41,27 @@ const quoted = (name: string): string => `"${name.replaceAll('"', '""')}"`
 const literal = (text: string): string => `'${text.replaceAll("'", "''")}'`
 
 /**
- * The bits of an LSN's high half, as `X/Y` writes it: PostgreSQL's 64-bit WAL position, its two 32-bit halves in hex.
- *
- * @formatConstant pg_lsn's text: two 32-bit halves
- */
-const lsnHalfBits = 32n
-
-/** A WAL position as its `X/Y` text: its high and low 32 bits, each in uppercase hex. */
-const lsnText = (lsn: bigint): string =>
-	`${(lsn >> lsnHalfBits).toString(16).toUpperCase()}/${BigInt.asUintN(Number(lsnHalfBits), lsn).toString(16).toUpperCase()}`
-
-/**
  * CREATE_REPLICATION_SLOT <slot> LOGICAL pgoutput (SNAPSHOT 'nothing'): the installation's slot, permanent, of
  * PostgreSQL's own output plugin, exporting no snapshot, since no stream reads its first rows through one.
  */
-export const createSlotCommand = (slot: string): ReplicationCommand =>
-	command(`CREATE_REPLICATION_SLOT ${quoted(slot)} LOGICAL pgoutput (SNAPSHOT 'nothing')`)
+export const createSlotTemplate: SlotText = {
+	before: "CREATE_REPLICATION_SLOT ",
+	after: " LOGICAL pgoutput (SNAPSHOT 'nothing')"
+}
 
 /**
- * START_REPLICATION SLOT <slot> LOGICAL <from> (...): the slot's decoded changes from the WAL position `from`, 0 for
- * the position the slot last confirmed, over the publication `publication`, in pgoutput's protocol version 1 with the
- * transactional messages the installation announces.
+ * START_REPLICATION SLOT <slot> LOGICAL 0/0 (...): the slot's decoded changes from the position it last confirmed, which
+ * 0/0 asks for, over the publication `publication`, in pgoutput's protocol version 1 with the transactional messages
+ * the installation announces.
  */
-export const startCommand = (slot: string, publication: string, from: bigint): ReplicationCommand =>
-	command(
-		`START_REPLICATION SLOT ${quoted(slot)} LOGICAL ${lsnText(from)} (proto_version ${literal(protocolVersion)}, publication_names ${literal(quoted(publication))}, messages 'true')`
-	)
+export const startTemplate = (publication: string): SlotText => ({
+	before: "START_REPLICATION SLOT ",
+	after: ` LOGICAL 0/0 (proto_version ${literal(protocolVersion)}, publication_names ${literal(quoted(publication))}, messages 'true')`
+})
 
-/**
- * The SQL query of the replication session's own wal_sender_timeout, which the leader reads before START_REPLICATION:
- * pg_settings states an integer setting in its base unit, this one's milliseconds, so the query answers one row of one
- * cell where its unit is `ms`, and none where it is any other (parseSenderDeadline reads the cell).
- */
-export const senderTimeoutQuery: ReplicationCommand = command(
-	"SELECT setting FROM pg_catalog.pg_settings WHERE name = 'wal_sender_timeout' AND unit = 'ms'"
-)
+/** The served command `template` over the slot `slot` (served/forms.ts SlotCommand). */
+export const slotCommand = (template: SlotText, slot: string): ReplicationCommand =>
+	command(`${template.before}${quoted(slot)}${template.after}`)
 
 /**
  * A replication stream's deadline, its walsender's own wal_sender_timeout: half of it after the last message its
@@ -105,7 +95,7 @@ const isCount = (text: string): boolean => {
 }
 
 /**
- * The deadline senderTimeoutQuery's cell states (SenderDeadline): the timeout's milliseconds, as PostgreSQL's integer
+ * The deadline the live source's sender timeout query's cell states (served/forms.ts ServedLive `senderTimeout`) (SenderDeadline): the timeout's milliseconds, as PostgreSQL's integer
  * output writes them, 0 `none`; any other text is refused.
  */
 export const parseSenderDeadline = (

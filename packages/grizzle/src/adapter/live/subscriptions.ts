@@ -103,8 +103,9 @@ const reported = (error: ServerError): string =>
 
 /**
  * The error a source's refusal or loss ends a read with: `unavailable`, which a client calls again, for every one but
- * an answer no format reads or a slot's secret that is no key, which are `failed`; the server's own report keeps its
- * hint, which names the setting a refusal like 53400's asks to raise.
+ * an answer no format reads or a slot's secret that is no key, which are `failed`, and a migration of the installation,
+ * `stale`, which the process's served files then are; the server's own report keeps its hint, which names the setting
+ * a refusal like 53400's asks to raise.
  */
 const sourceError = (reason: SourceRefusal | SourceLoss): CallError => {
 	switch (reason._tag) {
@@ -135,6 +136,8 @@ const sourceError = (reason: SourceRefusal | SourceLoss): CallError => {
 		case "ListenerLost":
 		case "SourceInvalidated":
 			return callError("unavailable", { message: reason.message })
+		case "SourceMigrated":
+			return callError("stale", { message: reason.message })
 	}
 }
 
@@ -222,16 +225,17 @@ export interface Subscriptions {
 }
 
 /**
- * The registry of a live source built over a login that serves no read (pool/live.ts): it holds no installation's live
- * source, so a read registered on it, which only a layer of another login of the installation provided with it can
- * register, ends at once with `failed`, and nothing connects.
+ * The registry of no installation's live source: a live source's built over a login whose served file holds none
+ * (pool/live.ts), and a layer's whose login's file holds none (pool/served.ts), which none of its own calls reaches,
+ * since it has no watched read. A read registered on it, which only a layer of another login of the installation
+ * provided with such a source can register, ends at once with `failed`, and nothing connects.
  */
 export const unsourced: Subscriptions = {
 	register: (request) =>
 		Effect.sync(() => {
 			const error = callError("failed", {
 				message:
-					"the live source was built over a login that serves no read: build it over one that does"
+					"the live source was built over a login whose served file holds no live source: build it over one that serves a read"
 			})
 			return {
 				initial: Stream.make(request.answer.error(error)),
@@ -385,7 +389,9 @@ export const makeSubscriptions = (
 				const seen: Array<E> = []
 				const initial = request.read.pipe(
 					Stream.mapArray((events) => {
-						seen.push(...events)
+						for (const event of events) {
+							seen.push(event)
+						}
 						return events
 					}),
 					Stream.onEnd(

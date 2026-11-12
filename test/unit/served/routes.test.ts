@@ -30,7 +30,15 @@ import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Result as Answered, Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import {
+	Result as Answered,
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	Record as Rec
+} from "effect"
 import type { WorkloadForm } from "#adapter/db/workload.ts"
 import { keyedBy } from "#compiler/analysis/physical/props.ts"
 import type { DecoderForm } from "#compiler/core/decoder.ts"
@@ -206,10 +214,13 @@ const routesAndKeys = (
 					`read ${member.name}'s base-level IR`
 				)
 				const climbed = climbedFootprint(ir)
+				const installed = installedFootprint(climbed, role.compiled.artifacts.names)
 				assert.deepEqual(
-					read.footprint,
-					installedFootprint(climbed, role.compiled.artifacts.names),
-					`${member.name}: its footprint is the tables it reads, each routed by the fields its parameters fix\n${printed()}`
+					read.live,
+					Rec.isEmptyRecord(installed)
+						? { kind: "constant" }
+						: { kind: "routed", footprint: installed },
+					`${member.name}: its footprint is the tables it reads, each routed by the fields its parameters fix, a read of none constant\n${printed()}`
 				)
 				if (climbed.views.size > 0) {
 					note("a materialized view a read reads")

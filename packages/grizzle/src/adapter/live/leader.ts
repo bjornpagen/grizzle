@@ -38,18 +38,16 @@ import {
 import type { EmittedText, OutputRows, Param, Prepared } from "#compiler/plan/common.ts"
 import {
 	batchesOf,
-	createSlotCommand,
 	defect,
 	type LiveSecret,
 	type Notification,
 	parseLiveSecret,
 	parseSenderDeadline,
+	type ReplicationCommand,
 	sealBatch,
 	sealNonce,
 	sealNonceBytes,
 	type SenderDeadline,
-	senderTimeoutQuery,
-	startCommand,
 	textArrayParam,
 	textParam
 } from "#compiler/plan/runtime.ts"
@@ -69,7 +67,7 @@ import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
  *
  * 1. visible: which of the round's transactions every snapshot taken now sees, so a key is sent only once a read begun
  *    after it arrives sees its change; the transactions up to the first one not yet visible are sent, and it and every
- *    one after go back to wait for the next round, which runs at once;
+ *    one after stay for the next round, which runs at once;
  * 2. fanout: their notifications, in commit order, each once, as batches sealed under the installation's secret with a
  *    fresh random nonce each (engine live/notify.ts batchesOf, sealBatch), in one transaction whose COMMIT sends them;
  * 3. confirm: only once that COMMIT answered, a Standby Status Update of the last transaction sent, which the slot
@@ -135,7 +133,8 @@ export class ReplicationSilent extends Data.TaggedError("ReplicationSilent")<{
 
 /**
  * What a candidacy runs with: the decoder login's connection, its sessions' control texts, the installation's live
- * source, its slot under the installation's role space, its live tables, and its materialized views, the only table
+ * source, its slot under the installation's role space, the source's slot commands filled with it once, where the
+ * layer names it (engine live/replication.ts slotCommand), its live tables, and its materialized views, the only table
  * keys an announcement may name (live/changes.ts).
  */
 export interface Candidacy {
@@ -143,6 +142,8 @@ export interface Candidacy {
 	readonly session: ServedSession
 	readonly source: Extract<ServedLive, { readonly kind: "source" }>
 	readonly slot: string
+	readonly createSlot: ReplicationCommand
+	readonly start: ReplicationCommand
 	readonly tables: LiveTables
 	readonly views: ReadonlySet<string>
 }
@@ -182,7 +183,7 @@ export const secretOf = (
 	return secret?.ok === true ? Effect.succeed(secret.value) : Effect.fail(new SecretUnreadable())
 }
 
-/** The deadline senderTimeoutQuery's answer states. */
+/** The deadline the source's sender timeout query's answer states (ServedLive `senderTimeout`). */
 const deadlineOf = (rows: OutputRows): Effect.Effect<SenderDeadline, SenderTimeoutUnreadable> => {
 	const cell = onlyCell(rows)
 	const deadline = cell === undefined ? undefined : parseSenderDeadline(cell)
@@ -243,7 +244,14 @@ const fanoutTransaction: Transaction = {
 	end: "COMMIT"
 }
 
-/** The milliseconds from the Unix epoch to PostgreSQL's, 2000-01-01, which a status update's clock counts from. */
+/**
+ * The milliseconds from the Unix epoch to PostgreSQL's, midnight on 2000-01-01, which a Standby Status Update's clock
+ * counts microseconds from, by "Streaming Replication Protocol"
+ * (https://www.postgresql.org/docs/19/protocol-replication.html): "The client's system clock at the time of
+ * transmission, as microseconds since midnight on 2000-01-01."
+ *
+ * @formatConstant PostgreSQL's epoch, 2000-01-01 00:00:00 UTC, in Unix milliseconds
+ */
 const postgresEpochMillis = 946_684_800_000n
 
 /** A status update confirming `flushed`, its clock the Clock's now. */
@@ -387,7 +395,7 @@ const rounds = (
 		if (failure !== undefined) {
 			return yield* failure
 		}
-		const taken = delivered.transactions.splice(0)
+		const taken = Arr.copy(delivered.transactions)
 		if (Arr.isReadonlyArrayNonEmpty(taken)) {
 			const visibleRows = yield* alone(
 				leading.session,
@@ -402,7 +410,7 @@ const rounds = (
 				}
 			}
 			const sent = Arr.takeWhile(taken, (transaction) => visible.has(String(transaction.xid)))
-			delivered.transactions.unshift(...taken.slice(sent.length))
+			delivered.transactions.splice(0, sent.length)
 			const last = Arr.last(sent)
 			if (last._tag === "Some") {
 				yield* fanout(
@@ -438,12 +446,14 @@ const streamed = (
 	heard: () => void
 ): Effect.Effect<never, LeaderReason> => {
 	const { candidacy } = leading
-	const reader = transactionReader(candidacy.tables, candidacy.views, candidacy.source.publication)
+	const reader = transactionReader(
+		candidacy.tables,
+		candidacy.views,
+		candidacy.source.publication,
+		candidacy.source.ledger
+	)
 	return Effect.catchTag(
-		replication.stream(
-			startCommand(candidacy.slot, candidacy.source.publication, 0n),
-			receiver(delivered, reader, heard)
-		),
+		replication.stream(candidacy.start, receiver(delivered, reader, heard)),
 		"ServerError",
 		(refused) =>
 			Effect.flatMap(
@@ -468,7 +478,10 @@ export const candidacy = (running: Candidacy): Effect.Effect<never, LeaderReason
 			const replication = yield* connectReplication(connection)
 			const session = yield* connectSession(connection)
 			yield* replication.run(running.source.lock)
-			const deadline = yield* Effect.flatMap(replication.read(senderTimeoutQuery), deadlineOf)
+			const deadline = yield* Effect.flatMap(
+				replication.read(running.source.senderTimeout),
+				deadlineOf
+			)
 			const slot = textParam(running.slot)
 			const checked = yield* alone(session, statement(running.source.check, [slot]))
 			const standing = onlyCell(checked)
@@ -479,7 +492,7 @@ export const candidacy = (running: Candidacy): Effect.Effect<never, LeaderReason
 			const leading: Leading = { session, candidacy: running, secret }
 			if (standing !== trueText) {
 				yield* fanout(leading, [{ kind: "invalidated" }])
-				yield* replication.run(createSlotCommand(running.slot))
+				yield* replication.run(running.createSlot)
 			}
 			const delivered: Delivered = {
 				transactions: [],

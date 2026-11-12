@@ -48,7 +48,7 @@ import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
-import { RowKey } from "#compiler/live/index.ts"
+import { formOf, RowKey } from "#compiler/live/index.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -157,8 +157,8 @@ const footprintsHold = (live: LiveInstallation): void => {
 			})
 		)
 		assert.deepEqual(
-			member.read.footprint,
-			expected,
+			member.read.live,
+			Rec.isEmptyRecord(expected) ? { kind: "constant" } : { kind: "routed", footprint: expected },
 			`${readMember(place)} (${Formatter.format(read)}) routes as its program fixes its parameter`
 		)
 	}
@@ -291,7 +291,10 @@ layer(Substrate.layer)("a commit's notifications", (it) => {
 									)
 									const turned = yield* probe.turn
 									assert.ok(
-										Option.exists(turned, (value) => value.get(RowKey([fence])) !== undefined),
+										Option.exists(
+											turned,
+											(value) => value.at(formOf(RowKey([fence]))) !== undefined
+										),
 										`the probe's turn after fence ${fence} holds its row`
 									)
 								})

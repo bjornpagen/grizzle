@@ -203,7 +203,8 @@ export type LoginBase<L> = L extends { readonly base: infer B } ? B : never
 /**
  * Whether a workload may serve a live read, `false` only where its type proves none of its members does: each member's
  * answer a write's (engine live/program.ts ShapeOf), a ChangeSet's or a refresh's, or a read's at its call's instant (a
- * clocked member's), which registers no watch. A workload whose type states no programs may.
+ * clocked member's), which registers no watch. Every other read needs the live source, a read of closed relations alone
+ * too, for the version notice a migration ends its watch with. A workload whose type states no programs may.
  */
 type WorkloadRead<W> =
 	W extends Workload<unknown, infer P>

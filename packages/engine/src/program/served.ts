@@ -31,6 +31,7 @@ import type {
 	ServedPageProgram,
 	ServedPageRequest,
 	ServedRead,
+	ServedReadLive,
 	ServedRoleForm,
 	ServedSession,
 	ServedVariants
@@ -60,16 +61,16 @@ export const servedInstantRead = (
 
 /**
  * A query compiled for a role's rows, served as a read a call may watch (served/forms.ts ServedRead): its instant read
- * (servedInstantRead) and its footprint, the workload plan's (program/workload/compile.ts WorkloadFootprints), its tables
- * named as installed (servedFootprint).
+ * (servedInstantRead) and what wakes its watch, from its footprint, the workload plan's
+ * (program/workload/compile.ts WorkloadFootprints), its tables named as installed (servedReadLive).
  */
 export const servedRead = (
 	template: QueryTemplate,
 	desc: QueryDesc,
 	decoder: RowDecoder<unknown>,
 	key: ServedKey,
-	footprint: ServedFootprint
-): ServedRead => ({ ...servedInstantRead(template, desc, decoder, key), footprint })
+	live: ServedReadLive
+): ServedRead => ({ ...servedInstantRead(template, desc, decoder, key), live })
 
 /** The root of a program's DAG reads no enclosing node: it is evaluated once per execution. */
 const evaluatedOnce: OuterRefs = new Map()
@@ -107,12 +108,22 @@ export const templateKey = (template: QueryTemplate): ServedKey => {
 }
 
 /**
+ * What wakes a read program's watch as its served read holds it (served/forms.ts ServedReadLive): constant where its
+ * footprint holds no table and no view, a read of closed relations alone; otherwise routed by its footprint
+ * (servedFootprint).
+ */
+export const servedReadLive = (footprint: Footprint, names: PhysicalNames): ServedReadLive =>
+	footprint.tables.size + footprint.views.size === 0
+		? { kind: "constant" }
+		: { kind: "routed", footprint: servedFootprint(footprint, names) }
+
+/**
  * A read program's footprint as its served read names it (served/forms.ts ServedFootprint): each stored relation's
  * table, by its installed identifier, with each routed field's installed column to its parameter's declared name, and
  * each materialized derived relation's view, by its installed identifier, routed by nothing, all under the
  * installation's names `names`, which the naming door derives.
  */
-export const servedFootprint = (footprint: Footprint, names: PhysicalNames): ServedFootprint =>
+const servedFootprint = (footprint: Footprint, names: PhysicalNames): ServedFootprint =>
 	Object.fromEntries([
 		...[...footprint.tables].map(
 			([relation, routes]) =>

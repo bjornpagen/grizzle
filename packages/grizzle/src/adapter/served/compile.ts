@@ -8,7 +8,7 @@ import {
 	plannedLoginRoles,
 	workloadSlice
 } from "#adapter/served/login.ts"
-import { servedFileOf } from "#adapter/served/project.ts"
+import { type ReadsServed, servedFileOf, type UncoveredProgram } from "#adapter/served/project.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
 import type { ChangeRefused, RoleChanges } from "#compiler/plan/change.ts"
 import {
@@ -31,7 +31,8 @@ import {
 	everySlice,
 	type ServedFile,
 	type ServedSnapshot,
-	servedSnapshot
+	servedSnapshot,
+	type UncoveredRead
 } from "#compiler/plan/serve.ts"
 
 /** A login of a configured schema, as generate and check compile it: its value, and the login owned over its base. */
@@ -50,12 +51,13 @@ export type WorkloadPlace =
 	| { readonly kind: "program"; readonly role: string; readonly program: string }
 
 /**
- * The compile of a login's workload refused, at `place`, for `error`: a CompileError, or a workload ChangeSet no served
- * file can hold, with every reason (served/unserved.ts UnservedMember).
+ * The compile of a login's workload refused, at `place`, for `error`: a CompileError, a workload ChangeSet no served
+ * file can hold, with every reason (served/unserved.ts UnservedMember), or a watched read whose footprint the
+ * snapshot's live source does not decode, with every part of it the source does not (served/forms.ts UncoveredRead).
  */
 export interface ServedRefusal {
 	readonly place: WorkloadPlace
-	readonly error: CompileError | UnservedMember
+	readonly error: CompileError | UnservedMember | UncoveredRead
 }
 
 /**
@@ -144,16 +146,50 @@ export interface ServedEntry {
 	readonly openapi: string
 }
 
+/** A refusal of the projection: an uncovered read's at its program, any other at the login. */
+const projectionRefusal = (
+	refused: CompileError | UnservedMember | UncoveredProgram
+): ServedRefusal =>
+	refused._tag === "UncoveredProgram"
+		? {
+				place: { kind: "program", role: refused.role, program: refused.program },
+				error: refused.read
+			}
+		: atLogin(refused)
+
 /**
- * The served file a login's compile projects (adapter/served/project.ts servedFileOf), with its canonical text and its
- * OpenAPI document's.
+ * The served file a login's compile projects with its reads served as `reads` says (adapter/served/project.ts
+ * servedFileOf), with its canonical text and its OpenAPI document's.
+ */
+const entryOf = (
+	compiled: CompiledServed,
+	reads: ReadsServed
+): Effect.Effect<ServedEntry, ServedRefusal> =>
+	Effect.gen(function* () {
+		const file = yield* Effect.mapError(
+			Effect.fromResult(servedFileOf(compiled, reads)),
+			projectionRefusal
+		)
+		const text = yield* Effect.mapError(fromEngine(servedText(file)), atLogin)
+		const openapi = yield* Effect.mapError(fromEngine(openApiText(file)), atLogin)
+		return { login: compiled.login.name, file, text, openapi }
+	})
+
+/**
+ * The served file of a login's compile, its reads called by `watch` and `once` (entryOf): what generate writes and an
+ * application's DbLayer serves, so a read whose footprint its snapshot's live source does not decode is refused.
  */
 export const servedEntryOf = Effect.fn("servedEntryOf")(function* (compiled: CompiledServed) {
-	const file = yield* Effect.fromResult(servedFileOf(compiled))
-	const text = yield* fromEngine(servedText(file))
-	const openapi = yield* fromEngine(openApiText(file))
-	return { login: compiled.login.name, file, text, openapi }
-}, Effect.mapError(atLogin))
+	return yield* entryOf(compiled, "watched")
+})
+
+/**
+ * The served file of a login's compile, its reads called by `once` alone (entryOf): one whose members a test serves
+ * through adapter/db/handles.ts onceCalls, never a DbLayer, so its reads need no live source and it holds none.
+ */
+export const onceEntryOf = Effect.fn("onceEntryOf")(function* (compiled: CompiledServed) {
+	return yield* entryOf(compiled, "once")
+})
 
 /**
  * The served file of `login` under `snapshot`, the JSON value of the snapshot.json beside it, compiled over its base's
@@ -221,3 +257,13 @@ export const snapshotServedEntry = (
 	snapshot: unknown
 ): Effect.Effect<ServedEntry, ServedRefusal> =>
 	Effect.flatMap(snapshotCompiled(login, snapshot), servedEntryOf)
+
+/**
+ * The served file of `login` under `snapshot` alone, its reads called once alone (`snapshotCompiled`, then
+ * `onceEntryOf`): adapter/public/compile.ts compileServedOnce's.
+ */
+export const snapshotOnceEntry = (
+	login: ServedInput,
+	snapshot: unknown
+): Effect.Effect<ServedEntry, ServedRefusal> =>
+	Effect.flatMap(snapshotCompiled(login, snapshot), onceEntryOf)

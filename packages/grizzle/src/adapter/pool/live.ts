@@ -17,6 +17,7 @@ import { loginEnvironment, readServedLogin } from "#adapter/pool/served.ts"
 import type { LoginBase, LiveSourceConfigShape, LiveSourceService } from "#adapter/types/layer.ts"
 import type { LoginConnection } from "#adapter/wire/session.ts"
 import type { AnyLogin } from "#compiler/plan/common.ts"
+import { slotCommand } from "#compiler/plan/runtime.ts"
 import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
 
 /**
@@ -109,6 +110,8 @@ const makeLiveSource = (
 						session: parsed.session,
 						source,
 						slot: decoder,
+						createSlot: slotCommand(source.createSlot, decoder),
+						start: slotCommand(source.start, decoder),
 						tables: new Map(Rec.toEntries(source.tables)),
 						views: new Set(source.views)
 					}

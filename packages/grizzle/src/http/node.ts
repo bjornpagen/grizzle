@@ -40,12 +40,21 @@ const origin = "http://grizzle.invalid"
 const bodiless: ReadonlySet<string> = new Set(["GET", "HEAD"])
 
 /**
+ * The entries each header takes in a Node request's `rawHeaders`, its name then its value, by Node's "HTTP" docs
+ * (https://nodejs.org/api/http.html#messagerawheaders): "The keys and values are in the same list. It is not a list of
+ * tuples. So, the even-numbered offsets are key values, and the odd-numbered offsets are the associated values."
+ *
+ * @formatConstant Node's rawHeaders: each header its name, then its value
+ */
+const rawHeaderEntries = 2
+
+/**
  * The headers of a Node request as Fetch holds them: each name and value as received, but node:http2's
  * pseudo-headers, which Fetch's request holds as its method and URL.
  */
 const fetchHeaders = (raw: ReadonlyArray<string>): Headers => {
 	const headers = new Headers()
-	for (const [name, value] of Arr.chunksOf(raw, 2)) {
+	for (const [name, value] of Arr.chunksOf(raw, rawHeaderEntries)) {
 		if (value !== undefined && !Str.startsWith(":")(name)) {
 			headers.append(name, value)
 		}

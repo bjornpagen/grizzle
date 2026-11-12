@@ -116,7 +116,7 @@ const opens = (
 				report: `the secret's read answered ${Formatter.format(secret)}`
 			})
 		}
-		yield* opening("the LISTEN", decoder.query(served.listen, []))
+		yield* opening("the LISTEN", decoder.query(served.listen.sql, []))
 		const checked = yield* opening("the slot check", decoder.values(served.check.sql, [slot]))
 		const [answer, ...others] = Arr.flatten(checked)
 		if (answer !== true || others.length > 0) {
@@ -353,7 +353,12 @@ layer(Substrate.layer)("the live source", (it) => {
 								"SELECT pg_catalog.encode(data, 'hex') FROM pg_catalog.pg_logical_slot_get_binary_changes($1::name, NULL, NULL, 'proto_version', '1', 'publication_names', $2::text, 'messages', 'true')",
 								[slot, `"${publication}"`]
 							)
-							const reader = transactionReader(liveTables(live), liveViews(live), publication)
+							const reader = transactionReader(
+								liveTables(live),
+								liveViews(live),
+								publication,
+								identifierOf(identity.ledger())
+							)
 							const decoded: Array<ReadonlySet<string>> = []
 							for (const [hex] of rows) {
 								const message = decodeMessage(bytesOfHex(String(hex)))

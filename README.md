@@ -1466,7 +1466,7 @@ export const WebLayer = DbLayer.make({
 
 A login whose roles read the token also needs `verify`, your function from a bearer token to its verified payload: here, Clerk's `verifyToken`. `attachPool` hands the pool to Vercel, so idle connections close before a function instance suspends.
 
-A login whose workloads serve a read requires its installation's live source, `LiveSource.layer`, which its type states: the `DbLayer` of `Web` is a layer that needs `BlogLive`, and the program does not compile until it is provided. Build it once per process for the installation and provide it to every such layer, so one process holds one of it however many logins it serves. It takes the connection of the installation's decoder login, the one login `grizzle migrate` grants REPLICATION, whose `password` is that login's credential, and any served login of the installation that reads. It connects nothing until a Db's first `watch`; from then on, for its scope, it holds one listening session of the decoder login and the process's candidacy for the installation's live leader, which streams the committed changes of the tables live reads read from the installation's replication slot and fans out which rows they touched, sealed under the installation's secret. `EtlJob` serves no read, so its layer needs no live source. A login whose type hides its workloads, `AnyLogin` among them, requires one too, since its type cannot prove it reads nothing; providing a source no layer uses is legal.
+A login whose workloads serve a read requires its installation's live source, `LiveSource.layer`, which its type states: the `DbLayer` of `Web` is a layer that needs `BlogLive`, and the program does not compile until it is provided. Build it once per process for the installation and provide it to every such layer, so one process holds one of it however many logins it serves. It takes the connection of the installation's decoder login, the one login `grizzle migrate` grants REPLICATION, whose `password` is that login's credential, and any served login of the installation that reads. It connects nothing until a Db's first `watch`; from then on, for its scope, it holds one listening session of the decoder login and the process's candidacy for the installation's live leader, which streams the committed changes of the tables live reads read from the installation's replication slot and fans out which rows they touched, sealed under the installation's secret. `EtlJob` serves no read, so its layer needs no live source. A login whose type hides its workloads, `AnyLogin` among them, requires one too, since its type cannot prove it reads nothing; providing a source no layer uses is legal. Every watch ends with `stale` when the installation is migrated: the leader decodes the migration's ledger row and fans out a version notice, so a read of closed relations alone, whose rows only a migration changes, needs the live source too.
 
 grizzle sets no `max_slot_wal_keep_size`, since how much WAL the slot may hold while no leader runs is the operator's policy, and a slot the server invalidates fails closed: the next leader fans out `:invalidated`, which ends every live read of the installation.
 
@@ -3366,6 +3366,13 @@ role's level. A ChangeSet's read-backs run in its own transaction, at its level.
 
 **compileServed serves every role SERIALIZABLE.** A file `compileServed` compiles from other programs than the
 committed workload has no certificate behind it, so every role in it runs SERIALIZABLE.
+
+**compileServed refuses a read the live source does not serve.** A watch of a read whose table the installation's
+publication leaves out, or whose routing column its live source does not route by, would miss its changes, and a watch
+over an installation with no live source would miss the migration that ends it `stale`, so `compileServed` refuses that
+program, a `ServedRefusal` at the program whose error is `UncoveredRead`, naming the missing source, or each table and
+column. Only a snapshot of a database migrated without the program's workload has one, since `grizzle generate` builds
+the publication from the same workload.
 
 **Direct SQL.** A direct writer, psql included, writes at SERIALIZABLE, and the guard refuses anything below it with
 25000, except on a table whose every writer is certified READ COMMITTED. There it may write at any level, as the role it

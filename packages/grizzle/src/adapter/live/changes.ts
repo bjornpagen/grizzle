@@ -22,6 +22,10 @@ import {
  * a missed change. Each side is first read into one representation, each column's text or absent (sidesOf), so the
  * predicate reads no image's kind. A TRUNCATE is each read table's key.
  *
+ * A change of the installation's migrations ledger, which the publication holds beside the live tables, is a migration:
+ * its transaction's notification is `migrated` (engine live/notify.ts), whatever row it wrote, and every live read of
+ * the installation ends `stale` once it is fanned out (live/listen.ts).
+ *
  * A logical message under the installation's prefix is a refresh's announcement, its text a batch's plaintext
  * (engine live/notify.ts batchNotifications), and untrusted input: pg_logical_emit_message is PUBLIC, so any role of the
  * database can emit one under the prefix. Of a message the reader takes only the table keys of the installation's
@@ -54,8 +58,12 @@ export class ChangesUnroutable extends Data.TaggedError("ChangesUnroutable")<{
 	}
 }
 
-/** A relation as a round's Relation message named it: read by no program, read whole, or routed by its columns. */
+/**
+ * A relation as a round's Relation message named it: the installation's migrations ledger, read by no program, read
+ * whole, or routed by its columns.
+ */
 type RelationRoutes =
+	| { readonly kind: "ledger" }
 	| { readonly kind: "unread" }
 	| { readonly kind: "whole"; readonly table: RouteTable }
 	| {
@@ -66,6 +74,10 @@ type RelationRoutes =
 	  }
 
 const unread: RelationRoutes = { kind: "unread" }
+
+const ledgerRoutes: RelationRoutes = { kind: "ledger" }
+
+const migrated: Notification = { kind: "migrated" }
 
 /**
  * A Relation message's routes under `tables`: a routed column the relation does not hold leaves the table routed by
@@ -153,6 +165,9 @@ const changeKeys = (
 	message: Extract<Message, { readonly kind: "insert" | "update" | "delete" }>
 ): void => {
 	switch (relation.kind) {
+		case "ledger":
+			add(keys, migrated)
+			return
 		case "unread":
 			return
 		case "whole":
@@ -176,9 +191,9 @@ const changeKeys = (
 
 /**
  * Reads a replication stream's pgoutput messages, one at a time, in order, into its committed transactions (see the
- * header): each Relation message names a relation under `tables` until another names it again, a logical message under
- * `prefix` is an announcement, of which only the table keys of `views` are taken, and each Commit answers the
- * transaction it ends.
+ * header): each Relation message names a relation under `tables`, or the ledger, `ledger`, until another names it again,
+ * a logical message under `prefix` is an announcement, of which only the table keys of `views` are taken, and each
+ * Commit answers the transaction it ends.
  */
 export interface TransactionReader {
 	readonly read: (
@@ -190,7 +205,8 @@ export interface TransactionReader {
 export const transactionReader = (
 	tables: LiveTables,
 	views: ReadonlySet<string>,
-	prefix: string
+	prefix: string,
+	ledger: string
 ): TransactionReader => {
 	const relations = new Map<number, RelationRoutes>()
 	const stream: { open: { readonly xid: number; readonly keys: Keys } | undefined } = {
@@ -200,7 +216,12 @@ export const transactionReader = (
 	return {
 		read: (message) => {
 			if (message.kind === "relation") {
-				relations.set(message.relation, relationRoutes(tables, message.name, message.columns))
+				relations.set(
+					message.relation,
+					message.name === ledger
+						? ledgerRoutes
+						: relationRoutes(tables, message.name, message.columns)
+				)
 				return Result.succeed(undefined)
 			}
 			if (message.kind === "skipped") {
@@ -241,8 +262,15 @@ export const transactionReader = (
 						if (relation === undefined) {
 							return unroutable("a truncate of a relation never named")
 						}
-						if (relation.kind !== "unread") {
-							add(open.keys, { kind: "table", table: relation.table })
+						switch (relation.kind) {
+							case "ledger":
+								add(open.keys, migrated)
+								break
+							case "unread":
+								break
+							case "whole":
+							case "routed":
+								add(open.keys, { kind: "table", table: relation.table })
 						}
 					}
 					return Result.succeed(undefined)

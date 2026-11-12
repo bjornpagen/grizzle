@@ -24,6 +24,7 @@ import {
 	type ClockParamDecl,
 	prepared,
 	raisableOf,
+	readGaps,
 	type SchemaArtifacts,
 	servedLiveOf,
 	servedSession,
@@ -42,8 +43,8 @@ import {
 import {
 	pageKey,
 	type QueryTemplate,
-	servedFootprint,
 	servedInstantRead,
+	servedReadLive,
 	servedRead,
 	servedReadBacks,
 	templateKey
@@ -59,13 +60,16 @@ import {
 	type ServedMember,
 	type ServedMemberForm,
 	type ServedRead,
+	type ServedReadLive,
 	type ServedRefusals,
 	type ServedRoleForm,
 	type ServedSnapshot,
 	type ServedTable,
 	type ServedTables,
 	type ServedVariants,
-	type SnapshotTables
+	type SnapshotTables,
+	type LiveGap,
+	type UncoveredRead
 } from "#compiler/plan/serve.ts"
 
 /**
@@ -129,7 +133,7 @@ const readOf = (
 		compiled.desc,
 		form.decoder(),
 		key(compiled.template),
-		servedFootprint(footprint, names)
+		servedReadLive(footprint, names)
 	)
 }
 
@@ -410,14 +414,100 @@ const servedAbove = (above: LawsAbove): ServedAbove => ({
 })
 
 /**
- * The served file of a login's compile (see the header): the login, the snapshot fingerprint it compiled under, its
- * base and that level's index, its PostgreSQL role, its base's schema and the prologue's and session's texts, the codes
- * of exactly the rosters its roles read, the laws above its base, and its roles. A ledger or login role the naming door
- * refuses is its CompileError, and a workload ChangeSet no call can serve its UnservedMember.
+ * What a served file's reads are called by: `watch` and `once`, as generate and compileServed serve a login, so each
+ * read's footprint must be one its snapshot's live source decodes; or `once` alone, as compileServedOnce serves one
+ * (adapter/db/handles.ts onceCalls), which no change wakes, so its file holds no live source.
+ */
+export type ReadsServed = "watched" | "once"
+
+/** A watched read the compile refuses, program `program` of role `role`, whose footprint its source does not decode. */
+export interface UncoveredProgram {
+	readonly _tag: "UncoveredProgram"
+	readonly role: string
+	readonly program: string
+	readonly read: UncoveredRead
+}
+
+/**
+ * A member's read's live kind (served/forms.ts ServedReadLive), where it is a read a call may watch; none for a read at
+ * its call's instant, which registers no watch, and for a write.
+ */
+const readLiveOf = (member: ServedMemberForm): ServedReadLive | undefined => {
+	switch (member.kind) {
+		case "read":
+		case "key":
+		case "paged":
+			return member.read.live
+		case "instant":
+		case "change":
+		case "refresh":
+			return undefined
+	}
+}
+
+/**
+ * What of a read whose watch is `live` the snapshot's live source `source` does not decode (engine program/live.ts
+ * readGaps): every read needs the source itself, for the version notice a migration ends its watch with
+ * (adapter/live/changes.ts), so a source that is none is its one gap; a routed read needs its footprint's tables and
+ * routing columns besides.
+ */
+const gapsOf = (
+	live: ServedReadLive,
+	source: ServedSnapshot["derived"]["live"]
+): ReadonlyArray<LiveGap> => {
+	if (source.kind === "none") {
+		return [{ kind: "source" }]
+	}
+	switch (live.kind) {
+		case "constant":
+			return []
+		case "routed":
+			return readGaps(source, live.footprint)
+	}
+}
+
+/**
+ * The first read of `roles`, in role and member order, a read's, a key's or a paged read's, whose watch `source` does
+ * not serve (gapsOf), with every part of it the source does not decode; none where it serves each one's.
+ */
+const uncoveredOf = (
+	roles: ReadonlyArray<ServedRoleForm>,
+	source: ServedSnapshot["derived"]["live"]
+): UncoveredProgram | undefined => {
+	for (const role of roles) {
+		for (const member of role.members) {
+			const live = readLiveOf(member)
+			if (live === undefined) {
+				continue
+			}
+			const [gap, ...gaps] = gapsOf(live, source)
+			if (gap !== undefined) {
+				return {
+					_tag: "UncoveredProgram",
+					role: role.name,
+					program: member.name,
+					read: { _tag: "UncoveredRead", gaps: [gap, ...gaps] }
+				}
+			}
+		}
+	}
+	return undefined
+}
+
+/**
+ * The served file of a login's compile (see the header), its reads served as `reads` says: the login, the snapshot
+ * fingerprint it compiled under, its base and that level's index, its PostgreSQL role, its base's schema and the
+ * prologue's and session's texts, its live source, the codes of exactly the rosters its roles read, the laws above its
+ * base, and its roles. A ledger or login role the naming door refuses is its CompileError, a workload ChangeSet no call
+ * can serve its UnservedMember, and a watched read the snapshot's live source does not serve its UncoveredProgram, a
+ * reading login's over a snapshot with no source among them. A login with no read and a file of reads called once
+ * alone hold none; every other holds the installation's source, whose version notice ends each of its watches at a
+ * migration, a constant read's too.
  */
 export const servedFileOf = (
-	compiled: CompiledLogin
-): Result.Result<ServedFile, CompileError | UnservedMember> =>
+	compiled: CompiledLogin,
+	reads: ReadsServed
+): Result.Result<ServedFile, CompileError | UnservedMember | UncoveredProgram> =>
 	Result.gen(function* () {
 		const { login, snapshot } = compiled
 		const [first] = compiled.roles
@@ -435,6 +525,11 @@ export const servedFileOf = (
 			Arr.map(compiled.roles, (layered) => roleOf(layered, compiled.footprints))
 		)
 		const used = servedRosters(roles)
+		const source = snapshot.derived.live
+		const uncovered = reads === "watched" ? uncoveredOf(roles, source) : undefined
+		if (uncovered !== undefined) {
+			return yield* Result.fail(uncovered)
+		}
 		return {
 			login: login.name,
 			fingerprint: snapshot.fingerprint,
@@ -444,9 +539,10 @@ export const servedFileOf = (
 			schema,
 			prologue: { fence: prepared(ledger.fence.text), enter: prepared(ledger.enter.text) },
 			session: servedSession,
-			live: servesRead(compiled.footprints)
-				? servedLiveOf(root, snapshot.derived.live)
-				: { kind: "none" },
+			live:
+				reads === "once" || !servesRead(compiled.footprints)
+					? { kind: "none" }
+					: servedLiveOf(root, source),
 			rosters: new Map(
 				Arr.map(
 					Arr.filter([...snapshot.codes.rosters], ([name]) => used.has(name)),

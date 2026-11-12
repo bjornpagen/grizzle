@@ -75,12 +75,10 @@ export {
 	type SealNonce
 } from "#compiler/live/notify.ts"
 export {
-	createSlotCommand,
 	parseSenderDeadline,
 	type ReplicationCommand,
 	type SenderDeadline,
-	senderTimeoutQuery,
-	startCommand
+	slotCommand
 } from "#compiler/live/replication.ts"
 export { sealNonceBytes } from "#compiler/core/seal.ts"
 export { explainAnalyzeOf, explainOf, type ExplainText } from "#compiler/runtime/explain.ts"

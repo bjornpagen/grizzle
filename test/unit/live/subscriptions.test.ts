@@ -54,6 +54,7 @@ import {
 	callError,
 	diffSet,
 	fold,
+	formOf,
 	type Keyed,
 	opening,
 	type SetEvent
@@ -370,7 +371,7 @@ describe("the live registry", () => {
 											if (event.kind === "remove") {
 												c.note("a batch removing a row")
 												assert.ok(
-													before.get(event.key) !== undefined,
+													before.at(formOf(event.key)) !== undefined,
 													"a batch removes only keys the value held"
 												)
 											}

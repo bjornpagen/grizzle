@@ -70,8 +70,8 @@ import {
 	type WriteOutcome
 } from "#compiler/live/index.ts"
 import type { EncodingFailure } from "#compiler/plan/common.ts"
-import { defect, encodeFailure, factPlace } from "#compiler/plan/runtime.ts"
-import type { ServedTables } from "#compiler/plan/serve.ts"
+import { defect, encodeFailure, factPlace, type RouteKey } from "#compiler/plan/runtime.ts"
+import type { ServedRefresh, ServedTables } from "#compiler/plan/serve.ts"
 
 /**
  * A served Db's workload handles: each member its layer loaded for the Db's role (served/load.ts LoadedMember), run on
@@ -92,33 +92,51 @@ import type { ServedTables } from "#compiler/plan/serve.ts"
  * one CallError.
  *
  * A member's calls over JavaScript values, by the shape of its answer, so a call's events and its value are typed by
- * its shape: what a typed handle views (types/db MemberHandle) and what the HTTP handler calls by name.
+ * its shape: what a typed handle views (types/db MemberHandle) and what the HTTP handler calls by name. Its `once` half
+ * is OnceCalls.
  */
 export type ServedCalls =
+	| (Extract<OnceCalls, { readonly shape: "set" }> & {
+			readonly watch: (input: unknown) => Stream.Stream<SetEvent<DecodedRow>>
+	  })
+	| (Extract<OnceCalls, { readonly shape: "list" }> & {
+			readonly watch: (input: unknown) => Stream.Stream<ListEvent<DecodedRow>>
+	  })
+	| (Extract<OnceCalls, { readonly shape: "instantSet" }> & {
+			readonly answer: (input: unknown) => Stream.Stream<InstantSetEvent<DecodedRow>>
+	  })
+	| (Extract<OnceCalls, { readonly shape: "instantList" }> & {
+			readonly answer: (input: unknown) => Stream.Stream<InstantListEvent<DecodedRow>>
+	  })
+	| (Extract<OnceCalls, { readonly shape: "write" }> & {
+			readonly watch: (input: unknown) => Stream.Stream<WriteEvent<WrittenOutcome>>
+	  })
+
+/**
+ * A member's `once` alone, by the shape of its answer (ServedCalls): the calls of a member of a file that serves its
+ * reads once alone (adapter/public/compile.ts compileServedOnce), which no change wakes and which hold no `watch`, and
+ * the once half of every member's calls.
+ */
+export type OnceCalls =
 	| {
 			readonly shape: "set"
 			readonly once: (input: unknown) => Effect.Effect<KeyedSet<DecodedRow>, CallError>
-			readonly watch: (input: unknown) => Stream.Stream<SetEvent<DecodedRow>>
 	  }
 	| {
 			readonly shape: "list"
 			readonly once: (input: unknown) => Effect.Effect<KeyedList<DecodedRow>, CallError>
-			readonly watch: (input: unknown) => Stream.Stream<ListEvent<DecodedRow>>
 	  }
 	| {
 			readonly shape: "instantSet"
 			readonly once: (input: unknown) => Effect.Effect<KeyedSet<DecodedRow>, CallError>
-			readonly answer: (input: unknown) => Stream.Stream<InstantSetEvent<DecodedRow>>
 	  }
 	| {
 			readonly shape: "instantList"
 			readonly once: (input: unknown) => Effect.Effect<KeyedList<DecodedRow>, CallError>
-			readonly answer: (input: unknown) => Stream.Stream<InstantListEvent<DecodedRow>>
 	  }
 	| {
 			readonly shape: "write"
 			readonly once: (input: unknown) => Effect.Effect<WrittenOutcome, CallError>
-			readonly watch: (input: unknown) => Stream.Stream<WriteEvent<WrittenOutcome>>
 	  }
 
 /** What a write member's once answers: a ChangeSet's outcome over its read-backs, or a refresh's. */
@@ -286,9 +304,25 @@ const instantListAnswer: InstantAnswer<"list", InstantListEvent<DecodedRow>> = {
 }
 
 /**
- * A read call registered live on its Db's layer's registry (live/subscriptions.ts), what its watch runs: its run is the
- * call's own statement through the Db's read frame (reader/stream.ts readStream), its routing keys its served
- * footprint's bound with the call's inputs (live/router.ts routeKeys), and its expiry its Db's.
+ * The routing keys a read's call is registered under (served/forms.ts ServedReadLive): a routed read's, its served
+ * footprint's bound with the call's inputs (live/router.ts routeKeys); a constant read's none, since no change of a row
+ * changes it.
+ */
+const keysOf = (read: LoadedRead, parsed: ParsedRead): ReadonlyArray<RouteKey> => {
+	const routing = read.live
+	switch (routing.kind) {
+		case "constant":
+			return []
+		case "routed":
+			return routeKeys(routing.footprint, read.codecs, parsed.inputs)
+	}
+}
+
+/**
+ * A read's call registered live on its Db's layer's registry (live/subscriptions.ts), what its watch runs: its run is
+ * the call's own statement through the Db's read frame (reader/stream.ts readStream), its routing keys its read's
+ * (keysOf), and its expiry its Db's. A constant read is registered under no key, so no change of a row reaches it, and
+ * only its source's loss ends it, a migration's `stale` among them.
  */
 const registered = <S extends ReadShape, E>(
 	ctx: ServedDbContext,
@@ -299,7 +333,7 @@ const registered = <S extends ReadShape, E>(
 	ctx.subscriptions.register({
 		read: readStream(ctx, parsed.call, answer),
 		answer,
-		keys: routeKeys(read.footprint, read.codecs, parsed.inputs),
+		keys: keysOf(read, parsed),
 		expiry: ctx.expiry
 	})
 
@@ -355,9 +389,9 @@ export const liveRead = (
 /**
  * A read's calls of shape S (see the header): its input parsed by `parse`, a refusal of which is its one error event
  * then `end`; once its events settled to ready, the read's value, or the error that ended them. Its watch is live
- * (live/subscriptions.ts): registered on the layer's registry under the routing keys its served footprint binds with
- * the call's inputs (live/router.ts routeKeys), before its first run, then that run's events, then each change of its
- * value after its ready, until the Db's token expires, its source is lost, a run fails, or its consumer stops.
+ * (live/subscriptions.ts): registered on the layer's registry under its routing keys (keysOf), a constant read's none,
+ * before its first run, then that run's events, then each change of its value after its ready, until the Db's token
+ * expires, its source is lost, a migration of the installation among the losses, a run fails, or its consumer stops.
  */
 const readCalls = <S extends ReadShape, E>(
 	ctx: ServedDbContext,
@@ -489,6 +523,18 @@ const writeCalls = (
 			})
 		)
 })
+
+/** A refresh member's write: its input read as a refresh's, then its one transaction, `refreshed` after its COMMIT. */
+const refreshWrite =
+	(ctx: ServedDbContext, refresh: ServedRefresh) =>
+	(input: unknown): Effect.Effect<WrittenOutcome, CallError> =>
+		Effect.mapError(
+			Effect.as(
+				Effect.flatMap(Effect.fromResult(refreshInput(input)), () => runRefresh(ctx, refresh)),
+				refreshed
+			),
+			callErrorOf
+		)
 
 /** The host call of a change's input: its parameters, with its facts where its ChangeSet holds array members, else `{}`. */
 const hostCallOf = (
@@ -639,18 +685,63 @@ export const memberCalls = (ctx: ServedDbContext, member: LoadedMember): ServedC
 			return readMemberCalls(ctx, member.read, parseWindow(member.read, member.page))
 		case "change":
 			return writeCalls(changeWrite(ctx, variantOf(ctx, member.variants)))
-		case "refresh": {
-			const refresh = member.refresh
-			return writeCalls((input) =>
-				Effect.mapError(
-					Effect.as(
-						Effect.flatMap(Effect.fromResult(refreshInput(input)), () => runRefresh(ctx, refresh)),
-						refreshed
-					),
-					callErrorOf
-				)
-			)
-		}
+		case "refresh":
+			return writeCalls(refreshWrite(ctx, member.refresh))
+	}
+}
+
+/** A read's once alone by the shape of its key (served/forms.ts ServedKey), its input parsed by `parse` (OnceCalls). */
+const readMemberOnce = (
+	ctx: ServedDbContext,
+	read: LoadedRead,
+	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
+): OnceCalls => {
+	switch (read.key.kind) {
+		case "set":
+			return { shape: "set", once: readOnce(callEvents(ctx, setAnswer, parse), setAnswer.settle) }
+		case "list":
+			return {
+				shape: "list",
+				once: readOnce(callEvents(ctx, listAnswer, parse), listAnswer.settle)
+			}
+	}
+}
+
+/** An instant member's once alone by the shape of its key (OnceCalls), its input its read's params alone. */
+const instantMemberOnce = (ctx: ServedDbContext, read: LoadedInstantRead): OnceCalls => {
+	const parse = parseRead(read)
+	switch (read.key.kind) {
+		case "set":
+			return {
+				shape: "instantSet",
+				once: readOnce(callEvents(ctx, instantSetAnswer, parse), instantSetAnswer.settle)
+			}
+		case "list":
+			return {
+				shape: "instantList",
+				once: readOnce(callEvents(ctx, instantListAnswer, parse), instantListAnswer.settle)
+			}
+	}
+}
+
+/**
+ * A loaded member's once alone over a Db's context, by the shape of its answer (OnceCalls): a member of a file that
+ * serves its reads once alone (adapter/public/compile.ts compileServedOnce), whose read registers nowhere.
+ */
+export const onceCalls = (ctx: ServedDbContext, member: LoadedMember): OnceCalls => {
+	switch (member.kind) {
+		case "read":
+			return readMemberOnce(ctx, member.read, parseRead(member.read))
+		case "instant":
+			return instantMemberOnce(ctx, member.read)
+		case "key":
+			return readMemberOnce(ctx, member.read, parseKey(member.read, member.fields))
+		case "paged":
+			return readMemberOnce(ctx, member.read, parseWindow(member.read, member.page))
+		case "change":
+			return { shape: "write", once: changeWrite(ctx, variantOf(ctx, member.variants)) }
+		case "refresh":
+			return { shape: "write", once: refreshWrite(ctx, member.refresh) }
 	}
 }
 

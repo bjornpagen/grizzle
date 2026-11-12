@@ -509,6 +509,17 @@ export class SourceInvalidated extends Data.TaggedError("SourceInvalidated") {
 }
 
 /**
+ * The installation was migrated: a row of its migrations ledger was committed, which the live source's leader decodes
+ * and fans out as `:migrated` (engine live/notify.ts), so every served file of the installation, this process's among
+ * them, is stale, and every live read ends with it, `stale`, a constant read's as a routed one's.
+ */
+export class SourceMigrated extends Data.TaggedError("SourceMigrated") {
+	override get message(): string {
+		return "the installation was migrated, so this process's served files are stale: serve the files generate wrote for the migration"
+	}
+}
+
+/**
  * The installation's replication slot does not stand: its leader makes it, so a live read registers once it stands, and
  * one that registers before is refused, for its caller to call again.
  */

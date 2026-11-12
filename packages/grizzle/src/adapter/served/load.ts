@@ -39,13 +39,13 @@ import {
 import type {
 	ServedChange,
 	ServedFile,
-	ServedFootprint,
 	ServedInstantRead,
 	ServedKey,
 	ServedLive,
 	ServedMember,
 	ServedPage,
 	ServedRead,
+	ServedReadLive,
 	ServedRefresh,
 	ServedRoleForm,
 	ServedSession,
@@ -73,10 +73,12 @@ export interface LoadedInstantRead {
 	readonly key: ServedKey
 }
 
-/** A read a call may watch, loaded: its instant read, and its footprint, the tables a change of which its subscriptions
- * route by. */
+/**
+ * A read a call may watch, loaded: its instant read, and what wakes its watch (served/forms.ts ServedReadLive): no row
+ * for a read of closed relations alone, or the tables a change of which its subscriptions route by.
+ */
 export interface LoadedRead extends LoadedInstantRead {
-	readonly footprint: ServedFootprint
+	readonly live: ServedReadLive
 }
 
 /** A paged member's page, loaded: its runtime template, and its decoder bound to each template's layouts. */
@@ -229,7 +231,7 @@ const loadInstantRead = (
 	}))
 }
 
-/** A read a call may watch, loaded: its instant read (loadInstantRead) and its footprint. */
+/** A read a call may watch, loaded: its instant read (loadInstantRead) and what wakes its watch. */
 const loadRead = (
 	read: ServedRead,
 	codes: Codebook,
@@ -237,7 +239,7 @@ const loadRead = (
 ): Result.Result<LoadedRead, CompileError> =>
 	Result.map(loadInstantRead(read, codes, bind), (loaded) => ({
 		...loaded,
-		footprint: read.footprint
+		live: read.live
 	}))
 
 /** A paged member's page, loaded over its read's parameters and spine. */

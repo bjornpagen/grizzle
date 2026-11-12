@@ -1,6 +1,6 @@
 import { Array as Arr, Predicate, Result } from "effect"
 import { readHost } from "#adapter/engine.ts"
-import { CallInputRefused } from "#adapter/errors/failures.ts"
+import { type CallInputFault, CallInputRefused } from "#adapter/errors/failures.ts"
 
 /**
  * A call's input as any caller passes it, read once at the boundary that admits it (db/handles.ts), before any SQL: one
@@ -49,30 +49,32 @@ export interface WindowedInput extends CallInput {
 	readonly window: unknown
 }
 
-const envelopeRefused = new CallInputRefused({ fault: "envelope" })
+/** The members of `input` under `keys` (exactRecord), read under readHost, or CallInputRefused at `fault`. */
+const readExact = (
+	input: unknown,
+	keys: ReadonlyArray<string>,
+	fault: CallInputFault
+): Result.Result<Readonly<Record<string, unknown>>, CallInputRefused> =>
+	Result.mapError(
+		readHost(fault, () => Result.fromNullishOr(exactRecord(input, keys), () => fault)),
+		(refused) => new CallInputRefused({ fault: refused })
+	)
 
 /** A call's input read off the caller's `input` (see the header). */
 export const callInput = (input: unknown): Result.Result<CallInput, CallInputRefused> =>
-	readHost(envelopeRefused, () => {
-		const read = exactRecord(input, ["params", "facts"])
-		return read === undefined
-			? Result.fail(envelopeRefused)
-			: Result.succeed({ params: read["params"], facts: read["facts"] })
-	})
+	Result.map(readExact(input, ["params", "facts"], "envelope"), (read) => ({
+		params: read["params"],
+		facts: read["facts"]
+	}))
 
 /** A paged member's call's input read off the caller's `input` (see the header). */
 export const windowedInput = (input: unknown): Result.Result<WindowedInput, CallInputRefused> =>
-	readHost(envelopeRefused, () => {
-		const read = exactRecord(input, ["params", "facts", "window"])
-		return read === undefined
-			? Result.fail(envelopeRefused)
-			: Result.succeed({ params: read["params"], facts: read["facts"], window: read["window"] })
-	})
-
-const factsRefused = new CallInputRefused({ fault: "facts" })
+	Result.map(readExact(input, ["params", "facts", "window"], "envelope"), (read) => ({
+		params: read["params"],
+		facts: read["facts"],
+		window: read["window"]
+	}))
 
 /** The facts of a call of a member that takes none: `{}`, a record with no own key, or CallInputRefused at `facts`. */
 export const noFacts = (facts: unknown): Result.Result<void, CallInputRefused> =>
-	readHost(factsRefused, () =>
-		exactRecord(facts, []) === undefined ? Result.fail(factsRefused) : Result.void
-	)
+	Result.map(readExact(facts, [], "facts"), (): void => undefined)

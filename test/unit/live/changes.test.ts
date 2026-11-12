@@ -1,24 +1,26 @@
 /**
  * The live leader's reading of a replication stream into route keys (packages/grizzle/src/adapter/live/changes.ts):
- * drawn pgoutput messages of one transaction over a routed table, a whole-read table, an unread table and the
- * installation's announcements, read by the transaction reader, against the coverage rule restated over the drawn
- * changes.
+ * drawn pgoutput messages of one transaction over a routed table, a whole-read table, an unread table, the
+ * installation's migrations ledger and the installation's announcements, read by the transaction reader, against the
+ * coverage rule restated over the drawn changes.
  *
  * - Each change of a routed table is, for each side it carries, the keyed key at that side's value of the routed column
  *   where the side says it, and the table's key where it does not: a NULL, a TOASTed value left unchanged, a column a
  *   key-only old image leaves out, an update's old side with no old image beyond its key. A change of a table read whole
- *   is its table's key; of an unread table, nothing. Oracle: the rule, restated over the drawn change, a second
- *   implementation.
+ *   is its table's key; of an unread table, nothing; of the ledger, whatever row it writes, `migrated`, a migration.
+ *   Oracle: the rule, restated over the drawn change, a second implementation.
  * - An announcement is untrusted: of a message under the installation's prefix only the table keys of the installation's
- *   views are taken; a stored table's key, a keyed key, `invalidated`, an unknown view and malformed text are dropped,
- *   as is every message under another prefix. Oracle: the views among the announced keys.
+ *   views are taken; a stored table's key, a keyed key, `invalidated`, `migrated`, an unknown view and malformed text are
+ *   dropped, as is every message under another prefix. Oracle: the views among the announced keys.
  *
  * Features: an insert, an update with a whole old image, one with a key-only image, one with none, a delete, a NULL
- * routed value, an unchanged TOASTed value, a change of a whole-read table, of an unread table, an announced view, an
- * announced stored table's key, `invalidated` announced, malformed announcement text, and another prefix.
+ * routed value, an unchanged TOASTed value, a change of a whole-read table, of an unread table, of the ledger, an
+ * announced view, an announced stored table's key, `invalidated` announced, `migrated` announced, malformed announcement
+ * text, and another prefix.
  *
- * Plant (~/.cache/grizzle-release/LIVE-SUBSCRIBE/plants/announcement-accepts-table-key.patch): the reader takes any
- * table key an announcement names, so a forged announcement re-runs every read of a stored table.
+ * Plants (~/.cache/grizzle-release/LIVE-SUBSCRIBE/plants): announcement-accepts-table-key.patch (the reader takes any
+ * table key an announcement names, so a forged announcement re-runs every read of a stored table); ledger-unread.patch
+ * (the ledger read as a table no program reads, so a migration ends no live read).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -45,6 +47,10 @@ const prefix = "__live_app_0"
 const routedId = 1
 const wholeId = 2
 const unreadId = 3
+const ledgerId = 4
+
+/** The installed name of the installation's migrations ledger (served/forms.ts ServedLive `ledger`). */
+const ledger = "__ledger"
 
 /** Every relation's columns: its key `id`, and `g`, the routed table's routed column. */
 const columns = [
@@ -55,7 +61,8 @@ const columns = [
 const relationMessages: ReadonlyArray<Message> = [
 	{ kind: "relation", relation: routedId, namespace: "app", name: "routed", columns },
 	{ kind: "relation", relation: wholeId, namespace: "app", name: "whole", columns },
-	{ kind: "relation", relation: unreadId, namespace: "app", name: "unread", columns }
+	{ kind: "relation", relation: unreadId, namespace: "app", name: "unread", columns },
+	{ kind: "relation", relation: ledgerId, namespace: "app", name: ledger, columns }
 ]
 
 const tables: ReadonlyMap<string, ReadonlyArray<string>> = new Map([
@@ -98,7 +105,8 @@ type Change =
 const relationGen: Gen<number> = weighted([
 	[2, constant(routedId)],
 	[1, constant(wholeId)],
-	[1, constant(unreadId)]
+	[1, constant(unreadId)],
+	[1, constant(ledgerId)]
 ])
 
 const changeGen: Gen<Change> = (source) => {
@@ -140,6 +148,7 @@ const announcedGen: Gen<string> = element([
 	"routed:",
 	"routed:g=1",
 	":invalidated",
+	":migrated",
 	"not a key"
 ])
 
@@ -209,7 +218,10 @@ const expectedOf = (step: Step): ReadonlyArray<Notification> => {
 		const texts = Str.split(step.announcement.text, "\u0000")
 		return Arr.some(
 			texts,
-			(text) => !["view:", "unknown_view:", "routed:", "routed:g=1", ":invalidated"].includes(text)
+			(text) =>
+				!["view:", "unknown_view:", "routed:", "routed:g=1", ":invalidated", ":migrated"].includes(
+					text
+				)
 		)
 			? []
 			: Arr.flatMap(texts, (text): ReadonlyArray<Notification> =>
@@ -219,6 +231,9 @@ const expectedOf = (step: Step): ReadonlyArray<Notification> => {
 	const change = step.change
 	if (change.relation === unreadId) {
 		return []
+	}
+	if (change.relation === ledgerId) {
+		return [{ kind: "migrated" }]
 	}
 	if (change.relation === wholeId) {
 		return [{ kind: "table", table: admittedIdentifier<"table">("whole") }]
@@ -257,9 +272,11 @@ type Feature =
 	| "an unchanged TOASTed value"
 	| "a change of a whole-read table"
 	| "a change of an unread table"
+	| "a change of the ledger"
 	| "an announced view"
 	| "an announced stored table's key"
 	| "invalidated announced"
+	| "migrated announced"
 	| "malformed announcement text"
 	| "another prefix"
 
@@ -305,9 +322,11 @@ describe("the live leader's reading of a replication stream", () => {
 								"an unchanged TOASTed value",
 								"a change of a whole-read table",
 								"a change of an unread table",
+								"a change of the ledger",
 								"an announced view",
 								"an announced stored table's key",
 								"invalidated announced",
+								"migrated announced",
 								"malformed announcement text",
 								"another prefix"
 							],
@@ -316,7 +335,7 @@ describe("the live leader's reading of a replication stream", () => {
 					},
 					({ steps }, c) =>
 						Effect.sync(() => {
-							const reader = transactionReader(tables, views, prefix)
+							const reader = transactionReader(tables, views, prefix, ledger)
 							const messages: ReadonlyArray<Message> = [
 								...relationMessages,
 								{ kind: "begin", xid: 9 },
@@ -352,6 +371,9 @@ describe("the live leader's reading of a replication stream", () => {
 									if (texts.includes(":invalidated")) {
 										c.note("invalidated announced")
 									}
+									if (texts.includes(":migrated")) {
+										c.note("migrated announced")
+									}
 									if (texts.includes("not a key")) {
 										c.note("malformed announcement text")
 									}
@@ -363,6 +385,9 @@ describe("the live leader's reading of a replication stream", () => {
 								}
 								if (change.relation === unreadId) {
 									c.note("a change of an unread table")
+								}
+								if (change.relation === ledgerId) {
+									c.note("a change of the ledger")
 								}
 								switch (change.kind) {
 									case "insert":

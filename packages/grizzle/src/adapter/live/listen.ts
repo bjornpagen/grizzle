@@ -1,5 +1,10 @@
 import { Effect, type Scope } from "effect"
-import { ListenerLost, SlotAbsent, SourceInvalidated } from "#adapter/errors/failures.ts"
+import {
+	ListenerLost,
+	SlotAbsent,
+	SourceInvalidated,
+	SourceMigrated
+} from "#adapter/errors/failures.ts"
 import {
 	type Candidacy,
 	candidacy,
@@ -10,7 +15,7 @@ import {
 	trueText
 } from "#adapter/live/leader.ts"
 import type { ChangeSink, ChangeSource } from "#adapter/live/source.ts"
-import { oneShotStatement, preparedStatement } from "#adapter/wire/batch.ts"
+import { preparedStatement } from "#adapter/wire/batch.ts"
 import { connectListener, type LoginConnection } from "#adapter/wire/session.ts"
 import { type LiveSecret, openPayload, textParam } from "#compiler/plan/runtime.ts"
 import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
@@ -27,7 +32,8 @@ import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
  * change committed from then on is decoded, and its keys fanned out once visible (live/leader.ts), which is the
  * source's contract. Each payload of the channel is opened under the secret: one that does not open is no sender's of
  * the installation, and is dropped, so no forged payload names a key; each notification of one that opens is routed,
- * `invalidated` losing the source with SourceInvalidated. The session's end loses it with ListenerLost. The source
+ * `invalidated` losing the source with SourceInvalidated and `migrated` with SourceMigrated, which ends every live read
+ * of the layer, a constant read's as a routed one's. The session's end loses it with ListenerLost. The source
  * moves only forward, from opening to listening to over, and its one loss is the first.
  *
  * What the source runs with: the decoder login's connection and its sessions' texts, the installation's live source,
@@ -76,7 +82,7 @@ export const fanoutSource = (fanout: Fanout): Effect.Effect<ChangeSource, never,
 							| { readonly kind: "listening"; readonly secret: LiveSecret }
 							| { readonly kind: "over" }
 					} = { current: { kind: "opening" } }
-					const lose = (reason: ListenerLost | SourceInvalidated): void => {
+					const lose = (reason: ListenerLost | SourceInvalidated | SourceMigrated): void => {
 						if (state.current.kind !== "over") {
 							state.current = { kind: "over" }
 							sink.lost(reason)
@@ -95,11 +101,17 @@ export const fanoutSource = (fanout: Fanout): Effect.Effect<ChangeSource, never,
 									return
 								}
 								for (const notification of opened.value) {
-									if (notification.kind === "invalidated") {
-										lose(new SourceInvalidated())
-										return
+									switch (notification.kind) {
+										case "invalidated":
+											lose(new SourceInvalidated())
+											return
+										case "migrated":
+											lose(new SourceMigrated())
+											return
+										case "table":
+										case "keyed":
+											sink.touched(notification)
 									}
-									sink.touched(notification)
 								}
 							},
 							ended: () => {
@@ -114,7 +126,7 @@ export const fanoutSource = (fanout: Fanout): Effect.Effect<ChangeSource, never,
 					if (state.current.kind === "opening") {
 						state.current = { kind: "listening", secret }
 					}
-					yield* alone(session, oneShotStatement(fanout.source.listen, []))
+					yield* alone(session, preparedStatement(fanout.source.listen, []))
 					const checked = yield* alone(session, preparedStatement(fanout.source.check, [slot]))
 					if (onlyCell(checked) !== trueText) {
 						return yield* new SlotAbsent()

@@ -137,16 +137,54 @@ export interface ServedSession {
 }
 
 /**
+ * A served replication command (live/replication.ts): its text before the slot's quoted name and its text after it, so
+ * the command is `before`, the name double-quoted with each `"` in it doubled, then `after`. The slot's name is the one
+ * thing in it no generate knows, the live source's stem under the role space a layer reads at load, so a layer fills it
+ * once it names the slot (live/replication.ts slotCommand).
+ */
+export interface SlotCommand {
+	readonly before: string
+	readonly after: string
+}
+
+/**
+ * What a read's watch needs that its installation's live source does not give (UncoveredRead): the source itself, which
+ * every watch needs for the version notice a migration ends it with; a table it reads that the source does not
+ * publish; or a column of a published table it routes the table by that the source does not route it by, so a change
+ * there reaches no subscription of the read.
+ */
+export type LiveGap =
+	| { readonly kind: "source" }
+	| { readonly kind: "table"; readonly table: string }
+	| { readonly kind: "column"; readonly table: string; readonly column: string }
+
+/**
+ * A watchable read of a login whose watch the live source of the snapshot it compiles under does not serve, its `gaps`
+ * (program/live.ts readGaps): a watch of it would miss every change there, or a migration, so the compile refuses it.
+ * Only a snapshot of an installation migrated without the login's workload holds one, since generate builds the
+ * installation's publication from the same workload.
+ */
+export interface UncoveredRead {
+	readonly _tag: "UncoveredRead"
+	readonly gaps: readonly [LiveGap, ...ReadonlyArray<LiveGap>]
+}
+
+/**
  * An installation's live change source as a served file holds it (live/notify.ts LiveSource), emitted at generate
- * (program/live.ts servedLiveOf): none where the installation serves no read; otherwise its names and the texts
- * its leader and its listeners send. The leader is the one process at a time holding `lock`, sent first on the
- * decoder login's replication connection, which takes simple queries alone; it creates the slot where `check` finds
- * none and streams its decoded changes (live/replication.ts), waits until each decoded transaction is `visible`, and
- * sends the round's sealed batches by `fanout`. A listener reads `secret`, LISTENs, and `check`s that the slot stands.
+ * (program/live.ts servedLiveOf): none where the login has no read, or where the file serves its reads' once calls
+ * alone (adapter served/compile.ts onceEntryOf); otherwise its names and the texts its leader and its listeners send,
+ * since every watch needs the source, a constant read's for the version notice a migration ends it with. The leader is
+ * the one process at a time holding `lock`, sent first on the decoder login's replication connection, which takes
+ * simple queries alone, each one of this source's texts: `lock`,
+ * `senderTimeout`, and `createSlot` and `start` over the slot's name (SlotCommand). It reads its
+ * stream's deadline by `senderTimeout`, creates the slot where `check` finds none, streams its decoded changes by
+ * `start`, waits until each decoded transaction is `visible`, and sends the round's sealed batches by `fanout`. A
+ * listener reads `secret`, LISTENs by `listen`, and `check`s that the slot stands, each a named prepared statement.
  *
  * - `publication`: the publication's name, the fan-out channel and the prefix of every announced message;
  * - `ledger`: the migrations ledger's table in the root's schema, which the publication publishes whole, so a change of
- *   it is a migration applied, after which every watch is stale;
+ *   it is a migration applied, which the leader fans out as `:migrated` (live/notify.ts), after which every watch is
+ *   stale;
  * - `stem`: the replication slot's and the decoder login's stem, each named in the cluster under the installation's
  *   role space (core/identity.ts roleInSpace), which every slot parameter (`$1::name`) is filled with;
  * - `tables`: each published table by its installed identifier, with the columns it routes by;
@@ -154,6 +192,10 @@ export interface ServedSession {
  *   announced message may name; any other message's content is no installation's sender's;
  * - `secret`: the live secret's one cell, as hex (live/notify.ts parseLiveSecret);
  * - `lock`: the session-level advisory lock of the leadership, a simple query;
+ * - `senderTimeout`: the replication session's wal_sender_timeout in milliseconds, one row where its unit is `ms`
+ *   (live/replication.ts parseSenderDeadline), a simple query;
+ * - `createSlot`: CREATE_REPLICATION_SLOT of the slot, and `start`: START_REPLICATION of it from the position it last
+ *   confirmed, over the publication, each its text around the slot's name;
  * - `check`: whether the slot stands in the current database, not invalidated;
  * - `visible`: for each transaction id of `$1::text[]`, whether the statement's snapshot holds its commit;
  * - `fanout`: a notification on the channel for each payload of `$1::text[]`;
@@ -170,8 +212,11 @@ export type ServedLive =
 			readonly stem: string
 			readonly tables: Readonly<Record<string, ReadonlyArray<string>>>
 			readonly views: ReadonlyArray<string>
-			readonly listen: EmittedText
+			readonly listen: Prepared<EmittedText>
 			readonly lock: EmittedText
+			readonly senderTimeout: EmittedText
+			readonly createSlot: SlotCommand
+			readonly start: SlotCommand
 			readonly secret: Prepared<EmittedText>
 			readonly check: Prepared<EmittedText>
 			readonly visible: Prepared<EmittedText>
@@ -279,6 +324,15 @@ export interface ServedRefresh {
 }
 
 /**
+ * What wakes a read's watch, from its footprint (logical/routes.ts Footprint): `constant`, a read of closed relations
+ * alone, whose rows only a migration changes, so its watch subscribes to no row, and only the installation's version
+ * notice ends it; `routed`, every other, by its footprint's tables and views, at least one, and their routes.
+ */
+export type ServedReadLive =
+	| { readonly kind: "constant" }
+	| { readonly kind: "routed"; readonly footprint: ServedFootprint }
+
+/**
  * A query or ordered query compiled for a role's rows, as one call reads it: the declared parameters a call supplies,
  * its artifact, which prints a parameter its member binds to the database's clock as the reading itself, its delivered
  * spine, the decoder of its records, and the key each of its delivered rows is told apart by. An instant member's read
@@ -292,9 +346,9 @@ export interface ServedInstantRead {
 	readonly key: ServedKey
 }
 
-/** A read a call may watch: its instant read, and its footprint, by which a change reaches a watch of it. */
+/** A read a call may watch: its instant read, and what wakes a watch of it (ServedReadLive). */
 export interface ServedRead extends ServedInstantRead {
-	readonly footprint: ServedFootprint
+	readonly live: ServedReadLive
 }
 
 /**

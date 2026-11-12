@@ -20,7 +20,12 @@ import {
 	type UnservedMember,
 	type UnservedReason
 } from "#compiler/plan/migration.ts"
-import { manifestFileName, snapshotFileName } from "#compiler/plan/serve.ts"
+import {
+	type LiveGap,
+	manifestFileName,
+	snapshotFileName,
+	type UncoveredRead
+} from "#compiler/plan/serve.ts"
 
 /**
  * The failure of a `grizzle` command outside the apply runner.
@@ -708,7 +713,7 @@ export class ServedRefused extends Data.TaggedError("ServedRefused")<{
 	readonly schema: string
 	readonly login: string
 	readonly place: WorkloadPlace
-	readonly error: CompileError | UnservedMember
+	readonly error: CompileError | UnservedMember | UncoveredRead
 }> {
 	override get message(): string {
 		return `login ${this.login}'s workload does not compile${workloadPlaceText(this.place)}: ${servedRefusalText(this.error)}`
@@ -742,10 +747,28 @@ const unservedReasonText = (reason: UnservedReason): string => {
 }
 
 /** A served workload's refusal as a person reads it: a CompileError's message, or every reason no call can serve. */
-const servedRefusalText = (error: CompileError | UnservedMember): string =>
-	error._tag === "CompileError"
-		? error.message
-		: `a ChangeSet no served file can hold: ${Arr.join(Arr.map(error.reasons, unservedReasonText), "; ")}`
+/** A part of a read the snapshot's live source does not decode, in words. */
+const liveGapText = (gap: LiveGap): string => {
+	switch (gap.kind) {
+		case "source":
+			return "the live source itself, which the installation does not hold"
+		case "table":
+			return `table ${gap.table}`
+		case "column":
+			return `column ${gap.column} of table ${gap.table}`
+	}
+}
+
+const servedRefusalText = (error: CompileError | UnservedMember | UncoveredRead): string => {
+	switch (error._tag) {
+		case "CompileError":
+			return error.message
+		case "UnservedMember":
+			return `a ChangeSet no served file can hold: ${Arr.join(Arr.map(error.reasons, unservedReasonText), "; ")}`
+		case "UncoveredRead":
+			return `a read the installation's live source does not serve, so a watch of it would miss its changes or a migration: ${Arr.join(Arr.map(error.gaps, liveGapText), ", ")}`
+	}
+}
 
 /** Why a `grizzle` command stopped before the apply runner, or outside it. */
 type CliReason =

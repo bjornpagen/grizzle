@@ -71,6 +71,64 @@ export class MessageUnreadable extends Data.TaggedError("MessageUnreadable")<{
 
 const utf8 = new TextDecoder("utf-8", { fatal: true })
 
+/**
+ * The widths, in bytes, of the fixed-size fields every format here is made of, each in network byte order, by
+ * PostgreSQL's "Message Data Types" (https://www.postgresql.org/docs/19/protocol-message-types.html): Int8 (and Byte1),
+ * Int16, Int32 and Int64.
+ *
+ * @formatConstant the widths of Int8, Int16, Int32 and Int64
+ */
+const width = { int8: 1, int16: 2, int32: 4, int64: 8 } as const
+
+/**
+ * The fields of each pgoutput message the leader steps over, in bytes, by "Logical Replication Message Formats"
+ * (https://www.postgresql.org/docs/19/protocol-logicalrep-message-formats.html): a Begin's final LSN and commit
+ * timestamp (Int64 each); a Commit's flags (Int8) and commit LSN (Int64) before its end LSN, and its commit timestamp
+ * (Int64) after it; a Relation's replica identity setting (Int8), and each of its columns' type OID and type modifier
+ * (Int32 each); a Truncate's option bits (Int8); a logical Message's flags (Int8) and LSN (Int64); an Origin's commit
+ * LSN (Int64); and a Type's OID (Int32).
+ */
+const stepped = {
+	begin: width.int64 + width.int64,
+	commitHead: width.int8 + width.int64,
+	commitTail: width.int64,
+	replicaIdentity: width.int8,
+	columnType: width.int32 + width.int32,
+	truncateOptions: width.int8,
+	messageHead: width.int8 + width.int64,
+	origin: width.int64,
+	type: width.int32
+} as const
+
+/**
+ * The tag byte of each pgoutput message, its first, by "Logical Replication Message Formats"
+ * (https://www.postgresql.org/docs/19/protocol-logicalrep-message-formats.html): Byte1 'B', 'C', 'R', 'I', 'U', 'D',
+ * 'T', 'M', 'O' and 'Y'.
+ *
+ * @formatConstant pgoutput's message tags, one ASCII letter each
+ */
+const messageTag = {
+	begin: 0x42,
+	commit: 0x43,
+	relation: 0x52,
+	insert: 0x49,
+	update: 0x55,
+	delete: 0x44,
+	truncate: 0x54,
+	message: 0x4d,
+	origin: 0x4f,
+	type: 0x59
+} as const
+
+/**
+ * The kind byte of each column of a TupleData, by "Logical Replication Message Formats"
+ * (https://www.postgresql.org/docs/19/protocol-logicalrep-message-formats.html): Byte1 'n' for NULL, 'u' for a TOASTed
+ * value left unchanged and not sent, 't' for its output text ('b', binary, is sent only where asked, and never is).
+ *
+ * @formatConstant a TupleData column's kind: 'n', 'u' or 't'
+ */
+const columnKind = { null: 0x6e, unchanged: 0x75, text: 0x74 } as const
+
 /** A forward reader over one message's bytes, failing with MessageUnreadable past its end. */
 class Reader {
 	readonly #bytes: Uint8Array
@@ -92,23 +150,23 @@ class Reader {
 	}
 
 	byte(what: string): number {
-		return this.#view.getUint8(this.#take(1, what))
+		return this.#view.getUint8(this.#take(width.int8, what))
 	}
 
 	int16(what: string): number {
-		return this.#view.getInt16(this.#take(2, what))
+		return this.#view.getInt16(this.#take(width.int16, what))
 	}
 
 	int32(what: string): number {
-		return this.#view.getInt32(this.#take(4, what))
+		return this.#view.getInt32(this.#take(width.int32, what))
 	}
 
 	uint32(what: string): number {
-		return this.#view.getUint32(this.#take(4, what))
+		return this.#view.getUint32(this.#take(width.int32, what))
 	}
 
 	uint64(what: string): bigint {
-		return this.#view.getBigUint64(this.#take(8, what))
+		return this.#view.getBigUint64(this.#take(width.int64, what))
 	}
 
 	skip(size: number, what: string): void {
@@ -149,13 +207,13 @@ const tupleOf = (reader: Reader): Tuple => {
 	for (let column = 0; column < count; column += 1) {
 		const kind = reader.byte("a column's kind")
 		switch (kind) {
-			case 0x6e:
+			case columnKind.null:
 				cells.push({ kind: "null" })
 				break
-			case 0x75:
+			case columnKind.unchanged:
 				cells.push({ kind: "unchanged" })
 				break
-			case 0x74:
+			case columnKind.text:
 				cells.push({ kind: "text", text: reader.text(reader.int32("a text's length"), "a text") })
 				break
 			default:
@@ -165,13 +223,18 @@ const tupleOf = (reader: Reader): Tuple => {
 	return cells
 }
 
-const newTag = 0x4e
-const keyTag = 0x4b
-const oldTag = 0x4f
+/**
+ * The tag byte before each tuple of an Insert, an Update or a Delete, by "Logical Replication Message Formats"
+ * (https://www.postgresql.org/docs/19/protocol-logicalrep-message-formats.html): Byte1 'N' for the new tuple, 'K' for
+ * an old image of the replica identity's key columns, 'O' for a whole old image.
+ *
+ * @formatConstant a tuple's tag: 'N', 'K' or 'O'
+ */
+const tupleTag = { next: 0x4e, key: 0x4b, old: 0x4f } as const
 
 /** The new tuple, tagged N. */
 const newTuple = (reader: Reader, what: string): Tuple => {
-	if (reader.byte(what) !== newTag) {
+	if (reader.byte(what) !== tupleTag.next) {
 		throw new MessageUnreadable({ at: what })
 	}
 	return tupleOf(reader)
@@ -179,13 +242,19 @@ const newTuple = (reader: Reader, what: string): Tuple => {
 
 /** An old image tagged `tag`, K or O, the byte before it. */
 const oldImage = (reader: Reader, tag: number, what: string): OldImage => {
-	if (tag !== keyTag && tag !== oldTag) {
+	if (tag !== tupleTag.key && tag !== tupleTag.old) {
 		throw new MessageUnreadable({ at: what })
 	}
-	return { whole: tag === oldTag, tuple: tupleOf(reader) }
+	return { whole: tag === tupleTag.old, tuple: tupleOf(reader) }
 }
 
-/** The flag of a Relation message's column that marks it a key column of the relation's replica identity. */
+/**
+ * The flag of a Relation message's column that marks it a key column of the relation's replica identity, by "Logical
+ * Replication Message Formats" (https://www.postgresql.org/docs/19/protocol-logicalrep-message-formats.html): "Flags for
+ * the column. Currently can be either 0 for no flags or 1 which marks the column as part of the key."
+ *
+ * @formatConstant a Relation column's key flag, bit 1
+ */
 const keyFlag = 1
 
 /** A Relation message's columns: each column's flags, name, type and modifier, its name and key flag kept. */
@@ -195,7 +264,7 @@ const columnsOf = (reader: Reader): ReadonlyArray<Column> => {
 	for (let column = 0; column < count; column += 1) {
 		const flags = reader.byte("a column's flags")
 		columns.push({ name: reader.string("a column's name"), key: (flags & keyFlag) !== 0 })
-		reader.skip(8, "a column's type and modifier")
+		reader.skip(stepped.columnType, "a column's type and modifier")
 	}
 	return columns
 }
@@ -204,63 +273,63 @@ const columnsOf = (reader: Reader): ReadonlyArray<Column> => {
 const messageOf = (reader: Reader): Message => {
 	const tag = reader.byte("a message's tag")
 	switch (tag) {
-		case 0x42: {
-			reader.skip(16, "a Begin's final LSN and timestamp")
+		case messageTag.begin: {
+			reader.skip(stepped.begin, "a Begin's final LSN and timestamp")
 			return { kind: "begin", xid: reader.uint32("a Begin's xid") }
 		}
-		case 0x43: {
-			reader.skip(9, "a Commit's flags and commit LSN")
+		case messageTag.commit: {
+			reader.skip(stepped.commitHead, "a Commit's flags and commit LSN")
 			const endLsn = reader.uint64("a Commit's end LSN")
-			reader.skip(8, "a Commit's timestamp")
+			reader.skip(stepped.commitTail, "a Commit's timestamp")
 			return { kind: "commit", endLsn }
 		}
-		case 0x52: {
+		case messageTag.relation: {
 			const relation = reader.uint32("a Relation's OID")
 			const namespace = reader.string("a Relation's namespace")
 			const name = reader.string("a Relation's name")
-			reader.skip(1, "a Relation's replica identity")
+			reader.skip(stepped.replicaIdentity, "a Relation's replica identity")
 			return { kind: "relation", relation, namespace, name, columns: columnsOf(reader) }
 		}
-		case 0x49: {
+		case messageTag.insert: {
 			const relation = reader.uint32("an Insert's OID")
 			return { kind: "insert", relation, next: newTuple(reader, "an Insert's N") }
 		}
-		case 0x55: {
+		case messageTag.update: {
 			const relation = reader.uint32("an Update's OID")
 			const image = reader.byte("an Update's K, O or N")
-			if (image === newTag) {
+			if (image === tupleTag.next) {
 				return { kind: "update", relation, previous: undefined, next: tupleOf(reader) }
 			}
 			const previous = oldImage(reader, image, "an Update's K, O or N")
 			return { kind: "update", relation, previous, next: newTuple(reader, "an Update's N") }
 		}
-		case 0x44: {
+		case messageTag.delete: {
 			const relation = reader.uint32("a Delete's OID")
 			const image = reader.byte("a Delete's K or O")
 			return { kind: "delete", relation, previous: oldImage(reader, image, "a Delete's K or O") }
 		}
-		case 0x54: {
+		case messageTag.truncate: {
 			const count = reader.int32("a Truncate's relation count")
-			reader.skip(1, "a Truncate's options")
+			reader.skip(stepped.truncateOptions, "a Truncate's options")
 			const relations: Array<number> = []
 			for (let at = 0; at < count; at += 1) {
 				relations.push(reader.uint32("a Truncate's OID"))
 			}
 			return { kind: "truncate", relations }
 		}
-		case 0x4d: {
-			reader.skip(9, "a Message's flags and LSN")
+		case messageTag.message: {
+			reader.skip(stepped.messageHead, "a Message's flags and LSN")
 			const prefix = reader.string("a Message's prefix")
 			const content = reader.text(reader.int32("a Message's length"), "a Message's content")
 			return { kind: "message", prefix, content }
 		}
-		case 0x4f: {
-			reader.skip(8, "an Origin's commit LSN")
+		case messageTag.origin: {
+			reader.skip(stepped.origin, "an Origin's commit LSN")
 			reader.string("an Origin's name")
 			return { kind: "skipped" }
 		}
-		case 0x59: {
-			reader.skip(4, "a Type's OID")
+		case messageTag.type: {
+			reader.skip(stepped.type, "a Type's OID")
 			reader.string("a Type's namespace")
 			reader.string("a Type's name")
 			return { kind: "skipped" }
@@ -298,6 +367,31 @@ export type StreamMessage =
 	| { readonly kind: "keepalive"; readonly walEnd: bigint; readonly replyRequested: boolean }
 
 /**
+ * The tag byte of each message of the streaming replication protocol the leader reads or sends, its first, by
+ * "Streaming Replication Protocol" (https://www.postgresql.org/docs/19/protocol-replication.html): Byte1 'w' for
+ * XLogData and 'k' for a primary keepalive, from the server, and 'r' for a Standby Status Update, to it.
+ *
+ * @formatConstant the streaming replication protocol's message tags, one ASCII letter each
+ */
+const streamTag = { xlog: 0x77, keepalive: 0x6b, status: 0x72 } as const
+
+/**
+ * The fields of an XLogData the leader steps over, in bytes, by "Streaming Replication Protocol"
+ * (https://www.postgresql.org/docs/19/protocol-replication.html): the starting point of its WAL data, the current end of
+ * WAL on the server and the server's clock, Int64 each, which its tag leads and its data follows.
+ */
+const xlogHead = width.int64 + width.int64 + width.int64
+
+/**
+ * The value of a keepalive's or a status update's last byte that asks the other side to reply at once, by "Streaming
+ * Replication Protocol" (https://www.postgresql.org/docs/19/protocol-replication.html): "1 means that the client should
+ * reply to this message as soon as possible", 0 that it need not.
+ *
+ * @formatConstant a replication message's reply flag: 1 asks a reply, 0 does not
+ */
+const reply = { asked: 1, unasked: 0 } as const
+
+/**
  * One CopyData of a replication stream: XLogData (w), its start and end positions and its clock stepped over and the
  * rest its message; or a primary keepalive (k), the position the server has sent the stream to, its clock stepped
  * over, then whether the server asks a reply at once.
@@ -309,13 +403,13 @@ export const streamMessageOf = (
 		try: (): StreamMessage => {
 			const reader = new Reader(chunk)
 			switch (reader.byte("a stream message's tag")) {
-				case 0x77:
-					reader.skip(24, "an XLogData's positions and clock")
-					return { kind: "xlog", data: chunk.subarray(25) }
-				case 0x6b: {
+				case streamTag.xlog:
+					reader.skip(xlogHead, "an XLogData's positions and clock")
+					return { kind: "xlog", data: chunk.subarray(width.int8 + xlogHead) }
+				case streamTag.keepalive: {
 					const walEnd = reader.uint64("a keepalive's position")
-					reader.skip(8, "a keepalive's clock")
-					const replyRequested = reader.byte("a keepalive's reply flag") === 1
+					reader.skip(width.int64, "a keepalive's clock")
+					const replyRequested = reader.byte("a keepalive's reply flag") === reply.asked
 					reader.done("a keepalive's end")
 					return { kind: "keepalive", walEnd, replyRequested }
 				}
@@ -329,21 +423,37 @@ export const streamMessageOf = (
 				: new MessageUnreadable({ at: "a stream message" })
 	})
 
-/** The size of a Standby Status Update: its tag, four 64-bit fields and its reply flag. */
-const statusBytes = 34
+/**
+ * The offsets of a Standby Status Update's fields, in bytes, by "Streaming Replication Protocol"
+ * (https://www.postgresql.org/docs/19/protocol-replication.html): its tag (Byte1), then the positions written, flushed
+ * and applied and the client's clock (Int64 each), then its reply flag (Byte1), its last; each offset is the one before
+ * it and that field's width.
+ */
+const statusWritten = width.int8
+
+const statusFlushed = statusWritten + width.int64
+
+const statusApplied = statusFlushed + width.int64
+
+const statusClock = statusApplied + width.int64
+
+const statusReply = statusClock + width.int64
+
+/** The size of a Standby Status Update, in bytes: its reply flag's offset and width. */
+const statusSize = statusReply + width.int8
 
 /**
  * A Standby Status Update (r): `flushed` as the position written, flushed and applied, which the slot confirms, and
  * the clock `micros`, microseconds since 2000-01-01, no reply asked.
  */
 export const standbyStatus = (flushed: bigint, micros: bigint): Uint8Array => {
-	const bytes = new Uint8Array(statusBytes)
+	const bytes = new Uint8Array(statusSize)
 	const view = new DataView(bytes.buffer)
-	view.setUint8(0, 0x72)
-	view.setBigUint64(1, flushed)
-	view.setBigUint64(9, flushed)
-	view.setBigUint64(17, flushed)
-	view.setBigInt64(25, micros)
-	view.setUint8(33, 0)
+	view.setUint8(0, streamTag.status)
+	view.setBigUint64(statusWritten, flushed)
+	view.setBigUint64(statusFlushed, flushed)
+	view.setBigUint64(statusApplied, flushed)
+	view.setBigInt64(statusClock, micros)
+	view.setUint8(statusReply, reply.unasked)
 	return bytes
 }

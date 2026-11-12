@@ -60,10 +60,10 @@ export type { SpecifiedStatement } from "#compiler/lower/template.ts"
 export { queryInput, type QueryInput, type QueryTemplate } from "#compiler/program/compile.ts"
 export {
 	pageKey,
-	servedFootprint,
 	servedInstantRead,
 	servedPage,
 	servedRead,
+	servedReadLive,
 	templateKey
 } from "#compiler/program/served.ts"
 export type { StatementForms } from "#compiler/runtime/lower/forms.ts"

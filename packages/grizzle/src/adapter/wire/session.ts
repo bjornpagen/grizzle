@@ -1006,7 +1006,7 @@ const replicationFailure = (
 export interface ReplicationSession {
 	readonly run: (text: EmittedText | ReplicationCommand) => Effect.Effect<void, ReplicationFailure>
 	readonly read: (
-		text: ReplicationCommand
+		text: EmittedText
 	) => Effect.Effect<OutputRows, ReplicationFailure | UnreadableAnswer>
 	readonly stream: (
 		start: ReplicationCommand,

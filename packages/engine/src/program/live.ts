@@ -1,7 +1,9 @@
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import { prepared } from "#compiler/core/prepared.ts"
 import type { LiveSource } from "#compiler/live/notify.ts"
-import type { ServedLive } from "#compiler/served/forms.ts"
+import { createSlotTemplate, startTemplate } from "#compiler/live/replication.ts"
+import type { LiveGap, ServedFootprint, ServedLive } from "#compiler/served/forms.ts"
 import type { CatalogSelect } from "#compiler/sql/catalog.ts"
 import {
 	advisoryKey,
@@ -44,6 +46,37 @@ const slotStands = (): CatalogSelect => {
 }
 
 /**
+ * What of a read's footprint `footprint` the installation's live source `source` does not decode (served/forms.ts
+ * LiveGap): each table it reads that is neither a published table nor a view of the source, in code point order, then
+ * each column of a published table the read routes it by that the source does not route it by, by table and column. A
+ * view's footprint has no routes, since a refresh replaces its rows at once.
+ */
+export const readGaps = (
+	source: Extract<LiveSource, { readonly kind: "source" }>,
+	footprint: ServedFootprint
+): ReadonlyArray<LiveGap> => {
+	const tables: Array<LiveGap> = []
+	const columns: Array<LiveGap> = []
+	for (const table of Object.keys(footprint).toSorted(compareStrings)) {
+		if (source.views.includes(table)) {
+			continue
+		}
+		const published = source.tables[table]
+		if (published === undefined) {
+			tables.push({ kind: "table", table })
+			continue
+		}
+		for (const column of Object.keys(footprint[table] ?? {}).toSorted(compareStrings)) {
+			if (published.includes(column)) {
+				continue
+			}
+			columns.push({ kind: "column", table, column })
+		}
+	}
+	return [...tables, ...columns]
+}
+
+/**
  * The installation's live source as its served files hold it (served/forms.ts ServedLive), for the installation whose
  * root level's PostgreSQL schema is `root`: none where `source` is none; otherwise its publication and its slot's and
  * decoder login's stem, both identity.liveSource of the root, the migrations ledger's table (identity.ledger), its
@@ -63,6 +96,7 @@ export const servedLiveOf = (root: string, source: LiveSource): ServedLive => {
 		false
 	)
 	const payloads = fromFunction(call("unnest", [arrayParam(1, "text")]), "p", ["p"], false)
+	const settings = from("pg_settings", "s")
 	return {
 		kind: "source",
 		publication,
@@ -70,7 +104,7 @@ export const servedLiveOf = (root: string, source: LiveSource): ServedLive => {
 		stem: publication,
 		tables: source.tables,
 		views: source.views,
-		listen: emitCatalog({ kind: "listen", channel: publication }),
+		listen: prepared(emitCatalog({ kind: "listen", channel: publication })),
 		secret: preparedRead(
 			query([call("encode", [secret.col("secret"), text("hex")])], [secret.item], undefined)
 		),
@@ -85,6 +119,18 @@ export const servedLiveOf = (root: string, source: LiveSource): ServedLive => {
 				undefined
 			)
 		),
+		senderTimeout: emitCatalog(
+			query(
+				[settings.col("setting")],
+				[settings.item],
+				and([
+					eq(settings.col("name"), text("wal_sender_timeout")),
+					eq(settings.col("unit"), text("ms"))
+				])
+			)
+		),
+		createSlot: createSlotTemplate,
+		start: startTemplate(publication),
 		check: preparedRead(query([exists(slotStands())], [], undefined)),
 		visible: preparedRead(
 			query(
