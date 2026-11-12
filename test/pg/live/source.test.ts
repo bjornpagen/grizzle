@@ -7,9 +7,14 @@
  *
  * Each case installs a drawn world as generate drafts it, its live source among its objects (the secret, each footprint
  * table's replica identity, the publication, the decoder login), opens a temporary pgoutput slot as the decoder login,
- * runs the history, each commit a grizzle call of one write member or a SERIALIZABLE transaction of a direct SQL writer,
- * then one direct writer's transaction it rolls back, and reads every change the slot holds through the leader's own
- * reader (adapter/live/pgoutput.ts decodeMessage, adapter/live/changes.ts transactionReader).
+ * opens the source as its listener and its leader do, under the installation's own roles: as the decoder login, each
+ * statement they send on an ordinary session, as the served file holds it, where the secret's read answers a key, the
+ * slot check answers true of the decoder's own slot, and the LISTEN, the advisory lock, the visibility read and the
+ * fan-out run; as the login, the secret's read refused (42501), since a login that held the key could seal a payload
+ * every listener takes for its leader's. Then it runs the history, each commit a grizzle call of one write member or a
+ * SERIALIZABLE transaction of a direct SQL writer, then one direct writer's transaction it rolls back, and reads every
+ * change the slot holds through the leader's own reader (adapter/live/pgoutput.ts decodeMessage,
+ * adapter/live/changes.ts transactionReader).
  *
  * The oracle is computed on the host from the history alone: each write's images (an insert's new row, a delete's old
  * one, an update's both, an immutable relation's update a delete and an insert), and for each image of a table the
@@ -19,11 +24,14 @@
  *
  * Plants (~/.cache/grizzle-release/LIVE-TRIGGERS/plants): identity-key.patch (physical/ddl/live.ts identityOf answers
  * the key's identity whatever the routes, so an update of a routed column outside the key decodes no old value of it);
- * publication-short.patch (publishedTables leaves its last footprint table out, whose writes then decode to nothing).
+ * publication-short.patch (publishedTables leaves its last footprint table out, whose writes then decode to nothing);
+ * usage-dropped.patch (the decoder login's privileges leave out USAGE on the root's schema, so its secret's read is
+ * refused and the source does not open); ledger-unpublished.patch (deploy/ledger/ledger.ts publishingLedger leaves the
+ * migrations ledger out of the publication, which the installation's posture check refuses as ledgerUnpublished).
  *
  * Features: an insert, a delete, an update of a mutable relation, an update of an immutable one, a write of a routed
  * table, a write of a table read whole, a direct writer's commit, a grizzle call's commit, a rolled-back transaction
- * that wrote.
+ * that wrote, the live source opens, a login's read of the secret refused.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -34,12 +42,15 @@ import { Array as Arr, Data, Effect, Formatter, Option, Result, String as Str } 
 import { transactionReader } from "#adapter/live/changes.ts"
 import { decodeMessage } from "#adapter/live/pgoutput.ts"
 import { admittedIdentifier, identifierOf, identity } from "#compiler/core/identity.ts"
+import type { LiveTable } from "#compiler/live/notify.ts"
 import {
 	type Notification,
 	notificationText,
+	parseLiveSecret,
 	type RouteColumn,
 	type RouteTable
 } from "#compiler/plan/runtime.ts"
+import type { ServedLive } from "#compiler/served/forms.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { commitLive, worldSurfaces } from "#test/support/live/calls.ts"
 import { commitStatements } from "#test/support/live/direct.ts"
@@ -55,7 +66,8 @@ import {
 	statesOf,
 	writesOf
 } from "#test/support/live/world.ts"
-import { clusterPool } from "#test/support/pg.ts"
+import { clusterPool, type SqlError } from "#test/support/pg.ts"
+import type { RawSession } from "#test/support/substrate/session.ts"
 import { roleSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -69,9 +81,67 @@ type Feature =
 	| "a direct writer's commit"
 	| "a grizzle call's commit"
 	| "a rolled-back transaction that wrote"
+	| "the live source opens"
+	| "a login's read of the secret refused"
 
 /** The decoded transactions of a history differ from its commits' route keys: the report says where. */
 class Undecoded extends Data.TaggedError("Undecoded")<{ readonly report: string }> {}
+
+/** A statement of the source's opening refused under the installation's roles, or a login read the secret. */
+class Unopened extends Data.TaggedError("Unopened")<{ readonly report: string }> {}
+
+/** The served live source of an installation that holds one. */
+type OpenSource = Extract<ServedLive, { readonly kind: "source" }>
+
+/** `sent`, the statement `what` of the opening, its refusal reported by the statement and the server's answer. */
+const opening = <A>(what: string, sent: Effect.Effect<A, SqlError>): Effect.Effect<A, Unopened> =>
+	Effect.mapError(sent, (e) => new Unopened({ report: `${what}: ${Formatter.format(e.reason)}` }))
+
+/**
+ * The source opened as its listener and its leader open it, by each statement they send on an ordinary session of the
+ * decoder login, `decoder`, as `served` holds it: the secret's read, which answers one key; the LISTEN; the slot
+ * check, which answers true of `slot`, a slot the decoder login holds; the advisory lock; and the visibility read and
+ * the fan-out, of no transaction and no payload, whose functions PostgreSQL checks EXECUTE on as it plans them.
+ */
+const opens = (
+	decoder: RawSession,
+	served: OpenSource,
+	slot: string
+): Effect.Effect<void, Unopened> =>
+	Effect.gen(function* () {
+		const secret = yield* opening("the secret's read", decoder.values(served.secret.sql, []))
+		const [cell, ...rest] = Arr.flatten(secret)
+		if (typeof cell !== "string" || rest.length > 0 || !parseLiveSecret(cell).ok) {
+			return yield* new Unopened({
+				report: `the secret's read answered ${Formatter.format(secret)}`
+			})
+		}
+		yield* opening("the LISTEN", decoder.query(served.listen, []))
+		const checked = yield* opening("the slot check", decoder.values(served.check.sql, [slot]))
+		const [answer, ...others] = Arr.flatten(checked)
+		if (answer !== true || others.length > 0) {
+			return yield* new Unopened({
+				report: `the slot check of ${slot} answered ${Formatter.format(checked)}`
+			})
+		}
+		yield* opening("the advisory lock", decoder.query(served.lock, []))
+		yield* opening("the visibility read", decoder.query(served.visible.sql, [[]]))
+		yield* opening("the fan-out", decoder.query(served.fanout.sql, [[]]))
+	})
+
+/** The secret's read as the login `login`, which PostgreSQL refuses with 42501: what it answered otherwise. */
+const loginRefused = (login: RawSession, served: OpenSource): Effect.Effect<void, Unopened> =>
+	Effect.flatMap(Effect.result(login.values(served.secret.sql, [])), (read) =>
+		Result.isFailure(read) &&
+		read.failure.reason._tag === "ServerError" &&
+		read.failure.reason.fields.code === "42501"
+			? Effect.void
+			: Effect.fail(
+					new Unopened({
+						report: `the login ${login.role}'s read of the secret answered ${Formatter.format(read)}`
+					})
+				)
+	)
 
 const bounds: LiveBounds = {
 	groups: 3,
@@ -120,16 +190,25 @@ const imagesOf = (write: LiveWrite): ReadonlyArray<LiveFact> => {
 	}
 }
 
+/** The footprint tables and the views of the installation's live plan, none for a plan of no read. */
+const planOf = (
+	live: LiveInstallation
+): { readonly tables: ReadonlyArray<LiveTable>; readonly views: ReadonlyArray<string> } => {
+	const plan = live.installed.installation.live
+	return plan.kind === "none" ? { tables: [], views: [] } : plan
+}
+
 /**
  * The route keys a commit's writes decode to, by the installation's plan (its live tables and their routes), each text
  * once: none for a commit that wrote no footprint table.
  */
 const expectedKeys = (live: LiveInstallation, commit: LiveCommit): ReadonlySet<string> => {
-	const { installation, names } = live.installed
+	const { names } = live.installed
+	const { tables } = planOf(live)
 	return new Set(
 		Arr.flatMap(writesOf(commit), (write) => {
 			const relation = relationName(write.relation)
-			const planned = Arr.findFirst(installation.live.tables, (t) => t.relation === relation)
+			const planned = Arr.findFirst(tables, (t) => t.relation === relation)
 			if (Option.isNone(planned)) {
 				return []
 			}
@@ -148,15 +227,15 @@ const expectedKeys = (live: LiveInstallation, commit: LiveCommit): ReadonlySet<s
 
 /** The installed views of the plan, the only table keys the leader takes from an announcement. */
 const liveViews = (live: LiveInstallation): ReadonlySet<string> => {
-	const { installation, names } = live.installed
-	return new Set(Arr.map(installation.live.views, (view) => names.relation(view).name))
+	const { names } = live.installed
+	return new Set(Arr.map(planOf(live).views, (view) => names.relation(view).name))
 }
 
 /** The installed tables of the plan with their routed columns, as the leader keys a decoded row by them. */
 const liveTables = (live: LiveInstallation): ReadonlyMap<string, ReadonlyArray<string>> => {
-	const { installation, names } = live.installed
+	const { names } = live.installed
 	return new Map(
-		Arr.map(installation.live.tables, (t) => [
+		Arr.map(planOf(live).tables, (t) => [
 			names.relation(t.relation).name,
 			Arr.map(t.routes, (field) => names.column(t.relation, field))
 		])
@@ -194,7 +273,9 @@ layer(Substrate.layer)("the live source", (it) => {
 								"a write of a table read whole",
 								"a direct writer's commit",
 								"a grizzle call's commit",
-								"a rolled-back transaction that wrote"
+								"a rolled-back transaction that wrote",
+								"the live source opens",
+								"a login's read of the secret refused"
 							],
 							{ cases: 48, sense: notesOnly }
 						),
@@ -217,6 +298,17 @@ layer(Substrate.layer)("the live source", (it) => {
 								"SELECT pg_catalog.pg_create_logical_replication_slot($1::name, 'pgoutput', true)",
 								[slot]
 							)
+							const served = live.file.file.live
+							if (served.kind === "none") {
+								return yield* new Unopened({
+									report: `the served file of a world that reads holds no live source\n${Formatter.format(c)}`
+								})
+							}
+							yield* opens(decoder, served, slot)
+							notes.note("the live source opens")
+							const login = yield* substrate.session(roleSession(installed.as(live.world.server)))
+							yield* loginRefused(login, served)
+							notes.note("a login's read of the secret refused")
 							yield* Effect.gen(function* () {
 								const surfaces = yield* worldSurfaces(live)
 								for (const commit of c.history) {

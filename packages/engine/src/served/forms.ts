@@ -138,13 +138,15 @@ export interface ServedSession {
 
 /**
  * An installation's live change source as a served file holds it (live/notify.ts LiveSource), emitted at generate
- * (program/live.ts servedLiveOf): none where the installation's live plan is empty; otherwise its names and the texts
+ * (program/live.ts servedLiveOf): none where the installation serves no read; otherwise its names and the texts
  * its leader and its listeners send. The leader is the one process at a time holding `lock`, sent first on the
  * decoder login's replication connection, which takes simple queries alone; it creates the slot where `check` finds
  * none and streams its decoded changes (live/replication.ts), waits until each decoded transaction is `visible`, and
  * sends the round's sealed batches by `fanout`. A listener reads `secret`, LISTENs, and `check`s that the slot stands.
  *
  * - `publication`: the publication's name, the fan-out channel and the prefix of every announced message;
+ * - `ledger`: the migrations ledger's table in the root's schema, which the publication publishes whole, so a change of
+ *   it is a migration applied, after which every watch is stale;
  * - `stem`: the replication slot's and the decoder login's stem, each named in the cluster under the installation's
  *   role space (core/identity.ts roleInSpace), which every slot parameter (`$1::name`) is filled with;
  * - `tables`: each published table by its installed identifier, with the columns it routes by;
@@ -164,6 +166,7 @@ export type ServedLive =
 	| {
 			readonly kind: "source"
 			readonly publication: string
+			readonly ledger: string
 			readonly stem: string
 			readonly tables: Readonly<Record<string, ReadonlyArray<string>>>
 			readonly views: ReadonlyArray<string>

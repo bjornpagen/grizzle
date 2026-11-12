@@ -364,8 +364,9 @@ export const installedScope = (
 }
 
 /**
- * The live source a snapshot installs (physical/ddl/live.ts): its secret's table, by its CREATE TABLE ... AS, and its
- * decoder login, by its CREATE ROLE; none where its manifest holds neither.
+ * The live source a snapshot installs (physical/ddl/live.ts): its secret's table, by its CREATE TABLE ... AS, its
+ * decoder login, by its CREATE ROLE, and its publication, by its CREATE PUBLICATION; none where its manifest holds
+ * none of them.
  */
 const liveSourceOf = (snapshot: DeploySnapshot): ErasureExpectation["liveSource"] => {
 	const secret = Arr.findFirst(
@@ -376,8 +377,17 @@ const liveSourceOf = (snapshot: DeploySnapshot): ErasureExpectation["liveSource"
 		Arr.flatMap(snapshot.manifest.objects, (o) => (o.kind === "decoder" ? o.ddl : [])),
 		(s) => (s.kind === "createRole" ? Option.some(s.name) : Option.none())
 	)
-	return Option.isSome(secret) && Option.isSome(decoder)
-		? { kind: "source", secret: secret.value, decoder: decoder.value }
+	const publication = Arr.findFirst(
+		Arr.flatMap(snapshot.manifest.objects, (o) => (o.kind === "publication" ? o.ddl : [])),
+		(s) => (s.kind === "createPublication" ? Option.some(s.name) : Option.none())
+	)
+	return Option.isSome(secret) && Option.isSome(decoder) && Option.isSome(publication)
+		? {
+				kind: "source",
+				secret: secret.value,
+				decoder: decoder.value,
+				publication: publication.value
+			}
 		: { kind: "none" }
 }
 

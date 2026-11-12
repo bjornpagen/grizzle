@@ -4,7 +4,7 @@ import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty
 import type { LivePlan, LiveTable } from "#compiler/live/notify.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
-import type { Grant, ObjectName, PublishedTable, Select } from "#compiler/sql/ast.ts"
+import type { ObjectName, PublishedTable, Select } from "#compiler/sql/ast.ts"
 import {
 	and,
 	call,
@@ -20,38 +20,35 @@ import {
 
 /**
  * The installation's live change source: what its live programs' runtime reads every committed change of their
- * footprint tables from, by logical decoding, where its live plan reads any relation (live/notify.ts LivePlan):
+ * footprint tables and every migration the installation applies from, by logical decoding, where it serves any read
+ * (live/notify.ts LivePlan), even reads of closed relations alone, whose footprint holds no table:
  *
  * - its secret, `<root>.__live_secret`, one AES-256 key drawn as the table is created (sql/ast.ts CreateLiveSecret),
- *   which the runtime seals and opens the fan-out channel's payloads with, and which every login and the decoder login
- *   read, and nothing else (`secretGrants`);
+ *   which the runtime's leader seals the fan-out channel's payloads with and its listeners open them with, each a
+ *   session of the decoder login, which alone reads it: a login that held it could seal a payload every listener
+ *   takes for its leader's;
  * - each footprint table's REPLICA IDENTITY (`identityOf`): its primary key's, PostgreSQL's default, where every field
  *   it routes by lies in the key, so an update's or a delete's record keeps every old routing value; FULL otherwise;
  * - its publication (identity.liveSource): every footprint table, every kind of change, a FULL table whole and a
- *   key-identity table by its key's columns (`publishedTables`); a materialized view of the plan is no table of it,
- *   since its refresh announces itself;
+ *   key-identity table by its key's columns (`publishedTables`), and the migrations ledger, which the snapshot adds
+ *   with the ledger's other objects (deploy/ledger/ledger.ts ledgerPublished); a materialized view of the plan is no
+ *   table of it, since its refresh announces itself;
  * - its decoder login (identity.liveSource, under the role space), LOGIN NOINHERIT, the replication right migrate
- *   grants it once the installation's files commit, and SELECT on the secret.
+ *   grants it once the installation's files commit, and USAGE on the root's schema with SELECT on the secret, which
+ *   its listeners and its leader read at runtime: every other statement they send needs only what PUBLIC holds (the
+ *   LISTEN, the slot check, the advisory lock, the snapshot and settings reads, the fan-out's notify) or the
+ *   replication right (the slot's creation and its stream, which reads the publication).
  *
  * The slot is the runtime's: the leader creates it on first leadership (live/replication.ts), so a migrate-only
  * installation retains no WAL.
  */
 
-/** The secret table of an installation with a live source, and the object that creates it; none without one. */
-export type LiveSecretTable =
-	| { readonly kind: "none" }
-	| { readonly kind: "secret"; readonly table: ObjectName; readonly node: Node<"structure"> }
-
 const why = enforcement("the live source of the installation's live programs")
 
-/** Whether `plan` reads any relation, so the installation holds a live source. */
-const sourced = (plan: LivePlan): boolean => plan.tables.length + plan.views.length > 0
-
-/** The secret table, created in Structure in the root's schema, where `plan` reads any relation. */
-export const addLiveSecret = (b: InstallBuilder, plan: LivePlan): LiveSecretTable => {
-	if (!sourced(plan)) {
-		return { kind: "none" }
-	}
+/** The secret table, created in Structure in the root's schema, and the object that creates it. */
+const addLiveSecret = (
+	b: InstallBuilder
+): { readonly table: ObjectName; readonly node: Node<"structure"> } => {
 	const named = identity.liveSecret()
 	const table = objectName(b.schema, b.name(named))
 	const node = b.add(
@@ -72,21 +69,8 @@ export const addLiveSecret = (b: InstallBuilder, plan: LivePlan): LiveSecretTabl
 		},
 		[b.schemaNode]
 	)
-	return { kind: "secret", table, node }
+	return { table, node }
 }
-
-/** SELECT on the secret for the role `role`, none where the installation holds no live source. */
-export const secretGrants = (secret: LiveSecretTable, role: string): ReadonlyArray<Grant> =>
-	secret.kind === "none"
-		? []
-		: [
-				{
-					kind: "grant",
-					privileges: ["SELECT"],
-					on: { kind: "TABLE", names: [secret.table] },
-					to: [{ kind: "role", name: role }]
-				}
-			]
 
 /**
  * The columns of a footprint table's primary key, in key order, as its CREATE TABLE declares it: what its REPLICA
@@ -111,9 +95,12 @@ const identityOf = (b: InstallBuilder, table: LiveTable): "key" | "full" => {
 		: "full"
 }
 
-/** The publication's tables: each footprint table, a FULL one whole, a key-identity one by its key's columns. */
-const publishedTables = (b: InstallBuilder, plan: LivePlan): ReadonlyArray<PublishedTable> =>
-	plan.tables.map((table) => ({
+/** The publication's footprint tables, each of `tables`: a FULL one whole, a key-identity one by its key's columns. */
+const publishedTables = (
+	b: InstallBuilder,
+	tables: ReadonlyArray<LiveTable>
+): ReadonlyArray<PublishedTable> =>
+	tables.map((table) => ({
 		table: b.names.relation(table.relation),
 		columns:
 			identityOf(b, table) === "full"
@@ -122,13 +109,14 @@ const publishedTables = (b: InstallBuilder, plan: LivePlan): ReadonlyArray<Publi
 	}))
 
 /**
- * The live source's replica identities, publication and decoder login, after the tables and the secret: none where the
- * installation holds no live source.
+ * The live source's secret, replica identities, publication and decoder login, after the tables: none where `plan` is
+ * none, an installation that serves no read.
  */
-export const addLiveSource = (b: InstallBuilder, plan: LivePlan, secret: LiveSecretTable): void => {
-	if (secret.kind === "none") {
+export const addLiveSource = (b: InstallBuilder, plan: LivePlan): void => {
+	if (plan.kind === "none") {
 		return
 	}
+	const secret = addLiveSecret(b)
 	const identities = plan.tables.flatMap((table) =>
 		identityOf(b, table) === "full"
 			? [
@@ -161,7 +149,7 @@ export const addLiveSource = (b: InstallBuilder, plan: LivePlan, secret: LiveSec
 		{
 			kind: "publication",
 			ident: { kind: "publication", name: source },
-			ddl: [{ kind: "createPublication", name, tables: publishedTables(b, plan) }],
+			ddl: [{ kind: "createPublication", name, tables: publishedTables(b, plan.tables) }],
 			reasons: [why],
 			phase: "publish"
 		},
@@ -181,11 +169,24 @@ export const addLiveSource = (b: InstallBuilder, plan: LivePlan, secret: LiveSec
 		{
 			kind: "privileges",
 			ident: { kind: "privileges", name: source },
-			ddl: secretGrants(secret, name),
+			ddl: [
+				{
+					kind: "grant",
+					privileges: ["USAGE"],
+					on: { kind: "SCHEMA", names: [b.schema] },
+					to: [{ kind: "role", name }]
+				},
+				{
+					kind: "grant",
+					privileges: ["SELECT"],
+					on: { kind: "TABLE", names: [secret.table] },
+					to: [{ kind: "role", name }]
+				}
+			],
 			reasons: [why],
 			phase: "publish"
 		},
-		[decoder, secret.node]
+		[decoder, b.schemaNode, secret.node]
 	)
 }
 

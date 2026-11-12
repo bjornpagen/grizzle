@@ -103,6 +103,14 @@ export type WorkloadFootprints = ReadonlyMap<string, ProgramFootprints>
 /** The footprint of each query program of a login's workloads (logical/routes.ts Footprint), by the program's name. */
 export type ProgramFootprints = ReadonlyMap<string, Footprint>
 
+/**
+ * Whether a login serves a read, by its programs' footprints `footprints`: its workload plans a query program, as every
+ * read member does, a query, an ordered query, a paged read and a key's lookup alike, while a ChangeSet and a refresh
+ * plan none. A login that serves one watches, so its installation holds a live source (livePlanOf) and its served file
+ * names it (adapter served/project.ts).
+ */
+export const servesRead = (footprints: ProgramFootprints): boolean => footprints.size > 0
+
 interface ProgramIr {
 	/** The program's roots: a query's root, or a ChangeSet's read-backs and laws. */
 	readonly roots: ReadonlyArray<RelNode>
@@ -451,11 +459,14 @@ const filterAccess = (
 }
 
 /**
- * The live plan of an installation's logins (live/notify.ts LivePlan), the union of `footprints`: every stored relation
- * a footprint reads, each with every field some footprint routes it by, and every materialized derived relation one
- * reads, in code point order of relations and of fields.
+ * The live plan of an installation's logins (live/notify.ts LivePlan), the union of `footprints`: none where no login
+ * serves a read (servesRead); otherwise every stored relation a footprint reads, each with every field some footprint
+ * routes it by, and every materialized derived relation one reads, in code point order of relations and of fields.
  */
 const livePlanOf = (footprints: WorkloadFootprints): LivePlan => {
+	if (![...footprints.values()].some(servesRead)) {
+		return { kind: "none" }
+	}
 	const tables = new Map<string, Set<string>>()
 	const views = new Set<string>()
 	for (const programs of footprints.values()) {
@@ -473,6 +484,7 @@ const livePlanOf = (footprints: WorkloadFootprints): LivePlan => {
 		}
 	}
 	return {
+		kind: "reads",
 		tables: [...tables]
 			.toSorted(([a], [b]) => compareText(a, b))
 			.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareText) })),

@@ -244,7 +244,11 @@ const draftOf = (c: Case, platformReads: ReadonlyArray<string>, withReads: boole
 		return {
 			certification: served.certification,
 			kept: built.kept,
-			live: new Set(Arr.map(draft.snapshot.live.tables, (table) => table.relation)),
+			live: new Set(
+				draft.snapshot.live.kind === "none"
+					? []
+					: Arr.map(draft.snapshot.live.tables, (table) => table.relation)
+			),
 			writes: new Map(
 				Arr.flatMap(built.logins, (l) =>
 					Arr.map(Rec.values(l.roles), (r) => [r.role.name, r.role.write] as const)

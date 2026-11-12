@@ -42,7 +42,7 @@ import { type AmbientOwner, type AmbientSession, ambientOwner } from "#test/supp
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { checkInstallation } from "#test/support/catalog/installed.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
-import { draftedSql, type FixtureSchema, filledSql } from "#test/support/compile.ts"
+import { draftedSql, type FixtureSchema, filledSql, migratedSql } from "#test/support/compile.ts"
 import { paths, repoRoot } from "#test/support/files.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -203,13 +203,15 @@ const body = (statement: string): string =>
  * A statement a first migration runs beyond the fresh-install script that leaves no object but the migrations ledger:
  * the ledger's own DDL, guard trigger and grants, the LOCK opening a residual law's Validate file, and the DO block
  * running the law's full violation query there, which reads and raises only. The snapshot guard's function names the
- * ledger in its body but is the installation's own object, in the script too, so a CREATE ... FUNCTION is never one.
+ * ledger in its body and the live source's publication publishes it, but each is the installation's own object, in the
+ * script too, so a CREATE ... FUNCTION or a CREATE PUBLICATION is never one.
  */
 const leavesNoObject = (statement: string, schema: string): boolean => {
 	const text = body(statement)
 	return (
 		(pipe(text, Str.includes(`${quoteIdent(schema)}.${quoteIdent(ledgerTableName)}`)) &&
-			!Str.startsWith("CREATE OR REPLACE FUNCTION ")(text)) ||
+			!Str.startsWith("CREATE OR REPLACE FUNCTION ")(text) &&
+			!Str.startsWith("CREATE PUBLICATION ")(text)) ||
 		Str.startsWith("LOCK TABLE ")(text) ||
 		(Str.startsWith("DO $$")(text) &&
 			Str.includes("-- The full violation query of law ")(statement))
@@ -230,9 +232,10 @@ const isPrivilege = (statement: string): boolean => {
 }
 
 /**
- * Whether the migrations, in order, provably install the fresh-install script's catalog, the ledger aside: they run every statement
- * of the script exactly once and otherwise only statements that leave no object; each object's grants and revokes, and
- * the default privileges, run in the script's order; and every default privilege runs after every object is created,
+ * Whether the migrations, in order, provably install the fresh-install script's catalog, the ledger aside, which the
+ * live source's publication publishes too (compile.ts migratedSql): they run every statement of the script exactly
+ * once and otherwise only statements that leave no object; each object's grants and revokes, and the default
+ * privileges, run in the script's order; and every default privilege runs after every object is created,
  * as in the script. Every other statement creates or alters an object of its own, so its position decides nothing a catalog
  * shows (a statement that needs an earlier one fails the apply instead). Both are read as migrate sends them into
  * `database` (filledSql), each variable filled, and split as migrate splits a file (render/markers.ts splitStatements):
@@ -247,7 +250,7 @@ export const runsInstallScript = (
 	const schema = installation.names.schema
 	const script = Arr.map(
 		filledSql(
-			{ statements: Arr.flatMap(draftedSql(installation).statements, splitStatements) },
+			{ statements: Arr.flatMap(migratedSql(installation).statements, splitStatements) },
 			database
 		),
 		normalized
@@ -440,9 +443,8 @@ export const installedOf = (input: {
 		}
 		const credentialsOf = (name: string): Credentials =>
 			defined(credentials.get(name), `the login ${name} of ${plan.declared}`)
-		const { live } = plan.installation
 		const decoder =
-			live.tables.length + live.views.length === 0
+			plan.installation.live.kind === "none"
 				? undefined
 				: yield* substrate.login(identifierOf(identity.liveSource(plan.installation.names.schema)))
 		const world = (role: AnyRole | RoleDesc): SubstrateWorld => {

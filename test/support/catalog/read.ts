@@ -304,6 +304,18 @@ export interface Catalog {
 	readonly otherTypes: ReadonlyArray<string>
 	/** The database's own settings, for every role (pg_db_role_setting with setrole 0), each `name=value`. */
 	readonly databaseSettings: ReadonlyArray<string>
+	/**
+	 * Every table of the level schemas a publication of the database publishes, with that publication, as
+	 * pg_publication_tables names it: a publication of all tables or of a schema's tables names each of them too.
+	 */
+	readonly publishedTables: ReadonlyArray<CatalogPublishedTable>
+}
+
+/** A table of the installation a publication publishes. */
+export interface CatalogPublishedTable {
+	readonly publication: string
+	readonly schema: string
+	readonly table: string
 }
 
 /**
@@ -470,7 +482,11 @@ const queries = {
 	databaseSettings: `SELECT COALESCE(json_agg(x ORDER BY x), '[]'::json)::text
 	FROM pg_catalog.pg_db_role_setting s CROSS JOIN LATERAL unnest(s.setconfig) AS x
 	WHERE s.setrole = 0 AND s.setdatabase = (SELECT d.oid FROM pg_catalog.pg_database d WHERE d.datname = pg_catalog.current_database())
-	AND $1::text[] IS NOT NULL`
+	AND $1::text[] IS NOT NULL`,
+	publishedTables: `SELECT COALESCE(json_agg(json_build_object(
+		'publication', t.pubname::text, 'schema', t.schemaname::text, 'table', t.tablename::text
+	) ORDER BY t.pubname, t.schemaname, t.tablename), '[]'::json)::text
+	FROM pg_catalog.pg_publication_tables t WHERE t.schemaname::text = ANY($1::text[])`
 } as const
 
 /** A catalog record as its JSON document spells it: what may be none is PostgreSQL's NULL there, an Option here. */
@@ -638,7 +654,8 @@ export const readCatalogWith = <E>(
 			foreignGrants: read(queries.foreignGrants),
 			defaultAcls: read(queries.defaultAcls),
 			otherTypes: read(queries.otherTypes),
-			databaseSettings: read(queries.databaseSettings)
+			databaseSettings: read(queries.databaseSettings),
+			publishedTables: read(queries.publishedTables)
 		})
 		return {
 			kind: "present",
@@ -673,7 +690,8 @@ export const readCatalogWith = <E>(
 					defaultAclOf
 				),
 				otherTypes: trustedJson<ReadonlyArray<string>>(texts.otherTypes),
-				databaseSettings: trustedJson<ReadonlyArray<string>>(texts.databaseSettings)
+				databaseSettings: trustedJson<ReadonlyArray<string>>(texts.databaseSettings),
+				publishedTables: trustedJson<ReadonlyArray<CatalogPublishedTable>>(texts.publishedTables)
 			}
 		}
 	})

@@ -52,6 +52,7 @@ export {
 	type ProgramFootprints,
 	type ServedWorkloadPlan,
 	servedWorkload,
+	servesRead,
 	type WorkloadFootprints
 } from "#compiler/program/workload/compile.ts"
 export type { Footprint, Routes } from "#compiler/logical/routes.ts"

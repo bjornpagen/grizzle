@@ -208,6 +208,30 @@ export const ledgerPrivilegesObject = (
 	}
 }
 
+/**
+ * `statement`, with the ledger among the tables it publishes, whole, after its footprint tables, where it creates the
+ * installation's live source's publication (physical/ddl/live.ts); any other statement as it is. Each file of a
+ * migration and each folder inserts its row in its own transaction, so the leader decodes every migration applied, a
+ * folder of no file among them, and ends every watch as stale. The ledger's primary key is its replica identity, and
+ * migrate never updates or deletes a row of it.
+ */
+export const publishingLedger = (schema: string, statement: SqlStatement): SqlStatement =>
+	statement.kind === "createPublication"
+		? {
+				...statement,
+				tables: [...statement.tables, { table: ledgerName(schema), columns: { kind: "whole" } }]
+			}
+		: statement
+
+/** The live source's publication `publication` with the ledger among its tables (publishingLedger). */
+export const ledgerPublished = (
+	schema: string,
+	publication: PhysicalObject<SqlStatement>
+): PhysicalObject<SqlStatement> => ({
+	...publication,
+	ddl: publication.ddl.map((s) => publishingLedger(schema, s))
+})
+
 const emitted = (statement: SqlStatement): EmittedSql => {
 	const e = emit(statement, emptyNameMap)
 	if (!e.ok) {

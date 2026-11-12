@@ -60,6 +60,7 @@ import {
 	schemaArtifacts
 } from "#compiler/program/schema.ts"
 
+import { publishingLedger } from "#compiler/deploy/ledger/ledger.ts"
 import { resolveVariables } from "#compiler/deploy/render/variables.ts"
 import { noLive } from "#compiler/live/notify.ts"
 import {
@@ -605,6 +606,13 @@ const drafted = (statements: ReadonlyArray<SqlStatement>): DraftedScript => ({
 /** An installation's script as `grizzle generate` drafts it, in install order (drafted). */
 export const draftedSql = (installation: Installation): DraftedScript =>
 	drafted(installation.statements)
+
+/**
+ * An installation's script as its migrations install it beside the migrations ledger: draftedSql, its live source's
+ * publication publishing the ledger too (deploy/ledger/ledger.ts publishingLedger), as the snapshot states it.
+ */
+export const migratedSql = (installation: Installation): DraftedScript =>
+	drafted(Arr.map(installation.statements, (s) => publishingLedger(installation.names.schema, s)))
 
 /**
  * A drafted script as `grizzle migrate` sends it into `database`: each statement's variables filled through the

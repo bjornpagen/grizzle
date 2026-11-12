@@ -27,7 +27,8 @@ import type { Declarations, MigrationPlan } from "#compiler/deploy/diff/plan.ts"
 import {
 	ledgerGuardObject,
 	ledgerObject,
-	ledgerPrivilegesObject
+	ledgerPrivilegesObject,
+	ledgerPublished
 } from "#compiler/deploy/ledger/ledger.ts"
 import { installed, type ManifestObject } from "#compiler/deploy/snapshot/objects.ts"
 import {
@@ -786,14 +787,13 @@ export const derivedOf = (installation: Installation): SnapshotDerived => ({
 })
 
 /**
- * The installation's live source in installed terms (live/notify.ts LiveSource): none where its live plan reads no
- * relation; otherwise each footprint table by its table's identifier, with the identifiers of the columns of the
- * fields it routes by, in code point order. A materialized view of the plan publishes nothing: its refresh announces
- * itself.
+ * The installation's live source in installed terms (live/notify.ts LiveSource): none where it serves no read;
+ * otherwise each footprint table by its table's identifier, with the identifiers of the columns of the fields it
+ * routes by, in code point order. A materialized view of the plan publishes nothing: its refresh announces itself.
  */
 const liveSourceOf = (installation: Installation): LiveSource => {
 	const { live, names } = installation
-	return live.tables.length + live.views.length === 0
+	return live.kind === "none"
 		? { kind: "none" }
 		: {
 				kind: "source",
@@ -825,7 +825,8 @@ export const derivedFacts = (owned: Owned, closed: ClosedNames, model: LawModel)
 
 /** The target snapshot's content, built from the compiled installation of the current schema and workload, with the
  * migrations ledger's objects added to its manifest: the ledger table and its SERIALIZABLE guard trigger in Setup,
- * after the guard's function, and every login's SELECT on it in Publish. */
+ * after the guard's function, every login's SELECT on it in Publish, and the ledger among the tables of the live
+ * source's publication (ledgerPublished), where the installation holds one. */
 export const targetState = (input: TargetInput): Result.Result<SnapshotContent, CompileError> =>
 	catchRefusal(() => {
 		const { installation } = input
@@ -836,7 +837,7 @@ export const targetState = (input: TargetInput): Result.Result<SnapshotContent, 
 		const ledger = ledgerObject(schema)
 		const guard = ledgerGuardObject(schema)
 		for (const o of installation.manifest.objects) {
-			objects.push(o)
+			objects.push(o.kind === "publication" ? ledgerPublished(schema, o) : o)
 			if (o.kind === "isolationFunction") {
 				objects.push(ledger, guard)
 			}
@@ -851,7 +852,10 @@ export const targetState = (input: TargetInput): Result.Result<SnapshotContent, 
 			...installation.manifest.edges,
 			{ from: namedIdent("schema", schema), to: ledger.ident },
 			{ from: isolationFunctionIdent(schema), to: guard.ident },
-			{ from: ledger.ident, to: guard.ident }
+			{ from: ledger.ident, to: guard.ident },
+			...installation.manifest.objects.flatMap((o) =>
+				o.kind === "publication" ? [{ from: ledger.ident, to: o.ident }] : []
+			)
 		]
 		return {
 			schemaName: headNonEmpty(installation.owned.levels).name,
@@ -1184,11 +1188,18 @@ const contentForm = <S>(c: SnapshotContent, units: Units<S>): RecordOf<S> => ({
 	live: liveForm(c.live)
 })
 
-/** The JSON form of a live plan: each footprint table's relation and the fields it routes by, and each view's name. */
-const liveForm = (plan: LivePlan): SnapshotForm => ({
-	tables: plan.tables.map((t): SnapshotForm => ({ relation: t.relation, routes: t.routes })),
-	views: plan.views
-})
+/**
+ * The JSON form of a live plan: its kind, and for one that reads, each footprint table's relation and the fields it
+ * routes by, and each view's name.
+ */
+const liveForm = (plan: LivePlan): SnapshotForm =>
+	plan.kind === "none"
+		? { kind: plan.kind }
+		: {
+				kind: plan.kind,
+				tables: plan.tables.map((t): SnapshotForm => ({ relation: t.relation, routes: t.routes })),
+				views: plan.views
+			}
 
 /** snapshot.json's form: the members DbLayer.make reads (ServedSnapshot), its fingerprint, every level, the
  * constraint-to-law map, the live plan (`live`), each roster's codes (`rosters`), which manifest.json's theory records

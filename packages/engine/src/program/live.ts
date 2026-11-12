@@ -46,8 +46,8 @@ const slotStands = (): CatalogSelect => {
 /**
  * The installation's live source as its served files hold it (served/forms.ts ServedLive), for the installation whose
  * root level's PostgreSQL schema is `root`: none where `source` is none; otherwise its publication and its slot's and
- * decoder login's stem, both identity.liveSource of the root, its published tables, and each text its leader and its
- * listeners send, emitted now.
+ * decoder login's stem, both identity.liveSource of the root, the migrations ledger's table (identity.ledger), its
+ * published tables, and each text its leader and its listeners send, emitted now.
  */
 export const servedLiveOf = (root: string, source: LiveSource): ServedLive => {
 	if (source.kind === "none") {
@@ -66,6 +66,7 @@ export const servedLiveOf = (root: string, source: LiveSource): ServedLive => {
 	return {
 		kind: "source",
 		publication,
+		ledger: identifierOf(identity.ledger()),
 		stem: publication,
 		tables: source.tables,
 		views: source.views,

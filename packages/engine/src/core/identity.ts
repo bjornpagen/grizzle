@@ -1388,7 +1388,7 @@ export const identity = Object.freeze({
 			`live source of ${root}`,
 			hashed
 		),
-	/** The table of a schema's live secret, which only the installation's logins read. */
+	/** The table of a schema's live secret, which only the installation's decoder login reads. */
 	liveSecret: (): Identity<"liveSecret"> =>
 		mint("liveSecret", [], ["live", "secret"], "the live secret", readable("__live_secret")),
 	refusal: (): Identity<"refusal"> =>

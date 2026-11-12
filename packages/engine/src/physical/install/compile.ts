@@ -27,7 +27,7 @@ import {
 	type TextDomain
 } from "#compiler/physical/ddl/domains.ts"
 import { readCommittedRelations } from "#compiler/physical/ddl/isolation.ts"
-import { addLiveSecret, addLiveSource } from "#compiler/physical/ddl/live.ts"
+import { addLiveSource } from "#compiler/physical/ddl/live.ts"
 import { addWorlds, grantedPrivileges, type InstalledLogin } from "#compiler/physical/ddl/roles.ts"
 import { addRules } from "#compiler/physical/ddl/rules.ts"
 import { addTables } from "#compiler/physical/ddl/tables.ts"
@@ -169,13 +169,17 @@ const certificationOf = (
 }
 
 /**
- * The one live plan of `extensions`: each footprint table any of them states, once, by relation in code point order,
- * with every field any of them routes it by, once, in code point order, and each materialized view any of them reads,
- * once, in code point order.
+ * The one live plan of `extensions`: none where none of them serves a read; otherwise each footprint table any of them
+ * states, once, by relation in code point order, with every field any of them routes it by, once, in code point order,
+ * and each materialized view any of them reads, once, in code point order.
  */
 const liveOf = (extensions: ReadonlyArray<InstallExtension>): LivePlan => {
+	const plans = extensions.flatMap((e) => (e.live.kind === "reads" ? [e.live] : []))
+	if (plans.length === 0) {
+		return { kind: "none" }
+	}
 	const routes = new Map<string, Set<string>>()
-	for (const table of extensions.flatMap((e) => e.live.tables)) {
+	for (const table of plans.flatMap((plan) => plan.tables)) {
 		const held = routes.get(table.relation) ?? new Set<string>()
 		for (const field of table.routes) {
 			held.add(field)
@@ -183,10 +187,11 @@ const liveOf = (extensions: ReadonlyArray<InstallExtension>): LivePlan => {
 		routes.set(table.relation, held)
 	}
 	return {
+		kind: "reads",
 		tables: [...routes]
 			.toSorted(([a], [b]) => compareStrings(a, b))
 			.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareStrings) })),
-		views: [...new Set(extensions.flatMap((e) => e.live.views))].toSorted(compareStrings)
+		views: [...new Set(plans.flatMap((plan) => plan.views))].toSorted(compareStrings)
 	}
 }
 
@@ -405,7 +410,6 @@ export const installationOver = (
 				planStatistics(b, statisticsRequests)
 
 				const live = liveOf(options.extensions)
-				const secret = addLiveSecret(b, live)
 				const worlds = addWorlds(
 					b,
 					advance,
@@ -415,10 +419,9 @@ export const installationOver = (
 						installedRoles(plan),
 						options.extensions.flatMap((e) => e.carriers),
 						"carrier statement"
-					),
-					secret
+					)
 				)
-				addLiveSource(b, live, secret)
+				addLiveSource(b, live)
 				const identities = [...ownedIdentities(owned), ...model.identities, ...b.named()]
 				const census = censusOf(identities)
 				if (!census.ok) {

@@ -135,7 +135,7 @@ declare const liveSecretBrand: unique symbol
 
 /**
  * An installation's live secret: the AES-256 key migrate draws from PostgreSQL's strong random source into the
- * installation's secret table, which only its logins read. Minted only by parseLiveSecret.
+ * installation's secret table, which only its decoder login reads. Minted only by parseLiveSecret.
  */
 export type LiveSecret = Uint8Array & { readonly [liveSecretBrand]: true }
 
@@ -320,26 +320,30 @@ export interface LiveTable {
 }
 
 /**
- * What an installation's served read programs read, which a committed change reaches them through: each stored relation
- * as a footprint table, by relation in code point order (LiveTable), and each materialized derived relation, by its
- * declared name in code point order, which no change of a row reaches: a refresh replaces its rows at once and says so
- * itself. Both empty for an installation that serves no read.
+ * What an installation's served read programs read, which a committed change reaches them through: `none` for an
+ * installation that serves no read; otherwise each stored relation as a footprint table, by relation in code point order
+ * (LiveTable), and each materialized derived relation, by its declared name in code point order, which no change of a
+ * row reaches: a refresh replaces its rows at once and says so itself. Both may be empty, for reads of closed relations
+ * alone, whose watches still learn of each migration the installation applies (physical/ddl/live.ts).
  */
-export interface LivePlan {
-	readonly tables: ReadonlyArray<LiveTable>
-	readonly views: ReadonlyArray<string>
-}
+export type LivePlan =
+	| { readonly kind: "none" }
+	| {
+			readonly kind: "reads"
+			readonly tables: ReadonlyArray<LiveTable>
+			readonly views: ReadonlyArray<string>
+	  }
 
 /** The plan of an installation that serves no read. */
-export const noLive: LivePlan = { tables: [], views: [] }
+export const noLive: LivePlan = { kind: "none" }
 
 /**
  * An installation's live change source in installed terms, which generate derives from its plan and its names: none
- * where its plan is empty, so no publication, decoder login or secret is installed for it; otherwise each published
- * table, a footprint table of a stored relation, by its installed identifier, with the identifiers of the columns it
- * routes by in code point order, which the reader of its changes keys each changed row by; and each materialized view
- * of the plan, by its installed identifier in code point order, the only relation whose table's key a transactional
- * message may announce, since no change of a row reaches one.
+ * where it serves no read, so no publication, decoder login or secret is installed for it; otherwise each published
+ * footprint table of a stored relation, by its installed identifier, with the identifiers of the columns it routes by in
+ * code point order, which the reader of its changes keys each changed row by; and each materialized view of the plan,
+ * by its installed identifier in code point order, the only relation whose table's key a transactional message may
+ * announce, since no change of a row reaches one.
  */
 export type LiveSource =
 	| { readonly kind: "none" }

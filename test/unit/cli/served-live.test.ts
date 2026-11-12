@@ -1,8 +1,8 @@
 /**
  * An installation's live plan is exactly what its served reads route by: the snapshot generate drafts records as `live`
  * every stored relation some served read's footprint holds, with every field some read routes it by, and every
- * materialized derived relation one reads, and nothing else, so the change source an installation installs from it
- * signals every change a served read routes and none no read routes.
+ * materialized derived relation one reads, and nothing else, and none where no served member reads, so the change
+ * source an installation installs from it signals every change a served read routes and none no read routes.
  *
  * Over generated public schemas (test/support/oracle/public), each extended by a drawn law level holding a
  * materialized view, and live logins drawn over them (test/support/served-login.ts liveLoginGen), whose first role reads
@@ -97,12 +97,18 @@ const installedOf = (snapshot: DeploySnapshot): ReadonlyMap<string, Installed> =
 		)
 	)
 
-/** The live plan the served files' footprints are the union of (see the header), each name back as declared. */
+/**
+ * The live plan the served files' footprints are the union of (see the header), each name back as declared: none
+ * where no served member reads.
+ */
 const unionOf = (
 	footprints: ReadonlyArray<Readonly<Record<string, Readonly<Record<string, string>>>>>,
 	installed: ReadonlyMap<string, Installed>,
 	note: (feature: Feature) => void
 ): LivePlan => {
+	if (!Arr.isReadonlyArrayNonEmpty(footprints)) {
+		return { kind: "none" }
+	}
 	const tables = new Map<string, Set<string>>()
 	const views = new Set<string>()
 	const reads = new Map<string, number>()
@@ -131,6 +137,7 @@ const unionOf = (
 		note("a relation two reads read")
 	}
 	return {
+		kind: "reads",
 		tables: Arr.map(Arr.sort([...tables.keys()], Order.String), (relation) => ({
 			relation,
 			routes: Arr.sort([...(tables.get(relation) ?? [])], Order.String)
