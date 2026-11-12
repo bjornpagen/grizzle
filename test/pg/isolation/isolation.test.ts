@@ -25,11 +25,14 @@
  *   login deletes and inserts what the learner references, so generate fences it (analysis/isolation/certify.ts Fence):
  *   a same-key replace, an identical one, a removal of the learner's key, a replace of another key, NEGATION's case 3
  *   as a publish that misses a gate, and a removal of two fenced relations the learner checks in either order, each
- *   serial in every run. Its required features: the learner's check waiting on a same-key replace, the replace waiting
- *   on the check, the learner committing before the replace begins, a key removed, a check waiting on an in-flight
- *   publish, and a deadlock a fenced removal meets, which PostgreSQL breaks with 40P01, a transient abort the serial
- *   reference places nowhere. Plants (~/.cache/grizzle-release/CERTDEL/plants): certify-fence-omitted, served writes
- *   with no lock, which a spurious 23503 or NEGATION's case 3 catches.
+ *   serial in every run. Its required features: the learner's check waiting on a same-key replace, a fenced write's
+ *   lock waiting on a learner's check, the learner committing before the replace begins, a key removed, a check waiting
+ *   on an in-flight publish, and a deadlock a fenced removal meets, which PostgreSQL breaks with 40P01, a transient
+ *   abort the serial reference places nowhere. The learner's key into Pub is deferred, checked inside its COMMIT, one
+ *   move, so only the immediate checks of PubA and PubZ can hold a lock the publisher's waits on; and PostgreSQL breaks a
+ *   deadlock within the wait the driver settles before its next decision, so a run shows it as the 40P01 its victim
+ *   answered. Plants (~/.cache/grizzle-release/G3VERIFY/plants): certify-fence-omitted, served writes with no lock,
+ *   which a spurious 23503 or NEGATION's case 3 catches.
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -951,7 +954,7 @@ type FencedFeature =
 	| "generate certifies the learner READ COMMITTED"
 	| "generate fences every publisher write of Pub"
 	| "a learner's check waited on a same-key replace"
-	| "a same-key replace waited on a learner's check"
+	| "a fenced write's lock waited on a learner's check"
 	| "a learner committed before a same-key replace began"
 	| "a key removed beside a learner"
 	| "a learner's check waited on an in-flight publish"
@@ -960,10 +963,11 @@ type FencedFeature =
 
 /**
  * The features one run of a fenced race reaches: s0 is the publisher's session and s1 the learner's, but in the
- * in-flight publish, whose learner is s2; a wait is a move observed waiting on the other's lock.
+ * in-flight publish, whose learner is s2; a wait is a move observed waiting on the other's lock; the publisher's lock is
+ * its move sending one of `locks`, its served writes' exclusions; and a deadlock is a move PostgreSQL answered 40P01.
  */
 const noteFencedRun =
-	(kind: FencedKind, note: (feature: FencedFeature) => void) =>
+	(kind: FencedKind, locks: ReadonlySet<string>, note: (feature: FencedFeature) => void) =>
 	(e: Explained<never>): void => {
 		const learner = kind === "in-flight publish" ? "s2" : "s1"
 		const waited = (session: string, on: string) =>
@@ -974,9 +978,6 @@ const noteFencedRun =
 		if (kind === "same-key replace") {
 			if (waited(learner, "s0")) {
 				note("a learner's check waited on a same-key replace")
-			}
-			if (waited("s0", learner)) {
-				note("a same-key replace waited on a learner's check")
 			}
 			const publisher = e.run.spans["s0"]
 			const read = e.run.spans[learner]
@@ -990,7 +991,27 @@ const noteFencedRun =
 		if (kind === "in-flight publish" && waited(learner, "s0")) {
 			note("a learner's check waited on an in-flight publish")
 		}
-		if (e.run.deadlocks.length > 0) {
+		if (
+			Arr.some(
+				e.run.moves,
+				(m) =>
+					m.session === "s0" &&
+					locks.has(m.label) &&
+					m.observed._tag === "Waited" &&
+					m.observed.on.includes(learner)
+			)
+		) {
+			note("a fenced write's lock waited on a learner's check")
+		}
+		if (
+			Arr.some(
+				e.run.moves,
+				(m) =>
+					m.result._tag === "Finished" &&
+					m.result.outcome._tag === "PgError" &&
+					m.result.outcome.fields.code === "40P01"
+			)
+		) {
 			note("a deadlock a fenced removal met")
 		}
 	}
@@ -1531,11 +1552,17 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					Effect.scoped(
 						Effect.gen(function* () {
 							const installed = yield* installShape(fencedShape, generate)
+							const exclusionOf = (member: string) =>
+								installed.changes.get("publisher")?.get(member)?.entry.program.flight.exclusion
 							const fenced = Arr.every(
 								["replace", "remove", "publish"],
-								(member) =>
-									installed.changes.get("publisher")?.get(member)?.entry.program.flight.exclusion
-										.kind === "lock"
+								(member) => exclusionOf(member)?.kind === "lock"
+							)
+							const locks = new Set(
+								Arr.flatMap(["replace", "remove", "publish", "removeBoth"], (member) => {
+									const exclusion = exclusionOf(member)
+									return exclusion?.kind === "lock" ? [exclusion.text.sql] : []
+								})
 							)
 							return yield* explore(
 								{
@@ -1551,7 +1578,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											"generate certifies the learner READ COMMITTED",
 											"generate fences every publisher write of Pub",
 											"a learner's check waited on a same-key replace",
-											"a same-key replace waited on a learner's check",
+											"a fenced write's lock waited on a learner's check",
 											"a learner committed before a same-key replace began",
 											"a key removed beside a learner",
 											"a learner's check waited on an in-flight publish",
@@ -1583,7 +1610,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 														installed,
 														raceOf(race),
 														counterStrategy(race.schedule, c),
-														noteFencedRun(race.kind, (feature) => c.note(feature))
+														noteFencedRun(race.kind, locks, (feature) => c.note(feature))
 													)
 												),
 											{ discard: true }
