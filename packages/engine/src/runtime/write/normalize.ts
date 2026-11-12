@@ -772,10 +772,22 @@ const sameKey = <I>(
 	return undefined
 }
 
-/** One slot group's admitted facts, by how its inputs write them. */
+/** One slot group's admitted facts, by how its inputs write them: a deletion's of rows (`delete`) apart from a unit
+ * delete's, whose facts name units (`units`). */
 type GroupSets = Readonly<
-	Record<"insert" | "generated" | "put" | "delete", TupleMap<FactIdentity, FactEntry>>
+	Record<"insert" | "generated" | "put" | "delete" | "units", TupleMap<FactIdentity, FactEntry>>
 >
+
+/** The set a single input's facts join: its operation's, a unit delete's its own (frontend/compile.ts SingleAct). */
+const setOf = (act: SingleAct): keyof GroupSets => {
+	switch (act.op) {
+		case "insert":
+		case "put":
+			return act.op
+		case "delete":
+			return act.names === "units" ? "units" : "delete"
+	}
+}
 
 /**
  * A slot group once every input of the ChangeSet is admitted: its facts, by how its inputs write them, with the slot of
@@ -802,7 +814,9 @@ type AdmittedGroup =
  * be refused here. A unique index's pairs are the statement's, which evaluates its predicate and compares its fields,
  * and so are a span primary key's among generated additions (insert/unique.ts `Probed`).
  *
- * Additions win: a fact both added and deleted is neither deleted nor counted.
+ * Additions win: a fact both added and deleted is neither deleted nor counted. A unit delete's facts name units, not
+ * rows, so no addition nets them: the unit statement keeps each row of a unit the stratum adds again unchanged
+ * (write/delete/unit.ts).
  *
  * Host normalization of a ChangeSet's enumerated members.
  *
@@ -838,8 +852,10 @@ type AdmittedGroup =
  *    field grizzle writes, so a declared key holding one compares none of them.
  * 4. Nets additions against deletions within the stratum: a fact both added and deleted stays and is neither deleted
  *    nor counted, so it leaves the deletions (D EXCEPT A); and a fact both an insert and a put request is
- *    the put's, so it leaves the insert. Deleting an absent fact, or one a put displaces anyway, stays a
- *    request: the statement decides it against the stored state.
+ *    the put's, so it leaves the insert. A unit delete's facts are no deletions of rows: each names a unit, its root's
+ *    row and every row nested under it, which an addition of the root's fact alone does not add again, so none leaves
+ *    them; the unit statement keeps a unit's rows the stratum adds again unchanged, row by row. Deleting an absent
+ *    fact, or one a put displaces anyway, stays a request: the statement decides it against the stored state.
  *
  * A nested write's facts are filled by `walk`, the write's filler (nesting.ts NestedWalk).
  *
@@ -874,7 +890,8 @@ export const normalizeChangeSet = (
 			insert: new TupleMap(),
 			generated: new TupleMap(),
 			put: new TupleMap(),
-			delete: new TupleMap()
+			delete: new TupleMap(),
+			units: new TupleMap()
 		}
 		const slotOf = new Map<keyof GroupSets, SlotData>()
 		/** The first of the group's nested writes whose generated field has no value: the group's refusal, once every
@@ -919,7 +936,7 @@ export const normalizeChangeSet = (
 					break
 				}
 				case "single": {
-					const category = input.act.op
+					const category = setOf(input.act)
 					slotOf.set(category, input.slot)
 					for (const member of input.members) {
 						const given = inputs.get(member.name)
@@ -1010,7 +1027,10 @@ export const normalizeChangeSet = (
 			keyConflictIn(
 				facts,
 				compareFactIdentities,
-				(key) => (key.stated ? sorted(compareFactIdentities, sets.delete.values()) : []),
+				(key) =>
+					key.stated
+						? sorted(compareFactIdentities, [...sets.delete.values(), ...sets.units.values()])
+						: [],
 				twoFacts
 			)
 		if (refused !== undefined) {

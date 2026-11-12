@@ -67,7 +67,10 @@ import { fullWorld } from "#test/support/worlds.ts"
  * identically or edited, or split, each of its units drawn on its own; a test is inserted only at a key no test holds
  * or after its delete, its placements naming only assemblies the ChangeSet inserts (an append to a stored immutable
  * owner is the insert protocol's), and a ChangeSet that deletes either deletes both relations, as qti-pie's replace
- * `delete(T, q1)`, `delete(A, q2)`, `insertAll(rows)` does, its deletes of one of them possibly naming no row. The named
+ * `delete(T, q1)`, `delete(A, q2)`, `insertAll(rows)` does, its deletes of one of them possibly naming no row. A test or
+ * an assembly named by an array is named by its own fact, the one its insert states, so a replace that keeps its note
+ * deletes and inserts one root fact: the unit goes whole all the same, but for the rows the stratum adds again unchanged,
+ * never netted away as one fact both deleted and inserted would be. The named
  * invalid ChangeSets are refused before any SQL: a partial group (a member of an immutable owner's family deleted
  * alone, by a key that holds a drawn field or by its facts), a member appended to an owner the ChangeSet deletes and
  * does not insert again, a tree's node named by its key in place of its root value, and a delete of a test or an
@@ -101,8 +104,10 @@ import { fullWorld } from "#test/support/worlds.ts"
  * refused at its key; partial-group-refusal-removed.patch, a delete of an immutable owner's member compiled;
  * fold-end-not-recounted.patch, the kept rule comparing an owner without its accumulated ends, which keeps it with a
  * stale end, refused by the fold's law; kept-rule-dropped.patch, every doomed row deleted, an unchanged unit's rows
- * rewritten. ~/.cache/grizzle-release/REPLACEPROP/plants/per-delete-check-restored.patch, 73c7406e reverted, each unit
- * delete judged alone, refuses every crossing delete when it compiles.
+ * rewritten. ~/.cache/grizzle-release/REPLACEPROP/plants/: per-delete-check-restored.patch, 73c7406e reverted, each unit
+ * delete judged alone, refuses every crossing delete when it compiles; units-netted.patch, a unit delete's facts netted
+ * against the equal root fact its stratum inserts, so the unit is never removed and a replace that changes a nested row
+ * is refused on that row's key.
  */
 
 const Node = relation(
@@ -1055,6 +1060,8 @@ type Feature =
 	| "a crossing group left partial by a test's delete refused"
 	| "a crossing group left partial by an assembly's delete refused"
 	| "a crossing delete without the other relation's refused"
+	| "a root named by an array replaced by its own fact, identically, left untouched"
+	| "a root named by an array replaced by its own fact over changed nested rows"
 
 const features: Arr.NonEmptyReadonlyArray<Feature> = [
 	"a tree replaced identically, no change",
@@ -1077,7 +1084,9 @@ const features: Arr.NonEmptyReadonlyArray<Feature> = [
 	"a crossing component replaced identically left untouched",
 	"a crossing group left partial by a test's delete refused",
 	"a crossing group left partial by an assembly's delete refused",
-	"a crossing delete without the other relation's refused"
+	"a crossing delete without the other relation's refused",
+	"a root named by an array replaced by its own fact, identically, left untouched",
+	"a root named by an array replaced by its own fact over changed nested rows"
 ]
 
 const commandNames: Arr.NonEmptyReadonlyArray<keyof Params> = [
@@ -1398,11 +1407,13 @@ layer(Substrate.layer, { excludeTestServices: true })(
 															if (te.op.kind !== "delete") {
 																add("insert", Test, [{ t: te.t, note: te.op.value.note }])
 																add("insert", Inst, [{ t: te.t, ...nestedNode(te.op.value.root) }])
-																add(
-																	"insert",
-																	Place,
-																	Arr.map(testPlacements(te.t, te.op.value), placementRow)
+																const placed = Arr.map(
+																	testPlacements(te.t, te.op.value),
+																	placementRow
 																)
+																if (Arr.isReadonlyArrayNonEmpty(placed)) {
+																	add("insert", Place, placed)
+																}
 															}
 														}
 														for (const asm of w.asms) {
@@ -1549,7 +1560,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 														assert.equal(
 															outcome.kind,
 															unchanged ? "no-change" : "accepted",
-															`${label}: the outcome`
+															`${label}: the outcome, ${Formatter.format(outcome)}`
 														)
 														if (outcome.kind === "accepted") {
 															for (const name of relationNames) {
@@ -1578,6 +1589,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 																`${label}: the ${u.unit} at ${String(u.key)}, added again unchanged, is never written`
 															)
 															c.note(u.feature)
+															if (w.by === "array" && (u.unit === "test" || u.unit === "asm")) {
+																c.note(
+																	"a root named by an array replaced by its own fact, identically, left untouched"
+																)
+															}
 														}
 														notesOf(w, before, c.note)
 														return took
@@ -1772,5 +1788,19 @@ const notesOf = (w: Write, before: Model, note: (feature: Feature) => void): voi
 	)
 	if (replacedTest && replacedAsm) {
 		note("a crossing component replaced with other rows")
+	}
+	if (
+		w.by === "array" &&
+		Arr.some(w.tests, (x) => {
+			const stored = storedAt(before.tests, x.t)
+			return (
+				x.op.kind === "replace" &&
+				stored !== undefined &&
+				stored.note === x.op.value.note &&
+				!sameTest(stored, x.op.value)
+			)
+		})
+	) {
+		note("a root named by an array replaced by its own fact over changed nested rows")
 	}
 }

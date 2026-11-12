@@ -163,9 +163,12 @@ export interface MemberSlot {
 }
 
 /** An operation an enumerated input of one slot is read by: a deletion, a put, or an insertion into an unclassed
- * target, whose every fact is complete. */
+ * target, whose every fact is complete. A deletion's facts name rows, or units, a tree's or a family owner's, which the
+ * stratum's unit delete removes whole with every row nested under them (write/delete/unit.ts): the host nets a row the
+ * stratum adds again out of its deletions, never a unit, whose rows the unit statement keeps one by one where the
+ * stratum adds them again unchanged (runtime/write/normalize.ts). */
 export type SingleAct =
-	| { readonly op: "delete" }
+	| { readonly op: "delete"; readonly names: "rows" | "units" }
 	| { readonly op: "put" }
 	| { readonly op: "insert"; readonly serial: Extract<SerialClass, { readonly kind: "complete" }> }
 
@@ -1724,7 +1727,11 @@ const compile = (
 					 * appends to them draw them (write/program/bind.ts freshOwners). */
 					const heading = op === "delete" ? classes.complete : [...classes.complete, ...owned]
 					const act: SingleAct =
-						op === "insert" ? { op, serial: completeClass } : op === "put" ? { op } : { op }
+						op === "insert"
+							? { op, serial: completeClass }
+							: op === "put"
+								? { op }
+								: { op, names: "rows" }
 					const slot = singleInput(act, heading, classes.complete)
 					if (slot !== undefined) {
 						edits.push(
@@ -1754,8 +1761,8 @@ const compile = (
 						break
 					}
 					case "delete": {
-						const act = { op }
 						if (unitRoot(relation.name)) {
+							const act: SingleAct = { op, names: "units" }
 							/** A tree's units are named by their root fields, an owner's by its facts. */
 							const shape = treeShapeOf(relation.name)
 							const named =
@@ -1776,6 +1783,7 @@ const compile = (
 						/** One relation, one fact heading (rule 0): a deletion's facts carry what an addition's do, its
 						 * written fields, so a fact inserted and deleted is one fact with one identity, which nets. A
 						 * generated field is a function of the written ones, so it decides no match. */
+						const act: SingleAct = { op, names: "rows" }
 						const facts = classes.complete
 						draft(act, facts, singleInput(act, facts, facts), [])
 						for (const q of queries) {
