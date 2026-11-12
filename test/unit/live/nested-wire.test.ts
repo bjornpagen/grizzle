@@ -133,9 +133,8 @@ const property = (c: NestCase, note: (feature: Feature) => void): Effect.Effect<
 		const base = succeeded(ownBuilt(served.base), "the login's base")
 		const owned = succeeded(ownLoginOver(served, base), "the login over its base")
 		const compiled = yield* Effect.result(
-			snapshotCompiled(
-				{ login: served, owned },
-				compiledSnapshot(base, firstCodebook(rostersOf(base)))
+			Effect.flatMap(compiledSnapshot(served, base, firstCodebook(rostersOf(base))), (snapshot) =>
+				snapshotCompiled({ login: served, owned }, snapshot)
 			)
 		)
 		if (Answered.isFailure(compiled)) {

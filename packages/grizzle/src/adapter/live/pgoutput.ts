@@ -439,7 +439,13 @@ const statusClock = statusApplied + width.int64
 
 const statusReply = statusClock + width.int64
 
-/** The size of a Standby Status Update, in bytes: its reply flag's offset and width. */
+/**
+ * The length of a Standby Status Update, in bytes, by "Streaming Replication Protocol"
+ * (https://www.postgresql.org/docs/19/protocol-replication.html): its reply flag's offset and width, after its tag
+ * (Byte1) and its four Int64 fields.
+ *
+ * @formatConstant a Standby Status Update's length: its tag, four Int64 fields and its reply flag
+ */
 const statusSize = statusReply + width.int8
 
 /**

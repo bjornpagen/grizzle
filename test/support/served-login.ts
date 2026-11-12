@@ -424,10 +424,8 @@ export const compiledLogin = (
 		const built = defined(builtLogin(login), "a login built by login(...)")
 		const base = succeeded(ownBuilt(built.base), "the login's base")
 		const owned = succeeded(ownLoginOver(built, base), "the login over its base")
-		const compiled = yield* snapshotCompiled(
-			{ login: built, owned },
-			compiledSnapshot(base, codes(base))
-		)
+		const snapshot = yield* compiledSnapshot(built, base, codes(base))
+		const compiled = yield* snapshotCompiled({ login: built, owned }, snapshot)
 		const entry = yield* servedEntryOf(compiled)
 		const json = trustedJson<unknown>(entry.text)
 		return { compiled, entry, json, back: servedFile(json) }
