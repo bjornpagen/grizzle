@@ -51,7 +51,7 @@ import type {
 	VSource
 } from "#compiler/types/query/terms.ts"
 import type { FactOfFields } from "#compiler/types/schema/relation.ts"
-import type { AnySchema, LevelsOf } from "#compiler/types/schema/schema.ts"
+import type { AnyFragment, AnySchema, LevelsOf } from "#compiler/types/schema/schema.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
 import type { ApproximateNearestSpec } from "#compiler/types/vector/vector.ts"
 
@@ -89,7 +89,9 @@ import type { ApproximateNearestSpec } from "#compiler/types/vector/vector.ts"
  *
  * query(S).
  */
-export type QueryConstructor = <S extends AnySchema | AnyRole>(schema: S) => QueryBuilder<S>
+export type QueryConstructor = <S extends AnySchema | AnyFragment | AnyRole>(
+	schema: S
+) => QueryBuilder<S>
 
 export interface QueryBuilder<S> {
 	/** A query of one arm: its heading, read-back heading and decoders the arm's, attached or not. */

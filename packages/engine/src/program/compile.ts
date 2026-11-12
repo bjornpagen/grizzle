@@ -29,7 +29,8 @@ import {
 import { type SpecifiedArtifact, specifiedProgram } from "#compiler/lower/template.ts"
 import {
 	levelSchema,
-	parseSchemaInput,
+	type Over,
+	parseOver,
 	type SchemaArtifacts,
 	type SchemaInput
 } from "#compiler/program/schema.ts"
@@ -93,11 +94,11 @@ export interface CompileQueryOptions extends TemplateReading {
 
 /**
  * A query as the compiler takes it, parsed once at the facade that received it (queryInput): a query or ordered value
- * the builder made over a schema or a role, with that value parsed (program/schema.ts parseSchemaInput); or a bare
+ * the builder made over a schema, a fragment or a role, with that value parsed (program/schema.ts parseOver); or a bare
  * Description, which carries none and compiles against the schema the caller names.
  */
 export type QueryInput =
-	| { readonly kind: "built"; readonly desc: QueryDesc; readonly schema: SchemaInput }
+	| { readonly kind: "built"; readonly desc: QueryDesc; readonly schema: Over }
 	| { readonly kind: "described"; readonly desc: QueryDesc }
 
 /**
@@ -112,7 +113,7 @@ export const queryInput = (query: unknown): Result.Result<QueryInput, CompileErr
 		return Result.flatMap(
 			catchCompileError(() => publicDesc(built, "query")),
 			(desc) =>
-				Result.map(parseSchemaInput(built.schema.over.value), (schema): QueryInput => ({
+				Result.map(parseOver(built.schema.over.value), (schema): QueryInput => ({
 					kind: "built",
 					desc,
 					schema
@@ -127,9 +128,10 @@ export const queryInput = (query: unknown): Result.Result<QueryInput, CompileErr
 }
 
 /**
- * The schema a query compiles against: for a query value the caller names no schema for, the one it was built over;
- * otherwise the one the caller names, parsed where it was given, which a query value's own schema must be a level of
- * (levelSchema). A bare Description carries no schema and compiles against the named one.
+ * The schema a query compiles against: for a query value the caller names no schema for, the one it was built over,
+ * which a fragment is not, since it installs nothing; otherwise the one the caller names, parsed where it was given,
+ * which a query value's own schema or fragment must be a level of (levelSchema). A bare Description carries no schema
+ * and compiles against the named one.
  */
 const schemaOfInput = (
 	input: QueryInput,
@@ -137,9 +139,17 @@ const schemaOfInput = (
 ): Result.Result<SchemaInput, CompileError> => {
 	switch (input.kind) {
 		case "built":
-			return named === undefined
-				? Result.ok(input.schema)
-				: levelSchema(input.schema, named, SourceLoc("compile", []))
+			if (named !== undefined) {
+				return levelSchema(input.schema, named, SourceLoc("compile", []))
+			}
+			return input.schema.kind === "fragment"
+				? Result.err(
+						malformedDescription(
+							SourceLoc("compile", []),
+							"the query's schema: a query over a fragment compiles against a schema that lists the fragment, which the caller names"
+						)
+					)
+				: Result.ok(input.schema)
 		case "described":
 			return named === undefined
 				? Result.err(

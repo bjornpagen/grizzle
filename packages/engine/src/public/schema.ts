@@ -18,6 +18,7 @@ export {
 	counted,
 	fin,
 	fold,
+	fragment,
 	key,
 	Monoid,
 	mirrors,
@@ -105,11 +106,16 @@ export type {
 } from "#compiler/types/schema/world.ts"
 
 export type {
+	AllFragmentsOf,
+	AnyFragment,
 	AnySchema,
 	ContainmentsOf,
 	Declared,
 	DeclaredOnce,
 	DeclaredOver,
+	Fragment,
+	FragmentsIn,
+	FragmentsOf,
 	KeysOf,
 	LawsOf,
 	LevelsOf,
@@ -124,13 +130,13 @@ export type {
 } from "#compiler/types/schema/schema.ts"
 
 /**
- * Public barrel: relation (and relation.generated), closed (and closed.relation), derived, schema, the statement
- * constructors, the worlds: context, role (with wholeEntriesOf and writableNamesOf, a full role's entries and write
+ * Public barrel: relation (and relation.generated), closed (and closed.relation), derived, schema, fragment, the
+ * statement constructors, the worlds: context, role (with wholeEntriesOf and writableNamesOf, a full role's entries and write
  * list) and login, insertableNamesOf, the relations a ChangeSet over a schema inserts at its top level, and
  * schemaNameOf, the installed name of a schema's or a role's PostgreSQL schema. A login's and a role's PostgreSQL role is
  * roleNameOf's, the runtime's one function, which the package root re-exports.
  *
- * relation, closed, schema and the statement constructors are the typed schema facade's (schema/api.ts), and login,
+ * relation, closed, schema, fragment and the statement constructors are the typed schema facade's (schema/api.ts), and login,
  * which admits the workloads it owns, the workload program's (program/workload/login.ts). derived's
  * precise signature is declared with the derived relation types (types/derived); the view here gives it to the one
  * builder of a derived relation's value (schema/relation.ts).

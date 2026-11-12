@@ -16,10 +16,10 @@ export interface DeltaValue {
 	readonly met: (relation: unknown) => Built
 }
 
-/** The relation a member names, by its name: an ordinary relation of the schema, or of a ChangeSet over a role a whole
+/** The relation a member names, by its name: an ordinary relation of the schema or the fragment, or of a ChangeSet over a role a whole
  * ordinary entry or a query entry, whose writability the role's write list decides. */
 export const memberRelation = (relation: unknown, over: BuiltOver, label: string): string => {
-	if (over.kind === "schema") {
+	if (over.kind !== "role") {
 		return writableRelation(relation, over, label)
 	}
 	const world = worldDraftOf(relation)
@@ -54,14 +54,14 @@ const writableRelation = (relation: unknown, over: BuiltOver, label: string): st
 	return declaredWritable(named.name, over, label)
 }
 
-/** The ordinary relation the schema, or a role's whole ordinary entries, declare under `name`, refused when it is none. */
+/** The ordinary relation the schema or the fragment, or a role's whole ordinary entries, declare under `name`, refused
+ * when it is none. */
 const declaredWritable = (name: string, over: BuiltOver, label: string): string => {
-	const schema = over.kind === "schema" ? over.desc : over.desc.base
 	const declared = over.relations.get(name)
 	if (declared === undefined) {
 		throw malformed(
 			label,
-			`a relation of the ChangeSet's schema ${schema.name}; ${name} is not one of its relations`
+			`a relation of the ChangeSet's schema ${over.kind === "role" ? over.desc.base.name : over.desc.name}; ${name} is not one of its relations`
 		)
 	}
 	if (declared.kind !== "relation") {

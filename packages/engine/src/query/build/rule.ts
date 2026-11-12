@@ -144,10 +144,28 @@ const requireActive = (ctx: RuleContext, label: string): void => {
 	}
 }
 
+/**
+ * Where a rule may read a source: a relation, in a rule over a fragment, only where it is one of the fragment's
+ * relations, since a program over a fragment is compiled in schemas that hold relations beside the fragment's; an
+ * interior stage, in the rule that describes it; self, in a recursive arm of its own definition; and a query, in a rule
+ * over a level above the level it is written over.
+ */
 const checkScope = (info: SourceInfo, ctx: RuleContext, label: string): void => {
 	switch (info.scope.kind) {
-		case "anywhere":
+		case "anywhere": {
+			const over = ctx.schema.over
+			if (
+				info.desc.kind === "relation" &&
+				over.kind === "fragment" &&
+				!over.content.relations.has(info.desc.name)
+			) {
+				throw malformed(
+					label,
+					`a relation of the fragment the rule is written over, ${over.desc.name}; ${info.desc.name} is none of its relations`
+				)
+			}
 			return
+		}
 		case "interior":
 			if (info.scope.ctx !== ctx) {
 				throw malformed(label, "an interior stage matched in the rule that describes it")

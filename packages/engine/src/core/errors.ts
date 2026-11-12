@@ -371,6 +371,11 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   it, other than as one side of a containment of fields into a key, its other side a relation of a higher level, as
  *   a row check over it, or through a rule over a query: a process over a lower level holds none of the levels above it,
  *   so no law above may change how its writes are compiled or drawn, and it meets each of those laws as one above it.
+ * - `FragmentRefused`: `statement`, a statement of a schema that lists the fragment `fragment` and none of the
+ *   fragment's own, decides how `relation`, a relation of the fragment, is written: a key, mutable, race, retirable, a
+ *   family, a tree or a fold over it. A program over a fragment is compiled in every schema that lists it and means
+ *   there what it means over the fragment, so only the fragment states how its relations are written, and a schema that
+ *   lists it may add over them only what refuses: a containment, a row check, a rule over a query.
  * - `RoleRefused`, `LoginRefused`, `ContextRefused`: a role, a login or a context breaks the rule `rule`.
  * - `RoleNameTooLong`: a login's or a role's PostgreSQL role, `role` (`<schema>__<name>`), is longer than PostgreSQL's
  *   `limit` bytes.
@@ -496,6 +501,13 @@ export type CompileReason =
 			readonly level: string
 			readonly relation: string
 			readonly below: string
+	  }
+	| {
+			readonly _tag: "FragmentRefused"
+			readonly at: SourceLoc
+			readonly statement: string
+			readonly relation: string
+			readonly fragment: string
 	  }
 	| {
 			readonly _tag: "GeneratedRefused"
@@ -827,6 +839,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return `a query over a level of ${reason.over}; it is written over ${reason.written}, which is none of its levels`
 		case "LevelRefused":
 			return `${reason.statement}, stated at level ${reason.level}, reaches ${reason.relation} only as one side of a containment of fields into a key, the other side its own, as a row check over it, or through a rule over a query: ${reason.relation} is a relation of ${reason.below}, a level below it, whose writes no law above may change`
+		case "FragmentRefused":
+			return `${reason.statement} decides how ${reason.relation} is written, which only ${reason.fragment}, the fragment that declares it, states: state it in the fragment, or state over ${reason.relation} only what refuses, a containment, a row check or a rule over a query`
 		case "GeneratedRefused":
 			return `generated field ${reason.relation}.${reason.field}: ${generatedRuleText(reason.rule)}`
 		case "RoleRefused":

@@ -802,10 +802,10 @@ const merge = (params: Map<string, ParamDecl>, decl: ParamDecl, loc: SourceLoc):
  *
  * The write front end: a ChangeSetDesc against a schema to its WriteIR.
  *
- * The schema a ChangeSet was built over is a level of the schema it compiles against by content, whatever name places
- * either (`isLevelOf`): db.apply and db.compile check it before they compile
- * (`levelSchema`), and a workload finds the level its ChangeSet names. The description's schema name only
- * labels that level, so it is never compared with the name the compiled schema is installed under.
+ * The schema or fragment a ChangeSet was built over is a level of the schema it compiles against by content, whatever
+ * name places either (`isLevelOf`): db.apply and db.compile check it before they compile (`levelSchema`), and a
+ * workload checks it when it is built. The Description names no schema, so nothing compares a name with the one the
+ * compiled schema is installed under.
  *
  * 1. Check. Each member's relation is resolved once by name. Compiled for a role, it must be in the role's write list,
  *    which the types already require of db.apply (a description that breaks it is OutsideRole): a whole entry writes

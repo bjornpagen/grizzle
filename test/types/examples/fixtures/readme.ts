@@ -23,6 +23,7 @@ import {
 	type Fact,
 	fin,
 	fold,
+	fragment,
 	type HeadOf,
 	type Infer,
 	type KeysOf,
@@ -1026,6 +1027,36 @@ export const Learner = role(
 export const LedgerApp = login(Ledger, "app", [Learner])
 export const QtiAuthor = role(Qti, "author", wholeEntriesOf(Qti), { write: writableNamesOf(Qti) })
 export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
+
+/** README: "Fragments". */
+/** A library's facts: each job, and its one result. */
+export const Job = relation("Job", { id: uuid, attempts: pg.integer }, ["id"])
+export const JobDone = relation("JobDone", { job: uuid, ok: pg.boolean }, ["job"])
+export const Jobs = fragment([Job, JobDone], [contained(on(JobDone, "job"), on(Job, "id"))])
+
+/** The library's programs, over the fragment: they name no application's schema. */
+export const finishJob = ChangeSet.empty(Jobs).insert(JobDone, [])
+export const pendingJobs = query(Jobs).rule((r) => {
+	const { id, attempts } = v(Job, "job")
+	return r
+		.match(Job, { id, attempts })
+		.where(r.not(JobDone, { job: id }))
+		.find({ id, attempts })
+})
+
+/** An application: a relation of its own beside the library's, and a law of its own into the library's key. */
+export const Fee = relation("Fee", { id: uuid, job: uuid }, ["id"])
+export const Shop = schema("Shop", [Fee, Jobs], [contained(on(Fee, "job"), on(JobDone, "job"))])
+export const JobWorker = role(
+	Shop,
+	"jobs",
+	{ ...Jobs.relations, Fee },
+	{ insert: ["JobDone", "Fee"] }
+)
+export const feeJob = ChangeSet.union(finishJob, ChangeSet.empty(Shop).insert(Fee, []))
+export const ShopApp = login(Shop, "shop", [JobWorker], {
+	workload: [workload(JobWorker, { finishJob, pendingJobs, feeJob })]
+})
 
 /**
  * README: "Migrations", the block of grizzle.config.ts. Its imports of net, CredentialError, defineConfig, Config,

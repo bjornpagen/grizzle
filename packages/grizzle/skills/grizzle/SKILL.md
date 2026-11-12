@@ -67,6 +67,12 @@ export default defineConfig({
   spreading records, which drops one of two relations of a name. A name is one relation across every level: a relation
   listed twice or an identical copy is one declaration, two that differ are `DuplicateIdentity` naming both, and so is
   a law built over a relation of a declared name other than the one declared.
+- A library's relations and laws can be one value, `fragment(relations, statements)`, which an application lists
+  among its relations, `schema("App", [...own, Jobs], laws)`. The fragment is a level of every schema that lists it:
+  queries and ChangeSets written over it (`query(Jobs)`, `ChangeSet.empty(Jobs)`) stand in that schema's workloads, and
+  in a role's that holds every relation of the fragment whole. generate compiles them per login, as any program. Only
+  the fragment states a key, `mutable`, `race`, `retirable`, a family, a tree or a fold over its relations. An application
+  that adds one is `FragmentRefused`; it may add containments, row checks and rules over queries, which only refuse.
 - A level reaches the levels below it only by a containment of plain fields into a key, a row check over a lower
   relation (written as that relation's own, its CHECK on the lower table, installed and validated by the level's
   migration), or through a rule over a query; any other law over a lower relation is `LevelRefused` when the schema is

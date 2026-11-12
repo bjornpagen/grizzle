@@ -6,7 +6,7 @@ import {
 	type RoleWorld
 } from "#compiler/analysis/schema.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
-import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { CompileError, malformedDescription, type RoleAccess } from "#compiler/core/errors.ts"
 import { type DeclaredName, type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
@@ -44,6 +44,7 @@ import {
 } from "#compiler/physical/install/plan.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
+import { unheldOf } from "#compiler/schema/level.ts"
 import {
 	contentOfDesc,
 	isLevelOf,
@@ -53,6 +54,7 @@ import {
 import { type Owned, type OwnedRole, own, ownedOf, ownRole } from "#compiler/schema/own.ts"
 import { ownedEntry } from "#compiler/schema/protocol.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
+import type { FragmentDesc } from "#compiler/schema/schema.ts"
 import type { RoleLevel } from "#compiler/schema/world.ts"
 import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
 
@@ -194,6 +196,36 @@ export const parseSchemaInput = (value: unknown): Result.Result<SchemaInput, Com
 	)
 }
 
+/**
+ * What a program is written over, parsed once: a schema input (SchemaInput), or a fragment fragment(...) built, with its
+ * Description and its content, a root level's (schema/schema.ts fragment). A fragment is never what a program compiles
+ * against: it installs nothing, and a program over it is compiled against a schema that lists it, or a role that holds
+ * it whole (levelSchema).
+ */
+export type Over =
+	| SchemaInput
+	| {
+			readonly kind: "fragment"
+			readonly value: object
+			readonly desc: FragmentDesc
+			readonly content: SchemaContent
+	  }
+
+/** What a program value was written over, or the decoder's refusal of it: a fragment, or a schema input. */
+export const parseOver = (value: unknown): Result.Result<Over, CompileError> => {
+	const fragment = ownedEntry(value, "fragment")
+	return fragment === undefined
+		? parseSchemaInput(value)
+		: Result.ok(
+				Object.freeze<Over>({
+					kind: "fragment",
+					value: fragment.value,
+					desc: fragment.desc,
+					content: fragment.content.level
+				})
+			)
+}
+
 /** A schema value schema(...) or schema.extend built, parsed: what Db.open is given, read once there. */
 export type BuiltSchema = Extract<SchemaInput, { readonly kind: "built" }>
 
@@ -226,19 +258,20 @@ export const parseBuiltSchema = (
 
 /**
  * How a value built over `carried` relates to `named`, the schema it is compiled against: one of its levels (reality
- * over a level of itself by content, schema/levels.ts isLevelOf, the one level check; a role over itself; a full role
- * over a level of its base, whose every relation it holds whole); a level of the base of a role that holds not every
- * relation of it whole, whose program reads relations outside the role; or neither.
+ * over a level of itself by content or a fragment it lists, schema/levels.ts isLevelOf, the one level check; a role over
+ * itself; a full role over a level of its base, whose every relation it holds whole; a role over a fragment of its base
+ * whose every relation it holds whole); a level or a fragment of the base of a role that holds not every relation of it
+ * whole, whose program reads relations outside the role (`access`); or neither.
  */
 type Level =
 	| { readonly kind: "level" }
-	| { readonly kind: "outsideRole"; readonly role: string; readonly base: string }
+	| { readonly kind: "outsideRole"; readonly role: string; readonly access: RoleAccess }
 	| { readonly kind: "none" }
 
 const level: Level = { kind: "level" }
 const none: Level = { kind: "none" }
 
-const levelOf = (carried: SchemaInput, named: SchemaInput): Level => {
+const levelOf = (carried: Over, named: SchemaInput): Level => {
 	if (named.kind !== "role") {
 		return carried.kind !== "role" && isLevelOf(carried.content, named.content) ? level : none
 	}
@@ -248,20 +281,31 @@ const levelOf = (carried: SchemaInput, named: SchemaInput): Level => {
 	if (!isLevelOf(carried.content, named.level.base)) {
 		return none
 	}
+	const outside = (access: RoleAccess): Level => ({
+		kind: "outsideRole",
+		role: named.desc.name,
+		access
+	})
+	if (carried.kind === "fragment") {
+		const unheld = unheldOf(carried.content, named.level)
+		return unheld === undefined
+			? level
+			: outside({ kind: "read", relation: unheld, base: named.desc.base.name })
+	}
 	const whole = named.level.whole
 	return whole !== undefined && isLevelOf(carried.content, whole)
 		? level
-		: { kind: "outsideRole", role: named.desc.name, base: named.desc.base.name }
+		: outside({ kind: "wholeBase", base: named.desc.base.name })
 }
 
 /**
- * The schema a value built over the schema `carried` describes compiles against when the caller names `named`: `named`
- * itself, when `carried` is one of its levels (levelOf); OutsideRole for a level of the base of a role that holds not
- * every relation of it whole, which only a JavaScript caller reaches (the types refuse it); otherwise a
- * MalformedDescription at `loc`, before any SQL.
+ * The schema a value built over the schema or fragment `carried` describes compiles against when the caller names
+ * `named`: `named` itself, when `carried` is one of its levels (levelOf); OutsideRole for a level or a fragment of the
+ * base of a role that holds not every relation of it whole, which only a JavaScript caller reaches (the types refuse
+ * it); otherwise a MalformedDescription at `loc`, before any SQL.
  */
 export const levelSchema = (
-	carried: SchemaInput,
+	carried: Over,
 	named: SchemaInput,
 	loc: SourceLoc
 ): Result.Result<SchemaInput, CompileError> => {
@@ -275,14 +319,14 @@ export const levelSchema = (
 					_tag: "OutsideRole",
 					at: loc,
 					role: l.role,
-					access: { kind: "wholeBase", base: l.base }
+					access: l.access
 				})
 			)
 		case "none":
 			return Result.err(
 				malformedDescription(
 					loc,
-					"a value built over a level of the schema it is compiled against (the schema itself or one its extends chain reaches, or the base of a role that holds every relation of it whole); its schema is none of them"
+					"a value built over a level of the schema it is compiled against (the schema itself, one its extends chain reaches or a fragment one of those lists, or the base of a role that holds every relation of it whole, or a fragment of it the role holds whole); its schema is none of them"
 				)
 			)
 	}

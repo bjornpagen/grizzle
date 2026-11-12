@@ -47,12 +47,7 @@ import type {
 } from "#compiler/types/changeset/changeset.ts"
 import type { ParamMap, ParamValue, Simplify } from "#compiler/types/core/phantom.ts"
 import type { Decoders, OrderedBase, QueryBase } from "#compiler/types/query/query.ts"
-import {
-	type BuiltOver,
-	builtOverOf,
-	higherOver,
-	overName
-} from "#compiler/write/changeset/levels.ts"
+import { type BuiltOver, builtOverOf, higherOver } from "#compiler/write/changeset/levels.ts"
 import { delta, memberRelation, memberRelationNamed } from "#compiler/write/delta/source.ts"
 
 export type MemberOp = MemberDesc["op"]
@@ -715,7 +710,7 @@ const requireLevel = (written: Level, over: BuiltOver, label: string): void => {
 	if (!isLevelOver(written, over)) {
 		throw malformed(
 			label,
-			`a query over a level of the ChangeSet's schema ${overName(over)}; it is written over a schema that is none of its levels`
+			`a query over a level of the ChangeSet's schema ${over.desc.name}; it is written over a schema that is none of its levels`
 		)
 	}
 }
@@ -1068,7 +1063,7 @@ const emptyOf = <S, Done extends Strata, Last extends Stratum>(
 	if (over === undefined) {
 		throw malformed(
 			"ChangeSet.empty",
-			"a schema built by schema(...) or schema.extend(...), or a role built by role(...)"
+			"a schema built by schema(...) or schema.extend(...), a fragment built by fragment(...), or a role built by role(...)"
 		)
 	}
 	return make<S, unknown, never, unknown, Done, Last, unknown>(

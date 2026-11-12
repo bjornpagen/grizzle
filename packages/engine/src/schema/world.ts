@@ -345,13 +345,15 @@ export const admitRole = (
 		}
 		const query = queryDescOf(value, at)
 		/**
-		 * A query built over a schema is over the base or one of its levels: a query over another schema, or over a
-		 * role, would be read over the base's relations of the same names, which are not what it was built over.
+		 * A query built over a schema or a fragment is over the base or one of its levels: a query over another schema or
+		 * fragment, or over a role, would be read over the base's relations of the same names, which are not what it was
+		 * built over.
 		 */
 		const carried = querySchemaOf(value)
 		if (carried !== undefined) {
-			const carriedEntry = ownedEntry(carried, "schema")
-			if (carriedEntry === undefined || !isLevelOf(carriedEntry.content, baseEntry.content)) {
+			const content =
+				ownedEntry(carried, "schema")?.content ?? ownedEntry(carried, "fragment")?.content.level
+			if (content === undefined || !isLevelOf(content, baseEntry.content)) {
 				throw ruleRefused(builderLoc(at, []), "a query entry is a query over the role's base")
 			}
 		}

@@ -615,7 +615,7 @@ const querySchema = (schema: unknown, extra: ReadonlyArray<unknown>): SchemaInfo
 	if (level === undefined) {
 		throw malformed(
 			"query",
-			"a schema built by schema(...) or schema.extend(...), or a role built by role(...)"
+			"a schema built by schema(...) or schema.extend(...), a fragment built by fragment(...), or a role built by role(...)"
 		)
 	}
 	return schemaInfo(level)

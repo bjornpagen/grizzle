@@ -10,7 +10,7 @@ import type { NamedLogin, NamedRole } from "#compiler/physical/ddl/names.ts"
 import {
 	levelSchema,
 	type ParsedRole,
-	parseSchemaInput,
+	parseOver,
 	roleArtifacts,
 	type SchemaArtifacts
 } from "#compiler/program/schema.ts"
@@ -70,7 +70,7 @@ export const parsedChange = (
 			)
 		)
 	}
-	return Result.flatMap(parseSchemaInput(change.over.value), (carried) =>
+	return Result.flatMap(parseOver(change.over.value), (carried) =>
 		Result.map(levelSchema(carried, role, applyLoc), () => change)
 	)
 }

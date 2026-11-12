@@ -5,7 +5,7 @@ import {
 	generatedRelation,
 	relation as relationBuilder
 } from "#compiler/schema/relation.ts"
-import { schema as schemaBuilder } from "#compiler/schema/schema.ts"
+import { fragment as fragmentBuilder, schema as schemaBuilder } from "#compiler/schema/schema.ts"
 import {
 	alternativesBuilder,
 	checkBuilder,
@@ -60,11 +60,14 @@ import type {
 } from "#compiler/types/schema/relation.ts"
 
 import type {
+	AnyFragment,
 	AnySchema,
 	Declared,
 	DeclaredOnce,
 	DeclaredOver,
 	DerivedAt,
+	Fragment,
+	FragmentsIn,
 	LevelsOf,
 	Schema,
 	StatementsBelow,
@@ -281,7 +284,7 @@ export const closed: typeof closedRoster & { readonly relation: typeof closedRel
  */
 const rootSchema = <
 	const Name extends string,
-	const Relations extends ReadonlyArray<AnyRelation | AnyClosed>,
+	const Relations extends ReadonlyArray<AnyRelation | AnyClosed | AnyFragment>,
 	const Statements extends ReadonlyArray<Statement>
 >(
 	name: Name,
@@ -290,8 +293,13 @@ const rootSchema = <
 		StatementsWithin<Statements, Declared<Relations>> &
 		StatementsReadBack<Statements, Declared<Relations>>,
 	...extra: ReadonlyArray<never>
-): Schema<Name, Declared<Relations>, StatementsByName<Statements, Declared<Relations>>> =>
-	schemaBuilder<Name, Relations, Statements>(name, relations, statements, extra)
+): Schema<
+	Name,
+	Declared<Relations>,
+	StatementsByName<Statements, Declared<Relations>>,
+	never,
+	FragmentsIn<Relations>
+> => schemaBuilder<Name, Relations, Statements>(name, relations, statements, extra)
 
 /**
  * schema.extend(base, name, relations, statements): a level of its own name over `base`, with relations, derived
@@ -306,7 +314,9 @@ const rootSchema = <
 const extend = <
 	Base extends AnySchema,
 	const Name extends string,
-	const Relations extends ReadonlyArray<AnyRelation | AnyClosed | DerivedAt<LevelsOf<Base>>>,
+	const Relations extends ReadonlyArray<
+		AnyRelation | AnyClosed | DerivedAt<LevelsOf<Base>> | AnyFragment
+	>,
 	const Statements extends ReadonlyArray<Statement>
 >(
 	base: Base & { readonly statements: StatementsBelow<Base> },
@@ -320,13 +330,38 @@ const extend = <
 	Name,
 	DeclaredOver<Base["relations"], Relations>,
 	StatementsByName<Statements, DeclaredOver<Base["relations"], Relations>>,
-	Base
+	Base,
+	FragmentsIn<Relations>
 > =>
 	schemaBuilder.extend<Base, Name, Relations, Statements>(base, name, relations, statements, extra)
 
 export const schema: typeof rootSchema & { readonly extend: typeof extend } = Object.freeze(
 	Object.assign(rootSchema, { extend })
 )
+
+/**
+ * fragment(relations, statements): a library's relations and the statements over them, which an application's schema
+ * lists among its relations, `schema("App", [...own, library], laws)`. The relations are a list, each name declared
+ * once (DeclaredOnce), and every relation a statement names is one of them (StatementsWithin); the statements are read
+ * back whole, as a schema's are. It has no name and installs nothing of its own: a schema that lists it declares its
+ * relations and writes its statements at the level whose list holds it, and holds it as one of its levels (LevelsOf), so
+ * a query or a ChangeSet over the fragment, `query(library)` or `ChangeSet.empty(library)`, is a program of every
+ * schema that lists it and of every role holding its relations whole, which generate compiles there as it compiles any
+ * program over a level. Only the fragment states how its relations are written (a key, mutable, race, retirable, a
+ * family, a tree or a fold over them): a schema that lists it adds over them only what refuses a write, and is refused
+ * otherwise (FragmentRefused) when it is built. A relation or statement typed `any` is refused.
+ */
+export const fragment = <
+	const Relations extends ReadonlyArray<AnyRelation | AnyClosed>,
+	const Statements extends ReadonlyArray<Statement>
+>(
+	relations: Relations & DeclaredOnce<Relations>,
+	statements: Statements &
+		StatementsWithin<Statements, Declared<Relations>> &
+		StatementsReadBack<Statements, Declared<Relations>>,
+	...extra: ReadonlyArray<never>
+): Fragment<Declared<Relations>, StatementsByName<Statements, Declared<Relations>>> =>
+	fragmentBuilder<Relations, Statements>(relations, statements, extra)
 
 /**
  * key(side): no two of the side's facts share its terms, UNIQUE NULLS DISTINCT. Over a whole relation and its fields

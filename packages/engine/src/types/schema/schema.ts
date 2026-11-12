@@ -56,19 +56,58 @@ import type {
  *
  * The schema this one extends (never for a root schema) is a phantom, so the levels below a schema are part of its
  * type. It is the type-level image of SchemaDesc.extends; an extension's runtime value also holds its base, and a root
- * schema's holds undefined. An extension's statements are its base's, then its own.
+ * schema's holds undefined. The fragments its list holds (Fragments, never for none) are a phantom too, each a level of
+ * the schema (LevelsOf). An extension's statements are its base's, then its own, then its fragments', each
+ * fragment's held by name as the fragment holds them.
  */
 export interface Schema<
 	Name extends string,
 	Relations,
 	Named extends ReadonlyArray<Statement>,
-	Base extends AnySchema = never
-> extends Phantom<{ readonly extends: Base }> {
+	Base extends AnySchema = never,
+	Fragments extends AnyFragment = never
+> extends Phantom<{ readonly extends: Base; readonly fragments: Fragments }> {
 	readonly kind: "schema"
 	readonly name: Name
 	readonly relations: Relations
-	readonly statements: readonly [...StatementsBelow<Base>, ...StatementsFromNames<Named, Relations>]
+	readonly statements: readonly [
+		...StatementsBelow<Base>,
+		...StatementsFromNames<Named, Relations>,
+		...ReadonlyArray<Fragments["statements"][number]>
+	]
 }
+
+/**
+ * A fragment: relations and the statements over them, declared by no schema of their own, which an application's
+ * schema lists among its relations (schema/schema.ts fragment), each schema that lists it holding its relations and
+ * statements as its own. It has no name and no installation: its identity is its content. A query or a ChangeSet over a
+ * fragment reads and writes its relations alone, and is a program of every schema that lists it (LevelsOf). Its
+ * relations are held by name and its statements by name read back whole, as a schema holds its own (Schema).
+ */
+export interface Fragment<Relations, Named extends ReadonlyArray<Statement>> extends Built {
+	readonly kind: "fragment"
+	readonly relations: Relations
+	readonly statements: readonly [...StatementsFromNames<Named, Relations>]
+}
+
+/** Any fragment: the members every one has. */
+export interface AnyFragment extends Built {
+	readonly kind: "fragment"
+	readonly relations: Readonly<Record<string, AnyRelation | AnyClosed>>
+	readonly statements: ReadonlyArray<Statement>
+}
+
+/** The fragments a level's list holds. */
+export type FragmentsIn<Relations extends ReadonlyArray<unknown>> = Extract<
+	Relations[number],
+	AnyFragment
+>
+
+/**
+ * What one item of a level's list declares: a fragment, each of its relations; any other item, itself. It distributes
+ * over a union of items, as a list's element type is.
+ */
+type Listed<X> = X extends AnyFragment ? X["relations"][keyof X["relations"]] : X
 
 /** The statements of the levels below a schema: its base's, none below a root schema. */
 export type StatementsBelow<Base extends AnySchema> = [Base] extends [never]
@@ -306,7 +345,9 @@ export type StatementsWithin<Statements extends ReadonlyArray<Statement>, Relati
  * of one name in one union there, which DeclaredOnce refuses unless they are one relation. Its keys are the level's
  * names, so a lookup by name is one property read.
  */
-export type Declared<Relations extends ReadonlyArray<unknown>> = DeclaredIn<Relations[number]>
+export type Declared<Relations extends ReadonlyArray<unknown>> = DeclaredIn<
+	Listed<Relations[number]>
+>
 
 /**
  * The relations of the union R by name; where some relation's name is no one literal the type knows, every relation
@@ -321,15 +362,24 @@ type DeclaredIn<R> = true extends (
 /**
  * Each element of a list, boxed: a tuple's elements one by one, each as its call wrote it (a relation chosen at run
  * time among several of one name is one element), and an array's possible elements, each relation of its element
- * type, any two of which it may hold.
+ * type, any two of which it may hold. A fragment's relations are each an element of their own (Boxed).
  */
 type Elements<Relations extends ReadonlyArray<unknown>> = number extends Relations["length"]
-	? Relations[number] extends infer R
+	? Listed<Relations[number]> extends infer R
 		? R extends unknown
 			? readonly [R]
 			: never
 		: never
-	: { readonly [I in keyof Relations]: readonly [Relations[I]] }[number]
+	: { readonly [I in keyof Relations]: Boxed<Relations[I]> }[number]
+
+/** A tuple's element boxed: a fragment, each of its relations boxed apart; any other element, itself whole. */
+type Boxed<X> = [X] extends [AnyFragment]
+	? Listed<X> extends infer R
+		? R extends unknown
+			? readonly [R]
+			: never
+		: never
+	: readonly [X]
 
 /**
  * The name of R where `Named`, the relations of a list or a level below under R's name, holds another relation: R's
@@ -377,7 +427,7 @@ export type DeclaredOnce<
 		? unknown
 		: {
 				readonly [I in keyof Relations]: [
-					NameOf<Relations[I]> & Clashing<Relations, Below>
+					NameOf<Listed<Relations[I]>> & Clashing<Relations, Below>
 				] extends [never]
 					? unknown
 					: Refusal<"two relations of one name across a schema's levels">
@@ -390,18 +440,34 @@ export type DeclaredOnce<
 export type DeclaredOver<BaseRelations, Relations extends ReadonlyArray<unknown>> = BaseRelations &
 	(KnownNames<BaseRelations> extends false
 		? Declared<Relations>
-		: DeclaredIn<Exclude<Relations[number], { readonly name: keyof BaseRelations }>>)
+		: DeclaredIn<Exclude<Listed<Relations[number]>, { readonly name: keyof BaseRelations }>>)
 
 /**
- * S and every schema below it. A query over any of them is a query over S. The recursion
- * is as deep as the extension chain, never over relations or statements.
+ * S, every schema below it, and every fragment one of them lists (FragmentsOf). A query over any of them is a query
+ * over S. The recursion is as deep as the extension chain, never over relations or statements.
  */
 export type LevelsOf<S> =
 	| S
+	| FragmentsOf<S>
 	| (S extends Phantom<{ readonly extends: infer B }>
 			? [B] extends [never]
 				? never
 				: LevelsOf<B>
+			: never)
+
+/**
+ * The fragments that are levels of S itself: a schema's, those its list holds; a role's, those of its base's levels it
+ * holds whole (types/schema/world.ts Role); none for anything else.
+ */
+export type FragmentsOf<S> = S extends Phantom<{ readonly fragments: infer F }> ? F : never
+
+/** The fragments every level of a schema lists, the levels below it included. */
+export type AllFragmentsOf<S> =
+	| FragmentsOf<S>
+	| (S extends Phantom<{ readonly extends: infer B }>
+			? [B] extends [never]
+				? never
+				: AllFragmentsOf<B>
 			: never)
 
 /**

@@ -20,7 +20,8 @@
  *   (terms.ts) build and read terms this way, so a Compute expression over a row's fields composes with the row's own
  *   comparisons.
  * - Owned schema values. Every value this package builds (relations, closed and derived relations, statements, the
- *   expansions of mirrors and alternatives, sides, selections, schemas, contexts, world relations, roles and logins)
+ *   expansions of mirrors and alternatives, sides, selections, schemas, fragments, contexts, world relations, roles and
+ *   logins)
  *   is frozen, carries its Description under a non-enumerable `desc`, and is registered here, so ownership trusts
  *   exactly the values the builders made and a JavaScript look-alike is decoded strictly.
  */
@@ -50,11 +51,12 @@ import { type Described, refusedField, registeredField } from "#compiler/scalar/
 import type { SchemaContent } from "#compiler/schema/levels.ts"
 import type { CanonicalStatement } from "#compiler/schema/own.ts"
 import type { DerivedDraft, OrdinaryRelationDesc, RosterDesc } from "#compiler/schema/relation.ts"
+import type { FragmentContent, FragmentDesc } from "#compiler/schema/schema.ts"
 import type { ExpansionDesc, SelectedDesc } from "#compiler/schema/statements.ts"
 import type { RoleLevel, WorldDraft } from "#compiler/schema/world.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { AnyClosedRelation, AnyRelation, AnyRoster } from "#compiler/types/schema/relation.ts"
-import type { AnySchema } from "#compiler/types/schema/schema.ts"
+import type { AnyFragment, AnySchema } from "#compiler/types/schema/schema.ts"
 import type {
 	AnySide,
 	MirrorsBase,
@@ -216,7 +218,8 @@ export const queryHeadingOf = (value: unknown): ReadonlyMap<string, HeadingTypin
  * and the content it was built with, read once at its build: the roster a roster's handles type (relation.ts closed), a
  * statement's canonical form and text (own.ts CanonicalStatement) and the relations it was built over
  * (statements.ts relationsOver), a mirrors' its two containments' and its relations, a schema's content
- * (levels.ts SchemaContent), a role's level (world.ts RoleLevel), and nothing for any other kind: a relation's identity
+ * (levels.ts SchemaContent), a fragment's content with its declarations and statements (schema.ts FragmentContent), a
+ * role's level (world.ts RoleLevel), and nothing for any other kind: a relation's identity
  * is its Description, compared by structure (core/canonical.ts sameContent). A mirrors is sugar, owned as an expansion,
  * the two containments it states, never as a statement.
  */
@@ -268,6 +271,11 @@ interface OwnedKinds {
 		readonly desc: SchemaDesc
 		readonly content: SchemaContent
 	}
+	readonly fragment: {
+		readonly value: AnyFragment
+		readonly desc: FragmentDesc
+		readonly content: FragmentContent
+	}
 	readonly context: {
 		readonly value: AnyContext
 		readonly desc: ContextDesc
@@ -298,6 +306,7 @@ const ownedKinds: ReadonlyArray<OwnedKind> = [
 	"side",
 	"selection",
 	"schema",
+	"fragment",
 	"context",
 	"world",
 	"role",
@@ -324,6 +333,7 @@ const owned: { readonly [K in OwnedKind]: WeakMap<object, OwnedEntry<K>> } = {
 	side: new WeakMap(),
 	selection: new WeakMap(),
 	schema: new WeakMap(),
+	fragment: new WeakMap(),
 	context: new WeakMap(),
 	world: new WeakMap(),
 	role: new WeakMap(),

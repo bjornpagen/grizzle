@@ -892,6 +892,7 @@ const reasonKey = (reason: CompileReason): string => {
 		case "UnwritableRelation":
 		case "ForeignLevel":
 		case "LevelRefused":
+		case "FragmentRefused":
 			return reason._tag
 	}
 }

@@ -36,6 +36,7 @@ import type {
 } from "#compiler/types/schema/relation.ts"
 
 import type {
+	AllFragmentsOf,
 	AnySchema,
 	IsLevelOf,
 	IsRelationOf,
@@ -282,6 +283,19 @@ type FullBaseOf<Base, Relations> = [UnheldOf<RelationsOf<Base>, Relations>] exte
 		: never
 
 /**
+ * The fragments a role over Base holds whole: each fragment a level of the base lists whose every relation the role
+ * holds whole under its own name but the relations no role holds (UnheldOf), so programs over it run on the role.
+ */
+type HeldFragments<Base, Relations> =
+	AllFragmentsOf<Base> extends infer F
+		? F extends unknown
+			? [UnheldOf<RelationsOf<F>, Relations>] extends [never]
+				? F
+				: never
+			: never
+		: never
+
+/**
  * The keys of a base's record whose relation the role does not hold whole under that key, the relations no role holds
  * (UnheldRelation) aside.
  */
@@ -339,7 +353,8 @@ export interface AnyRole extends Built {
 
 /**
  * A role over Base named Name: its relations, the base's laws it keeps, and its write and refresh lists, as written. A
- * full role extends its base (the phantom LevelsOf reads); `contexts` is the union of the contexts its relations read.
+ * full role extends its base, and a role holds every fragment of its base it holds whole (the phantoms LevelsOf reads);
+ * `contexts` is the union of the contexts its relations read.
  */
 export interface Role<
 	Base,
@@ -348,7 +363,11 @@ export interface Role<
 	Write extends string,
 	Refresh extends string,
 	Contexts
-> extends Phantom<{ readonly extends: FullBaseOf<Base, Relations>; readonly contexts: Contexts }> {
+> extends Phantom<{
+	readonly extends: FullBaseOf<Base, Relations>
+	readonly fragments: HeldFragments<Base, Relations>
+	readonly contexts: Contexts
+}> {
 	readonly kind: "role"
 	readonly name: Name
 	/** Its stem (WorldStem). */

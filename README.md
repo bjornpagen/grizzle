@@ -2792,6 +2792,79 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
   installed: a process holds no predicate of a law above it, so it never claims to judge one, and judges each of its
   own.
 
+## Fragments
+
+A library ships its relations, the laws over them and the programs that read and write them, written once, and every
+application that composes the library serves those programs over its own schema. `fragment(relations, statements)` is
+the library's half: relations and the statements over them, with no name and no installation of their own. An
+application lists the fragment among its relations, and its schema declares the fragment's relations and writes its
+statements at that level, as if they were its own.
+
+```ts
+/** A library's facts: each job, and its one result. */
+export const Job = relation("Job", { id: uuid, attempts: pg.integer }, ["id"])
+export const JobDone = relation("JobDone", { job: uuid, ok: pg.boolean }, ["job"])
+export const Jobs = fragment([Job, JobDone], [contained(on(JobDone, "job"), on(Job, "id"))])
+
+/** The library's programs, over the fragment: they name no application's schema. */
+export const finishJob = ChangeSet.empty(Jobs).insert(JobDone, [])
+export const pendingJobs = query(Jobs).rule((r) => {
+	const { id, attempts } = v(Job, "job")
+	return r
+		.match(Job, { id, attempts })
+		.where(r.not(JobDone, { job: id }))
+		.find({ id, attempts })
+})
+
+/** An application: a relation of its own beside the library's, and a law of its own into the library's key. */
+export const Fee = relation("Fee", { id: uuid, job: uuid }, ["id"])
+export const Shop = schema("Shop", [Fee, Jobs], [contained(on(Fee, "job"), on(JobDone, "job"))])
+export const JobWorker = role(
+	Shop,
+	"jobs",
+	{ ...Jobs.relations, Fee },
+	{ insert: ["JobDone", "Fee"] }
+)
+export const feeJob = ChangeSet.union(finishJob, ChangeSet.empty(Shop).insert(Fee, []))
+export const ShopApp = login(Shop, "shop", [JobWorker], {
+	workload: [workload(JobWorker, { finishJob, pendingJobs, feeJob })]
+})
+```
+
+- **A fragment is a level of every schema that lists it.** A query or a ChangeSet written over the fragment reads and
+  writes its relations alone. It is a program of every schema whose levels list the fragment, and of every role that
+  holds the fragment's relations whole, as a program over a level is. So it can stand in that schema's and that role's
+  workloads, be imported by their rules, be read back, and join their ChangeSets by `ChangeSet.union` and `sequence`,
+  which are then over the schema. A rule over a fragment matching any other relation is a type error, and from
+  JavaScript is refused when it is built. A fragment is never what a program compiles against: `grizzle generate`
+  compiles each fragment program in each login that serves it, against that login's schema and role, names and
+  prepares its statements there, and certifies its role there, exactly as for a program written over the schema. A
+  fragment carries no certificate and no served text of its own, and two installations that list one fragment are two
+  certificates.
+- **Its identity is its content.** A fragment listed twice, or reached through two libraries, is one: its relations are
+  one declaration each, as two copies of a relation are, and its statements one statement each. A fragment's
+  relations meet the application's under one namespace, so a relation of the fragment's name that differs is
+  `DuplicateIdentity`. A diagnostic names a fragment by its relations, `fragment(Job, JobDone)`.
+- **Only the fragment states how its relations are written.** A key, `mutable`, `race`, `retirable`, a family, a tree or
+  a fold over one of its relations is the fragment's own statement. The application may state one again, since one
+  text is one statement, but it may not add one: a key can become an insertion's arbiter, `mutable` puts a row in place,
+  `race` meets the row at a key instead of refusing it, `retirable` holds every write of a body at its group, and a
+  family, tree or fold draws fields and nests members. Any of those, from any level of the schema or another fragment
+  it lists, is `FragmentRefused` when the schema is built. What the application may add over the fragment's relations
+  only refuses a write: a containment either way, a row check, a rule over a query. So a fragment's program means the
+  same in every application, and an application can only refuse more of its writes.
+- **What an application's laws may still refuse.** A containment over the fragment's relations can order a fragment
+  ChangeSet's writes into a cycle (`UnorderableStratum`), or make a read-back's delta cross statements
+  (`ReadBackCrossesStatements`). Then `grizzle generate` refuses that program in that application, naming the
+  application's law, and serves it unchanged in an application without that law. Each is a refusal at generate, per
+  application, and never a difference at run time: a program that compiles is served exactly as it would be written
+  over the application's schema.
+- **Nothing is installed for a fragment.** Its relations install at the level whose list holds it, in that level's
+  PostgreSQL schema, under the application's one migrations directory, snapshot and ledger. Listing a fragment is, to
+  the snapshot, that level declaring its relations and stating its laws, so a schema that spread the same relations and
+  laws by hand and now lists the fragment migrates by nothing. A fragment has no login, role or workload: an application's
+  role holds its relations and serves its programs.
+
 ## Migrations
 
 `grizzle.config.ts`, whose default export is `defineConfig({ ... })`, and which every command names as its argument:

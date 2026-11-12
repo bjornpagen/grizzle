@@ -47,6 +47,7 @@ import type {
 	SerialFieldsOf
 } from "#compiler/types/schema/relation.ts"
 import type {
+	AnyFragment,
 	AnySchema,
 	IsLevelOf,
 	IsRelationOf,
@@ -1140,7 +1141,7 @@ type DisjointReads<A, B> = [keyof A & keyof B] extends [never]
 	: Refusal<"read-back names are distinct: the ChangeSets share a read-back name">
 
 export interface ChangeSetConstructor {
-	empty<S extends AnySchema | AnyRole>(
+	empty<S extends AnySchema | AnyFragment | AnyRole>(
 		schema: S
 	): ChangeSet<S, unknown, never, unknown, never, readonly [], Unwritten>
 	/** The commutative combination: one add-wins transition, its strata combined position by position. */

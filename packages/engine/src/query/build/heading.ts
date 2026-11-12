@@ -1,7 +1,7 @@
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { FieldDesc, SchemaDesc } from "#compiler/ir/desc.ts"
+import type { FieldDesc, RelationDesc, SchemaDesc, SchemaRelationDesc } from "#compiler/ir/desc.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
 import type { SchemaInfo } from "#compiler/query/build/scope.ts"
 import { type Typing, typed, untyped } from "#compiler/scalar/compute/term.ts"
@@ -84,18 +84,28 @@ export const unionHeading = (arms: ReadonlyArray<Heading>): Heading => {
 }
 
 /**
- * The roster environment of a schema or role at its level: every closed relation of the schema, or of the role's base,
- * and of the levels below it, by name, so a closedId field described only by its Description still resolves its
- * handles.
+ * The roster environment of a schema, fragment or role at its level: every closed relation of the schema, or of the
+ * role's base, and of the levels below it, or of the fragment, by name, so a closedId field described only by its
+ * Description still resolves its handles.
  */
 export const schemaInfo = (over: Level): SchemaInfo => {
 	const rosters = new Map<string, NonEmptyReadonlyArray<string>>()
-	const schema = over.kind === "schema" ? over.desc : over.desc.base
-	for (let at: SchemaDesc | undefined = schema; at !== undefined; at = at.extends) {
-		for (const r of at.relations) {
+	const declared = (relations: Iterable<RelationDesc | SchemaRelationDesc>): void => {
+		for (const r of relations) {
 			if (r.kind === "closed" && !rosters.has(r.name)) {
 				rosters.set(r.name, r.handles)
 			}
+		}
+	}
+	if (over.kind === "fragment") {
+		declared(over.content.relations.values())
+	} else {
+		for (
+			let at: SchemaDesc | undefined = over.kind === "schema" ? over.desc : over.desc.base;
+			at !== undefined;
+			at = at.extends
+		) {
+			declared(at.relations)
 		}
 	}
 	return Object.freeze({

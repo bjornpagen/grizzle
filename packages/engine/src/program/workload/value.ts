@@ -8,7 +8,9 @@ import { declaredNameAt, type ProgramDesc, type WorkloadDesc } from "#compiler/i
 import { queryInput } from "#compiler/program/compile.ts"
 import {
 	levelSchema,
+	type Over,
 	parseBuiltSchema,
+	parseOver,
 	parseSchemaInput,
 	type SchemaInput
 } from "#compiler/program/schema.ts"
@@ -93,12 +95,12 @@ const orThrow = <A>(r: Result.Result<A, CompileError>): A => {
 }
 
 /**
- * One program value with its Description, and the schema it was written over, undefined for a query rebuilt from its
- * Description alone.
+ * One program value with its Description, and the schema or fragment it was written over, undefined for a query rebuilt
+ * from its Description alone.
  */
 interface ProgramFound {
 	readonly program: ProgramValue
-	readonly schema: SchemaInput | undefined
+	readonly schema: Over | undefined
 }
 
 /** A query or ordered query value, as `program` names it with its Description, and the schema it was written over. */
@@ -300,7 +302,7 @@ const changeSetFound = (program: unknown, clock: ClockBinding): ProgramFound | u
 	if (change === undefined || !isChangeSetValue(program)) {
 		return undefined
 	}
-	const over = orThrow(parseSchemaInput(change.over.value))
+	const over = orThrow(parseOver(change.over.value))
 	return {
 		program: {
 			kind: "changeSet",
@@ -370,7 +372,7 @@ const workloadProgram = (
 		if (over !== undefined && !levelSchema(over, built, builderLoc(label, ["programs", name])).ok) {
 			throw malformed(
 				label,
-				`program ${JSON.stringify(name)}: a program over ${built.desc.name} or a schema it extends, not over ${over.desc.name}`
+				`program ${JSON.stringify(name)}: a program over ${built.desc.name}, a schema it extends or a fragment one of them lists, not over ${over.desc.name}`
 			)
 		}
 		return found.program.kind === "changeSet"

@@ -26,6 +26,13 @@ export interface SchemaContent {
 	 */
 	readonly canonical: ReadonlyArray<CanonicalStatement>
 	readonly below: SchemaContent | undefined
+	/**
+	 * The content of each fragment the level's list holds (schema.ts fragment), in list order: each is a level of every
+	 * schema whose levels list it (isLevelOf). It is no part of the level's identity (sameLevel), since a listed
+	 * fragment's relations and statements are the level's own; a level read from its description lists none, and a
+	 * fragment's own content none.
+	 */
+	readonly fragments: ReadonlyArray<SchemaContent>
 }
 
 /** A relation a level declares: its name and its description, a derived relation's as the level holds it. */
@@ -57,12 +64,14 @@ const writtenBelow = (below: SchemaContent | undefined, text: string): boolean =
 
 /**
  * The content of a level that declares `relations` and writes `statements`, each in canonical form with its text
- * (own.ts CanonicalStatement), over the level `below`.
+ * (own.ts CanonicalStatement), over the level `below`, its list holding the fragments of content `fragments`; a
+ * fragment's own content is a root level's that lists none.
  */
 export const levelContent = (
 	relations: ReadonlyArray<LevelRelation>,
 	statements: ReadonlyArray<CanonicalStatement>,
-	below: SchemaContent | undefined
+	below: SchemaContent | undefined,
+	fragments: ReadonlyArray<SchemaContent>
 ): SchemaContent => {
 	const own = new Map(
 		relations.flatMap((r) => (declaredBelow(below, r) ? [] : [[r.name, r.desc] as const]))
@@ -72,7 +81,8 @@ export const levelContent = (
 		relations: own,
 		statements: texts,
 		canonical: Object.freeze(statements),
-		below
+		below,
+		fragments: Object.freeze([...fragments])
 	})
 }
 
@@ -85,7 +95,8 @@ export const contentOfDesc = (desc: SchemaDesc): SchemaContent =>
 	levelContent(
 		desc.relations.map((r) => ({ name: r.name, desc: r })),
 		desc.statements.map(canonicalStatementOf),
-		desc.extends === undefined ? undefined : contentOfDesc(desc.extends)
+		desc.extends === undefined ? undefined : contentOfDesc(desc.extends),
+		[]
 	)
 
 /**
@@ -123,14 +134,17 @@ export const sameRoleLevel = (a: RoleLevel, b: RoleLevel): boolean =>
 		sameContent({ ...a.desc, base: undefined }, { ...b.desc, base: undefined }))
 
 /**
- * Whether `lower` is one of the levels of `higher`, higher itself or a level its extends chain reaches, compared by
- * content whatever name places them (as types/schema/schema.ts IsLevelOf states at the type level): the one level check
- * every entry point shares (role admission of a query entry, ChangeSet building, workload(...), login(...), a query's
- * and a ChangeSet's compilation against the Db's schema, program/schema.ts levelSchema).
+ * Whether `lower` is one of the levels of `higher`, higher itself, a level its extends chain reaches, or a fragment
+ * one of those lists, compared by content whatever name places them (as types/schema/schema.ts IsLevelOf states at the
+ * type level): the one level check every entry point shares (role admission of a query entry, ChangeSet building,
+ * workload(...), login(...), a query's and a ChangeSet's compilation against the Db's schema, program/schema.ts
+ * levelSchema). A program over a fragment reads and writes the fragment's relations alone, under the fragment's
+ * statements, which a schema that lists it holds, beside none of its own that decides how they are written (schema.ts
+ * fragment), so the program means there what it means over the fragment.
  */
 export const isLevelOf = (lower: SchemaContent, higher: SchemaContent): boolean => {
 	for (let at: SchemaContent | undefined = higher; at !== undefined; at = at.below) {
-		if (sameLevel(at, lower)) {
+		if (sameLevel(at, lower) || at.fragments.some((f) => sameLevel(f, lower))) {
 			return true
 		}
 	}

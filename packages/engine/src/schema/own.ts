@@ -1041,7 +1041,8 @@ const fieldRefs = (expr: ExprDesc, out: Set<string>): Set<string> => {
 	}
 }
 
-const statementLabel = (s: StatementDesc): string => {
+/** A statement as a diagnostic names it: its kind and the relations it is over. */
+export const statementLabel = (s: StatementDesc): string => {
 	switch (s.kind) {
 		case "key":
 			return `key (${s.side.terms.map(termText).join(", ")}) of ${s.side.selection.conjuncts.length === 0 ? "" : "selected "}${s.side.relation}`

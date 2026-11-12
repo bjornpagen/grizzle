@@ -30,7 +30,7 @@ import { Sp } from "#test/unit/workload/fixtures.ts"
 /** The atoms of every Filter a query checks to. */
 const filterAtoms = (q: unknown) => {
 	const input = succeeded(queryInput(q), "the query builds")
-	if (input.kind !== "built") {
+	if (input.kind !== "built" || input.schema.kind === "fragment") {
 		return assert.fail("a built query carries its schema")
 	}
 	const dag = succeeded(
