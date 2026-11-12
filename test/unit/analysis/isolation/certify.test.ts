@@ -3,8 +3,8 @@
  * relations, each relation with trigger-held laws or not, declared keys, counted groups and foreign keys (immediate or
  * deferred alike, an update cascading or not), each role's privileges, and its change members' statements, each reading
  * relations, positively, negated, counted or as grizzle's key arbitration, its own rows or not, by a group bound to one
- * value or to one per own row, or none, and writing relations, by insert, update or delete, with each written row
- * joined with some of its statement's reads; its members as served at READ COMMITTED, and those of its SERIALIZABLE
+ * value or to one per own row, or none, and writing relations, by insert, update, delete or a retirement, which
+ * changes none of them, with each written row joined with some of its statement's reads; its members as served at READ COMMITTED, and those of its SERIALIZABLE
  * form, which certification lowers it to once a round leaves it SERIALIZABLE. Some draws are counterexamples: two copiers, each inserting
  * into one relation and then copying the other's (by a scan, or at a whole key); a writer reading another's absence
  * beside a reader of both; a chain of SERIALIZABLE readers; a SERIALIZABLE pivot writing what an RC member reads
@@ -13,6 +13,9 @@
  * NEGATION's four histories no serial order in real time explains, each reproduced on PostgreSQL: a reader of one point
  * group lagging an in-flight SERIALIZABLE pivot, a reader of one group per own row, a copy whose foreign key check
  * misses that pivot's row, and a copy over many own rows whose deferred check reads at COMMIT.
+ *
+ * A retirement counts among its own role's writes, whose laws and guard it meets, and among no other role's judgement of
+ * it: no co-writer's guard and no pivot's write of what another reads (physical/ddl/retire.ts, the hold).
  *
  * The oracle restates every condition over the drawn facts, apart from the certifier's code, in rounds from none
  * lowered: each judged role's own conditions over its READ COMMITTED members, its foreign key checks among its reads,
@@ -93,7 +96,7 @@ const KEYS: ReadonlyArray<ReadonlyArray<string>> = [["k0"], ["k1"], ["k0", "k1"]
 
 interface WriteSketch {
 	readonly relation: number
-	readonly op: "insert" | "update" | "delete"
+	readonly op: "insert" | "update" | "delete" | "retire"
 	readonly from: ReadonlyArray<number>
 }
 
@@ -291,7 +294,8 @@ const writeGen =
 			weighted<WriteSketch["op"]>([
 				[6, () => "insert"],
 				[1, () => "update"],
-				[1, () => "delete"]
+				[1, () => "delete"],
+				[1, () => "retire"]
 			])
 		),
 		from: s.draw(
@@ -1875,6 +1879,16 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 			...Arr.map(writesOf(i), (w) => w.relation),
 			...updatedOf(i)
 		])
+	/** What a role writes as another role's judge reads it: but by a retirement alone, which waits for every call that
+	 * holds a group it retires and reads nothing besides. */
+	const guardedSet = (i: number): ReadonlySet<number> =>
+		new Set([
+			...Arr.flatMap(Arr.getUnsafe(roles, i).privileges, (p) =>
+				p.privilege === "SELECT" ? [] : [p.relation]
+			),
+			...Arr.flatMap(writesOf(i), (w) => (w.op === "retire" ? [] : [w.relation])),
+			...updatedOf(i)
+		])
 	const anyWrites = (relation: number) => Arr.some(roles, (_, i) => writtenSet(i).has(relation))
 	const changes = (relation: number) =>
 		Arr.some(
@@ -1884,7 +1898,10 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 					r.privileges,
 					(p) => p.relation === relation && (p.privilege === "UPDATE" || p.privilege === "DELETE")
 				) ||
-				Arr.some(writesOf(i), (w) => w.relation === relation && w.op !== "insert") ||
+				Arr.some(
+					writesOf(i),
+					(w) => w.relation === relation && (w.op === "update" || w.op === "delete")
+				) ||
 				updatedOf(i).has(relation)
 		)
 	const covers = (relation: number, fields: ReadonlyArray<string>) =>
@@ -1918,7 +1935,9 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 		Arr.flatMap(statements, (st, at) =>
 			Arr.flatMap(st.writes, (w) => [
 				...Arr.map(
-					w.op === "delete" ? [] : Arr.getUnsafe(relations, w.relation).references,
+					w.op === "delete" || w.op === "retire"
+						? []
+						: Arr.getUnsafe(relations, w.relation).references,
 					(ref): OracleCheck => {
 						const seal: OracleSeal = !anyWrites(ref.relation)
 							? "unwritten"
@@ -1928,7 +1947,7 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 						return { at, relation: ref.relation, side: "referencing", seal }
 					}
 				),
-				...(w.op === "insert"
+				...(w.op === "insert" || w.op === "retire"
 					? []
 					: Arr.flatMap([...relations.entries()], ([i, r]): ReadonlyArray<OracleCheck> =>
 							Arr.some(r.references, (ref) => ref.relation === w.relation)
@@ -2077,6 +2096,8 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 			if (Arr.getUnsafe(relations, relation).triggerLaws) {
 				failed.add("laws")
 			}
+		}
+		for (const relation of guardedSet(i)) {
 			if (
 				Arr.some(roles, (_, r) =>
 					Arr.some(formsOf(r), (statements) => absent(statements).has(relation))
@@ -2157,7 +2178,7 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 			) {
 				out.add("laws")
 			}
-			const shared = Arr.some([...writtenSet(o)], (x) => reads.has(x))
+			const shared = Arr.some([...guardedSet(o)], (x) => reads.has(x))
 			const pivot =
 				Arr.some(formsOf(o), (statements) =>
 					Arr.some(placedOf(statements), (placed) => Arr.some(placed, (p) => isOutside(p.seal)))
@@ -2169,7 +2190,7 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 					)
 				) ||
 				Arr.some([...writtenSet(o)], (x) => Arr.getUnsafe(relations, x).triggerLaws)
-			if ((shared && pivot) || Arr.some([...writtenSet(o)], (x) => written.has(x))) {
+			if ((shared && pivot) || Arr.some([...guardedSet(o)], (x) => written.has(x))) {
 				out.add("writers")
 			}
 		}
@@ -2284,6 +2305,7 @@ type IsolationFeature =
 	| "a read of one group per own row"
 	| "a foreign key check beside a READ COMMITTED role"
 	| "a check of the rows that reference a changed one"
+	| "a retirement"
 	| "an update carried by a cascading foreign key"
 	| `the ${Exclude<Shape, "drawn">}`
 	| "a fact dropped beside a READ COMMITTED role"
@@ -2448,6 +2470,7 @@ describe("the isolation certifier", () => {
 								"a read of one group per own row",
 								"a foreign key check beside a READ COMMITTED role",
 								"a check of the rows that reference a changed one",
+								"a retirement",
 								"an update carried by a cascading foreign key",
 								...Arr.map(shapes, (s) => `the ${s}` as const),
 								"a fact dropped beside a READ COMMITTED role",
@@ -2528,7 +2551,7 @@ describe("the isolation certifier", () => {
 												Arr.some(
 													st.writes,
 													(w) =>
-														w.op !== "delete" &&
+														(w.op === "insert" || w.op === "update") &&
 														Arr.getUnsafe(c.sketch.relations, w.relation).references.length > 0
 												)
 											) {
@@ -2566,8 +2589,11 @@ describe("the isolation certifier", () => {
 											const referencing = Arr.filter(c.sketch.relations, (r) =>
 												Arr.some(r.references, (ref) => ref.relation === w.relation)
 											)
-											if (w.op !== "insert" && referencing.length > 0) {
+											if ((w.op === "update" || w.op === "delete") && referencing.length > 0) {
 												k.note("a check of the rows that reference a changed one")
+											}
+											if (w.op === "retire") {
+												k.note("a retirement")
 											}
 											if (
 												w.op === "update" &&

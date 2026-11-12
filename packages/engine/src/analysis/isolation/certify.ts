@@ -55,6 +55,14 @@ import * as Result from "#compiler/core/result.ts"
  *   runs READ COMMITTED, and refuses any other with 25000 (physical/ddl/isolation.ts readCommittedRelations), so a role
  *   certified past it would have every write refused.
  *
+ * A retirable unit's retirement (facts.ts WriteFact `retire`) is no update or delete of its relations: a change member
+ * that touches a unit's bodies holds every group it touches from before its first statement that does until it commits
+ * (physical/ddl/retire.ts, the hold), and a retirement locks every header it retires before it reads a body, so it waits
+ * for every call that holds one; each call then reads a group's rows insert-only from its hold to its commit, and no
+ * retired group is ever written again (the unit's fence). A retirement reads nothing besides the groups it locks and
+ * makes no check, so it misses no write and is no pivot; it counts among its own role's writes, whose guard and laws it
+ * meets, and among no other role's judgement of it (RoleView.guarded).
+ *
  * A role is served the form its level chooses, so certification runs in rounds (certify): a role is judged over its
  * READ COMMITTED form, the one it is served while it runs READ COMMITTED, until a round leaves it SERIALIZABLE; it is
  * then lowered to its SERIALIZABLE form and never judged again, its certificate that round's. A role's own SERIALIZABLE
@@ -215,7 +223,7 @@ class Writers {
 				for (const s of member.statements) {
 					for (const w of s.writes) {
 						this.#written.add(w.relation)
-						if (w.op !== "insert") {
+						if (w.op === "update" || w.op === "delete") {
 							this.#changed.add(w.relation)
 						}
 					}
@@ -644,14 +652,20 @@ const referencedChecks = (
 const checksOf = (at: Installation, member: MemberFacts): ReadonlyArray<Check> =>
 	member.statements.flatMap((s, statement) =>
 		s.writes.flatMap((w): ReadonlyArray<Check> => [
-			...(w.op === "delete" ? [] : referencingChecks(at, w.relation, statement)),
-			...(w.op === "insert" ? [] : referencedChecks(at, w.relation, statement))
+			...(w.op === "delete" || w.op === "retire"
+				? []
+				: referencingChecks(at, w.relation, statement)),
+			...(w.op === "insert" || w.op === "retire" ? [] : referencedChecks(at, w.relation, statement))
 		])
 	)
 
 /** The relations a role writes: those it holds a writer's privilege on, those the members it may be served write, and
  * those its updates cascade to. */
-const writtenBy = (at: Installation, served: Served): ReadonlySet<string> => {
+const writtenBy = (
+	at: Installation,
+	served: Served,
+	retired: "counted" | "apart"
+): ReadonlySet<string> => {
 	const out = new Set<string>(cascaded(at.relations, updatedBy(served)))
 	for (const [relation, privileges] of served.role.privileges) {
 		if ([...privileges].some((p) => writing.has(p))) {
@@ -661,7 +675,9 @@ const writtenBy = (at: Installation, served: Served): ReadonlySet<string> => {
 	for (const member of served.members) {
 		for (const s of member.statements) {
 			for (const w of s.writes) {
-				out.add(w.relation)
+				if (w.op !== "retire" || retired === "counted") {
+					out.add(w.relation)
+				}
 			}
 		}
 	}
@@ -694,6 +710,13 @@ interface RoleView {
 	readonly role: RoleFacts
 	readonly members: ReadonlyArray<MemberView>
 	readonly written: ReadonlySet<string>
+	/**
+	 * What it writes as another role's judge reads it: what it writes but by a retirement alone (`writtenBy` apart). A
+	 * retirement waits for every call that holds a group it retires and reads nothing besides, so it is no pivot of any
+	 * cycle, and its guard is no role's grants: a role's own retirement of a relation another role writes changes neither
+	 * that role's level nor whether that relation keeps its guard.
+	 */
+	readonly guarded: ReadonlySet<string>
 	readonly outside: ReadonlySet<string>
 	readonly sites: ReadonlyMap<string, ReadonlyArray<ReadSite>>
 	readonly cause: string | undefined
@@ -755,11 +778,12 @@ const roleView = (at: Installation, served: Served): RoleView => {
 			site(c.relation, { member: v.member.name, statement: c.statement, by: "check" })
 		}
 	}
-	const written = writtenBy(at, served)
+	const written = writtenBy(at, served, "counted")
 	return {
 		role: served.role,
 		members,
 		written,
+		guarded: writtenBy(at, served, "apart"),
 		cause: pivotCauseOf(at, members, written),
 		outside: new Set(
 			members.flatMap((v) => [
@@ -905,7 +929,7 @@ const absenceReasons = (
 	view: RoleView,
 	absent: ReadonlyMap<string, ReadonlyArray<AbsenceSite>>
 ): ReadonlyArray<IsolationReason> =>
-	[...view.written].flatMap((relation) =>
+	[...view.guarded].flatMap((relation) =>
 		(absent.get(relation) ?? []).map((s) =>
 			reason(
 				"absence",
@@ -1084,7 +1108,7 @@ const serializableReasons = (
 				)
 			)
 		)
-		const cowriters = [...other.written].flatMap((relation) =>
+		const cowriters = [...other.guarded].flatMap((relation) =>
 			view.written.has(relation)
 				? [
 						reason(
@@ -1101,7 +1125,7 @@ const serializableReasons = (
 			: [
 					...readers,
 					...cowriters,
-					...[...other.written].flatMap((relation) =>
+					...[...other.guarded].flatMap((relation) =>
 						view.outside.has(relation)
 							? [
 									reason(

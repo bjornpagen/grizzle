@@ -37,11 +37,15 @@ export interface Reference {
 
 /**
  * One relation a statement writes and how. `from` lists the statement's reads, by their places in its `reads`, every
- * row it writes is positively joined with, so a read that finds nothing makes it write nothing.
+ * row it writes is positively joined with, so a read that finds nothing makes it write nothing. A `retire` is a
+ * retirable unit's retirement (physical/ddl/retire.ts), one of each relation of the unit: its header's retirement field
+ * set and its bodies' rows of the retired groups deleted, by the unit's retire function, which locks every header it
+ * retires before it reads a body and so waits for every call that holds one of its groups; it reads no row no other
+ * call holds, and makes no check another call's write can pass.
  */
 export interface WriteFact {
 	readonly relation: string
-	readonly op: "insert" | "update" | "delete"
+	readonly op: "insert" | "update" | "delete" | "retire"
 	readonly from: ReadonlyArray<number>
 }
 
