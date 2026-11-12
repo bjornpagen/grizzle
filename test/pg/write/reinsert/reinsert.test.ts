@@ -445,7 +445,7 @@ const judgeRefused = (
 				(p) =>
 					p.row.id === x.id &&
 					named.includes(laws.family(p.family)) &&
-					Arr.some(familyKeys(spec, p.family), (fields) => at(x, fields))
+					Arr.some([["id"], ...familyKeys(spec, p.family)], (fields) => at(x, fields))
 			))
 	assert.ok(
 		Arr.some(again, breaks),
