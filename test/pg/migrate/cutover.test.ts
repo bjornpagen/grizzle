@@ -55,10 +55,21 @@
  * rows it holds, the catalog of a fresh install, and the table_rewrite events it fires.
  *
  * Features: each delta, a reference re-pointed under its own name among them; a re-keyed relation referenced by two
- * relations, and by a re-keyed relation; an ordered
- * family's owner re-keyed and an ordered member re-keyed; ordered to counted with a fold over the family; a dropped
+ * relations, and by a re-keyed relation; an ordered family's owner re-keyed and an ordered member re-keyed; ordered to counted with a fold over the family; a dropped
  * position a fold read; a key near BTMaxItemSize admitted and one past it refused; and a version with all six deltas.
  * Each is aimed at by a steered case, drawn over a world that holds every structure, never by filtering draws.
+ *
+ * The seventh delta, a property of its own over TREEKEY's frozen old-form tree (test/support/migrate/old-form-tree.ts):
+ * an id-keyed tree, its parent the parent's id and its root one document field, as grizzle installed trees before
+ * da713e04, becomes a keyed tree rooted at a package and a path, its parent drawn as the parent's start. One to three
+ * documents' trees, each drawn by its parents, are written directly with every drawn value the old form's laws fix;
+ * the keyed tree is drafted from the frozen snapshot, `--drop`ping the old id and document, reviewed with the data step
+ * that fills each node's new root from its document's uuid, and applied. Each document mapped to its own root keeps
+ * every slot, count, interval and fold value, each parent the old parent's start (families/tree.ts numbered, the
+ * direct pre-order numbering), at a fresh install's catalog, every table rewritten at most once, nothing left to
+ * generate; two documents mapped onto one root, a named case of its own weight, are refused at migrate by a law of the
+ * keyed tree, its primary key's, its family's or its fold's, read from the compiled installation. Its features: the
+ * old tree keyed, a tree of three levels or more, several old trees each its own root, and the refused merge.
  *
  * Plants (~/.cache/grizzle-release/MIGSTRESS/plants): cutover-fk-keeps-old-key (a re-pointed foreign key keeps the
  * referenced table's old key), cutover-backfill-skips-rows (the family backfill skips a row of each group),
@@ -84,9 +95,17 @@ import {
 } from "@grizzle/testing/commands"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { boolean, element, type Gen, int, subset } from "@grizzle/testing/gen"
+import {
+	array as arrayGen,
+	boolean,
+	element,
+	type Gen,
+	int,
+	parents as parentsGen,
+	subset
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
-import { type Swarm, swarm } from "@grizzle/testing/swarm"
+import { fullSwarm, type Swarm, swarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -107,7 +126,7 @@ import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { placeholderMarker } from "#compiler/deploy/render/markers.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { findMarkers, splitStatements } from "#compiler/plan/migration.ts"
 import { accumulated, drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { type AnyRelation, type Statement, schema } from "#compiler/public/schema.ts"
@@ -121,19 +140,30 @@ import {
 	foldBuilder,
 	monoids,
 	onBuilder,
-	orderedBuilder
+	orderedBuilder,
+	treeBuilder
 } from "#compiler/schema/statements.ts"
 import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import { apply, checkedAdmission, openMigrator, sameCatalog } from "#test/pg/migrate/support.ts"
+import {
+	apply,
+	checkedAdmission,
+	noFurther,
+	openMigrator,
+	refusal,
+	sameCatalog
+} from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { filledSql } from "#test/support/compile.ts"
+import { type KeyedRow, numbered, treeOfParents } from "#test/support/families/tree.ts"
 import { type Installed, installedOf } from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
+	asDrafted,
+	compile,
 	draftedAt,
 	fromEmpty,
 	fromSnapshot,
@@ -141,12 +171,13 @@ import {
 	noDeclarations,
 	type Previous
 } from "#test/support/migrate/kit.ts"
+import { type OldFormTree, oldFormTree } from "#test/support/migrate/old-form-tree.ts"
 import { type Placeholder, readsBack, review } from "#test/support/migrate/review.ts"
 import { type RewriteObserver, rewriteObserver } from "#test/support/migrate/rewrites.ts"
 import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
-import { owning } from "#test/support/policy.ts"
+import { ownedInput, owning } from "#test/support/policy.ts"
 import { appliedWith, member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -1099,18 +1130,20 @@ const cutoverGen: Gen<Cutover> = (source) => {
 	}
 }
 
-/** The steered case: the rich world, its program aimed at the pending features. */
+/** The steered case: the rich world, its program aimed at the pending features with every command on, so no swarm
+ * turns off a delta a pending feature needs. */
 const steeredGen =
 	(pending: ReadonlySet<Feature>): Gen<Cutover> =>
 	(source) => {
-		const drawnSwarm = source.draw(commandSwarm)
 		const base = machineOf(
 			initialModel(richWorld),
 			pending.has("a key near BTMaxItemSize admitted")
 		)
 		return {
 			world: richWorld,
-			steps: source.draw(program(aimedAt(base, pending), programSize, drawnSwarm))
+			steps: source.draw(
+				program(aimedAt(base, pending), programSize, fullSwarm([...deltaCommands, "migrate"]))
+			)
 		}
 	}
 
@@ -1268,7 +1301,8 @@ const dataStepOf = (h: History, m: Model): ReadonlyArray<string> => {
 			)};`
 		]
 	})
-	return [...own, ...pointing, ...filled]
+	const updates = [...own, ...pointing, ...filled]
+	return updates.length === 0 ? [] : ["SET CONSTRAINTS ALL IMMEDIATE;", ...updates]
 }
 
 /** The words of a placeholder marker that asks for a new column's value (deploy/render/sql.ts), never a set-aside
@@ -1596,14 +1630,17 @@ const pastLimit = (h: History, before: Model, p: Params["re-key a relation past 
 			key: { kind: "compound", widths: p.widths }
 		}))
 		const built = builtOf(world, h.declared)
-		const plan = planRealInstall(built.value, {
-			installation: identity.schema(parsedSchemaName(h.declared)),
-			owner: h.owner,
-			logins: [built.world.server],
-			extensions: [],
-			codes: firstCodebook(rostersOf(owning(built.value))),
-			compile: compileInstallation
-		})
+		const owned = ownedInput(built.value)
+		const plan = owned.ok
+			? planRealInstall(built.value, {
+					installation: identity.schema(parsedSchemaName(h.declared)),
+					owner: h.owner,
+					logins: [built.world.server],
+					extensions: [],
+					codes: firstCodebook(rostersOf(owned.value)),
+					compile: compileInstallation
+				})
+			: owned
 		if (plan.ok) {
 			return took
 		}
@@ -1703,6 +1740,350 @@ const history = (c: Cutover, note: (f: Feature) => void) =>
 		})
 	)
 
+/** One old document's tree: its parents as the testing library draws them and each node's kind. */
+interface OldDocument {
+	readonly parents: ReadonlyArray<number>
+	readonly kinds: ReadonlyArray<number>
+}
+
+/**
+ * A tree case: the old-form forest, one tree per document, and the new root each document maps onto, which the data step
+ * fills: each document its own, or two documents onto one, which no keyed tree holds.
+ */
+interface TreeCase {
+	readonly documents: Arr.NonEmptyReadonlyArray<OldDocument>
+	readonly roots: Arr.NonEmptyReadonlyArray<number>
+}
+
+/** The widths of the keyed tree's root texts, `package` and `path`. */
+const rootWidth = 40
+
+const oldDocumentGen: Gen<OldDocument> = (source) => {
+	const parents = source.draw(parentsGen({ min: 1, max: 6 }))
+	return { parents, kinds: Arr.map(indices(parents.length + 1), () => source.draw(int(0, 3))) }
+}
+
+/** One to three documents, each mapped to its own new root, or, as a named case at a weight of its own, the second
+ * mapped onto the first's root. */
+const treeCaseGen: Gen<TreeCase> = (source) => {
+	const documents = source.draw(arrayGen(oldDocumentGen, { min: 1, max: 3 }))
+	const own = Arr.map(documents, (_, d) => d)
+	const merged = documents.length > 1 && source.draw(int(0, 3)) === 0
+	return {
+		documents: nonEmpty(documents, "an old forest's documents"),
+		roots: nonEmpty(
+			merged ? Arr.map(own, (d) => (d === 1 ? 0 : d)) : own,
+			"the new root of each document"
+		)
+	}
+}
+
+/** Whether a case maps two documents onto one new root. */
+const mergesTrees = (c: TreeCase): boolean => new Set(c.roots).size < c.roots.length
+
+/** A document's old tree in pre-order (families/tree.ts numbered), under its document's index as its root value. */
+const oldRows = (d: number, doc: OldDocument): ReadonlyArray<KeyedRow> =>
+	numbered([{ root: [String(d)], tree: treeOfParents(doc.parents, doc.kinds) }])
+
+/** The uuid of an old document, and of the node at `start` in it. */
+const documentId = (d: number): string => uuidOf(3, d + 1)
+const nodeId = (d: number, start: number): string => uuidOf(2, d * 1000 + start + 1)
+
+/** A new root's package and path, each its texts. */
+const packageOf = (root: number): string => `package-${root}`
+const pathOf = (root: number): string => `path/${root}.xml`
+
+/**
+ * The old tree's rows as a direct writer inserts them at SERIALIZABLE, every drawn value stated as the old form's laws
+ * fix it: a root its own parent at slot 0, ‹n› the parent's count (a root's own), ‹ps› the parent's start (a root's,
+ * 0), the parent's kind (a root's own), and the count fold over each node's children: `before` its slot, `after` one
+ * more, `total` its count.
+ */
+const oldInsert = (tree: OldFormTree, c: TreeCase): string => {
+	const fields = [
+		"id",
+		"doc",
+		"parent",
+		"at",
+		"children",
+		"start",
+		"end",
+		"kind",
+		"parentKind",
+		"before",
+		"after",
+		"total"
+	]
+	const rows = Arr.flatMap(c.documents, (doc, d) =>
+		Arr.map(oldRows(d, doc), (row) =>
+			Arr.join(
+				[
+					uuidLiteral(nodeId(d, row.start)),
+					uuidLiteral(documentId(d)),
+					uuidLiteral(nodeId(d, row.parent)),
+					int8Literal(String(row.at)),
+					int8Literal(String(row.children)),
+					int8Literal(String(row.start)),
+					int8Literal(String(row.end)),
+					`${row.kind}::"pg_catalog"."int4"`,
+					`${row.parentKind}::"pg_catalog"."int4"`,
+					int8Literal(String(row.at)),
+					int8Literal(String(row.at + 1)),
+					int8Literal(String(row.children)),
+					int8Literal(String(row.copy)),
+					int8Literal(String(row.parent))
+				],
+				", "
+			)
+		)
+	)
+	return `INSERT INTO ${q(tree.snapshot.schema)}.${q(tree.columns.table)} (${Arr.join(
+		[...Arr.map(fields, column), q(tree.columns.copy), q(tree.columns.parentStart)],
+		", "
+	)}) VALUES ${Arr.join(
+		Arr.map(rows, (row) => `(${row})`),
+		", "
+	)}`
+}
+
+/** The keyed tree the old one becomes: rooted at (package, path), keyed by them and its start, its count fold kept and
+ * its parent-kind copy dropped. */
+const keyedTreeOf = () => {
+	const Node = relation(
+		"Node",
+		{
+			package: textField(rootWidth),
+			path: textField(rootWidth),
+			parent: drawnField(natural),
+			at: drawnField(natural),
+			children: drawnField(natural),
+			start: drawnField(natural),
+			end: drawnField(natural),
+			kind: pg.integer,
+			before: accumulated(natural, 0n),
+			after: accumulated(natural, 0n),
+			total: accumulated(natural, 0n)
+		},
+		["package", "path", "start"],
+		[]
+	)
+	const nodes = treeBuilder(onBuilder(Node, ["parent", "at"]), finBuilder(Node, "children"), {
+		root: ["package", "path"]
+	})
+	return schema("OldTree", { Node }, [
+		nodes,
+		foldBuilder(
+			nodes,
+			monoids.count,
+			onBuilder(Node, ["package", "path", "parent", "before", "after"]),
+			onBuilder(Node, ["package", "path", "start", "total"])
+		)
+	])
+}
+
+/** The keyed tree's visible fields, in the order the model states them. */
+const keyedFields = [
+	"package",
+	"path",
+	"start",
+	"parent",
+	"at",
+	"children",
+	"end",
+	"kind",
+	"before",
+	"after",
+	"total"
+] as const
+
+/** The model's rows of the keyed tree: each old row under its document's new root, its parent the old parent's start,
+ * every slot, count, interval, kind and fold value as the old tree held it. */
+const keyedRows = (c: TreeCase): ReadonlyArray<ReadonlyArray<string>> =>
+	Arr.flatMap(c.documents, (doc, d) => {
+		const root = nth(c.roots, d, "a document's new root")
+		return Arr.map(oldRows(d, doc), (row) =>
+			Arr.map(
+				[
+					packageOf(root),
+					pathOf(root),
+					row.start,
+					row.parent,
+					row.at,
+					row.children,
+					row.end,
+					row.kind,
+					row.at,
+					row.at + 1,
+					row.children
+				],
+				String
+			)
+		)
+	})
+
+/** The data step of the tree's migration: each node's new root from its old document's uuid, by the case's map. */
+const treeDataStep = (tree: OldFormTree, c: TreeCase): ReadonlyArray<string> => {
+	const table = `${q(tree.snapshot.schema)}.${q(tree.columns.table)}`
+	const rows = Arr.map(c.documents, (_, d) => {
+		const root = nth(c.roots, d, "a document's new root")
+		return [uuidLiteral(documentId(d)), textLiteral(packageOf(root)), textLiteral(pathOf(root))]
+	})
+	return [
+		`UPDATE ${table} AS "t" SET ${column("package")} = "m"."k0", ${column("path")} = "m"."k1" FROM ${valuesOf(
+			nonEmpty(rows, "the documents' roots")
+		)} AS "m" ("old", "k0", "k1") WHERE "t".${column("doc")} = "m"."old";`
+	]
+}
+
+type TreeFeature =
+	| "an old-form tree keyed by its root and start"
+	| "a tree of three levels or more"
+	| "several old trees, each its own root"
+	| "two old trees mapped onto one root, refused"
+
+/** The laws a refused merge may name: the keyed tree's primary key, its family's and its fold's. */
+const treeLaws = (installation: Installation): ReadonlySet<string> =>
+	new Set([
+		...Arr.flatMap(installation.laws.theory.primaryKeys, (pk) =>
+			pk.relation.name === "Node" ? [pk.law.id] : []
+		),
+		...Arr.flatMap(installation.laws.families, (family) => [
+			family.law,
+			...Arr.map(family.folds, (fold) => fold.law)
+		])
+	])
+
+/**
+ * A tree case on PostgreSQL: the old-form tree installed from its frozen first migration, its rows written directly,
+ * then the keyed tree drafted from its snapshot, every old field it no longer holds declared dropped, reviewed with the
+ * data step, checked, and applied under the rewrite observer. A merge of two trees onto one root is refused at migrate
+ * by a law of the keyed tree; any other case migrates to a fresh install's catalog, rewriting each table at most once,
+ * every row the model's and nothing left to generate.
+ */
+const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const substrate = yield* Substrate
+			const tree = oldFormTree()
+			const owner = substrate.owner.role
+			yield* Effect.addFinalizer(() =>
+				Effect.orDie(
+					substrate.admin.query(`DROP SCHEMA IF EXISTS ${q(tree.snapshot.schema)} CASCADE`, [])
+				)
+			)
+			const observer = yield* rewriteObserver(substrate)
+			const m = yield* openMigrator(substrate, substrate.owner)
+			yield* apply(m, { snapshot: tree.snapshot, folders: [tree.folder] }, noFurther)
+			yield* transaction(substrate.admin, [oldInsert(tree, c)])
+			note("an old-form tree keyed by its root and start")
+			if (Arr.some(c.documents, (doc) => Arr.some(doc.parents, (p) => p > 0))) {
+				note("a tree of three levels or more")
+			}
+			const value = keyedTreeOf()
+			const installation = compile(value, asDrafted)
+			const g = succeeded(
+				generate({
+					previous: fromSnapshot(tree.snapshot),
+					installation,
+					name: "keyed",
+					timestamp: draftedAt(1),
+					workload: noWorkload,
+					declared: {
+						renames: [],
+						drops: [
+							{ kind: "field", relation: parsedName("Node"), field: parsedName("id") },
+							{ kind: "field", relation: parsedName("Node"), field: parsedName("doc") }
+						]
+					}
+				}),
+				"the keyed tree drafts"
+			)
+			const reviewed = review(withDataStep(g, treeDataStep(tree, c)), {
+				losses: "written",
+				value: () => "''"
+			})
+			assert.deepEqual(fileFindings(g, reviewed.files), [], "grizzle check's findings")
+			const folders: ReadonlyArray<FolderSource> = [
+				tree.folder,
+				{ name: g.folder.name, metaText: g.folder.metaText, files: reviewed.files }
+			]
+			const run = observer.during(
+				tree.snapshot.schema,
+				apply(
+					m,
+					{ snapshot: g.snapshot, folders: [...folders] },
+					checkedAdmission(installation, substrate.admin)
+				)
+			)
+			if (mergesTrees(c)) {
+				const laws = treeLaws(installation)
+				const { reason } = yield* refusal(run)
+				assert.ok(
+					(reason._tag === "StatementFailed" || reason._tag === "FileCommitRefused") &&
+						reason.law !== undefined &&
+						laws.has(reason.law),
+					`two old trees mapped onto one root are refused otherwise than by a law of the keyed tree: ${Formatter.format(reason)}`
+				)
+				note("two old trees mapped onto one root, refused")
+				return
+			}
+			if (c.documents.length > 1) {
+				note("several old trees, each its own root")
+			}
+			const { rewrites } = yield* run
+			for (const [table, times] of rewrites) {
+				assert.ok(times <= 1, `the keyed tree's migration rewrites ${table} ${times} times`)
+			}
+			const fresh = yield* substrate.schema({ create: false, label: "cutover_tree_fresh" })
+			const freshPlan = succeeded(
+				planRealInstall(value, {
+					installation: identity.schema(parsedSchemaName(fresh)),
+					owner,
+					logins: [],
+					extensions: [],
+					codes: firstCodebook(rostersOf(owning(value))),
+					compile: compileInstallation
+				}),
+				"a fresh install of the keyed tree"
+			)
+			yield* transaction(substrate.admin, filledSql(freshPlan.drafted, substrate.database))
+			yield* sameCatalog(installation, freshPlan.installation, "the keyed tree")
+			const read = yield* substrate.admin.queryValues(
+				`SELECT ${Arr.join(
+					Arr.map(keyedFields, (f) => `${column(f)}::"pg_catalog"."text"`),
+					", "
+				)} FROM ${q(tree.snapshot.schema)}.${q(tree.columns.table)}`,
+				[]
+			)
+			const byRow = Order.mapInput(Order.String, (row: ReadonlyArray<string>) =>
+				Arr.join(row, "\u0000")
+			)
+			const actual: ReadonlyArray<ReadonlyArray<string>> = Arr.sort(
+				Arr.map(read, (row) =>
+					Arr.map(row, (cell) => (typeof cell === "string" ? cell : Formatter.format(cell)))
+				),
+				byRow
+			)
+			assert.deepEqual(
+				actual,
+				Arr.sort(keyedRows(c), byRow),
+				`the keyed tree holds the model's rows (${Arr.join(keyedFields, ", ")})`
+			)
+			const again = succeeded(
+				generate({
+					previous: fromSnapshot(g.snapshot),
+					installation,
+					name: "keyed_again",
+					timestamp: draftedAt(2),
+					workload: noWorkload,
+					declared: noDeclarations
+				}),
+				"the keyed tree drafts again"
+			)
+			assert.equal(again.change, "none", "the keyed tree drafts a further change")
+		})
+	)
+
 layer(Substrate.isolatedLayer)("the migrator under the identity cutover's deltas", (it) => {
 	it.effect(
 		"every migration of a cutover history rewrites each table at most once, reaches a fresh install's catalog, keeps every fact through the model's key mapping and leaves nothing to generate, and a key past BTMaxItemSize is refused by the draft",
@@ -1735,6 +2116,40 @@ layer(Substrate.isolatedLayer)("the migrator under the identity cutover's deltas
 							}),
 							(f) => c.note(f)
 						)
+				)
+			)
+	)
+	it.effect(
+		"an old-form tree becomes the keyed tree: every parent the old parent's start, every slot, interval and fold value kept, at a fresh install's catalog with each table rewritten at most once, and two trees mapped onto one root refused by a law of the keyed tree",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						oracle: {
+							kind: "second-implementation",
+							name: "the direct pre-order numbering of each old tree under its new root, judged by PostgreSQL's rows, a fresh install's catalog and its table_rewrite events"
+						},
+						suite: "pg/migrate/cutover-tree",
+						draw: drawn(treeCaseGen),
+						literal: Formatter.format,
+						coverage: required<TreeFeature>(
+							[
+								"an old-form tree keyed by its root and start",
+								"a tree of three levels or more",
+								"several old trees, each its own root",
+								"two old trees mapped onto one root, refused"
+							],
+							{ cases: 16, sense: notesOnly }
+						),
+						kept: [],
+						runs: 2,
+						shrink: { kind: "bounded", candidates: 30 },
+						concurrency: 1,
+						steerEvery: 4,
+						caseHang
+					},
+					(c, k: Case<TreeFeature>) => treeHistory(c, (f) => k.note(f))
 				)
 			)
 	)
