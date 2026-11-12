@@ -31,7 +31,6 @@ import {
 	callerFields,
 	countName,
 	familyOf,
-	groupName,
 	idOfUuid,
 	plainFact,
 	plainName,
@@ -42,17 +41,16 @@ import { defined } from "#test/support/assert.ts"
 import {
 	followUpMembers,
 	followUpRows,
+	groupName,
 	insertedRelations,
 	type InstanceRow,
+	membershipIn,
 	relationName,
 	uuidOfRow
 } from "#test/support/families/fill.ts"
 
 /** A fact as a ChangeSet states it. */
 type Fact = { readonly [field: string]: unknown }
-
-export const membershipIn = (row: InstanceRow, f: number) =>
-	Option.getOrUndefined(Arr.findFirst(row.memberOf, (m) => m.family === f))
 
 /**
  * The top facts of an instance's rows by relation: each row no sequence nests, with its caller's fields, its set `b`,

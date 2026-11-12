@@ -13,7 +13,7 @@ import type { FamilyName, StaleCause } from "#compiler/core/causes.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { caseGen, stepsGen } from "#test/pg/write/swarm/case.ts"
-import { changeSetOf, membershipIn, putsOf } from "#test/pg/write/swarm/changes.ts"
+import { changeSetOf, putsOf } from "#test/pg/write/swarm/changes.ts"
 import {
 	expectStep,
 	familyWrites,
@@ -38,7 +38,12 @@ import {
 } from "#test/pg/write/swarm/spec.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
-import { familyNamed, type InstanceRow, writesVerdict } from "#test/support/families/fill.ts"
+import {
+	familyNamed,
+	type InstanceRow,
+	membershipIn,
+	writesVerdict
+} from "#test/support/families/fill.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"

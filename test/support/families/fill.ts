@@ -115,9 +115,9 @@ export interface FillSpec {
 /** The specification's names: relation `i`, family `f`'s fields, copy `j`'s field. */
 export const relationName = (i: number): string => `R${i}`
 const countName = (f: number): string => `n${f}`
-const groupName = (f: number): string => `o${f}`
-const indexName = (f: number): string => `i${f}`
-const rootName = (f: number): string => `d${f}`
+export const groupName = (f: number): string => `o${f}`
+export const indexName = (f: number): string => `i${f}`
+export const rootName = (f: number): string => `d${f}`
 const foldName = (f: number): string => `s${f}`
 const copyName = (j: number): string => `c${j}`
 
@@ -131,12 +131,13 @@ const stepField = (spec: FillSpec, f: number): string => {
 	return copy === undefined ? "v" : copyName(copy)
 }
 
-const familyAt = (spec: FillSpec, f: number): FamilySpec => defined(spec.families[f], `family ${f}`)
+export const familyAt = (spec: FillSpec, f: number): FamilySpec =>
+	defined(spec.families[f], `family ${f}`)
 const copyAt = (spec: FillSpec, j: number): CopySpec => defined(spec.copies[j], `copy ${j}`)
 export const relationAt = (spec: FillSpec, r: number): RelationSpec =>
 	defined(spec.relations[r], `relation ${r}`)
 
-const isSequence = (family: FamilySpec): boolean => family.kind !== "counted"
+export const isSequence = (family: FamilySpec): boolean => family.kind !== "counted"
 
 /** The relation a copy's field is on: the member's for the owner and predecessor axes, the owner's for the last. */
 const holderOf = (spec: FillSpec, copy: CopySpec): number => {
@@ -778,10 +779,14 @@ const relationValue = (spec: FillSpec, r: number): AnyRelation => {
 		: relation(name, fields, ["id"], [])
 }
 
-/** The schema of a specification under any declared name, with its relation values by name. */
+/**
+ * The schema of a specification under any declared name, with its relation values by name, and each family's statement
+ * by its index, whose law a refusal at the family's own keys names.
+ */
 interface BuiltFill {
 	readonly relations: Readonly<Record<string, AnyRelation>>
 	readonly statements: ReadonlyArray<Statement>
+	readonly families: ReadonlyArray<AnyFamily>
 	readonly rename: (declared: string) => ReturnType<typeof schemaOf>
 }
 
@@ -819,11 +824,13 @@ export const buildFill = (spec: FillSpec): BuiltFill => {
 	const values = Arr.map(spec.relations, (_, r) => relationValue(spec, r))
 	const valueAt = (r: number): AnyRelation => defined(values[r], `the relation value ${r}`)
 	const statements: Array<Statement> = []
+	const families: Array<AnyFamily> = []
 	for (const [f, family] of spec.families.entries()) {
 		const owner = valueAt(family.owner)
 		const member = valueAt(family.member)
 		const slots = finBuilder(owner, countName(f))
 		const stated = familyStatement(family.kind, f, member, slots)
+		families.push(stated)
 		statements.push(stated)
 		if (family.fold !== "none") {
 			statements.push(
@@ -885,6 +892,7 @@ export const buildFill = (spec: FillSpec): BuiltFill => {
 	return {
 		relations,
 		statements,
+		families,
 		rename: (declared) => schemaOf(declared, relations, statements)
 	}
 }
@@ -1019,7 +1027,10 @@ export const fullInstance = (spec: FillSpec): ReadonlyArray<InstanceRow> =>
 	)
 
 /** A row's membership of family `f`: its owner and its slot; none when it is no member of `f`. */
-const membershipIn = (row: InstanceRow, f: number): InstanceRow["memberOf"][number] | undefined =>
+export const membershipIn = (
+	row: InstanceRow,
+	f: number
+): InstanceRow["memberOf"][number] | undefined =>
 	Option.getOrUndefined(Arr.findFirst(row.memberOf, (m) => m.family === f))
 
 /** The uuid an instance's row `id` is written as. */

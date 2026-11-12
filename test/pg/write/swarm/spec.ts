@@ -56,6 +56,7 @@ import {
 	type CopySource,
 	type FamilyKind,
 	type FillSpec,
+	groupName,
 	type InstanceRow,
 	relationName,
 	sourcesFor,
@@ -149,7 +150,6 @@ export type SwarmFeature = (typeof swarmFeatures)[number]
 
 export const plainName = (j: number): string => `P${j}`
 export const countName = (f: number): string => `n${f}`
-export const groupName = (f: number): string => `o${f}`
 const indexName = (f: number): string => `i${f}`
 const rootName = (f: number): string => `d${f}`
 const foldName = (f: number): string => `s${f}`
