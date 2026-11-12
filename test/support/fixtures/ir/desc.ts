@@ -94,7 +94,7 @@ const decodedChangeSet = (
 	reads: ReadonlyArray<ReadBackDesc>
 ): ChangeSetOf =>
 	decodedOrThrow(
-		decodeDesc("changeSet", { schema: "Test", strata: [{ members }], reads, bindings: [] })
+		decodeDesc("changeSet", { strata: [{ members }], reads, bindings: [] })
 	)
 
 export const decodedMember = (member: MemberDesc): MemberOf => {

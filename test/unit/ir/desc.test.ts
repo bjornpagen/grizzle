@@ -595,7 +595,6 @@ const current: QueryDesc = versioned(
 )
 
 const changeSet: ChangeSetDesc = {
-	schema: "Work",
 	strata: [
 		{
 			members: [

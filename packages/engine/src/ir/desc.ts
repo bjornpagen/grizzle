@@ -1157,8 +1157,11 @@ export interface ReadBackDesc<L = Located> {
 	readonly query: QueryDesc<L>
 }
 
+/**
+ * A ChangeSet's Description names no schema, as a QueryDesc names none: a ChangeSet value carries what it was built
+ * over, and a described ChangeSet compiles against the schema its caller names.
+ */
 export interface ChangeSetDesc<L = Located> {
-	readonly schema: string
 	/** One stratum unless built with ChangeSet.sequence. */
 	readonly strata: ReadonlyArray<{ readonly members: ReadonlyArray<MemberDesc<L>> }>
 	readonly reads: ReadonlyArray<ReadBackDesc<L>>
@@ -2423,7 +2426,6 @@ const memberDescShape: S.Shape<MemberDesc> = S.located(
  */
 const changeSetDescShape: S.Shape<ChangeSetDesc> = S.audited(
 	S.struct({
-		schema: name,
 		strata: S.nonEmptyArray(S.struct({ members: S.array(memberDescShape) })),
 		reads: S.uniqueArray(
 			S.struct({ name, query: queryDescShape }),

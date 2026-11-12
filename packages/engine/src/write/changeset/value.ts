@@ -448,7 +448,6 @@ const canonicalStrata = (
  * refuses it with the location of the first member whose slot it takes (changeSetDescShape).
  */
 const describe = (
-	over: BuiltOver,
 	strata: ReadonlyArray<ReadonlyArray<MemberState>>,
 	reads: ReadonlyArray<ReadBackState>,
 	bound: ReadonlyMap<string, BoundParam>
@@ -462,7 +461,6 @@ const describe = (
 		}
 	}
 	const desc: ChangeSetDesc = Object.freeze({
-		schema: overName(over),
 		strata: Object.freeze(
 			strata.map((members) => Object.freeze({ members: Object.freeze(members.map((m) => m.desc)) }))
 		),
@@ -678,7 +676,7 @@ const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stra
 	const scope = canonicalBindings({ strata, reads, bound: boundParams })
 	const canonical = Object.freeze(scope.strata)
 	const bound: ReadonlyMap<string, BoundParam> = scope.bound
-	const { desc, inputs } = describe(over, canonical, scope.reads, bound)
+	const { desc, inputs } = describe(canonical, scope.reads, bound)
 	const state: ChangeSetState = Object.freeze({
 		over,
 		strata: canonical,
