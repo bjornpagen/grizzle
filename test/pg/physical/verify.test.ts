@@ -728,7 +728,7 @@ layer(Substrate.layer)("catalog drift", (it) => {
 						assert.deepEqual(checkInstalled(baseline, scope), [], "the installation as installed")
 						const owner = baseline.owner
 						const roles = nonEmpty(
-							Arr.flatMap([...expect.logins.values()], (r) => [...r]),
+							Arr.flatMap([...expect.logins.values()], (l) => [...l.roles]),
 							"a world role"
 						)
 						const logins = nonEmpty([...expect.logins.keys()], "a login")

@@ -184,11 +184,15 @@ export interface InstalledRole {
 	readonly schema: string
 }
 
-/** One installed login, by its declared name: its PostgreSQL role and its roles, in name order. */
+/**
+ * One installed login, by its declared name: its PostgreSQL role, its roles, in name order, and the tables of the
+ * relations it fences (analysis/isolation/certify.ts Fence), on each of which it holds MAINTAIN (addLogin).
+ */
 export interface InstalledLogin {
 	readonly name: string
 	readonly role: string
 	readonly roles: ReadonlyArray<InstalledRole>
+	readonly fenced: ReadonlyArray<ObjectName>
 }
 
 export interface WorldsPlan {
@@ -1495,7 +1499,12 @@ const addLogin = (
 			)
 		)
 	return {
-		installed: { name: login.name, role, roles: outcomes.map((o) => o.installed) },
+		installed: {
+			name: login.name,
+			role,
+			roles: outcomes.map((o) => o.installed),
+			fenced: fencedTables
+		},
 		vector: outcomes.some((o) => o.vector),
 		writers: outcomes.flatMap((o) => o.writers),
 		views: outcomes.flatMap((o) => o.views)

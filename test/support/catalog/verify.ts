@@ -55,8 +55,8 @@ export interface ErasureExpectation {
 	readonly triggers: ReadonlyMap<string, InstalledTrigger>
 	/** The tables some world's entry narrows: the only ones with row security, and the only ones with policies. */
 	readonly rowSecure: ReadonlySet<string>
-	/** Each login's PostgreSQL role, and its worlds' roles, each also its world's schema. */
-	readonly logins: ReadonlyMap<string, ReadonlySet<string>>
+	/** Each login, by its PostgreSQL role. */
+	readonly logins: ReadonlyMap<string, ExpectedLogin>
 	/** Each world role's refreshed materialized views: the only MAINTAIN it holds. */
 	readonly refreshes: ReadonlyMap<string, ReadonlySet<string>>
 	/** The query entries' views, `<world schema>.<view>`: the only security_barrier views. */
@@ -66,6 +66,16 @@ export interface ErasureExpectation {
 	 * the installation holds besides the rosters'.
 	 */
 	readonly closedConstants: boolean
+}
+
+/**
+ * One login of the installation: its worlds' roles, each also its world's schema, and the tables it fences
+ * (physical/ddl/roles.ts InstalledLogin `fenced`), on each of which it holds MAINTAIN, the one privilege it holds on an
+ * authored table.
+ */
+export interface ExpectedLogin {
+	readonly roles: ReadonlySet<string>
+	readonly fenced: ReadonlySet<string>
 }
 
 /** An object of the installation a problem names: a relation is a table or a materialized view of the schema. */
@@ -328,10 +338,14 @@ interface Judging {
 	readonly worldRoles: ReadonlySet<string>
 }
 
+/** Whether `g` is a login's MAINTAIN on a table it fences, which its fenced writes lock before their snapshot. */
+const fenceGrant = (login: ExpectedLogin, g: HeldGrant): boolean =>
+	g.privilege === "MAINTAIN" && g.object.kind === "relation" && login.fenced.has(g.object.name)
+
 /**
  * Every grant names the owner, a world role holding only what its object allows, or a login holding what admission and
  * a Db transaction take as the login (`forLogins`: USAGE on the schema, SELECT on the ledger, EXECUTE on the snapshot
- * guard, nothing elsewhere); PUBLIC holds nothing.
+ * guard, nothing elsewhere) and MAINTAIN on each table it fences (fenceGrant); PUBLIC holds nothing.
  */
 const grantProblems = (
 	j: Judging,
@@ -346,8 +360,9 @@ const grantProblems = (
 		if (g.grantee === "PUBLIC") {
 			return [{ kind: "publicHolds", object: g.object, privilege: g.privilege }]
 		}
-		if (j.expect.logins.has(g.grantee)) {
-			return unless(forLogins.has(g.privilege), {
+		const login = j.expect.logins.get(g.grantee)
+		if (login !== undefined) {
+			return unless(forLogins.has(g.privilege) || fenceGrant(login, g), {
 				kind: "loginHolds",
 				object: g.object,
 				login: g.grantee,
@@ -407,7 +422,10 @@ const standingProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> =
 	})
 }
 
-/** What a non-owner's grant on a relation or a column of it confers: no TRUNCATE, UPDATE only when mutable, MAINTAIN only to a refresher. */
+/**
+ * What a non-owner's grant on a relation or a column of it confers: no TRUNCATE, UPDATE only when mutable, MAINTAIN
+ * only to a refresher of the view or a login fencing the table (fenceGrant).
+ */
 const conferredProblems = (j: Judging, t: Table, g: HeldGrant): ReadonlyArray<ErasureProblem> => {
 	if (g.grantee === j.owner) {
 		return []
@@ -423,11 +441,16 @@ const conferredProblems = (j: Judging, t: Table, g: HeldGrant): ReadonlyArray<Er
 		})
 	}
 	if (g.privilege === "MAINTAIN") {
-		return unless(j.expect.refreshes.get(g.grantee)?.has(t.name) === true, {
-			kind: "maintainBeyondRefresh",
-			view: t.name,
-			grantee: g.grantee
-		})
+		const login = j.expect.logins.get(g.grantee)
+		return unless(
+			j.expect.refreshes.get(g.grantee)?.has(t.name) === true ||
+				(login !== undefined && fenceGrant(login, g)),
+			{
+				kind: "maintainBeyondRefresh",
+				view: t.name,
+				grantee: g.grantee
+			}
+		)
 	}
 	return []
 }
@@ -458,6 +481,28 @@ const tableProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> => {
 		...Arr.flatMap([...own, ...columns], (g) => conferredProblems(j, t, g))
 	]
 }
+
+/** Every login holds MAINTAIN on each table it fences, which must stand. */
+const fenceProblems = (j: Judging): ReadonlyArray<ErasureProblem> =>
+	Arr.flatMap([...j.expect.logins], ([login, { fenced }]) =>
+		Arr.flatMap([...fenced], (table) =>
+			unless(
+				Arr.some(
+					j.catalog.tables,
+					(t) =>
+						t.kind === "r" &&
+						t.name === table &&
+						Arr.some(t.grants, (g) => g.grantee === login && g.privilege === "MAINTAIN")
+				),
+				{
+					kind: "loginLacks",
+					object: { kind: "relation", name: table },
+					login,
+					privilege: "MAINTAIN"
+				}
+			)
+		)
+	)
 
 /** Every refresher holds MAINTAIN on each materialized view it refreshes. */
 const refresherProblems = (j: Judging): ReadonlyArray<ErasureProblem> =>
@@ -888,13 +933,13 @@ const roleProblems = (
 			role: r.name
 		}
 	)
-	const worlds = j.expect.logins.get(r.name)
-	if (worlds !== undefined) {
+	const login = j.expect.logins.get(r.name)
+	if (login !== undefined) {
 		return [
 			...elevated,
 			...unless(r.login, { kind: "loginCannotLogIn", role: r.name }),
 			...unless(!r.inherit, { kind: "loginInherits", role: r.name }),
-			...membershipProblems(r.name, "memberOf", r.memberOf, worlds, noSetRole),
+			...membershipProblems(r.name, "memberOf", r.memberOf, login.roles, noSetRole),
 			...membershipProblems(r.name, "members", r.members, new Set(), inert),
 			...Arr.map(r.databaseConfig, (setting): ErasureProblem => ({
 				kind: "loginDatabaseSetting",
@@ -908,7 +953,7 @@ const roleProblems = (
 		return [...elevated, { kind: "undeclaredRole", role: r.name }]
 	}
 	const logins = new Set(
-		Arr.flatMap([...j.expect.logins], ([login, roles]) => (roles.has(r.name) ? [login] : []))
+		Arr.flatMap([...j.expect.logins], ([login, { roles }]) => (roles.has(r.name) ? [login] : []))
 	)
 	return [
 		...elevated,
@@ -1045,7 +1090,8 @@ const defaultAclProblems = (j: Judging): ReadonlyArray<ErasureProblem> => [
  *   in itself, reported once as such, never judged as a grizzle table;
  * - the grant shape: PUBLIC holds nothing on any schema object; a login holds exactly USAGE on the schema, SELECT on the
  *   migrations ledger and EXECUTE on the snapshot guard, which Db.open's admission and every Db transaction take as the
- *   login, and every other grant is the owner's or a world's role's; no role but the owner holds UPDATE, of the table
+ *   login, and MAINTAIN on each table it fences, which its fenced writes lock before their snapshot, and every other
+ *   grant is the owner's or a world's role's; no role but the owner holds UPDATE, of the table
  *   or of a column, on an immutable relation (immutable by default is pinned) or TRUNCATE on any relation (TRUNCATE
  *   fires no row trigger and would bypass the laws); a table grants only SELECT, INSERT, DELETE and UPDATE, a
  *   materialized view SELECT and MAINTAIN, the latter to exactly the roles that refresh it, a column SELECT, INSERT and
@@ -1079,7 +1125,7 @@ export const verifyErasure = (
 		catalog,
 		expect,
 		owner: catalog.owner,
-		worldRoles: new Set(Arr.flatMap([...expect.logins.values()], (roles) => [...roles]))
+		worldRoles: new Set(Arr.flatMap([...expect.logins.values()], (login) => [...login.roles]))
 	}
 	const schema: CatalogObject = { kind: "schema", name: catalog.schema }
 	const held = heldGrants(catalog)
@@ -1089,6 +1135,7 @@ export const verifyErasure = (
 		...loginLacks(j, schema, catalog.schemaGrants, "USAGE"),
 		...Arr.flatMap(catalog.tables, (t) => tableProblems(j, t)),
 		...refresherProblems(j),
+		...fenceProblems(j),
 		...Arr.flatMap(catalog.sequences, (q) =>
 			grantProblems(j, on({ kind: "sequence", name: q.name }, q.grants), allowed.none, allowed.none)
 		),
