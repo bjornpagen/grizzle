@@ -177,8 +177,25 @@ const printCatalogType = (name: CatalogTypeName): string => {
 const clockSeconds = (): string =>
 	`${inCatalog("extract")}(${printLiteral({ kind: "text", value: "epoch" }, types.text).text}, ${inCatalog("transaction_timestamp")}())`
 
+/**
+ * The microseconds in a second, the resolution PostgreSQL's timestamps hold (SI prefix micro, 10^-6).
+ *
+ * @formatConstant a second in microseconds: 10^6
+ */
+const microsPerSecond = 1_000_000n
+
+/**
+ * The milliseconds in a second, the resolution of JavaScript's Date (SI prefix milli, 10^-3).
+ *
+ * @formatConstant a second in milliseconds: 10^3
+ */
+const millisPerSecond = 1_000n
+
 /** The factor that counts seconds in a clock unit. */
-const clockFactors: { readonly [U in ClockUnit]: bigint } = { micros: 1_000_000n, millis: 1_000n }
+const clockFactors: { readonly [U in ClockUnit]: bigint } = {
+	micros: microsPerSecond,
+	millis: millisPerSecond
+}
 
 /**
  * The instant the call's transaction began counted in `unit` since the Unix epoch, floored (sql/ast.ts Expr clock): its

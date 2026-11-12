@@ -705,6 +705,11 @@ class StatementAuditor {
 			case "param":
 				this.placeholder(e.slot.number, e.type)
 				return
+			case "clock":
+				this.at("type", () => {
+					this.type(e.type)
+				})
+				return
 			case "literal":
 				this.literal(e.value, e.type)
 				return
@@ -2831,6 +2836,7 @@ const forEachAggregateCall = (e: Expr, f: (call: FunctionCall) => void): void =>
 		case "excluded":
 		case "returning":
 		case "param":
+		case "clock":
 		case "literal":
 		case "exists":
 		case "subquery":
