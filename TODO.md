@@ -367,6 +367,29 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   libxml and uuid off; the VM's set was never recorded. No test reads them (test/support/kernel/catalog-alphabet.ts
   reads only share/postgres.bki); pinning them would make the build the same on every host.
 
+- **Doomed foreign keys and rule triggers stand through the data steps (edullm, 2026-11-12):** a migration drops the
+  old laws it replaces only in its removals (05/06), after the reviewer's data steps in 02-structure. edullm's identity
+  migration retracts about half its imports in a data step while 224 old foreign keys and 41 rule triggers still stand,
+  so every deleted row queues an after-trigger event per key in memory. edullm drops the doomed keys and triggers in
+  its own data step and makes the drafted drops `IF EXISTS`, a downstream workaround. Draft the drops of every
+  foreign key and rule trigger that nothing after the data-step slot reads before that slot (never a primary key or
+  UNIQUE: the fills join through the old keys' indexes), with a property that no doomed RI or rule trigger stands at a
+  data step; then tell edullm to delete its workaround on its next migration.
+- **A steered failure's replay does not reproduce it (RESTATED, 2026-11-12):** when a search fails in its steered
+  phase, the case it reports after shrinking is the plain drawn case, not the aimed one that failed, so its
+  TEST_REPLAY token can pass alone. The replay must reproduce the failing case, aim included (packages/testing).
+- **Unreported witness on a native unique met by a family insert (WITNESS, known red on main):** a family INSERT that
+  meets a native UNIQUE (a member's primary key, an ordered family's (group, index), a tree's key) is refused with an
+  `unreported` witness (runtime/write/witness.ts uniqueJudgement; adapter/witness/classify.ts), against README's
+  witness contract. test/pg/fin/counted-set and test/pg/write/reinsert stay red on it. The fix is on the live branch
+  (283f0295, d7cc2586, 899b370d: every family insert probes each unique it does not arbitrate); main takes it only by
+  the owner's word, since nothing moves from live to main.
+- **oxlint crashes on cassowary's Node (2026-11-12):** oxlint 1.91.0's linux-arm64 binding fails `v8::ArrayBuffer::New`
+  with out-of-memory at its default thread count under the official Node 26.13.1 build, which has the V8 sandbox and
+  pointer compression on; the whole repository lints at `--threads=2` and crashes at 4 and 8. Find the allocation
+  that outgrows the sandbox, write the fix as upstream/oxlint-v8-sandbox for the owner to file, and lint at the
+  default thread count again once a release carries it.
+
 ### Parked by the scope lock (the owner, 2026-11-10)
 - **UPSTREAM:** an audit of every upstream/ and scripts/pg/patches patch to maintainer quality (the owner's order,
   2026-11-10).
