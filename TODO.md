@@ -56,17 +56,6 @@ post-beta swarm's fixes for the next release.
   reordering that index, under a boolean loaded half and half: btree_gist splits the boolean cleanly, so the needed
   check would call the fix's B-tree unneeded. That is a false red of the suite, never a false claim of the engine. The
   Shift and Rota kept cases pin the mechanism with a skewed boolean.
-- **Family removals statements scan a whole stored member table (ONERTT-WRITE2, with its removals fixes):** the
-  defect the family owner's insert had (a stored relation read through a condition PostgreSQL cannot drive from the
-  call's rows, so a sequential scan and a relation-level SIRead lock, a false 40001 between overlapping writers of one
-  relation and a whole-table read per call). In write/family/removals.ts three statements read the member table
-  `FROM <member> s WHERE <an OR of EXISTS over the call's rows>`, which no semi-join plans: the removed members
-  (`removing`, a delete's key OR a put that moves the row out of its groups), the members a refill's ways reach
-  (`reached`, an OR over the ways, each a chain of EXISTS from the root facts through the owners), and the rows both
-  an edit and a refill reach (`holds(updated)` OR `holds(reached)`). Each should read its rows from the call's rows
-  joined to the member by key or group, one arm per way or per kind of change, under UNION where arms may meet. No
-  served write of qti-pie or edullm holds a family put or delete. Every other read of a stored relation in
-  write/insert, write/put, write/delete and write/family/additions is driven from the call's rows by key or group.
 - **Multi-schema follow-ups:** the guards, the planted bugs and every PostgreSQL suite's multi-level fixtures, landed
   after its first commit.
 - **Stopped 2026-11-08 to focus on speed, resume before the full verification run:**

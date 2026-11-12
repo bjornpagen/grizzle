@@ -45,7 +45,7 @@ import { familyKey, type LawField, type NativeColumn, type RelationInfo } from "
 import { WriteParams } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
-import type { Assignment, Cte, Expr, SetArm } from "#compiler/sql/ast.ts"
+import type { Assignment, Cte, Expr, FromItem, SetArm } from "#compiler/sql/ast.ts"
 import {
 	and,
 	binary,
@@ -56,6 +56,7 @@ import {
 	cte,
 	cteRef,
 	cteRefAs,
+	core,
 	distinctCore,
 	eq,
 	exists,
@@ -69,6 +70,7 @@ import {
 	or,
 	provedCore,
 	select,
+	setOperation,
 	simpleSelect,
 	target,
 	targetAs,
@@ -199,6 +201,123 @@ const layoutKeys = (layout: RowLayout): ReadonlyArray<ColumnKey> => [
 	...layout.key.map((c) => c.key),
 	...layout.columns.map((c) => c.key)
 ]
+
+/**
+ * One way a family statement finds a relation's stored rows: the rows of `from` under `where`, driven from the call's
+ * rows (a slot's facts, a CTE over them, or rows joined from them by key or group, each a read by index), at the
+ * relation's primary key (`key`, one expression per primary field in order).
+ */
+interface KeyArm {
+	readonly from: ReadonlyArray<FromItem>
+	readonly where: Expr | undefined
+	readonly key: NonEmptyReadonlyArray<Expr>
+}
+
+/**
+ * The primary keys a family statement finds a relation's stored rows at: one CTE, the union of its arms (`KeyArm`),
+ * each driven from the call's rows, so the statement reads the stored table only at its primary key from them. A
+ * condition over every stored row instead, an OR of EXISTS over the call's rows, plans as no semi-join but a sequential
+ * scan: a whole-table read per call and a relation SIRead lock, which fails overlapping writers of the relation with
+ * 40001. No family statement reads a stored table so.
+ */
+interface Keyset {
+	readonly name: string
+	/** One column per primary field of the relation, in order. */
+	readonly columns: NonEmptyReadonlyArray<string>
+}
+
+/** The keyset of `arms` over `relation`'s primary key, its CTE pushed onto `ctes`. */
+const keysetOf = (
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	relation: RelationInfo,
+	arms: NonEmptyReadonlyArray<KeyArm>
+): Keyset => {
+	const name = supply.relation(internal("keyset"))
+	const columns = mapNonEmpty(relation.primaryFields, () => supply.column(internal("keyset key")))
+	const [first, second, ...rest] = arms
+	const armCore = (arm: KeyArm) =>
+		core(
+			arm.key.map((e) => target(e)),
+			arm.from,
+			arm.where
+		)
+	ctes.push(
+		cte(
+			name,
+			[...columns],
+			select(
+				second === undefined
+					? distinctCore(
+							mapNonEmpty(first.key, (e) => target(e)),
+							first.from,
+							first.where
+						)
+					: setOperation("UNION", [armCore(first), armCore(second), ...rest.map(armCore)])
+			)
+		)
+	)
+	return { name, columns }
+}
+
+/** Whether the stored row of `relation` at alias `s` is the keyset's row at alias `k`, at every primary field. */
+const keyedAt = (
+	w: WriteContext,
+	relation: RelationInfo,
+	k: string,
+	keyset: Keyset,
+	s: string
+): Expr =>
+	and(
+		mapNonEmpty(relation.primaryFields, (f, i) =>
+			typedEq(
+				f.type,
+				col(s, w.names.column(relation.name, f.name)),
+				col(k, defined(keyset.columns[i], "a keyset column")),
+				w.names
+			)
+		)
+	)
+
+/** The stored rows of `relation` under alias `s` at the keys its arms find (`Keyset`): the keyset joined to them. */
+const storedAtKeys = (
+	w: WriteContext,
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	relation: RelationInfo,
+	s: string,
+	arms: NonEmptyReadonlyArray<KeyArm>
+): FromItem => {
+	const keyset = keysetOf(supply, ctes, relation, arms)
+	const k = supply.relation(internal("keyset row"))
+	return join(
+		cteRefAs(keyset.name, k),
+		tableAs(w, relation.name, s),
+		keyedAt(w, relation, k, keyset, s)
+	)
+}
+
+/** The primary key of `relation` as the rows of `shaped` at alias `r` hold it, a field's column each. */
+const shapedKey = (
+	relation: RelationInfo,
+	shaped: Shaped,
+	r: string
+): NonEmptyReadonlyArray<Expr> =>
+	mapNonEmpty(relation.primaryFields, (f) => col(r, columnAt(shaped, fieldKey(f.name))))
+
+/** The primary key of `relation` as its stored row at alias `s` holds it. */
+const storedKey = (
+	w: WriteContext,
+	relation: RelationInfo,
+	s: string
+): NonEmptyReadonlyArray<Expr> =>
+	mapNonEmpty(relation.primaryFields, (f) => col(s, w.names.column(relation.name, f.name)))
+
+/** The arm of the rows of `shaped`, a CTE keyed by `relation`'s primary key, at that key: it reads no stored table. */
+const shapedArm = (supply: NameSupply, relation: RelationInfo, shaped: Shaped): KeyArm => {
+	const r = supply.relation(internal("keyed source"))
+	return { from: [cteRefAs(shaped.name, r)], where: undefined, key: shapedKey(relation, shaped, r) }
+}
 
 /**
  * The family removals of a stratum (see the header): its edited members' deletions, re-placements and updates in place,
@@ -398,18 +517,26 @@ const cascaded = (
 	/** The rows of the owner of the way's hop at `level`, under alias `o`: the root's facts, or the owner's table. */
 	const ownerRows = (way: RefillWay, level: number, o: string) =>
 		level === 0 ? cteRefAs(factsOf(way).name, o) : tableAs(w, hopAt(way, level).owner.name, o)
-	/** Whether a row of `level`'s members at alias `at` is one the way reaches: its owner is a root's row, or a row the
-	 * level before it reaches. */
-	const reached = (way: RefillWay, level: number, at: string): Expr => {
-		const o = supply.relation(internal("cascading owner"))
-		const named = naming(way, level, at, o)
-		return exists(
-			simpleSelect(
-				[target(one)],
-				[ownerRows(way, level, o)],
-				level === 0 ? named : and([named, reached(way, level - 1, o)])
-			)
-		)
+	/**
+	 * The arm of the rows a way reaches: its root's rows, each hop's members joined from the rows before them by the group
+	 * naming them, by index, the last hop's members the relation's rows it reaches, at their primary key.
+	 */
+	const wayArm = (way: RefillWay): KeyArm => {
+		const root = supply.relation(internal("refill root"))
+		const at = mapNonEmpty(way.hops, () => supply.relation(internal("reached member")))
+		const atLevel = (level: number): string => defined(at[level], "a hop's members")
+		return {
+			from: [
+				cteRefAs(factsOf(way).name, root),
+				...way.hops.map((hop, level) => tableAs(w, hop.member.name, atLevel(level)))
+			],
+			where: and(
+				mapNonEmpty(way.hops, (_, level) =>
+					naming(way, level, atLevel(level), level === 0 ? root : atLevel(level - 1))
+				)
+			),
+			key: storedKey(w, member.relation, atLevel(way.hops.length - 1))
+		}
 	}
 	/** The value at `key` of a row of `level`'s members at alias `at` as the way leaves it: the value its owner holds at
 	 * the column a hop's pair copies into `key`, where `key` changes, else none. */
@@ -468,8 +595,8 @@ const cascaded = (
 				provedCore(
 					"keyed",
 					keys.map((k) => targetAs(valueOf(k), columnAt(out, k))),
-					[tableAs(w, name, s)],
-					or(mapNonEmpty(ways, (way) => reached(way, way.hops.length - 1, s)))
+					[storedAtKeys(w, supply, ctes, member.relation, s, mapNonEmpty(ways, wayArm))],
+					undefined
 				)
 			)
 		)
@@ -544,8 +671,13 @@ const merged = (
 							columnAt(out, k)
 						)
 					),
-					[tableAs(w, name, s)],
-					and([or([holds(edit.updated), holds(reached)]), not(holds(edit.removed))])
+					[
+						storedAtKeys(w, supply, ctes, member.relation, s, [
+							shapedArm(supply, member.relation, edit.updated),
+							shapedArm(supply, member.relation, reached)
+						])
+					],
+					not(holds(edit.removed))
 				)
 			)
 		)
@@ -617,31 +749,32 @@ const readEdit = (
 			)
 		)
 	const s = supply.relation(internal("edited stored row"))
-	const p = supply.relation(internal("edited put"))
-	const d = supply.relation(internal("edited delete"))
-	const putAt = (moved: boolean): Expr | undefined => {
+	/** The arm of the puts that move their stored row out of a group of some family: each put's fact joined to its stored
+	 * row by the primary key, their groups compared. */
+	const moved = (): ReadonlyArray<KeyArm> => {
 		if (put === undefined) {
-			return undefined
+			return []
 		}
 		const puts = put.facts
+		const p = supply.relation(internal("edited put"))
+		const ps = supply.relation(internal("moved stored row"))
 		const groups = sameGroups(
 			w,
 			member,
 			(field) => col(p, columnAt(puts, fieldKey(field))),
-			(field) => col(s, w.names.column(name, field))
+			(field) => col(ps, w.names.column(name, field))
 		)
-		const where = and([
-			at(p, puts, s),
-			...(groups === undefined ? [] : [moved ? not(groups) : groups])
-		])
-		return exists(simpleSelect([target(one)], [cteRefAs(puts.name, p)], where))
+		return [
+			{
+				from: [join(cteRefAs(puts.name, p), tableAs(w, name, ps), at(p, puts, ps))],
+				where: groups === undefined ? undefined : not(groups),
+				key: shapedKey(relation, puts, p)
+			}
+		]
 	}
-	const moved = putAt(true)
-	const removing = [
-		...(deletes === undefined
-			? []
-			: [exists(simpleSelect([target(one)], [cteRefAs(deletes.name, d)], at(d, deletes, s)))]),
-		...(moved === undefined ? [] : [moved])
+	const removing: ReadonlyArray<KeyArm> = [
+		...(deletes === undefined ? [] : [shapedArm(supply, relation, deletes)]),
+		...moved()
 	]
 	const removed = shapedCte(supply, "removed member", keys)
 	const storedColumns = keys.map((k) =>
@@ -652,12 +785,14 @@ const readEdit = (
 			removed.name,
 			[...removed.columns.values()],
 			select(
-				provedCore(
-					"keyed",
-					storedColumns,
-					[tableAs(w, name, s)],
-					isNonEmpty(removing) ? or(removing) : lit.bool(false)
-				)
+				isNonEmpty(removing)
+					? provedCore(
+							"keyed",
+							storedColumns,
+							[storedAtKeys(w, supply, ctes, relation, s, removing)],
+							undefined
+						)
+					: provedCore("keyed", storedColumns, [tableAs(w, name, s)], lit.bool(false))
 			)
 		)
 	)
@@ -1433,18 +1568,6 @@ const deleteOf = (
 	const relation = read.member.relation
 	const name = relation.name
 	const t = supply.relation(internal("deleted row"))
-	const keyAt = (alias: string, shape: Shaped): Expr =>
-		and(
-			mapNonEmpty(relation.primaryFields, (f) =>
-				typedEq(
-					f.type,
-					col(t, w.names.column(name, f.name)),
-					col(alias, columnAt(shape, fieldKey(f.name))),
-					w.names
-				)
-			)
-		)
-	const r = supply.relation(internal("deleted removed"))
 	const replacing = replacingOf(read, redrawn)
 	const replaced: ReadonlyArray<Shaped> =
 		replacing.kind === "every"
@@ -1452,13 +1575,11 @@ const deleteOf = (
 			: replacing.kind === "sequence"
 				? [replacing.scan]
 				: []
-	const conditions: NonEmptyReadonlyArray<Expr> = [
-		exists(simpleSelect([target(one)], [cteRefAs(read.removed.name, r)], keyAt(r, read.removed))),
-		...replaced.map((shape) => {
-			const s = supply.relation(internal("deleted re-placed"))
-			return exists(simpleSelect([target(one)], [cteRefAs(shape.name, s)], keyAt(s, shape)))
-		})
-	]
+	const keyset = keysetOf(supply, ctes, relation, [
+		shapedArm(supply, relation, read.removed),
+		...replaced.map((shape) => shapedArm(supply, relation, shape))
+	])
+	const k = supply.relation(internal("deleted key"))
 	const fields = [
 		...relation.primaryFields,
 		...relation.heading.filter((f) => !relation.primaryFields.includes(f))
@@ -1474,8 +1595,8 @@ const deleteOf = (
 			with: undefined,
 			table: w.names.relation(name),
 			alias: t,
-			using: [],
-			where: or(conditions),
+			using: [cteRefAs(keyset.name, k)],
+			where: keyedAt(w, relation, k, keyset, t),
 			returning: returned.map((x) => targetAs(col(t, w.names.column(name, x.field.name)), x.alias))
 		})
 	)
@@ -1915,15 +2036,30 @@ const recountOf = (
 		return { family, last }
 	})
 	const o = supply.relation(internal("recounted owner"))
-	const ownerKey = (family: Family): ReadonlyArray<Expr> =>
-		family.group.map((gr) => col(o, w.names.column(name, gr.owner.name)))
+	/** The columns of the owner row at alias `alias` a family's group names. */
+	const ownerKeyAt = (family: Family, alias: string): ReadonlyArray<Expr> =>
+		family.group.map((gr) => col(alias, w.names.column(name, gr.owner.name)))
 	/** The recount source's row of the owner row's group, read as `l`. */
 	const at = (family: Family, last: PerGroup, l: string) =>
-		sameGroupExprs(w.names, family, ownerKey(family), l, last.group)
-	const hasGroup = (family: Family, last: PerGroup): Expr => {
+		sameGroupExprs(w.names, family, ownerKeyAt(family, o), l, last.group)
+	/** The arm of a family's recounted groups: each group's owner row joined by the key its group names, by index. */
+	const ownerArm = (x: { readonly family: Family; readonly last: PerGroup }): KeyArm => {
 		const l = supply.relation(internal("recount source"))
-		return exists(simpleSelect([target(one)], [cteRefAs(last.name, l)], at(family, last, l)))
+		const owned = supply.relation(internal("recounted owner key"))
+		return {
+			from: [
+				join(
+					cteRefAs(x.last.name, l),
+					tableAs(w, name, owned),
+					sameGroupExprs(w.names, x.family, ownerKeyAt(x.family, owned), l, x.last.group)
+				)
+			],
+			where: undefined,
+			key: storedKey(w, owner, owned)
+		}
 	}
+	const keyset = keysetOf(supply, ctes, owner, mapNonEmpty(lasts, ownerArm))
+	const k = supply.relation(internal("recounted key"))
 	/** A family's recounted value of an owner column, else its stored one: a recounted count or end is never NULL. */
 	const recounted = (family: Family, last: PerGroup, column: string, stored: Expr): Expr => {
 		const l = supply.relation(internal("recount value"))
@@ -1976,9 +2112,9 @@ const recountOf = (
 			table: w.names.relation(name),
 			alias: o,
 			set: [firstSet, ...restSets],
-			from: [cteRefAs(barrier, b)],
+			from: [cteRefAs(barrier, b), cteRefAs(keyset.name, k)],
 			where: and([
-				or(mapNonEmpty(lasts, (x) => hasGroup(x.family, x.last))),
+				keyedAt(w, owner, k, keyset, o),
 				restChanges.length === 0 ? firstChange : or([firstChange, ...restChanges])
 			]),
 			returning: returning.returning

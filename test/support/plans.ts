@@ -10,6 +10,7 @@ import type { ObjectName } from "#compiler/sql/ast.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
+import type { RoleDefault } from "#test/support/substrate/substrate.ts"
 
 /**
  * The plan property of a workload read, as the plans suites judge every statement a read sends
@@ -171,11 +172,13 @@ const explained = (admin: PgConnection, name: string, st: Sent) =>
 /**
  * The settings every judged statement is planned under (see the header): sequential and index scans disabled, and
  * index-only scans never considered, so PostgreSQL builds no index path of no condition that a bitmap scan could read.
+ * Each is a parameter and its value, which a transaction sets LOCAL (sentProblems) and a role's sessions take as their
+ * defaults (ALTER ROLE ... SET), so a served member's own explain plans under them.
  */
-const judgedSettings: ReadonlyArray<string> = [
-	"SET LOCAL enable_seqscan = off",
-	"SET LOCAL enable_indexscan = off",
-	"SET LOCAL enable_indexonlyscan = off"
+export const judgedSettings: ReadonlyArray<RoleDefault> = [
+	{ parameter: "enable_seqscan", value: "off" },
+	{ parameter: "enable_indexscan", value: "off" },
+	{ parameter: "enable_indexonlyscan", value: "off" }
 ]
 
 /**
@@ -194,7 +197,11 @@ export const sentProblems = (
 		admin.query("BEGIN", []),
 		() =>
 			Effect.andThen(
-				Effect.forEach(judgedSettings, (setting) => admin.query(setting, []), { discard: true }),
+				Effect.forEach(
+					judgedSettings,
+					(setting) => admin.query(`SET LOCAL ${setting.parameter} = ${setting.value}`, []),
+					{ discard: true }
+				),
 				Effect.map(
 					Effect.forEach(sent, (st) =>
 						Effect.map(explained(admin, name, st), (plan) =>
