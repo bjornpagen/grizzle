@@ -52,7 +52,7 @@ import type {
 	PlannedGroup,
 	ReportOptions
 } from "#names/plan.ts"
-import { reservedCliNames, reservedEnvSuffixes } from "#names/reserved.ts"
+import { reservedCommandNames, reservedEnvSuffixes, reservedFlagNames } from "#names/reserved.ts"
 
 export type {
 	PlannedCertificate,
@@ -669,7 +669,8 @@ const checkGroups = (
 		return related
 	}
 	const reserved = (node: GroupNode): boolean =>
-		reservedCliNames.has(node.name) || (node.parent === undefined && authorCommands.has(node.name))
+		reservedCommandNames.has(node.name) ||
+		(node.parent === undefined && authorCommands.has(node.name))
 	for (const candidate of candidates) {
 		const { groupHint: hint, operation, tagPointer } = candidate
 		for (const node of candidate.chain) {
@@ -727,7 +728,7 @@ const nameCommand = (
 
 	const { folded, source } = name.success
 	const atRoot = candidate.container === root
-	if (reservedCliNames.has(folded.name) || (atRoot && authorCommands.has(folded.name))) {
+	if (reservedCommandNames.has(folded.name) || (atRoot && authorCommands.has(folded.name))) {
 		collector.report(
 			operation,
 			"OPR-06/reserved-name",
@@ -912,7 +913,7 @@ const planCredentials = (
 			(envCounts.get(credential.env) ?? 0) > 1 ||
 			(flagCounts.get(credential.flag) ?? 0) > 1 ||
 			reservedEnv.has(credential.env) ||
-			reservedCliNames.has(credential.flag)
+			reservedFlagNames.has(credential.flag)
 		)
 	}
 

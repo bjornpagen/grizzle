@@ -33,7 +33,7 @@ import type {
 	SafeIdentifierValue
 } from "#names/fold.ts"
 import { foldKebab, words } from "#names/fold.ts"
-import { reservedCliNames } from "#names/reserved.ts"
+import { reservedFlagNames } from "#names/reserved.ts"
 import { envName, schemeSlug } from "#runtime-src/runtime/auth.ts"
 import type { MutualTlsScheme, SecurityScheme as RuntimeScheme } from "#runtime-src/runtime/auth.ts"
 
@@ -1529,7 +1529,7 @@ const checkFlags = (subject: Subject, context: DraftContext, owners: Owners): vo
 	for (const [name, list] of owners) {
 		const reserved =
 			Arr.some(list, (owner) => owner.kind !== "positional") &&
-			(reservedCliNames.has(name) || context.credentialFlags.has(name))
+			(reservedFlagNames.has(name) || context.credentialFlags.has(name))
 		const [primary, ...rest] = Arr.sort(list, positionalFirst)
 		if (primary === undefined || (rest.length === 0 && !reserved)) {
 			continue

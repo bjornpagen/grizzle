@@ -11,7 +11,7 @@ import { DocumentUri } from "#model/brands.ts"
 import type { Server } from "#model/entities.ts"
 import { packageImports, rootNamespaceImports, runtimeNamespaces } from "#names/domain.ts"
 import { planNames } from "#names/index.ts"
-import { reservedCliNames } from "#names/reserved.ts"
+import { reservedCommandNames } from "#names/reserved.ts"
 import { normalize } from "#normalize/index.ts"
 import { boundOrigins } from "#normalize/servers.ts"
 import generatorPackage from "#package.json" with { type: "json" }
@@ -229,14 +229,17 @@ describe("api namespaces of groups that fold to a package import name", () => {
 	})
 })
 
-// Every name a cli module binds from an import it always writes (the package imports, the runtime
-// namespaces and the `cli/root.ts` namespaces) whose kebab form a group may take: `describe`,
-// `output` and `base-url` are reserved cli names, refused as group names before any fold.
 const kebab = (name: string): string => name.replaceAll(/(?<=[a-z])(?=[A-Z])/gu, "-").toLowerCase()
 
+/**
+ * Every name a cli module binds from an import it always writes (the package imports, the runtime
+ * namespaces and the `cli/root.ts` namespaces) whose kebab form a group may take: only the reserved
+ * command names are refused as group names before any fold, so `describe`, `output` and `base-url`
+ * are groups like any other.
+ */
 const importNames = [...packageImports, ...runtimeNamespaces, ...rootNamespaceImports]
 	.map(([name]) => name)
-	.filter((name) => !reservedCliNames.has(kebab(name)))
+	.filter((name) => !reservedCommandNames.has(kebab(name)))
 
 // One group per import name, its group name the kebab form that folds back to it.
 const everyImportNamePaths = Object.fromEntries(

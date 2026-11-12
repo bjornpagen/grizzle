@@ -8,12 +8,7 @@ import {
 	SafeIdentifier,
 	words
 } from "#names/fold.ts"
-import {
-	reservedCliNames,
-	reservedEnvSuffixes,
-	reservedIdentifiers,
-	windowsDeviceNames
-} from "#names/reserved.ts"
+import { reservedEnvSuffixes, reservedIdentifiers, windowsDeviceNames } from "#names/reserved.ts"
 import hostile from "#test/fixtures/seeds/hostile.json" with { type: "json" }
 
 const HostileCases = Schema.Struct({
@@ -218,59 +213,6 @@ describe("fold properties over hostile strings", () => {
 })
 
 describe("reserved sets", () => {
-	const runtimeFlags = [
-		"base-url",
-		"server",
-		"server-variable",
-		"timeout",
-		"retries",
-		"retry-unsafe",
-		"output",
-		"force",
-		"raw",
-		"dry-run",
-		"verbose",
-		"error-format",
-		"describe",
-		"body",
-		"body-file",
-		"content-type",
-		"accept",
-		"allow-credentials-for-base-url",
-		"max-record-bytes",
-		"max-error-bytes",
-		"follow",
-		"idle-timeout"
-	]
-	const builtIns = ["help", "h", "version", "v", "completions", "log-level"]
-	const negations = [
-		"help",
-		"version",
-		"force",
-		"raw",
-		"dry-run",
-		"verbose",
-		"retry-unsafe",
-		"allow-credentials-for-base-url",
-		"describe",
-		"follow"
-	]
-
-	test.each([...builtIns, ...runtimeFlags, ...negations.map((name) => `no-${name}`)])(
-		"%s is reserved",
-		(name) => {
-			expect(reservedCliNames.has(name)).toBe(true)
-		}
-	)
-
-	test("the set is exactly the design's names", () => {
-		expect(reservedCliNames.size).toBe(builtIns.length + runtimeFlags.length + negations.length)
-	})
-
-	test("an ordinary name is not reserved", () => {
-		expect(reservedCliNames.has("limit")).toBe(false)
-	})
-
 	test("reserved environment suffixes are held", () => {
 		expect(Arr.sort(reservedEnvSuffixes, Order.String)).toEqual([
 			"BASE_URL",

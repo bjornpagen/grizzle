@@ -1,4 +1,5 @@
-const builtInNames: readonly string[] = ["completions", "h", "help", "log-level", "v", "version"]
+/** Effect's built-in global flags a generated CLI keeps, with their one-letter forms. */
+const builtInFlags: readonly string[] = ["completions", "h", "help", "log-level", "v", "version"]
 
 const runtimeFlags: readonly string[] = [
 	"accept",
@@ -25,8 +26,10 @@ const runtimeFlags: readonly string[] = [
 	"verbose"
 ]
 
-// Effect negates every boolean flag as `no-<name>` and throws on a duplicate, so each
-// boolean's negation is reserved with it. Built-ins negate on their long names only.
+/**
+ * The boolean flags: Effect negates every boolean flag as `no-<name>` and throws on a duplicate,
+ * so each boolean's negation is reserved with it. Built-ins negate on their long names only.
+ */
 const booleanNames: readonly string[] = [
 	"allow-credentials-for-base-url",
 	"describe",
@@ -41,16 +44,26 @@ const booleanNames: readonly string[] = [
 ]
 
 /**
- * Flag and command names a specification may not claim (design 4.4): Effect built-ins, the
- * runtime's flags (including those not yet emitted, so later milestones rename nothing) and
- * every `no-<boolean>` negation. `<scheme>-file` flags depend on the specification and are not
- * listed here.
+ * Flag names a specification may not claim (design 4.4): Effect's built-in flags, the runtime's
+ * flags (including those not yet emitted, so later milestones rename nothing) and every
+ * `no-<boolean>` negation. Flags and commands are two namespaces: a `--flag` token and a command
+ * token never meet in effect/cli's parsing, and negation exists only for flags, so these names are
+ * held against body, parameter and credential flags only, never against a group or command name.
+ * `<scheme>-file` flags depend on the specification and are not listed here.
  */
-export const reservedCliNames: ReadonlySet<string> = new Set([
-	...builtInNames,
+export const reservedFlagNames: ReadonlySet<string> = new Set([
+	...builtInFlags,
 	...runtimeFlags,
 	...booleanNames.map((name) => `no-${name}`)
 ])
+
+/**
+ * Group and command names a specification may not claim (design 4.4): the words an operator types
+ * for the CLI's own help, version and completions. They are held against group and command names
+ * only; an operation that folds to a runtime flag's name, such as `follow` or `timeout`, is a
+ * command like any other.
+ */
+export const reservedCommandNames: ReadonlySet<string> = new Set(["completions", "help", "version"])
 
 /**
  * The reserved environment names after `<PREFIX>_` (design 4.4). The per-scheme mutual TLS

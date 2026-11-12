@@ -8,7 +8,7 @@ import type { Api } from "#model/entities.ts"
 import type { NamePlan } from "#names/index.ts"
 import { envPrefixOf } from "#names/plan.ts"
 import type { PlannedCredential } from "#names/plan.ts"
-import { reservedCliNames } from "#names/reserved.ts"
+import { reservedCommandNames, reservedFlagNames } from "#names/reserved.ts"
 
 /**
  * What the README is written from: the model (webhooks), the author config (bin name), the name
@@ -58,9 +58,12 @@ const exitCodes: readonly (readonly [number, string])[] = [
 	[130, "interrupted"]
 ]
 
-const reserved = Arr.sort([...reservedCliNames], Order.String)
-	.map((name) => `\`${name}\``)
-	.join(", ")
+/** A reserved set as the README lists it: each name in code, in order. */
+const listed = (names: ReadonlySet<string>): string =>
+	Arr.join(
+		Arr.map(Arr.sort([...names], Order.String), (name) => `\`${name}\``),
+		", "
+	)
 
 const usage = (bin: string): string =>
 	[
@@ -68,7 +71,7 @@ const usage = (bin: string): string =>
 		`\`\`\`sh\n${bin} --help\n${bin} <command> --help\n\`\`\``,
 		"Every command's `--help` shows its flags, request body fields, credentials and responses.",
 		"Write a flag value that starts with `-` as `--flag=-value`: `--flag -value` is a usage error (exit 2), and help and version have no `-h` or `-v` short form.",
-		`These names belong to the CLI, so no command or flag of the description may claim them: ${reserved}. Each credential's \`<scheme>-file\` flag is reserved as well.`
+		`These flag names belong to the CLI, so no flag of the description may claim them: ${listed(reservedFlagNames)}. Each credential's \`<scheme>-file\` flag is reserved as well. These command names belong to the CLI, so no command or group may claim them: ${listed(reservedCommandNames)}. Flags and commands are separate: a command may share a flag's name.`
 	].join("\n\n")
 
 const credentialLine = (credential: PlannedCredential): string =>

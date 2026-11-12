@@ -14,7 +14,7 @@ import { formatPointer } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import type { FoldNote } from "#names/fold.ts"
 import { foldKebab } from "#names/fold.ts"
-import { reservedCliNames } from "#names/reserved.ts"
+import { reservedFlagNames } from "#names/reserved.ts"
 
 /**
  * What a flag carries: a typed scalar, a JSON text (`--<prop> <json>`), a file path or `-` (a
@@ -953,10 +953,10 @@ const clashOrder = Order.combine(
 )
 
 const clashesOf = (flag: BodyFlag): readonly ReservedClash[] => [
-	...(reservedCliNames.has(flag.name)
+	...(reservedFlagNames.has(flag.name)
 		? [{ flag: flag.name, name: flag.name, pointer: flag.pointer }]
 		: []),
-	...(flag.kind === "boolean" && !flag.repeated && reservedCliNames.has(`no-${flag.name}`)
+	...(flag.kind === "boolean" && !flag.repeated && reservedFlagNames.has(`no-${flag.name}`)
 		? [{ flag: `no-${flag.name}`, name: flag.name, pointer: flag.pointer }]
 		: [])
 ]
