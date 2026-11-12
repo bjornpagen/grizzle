@@ -2,17 +2,20 @@ import { NodeCrypto, NodeServices } from "@effect/platform-node"
 import { HARDENED_FLAGS } from "@superstarter/testing/vitest/config"
 import {
 	Array as Arr,
+	Deferred,
 	Effect,
+	Fiber,
 	FileSystem,
 	Layer,
 	Option,
 	Path,
 	type PlatformError,
 	Record as Rec,
+	Ref,
 	Schema,
 	Stream
 } from "effect"
-import { ChildProcess, type ChildProcessSpawner } from "effect/process"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { generate, type GenerateResult } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { type Finished, finished } from "#test/support/process.ts"
@@ -192,3 +195,50 @@ export const runBin = (
 			killSignal: "SIGKILL"
 		})
 	)
+
+/** A run of a built bin on a terminal: its exit code, and every byte the terminal showed, prompts and output alike. */
+type TerminalRun = Readonly<{ exitCode: number; terminal: Uint8Array }>
+
+/** One terminal run: its arguments, its whole environment, and the line the operator types once the terminal shows anything. */
+export type TerminalInvocation = Readonly<{
+	args: ReadonlyArray<string>
+	env: Readonly<Record<string, string>>
+	typed: string
+}>
+
+/**
+ * Runs a built bin under the hardened flags on a pseudo-terminal that script(1) opens, as an operator at a terminal runs
+ * it: its stdin, stdout and stderr are the terminal, which a prompt needs. Once the terminal shows its first bytes, the
+ * operator types `typed` and a carriage return; the run then reads the terminal until the bin exits. What the terminal
+ * shows holds whatever the terminal echoes, so a secret typed without echo never appears in it.
+ */
+export const runBinOnTerminal = Effect.fn("cliPackage.terminal")(function* (
+	built: BuiltPackage,
+	invocation: TerminalInvocation
+) {
+	const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+	const handle = yield* spawner.spawn(
+		ChildProcess.make(
+			"/usr/bin/script",
+			["-q", "/dev/null", process.execPath, ...HARDENED_FLAGS, built.bin, ...invocation.args],
+			{ cwd: built.dir, env: invocation.env, extendEnv: false, killSignal: "SIGKILL" }
+		)
+	)
+	const shown = yield* Ref.make<ReadonlyArray<Uint8Array>>([])
+	const prompted = yield* Deferred.make<void>()
+	const reading = yield* Effect.forkScoped(
+		Stream.runForEach(handle.stdout, (chunk) =>
+			Ref.update(shown, (chunks) => Arr.append(chunks, chunk)).pipe(
+				Effect.andThen(Deferred.succeed(prompted, undefined))
+			)
+		)
+	)
+	yield* Effect.forkScoped(Stream.runDrain(handle.stderr))
+	yield* Deferred.await(prompted)
+	yield* Stream.run(Stream.make(new TextEncoder().encode(`${invocation.typed}\r`)), handle.stdin)
+	const exitCode = yield* handle.exitCode
+	yield* Fiber.join(reading)
+	const chunks = yield* Ref.get(shown)
+	const run: TerminalRun = { exitCode, terminal: Uint8Array.from(Buffer.concat(chunks)) }
+	return run
+}, Effect.scoped)

@@ -8,6 +8,8 @@
  *   last line end, which is dropped), or with no credential at all.
  * - Values, a property: any value the scheme's carrier admits, an inner space and characters past ASCII among them, for
  *   a drawn scheme, or, while schemes are pending, one of them.
+ * - Prompt, a property: no source at all, on a terminal script(1) opens, the value typed once the prompt shows; the
+ *   terminal must never show the typed value.
  * - Faults, an exhaustion: one planted fault of each family a carrier refuses (a line break or an edge space in a
  *   header, a basic credential without its colon, a cookie value with a separator), from every source. Oracles: one
  *   request to the operation, the credential in exactly the scheme's place (`Authorization` with the scheme word, the
@@ -21,7 +23,7 @@
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { jsonTextOf } from "@superstarter/json"
-import { drawn, exhaust, explore } from "@superstarter/testing/explore"
+import { type Case as SearchCase, drawn, exhaust, explore } from "@superstarter/testing/explore"
 import { required, requiredInSpace } from "@superstarter/testing/features"
 import { boolean, characterOf, element, type Gen, string } from "@superstarter/testing/gen"
 import { notesOnly } from "@superstarter/testing/sense"
@@ -49,7 +51,8 @@ import {
 	type BuiltPackage,
 	generateFixture,
 	harnessLayer,
-	runBin
+	runBin,
+	runBinOnTerminal
 } from "#test/support/cli-package.ts"
 import { valuesOf, type WireRequest } from "#test/support/http.ts"
 import { latin1Bytes } from "#test/support/wire.ts"
@@ -542,6 +545,24 @@ const sourceFeatures = (from: Source): Arr.NonEmptyReadonlyArray<CredentialFeatu
 		from === "a file" || from === "stdin" ? ["a value ending in a line end" as const] : []
 	)
 
+/** A scheme a case runs: the drawn one, or, while schemes are still pending, one of those, so steering reaches each. */
+const aimedScheme = (drawnScheme: Scheme, k: SearchCase<CredentialFeature>): Scheme =>
+	Option.match(
+		Option.flatMap(k.steering, (pending) =>
+			Arr.match(
+				Arr.filter(SCHEMES, (candidate) => pending.names(candidate)),
+				{
+					onEmpty: () => Option.none(),
+					onNonEmpty: (pendingSchemes) => Option.some(pendingSchemes)
+				}
+			)
+		),
+		{
+			onNone: () => drawnScheme,
+			onSome: (pendingSchemes) => k.draw(element(pendingSchemes))
+		}
+	)
+
 /** Checks the contract on every case of a small box of runs, against the suite's built package. */
 const exhaustRuns = (
 	suite: string,
@@ -612,21 +633,7 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's credentials", (
 					},
 					(drawnScheme, k) =>
 						Effect.gen(function* () {
-							const scheme = Option.match(
-								Option.flatMap(k.steering, (pending) =>
-									Arr.match(
-										Arr.filter(SCHEMES, (candidate) => pending.names(candidate)),
-										{
-											onEmpty: () => Option.none(),
-											onNonEmpty: (pendingSchemes) => Option.some(pendingSchemes)
-										}
-									)
-								),
-								{
-									onNone: () => drawnScheme,
-									onSome: (pendingSchemes) => k.draw(element(pendingSchemes))
-								}
-							)
+							const scheme = aimedScheme(drawnScheme, k)
 							const c = k.draw(valueCaseOf(scheme))
 							k.noteAll(caseFeatures(c))
 							yield* checkRun(c, {
@@ -656,4 +663,55 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's credentials", (
 				)
 		)
 	})
+
+	it.effect("are read from a prompt on a terminal, the typed value never echoed", (ctx) =>
+		searched(
+			ctx,
+			Effect.gen(function* () {
+				const { server, built, commands } = yield* CredentialFixture
+				return yield* explore(
+					{
+						suite: "credential prompt",
+						draw: drawn(element(SCHEMES)),
+						literal: Formatter.format,
+						coverage: required<CredentialFeature>(SCHEMES, { cases: 20, sense: notesOnly }),
+						kept: [],
+						runs: 7,
+						shrink: { kind: "bounded", candidates: 20 },
+						concurrency: 1,
+						steerEvery: 2,
+						caseHang: Duration.seconds(60)
+					},
+					(drawnScheme, k) =>
+						Effect.gen(function* () {
+							const scheme = aimedScheme(drawnScheme, k)
+							const text = k.draw(validText(scheme))
+							k.note(scheme)
+							const observed = yield* server.observe(
+								() => landing,
+								runBinOnTerminal(built, {
+									args: Arr.appendAll(commands[scheme], [
+										"--base-url",
+										server.origins["127.0.0.1"]
+									]),
+									env: {},
+									typed: text
+								})
+							)
+							deepStrictEqual<Outcome>(
+								{
+									exitCode: observed.result.exitCode,
+									requests: Arr.map(observed.requests, carriedOf),
+									leaked: Str.includes(Str.trim(text))(
+										new TextDecoder().decode(observed.result.terminal)
+									)
+								},
+								{ exitCode: 0, requests: [expectedCarried(scheme, text)], leaked: false },
+								"the value typed at the prompt goes where its scheme says and the terminal never shows it"
+							)
+						})
+				)
+			})
+		)
+	)
 })
