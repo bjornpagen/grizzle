@@ -59,6 +59,18 @@ import { workspaceConfigs } from "#shared/workspace.ts"
 const inspectionFailure = (subject: string) => (cause: unknown) =>
 	DevtoolFailure.make({ detail: `${subject} could not be inspected`, cause })
 
+/**
+ * The rules superlint runs over the repository as a whole rather than per file. The repository's exceptions name them
+ * as they name RULES, and excuse the files they list from them.
+ */
+const REPOSITORY_RULE = {
+	rejectedDiagnostics: "rejected-diagnostics",
+	diagnosticRoster: "diagnostic-roster",
+	tsOnlyExtensions: "ts-only-extensions"
+} as const
+
+const REPOSITORY_RULES: ReadonlyArray<string> = Record.values(REPOSITORY_RULE)
+
 /** The repository's options, the `superlint` field of its root package.json. */
 const RootManifest = Schema.fromJsonString(Schema.Struct({ superlint: SuperlintOptions }))
 
@@ -79,7 +91,9 @@ const projectOptions = Effect.gen(function* () {
 	)
 	const unknown = Arr.filter(
 		decoded.superlint.exceptions,
-		(exception) => !Arr.some(RULES, (rule) => rule.id === exception.rule)
+		(exception) =>
+			!Arr.some(RULES, (rule) => rule.id === exception.rule) &&
+			!Arr.contains(REPOSITORY_RULES, exception.rule)
 	)
 	if (Arr.isReadonlyArrayNonEmpty(unknown)) {
 		return yield* DevtoolFailure.make({
@@ -246,7 +260,7 @@ const rejectedDiagnosticFindings = Effect.gen(function* () {
 							file: config,
 							line: 1,
 							column: 1,
-							rule: "rejected-diagnostics",
+							rule: REPOSITORY_RULE.rejectedDiagnostics,
 							message: `${shown(config)} ${Option.match(set, {
 								onNone: () => "does not list",
 								onSome: (severity) => `sets ${severity} for`
@@ -261,7 +275,7 @@ const rejectedDiagnosticFindings = Effect.gen(function* () {
 					file: config,
 					line: 1,
 					column: 1,
-					rule: "rejected-diagnostics",
+					rule: REPOSITORY_RULE.rejectedDiagnostics,
 					message: `${shown(config)} lists the Effect diagnostic ${diagnostic}, which the shared base does not.`,
 					suggestion: "List every diagnostic in the shared base, and only those."
 				}))
@@ -353,7 +367,7 @@ const diagnosticRosterFindings = Effect.gen(function* () {
 		file: base,
 		line: 1,
 		column: 1,
-		rule: "diagnostic-roster",
+		rule: REPOSITORY_RULE.diagnosticRoster,
 		message: `${relativeTo(root)(base)} ${message}`,
 		suggestion
 	})
@@ -393,7 +407,7 @@ const tsOnlyExtensionFindings = Effect.gen(function* () {
 					file,
 					line: 1,
 					column: 1,
-					rule: "ts-only-extensions",
+					rule: REPOSITORY_RULE.tsOnlyExtensions,
 					message: "Source files are TypeScript: give this file a .ts or .tsx extension."
 				})
 			: Result.failVoid
@@ -615,11 +629,19 @@ const main = Effect.gen(function* () {
 	)
 	const repository =
 		packageRoot === root
-			? [
-					...(yield* rejectedDiagnosticFindings),
-					...(yield* diagnosticRosterFindings),
-					...(yield* tsOnlyExtensionFindings)
-				]
+			? Arr.filter(
+					[
+						...(yield* rejectedDiagnosticFindings),
+						...(yield* diagnosticRosterFindings),
+						...(yield* tsOnlyExtensionFindings)
+					],
+					(finding) =>
+						!Arr.some(
+							options.exceptions,
+							(exception) =>
+								exception.rule === finding.rule && isAtAny(root, exception.files, finding.file)
+						)
+				)
 			: []
 	const reported = [...findings, ...repository]
 	yield* Console.log(renderFindings({ tool: "superlint", root, findings: reported }))

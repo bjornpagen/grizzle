@@ -3,7 +3,12 @@ import { Array as Arr } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { Action, Declarations, Draft } from "#compiler/deploy/diff/plan.ts"
+import {
+	type Action,
+	alterationStatement,
+	type Declarations,
+	type Draft
+} from "#compiler/deploy/diff/plan.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
@@ -420,16 +425,22 @@ const chains: ReadonlyArray<readonly [string, ReadonlyArray<ChainStep>]> = [
 ]
 
 /**
- * The statements an action holds: a statement action's own. Every other action is reviewer-facing template text the
- * drafter renders (a placeholder, a law's violation check, an ANALYZE, a drop the AST has no form for), which no
+ * The statements an action holds: a statement action's own, and a table alteration's ALTER TABLE of its subcommands but
+ * its placeholders. Every other piece is reviewer-facing template text the drafter renders (a placeholder, a law's
+ * violation check, an ANALYZE, a drop the AST has no form for), which no
  * production audit reads.
  */
 const actionStatements = (a: Action): ReadonlyArray<SqlStatement> => {
 	switch (a.kind) {
 		case "statement":
 			return [a.statement]
-		case "placeholderColumn":
-		case "placeholderRetype":
+		case "alteration": {
+			const plain = Arr.filter(
+				a.actions,
+				(sub) => sub.kind !== "placeholderColumn" && sub.kind !== "placeholderRetype"
+			)
+			return Arr.isReadonlyArrayNonEmpty(plain) ? [alterationStatement(a.table, plain)] : []
+		}
 		case "violation":
 		case "analyze":
 		case "dropStatistics":
@@ -448,8 +459,7 @@ const draftStatements = (d: Draft): ReadonlyArray<SqlStatement> => {
 		case "loss":
 			return [d.statement]
 		case "statement":
-		case "placeholderColumn":
-		case "placeholderRetype":
+		case "alteration":
 		case "violation":
 		case "analyze":
 		case "dropStatistics":

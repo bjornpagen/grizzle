@@ -68,7 +68,12 @@ import {
 	type Previous
 } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
-import { draftActions, draftFiles, planStatements } from "#test/support/migrate/review.ts"
+import {
+	draftActions,
+	draftFiles,
+	planStatements,
+	reviewedStatements
+} from "#test/support/migrate/review.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { owning } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -217,8 +222,8 @@ const picked = <A>(list: ReadonlyArray<A>, pick: number, what: string): A => {
 const drafting = (g: GenerateResult, statement: SqlStatement): string => {
 	const files = Arr.filter(draftFiles(g), (f) =>
 		Arr.some(
-			Arr.flatMap(f.drafts, draftActions),
-			(a) => a.kind === "statement" && spelled(a.statement) === spelled(statement)
+			Arr.flatMap(Arr.flatMap(f.drafts, draftActions), reviewedStatements),
+			(s) => spelled(s) === spelled(statement)
 		)
 	)
 	const [only, ...more] = files
