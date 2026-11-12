@@ -7,6 +7,7 @@
  *   optional text cookie, each given or not; and planted faults, one per run: the required parameter missing, and
  *   text that is not JSON in a JSON flag. Oracles: the query's pairs percent-decoded and their JSON parsed back to the
  *   values given; the header's and the cookie's text as given; and exit 2 with no connection for each fault.
+ * - Help: each JSON content flag shows `json` as its value in `--help`.
  *
  * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
@@ -52,6 +53,7 @@ import {
 	runBin
 } from "#test/support/cli-package.ts"
 import { type Pair, queryPairs } from "#test/support/form.ts"
+import { metavarOf } from "#test/support/help.ts"
 import { valuesOf, type WireRequest } from "#test/support/http.ts"
 
 /** One GET with a JSON object and a JSON array in the query, a text header and a text cookie, each by `content`. */
@@ -305,7 +307,27 @@ const fixture = Layer.effect(
 	})
 ).pipe(Layer.provideMerge(harnessLayer))
 
+/** The flags whose content is JSON. */
+const JSON_FLAGS: ReadonlyArray<string> = ["--coordinates", "--tags"]
+
 layer(fixture, { excludeTestServices: true })("a generated CLI's content parameters", (it) => {
+	it.effect("show json as the value of each JSON content flag in --help", () =>
+		Effect.gen(function* () {
+			const { built, command } = yield* ContentFixture
+			const help = yield* runBin(built, {
+				args: Arr.append(command, "--help"),
+				env: {},
+				stdin: new Uint8Array(0)
+			})
+			const text = Buffer.from(help.stdout).toString("utf8")
+			deepStrictEqual<Readonly<{ exitCode: number; shown: ReadonlyArray<Option.Option<string>> }>>(
+				{ exitCode: help.exitCode, shown: Arr.map(JSON_FLAGS, (flag) => metavarOf(text, flag)) },
+				{ exitCode: 0, shown: Arr.map(JSON_FLAGS, () => Option.some("json")) },
+				"a JSON content flag takes json"
+			)
+		})
+	)
+
 	it.effect(
 		"carry their media type's encoding of the value given, and nothing for a fault",
 		(ctx) =>

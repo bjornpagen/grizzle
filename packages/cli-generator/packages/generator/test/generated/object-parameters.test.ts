@@ -16,9 +16,10 @@
  * exploded header member name, which the expansion would leave ambiguous; and text that is not JSON for an object
  * parameter or a JSON body field.
  *
- * One package; properties per location (the six path styles, the three query parameters, the two headers), each
- * oracle the expansion above computed from the drawn object and compared byte for byte with what reached the capture
- * server; and an exhaustion of text that is not JSON for every kind of JSON input.
+ * One package; a check that every object positional and flag, and the JSON body field flag, shows `json` as its value
+ * in `--help`; properties per location (the six path styles, the three query parameters, the two headers), each oracle
+ * the expansion above computed from the drawn object and compared byte for byte with what reached the capture server;
+ * and an exhaustion of text that is not JSON for every kind of JSON input.
  *
  * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
@@ -68,6 +69,7 @@ import {
 	harnessLayer,
 	runBin
 } from "#test/support/cli-package.ts"
+import { metavarOf } from "#test/support/help.ts"
 import { valuesOf, type WireRequest } from "#test/support/http.ts"
 
 /** A path parameter style. */
@@ -1174,7 +1176,65 @@ const exploreLocation = <C, F extends string>(location: Location<C, F>) =>
 			})
 	)
 
+/** Every JSON input of the box, by its operation and the name its help row begins with. */
+const JSON_INPUTS: ReadonlyArray<readonly [operation: string, left: string]> = Arr.appendAll(
+	Arr.map(PATH_TARGETS, (target): readonly [string, string] => [target.operation, "o"]),
+	[
+		["query", "--qf"],
+		["query", "--qn"],
+		["query", "--deep"],
+		["headers", "--x-o"],
+		["headers", "--x-ox"],
+		["emails", "--to"]
+	]
+)
+
+/** What a JSON input's help shows: the help run's exit code and the input's value name. */
+type Shown = Readonly<{
+	operation: string
+	left: string
+	exitCode: number
+	metavar: Option.Option<string>
+}>
+
+/** The help of a JSON input's command, and what its row shows. */
+const shownOf = (operation: string, left: string) =>
+	Effect.gen(function* () {
+		const { built, commands } = yield* ObjectFixture
+		const command = yield* Effect.fromOption(Rec.get(commands, operation))
+		const help = yield* runBin(built, {
+			args: Arr.append(command, "--help"),
+			env: {},
+			stdin: new Uint8Array(0)
+		})
+		const shown: Shown = {
+			operation,
+			left,
+			exitCode: help.exitCode,
+			metavar: metavarOf(Buffer.from(help.stdout).toString("utf8"), left)
+		}
+		return shown
+	})
+
 layer(fixture, { excludeTestServices: true })("a generated CLI's object parameters", (it) => {
+	it.effect("show json as the value of every JSON input in --help", () =>
+		Effect.gen(function* () {
+			const shown = yield* Effect.forEach(JSON_INPUTS, ([operation, left]) =>
+				shownOf(operation, left)
+			)
+			deepStrictEqual<ReadonlyArray<Shown>>(
+				shown,
+				Arr.map(JSON_INPUTS, ([operation, left]): Shown => ({
+					operation,
+					left,
+					exitCode: 0,
+					metavar: Option.some("json")
+				})),
+				"each object positional and flag, and the JSON body field flag, takes json"
+			)
+		})
+	)
+
 	it.effect("go in the path by their style's expansion, or are refused", (ctx) =>
 		searched(
 			ctx,
