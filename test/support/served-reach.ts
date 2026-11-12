@@ -9,7 +9,7 @@ import type {
 	StoredRelationName
 } from "#compiler/core/ids.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
-import type { ParamDecl } from "#compiler/ir/products.ts"
+import type { CallerParamDecl, ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
@@ -38,9 +38,12 @@ import type {
  * law of the theory reading a written relation, which a write statement's refusal raises; each generated column of a
  * written table, whose NOT NULL its generation expression breaks; and the domains of the rosters its written columns
  * and its cast values hold; and a fact outside each query entry it writes through into a written relation, which the
- * entry's precheck refuses. A cast value is every claim of a context the role reads, which each of its write
- * statements casts to its type, and every scalar parameter its writes declare; it meets each contract domain of its
- * type's contract chain, outermost first, and its pattern's text domain. A role that writes nothing raises nothing.
+ * entry's precheck refuses. A cast value is every parameter of every member of the role, a read's, an instant read's,
+ * a key's and a paged read's as a ChangeSet's, a scalar's of its type and a relation's of each column of its heading,
+ * which its statement casts at the boundary, so a code outside a closed roster is refused there; and, where the role
+ * writes, every claim of a context it reads, which each of its write statements casts to its type. A cast value meets
+ * each contract domain of its type's contract chain, outermost first, and its pattern's text domain. A role that writes
+ * nothing raises what its cast values meet alone: those domains' CHECKs and their rosters' domains.
  */
 
 /** The roster a type's values are codes of: a closed id's or a set's, none for any other carrier. */
@@ -202,27 +205,38 @@ export interface Raised {
 	readonly entries: ReadonlyMap<StoredRelationName, EntryName>
 }
 
-/** Nothing raised: a role whose members write nothing. */
-const raisedNothing: Raised = {
-	relations: new Set(),
-	constraints: [],
-	theoryLaws: [],
-	rosters: new Set(),
-	generated: [],
-	entries: new Map()
+/** The parameters a served member's calls supply: its read's, or each of its ChangeSet's variants'; a refresh's none. */
+const memberParams = (member: ServedMember): ReadonlyArray<CallerParamDecl> => {
+	switch (member.kind) {
+		case "read":
+		case "instant":
+		case "key":
+		case "paged":
+			return member.read.params
+		case "change":
+			return Arr.flatMap(changesOf(member.variants), (change) => change.program.params)
+		case "refresh":
+			return []
+	}
 }
 
-/** The types of the values a role's writes cast (see the header): its contexts' claims and its writes' scalar parameters. */
-export const castBy = (role: ServedRoleForm): ReadonlyArray<ScalarType> => [
-	...Arr.flatMap(role.contexts, (c) => Arr.map(c.fields, (f) => f.type)),
-	...Arr.flatMap(role.members, (member) =>
-		member.kind === "change"
-			? Arr.flatMap(changesOf(member.variants), (change) =>
-					Arr.flatMap(change.program.params, (p) => (p.kind === "scalar" ? [p.type] : []))
-				)
-			: []
+/**
+ * The types of the values a role's statements cast (see the header): every parameter of its members, a scalar's type
+ * and a relation's heading's, and, where it writes, its contexts' claims.
+ */
+export const castBy = (role: ServedRoleForm): ReadonlyArray<ScalarType> => {
+	const params: ReadonlyArray<CallerParamDecl> = Arr.flatMap(role.members, (member) =>
+		memberParams(member)
 	)
-]
+	return [
+		...(Arr.some(role.members, (member) => member.kind === "change")
+			? Arr.flatMap(role.contexts, (c) => Arr.map(c.fields, (f) => f.type))
+			: []),
+		...Arr.flatMap(params, (param): ReadonlyArray<ScalarType> =>
+			param.kind === "scalar" ? [param.type] : Arr.map(param.heading, (column) => column.type)
+		)
+	]
+}
 
 /** The contracts of a type's chain, outermost first: its own, then its base's, down to a type of no contract. */
 const contractsOf = (type: ScalarType): ReadonlyArray<DeclaredName> => {
@@ -250,9 +264,6 @@ export const raisedBy = (
 	written: ReadonlySet<string>,
 	cast: ReadonlyArray<ScalarType>
 ): Raised => {
-	if (written.size === 0) {
-		return raisedNothing
-	}
 	const met = new Set(Arr.flatMap(cast, (type) => castDomains(artifacts.names, type)))
 	const relations = relationsOf(artifacts, written)
 	const tables = new Set<string>(Arr.map(relations, (r) => artifacts.names.relation(r.name).name))

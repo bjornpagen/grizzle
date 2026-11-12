@@ -18,8 +18,8 @@
  * - Laws, sufficiency and minimality: each role's refusals hold exactly what its writes can raise of its installation,
  *   its table constraints and triggers, each domain's CHECK with its uses on the written tables alone, its unstored
  *   contract domains, the theory's laws over the written relations, their generated columns, their rosters' domains,
- *   their tables and headings, and the query entries it writes through into them; nothing for a role that writes
- *   nothing.
+ *   their tables and headings, and the query entries it writes through into them; and every role, writing or not,
+ *   holds the domains its members' parameters are cast to at the boundary, and their rosters' (served-reach.ts castBy).
  *
  * The oracle is the reach computed independently from the compiled program and the installation
  * (test/support/served-reach.ts): the statements' parameters and written relations, the decoders, and the written
@@ -28,6 +28,9 @@
  * Plants (~/.cache/grizzle-release/TSERVED/plants): served-roster-unreached.patch adds every roster of the snapshot to
  * the file (minimality red, and the file loads without the added codes); served-roster-dropped.patch drops the first
  * roster the file would hold (sufficiency red, and the file does not load).
+ * ~/.cache/grizzle-release/LIVE-SUBSCRIBE/plants/castby-changes-only.patch: the oracle's castBy counts a ChangeSet's
+ * parameters alone, so a role that only reads a closed roster by a parameter of its type holds a roster domain the
+ * oracle says it never reaches (minimality red).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
