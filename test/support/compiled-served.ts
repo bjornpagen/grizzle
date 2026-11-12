@@ -31,7 +31,8 @@ import { defined, succeeded } from "#test/support/assert.ts"
  * planned over its artifacts (program/workload/compile.ts servedWorkload), the installation compiled over that basis
  * with the plan's extension (physical/access/extension.ts servedWorkloadExtension), and the snapshot written with the
  * plan's access, access paths and live plan. So a file compiled over it is the one generate writes, its live source
- * included, and a workload generate refuses is its ServedRefusal, a ChangeSet's at its role. Codes are history: a fresh installation's are its rosters' first codes, and a roster that lost a handle
+ * included, and a workload generate refuses is its ServedRefusal, a ChangeSet's at its role: one whose access paths
+ * the installation cannot index among them (an access index's UnrepresentableKey), as generate's draft refuses it. Codes are history: a fresh installation's are its rosters' first codes, and a roster that lost a handle
  * holds a hole there.
  */
 export const compiledSnapshot = (
@@ -65,18 +66,20 @@ export const compiledSnapshot = (
 			),
 			(refused) => (refused.kind === "workload" ? atLogin(refused.error) : atRole(refused.refused))
 		)
-		const installation = succeeded(
-			installationOver(
-				basis,
-				completeInstallOptions(
-					owned,
-					installationsOf(owned),
-					[ownedLogin],
-					[servedWorkloadExtension(plan)],
-					codes
+		const installation = yield* Effect.mapError(
+			fromEngine(
+				installationOver(
+					basis,
+					completeInstallOptions(
+						owned,
+						installationsOf(owned),
+						[ownedLogin],
+						[servedWorkloadExtension(plan)],
+						codes
+					)
 				)
 			),
-			"the base's installation"
+			atLogin
 		)
 		const snapshot = succeeded(
 			finishSnapshot(
