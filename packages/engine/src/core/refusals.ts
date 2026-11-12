@@ -23,6 +23,7 @@ export const refusals = [
 	"a divisor proved nonzero: guard it with Compute.when(Compute.nonzero(x), (x) => …, otherwise)",
 	"a family counts by an ordinary relation's drawn count: a closed relation's count numbers the slots of its key",
 	"a family's member side is a relation, never a selection: its members are every fact of the relation",
+	"a family's member that owns a sequence is written by inserting its owner with its rows nested",
 	"a family's slots are fin(owner, count), the owner's count",
 	"a fold over a counted family combines in a commutative monoid: concat folds an ordered family or a tree",
 	"a fold over a counted family hides its accumulators: name the step's value alone",

@@ -466,7 +466,9 @@ type InsertedParams<Rows> = {
  * A put or a delete of R in S that the engine cannot plan, in the order its front end refuses one (write/frontend/
  * compile.ts): a tree's row, since a tree is rewritten whole; a row whose key a field grizzle writes holds, since no
  * fact states it; then a delete of a member of an immutable owner's family, fixed when its owner was inserted, or a put
- * of an immutable family owner, whose put updates its row in place. A relation with no drawn field is no tree and owns
+ * of an immutable family owner, whose put updates its row in place; then a put or a delete of a family's member that
+ * owns a sequence, whose members are nested under its rows (MemberOwningSequence). A relation with no drawn field is no
+ * tree and owns
  * no family, and one whose caller writes every field states every key, so each test is read only where it can hold:
  * a schema whose statements are generic refuses nothing, and neither does a relation of no one name or no ordinary
  * relation, which WritableCheck refuses.
@@ -486,10 +488,21 @@ type EditOf<S, R, Op extends "put" | "delete"> =
 			: Op extends "delete"
 				? IsFixedMember<S, R> extends true
 					? Refusal<"an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it">
-					: unknown
+					: MemberOwningSequence<S, R>
 				: IsImmutableOwner<S, R> extends true
 					? Refusal<"an owner's put updates its row in place, which an immutable owner refuses: declare it mutable to put it">
-					: unknown
+					: MemberOwningSequence<S, R>
+
+/**
+ * A put or a delete of a member of an ordered or a counted family of S that owns a sequence: its sequence's members are
+ * nested under its rows, which a member's edit does not reach.
+ */
+type MemberOwningSequence<S, R> =
+	IsFamilyMember<S, R> extends true
+		? [Extract<NameOf<R>, OwnerNameOf<SequenceOf<S>>>] extends [never]
+			? unknown
+			: Refusal<"a family's member that owns a sequence is written by inserting its owner with its rows nested">
+		: unknown
 
 /** Whether R is a tree's relation in S. */
 type IsTreeRow<S, R> = [DrawnFieldOf<R>] extends [never]

@@ -36,6 +36,7 @@ import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import {
 	Bin,
+	Book,
 	Budget,
 	Cart,
 	Cents,
@@ -95,8 +96,8 @@ import { upTo } from "#test/support/up-to.ts"
  * nesting takes it (a root field below a tree's root, a field its relation lacks or a drawn one in a nested member, a
  * nested member missing a field, a counted member nested, an accumulated field or a count in a put, a generated field
  * in an insert), a family write the engine cannot plan (a sequence's member written
- * alone or by its row, a tree's row put or deleted, an immutable owner put, a member of an immutable owner's family
- * deleted), a fold over a delta reading no key, ChangeSets over schemas that are no levels of one another, a role that
+ * alone or by its row, a tree's row put or deleted, a counted member that owns a sequence put or deleted, an immutable
+ * owner put, a member of an immutable owner's family deleted), a fold over a delta reading no key, ChangeSets over schemas that are no levels of one another, a role that
  * does not write the relation (or a member its insert nests), a parameter left unbound, a compiled ChangeSet read as a
  * query, an argument naming no parameter, ChangeSet.bind given a value that is no record. The floor's witnesses (changeSetWitnesses), the same in every run, each aimed at a requirement, reach every
  * fault and every construct.
@@ -331,6 +332,7 @@ const changeSetFaults = [
 	"a sequence member written alone",
 	"a sequence member edited by its row",
 	"a tree row edited",
+	"a member owning a sequence edited",
 	"an immutable owner put",
 	"a member of an immutable family deleted",
 	"an append to an owner its stratum does not insert",
@@ -413,6 +415,8 @@ const refusalNotes = {
 	"a put or a delete names its rows by their key, and no fact states a key field grizzle writes: key the relation by fields its caller writes":
 		"refused: an unstated key",
 	"a tree is rewritten whole: insert its root with the whole tree nested": "refused: a tree row",
+	"a family's member that owns a sequence is written by inserting its owner with its rows nested":
+		"refused: a member owning a sequence",
 	"an owner's put updates its row in place, which an immutable owner refuses: declare it mutable to put it":
 		"refused: an immutable owner",
 	"an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it":
@@ -444,6 +448,7 @@ export const changeSetRefusals: Arr.NonEmptyReadonlyArray<RefusalNote> = [
 	"refused: an undeclared parameter",
 	"refused: an unstated key",
 	"refused: a tree row",
+	"refused: a member owning a sequence",
 	"refused: an immutable owner",
 	"refused: a fixed family",
 	"refused: an append to a stored owner",
@@ -545,6 +550,7 @@ type FamilyRel =
 	| CountedOwner
 	| (typeof sequenceMembers)[OrderedOwner]
 	| (typeof countedMembers)[CountedOwner]
+	| "Book"
 	| "Node"
 
 /** A field of a family member's fact: a value its caller writes, or the rows nested at a count field. */
@@ -988,8 +994,8 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined, clean: boolean)
 
 /**
  * The faults a family's member fact carries, and the writes of a family's relation the engine cannot plan: a sequence's
- * member written alone or by its row, a tree's row put or deleted, an immutable owner put, a member of an immutable
- * owner's family deleted.
+ * member written alone or by its row, a tree's row put or deleted, a counted member that owns a sequence put or deleted,
+ * an immutable owner put, a member of an immutable owner's family deleted.
  */
 const familyFaults = [
 	"a nested root field",
@@ -1004,6 +1010,7 @@ const familyFaults = [
 	"a sequence member written alone",
 	"a sequence member edited by its row",
 	"a tree row edited",
+	"a member owning a sequence edited",
 	"an immutable owner put",
 	"a member of an immutable family deleted",
 	"an append to an owner its stratum does not insert",
@@ -1114,7 +1121,8 @@ const familyOf = (
 	d.note(
 		relation === "Node"
 			? "a nested tree"
-			: Arr.some(mutableOwners, (o) => o === relation || familyMemberRelation(o) === relation)
+			: relation === "Book" ||
+				  Arr.some(mutableOwners, (o) => o === relation || familyMemberRelation(o) === relation)
 				? "a mutable family"
 				: "an immutable family"
 	)
@@ -1165,6 +1173,13 @@ const plantedFamilyMember = (d: Drawing, fault: FamilyFault): MemberSpec => {
 					["parent", familyValue(d.from(uuids))],
 					["doc", familyValue(d.from(uuids))],
 					["label", familyValue(d.from(labels))]
+				]
+			])
+		case "a member owning a sequence edited":
+			return familyOf(d, d.choose(["delete", "put"] as const), "Book", [
+				[
+					["id", familyValue(d.from(uuids))],
+					["shelf", familyValue(d.from(uuids))]
 				]
 			])
 		case "an immutable owner put":
@@ -1962,7 +1977,7 @@ class Rendering {
 
 const levels = { Work, Reports, Other, Twin } as const
 const closedRelations = { ...relations, Kind } as const
-const familyRelations = { Order, Line, Cart, Entry, Pool, Item, Bin, Chip, Node } as const
+const familyRelations = { Order, Line, Cart, Entry, Pool, Item, Bin, Chip, Book, Node } as const
 
 /** A family member's fact as the facade takes it: each value, and each nested row's fact in its place. */
 const familyFactValue = (f: FamilyFact): Readonly<Record<string, unknown>> =>
@@ -2146,14 +2161,16 @@ const unplannedOf = (capability: string): ChangeSetRefusal | undefined =>
 			? "a tree is rewritten whole: insert its root with the whole tree nested"
 			: Str.includes("the immutable owner of the family")(capability)
 				? "an owner's put updates its row in place, which an immutable owner refuses: declare it mutable to put it"
-				: Str.startsWith("a delete of")(capability) &&
-					  Str.includes("an immutable owner's family is fixed")(capability)
-					? "an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it"
-					: Str.includes("appending to an owner this stratum does not insert")(capability)
-						? "an immutable owner's family takes an append only beside an insert of its owner in the same stratum: insert the owner with it, or declare it mutable"
-						: Str.startsWith("family members written in more than one stratum")(capability)
-							? "a ChangeSet writes a family's members in one stratum: each stratum's edits are planned from one read before the ChangeSet's writes"
-							: undefined
+				: Str.includes("both a family's member and a sequence's owner")(capability)
+					? "a family's member that owns a sequence is written by inserting its owner with its rows nested"
+					: Str.startsWith("a delete of")(capability) &&
+						  Str.includes("an immutable owner's family is fixed")(capability)
+						? "an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it"
+						: Str.includes("appending to an owner this stratum does not insert")(capability)
+							? "an immutable owner's family takes an append only beside an insert of its owner in the same stratum: insert the owner with it, or declare it mutable"
+							: Str.startsWith("family members written in more than one stratum")(capability)
+								? "a ChangeSet writes a family's members in one stratum: each stratum's edits are planned from one read before the ChangeSet's writes"
+								: undefined
 
 /** The Refusal the types name for the engine's reason, the call a repeated read-back name meets telling which. */
 const claimOf = (reason: CompileReason, spec: CaseSpec): Claim => {
