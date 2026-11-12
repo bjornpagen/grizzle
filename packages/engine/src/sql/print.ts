@@ -1227,6 +1227,10 @@ const printAlterTableAction = (action: AlterTableAction): string => {
 			return `ADD COLUMN ${columnHead(action.column)} DEFAULT ${placeholderToken} NOT NULL`
 		case "addColumnDefault":
 			return `ADD COLUMN ${columnHead(action.column)} DEFAULT ${printExpr(action.default)} NOT NULL`
+		case "addColumnUnchecked":
+			return `ADD COLUMN ${columnHead(action.column)}`
+		case "setNotNull":
+			return `ALTER COLUMN ${quoteIdent(action.column)} SET NOT NULL`
 		case "dropColumn":
 			return `DROP COLUMN ${quoteIdent(action.column)}`
 		case "dropDefault":

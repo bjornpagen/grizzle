@@ -1326,6 +1326,7 @@ const withColumns = (
 				return { ...a, constraint: constraintIn(table, a.constraint) }
 			case "addColumn":
 			case "addColumnPlaceholder":
+			case "addColumnUnchecked":
 				return { ...a, column: columnIn(into, a.column) }
 			case "addColumnDefault":
 				return { ...a, column: columnIn(into, a.column), default: exprIn(into, a.default) }
@@ -1340,6 +1341,7 @@ const withColumns = (
 				}
 			case "dropColumn":
 			case "dropDefault":
+			case "setNotNull":
 			case "setUuidv7Default":
 			case "addIdentity":
 			case "dropIdentity":

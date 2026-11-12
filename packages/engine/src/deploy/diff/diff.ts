@@ -1,3 +1,4 @@
+import { appendAll } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
@@ -44,6 +45,8 @@ import {
 	type Draft,
 	isTableSlot,
 	type MigrationPlan,
+	type RetypeReason,
+	type SetAside,
 	type Slot,
 	type Step,
 	type Swap,
@@ -87,6 +90,7 @@ import type {
 	AlterTableAction,
 	Collation,
 	ColumnDef,
+	ColumnGeneration,
 	CreateConstant,
 	CreateDomain,
 	CreateIndex,
@@ -122,6 +126,7 @@ import {
 	types
 } from "#compiler/sql/build.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
+import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 
 interface DiffInput {
 	readonly previous: DeploySnapshot
@@ -241,11 +246,16 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	schema: 17
 }
 
-/** SET CONSTRAINTS ALL IMMEDIATE, before a backfill's UPDATEs: an UPDATE of rows the migration's own transaction wrote
- * (a table rewritten by a generated column's ADD COLUMN, or updated by an earlier UPDATE) queues the check of every
- * deferrable foreign key over them until the commit, and PostgreSQL refuses to alter a table with a check pending
- * (55006), as the backfill's DROP DEFAULT and every constraint added after it do. Under it each check runs at the end of
- * its UPDATE, over values the backfill leaves as they were. */
+/** SET CONSTRAINTS ALL IMMEDIATE, before Structure's first data step (holdsDataSteps): an UPDATE of rows the
+ * migration's own transaction wrote (a table rewritten by a generated column's ADD COLUMN or a conversion, or updated
+ * by an earlier UPDATE) queues the check of every deferrable foreign key over them until the commit, since
+ * PostgreSQL fires a referencing row's check whatever its keys when its own transaction wrote the row (PostgreSQL
+ * 19rc1, src/backend/utils/adt/ri_triggers.c RI_FKey_fk_upd_check_required at 1515, slot_is_current_xact_tuple at
+ * 1585-1586), and refuses to alter a table with a check pending (src/backend/commands/tablecmds.c CheckTableNotInUse at
+ * 4448, AfterTriggerPendingOnRel at 4462, 55006 at 4466), as a fill's DROP COLUMN, the backfill's DROP DEFAULT and
+ * every constraint added after them do. Under it each check runs at the end of its UPDATE. It holds for the rest of the
+ * Structure transaction, which every data step, the reviewer's, a fill's and the backfill's, runs after: Structure's
+ * statements before it, its drops and its tables' alterations, write no row. */
 const checkedAtOnce: SqlStatement = { kind: "setConstraintsImmediate" }
 
 /** A drop drafted with its kind's place in the drop order. */
@@ -434,18 +444,198 @@ interface TableAlteration {
 type Drafting =
 	| { readonly kind: "step"; readonly step: Step }
 	| { readonly kind: "alteration"; readonly slot: TableSlot; readonly alteration: TableAlteration }
+	| { readonly kind: "fill"; readonly fill: TableFill }
 
+/** A table's fill of its set-aside fields (SetAside) in structure.fill, as the visits draft it: its first field, which
+ * places it, and the rest in the order the visits set them aside. */
+interface TableFill {
+	readonly table: ObjectName
+	readonly first: SetAside
+	readonly rest: Array<SetAside>
+}
+
+/** Each set-aside field of a table by its name, with its set-aside column's: none for a table that sets none aside. */
+type AsideColumns = ReadonlyMap<string, string>
+
+const noAside: AsideColumns = new Map()
+
+/** The fields a fill sets aside, by name, each with its set-aside column. */
+const asideColumnsOf = (fill: TableFill): AsideColumns =>
+	new Map([fill.first, ...fill.rest].map((f) => [f.column.name, f.aside] as const))
+
+/** An expression with each column it reads that `aside` sets aside read as its set-aside column. */
+const throughAside = (e: Expr, aside: AsideColumns): Expr =>
+	transformExpr(e, {
+		...identityHooks,
+		expr: (x) => {
+			if (x.kind !== "column" || x.table !== undefined) {
+				return x
+			}
+			const column = aside.get(x.column)
+			return column === undefined ? x : { ...x, column }
+		}
+	})
+
+/** The columns of its own row an expression reads, by name. */
+const rowColumns = (e: Expr): ReadonlyArray<string> => {
+	const out: Array<string> = []
+	transformExpr(e, {
+		...identityHooks,
+		expr: (x) => {
+			if (x.kind === "column" && x.table === undefined) {
+				out.push(x.column)
+			}
+			return x
+		}
+	})
+	return out
+}
+
+/** Whether a generation reads a field `aside` sets aside. */
+const readsAside = (g: ColumnGeneration, aside: AsideColumns): boolean => {
+	const reads = (e: Expr) => rowColumns(e).some((c) => aside.has(c))
+	switch (g.kind) {
+		case "stored":
+			return reads(g.expr)
+		case "partial":
+			return reads(g.when) || reads(g.expr)
+		case "identity":
+		case "uuidv7":
+			return false
+	}
+}
+
+/**
+ * A subcommand of a table's Structure alteration, its generated column over a set-aside field generated over the
+ * set-aside column instead, which the fill renames into the field's name, so the expression reads the field once the
+ * migration ends, PostgreSQL holding its reads by attribute number: a partial projection, NULL wherever it selects
+ * nothing, as it is; any other added with no NOT NULL (addColumnUnchecked), since the set-aside column is NULL until the
+ * fill, which sets its NOT NULL once the fill has drawn it (`checked`).
+ */
+const asideSubcommand = (
+	a: Alteration,
+	aside: AsideColumns
+): { readonly alteration: Alteration; readonly checked: ReadonlyArray<string> } => {
+	if (
+		a.kind !== "addColumn" ||
+		a.column.generated === undefined ||
+		!readsAside(a.column.generated, aside)
+	) {
+		return { alteration: a, checked: [] }
+	}
+	const g = a.column.generated
+	switch (g.kind) {
+		case "partial":
+			return {
+				alteration: {
+					...a,
+					column: {
+						...a.column,
+						generated: {
+							...g,
+							when: throughAside(g.when, aside),
+							expr: throughAside(g.expr, aside)
+						}
+					}
+				},
+				checked: []
+			}
+		case "stored":
+			return {
+				alteration: {
+					kind: "addColumnUnchecked",
+					column: { ...a.column, generated: { ...g, expr: throughAside(g.expr, aside) } }
+				},
+				checked: [a.column.name]
+			}
+		case "identity":
+		case "uuidv7":
+			return { alteration: a, checked: [] }
+	}
+}
 /** An alteration's subcommands in PostgreSQL's pass order, the order of drafting within a pass (alterationPass). */
 const byPass = mapInput(compareNumbers, (a: Alteration) =>
 	alterTablePasses.indexOf(alterationPass(a))
 )
 
 /** The draft of a table's alteration, its subcommands in pass order: the one ALTER TABLE PostgreSQL runs as written. */
-const alterationDraft = (a: TableAlteration): Action => ({
+const alterationDraft = (a: TableAlteration, aside: AsideColumns): Action => ({
 	kind: "alteration",
 	table: a.table,
-	actions: sortNonEmpty([a.first, ...a.rest], byPass)
+	actions: sortNonEmpty(
+		mapNonEmpty([a.first, ...a.rest], (x) => asideSubcommand(x, aside).alteration),
+		byPass
+	)
 })
+
+/** The draw a set-aside field takes once its fill renames it into its name: its identity, its uuidv7() default, or none
+ * for a field its caller writes. */
+const drawOf = (column: ColumnDef): ReadonlyArray<AlterTableAction> => {
+	switch (column.generated?.kind) {
+		case "identity":
+			return [{ kind: "addIdentity", column: column.name, sequence: column.generated.sequence }]
+		case "uuidv7":
+			return [{ kind: "setUuidv7Default", column: column.name }]
+		case "stored":
+		case "partial":
+		case undefined:
+			return []
+	}
+}
+
+/**
+ * The steps of a table's fill, in structure.fill: the fill itself, its UPDATE at the reviewer's values (Action fill);
+ * the fields' old columns dropped; each set-aside column renamed into its field's name; then one ALTER TABLE setting
+ * the NOT NULL of each field and of each generated column over one (asideSubcommand's `checked`, read off the table's
+ * Structure alteration `structure`), each field's identity or uuidv7() default, and each identity's advance after it,
+ * past the values the fill drew.
+ */
+const fillSteps = (
+	fill: TableFill,
+	structure: TableAlteration | undefined,
+	aside: AsideColumns
+): ReadonlyArray<Step> => {
+	const t = fill.table
+	const fields = mapNonEmpty([fill.first, ...fill.rest], (f) => f)
+	const checked =
+		structure === undefined
+			? []
+			: [structure.first, ...structure.rest].flatMap((a) => asideSubcommand(a, aside).checked)
+	const takes = fields.flatMap(({ column }) => drawOf(column))
+	const advances = fields.flatMap(({ column }): ReadonlyArray<SqlStatement> =>
+		column.generated?.kind === "identity"
+			? [advance(t, column.name, column.generated.sequence, column.type)]
+			: []
+	)
+	const filled = (draft: Draft): Step => ({ slot: "structure.fill", draft })
+	return [
+		filled({ kind: "fill", table: t, fields }),
+		filled(
+			statement(
+				alter(
+					t,
+					mapNonEmpty(fields, (f) => ({ kind: "dropColumn", column: f.column.name }))
+				)
+			)
+		),
+		...fields.map((f) =>
+			filled(statement({ kind: "renameColumn", table: t, from: f.aside, to: f.column.name }))
+		),
+		filled(
+			statement(
+				alter(t, [
+					...mapNonEmpty(fields, (f): AlterTableAction => ({
+						kind: "setNotNull",
+						column: f.column.name
+					})),
+					...checked.map((column): AlterTableAction => ({ kind: "setNotNull", column })),
+					...takes
+				])
+			)
+		),
+		...advances.map((a) => filled(statement(a)))
+	]
+}
 
 /** A draft's alteration of one table, which a slot that alters each table once merges into the table's one: an ALTER
  * TABLE statement's actions, or an alteration's subcommands; any other draft is none. */
@@ -461,6 +651,7 @@ const alteredBy = (
 				: undefined
 		case "alteration":
 			return { table: d.table, actions: d.actions }
+		case "fill":
 		case "violation":
 		case "analyze":
 		case "dropStatistics":
@@ -486,6 +677,8 @@ class Differ {
 	/** The keys structure.constraints adds again after their conversion (ownConstraint): a foreign key onto one is its
 	 * own statement after the key's (foreignKey). */
 	readonly constrainedKeys = new Set<KeyAfter>()
+	/** Each table's fill of its set-aside fields, by table key (setAside). */
+	readonly fills = new Map<string, TableFill>()
 	readonly prev: ReadonlyMap<string, ManifestObject>
 	readonly next: ReadonlyMap<string, ManifestObject>
 	/** The parts of every relation of the previous and of the target installation, by name key (partsByTable). */
@@ -831,7 +1024,7 @@ class Differ {
 		const key = nameKey(table)
 		const held = this.alterations[slot].get(key)
 		if (held !== undefined) {
-			held.rest.push(...actions)
+			appendAll(held.rest, actions)
 			return
 		}
 		const [first, ...rest] = actions
@@ -848,9 +1041,55 @@ class Differ {
 
 	/** The steps drafted so far, each table's alteration at its place with every subcommand drafted until now. */
 	drafted(): ReadonlyArray<Step> {
-		return this.drafting.map((d): Step =>
-			d.kind === "step" ? d.step : { slot: d.slot, draft: alterationDraft(d.alteration) }
-		)
+		return this.drafting.flatMap((d) => this.stepsOf(d))
+	}
+
+	/** The steps one drafting stands for: a step itself, a table's alteration as drafted until now, or a table's fill's. */
+	stepsOf(d: Drafting): ReadonlyArray<Step> {
+		switch (d.kind) {
+			case "step":
+				return [d.step]
+			case "alteration":
+				return [{ slot: d.slot, draft: alterationDraft(d.alteration, this.asideOf(d)) }]
+			case "fill":
+				return fillSteps(
+					d.fill,
+					this.alterations.structure.get(nameKey(d.fill.table)),
+					asideColumnsOf(d.fill)
+				)
+		}
+	}
+
+	/** The set-aside fields an alteration's generated columns read through: its table's fill's, in Structure alone. */
+	asideOf(d: Extract<Drafting, { readonly kind: "alteration" }>): AsideColumns {
+		const fill = d.slot === "structure" ? this.fills.get(nameKey(d.alteration.table)) : undefined
+		return fill === undefined ? noAside : asideColumnsOf(fill)
+	}
+
+	/** A field of `t` set aside (SetAside): its set-aside column added in the table's one Structure alteration, with no
+	 * NOT NULL and no default, so it changes the catalog alone, and the field joined to the table's fill in
+	 * structure.fill, which stands at the place of the table's first. */
+	setAside(t: ObjectName, field: SetAside): void {
+		this.alter("structure", t, [
+			{
+				kind: "addColumnUnchecked",
+				column: {
+					name: field.aside,
+					type: field.column.type,
+					collation: field.column.collation,
+					generated: undefined
+				}
+			}
+		])
+		const key = nameKey(t)
+		const held = this.fills.get(key)
+		if (held !== undefined) {
+			held.rest.push(field)
+			return
+		}
+		const fill: TableFill = { table: t, first: field, rest: [] }
+		this.fills.set(key, fill)
+		this.drafting.push({ kind: "fill", fill })
 	}
 
 	sql(slot: Slot, statements: ReadonlyArray<SqlStatement>): void {
@@ -937,7 +1176,9 @@ class Differ {
 		for (const t of this.targets) {
 			this.visit(t)
 		}
-		this.backfill()
+		if (this.holdsDataSteps(this.backfill())) {
+			this.push("structure.immediate", statement(checkedAtOnce))
+		}
 		this.ruleChecks(checks.rules)
 		this.validations()
 		for (const p of this.previous.toReversed()) {
@@ -1666,7 +1907,7 @@ class Differ {
 
 	/** The backfill of the families new to stored rows (backfill.ts), once every column it draws is added: its UPDATEs,
 	 * then each drawn column's DROP DEFAULT, before any constraint that reads them (structure.constraints). */
-	backfill(): void {
+	backfill(): boolean {
 		const previousTables = new Map(
 			this.input.previous.manifest.objects.flatMap((o) => {
 				const v = installed(o)
@@ -1689,23 +1930,43 @@ class Differ {
 			mayHoldRows: (t) => this.mayHoldRows(t),
 			added: this.backfilled
 		})
-		this.sql("structure.backfill", [
-			...(updates.length === 0 ? [] : [checkedAtOnce, ...updates]),
-			...dropDefaults
-		])
+		this.sql("structure.backfill", [...updates, ...dropDefaults])
+		return updates.length > 0
+	}
+
+	/** Whether Structure holds a data step: a reviewer's UPDATE a placeholder column invites, a fill, or the backfill's
+	 * (`backfilled`). Each runs after SET CONSTRAINTS ALL IMMEDIATE (checkedAtOnce, structure.immediate), before which
+	 * Structure runs no UPDATE: its drops and its tables' alterations, which write no row. */
+	holdsDataSteps(backfilled: boolean): boolean {
+		return (
+			backfilled ||
+			this.fills.size > 0 ||
+			[...this.alterations.structure.values()].some((a) =>
+				[a.first, ...a.rest].some((x) => x.kind === "placeholderColumn")
+			)
+		)
 	}
 
 	/** The steps of a field's change in place from `b` to `c` (inPlace), its conversion by its cast or its placeholder
 	 * (conversion). */
 	changeInPlace(t: ObjectName, b: ColumnDef, c: ColumnDef, change: FieldChange): void {
-		for (const step of inPlace(
+		const planned = inPlace(
 			t,
 			b,
 			c,
 			change,
 			(column) => this.conversion(b, column),
 			(column) => this.addedField(t, column)
-		)) {
+		)
+		if (planned.kind === "setAside") {
+			this.setAside(t, {
+				column: c,
+				aside: this.temporary(identity.aside(`${t.name}.${c.name}`)),
+				reason: planned.reason
+			})
+			return
+		}
+		for (const step of planned.steps) {
 			this.push("structure", step)
 		}
 	}
@@ -1764,7 +2025,6 @@ class Differ {
 		if (!this.keepsValues(was, column)) {
 			return {
 				kind: "placeholderRetype",
-				column,
 				reason:
 					rosterOf(was.type, this.prevDomains) === undefined &&
 					rosterOf(column.type, this.nextDomains) === undefined
@@ -2070,13 +2330,15 @@ class Differ {
 	}
 
 	/** A materialized view, created WITH NO DATA when it follows no previous view (Arrival): new, or dropped at the start
-	 * of Structure (viewDropsOf). One that stands has the target's definition, since a changed one is dropped. */
+	 * of Structure (viewDropsOf). One that stands has the target's definition, since a changed one is dropped. It is
+	 * created in structure.views, after every table's fill, so it reads each set-aside field under its name, as the fill
+	 * leaves it, never the column the fill drops. */
 	view(
 		v: Installed & { readonly kind: "materializedView" },
 		before: ManifestObject | undefined
 	): void {
 		if (before === undefined) {
-			this.sql("structure", v.object.ddl)
+			this.sql("structure.views", v.object.ddl)
 		}
 	}
 
@@ -2090,7 +2352,14 @@ class Differ {
 			return
 		}
 		if (!this.mayHoldRows(t)) {
-			this.sql(o.phase === "structure" ? "structure" : "indexes", o.ddl)
+			this.sql(
+				o.phase === "structure"
+					? this.next.has(viewIdent(t))
+						? "structure.views"
+						: "structure"
+					: "indexes",
+				o.ddl
+			)
 			return
 		}
 		if (before === undefined) {
@@ -2535,6 +2804,7 @@ const draftStatements = (d: Draft): ReadonlyArray<SqlStatement> => {
 			return d.keep
 		case "alteration":
 			return [alterationStatement(d.table, d.actions)]
+		case "fill":
 		case "violation":
 		case "analyze":
 		case "dropStatistics":
@@ -2959,9 +3229,10 @@ const changeOf = (changes: ReadonlyMap<string, FieldChange>, column: string): Fi
  * serial takes its draw, an identity advanced the same way, and one serial no longer gives it up; a generated field
  * re-expressed takes its new expression; a field rewritten is dropped and added again by `add`; a field kept as it is
  * takes none. The one reading for a field of a table both install but a rewritten one, which changeField drops before
- * the conversions. Each alteration joins its table's one ALTER TABLE in Structure (Differ.alter), which PostgreSQL runs
- * pass by pass, every give-up before every conversion and every conversion before every take; an identity's advance
- * reads the values that statement leaves, so it follows it. */
+ * the conversions. A conversion the reviewer's value makes is set aside instead (InPlace setAside), its old column's
+ * identity or default leaving with the column. Each alteration joins its table's one ALTER TABLE in Structure
+ * (Differ.alter), which PostgreSQL runs pass by pass, every give-up before every conversion and every conversion before
+ * every take; an identity's advance reads the values that statement leaves, so it follows it. */
 const inPlace = (
 	t: ObjectName,
 	b: ColumnDef,
@@ -2969,8 +3240,9 @@ const inPlace = (
 	change: FieldChange,
 	convert: (column: ColumnDef) => ColumnConversion,
 	add: (column: ColumnDef) => Alteration
-): ReadonlyArray<Action> => {
+): InPlace => {
 	const altering = (a: Alteration): Action => ({ kind: "alteration", table: t, actions: [a] })
+	const steps = (list: ReadonlyArray<Action>): InPlace => ({ kind: "steps", steps: list })
 	const take = (sequence: ObjectName): ReadonlyArray<Action> => [
 		altering({ kind: "addIdentity", column: c.name, sequence }),
 		statement(advance(t, c.name, sequence, c.type))
@@ -2980,38 +3252,46 @@ const inPlace = (
 	const giveUpUuidv7 = altering({ kind: "dropDefault", column: b.name })
 	switch (change.kind) {
 		case "kept":
-			return []
+			return steps([])
 		case "converted": {
+			const conversion = convert({ ...c, generated: undefined })
+			if (conversion.kind === "placeholderRetype") {
+				return { kind: "setAside", reason: conversion.reason }
+			}
 			const before =
 				change.drawn.kind === "none"
 					? []
 					: change.drawn.kind === "uuidv7"
 						? [giveUpUuidv7]
 						: [giveUp]
-			return c.generated?.kind === "identity"
-				? [
-						...before,
-						altering(convert({ ...c, generated: undefined })),
-						...take(c.generated.sequence)
-					]
-				: c.generated?.kind === "uuidv7"
-					? [...before, altering(convert({ ...c, generated: undefined })), takeUuidv7]
-					: [...before, altering(convert(c))]
+			return steps(
+				c.generated?.kind === "identity"
+					? [...before, altering(conversion), ...take(c.generated.sequence)]
+					: c.generated?.kind === "uuidv7"
+						? [...before, altering(conversion), takeUuidv7]
+						: [...before, altering(conversion)]
+			)
 		}
 		case "reexpressed":
-			return [altering({ kind: "setExpression", column: c.name, expr: change.expr })]
+			return steps([altering({ kind: "setExpression", column: c.name, expr: change.expr })])
 		case "rewritten":
-			return [altering({ kind: "dropColumn", column: b.name }), altering(add(c))]
+			return steps([altering({ kind: "dropColumn", column: b.name }), altering(add(c))])
 		case "serialDeclared":
-			return take(change.sequence)
+			return steps(take(change.sequence))
 		case "serialRemoved":
-			return [giveUp]
+			return steps([giveUp])
 		case "uuidv7Declared":
-			return [takeUuidv7]
+			return steps([takeUuidv7])
 		case "uuidv7Removed":
-			return [giveUpUuidv7]
+			return steps([giveUpUuidv7])
 	}
 }
+
+/** What a field's change in place drafts (inPlace): its steps, or, for a conversion the reviewer's value makes, its
+ * setting aside (SetAside), which draws its identity or its uuidv7() default once its fill renames it. */
+type InPlace =
+	| { readonly kind: "steps"; readonly steps: ReadonlyArray<Action> }
+	| { readonly kind: "setAside"; readonly reason: RetypeReason }
 
 /** The identity sequences of the tables both install that a migration drops, by name key, each with its fate, read off
  * each field's change before any object is visited: a serial field converted in place drops its sequence, created again
@@ -3374,8 +3654,8 @@ const advance = (
  * - Removing a field: DROP COLUMN, at the end of Publish (publish.removed), after every statement that may still read
  *   it: the reviewer's data steps; a loss
  *   of its values, which the reviewer decides.
- * - Changing a field's type: the column is converted in place by ALTER COLUMN ... TYPE ... USING a marked placeholder
- *   the reviewer replaces by SQL computing the new value from the old (structure), or by its cast when the new type
+ * - Changing a field's type: the column is set aside (plan.ts SetAside), its new value the SQL the reviewer writes at a
+ *   marked placeholder in its table's fill (structure.fill), or converted in place by its cast when the new type
  *   holds the old one's values (keepsValues: a pattern's domain for another pattern's, a contract added, removed or
  *   swapped for another over one base type), since a law's domain is its base type with a law: the cast keeps every
  *   value, and the new type's CHECK judges each as it runs, refusing a stored value with 23514. A roster's domain holds

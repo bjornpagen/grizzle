@@ -249,11 +249,9 @@ const swaps = (c: Case<Feature>, value: SwapCase): void => {
 	)
 	const conversion = Arr.findFirstIndex(
 		structure,
-		(a) =>
-			a.kind === "alteration" &&
-			Arr.some(a.actions, (x) => x.kind === "placeholderRetype" && x.column.name === retyped)
+		(a) => a.kind === "fill" && Arr.some(a.fields, (f) => f.column.name === retyped)
 	)
-	assert.ok(Option.isSome(conversion), `Structure converts ${retyped} in place`)
+	assert.ok(Option.isSome(conversion), `Structure sets ${retyped} aside and fills it`)
 	const at = (name: string, kind: "dropConstraint" | "addConstraint") =>
 		Arr.findFirstIndex(structure, (a) =>
 			Arr.some(

@@ -61,9 +61,13 @@ export interface Declarations {
  * - structure.drop, structure, structure.backfill, structure.constraints, structure.worlds: the roles' views, world
  *   functions and policies the migration changes or removes, then recreated materialized views dropped top-down and
  *   what is built over a column converted in place dropped before its conversion, then new tables, each table's one
- *   alteration (its new columns, conversions, identities and law columns, and a new table's own constraints), and new
- *   or recreated materialized views WITH NO DATA with their unique indexes; then the backfill of the families new to
- *   stored rows (backfill.ts) and the DROP DEFAULT of each column it drew; then each table's one alteration adding the
+ *   alteration (its new columns, conversions by cast, set-aside columns, identities and law columns, and a new table's
+ *   own constraints); then, when Structure holds a data step, SET CONSTRAINTS ALL IMMEDIATE, after which every data
+ *   step runs (diff.ts checkedAtOnce): the reviewer's UPDATE a placeholder column invites, written right after it, then
+ *   each table's fill of its set-aside fields (Action fill), once every placeholder column of every table holds its
+ *   value; then new or recreated materialized views WITH NO DATA with their unique indexes, which
+ *   read the fields as the fills leave them; then the backfill of the families new to stored rows (backfill.ts) and the
+ *   DROP DEFAULT of each column it drew; then each table's one alteration adding the
  *   constraints of tables that may hold rows, NOT VALID, after every value they read is drawn; and last the roles' changed
  *   views, world functions and policies created again with their grants, each whose role stands before the migration:
  *   in the one transaction that dropped them, so no committed state lacks one an existing role relies on;
@@ -85,6 +89,9 @@ export const slots = [
 	"setup",
 	"structure.drop",
 	"structure",
+	"structure.immediate",
+	"structure.fill",
+	"structure.views",
 	"structure.backfill",
 	"structure.constraints",
 	"structure.worlds",
@@ -138,6 +145,9 @@ export const slotFile: { readonly [S in Slot]: SlotsFile } = {
 	setup: setupFile,
 	"structure.drop": structureFile,
 	structure: structureFile,
+	"structure.immediate": structureFile,
+	"structure.fill": structureFile,
+	"structure.views": structureFile,
 	"structure.backfill": structureFile,
 	"structure.constraints": structureFile,
 	"structure.worlds": structureFile,
@@ -161,24 +171,33 @@ export const slotFile: { readonly [S in Slot]: SlotsFile } = {
 export type RetypeReason = "values" | "roster"
 
 /** A subcommand of a table's alteration whose value the reviewer writes at its placeholder, which a marker above the
- * alteration explains:
- * - `placeholderColumn`: ADD COLUMN ... NOT NULL DEFAULT <placeholder>, its DROP DEFAULT drafted after the alteration: a
- *   field added to a relation that may hold rows needs a value for every row, which the generator cannot invent;
- * - `placeholderRetype`: ALTER COLUMN ... TYPE ... USING <placeholder>: a column converted in place to `column`'s type,
- *   by the expression the reviewer writes: a field whose type changes to one that holds other values (a
- *   `ColumnConversion`), for its `reason` (RetypeReason). */
-export type PlaceholderAlteration =
-	| { readonly kind: "placeholderColumn"; readonly column: ColumnDef }
-	| {
-			readonly kind: "placeholderRetype"
-			readonly column: ColumnDef
-			readonly reason: RetypeReason
-	  }
+ * alteration explains: ADD COLUMN ... NOT NULL DEFAULT <placeholder>, its DROP DEFAULT drafted after the alteration: a
+ * field added to a relation that may hold rows needs a value for every row, which the generator cannot invent. */
+export interface PlaceholderAlteration {
+	readonly kind: "placeholderColumn"
+	readonly column: ColumnDef
+}
 
-/** One subcommand of a table's alteration: an ALTER TABLE action, or a placeholder's (PlaceholderAlteration), which
- * prints as the ADD COLUMN ... DEFAULT <placeholder> or the ALTER COLUMN ... TYPE ... USING <placeholder> under its
- * marker, the one way the diff drafts a placeholder. */
+/** One subcommand of a table's alteration: an ALTER TABLE action, or a placeholder column's (PlaceholderAlteration),
+ * which prints as the ADD COLUMN ... DEFAULT <placeholder> under its marker. */
 export type Alteration = AlterTableAction | PlaceholderAlteration
+
+/**
+ * A field converted at the reviewer's value, set aside: a field whose type changes to one that holds other values, for
+ * its `reason` (RetypeReason). No ALTER COLUMN ... TYPE ... USING converts it in place, since a USING expression reads
+ * the row alone, its subqueries refused (PostgreSQL 19rc1, src/backend/parser/parse_utilcmd.c 3678 transforms it as
+ * EXPR_KIND_ALTER_COL_TRANSFORM, which transformSubLink refuses at src/backend/parser/parse_expr.c 1850-1851, "cannot
+ * use subquery in transform expression"), and a re-pointed reference's value lies in its target's row, which a
+ * placeholder column of the same migration may only now be filling. So its table's one alteration adds the column
+ * `aside`, of `column`'s type with no NOT NULL and no default (catalog only), its table's fill (Action fill) sets it
+ * once every placeholder column holds its value, then drops the field's column, renames `aside` into the field's name
+ * and sets its NOT NULL, its identity or its uuidv7() default. `column` is the field as the target declares it.
+ */
+export interface SetAside {
+	readonly column: ColumnDef
+	readonly aside: string
+	readonly reason: RetypeReason
+}
 
 /**
  * The passes one ALTER TABLE runs its subcommands in, in order, each pass's subcommands in the order the statement lists
@@ -215,11 +234,13 @@ export const alterationPass = (a: Alteration): AlterTablePass => {
 		case "dropDefault":
 			return "drop"
 		case "alterColumnType":
-		case "placeholderRetype":
 			return "alterType"
+		case "setNotNull":
+			return "columnAttributes"
 		case "addColumn":
 		case "addColumnPlaceholder":
 		case "addColumnDefault":
+		case "addColumnUnchecked":
 		case "placeholderColumn":
 			return "addColumn"
 		case "setExpression":
@@ -246,16 +267,10 @@ const printedAction = (a: Alteration): AlterTableAction => {
 	switch (a.kind) {
 		case "placeholderColumn":
 			return { kind: "addColumnPlaceholder", column: a.column }
-		case "placeholderRetype":
-			return {
-				kind: "alterColumnType",
-				column: a.column.name,
-				type: a.column.type,
-				collation: a.column.collation,
-				using: { kind: "placeholder" }
-			}
 		case "addColumn":
 		case "addColumnPlaceholder":
+		case "addColumnUnchecked":
+		case "setNotNull":
 		case "addColumnDefault":
 		case "dropColumn":
 		case "dropDefault":
@@ -287,6 +302,12 @@ export const alterationStatement = (
  *   phase 3 (tablecmds.c ATRewriteTables at 5882, the rewrite at 5929-6053, fired once per table at 6006), which also
  *   checks every CHECK the statement adds (ATRewriteTable at 6236-6237); then one DROP DEFAULT of each placeholder column (PlaceholderAlteration),
  *   after the reviewer's optional UPDATE;
+ * - `fill`: a table's fill of its set-aside fields (SetAside), in structure.fill, after every table's alteration: one
+ *   UPDATE setting each set-aside column to the reviewer's value at its placeholder, under a marker each, the row aliased
+ *   "t" and each old column still under its field's name, the last value free to be followed by the FROM and WHERE the
+ *   values join. The fill's steps after it are statements (diff.ts fillSteps): the fields' old columns dropped, each
+ *   set-aside column renamed into its field's name, one ALTER TABLE setting each field's NOT NULL, identity or uuidv7()
+ *   default and the NOT NULL of every generated column over one, and an identity's advance;
  * - `violation`: the full violation query of a law the migration discharges once, which raises with the law's identity
  *   when it has a row;
  * - `analyze`: ANALYZE of a table that may hold rows, after a new statistics object;
@@ -298,18 +319,22 @@ export type Action =
 			readonly table: ObjectName
 			readonly actions: NonEmptyReadonlyArray<Alteration>
 	  }
+	| {
+			readonly kind: "fill"
+			readonly table: ObjectName
+			readonly fields: NonEmptyReadonlyArray<SetAside>
+	  }
 	| { readonly kind: "violation"; readonly law: LawId; readonly query: Select }
 	| { readonly kind: "analyze"; readonly table: ObjectName }
 	| { readonly kind: "dropStatistics"; readonly name: ObjectName }
 
-/** A column's conversion in place to a new type: by its cast, when the new type holds the old one's values (its domains
+/** A column's conversion to a new type: in place by its cast, when the new type holds the old one's values (its domains
  * read through, the two are one base type under one collation, so the cast keeps every value and only the laws its
- * domains carry change, which judge the stored values as it runs); otherwise by the expression the reviewer writes at
- * its placeholder (`placeholderRetype`). */
-export type ColumnConversion = Extract<
-	Alteration,
-	{ readonly kind: "alterColumnType" | "placeholderRetype" }
->
+ * domains carry change, which judge the stored values as it runs); otherwise by the value the reviewer writes, set
+ * aside (`placeholderRetype`, SetAside). */
+export type ColumnConversion =
+	| Extract<AlterTableAction, { readonly kind: "alterColumnType" }>
+	| { readonly kind: "placeholderRetype"; readonly reason: RetypeReason }
 
 /** A schema the migrations directory holds that the configuration no longer lists: its PostgreSQL schema and its
  * directory, as the command line names it. */

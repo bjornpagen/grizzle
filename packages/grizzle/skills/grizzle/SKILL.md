@@ -120,8 +120,9 @@ export default defineConfig({
    `<name> is dropped but not declared: declare it with --drop <name>, or --rename it`.
 3. Read every drafted SQL file, and resolve each marker:
    - **Placeholder** (`-- grizzle: placeholder` above a `__GRIZZLE_PLACEHOLDER__`): a value for a new NOT NULL column
-     on a table with rows, or the conversion for a changed type. Write the value or the UPDATE, then delete the marker
-     line.
+     on a table with rows, or a changed type's new value in its fill's UPDATE (the row is `"t"`, its old column still
+     there, and the last value may be followed by the `FROM` and `WHERE` it joins). Write the value, or an UPDATE right
+     after the file's `SET CONSTRAINTS ALL IMMEDIATE`, where every data step goes, then delete the marker line.
    - **Confirm** (`-- grizzle: confirm:` and the instruction line below it): a holder set aside, a relation or roster
      whose name a declared rename takes or that moves to another kind, renamed aside with every index, identity
      sequence and statistics object it owns, so a declared rename takes it from there or the end of the migration
@@ -202,9 +203,12 @@ breaking change may briefly break older application instances that are still run
   alone don't give is refused, naming it: copies that read each other, or a fold over a copy. A roster whose names changed has its domain's CHECK dropped and added `NOT VALID` against the new names constant,
   validated in Validate; a set over a roster that grew is converted to the new size's domain by its cast, the new
   handles absent. A table CHECK or generated field over a changed closed relation is replaced the same way, or takes its
-  new expression (`SET EXPRESSION`). A field whose type changes is converted in place, `ALTER COLUMN ... TYPE ... USING`
-  with a placeholder for the conversion, or by its cast, with no placeholder, when the new type holds the old one's
-  values (a pattern changed, a contract added, removed or swapped for another over the same base), after the
+  new expression (`SET EXPRESSION`). A field whose type changes is converted by its cast, in place, with no
+  placeholder, when the new type holds the old one's values (a pattern changed, a contract added, removed or swapped
+  for another over the same base); otherwise it is set aside: its table's one ALTER TABLE adds a set-aside column of the
+  new type, and once every placeholder column holds its value the table's fill sets it to the value you write at its
+  placeholder (a `USING` reads its own row alone, so it could not join a re-pointed reference's target), drops the old
+  column and renames the set-aside one into the field's name. Either way it runs after the
   constraints, indexes and statistics over it are dropped; they are built again as on any table with rows, but a key
   over it, which is added again right after the conversion in the same transaction, so it holds throughout. A domain is
   named by its whole definition, so a contract's changed predicate, like a changed pattern, is another domain: each
@@ -267,8 +271,8 @@ What a declaration drafts:
   over it, and each key, index, statistics object, CHECK and foreign key over it, or on a renamed relation, or
   referencing one, that the schema declares by the same definition is renamed to the name the schema gives it
   (`RENAME CONSTRAINT`, `ALTER INDEX ... RENAME TO`), never built or validated again; what the schema declares otherwise
-  is built again. A new field of a table with rows takes a placeholder, and a field whose type changed is converted in
-  place, as any field is.
+  is built again. A new field of a table with rows takes a placeholder, and a field whose type changed is converted or
+  set aside, as any field is.
 - **A family's hidden columns** (`__copy_…`, `__index_…`, `__parent_start_…`, `__before_…`, `__after_…`,
   `__predecessor_…`, `__pred_…`) are named by the laws whose values they hold, so a rename of the owner, the member, the
   count, or a roster or handle a fold's or a side's selection reads, a swap or a chain among them included, renames

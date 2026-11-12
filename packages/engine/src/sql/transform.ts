@@ -926,7 +926,8 @@ export class Transform {
 	alterTableAction(a: AlterTableAction, table: ObjectName): AlterTableAction {
 		switch (a.kind) {
 			case "addColumn":
-			case "addColumnPlaceholder": {
+			case "addColumnPlaceholder":
+			case "addColumnUnchecked": {
 				const column = this.columnDef(a.column)
 				return column === a.column ? a : { ...a, column }
 			}
@@ -964,6 +965,7 @@ export class Transform {
 			}
 			case "dropColumn":
 			case "dropDefault":
+			case "setNotNull":
 			case "setUuidv7Default":
 			case "dropIdentity":
 			case "enableRowSecurity":

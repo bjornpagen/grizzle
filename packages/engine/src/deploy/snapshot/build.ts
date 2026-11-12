@@ -352,7 +352,9 @@ export const codebookOf = (snapshot: DeploySnapshot): Codebook =>
 	)
 
 /** The columns a migration adds to each table, by its name: each ADD COLUMN its plan drafts, and each column of a
- * CREATE TABLE. */
+ * CREATE TABLE. A field set aside (deploy/diff/plan.ts SetAside) takes one more: its set-aside column's ADD COLUMN
+ * (addColumnUnchecked) holds a new attribute number, renamed into the field's name, while its old column's stays
+ * spent once dropped. */
 const addedColumns = (plan: MigrationPlan): ReadonlyMap<string, number> => {
 	const out = new Map<string, number>()
 	const add = (table: string, n: number): void => {
@@ -362,7 +364,12 @@ const addedColumns = (plan: MigrationPlan): ReadonlyMap<string, number> => {
 		if (d.kind === "alteration") {
 			add(
 				d.table.name,
-				d.actions.filter((a) => a.kind === "addColumn" || a.kind === "placeholderColumn").length
+				d.actions.filter(
+					(a) =>
+						a.kind === "addColumn" ||
+						a.kind === "addColumnUnchecked" ||
+						a.kind === "placeholderColumn"
+				).length
 			)
 			continue
 		}

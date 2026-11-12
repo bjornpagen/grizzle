@@ -2714,8 +2714,9 @@ deploy.
   snapshot, the one file an app imports for `DbLayer.make`. Commit all of them.
 - **Plain SQL you may edit**, as long as the database ends where the snapshot says. What the schema drops is
   dropped in the same migration, as declared. A declared rename happens in place, as does a type change of a field its
-  caller writes: by a cast, or by the expression you write at a `-- grizzle: placeholder` marker, which also asks for
-  the values of a new field its caller writes, on a table that may hold rows. Roles' views, policies and functions hold no data: one that
+  caller writes by a cast; any other type change sets the field aside, filled by the value you write at a
+  `-- grizzle: placeholder` marker in its table's fill, which may join other tables, once every new column holds its
+  value. A placeholder also asks for the values of a new field its caller writes, on a table that may hold rows. Roles' views, policies and functions hold no data: one that
   changes, or reads anything the migration changes, is dropped and created again in one transaction.
 - **No guessing.** grizzle never guesses a rename and drops nothing you didn't declare. Declare each with
   `--rename <old>=<new>` or `--drop <old>`, once per name, each side a relation (`Task`), a field (`Task.title`), a

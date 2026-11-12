@@ -12,7 +12,8 @@ import {
 	type Loss,
 	type LossDecision,
 	type PlaceholderAlteration,
-	type RetypeReason
+	type RetypeReason,
+	type SetAside
 } from "#compiler/deploy/diff/plan.ts"
 import type { DraftFile } from "#compiler/deploy/phases/files.ts"
 import type { MetaFile, MetaLosses, MetaStep } from "#compiler/deploy/render/folder.ts"
@@ -26,6 +27,7 @@ import type { ColumnDef, ObjectName, PlBlock, SqlStatement } from "#compiler/sql
 import { cast, exists, lit, tableCol, types } from "#compiler/sql/build.ts"
 import {
 	commented,
+	placeholderToken,
 	printExpr,
 	printObjectName,
 	printStatement,
@@ -113,33 +115,47 @@ const retypeAdvice: { readonly [R in RetypeReason]: (column: ColumnDef) => strin
 		"a closed id's or a set's code names a handle only under its own roster, which this conversion leaves, so a cast would read each value as another handle or a bare number: replace the placeholder below with the expression computing each row's new value from what its value before means"
 }
 
-/** The marker a placeholder of an alteration of `table` drafts above it: what the reviewer supplies there, and how. */
-const placeholderNote = (table: ObjectName, p: PlaceholderAlteration): string => {
-	switch (p.kind) {
-		case "placeholderColumn":
-			return `${placeholderMarker}: every existing row of ${printObjectName(table)} needs a value for the new column ${quoteIdent(p.column.name)} (${printType(p.column.type)}); replace the placeholder below with it, optionally compute the real value with an UPDATE before the DROP DEFAULT, and delete this line.`
-		case "placeholderRetype":
-			return `${placeholderMarker}: every row of ${printObjectName(table)} needs ${quoteIdent(p.column.name)} converted in place to ${printType(p.column.type)}; ${retypeAdvice[p.reason](p.column)}, and delete this line.`
-	}
-}
+/** The marker a placeholder column of an alteration of `table` drafts above it: what the reviewer supplies there, and
+ * how. */
+const placeholderNote = (table: ObjectName, p: PlaceholderAlteration): string =>
+	`${placeholderMarker}: every existing row of ${printObjectName(table)} needs a value for the new column ${quoteIdent(p.column.name)} (${printType(p.column.type)}); replace the placeholder below with it, or with any value and compute the real one by an UPDATE written right after the SET CONSTRAINTS ALL IMMEDIATE below, which every data step follows; then delete this line.`
+
+/** The marker a set-aside field of a fill of `table` drafts above the fill's UPDATE: the value its set-aside column takes,
+ * and how a value joins another row. */
+const fillNote = (table: ObjectName, f: SetAside): string =>
+	`${placeholderMarker}: every row of ${printObjectName(table)} needs ${quoteIdent(f.column.name)} as ${printType(f.column.type)} in its set-aside column ${quoteIdent(f.aside)}, which takes the field's name below; ${retypeAdvice[f.reason](f.column)}: the row is "t", its old ${quoteIdent(f.column.name)} still standing, and the last value may be followed by the FROM and WHERE the values join; then delete this line.`
 
 /** The placeholders of an alteration's subcommands, in its order. */
 const placeholdersOf = (actions: ReadonlyArray<Alteration>): ReadonlyArray<PlaceholderAlteration> =>
 	actions.flatMap((a): ReadonlyArray<PlaceholderAlteration> =>
-		a.kind === "placeholderColumn" || a.kind === "placeholderRetype" ? [a] : []
+		a.kind === "placeholderColumn" ? [a] : []
 	)
 
-/** The statements a table's alteration drafts: its one ALTER TABLE, under a marker for each placeholder it holds, in
- * its order; then, when it adds a column at a placeholder, one ALTER TABLE dropping each such column's DEFAULT, which
- * follows the reviewer's optional UPDATE. */
+/** A fill's UPDATE of `table`, each set-aside column at its placeholder, one assignment a line. */
+const writeFill = (
+	out: Lines,
+	table: ObjectName,
+	fields: NonEmptyReadonlyArray<SetAside>
+): void => {
+	out.line(`UPDATE ${printObjectName(table)} AS ${quoteIdent("t")}`)
+	out.line("SET")
+	const assignments = out.nested()
+	for (const [i, f] of fields.entries()) {
+		assignments.line(
+			`${quoteIdent(f.aside)} = ${placeholderToken}${i === fields.length - 1 ? "" : ","}`
+		)
+	}
+}
+
+/** The statements a table's alteration drafts: its one ALTER TABLE, under a marker for each placeholder column it
+ * holds, in its order; then, when it adds one, one ALTER TABLE dropping each such column's DEFAULT. A reviewer's UPDATE
+ * of the column goes among the data steps, after SET CONSTRAINTS ALL IMMEDIATE (deploy/diff/diff.ts checkedAtOnce). */
 const spellAlteration = (
 	table: ObjectName,
 	actions: NonEmptyReadonlyArray<Alteration>
 ): NonEmptyReadonlyArray<Spelled> => {
 	const placeholders = placeholdersOf(actions)
-	const dropped = placeholders.flatMap((p) =>
-		p.kind === "placeholderColumn" ? [p.column.name] : []
-	)
+	const dropped = placeholders.map((p) => p.column.name)
 	const alteration: Spelled = {
 		above: placeholders.map((p) => placeholderNote(table, p)),
 		write: (out) => writeStatement(out, alterationStatement(table, actions))
@@ -163,6 +179,13 @@ const spellAction = (action: Action): NonEmptyReadonlyArray<Spelled> => {
 			return [bare(action.statement)]
 		case "alteration":
 			return spellAlteration(action.table, action.actions)
+		case "fill":
+			return [
+				{
+					above: action.fields.map((f) => fillNote(action.table, f)),
+					write: (out) => writeFill(out, action.table, action.fields)
+				}
+			]
 		case "violation": {
 			const block: PlBlock = {
 				declare: [],
@@ -209,6 +232,7 @@ const renderDraft = (out: Lines, draft: Draft): void => {
 	switch (draft.kind) {
 		case "statement":
 		case "alteration":
+		case "fill":
 		case "violation":
 		case "analyze":
 		case "dropStatistics":
@@ -275,6 +299,7 @@ const recordStep = (d: Draft): ReadonlyArray<MetaStep> => {
 	switch (d.kind) {
 		case "statement":
 		case "alteration":
+		case "fill":
 		case "violation":
 		case "analyze":
 		case "dropStatistics":

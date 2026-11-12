@@ -7,7 +7,8 @@ import {
 	type Draft,
 	type LossDecision,
 	type MigrationPlan,
-	type PlaceholderAlteration
+	type PlaceholderAlteration,
+	type RetypeReason
 } from "#compiler/deploy/diff/plan.ts"
 import { type DraftFile, planFiles } from "#compiler/deploy/phases/files.ts"
 import { type LossDecided, lossDecisions } from "#compiler/deploy/render/folder.ts"
@@ -18,7 +19,7 @@ import {
 	lossMarker,
 	placeholderMarker
 } from "#compiler/deploy/render/markers.ts"
-import type { ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
+import type { ColumnDef, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
 
 /**
@@ -43,7 +44,14 @@ import { placeholderToken } from "#compiler/sql/print.ts"
  *
  * A text that disagrees with meta.json or with the plan is a defect of the draft, thrown as DraftTextDefect.
  */
-export type Placeholder = PlaceholderAlteration & { readonly table: ObjectName }
+export type Placeholder =
+	| (PlaceholderAlteration & { readonly table: ObjectName })
+	| {
+			readonly kind: "placeholderRetype"
+			readonly table: ObjectName
+			readonly column: ColumnDef
+			readonly reason: RetypeReason
+	  }
 
 /**
  * How a review decides each loss of stored data: its statement written in, so the data is lost, or left commented, so
@@ -66,15 +74,21 @@ export interface ReviewedFile {
 /** The defect of a draft whose text the reviewer cannot follow: the text, meta.json and the plan disagree. */
 class DraftTextDefect extends Data.TaggedError("DraftTextDefect")<{ readonly defect: string }> {}
 
-/** The placeholders of an action, in the order its text holds them: an alteration's, each with its table. */
+/** The placeholders of an action, in the order its text holds them, each with its table: an alteration's placeholder
+ * columns, and a fill's set-aside fields, each the value its set-aside column takes (deploy/diff/plan.ts SetAside). */
 const actionPlaceholders = (a: Action): ReadonlyArray<Placeholder> => {
 	switch (a.kind) {
 		case "alteration":
 			return Arr.flatMap(a.actions, (sub): ReadonlyArray<Placeholder> =>
-				sub.kind === "placeholderColumn" || sub.kind === "placeholderRetype"
-					? [{ ...sub, table: a.table }]
-					: []
+				sub.kind === "placeholderColumn" ? [{ ...sub, table: a.table }] : []
 			)
+		case "fill":
+			return Arr.map(a.fields, (f): Placeholder => ({
+				kind: "placeholderRetype",
+				table: a.table,
+				column: f.column,
+				reason: f.reason
+			}))
 		case "statement":
 		case "violation":
 		case "analyze":
@@ -92,6 +106,7 @@ export const draftActions = (d: Draft): ReadonlyArray<Action> => {
 			return [{ kind: "statement", statement: d.statement }]
 		case "statement":
 		case "alteration":
+		case "fill":
 		case "violation":
 		case "analyze":
 		case "dropStatistics":
@@ -108,6 +123,7 @@ export const reviewedStatements = (a: Action): ReadonlyArray<SqlStatement> => {
 			return [a.statement]
 		case "alteration":
 			return actionPlaceholders(a).length === 0 ? [alterationStatement(a.table, a.actions)] : []
+		case "fill":
 		case "violation":
 		case "analyze":
 		case "dropStatistics":
@@ -134,6 +150,7 @@ const reviewPlan = (g: GenerateResult, losses: LossReview): ReadonlyArray<Review
 				case "confirm":
 				case "statement":
 				case "alteration":
+				case "fill":
 				case "violation":
 				case "analyze":
 				case "dropStatistics":

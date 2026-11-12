@@ -1230,6 +1230,16 @@ export type AlterTableAction =
 			readonly column: ColumnDef
 			readonly default: Expr
 	  }
+	| {
+			/**
+			 * ADD COLUMN ... with no NOT NULL and no default: a column a migration fills before it sets its NOT NULL
+			 * (setNotNull), a field set aside while the reviewer's value converts it (deploy/diff/plan.ts SetAside), or a
+			 * generated column over one.
+			 */
+			readonly kind: "addColumnUnchecked"
+			readonly column: ColumnDef
+	  }
+	| { readonly kind: "setNotNull"; readonly column: string }
 	| { readonly kind: "dropColumn"; readonly column: string }
 	| { readonly kind: "dropDefault"; readonly column: string }
 	| {
