@@ -22,7 +22,7 @@ import {
 	withNames
 } from "#compiler/deploy/diff/aside.ts"
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
-import { fieldWriting } from "#compiler/deploy/snapshot/build.ts"
+import { drawnWriting, fieldWriting } from "#compiler/deploy/snapshot/build.ts"
 import {
 	installed,
 	type ManifestObject,
@@ -264,6 +264,23 @@ export const applyDeclarations = (
 	) =>
 		fields.get(relation)?.has(field.name) !== true &&
 		takenColumns.get(relation)?.has(field.column) === true
+	/** Whether a previous field, neither renamed nor taken, is one the target declares again on its relation, under its
+	 * name, as a field grizzle draws or accumulates: a declared drop of it drops its stored values, and the target's is
+	 * new to the migration, drawn anew over the stored rows. */
+	const drawnAnew = (
+		relation: string,
+		field: { readonly name: string; readonly column: string }
+	): boolean => {
+		const now = heldAlike(after, targetName(relation))
+		const again =
+			now?.kind === "relation" ? now.fields.find((x) => alike(x.name, field.name)) : undefined
+		return (
+			again !== undefined &&
+			drawnBy(again.writing) &&
+			fields.get(relation)?.has(field.name) !== true &&
+			!fieldTaken(relation, field)
+		)
+	}
 	/** The handle renames, by the target's roster, each target handle to its previous name. */
 	const handles = new Map<string, Map<string, string>>()
 	/** The handles the renames take away from each previous roster. */
@@ -408,7 +425,8 @@ export const applyDeclarations = (
 					f !== undefined &&
 					fields.get(d.relation)?.has(d.field) !== true &&
 					(!(now?.kind === "relation" && now.fields.some((x) => alike(x.name, d.field))) ||
-						fieldTaken(d.relation, f))
+						fieldTaken(d.relation, f) ||
+						drawnAnew(d.relation, f))
 				)
 			}
 			case "handle": {
@@ -438,8 +456,21 @@ export const applyDeclarations = (
 			)
 		}
 	}
-	const relations = renamedSnapshot(previous, target, renamed, fields, temporaries)
-	const names = previousNames(before, after, renamed, fields, handles, handlesAway)
+	/** The fields each declared drop drops while the target declares them again, drawn anew (drawnAnew), by the
+	 * previous relation's name. */
+	const anew = new Map<string, Set<string>>()
+	for (const d of declarations.drops) {
+		if (d.kind !== "field") {
+			continue
+		}
+		const was = heldIn(before, d.relation)
+		const f = was?.kind === "relation" ? was.fields.find((x) => x.name === d.field) : undefined
+		if (f !== undefined && drawnAnew(d.relation, f)) {
+			anew.set(d.relation, (anew.get(d.relation) ?? new Set<string>()).add(d.field))
+		}
+	}
+	const relations = renamedSnapshot(previous, target, renamed, fields, anew, temporaries)
+	const names = previousNames(before, after, renamed, fields, anew, handles, handlesAway)
 	const columns = lawColumnRenames(relations.previous, installation, names, temporaries)
 	/** The tables a declaration touched: each renamed relation's, each one whose fields are renamed, and each whose law
 	 * columns move. */
@@ -499,6 +530,7 @@ const previousNames = (
 	after: Readonly<Record<string, SnapshotRelation>>,
 	renamed: ReadonlyMap<string, string>,
 	fields: ReadonlyMap<string, ReadonlyMap<string, string>>,
+	anew: ReadonlyMap<string, ReadonlySet<string>>,
 	handles: ReadonlyMap<string, ReadonlyMap<string, string>>,
 	handlesAway: ReadonlyMap<string, ReadonlySet<string>>
 ): PreviousNames => {
@@ -530,7 +562,11 @@ const previousNames = (
 			return from[0]
 		}
 		const names = was.fields.map((x) => x.name)
-		return spelling(f, names, (x) => names.includes(x) && renames?.has(x) !== true)
+		return spelling(
+			f,
+			names,
+			(x) => names.includes(x) && renames?.has(x) !== true && anew.get(p)?.has(x) !== true
+		)
 	}
 	const handle = (roster: string, h: string): string | undefined => {
 		const from = handles.get(roster)?.get(h)
@@ -554,13 +590,56 @@ const drawnBy = (w: SnapshotWriting): boolean =>
 	typeof w === "object" && ("drawn" in w || "accumulated" in w)
 
 /**
+ * Whether `was`, the previous snapshot's record of a field the target draws as the index of an ordered family or a
+ * tree, records the index of a family over the same sequence: a law the previous snapshot states of the target family's
+ * kind (its shape, "family" or "tree"), whose index record is `was` and whose count record is the one the previous
+ * snapshot holds on the target family's owner's table and count's column, as the declarations left them. The member's
+ * field is the field `was` is recorded on, so the family orders the same members of the same owners: only its group, by
+ * which each member names its owner, may differ. An index holds each member's place in its owner's sequence, which its
+ * caller wrote, so it is kept, never drawn again; the family's laws, validated after the migration's data steps, prove
+ * the kept places a sequence of each owner under the new group.
+ */
+const sameSequence = (
+	previous: DeploySnapshot,
+	installation: Installation,
+	relation: string,
+	field: string,
+	was: SnapshotWriting
+): boolean => {
+	const family = installation.laws.theory.families.find(
+		(f) => f.member.name === relation && f.index.kind === "field" && f.index.field.name === field
+	)
+	if (family === undefined) {
+		return false
+	}
+	const owner = Object.values(previous.theory.relations).find(
+		(r) => r.kind === "relation" && r.ident === family.owner.ident
+	)
+	const counted =
+		owner?.kind === "relation"
+			? owner.fields.find((f) => f.column === family.count.column)
+			: undefined
+	const shape = family.members.kind === "tree" ? "tree" : "family"
+	return (
+		counted !== undefined &&
+		Object.entries(previous.theory.laws).some(
+			([law, stated]) =>
+				stated.shape === shape &&
+				same(was, drawnWriting({ role: { kind: "index" }, laws: [law] })) &&
+				same(counted.writing, drawnWriting({ role: { kind: "count" }, laws: [law] }))
+		)
+	)
+}
+
+/**
  * The previous snapshot with each drawn or accumulated field whose filler a declaration only renames recorded as the
- * target records it. A field's record digests what fills it (snapshot/types.ts SnapshotWriting), its laws among them,
- * and a renamed relation, field or handle renames them, so the target's record of a field whose filler is the
- * previous one's is another digest. Its filler restated under the previous snapshot's names (snapshot/build.ts
- * fieldWriting under laws/model/restate.ts PreviousSpelling) is exactly the previous record then, and the field
- * keeps its column and its values; any other record stands, and the diff draws the field again (diff.ts redrawn). A
- * field is matched by its table and its column, as the diff reads the records.
+ * target records it, and each index whose family orders the same sequence (sameSequence) too. A field's record digests
+ * what fills it (snapshot/types.ts SnapshotWriting), its laws among them, and a renamed relation, field or handle
+ * renames them, so the target's record of a field whose filler is the previous one's is another digest. Its filler
+ * restated under the previous snapshot's names (snapshot/build.ts fieldWriting under laws/model/restate.ts
+ * PreviousSpelling) is exactly the previous record then, and the field keeps its column and its values; any other
+ * record stands, and the diff draws the field again (diff.ts redrawn). A field is matched by its table and its column,
+ * as the diff reads the records.
  */
 const restatedWritings = (
 	previous: DeploySnapshot,
@@ -591,7 +670,10 @@ const restatedWritings = (
 					}
 					const spell = new PreviousSpelling(names, installation.laws.theory.relations)
 					const restated = fieldWriting(installation, fillers, now.name, field, spell)
-					return spell.complete && same(restated, f.writing) ? { ...f, writing: into.writing } : f
+					return (spell.complete && same(restated, f.writing)) ||
+						sameSequence(previous, installation, now.name, field.name, f.writing)
+						? { ...f, writing: into.writing }
+						: f
 				})
 				return [name, { ...r, fields }]
 			}
@@ -756,6 +838,7 @@ const renamedSnapshot = (
 	target: SnapshotContent,
 	renamed: ReadonlyMap<string, string>,
 	fields: ReadonlyMap<string, ReadonlyMap<string, string>>,
+	anew: ReadonlyMap<string, ReadonlySet<string>>,
 	temporaries: TemporaryCensus
 ): Applied & { readonly asides: ReadonlyArray<string> } => {
 	const schema = previous.schema
@@ -804,7 +887,7 @@ const renamedSnapshot = (
 		return [{ kind: "table", name: from, cause: { kind: "declared" }, to: now.ident, owned: [] }]
 	})
 	const moved = setAside(aside, secondAsides)
-	const columns = columnRenames(moved, after, renamed, fields, temporaries)
+	const columns = columnRenames(moved, after, renamed, fields, anew, temporaries)
 	/** Each relation's record under its target name: a renamed one's under the target's, with its identifier; one whose
 	 * name a rename takes none, since it ends here; any other's under its own. */
 	const recordOf = (name: string, r: SnapshotRelation): SnapshotRelation =>
@@ -1033,6 +1116,7 @@ const columnRenames = (
 	after: Readonly<Record<string, SnapshotRelation>>,
 	renamed: ReadonlyMap<string, string>,
 	fields: ReadonlyMap<string, ReadonlyMap<string, string>>,
+	anew: ReadonlyMap<string, ReadonlySet<string>>,
 	temporaries: TemporaryCensus
 ): { readonly statements: ReadonlyArray<SqlStatement>; readonly previous: DeploySnapshot } => {
 	const schema = previous.schema
@@ -1040,7 +1124,9 @@ const columnRenames = (
 	/** Each table's renamed columns, by its name key, and each renamed fields' relation's record after the renames. */
 	const tableColumns = new Map<string, ReadonlyMap<string, string>>()
 	const records = new Map<string, SnapshotRelation>()
-	for (const [relation, renames] of fields) {
+	for (const relation of new Set([...fields.keys(), ...anew.keys()])) {
+		const renames = fields.get(relation) ?? new Map<string, string>()
+		const dropped = anew.get(relation) ?? new Set<string>()
 		const was = heldIn(previous.theory.relations, relation)
 		const now = heldAlike(after, renamed.get(relation) ?? relation)
 		if (was?.kind !== "relation" || now?.kind !== "relation") {
@@ -1058,11 +1144,11 @@ const columnRenames = (
 			const column = columnOf(was, from)
 			return { from, to, column, aside: asideName(temporaries, column), into: columnOf(now, to) }
 		})
-		/** A field the migration drops whose column name a renamed field takes, set aside first, then dropped under its
-		 * aside name; its record ends here. */
+		/** A field the migration drops whose column name a renamed field takes, or one the target declares again drawn
+		 * anew, set aside first, then dropped under its aside name; its record ends here. */
 		const taken = new Set<string>(moves.map((m) => m.into))
 		const holders = was.fields.flatMap((f) =>
-			renames.has(f.name) || !taken.has(f.column)
+			renames.has(f.name) || !(taken.has(f.column) || dropped.has(f.name))
 				? []
 				: [{ field: f.name, column: f.column, aside: asideName(temporaries, f.column) }]
 		)

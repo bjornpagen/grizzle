@@ -182,7 +182,12 @@ breaking change may briefly break older application instances that are still run
   and interval (window functions, and one recursive step for a tree), each default is dropped, and only then are the
   constraints that read them added, `NOT VALID`, for Validate to prove the values. A field whose filler changed (its
   fold steps over another field, its copy reads another field, its family's group or order changed) is dropped and
-  backfilled the same way: `snapshot.json` records what fills each drawn or accumulated field. A fold added to or
+  backfilled the same way: `snapshot.json` records what fills each drawn or accumulated field. An ordered family's
+  or a tree's index is the exception: a stored index is the caller's order, so when only the family's group changes
+  (its owner re-keyed, a group field dropped and added) the index column is kept, the count, copies and folds are
+  drawn again over the kept order after the data step, and Validate refuses a data step that leaves an owner's
+  indices other than 0 … n − 1. `--drop M.at` while the schema still declares `M.at` gives the stored order up and
+  draws the index anew in member-key order. A fold added to or
   changed on a tree that holds rows is drawn in the tree's stored sibling order. A family whose values the stored rows
   alone don't give is refused, naming it: copies that read each other, or a fold over a copy. A roster whose names changed has its domain's CHECK dropped and added `NOT VALID` against the new names constant,
   validated in Validate; a set over a roster that grew is converted to the new size's domain by its cast, the new

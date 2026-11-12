@@ -66,7 +66,13 @@ import {
 	type WorkloadAccess
 } from "#compiler/ir/products.ts"
 import { Roster, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { type Filler, type FillSpelling, fillersOf, ownFill } from "#compiler/laws/model/fillers.ts"
+import {
+	type Filler,
+	type FillRole,
+	type FillSpelling,
+	fillersOf,
+	ownFill
+} from "#compiler/laws/model/fillers.ts"
 import { type LawModel, statedTheory } from "#compiler/laws/model/model.ts"
 import type { LawColumnPlan } from "#compiler/laws/model/plan.ts"
 import type { ClosedNames, NamedClosed } from "#compiler/physical/ddl/constants.ts"
@@ -152,13 +158,29 @@ const recordedDigest = (domain: string, value: unknown, options: EncodeOptions):
 	return d.value
 }
 
-/** What fills a drawn or accumulated field, as its record digests it: its role and its laws. */
-const fillerForm = (field: LawField, filler: Filler | undefined, spell: FillSpelling) => {
+/** What fills a drawn or accumulated field, as its record digests it: its role and its laws, each by its identifier. */
+export interface FillerForm {
+	readonly role: FillRole
+	readonly laws: NonEmptyReadonlyArray<string>
+}
+
+/** What fills a field as `spell` spells its laws (FillerForm). */
+const fillerForm = (
+	field: LawField,
+	filler: Filler | undefined,
+	spell: FillSpelling
+): FillerForm => {
 	if (filler === undefined) {
 		throw defect(`the theory names what fills the field ${field.name}`)
 	}
-	return { role: filler.role, laws: filler.laws.map(spell.law) }
+	return { role: filler.role, laws: mapNonEmpty(filler.laws, spell.law) }
 }
+
+/** The record of a field drawn as `form` says (SnapshotWriting): a drawn field's, and a previous snapshot's record of a
+ * family's index or count, read by the identifier of the law the snapshot states it under (deploy/diff/declared.ts). */
+export const drawnWriting = (form: FillerForm): SnapshotWriting => ({
+	drawn: recordedDigest("drawn", form, everyProperty)
+})
 
 /** How a field is written, as the snapshot records it (SnapshotWriting): a generated field by the digest of its
  * expression as ownership declares it (`declared`), a drawn one by the digest of what draws it, an accumulated one by
@@ -180,7 +202,7 @@ const recordedWriting = (
 			}
 			return { generated: recordedDigest("generation", declared.expr, withoutSourceLocs) }
 		case "drawn":
-			return { drawn: recordedDigest("drawn", fillerForm(field, filler, spell), everyProperty) }
+			return drawnWriting(fillerForm(field, filler, spell))
 		case "accumulated":
 			return {
 				accumulated: recordedDigest(

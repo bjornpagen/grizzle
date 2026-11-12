@@ -2892,8 +2892,9 @@ const isDrawn = (w: SnapshotWriting | undefined): boolean =>
  * The field changes of a table with each field the target draws or accumulates otherwise than the previous snapshot
  * records it rewritten: a field its caller wrote, or one drawn or accumulated by another
  * filler (SnapshotWriting), its family, fold, copy or start changed. Its column is added again under its placeholder
- * and backfilled, so its stale values give way to the drawn ones. A field whose filler a declaration only renames reads
- * as its previous record (deploy/diff/declared.ts) and is kept. A drawn or accumulated field the target leaves to its
+ * and backfilled, so its stale values give way to the drawn ones. A field whose filler a declaration only renames, and
+ * an ordered family's or a tree's index whose family only changes its group, reads as its previous record
+ * (deploy/diff/declared.ts) and is kept. A drawn or accumulated field the target leaves to its
  * caller keeps its column and its values, which are lawful, as the caller's data; its family's law columns and natives
  * go with the family.
  */

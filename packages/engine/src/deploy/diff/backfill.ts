@@ -11,7 +11,9 @@
  *
  * - **Counted:** ‹i› = row_number() OVER (PARTITION BY g ORDER BY the member key) − 1, and ‹n› the group's count. The
  *   member key is a key of the stored rows, so the order is total and no two members tie.
- * - **Ordered:** the drawn index the same, by the member key: the stored rows carry no order of the caller's.
+ * - **Ordered:** an index the migration adds drawn the same, by the member key: an index new to the stored rows carries
+ *   no order of the caller's. A stored index whose family only changes its group is kept (deploy/diff/declared.ts
+ *   sameSequence), and every column drawn anew reads it: the caller's order.
  * - **Folds:** each plane's after a running aggregate of its masked step in index order, its frame ROWS BETWEEN UNBOUNDED
  *   PRECEDING AND CURRENT ROW, never RANGE, which would merge peers; each before its predecessor's after, the identity
  *   at the first slot (lag); and the owner's end its last member's after, the identity for an empty group (the

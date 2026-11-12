@@ -2736,7 +2736,17 @@ deploy.
   index in its member key's order, each count, each fold's running values in index order, and a tree's intervals. So
   is every value whose filler changes: a fold that steps over another field, a copy that reads another field, a family
   whose group or order changes. The snapshot records what fills each drawn or accumulated field, its family's, fold's
-  or copy's law, so a changed filler draws the field again, and one only renamed keeps it. The constraints are added
+  or copy's law, so a changed filler draws the field again, and one only renamed keeps it.
+- **A stored index is data.** An ordered family's or a tree's index holds the order its caller wrote, so a migration
+  that re-points the family's group (its owner re-keyed, the group's fields dropped and added, a tree's parent field
+  replaced) keeps every stored index, as it keeps one only renamed: the field stays the index of the same owner's
+  count, of the same kind. Its count, copies and folds are drawn again over the kept order, each fold's running values
+  in that order, after your data step fills the new group. Validate then proves the kept order a sequence of each new
+  group: a data step that moves members between owners so that an owner's indices are no longer 0 … n − 1 is refused
+  by the family's own key, bound or foreign keys, naming its law, and nothing is renumbered silently. To regroup and
+  give up the stored order, declare it: `--drop Line.at` while the schema still declares `Line.at` drops the stored
+  index, and the migration draws the target's anew in member-key order. Only an index new to the migration, or one
+  whose family changes owner, count or kind, is drawn anew undeclared. The constraints are added
   after the backfill, `NOT VALID`, and validated, so a value drawn wrongly refuses the migration. A fold added to a
   tree that holds rows, or changed on one, is drawn in the tree's stored sibling order, which is its caller's. A family
   the stored rows alone don't determine is refused, naming it: copies that read each other, or a fold over a copy. The
