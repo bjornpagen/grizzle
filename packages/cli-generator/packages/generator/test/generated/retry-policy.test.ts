@@ -11,8 +11,9 @@
  * - A body read once from stdin is never sent again: the run stops and names `unreplayableBody`. A file body is sent
  *   again byte for byte, under a `Content-Length`.
  * - A retry waits the response's `Retry-After`, else the backoff; a `Retry-After` longer than the effective timeout
- *   (`--timeout`, else `<PREFIX>_TIMEOUT`; none means no cap) is not waited, and the run stops naming the server's
- *   delay as `retryAfter`.
+ *   (`--timeout`, else `<PREFIX>_TIMEOUT`) is not waited, and the run stops naming the server's delay as `retryAfter`.
+ *   With neither, or with `0`, an attempt is untimed and nothing caps a wait, so absent and zero timeouts are drawn
+ *   beside small ones, and every `Retry-After` drawn is at most 3 seconds.
  * - Each retry prints one `Notice: retrying` line. The run exits 0 on a 2xx, 1 on another final status, 4 on a header
  *   timeout, and `--error-format json` names the final error's kind, status and capped delay.
  *
@@ -207,7 +208,14 @@ type Ended =
 	| Readonly<{ kind: "status"; status: number; retryAfter: Option.Option<number> }>
 	| Readonly<{ kind: "timeout" }>
 
-/** How an answer ends an attempt under a timeout: a slow answer times out when there is one, and succeeds otherwise. */
+/** The effective timeout in seconds, none for an untimed attempt: no timeout given, or `0`. */
+const timedSeconds = (timeout: Option.Option<Timeout>): Option.Option<number> =>
+	Option.filter(
+		Option.map(timeout, (given) => given.seconds),
+		(seconds) => seconds > 0
+	)
+
+/** How an answer ends an attempt: a slow answer times out under a timeout, and succeeds when untimed. */
 const endedBy = (answer: Answer, timeout: Option.Option<Timeout>): Ended => {
 	switch (answer.kind) {
 		case "ok":
@@ -215,7 +223,7 @@ const endedBy = (answer: Answer, timeout: Option.Option<Timeout>): Ended => {
 		case "status":
 			return answer
 		case "slow":
-			return Option.isSome(timeout) ? { kind: "timeout" } : { kind: "success" }
+			return Option.isSome(timedSeconds(timeout)) ? { kind: "timeout" } : { kind: "success" }
 	}
 }
 
@@ -275,7 +283,7 @@ const modelled = (c: Case): Modelled => {
 		const serverDelay = ended.kind === "status" ? ended.retryAfter : Option.none<number>()
 		if (
 			Option.isSome(serverDelay) &&
-			Option.exists(c.timeout, (timeout) => serverDelay.value > timeout.seconds)
+			Option.exists(timedSeconds(c.timeout), (seconds) => serverDelay.value > seconds)
 		) {
 			return stop(false, serverDelay)
 		}
@@ -475,6 +483,7 @@ type Feature =
 	| "no --retries"
 	| "the retries variable ignored"
 	| "the timeout variable"
+	| "a zero timeout"
 
 const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = [
 	"a retried status retried",
@@ -490,7 +499,8 @@ const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = [
 	"a header timeout",
 	"no --retries",
 	"the retries variable ignored",
-	"the timeout variable"
+	"the timeout variable",
+	"a zero timeout"
 ]
 
 const when = (holds: boolean, feature: Feature): ReadonlyArray<Feature> => (holds ? [feature] : [])
@@ -559,6 +569,14 @@ const caseFeatures = (c: Case): ReadonlyArray<Feature> => {
 		when(
 			Option.exists(c.timeout, (timeout) => timeout.from === "the variable"),
 			"the timeout variable"
+		),
+		when(
+			Option.exists(c.timeout, (timeout) => timeout.seconds === 0) &&
+				Arr.some(
+					Arr.range(0, model.attempts - 1),
+					(index) => answerAt(c.answers, index).kind === "slow"
+				),
+			"a zero timeout"
 		)
 	])
 }
@@ -610,7 +628,7 @@ const TIMEOUT: Gen<Option.Option<Timeout>> = weighted<Option.Option<Timeout>>([
 		1,
 		(source) =>
 			Option.some({
-				seconds: element([1, 2])(source),
+				seconds: element([0, 1, 2])(source),
 				from: element<Timeout["from"]>(["the flag", "the variable"])(source)
 			})
 	]
@@ -782,6 +800,16 @@ const caseFor = (focus: Option.Option<Feature>): Gen<Case> => {
 					Option.some<Timeout>({ seconds, from: "the variable" })
 				),
 				answers: answersFrom(ANSWER, constant(OK))
+			})
+		case "a zero timeout":
+			return caseOf({
+				...retrying,
+				send: item,
+				retries: option(constant(1)),
+				timeout: map(element<Timeout["from"]>(["the flag", "the variable"]), (from) =>
+					Option.some<Timeout>({ seconds: 0, from })
+				),
+				answers: answersFrom(constant<Answer>({ kind: "slow" }), constant(OK))
 			})
 	}
 }
