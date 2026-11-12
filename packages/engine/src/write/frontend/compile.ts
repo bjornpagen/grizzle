@@ -99,6 +99,7 @@ import {
 	type FamilyAdditions,
 	type FamilyAt,
 	type FamilyNode,
+	familyNodeRelations,
 	type FamilyPair,
 	type FamilyRemovals,
 	type GeneratedColumn,
@@ -108,6 +109,7 @@ import {
 	type Meeting,
 	type OwnerCopy,
 	type RemovalEdit,
+	type Schedule,
 	scheduleStratum,
 	updateChanges
 } from "#compiler/write/frontend/schedule.ts"
@@ -1843,15 +1845,15 @@ const compile = (
 		for (const unit of units) {
 			const edited = members.find(
 				(m) =>
-					(m.op !== "insert" &&
-						unit.below.some((b) => b.relation.name === m.target.relation.name)) ||
-					(m.op === "put" && m.target.relation.name === unit.relation.name)
+					m.op === "put" &&
+					(m.target.relation.name === unit.relation.name ||
+						unit.below.some((b) => b.relation.name === m.target.relation.name))
 			)
 			if (edited !== undefined) {
 				refuse(
 					"UnsupportedOperation",
 					edited.loc,
-					`a ${edited.op} of ${edited.target.relation.name} beside a delete of ${unit.relation.name} in one stratum, which removes every row nested under the rows it names: write ${edited.target.relation.name} in another stratum (ChangeSet.sequence), or insert ${unit.relation.name} again with its rows`
+					`a put of ${edited.target.relation.name} beside a delete of ${unit.relation.name} in one stratum, which removes every row nested under the rows it names: put ${edited.target.relation.name} in another stratum (ChangeSet.sequence), or insert ${unit.relation.name} again with its rows`
 				)
 			}
 		}
@@ -2488,6 +2490,41 @@ const compile = (
 		]
 	}
 
+	/**
+	 * A stratum's unit delete whose rows a query states, refused where a write of the stratum that runs before it, a
+	 * removal of rows that reference its rows immediately, writes a relation the query reads: every member reads the state
+	 * before its stratum, which the query would no longer read.
+	 */
+	const refuseUnitReadAfterWrites = (
+		schedule: Extract<Schedule<Built & { readonly meeting: Meeting }>, { readonly kind: "ordered" }>
+	): void => {
+		const placed = schedule.family.findIndex(({ node }) => node.kind === "unit")
+		const unit = schedule.family[placed]
+		const node = unit?.node
+		if (unit === undefined || node?.kind !== "unit") {
+			return
+		}
+		const written = new Set([
+			...schedule.actions.slice(0, unit.at).map((a) => a.scheduled.action.relation),
+			...schedule.family.slice(0, placed).flatMap((f) => familyNodeRelations(f.node))
+		])
+		for (const u of node.units) {
+			const read =
+				u.source.kind === "described"
+					? u.source.node.meta.reads.find(
+							(r) => written.has(r) || (!base.relations.has(r) && written.size > 0)
+						)
+					: undefined
+			if (read !== undefined) {
+				refuse(
+					"UnsupportedOperation",
+					at,
+					`a delete of ${u.relation.name} from a query that reads ${read}, beside a removal of rows that reference its rows, which runs before it and writes what the query reads: state ${u.relation.name}'s rows as an array, or write the removal in another stratum (ChangeSet.sequence)`
+				)
+			}
+		}
+	}
+
 	/** 4. Schedule, with the final sources: a stratum whose actions an immediate key orders in a cycle is refused,
 	 * since no order of its statements keeps every key at every statement. */
 	const strata = placedByStratum.map(({ stratum, built, outside }): WriteStratum => {
@@ -2523,6 +2560,7 @@ const compile = (
 				})
 			)
 		}
+		refuseUnitReadAfterWrites(schedule)
 		return Object.freeze({
 			actions: Object.freeze(
 				schedule.actions.map(({ scheduled, dependsOn }): Action<ActionInfo> =>

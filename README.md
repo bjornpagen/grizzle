@@ -2076,7 +2076,9 @@ narrowed into its column's type unproved.
   relation it removes rows of. A delete of a tree whose nodes are another family's members is a type error, and so is a
   put or a delete of a family's member that owns a sequence. Refused when the ChangeSet compiles: a delete whose nested
   rows include a member of a family whose owner it does not remove; one whose families nest its relations in a cycle;
-  one in a stratum that also puts or deletes a relation nested under it, or puts the relation it deletes. A delete of
+  one in a stratum that also puts a relation nested under it, or puts the relation it deletes. A delete of a family's
+  member beside it in one stratum removes that member's named rows too, as an edit of its family after the whole
+  delete: a row inside the deleted groups is gone already, one outside them is removed as any member's is. A delete of
   any other family's member is an edit of its family, as before.
 - **A replace is a delete and an insert in one stratum**: `ChangeSet.empty(S).delete(Node, roots).insertAll(rows)`.
   The delete runs first, as one statement, so the inserts meet no stored row at a key it removed, and the outcome is
@@ -3564,7 +3566,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 ### Families and ChangeSets
 
 - **A relation is a member of at most one ordered family or tree**, which orders it, and of any number of counted families ([Families](#families)). A tree is written whole, its root inserted with the tree nested and deleted by its root value. A put or a delete of a member that owns an ordered family or a tree is refused, since it would not reach the rows nested under it; a delete of a member that owns only counted families leaves their groups, which their owner axes refuse at commit where they hold members.
-- **A whole delete runs first in its stratum**: a stratum whose other writes an immediate foreign key into the rows it removes orders before it is `UnorderableStratum`, and a stratum whose family work grizzle plans from a read flight takes none (`UnsupportedOperation`): write it in a stratum of its own with `ChangeSet.sequence`.
+- **A whole delete runs first in its stratum**, after only the removals of rows that reference its rows by an immediate foreign key from outside them. A whole delete from a query that reads a relation such a removal writes, and one in a stratum whose family work grizzle plans from a read flight, are `UnsupportedOperation`: state its rows as an array, or write it in a stratum of its own with `ChangeSet.sequence`.
 - **An owner inserted or put from a query cannot share a ChangeSet with appends to its counted family** (`QueriedOwnerAppend` when the ChangeSet compiles): grizzle computes the owner's final count and folds' ends from the facts the ChangeSet states, and a query's facts exist only in its statement. State the owner's facts as an array or a `Stream`, or write the owner in a ChangeSet that `ChangeSet.sequence` runs first. A write whose every fact carries a stored owner's key inserts no owner, and compiles.
 - **A put or a delete names its rows by their primary key**, so no ChangeSet puts or deletes a relation whose primary key holds a field grizzle writes, such as a sequence member keyed by its owner and drawn index. A put also compares its facts at every declared key, so a declared key over such a field refuses puts but not deletes. Such a write is a type error, and from JavaScript `UnstatedKey` when the ChangeSet compiles, naming the key. Key such a member by a field its caller writes, such as an id, declare no key over a field grizzle writes, and insert a sequence nested under its owner.
 
