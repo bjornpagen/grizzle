@@ -64,15 +64,21 @@
  *
  * The seventh delta, a property of its own over TREEKEY's frozen old-form tree (test/support/migrate/old-form-tree.ts):
  * an id-keyed tree, its parent the parent's id and its root one document field, as grizzle installed trees before
- * da713e04, becomes a keyed tree rooted at a package and a path, its parent drawn as the parent's start. One to three
- * documents' trees, each drawn by its parents, are written directly with every drawn value the old form's laws fix;
- * the keyed tree is drafted from the frozen snapshot, `--drop`ping the old id and document, reviewed with the data step
- * that fills each node's new root from its document's uuid, and applied. Each document mapped to its own root keeps
- * every slot, count, interval and fold value, each parent the old parent's start (families/tree.ts numbered, the
- * direct pre-order numbering), at a fresh install's catalog, every table rewritten at most once, nothing left to
- * generate; two documents mapped onto one root, a named case of its own weight, are refused at migrate by a law of the
- * keyed tree, its primary key's, its family's or its fold's, read from the compiled installation. Its features: the
- * old tree keyed, a tree of three levels or more, several old trees each its own root, and the refused merge.
+ * da713e04, becomes a keyed tree rooted at a package and a path, its parent drawn as the parent's start, with pantry's
+ * Node's shape over its parent copies, which edullm's identity migration drafts: the parent's kind copied along the
+ * parent axis under the keyed tree's law, so drawn anew, the grandparent's kind copied from the parent's copy, and a
+ * count fold over each node's children whose selection reads both copies, which the backfill draws only after the
+ * copies (backfill.ts ordered). One to three documents' trees, each drawn by its parents, are written directly with
+ * every drawn value the old form's laws fix; the keyed tree is drafted from the frozen snapshot, `--drop`ping the old
+ * id and document, reviewed with the data step that fills each node's new root from its document's uuid, and applied.
+ * Each document mapped to its own root keeps every slot, count, interval and fold value, each parent the old parent's
+ * start, and holds every copy and turns fold value the keyed tree's laws fix over the same facts, which a fresh install
+ * holds (families/tree.ts numbered, the direct pre-order numbering, and turnsOf over it), at a fresh install's catalog, every table rewritten
+ * at most once, nothing left to generate; two documents mapped onto one root, a named case of its own weight, are
+ * refused at migrate by a law of the keyed tree, its primary key's, its family's or its fold's, read from the compiled
+ * installation. Its features: the old tree keyed, a tree of three levels or more, several old trees each its own root,
+ * the refused merge, and a fold over the copies selecting a member, a node whose parent's kind is not its
+ * grandparent's.
  *
  * Plants (~/.cache/grizzle-release/MIGSTRESS/plants): cutover-fk-keeps-old-key (a re-pointed foreign key keeps the
  * referenced table's old key), cutover-backfill-skips-rows (the family backfill skips a row of each group),
@@ -80,7 +86,8 @@
  * cutover-counted-keeps-ordered-index (ordered to counted, or a family dropped, leaves the ordered index `at` its CHECK
  * read), cutover-fold-reads-dropped-position (a family dropped leaves its fold's end on the owner), and
  * cutover-order-renumbered (a re-pointed sequence's stored index drawn again in its members' key order, which
- * a3b86f66 fixed).
+ * a3b86f66 fixed); (~/.cache/grizzle-release/BACKFILLORDER/plants) backfill-fold-before-copies (a tree's fold drawn
+ * before the copies its selection reads, as 73c7406e ordered them).
  *
  * The file builds Substrate.isolatedLayer: the rewrite observer's event trigger is the database's.
  */
@@ -131,7 +138,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { findMarkers, splitStatements } from "#compiler/plan/migration.ts"
 import { accumulated, drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
-import { type AnyRelation, type Statement, schema } from "#compiler/public/schema.ts"
+import { type AnyRelation, type Statement, schema, select } from "#compiler/public/schema.ts"
 import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { generatedField, generatedRelation, relation } from "#compiler/schema/relation.ts"
@@ -1837,8 +1844,14 @@ const oldInsert = (tree: OldFormTree, c: TreeCase): string => {
 	)}`
 }
 
-/** The keyed tree the old one becomes: rooted at (package, path), keyed by them and its start, its count fold kept and
- * its parent-kind copy dropped. */
+/**
+ * The keyed tree the old one becomes: rooted at (package, path), keyed by them and its start, its count fold kept, and
+ * pantry's Node's shape over its parent copies (edullm's identity migration): its parent's kind copied along the parent
+ * axis, as the old tree copied it, now under the keyed tree's law, so the migration draws it anew, and its grandparent's
+ * kind, the parent's own copy, both the root's own; and a count fold over each node's children whose selection reads
+ * both copies, the children whose parent's kind is not their grandparent's (`turns`, its planes named), which the
+ * migration draws after the copies it reads.
+ */
 const keyedTreeOf = () => {
 	const Node = relation(
 		"Node",
@@ -1851,9 +1864,14 @@ const keyedTreeOf = () => {
 			start: drawnField(natural),
 			end: drawnField(natural),
 			kind: pg.integer,
+			parentKind: accumulated(pg.integer, 0),
+			parentParentKind: accumulated(pg.integer, 0),
 			before: accumulated(natural, 0n),
 			after: accumulated(natural, 0n),
-			total: accumulated(natural, 0n)
+			total: accumulated(natural, 0n),
+			turnsBefore: accumulated(natural, 0n),
+			turnsAfter: accumulated(natural, 0n),
+			turns: accumulated(natural, 0n)
 		},
 		["package", "path", "start"],
 		[]
@@ -1868,6 +1886,22 @@ const keyedTreeOf = () => {
 			monoids.count,
 			onBuilder(Node, ["package", "path", "parent", "before", "after"]),
 			onBuilder(Node, ["package", "path", "start", "total"])
+		),
+		containedBuilder(
+			onBuilder(
+				select(Node, (n) => n.gt(n.start, 0n)),
+				["package", "path", "parent", "parentKind", "parentParentKind"]
+			),
+			onBuilder(Node, ["package", "path", "start", "kind", "parentKind"])
+		),
+		foldBuilder(
+			nodes,
+			monoids.count,
+			onBuilder(
+				select(Node, (n) => n.and(n.gt(n.start, 0n), n.ne(n.parentKind, n.parentParentKind))),
+				["package", "path", "parent", "turnsBefore", "turnsAfter"]
+			),
+			onBuilder(Node, ["package", "path", "start", "turns"])
 		)
 	])
 }
@@ -1882,17 +1916,55 @@ const keyedFields = [
 	"children",
 	"end",
 	"kind",
+	"parentKind",
+	"parentParentKind",
 	"before",
 	"after",
-	"total"
+	"total",
+	"turnsBefore",
+	"turnsAfter",
+	"turns"
 ] as const
 
+/**
+ * The copies and the turns fold of one document's rows, read off the direct pre-order numbering alone: each row's
+ * grandparent's kind its parent's own parentKind (a root's own), whether the turns fold selects it (a member whose
+ * parent's kind is not its grandparent's), and its planes, the selected siblings before it and through it in slot
+ * order, the root alone at slot 0, its end its selected children.
+ */
+const turnsOf = (rows: ReadonlyArray<KeyedRow>) => {
+	const parentOf = (row: KeyedRow): KeyedRow =>
+		defined(
+			Option.getOrUndefined(Arr.findFirst(rows, (r) => r.start === row.parent)),
+			`the parent of the node at ${row.start}`
+		)
+	const parentParentKind = (row: KeyedRow): number => parentOf(row).parentKind
+	const selected = (row: KeyedRow): boolean =>
+		row.start > 0 && row.parentKind !== parentParentKind(row)
+	const siblings = (row: KeyedRow): ReadonlyArray<KeyedRow> =>
+		row.start === 0 ? [row] : Arr.filter(rows, (r) => r.start > 0 && r.parent === row.parent)
+	const selectedThrough = (row: KeyedRow, through: boolean): number =>
+		Arr.filter(siblings(row), (r) => selected(r) && (through ? r.at <= row.at : r.at < row.at))
+			.length
+	return {
+		parentParentKind,
+		selected,
+		before: (row: KeyedRow): number => selectedThrough(row, false),
+		after: (row: KeyedRow): number => selectedThrough(row, true),
+		end: (row: KeyedRow): number =>
+			Arr.filter(rows, (r) => r.start > 0 && r.parent === row.start && selected(r)).length
+	}
+}
+
 /** The model's rows of the keyed tree: each old row under its document's new root, its parent the old parent's start,
- * every slot, count, interval, kind and fold value as the old tree held it. */
+ * every slot, count, interval, kind and count fold value as the old tree held it, and its copies and turns fold as the
+ * direct numbering states them (turnsOf). */
 const keyedRows = (c: TreeCase): ReadonlyArray<ReadonlyArray<string>> =>
 	Arr.flatMap(c.documents, (doc, d) => {
 		const root = nth(c.roots, d, "a document's new root")
-		return Arr.map(oldRows(d, doc), (row) =>
+		const rows = oldRows(d, doc)
+		const turns = turnsOf(rows)
+		return Arr.map(rows, (row) =>
 			Arr.map(
 				[
 					packageOf(root),
@@ -1903,13 +1975,25 @@ const keyedRows = (c: TreeCase): ReadonlyArray<ReadonlyArray<string>> =>
 					row.children,
 					row.end,
 					row.kind,
+					row.parentKind,
+					turns.parentParentKind(row),
 					row.at,
 					row.at + 1,
-					row.children
+					row.children,
+					turns.before(row),
+					turns.after(row),
+					turns.end(row)
 				],
 				String
 			)
 		)
+	})
+
+/** Whether a case's turns fold selects a member: a node whose parent's kind is not its grandparent's. */
+const turnsSelect = (c: TreeCase): boolean =>
+	Arr.some(c.documents, (doc, d) => {
+		const rows = oldRows(d, doc)
+		return Arr.some(rows, turnsOf(rows).selected)
 	})
 
 /** The data step of the tree's migration: each node's new root from its old document's uuid, by the case's map. */
@@ -1931,6 +2015,7 @@ type TreeFeature =
 	| "a tree of three levels or more"
 	| "several old trees, each its own root"
 	| "two old trees mapped onto one root, refused"
+	| "a fold over copies along the parent, one hop and two, selecting a member"
 
 /** The laws a refused merge may name: the keyed tree's primary key, its family's and its fold's. */
 const treeLaws = (installation: Installation): ReadonlySet<string> =>
@@ -2060,6 +2145,9 @@ const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
 				Arr.sort(keyedRows(c), byRow),
 				`the keyed tree holds the model's rows (${Arr.join(keyedFields, ", ")})`
 			)
+			if (turnsSelect(c)) {
+				note("a fold over copies along the parent, one hop and two, selecting a member")
+			}
 			const again = succeeded(
 				generate({
 					previous: fromSnapshot(g.snapshot),
@@ -2129,7 +2217,8 @@ layer(Substrate.isolatedLayer)("the migrator under the identity cutover's deltas
 								"an old-form tree keyed by its root and start",
 								"a tree of three levels or more",
 								"several old trees, each its own root",
-								"two old trees mapped onto one root, refused"
+								"two old trees mapped onto one root, refused",
+								"a fold over copies along the parent, one hop and two, selecting a member"
 							],
 							{ cases: 16, sense: notesOnly }
 						),
