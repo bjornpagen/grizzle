@@ -170,7 +170,10 @@ export interface MemberFacts {
  * One role of one login: the privileges its grant plan holds, by relation, and its change members in the form served at
  * READ COMMITTED (`members`), the one certification judges it by. Its SERIALIZABLE form is no fact of it: certification
  * takes it once the role runs SERIALIZABLE, as its lowering (certify.ts Candidate), and judges the others by it beside
- * these. Its read members run SERIALIZABLE READ ONLY whatever its verdict, so no fact of theirs is read.
+ * these. Its read members run SERIALIZABLE READ ONLY whatever its verdict, DEFERRABLE where declared so, so no fact of
+ * theirs is read: a read writes nothing, so it is never a pivot, and of a dangerous structure through it, PostgreSQL's
+ * SSI refuses one whose pivot and later writer are SERIALIZABLE (a deferrable read by retaking an unsafe snapshot), and
+ * conditions `laws` and `pivot` refuse one through a READ COMMITTED writer, which SSI never tracks.
  */
 export interface RoleFacts {
 	readonly login: string

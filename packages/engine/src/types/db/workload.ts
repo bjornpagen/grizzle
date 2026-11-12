@@ -54,6 +54,21 @@ export interface Paged<O> {
 }
 
 /**
+ * A workload member that runs its read X, a query, an ordered query, a paged one, a relation's key or a clocked query
+ * or ordered query, in a SERIALIZABLE
+ * READ ONLY DEFERRABLE transaction: deferrable(X). Each call waits for a safe snapshot, until every SERIALIZABLE
+ * read-write transaction running on the cluster when it began has ended, then reads untracked by SSI: it never fails
+ * with a serialization failure, never dooms another transaction and holds no SIRead lock. Any other read member reads at
+ * once, may fail retryably, and holds its SIRead locks until the serializable transactions it overlapped have ended.
+ */
+export interface Deferrable<X> {
+	readonly deferrable: X
+}
+
+/** A deferrable member's read, or the program itself where it is none (Deferrable). */
+export type ReadOf<X> = X extends Deferrable<infer Y> ? Y : X
+
+/**
  * A workload member that refreshes the materialized derived relations of the nonempty list Rs: refresh(Rs), whose handle
  * refreshes them all in one transaction (`yield* db.workload.<name>.once({ params: {}, facts: {} })`), lower levels
  * first. It reads and writes nothing else.
@@ -113,34 +128,38 @@ type MaterializedAt<L> = L extends unknown ? Extract<RelationOf<L>, AnyMateriali
  */
 type RefreshableBy<S> = S extends AnyRole ? RefreshListOf<S> : MaterializedAt<LevelsOf<S>>
 
+/** A read of a workload over L: a query, an ordered query, an ordered query that pages, or a relation's key. */
+type ReadAt<L> = QueryAt<L> | OrderedAt<L> | Paged<OrderedAt<L>> | KeyAt<L>
+
 /**
- * A program of a workload over S, over S or a level below it, L: a query, an ordered query, an ordered query that pages,
- * a ChangeSet S writes, one of a query, an ordered query or such a ChangeSet with parameters bound to the database's
- * clock (Clocked), a relation's key, or a refresh of materialized derived relations S may refresh.
+ * A program of a workload over S, over S or a level below it, L: a read, run at once or deferrable, a ChangeSet S
+ * writes, one of a query, an ordered query or such a ChangeSet with parameters bound to the database's clock (Clocked),
+ * a clocked read run deferrable, or a refresh of materialized derived relations S may refresh.
  */
 type ProgramAt<S, L> =
-	| QueryAt<L>
-	| OrderedAt<L>
-	| Paged<OrderedAt<L>>
+	| ReadAt<L>
+	| Deferrable<ReadAt<L>>
 	| (ChangeSetAt<L> & WritableBy<S>)
 	| Clocked<QueryAt<L> | OrderedAt<L> | (ChangeSetAt<L> & WritableBy<S>), unknown>
-	| KeyAt<L>
+	| Deferrable<Clocked<QueryAt<L> | OrderedAt<L>, unknown>>
 	| Refresh<NonEmptyReadonlyArray<RefreshableBy<S>>>
 
 /**
  * The contexts a program of a workload matches: a query's or ordered query's, a paged one's, a clocked one's program's,
- * or a ChangeSet's, its members' and read-backs'; a key and a refresh match none.
+ * a deferrable one's read's, or a ChangeSet's, its members' and read-backs'; a key and a refresh match none.
  */
 type ProgramContexts<X> =
-	X extends Paged<infer O>
-		? ContextsOf<O>
-		: X extends Clocked<infer P, unknown>
-			? ProgramContexts<P>
-			: X extends AnyChangeSet
-				? X extends Phantom<{ readonly contexts: infer Cx }>
-					? Cx
-					: never
-				: ContextsOf<X>
+	X extends Deferrable<infer Y>
+		? ProgramContexts<Y>
+		: X extends Paged<infer O>
+			? ContextsOf<O>
+			: X extends Clocked<infer P, unknown>
+				? ProgramContexts<P>
+				: X extends AnyChangeSet
+					? X extends Phantom<{ readonly contexts: infer Cx }>
+						? Cx
+						: never
+					: ContextsOf<X>
 
 /**
  * A ChangeSet program's array members, which a served call's facts key by op and relation (FactsCheck): none two of one
@@ -196,6 +215,24 @@ type PagedArgument<O> = O extends OrderedBase ? PageOf<O> : Refusal<"page needs 
 
 /** paged(ordered): the workload member that pages the ordered query `ordered` (Paged). */
 export type PagedConstructor = <const O>(ordered: O & PagedArgument<O>) => Paged<O>
+
+/**
+ * What deferrable takes: a read, a query, an ordered query, a paged one, a relation's key or a clocked query; a
+ * ChangeSet, a clocked one, a refresh and a deferrable member are refused with the Refusal that names what it takes.
+ * Which schema the read is over is the workload's to judge (ProgramAt).
+ */
+type DeferrableArgument<X> = X extends
+	| Deferrable<unknown>
+	| Refresh<unknown>
+	| AnyChangeSet
+	| Clocked<AnyChangeSet, unknown>
+	? Refusal<"deferrable takes a read: a query, an ordered query, a paged one, a relation's key or a clocked one">
+	: unknown
+
+/** deferrable(read): the workload member that runs the read `read` in a deferrable transaction (Deferrable). */
+export type DeferrableConstructor = <const X extends object>(
+	read: X & DeferrableArgument<X>
+) => Deferrable<X>
 
 /**
  * refresh(relations): the workload member that refreshes the materialized derived relations of the nonempty list

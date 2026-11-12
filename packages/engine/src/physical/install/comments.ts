@@ -191,7 +191,8 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 		case "createExtension":
 		case "lockTable":
 		case "createCarrier":
-		case "begin":
+		case "beginRead":
+		case "beginWrite":
 		case "commit":
 		case "rollback":
 		case "setConstraintsImmediate":

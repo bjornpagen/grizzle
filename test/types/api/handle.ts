@@ -3,18 +3,28 @@ import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/su
 
 /**
  * The member-handle program: the box of every kind of served program a handle runs (a query, a paged ordered query, a
- * relation's key, a ChangeSet of query members and one of array members), each kind twice, two programs of distinct
- * types over one level, both served to a role of that level and to a role of a level that extends it, by every pairing
- * of a function over MemberHandle<typeof p> with a handle, exhausted and printed as one program the type batch checks.
+ * relation's key, a deferrable(...) read, a ChangeSet of query members and one of array members), each kind twice, two
+ * programs of distinct types over one level, both served to a role of that level and to a role of a level that extends
+ * it, by every pairing of a function over MemberHandle<typeof p> with a handle, exhausted and printed as one program the
+ * type batch checks.
  *
  * The oracle: a handle is admitted exactly when its program is the function's own, whichever login's role holds it, a
  * role over the level or over its extension; the handle of the kind's other program is refused. Each pairing states
  * its verdict as a type the program must hold, and each admitted handle is also passed to the function, so the program
- * typechecks clean exactly when every verdict holds.
+ * typechecks clean exactly when every verdict holds. Each read kind's explain fails with its read's error: a deferrable
+ * read's with DeferrableReadError, which holds no serialization failure, every other read's with ReadError.
  */
 
 /** The kinds of program a served member's handle runs, each with its two programs' declarations. */
-const kinds = ["query", "paged", "key", "change", "facts"] as const
+const kinds = ["query", "paged", "key", "deferrable", "change", "facts"] as const
+
+/** The read kinds, each with the error its explain fails with. */
+const readErrors: ReadonlyArray<readonly [Kind, string]> = [
+	["query", "ReadError"],
+	["paged", "ReadError"],
+	["key", "ReadError"],
+	["deferrable", "DeferrableReadError"]
+]
 
 type Kind = (typeof kinds)[number]
 
@@ -49,6 +59,20 @@ const programsOf: { readonly [K in Kind]: readonly [string, string] } = {
 )`
 	],
 	key: ["Item", "Note"],
+	deferrable: [
+		`deferrable(
+	query(Root).rule((r) => {
+		const { id, label } = v(Item, "item")
+		return r.match(Item, { id, label }).find({ id, label })
+	})
+)`,
+		`deferrable(
+	query(Root).rule((r) => {
+		const { id, count } = v(Note, "note")
+		return r.match(Note, { id, count }).find({ id, count })
+	})
+)`
+	],
 	change: [
 		`ChangeSet.empty(Root).insert(
 	Item,
@@ -150,5 +174,14 @@ ${Arr.join(
 )}
 
 ${Arr.join(Arr.map(pairings, pairingBlock), "\n")}
+
+${Arr.join(
+	Arr.map(
+		readErrors,
+		([kind, error]) =>
+			`export type e_${kind} = Expect<Equals<Effect.Error<ReturnType<typeof atLevel.workload.${memberOf(kind, 0)}.explain>>, ${error}>>`
+	),
+	"\n"
+)}
 `
 	)

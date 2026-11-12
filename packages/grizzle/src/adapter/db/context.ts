@@ -35,9 +35,9 @@ export interface ServedDbContext {
 	readonly domain: InstallationWitness["domain"]
 }
 
-/** The frame of every read of the Db: SERIALIZABLE READ ONLY. */
-export const dbReadFrame = (ctx: Pick<ServedDbContext, "prologue">): Frame =>
-	readFrame(ctx.prologue)
+/** The frame of a read of the Db: SERIALIZABLE READ ONLY, DEFERRABLE where its member is deferrable(...). */
+export const dbReadFrame = (ctx: Pick<ServedDbContext, "prologue">, deferrable: boolean): Frame =>
+	readFrame(ctx.prologue, deferrable)
 
 /** The frame of every change of the Db: read-write at its role's level. */
 export const dbChangeFrame = (ctx: Pick<ServedDbContext, "prologue" | "isolation">): Frame =>

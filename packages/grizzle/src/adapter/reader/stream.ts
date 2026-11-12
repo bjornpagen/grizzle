@@ -9,9 +9,10 @@ import {
 } from "#adapter/errors/failures.ts"
 import { callErrorOf } from "#adapter/live/call-error.ts"
 import {
-	asReadFailure,
 	type FlightFailure,
+	type Frame,
 	type PreparedStatement,
+	readFailureIn,
 	runFramed
 } from "#adapter/wire/batch.ts"
 import {
@@ -33,21 +34,24 @@ import type { Row } from "#compiler/plan/common.ts"
  * its Row is whole, provisional (reader/run.ts Emission: a one-part program's as its row arrives, every other's once its
  * statement has answered); and ends with `ready` once the read's COMMIT answered. A failure ends it with one `error` in
  * place of `ready`, which voids every upsert before it: the acquisition's refusal, the statement's encoding past a
- * bound, any failure of the flight (wire/batch.ts asReadFailure), and an answer that contradicts the program's proofs
+ * bound, any failure of the flight (wire/batch.ts readFailureIn), and an answer that contradicts the program's proofs
  * (UnreadableAnswer), each classified once (live/call-error.ts callErrorOf). The stream itself never fails.
  *
  * Its session is leased for the flight alone and released as the flight ends, before `ready` is sent; interrupting the
- * stream while the flight runs interrupts the flight (wire/batch.ts: one CancelRequest, the session destroyed).
+ * stream while the flight runs interrupts the flight (wire/batch.ts: one CancelRequest, the session destroyed), a
+ * deferrable read's wait for its safe snapshot included.
  *
  * A decoded row: the record a read's decoder assembles, its head fields by name.
  */
 export type DecodedRow = Readonly<Record<string, unknown>>
 
 /**
- * One call of a read, its input read at the boundary: the key fields its rows are keyed by (the served read's key), how
+ * One call of a read, its input read at the boundary: whether its member is deferrable(...), so its transaction begins
+ * DEFERRABLE (served/forms.ts ServedRead deferrable), the key fields its rows are keyed by (the served read's key), how
  * its statement is made with its rows' intake, and the decoder of its delivered Rows.
  */
 export interface ReadCall {
+	readonly deferrable: boolean
 	readonly fields: KeyFields
 	/**
 	 * The call's statement, its rows taken by an intake that hands each delivered Row to `emit` the moment it is whole,
@@ -105,14 +109,14 @@ export const listEvents: ShapeEvents<InstantListEvent<DecodedRow>> = {
 }
 
 /**
- * How a read surfaces its flight's failure (wire/batch.ts asReadFailure), the server's refusal by a domain the statement
- * cast a value to read as what it refused (db/context.ts domain): a parameter's value outside its pattern as
- * ParamRejected, a value a contract's or a pattern's domain refuses as LawRejected with the laws it discharges.
+ * How a read in `frame` surfaces its flight's failure (wire/batch.ts readFailureIn), the server's refusal by a domain
+ * the statement cast a value to read as what it refused (db/context.ts domain): a parameter's value outside its pattern
+ * as ParamRejected, a value a contract's or a pattern's domain refuses as LawRejected with the laws it discharges.
  */
 const readFailureOf =
-	(ctx: Pick<ServedDbContext, "domain">) =>
+	(ctx: Pick<ServedDbContext, "domain">, frame: Frame) =>
 	(failure: FlightFailure): ReadError => {
-		const error = asReadFailure(failure)
+		const error = readFailureIn(frame)(failure)
 		if (error._tag !== "ReadFailure" || error.reason._tag !== "ServerError") {
 			return error
 		}
@@ -147,9 +151,10 @@ const runRead = (
 				call.open(emit),
 				(reason) => new ReadFailure({ reason })
 			)
+			const frame = dbReadFrame(ctx, call.deferrable)
 			yield* Effect.mapError(
-				runFramed(session, dbReadFrame(ctx), [opened.statement]),
-				readFailureOf(ctx)
+				runFramed(session, frame, [opened.statement]),
+				readFailureOf(ctx, frame)
 			)
 			return yield* Effect.mapError(
 				Effect.fromResult(opened.end()),

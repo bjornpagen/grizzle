@@ -771,7 +771,8 @@ const reportable = (installation: Installation): ReadonlyArray<IdentifiedLaw> =>
 			case "delete":
 			case "merge":
 			case "createCarrier":
-			case "begin":
+			case "beginRead":
+			case "beginWrite":
 			case "commit":
 			case "rollback":
 			case "setConstraintsImmediate":

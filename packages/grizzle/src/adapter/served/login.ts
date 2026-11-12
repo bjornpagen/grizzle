@@ -247,21 +247,36 @@ const programForm = (
 			const query = program.value
 			return Result.map(
 				compileRowsForm(role, query, () => query.rows, noClock),
-				(form): WorkloadForm => ({ name: program.name, kind: "read", form })
+				(form): WorkloadForm => ({
+					name: program.name,
+					kind: "read",
+					deferrable: program.deferrable,
+					form
+				})
 			)
 		}
 		case "instant": {
 			const query = program.value
 			return Result.map(
 				compileRowsForm(role, query, () => query.rows, program.clock),
-				(form): WorkloadForm => ({ name: program.name, kind: "instant", form })
+				(form): WorkloadForm => ({
+					name: program.name,
+					kind: "instant",
+					deferrable: program.deferrable,
+					form
+				})
 			)
 		}
 		case "paged": {
 			const query = program.value
 			return Result.map(
 				compileReadForm(role, query, () => query.rows),
-				(form): WorkloadForm => ({ name: program.name, kind: "paged", form })
+				(form): WorkloadForm => ({
+					name: program.name,
+					kind: "paged",
+					deferrable: program.deferrable,
+					form
+				})
 			)
 		}
 		case "key": {
@@ -269,7 +284,13 @@ const programForm = (
 			const fact = target.relation.fact
 			return Result.map(
 				compileRowsForm(role, keyQuery(role.schema.value, target), () => fact, noClock),
-				(form): WorkloadForm => ({ name: program.name, kind: "key", fields: target.fields, form })
+				(form): WorkloadForm => ({
+					name: program.name,
+					kind: "key",
+					deferrable: program.deferrable,
+					fields: target.fields,
+					form
+				})
 			)
 		}
 		case "changeSet": {

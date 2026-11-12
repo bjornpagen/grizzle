@@ -84,7 +84,12 @@ export default defineConfig({
   binds the bigint parameter `now` of a query, an ordered query or a ChangeSet to the database's clock, the instant
   the call's transaction began, in `"micros"` or `"millis"`: the input omits it, every statement of the call reads the
   one instant, and a clocked read answers `once` alone, never live. Bind a lease's, a timer's or a due instant's `now`
-  so, never the host's clock. The member `refresh(tables)`, of a nonempty list,
+  so, never the host's clock. The member `deferrable(read)`, of a query, an ordered query, a `paged(...)` one, a key or
+  a clocked read, reads in a SERIALIZABLE READ ONLY DEFERRABLE transaction: it waits until every SERIALIZABLE
+  read-write transaction running on the cluster when it began has ended, then never fails with a serialization
+  failure, never makes another transaction fail and holds no predicate lock. A plain read answers at once and may
+  fail retryably: use `deferrable` for a scan or status read that must not fail and can wait, a plain read where an
+  interactive caller must not wait. The member `refresh(tables)`, of a nonempty list,
   refreshes materialized derived tables the role's `refresh` list names, all of them in one transaction, lower levels
   first. Two programs of one name across a login's workloads are refused when the login is built. A ChangeSet member
   whose `insert`, `insertAll`, `delete` or `put` was given its facts as an array takes them as its input's `facts`:
@@ -462,9 +467,9 @@ The command line's own refusals, by stage:
   migration that changes whether a table qualifies drops or creates its guard.
 - Set `max_pred_locks_per_transaction = 2048` on the server (a server-start setting): under load PostgreSQL may
   report 53200, out of shared memory, with a HINT to raise it, and that failure is not retryable. Keep transactions
-  short everywhere on the cluster: a committed write's locks are held until every older transaction ends, in any
-  database and at any isolation level (a DROP DATABASE waiting on its checkpoint included), and a long one also
-  brings more 40001s.
+  short everywhere on the cluster: a committed write's and a plain read's locks are held until every older transaction
+  ends, in any database and at any isolation level (a DROP DATABASE waiting on its checkpoint included), a long one
+  also brings more 40001s, and every deferrable read begun while a SERIALIZABLE write runs waits for it.
 - Connect straight to PostgreSQL: PgBouncer is not supported.
 - Every server setting grizzle does not pin is the database owner's, set on the database or the server: a login's
   role holds exactly its pinned defaults, and the drift check refuses one that holds any other. A login's role pins only
@@ -662,7 +667,7 @@ The command line's own refusals, by stage:
   compiles. Stating both is `RoleRefused` (`writeAndInsert`).
 - A role's writes run READ COMMITTED only where `grizzle generate` certifies it from the statements its ChangeSets
   send, against every other writer (README's READ COMMITTED writes); every other role runs SERIALIZABLE, and reads are
-  always SERIALIZABLE READ ONLY. generate prints each role's level, a SERIALIZABLE one with the count of each condition
+  always SERIALIZABLE READ ONLY, DEFERRABLE for a `deferrable(...)` member. generate prints each role's level, a SERIALIZABLE one with the count of each condition
   it fails: `members` (no ChangeSet), `privileges` (it states `write`, or some role updates or deletes what it writes),
   `laws` (a rule over a query over what it writes), `absence` (a read of the absence or a count of what it writes),
   `snapshot` and `pivot` (other calls' rows read across statements, as anything but whole immutable groups keyed by

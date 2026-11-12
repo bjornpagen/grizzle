@@ -3851,7 +3851,8 @@ class Model {
 			case "delete":
 			case "merge":
 			case "createCarrier":
-			case "begin":
+			case "beginRead":
+			case "beginWrite":
 			case "commit":
 			case "rollback":
 				throw new Error(`the model of a migration's DDL has no ${s.kind} statement`)

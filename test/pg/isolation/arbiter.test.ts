@@ -311,6 +311,7 @@ const initialOf = (race: SharedRace) =>
 
 const raceOf = (race: SharedRace): IsolationRace => {
 	const [first, ...rest] = Arr.map(race.calls, (c, i): RaceCall => ({
+		kind: "change",
 		session: `s${i}`,
 		role: "importer",
 		member: c.member,
@@ -399,7 +400,13 @@ const runDisjoint = (s: InstalledShape, race: DisjointRace, level: Isolation) =>
 				)
 			)
 			const sent = yield* Effect.forEach(race.calls, (c, i) =>
-				callStatements(s, { session: `s${i}`, role: "importer", member: c.member, input: c.input })
+				callStatements(s, {
+					kind: "change",
+					session: `s${i}`,
+					role: "importer",
+					member: c.member,
+					input: c.input
+				})
 			)
 			const outcomes = Arr.map(sessions, (): Array<ScheduleOutcome> => [])
 			const actorOf = (i: number) => defined(actors[`s${i}`], `session s${i}`)
@@ -459,6 +466,7 @@ const runSerial = (
 			const shown: Array<string> = []
 			for (const c of calls) {
 				const statements = yield* callStatements(s, {
+					kind: "change",
 					session: "serial",
 					role: "importer",
 					member: c.member,

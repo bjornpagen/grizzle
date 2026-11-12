@@ -586,7 +586,8 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 			case "delete":
 			case "merge":
 			case "createCarrier":
-			case "begin":
+			case "beginRead":
+			case "beginWrite":
 			case "commit":
 			case "rollback":
 			case "setConstraintsImmediate":

@@ -136,7 +136,13 @@ const admittedAlone = (tapped: Tapped, m: MigrationSession, target: MigrationTar
 		assert.equal(window.roundTrips, 1, "the drift check is one round trip")
 		assert.deepEqual(
 			frameOf(window),
-			{ kind: "framed", isolation: "SERIALIZABLE", access: "read write", end: "rollback" },
+			{
+				kind: "framed",
+				isolation: "SERIALIZABLE",
+				access: "read write",
+				deferrable: false,
+				end: "rollback"
+			},
 			"the drift check's framing"
 		)
 		assert.deepEqual(window.backend.at(-1), { type: "Z", status: "I" }, "the drift check ends idle")

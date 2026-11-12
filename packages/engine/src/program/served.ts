@@ -38,20 +38,24 @@ import type {
 } from "#compiler/served/forms.ts"
 import { servedHeading, servedProgram, servedSource } from "#compiler/served/read.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
+import type { EmittedText } from "#compiler/sql/ast.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 
 /**
- * A query compiled for a role's rows, served as one call reads it (served/forms.ts ServedInstantRead): the declared
- * parameters a call supplies (QueryTemplate params), its artifact and delivered spine (served/read.ts), its records' decoder,
- * and the key its rows are delivered under (`key`: its own, templateKey, or its page's, pageKey).
+ * A query compiled for a role's rows, served as one call reads it (served/forms.ts ServedInstantRead): whether its
+ * member is declared deferrable, the declared parameters a call supplies (QueryTemplate params), its artifact and
+ * delivered spine (served/read.ts), its records' decoder, and the key its rows are delivered under (`key`: its own,
+ * templateKey, or its page's, pageKey).
  */
 export const servedInstantRead = (
+	deferrable: boolean,
 	template: QueryTemplate,
 	desc: QueryDesc,
 	decoder: RowDecoder<unknown>,
 	key: ServedKey
 ): ServedInstantRead => ({
+	deferrable,
 	params: template.params,
 	source: servedSource(template.run),
 	spine: servedSpine(desc),
@@ -65,12 +69,13 @@ export const servedInstantRead = (
  * (program/workload/compile.ts WorkloadFootprints), its tables named as installed (servedReadLive).
  */
 export const servedRead = (
+	deferrable: boolean,
 	template: QueryTemplate,
 	desc: QueryDesc,
 	decoder: RowDecoder<unknown>,
 	key: ServedKey,
 	live: ServedReadLive
-): ServedRead => ({ ...servedInstantRead(template, desc, decoder, key), live })
+): ServedRead => ({ ...servedInstantRead(deferrable, template, desc, decoder, key), live })
 
 /** The root of a program's DAG reads no enclosing node: it is evaluated once per execution. */
 const evaluatedOnce: OuterRefs = new Map()
@@ -202,20 +207,24 @@ export const servedPage = (page: PageTemplate, codes: Codebook): ServedPage => {
 	}
 }
 
-/** A transaction's BEGIN at `isolation`, read only and read write. */
-const beginAt = (isolation: Isolation): ServedSession["begin"][Isolation] => ({
-	readOnly: emitText({ kind: "begin", isolation, readOnly: true }, emptyNameMap).text,
-	readWrite: emitText({ kind: "begin", isolation, readOnly: false }, emptyNameMap).text
-})
+/** A write's BEGIN at `isolation`. */
+const beginWrite = (isolation: Isolation): EmittedText =>
+	emitText({ kind: "beginWrite", isolation }, emptyNameMap).text
 
 /**
  * The texts every session of a login sends that its file carries, emitted now (served/forms.ts ServedSession): the
- * startup options pinning its role's defaults (physical/ddl/roles.ts loginStartupOptions), each transaction's BEGIN at
- * each isolation level, read only or read write, and its COMMIT and ROLLBACK.
+ * startup options pinning its role's defaults (physical/ddl/roles.ts loginStartupOptions), a read's BEGIN, immediate
+ * and deferrable, a write's at each isolation level, and its COMMIT and ROLLBACK.
  */
 export const servedSession: ServedSession = {
 	startup: loginStartupOptions,
-	begin: { serializable: beginAt("serializable"), readCommitted: beginAt("readCommitted") },
+	begin: {
+		read: {
+			immediate: emitText({ kind: "beginRead", deferrable: false }, emptyNameMap).text,
+			deferrable: emitText({ kind: "beginRead", deferrable: true }, emptyNameMap).text
+		},
+		write: { serializable: beginWrite("serializable"), readCommitted: beginWrite("readCommitted") }
+	},
 	commit: emitText({ kind: "commit" }, emptyNameMap).text,
 	rollback: emitText({ kind: "rollback" }, emptyNameMap).text
 }

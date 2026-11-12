@@ -1360,7 +1360,8 @@ export class Transform {
 			case "delete":
 			case "merge":
 				return this.dml(s)
-			case "begin":
+			case "beginRead":
+			case "beginWrite":
 			case "commit":
 			case "rollback":
 			case "setConstraintsImmediate":

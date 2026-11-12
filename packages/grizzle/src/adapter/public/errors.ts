@@ -1,6 +1,7 @@
 export {
 	type ApplyError,
 	CommitUnknown,
+	type DeferrableReadError,
 	ExecutionFailure,
 	type ExecutionReason,
 	OpenError,

@@ -408,7 +408,7 @@ const servedOfSpec = (spec: StatementSpec): BatchStatement =>
 const write: Transaction = { access: "readWrite", isolation: "serializable", end: "COMMIT" }
 
 /** The transaction statements apart run in front of, read-only, as admission's fence is (admission/admit.ts). */
-const readOnly: Uncommitting = { access: "readOnly", isolation: "serializable", end: "COMMIT" }
+const readOnly: Uncommitting = { access: "readOnly", deferrable: false, end: "COMMIT" }
 
 /** The case's call on `session`. */
 const callOf = (

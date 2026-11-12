@@ -1971,11 +1971,16 @@ export interface CreateConstant {
 	readonly body: Expr
 }
 
-/** Transaction control: BEGIN at an isolation level, read-only or not, COMMIT, ROLLBACK, and SET CONSTRAINTS ALL
- * IMMEDIATE, under which every deferrable constraint's check runs at the end of each statement, so no trigger event
- * waits for the commit. */
+/**
+ * Transaction control: a read's BEGIN, SERIALIZABLE READ ONLY, DEFERRABLE (it waits for a safe snapshot, then runs
+ * untracked by SSI) or not (it runs at once, tracked); a write's BEGIN at its isolation level; COMMIT, ROLLBACK, and
+ * SET CONSTRAINTS ALL IMMEDIATE, under which every deferrable constraint's check runs at the end of each statement, so
+ * no trigger event waits for the commit.
+ */
 export type Txn =
-	| { readonly kind: "begin"; readonly isolation: Isolation; readonly readOnly: boolean }
+	| { readonly kind: "beginRead"; readonly deferrable: true }
+	| { readonly kind: "beginRead"; readonly deferrable: false }
+	| { readonly kind: "beginWrite"; readonly isolation: Isolation }
 	| { readonly kind: "commit" }
 	| { readonly kind: "rollback" }
 	| { readonly kind: "setConstraintsImmediate" }

@@ -105,7 +105,7 @@ export const deliverPage = Effect.fn("deliverPage")(
 		)
 		runtime.recorded.length = 0
 		runtime.flights = 0
-		yield* runFramed(runtime.session, readFrame(runtime.prologue), [statement])
+		yield* runFramed(runtime.session, readFrame(runtime.prologue, false), [statement])
 		yield* Effect.mapError(Effect.fromResult(intake.end()), (reason) => new ReadFailure({ reason }))
 		const statements = sentStatements(runtime)
 		if (program.delivery.kind !== "concat") {

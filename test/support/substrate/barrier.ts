@@ -1,26 +1,39 @@
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
+/**
+ * A backend's wait on other backends: on a heavyweight lock, or, a SERIALIZABLE READ ONLY DEFERRABLE transaction's
+ * first snapshot, for a safe snapshot.
+ */
 export interface LockWait {
 	readonly pid: number
 	/**
-	 * The ungranted pg_locks entry: lock type and requested mode, e.g. `transactionid` and `ShareLock`. The lock type is
-	 * also the wait event pg_stat_activity names for the wait.
+	 * The ungranted pg_locks entry: lock type and requested mode, e.g. `transactionid` and `ShareLock`, the lock type also
+	 * the wait event pg_stat_activity names for the wait; or `safe snapshot` and `deferrable` for a wait for a safe
+	 * snapshot, which takes no lock.
 	 */
 	readonly locktype: string
 	readonly mode: string
-	/** pg_blocking_pids: the backends holding or queued ahead for the lock. */
+	/**
+	 * The backends it waits on: pg_blocking_pids, those holding or queued ahead for the lock; or
+	 * pg_safe_snapshot_blocking_pids, the SERIALIZABLE read-write transactions its safe snapshot waits for.
+	 */
 	readonly blockedBy: ReadonlyArray<number>
 }
 
 /**
  * A backend's wait on a heavyweight lock, read of pg_locks and pg_blocking_pids alone, which every role sees, so the
  * barrier reads the wait of a backend of any login, an owner login's (substrate.ts ownerLogin) included, whose
- * pg_stat_activity wait columns no viewer without its privileges sees and the owner never has.
+ * pg_stat_activity wait columns no viewer without its privileges sees and the owner never has; or its wait for a safe
+ * snapshot, read of pg_safe_snapshot_blocking_pids alone, which every role sees too.
  */
 const lockWaitQuery = `SELECT l.locktype::text, l.mode::text, array_to_string(pg_catalog.pg_blocking_pids(l.pid), ',')
 FROM pg_catalog.pg_locks AS l
-WHERE l.pid = $1::int4 AND NOT l.granted`
+WHERE l.pid = $1::int4 AND NOT l.granted
+UNION ALL
+SELECT 'safe snapshot'::text, 'deferrable'::text, array_to_string(b.pids, ',')
+FROM (SELECT pg_catalog.pg_safe_snapshot_blocking_pids($1::int4) AS pids) AS b
+WHERE pg_catalog.cardinality(b.pids) > 0`
 
 const parseWait = (pid: number, row: ReadonlyArray<unknown>): LockWait => {
 	const [locktype, mode, blockers] = Arr.map(row, String)
@@ -32,7 +45,10 @@ const parseWait = (pid: number, row: ReadonlyArray<unknown>): LockWait => {
 	}
 }
 
-/** The lock wait of backend `pid`, read once on `observer`, or undefined when it waits on no heavyweight lock. */
+/**
+ * The lock wait of backend `pid`, read once on `observer`, or undefined when it waits on no heavyweight lock and for no
+ * safe snapshot.
+ */
 export const lockWaitOf = (
 	observer: PgConnection,
 	pid: number

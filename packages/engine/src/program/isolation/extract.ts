@@ -640,7 +640,8 @@ class Walk {
 		if (
 			s.kind === "createCarrier" ||
 			s.kind === "analyze" ||
-			s.kind === "begin" ||
+			s.kind === "beginRead" ||
+			s.kind === "beginWrite" ||
 			s.kind === "commit" ||
 			s.kind === "rollback" ||
 			s.kind === "setConstraintsImmediate"

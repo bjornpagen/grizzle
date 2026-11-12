@@ -68,6 +68,9 @@ const keyTarget = (value: unknown): KeyPosition | undefined => {
 		: { position: relation.value, relation, fields: relation.named.primaryKey }
 }
 
+/** Whether `value` names a key a workload member reads by: a relation or closed relation a builder made, or a Key over one. */
+export const isKeyPosition = (value: unknown): boolean => keyTarget(value) !== undefined
+
 /**
  * The query of a keyed lookup over `schema`: every field of the relation, the key fields equal to their parameters. A
  * workload's key program, whose key position the workload admitted, reads through it over each role it runs on.

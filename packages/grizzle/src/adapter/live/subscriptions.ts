@@ -206,8 +206,9 @@ export interface LiveRequest<S extends ReadShape, Row extends object, E> {
  * with; then `changes`, after its `ready`: each run's change followed by `ready`, so a client's value is whole at a
  * run's snapshot exactly at each `ready`, then the error that ends it and `end`; or `end` alone after an initial error.
  * `changes` continues from the value its client holds each time it runs, so a consumer may stop and run it again, and
- * a run it interrupts marks the subscription again. `turn` is one turn now, never waiting: none where the subscription
- * is clean or its run read the same value, else that run's events. `state` reads where its subscription stands now:
+ * a run it interrupts marks the subscription again. `turn` is one turn now, never waiting for a change, though a
+ * deferrable read's run waits for its safe snapshot: none where the subscription is clean or its run read the same
+ * value, else that run's events. `state` reads where its subscription stands now:
  * `clean`, `marked` or `ended`.
  */
 export interface Live<E> {
@@ -257,7 +258,8 @@ type Turn<S extends ReadShape, Row extends object, E> =
 
 /**
  * What one run of a live read came to: a turn (Turn), or the same value read again, `unchanged`, with what it read, or a
- * run SERIALIZABLE refused, `refused`.
+ * run another transaction's work refused, `refused`: a serialization failure or a deadlock, a deferrable read's a
+ * deadlock alone.
  */
 type Ran<S extends ReadShape, Row extends object, E> =
 	| Turn<S, Row, E>
@@ -411,7 +413,7 @@ export const makeSubscriptions = (
 				/**
 				 * One run of the read from the held value, the subscription marked: it clears the mark, unless it ended
 				 * meanwhile, runs the read, and answers the change from the held value to what it read, or `unchanged` with
-				 * what it read where that is the same value. A run SERIALIZABLE refused changed nothing, so its value has not
+				 * what it read where that is the same value. A run another's work refused changed nothing, so its value has not
 				 * advanced and the subscription is marked again, `refused`; any other error ends it. A run interrupted marks
 				 * the subscription again, so a later pull runs it. The value is held only where its caller sends the change
 				 * (hold), so a change a consumer never received is diffed again.
@@ -469,7 +471,7 @@ export const makeSubscriptions = (
 
 				/**
 				 * The subscription's next change from the value its client holds: it waits until it is marked, then runs
-				 * the read, again at once while a run changes nothing or SERIALIZABLE refuses it, since its progress is bound
+				 * the read, again at once while a run changes nothing or another's work refuses it, since its progress is bound
 				 * to commits, never to a time; its own end ends it.
 				 */
 				const next: Effect.Effect<Turn<S, Row, E>> = Effect.flatMap(
@@ -524,7 +526,7 @@ export const makeSubscriptions = (
 
 				/**
 				 * One turn now, never waiting: none where the subscription is clean; its error then `end` where it ended;
-				 * else its read run (rerun) under its expiry, again while SERIALIZABLE refuses it, its change then `ready`
+				 * else its read run (rerun) under its expiry, again while another's work refuses it, its change then `ready`
 				 * where it changed the held value, its error then `end` where it ended, none where it read the same value.
 				 */
 				const once: Effect.Effect<Option.Option<ReadonlyArray<E>>> = Effect.suspend(() => {

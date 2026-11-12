@@ -56,10 +56,14 @@ const planned = (served: PreparedStatement, planning: Planning): Explained => ({
 })
 
 /**
- * A read's EXPLAINs in a read-only transaction, a ChangeSet's in a read-write one, each SERIALIZABLE and rolled back,
- * never committed.
+ * A read's EXPLAINs in its own read-only transaction, SERIALIZABLE READ ONLY, DEFERRABLE where its member is
+ * deferrable(...); a ChangeSet's in a read-write one at SERIALIZABLE; each rolled back, never committed.
  */
-const readFrame: Transaction = { access: "readOnly", isolation: "serializable", end: "ROLLBACK" }
+const readFrame = (call: ReadCall): Transaction => ({
+	access: "readOnly",
+	deferrable: call.deferrable,
+	end: "ROLLBACK"
+})
 const changeFrame: Transaction = { access: "readWrite", isolation: "serializable", end: "ROLLBACK" }
 
 /**
@@ -105,7 +109,7 @@ const plansOf = Effect.fn("plansOf")(function* <P>(
 			{ ...frame, prologue: ctx.prologue },
 			Arr.map(statements, (e) => e.statement)
 		),
-		(failure) => explainFailure(statements, failure)
+		(failure) => explainFailure(statements, frame, failure)
 	)
 	return yield* Effect.fromResult(decodedPlans(statements, outcomes, decode))
 }, Effect.scoped)
@@ -135,7 +139,7 @@ export const explainRead = (
 	Effect.flatMap(readStatement(call, explainOf), (statement) =>
 		plansOf(
 			ctx,
-			readFrame,
+			readFrame(call),
 			() => Result.succeed([statement]),
 			(name, cell) => Result.map(decodePlan(cell, installed), (plan) => ({ statement: name, plan }))
 		)
@@ -153,7 +157,7 @@ export const explainReadAnalyzed = (
 	Effect.flatMap(readStatement(call, explainAnalyzeOf), (statement) =>
 		plansOf(
 			ctx,
-			readFrame,
+			readFrame(call),
 			() => Result.succeed([statement]),
 			(name, cell) =>
 				Result.map(decodeExecuted(cell, installed), (executed) => ({

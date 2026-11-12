@@ -130,7 +130,8 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "update":
 		case "delete":
 		case "merge":
-		case "begin":
+		case "beginRead":
+		case "beginWrite":
 		case "commit":
 		case "rollback":
 		case "setConstraintsImmediate":

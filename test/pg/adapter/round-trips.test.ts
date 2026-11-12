@@ -6,12 +6,14 @@
  * served Db's context over a tapped pool of its own. The oracle is the contract (README "One call, one transaction, one
  * round trip or two" and "Deploying": Db.open contacts nothing): every call is exactly one round trip and one
  * transaction, read by its frame (test/support/wire-tap.ts frameOf: the isolation its BEGIN names, READ ONLY or not,
- * COMMIT or ROLLBACK, whatever the spelling), its session idle at its end, and no CancelRequest sent. Properties:
+ * DEFERRABLE or not, COMMIT or ROLLBACK, whatever the spelling), its session idle at its end, and no CancelRequest sent.
+ * Properties:
  *
  * - reads: a read's once, a key's once of a present or absent key, a paged read's window (from the start or the end,
  *   or after or before a key an earlier window delivered, drawn sizes) and a member's explain, over a plain read, a
- *   heterogeneous union, fused and pipelined attachments and an ordered page with an attachment, are each one round
- *   trip in a SERIALIZABLE READ ONLY transaction that commits, an EXPLAIN's rolling back;
+ *   heterogeneous union, fused and pipelined attachments and an ordered page with an attachment, each of a plain member
+ *   or of its deferrable(...) one, are each one round trip in a SERIALIZABLE READ ONLY transaction, DEFERRABLE exactly
+ *   for a deferrable member, that commits, an EXPLAIN's rolling back;
  * - writes: a change member of note inserts, puts and deletes, with or without a read-back that attaches, applied or
  *   explained, is one round trip in a SERIALIZABLE transaction that commits, an EXPLAIN's rolling back, a call with
  *   nothing to write among them;
@@ -20,13 +22,15 @@
  * - open: one to three Dbs opened through the login's own served layer put nothing on the wire, and a first call of
  *   one of them is the request's one round trip in its transaction.
  *
- * Features: each read kind over one part or several, a window from an end and from a key; once, explain, a read-back
+ * Features: each read kind over one part or several, a window from an end and from a key, each call kind of a deferrable
+ * member; once, explain, a read-back
  * and nothing to write; a refresh of an unpopulated and of a populated view; each first call and several Dbs opened.
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): round-trips-read-write.patch (a read's transaction opened READ
  * WRITE), round-trips-commit-flight.patch (a call's COMMIT sent in a flight of its own),
  * round-trips-refresh-frame.patch (a refresh opened READ ONLY); ~/.cache/grizzle-release/EXPLAIN/plants/rollback-dropped.patch
- * (an explain's transaction committed).
+ * (an explain's transaction committed); ~/.cache/grizzle-release/DEFERRABLE/plants/read-never-deferrable.patch (a
+ * deferrable member's read begun without DEFERRABLE), read-always-deferrable.patch (every read begun DEFERRABLE).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -53,7 +57,7 @@ import {
 	schema,
 	wholeEntriesOf
 } from "#compiler/public/schema.ts"
-import { paged, refresh } from "#compiler/public/workload.ts"
+import { deferrable, paged, refresh } from "#compiler/public/workload.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -81,16 +85,17 @@ import {
 import { withLayer } from "#test/support/with-layer.ts"
 import { fullWorld, testVerify } from "#test/support/worlds.ts"
 
-/** A transaction the contract fixes: SERIALIZABLE, read-only or not, and how it ends. */
+/** A transaction the contract fixes: SERIALIZABLE, read-only or not, DEFERRABLE or not, and how it ends. */
 const serializable = (
 	access: "read only" | "read write",
+	deferrable: boolean,
 	end: "commit" | "rollback"
-): TransactionFrame => ({ kind: "framed", isolation: "SERIALIZABLE", access, end })
+): TransactionFrame => ({ kind: "framed", isolation: "SERIALIZABLE", access, deferrable, end })
 
-/** A read's transaction: SERIALIZABLE READ ONLY, committed. */
-const readFrame = serializable("read only", "commit")
+/** A read's transaction: SERIALIZABLE READ ONLY, not deferrable, committed. */
+const readFrame = serializable("read only", false, "commit")
 /** A write's or a refresh's transaction: SERIALIZABLE, committed. */
-const writeFrame = serializable("read write", "commit")
+const writeFrame = serializable("read write", false, "commit")
 
 /** The traffic of `effect`, and its value. */
 const observe = <A, E, R>(tap: Tap, effect: Effect.Effect<A, E, R>) =>
@@ -158,20 +163,23 @@ const readCallKinds = ["read", "key", "explain", "page"] as const
 
 /**
  * What a read call met: a read of one part or of several, each one statement (lower/shapes/index.ts PartedStatement),
- * and a window from the start or the end, or anchored at a key an earlier window delivered.
+ * a window from the start or the end, or anchored at a key an earlier window delivered, and each call kind of a
+ * deferrable member.
  */
 type ReadCallFeature =
 	| `${"read" | "explain"} ${"one part" | "several parts"}`
 	| "key one part"
 	| `page ${"from an end" | "from a key"}`
+	| `deferrable ${(typeof readCallKinds)[number]}`
 
 /**
- * A drawn read call: its kind, the query it reads (a page's ordered query), a present or absent key, a window's
- * direction, size and anchor among the keys earlier windows delivered.
+ * A drawn read call: its kind, whether its member is deferrable(...), the query it reads (a page's ordered query), a
+ * present or absent key, a window's direction, size and anchor among the keys earlier windows delivered.
  */
 const readCallsGen = array(
 	(source) => ({
 		kind: source.draw(element(readCallKinds)),
+		deferrable: source.draw(boolean),
 		query: source.draw(
 			element([
 				"one relation",
@@ -358,7 +366,14 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 							pipelinedAttachment: accountTaskNotes,
 							task: W.Task,
 							budgets: paged(budgets),
-							noted: paged(noted)
+							noted: paged(noted),
+							deferredOneRelation: deferrable(reads.automaticTasksFor),
+							deferredHeadingGroups: deferrable(payloads),
+							deferredFusedAttachments: deferrable(reads.taskCards),
+							deferredPipelinedAttachment: deferrable(accountTaskNotes),
+							deferredTask: deferrable(W.Task),
+							deferredBudgets: deferrable(paged(budgets)),
+							deferredNoted: deferrable(paged(noted))
 						}).server
 					)
 					const substrate = yield* Substrate
@@ -408,6 +423,44 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 								)
 							}
 						} as const
+						/** Each read query's deferrable member, as `queries` holds its plain one. */
+						const deferredQueries = {
+							"one relation": {
+								once: Effect.asVoid(
+									db.workload.deferredOneRelation.once({ params: { account: a1 }, facts: {} })
+								),
+								explain: Effect.asVoid(
+									db.workload.deferredOneRelation.explain({ params: { account: a1 }, facts: {} })
+								)
+							},
+							"heading groups": {
+								once: Effect.asVoid(
+									db.workload.deferredHeadingGroups.once({ params: {}, facts: {} })
+								),
+								explain: Effect.asVoid(
+									db.workload.deferredHeadingGroups.explain({ params: {}, facts: {} })
+								)
+							},
+							"fused attachments": {
+								once: Effect.asVoid(
+									db.workload.deferredFusedAttachments.once({ params: { account: a1 }, facts: {} })
+								),
+								explain: Effect.asVoid(
+									db.workload.deferredFusedAttachments.explain({
+										params: { account: a1 },
+										facts: {}
+									})
+								)
+							},
+							"a pipelined attachment": {
+								once: Effect.asVoid(
+									db.workload.deferredPipelinedAttachment.once({ params: {}, facts: {} })
+								),
+								explain: Effect.asVoid(
+									db.workload.deferredPipelinedAttachment.explain({ params: {}, facts: {} })
+								)
+							}
+						} as const
 						/** Each ordered query's window over the account's tasks, as the keys of its rows. */
 						const pages = {
 							budgets: (window: Window) =>
@@ -421,11 +474,29 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 									keysOf
 								)
 						}
+						/** Each ordered query's deferrable window, as `pages` holds its plain one. */
+						const deferredPages = {
+							budgets: (window: Window) =>
+								Effect.map(
+									db.workload.deferredBudgets.once({ params: { account: a1 }, facts: {}, window }),
+									keysOf
+								),
+							noted: (window: Window) =>
+								Effect.map(
+									db.workload.deferredNoted.once({ params: { account: a1 }, facts: {}, window }),
+									keysOf
+								)
+						}
+						/** A task's key read, of its plain member or its deferrable one. */
+						const keyRead = (deferred: boolean, present: boolean) => {
+							const input = { params: { id: present ? t1 : tMissing }, facts: {} }
+							return deferred ? db.workload.deferredTask.once(input) : db.workload.task.once(input)
+						}
 						return yield* explore(
 							{
 								oracle: {
 									kind: "specification",
-									name: "README: one call, one SERIALIZABLE READ ONLY transaction, one round trip"
+									name: "README: one call, one SERIALIZABLE READ ONLY transaction, DEFERRABLE for a deferrable member, one round trip"
 								},
 								suite: "adapter/round-trips reads",
 								draw: drawn(readCallsGen),
@@ -443,7 +514,11 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 										"explain several parts",
 										"key one part",
 										"page from an end",
-										"page from a key"
+										"page from a key",
+										"deferrable read",
+										"deferrable key",
+										"deferrable explain",
+										"deferrable page"
 									],
 									{ cases: 40, sense: notesOnly }
 								),
@@ -458,6 +533,8 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 									}
 									for (const call of calls) {
 										const target = queries[call.query]
+										const member = call.deferrable ? deferredQueries[call.query] : target
+										const windows = call.deferrable ? deferredPages : pages
 										const edges = delivered[call.page]
 										const anchor =
 											edges.length === 0
@@ -467,18 +544,12 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 											ReadonlyArray<RowKey>,
 											CallError | ReadError
 										> = call.kind === "read"
-											? Effect.as(target.once, [])
+											? Effect.as(member.once, [])
 											: call.kind === "key"
-												? Effect.as(
-														db.workload.task.once({
-															params: { id: call.present ? t1 : tMissing },
-															facts: {}
-														}),
-														[]
-													)
+												? Effect.as(keyRead(call.deferrable, call.present), [])
 												: call.kind === "explain"
-													? Effect.as(target.explain, [])
-													: pages[call.page]({
+													? Effect.as(member.explain, [])
+													: windows[call.page]({
 															anchor: anchorOf(anchor, call.forward),
 															size: call.size
 														})
@@ -486,7 +557,11 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 										assertFlight(
 											call.kind,
 											seen.window,
-											call.kind === "explain" ? serializable("read only", "rollback") : readFrame
+											serializable(
+												"read only",
+												call.deferrable,
+												call.kind === "explain" ? "rollback" : "commit"
+											)
 										)
 										notes.note(
 											call.kind === "page"
@@ -497,6 +572,9 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 													? "key one part"
 													: `${call.kind} ${target.parts}`
 										)
+										if (call.deferrable) {
+											notes.note(`deferrable ${call.kind}`)
+										}
 										for (const key of seen.value) {
 											edges.push(key)
 										}
@@ -617,7 +695,7 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 											assertFlight(
 												"explain of a change member",
 												seen.window,
-												serializable("read write", "rollback")
+												serializable("read write", false, "rollback")
 											)
 										} else {
 											const seen = yield* observe(

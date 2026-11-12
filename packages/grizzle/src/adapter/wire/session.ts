@@ -143,13 +143,11 @@ export type Password = ParsedConnection["password"]
 
 /**
  * What a session sends that no program states, each emitted where it was compiled (served/forms.ts ServedSession): a
- * transaction's BEGIN at each isolation level, read-only or read-write, and its end, COMMIT or ROLLBACK. A served
+ * read's BEGIN, immediate or deferrable, a write's at each isolation level, and its end, COMMIT or ROLLBACK. A served
  * login's file carries them, and an owner's session takes generate's own.
  */
 export interface ControlTexts {
-	readonly begin: {
-		readonly [I in Isolation]: { readonly [A in Transaction["access"]]: EmittedText }
-	}
+	readonly begin: ServedSession["begin"]
 	readonly commit: EmittedText
 	readonly rollback: EmittedText
 }
@@ -177,25 +175,26 @@ interface SessionSpec extends Omit<ParsedConnection, "roles"> {
 }
 
 /**
- * A transaction control of a pipeline: BEGIN at its transaction's level, read-only or not, or the transaction's end,
- * COMMIT or ROLLBACK. Whoever
- * reads a pipeline reads which control it is from here, never from its text.
+ * A transaction control of a pipeline: BEGIN, a read's (deferrable or not) or a write's at its level, or the
+ * transaction's end, COMMIT or ROLLBACK. Whoever reads a pipeline reads which control it is from here, never from its
+ * text.
  */
 export type TxControl =
-	| {
-			readonly kind: "begin"
-			readonly access: Transaction["access"]
-			readonly isolation: Transaction["isolation"]
-	  }
+	| { readonly kind: "begin"; readonly access: "readOnly"; readonly deferrable: boolean }
+	| { readonly kind: "begin"; readonly access: "readWrite"; readonly isolation: Isolation }
 	| { readonly kind: "end"; readonly end: Transaction["end"] }
 
-/** The text a control sends, among a session's control texts: every transaction begins SERIALIZABLE. */
-export const controlText = (controls: ControlTexts, control: TxControl): EmittedText =>
-	control.kind === "begin"
-		? controls.begin[control.isolation][control.access]
-		: control.end === "COMMIT"
-			? controls.commit
-			: controls.rollback
+/** The text a control sends, among a session's control texts. */
+export const controlText = (controls: ControlTexts, control: TxControl): EmittedText => {
+	switch (control.kind) {
+		case "begin":
+			return control.access === "readOnly"
+				? controls.begin.read[control.deferrable ? "deferrable" : "immediate"]
+				: controls.begin.write[control.isolation]
+		case "end":
+			return control.end === "COMMIT" ? controls.commit : controls.rollback
+	}
+}
 
 /**
  * One query of a pipeline: a statement, on the extended protocol with its own Sync, served under its name or one-shot

@@ -3,7 +3,8 @@
  * PostgreSQL 19's other server-side deadlines, idle_in_transaction_session_timeout and transaction_timeout, per
  * statement, per transaction, per session or per role.
  *
- * Exhausted over the box of every access a transaction grizzle opens (read-only or read-write, always SERIALIZABLE) by
+ * Exhausted over the box of every way a transaction grizzle opens begins (SERIALIZABLE READ ONLY, deferrable or not, or
+ * SERIALIZABLE read-write) by
  * its surroundings (a plain process, or a Vercel function whose request carries a deadline, its pool built as a Vercel
  * application builds it, with Vercel's own attachDatabasePool as its hook): every session of a login's pool, its
  * maximum leased at once, runs its transaction under exactly the deadline settings, value and source, that a plain
@@ -15,7 +16,7 @@
  * Vercel's attachDatabasePool adds its releases to the request context's waits, so a pool another file builds meanwhile
  * with that hook would add its own: the file runs alone.
  *
- * Features: each access in each surrounding.
+ * Features: each opening in each surrounding.
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): deadlines-statement-timeout.patch (a login's startup options setting
  * statement_timeout).
@@ -37,9 +38,17 @@ import { testSql } from "#test/support/sql.ts"
 import { freshSchema, roleSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { outputRows, paramText } from "#test/support/wire.ts"
 
-/** Every access a transaction grizzle opens has. */
-type Access = Transaction["access"]
-const accesses = ["readOnly", "readWrite"] as const satisfies ReadonlyArray<Access>
+/** Every way a transaction grizzle opens begins: a read, immediate or deferrable, and a write. */
+const openings = ["read", "deferrable read", "write"] as const
+
+type Opening = (typeof openings)[number]
+
+/** The transaction each opening begins, committed. */
+const transactions: { readonly [O in Opening]: Transaction } = {
+	read: { access: "readOnly", deferrable: false, end: "COMMIT" },
+	"deferrable read": { access: "readOnly", deferrable: true, end: "COMMIT" },
+	write: { access: "readWrite", isolation: "serializable", end: "COMMIT" }
+}
 
 const deadlineSettings = [
 	"idle_in_transaction_session_timeout",
@@ -62,15 +71,15 @@ const contexts = ["plain", "vercel deadline"] as const
 
 type Context = (typeof contexts)[number]
 
-type DeadlineFeature = `${Access} ${Context}`
+type DeadlineFeature = `${Opening} ${Context}`
 
-/** Every access with every surrounding, the access outermost. */
-const modes = (source: Source): readonly [Access, Context] =>
-	[source.draw(element(accesses)), source.draw(element(contexts))] as const
+/** Every opening with every surrounding, the opening outermost. */
+const modes = (source: Source): readonly [Opening, Context] =>
+	[source.draw(element(openings)), source.draw(element(contexts))] as const
 
 layer(Substrate.layer)("no server-side deadlines", (it) => {
 	it.effect(
-		"no session sets a statement, lock, idle or transaction timeout, read-only or not, with or without a Vercel deadline",
+		"no session sets a statement, lock, idle or transaction timeout, read-only, deferrable or not, with or without a Vercel deadline",
 		(ctx) =>
 			searched(
 				ctx,
@@ -87,7 +96,7 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 					const max = 3
 					const exhausted = yield* exhaust(
 						{
-							box: "every access a transaction grizzle opens, in a plain process and under a Vercel request's deadline",
+							box: "every way a transaction grizzle opens begins, in a plain process and under a Vercel request's deadline",
 							oracle: {
 								kind: "postgresql",
 								name: "the deadline settings, value and source, of a plain session of the same login"
@@ -96,11 +105,11 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 							generator: modes,
 							literal: Formatter.format,
 							coverage: requiredInSpace<DeadlineFeature>(
-								Arr.flatMap(accesses, (i) => Arr.map(contexts, (c): DeadlineFeature => `${i} ${c}`))
+								Arr.flatMap(openings, (i) => Arr.map(contexts, (c): DeadlineFeature => `${i} ${c}`))
 							),
 							caseHang
 						},
-						([access, context], c) =>
+						([opening, context], c) =>
 							Effect.gen(function* () {
 								const vercel =
 									context === "vercel deadline"
@@ -129,7 +138,7 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 													oneShotStatement(testSql(settingsQuery), [paramText(deadlineList)]),
 													oneShotStatement(testSql(backendPid), [])
 												],
-												{ access, isolation: "serializable", end: "COMMIT" }
+												transactions[opening]
 											)
 											assert.deepEqual(
 												settings?.rows,
@@ -141,7 +150,7 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 									})
 								)
 								assert.equal(backends.size, max, "every session of the pool is asked")
-								c.note(`${access} ${context}`)
+								c.note(`${opening} ${context}`)
 							})
 					)
 					/** Nor does any role default the login carries. */

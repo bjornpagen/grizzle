@@ -216,7 +216,8 @@ const isolationLevels = [
 
 /**
  * A flight's transaction as its simple Query texts state it: the isolation level its BEGIN names, or none; whether it
- * is READ ONLY; and whether it ends with COMMIT or ROLLBACK. Two spellings of one transaction read as one frame
+ * is READ ONLY; whether it is DEFERRABLE (NOT DEFERRABLE and none stated are not); and whether it ends with COMMIT or
+ * ROLLBACK. Two spellings of one transaction read as one frame
  * (BEGIN or START TRANSACTION, modes in any order, comma or space between them, COMMIT or END, ROLLBACK or ABORT), so a
  * property asserts the transaction a call runs in, never the text that opens it.
  */
@@ -225,6 +226,7 @@ export type TransactionFrame =
 			readonly kind: "framed"
 			readonly isolation: (typeof isolationLevels)[number] | "unstated"
 			readonly access: "read only" | "read write"
+			readonly deferrable: boolean
 			readonly end: "commit" | "rollback"
 	  }
 	| { readonly kind: "unframed"; readonly texts: ReadonlyArray<string> }
@@ -274,6 +276,7 @@ export const frameOf = (window: WireWindow): TransactionFrame => {
 			(): "unstated" => "unstated"
 		),
 		access: holds(begin, "READ ONLY") ? "read only" : "read write",
+		deferrable: holds(begin, "DEFERRABLE") && !holds(begin, "NOT DEFERRABLE"),
 		end
 	}
 }

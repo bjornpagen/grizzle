@@ -171,6 +171,7 @@ const programCall = (
 	Effect.map(readInputs(read, params), (inputs) => ({
 		inputs,
 		call: {
+			deferrable: read.deferrable,
 			fields: read.key.fields,
 			decode: read.read,
 			open: (emit) => {
@@ -239,6 +240,7 @@ const parseWindow =
 			return {
 				inputs,
 				call: {
+					deferrable: read.deferrable,
 					fields: read.key.fields,
 					decode: page.reads[window.variant],
 					open: (emit) => {

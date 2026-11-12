@@ -40,11 +40,13 @@ const alongsideForms: Arr.NonEmptyReadonlyArray<CallForm> = [
 
 /**
  * Every form a drawn call takes: the exhaustive cases' framed forms, a change of a role generate certified READ
- * COMMITTED, whose flight differs from a write's only in its BEGIN, and the forms alongside.
+ * COMMITTED and a deferrable member's read, whose flights differ from a write's and a read's only in their BEGIN, and
+ * the forms alongside.
  */
 const callForms: Arr.NonEmptyReadonlyArray<CallForm> = [
 	...framedForms,
 	{ kind: "framed", frame: "readCommittedWrite" },
+	{ kind: "framed", frame: "deferrableRead" },
 	...alongsideForms
 ]
 

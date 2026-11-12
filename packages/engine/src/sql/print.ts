@@ -1903,10 +1903,12 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 			return out.line(
 				`LOCK TABLE ${statement.tables.map(printObjectName).join(", ")} IN ${statement.mode} MODE${statement.wait === "nowait" ? " NOWAIT" : ""}`
 			)
-		case "begin":
+		case "beginRead":
 			return out.line(
-				`BEGIN ISOLATION LEVEL ${isolationLevels[statement.isolation]}${statement.readOnly ? " READ ONLY" : ""}`
+				`BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY${statement.deferrable ? " DEFERRABLE" : ""}`
 			)
+		case "beginWrite":
+			return out.line(`BEGIN ISOLATION LEVEL ${isolationLevels[statement.isolation]}`)
 		case "commit":
 			return out.line("COMMIT")
 		case "rollback":

@@ -124,13 +124,15 @@ export interface ServedPrologue {
 
 /**
  * What every session of a login sends that no program states, emitted at generate: the startup options pinning its
- * role's defaults (physical/ddl/roles.ts loginStartupOptions), each transaction's BEGIN at each isolation level, read
- * only or read write, and its COMMIT and ROLLBACK. A transaction begins at its role's level (ServedRoleForm isolation).
+ * role's defaults (physical/ddl/roles.ts loginStartupOptions), each transaction's BEGIN, and its COMMIT and ROLLBACK.
+ * A read begins SERIALIZABLE READ ONLY, `deferrable` where its member declares it (ServedInstantRead deferrable), else
+ * `immediate`; a write begins read write at its role's level (ServedRoleForm isolation), or a refresh at SERIALIZABLE.
  */
 export interface ServedSession {
 	readonly startup: string
 	readonly begin: {
-		readonly [I in Isolation]: { readonly readOnly: EmittedText; readonly readWrite: EmittedText }
+		readonly read: { readonly immediate: EmittedText; readonly deferrable: EmittedText }
+		readonly write: { readonly [I in Isolation]: EmittedText }
 	}
 	readonly commit: EmittedText
 	readonly rollback: EmittedText
@@ -333,12 +335,20 @@ export type ServedReadLive =
 	| { readonly kind: "routed"; readonly footprint: ServedFootprint }
 
 /**
- * A query or ordered query compiled for a role's rows, as one call reads it: the declared parameters a call supplies,
- * its artifact, which prints a parameter its member binds to the database's clock as the reading itself, its delivered
- * spine, the decoder of its records, and the key each of its delivered rows is told apart by. An instant member's read
- * is this alone.
+ * A query or ordered query compiled for a role's rows, as one call reads it: whether its member is declared
+ * deferrable(...), the declared parameters a call supplies, its artifact, which prints a parameter its member binds to
+ * the database's clock as the reading itself, its delivered spine, the decoder of its records, and the key each of its
+ * delivered rows is told apart by. An instant member's read is this alone.
  */
 export interface ServedInstantRead {
+	/**
+	 * Whether its member is declared deferrable(...): its transaction begins SERIALIZABLE READ ONLY DEFERRABLE, so it
+	 * waits for a safe snapshot, until every SERIALIZABLE read-write transaction running on the cluster when it began
+	 * has ended, then reads untracked by SSI: it never fails with a serialization failure, never dooms another
+	 * transaction and holds no SIRead lock. Otherwise SERIALIZABLE READ ONLY: it reads at once, may fail retryably, and
+	 * its SIRead locks are kept until the serializable transactions it overlapped have ended.
+	 */
+	readonly deferrable: boolean
 	readonly params: ReadonlyArray<CallerParamDecl>
 	readonly source: ServedSource
 	readonly spine: ServedSpine

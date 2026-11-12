@@ -9,7 +9,7 @@ import type { RowKey } from "#compiler/live/key.ts"
 import type { KeyedList, KeyedSet } from "#compiler/live/keyed.ts"
 import type { AnyChangeSet, ArraysOf } from "#compiler/types/changeset/changeset.ts"
 import type { ParamArg, ParamValue } from "#compiler/types/core/phantom.ts"
-import type { Clocked, Paged, Refresh } from "#compiler/types/db/workload.ts"
+import type { Clocked, Deferrable, Paged, ReadOf, Refresh } from "#compiler/types/db/workload.ts"
 import type { OrderedBase, ParamsOf } from "#compiler/types/query/query.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { CandidateKey, KeyValues } from "#compiler/types/schema/statements.ts"
@@ -74,10 +74,13 @@ export interface Refreshed {
 type KeyTarget = AnyRelation | AnyClosed | CandidateKey<AnyRelation>
 
 /**
- * The shape of a served program's answer: an ordered or paged read's is a list, a write's a write, a read's a set, and
- * a clocked read's its list or set at its call's instant alone.
+ * The shape of a served program's answer, a deferrable member's its read's: an ordered or paged read's is a list, a
+ * write's a write, a read's a set, and a clocked read's its list or set at its call's instant alone.
  */
-export type ShapeOf<X> =
+export type ShapeOf<X> = ShapeOfProgram<ReadOf<X>>
+
+/** The shape of a program's answer (ShapeOf), a deferrable member's read unwrapped. */
+type ShapeOfProgram<X> =
 	X extends Paged<unknown>
 		? "list"
 		: X extends Refresh<unknown>
@@ -94,8 +97,18 @@ export type ShapeOf<X> =
 						? "list"
 						: "set"
 
-/** The program a served member runs: a paged member's ordered query, a clocked member's program, or the member itself. */
-type ProgramOf<X> = X extends Paged<infer O> ? O : X extends Clocked<infer P, unknown> ? P : X
+/**
+ * The program a served member runs: a deferrable member's read's, a paged member's ordered query, a clocked member's
+ * program, or the member itself.
+ */
+type ProgramOf<X> =
+	X extends Deferrable<infer R>
+		? ProgramOf<R>
+		: X extends Paged<infer O>
+			? O
+			: X extends Clocked<infer P, unknown>
+				? P
+				: X
 
 /** The records a program delivers, as its own type states them: a read's rows, a ChangeSet's read-backs. */
 type RecordsOf<X> = ProgramOf<X> extends Delivering<infer A> ? A : never
@@ -130,9 +143,12 @@ type FactsOf<X> = [keyof ArraysOf<X>] extends [never]
 /**
  * A served program's input: a paged member's params and window; a ChangeSet's params and facts; a key member's key
  * values; a refresh's nothing; a read's params; a clocked member's its program's, but for the params it binds to the
- * database's clock, which no call supplies.
+ * database's clock, which no call supplies; a deferrable member's its read's.
  */
-export type InputOf<X> =
+export type InputOf<X> = InputOfProgram<ReadOf<X>>
+
+/** A program's input (InputOf), its read unwrapped. */
+type InputOfProgram<X> =
 	X extends Paged<infer O>
 		? WindowInput<ParamArg<ParamsOf<O>>>
 		: X extends Refresh<unknown>

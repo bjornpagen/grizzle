@@ -4,12 +4,14 @@
  *
  * A case is a call on the worked example's Work, opened as its full role through its login's served file: a write (the
  * apply of a change member that inserts, deletes and puts task notes, each member valid against the state it starts
- * from) or a read (taskCards' member), and a point in its round trip: the tap's gate holds the server's bytes once a
- * number of backend messages (ReadyForQuery messages, or any) have reached the client, drawn against the call's own
- * traffic, which one run of the call on a session of its own measures first: inside the call's messages, at its last
- * one, or past its end, where the call completes before the gate. Optionally an owner session holds a row lock first,
- * so a statement the call sends, or its COMMIT, waits on the server until the call is interrupted. The case waits on
- * what it observes, never on the clock.
+ * from) or a read (taskCards' member, plain or deferrable(...)), and a point in its round trip: the tap's gate holds
+ * the server's bytes once a number of backend messages (ReadyForQuery messages, or any) have reached the client, drawn
+ * against the call's own traffic, which one run of the call on a session of its own measures first: inside the call's
+ * messages, at its last one, or past its end, where the call completes before the gate. Optionally an owner session
+ * holds a row lock first, so a statement the call sends, or its COMMIT, waits on the server until the call is
+ * interrupted; or, before a deferrable read, a SERIALIZABLE read-write transaction open with its snapshot taken, so the
+ * read's prologue waits for a safe snapshot until the call is interrupted. The case waits on what it observes, never on
+ * the clock.
  *
  * The oracle is the README's cancellation contract, restated per case:
  * - the exit is the interruption when the call had not completed when it came, and otherwise the call's success;
@@ -17,8 +19,8 @@
  * - the task notes are exactly as before the call, or exactly as the accepted write leaves them, never in between;
  * - the pool has no session leased, and the next call succeeds.
  *
- * Features: how the call ended against the gate, where it was interrupted (a lock wait among them), and what the
- * interruption left (committed, rolled back).
+ * Features: how the call ended against the gate, where it was interrupted (a lock wait and a deferrable read's wait for
+ * a safe snapshot among them), and what the interruption left (committed, rolled back).
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): interrupt-no-cancel.patch (an interrupted flight sends no
  * CancelRequest), interrupt-lease-leaked.patch (an interrupted call's retired session never counted out of the pool's
@@ -46,6 +48,7 @@ import type { LoadedMember } from "#adapter/served/load.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Uuid } from "#compiler/public/fields.ts"
+import { deferrable } from "#compiler/public/workload.ts"
 import { defaultPool, poolFor, rowsOn, until } from "#test/pg/adapter/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, assertVariant, succeeded } from "#test/support/assert.ts"
@@ -80,10 +83,13 @@ interface GatePoint {
 
 interface CaseSketch {
 	readonly call: "write" | "read"
+	/** Whether a read's member is deferrable(...): its transaction begins DEFERRABLE. A write's is never read. */
+	readonly deferrable: boolean
 	readonly members: ReadonlyArray<Member>
 	/**
-	 * What the owner session locks first: nothing, a note the write deletes or puts, or the task a new note references,
-	 * whose deferred reference COMMIT checks.
+	 * What the owner session holds first: nothing, a lock on a note the write deletes or puts, or on the task a new note
+	 * references, whose deferred reference COMMIT checks; for a deferrable read, either one is a SERIALIZABLE read-write
+	 * transaction open with its snapshot taken, which its safe snapshot waits for.
 	 */
 	readonly blocker: "none" | "statement" | "commit"
 	readonly point: GatePoint
@@ -124,6 +130,7 @@ const caseSketchGen: Gen<CaseSketch> = weighted<CaseSketch>([
 		3,
 		(source) => ({
 			call: "write",
+			deferrable: false,
 			members: source.draw(membersGen),
 			blocker: source.draw(blockerGen),
 			point: source.draw(pointGen({ inside: 2, end: 1, beyond: 2 }))
@@ -133,6 +140,7 @@ const caseSketchGen: Gen<CaseSketch> = weighted<CaseSketch>([
 		1,
 		(source) => ({
 			call: "read",
+			deferrable: source.draw(boolean),
 			members: source.draw(membersGen),
 			blocker: source.draw(blockerGen),
 			point: source.draw(pointGen({ inside: 3, end: 1, beyond: 1 }))
@@ -150,6 +158,7 @@ const interruptKept: ReadonlyArray<Kept<CaseSketch, InterruptFeature>> = [
 		note: "a write past the gate",
 		sketch: {
 			call: "write",
+			deferrable: false,
 			members: [{ kind: "insert", pick: 0 }],
 			blocker: "none",
 			point: point("Z", "beyond")
@@ -161,6 +170,7 @@ const interruptKept: ReadonlyArray<Kept<CaseSketch, InterruptFeature>> = [
 		note: "a deletion waiting on a lock",
 		sketch: {
 			call: "write",
+			deferrable: false,
 			members: [{ kind: "delete", pick: 0 }],
 			blocker: "statement",
 			point: point("Z", "beyond")
@@ -176,6 +186,7 @@ const interruptKept: ReadonlyArray<Kept<CaseSketch, InterruptFeature>> = [
 		note: "a write held before its last answer",
 		sketch: {
 			call: "write",
+			deferrable: false,
 			members: [{ kind: "insert", pick: 0 }],
 			blocker: "none",
 			point: point("Z", "end")
@@ -187,6 +198,7 @@ const interruptKept: ReadonlyArray<Kept<CaseSketch, InterruptFeature>> = [
 		note: "a read held at once",
 		sketch: {
 			call: "read",
+			deferrable: false,
 			members: [{ kind: "insert", pick: 0 }],
 			blocker: "none",
 			point: point("any", "inside")
@@ -281,15 +293,19 @@ const resolveWrite = (
 type InterruptFeature =
 	| `${CaseSketch["call"]} interrupted`
 	| `${CaseSketch["call"]} completed before the gate`
+	| "deferrable read interrupted"
 	| "interrupted where the server waits on a lock"
+	| "interrupted where the server waits for a safe snapshot"
 	| "committed after an interruption"
 	| "rolled back after an interruption"
 
 const situations: Arr.NonEmptyReadonlyArray<InterruptFeature> = [
 	"write interrupted",
 	"read interrupted",
+	"deferrable read interrupted",
 	"write completed before the gate",
 	"interrupted where the server waits on a lock",
+	"interrupted where the server waits for a safe snapshot",
 	"committed after an interruption",
 	"rolled back after an interruption"
 ]
@@ -297,13 +313,26 @@ const situations: Arr.NonEmptyReadonlyArray<InterruptFeature> = [
 /**
  * The sketch a witness runs, aimed at what no witness reached yet (Case.steering): while no write has completed before
  * its gate, half its cases by a draw of their own are a write under no lock whose gate is past its end, its members and
- * gate type as drawn; a rotating or kept case runs as drawn.
+ * gate type as drawn; while no read has been interrupted waiting for a safe snapshot, half of the rest are a
+ * deferrable read under the owner's open transaction; a rotating or kept case runs as drawn.
  */
-const aimedSketch = (sketch: CaseSketch, cx: Case<InterruptFeature>): CaseSketch =>
-	Option.exists(cx.steering, (pending) => pending.has("write completed before the gate")) &&
-	cx.draw(boolean)
-		? { ...sketch, call: "write", blocker: "none", point: { ...sketch.point, arm: "beyond" } }
-		: sketch
+const aimedSketch = (sketch: CaseSketch, cx: Case<InterruptFeature>): CaseSketch => {
+	const pending = (feature: InterruptFeature) =>
+		Option.exists(cx.steering, (features) => features.has(feature))
+	if (pending("write completed before the gate") && cx.draw(boolean)) {
+		return {
+			...sketch,
+			call: "write",
+			deferrable: false,
+			blocker: "none",
+			point: { ...sketch.point, arm: "beyond" }
+		}
+	}
+	if (pending("interrupted where the server waits for a safe snapshot") && cx.draw(boolean)) {
+		return { ...sketch, call: "read", deferrable: true, blocker: "statement" }
+	}
+	return sketch
+}
 
 /** A change member of array members, applied on `ctx` with the call's facts. */
 const applyFacts = (ctx: ServedDbContext, change: LoadedMember, facts: unknown) => {
@@ -338,6 +367,7 @@ const interruptCases = Effect.gen(function* () {
 						.delete(W.TaskNote, [])
 						.put(W.TaskNote, []),
 					cards: reads.taskCards,
+					deferredCards: deferrable(reads.taskCards),
 					task: W.Task
 				}),
 				(loaded) => ({ context: ctx, members: loaded })
@@ -408,7 +438,12 @@ const interruptCases = Effect.gen(function* () {
 									)
 								)
 							: Effect.orDie(
-									Effect.asVoid(readOnce(on(pool, "cards"))({ params: { account: a1 }, facts: {} }))
+									Effect.asVoid(
+										readOnce(on(pool, sketch.deferrable ? "deferredCards" : "cards"))({
+											params: { account: a1 },
+											facts: {}
+										})
+									)
 								)
 					/** A tapped pool of one fresh session, warmed, so a window holds one call's traffic alone. */
 					const tappedDb = Effect.gen(function* () {
@@ -445,9 +480,15 @@ const interruptCases = Effect.gen(function* () {
 					 */
 					const lockedNote = [...write.deletes, ...write.puts][0]
 					const lockedTask = write.inserts[0]?.task
+					/**
+					 * A deferrable read's blocker: a SERIALIZABLE read-write transaction whose snapshot is taken, which every
+					 * safe snapshot taken while it runs waits for; a plain read waits on no lock the owner can hold.
+					 */
 					const lock =
 						sketch.call === "read"
-							? undefined
+							? sketch.deferrable && sketch.blocker !== "none"
+								? "SELECT 1"
+								: undefined
 							: sketch.blocker === "statement" && lockedNote !== undefined
 								? `SELECT 1 FROM ${notes} WHERE ${noteTask} = '${lockedNote.task}'::uuid FOR UPDATE`
 								: sketch.blocker === "commit" && lockedTask !== undefined
@@ -478,10 +519,13 @@ const interruptCases = Effect.gen(function* () {
 						sketch.point.type === "Z" ? { kind: "type", type: "Z" } : { kind: "any" }
 					)
 					const fiber = yield* Effect.forkChild(call)
-					/** Whether the call's backend waits on a lock, which only the owner's can be. */
+					/**
+					 * Whether the call's backend waits on the owner: on a lock, which only the owner's can be, or, a
+					 * deferrable read, for a safe snapshot, which the owner's open transaction withholds.
+					 */
 					const waitingOnLock = Effect.map(
 						s.admin.queryValues(
-							"SELECT 1 FROM pg_catalog.pg_stat_activity WHERE usename = $1::name AND wait_event_type = 'Lock'::text",
+							"SELECT 1 FROM pg_catalog.pg_stat_activity WHERE usename = $1::name AND (wait_event_type = 'Lock'::text OR wait_event = 'SafeSnapshot'::text)",
 							[writerRole]
 						),
 						(rows) => rows.length > 0
@@ -508,13 +552,17 @@ const interruptCases = Effect.gen(function* () {
 							})
 						: Effect.gen(function* () {
 								yield* until(waitingOnLock)
-								if (sketch.blocker === "commit") {
+								if (sketch.call === "write" && sketch.blocker === "commit") {
 									yield* Effect.raceFirst(
 										tap.gate.holding,
 										until(Effect.sync(() => answered() >= lastAnswered))
 									)
 								}
-								cx.note("interrupted where the server waits on a lock")
+								cx.note(
+									sketch.call === "read"
+										? "interrupted where the server waits for a safe snapshot"
+										: "interrupted where the server waits on a lock"
+								)
 								return "waits" as const
 							})
 					/**
@@ -571,6 +619,9 @@ const interruptCases = Effect.gen(function* () {
 					)
 					if (interrupted) {
 						cx.note(`${sketch.call} interrupted`)
+						if (sketch.deferrable) {
+							cx.note("deferrable read interrupted")
+						}
 						if (effective) {
 							cx.note(
 								changed ? "committed after an interruption" : "rolled back after an interruption"

@@ -117,11 +117,12 @@ const tablesOf = (installed: SnapshotTables, footprint: ReadonlySet<string>): Se
 }
 
 /**
- * A rows form's read, served: its template, its Description's spine, its decoder's form, the key its rows are
- * delivered under, its template's own (templateKey) unless a page's is given, and its footprint, named as installed
- * under the role's names `names`.
+ * A rows form's read, served: whether its member is deferrable(...), its template, its Description's spine, its
+ * decoder's form, the key its rows are delivered under, its template's own (templateKey) unless a page's is given, and
+ * its footprint, named as installed under the role's names `names`.
  */
 const readOf = (
+	deferrable: boolean,
 	form: RowsForm<unknown>,
 	footprint: Footprint,
 	names: SchemaArtifacts["names"],
@@ -129,6 +130,7 @@ const readOf = (
 ): ServedRead => {
 	const { compiled } = form.bound.compiled
 	return servedRead(
+		deferrable,
 		compiled.template,
 		compiled.desc,
 		form.decoder(),
@@ -138,12 +140,13 @@ const readOf = (
 }
 
 /**
- * A rows form's read at its call's instant, served: as readOf serves a read, with no footprint, since no change reaches
- * an instant member's answer.
+ * A rows form's read at its call's instant, served: as readOf serves a read, deferrable or not, with no footprint, since
+ * no change reaches an instant member's answer.
  */
-const instantReadOf = (form: RowsForm<unknown>): ServedInstantRead => {
+const instantReadOf = (deferrable: boolean, form: RowsForm<unknown>): ServedInstantRead => {
 	const { compiled } = form.bound.compiled
 	return servedInstantRead(
+		deferrable,
 		compiled.template,
 		compiled.desc,
 		form.decoder(),
@@ -209,23 +212,27 @@ const memberOf = (
 			return Result.succeed({
 				name,
 				kind: "read",
-				read: readOf(member.form, footprint(), names, templateKey)
+				read: readOf(member.deferrable, member.form, footprint(), names, templateKey)
 			})
 		case "instant":
-			return Result.succeed({ name, kind: "instant", read: instantReadOf(member.form) })
+			return Result.succeed({
+				name,
+				kind: "instant",
+				read: instantReadOf(member.deferrable, member.form)
+			})
 		case "key":
 			return Result.succeed({
 				name,
 				kind: "key",
 				fields: member.fields,
-				read: readOf(member.form, footprint(), names, templateKey)
+				read: readOf(member.deferrable, member.form, footprint(), names, templateKey)
 			})
 		case "paged": {
 			const page = member.form.page.runtime.page
 			return Result.succeed({
 				name,
 				kind: "paged",
-				read: readOf(member.form, footprint(), names, () => pageKey(page)),
+				read: readOf(member.deferrable, member.form, footprint(), names, () => pageKey(page)),
 				page
 			})
 		}

@@ -139,7 +139,7 @@ const runIn = (session: Session, form: FlightForm, statement: BatchStatement) =>
 		: Effect.asVoid(
 				runTransaction(session, [statement], {
 					access: "readOnly",
-					isolation: "serializable",
+					deferrable: false,
 					end: "COMMIT"
 				})
 			)

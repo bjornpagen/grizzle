@@ -8,10 +8,6 @@ The one plan: only work still to do. A finished item is deleted, not ticked.
 post-beta swarm's fixes for the next release.
 
 ### After the 1,000-children goal (the owner's pinned goal, 2026-11-10)
-- **A SERIALIZABLE READ ONLY read beside a concurrent SERIALIZABLE import can still fail with 40001:** a certified
-  READ COMMITTED role's reads stay SERIALIZABLE READ ONLY (one snapshot across their statements). SSI does not track
-  READ COMMITTED writers, so such a read conflicts only with SERIALIZABLE writers, pantry's importWrite among them, in a
-  dangerous structure among SERIALIZABLE transactions. Measure it under a live import once the goal ships.
 - **A read-back over a delta no one statement makes is refused (CARRIER, 2026-11-11):** a read-back runs inside the
   one statement that makes its delta, whose rows exist nowhere else, and no delta carrier is left, so
   ReadBackCrossesStatements refuses three crossings: a side two statements make or net (a delete and an insert of one

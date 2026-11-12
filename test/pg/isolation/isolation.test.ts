@@ -546,7 +546,11 @@ const raceOf = (sketch: {
 	readonly initial: FactSet
 	readonly calls: Arr.NonEmptyReadonlyArray<CallSketch>
 }): IsolationRace => {
-	const [first, ...rest] = Arr.map(sketch.calls, (c, i): RaceCall => ({ session: `s${i}`, ...c }))
+	const [first, ...rest] = Arr.map(sketch.calls, (c, i): RaceCall => ({
+		kind: "change",
+		session: `s${i}`,
+		...c
+	}))
 	return { initial: sketch.initial, calls: [defined(first, "a call"), ...rest] }
 }
 
@@ -613,6 +617,7 @@ const drawnRaceOf = (race: DrawnRace): IsolationRace => {
 		)
 	)
 	const [first, ...rest] = Arr.map(race.calls, (c, i): RaceCall => ({
+		kind: "change",
 		session: `s${i}`,
 		role: `r${c.role}`,
 		member: `m${c.role}`,

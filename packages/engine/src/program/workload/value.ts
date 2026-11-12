@@ -12,7 +12,7 @@ import {
 	parseSchemaInput,
 	type SchemaInput
 } from "#compiler/program/schema.ts"
-import { type KeyPosition, keyLookup } from "#compiler/query/build/key.ts"
+import { isKeyPosition, type KeyPosition, keyLookup } from "#compiler/query/build/key.ts"
 import {
 	isOrderedValue,
 	isQueryValue,
@@ -22,7 +22,7 @@ import {
 import { builderLoc, builderRefusal, malformed } from "#compiler/schema/protocol.ts"
 import { derivedDraftOf } from "#compiler/schema/relation.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
-import type { Clocked, Paged, Refresh, Workload } from "#compiler/types/db/workload.ts"
+import type { Clocked, Deferrable, Paged, Refresh, Workload } from "#compiler/types/db/workload.ts"
 import {
 	type ChangeSetValue,
 	changeSetState,
@@ -32,12 +32,11 @@ import {
 type QueryProgramDesc = Extract<ProgramDesc, { readonly kind: "query" }>
 
 /**
- * A program value of a workload, by kind, as the builders made it, with its Description: an ordered query read only,
- * or one that pages (paged), whose Description is its ordered query's; a query or ordered query whose member binds
- * parameters to the database's clock (clocked), read at its call's instant and never live; or a ChangeSet, with the
- * parameters its member binds to the clock, none but a clocked one's.
+ * A read program value of a workload, by kind, as the builders made it, with its Description: a query, an ordered
+ * query read only, one that pages (paged), whose Description is its ordered query's, or a query or ordered query whose
+ * member binds parameters to the database's clock (clocked), read at its call's instant and never live.
  */
-type ProgramValue =
+type ReadValue =
 	| { readonly kind: "query"; readonly value: QueryValue; readonly desc: QueryProgramDesc }
 	| { readonly kind: "ordered"; readonly value: OrderedValue; readonly desc: QueryProgramDesc }
 	| {
@@ -47,6 +46,10 @@ type ProgramValue =
 			readonly clock: ClockBinding
 	  }
 	| { readonly kind: "paged"; readonly value: OrderedValue; readonly desc: QueryProgramDesc }
+
+/** A program value of a workload, by kind, as the builders made it, with its Description: a read or a ChangeSet. */
+type ProgramValue =
+	| ReadValue
 	| {
 			readonly kind: "changeSet"
 			readonly value: ChangeSetValue
@@ -55,15 +58,19 @@ type ProgramValue =
 	  }
 
 /**
- * One program of a workload, by kind, as `grizzle generate` compiles it: a query or ordered query value, a ChangeSet
- * value, or a key, which reads through its lookup query (query/build/key.ts keyQuery) at the key position the workload
- * admitted, each with the Description the migration generator plans (a key's is its lookup's, built over the workload's
- * schema); or a refresh of materialized derived relations, which plans nothing and reads no relation's law, so it has
- * none: the compile resolves its relations against the role that runs it.
+ * One program of a workload, by kind, as `grizzle generate` compiles it: a query or ordered query value, or a key,
+ * which reads through its lookup query (query/build/key.ts keyQuery) at the key position the workload admitted, each
+ * a read, deferrable where its member is deferrable(...) (deferrableMember), and a ChangeSet value, each with the
+ * Description the migration generator plans (a key's is its lookup's, built over the workload's schema); or a refresh
+ * of materialized derived relations, which plans nothing and reads no relation's law, so it has none: the compile
+ * resolves its relations against the role that runs it.
  */
 export type WorkloadProgram = { readonly name: string } & (
-	| ProgramValue
-	| { readonly kind: "key"; readonly target: KeyPosition; readonly desc: QueryProgramDesc }
+	| ({ readonly deferrable: boolean } & (
+			| ReadValue
+			| { readonly kind: "key"; readonly target: KeyPosition; readonly desc: QueryProgramDesc }
+	  ))
+	| Extract<ProgramValue, { readonly kind: "changeSet" }>
 	| { readonly kind: "refresh"; readonly relations: NonEmptyReadonlyArray<unknown> }
 )
 
@@ -194,6 +201,40 @@ export const clockedMember = <X, B>(
 	return value
 }
 
+/** The read each value deferrable(...) made reads (deferrableMember). */
+const deferrableValues = new WeakMap<object, unknown>()
+
+/**
+ * deferrable(read): the workload member that runs `read`, a query, an ordered query, a paged(...) ordered query, a
+ * relation's key or a clocked(...) query or ordered query, in a SERIALIZABLE READ ONLY DEFERRABLE transaction: each
+ * call waits for a safe snapshot, until every SERIALIZABLE read-write transaction running on the cluster when it began
+ * has ended, then reads untracked by SSI, so it never fails with a serialization failure, never dooms another
+ * transaction and holds no SIRead lock. Any other read member reads at once, may fail retryably, and holds its SIRead
+ * locks until the serializable transactions it overlapped have ended. A value that is no read, a ChangeSet, a clocked
+ * one, a refresh and a deferrable member among them, throws CompileError MalformedDescription synchronously.
+ */
+export const deferrableMember = <X>(read: X, ...extra: ReadonlyArray<unknown>): Deferrable<X> => {
+	if (extra.length > 0) {
+		throw malformed("deferrable", "deferrable(read): one argument")
+	}
+	const clocked = hasProperties(read) ? clockedValues.get(read) : undefined
+	const isRead =
+		(hasProperties(read) && pagedValues.has(read)) ||
+		isQueryValue(read) ||
+		isOrderedValue(read) ||
+		isKeyPosition(read) ||
+		(clocked !== undefined && !isChangeSetValue(clocked.program))
+	if (!isRead) {
+		throw malformed(
+			"deferrable",
+			"deferrable takes a read: a query, an ordered query, a paged one, a relation's key or a clocked one"
+		)
+	}
+	const value: Deferrable<X> = Object.freeze({ deferrable: read })
+	deferrableValues.set(value, read)
+	return value
+}
+
 /** The relations each value refresh(relations) made refreshes, as its list held them at the call (refreshMember). */
 const refreshValues = new WeakMap<object, NonEmptyReadonlyArray<unknown>>()
 
@@ -307,7 +348,8 @@ const workloadDescOf = (
 
 /**
  * One named program of a workload over `schema`, or the refusal of a value that is none: a query, ordered query or
- * ChangeSet over a level of the schema, or a key of a relation of it, whose lookup query is built over the schema.
+ * ChangeSet over a level of the schema, or a key of a relation of it, whose lookup query is built over the schema; a
+ * read deferrable where deferrable(...) made the member (deferrableMember), which admits a read alone.
  */
 const workloadProgram = (
 	name: string,
@@ -319,7 +361,10 @@ const workloadProgram = (
 	if (refreshed !== undefined) {
 		return { name, kind: "refresh", relations: refreshed }
 	}
-	const found = programDescOf(program)
+	const deferred = hasProperties(program) ? deferrableValues.get(program) : undefined
+	const deferrable = deferred !== undefined
+	const read = deferrable ? deferred : program
+	const found = programDescOf(read)
 	if (found !== undefined) {
 		const over = found.schema
 		if (over !== undefined && !levelSchema(over, built, builderLoc(label, ["programs", name])).ok) {
@@ -328,18 +373,21 @@ const workloadProgram = (
 				`program ${JSON.stringify(name)}: a program over ${built.desc.name} or a schema it extends, not over ${over.desc.name}`
 			)
 		}
-		return { name, ...found.program }
+		return found.program.kind === "changeSet"
+			? { name, ...found.program }
+			: { name, deferrable, ...found.program }
 	}
-	const lookup = keyLookup(schema, program)
+	const lookup = keyLookup(schema, read)
 	if (lookup === undefined) {
 		throw malformed(
 			label,
-			`program ${JSON.stringify(name)}: a query, an ordered query, a paged ordered query, a ChangeSet, a clocked one of them, a relation's key or a refresh the builders made`
+			`program ${JSON.stringify(name)}: a query, an ordered query, a paged ordered query, a ChangeSet, a clocked one of them, a relation's key, a deferrable read or a refresh the builders made`
 		)
 	}
 	return {
 		name,
 		kind: "key",
+		deferrable,
 		target: lookup.target,
 		desc: { kind: "query", query: orThrow(queryInput(lookup.query)).desc }
 	}

@@ -24,6 +24,8 @@ import {
 } from "#compiler/plan/runtime.ts"
 
 import {
+	deadlockRefusal,
+	type DeferrableReadError,
 	type ReadError,
 	ReadFailure,
 	serializationRefusal,
@@ -51,6 +53,7 @@ import {
 	type Answer,
 	type ControlTexts,
 	controlText,
+	type TxControl,
 	type WireQuery,
 	type Session
 } from "#adapter/wire/session.ts"
@@ -143,14 +146,15 @@ export interface BatchOutcome {
 }
 
 /**
- * The transaction a flight runs its statements in: whether it writes, the isolation level it begins at, and how it ends.
- * A read-only transaction is SERIALIZABLE, one snapshot for all its statements; a read-write one begins at its role's
- * level.
+ * The transaction a flight runs its statements in: whether it writes, how it begins, and how it ends. A read-only
+ * transaction is SERIALIZABLE READ ONLY, one snapshot for all its statements: `deferrable`, it waits for a safe snapshot
+ * and then runs untracked by SSI, never refused by a serialization failure; otherwise it reads at once, tracked. A
+ * read-write one begins at its role's level.
  */
 export type Transaction =
 	| {
 			readonly access: "readOnly"
-			readonly isolation: "serializable"
+			readonly deferrable: boolean
 			readonly end: "COMMIT" | "ROLLBACK"
 	  }
 	| {
@@ -167,7 +171,7 @@ export type Transaction =
 export type Uncommitting =
 	| {
 			readonly access: "readOnly"
-			readonly isolation: "serializable"
+			readonly deferrable: boolean
 			readonly end: Transaction["end"]
 	  }
 	| { readonly access: "readWrite"; readonly isolation: "serializable"; readonly end: "ROLLBACK" }
@@ -271,6 +275,43 @@ export const asReadFailure = (failure: FlightFailure): ReadError => {
 			return new ReadFailure({ reason: failure })
 	}
 }
+
+/**
+ * How a deferrable read surfaces a flight's failure: as any read's (asReadFailure), but another's work refuses it only
+ * by a deadlock (deadlockRefusal): once its snapshot is safe its transaction takes no part in SSI, so every other
+ * refusal is the server's.
+ */
+export const asDeferrableReadFailure = (failure: FlightFailure): DeferrableReadError => {
+	switch (failure._tag) {
+		case "StaleSnapshot":
+			return failure
+		case "BatchRefused":
+		case "CommitRefused":
+		case "PrologueRefused":
+			return deadlockRefusal(failure.failure) ?? new ReadFailure({ reason: failure.failure })
+		case "CommitLost":
+		case "ConnectionLost":
+		case "DriverFailure":
+		case "UnreadableAnswer":
+		case "InputTooLarge":
+			return new ReadFailure({ reason: failure })
+	}
+}
+
+/** The BEGIN control of `transaction`: a read's, deferrable or not, or a write's at its level. */
+const beginOf = (transaction: Transaction): TxControl =>
+	transaction.access === "readOnly"
+		? { kind: "begin", access: "readOnly", deferrable: transaction.deferrable }
+		: { kind: "begin", access: "readWrite", isolation: transaction.isolation }
+
+/**
+ * How a flight in `transaction` surfaces its failure as a read's: a deferrable read's (asDeferrableReadFailure), every
+ * other's (asReadFailure).
+ */
+export const readFailureIn = (transaction: Transaction): ((failure: FlightFailure) => ReadError) =>
+	transaction.access === "readOnly" && transaction.deferrable
+		? asDeferrableReadFailure
+		: asReadFailure
 
 /** A statement of a flight as planned: its query in the pipeline, the statement itself. */
 interface Planned {
@@ -385,7 +426,7 @@ const planOf = <P, F>(
 		steps.push(beginStep)
 		pipeline.push({
 			_tag: "control",
-			control: { kind: "begin", access: transaction.access, isolation: transaction.isolation }
+			control: beginOf(transaction)
 		})
 		for (const { statement, step } of principal.prologue) {
 			const planned = plannedOf(statement)
@@ -1060,10 +1101,13 @@ export const runAlongside = (
 		})
 	)
 
-/** Every read of a Db: read-only and SERIALIZABLE, one snapshot for all its statements, behind the Db's prologue. */
-export const readFrame = (prologue: Prologue): Frame => ({
+/**
+ * A read of a Db: SERIALIZABLE READ ONLY, one snapshot for all its statements, behind the Db's prologue; DEFERRABLE where
+ * its member is deferrable(...), so the prologue's snapshot waits until it is safe.
+ */
+export const readFrame = (prologue: Prologue, deferrable: boolean): Frame => ({
 	access: "readOnly",
-	isolation: "serializable",
+	deferrable,
 	end: "COMMIT",
 	prologue
 })
@@ -1317,7 +1361,7 @@ const unwritten = (failure: FlightFailure): boolean => failure._tag === "InputTo
 /** `transaction` ended by ROLLBACK: the same access and level. */
 const rolledBack = (transaction: Transaction): Transaction =>
 	transaction.access === "readOnly"
-		? { access: "readOnly", isolation: "serializable", end: "ROLLBACK" }
+		? { access: "readOnly", deferrable: transaction.deferrable, end: "ROLLBACK" }
 		: { access: "readWrite", isolation: transaction.isolation, end: "ROLLBACK" }
 
 /**

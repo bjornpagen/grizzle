@@ -2291,7 +2291,8 @@ class StatementAuditor {
 			case "merge":
 				this.dml(statement, undefined, true)
 				return
-			case "begin":
+			case "beginRead":
+			case "beginWrite":
 			case "commit":
 			case "rollback":
 			case "setConstraintsImmediate":

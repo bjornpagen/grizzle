@@ -1073,7 +1073,7 @@ Drizzle's `pgMaterializedView` declares the view and `refreshMaterializedView` r
 **The reframe.** Each piece follows from something you declare anyway. A page is a window of an ordered set, and its anchor a row's place in that order; the order is total once it ends in a key, which grizzle knows, so a row's key is its place. A rollup is a derived relation, a query whose rows PostgreSQL stores, and its key follows from its query. An index serves the queries that need it, so the queries your app runs decide the indexes:
 
 - **`derived.materialized(name, query)`** stores a query's rows as a materialized view, uniquely indexed on the keys the query provably has. `schema.extend` declares it in a level of its own over the schema it reads, here `Reporting` over `Usage`, and a role's `refresh` list names what the role may refresh.
-- **`workload(role, programs)`** names the queries and writes your app runs on its hot paths. A login owns its workloads: `grizzle generate` compiles them into the login's served file and derives the indexes they need. An ordered query your app pages is the member `paged(query)`: its input holds a `window`, and generate compiles window templates for no other member. A materialized table is refreshed by the member `refresh(tables)`, which takes a nonempty list.
+- **`workload(role, programs)`** names the queries and writes your app runs on its hot paths. A login owns its workloads: `grizzle generate` compiles them into the login's served file and derives the indexes they need. An ordered query your app pages is the member `paged(query)`: its input holds a `window`, and generate compiles window templates for no other member. A read that must never fail from another transaction's work, and may wait instead, is the member `deferrable(read)` ([Reading](#reading)). A materialized table is refreshed by the member `refresh(tables)`, which takes a nonempty list.
 
 **The declaration**, continuing the `Usage` schema of [case 2](#2-top-three-per-group-with-exact-types):
 
@@ -1245,7 +1245,7 @@ In full:
 - **A password for each login role**, which you set, or, for RDS IAM authentication, membership in `rds_iam`. Each connection authenticates with exactly the password its configuration names: node-postgres never reads `PGPASSWORD` or `~/.pgpass` for one.
 - **TLS with verify-full**, the only mode. Plaintext is refused.
 - **A direct connection.** PgBouncer is not supported.
-- **`max_pred_locks_per_transaction = 2048`**, recommended: a server-start setting, about 115 MB of shared memory at 200 connections.
+- **`max_pred_locks_per_transaction = 2048`**, recommended: a server-start setting, about 115 MB of shared memory at 200 connections. SERIALIZABLE writes and plain reads take predicate locks; a deferrable read takes none.
 
 ## Effect, briefly
 
@@ -2502,13 +2502,15 @@ Its rows are `{ show: Uuid; sold: bigint }`, one per show, since `0n` takes the 
 
 ## Reading
 
-A Db runs its login's served workload and nothing else: every call is a member, `db.workload.<name>`, compiled by `grizzle generate` and loaded when the layer was built. A member's input is one record, the same in process and over HTTP: `{ params, facts }`, both always present, `{}` where the program takes none, and a paged member's `{ params, facts, window }`. Every read runs in one READ ONLY transaction, so a query's nested results and a window's rows see one snapshot.
+A Db runs its login's served workload and nothing else: every call is a member, `db.workload.<name>`, compiled by `grizzle generate` and loaded when the layer was built. A member's input is one record, the same in process and over HTTP: `{ params, facts }`, both always present, `{}` where the program takes none, and a paged member's `{ params, facts, window }`. Every read runs in one SERIALIZABLE READ ONLY transaction, so a query's nested results and a window's rows see one snapshot.
+
+- **Deferrable reads.** A read member is plain or `deferrable(read)`, of a query, an ordered query, a `paged(...)` one, a key or a `clocked(...)` read, whose clock reading stays its transaction's BEGIN, and the two answer the same rows from the same kind of snapshot: serializable with every other call. They differ in how they meet a SERIALIZABLE write running beside them. A plain read answers at once, can fail with a retryable `transient` `CallError` (a serialization failure, even with no other transaction in sight), can make a running SERIALIZABLE write fail at its COMMIT, and keeps its predicate locks until the SERIALIZABLE transactions it overlapped have ended. A deferrable read begins `SERIALIZABLE READ ONLY DEFERRABLE`: it waits, before it reads, until every SERIALIZABLE read-write transaction running on the cluster, in any database, when it began has ended, a long import, a refresh, a migration and an idle `BEGIN` in psql among them, then reads untracked. It never fails with a serialization failure (its only `transient` is a deadlock on a lock), never makes another transaction fail, and holds no predicate lock. READ COMMITTED writes never delay it. Its snapshot holds every call that committed before it began; a write that commits while it waits is in it only where PostgreSQL took a fresh snapshot because that write had missed an earlier one. Use it for a scan or a status read that must not fail and can wait, and a plain read where an interactive caller must not wait. An interruption ends the wait at once. `pg_stat_activity` shows the wait as `SafeSnapshot`, and `pg_safe_snapshot_blocking_pids(pid)` names what it waits for.
 
 - **`once(input)`** answers the member's value: a query's rows as a `KeyedSet`, keyed by the key its rows prove, or an ordered query's as a `KeyedList`, in its order. A key member's value holds the one row at its key, or none. Every failure is one `CallError`.
 - **`watch(input)`** is a `Stream` of the member's events: `reset`, then an `upsert` of each row as PostgreSQL delivers it, then `ready` once the read's transaction has committed, then, live, an `upsert` or a `remove` of each row whose change alters the answer. An upsert before `ready` is provisional: an `error` before it voids the rows it delivered. `once` is `watch` folded until `ready`.
 - **Windows.** A member `paged(orderedQuery)` reads a window: `window: { anchor, size }`, its anchor `{ kind: "start" }`, `{ kind: "after", key }`, `{ kind: "end" }` or `{ kind: "before", key }`. A key is a row's `RowKey`, the values of the query's completed order, which the row's entry in a value carries. A window is one statement of at most `size` rows, and a window that holds no rows is past the end. A size is any safe integer of at least 1, with no default and no largest.
 - **`explain(input)`** returns PostgreSQL's plan of each statement the member sends for that input, in the order it sends them, as data: one `{ statement, plan }` per statement, `statement` the name it is prepared under on every session (`grizzle_…`, as `pg_prepared_statements` and `pg_stat_statements` show it). Each is planned by `EXPLAIN (FORMAT JSON, VERBOSE)` over the statement's served text with the call's values, which runs nothing, in one transaction of the Db's role that is rolled back, so explaining a ChangeSet member writes nothing: its carriers are created and analyzed empty, as its apply analyzes them, and every statement after them is planned against them. The plan is the one PostgreSQL makes for those values, which a session uses for a statement's first executions; a session that has run it many times may switch to a generic plan. A plan node holds its node type, its estimated startup and total cost, rows and width, its children, and `on`, what it reads, named by the login's served file and never parsed back from PostgreSQL's names: `{ kind: "relation", relation }` for a table, or a derived relation's materialized view, read whole or written; `{ kind: "index", relation, index: { name } }` for one read through an index; `{ kind: "carrier" }` for the ChangeSet's own temporary carrier, read whole, since it holds no index; and `{ kind: "none" }` for a join, a sort or any node that reads no relation. A key member takes its key's values as its params, and a paged member explains its window's statement. A refresh member has no explain: REFRESH has no plan. A plan that reads a table or index the served file does not name is refused as unreadable. A served file names each index alone, so no running process loads what an index is: `indexesOf(snapshot)`, from `@bjornpagen/grizzle/compile`, takes the JSON value of the snapshot.json the file was generated beside and returns a `Result` of a map that holds, under each relation and then each index name, `{ columns, reasons }`. `columns` are the index's key columns in key order, each `{ kind: "field", field }`, a field of the relation by its declared name, or `{ kind: "law", holds, laws }`, a column a law adds, by the field whose values it holds and the laws it is added for, and each with its `direction`, `"asc"` or `"desc"` in a B-tree and `"none"` in an index that orders nothing; so a test holds a plan's index to "leads with `document`, then `start`" in field names. `reasons` are why the installation holds it: each law it serves by its identity, the `id` a refusal names that law by; the workload's access; or a derived relation's key.
-- **`explainAnalyze(input)`**, on a read member, runs its statement under `EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE)` in a READ ONLY transaction that is rolled back, and returns each node's actual time to its first and last row, rows and loops, and the shared buffers it hit and read, beside its estimates, with the statement's planning and execution times. A ChangeSet member has none: a write that is rolled back still advances its serial fields' sequences.
+- **`explainAnalyze(input)`**, on a read member, runs its statement under `EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE)` in the read's own transaction, rolled back, and returns each node's actual time to its first and last row, rows and loops, and the shared buffers it hit and read, beside its estimates, with the statement's planning and execution times. A ChangeSet member has none: a write that is rolled back still advances its serial fields' sequences.
 
 ```text
 yield* db.workload.postPage.explain({ params: { id }, facts: {} })   // abridged
@@ -3273,7 +3275,8 @@ of a call's input it refuses: `envelope`, no record of exactly `params` and `fac
   it, psql included. A write below it on a grizzle table is refused with 25000, by the table's guard trigger.
 - **A role's writes run READ COMMITTED only where generate proves it.** `grizzle generate` certifies each role from
   the statements its ChangeSets send, against every other writer, and the role's served file begins its writes at the
-  level it proved ([READ COMMITTED writes](#read-committed-writes)). Reads are always SERIALIZABLE READ ONLY.
+  level it proved ([READ COMMITTED writes](#read-committed-writes)). Reads are always SERIALIZABLE READ ONLY, and
+  DEFERRABLE for a `deferrable(...)` member ([Reading](#reading)).
 - **A table whose every writer is certified READ COMMITTED has no guard.** Such a table is one some role writes, and
   every role that holds INSERT, UPDATE or DELETE on it is certified to run its writes READ COMMITTED and holds only
   INSERT and SELECT there. The installation creates no guard trigger for it, so a write below SERIALIZABLE is admitted
@@ -3289,16 +3292,17 @@ of a call's input it refuses: `envelope`, no record of exactly `params` and `fac
   There are no interactive transactions: a read that decides a write is a query inside the ChangeSet, and reads that
   must agree are one query with nested results.
 - **No retries.** A refusal from outside the call's inputs is a `transient` `CallError` (a migration's is `stale`)
-  and changes nothing. Any transaction can meet a serialization failure, even with no other transaction in sight,
-  because under load PostgreSQL's SSI summarizes old committed transactions and judges conservatively: treat it as
-  retryable everywhere.
+  and changes nothing. Any SERIALIZABLE transaction can meet a serialization failure, even with no other transaction in
+  sight, because under load PostgreSQL's SSI summarizes old committed transactions and judges conservatively: treat it
+  as retryable everywhere, but for a deferrable read, which never meets one and waits instead.
 - **No server-side timeouts.** grizzle sets no `statement_timeout` or `lock_timeout`. Interrupting the Effect is the only
   cancellation: a call interrupted while its statements run sends one CancelRequest, within the connection's
   `connectTimeoutMs`, so the server stops the statement, then destroys the session's connection, which is never used
   again. Treat an interrupted write like `commitUnknown`: if its statements had all finished, it may have committed.
 - **Predicate locks are the operator's to size.** Set `max_pred_locks_per_transaction = 2048`; without room, PostgreSQL
   fails transactions with 53200, which is not retryable. Keep every transaction on the cluster short: a committed
-  write's predicate locks are kept until every older transaction ends.
+  write's and a plain read's predicate locks are kept until every older transaction ends, and a deferrable read waits
+  for every SERIALIZABLE read-write transaction running when it begins.
 
 ### READ COMMITTED writes
 
@@ -3364,8 +3368,10 @@ A SERIALIZABLE role lists each condition it failed, with how many places fail it
 A role's level is in its login's served file, so a change that moves it shows as a stale served file in `grizzle
 check`, like any change to the workload.
 
-**Reads stay SERIALIZABLE READ ONLY.** A query, a key, a window and a refresh run SERIALIZABLE READ ONLY whatever the
-role's level. A ChangeSet's read-backs run in its own transaction, at its level.
+**Reads stay SERIALIZABLE READ ONLY.** A query, a key and a window run SERIALIZABLE READ ONLY whatever the role's level,
+DEFERRABLE for a `deferrable(...)` member. A refresh is a write at SERIALIZABLE. A ChangeSet's read-backs run in its
+own transaction, at its level. A role certified READ COMMITTED whose reads are all deferrable takes no part in SSI: none
+of its calls meets a serialization failure or makes another transaction fail.
 
 **compileServed serves every role SERIALIZABLE.** A file `compileServed` compiles from other programs than the
 committed workload has no certificate behind it, so every role in it runs SERIALIZABLE.
@@ -3538,7 +3544,9 @@ the database does not install.
 
 **Migrations are downtime.** Each migration file takes the ledger's exclusive lock, which waits for the transactions in
 flight. From the first file until the last commits, and while a stopped run leaves a folder unfinished, every `Db` call
-fails at once with a `stale` `CallError` (`StaleSnapshot`, reason `Migrating`) before any statement runs. After the migration, a `Db` opened at the old snapshot fails with `stale` (reason `Migrated`),
+fails at once with a `stale` `CallError` (`StaleSnapshot`, reason `Migrating`) before any statement runs, but for a
+deferrable read begun while a statement of a `-- grizzle: no-transaction` file runs: it first waits for that statement,
+as for any SERIALIZABLE write, then fails `stale`. After the migration, a `Db` opened at the old snapshot fails with `stale` (reason `Migrated`),
 and keeps failing: deploy the code that carries the new served files and open new `Db`s with them.
 
 **Each transaction checks the snapshot.** Every transaction a `Db` sends starts with two statements in the same round

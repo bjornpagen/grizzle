@@ -25,7 +25,7 @@
  * each number of them from none to all (scripted.ts afterCancel), and the server must agree with one, every field
  * exact.
  *
- * Features: a read-committed write frame, each interruption point, a CancelRequest sent, each refused ending, and a
+ * Features: a read-committed write frame, a deferrable read's frame, each interruption point, a CancelRequest sent, each refused ending, and a
  * write committed after an interruption.
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): interrupt-no-cancel.patch.
@@ -139,6 +139,7 @@ type FlightFeature =
 
 const situations: Arr.NonEmptyReadonlyArray<FlightFeature> = [
 	"call framed readCommittedWrite",
+	"call framed deferrableRead",
 	"interrupted in flight",
 	"interrupted awaiting COMMIT",
 	"interrupted draining",

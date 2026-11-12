@@ -307,7 +307,7 @@ const preparedOn = (wire: Session) =>
 					[]
 				)
 			],
-			{ access: "readOnly", isolation: "serializable", end: "COMMIT" }
+			{ access: "readOnly", deferrable: false, end: "COMMIT" }
 		),
 		(outcomes) =>
 			Arr.map(outcomes[0]?.rows ?? [], (row): readonly [string, string] => [

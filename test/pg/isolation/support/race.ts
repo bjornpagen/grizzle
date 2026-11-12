@@ -10,8 +10,16 @@ import {
 import { hostInputs, type InputFailure, valuesFailure } from "#adapter/apply/run.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
-import { type LoadedChange, type LoadedLogin, loadServed } from "#adapter/served/load.ts"
-import { bindFrame } from "#adapter/wire/batch.ts"
+import { hostParams } from "#adapter/reader/params.ts"
+import { executionInputs } from "#adapter/reader/relations.ts"
+import { programStatement } from "#adapter/reader/run.ts"
+import {
+	type LoadedChange,
+	type LoadedLogin,
+	type LoadedRead,
+	loadServed
+} from "#adapter/served/load.ts"
+import { bindFrame, keptRows } from "#adapter/wire/batch.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import type { CliError } from "#cli/errors.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
@@ -90,8 +98,9 @@ export type Certifier =
 	| { readonly kind: "stated"; readonly roles: ReadonlyArray<RoleIsolation> }
 
 /**
- * A shape installed: the installation, its names, the level generate certifies each role at, each role's ChangeSets as
- * its served file loads them, and the level each role's served writes begin at, the installation's.
+ * A shape installed: the installation, its names, the level generate certifies each role at, each role's ChangeSets and
+ * reads as its served file loads them, the level each role's served writes begin at, the installation's, and a read's
+ * BEGIN, immediate and deferrable, as the served file states them.
  */
 export interface InstalledShape {
 	readonly installed: Installed
@@ -99,7 +108,9 @@ export interface InstalledShape {
 	readonly shape: Shape
 	readonly generated: ReadonlyMap<string, Isolation>
 	readonly changes: ReadonlyMap<string, ReadonlyMap<string, LoadedChange>>
+	readonly reads: ReadonlyMap<string, ReadonlyMap<string, LoadedRead>>
 	readonly levels: ReadonlyMap<string, Isolation>
+	readonly readBegins: LoadedLogin["session"]["begin"]["read"]
 }
 
 /**
@@ -112,14 +123,31 @@ export type CallInput =
 
 /**
  * A call a race makes in a session of its own: a ChangeSet member of a role with its input, which the oracle binds and
- * sends statement by statement as the served write's one flight states them.
+ * sends statement by statement as the served write's one flight states them; or a read member of a role with its
+ * parameters, whose one statement the oracle sends in the read's own transaction, DEFERRABLE where its member is
+ * deferrable(...).
  */
-export interface RaceCall {
-	readonly session: string
-	readonly role: string
-	readonly member: string
-	readonly input: CallInput
-}
+export type RaceCall =
+	| {
+			readonly kind: "change"
+			readonly session: string
+			readonly role: string
+			readonly member: string
+			readonly input: CallInput
+	  }
+	| {
+			readonly kind: "read"
+			readonly session: string
+			readonly role: string
+			readonly member: string
+			readonly params: ParamMap
+	  }
+
+/** A race's ChangeSet call (RaceCall). */
+type ChangeCall = Extract<RaceCall, { readonly kind: "change" }>
+
+/** A race's read call (RaceCall). */
+type ReadCall = Extract<RaceCall, { readonly kind: "read" }>
 
 /** A race: its calls, each in a session of its own, from the stored facts `initial`. */
 export interface IsolationRace {
@@ -175,8 +203,23 @@ const certifying = (roles: ReadonlyArray<RoleIsolation>): InstallExtension => ({
 const levelsOf = (roles: ReadonlyArray<RoleIsolation>): ReadonlyMap<string, Isolation> =>
 	new Map(Arr.map(roles, (r) => [r.role, r.certificate.level] as const))
 
-/** Each role's ChangeSets in `loaded`, by role and member, and each role's served level. */
+/**
+ * Each role's ChangeSets and reads in `loaded`, by role and member, each role's served level, and a read's BEGIN texts.
+ */
 const servedOf = (loaded: LoadedLogin) => ({
+	reads: new Map(
+		Arr.map(loaded.roles, (r) => [
+			r.name,
+			new Map(
+				Arr.flatMap(r.members, (member) =>
+					member.kind === "read" || member.kind === "key"
+						? [[member.name, member.read] as const]
+						: []
+				)
+			)
+		])
+	),
+	readBegins: loaded.session.begin.read,
 	changes: new Map(
 		Arr.map(loaded.roles, (r) => [
 			r.name,
@@ -373,7 +416,7 @@ export const hostRefused = `SELECT 'host refused'::text AS refused`
 
 export const callStatements = (
 	s: InstalledShape,
-	call: RaceCall
+	call: ChangeCall
 ): Effect.Effect<Arr.NonEmptyReadonlyArray<string>, InputFailure> =>
 	Effect.gen(function* () {
 		const change = defined(
@@ -435,10 +478,13 @@ const setLevel = (level: Isolation): RaceStatement => ({
 })
 
 /**
- * A call's direct transaction: its first statement setting the level its role's served file records, then the call's
- * statements, the served file's, compiled for that level (program/workload/change.ts RoleChanges `level`).
+ * A change call's direct transaction: its first statement setting the level its role's served file records, then the
+ * call's statements, the served file's, compiled for that level (program/workload/change.ts RoleChanges `level`).
  */
-const txnOf = (s: InstalledShape, call: RaceCall): Effect.Effect<RaceTxn<never>, InputFailure> =>
+const changeTxnOf = (
+	s: InstalledShape,
+	call: ChangeCall
+): Effect.Effect<RaceTxn<never>, InputFailure> =>
 	Effect.map(callStatements(s, call), (statements) => {
 		const sent = Arr.map(statements, (sql): RaceStatement => ({ sql, footprint: everyRelation }))
 		return {
@@ -448,6 +494,57 @@ const txnOf = (s: InstalledShape, call: RaceCall): Effect.Effect<RaceTxn<never>,
 			end: "commit"
 		}
 	})
+
+/**
+ * A read's transaction modes as its served BEGIN states them (served/forms.ts ServedSession), stated by SET TRANSACTION
+ * as a direct transaction's first statement, which reads and writes no relation and takes no snapshot: SERIALIZABLE
+ * READ ONLY, DEFERRABLE for a deferrable member's.
+ */
+const setReadModes = (s: InstalledShape, read: LoadedRead): Effect.Effect<RaceStatement> => {
+	const begin = read.deferrable ? s.readBegins.deferrable : s.readBegins.immediate
+	return Str.startsWith("BEGIN ")(begin)
+		? Effect.succeed({
+				sql: `SET TRANSACTION ${Str.slice(6)(begin)}`,
+				footprint: relationsFootprint([])
+			})
+		: Effect.die(new Error(`a read's BEGIN that begins with no BEGIN: ${begin}`))
+}
+
+/**
+ * The one statement a read call sends, its parameters inlined: its program's statement over the call's parameters, as
+ * a Db's read binds them (adapter/db/handles.ts programCall). A race states its reads' parameters, so one the read does
+ * not admit is a defect of the race.
+ */
+const readStatement = (read: LoadedRead, call: ReadCall): Effect.Effect<string> =>
+	Effect.orDie(
+		Effect.gen(function* () {
+			const values = yield* hostParams(read.params, call.params)
+			const inputs = yield* Effect.fromResult(executionInputs(read.codecs, values))
+			const statement = yield* programStatement(read.program, inputs, keptRows)
+			return yield* inlined(statement.text.sql, statement.params)
+		})
+	)
+
+/** A read call's direct transaction: its modes (setReadModes), then its one statement (readStatement). */
+const readTxnOf = (s: InstalledShape, call: ReadCall): Effect.Effect<RaceTxn<never>> =>
+	Effect.gen(function* () {
+		const read = defined(
+			s.reads.get(call.role)?.get(call.member),
+			`read ${call.member} of role ${call.role}`
+		)
+		const modes = yield* setReadModes(s, read)
+		const sql = yield* readStatement(read, call)
+		return {
+			kind: "direct",
+			session: call.session,
+			statements: [modes, { sql, footprint: everyRelation }],
+			end: "commit"
+		}
+	})
+
+/** A call's direct transaction (changeTxnOf, readTxnOf). */
+const txnOf = (s: InstalledShape, call: RaceCall): Effect.Effect<RaceTxn<never>, InputFailure> =>
+	call.kind === "change" ? changeTxnOf(s, call) : readTxnOf(s, call)
 
 /** How many moves a race's transactions make when each runs to its COMMIT: PCT's k. */
 export const raceMoves = (txns: ReadonlyArray<RaceTxn<never>>): number =>

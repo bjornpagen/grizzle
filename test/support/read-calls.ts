@@ -24,7 +24,8 @@ export const flown = (
 	Effect.scoped(
 		Effect.flatMap(
 			Effect.mapError(ctx.pool.lease, (reason) => new ReadFailure({ reason })),
-			(session) => Effect.mapError(runFramed(session, dbReadFrame(ctx), statements), asReadFailure)
+			(session) =>
+				Effect.mapError(runFramed(session, dbReadFrame(ctx, false), statements), asReadFailure)
 		)
 	)
 

@@ -1343,7 +1343,8 @@ const withColumns = (
 		case "createExtension":
 		case "lockTable":
 		case "createCarrier":
-		case "begin":
+		case "beginRead":
+		case "beginWrite":
 		case "commit":
 		case "rollback":
 		case "setConstraintsImmediate":
@@ -1432,7 +1433,8 @@ const withRoles = (s: SqlStatement, roles: ReadonlyMap<string, string>): SqlStat
 		case "createStatistics":
 		case "lockTable":
 		case "createCarrier":
-		case "begin":
+		case "beginRead":
+		case "beginWrite":
 		case "commit":
 		case "rollback":
 		case "setConstraintsImmediate":

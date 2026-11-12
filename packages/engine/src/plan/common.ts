@@ -204,7 +204,15 @@ export type {
 	ParamValue,
 	Refusal
 } from "#compiler/types/core/phantom.ts"
-export type { AnyWorkload, Clocked, Paged, Refresh, Workload } from "#compiler/types/db/workload.ts"
+export type {
+	AnyWorkload,
+	Clocked,
+	Deferrable,
+	Paged,
+	ReadOf,
+	Refresh,
+	Workload
+} from "#compiler/types/db/workload.ts"
 export type { Evidence } from "#compiler/types/evidence/evidence.ts"
 export type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 export type { AnySchema, LevelsOf } from "#compiler/types/schema/schema.ts"
