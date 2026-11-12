@@ -368,6 +368,7 @@ const familyAtIn = (placed: FamilyAt, at: Counterpart): FamilyAt =>
 				...placed,
 				node: Object.freeze({
 					kind: "unit",
+					below: placed.node.below,
 					units: mapNonEmpty(placed.node.units, (u): UnitDelete => {
 						const source: UnitSource =
 							u.source.kind === "described"
@@ -721,13 +722,13 @@ interface Draft {
 }
 
 /** A stratum's delete of a unit root's units before its source is built: its relation, the heading its facts carry, its
- * enumerated slot, its described members' roots, and the relations below it (write/delete/unit.ts UnitMember). */
+ * enumerated slot, its described members' roots, and where the first of its members stands. */
 interface UnitDraft {
 	readonly relation: WrittenRelation
 	readonly heading: Heading
 	readonly slot: MemberSlot | undefined
 	readonly roots: ReadonlyArray<RelNode>
-	readonly below: ReadonlyArray<UnitMember>
+	readonly loc: SourceLoc
 }
 
 /** A refused addition before its source is built (OutsideWrite), its sources' facts carrying `carried`. */
@@ -1004,14 +1005,20 @@ const compile = (
 	const unitRoot = (name: string): boolean =>
 		families.some((f) => f.owner.name === name) && otherFamilyOf(name) === undefined
 	/**
-	 * The relations below a unit root `root` (`unitRoot`), each after the owners of every family that reaches it: every
-	 * member of a family owned in the unit, transitively, a tree's relation its own family's member. Refused where a
-	 * relation below is a member of a family whose owner the unit does not hold, whose groups its removal would leave
-	 * partial; where the unit's families nest its relations in a cycle; and where the world writes a relation below
-	 * through a query entry, not whole.
+	 * The relations below a stratum's unit roots `roots` (`unitRoot`), each after the owners of every family that reaches
+	 * it: every member of a family owned in the units, transitively, a tree's relation its own family's member, judged over
+	 * the stratum's units together, so a member of two families whose owners two of its deletes remove goes with either.
+	 * Refused where a relation below is a member of a family whose owner no unit delete of the stratum removes, whose
+	 * groups its removal would leave partial; where the units' families nest their relations in a cycle; and where the
+	 * world writes a relation below through a query entry, not whole. Which rows the deletes name is the call's: a row
+	 * removed with one owner whose other owner stays leaves that family's group partial, which the family's own law, its
+	 * owner, predecessor or last axis, refuses at commit.
 	 */
-	const unitBelow = (root: StoredRelationName, loc: SourceLoc): ReadonlyArray<UnitMember> => {
-		const reached: Array<StoredRelationName> = [root]
+	const unitBelow = (
+		roots: NonEmptyReadonlyArray<StoredRelationName>,
+		loc: SourceLoc
+	): ReadonlyArray<UnitMember> => {
+		const reached: Array<StoredRelationName> = [...roots]
 		for (const owner of reached) {
 			for (const f of families) {
 				if (
@@ -1023,7 +1030,8 @@ const compile = (
 				}
 			}
 		}
-		const below = reached.slice(1)
+		const below = reached.filter((name) => !roots.includes(name))
+		const named = roots.join(", ")
 		for (const name of below) {
 			const outside = families.find(
 				(f) => f.member.name === name && !isTreeOf(f, name) && !reached.includes(f.owner.name)
@@ -1032,7 +1040,7 @@ const compile = (
 				refuse(
 					"UnsupportedOperation",
 					loc,
-					`a delete of ${root}, whose rows nest ${name}, also a member of ${outside.id.owner}.${outside.id.count}, whose owner ${outside.owner.name} the delete does not remove: removing ${name}'s rows with ${root}'s would leave ${outside.owner.name}'s groups partial`
+					`a delete of ${named}, whose rows nest ${name}, also a member of ${outside.id.owner}.${outside.id.count}, whose owner ${outside.owner.name} no delete of the stratum removes: removing ${name}'s rows would leave ${outside.owner.name}'s groups partial`
 				)
 			}
 		}
@@ -1041,13 +1049,13 @@ const compile = (
 			families.filter((f) => f.member.name === name && !isTreeOf(f, name))
 		for (let remaining = below; isNonEmpty(remaining);) {
 			const next = remaining.find((name) =>
-				intoUnit(name).every((f) => f.owner.name === root || ordered.includes(f.owner.name))
+				intoUnit(name).every((f) => roots.includes(f.owner.name) || ordered.includes(f.owner.name))
 			)
 			if (next === undefined) {
 				return refuse(
 					"UnsupportedOperation",
 					loc,
-					`a delete of ${root}, whose families nest ${remaining.join(", ")} in a cycle: each row nested under a deleted row goes with it, which grizzle plans owner by owner`
+					`a delete of ${named}, whose families nest ${remaining.join(", ")} in a cycle: each row nested under a deleted row goes with it, which grizzle plans owner by owner`
 				)
 			}
 			ordered.push(next)
@@ -1059,12 +1067,12 @@ const compile = (
 				refuse(
 					"UnsupportedOperation",
 					loc,
-					`a delete of ${root}, whose rows nest ${name}, which the role writes through the query entry ${target.entry.entry.entry}: a delete of a tree or a family's owner removes every row nested under it, of relations its role holds whole`
+					`a delete of ${named}, whose rows nest ${name}, which the role writes through the query entry ${target.entry.entry.entry}: a delete of a tree or a family's owner removes every row nested under it, of relations its role holds whole`
 				)
 			}
 			const [first, ...rest] = intoUnit(name)
 			if (first === undefined) {
-				throw defect(`the family that reaches ${name} below ${root}`)
+				throw defect(`the family that reaches ${name} below ${named}`)
 			}
 			const reaching: NonEmptyReadonlyArray<Family> = [first, ...rest]
 			return Object.freeze({
@@ -1745,7 +1753,7 @@ const compile = (
 								heading: named,
 								slot: singleInput(act, named, named),
 								roots: queries.map((q) => q.root),
-								below: unitBelow(relation.name, loc)
+								loc
 							})
 							break
 						}
@@ -1842,22 +1850,28 @@ const compile = (
 				)
 			}
 		}
-		for (const unit of units) {
-			const edited = members.find(
-				(m) =>
-					m.op === "put" &&
-					(m.target.relation.name === unit.relation.name ||
-						unit.below.some((b) => b.relation.name === m.target.relation.name))
+		const [firstUnit, ...moreUnits] = units
+		const below =
+			firstUnit === undefined
+				? []
+				: unitBelow(
+						[firstUnit.relation.name, ...moreUnits.map((u) => u.relation.name)],
+						firstUnit.loc
+					)
+		const edited = members.find(
+			(m) =>
+				m.op === "put" &&
+				(units.some((u) => u.relation.name === m.target.relation.name) ||
+					below.some((b) => b.relation.name === m.target.relation.name))
+		)
+		if (edited !== undefined) {
+			refuse(
+				"UnsupportedOperation",
+				edited.loc,
+				`a put of ${edited.target.relation.name} beside a delete in one stratum that removes its rows with every row nested under the rows it names: put ${edited.target.relation.name} in another stratum (ChangeSet.sequence), or insert its rows again whole`
 			)
-			if (edited !== undefined) {
-				refuse(
-					"UnsupportedOperation",
-					edited.loc,
-					`a put of ${edited.target.relation.name} beside a delete of ${unit.relation.name} in one stratum, which removes every row nested under the rows it names: put ${edited.target.relation.name} in another stratum (ChangeSet.sequence), or insert ${unit.relation.name} again with its rows`
-				)
-			}
 		}
-		return { stratum, drafts, outside, units }
+		return { stratum, drafts, outside, units, below }
 	})
 
 	const glue = new GlueBuilder(merger.dag)
@@ -1945,8 +1959,9 @@ const compile = (
 		})
 	}))
 	/** Each stratum's unit deletes, each its relation's units from its one source, built after every action's. */
-	const unitsByStratum = draftsByStratum.map(({ stratum, units }) => ({
+	const unitsByStratum = draftsByStratum.map(({ stratum, units, below }) => ({
 		stratum,
+		below,
 		units: units.map((unit): UnitDelete => {
 			const shape = treeShapeOf(unit.relation.name)
 			const [firstRoot, ...moreRoots] = unit.roots
@@ -1979,8 +1994,7 @@ const compile = (
 				relation: unit.relation,
 				match,
 				source,
-				tree: families.find((f) => isTreeOf(f, unit.relation.name)),
-				below: unit.below
+				tree: families.find((f) => isTreeOf(f, unit.relation.name))
 			})
 		})
 	}))
@@ -2196,7 +2210,8 @@ const compile = (
 	 */
 	const familyNodesOf = (stratum: StratumAt): ReadonlyArray<FamilyNode> => {
 		const work = familyWorkOf(stratum)
-		const units = unitsByStratum.find((u) => u.stratum === stratum)?.units ?? []
+		const atStratum = unitsByStratum.find((u) => u.stratum === stratum)
+		const units = atStratum?.units ?? []
 		const [first, ...rest] = units
 		if (first === undefined) {
 			return work
@@ -2211,7 +2226,7 @@ const compile = (
 				`a delete of ${first.relation.name} in a stratum whose family work grizzle plans from a read before the ChangeSet's writes: write the delete in a stratum of its own (ChangeSet.sequence)`
 			)
 		}
-		return [{ kind: "unit", units: [first, ...rest] }, ...work]
+		return [{ kind: "unit", units: [first, ...rest], below: atStratum?.below ?? [] }, ...work]
 	}
 
 	/**
@@ -2668,9 +2683,10 @@ const compile = (
 		return refill === undefined ? [] : [Object.freeze({ stratum, refill })]
 	})
 	const nestedRelations = new Set<string>([
-		...unitsByStratum.flatMap(({ units }) =>
-			units.flatMap((u) => [u.relation.name, ...u.below.map((b) => b.relation.name)])
-		),
+		...unitsByStratum.flatMap(({ units, below }) => [
+			...units.map((u) => u.relation.name),
+			...below.map((b) => b.relation.name)
+		]),
 		...nestedWrites.flatMap((n) => [...n.nesting.layouts.keys()]),
 		...edits.map((e) => e.relation),
 		...families

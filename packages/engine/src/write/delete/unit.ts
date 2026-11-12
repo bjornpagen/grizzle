@@ -116,14 +116,13 @@ export interface UnitMember {
 	readonly tree: Family | undefined
 }
 
-/** A delete of one relation's units in a stratum: its rows by `match` from `source`, its own tree where it is a tree's
- * relation, and every relation below it, each after the owners of its families. */
+/** A delete of one relation's units in a stratum: its rows by `match` from `source`, and its own tree where it is a
+ * tree's relation. The relations below every unit root of a stratum are its unit removal's, judged together. */
 export interface UnitDelete {
 	readonly relation: RelationInfo
 	readonly match: UnitMatch
 	readonly source: UnitSource
 	readonly tree: Family | undefined
-	readonly below: ReadonlyArray<UnitMember>
 }
 
 /**
@@ -166,6 +165,7 @@ const treeShapeOf = (tree: Family): TreeShape | undefined =>
 export const unitSql = (
 	w: WriteContext,
 	units: NonEmptyReadonlyArray<UnitDelete>,
+	below: ReadonlyArray<UnitMember>,
 	added: (relation: RelationInfo) => ReadonlyArray<AddedRows>
 ): FamilyWriteSql => {
 	const supply = new NameSupply(w.start)
@@ -536,39 +536,39 @@ export const unitSql = (
 			},
 			"matched"
 		)
-		for (const member of unit.below) {
-			doom(
-				member.relation,
-				member.tree,
-				member.families,
-				(t) =>
-					or(
-						mapNonEmpty(member.families, (family) => {
-							const owner = doomedOf(doomed, family.owner.name)
-							const k = supply.relation(internal(`doomed owner ${family.owner.name}`))
-							return exists(
-								simpleSelect(
-									[target(one)],
-									[cteRefAs(owner.name, k)],
-									and(
-										mapNonEmpty(family.group, (g) =>
-											typedEq(
-												rowType(g.owner),
-												stored(t, member.relation, g.member),
-												col(k, keyColumn(owner.keys, g.owner)),
-												w.names
-											)
+	}
+	for (const member of below) {
+		doom(
+			member.relation,
+			member.tree,
+			member.families,
+			(t) =>
+				or(
+					mapNonEmpty(member.families, (family) => {
+						const owner = doomedOf(doomed, family.owner.name)
+						const k = supply.relation(internal(`doomed owner ${family.owner.name}`))
+						return exists(
+							simpleSelect(
+								[target(one)],
+								[cteRefAs(owner.name, k)],
+								and(
+									mapNonEmpty(family.group, (g) =>
+										typedEq(
+											rowType(g.owner),
+											stored(t, member.relation, g.member),
+											col(k, keyColumn(owner.keys, g.owner)),
+											w.names
 										)
 									)
 								)
 							)
-						})
-					),
-				"trees"
-			)
-		}
+						)
+					})
+				),
+			"trees"
+		)
 	}
-	const returnings = mapNonEmpty(unitRelations(units), (relation): FamilyReturning => {
+	const returnings = mapNonEmpty(unitRelations(units, below), (relation): FamilyReturning => {
 		const found = doomedOf(doomed, relation.name)
 		const t = supply.relation(internal(`unit delete ${relation.name}`))
 		const k = supply.relation(internal("unit delete key"))
@@ -604,16 +604,13 @@ export const unitSql = (
 	return taggedRows(supply, ctes, returnings, params, [])
 }
 
-/** Every relation a stratum's unit deletes remove rows of: each root, then the relations below it, in order. */
+/** Every relation a stratum's unit deletes remove rows of: each root, then the relations below them, in order. */
 export const unitRelations = (
-	units: NonEmptyReadonlyArray<UnitDelete>
+	units: NonEmptyReadonlyArray<UnitDelete>,
+	below: ReadonlyArray<UnitMember>
 ): NonEmptyReadonlyArray<RelationInfo> => {
 	const [first, ...rest] = units
-	return [
-		first.relation,
-		...first.below.map((m) => m.relation),
-		...rest.flatMap((u) => [u.relation, ...u.below.map((m) => m.relation)])
-	]
+	return [first.relation, ...rest.map((u) => u.relation), ...below.map((m) => m.relation)]
 }
 
 /** The column of a key CTE holding `field`, by its name: a family's group names its owner's key fields as its own law

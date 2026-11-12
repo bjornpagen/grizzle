@@ -4,7 +4,7 @@ import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.
 import * as Order from "#compiler/core/order.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
 import type { ActionCore } from "#compiler/ir/write.ts"
-import { type UnitDelete, unitRelations } from "#compiler/write/delete/unit.ts"
+import { type UnitDelete, type UnitMember, unitRelations } from "#compiler/write/delete/unit.ts"
 
 /** An action in execution order, with the positions of the earlier actions it depends on. */
 interface ScheduledAction<A> {
@@ -52,6 +52,8 @@ export type FamilyNode =
 export interface UnitRemovals {
 	readonly kind: "unit"
 	readonly units: NonEmptyReadonlyArray<UnitDelete>
+	/** Every relation below the units' roots, judged together (write/delete/unit.ts UnitMember). */
+	readonly below: ReadonlyArray<UnitMember>
 }
 
 /** An owner relation a family statement changes the rows of, at the columns `changes` names: their counts and ends,
@@ -141,7 +143,7 @@ export interface FamilyRemovals {
  * statement's member, where it writes its rows, and owners, or every relation of a unit removal's units. */
 export const familyNodeRelations = (node: FamilyNode): ReadonlyArray<string> =>
 	node.kind === "unit"
-		? unitRelations(node.units).map((r) => r.name)
+		? unitRelations(node.units, node.below).map((r) => r.name)
 		: node.kind === "additions" || node.kind === "removals"
 			? [...writtenMembers(node), ...node.owners.map((o) => o.relation)]
 			: [node.relation]

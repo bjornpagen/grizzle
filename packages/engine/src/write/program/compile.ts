@@ -509,7 +509,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 							: []
 					)
 				}
-				const sql = unitSql({ ...w, start: ownStatement }, node.units, addedOf)
+				const sql = unitSql({ ...w, start: ownStatement }, node.units, node.below, addedOf)
 				const step: FamilyWriteStep = {
 					kind: "familyWrite",
 					stratum: s,
