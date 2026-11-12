@@ -81,7 +81,7 @@ import { sentLayout } from "#compiler/runtime/write/nesting.ts"
 import type { FamilyStep, FamilyWriteStep } from "#compiler/runtime/write/steps.ts"
 import type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
-import { unitSql } from "#compiler/write/delete/unit.ts"
+import { type AddedRows, unitSql } from "#compiler/write/delete/unit.ts"
 import {
 	type AppendedMember,
 	additionsSql,
@@ -113,6 +113,7 @@ import {
 import type { FamilyWriteSql } from "#compiler/write/family/written.ts"
 import {
 	compileChangeSet,
+	type EnumeratedInput,
 	type MemberSlot,
 	type SlotGroup,
 	type StratumEdit,
@@ -303,6 +304,19 @@ export interface ArtifactBuilder {
 
 export const newBuilder = (codes: Codebook): ArtifactBuilder => ({ statements: [], codes })
 
+/** The member slots of an enumerated input whose facts a stratum inserts whole: a nested insert's own rows, a plain
+ * insertion's, and a classed insertion's complete class, whose facts carry every serial field. */
+const insertingSlots = (input: EnumeratedInput): ReadonlyArray<MemberSlot> => {
+	switch (input.kind) {
+		case "nested":
+			return [input.slot]
+		case "single":
+			return input.act.op === "insert" ? [input.slot] : []
+		case "classed":
+			return [input.complete]
+	}
+}
+
 /** One family statement of a stratum, built once over the installed names (`familyProgram`), which the plan's step of
  * its node places where the stratum's schedule runs it. */
 export type FamilyPlacement =
@@ -470,7 +484,26 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 	const placements = strataAt(frontend.ir.strata).flatMap(([s, stratum]) =>
 		stratum.family.map(({ node }): FamilyPlacement => {
 			if (node.kind === "unit") {
-				const sql = unitSql({ ...w, start: ownStatement }, node.units)
+				/** The rows the stratum adds of a unit's relation, which a doomed row is kept as: the rows its nested writes
+				 * fill, where one lays it out, else the facts of each slot that inserts it. */
+				const addedOf = (relation: RelationInfo): ReadonlyArray<AddedRows> => {
+					const nested = frontend.nested.flatMap((n) => {
+						const at = n.stratum === s ? n.nesting.layouts.get(relation.name) : undefined
+						return at === undefined ? [] : [sentLayout(at)]
+					})
+					const [laid] = nested
+					if (laid !== undefined) {
+						return [{ kind: "nestedRows", stratum: s, layout: laid }]
+					}
+					return frontend.slots.flatMap((group) =>
+						group.stratum === s && group.relation.name === relation.name
+							? group.inputs.flatMap((input): ReadonlyArray<AddedRows> =>
+									insertingSlots(input).map((slot) => ({ kind: "slot", slot }))
+								)
+							: []
+					)
+				}
+				const sql = unitSql({ ...w, start: ownStatement }, node.units, addedOf)
 				const step: FamilyWriteStep = {
 					kind: "familyWrite",
 					stratum: s,

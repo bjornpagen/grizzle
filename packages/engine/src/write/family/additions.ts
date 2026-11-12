@@ -514,7 +514,7 @@ type NestedReader = (
 
 /** A stratum's nested rows of `relation` as a CTE: each column of their sent layout, read from their arrays and cast into
  * its column's type as a write stores it, by key. */
-const nestedRowsOf = (
+export const nestedRowsOf = (
 	w: WriteContext,
 	supply: NameSupply,
 	ctes: Array<Cte>,

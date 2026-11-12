@@ -2081,8 +2081,12 @@ narrowed into its column's type unproved.
 - **A replace is a delete and an insert in one stratum**: `ChangeSet.empty(S).delete(Node, roots).insertAll(rows)`.
   The delete runs first, as one statement, so the inserts meet no stored row at a key it removed, and the outcome is
   the difference of the two states: an identical replace answers `no-change`, and the counts are the rows each
-  relation lost and gained. A delta of a relation the delete removes rows of is refused when the ChangeSet compiles
-  (read the relation itself after the change).
+  relation lost and gained. A row the replace adds again unchanged is never written: the delete keeps it where every
+  column grizzle draws on it is the same, every owner of it is kept, a counted family's group is the same set of rows,
+  and every row before it in its sequence, and every node on its tree path and before one of those among its
+  siblings, is kept too. So a replace that changes one value rewrites that row's group from its first changed row on,
+  and leaves every other row in place. A delta of a relation the delete removes rows of is refused when the ChangeSet
+  compiles (read the relation itself after the change).
 - **A put and an insert of one sequence owner at one key in one stratum are two rows** at that key, since the insert
   states the owner's members and the put leaves them as they are. They are `invariant-rejected` on the key before any
   SQL is sent; at different keys each is written.

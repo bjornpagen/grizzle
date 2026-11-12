@@ -1064,12 +1064,11 @@ const compile = (
 			if (first === undefined) {
 				throw defect(`the family that reaches ${name} below ${root}`)
 			}
-			const shape = treeShapeOf(name)
 			const reaching: NonEmptyReadonlyArray<Family> = [first, ...rest]
 			return Object.freeze({
 				relation: target.relation,
 				families: reaching,
-				tree: shape === undefined ? undefined : rootFieldsOf(shape)
+				tree: families.find((f) => isTreeOf(f, name))
 			})
 		})
 	}
@@ -1974,7 +1973,13 @@ const compile = (
 				shape === undefined
 					? { kind: "facts", fields: [firstField, ...moreFields] }
 					: { kind: "tree", root: rootFieldsOf(shape) }
-			return Object.freeze({ relation: unit.relation, match, source, below: unit.below })
+			return Object.freeze({
+				relation: unit.relation,
+				match,
+				source,
+				tree: families.find((f) => isTreeOf(f, unit.relation.name)),
+				below: unit.below
+			})
 		})
 	}))
 	/** Each refused addition's sources, in the entry's facts, built after every action's. */
