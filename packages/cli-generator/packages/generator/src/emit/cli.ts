@@ -535,9 +535,19 @@ const parameterOf = (operation: Operation, location: string, wireName: string) =
 // What typing a header-shaped value reads: a parameter, or a part header typed as one (ENC-03).
 type Typed = Pick<Parameter, "location" | "schema" | "serialization">
 
-// Whether a parameter is an array of scalar items, given once per item (design 6.1).
-const isArrayParameter = (parameter: Pick<Typed, "schema">, context: CommandContext) =>
+/**
+ * Whether a styled parameter is an array of scalar items, given once per item (design 6.1). A
+ * `content` parameter is one value, whatever its schema.
+ */
+const isArrayParameter = (
+	parameter: Pick<Typed, "schema" | "serialization">,
+	context: CommandContext
+) =>
 	Effect.gen(function* scalarArray() {
+		if (parameter.serialization.kind === "content") {
+			return false
+		}
+
 		const array = isScalarArraySchema(context.defs, parameter.schema.key)
 		if (Result.isFailure(array)) {
 			return yield* refuse("unresolved-schema", array.failure)
@@ -806,7 +816,7 @@ const partOptionEntry = (
 		}
 
 		const typed: Typed = { ...header, location: "header" }
-		const array = header.serialization.kind === "style" && (yield* isArrayParameter(typed, context))
+		const array = yield* isArrayParameter(typed, context)
 		const object = isObjectParameter(typed)
 		const head = parameterFlagHead(flag, typed, object, yield* numericKindOf(typed, context))
 		const steps = [
@@ -890,7 +900,7 @@ const flagEntry = (flag: PlannedFlag, operation: Operation, context: CommandCont
 				return yield* refuse("unsupported-flag", flag.name)
 			}
 
-			const array = styled && (yield* isArrayParameter(parameter, context))
+			const array = yield* isArrayParameter(parameter, context)
 			const object = isObjectParameter(parameter)
 			const head = parameterFlagHead(
 				flag,
@@ -1276,8 +1286,7 @@ const keyedPart = (part: FormPart, context: CommandContext) =>
 		const headers: Expr[] = []
 		for (const entry of part.headers) {
 			const { header } = entry
-			const array =
-				header.serialization.kind === "style" && (yield* isArrayParameter(header, context))
+			const array = yield* isArrayParameter(header, context)
 			options.push(
 				arr([str(entry.flag.name), yield* gaveFlag(entry.flag, array), bool(header.required)])
 			)

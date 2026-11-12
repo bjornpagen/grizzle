@@ -151,6 +151,29 @@ export const buildPackage = Effect.fn("cliPackage.build")(function* (generated: 
 })
 
 /**
+ * Type-checks a generated package without installing it: its `node_modules` is a link to the workspace root's, whose
+ * packages are the very versions the package pins, read from their installed manifests; then its own `typecheck`
+ * script runs through `node --run`, never pnpm, which would take the linked directory for the package's own install
+ * and rewrite the workspace's. A refusal is the `typecheck` step's BuildStepFailed, with the compiler's output.
+ */
+export const typecheckPackage = Effect.fn("cliPackage.typecheck")(function* (
+	generated: GeneratedPackage
+) {
+	const fs = yield* FileSystem.FileSystem
+	const path = yield* Path.Path
+	yield* fs.symlink(
+		path.join(import.meta.dirname, "..", "..", "..", "..", "node_modules"),
+		path.join(generated.dir, "node_modules")
+	)
+	const run = yield* finished(
+		ChildProcess.make("node", ["--run", "typecheck"], { cwd: generated.dir })
+	)
+	if (run.exitCode !== 0) {
+		return yield* BuildStepFailed.make({ step: "typecheck", ...run })
+	}
+})
+
+/**
  * Runs a built bin with Node to its exit, under the testing library's hardened flags (no `__proto__` accessor, no
  * inspector on SIGUSR1, deprecations thrown, strict unhandled rejections and the rest), since a generated CLI must work
  * under them; in the package's directory, under exactly the invocation's environment. The bin runs as a child process,
