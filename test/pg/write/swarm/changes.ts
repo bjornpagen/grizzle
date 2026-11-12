@@ -47,6 +47,7 @@ import {
 	type InstanceRow,
 	membershipIn,
 	relationName,
+	rootEntries,
 	uuidOfRow,
 	type WrittenRow,
 	writtenRows
@@ -81,7 +82,9 @@ const topFacts = (
 		}
 		for (const [f, family] of spec.fill.families.entries()) {
 			if (family.kind === "tree" && family.member === row.relation && !nested) {
-				fact[`d${f}`] = uuidOfRow(row.id)
+				for (const [name, value] of rootEntries(f, row.id)) {
+					fact[name] = value
+				}
 			}
 			if (family.owner !== row.relation || family.kind === "counted") {
 				continue

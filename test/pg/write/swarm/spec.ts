@@ -24,6 +24,7 @@ import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effec
 import { int8Min } from "#compiler/core/limits.ts"
 import { accumulated, bits, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { type AnyFamily, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
 import {
 	accumulatedField,
 	bitsOf,
@@ -60,6 +61,7 @@ import {
 	groupName,
 	type InstanceRow,
 	keyOfRelation,
+	rootFieldsOf,
 	relationName,
 	sourcesFor,
 	uuidOfRow
@@ -153,7 +155,6 @@ export type SwarmFeature = (typeof swarmFeatures)[number]
 export const plainName = (j: number): string => `P${j}`
 export const countName = (f: number): string => `n${f}`
 const indexName = (f: number): string => `i${f}`
-const rootName = (f: number): string => `d${f}`
 const foldName = (f: number): string => `s${f}`
 export const endName = (f: number): string => `e${f}`
 export const copyName = (j: number): string => `c${j}`
@@ -621,6 +622,9 @@ const sourceField = (source: CopySource): string => {
 	}
 }
 
+/** A tree root's text field, fill.ts's: at most 16 bytes. */
+const rootText = str.bytes(16, str.regex("^.*$", "su"))
+
 /** The roster a member's set `b` and an or end are over. */
 const Mask = closed("Mask", maskHandles, [])
 
@@ -640,13 +644,16 @@ const fieldsOf = (spec: SwarmSpec, r: number): Record<string, FieldBase> => {
 		}
 		if (family.member === r) {
 			if (family.kind === "tree") {
-				fields[rootName(f)] = uuid
+				for (const name of rootFieldsOf(f)) {
+					fields[name] = rootText
+				}
 				fields[groupName(f)] = drawn(natural)
 				fields["start"] = drawn(natural)
 				fields["end"] = drawn(natural)
 			} else {
-				for (const [i, name] of groupFieldsOf(core, f).entries()) {
-					fields[name] = groupFieldsOf(core, f).length > 1 && i === 1 ? natural : uuid
+				const group = groupFieldsOf(core, f)
+				for (const [i, name] of group.entries()) {
+					fields[name] = group.length === 1 ? uuid : i === group.length - 1 ? natural : rootText
 				}
 			}
 			if (family.kind !== "counted") {
@@ -833,7 +840,7 @@ const familyStatement = (
 	switch (defined(core.families[f], `family ${f}`).kind) {
 		case "tree":
 			return treeBuilder(onBuilder(member, [groupName(f), indexName(f)]), slots, {
-				root: [rootName(f)]
+				root: rootFieldsOf(f)
 			})
 		case "ordered":
 			return orderedBuilder(onBuilder(member, [...groupFieldsOf(core, f), indexName(f)]), slots)

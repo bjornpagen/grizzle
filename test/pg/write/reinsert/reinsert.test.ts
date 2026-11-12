@@ -45,6 +45,7 @@ import {
 	instanceGen,
 	mutableOrDrawn,
 	plantedGen,
+	relationAt,
 	relationName,
 	uuidOfRow,
 	writtenRows
@@ -85,9 +86,11 @@ import { fullWorld } from "#test/support/worlds.ts"
  *   …, is witnessed by the key you submitted"; it is `unreported` only "for a foreign key, and where no row you
  *   stated breaks the rule"), never `unreported`: every row these keys judge is one the insert states.
  *
- * Features: each kind of difference, alone in its insert, at each family kind and place, with its verdict; the same
- * instance again and stated twice; two differences in one insert. A witness case aims at a pending one with a
- * schema holding every family kind beside a plain relation, every count at its most, and one difference at it.
+ * Features: each kind of difference, alone in its insert, at each family kind and place, with its verdict, a sequence's
+ * member added, removed or moved under a mutable owner and under an immutable one (an owner stated again with fewer,
+ * more or reordered members, README.md:2066); the same instance again and stated twice; two differences in one insert.
+ * A witness case aims at a pending one with a schema holding every family kind beside a plain relation, every relation
+ * mutable or every one immutable, every count at its most, and one difference at it.
  *
  * Plants: ~/.cache/grizzle-release/KEYSTRESS/plants/reinsert-no-change-as-accepted.patch, a committed write answered
  * `accepted` whatever its counts, must turn the property red.
@@ -115,6 +118,12 @@ type FamilyLabel = "a tree" | "an ordered family" | "a counted family"
 /** A place as a situation names it. */
 type PlaceLabel = "a tree node" | "an ordered member" | "a counted member" | "a top row"
 
+/** A sequence as a situation names it: a tree or an ordered family, whose owner states its members. */
+type SequenceLabel = "a tree" | "an ordered family"
+
+/** An owner's mutability as a situation names it. */
+type MutabilityLabel = "a mutable" | "an immutable"
+
 type Situation =
 	| `the same instance again: ${VerdictLabel}`
 	| `the same instance stated twice in one call: ${VerdictLabel}`
@@ -123,6 +132,7 @@ type Situation =
 	| `a member added to ${FamilyLabel}: ${VerdictLabel}`
 	| `a member removed from ${FamilyLabel}: ${VerdictLabel}`
 	| `a member moved in ${FamilyLabel}: ${VerdictLabel}`
+	| `a member ${"added to" | "removed from" | "moved in"} ${SequenceLabel} under ${MutabilityLabel} owner: ${VerdictLabel}`
 	| `a top row left out: ${VerdictLabel}`
 	| `another instance beside: ${VerdictLabel}`
 	| "two differences in one insert"
@@ -184,8 +194,55 @@ const targetOf = (spec: FillSpec, stored: ReadonlyArray<InstanceRow>, d: Differe
 	}
 }
 
-/** The situation of one difference alone in its insert, with its verdict. */
-const situationOf = (t: Target, v: VerdictLabel): Situation => {
+/**
+ * The mutability of the owner a difference's member change reaches: the owner relation of the family a new member
+ * joins, a removed row's sequence, or a moved row's new family; none for any other difference.
+ */
+const ownerMutability = (
+	spec: FillSpec,
+	stored: ReadonlyArray<InstanceRow>,
+	d: Difference
+): MutabilityLabel => {
+	const family = ((): number | undefined => {
+		switch (d.kind) {
+			case "added":
+				return d.row.memberOf[0]?.family
+			case "moved":
+				return d.to.family
+			case "removed":
+				return Option.getOrUndefined(
+					Arr.findFirst(
+						Option.getOrUndefined(Arr.findFirst(stored, (r) => r.id === d.id))?.memberOf ?? [],
+						(m) => familyAt(spec, m.family).kind !== "counted"
+					)
+				)?.family
+			case "payload":
+			case "renamed":
+			case "beside":
+				return undefined
+		}
+	})()
+	return family !== undefined && relationAt(spec, familyAt(spec, family).owner).mutable
+		? "a mutable"
+		: "an immutable"
+}
+
+/** The situation of one difference alone in its insert, with its verdict and its owner's mutability. */
+const situationOf = (t: Target, v: VerdictLabel, owner: MutabilityLabel): Situation => {
+	if (
+		(t.kind === "added" || t.kind === "removed" || t.kind === "moved") &&
+		(t.family === "tree" || t.family === "ordered")
+	) {
+		const sequence: SequenceLabel = t.family === "tree" ? "a tree" : "an ordered family"
+		switch (t.kind) {
+			case "added":
+				return `a member added to ${sequence} under ${owner} owner: ${v}`
+			case "removed":
+				return `a member removed from ${sequence} under ${owner} owner: ${v}`
+			case "moved":
+				return `a member moved in ${sequence} under ${owner} owner: ${v}`
+		}
+	}
 	switch (t.kind) {
 		case "payload":
 			return `${placeLabels[t.place]}'s payload changed: ${v}`
@@ -207,7 +264,7 @@ const situationOf = (t: Target, v: VerdictLabel): Situation => {
 /** What a witness aims at: none or two drawn differences, or one at a target, and the twice flag. */
 type Aim =
 	| { readonly kind: "drawn"; readonly differences: 0 | 2; readonly twice: boolean }
-	| { readonly kind: "target"; readonly target: Target }
+	| { readonly kind: "target"; readonly target: Target; readonly mutable: boolean }
 
 /** The required situations, each with what a witness aims at to reach it, each verdict the set rule's for its aim. */
 const aims: Arr.NonEmptyReadonlyArray<readonly [Situation, Aim]> = [
@@ -218,65 +275,95 @@ const aims: Arr.NonEmptyReadonlyArray<readonly [Situation, Aim]> = [
 	],
 	[
 		"a top row's payload changed: refused on a key",
-		{ kind: "target", target: { kind: "payload", place: "top row" } }
+		{ kind: "target", target: { kind: "payload", place: "top row" }, mutable: true }
 	],
 	[
 		"a tree node's payload changed: refused on a key",
-		{ kind: "target", target: { kind: "payload", place: "tree node" } }
+		{ kind: "target", target: { kind: "payload", place: "tree node" }, mutable: true }
 	],
 	[
 		"an ordered member's payload changed: refused on a key",
-		{ kind: "target", target: { kind: "payload", place: "ordered member" } }
+		{ kind: "target", target: { kind: "payload", place: "ordered member" }, mutable: true }
 	],
 	[
 		"a counted member's payload changed: refused on a key",
-		{ kind: "target", target: { kind: "payload", place: "counted member" } }
+		{ kind: "target", target: { kind: "payload", place: "counted member" }, mutable: true }
 	],
 	[
-		"a member added to a tree: refused on a key",
-		{ kind: "target", target: { kind: "added", family: "tree" } }
+		"a member added to a tree under a mutable owner: refused on a key",
+		{ kind: "target", target: { kind: "added", family: "tree" }, mutable: true }
 	],
 	[
-		"a member added to an ordered family: refused on a key",
-		{ kind: "target", target: { kind: "added", family: "ordered" } }
+		"a member added to a tree under an immutable owner: refused on a key",
+		{ kind: "target", target: { kind: "added", family: "tree" }, mutable: false }
+	],
+	[
+		"a member added to an ordered family under a mutable owner: refused on a key",
+		{ kind: "target", target: { kind: "added", family: "ordered" }, mutable: true }
+	],
+	[
+		"a member added to an ordered family under an immutable owner: refused on a key",
+		{ kind: "target", target: { kind: "added", family: "ordered" }, mutable: false }
 	],
 	[
 		"a member added to a counted family: accepted",
-		{ kind: "target", target: { kind: "added", family: "counted" } }
+		{ kind: "target", target: { kind: "added", family: "counted" }, mutable: true }
 	],
 	[
-		"a member removed from a tree: refused on a key",
-		{ kind: "target", target: { kind: "removed", family: "tree" } }
+		"a member removed from a tree under a mutable owner: refused on a key",
+		{ kind: "target", target: { kind: "removed", family: "tree" }, mutable: true }
 	],
 	[
-		"a member removed from an ordered family: refused on a key",
-		{ kind: "target", target: { kind: "removed", family: "ordered" } }
+		"a member removed from a tree under an immutable owner: refused on a key",
+		{ kind: "target", target: { kind: "removed", family: "tree" }, mutable: false }
+	],
+	[
+		"a member removed from an ordered family under a mutable owner: refused on a key",
+		{ kind: "target", target: { kind: "removed", family: "ordered" }, mutable: true }
+	],
+	[
+		"a member removed from an ordered family under an immutable owner: refused on a key",
+		{ kind: "target", target: { kind: "removed", family: "ordered" }, mutable: false }
 	],
 	[
 		"a member removed from a counted family: no-change",
-		{ kind: "target", target: { kind: "removed", family: "counted" } }
+		{ kind: "target", target: { kind: "removed", family: "counted" }, mutable: true }
 	],
 	[
-		"a member moved in a tree: refused on a key",
-		{ kind: "target", target: { kind: "moved", family: "tree" } }
+		"a member moved in a tree under a mutable owner: refused on a key",
+		{ kind: "target", target: { kind: "moved", family: "tree" }, mutable: true }
 	],
 	[
-		"a member moved in an ordered family: refused on a key",
-		{ kind: "target", target: { kind: "moved", family: "ordered" } }
+		"a member moved in a tree under an immutable owner: refused on a key",
+		{ kind: "target", target: { kind: "moved", family: "tree" }, mutable: false }
+	],
+	[
+		"a member moved in an ordered family under a mutable owner: refused on a key",
+		{ kind: "target", target: { kind: "moved", family: "ordered" }, mutable: true }
+	],
+	[
+		"a member moved in an ordered family under an immutable owner: refused on a key",
+		{ kind: "target", target: { kind: "moved", family: "ordered" }, mutable: false }
 	],
 	[
 		"a member moved in a counted family: refused on a key",
-		{ kind: "target", target: { kind: "moved", family: "counted" } }
+		{ kind: "target", target: { kind: "moved", family: "counted" }, mutable: true }
 	],
-	["a top row left out: no-change", { kind: "target", target: { kind: "left out" } }],
-	["another instance beside: accepted", { kind: "target", target: { kind: "beside" } }],
+	[
+		"a top row left out: no-change",
+		{ kind: "target", target: { kind: "left out" }, mutable: true }
+	],
+	[
+		"another instance beside: accepted",
+		{ kind: "target", target: { kind: "beside" }, mutable: true }
+	],
 	[
 		"a tree node renamed: refused on a key",
-		{ kind: "target", target: { kind: "renamed", place: "tree node" } }
+		{ kind: "target", target: { kind: "renamed", place: "tree node" }, mutable: true }
 	],
 	[
 		"a counted member renamed: accepted",
-		{ kind: "target", target: { kind: "renamed", place: "counted member" } }
+		{ kind: "target", target: { kind: "renamed", place: "counted member" }, mutable: true }
 	],
 	["two differences in one insert", { kind: "drawn", differences: 2, twice: false }]
 ]
@@ -333,21 +420,26 @@ const caseGen: Gen<ReinsertCase> = (source) => {
 	return { spec, rows, again: source.draw(againsGen(spec, rows)) }
 }
 
-/** A plain relation beside a tree owning a counted family and an ordered family's member counted too, every relation mutable. */
-const aimedSpecGen: Gen<FillSpec> = (source) => {
-	const spec = besides(
-		besides(
-			{ relations: [{ generated: false, mutable: true }], families: [], copies: [], steps: [] },
-			source.draw(plantedGen("tree with a counted family"))
-		),
-		source.draw(plantedGen("counted ordered member"))
-	)
-	const [first, ...rest] = spec.relations
-	return {
-		...spec,
-		relations: [{ ...first, mutable: true }, ...Arr.map(rest, (r) => ({ ...r, mutable: true }))]
+/**
+ * A plain relation beside a tree owning a counted family and an ordered family's member counted too, every relation
+ * mutable or every one immutable, as the aim says.
+ */
+const aimedSpecGen =
+	(mutable: boolean): Gen<FillSpec> =>
+	(source) => {
+		const spec = besides(
+			besides(
+				{ relations: [{ generated: false, mutable: true }], families: [], copies: [], steps: [] },
+				source.draw(plantedGen("tree with a counted family"))
+			),
+			source.draw(plantedGen("counted ordered member"))
+		)
+		const [first, ...rest] = spec.relations
+		return {
+			...spec,
+			relations: [{ ...first, mutable }, ...Arr.map(rest, (r) => ({ ...r, mutable }))]
+		}
 	}
-}
 
 /**
  * A case aimed at a pending situation: the aimed schema, every count at its most, and one insert again with the
@@ -356,7 +448,7 @@ const aimedSpecGen: Gen<FillSpec> = (source) => {
 const aimedGen =
 	(aim: Aim): Gen<ReinsertCase> =>
 	(source) => {
-		const spec = source.draw(aimedSpecGen)
+		const spec = source.draw(aimedSpecGen(aim.kind === "drawn" || aim.mutable))
 		const rows = fullInstance(spec)
 		const keys = keysOf(rows)
 		const kinds = source.draw(swarm(differenceKinds))
@@ -627,7 +719,13 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 									} else if (Arr.isReadonlyArrayNonEmpty(more)) {
 										c.note("two differences in one insert")
 									} else {
-										c.note(situationOf(targetOf(spec, stored, only), v))
+										c.note(
+											situationOf(
+												targetOf(spec, stored, only),
+												v,
+												ownerMutability(spec, stored, only)
+											)
+										)
 									}
 									stored = storedAfter(stored, verdict)
 								}
