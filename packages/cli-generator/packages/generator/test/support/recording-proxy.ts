@@ -25,7 +25,7 @@ type ProxyObserved<A> = Readonly<{ result: A; heads: ReadonlyArray<Head> }>
  * `observe`, which runs an effect and waits until every connection the run opened to the proxy has closed.
  * Observations never overlap; a connection outside one is closed unanswered and unrecorded.
  */
-type RecordingProxy = Readonly<{
+export type RecordingProxy = Readonly<{
 	url: string
 	urlWithUserinfo: (username: string, password: string) => string
 	observe: <A, E, R>(run: Effect.Effect<A, E, R>) => Effect.Effect<ProxyObserved<A>, E, R>
