@@ -25,6 +25,7 @@ import type { Call, CountStar, Expr, FromSource, WindowSpec } from "#compiler/sq
 import {
 	binary,
 	call,
+	cast,
 	core,
 	countStar,
 	derived,
@@ -32,7 +33,8 @@ import {
 	lit,
 	operandSelect,
 	select,
-	target
+	target,
+	types
 } from "#compiler/sql/build.ts"
 
 type Aggregate = NodeOf<"Group">["aggs"][number]
@@ -81,6 +83,13 @@ export const aggregateExpr = (
 	switch (lowering.kind) {
 		case "native":
 			return overload.fn === "count" ? counted(filter) : over(call(overload.sql, args))
+		case "widened":
+			return over(
+				call(
+					overload.sql,
+					args.map((a) => cast(a, types.bigint))
+				)
+			)
 		case "scaleFree":
 			return over(
 				call(

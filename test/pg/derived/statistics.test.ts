@@ -148,7 +148,7 @@ const build = (name: string, picked: ReadonlyArray<ProgramName>) => {
 			const { account, kind, total } = v(Totals, "totals")
 			return r
 				.match(Totals, { account, kind, total })
-				.where(r.ge(total, r.param("least", pg.bigint)))
+				.where(r.ge(total, r.param("least", pg.numeric(29, 0))))
 				.find({ account, kind })
 		})
 	}

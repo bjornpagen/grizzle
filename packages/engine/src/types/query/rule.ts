@@ -643,8 +643,8 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	): Producer<V, PA, X, L, ComputedOrigin<OA>>
 
 	/**
-	 * count is bigint; sum and mean take PostgreSQL's result type over their argument's SQL type
-	 * (scalar/compute/tables.ts).
+	 * count is bigint; sum and mean take their result type off the SUM and AVG tables by their argument's SQL type
+	 * (scalar/compute/tables.ts): a sum over any integer is an exact numeric.
 	 */
 	count(): Aggregate<bigint, unknown, "bigint">
 	sum<A extends TermBase | FirstValue, X, PA, OA, S extends NumericSql>(

@@ -51,11 +51,6 @@ post-beta swarm's fixes for the next release.
 ### After the qti-pie and edullm repin (the owner, 2026-11-08: ship the repin first)
 - **The beta.2 gate (owner, hard):** one full suite run (check, unit, types, PostgreSQL, deep) and `bench:full`, with
   every performance gate passing, both perfect on the exact commit; then the owner's go.
-- **A sum over smallint or integer can wrap past its proved bound (SCALAR, 2026-11-10):** PostgreSQL 19's int4_sum adds
-  without an overflow check (src/backend/utils/adt/numeric.c:6398), so scalar/aggregate.ts's typing of r.sum over
-  smallint and integer as plain bigint, with rowDigits' proof that the sum stays below 10^(digits + 19), is false once
-  the int8 accumulator wraps past 2^63: more than 2^32 rows of the largest integer wrap silently. A false proof; reach
-  unverified.
 - **physical/serving's needed check can call a needed B-tree unneeded (GIST, 2026-11-10):** a generated span predicate
   binding a boolean whose name sorts first, with a range after it planned beside the GiST index it creates and nothing
   reordering that index, under a boolean loaded half and half: btree_gist splits the boolean cleanly, so the needed

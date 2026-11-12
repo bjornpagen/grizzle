@@ -7,10 +7,16 @@
  *   type; one the host refuses has no PostgreSQL counterpart, but over a closed id or a set, which are no numbers
  *   whatever PostgreSQL computes over their storage.
  * - min and max keep their argument's contract; a sum or a mean keeps none.
+ * - A sum's emitted aggregate never accumulates in an integer narrower than any total of its rows: where pg_aggregate's
+ *   transition type is smallint, integer or bigint, its digits hold the argument's digits widened by the rows'
+ *   (scalar/aggregate.ts rowDigits). PostgreSQL's sum(integer) accumulates in a bigint that wraps past 2^63 with no
+ *   error, so more than 2^32 rows of the greatest integer would sum to a wrong value.
  *
- * Oracle: PostgreSQL itself, pg_aggregate's resolution and pg_typeof's result of each call.
+ * Oracle: PostgreSQL itself, pg_aggregate's resolution, its transition type and pg_typeof's result of each call.
  *
- * Plants: compute-aggregate-count-int4 (count(*) types as integer).
+ * Plants: compute-aggregate-count-int4 (count(*) types as integer), and sum-integer-native
+ * (~/.cache/grizzle-release/DENTRIAGE/plants: sum over integer typed bigint and emitted natively again, which passes
+ * every typing check and is caught by its bigint accumulator).
  *
  * Features: count(*), and an admitted aggregate checked over a closed id, a contract and booleans.
  */
@@ -21,10 +27,11 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Result, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { int8Digits, integerDigits } from "#compiler/ir/carriers.ts"
 import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type AggregateOverload, aggregateOverload } from "#compiler/scalar/aggregate.ts"
 import { catalogTypeName } from "#compiler/scalar/compute/registry.ts"
-import { valueType } from "#compiler/scalar/compute/types.ts"
+import { exactNumericBound, valueType } from "#compiler/scalar/compute/types.ts"
 import { concreteTypeName, textCell } from "#test/pg/compute/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
@@ -105,17 +112,64 @@ const samples: readonly [Sample, ...ReadonlyArray<Sample>] = [
 const catalogResult = (result: ScalarType): string => catalogTypeName[baseOf(result).carrier]
 
 /**
- * The call whose result PostgreSQL types as the host types the overload's, over the argument `x`: the native call, or,
- * for a money sum, which is exact money (scalar/aggregate.ts exactSum), the sum over the amounts cast to numeric, whose
- * total no row count overflows.
+ * The call whose result PostgreSQL types as the host types the overload's, over the argument `x`: the native call; for
+ * a money sum, which is exact money (scalar/aggregate.ts exactSum), the sum over the amounts cast to numeric, whose
+ * total no row count overflows; and for a sum over smallint or integer (scalar/aggregate.ts widened), the sum over its
+ * values cast to bigint.
  */
 const resultCall = (
 	o: AggregateOverload,
 	x: string
-): { readonly sql: string; readonly op: string } =>
-	o.lowering.kind === "exactSum" && o.lowering.exact === "money"
-		? { sql: `${o.sql}(${x}::numeric)`, op: `${o.sql}(numeric)` }
+): { readonly sql: string; readonly op: string } => {
+	if (o.lowering.kind === "exactSum" && o.lowering.exact === "money") {
+		return { sql: `${o.sql}(${x}::numeric)`, op: `${o.sql}(numeric)` }
+	}
+	return o.lowering.kind === "widened"
+		? { sql: `${o.sql}(${x}::bigint)`, op: `${o.sql}(bigint)` }
 		: { sql: `${o.sql}(${x})`, op: o.op }
+}
+
+/** The integer transition types, by the name pg_aggregate's aggtranstype::regtype gives each, and their digits. */
+const integerAccumulators: ReadonlyMap<string, number> = new Map([
+	["smallint", integerDigits.int2.value],
+	["integer", integerDigits.int4.value],
+	["bigint", integerDigits.int8.value]
+])
+
+/**
+ * Why a sum's emitted aggregate `op` may total its rows to a wrong value: its transition type is an integer of fewer
+ * digits than the argument's widened by the rows'. None for a mean, a min or a max, or a sum accumulating otherwise.
+ */
+const accumulatorProblem = (
+	db: RawSession,
+	label: string,
+	arg: ScalarType,
+	op: string
+): Effect.Effect<ReadonlyArray<string>, SqlError> =>
+	Effect.gen(function* () {
+		const [row] = yield* db.values(
+			"SELECT a.aggtranstype::regtype::text FROM pg_catalog.pg_aggregate a WHERE a.aggfnoid = to_regprocedure($1::text)",
+			[op]
+		)
+		if (row === undefined) {
+			return [`${label}: no pg_aggregate ${op}`]
+		}
+		const accumulator = textCell(row, 0)
+		const digits = integerAccumulators.get(accumulator)
+		const argDigits = exactNumericBound(arg)?.digits
+		if (digits === undefined) {
+			return []
+		}
+		if (argDigits === undefined) {
+			return [`${label}: ${op} accumulates in ${accumulator} over an argument of no digit bound`]
+		}
+		const needed = argDigits + int8Digits.value
+		return digits >= needed
+			? []
+			: [
+					`${label}: ${op} accumulates in ${accumulator}, of ${digits} digits, where its rows total up to ${needed}`
+				]
+	})
 
 /**
  * What PostgreSQL says against the host's typing of one aggregate over one sample: an aggregate over no number
@@ -184,6 +238,8 @@ const aggregateProblems = (
 			return { problems: [`${label}: no pg_aggregate ${o.op} or ${typed.op}`], checked: false }
 		}
 		const [opText, argtype] = [textCell(resolvedRow, 0), textCell(resolvedRow, 2)]
+		const accumulated =
+			name === "sum" ? yield* accumulatorProblem(db, label, valueType(sample.type), typed.op) : []
 		const rettype = textCell(resultRow, 0)
 		const [sampleRow] = yield* db.values(
 			`SELECT (CASE WHEN ty.typtype = 'd' THEN ty.typbasetype ELSE ty.oid END)::regtype::text, ty.typtype::text
@@ -215,7 +271,8 @@ const aggregateProblems = (
 					: [`${label}: the overload's argument ${arg} is not pg_proc's ${argtype}`]),
 				...(typeofResult === expected
 					? []
-					: [`${label}: pg_typeof ${typeofResult}, host ${expected}`])
+					: [`${label}: pg_typeof ${typeofResult}, host ${expected}`]),
+				...accumulated
 			],
 			checked: true
 		}
@@ -283,6 +340,8 @@ layer(Substrate.layer)("aggregate typing against PostgreSQL 19", (it) => {
 								"checked count(*)",
 								"checked min/code",
 								"checked sum/Cents",
+								"checked sum/int2",
+								"checked sum/int4",
 								"checked max/Cents",
 								"checked min/bool"
 							]),

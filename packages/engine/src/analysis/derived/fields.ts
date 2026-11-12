@@ -118,8 +118,9 @@ export const declaredDescOf = (
  * test/unit/derived/fields.test.ts:
  *
  * - `r.count()` is `pg.bigint`;
- * - `r.sum` is the native SUM result type: smallint and integer give bigint, bigint and numeric give numeric, real and
- *   double precision keep their type; money gives exact money, which no field holds (a stored money total sums the
+ * - `r.sum` is numeric over the integers and numeric, the result type of the bigint and numeric SUM it lowers to (a
+ *   sum over smallint or integer is summed as bigint, scalar/aggregate.ts `widened`), and real and double precision
+ *   keep their type; money gives exact money, which no field holds (a stored money total sums the
  *   amounts cast to numeric); `r.mean` is the native AVG result type:
  *   numeric over the integers and numeric, double precision over the floats. A numeric result carries no typmod, since
  *   SUM and AVG do not inherit an input precision or scale, but the bound its definition proves (ir/scalar.ts

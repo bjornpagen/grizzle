@@ -303,7 +303,7 @@ Nothing there is annotated by hand. grizzle also knows each result's keys. `post
 one parameter, `id: Uuid`, so it returns at most one row, and served in a workload its value,
 `db.workload.postPage.once({ params: { id }, facts: {} })`, is a set of at most one row, keyed by nothing: every row is
 keyed by the key grizzle proves of its result. An aggregate is typed as PostgreSQL computes
-it: `r.count()` is a `bigint`, and the `r.sum` of a bigint is an exact `Decimal`. Negation is
+it: `r.count()` is a `bigint`, and the `r.sum` of an integer is an exact `Decimal`. Negation is
 `r.not(Comment, { post: id })`, a union is a second `.rule(...)`, and there is no `` sql`…` `` to fall back to.
 [Queries](#queries) has the whole language.
 
@@ -1190,7 +1190,7 @@ For porting an app, each Drizzle construct and what takes its place:
 | `db.select().from(post).where(eq(post.id, id))`        | `query(Blog).rule((r) => r.match(Post, { ... }).where(r.eq(...)).find({ ... }))`                |
 | `.innerJoin(comment, eq(comment.postId, post.id))`     | one variable in two matches                                                                     |
 | `notExists(...)`                                       | `r.not(Comment, { post: id })`                                                                  |
-| `count()`, `sum(...)`                                  | `r.count()`, a `bigint`; `r.sum(x)`, typed as PostgreSQL types it (a `Decimal` for a `bigint`)  |
+| `count()`, `sum(...)`                                  | `r.count()`, a `bigint`; `r.sum(x)`, exact (a `Decimal` for any integer)                        |
 | `db.query.post.findMany({ with: { comments: true } })` | `.attach("comments", (post) => ..., "array")`                                                   |
 | `.orderBy(...).limit(10)`                              | `.orderBy([...]).take(10)`, or a `paged(query)` member's windows, anchored at a row's key       |
 | `db.insert(post).values(rows)`                         | `ChangeSet.empty(Blog).insert(Post, rows)`                                                      |

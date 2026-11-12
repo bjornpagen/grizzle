@@ -56,7 +56,11 @@ export type ExactCarrier = "float4" | "float8" | "money"
  * it exhaustively (lower/conservative/group aggregateExpr):
  *
  * - native: the native call over the arguments as they are, whose accumulator is exact or returns an input: count,
- *   min, max, bool_and, bool_or, and sum over the integers and numeric;
+ *   min, max, bool_and, bool_or, and sum over bigint, numeric and the exact integers, which accumulate in int128 or
+ *   numeric;
+ * - widened: sum(bigint) over each argument cast to bigint, that exact accumulator: sum over smallint and integer, whose
+ *   native call accumulates in a bigint that wraps past 2^63 with no error (int2_sum, int4_sum), so more than 2^32 rows
+ *   of the greatest integer would sum to a wrong value;
  * - scaleFree: the native call over each argument through trim_scale: avg over numeric, whose quotient reads the sum's
  *   display scale;
  * - exactSum: sum over the exact numeric value of each argument, rounded once to real or double precision as IEEE 754
@@ -65,11 +69,13 @@ export type ExactCarrier = "float4" | "float8" | "money"
  */
 export type AggregateLowering =
 	| { readonly kind: "native" }
+	| { readonly kind: "widened" }
 	| { readonly kind: "scaleFree" }
 	| { readonly kind: "exactSum"; readonly exact: ExactCarrier }
 	| { readonly kind: "exactMean"; readonly exact: ExactCarrier }
 
 const native: AggregateLowering = Object.freeze({ kind: "native" })
+const widened: AggregateLowering = Object.freeze({ kind: "widened" })
 const scaleFree: AggregateLowering = Object.freeze({ kind: "scaleFree" })
 const exactSum = (exact: ExactCarrier): AggregateLowering =>
 	Object.freeze({ kind: "exactSum", exact })
@@ -134,7 +140,7 @@ const exactSumOf = (
 	lowering: AggregateLowering
 ): Entry => ({ kind: "exact", carrier, lowering })
 
-const plainResult = (carrier: "int8" | "float4" | "float8") => (): ScalarType => plainType(carrier)
+const plainResult = (carrier: "float4" | "float8") => (): ScalarType => plainType(carrier)
 
 const typed = (result: (arg: ScalarType) => ScalarType, lowering: AggregateLowering): Entry => ({
 	kind: "typed",
@@ -149,6 +155,9 @@ const sumBound = (b: NumericBound): NumericBound => ({
 })
 
 const numericSum: Entry = { kind: "numeric", bound: sumBound, lowering: native }
+
+/** A sum over smallint or integer: numeric's, through bigint, whose sum accumulates exactly (`widened`). */
+const widenedSum: Entry = { kind: "numeric", bound: sumBound, lowering: widened }
 
 /**
  * A numeric mean: within its argument's integer digits, a mean lying between the values it averages and rounding onto
@@ -254,8 +263,8 @@ const catalogName = (t: ScalarType): string => {
 }
 
 const sumOverloads: Readonly<Partial<Record<Carrier, Entry>>> = {
-	int2: typed(plainResult("int8"), native),
-	int4: typed(plainResult("int8"), native),
+	int2: widenedSum,
+	int4: widenedSum,
 	int8: numericSum,
 	numeric: numericSum,
 	float4: typed(plainResult("float4"), exactSum("float4")),
@@ -311,8 +320,8 @@ const refusedAggregate = (loc: SourceLoc, capability: string): Result.Result<nev
  * the rule's distinct full-binding set and takes PostgreSQL's own overload and result type:
  *
  * | Input            | r.sum            | r.mean / AVG     |
- * | smallint         | bigint           | numeric          |
- * | integer          | bigint           | numeric          |
+ * | smallint         | numeric          | numeric          |
+ * | integer          | numeric          | numeric          |
  * | bigint           | numeric          | numeric          |
  * | numeric          | numeric          | numeric          |
  * | real             | real             | double precision |
@@ -332,9 +341,12 @@ const refusedAggregate = (loc: SourceLoc, capability: string): Result.Result<nev
  * Every aggregate is a function of its contributions, one per keyed row, in any order: no plan, scan order, join order,
  * hash or sort grouping,
  * parallel worker, window frame or co-located aggregate can change it. count, min, max, bool_and, bool_or and the sums
- * over the integers and numeric already accumulate exactly or return an input, and are native. The others are lowered
- * to an exact accumulator (AggregateLowering):
+ * over bigint, numeric and the exact integers already accumulate exactly or return an input, and are native. The
+ * others are lowered to an exact accumulator (AggregateLowering):
  *
+ * - r.sum over smallint or integer is sum over each argument cast to bigint, numeric of its argument's digits widened
+ *   by the rows', as r.sum over bigint is: PostgreSQL's own sum(smallint) and sum(integer) accumulate in a bigint that
+ *   wraps past 2^63 with no error, so they are never emitted.
  * - r.sum over real or double precision is the double (for real, the real) nearest the exact sum of its arguments'
  *   values, ties to even, ±Infinity past the largest finite value: a correctly rounded sum, as IEEE 754 rounds. Each
  *   argument enters the sum as the exact numeric value of its bits (sql/build.ts exactNumericOfDouble), the numeric sum

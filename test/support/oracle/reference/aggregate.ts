@@ -152,10 +152,10 @@ const numericMean = (args: Arr.NonEmptyReadonlyArray<Decimal>): Decimal => {
 const sum = (values: Arr.NonEmptyReadonlyArray<Value>, type: ScalarType): Value => {
 	const carrier = baseOf(type).carrier
 	switch (carrier) {
-		case "int2":
-		case "int4":
 		case "exactInteger":
 			return Arr.reduce<Value, bigint>(values, 0n, (acc, v) => acc + asBigint(v))
+		case "int2":
+		case "int4":
 		case "int8":
 		case "numeric":
 			return exactSum(decimals(values, carrier))

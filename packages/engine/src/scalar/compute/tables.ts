@@ -27,8 +27,8 @@ export type PlainSql = keyof PlainHost
  * The result tables of the Compute catalogue and of the aggregates, keyed by SQL type.
  *
  * An operation whose result is no operand's own value takes PostgreSQL's result type over its operand's SQL type:
- * arithmetic keeps the operand's type without its contract, money / money is double precision, SUM over smallint and
- * integer is bigint, AVG over the integer types is numeric (scalar/compute/registry.ts and scalar/aggregate.ts hold the overloads). The result is a plain value, so its column
+ * arithmetic keeps the operand's type without its contract, money / money is double precision, SUM and AVG over the
+ * integer types are numeric (scalar/compute/registry.ts and scalar/aggregate.ts hold the overloads). The result is a plain value, so its column
  * is the plain column of its SQL type, which delivers the unbranded host value.
  *
  * A typed builder indexes these tables by its operand's `sql`, whose type is the operand's SQL type literal, so its
@@ -182,12 +182,13 @@ export const remainderSql: RemainderSql = Object.freeze({
 })
 
 /**
- * SUM's result type: smallint and integer give bigint, bigint and numeric numeric, the floats keep theirs, money and
- * the exact values an exact one (scalar/aggregate.ts).
+ * SUM's result type: the integers and numeric give numeric, the floats keep theirs, money and the exact values an exact
+ * one (scalar/aggregate.ts). A sum over smallint or integer is numeric, as over bigint: PostgreSQL's own bigint sum of
+ * them wraps past 2^63, so grizzle sums them as bigint, exactly.
  */
 export interface SumSql {
-	readonly smallint: "bigint"
-	readonly integer: "bigint"
+	readonly smallint: "numeric"
+	readonly integer: "numeric"
 	readonly bigint: "numeric"
 	readonly numeric: "numeric"
 	readonly real: "real"
@@ -198,8 +199,8 @@ export interface SumSql {
 }
 
 export const sumSql: SumSql = Object.freeze({
-	smallint: "bigint",
-	integer: "bigint",
+	smallint: "numeric",
+	integer: "numeric",
 	bigint: "numeric",
 	numeric: "numeric",
 	real: "real",
