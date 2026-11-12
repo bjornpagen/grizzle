@@ -584,11 +584,12 @@ const drawOf = (column: ColumnDef): ReadonlyArray<AlterTableAction> => {
 }
 
 /**
- * The steps of a table's fill, in structure.fill: the fill itself, its UPDATE at the reviewer's values (Action fill);
- * the fields' old columns dropped; each set-aside column renamed into its field's name; then one ALTER TABLE setting
- * the NOT NULL of each field and of each generated column over one (asideSubcommand's `checked`, read off the table's
- * Structure alteration `structure`), each field's identity or uuidv7() default, and each identity's advance after it,
- * past the values the fill drew.
+ * The steps of a table's fill: the fill itself, its UPDATE at the reviewer's values (Action fill), in structure.fill;
+ * then its settling, in structure.settle, after every table's fill, so a fill that joins another table's old column,
+ * a field set aside or declared dropped, reads it still standing under its name: the fields' old columns dropped; each
+ * set-aside column renamed into its field's name; then one ALTER TABLE setting the NOT NULL of each field and of each
+ * generated column over one (asideSubcommand's `checked`, read off the table's Structure alteration `structure`), each
+ * field's identity or uuidv7() default, and each identity's advance after it, past the values the fill drew.
  */
 const fillSteps = (
 	fill: TableFill,
@@ -607,33 +608,29 @@ const fillSteps = (
 			? [advance(t, column.name, column.generated.sequence, column.type)]
 			: []
 	)
-	const filled = (draft: Draft): Step => ({ slot: "structure.fill", draft })
+	const settled = (s: SqlStatement): Step => ({ slot: "structure.settle", draft: statement(s) })
 	return [
-		filled({ kind: "fill", table: t, fields }),
-		filled(
-			statement(
-				alter(
-					t,
-					mapNonEmpty(fields, (f) => ({ kind: "dropColumn", column: f.column.name }))
-				)
+		{ slot: "structure.fill", draft: { kind: "fill", table: t, fields } },
+		settled(
+			alter(
+				t,
+				mapNonEmpty(fields, (f) => ({ kind: "dropColumn", column: f.column.name }))
 			)
 		),
 		...fields.map((f) =>
-			filled(statement({ kind: "renameColumn", table: t, from: f.aside, to: f.column.name }))
+			settled({ kind: "renameColumn", table: t, from: f.aside, to: f.column.name })
 		),
-		filled(
-			statement(
-				alter(t, [
-					...mapNonEmpty(fields, (f): AlterTableAction => ({
-						kind: "setNotNull",
-						column: f.column.name
-					})),
-					...checked.map((column): AlterTableAction => ({ kind: "setNotNull", column })),
-					...takes
-				])
-			)
+		settled(
+			alter(t, [
+				...mapNonEmpty(fields, (f): AlterTableAction => ({
+					kind: "setNotNull",
+					column: f.column.name
+				})),
+				...checked.map((column): AlterTableAction => ({ kind: "setNotNull", column })),
+				...takes
+			])
 		),
-		...advances.map((a) => filled(statement(a)))
+		...advances.map(settled)
 	]
 }
 

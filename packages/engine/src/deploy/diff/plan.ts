@@ -65,7 +65,9 @@ export interface Declarations {
  *   own constraints); then, when Structure holds a data step, SET CONSTRAINTS ALL IMMEDIATE, after which every data
  *   step runs (diff.ts checkedAtOnce): the reviewer's UPDATE a placeholder column invites, written right after it, then
  *   each table's fill of its set-aside fields (Action fill), once every placeholder column of every table holds its
- *   value; then new or recreated materialized views WITH NO DATA with their unique indexes, which
+ *   value; then, once every table's fill has run, so every fill reads every old column it joins on, each table's
+ *   set-aside fields settled (structure.settle: the old columns dropped, the set-aside ones renamed, their NOT NULL
+ *   set); then new or recreated materialized views WITH NO DATA with their unique indexes, which
  *   read the fields as the fills leave them; then the backfill of the families new to stored rows (backfill.ts) and the
  *   DROP DEFAULT of each column it drew; then each table's one alteration adding the
  *   constraints of tables that may hold rows, NOT VALID, after every value they read is drawn; and last the roles' changed
@@ -91,6 +93,7 @@ export const slots = [
 	"structure",
 	"structure.immediate",
 	"structure.fill",
+	"structure.settle",
 	"structure.views",
 	"structure.backfill",
 	"structure.constraints",
@@ -147,6 +150,7 @@ export const slotFile: { readonly [S in Slot]: SlotsFile } = {
 	structure: structureFile,
 	"structure.immediate": structureFile,
 	"structure.fill": structureFile,
+	"structure.settle": structureFile,
 	"structure.views": structureFile,
 	"structure.backfill": structureFile,
 	"structure.constraints": structureFile,
@@ -305,9 +309,10 @@ export const alterationStatement = (
  * - `fill`: a table's fill of its set-aside fields (SetAside), in structure.fill, after every table's alteration: one
  *   UPDATE setting each set-aside column to the reviewer's value at its placeholder, under a marker each, the row aliased
  *   "t" and each old column still under its field's name, the last value free to be followed by the FROM and WHERE the
- *   values join. The fill's steps after it are statements (diff.ts fillSteps): the fields' old columns dropped, each
- *   set-aside column renamed into its field's name, one ALTER TABLE setting each field's NOT NULL, identity or uuidv7()
- *   default and the NOT NULL of every generated column over one, and an identity's advance;
+ *   values join. Its settling, in structure.settle after every table's fill, is statements (diff.ts fillSteps): the
+ *   fields' old columns dropped, each set-aside column renamed into its field's name, one ALTER TABLE setting each
+ *   field's NOT NULL, identity or uuidv7() default and the NOT NULL of every generated column over one, and an
+ *   identity's advance;
  * - `violation`: the full violation query of a law the migration discharges once, which raises with the law's identity
  *   when it has a row;
  * - `analyze`: ANALYZE of a table that may hold rows, after a new statistics object;
