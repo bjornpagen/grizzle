@@ -9,7 +9,8 @@
  * - Values, a property: any value the scheme's carrier admits, an inner space and characters past ASCII among them, for
  *   a drawn scheme, or, while schemes are pending, one of them.
  * - Prompt, a property: no source at all, on a terminal script(1) opens, the value typed once the prompt shows; the
- *   terminal must never show the typed value.
+ *   terminal must never show the typed value. What the terminal shows is every byte script(1) reads from the
+ *   pseudo-terminal's master, so an echo from the line discipline is caught as well as one the CLI writes.
  * - Faults, an exhaustion: one planted fault of each family a carrier refuses (a line break or an edge space in a
  *   header, a basic credential without its colon, a cookie value with a separator), from every source. Oracles: one
  *   request to the operation, the credential in exactly the scheme's place (`Authorization` with the scheme word, the
