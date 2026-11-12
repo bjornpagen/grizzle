@@ -173,19 +173,30 @@ const bindParams = (type: string, body: Buffer): ReadonlyArray<string | null> =>
 	return values
 }
 
-/** The `user` a startup packet names: after its protocol version, its parameters as name and value C strings. */
-const startupUser = (body: Buffer): string => {
+/**
+ * What a session's startup packet asked: the role it logs in as, and whether it is a replication connection, its
+ * `replication` parameter `database`, a walsender of the database that takes simple queries alone.
+ */
+export interface Startup {
+	readonly user: string
+	readonly replication: boolean
+}
+
+/** What a startup packet asks (Startup): after its protocol version, its parameters as name and value C strings. */
+const startupOf = (body: Buffer): Startup => {
+	const parameters = new Map<string, string>()
 	let offset = 4
 	while (offset < body.length && body[offset] !== 0) {
 		const name = cString(body, offset)
 		offset += Buffer.byteLength(name) + 1
 		const value = cString(body, offset)
 		offset += Buffer.byteLength(value) + 1
-		if (name === "user") {
-			return value
-		}
+		parameters.set(name, value)
 	}
-	return ""
+	return {
+		user: parameters.get("user") ?? "",
+		replication: parameters.get("replication") === "database"
+	}
 }
 
 /** The SQL a frontend message carries: a simple Query's text, or a Parse's after its name. */
@@ -583,8 +594,8 @@ export interface Tap {
 	readonly sessions: () => ReadonlyArray<WireWindow>
 	/** Every notification (a NotificationResponse) any session received, in the order they arrived. */
 	readonly notifications: () => ReadonlyArray<Notification>
-	/** The role each session logged in as, in the order of `sessions`. */
-	readonly users: () => ReadonlyArray<string>
+	/** What each session's startup packet asked, in the order of `sessions`: none for one whose packet has not come. */
+	readonly startups: () => ReadonlyArray<Startup | undefined>
 	/** The connections opened for CancelRequests. */
 	readonly cancels: () => number
 	/** The CancelRequest connections that have ended: the server read each request and closed it, or it failed. */
@@ -600,8 +611,8 @@ export const makeTap = (cluster: InitializedClusterShape): Tap => {
 	const logs: Array<Array<WireEvent>> = []
 	/** Every notification any session received, in the order they arrived. */
 	const notifications: Array<Notification> = []
-	/** The role each session's startup packet logs in as, by its place among the logs. */
-	const users: Array<string> = []
+	/** What each session's startup packet asked, by its place among the logs, once it came. */
+	const startups: Array<Startup | undefined> = []
 	const gate = new MessageGate()
 	let recording = false
 	let cancels = 0
@@ -623,7 +634,7 @@ export const makeTap = (cluster: InitializedClusterShape): Tap => {
 			const at = log === undefined ? undefined : logs.length
 			if (log !== undefined) {
 				logs.push(log)
-				users.push("")
+				startups.push(undefined)
 			}
 			if (cancel) {
 				cancels++
@@ -651,7 +662,7 @@ export const makeTap = (cluster: InitializedClusterShape): Tap => {
 			let written: Array<FrontendMessage> = []
 			const frontend = framer(true, (type, body) => {
 				if (type === "startup" && at !== undefined) {
-					users[at] = startupUser(body)
+					startups[at] = startupOf(body)
 				}
 				written.push({
 					type,
@@ -703,7 +714,7 @@ export const makeTap = (cluster: InitializedClusterShape): Tap => {
 		since: (mark) => windowOf(events.slice(mark)),
 		sessions: () => Arr.map(logs, (log) => windowOf(log)),
 		notifications: () => [...notifications],
-		users: () => [...users],
+		startups: () => [...startups],
 		cancels: () => cancels,
 		cancelsEnded: () => ended,
 		gate
@@ -748,7 +759,7 @@ export const tappedSession = (
 				since: tap.since,
 				sessions: tap.sessions,
 				notifications: tap.notifications,
-				users: tap.users,
+				startups: tap.startups,
 				cancels: tap.cancels,
 				cancelsEnded: tap.cancelsEnded,
 				gate: tap.gate

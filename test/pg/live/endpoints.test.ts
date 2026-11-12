@@ -5,38 +5,49 @@
  *
  * Each case draws a live world (test/support/live/world.ts), installs it as generate drafts it (test/support/live/
  * harness.ts), and sends a drawn request to every route of its login (http httpRoutes): each read with a drawn binding,
- * a page with a drawn window, each write with a drawn row, beside requests no route serves (a path no program has, a
- * method other than POST). Every session the layer opened, pooled or listening, is read off the wire tap
- * (test/support/wire-tap.ts Tap.sessions), and:
+ * a page with a drawn window, each write with a drawn row, a shelf of the world's counted family and then a book naming
+ * it, whose write appends a member to a stored owner in its one flight (a family write's additions statement), beside
+ * requests no route serves (a path no program has, a method other than POST). Every session the layer opened, pooled,
+ * listening or leading, is read off the wire tap (test/support/wire-tap.ts Tap.sessions), each by what its startup
+ * packet asked (Tap.startups), and:
  *
- * - every Parse names its statement, by the name its text gives it (core/prepared.ts prepared), and its text is one the
- *   served file holds;
- * - every Bind names a statement: none runs as the unnamed one;
- * - every simple Query's text is one the served file holds: its BEGINs, COMMIT and ROLLBACK, and the listening session's
- *   one statement;
- * - no Close names a statement;
+ * - on every session but the leader's replication connection, every Parse names its statement, by the name its text
+ *   gives it (core/prepared.ts prepared), and its text is one the served file holds; every Bind names a statement, none
+ *   runs as the unnamed one; every simple Query's text is one the served file holds, its BEGINs, COMMIT and ROLLBACK,
+ *   and the listening session's one statement; and no Close names a statement;
+ * - on the decoder's replication connection, a walsender of the database, which takes simple queries alone, the
+ *   protocol's one exception: every simple Query is exactly one of the served file's live texts (served/forms.ts
+ *   ServedLive), and nothing else is sent but the replication protocol's own messages;
  * - a request no route serves sends nothing: its answer is a route error before any session is asked for.
  *
- * The oracle is the served file itself: every string its JSON value holds, by value, is what generate wrote.
+ * The oracle is the served file itself: every string its JSON value holds, by value, is what generate wrote, and its
+ * live source's texts are what the leader may send.
  *
- * Plant: none of its own beyond the routes suite's route-without-program.patch, which this suite meets as a route whose
- * request sends no served statement.
+ * Plants (~/.cache/grizzle-release/LIVE-TESTS/plants): leader-text-at-runtime.patch (the leader sends a text it builds
+ * at run time on its replication connection); and the routes suite's route-without-program.patch, which this suite
+ * meets as a route whose request sends no served statement.
  *
- * Features: each read shape, a page, each write member, a request no route serves, a method no route serves.
+ * Features: each read shape, a page, each write member, a request no route serves, a method no route serves, the
+ * leader's replication session, a write naming a family member, a read of closed relations alone.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
 import { prepared } from "#compiler/core/prepared.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
+import type { ServedLive } from "#compiler/served/forms.ts"
+import { servedFile } from "#compiler/served/json.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { inputOf, worldSurfaces } from "#test/support/live/calls.ts"
 import { installLive, liveLogin } from "#test/support/live/harness.ts"
 import {
+	closedRead,
+	familyMembers,
+	familyRelations,
 	type LiveBounds,
 	liveCaseGen,
 	probeMember,
@@ -58,6 +69,9 @@ type Feature =
 	| "a put"
 	| "a path no route serves"
 	| "a method no route serves"
+	| "the leader's replication session"
+	| "a write naming a family member"
+	| "a read of closed relations alone"
 
 const bounds: LiveBounds = {
 	groups: 3,
@@ -108,6 +122,47 @@ const strayOf = (session: WireWindow, served: ReadonlySet<string>): ReadonlyArra
 		return m.type === "C" && m.name !== "" ? [`a Close of ${Formatter.format(m.name)}`] : []
 	})
 
+/** `slot` quoted as an identifier, as a replication command names it: in double quotes, each double quote doubled. */
+const quotedSlot = (slot: string): string => `"${Str.replaceAll('"', '""')(slot)}"`
+
+/** A served file's live source, where it has one. */
+type LiveSourceForm = Extract<ServedLive, { readonly kind: "source" }>
+
+/**
+ * The texts the leader may send on its replication connection, the served file's live source's own: its lock, its
+ * sender-timeout read, and each slot command filled with the one slot the installation's decoder login names, its
+ * role (test/support/install-migrate.ts Installed.decoder), as the command's text quotes it.
+ */
+const liveTextsOf = (source: LiveSourceForm, slot: string): ReadonlySet<string> =>
+	new Set([
+		source.lock,
+		source.senderTimeout,
+		`${source.createSlot.before}${quotedSlot(slot)}${source.createSlot.after}`,
+		`${source.start.before}${quotedSlot(slot)}${source.start.after}`
+	])
+
+/**
+ * The messages a walsender of a database is sent besides simple queries: its startup and authentication, the stream's
+ * CopyData (each Standby Status Update) and CopyDone, and its Terminate.
+ */
+const replicationProtocol: ReadonlySet<string> = new Set(["startup", "p", "d", "c", "X"])
+
+/**
+ * What the decoder's replication session sent beyond the protocol's one exception, one line each: a walsender of a
+ * database takes simple queries alone, so each of its Queries is exactly one of the served file's live texts
+ * (`liveText`), and it sends nothing else but its protocol's own messages (replicationProtocol).
+ */
+const replicationStrayOf = (
+	session: WireWindow,
+	liveText: (text: string) => boolean
+): ReadonlyArray<string> =>
+	Arr.flatMap(session.frontend, (m): ReadonlyArray<string> => {
+		if (m.type === "Q") {
+			return liveText(m.text) ? [] : [`Query ${Formatter.format(m.text)}`]
+		}
+		return replicationProtocol.has(m.type) ? [] : [`a ${Formatter.format(m.type)} message`]
+	})
+
 layer(Substrate.layer)("every HTTP route", (it) => {
 	it.effect(
 		`is answered by the served file's named prepared statements alone, over ${cases} generated logins`,
@@ -133,7 +188,10 @@ layer(Substrate.layer)("every HTTP route", (it) => {
 								"a delete",
 								"a put",
 								"a path no route serves",
-								"a method no route serves"
+								"a method no route serves",
+								"the leader's replication session",
+								"a write naming a family member",
+								"a read of closed relations alone"
 							],
 							{ cases: 32, sense: notesOnly }
 						),
@@ -153,9 +211,9 @@ layer(Substrate.layer)("every HTTP route", (it) => {
 								const loginRole = live.installed.as(live.world.server).role
 								/** What the login's own sessions sent since `marks`, a session opened since in whole. */
 								const sentSince = (marks: ReadonlyArray<number>) => {
-									const users = live.tap.users()
+									const startups = live.tap.startups()
 									return Arr.flatMap(live.tap.sessions(), (session, i) =>
-										users[i] === loginRole ? session.frontend.slice(marks[i] ?? 0) : []
+										startups[i]?.user === loginRole ? session.frontend.slice(marks[i] ?? 0) : []
 									)
 								}
 								const marks = Arr.map(live.tap.sessions(), (session) => session.frontend.length)
@@ -192,6 +250,10 @@ layer(Substrate.layer)("every HTTP route", (it) => {
 									notes.note(`a ${Arr.getUnsafe(c.reads, s.read).kind} read`)
 									yield* Effect.ignore(surfaces.http.once(readMember(s.read), inputOf(s)))
 								}
+								notes.note("a read of closed relations alone")
+								yield* Effect.ignore(
+									surfaces.http.once(closedRead.member, { params: {}, facts: {} })
+								)
 								notes.note("the probe read")
 								yield* Effect.ignore(surfaces.http.once(probeMember, { params: {}, facts: {} }))
 								for (const place of [0, 1] as const) {
@@ -219,13 +281,38 @@ layer(Substrate.layer)("every HTTP route", (it) => {
 										})
 									)
 								}
+								yield* surfaces.http.write(familyMembers.owner, {
+									params: {},
+									facts: { insert: { [familyRelations.owner]: [{ id: 1 }] } }
+								})
+								notes.note("a write naming a family member")
+								yield* surfaces.http.write(familyMembers.member, {
+									params: {},
+									facts: { insert: { [familyRelations.member]: [{ id: 1, shelf: 1 }] } }
+								})
 							}).pipe(withLayer(live.layer))
+							const source = servedFile(live.json).live
+							if (source.kind !== "source") {
+								return assert.fail("a world whose reads read its relations installs a live source")
+							}
+							const liveTexts = liveTextsOf(source, live.installed.decoder().role)
+							const liveText = (text: string): boolean => liveTexts.has(text)
+							const startups = live.tap.startups()
 							for (const [at, session] of live.tap.sessions().entries()) {
-								assert.deepEqual(
-									strayOf(session, served),
-									[],
-									`session ${at} sent only the served file's statements, each named\n${Formatter.format(c)}`
-								)
+								if (startups[at]?.replication === true) {
+									notes.note("the leader's replication session")
+									assert.deepEqual(
+										replicationStrayOf(session, liveText),
+										[],
+										`the replication session ${at} sent only the served file's live texts, each a simple Query\n${Formatter.format(c)}`
+									)
+								} else {
+									assert.deepEqual(
+										strayOf(session, served),
+										[],
+										`session ${at} sent only the served file's statements, each named\n${Formatter.format(c)}`
+									)
+								}
 							}
 						}).pipe(Effect.scoped)
 				)

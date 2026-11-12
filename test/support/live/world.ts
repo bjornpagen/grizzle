@@ -2,9 +2,9 @@ import { array, boolean, type Gen, int, uniqueKeys, weighted } from "@grizzle/te
 import { Array as Arr, Option, Order } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { mutable, relation, schema } from "#compiler/public/schema.ts"
+import { closed, counted, fin, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { paged } from "#compiler/public/workload.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -14,10 +14,12 @@ import { fullWorld } from "#test/support/worlds.ts"
  * whose every axis is a choice the live machinery branches on.
  *
  * A schema holds two relations, `Item0` and `Item1`, each `{ id, g, o, val }` keyed by `id`, mutable or not, and the
- * fence's `Probe` (probeRelation): `g` is the group a keyed read binds its parameter `g` to, the column a commit's
+ * fence's `Probe` (probeRelation), a counted family no read reads (familyRelations), and a closed relation read by
+ * one constant member alone (closedRead): `g` is the group a keyed read binds its parameter `g` to, the column a commit's
  * notification names its value of, `o` the order an ordered read delivers by, and `val` a value no read binds. Its
  * programs are the reads the box draws, each one of the shapes the live machinery routes and diffs differently
- * (WorldRead), the probe member, and one insert, delete and put member per relation, whose facts are each call's. A
+ * (WorldRead), the probe member, one insert, delete and put member per item relation and the family's two inserts
+ * (familyMembers), whose facts are each call's. A
  * subscription is a read with what its call binds (LiveBinding). A history is commits, each a grizzle call of one write
  * member, or one SERIALIZABLE transaction of a direct SQL writer of the role, which may write several rows of either
  * relation, an immutable relation's row moved as its delete and its insert at one key. Every write changes what it
@@ -417,6 +419,22 @@ export const probeRelation = "Probe"
 /** The probe member: every row of Probe. */
 export const probeMember = "probe"
 
+/**
+ * The counted family every world holds and no read reads: a `Shelf(id)` owner whose drawn count `n` counts the
+ * `Book(id, shelf)` members naming it, beside the items, so a write of a book naming a stored shelf appends a member to
+ * a stored owner, which its one flight writes by the family write's additions statement.
+ */
+export const familyRelations = { owner: "Shelf", member: "Book" } as const
+
+/** The family's write members: a shelf's insert, and a book's, each from its call's facts. */
+export const familyMembers = { owner: "shelf", member: "book" } as const
+
+/**
+ * The closed relation every world holds, `Tier` of two codes, and its member, every tier: a read of closed relations
+ * alone, whose value no write changes and whose watch is a constant one, registered under no routing key.
+ */
+export const closedRead = { relation: "Tier", member: "tiers" } as const
+
 /** A relation's declared name, by place. */
 export const relationName = (place: RelationPlace): string => `Item${place}`
 
@@ -435,10 +453,17 @@ export const liveWorld = (c: LiveCase, name: string) => {
 	const Item0 = relation(relationName(0), fields, ["id"])
 	const Item1 = relation(relationName(1), fields, ["id"])
 	const Probe = relation(probeRelation, { id: pg.integer }, ["id"])
+	const Shelf = relation(familyRelations.owner, { id: pg.integer, n: drawn(natural) }, ["id"])
+	const Book = relation(familyRelations.member, { id: pg.integer, shelf: pg.integer }, ["id"])
+	const Tier = closed(closedRead.relation, ["gold", "silver"])
 	const base = schema(
 		name,
-		[Item0, Item1, Probe],
-		[...(c.mutable[0] ? [mutable(Item0)] : []), ...(c.mutable[1] ? [mutable(Item1)] : [])]
+		[Item0, Item1, Probe, Shelf, Book, Tier],
+		[
+			...(c.mutable[0] ? [mutable(Item0)] : []),
+			...(c.mutable[1] ? [mutable(Item1)] : []),
+			counted(on(Book, "shelf"), fin(Shelf, "n"))
+		]
 	)
 	const items = [Item0, Item1] as const
 	const keyed = (place: RelationPlace) => {
@@ -502,6 +527,12 @@ export const liveWorld = (c: LiveCase, name: string) => {
 		programs[writeMember("delete", place)] = ChangeSet.empty(base).delete(Item, [])
 		programs[writeMember("put", place)] = ChangeSet.empty(base).put(Item, [])
 	}
+	programs[closedRead.member] = query(base).rule((r) => {
+		const { id } = v(Tier, "tier")
+		return r.match(Tier, { id }).find({ id })
+	})
+	programs[familyMembers.owner] = ChangeSet.empty(base).insert(Shelf, [])
+	programs[familyMembers.member] = ChangeSet.empty(base).insert(Book, [])
 	const world = fullWorld(base, programs)
 	return { schema: base, world, logins: [world.server] }
 }
