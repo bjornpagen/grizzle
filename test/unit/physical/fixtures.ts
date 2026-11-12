@@ -6,7 +6,8 @@ import {
 	type InstallExtension,
 	noCarriers,
 	noCertificates,
-	noContribution
+	noContribution,
+	noFences
 } from "#compiler/physical/install/extension.ts"
 import { eq, key, on, onWhere, type SchemaDesc, textDesc } from "#test/support/fixtures/ir/desc.ts"
 
@@ -21,7 +22,8 @@ export const requesting = (requests: ReadonlyArray<IndexRequest>): InstallExtens
 	contribute: () => Result.ok({ ...noContribution, indexRequests: requests }),
 	textDomainUses: noTextDomainUses,
 	certifies: noCertificates,
-	carriers: noCarriers
+	carriers: noCarriers,
+	fences: noFences
 })
 
 const value: ExprDesc = { kind: "value" }

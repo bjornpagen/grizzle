@@ -27,6 +27,7 @@ import { constant, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, String as Str } from "effect"
 import {
+	excludesNothing,
 	type PreparedStatement,
 	preparedStatement,
 	runFramedTwice,
@@ -184,7 +185,7 @@ describe("a write that reads before it writes", () => {
 						const ran = yield* Effect.result(
 							runFramedTwice(
 								session,
-								writeFrame(flightPrologue, "serializable"),
+								writeFrame(flightPrologue, "serializable", excludesNothing),
 								reads,
 								(outcomes) => {
 									made = true

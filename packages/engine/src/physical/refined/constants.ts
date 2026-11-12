@@ -6,7 +6,8 @@ import {
 	type InstallExtension,
 	noCarriers,
 	noCertificates,
-	noContribution
+	noContribution,
+	noFences
 } from "#compiler/physical/install/extension.ts"
 
 /** The installer extension that adds the closed payloads' validation object to an installation's Publish phase: every
@@ -33,5 +34,6 @@ export const refinedConstantsExtension: InstallExtension = {
 		}),
 	textDomainUses: noTextDomainUses,
 	certifies: noCertificates,
-	carriers: noCarriers
+	carriers: noCarriers,
+	fences: noFences
 }

@@ -26,7 +26,8 @@ import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import {
 	type InstallExtension,
 	noCarriers,
-	noContribution
+	noContribution,
+	noFences
 } from "#compiler/physical/install/extension.ts"
 import { changesAt } from "#compiler/program/workload/change.ts"
 import type { AnyLogin, AnyRole, AnySchema } from "#compiler/public/schema.ts"
@@ -166,7 +167,8 @@ const certifying = (roles: ReadonlyArray<RoleIsolation>): InstallExtension => ({
 	contribute: () => Result.ok(noContribution),
 	textDomainUses: noTextDomainUses,
 	certifies: roles,
-	carriers: noCarriers
+	carriers: noCarriers,
+	fences: noFences
 })
 
 /** Each role's level among `roles`, by its name. */
@@ -276,6 +278,7 @@ export const installShape = (
 		const entries = yield* servedFiles(compiled, draft.snapshotFiles, {
 			kind: "logins",
 			certification: certified,
+			fences: [],
 			logins: new Map(stated)
 		})
 		const entry = defined(
@@ -433,8 +436,23 @@ const setLevel = (level: Isolation): RaceStatement => ({
 })
 
 /**
- * A call's direct transaction: its first statement setting the level its role's served file records, then the call's
- * statements, the served file's, compiled for that level (program/workload/change.ts RoleChanges `level`).
+ * The lock a call's served write takes before its snapshot (runtime/write/flight.ts WriteExclusion), none where its
+ * login fences nothing it writes. The call's session is its role's, which holds DELETE on every relation it fences, a
+ * privilege that permits the lock as the login's MAINTAIN does.
+ */
+const exclusionOf = (s: InstalledShape, call: RaceCall): ReadonlyArray<RaceStatement> => {
+	const exclusion = defined(
+		s.changes.get(call.role)?.get(call.member),
+		`member ${call.member} of role ${call.role}`
+	).entry.program.flight.exclusion
+	return exclusion.kind === "lock" ? [{ sql: exclusion.text.sql, footprint: everyRelation }] : []
+}
+
+/**
+ * A call's direct transaction: its first statement setting the level its role's served file records, then the lock its
+ * served write takes before its snapshot, as a Db's prologue sends it before the statement that takes the snapshot,
+ * then the call's statements, the served file's, compiled for that level (program/workload/change.ts RoleChanges
+ * `level`).
  */
 const txnOf = (s: InstalledShape, call: RaceCall): Effect.Effect<RaceTxn<never>, InputFailure> =>
 	Effect.map(callStatements(s, call), (statements) => {
@@ -442,7 +460,7 @@ const txnOf = (s: InstalledShape, call: RaceCall): Effect.Effect<RaceTxn<never>,
 		return {
 			kind: "direct",
 			session: call.session,
-			statements: [setLevel(levelOf(s, call.role)), ...sent],
+			statements: [setLevel(levelOf(s, call.role)), ...exclusionOf(s, call), ...sent],
 			end: "commit"
 		}
 	})

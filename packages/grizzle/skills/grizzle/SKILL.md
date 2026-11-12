@@ -674,8 +674,13 @@ The command line's own refusals, by stage:
   that inserts rows referencing content another role maintains publishes the keys it references: every writer of
   that content states `insert` on it, an insert-only published relation holds the keys with a foreign key into the
   content, a `publisher` role that inserts nothing else writes it, and the referencing role's foreign keys point at
-  the published relation. `compileServed` of other programs than the committed workload serves every role
-  SERIALIZABLE.
+  the published relation. A published relation may also be deleted and inserted again (a content replace that
+  republishes its keys) by roles that never update it: every login that deletes it fences it, so each of its
+  ChangeSets that writes it sends `LOCK TABLE ... IN EXCLUSIVE MODE` on it as the login before its snapshot, migrate
+  grants the login MAINTAIN on it, and generate prints `login L fences R` with the read committed roles that rely on
+  it. A direct transaction of that login writing the relation begins with the same LOCK. A read committed call whose
+  foreign key check reads it waits while a fenced write runs, and may meet a 40P01 `Deadlock`, transient.
+  `compileServed` of other programs than the committed workload serves every role SERIALIZABLE.
 - A role's `write` lists a query entry only when the entry is writable (README's Writing through a role); otherwise
   `role(...)` is refused as `RoleRefused`, its rule `writeUnwritable` naming the `entry` and the `why`. An entry over a
   family's owner writes the owner as a write of its table does: grizzle draws the owner's counts and ends, so no row

@@ -38,7 +38,8 @@ import type { Installation } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallExtension,
 	noCarriers,
-	noCertificates
+	noCertificates,
+	noFences
 } from "#compiler/physical/install/extension.ts"
 import { installBasis } from "#compiler/physical/install/plan.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
@@ -405,7 +406,8 @@ const workloadExtensionOver = (
 		),
 	textDomainUses: noTextDomainUses,
 	certifies: noCertificates,
-	carriers: noCarriers
+	carriers: noCarriers,
+	fences: noFences
 })
 
 /** The workload of `logins` alone (compileTestWorkload), compiled against the schema the installation installs. */

@@ -136,13 +136,15 @@ const servedStep = (step: OwnStep, isolation: Isolation): OwnStep => {
 
 /**
  * The data an application of `compiled` reads (`ServedWrite`) at the level it was compiled for (CompiledWrite `level`):
- * its declared parameters, its binding, its statements but the read-backs', which the read-backs' own programs run, each
- * step with the aborts it meets at that level, and its written relations' headings.
+ * its declared parameters, its binding, what its transaction locks before its snapshot, its statements but the
+ * read-backs', which the read-backs' own programs run, each step with the aborts it meets at that level, and its written
+ * relations' headings.
  */
 export const projectWrite = (compiled: CompiledWrite): ServedWrite =>
 	Object.freeze({
 		params: compiled.params,
 		binding: compiled.binding,
+		exclusion: compiled.exclusion,
 		statements: Object.freeze(
 			compiled.artifact.statements.flatMap((s): ReadonlyArray<ServedStatement> => {
 				const step = s.step

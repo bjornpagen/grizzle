@@ -9,6 +9,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import {
 	type BatchStatement,
+	excludesNothing,
 	type Flight,
 	joinFlights,
 	preparedStatement,
@@ -377,7 +378,11 @@ describe("joined flights", () => {
 								expected.flat()
 							)
 							const values = yield* Effect.flatMap(
-								runFramed(session, writeFrame(flightPrologue, "serializable"), joined.statements),
+								runFramed(
+									session,
+									writeFrame(flightPrologue, "serializable", excludesNothing),
+									joined.statements
+								),
 								joined.read
 							)
 							assert.deepEqual(values, expected)

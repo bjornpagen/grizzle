@@ -19,7 +19,8 @@ import {
 	type InstallExtension,
 	noCarriers,
 	noCertificates,
-	noContribution
+	noContribution,
+	noFences
 } from "#compiler/physical/install/extension.ts"
 import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { assert, defined } from "#test/support/assert.ts"
@@ -301,7 +302,8 @@ export const drawnRequests = (specs: ReadonlyArray<RequestSpec>): InstallExtensi
 	},
 	textDomainUses: noTextDomainUses,
 	certifies: noCertificates,
-	carriers: noCarriers
+	carriers: noCarriers,
+	fences: noFences
 })
 
 /**

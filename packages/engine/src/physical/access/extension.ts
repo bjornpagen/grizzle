@@ -1,4 +1,4 @@
-import type { RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
+import type { Fence, RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -11,10 +11,12 @@ import type { InstallOptions } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallContribution,
 	type InstallExtension,
+	loginFences,
 	type RoleOfLogin,
 	noCarriers,
 	noCertificates,
-	noContribution
+	noContribution,
+	noFences
 } from "#compiler/physical/install/extension.ts"
 import type { StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
 
@@ -77,23 +79,27 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
 	},
 	textDomainUses: noTextDomainUses,
 	certifies: noCertificates,
-	carriers: noCarriers
+	carriers: noCarriers,
+	fences: noFences
 })
 
 /**
  * The served workload's extension: the workload's (workloadExtension), the certificate of every role of every login
- * its plan certified (program/workload/compile.ts servedWorkload), which the installation's guards follow, and the
- * roles whose served ChangeSets create a carrier, which it grants TEMPORARY on the database.
+ * its plan certified (program/workload/compile.ts servedWorkload), which the installation's guards follow, the roles
+ * whose served ChangeSets create a carrier, which it grants TEMPORARY on the database, and the relations each login
+ * fences, on which it grants the login MAINTAIN.
  */
 export const servedWorkloadExtension = (
 	workload: WorkloadPhysical & {
 		readonly certification: ReadonlyArray<RoleIsolation>
 		readonly carriers: ReadonlyArray<RoleOfLogin>
+		readonly fences: ReadonlyArray<Fence>
 	}
 ): InstallExtension => ({
 	...workloadExtension(workload),
 	certifies: workload.certification,
-	carriers: workload.carriers
+	carriers: workload.carriers,
+	fences: loginFences(workload.fences)
 })
 
 /** Installer options with the workload extension after the caller's extensions. */

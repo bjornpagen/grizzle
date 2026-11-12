@@ -3166,22 +3166,25 @@ statement's. The role is certified READ COMMITTED when all of these hold, and st
   of other calls' rows are in one
   statement, beside no foreign key check that reads more of them, and each row it writes is joined with what it read,
   so a call that finds nothing writes nothing. Each foreign key check it makes finds an immutable row in the same way,
-  or refuses the call whole. A row the call inserted, read back in a later statement by the key it was inserted at,
-  is its own, when no statement up to the insert read other calls' rows.
+  or a row of a relation no role updates, which the check locks until the call commits, or refuses the call whole. A
+  row the call inserted, read back in a later statement by the key it was inserted at, is its own, when no statement
+  up to the insert read other calls' rows.
 - **No SERIALIZABLE role writes what it writes.** The table's guard would refuse every one of its writes.
 - **No SERIALIZABLE writer of what it reads can miss another call's write.** Every role that runs SERIALIZABLE and
   writes a relation the role reads (by a statement or a foreign key check) reads no row another call can write, makes
   no foreign key check but one that finds an immutable row (of a relation every role only inserts into, by a whole
-  declared key, or of a relation no role writes), and writes no relation a rule over a query reads.
+  declared key, or of a relation no role writes), and writes no relation a rule over a query reads, unless the role
+  reads the relation by foreign key checks alone and the writer's login fences it (below).
 
 **Reading generate's report.** generate prints one line per role, before the files it writes:
 
 ```
 login app, role learner: read committed
 login author_app, role author: serializable (privileges 496, laws 47, absence 1911, snapshot 2993, pivot 3735)
+login author_app fences PublishedVariant: its writes of it lock it in exclusive mode before their snapshot, for the read committed foreign key checks of login app, role learner
 ```
 
-A SERIALIZABLE role lists each condition it failed, with how many places fail it:
+A SERIALIZABLE role lists each condition it failed, with how many places fail it, and each fence follows the roles:
 
 | Condition    | What fails it                                                                                                                            |
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
@@ -3205,7 +3208,43 @@ committed workload has no certificate behind it, so every role in it runs SERIAL
 
 **Direct SQL.** A direct writer, psql included, writes at SERIALIZABLE, and the guard refuses anything below it with
 25000, except on a table whose every writer is certified READ COMMITTED. There it may write at any level, as the role it
-writes as: it can only insert and read, and every law of the table is a constraint PostgreSQL checks at every level.
+writes as: it can only insert and read, and every law of the table is a constraint PostgreSQL checks at every level. A
+direct transaction of a login that fences a relation (generate's report names it) that writes the relation begins with
+`LOCK TABLE ... IN EXCLUSIVE MODE` on it, before any other statement, as the fenced ChangeSets do.
+
+**Referencing a relation another role deletes: fences.** A READ COMMITTED role may reference a relation that some role
+deletes, as a learner's answer references the published keys a content replace deletes and inserts again, when no role
+updates it. Its foreign key check locks the row it finds until the call commits, and every deletion of that row waits
+for it. Two histories still break that check, and generate closes both by fencing the relation:
+
+- A replace that deletes a key and inserts the same key in one transaction. A READ COMMITTED check that took its
+  snapshot before the replace committed waits on the deleted row, finds it deleted, never sees the inserted one, and
+  raises 23503, although the key exists before and after: a refusal no order of the calls gives. This holds for an
+  identical row too: the inserted row is a new one.
+- A writer that may miss another call's write (it reads other calls' rows, or writes a relation a rule over a query
+  reads) inserting a key while a check looks for it. The check waits for nothing and refuses its call, which no order
+  in real time explains once the writer missed a write that committed before the call began.
+
+Every login whose roles delete such a relation fences it: each ChangeSet of the login that writes the relation begins
+its transaction, as the login and before any statement takes the snapshot, with `LOCK TABLE ... IN EXCLUSIVE MODE` on
+it, and `grizzle migrate` grants the login MAINTAIN on its table, the least privilege that permits the lock, and USAGE
+on its schema; the drift check judges both. A READ COMMITTED check takes ROW SHARE on the table before its own
+snapshot, which the lock excludes, so every check either committed before the fencing write locked, and the write's
+snapshot sees the call, or takes its snapshot after the write committed. Neither history can happen, the write's check
+of the rows that reference a row it deletes no longer counts against the referencing role, and generate prints each
+fence it relies on. Fences cost:
+
+- A READ COMMITTED call whose check reads the relation waits while a fencing write runs, and fencing writes of one
+  relation run one at a time. Plain reads, which take no row lock, never wait.
+- A deadlock, at most once per fencing write: the write locks its relations one at a time, in the order of their
+  qualified names, and a READ COMMITTED call holding ROW SHARE on one of them may wait for another it locked first.
+  PostgreSQL aborts one of the two with 40P01, a `TransientFailure` (`Deadlock`). No order of the lock list avoids it:
+  a call takes ROW SHARE in the order its foreign key checks fire, its relation's check triggers' names, and those are
+  `RI_ConstraintTrigger_c_` and the trigger's OID, compared as text, so two referencing relations can check two fenced
+  relations in opposite orders.
+
+A relation some role updates is never fenced: an update may move the key a check found, so the referencing role stays
+SERIALIZABLE.
 
 **Referencing content another role writes: publish it.** A ChangeSet that inserts rows referencing content another role
 maintains (an author edits questions, a learner's answer names a question) reads that content in its foreign key
@@ -3285,7 +3324,9 @@ checks (below). `grizzle migrate`, which runs the drift check after every apply,
   migrate` grants it to every role whose served workload creates one, and to no other role or login. The drift check
   judges each role's and login's own `TEMPORARY` grant exactly; `PUBLIC`'s, which PostgreSQL gives every database, is
   the database owner's, which grizzle neither relies on nor revokes. A grant revoked after the migration makes the
-  write `TemporaryRefused`. The login is LOGIN NOINHERIT and the role NOLOGIN, neither with
+  write `TemporaryRefused`. A login that fences a relation holds MAINTAIN on its table and USAGE on its schema, which
+  its fenced writes lock it by ([READ COMMITTED writes](#read-committed-writes)). The login is LOGIN NOINHERIT and the
+  role NOLOGIN, neither with
   SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS. A role's members are its login and the migration role; any
   other membership of the login that confers something is drift. Row-level security is enabled, not forced, on every
   table the role writes through a query entry that leaves rows out.

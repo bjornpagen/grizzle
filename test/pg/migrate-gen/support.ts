@@ -48,7 +48,8 @@ import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallExtension,
 	noCarriers,
-	noCertificates
+	noCertificates,
+	noFences
 } from "#compiler/physical/install/extension.ts"
 import {
 	type StatisticsRequest,
@@ -995,7 +996,8 @@ export const extensionsOf = (v: Version): ReadonlyArray<InstallExtension> => {
 						workloadExtension({ schema: b.owned.fingerprint, paths: [], statistics }).contribute(b),
 					textDomainUses: noTextDomainUses,
 					certifies: noCertificates,
-					carriers: noCarriers
+					carriers: noCarriers,
+					fences: noFences
 				}
 			]
 }

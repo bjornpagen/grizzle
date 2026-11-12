@@ -37,7 +37,8 @@ import {
 	type InstallExtension,
 	noCarriers,
 	noCertificates,
-	noContribution
+	noContribution,
+	noFences
 } from "#compiler/physical/install/extension.ts"
 
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
@@ -278,7 +279,8 @@ const derivedRelationExtension = (): InstallExtension => {
 		contribute: extension,
 		textDomainUses: (checked: CheckedSchema) => Result.ok(textColumnUses(derivedAnalysis(checked))),
 		certifies: noCertificates,
-		carriers: noCarriers
+		carriers: noCarriers,
+		fences: noFences
 	}
 }
 

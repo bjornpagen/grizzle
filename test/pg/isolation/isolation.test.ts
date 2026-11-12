@@ -21,6 +21,15 @@
  * - Drawn installations (support/drawn.ts): pivots and members of two statements over four relations are serial at
  *   generate's levels, and at the levels `certify` gives facts stated one to one with the drawing and the conditions
  *   restated over it give, wherever those differ from generate's.
+ * - G3's fenced replace (support/shapes.ts fencedShape): a READ COMMITTED learner beside a SERIALIZABLE publisher whose
+ *   login deletes and inserts what the learner references, so generate fences it (analysis/isolation/certify.ts Fence):
+ *   a same-key replace, an identical one, a removal of the learner's key, a replace of another key, NEGATION's case 3
+ *   as a publish that misses a gate, and a removal of two fenced relations the learner checks in either order, each
+ *   serial in every run. Its required features: the learner's check waiting on a same-key replace, the replace waiting
+ *   on the check, the learner committing before the replace begins, a key removed, a check waiting on an in-flight
+ *   publish, and a deadlock a fenced removal meets, which PostgreSQL breaks with 40P01, a transient abort the serial
+ *   reference places nowhere. Plants (~/.cache/grizzle-release/CERTDEL/plants): certify-fence-omitted, served writes
+ *   with no lock, which a spurious 23503 or NEGATION's case 3 catches.
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -62,6 +71,7 @@ import {
 	skewShape,
 	copiesShape,
 	deferredShape,
+	fencedShape,
 	fkShape,
 	foldShape,
 	listedShape,
@@ -834,6 +844,157 @@ type PublishedFeature =
 	| "races 7 and 8 caught"
 	| "generate certifies the learner READ COMMITTED"
 
+/** The values a fenced race writes at: two published keys, a stored s and another, and the learner's row's key. */
+interface FencedValues {
+	readonly a: number
+	readonly b: number
+	readonly s: number
+	readonly t: number
+	readonly k: number
+}
+
+const fencedValues: Gen<FencedValues> = (source) => {
+	const a = source.draw(int(1, 3))
+	const s = source.draw(int(0, 2))
+	return {
+		a,
+		b: (a % 3) + 1,
+		s,
+		t: (s + 1 + source.draw(int(0, 1))) % 3,
+		k: source.draw(int(1, 3))
+	}
+}
+
+/**
+ * What a fenced race holds beside the learner's call: a replace of the key it references by another fact
+ * (a delete and an insert of the same key in one transaction), or by the stored one (no change); a removal of that key;
+ * a replace of another key; a publish of the key that misses a gate committed before the learner began (NEGATION's case
+ * 3); or a removal of the keys of PubA and PubZ, which the learner checks in the order its member states.
+ */
+type FencedKind =
+	| "same-key replace"
+	| "identical replace"
+	| "removed key"
+	| "kept key"
+	| "in-flight publish"
+	| "fenced removal, Z first"
+	| "fenced removal, A first"
+
+/** A race of the fenced shape (shapes.ts fencedShape): its kind, initial facts, calls and schedule. */
+interface FencedRace {
+	readonly kind: FencedKind
+	readonly initial: FactSet
+	readonly calls: Arr.NonEmptyReadonlyArray<CallSketch>
+	readonly schedule: CounterSchedule
+}
+
+/**
+ * The fenced shape's races at `values`: each pair of a publisher's write and a learner's call in every order; the
+ * in-flight publish pinned as NEGATION's case 3, the publish paused before its COMMIT while the gate and the learner run
+ * to their ends.
+ */
+const fencedRaces = ({ a, b, s, t, k }: FencedValues): Arr.NonEmptyReadonlyArray<FencedRace> => {
+	const see = (key: number) => call("learner", "see", { k, v: key })
+	const stored = { Pub: [{ v: a, s }] }
+	return [
+		{
+			kind: "same-key replace",
+			initial: stored,
+			calls: [call("publisher", "replace", { v: a, s: t }), see(a)],
+			schedule: everyOrder
+		},
+		{
+			kind: "identical replace",
+			initial: stored,
+			calls: [call("publisher", "replace", { v: a, s }), see(a)],
+			schedule: everyOrder
+		},
+		{
+			kind: "removed key",
+			initial: stored,
+			calls: [call("publisher", "remove", { v: a }), see(a)],
+			schedule: everyOrder
+		},
+		{
+			kind: "kept key",
+			initial: {
+				Pub: [
+					{ v: a, s },
+					{ v: b, s }
+				]
+			},
+			calls: [call("publisher", "replace", { v: a, s: t }), see(b)],
+			schedule: everyOrder
+		},
+		{
+			kind: "in-flight publish",
+			initial: {},
+			calls: [call("publisher", "publish", { v: a, s }), call("writer", "gate", { v: a }), see(a)],
+			schedule: pausedFirst([])
+		},
+		{
+			kind: "fenced removal, Z first",
+			initial: { PubA: [{ v: a }], PubZ: [{ v: a }] },
+			calls: [call("publisher", "removeBoth", { v: a }), call("learner", "za", { k, v: a })],
+			schedule: everyOrder
+		},
+		{
+			kind: "fenced removal, A first",
+			initial: { PubA: [{ v: a }], PubZ: [{ v: a }] },
+			calls: [call("publisher", "removeBoth", { v: a }), call("learner", "az", { k, v: a })],
+			schedule: everyOrder
+		}
+	]
+}
+
+type FencedFeature =
+	| "generate certifies the learner READ COMMITTED"
+	| "generate fences every publisher write of Pub"
+	| "a learner's check waited on a same-key replace"
+	| "a same-key replace waited on a learner's check"
+	| "a learner committed before a same-key replace began"
+	| "a key removed beside a learner"
+	| "a learner's check waited on an in-flight publish"
+	| "a deadlock a fenced removal met"
+	| "every fenced race serial"
+
+/**
+ * The features one run of a fenced race reaches: s0 is the publisher's session and s1 the learner's, but in the
+ * in-flight publish, whose learner is s2; a wait is a move observed waiting on the other's lock.
+ */
+const noteFencedRun =
+	(kind: FencedKind, note: (feature: FencedFeature) => void) =>
+	(e: Explained<never>): void => {
+		const learner = kind === "in-flight publish" ? "s2" : "s1"
+		const waited = (session: string, on: string) =>
+			Arr.some(
+				e.run.moves,
+				(m) => m.session === session && m.observed._tag === "Waited" && m.observed.on.includes(on)
+			)
+		if (kind === "same-key replace") {
+			if (waited(learner, "s0")) {
+				note("a learner's check waited on a same-key replace")
+			}
+			if (waited("s0", learner)) {
+				note("a same-key replace waited on a learner's check")
+			}
+			const publisher = e.run.spans["s0"]
+			const read = e.run.spans[learner]
+			if (publisher !== undefined && read !== undefined && read.end < publisher.start) {
+				note("a learner committed before a same-key replace began")
+			}
+		}
+		if (kind === "removed key") {
+			note("a key removed beside a learner")
+		}
+		if (kind === "in-flight publish" && waited(learner, "s0")) {
+			note("a learner's check waited on an in-flight publish")
+		}
+		if (e.run.deadlocks.length > 0) {
+			note("a deadlock a fenced removal met")
+		}
+	}
+
 /**
  * The installations of B-03c's probe shapes and NEGATION's arbitrated read, each at generate's levels and with the roles
  * the certifier is to admit, or must refuse, forced READ COMMITTED.
@@ -1355,6 +1516,79 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										)
 										c.note("every publication race serial")
 										c.note("races 7 and 8 caught")
+									})
+							)
+						})
+					)
+				)
+		)
+
+		it.effect(
+			"G3's fenced replace: an RC learner beside a publisher that deletes and inserts what it references, every race serial at generate's levels",
+			(ctx) =>
+				searched(
+					ctx,
+					Effect.scoped(
+						Effect.gen(function* () {
+							const installed = yield* installShape(fencedShape, generate)
+							const fenced = Arr.every(
+								["replace", "remove", "publish"],
+								(member) =>
+									installed.changes.get("publisher")?.get(member)?.entry.program.flight.exclusion
+										.kind === "lock"
+							)
+							return yield* explore(
+								{
+									oracle: {
+										kind: "specification",
+										name: "a strict serial order of the same calls"
+									},
+									suite: "pg/isolation/fenced",
+									draw: drawn(fencedValues),
+									literal: Formatter.format,
+									coverage: required<FencedFeature>(
+										[
+											"generate certifies the learner READ COMMITTED",
+											"generate fences every publisher write of Pub",
+											"a learner's check waited on a same-key replace",
+											"a same-key replace waited on a learner's check",
+											"a learner committed before a same-key replace began",
+											"a key removed beside a learner",
+											"a learner's check waited on an in-flight publish",
+											"a deadlock a fenced removal met",
+											"every fenced race serial"
+										],
+										{ cases: runs, sense: notesOnly }
+									),
+									kept: [],
+									runs,
+									shrink: { kind: "bounded", candidates: 40 },
+									concurrency: 1,
+									steerEvery: runs,
+									caseHang
+								},
+								(values, c) =>
+									Effect.gen(function* () {
+										if (installed.levels.get("learner") === "readCommitted") {
+											c.note("generate certifies the learner READ COMMITTED")
+										}
+										if (fenced) {
+											c.note("generate fences every publisher write of Pub")
+										}
+										yield* Effect.forEach(
+											fencedRaces(values),
+											(race) =>
+												Effect.scoped(
+													runIsolationRace(
+														installed,
+														raceOf(race),
+														counterStrategy(race.schedule, c),
+														noteFencedRun(race.kind, (feature) => c.note(feature))
+													)
+												),
+											{ discard: true }
+										)
+										c.note("every fenced race serial")
 									})
 							)
 						})

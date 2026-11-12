@@ -70,7 +70,8 @@ export {
 	type FlightStatement,
 	type FlightWrite,
 	loadWrite,
-	type ServedWrite
+	type ServedWrite,
+	type WriteExclusion
 } from "#compiler/runtime/write/flight.ts"
 export { type ArrayMember, memberFactsOf } from "#compiler/runtime/write/members.ts"
 export { projectWrite, servedWrite } from "#compiler/write/program/served.ts"

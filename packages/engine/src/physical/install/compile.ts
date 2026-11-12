@@ -35,7 +35,11 @@ import {
 	reverseRequests
 } from "#compiler/physical/indexes/engine.ts"
 import { commentsOf } from "#compiler/physical/install/comments.ts"
-import type { InstallExtension, RoleOfLogin } from "#compiler/physical/install/extension.ts"
+import type {
+	InstallExtension,
+	LoginFence,
+	RoleOfLogin
+} from "#compiler/physical/install/extension.ts"
 import {
 	freshPlanSettings,
 	type InstallBasis,
@@ -132,6 +136,26 @@ const statedOnce = <R extends RoleOfLogin>(
 		const same = stated.filter((d) => d.login === c.login && d.role === c.role)
 		if (same.length > 1 || !installed.some((r) => r.login === c.login && r.role === c.role)) {
 			throw defect(`one ${what} of role ${c.role} of login ${c.login}, a role it installs`)
+		}
+	}
+	return stated
+}
+
+/**
+ * The fences the extensions state, each login's once, of a login the plan installs: one stated twice, or of a login the
+ * plan does not install, is a defect of the caller that compiled the workload over other logins than the
+ * installation's.
+ */
+const fencedOnce = (
+	plan: InstallPlan,
+	stated: ReadonlyArray<LoginFence>
+): ReadonlyArray<LoginFence> => {
+	for (const f of stated) {
+		if (
+			stated.filter((g) => g.login === f.login).length > 1 ||
+			!plan.logins.some(({ login }) => login.name === f.login)
+		) {
+			throw defect(`one fence statement of login ${f.login}, a login it installs`)
 		}
 	}
 	return stated
@@ -385,6 +409,10 @@ export const installationOver = (
 						installedRoles(plan),
 						options.extensions.flatMap((e) => e.carriers),
 						"carrier statement"
+					),
+					fencedOnce(
+						plan,
+						options.extensions.flatMap((e) => e.fences)
 					)
 				)
 				const identities = [...ownedIdentities(owned), ...model.identities, ...b.named()]

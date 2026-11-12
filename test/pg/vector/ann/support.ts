@@ -18,7 +18,8 @@ import {
 	type InstallExtension,
 	noCarriers,
 	noCertificates,
-	noContribution
+	noContribution,
+	noFences
 } from "#compiler/physical/install/extension.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -381,7 +382,8 @@ const workloadRequests = (programs: Readonly<Record<string, unknown>>): InstallE
 		),
 	textDomainUses: noTextDomainUses,
 	certifies: noCertificates,
-	carriers: noCarriers
+	carriers: noCarriers,
+	fences: noFences
 })
 
 const checked = (q: unknown) =>

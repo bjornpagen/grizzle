@@ -194,7 +194,20 @@ export const prologueOf = (
 })
 
 /** A Db's transaction: framed as a transaction is, and begun by the Db's prologue (see the header). */
-export type Frame = Transaction & { readonly prologue: Prologue }
+/**
+ * What a Db transaction locks between its prologue's fence and the statement that takes its snapshot, as the login:
+ * nothing, or a fenced write's LOCK TABLE ... IN EXCLUSIVE MODE of the relations its login fences that it writes, its
+ * text named where generate served it (engine runtime/write/flight.ts WriteExclusion). A LOCK takes no snapshot, so its
+ * transaction's snapshot follows the lock.
+ */
+export type Exclusion =
+	| { readonly kind: "none" }
+	| { readonly kind: "lock"; readonly statement: PreparedStatement }
+
+/** A transaction that locks nothing before its snapshot: every read's and refresh's, and an unfenced write's. */
+export const excludesNothing: Exclusion = { kind: "none" }
+
+export type Frame = Transaction & { readonly prologue: Prologue; readonly exclusion: Exclusion }
 
 /** The prologue was refused at the pipeline positions right after BEGIN, for no reason of the fence's: nothing ran. */
 class PrologueRefused extends Data.TaggedError("PrologueRefused")<{
@@ -208,8 +221,8 @@ class PrologueRefused extends Data.TaggedError("PrologueRefused")<{
  */
 export type FlightFailure = BatchFailure | PrologueRefused | StaleSnapshot | InputTooLarge
 
-/** The fence's two steps: the ledger's lock NOWAIT, and the guard's call. */
-export type FenceStep = "lock" | "guard"
+/** The prologue's steps: the ledger's lock NOWAIT, a fenced write's lock (Exclusion), and the guard's call. */
+export type FenceStep = "lock" | "exclude" | "guard"
 
 /**
  * Why the fence refused, from the server's refusal of its `step`, or none for any other refusal: the lock refused at once
@@ -218,6 +231,8 @@ export type FenceStep = "lock" | "guard"
  */
 export const fenceReason = (step: FenceStep, failure: ServerError): Option.Option<StaleReason> => {
 	switch (step) {
+		case "exclude":
+			return Option.none()
 		case "lock":
 			return failure.sqlstate === sqlstates.lockNotAvailable
 				? Option.some(new Migrating())
@@ -300,25 +315,33 @@ interface Principal<P, F> {
 const asLogin: Principal<never, never> = { prologue: [], refused: Function.absurd }
 
 /**
- * A Db's role, entered by its prologue's two statements, both run as the login: the fence's lock and the statement
- * that calls the guard and enters the role. A refusal the fence explains (fenceReason) is StaleSnapshot, any other
+ * A Db's role, entered by its prologue's two statements, both run as the login, the fence's lock and the statement
+ * that calls the guard and enters the role, with the frame's exclusion, a fenced write's lock, between them, run as the
+ * login too, before the snapshot. A refusal the fence explains (fenceReason) is StaleSnapshot, any other
  * PrologueRefused.
  */
-const asDb = (prologue: Prologue): Principal<FenceStep, PrologueRefused | StaleSnapshot> => ({
+const asDb = (frame: Frame): Principal<FenceStep, PrologueRefused | StaleSnapshot> => ({
 	prologue: [
-		{ statement: prologue.fence, step: "lock" },
-		{ statement: prologue.enter, step: "guard" }
+		{ statement: frame.prologue.fence, step: "lock" },
+		...exclusionSteps(frame.exclusion),
+		{ statement: frame.prologue.enter, step: "guard" }
 	],
 	refused: (step, failure) =>
 		Option.getOrElse(
 			Option.map(
 				fenceReason(step, failure),
 				(reason): PrologueRefused | StaleSnapshot =>
-					new StaleSnapshot({ reason, snapshot: prologue.snapshot, error: failure })
+					new StaleSnapshot({ reason, snapshot: frame.prologue.snapshot, error: failure })
 			),
 			() => new PrologueRefused({ failure })
 		)
 })
+
+/** The prologue step an exclusion sends: its lock, none for an exclusion of nothing. */
+const exclusionSteps = (
+	exclusion: Exclusion
+): ReadonlyArray<{ readonly statement: BatchStatement; readonly step: FenceStep }> =>
+	exclusion.kind === "lock" ? [{ statement: exclusion.statement, step: "exclude" }] : []
 
 /**
  * How much of its transaction a flight carries: all of it, from BEGIN through its prologue and statements to its end;
@@ -1045,15 +1068,24 @@ export const readFrame = (prologue: Prologue): Frame => ({
 	access: "readOnly",
 	isolation: "serializable",
 	end: "COMMIT",
-	prologue
+	prologue,
+	exclusion: excludesNothing
 })
 
-/** A write of a Db at `isolation`, behind its prologue: a change at its role's level, a refresh at SERIALIZABLE. */
-export const writeFrame = (prologue: Prologue, isolation: Isolation): Frame => ({
+/**
+ * A write of a Db at `isolation`, behind its prologue and `exclusion`: a change at its role's level, locking what its
+ * login fences of what it writes, a refresh at SERIALIZABLE, locking nothing.
+ */
+export const writeFrame = (
+	prologue: Prologue,
+	isolation: Isolation,
+	exclusion: Exclusion
+): Frame => ({
 	access: "readWrite",
 	isolation,
 	end: "COMMIT",
-	prologue
+	prologue,
+	exclusion
 })
 
 /**
@@ -1258,7 +1290,7 @@ export const runFramed = (
 	Effect.suspend((): Effect.Effect<ReadonlyArray<BatchOutcome>, FlightFailure> => {
 		const overrun = bindOverrun(statements, session.messageMaxBytes)
 		return overrun === undefined
-			? runEntered(session, asDb(frame.prologue), statements, frame, "whole")
+			? runEntered(session, asDb(frame), statements, frame, "whole")
 			: Effect.fail(overrun)
 	})
 
@@ -1344,7 +1376,7 @@ export const runFramedTwice = <E>(
 				return yield* overrun
 			}
 			const read = yield* Effect.exit(
-				restore(runEntered(session, asDb(frame.prologue), first, frame, "opening"))
+				restore(runEntered(session, asDb(frame), first, frame, "opening"))
 			)
 			if (Exit.isFailure(read)) {
 				if (!Option.exists(Cause.findErrorOption(read.cause), unwritten)) {
@@ -1368,7 +1400,7 @@ export const runFramedTwice = <E>(
 				return yield* shifted(tooLarge, first.length)
 			}
 			const written = yield* Effect.mapError(
-				restore(runEntered(session, asDb(frame.prologue), statements, frame, "closing")).pipe(
+				restore(runEntered(session, asDb(frame), statements, frame, "closing")).pipe(
 					Effect.tapError((failure) =>
 						unwritten(failure) ? rollbackOpening(session, frame) : Effect.void
 					)

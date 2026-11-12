@@ -77,6 +77,7 @@ import {
 
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { Binding } from "#compiler/runtime/write/binding.ts"
+import { noExclusion, type WriteExclusion } from "#compiler/runtime/write/flight.ts"
 import { sentLayout } from "#compiler/runtime/write/nesting.ts"
 import type { FamilyStep, FamilyWriteStep } from "#compiler/runtime/write/steps.ts"
 import type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
@@ -210,6 +211,11 @@ export interface CompileWriteOptions {
 export interface CompiledWrite extends ProgramArtifacts<WriteParamSlot> {
 	/** The isolation its statements were built for (CompileWriteOptions `level`), the one it is served and run at. */
 	readonly level: Isolation
+	/**
+	 * What its transaction locks before its snapshot: nothing where it compiles; the relations its login fences that it
+	 * writes once certification fences them (program/isolation/certification.ts).
+	 */
+	readonly exclusion: WriteExclusion
 	readonly frontend: WriteFrontend
 	/** Each stratum's edits of a family's member relation, with their reads, built once. */
 	readonly edits: ReadonlyArray<EditProgram>
@@ -1758,6 +1764,7 @@ const compile = (
 	const family = familyProgram(restated, lowering.w)
 	const program: CompiledWrite = {
 		level: options.level,
+		exclusion: noExclusion,
 		edits: family.edits,
 		refills: family.refills,
 		kind: "write",

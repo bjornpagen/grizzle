@@ -60,13 +60,13 @@ export const plannedBySql = (c: FlightCase, sqlOf: SqlOf): ReadonlyMap<string, P
 	new Map(Arr.map(plannedOf(c.call), (planned) => [sqlOf(planned), planned]))
 
 /**
- * What a prologue step answers on the scripted server, the lock or the guard's statement: the lock no row, the guard's
- * one row when it takes on the role.
+ * What a prologue step answers on the scripted server, a lock or the guard's statement: a lock no row, the guard's one
+ * row when it takes on the role.
  */
 const prologueAnswerOf = (step: FenceStep, answer: StepAnswer): StatementAnswer => {
 	switch (answer) {
 		case "answered":
-			return step === "lock" ? rows([]) : rows([["", flightPrologue.role, flightPrologue.claims]])
+			return step === "guard" ? rows([["", flightPrologue.role, flightPrologue.claims]]) : rows([])
 		case "refused":
 			return refusedAnswer(prologueRefusal)
 		case "migrating":

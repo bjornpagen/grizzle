@@ -1,15 +1,18 @@
 import {
 	type Candidate,
 	certify,
+	type Fence,
 	isolationOf,
 	type RoleIsolation
 } from "#compiler/analysis/isolation/certify.ts"
 import type { MemberFacts } from "#compiler/analysis/isolation/facts.ts"
 import type { CheckedSchema, RoleWorld } from "#compiler/analysis/schema.ts"
+import { compareText } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { prepared } from "#compiler/core/prepared.ts"
 import * as Result from "#compiler/core/result.ts"
 import { TupleMap, TupleSet } from "#compiler/core/tuple-map.ts"
 import type { NativeColumn, NativeObject } from "#compiler/ir/law.ts"
@@ -24,7 +27,9 @@ import {
 	type RoleChanges,
 	serializableChanges
 } from "#compiler/program/workload/change.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
+import type { LockTable, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
+import { emitText } from "#compiler/sql/emit.ts"
+import { emptyNameMap } from "#compiler/sql/naming.ts"
 import type { ArtifactStatement } from "#compiler/write/program/artifact.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import { refusalFunction } from "#compiler/write/refusal.ts"
@@ -199,6 +204,28 @@ const roleSource = (
 		members: [...role.members].map(([name, compiled]) => ({ name, compiled }))
 	}))
 
+/** The facts of one compiled write of change member `name` at `level` (extract.ts memberFacts), none where its flight
+ * sends no statement. */
+const writeFacts = (
+	level: Isolation,
+	name: string,
+	write: CompiledWrite,
+	names: ExtractNames
+): ReadonlyArray<MemberFacts> => {
+	const sent = flightStatements(write)
+	return isNonEmpty(sent)
+		? [
+				memberFacts(
+					name,
+					mapNonEmpty(sent, (s) => s.ast),
+					names,
+					(statement, n) => scalarParam(sent[statement]?.slots[n - 1]),
+					level
+				)
+			]
+		: []
+}
+
 /**
  * The facts of one change member's variants compiled for `level` (extract.ts memberFacts): one set per variant whose
  * flight sends any.
@@ -206,20 +233,87 @@ const roleSource = (
 const changeFacts =
 	(level: Isolation) =>
 	(name: string, variants: CompiledVariants, names: ExtractNames): ReadonlyArray<MemberFacts> =>
-		variantWrites(variants).flatMap((write): ReadonlyArray<MemberFacts> => {
-			const sent = flightStatements(write)
-			return isNonEmpty(sent)
-				? [
-						memberFacts(
-							name,
-							mapNonEmpty(sent, (s) => s.ast),
-							names,
-							(statement, n) => scalarParam(sent[statement]?.slots[n - 1]),
-							level
-						)
-					]
-				: []
-		})
+		variantWrites(variants).flatMap((write) => writeFacts(level, name, write, names))
+
+/** Two tables in the order of their qualified names, schema then name: the one order every fenced write locks in. */
+const byQualifiedName = (a: ObjectName, b: ObjectName): number =>
+	compareText(a.schema, b.schema) || compareText(a.name, b.name)
+
+/**
+ * `write` of change member `name` with the relations of `fenced` its flight writes, by its facts at its level, locked
+ * before its snapshot (runtime/write/flight.ts WriteExclusion): one LOCK TABLE ... IN EXCLUSIVE MODE over their tables
+ * in the order of their qualified names, named as a served statement is; `write` as it is where it writes none.
+ */
+const exclusionOf = (
+	name: string,
+	write: CompiledWrite,
+	fenced: ReadonlySet<string>,
+	role: RoleChanges,
+	names: ExtractNames
+): CompiledWrite => {
+	const written = new Set(
+		writeFacts(write.level, name, write, names).flatMap((m) =>
+			m.statements.flatMap((s) => s.writes.map((w) => w.relation))
+		)
+	)
+	const locked = [...written]
+		.filter((relation) => fenced.has(relation))
+		.map((relation) => ({ relation, table: role.artifacts.names.relation(relation) }))
+		.toSorted((a, b) => byQualifiedName(a.table, b.table))
+	if (!isNonEmpty(locked)) {
+		return write
+	}
+	const lock: LockTable = {
+		kind: "lockTable",
+		tables: mapNonEmpty(locked, (l) => l.table),
+		mode: "EXCLUSIVE",
+		wait: "wait"
+	}
+	return {
+		...write,
+		exclusion: {
+			kind: "lock",
+			relations: mapNonEmpty(locked, (l) => l.relation),
+			text: prepared(emitText(lock, emptyNameMap).text)
+		}
+	}
+}
+
+/** A change member's variants, each compiled write locking what it writes of `fenced` (exclusionOf). */
+const fencedVariants = (
+	name: string,
+	variants: CompiledVariants,
+	fenced: ReadonlySet<string>,
+	role: RoleChanges,
+	names: ExtractNames
+): CompiledVariants =>
+	variants.kind === "form"
+		? {
+				...variants,
+				entry: {
+					...variants.entry,
+					compiled: exclusionOf(name, variants.entry.compiled, fenced, role, names)
+				}
+			}
+		: {
+				...variants,
+				holding: fencedVariants(name, variants.holding, fenced, role, names),
+				lacking: fencedVariants(name, variants.lacking, fenced, role, names)
+			}
+
+/** A role's served changes with each of its writes locking what it writes of `fenced`, its login's fences. */
+const fencedChanges = <L extends Isolation>(
+	role: RoleChanges<L>,
+	fenced: ReadonlySet<string>,
+	names: ExtractNames
+): RoleChanges<L> => ({
+	...role,
+	members: new Map(
+		[...role.members].map(
+			([name, variants]) => [name, fencedVariants(name, variants, fenced, role, names)] as const
+		)
+	)
+})
 
 /** Each of `as` beside the one of `bs` at its place: the two lists are one per role, in the roles' order. */
 const zipped = <A, B>(
@@ -239,11 +333,13 @@ const zipped = <A, B>(
  * Every role's certificate, by login and role in the order given, and the changes each is served, compiled for its
  * certificate's level: its READ COMMITTED form where it runs READ COMMITTED, and its SERIALIZABLE form
  * (program/workload/change.ts serializableChanges) where it runs SERIALIZABLE, so a served form's level
- * (RoleChanges.level) is its certificate's.
+ * (RoleChanges.level) is its certificate's, each write of a login that fences a relation it writes locking it before
+ * its snapshot; and the fences (analysis/isolation/certify.ts Fence), by login then relation.
  */
 export interface Certification {
 	readonly certificates: ReadonlyArray<RoleIsolation>
 	readonly served: ReadonlyMap<string, ReadonlyMap<string, RoleChanges>>
+	readonly fences: ReadonlyArray<Fence>
 }
 
 /**
@@ -306,11 +402,25 @@ export const certification = (
 	if (!certified.ok) {
 		return certified
 	}
+	const fenced = new Map<string, Set<string>>()
+	for (const f of certified.value.fences) {
+		const relations = fenced.get(f.login) ?? new Set<string>()
+		relations.add(f.relation)
+		fenced.set(f.login, relations)
+	}
 	const served = new Map<string, Map<string, RoleChanges>>()
-	for (const c of certified.value) {
+	for (const [c, { source }] of zipped(certified.value.roles, sources)) {
 		const logged = served.get(c.role.login) ?? new Map<string, RoleChanges>()
-		logged.set(c.role.role, c.form)
+		const relations = fenced.get(c.role.login)
+		logged.set(
+			c.role.role,
+			relations === undefined ? c.form : fencedChanges(c.form, relations, source.names)
+		)
 		served.set(c.role.login, logged)
 	}
-	return Result.ok({ certificates: certified.value.map(isolationOf), served })
+	return Result.ok({
+		certificates: certified.value.roles.map(isolationOf),
+		served,
+		fences: certified.value.fences
+	})
 }

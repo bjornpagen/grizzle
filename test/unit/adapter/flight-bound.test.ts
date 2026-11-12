@@ -34,6 +34,7 @@ import type { Transport } from "#adapter/types/layer.ts"
 import {
 	type ApartFailure,
 	type BatchStatement,
+	excludesNothing,
 	type FlightFailure,
 	oneShotStatement,
 	type PreparedStatement,
@@ -435,7 +436,7 @@ const callOf = (
 			return Effect.asVoid(
 				runFramed(
 					session,
-					writeFrame(flightPrologue, "serializable"),
+					writeFrame(flightPrologue, "serializable", excludesNothing),
 					Arr.map(c.first, servedOfSpec)
 				)
 			)
@@ -443,7 +444,7 @@ const callOf = (
 			return Effect.asVoid(
 				runFramedTwice(
 					session,
-					writeFrame(flightPrologue, "serializable"),
+					writeFrame(flightPrologue, "serializable", excludesNothing),
 					Arr.map(c.first, servedOfSpec),
 					() => Effect.succeed(Arr.map(c.second, servedOfSpec))
 				)

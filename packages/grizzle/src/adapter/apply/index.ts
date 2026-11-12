@@ -96,7 +96,14 @@ const applyBound = <R>(
 		return yield* Effect.scoped(
 			Effect.flatMap(
 				Effect.mapError(ctx.pool.lease, (reason) => new TransportFailure({ reason })),
-				(session) => runWrite(session, dbChangeFrame(ctx), entry, inputs, reads)
+				(session) =>
+					runWrite(
+						session,
+						dbChangeFrame(ctx, entry.program.flight.exclusion),
+						entry,
+						inputs,
+						reads
+					)
 			)
 		)
 	})

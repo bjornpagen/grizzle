@@ -16,6 +16,7 @@ import {
 	type ApplyError,
 	CommitUnknown,
 	ExecutionFailure,
+	serializationRefusal,
 	TransportFailure
 } from "#adapter/errors/execution.ts"
 import {
@@ -372,8 +373,10 @@ const statementOrigin = (sent: ReadonlyArray<SentStatement>, index: number): Fai
 
 /**
  * What a write's failed flight means: a refused statement, or a refusal at COMMIT, is classified at its origin; the
- * fence's refusal is StaleSnapshot; any other refused prologue, which only a login that lost the role's
- * membership meets, is the server's.
+ * fence's refusal is StaleSnapshot; a refused prologue's deadlock or serialization failure, which a fenced write's lock
+ * meets where a READ COMMITTED check holds one of its tables and waits for another it locked first, is the
+ * TransientFailure a statement's is (errors/execution.ts serializationRefusal); any other refused prologue, which only
+ * a login that lost the role's membership or the grant of a fenced table meets, is the server's.
  */
 const flightFailure = <R>(
 	failure: FlightFailure,
@@ -407,7 +410,9 @@ const flightFailure = <R>(
 		case "InputTooLarge":
 			return Effect.fail(new ExecutionFailure({ reason: failure }))
 		case "PrologueRefused":
-			return Effect.fail(new ExecutionFailure({ reason: failure.failure }))
+			return Effect.fail(
+				serializationRefusal(failure.failure) ?? new ExecutionFailure({ reason: failure.failure })
+			)
 		case "StaleSnapshot":
 			return Effect.fail(failure)
 	}

@@ -1,6 +1,14 @@
 import type { RoleContext } from "#adapter/served/role.ts"
-import { type Frame, type Prologue, readFrame, writeFrame } from "#adapter/wire/batch.ts"
+import {
+	excludesNothing,
+	type Frame,
+	type Prologue,
+	preparedStatement,
+	readFrame,
+	writeFrame
+} from "#adapter/wire/batch.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
+import type { WriteExclusion } from "#compiler/plan/change.ts"
 import type { Isolation } from "#compiler/plan/common.ts"
 
 /**
@@ -33,10 +41,22 @@ export type DbContext = ServedDbContext & RoleContext
 /** The frame of every read of the Db: SERIALIZABLE READ ONLY. */
 export const dbReadFrame = (ctx: Pick<DbContext, "prologue">): Frame => readFrame(ctx.prologue)
 
-/** The frame of every change of the Db: read-write at its role's level. */
-export const dbChangeFrame = (ctx: Pick<DbContext, "prologue" | "isolation">): Frame =>
-	writeFrame(ctx.prologue, ctx.isolation)
+/**
+ * The frame of a change of the Db: read-write at its role's level, locking, before its snapshot, what its write's login
+ * fences of what it writes (engine runtime/write/flight.ts WriteExclusion).
+ */
+export const dbChangeFrame = (
+	ctx: Pick<DbContext, "prologue" | "isolation">,
+	exclusion: WriteExclusion
+): Frame =>
+	writeFrame(
+		ctx.prologue,
+		ctx.isolation,
+		exclusion.kind === "lock"
+			? { kind: "lock", statement: preparedStatement(exclusion.text, []) }
+			: excludesNothing
+	)
 
 /** The frame of every refresh of the Db: read-write at SERIALIZABLE, whatever its role's changes begin at. */
 export const dbRefreshFrame = (ctx: Pick<DbContext, "prologue">): Frame =>
-	writeFrame(ctx.prologue, "serializable")
+	writeFrame(ctx.prologue, "serializable", excludesNothing)

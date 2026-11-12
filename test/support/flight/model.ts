@@ -9,6 +9,7 @@ import {
 	type FenceStep,
 	type FlightFailure,
 	type Frame,
+	excludesNothing,
 	oneShotStatement,
 	type Prologue,
 	preparedStatement,
@@ -83,11 +84,17 @@ const frameOf = (name: FrameName, prologue: Prologue): Frame => {
 		case "read":
 			return readFrame(prologue)
 		case "write":
-			return writeFrame(prologue, "serializable")
+			return writeFrame(prologue, "serializable", excludesNothing)
 		case "readCommittedWrite":
-			return writeFrame(prologue, "readCommitted")
+			return writeFrame(prologue, "readCommitted", excludesNothing)
 		case "rollback":
-			return { access: "readWrite", isolation: "serializable", end: "ROLLBACK", prologue }
+			return {
+				access: "readWrite",
+				isolation: "serializable",
+				end: "ROLLBACK",
+				prologue,
+				exclusion: excludesNothing
+			}
 	}
 }
 
@@ -527,18 +534,23 @@ const fateOf = (begin: Answer, statements: ReadonlyArray<Answer>, end: Answer): 
 
 /**
  * Why the fence refused a prologue step, by the SQLSTATE it answered: the lock's 55P03 and the guard's 55Z02, a
- * migration running; the guard's 55Z01, another snapshot; undefined for any other refusal (README "Deploying").
+ * migration running; the guard's 55Z01, another snapshot; undefined for any other refusal, and for a fenced write's
+ * lock, which no fence refuses (README "Deploying").
  */
-const fenceOf = (step: FenceStep, sqlstate: string): FenceFault | undefined =>
-	step === "lock"
-		? sqlstate === lockNotAvailable
-			? "migrating"
-			: undefined
-		: sqlstate === guardMigrating
-			? "migrating"
-			: sqlstate === guardMigrated
-				? "migrated"
-				: undefined
+const fenceOf = (step: FenceStep, sqlstate: string): FenceFault | undefined => {
+	switch (step) {
+		case "lock":
+			return sqlstate === lockNotAvailable ? "migrating" : undefined
+		case "exclude":
+			return undefined
+		case "guard":
+			return sqlstate === guardMigrating
+				? "migrating"
+				: sqlstate === guardMigrated
+					? "migrated"
+					: undefined
+	}
+}
 
 /**
  * A transaction from BEGIN's, its prologue's (none for the login's), its statements' and its end's answers: the first
