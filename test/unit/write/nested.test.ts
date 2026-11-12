@@ -275,7 +275,7 @@ describe("a nested write through the program", () => {
 								),
 								"each node holds its tree's root value"
 							)
-							const starts = nestedRowsColumn(program, chunks, "Node", 4)
+							const starts = nestedRowsColumn(program, chunks, "Node", 1)
 							const expectedStarts = Arr.flatMap(box.trees, (parentOf, t) =>
 								Arr.map(numberedOf(parentOf, 300 + 10 * t), (r) => String(r.start))
 							)
@@ -506,7 +506,7 @@ describe("a nested tree at depth and width", () => {
 							assertVariant(bound, "kind", "bound", "a tree binds")
 							assertVariant(bound.flights, "kind", "write", "a fresh tree reads nothing first")
 							const { chunks } = bound.flights
-							const starts = nestedRowsColumn(treeShaped, chunks, "Node", 4)
+							const starts = nestedRowsColumn(treeShaped, chunks, "Node", 1)
 							const ends = nestedRowsColumn(treeShaped, chunks, "Node", 5)
 							assert.equal(starts.length, box.n, "every node is written once")
 							for (let k = 0; k < box.n; k += 1) {

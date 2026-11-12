@@ -1156,12 +1156,12 @@ const refusals: Arr.NonEmptyReadonlyArray<Corruption<FamilyCase, Refused, Refusa
 			if (c.kind === "tree") {
 				return plus(
 					partsOf(c),
-					[relation("G", { gid: f.uuid, t: f.uuid }, ["gid"])],
+					[relation("G", { gid: f.uuid, d: f.uuid, s: natural }, ["gid"])],
 					[
 						{
 							kind: "family",
 							order: "counted",
-							member: on("G", ["t"]),
+							member: on("G", ["d", "s"]),
 							slots: { owner: "T", count: "children" }
 						}
 					]

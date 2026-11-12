@@ -14,9 +14,9 @@
  * from its sixth (PostgreSQL 19 plancache.c choose_custom_plan), so an application's read of a tree or a family runs on
  * either.
  *
- * - **the export**, `WHERE doc = $1 ORDER BY start`: one scan of T1, the tree's primary key (r, start), reading each
- *   row once;
- * - **descendants** of a row, `start > n.start AND start < n.end`: a range scan of T1 reading exactly them;
+ * - **the export**, `WHERE doc = $1 ORDER BY start`: one scan of an index led by (r, start), the tree's primary key
+ *   (T1) or the owner axis's target superkey (r, start, children), reading each row once;
+ * - **descendants** of a row, `start > n.start AND start < n.end`: a range scan of such an index reading exactly them;
  * - **an ordered family's members**, `WHERE g = $1 ORDER BY at`: a scan of the family key UNIQUE (g, at) reading
  *   exactly its members, whether the planner sorts them after a bitmap scan or reads them in order.
  *
@@ -170,11 +170,17 @@ layer(Substrate.layer)(
 							`ANALYZE ${trees.table("Node")}, ${f.table("Owner")}, ${f.table("Member")}`,
 							[]
 						)
-						const t1 = Option.getOrThrow(
-							Arr.findFirst(trees.constraints, (c: Catalogued) =>
-								nativesOf(c).includes("document order")
-							)
-						).name
+						/** Every index of the tree in document order: each led by its root field, then its start, the primary
+						 * key (T1) among them, and the owner axis's target superkey (doc, start, children), which serves alike. */
+						const inOrder = Arr.map(
+							Arr.filter(
+								trees.constraints,
+								(c: Catalogued) =>
+									nativesOf(c).includes("document order") ||
+									(c.columns[0] === "doc" && c.columns[1] === "start")
+							),
+							(c) => c.name
+						)
 						const key = Option.getOrThrow(
 							Arr.findFirst(f.constraints, (c: Catalogued) =>
 								Option.contains(familyConstraintOf(family, c), "key")
@@ -261,10 +267,12 @@ layer(Substrate.layer)(
 													planned
 												)
 									const facts = planFacts(e.plan)
-									assert.deepEqual(
-										facts.indexes,
-										[read.kind === "a family's members" ? key : t1],
-										`${name} reads its index alone`
+									const [only, ...more] = facts.indexes
+									assert.ok(
+										only !== undefined &&
+											more.length === 0 &&
+											(read.kind === "a family's members" ? only === key : inOrder.includes(only)),
+										`${name} reads its index alone, one in its order: ${Formatter.format(facts.indexes)}`
 									)
 									assert.equal(facts.seqScans, 0, `${name} scans nothing sequentially`)
 									assert.deepEqual(facts.recursive, [], `${name} does not recurse`)

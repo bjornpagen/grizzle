@@ -3,7 +3,7 @@
  * tree's law, its family's lemmas over every row but its roots and T2 to T6 with the root pin, beside its relation's
  * primary key (r, start), evaluated by the reference evaluator, is violated exactly on the states that are not, for
  * each value of the root field, one tree with pre-order intervals. The oracle is a direct pre-order numbering
- * (test/support/families/tree.ts lawful); the box is every forest of at most four rows over two root values, and every
+ * (test/support/families/tree.ts numbered); the box is every forest of at most four rows over two root values, and every
  * single mutation of one field in range, which holds a row under another tree, a parent after its child and a second
  * root.
  *
@@ -17,9 +17,15 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
-import { assert, defined } from "#test/support/assert.ts"
-import { type KeyedRow, lawful, numbered, treeOfParents } from "#test/support/families/tree.ts"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { assert, deepEquals, defined } from "#test/support/assert.ts"
+import {
+	canonicalRows,
+	forestOf,
+	type KeyedRow,
+	numbered,
+	treeOfParents
+} from "#test/support/families/tree.ts"
 import { f, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -81,14 +87,45 @@ const treeState: Gen<TreeState> = (source) => {
 	return { rows, mutation: { row, field, value: source.pick(0, range - 1) } }
 }
 
-/** The rows of a tree state, its mutation applied. */
+/** A row as the theory's facts state it: its tree's fields alone. */
+const structureOf = (r: KeyedRow) => ({
+	root: r.root,
+	parent: r.parent,
+	at: r.at,
+	children: r.children,
+	start: r.start,
+	end: r.end
+})
+
+/**
+ * The rows of a tree state, its mutation applied: a set of facts, so a row mutated into another, field for field of
+ * what the facts state, is that one row.
+ */
 const rowsOf = (s: TreeState): ReadonlyArray<KeyedRow> =>
-	Arr.map(s.rows, (row, i) => {
-		const m = s.mutation
-		if (m === undefined || m.row !== i) {
-			return row
-		}
-		return m.field === "r" ? { ...row, root: [String(m.value)] } : { ...row, [m.field]: m.value }
+	Arr.dedupeWith(
+		Arr.map(s.rows, (row, i) => {
+			const m = s.mutation
+			if (m === undefined || m.row !== i) {
+				return row
+			}
+			return m.field === "r" ? { ...row, root: [String(m.value)] } : { ...row, [m.field]: m.value }
+		}),
+		(a, b) => deepEquals(structureOf(a), structureOf(b))
+	)
+
+/**
+ * trees.md §2's theorem over the facts the theory reads: the rows are the direct pre-order numbering of the forest
+ * their keys and parent links describe (test/support/families/tree.ts forestOf, numbered), in every field the facts
+ * state.
+ */
+const isTree = (rows: ReadonlyArray<KeyedRow>): boolean =>
+	Option.match(forestOf(rows), {
+		onNone: () => false,
+		onSome: (forest) =>
+			deepEquals(
+				Arr.map(canonicalRows(numbered(forest)), structureOf),
+				Arr.map(canonicalRows(rows), structureOf)
+			)
 	})
 
 /** A row's root value, its one field's. */
@@ -107,13 +144,13 @@ type TreeFeature =
  * The named mutations a state's mutation is: a parent edit that makes a second root or puts a parent after its child,
  * an r off its tree's.
  */
-const namedOf = (s: TreeState, rows: ReadonlyArray<KeyedRow>): ReadonlyArray<TreeFeature> => {
+const namedOf = (s: TreeState): ReadonlyArray<TreeFeature> => {
 	const m = s.mutation
 	if (m === undefined) {
 		return []
 	}
-	const row = defined(rows[m.row])
 	const was = defined(s.rows[m.row])
+	const row = m.field === "r" ? { ...was, root: [String(m.value)] } : { ...was, [m.field]: m.value }
 	const named: Array<TreeFeature> = [`${m.field} mutated`]
 	if (m.field === "parent" && row.start > 0 && row.parent === row.start) {
 		named.push("a second root")
@@ -187,9 +224,9 @@ describe("a tree's law", () => {
 					(s, k) =>
 						Effect.sync(() => {
 							const rows = rowsOf(s)
-							const isLawful = lawful(rows)
+							const isLawful = isTree(rows)
 							k.note(isLawful ? "lawful" : "unlawful")
-							for (const named of namedOf(s, rows)) {
+							for (const named of namedOf(s)) {
 								k.note(named)
 							}
 							const facts: HostFacts = {

@@ -125,7 +125,8 @@ const lawColumnType = (type: ScalarType): ColumnType | undefined => {
 
 /**
  * The stored rows of every relation the plan's families name, as owner or member, from `facts`: none for a plan of no
- * family. Every other relation's facts are the loader's own.
+ * family. A tree's rows are its caller's nesting, which facts never state, so a tree whose relation no fact states
+ * stores none, and one stated is refused. Every other relation's facts are the loader's own.
  */
 export const familyRows = (
 	plan: InstallPlan,
@@ -138,13 +139,16 @@ export const familyRows = (
 	const members = new Set<string>()
 	for (const f of families) {
 		const at = formatLoc(SourceLoc(`family ${f.id.owner}.${f.id.count}`, [plan.declared]))
-		if (f.members.kind === "tree") {
-			return refuse(
-				at,
-				"a family whose members' shape the facts state: a tree's is its caller's nesting"
-			)
-		}
 		const stated = Rec.has(facts, f.member.name) && (facts[f.member.name] ?? []).length > 0
+		if (f.members.kind === "tree") {
+			if (stated) {
+				return refuse(
+					at,
+					"a family whose members' shape the facts state: a tree's is its caller's nesting"
+				)
+			}
+			continue
+		}
 		if (members.has(f.member.name) && stated) {
 			return refuse(
 				at,

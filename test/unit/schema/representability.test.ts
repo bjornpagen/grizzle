@@ -1302,26 +1302,24 @@ const budgetOf = (companions: ReadonlyArray<Companion>): number =>
 	4
 
 /**
- * The most bytes a B-tree tuple over `datums` reaches when its first column is a law column that may hold NULL: its
- * data after the header and the null bitmap, MAXALIGNed to 16, the first datum at its alignment and, the NULL-able
- * column ending the exact offsets, every later one after its worst padding, align - 1; the whole MAXALIGNed.
+ * The most bytes a B-tree tuple over `datums` reaches when its `nullable`-th column (from 0) is a law column that may
+ * hold NULL: its data after the header and the null bitmap, MAXALIGNed to 16, each datum up to and including the
+ * NULL-able one at its alignment and, the NULL-able column ending the exact offsets, every later one after its worst
+ * padding, align - 1; the whole MAXALIGNed.
  */
-const nullableTupleBytes = (datums: ReadonlyArray<Datum>): number => {
-	const start: Laid = { end: 16, exact: true }
-	return maxalign(
-		Arr.reduce(datums, start, ({ end, exact }, d): Laid => ({
-			end: exact ? Math.ceil(end / d.align) * d.align + d.bytes : end + d.align - 1 + d.bytes,
-			exact: false
-		})).end
+const nullableTupleBytes = (datums: ReadonlyArray<Datum>, nullable: number): number =>
+	maxalign(
+		Arr.reduce(datums, 16, (end, d, i) =>
+			i <= nullable ? Math.ceil(end / d.align) * d.align + d.bytes : end + d.align - 1 + d.bytes
+		)
 	)
-}
 
 /**
  * The index a text of keyTextBytes(fields) bytes sits in beside those fields: a key declared over them; a key over a
  * selection of their relation, whose columns are law columns that may hold NULL; or the UNIQUE of a family axis that
  * carries the text as a concat fold's running value: an ordered family's, Line's (doc, at, after), fields all, beside
- * a uuid and a natural; a tree's predecessor axis's, Node's parent, a law column that may hold NULL, its slot, its
- * running text and its end, beside a uuid and two naturals.
+ * a uuid and a natural; a tree's predecessor axis's, Node's root field doc, its parent, a law column that may hold
+ * NULL, its slot, its end and its running text, beside a uuid and three naturals.
  */
 type KeyArm = "declared key" | "key over a selection"
 type BudgetArm = KeyArm | "ordered axis" | "tree axis"
@@ -1422,27 +1420,27 @@ const orderedAxis = (bytes: number, spelling: Spelling) => {
 }
 
 /**
- * A tree of nodes and the concat fold of their pieces along it, each text bounded at `bytes`: its predecessor axis's
- * UNIQUE holds the parent as a law column that may hold NULL, the slot, the running text and the node's end.
+ * A tree of nodes keyed by their root field doc and their start, and the concat fold of their pieces along it, each
+ * text bounded at `bytes`: its predecessor axis's UNIQUE holds the root field, the parent as a law column that may hold
+ * NULL, the slot, the node's end and the running text, the tree's own pair before the fold's.
  */
 const treeAxis = (bytes: number, spelling: Spelling) => {
 	const text = keyText(bytes, spelling)
 	const Node = relation(
 		"Node",
 		{
-			id: uuid,
-			parent: uuid,
+			doc: uuid,
+			parent: drawnField(natural, []),
 			at: drawnField(natural, []),
 			children: drawnField(natural, []),
 			start: drawnField(natural, []),
 			end: drawnField(natural, []),
-			doc: uuid,
 			piece: text,
 			before: accumulatedField(text, "", []),
 			after: accumulatedField(text, "", []),
 			total: accumulatedField(text, "", [])
 		},
-		["id"],
+		["doc", "start"],
 		[]
 	)
 	const nodes = treeBuilder(onBuilder(Node, ["parent", "at"]), finBuilder(Node, "children"), {
@@ -1453,8 +1451,8 @@ const treeAxis = (bytes: number, spelling: Spelling) => {
 		foldBuilder(
 			nodes,
 			monoids.concat,
-			onBuilder(Node, ["parent", "piece", "before", "after"]),
-			onBuilder(Node, ["id", "total"])
+			onBuilder(Node, ["doc", "parent", "piece", "before", "after"]),
+			onBuilder(Node, ["doc", "start", "total"])
 		)
 	]
 	return schema("Tree", { Node }, statements, [])
@@ -1515,7 +1513,7 @@ const keyArm = (s: Extract<BudgetCase, { readonly arm: KeyArm }>): Arm => {
 			const before = Arr.map(Arr.take(s.companions, s.position), companionDatum)
 			const after = Arr.map(Arr.drop(s.companions, s.position), companionDatum)
 			const datums = [...before, varlena(bytes), ...after]
-			return selected ? nullableTupleBytes(datums) : btreeTupleBytes(datums)
+			return selected ? nullableTupleBytes(datums, 0) : btreeTupleBytes(datums)
 		}
 	}
 }
@@ -1539,16 +1537,20 @@ const armOf = (s: BudgetCase): Arm => {
 			}
 		case "tree axis":
 			return {
-				fields: [uuid, natural, natural],
-				companions: [uuidCompanion, naturalCompanion, naturalCompanion],
+				fields: [uuid, natural, natural, natural],
+				companions: [uuidCompanion, naturalCompanion, naturalCompanion, naturalCompanion],
 				schemaAt: (bytes) => treeAxis(bytes, s.spelling),
 				entryAt: (bytes) =>
-					nullableTupleBytes([
-						companionDatum(uuidCompanion),
-						companionDatum(naturalCompanion),
-						varlena(bytes),
-						companionDatum(naturalCompanion)
-					])
+					nullableTupleBytes(
+						[
+							companionDatum(uuidCompanion),
+							companionDatum(naturalCompanion),
+							companionDatum(naturalCompanion),
+							companionDatum(naturalCompanion),
+							varlena(bytes)
+						],
+						1
+					)
 			}
 	}
 }
