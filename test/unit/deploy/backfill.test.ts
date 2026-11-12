@@ -56,7 +56,12 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
-import type { Declarations, Rename, Step as PlanStep } from "#compiler/deploy/diff/plan.ts"
+import {
+	alterationStatement,
+	type Declarations,
+	type Rename,
+	type Step as PlanStep
+} from "#compiler/deploy/diff/plan.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { SlotsDesc } from "#compiler/ir/desc.ts"
@@ -781,14 +786,20 @@ const treeObserved = (state: State): ReadonlyArray<string> => {
 	)
 }
 
+/** The statements a step runs: a statement's own, and a table alteration's one ALTER TABLE. */
+const stepStatements = (s: PlanStep): ReadonlyArray<SqlStatement> =>
+	s.draft.kind === "statement"
+		? [s.draft.statement]
+		: s.draft.kind === "alteration"
+			? [alterationStatement(s.draft.table, s.draft.actions)]
+			: []
+
 /** The slots of the plan's steps whose statement `matches`, in plan order. */
 const slotsOf = (
 	steps: ReadonlyArray<PlanStep>,
 	matches: (s: SqlStatement) => boolean
 ): ReadonlyArray<string> =>
-	Arr.flatMap(steps, (s) =>
-		s.draft.kind === "statement" && matches(s.draft.statement) ? [s.slot] : []
-	)
+	Arr.flatMap(steps, (s) => (Arr.some(stepStatements(s), matches) ? [s.slot] : []))
 
 const addsDefault = (s: SqlStatement): boolean =>
 	s.kind === "alterTable" && Arr.some(s.actions, (a) => a.kind === "addColumnDefault")
@@ -799,7 +810,7 @@ const addsConstraint = (s: SqlStatement): boolean =>
 
 /** The statements of the plan's steps, in plan order. */
 const statementsOf = (steps: ReadonlyArray<PlanStep>): ReadonlyArray<SqlStatement> =>
-	Arr.flatMap(steps, (s) => (s.draft.kind === "statement" ? [s.draft.statement] : []))
+	Arr.flatMap(steps, stepStatements)
 
 /** The columns the plan adds under a placeholder default, or drops the default of, sorted. */
 const defaultColumns = (
@@ -847,7 +858,12 @@ const foldColumns = (c: FoldCase): ReadonlyArray<string> => {
 const assertBackfillOrder = (m: Migration, columns: ReadonlyArray<string>): void => {
 	const steps = m.secondDraft.plan.steps
 	assert.ok(
-		!Arr.some(steps, (s) => s.draft.kind === "placeholderColumn"),
+		!Arr.some(
+			steps,
+			(s) =>
+				s.draft.kind === "alteration" &&
+				Arr.some(s.draft.actions, (a) => a.kind === "placeholderColumn")
+		),
 		"no drawn or accumulated field asks the reviewer for a value"
 	)
 	assert.deepEqual(

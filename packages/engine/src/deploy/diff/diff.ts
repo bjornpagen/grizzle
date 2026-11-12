@@ -10,7 +10,12 @@ import {
 } from "#compiler/core/identity.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray,
+	sortNonEmpty
+} from "#compiler/core/nonempty.ts"
 import {
 	type Comparator,
 	combine,
@@ -31,13 +36,19 @@ import {
 import {
 	type AbandonedSchema,
 	type Action,
+	type Alteration,
+	alterationPass,
+	alterTablePasses,
+	alterationStatement,
 	type ColumnConversion,
 	type Draft,
+	isTableSlot,
 	type MigrationPlan,
 	type Slot,
 	type Step,
 	type Swap,
-	slots
+	slots,
+	type TableSlot
 } from "#compiler/deploy/diff/plan.ts"
 import { ledgerPrivilegesIdent } from "#compiler/deploy/ledger/ledger.ts"
 import {
@@ -415,12 +426,71 @@ const roleSettings = (list: ReadonlyArray<SqlStatement>) => {
 	return out
 }
 
+/** A table's one alteration in a slot that alters each table once (TableSlot), as the visits draft it: its first
+ * subcommand, which places it, and the rest in the order the visits draft them. */
+interface TableAlteration {
+	readonly table: ObjectName
+	readonly first: Alteration
+	readonly rest: Array<Alteration>
+}
+
+/** Where the plan's steps stand while the visits draft them: a step drafted whole, or the place of a table's one
+ * alteration in its slot, which later visits may still add subcommands to (Differ.alter). */
+type Drafting =
+	| { readonly kind: "step"; readonly step: Step }
+	| { readonly kind: "alteration"; readonly slot: TableSlot; readonly alteration: TableAlteration }
+
+/** An alteration's subcommands in PostgreSQL's pass order, the order of drafting within a pass (alterationPass). */
+const byPass = mapInput(compareNumbers, (a: Alteration) =>
+	alterTablePasses.indexOf(alterationPass(a))
+)
+
+/** The draft of a table's alteration, its subcommands in pass order: the one ALTER TABLE PostgreSQL runs as written. */
+const alterationDraft = (a: TableAlteration): Action => ({
+	kind: "alteration",
+	table: a.table,
+	actions: sortNonEmpty([a.first, ...a.rest], byPass)
+})
+
+/** A draft's alteration of one table, which a slot that alters each table once merges into the table's one: an ALTER
+ * TABLE statement's actions, or an alteration's subcommands; any other draft is none. */
+const alteredBy = (
+	d: Draft
+):
+	| { readonly table: ObjectName; readonly actions: NonEmptyReadonlyArray<Alteration> }
+	| undefined => {
+	switch (d.kind) {
+		case "statement":
+			return d.statement.kind === "alterTable"
+				? { table: d.statement.table, actions: d.statement.actions }
+				: undefined
+		case "alteration":
+			return { table: d.table, actions: d.actions }
+		case "violation":
+		case "analyze":
+		case "dropStatistics":
+		case "loss":
+		case "confirm":
+			return undefined
+	}
+}
+
 class Differ {
 	readonly input: DiffInput
 	readonly schema: string
 	/** The PostgreSQL schemas of the installation's levels, the previous's and the target's, the root's among them. */
 	readonly levelSchemas: ReadonlySet<string>
-	readonly steps: Array<Step> = []
+	/** The plan's steps as the visits draft them, each table's alteration in a slot that alters each table once at the
+	 * place of its first subcommand (drafted). */
+	readonly drafting: Array<Drafting> = []
+	/** Each table's one alteration in each slot that alters each table once, by table key (nameKey). */
+	readonly alterations: { readonly [S in TableSlot]: Map<string, TableAlteration> } = {
+		structure: new Map(),
+		"structure.constraints": new Map()
+	}
+	/** The keys structure.constraints adds again after their conversion (ownConstraint): a foreign key onto one is its
+	 * own statement after the key's (foreignKey). */
+	readonly constrainedKeys = new Set<KeyAfter>()
 	readonly prev: ReadonlyMap<string, ManifestObject>
 	readonly next: ReadonlyMap<string, ManifestObject>
 	/** The parts of every relation of the previous and of the target installation, by name key (partsByTable). */
@@ -745,8 +815,47 @@ class Differ {
 		return this.arrivals.get(o.ident) ?? arrivedNew
 	}
 
+	/** A drafted step in its slot: in a slot that alters each table once, an alteration of a table merges into the
+	 * table's one alteration there (alter); every other step stands where it is drafted. */
 	push(slot: Slot, draft: Draft): void {
-		this.steps.push({ slot, draft })
+		if (isTableSlot(slot)) {
+			const altered = alteredBy(draft)
+			if (altered !== undefined) {
+				this.alter(slot, altered.table, altered.actions)
+				return
+			}
+		}
+		this.drafting.push({ kind: "step", step: { slot, draft } })
+	}
+
+	/** `actions` added to the one alteration of `table` in `slot`, which stands at the place of the table's first
+	 * subcommand there. A later subcommand moves up to it: what it reads is drafted before the table's first (its domains
+	 * and constants in Setup or before every table, its table's columns in the alteration itself, which PostgreSQL adds
+	 * pass by pass), and nothing between the two reads it but what reads the table, which may read it sooner. */
+	alter(slot: TableSlot, table: ObjectName, actions: NonEmptyReadonlyArray<Alteration>): void {
+		const key = nameKey(table)
+		const held = this.alterations[slot].get(key)
+		if (held !== undefined) {
+			held.rest.push(...actions)
+			return
+		}
+		const [first, ...rest] = actions
+		const alteration: TableAlteration = { table, first, rest }
+		this.alterations[slot].set(key, alteration)
+		this.drafting.push({ kind: "alteration", slot, alteration })
+	}
+
+	/** A statement that keeps its own place in its slot, after the alteration of its table there: a foreign key onto a
+	 * key its slot adds again, which its table's alteration may stand before (constrainedKeys). */
+	apart(slot: Slot, s: SqlStatement): void {
+		this.drafting.push({ kind: "step", step: { slot, draft: statement(s) } })
+	}
+
+	/** The steps drafted so far, each table's alteration at its place with every subcommand drafted until now. */
+	drafted(): ReadonlyArray<Step> {
+		return this.drafting.map((d): Step =>
+			d.kind === "step" ? d.step : { slot: d.slot, draft: alterationDraft(d.alteration) }
+		)
 	}
 
 	sql(slot: Slot, statements: ReadonlyArray<SqlStatement>): void {
@@ -849,7 +958,7 @@ class Differ {
 	}
 
 	orderedSteps(): ReadonlyArray<Step> {
-		return this.steps.toSorted(stepOrder)
+		return this.drafted().toSorted(stepOrder)
 	}
 
 	/** The checks of the laws that read closed relations alone (violation.ts MigrationCheck), first in Setup, so they run
@@ -1508,39 +1617,35 @@ class Differ {
 				statement(alter(t, [{ kind: "dropColumn", column: r.name }]))
 			)
 		}
+		this.sql(
+			"structure",
+			sequences.flatMap((p): ReadonlyArray<SqlStatement> =>
+				changeOf(kept.changes, p.now.column).kind === "kept" &&
+				nameKey(p.was.sequence) !== nameKey(p.now.sequence)
+					? [{ kind: "rename", object: "SEQUENCE", name: p.was.sequence, to: p.now.name }]
+					: []
+			)
+		)
 		for (const f of fields) {
 			if (f.kind === "added") {
-				this.push("structure", this.addedField(t, f.column))
+				this.alter("structure", t, [this.addedField(t, f.column)])
 				continue
 			}
-			this.changeField(t, f.was, f.column, changeOf(kept.changes, f.column.name), sequences)
+			this.changeField(t, f.was, f.column, changeOf(kept.changes, f.column.name))
 		}
 	}
 
-	/** What a field both tables hold drafts for its change from `b` to `c` (fieldChangesOf): the rename of its identity
-	 * sequence when the target names it otherwise (KeptPlan sequences); a rewritten field dropped before anything is
-	 * converted, in structure.drop, since PostgreSQL refuses to convert a column a generated column reads, and added again
-	 * once the conversions ran (rewriteField); otherwise its steps in place (changeInPlace). */
-	changeField(
-		t: ObjectName,
-		b: ColumnDef,
-		c: ColumnDef,
-		change: FieldChange,
-		sequences: KeptPlan["sequences"]
-	): void {
+	/** What a field both tables hold drafts for its change from `b` to `c` (fieldChangesOf), besides the rename of its
+	 * identity sequence, which its table's visit drafts before its alteration (keptTable): a rewritten field dropped before
+	 * anything is converted, in structure.drop, since PostgreSQL refuses to convert a column a generated column reads,
+	 * and added again once the conversions ran (rewriteField); a kept one, nothing; otherwise its steps in place
+	 * (changeInPlace). */
+	changeField(t: ObjectName, b: ColumnDef, c: ColumnDef, change: FieldChange): void {
 		if (change.kind === "rewritten") {
 			this.rewriteField(t, b, c)
 			return
 		}
 		if (change.kind === "kept") {
-			this.sql(
-				"structure",
-				sequences.flatMap((p): ReadonlyArray<SqlStatement> =>
-					p.now.column === c.name && nameKey(p.was.sequence) !== nameKey(p.now.sequence)
-						? [{ kind: "rename", object: "SEQUENCE", name: p.was.sequence, to: p.now.name }]
-						: []
-				)
-			)
 			return
 		}
 		this.changeInPlace(t, b, c, change)
@@ -1553,26 +1658,26 @@ class Differ {
 	 * the column goes with its drop and is built again as the target declares it (ColumnFate redefined). */
 	rewriteField(t: ObjectName, b: ColumnDef, c: ColumnDef): void {
 		this.sql("structure.drop", [alter(t, [{ kind: "dropColumn", column: b.name }])])
-		this.push("structure", this.addedField(t, c))
+		this.alter("structure", t, [this.addedField(t, c)])
 	}
 
 	/** The addition of a field to a table that may hold rows: a column its family draws under its placeholder default,
 	 * which the backfill overwrites (drawnColumn); a generated field by its expression, which computes every row; any
 	 * other by the reviewer's value for every row, at its placeholder. */
-	addedField(t: ObjectName, c: ColumnDef): Action {
+	addedField(t: ObjectName, c: ColumnDef): Alteration {
 		const drawn = this.drawnColumn(t, c)
 		if (drawn !== undefined) {
 			return drawn
 		}
 		return c.generated === undefined
-			? { kind: "placeholderColumn", table: t, column: c }
-			: statement(alter(t, [{ kind: "addColumn", column: c }]))
+			? { kind: "placeholderColumn", column: c }
+			: { kind: "addColumn", column: c }
 	}
 
 	/** The ADD COLUMN of a column of `t` its family draws, when `t` may hold rows: under the placeholder default the value
 	 * an empty family holds, recorded for the backfill (backfill.ts), which draws it over the stored rows and then drops
 	 * the default. A column no family draws, or one added to a table that holds no row, takes none. */
-	drawnColumn(t: ObjectName, c: ColumnDef): Action | undefined {
+	drawnColumn(t: ObjectName, c: ColumnDef): Alteration | undefined {
 		const key = nameKey(t)
 		const value = this.drawn.get(key)?.get(c.name)
 		if (value === undefined || c.generated !== undefined || !this.mayHoldRows(t)) {
@@ -1580,7 +1685,7 @@ class Differ {
 		}
 		const had = this.backfilled.get(key)
 		this.backfilled.set(key, { table: t, columns: [...(had?.columns ?? []), c.name] })
-		return statement(alter(t, [{ kind: "addColumnDefault", column: c, default: value }]))
+		return { kind: "addColumnDefault", column: c, default: value }
 	}
 
 	/** The backfill of the families new to stored rows (backfill.ts), once every column it draws is added: its UPDATEs,
@@ -1622,7 +1727,7 @@ class Differ {
 			b,
 			c,
 			change,
-			(column) => [this.conversion(t, b, column)],
+			(column) => this.conversion(b, column),
 			(column) => this.addedField(t, column)
 		)) {
 			this.push("structure", step)
@@ -1669,26 +1774,20 @@ class Differ {
 	 * pads every stored set with zeros on the right, the new codes absent, before the new domain judges it (grownSet);
 	 * otherwise by the expression the reviewer writes at its placeholder, a closed id or a set moved to a roster its own
 	 * does not continue as among them, whose codes would otherwise be read as another roster's handles. */
-	conversion(t: ObjectName, was: ColumnDef, column: ColumnDef): ColumnConversion {
+	conversion(was: ColumnDef, column: ColumnDef): ColumnConversion {
 		const grown = this.grownSet(was, column)
 		if (grown !== undefined) {
 			return {
-				kind: "statement",
-				statement: alter(t, [
-					{
-						kind: "alterColumnType",
-						column: column.name,
-						type: column.type,
-						collation: column.collation,
-						using: { kind: "expr", expr: cast(tableCol(column.name), types.bit(grown)) }
-					}
-				])
+				kind: "alterColumnType",
+				column: column.name,
+				type: column.type,
+				collation: column.collation,
+				using: { kind: "expr", expr: cast(tableCol(column.name), types.bit(grown)) }
 			}
 		}
 		if (!this.keepsValues(was, column)) {
 			return {
 				kind: "placeholderRetype",
-				table: t,
 				column,
 				reason:
 					rosterOf(was.type, this.prevDomains) === undefined &&
@@ -1698,16 +1797,11 @@ class Differ {
 			}
 		}
 		return {
-			kind: "statement",
-			statement: alter(t, [
-				{
-					kind: "alterColumnType",
-					column: column.name,
-					type: column.type,
-					collation: column.collation,
-					using: { kind: "expr", expr: cast(tableCol(column.name), column.type) }
-				}
-			])
+			kind: "alterColumnType",
+			column: column.name,
+			type: column.type,
+			collation: column.collation,
+			using: { kind: "expr", expr: cast(tableCol(column.name), column.type) }
 		}
 	}
 
@@ -1728,7 +1822,7 @@ class Differ {
 		if (drawn === undefined) {
 			this.sql("structure", o.ddl)
 		} else {
-			this.push("structure", drawn)
+			this.alter("structure", t, [drawn])
 		}
 	}
 
@@ -1755,6 +1849,7 @@ class Differ {
 			return
 		}
 		if (arrival.kind === "replaced" && arrival.how === "converted" && c.kind !== "check") {
+			this.constrainedKeys.add(keyAfter(t, constraintColumns(c)))
 			this.sql("structure.constraints", [
 				alter(t, [{ kind: "addConstraint", constraint: c, notValid: false }])
 			])
@@ -1962,7 +2057,9 @@ class Differ {
 		])
 	}
 
-	/** A table that holds no row takes it validated at once, as `addTables` installs it. */
+	/** A table that holds no row takes it validated at once, as `addTables` installs it. In structure.constraints it
+	 * joins its table's one alteration there, but onto a key that slot adds again (constrainedKeys), whose table's
+	 * alteration its own may stand before: then it is its own statement, after the key's, where it is drafted. */
 	foreignKey(
 		v: Installed & { readonly kind: "foreignKey" },
 		before: ManifestObject | undefined
@@ -1974,15 +2071,25 @@ class Differ {
 			}
 			this.sql("structure", [alter(t, [{ kind: "dropConstraint", name: c.name }])])
 		}
+		const add = (notValid: boolean): SqlStatement =>
+			alter(t, [{ kind: "addConstraint", constraint: c, notValid }])
+		const constrained = (s: SqlStatement): void => {
+			if (this.constrainedKeys.has(referencedAfter(c))) {
+				this.apart("structure.constraints", s)
+			} else {
+				this.sql("structure.constraints", [s])
+			}
+		}
 		const afterKey = this.attached.has(referencedAfter(c)) || this.replaces(referencedAfter(c))
 		if (!this.mayHoldRows(t) && !afterKey) {
-			this.sql("structure.constraints", [
-				alter(t, [{ kind: "addConstraint", constraint: c, notValid: false }])
-			])
+			constrained(add(false))
 			return
 		}
-		const slot: Slot = afterKey ? "validate" : "structure.constraints"
-		this.sql(slot, [alter(t, [{ kind: "addConstraint", constraint: c, notValid: true }])])
+		if (afterKey) {
+			this.sql("validate", [add(true)])
+		} else {
+			constrained(add(true))
+		}
 		this.sql("validate", [alter(t, [{ kind: "validateConstraint", name: c.name }])])
 	}
 
@@ -2383,7 +2490,7 @@ class Differ {
 	/** The final COMMENT step: the comment of every object of the target this migration creates or renames, or whose
 	 * comment the previous snapshot does not hold as the target does (physical/install/comments.ts). */
 	comments(): void {
-		const touched = touchedTargets(this.steps.flatMap((s) => draftStatements(s.draft)))
+		const touched = touchedTargets(this.drafted().flatMap((s) => draftStatements(s.draft)))
 		const before = new Map(
 			this.input.previous.manifest.comments.flatMap((c) =>
 				c.kind === "comment" ? [[targetKey(c.on), c.text] as const] : []
@@ -2471,11 +2578,8 @@ const draftStatements = (d: Draft): ReadonlyArray<SqlStatement> => {
 			return [d.statement]
 		case "confirm":
 			return d.keep
-		case "placeholderColumn":
-			return [
-				{ kind: "alterTable", table: d.table, actions: [{ kind: "addColumn", column: d.column }] }
-			]
-		case "placeholderRetype":
+		case "alteration":
+			return [alterationStatement(d.table, d.actions)]
 		case "violation":
 		case "analyze":
 		case "dropStatistics":
@@ -2899,22 +3003,25 @@ const changeOf = (changes: ReadonlyMap<string, FieldChange>, column: string): Fi
  * serial takes its draw, an identity advanced the same way, and one serial no longer gives it up; a generated field
  * re-expressed takes its new expression; a field rewritten is dropped and added again by `add`; a field kept as it is
  * takes none. The one reading for a field of a table both install but a rewritten one, which changeField drops before
- * the conversions. */
+ * the conversions. Each alteration joins its table's one ALTER TABLE in Structure (Differ.alter), which PostgreSQL runs
+ * pass by pass, every give-up before every conversion and every conversion before every take; an identity's advance
+ * reads the values that statement leaves, so it follows it. */
 const inPlace = (
 	t: ObjectName,
 	b: ColumnDef,
 	c: ColumnDef,
 	change: FieldChange,
-	convert: (column: ColumnDef) => ReadonlyArray<ColumnConversion>,
-	add: (column: ColumnDef) => Action
+	convert: (column: ColumnDef) => ColumnConversion,
+	add: (column: ColumnDef) => Alteration
 ): ReadonlyArray<Action> => {
+	const altering = (a: Alteration): Action => ({ kind: "alteration", table: t, actions: [a] })
 	const take = (sequence: ObjectName): ReadonlyArray<Action> => [
-		statement(alter(t, [{ kind: "addIdentity", column: c.name, sequence }])),
+		altering({ kind: "addIdentity", column: c.name, sequence }),
 		statement(advance(t, c.name, sequence, c.type))
 	]
-	const giveUp = statement(alter(t, [{ kind: "dropIdentity", column: b.name }]))
-	const takeUuidv7 = statement(alter(t, [{ kind: "setUuidv7Default", column: c.name }]))
-	const giveUpUuidv7 = statement(alter(t, [{ kind: "dropDefault", column: b.name }]))
+	const giveUp = altering({ kind: "dropIdentity", column: b.name })
+	const takeUuidv7 = altering({ kind: "setUuidv7Default", column: c.name })
+	const giveUpUuidv7 = altering({ kind: "dropDefault", column: b.name })
 	switch (change.kind) {
 		case "kept":
 			return []
@@ -2926,15 +3033,19 @@ const inPlace = (
 						? [giveUpUuidv7]
 						: [giveUp]
 			return c.generated?.kind === "identity"
-				? [...before, ...convert({ ...c, generated: undefined }), ...take(c.generated.sequence)]
+				? [
+						...before,
+						altering(convert({ ...c, generated: undefined })),
+						...take(c.generated.sequence)
+					]
 				: c.generated?.kind === "uuidv7"
-					? [...before, ...convert({ ...c, generated: undefined }), takeUuidv7]
-					: [...before, ...convert(c)]
+					? [...before, altering(convert({ ...c, generated: undefined })), takeUuidv7]
+					: [...before, altering(convert(c))]
 		}
 		case "reexpressed":
-			return [statement(alter(t, [{ kind: "setExpression", column: c.name, expr: change.expr }]))]
+			return [altering({ kind: "setExpression", column: c.name, expr: change.expr })]
 		case "rewritten":
-			return [statement(alter(t, [{ kind: "dropColumn", column: b.name }])), add(c)]
+			return [altering({ kind: "dropColumn", column: b.name }), altering(add(c))]
 		case "serialDeclared":
 			return take(change.sequence)
 		case "serialRemoved":
