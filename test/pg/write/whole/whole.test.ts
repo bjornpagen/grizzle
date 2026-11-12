@@ -715,36 +715,67 @@ const componentsOf = (m: Model): ReadonlyArray<Component> => {
 	]
 }
 
-/** A component's work: left alone, deleted whole, replaced whole identically, edited, or split into its units. */
-type ComponentWork = "none" | "delete" | "same" | "edited" | "split"
+/** A component's work: left alone, deleted whole, replaced whole identically, edited, split into its units, or its tests
+ * alone or its assemblies alone deleted or replaced, the others kept, a crossing group then partial where they share a
+ * placement. */
+type ComponentWork =
+	| "none"
+	| "delete"
+	| "same"
+	| "edited"
+	| "split"
+	| "tests alone"
+	| "assemblies alone"
 
-/** The kind of work one unit of a component meets: drawn on its own where the component is split. */
+const componentWorks: Arr.NonEmptyReadonlyArray<ComponentWork> = [
+	"none",
+	"delete",
+	"same",
+	"edited",
+	"split",
+	"tests alone",
+	"assemblies alone"
+]
+
+/** The kind of work one unit of a component, a test or an assembly, meets: drawn on its own where the component is split
+ * or where its own kind alone is changed. */
 const unitKindOf =
-	(work: ComponentWork): Gen<"none" | "delete" | "replace"> =>
-	(source) =>
-		work === "split"
-			? source.draw(element(["none", "delete", "replace"] as const))
-			: work === "same" || work === "edited"
-				? "replace"
-				: work
+	(work: ComponentWork, unit: "test" | "asm"): Gen<"none" | "delete" | "replace"> =>
+	(source) => {
+		switch (work) {
+			case "none":
+			case "delete":
+				return work
+			case "same":
+			case "edited":
+				return "replace"
+			case "split":
+				return source.draw(element(["none", "delete", "replace"] as const))
+			case "tests alone":
+				return unit === "test" ? source.draw(element(["delete", "replace"] as const)) : "none"
+			case "assemblies alone":
+				return unit === "asm" ? source.draw(element(["delete", "replace"] as const)) : "none"
+		}
+	}
 
 /**
  * The tests' and assemblies' work in a state, by component: each left alone, deleted whole, replaced whole identically,
- * edited (each of its units replaced, an assembly's note kept or flipped, a test edited), or split (each of its units
- * left alone, deleted, or replaced, identically or not, on its own); and each key no unit holds left alone, deleted (no
- * row), inserted or replaced fresh. Each test the write inserts places only assemblies it inserts.
+ * edited (each of its units replaced, an assembly's note kept or flipped, a test edited), split (each of its units left
+ * alone, deleted, or replaced, identically or not, on its own), or its tests alone or its assemblies alone deleted or
+ * replaced; and each key no unit holds left alone, deleted (no row), inserted or replaced fresh. Each test the write
+ * inserts places only assemblies it inserts, a fresh one, as the draw falls, any of them or only those no unit held.
  */
 const crossingGen =
 	(m: Model): Gen<Pick<Write, "tests" | "asms">> =>
 	(source) => {
 		const works = Arr.map(componentsOf(m), (component) => ({
 			component,
-			work: source.draw(element(["none", "delete", "same", "edited", "split"] as const))
+			work: source.draw(element(componentWorks))
 		}))
 		const asms: Array<{ readonly a: bigint; readonly op: UnitOp<bigint> }> = []
 		for (const { component, work } of works) {
 			for (const [a, note] of component.asms) {
-				const kind = source.draw(unitKindOf(work))
+				const kind = source.draw(unitKindOf(work, "asm"))
 				if (kind === "delete") {
 					asms.push({ a, op: { kind } })
 				} else if (kind === "replace") {
@@ -769,16 +800,19 @@ const crossingGen =
 			}
 		}
 		const pool = Arr.flatMap(asms, (x) => (x.op.kind === "delete" ? [] : [x.a]))
+		const freshPool = source.draw(
+			element([pool, Arr.filter(pool, (a) => storedAt(m.asms, a) === undefined)] as const)
+		)
 		const tests: Array<{ readonly t: bigint; readonly op: UnitOp<TestValue> }> = []
 		for (const { component, work } of works) {
 			for (const [t, value] of component.tests) {
-				const kind = source.draw(unitKindOf(work))
+				const kind = source.draw(unitKindOf(work, "test"))
 				if (kind === "delete") {
 					tests.push({ t, op: { kind } })
 				} else if (kind === "replace") {
 					const same =
 						work === "same" ||
-						(work === "split" &&
+						(work !== "edited" &&
 							placesWithin(value.root, pool) &&
 							source.draw(element(["same", "edited"] as const)) === "same")
 					tests.push({
@@ -794,7 +828,7 @@ const crossingGen =
 				if (kind === "delete") {
 					tests.push({ t, op: { kind } })
 				} else if (kind !== "none") {
-					tests.push({ t, op: { kind, value: source.draw(testGen(pool)) } })
+					tests.push({ t, op: { kind, value: source.draw(testGen(freshPool)) } })
 				}
 			}
 		}
@@ -968,11 +1002,18 @@ const absentMember: { readonly [R in PartialGroup["relation"]]: Fact } = {
 	Place: { t: 1n, start: 0n, a: 1n }
 }
 
+/** The members a partial group names, by the refusal it meets: a fixed family's by its facts, or a sequence's by a key
+ * that holds a drawn field, each refusal drawn as often. */
+const partialMembers = [
+	["Attr", "Tag", "Place"],
+	["Tok", "Book"]
+] as const
+
 /** A stored member to name, or one at a key no unit stores. */
 const partialGen =
 	(m: Model): Gen<PartialGroup> =>
 	(source) => {
-		const relationOf = source.draw(element(["Attr", "Tag", "Place", "Tok", "Book"] as const))
+		const relationOf = source.draw(element(source.draw(element(partialMembers))))
 		const stored = memberFacts(m)[relationOf]
 		return {
 			relation: relationOf,
