@@ -41,8 +41,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * Plants (~/.cache/grizzle-release/DBCLOCK/plants): clock-round-not-floor.patch reads milliseconds rounded, caught by
  * ms = floor(us / 1000) wherever the reading's microseconds pass 500; clock-units-swapped.patch, caught by
  * ms = floor(us / 1000) at every reading; clock-statement-timestamp.patch reads statement_timestamp(), caught by Mark's stamps against Stamp's;
- * clock-clock-timestamp.patch reads clock_timestamp(), caught by stamps of one statement apart; instant-live.patch
- * registers a clocked read live, whose answer then never ends.
+ * clock-clock-timestamp.patch reads clock_timestamp(), caught by stamps of one statement apart;
+ * instant-answer-unended.patch answers a clocked read with no `end` after its ready, as a live read's answer goes on,
+ * caught by the answer's events.
  */
 
 /** An instant, and the instants on either side of 2100-01-01 in milliseconds since the epoch. */

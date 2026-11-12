@@ -109,6 +109,20 @@ const changes = {
 		Stamp,
 		query(Box).rule((r) => r.find({ key: r.param("key", pg.integer), at: r.param("now", Instant) }))
 	),
+	/**
+	 * A wanted row from the stamp at its key and instant: a point read of Stamp at its whole key, which `now` binds one
+	 * field of, so a reading the extractor did not read as a parameter would leave the key unbound.
+	 */
+	fromStamp: ChangeSet.empty(Box).insert(
+		Wanted,
+		query(Box).rule((r) => {
+			const { key, at } = v(Stamp, "stamp")
+			return r
+				.match(Stamp, { key, at })
+				.where(r.and(r.eq(key, r.param("key", pg.integer)), r.eq(at, r.param("now", Instant))))
+				.find({ key, due: at })
+		})
+	),
 	/** A stamp of every wanted key due at or before `now`: a range read. */
 	due: ChangeSet.empty(Box).insert(
 		Stamp,
@@ -153,7 +167,13 @@ interface Case {
 	readonly unit: "micros" | "millis"
 }
 
-const changeNames: Arr.NonEmptyReadonlyArray<ChangeName> = ["claim", "reclaim", "stamp", "due"]
+const changeNames: Arr.NonEmptyReadonlyArray<ChangeName> = [
+	"claim",
+	"reclaim",
+	"stamp",
+	"fromStamp",
+	"due"
+]
 const readNames: ReadonlyArray<ReadName> = ["dueNow", "wanted", "stamps"]
 
 const caseGen: Gen<Case> = (source) => {
@@ -172,6 +192,7 @@ type Feature =
 	| "the reclaim, clocked"
 	| "a key bound to the reading"
 	| "a range read of what is due"
+	| "a whole key read by the reading"
 	| "a clocked read of a relation no live read reads"
 	| "a clocked read beside a live read of its relation"
 
@@ -282,6 +303,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 									"the reclaim, clocked",
 									"a key bound to the reading",
 									"a range read of what is due",
+									"a whole key read by the reading",
 									"a clocked read of a relation no live read reads",
 									"a clocked read beside a live read of its relation"
 								],
@@ -306,6 +328,9 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 								}
 								if (c.changes.includes("due")) {
 									notes.note("a range read of what is due")
+								}
+								if (c.changes.includes("fromStamp")) {
+									notes.note("a whole key read by the reading")
 								}
 								for (const [name, certificate] of Rec.toEntries(plain.certificates)) {
 									notes.note(
