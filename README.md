@@ -3573,13 +3573,19 @@ export const Claim = relation(
 	{ step: uuid, attempt: natural, holder: uuid, at: Instant, ttl: pg.bigint },
 	["step", "attempt"]
 )
-export const Finished = relation("Finished", { step: uuid, attempt: natural, holder: uuid }, ["step"])
-export const Work = schema("Work", [Step, Claim, Finished], [
-	race(Claim),
-	contained(on(Claim, "step"), on(Step, "id")),
-	contained(on(Claim, "step", pred("attempt")), on(Claim, "step", "attempt")),
-	contained(on(Finished, "step", "attempt", "holder"), on(Claim, "step", "attempt", "holder"))
+export const Finished = relation("Finished", { step: uuid, attempt: natural, holder: uuid }, [
+	"step"
 ])
+export const Work = schema(
+	"Work",
+	[Step, Claim, Finished],
+	[
+		race(Claim),
+		contained(on(Claim, "step"), on(Step, "id")),
+		contained(on(Claim, "step", pred("attempt")), on(Claim, "step", "attempt")),
+		contained(on(Finished, "step", "attempt", "holder"), on(Claim, "step", "attempt", "holder"))
+	]
+)
 ```
 
 - **One holder per key.** A claimer names its work by key, `(step, attempt)`, from the message that woke it or a read
