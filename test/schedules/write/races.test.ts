@@ -25,6 +25,12 @@
  * another key, and an update beside a put in place (each in-place
  * target).
  *
+ * The claimer race: two calls of the certified READ COMMITTED `claimer`, each racing Claim and then Seat, both raced
+ * (race), each in a statement of its own, under holders apart, the owner holding Gate beside them, in every order. The
+ * model meets a raced table's held key and adds nothing there; each call answers on its one try, and its read-backs
+ * show each raced table won, its own fact added and nothing met, or met, nothing added and the fact the final state
+ * holds at its key met, so a call may win one table and meet the other.
+ *
  * Features: each put target the served write runs (its statements' steps) and each pair reason the compile that
  * served it chose (PutChoice), each answer, each TransientFailure reason met, each direct SQLSTATE, waits, deadlocks,
  * nature's branches, a write held between its strata by a blocker, generated and explicit serials, and each planted
@@ -66,6 +72,7 @@ import {
 	Formatter,
 	Option,
 	Order,
+	Predicate,
 	pipe,
 	Record as Rec,
 	Result,
@@ -111,6 +118,7 @@ import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import {
 	Badge,
 	badgeCode,
+	Claim,
 	Code,
 	codeKey,
 	committedChanges,
@@ -120,11 +128,13 @@ import {
 	type Opened,
 	open,
 	openApp,
+	openClaimer,
 	openInserter,
 	Ref,
 	Room,
 	refItem,
 	type RoleChange,
+	Seat,
 	servedChanges,
 	Ticket,
 	ticketLabel,
@@ -188,6 +198,8 @@ const factGens: Readonly<Record<Rel, Gen<Fact>>> = {
 	Ref: (source) => [source.draw(idGen), source.draw(idGen)],
 	Zed: map(element(blockers), (z): Fact => [z]),
 	Badge: (source) => [source.draw(idGen), source.draw(idGen)],
+	Claim: (source) => [source.draw(idGen), source.draw(idGen)],
+	Seat: (source) => [source.draw(idGen), source.draw(idGen)],
 	Gate: map(element(blockers), (g): Fact => [g])
 }
 
@@ -725,7 +737,7 @@ const raceCaseGen: Gen<RaceCase> = (source) => {
 	}
 }
 
-const relationOf = { Item, Note, Code, Ticket, Room, Ref, Zed, Badge, Gate } as const
+const relationOf = { Item, Note, Code, Ticket, Room, Ref, Zed, Badge, Gate, Claim, Seat } as const
 
 /** A fact as the record a ChangeSet member gives. */
 const recordOf = (relation: Rel, f: Fact): Readonly<Record<string, unknown>> => {
@@ -750,6 +762,9 @@ const recordOf = (relation: Rel, f: Fact): Readonly<Record<string, unknown>> => 
 		case "Zed":
 		case "Gate":
 			return { id: Number(cell(0)) }
+		case "Claim":
+		case "Seat":
+			return { id: Number(cell(0)), holder: Number(cell(1)) }
 	}
 }
 
@@ -764,6 +779,8 @@ const valuesOf = (r: Rel, f: Fact): string => {
 		case "Code":
 		case "Ref":
 		case "Badge":
+		case "Claim":
+		case "Seat":
 			return `(${cell(0)}, ${cell(1)})`
 		case "Room":
 			return `(${cell(0)}, pg_catalog.int8range(${cell(1)}, ${cell(2)}), '${cell(3)}')`
@@ -798,6 +815,10 @@ const sqlOf = (o: Opened) => {
 				return `${o.names.column(Badge, "id")}, ${o.names.column(Badge, "code")}`
 			case "Gate":
 				return o.names.column(Gate, "id")
+			case "Claim":
+				return `${o.names.column(Claim, "id")}, ${o.names.column(Claim, "holder")}`
+			case "Seat":
+				return `${o.names.column(Seat, "id")}, ${o.names.column(Seat, "holder")}`
 		}
 	}
 	const insert = (r: Rel, f: Fact): string =>
@@ -837,7 +858,9 @@ const sqlOf = (o: Opened) => {
 			`SELECT 'Ref', ${o.names.column(Ref, "id")}::text, ${o.names.column(Ref, "item")}::text, NULL, NULL FROM ${t("Ref")}`,
 			`SELECT 'Zed', ${o.names.column(Zed, "id")}::text, NULL, NULL, NULL FROM ${t("Zed")}`,
 			`SELECT 'Badge', ${o.names.column(Badge, "id")}::text, ${o.names.column(Badge, "code")}::text, NULL, NULL FROM ${t("Badge")}`,
-			`SELECT 'Gate', ${o.names.column(Gate, "id")}::text, NULL, NULL, NULL FROM ${t("Gate")}`
+			`SELECT 'Gate', ${o.names.column(Gate, "id")}::text, NULL, NULL, NULL FROM ${t("Gate")}`,
+			`SELECT 'Claim', ${o.names.column(Claim, "id")}::text, ${o.names.column(Claim, "holder")}::text, NULL, NULL FROM ${t("Claim")}`,
+			`SELECT 'Seat', ${o.names.column(Seat, "id")}::text, ${o.names.column(Seat, "holder")}::text, NULL, NULL FROM ${t("Seat")}`
 		],
 		" UNION ALL "
 	)
@@ -1219,7 +1242,9 @@ const stateOfRows = (rows: TextRows): State => {
 		Ref: [],
 		Zed: [],
 		Badge: [],
-		Gate: []
+		Gate: [],
+		Claim: [],
+		Seat: []
 	}
 	for (const [relation, ...cells] of rows) {
 		const r = Option.getOrThrowWith(
@@ -1990,6 +2015,419 @@ const committedInserter = (
 		defined(changes.get("addBadges"), "the served change addBadges")
 	)
 
+/**
+ * A call of the role `claimer`, which generate certifies READ COMMITTED: the Claim it states and the Seat it states,
+ * each raced in a statement of its own, both under the call's own holder, which no other call and no stored fact
+ * holds, then the Gate fact it inserts after them, none or one.
+ */
+interface ClaimerCall {
+	readonly claim: string
+	readonly seat: string
+	readonly holder: string
+	readonly gates: ReadonlyArray<Fact>
+}
+
+/** A claimer call as the model reads it: Claim's insertion, Seat's, then Gate's where it states a Gate fact. */
+const claimerOp = (call: ClaimerCall): GrizzleOp => ({
+	strata: [
+		[{ kind: "enumerated", op: "insert", relation: "Claim", facts: [[call.claim, call.holder]] }],
+		[{ kind: "enumerated", op: "insert", relation: "Seat", facts: [[call.seat, call.holder]] }],
+		...(Arr.isReadonlyArrayNonEmpty(call.gates)
+			? [
+					[
+						{
+							kind: "enumerated" as const,
+							op: "insert" as const,
+							relation: "Gate" as const,
+							facts: call.gates
+						}
+					]
+				]
+			: [])
+	]
+})
+
+/** A claimer call's facts as its served call gives them: each of claimSeat's array members. */
+const claimerFacts = (call: ClaimerCall): CallFacts => ({
+	insert: {
+		Claim: [recordOf("Claim", [call.claim, call.holder])],
+		Seat: [recordOf("Seat", [call.seat, call.holder])],
+		Gate: Arr.map(call.gates, (f) => recordOf("Gate", f))
+	}
+})
+
+/** The holder no call states, which the stored Claims and Seats hold. */
+const storedHolder = "9"
+
+/** A lawful Claim or Seat state: some of the ids, each held by the stored holder. */
+const claimedStateGen: Gen<ReadonlyArray<Fact>> = (source) =>
+	Arr.map(source.draw(subarray(ids)), (id): Fact => [id, storedHolder])
+
+/**
+ * Two calls of `claimer`, `cl1`'s and `cl2`'s, holders 1 and 2, over stored Claims and Seats, and whether the owner
+ * holds Gate in SHARE mode beside them: a call that inserts a Gate fact while the owner holds it waits there, its Claim
+ * and Seat written and uncommitted, which is how the other call meets them in flight.
+ */
+interface ClaimerCase {
+	readonly origin: "drawn" | "planted won one and met the other" | "planted both met in flight"
+	readonly claims: ReadonlyArray<Fact>
+	readonly seats: ReadonlyArray<Fact>
+	readonly calls: readonly [ClaimerCall, ClaimerCall]
+	readonly held: boolean
+}
+
+/** cl1 claims and seats at its gate; cl2 claims another id at the same seat, so it wins one and meets the other. */
+const wonAndMetGen: Gen<ClaimerCase> = (source) => {
+	const [a, b] = source.draw(shuffled(ids, { min: 2, max: 2 }))
+	const seat = source.draw(idGen)
+	return {
+		origin: "planted won one and met the other",
+		claims: [],
+		seats: [],
+		calls: [
+			{ claim: a ?? "1", seat, holder: "1", gates: [[source.draw(element(blockers))]] },
+			{ claim: b ?? "2", seat, holder: "2", gates: [] }
+		],
+		held: true
+	}
+}
+
+/** cl1 claims and seats at its gate; cl2 states the same Claim and Seat, which it meets in flight. */
+const bothMetGen: Gen<ClaimerCase> = (source) => {
+	const claim = source.draw(idGen)
+	const seat = source.draw(idGen)
+	return {
+		origin: "planted both met in flight",
+		claims: [],
+		seats: [],
+		calls: [
+			{ claim, seat, holder: "1", gates: [[source.draw(element(blockers))]] },
+			{ claim, seat, holder: "2", gates: [] }
+		],
+		held: true
+	}
+}
+
+const claimerCallGen =
+	(holder: string): Gen<ClaimerCall> =>
+	(source) => ({
+		claim: source.draw(idGen),
+		seat: source.draw(idGen),
+		holder,
+		gates: Option.match(source.draw(option(element(blockers))), {
+			onNone: () => [],
+			onSome: (g) => [[g]]
+		})
+	})
+
+const claimerCaseGen: Gen<ClaimerCase> = weighted([
+	[1, wonAndMetGen],
+	[1, bothMetGen],
+	[
+		2,
+		(source) => ({
+			origin: "drawn",
+			claims: source.draw(claimedStateGen),
+			seats: source.draw(claimedStateGen),
+			calls: [source.draw(claimerCallGen("1")), source.draw(claimerCallGen("2"))],
+			held: source.draw(boolean)
+		})
+	]
+])
+
+/** A row a claimer call reads back, `[id, holder]` as text, where `row` is one. */
+const claimedRow = (row: unknown): Option.Option<Fact> =>
+	Predicate.hasProperty(row, "id") &&
+	Predicate.hasProperty(row, "holder") &&
+	typeof row.id === "number" &&
+	typeof row.holder === "number"
+		? Option.some([String(row.id), String(row.holder)])
+		: Option.none()
+
+/** The rows of the read-back `name` of a claimer's outcome, none where it is no list of rows. */
+const readBack = (reads: unknown, name: string): Option.Option<ReadonlyArray<Fact>> => {
+	if (!Predicate.hasProperty(reads, name) || !Arr.isArray(reads[name])) {
+		return Option.none()
+	}
+	return Option.all(Arr.map(reads[name], claimedRow))
+}
+
+/** What a claimer call answered on its one try: its answer as the model judges it, and its read-backs where it ran. */
+interface ClaimerAnswer {
+	readonly answer: GrizzleAnswer
+	readonly reads: Option.Option<unknown>
+}
+
+const claimerAnswerOf = (
+	reported: (refused: IdentifiedLaw) => LawId,
+	r: Result.Result<WriteAnswer<WrittenOutcome>, CallError>
+): ClaimerAnswer => {
+	if (Result.isFailure(r)) {
+		return {
+			answer: { kind: "failed", what: `${r.failure.kind}: ${r.failure.message}` },
+			reads: Option.none()
+		}
+	}
+	const value = r.success
+	return {
+		answer: grizzleAnswer(reported, value),
+		reads:
+			value.kind === "accepted" || value.kind === "unchanged"
+				? Option.some(value.reads)
+				: Option.none()
+	}
+}
+
+/** How a claimer call left one raced table: the row it added, or the row it met. */
+type RaceEnd = "won" | "met"
+
+/**
+ * How a call that answered left the raced table `relation`, from what it read back, or why that is not the contract:
+ * the fact it states added and nothing met, or nothing added and the one fact the final state holds at its key met,
+ * another call's or a stored one, never its own.
+ */
+const raceEndOf = (
+	reads: unknown,
+	relation: "Claim" | "Seat",
+	stated: Fact,
+	final: State
+): Result.Result<RaceEnd, string> => {
+	const prefix = relation === "Claim" ? "claim" : "seat"
+	const added = readBack(reads, `${prefix}Added`)
+	const met = readBack(reads, `${prefix}Met`)
+	if (Option.isNone(added) || Option.isNone(met)) {
+		return Result.fail(
+			`its read-backs of ${relation} are no lists of rows: ${Formatter.format(reads)}`
+		)
+	}
+	const held = Arr.filter(final[relation], (f) => f[0] === stated[0])
+	if (deepEquals(added.value, [stated]) && met.value.length === 0) {
+		return Result.succeed("won")
+	}
+	if (added.value.length === 0 && deepEquals(met.value, held) && !deepEquals(held, [stated])) {
+		return Result.succeed("met")
+	}
+	return Result.fail(
+		`at ${relation} ${Formatter.format(stated)} it read back added ${Formatter.format(added.value)} and met ${Formatter.format(met.value)}, where the final state holds ${Formatter.format(held)} there`
+	)
+}
+
+/** The claimer search's notes: each answer, how each call left the two raced tables, and the waits of a race. */
+type ClaimerFeature =
+	| `claimer ${GrizzleAnswer["kind"]}`
+	| "a claimer won both raced tables"
+	| "a claimer met both raced tables"
+	| "a claimer won one raced table and met the other"
+	| "a claimer waited on the other's race"
+	| "a claimer held at its gate"
+	| "planted won one and met the other"
+	| "planted both met in flight"
+
+/** The claimers' writers, by the session each runs. */
+const claimerSessions = ["cl1", "cl2"] as const
+
+/**
+ * The claimer race: `claimer`'s served change, run by two writers of the role over the case's stored Claims and Seats,
+ * the owner holding Gate beside them where the case says, in every order. Each run is judged by the serial model, in
+ * which a raced table's insertion at a held key meets the fact there; each call answers on its one try, and its
+ * read-backs show each raced table won, its own fact added, or met, the fact the final state holds at its key.
+ */
+const runClaimers = (
+	cc: ClaimerCase,
+	c: Case<ClaimerFeature>
+): Effect.Effect<void, RaceFailed | RaceError, Substrate | Scope.Scope> =>
+	Effect.gen(function* () {
+		const s = yield* Substrate
+		const o = yield* open
+		const sql = sqlOf(o)
+		const laws = lawsOf(o)
+		const change = yield* committedClaimer(o)
+		const cl1 = yield* o.rig.servedWriter("cl1", openClaimer(o.rig), (db) =>
+			answered(
+				db.workload.claimSeat.once({
+					params: {},
+					facts: { insert: { Claim: [], Seat: [], Gate: [] } }
+				})
+			)
+		)
+		const cl2 = yield* o.rig.servedWriter("cl2", openClaimer(o.rig), (db) =>
+			answered(
+				db.workload.claimSeat.once({
+					params: {},
+					facts: { insert: { Claim: [], Seat: [], Gate: [] } }
+				})
+			)
+		)
+		const writers = { cl1, cl2 }
+		const actors = yield* openActors(s, {
+			gate: { kind: "raw", as: o.rig.installed.ambientOwner.credentials }
+		})
+		const initial: State = { ...emptyState, Claim: cc.claims, Seat: cc.seats }
+		const calls = Arr.zip(claimerSessions, cc.calls)
+		const describe = Arr.join(
+			[
+				`over Claim ${Formatter.format(cc.claims)} and Seat ${Formatter.format(cc.seats)}${cc.held ? ", Gate held by the owner" : ""}`,
+				...Arr.map(calls, ([actor, call]) => `${actor}: ${describeOp(claimerOp(call))}`)
+			],
+			"\n"
+		)
+		if (cc.origin !== "drawn") {
+			c.note(cc.origin)
+		}
+		const seen = new Map<string, ClaimerAnswer>()
+		const txns: ReadonlyArray<Txn> = [
+			...Arr.map(calls, ([actor, call]): Txn => ({
+				kind: "grizzle",
+				session: actor,
+				steps: [
+					{
+						label: describeOp(claimerOp(call)),
+						outcome: Effect.map(
+							Effect.result(
+								answered(
+									writeOnce(memberCalls(writers[actor].ctx, change.member))({
+										params: {},
+										facts: claimerFacts(call)
+									})
+								)
+							),
+							(r) => {
+								seen.set(actor, claimerAnswerOf(o.names.reported, r))
+								return succeeded
+							}
+						),
+						footprint: reaches(["Claim", "Seat", "Gate"])
+					}
+				],
+				after: undefined
+			})),
+			...(cc.held
+				? [
+						{
+							kind: "direct" as const,
+							session: "gate",
+							steps: [
+								interleaveStep(`LOCK TABLE ${o.names.table(Gate)} IN SHARE MODE`, reaches(["Gate"]))
+							],
+							end: "commit" as const,
+							after: undefined
+						}
+					]
+				: [])
+		]
+		const reached: Array<ClaimerFeature> = []
+		yield* exploreInterleavings(
+			o.rig.env,
+			{ direct: { gate: actors.gate }, grizzle: { cl1: cl1.actor, cl2: cl2.actor } },
+			{
+				name: `claimers ${cc.origin}`,
+				txns,
+				reset: Effect.andThen(
+					Effect.sync(() => {
+						seen.clear()
+					}),
+					o.rig.replace(sql.reset(initial))
+				),
+				state: { _tag: "Read", sql: sql.read },
+				model: (run) =>
+					Effect.sync(() => {
+						const final = stateOf(run)
+						const notes: Array<ClaimerFeature> = []
+						const observed = Arr.map(calls, ([actor, call]): Observed => {
+							const move = Option.getOrThrowWith(
+								Arr.findFirst(run.moves, (m) => m.session === actor),
+								() => new Error(`${actor}'s call made no move`)
+							)
+							if (move.result._tag === "Unfinished") {
+								throw new Error(`${actor}'s call did not finish in a run that ran every move`)
+							}
+							return {
+								kind: "grizzle",
+								label: `${actor}'s call`,
+								session: actor,
+								op: claimerOp(call),
+								span: { start: move.issued, end: move.result.at },
+								refused: [],
+								answer: defined(seen.get(actor), `${actor}'s answer`).answer
+							}
+						})
+						for (const [actor, call] of calls) {
+							const got = defined(seen.get(actor), `${actor}'s answer`)
+							if (got.answer.kind === "failed") {
+								return refusedJudgment(
+									`${describe}\n${actor}'s call failed: ${got.answer.what}, where a certified READ COMMITTED call answers on its one try`
+								)
+							}
+							notes.push(`claimer ${got.answer.kind}`)
+							if (Option.isSome(got.reads)) {
+								const claim = raceEndOf(got.reads.value, "Claim", [call.claim, call.holder], final)
+								const seat = raceEndOf(got.reads.value, "Seat", [call.seat, call.holder], final)
+								if (Result.isFailure(claim)) {
+									return refusedJudgment(`${describe}\n${actor}'s call: ${claim.failure}`)
+								}
+								if (Result.isFailure(seat)) {
+									return refusedJudgment(`${describe}\n${actor}'s call: ${seat.failure}`)
+								}
+								notes.push(
+									claim.success === seat.success
+										? claim.success === "won"
+											? "a claimer won both raced tables"
+											: "a claimer met both raced tables"
+										: "a claimer won one raced table and met the other"
+								)
+							}
+						}
+						const judged = judgeRun(laws, initial, observed, final)
+						if (judged !== undefined) {
+							return judgedProblem(describe, judged)
+						}
+						const waitedOn = (on: string): boolean =>
+							Arr.some(
+								run.moves,
+								(m) =>
+									m.observed._tag === "Waited" &&
+									m.session !== on &&
+									m.session !== "gate" &&
+									m.observed.on.includes(on)
+							)
+						appendAll(reached, [
+							...notes,
+							...(waitedOn("cl1") || waitedOn("cl2")
+								? ["a claimer waited on the other's race" as const]
+								: []),
+							...(waitedOn("gate") ? ["a claimer held at its gate" as const] : [])
+						])
+						return allowed
+					}),
+				maxInterleavings: runawayInterleavings
+			},
+			every
+		).pipe(
+			Effect.catchTags({
+				InterleavingFailed: (e) => Effect.fail(new RaceFailed({ message: e.message })),
+				RunRefused: (e) => Effect.fail(new RaceFailed({ message: e.message })),
+				NoSerialOrder: (e) => Effect.fail(new RaceFailed({ message: e.message })),
+				AfterCycle: (e) => Effect.fail(new RaceFailed({ message: e.message }))
+			})
+		)
+		c.noteAll(reached)
+	})
+
+/**
+ * The role `claimer`'s served change, where generate certified the role READ COMMITTED; any other level fails the
+ * case, since an insert-only role writing tables only insert-only roles write is certified READ COMMITTED.
+ */
+const committedClaimer = (o: Opened): Effect.Effect<RoleChange, RaceFailed | OpenError> =>
+	Effect.flatMap(committedChanges(o, "claimer"), (committed) =>
+		committed.isolation === "readCommitted"
+			? Effect.succeed(defined(committed.changes.get("claimSeat"), "the served change claimSeat"))
+			: Effect.fail(
+					new RaceFailed({
+						message: `generate certified claimer ${committed.isolation}, where an insert-only role writing raced tables only insert-only roles write runs READ COMMITTED`
+					})
+				)
+	)
+
 /** Each level's BEGIN as PostgreSQL reads a change's: the oracle's own spelling. */
 const beginTexts: { readonly [I in Isolation]: string } = {
 	serializable: "BEGIN ISOLATION LEVEL SERIALIZABLE",
@@ -2169,6 +2607,51 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						},
 						(ic, c) =>
 							Effect.scoped(runInserters(ic, c)).pipe(
+								Effect.catchCause((cause) =>
+									Effect.fail(new RaceFailed({ message: Cause.pretty(cause) }))
+								)
+							)
+					)
+				)
+		)
+
+		it.effect(
+			`${inserterRuns} cases of certified READ COMMITTED claimers racing at Claim and Seat: every run serial with a raced table's held key met, every call answered on its one try, each raced table won or met as its read-backs show`,
+			(ctx) =>
+				searched(
+					ctx,
+					explore(
+						{
+							oracle: {
+								kind: "second-implementation",
+								name: "the serial model (model.ts judgeRun), raced tables meeting a held key, and each call's read-backs against the final state"
+							},
+							suite: "schedules/write/claimers",
+							draw: drawn(claimerCaseGen),
+							literal: Formatter.format,
+							coverage: required<ClaimerFeature>(
+								[
+									"claimer accepted",
+									"claimer unchanged",
+									"a claimer won both raced tables",
+									"a claimer met both raced tables",
+									"a claimer won one raced table and met the other",
+									"a claimer waited on the other's race",
+									"a claimer held at its gate",
+									"planted won one and met the other",
+									"planted both met in flight"
+								],
+								{ cases: inserterRuns, sense: notesOnly }
+							),
+							kept: [],
+							runs: inserterRuns,
+							shrink: { kind: "bounded", candidates: 20 },
+							concurrency: 1,
+							steerEvery: 4,
+							caseHang
+						},
+						(cc, c) =>
+							Effect.scoped(runClaimers(cc, c)).pipe(
 								Effect.catchCause((cause) =>
 									Effect.fail(new RaceFailed({ message: Cause.pretty(cause) }))
 								)

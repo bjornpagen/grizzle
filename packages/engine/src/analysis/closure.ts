@@ -55,6 +55,7 @@ const selectionReads = (selection: SelectionDesc): ReadonlyArray<string> =>
 const lawRelations = (s: OwnedStatement): ReadonlyArray<string> => {
 	switch (s.kind) {
 		case "mutable":
+		case "race":
 		case "check":
 			return [s.relation]
 		case "key":
@@ -79,6 +80,7 @@ const appliedRelations = (s: OwnedStatement): ReadonlyArray<string> => {
 		scopes.flatMap((scope) => selectionReads(scope.selection))
 	switch (s.kind) {
 		case "mutable":
+		case "race":
 			return []
 		case "check":
 			return closedReadNames(s.predicate)
@@ -256,6 +258,7 @@ export const closureOf = (owned: Owned, slice: Slice): Closure => {
 				return axes.some((axis) => s.reads.every((r) => axis.has(r)))
 			case "check":
 			case "mutable":
+			case "race":
 				return false
 		}
 	}

@@ -1624,6 +1624,9 @@ schema.
 - **Immutable by default.** Rows are inserted and deleted, never updated, and no role holds UPDATE on them.
   `mutable(Post)` among a schema's rules allows in-place updates; it changes how a `put` runs, never what it means. A
   family's owner whose family changes after it is inserted is mutable too ([Families](#families)).
+- **First insertion wins, by `race`.** `race(Claim)` among a schema's rules makes a table's primary key first come,
+  first held: an insertion at a key another row holds meets that row instead of being refused for differing from it
+  ([Races](#races)).
 - **No timestamp type.** An instant is a `bigint` contract, such as milliseconds since the epoch, and the current time
   is a parameter: the caller's, or the database's clock where a member binds it
   ([The database's clock](#the-databases-clock)). A calendar day is a `date`.
@@ -3411,6 +3414,70 @@ export const ExamLearner = role(Exam, "learner", wholeEntriesOf(Exam), { insert:
 
 The learner's check now reads `Published`, which only ever gains rows, and its one writer reads nothing another call
 can write, so the check finds an immutable row or refuses the call. Publish a question before a learner may answer it.
+
+### Races
+
+`race(R)` among a schema's rules makes R's primary key first come, first held. The first insertion at a key holds it,
+and every later insertion at that key meets the row that holds it, whatever that row holds: nothing is refused, the row
+it met is in `delta.met(R)`, and the call's outcome is `accepted` or `no-change` as its other members decide. Without
+`race`, a row another insertion holds is an exact repeat, which changes nothing, or that key's refusal.
+
+- **Which tables race.** An ordinary table whose primary key has a field beside it and holds no span and no field the
+  database or grizzle draws, that is neither `mutable` nor a family's owner or member. generate refuses any other
+  `race` as MalformedDescription, and a `race` over a table a lower level declares as LevelRefused.
+- **Adding or dropping it is a migration.** `race` changes the schema's fingerprint as `mutable` does, so generate
+  drafts a migration with no SQL, which moves the installation to the new fingerprint; once it is applied, a `Db` of
+  the old snapshot fails with `StaleSnapshot`.
+- **Its other keys stay laws.** An insertion that would hold another of R's keys that another row holds is refused by
+  that key, and the whole call with it. A `put` of R asserts its row and never races. A key held by a row outside the
+  role's query entry is never met, race or not.
+
+A claim of work, keyed by the work it claims and never searched for:
+
+```ts
+export const Instant = contract("Instant", pg.bigint)
+export const Step = relation("Step", { id: uuid }, ["id"])
+export const Claim = relation(
+	"Claim",
+	{ step: uuid, attempt: natural, holder: uuid, at: Instant, ttl: pg.bigint },
+	["step", "attempt"]
+)
+export const Finished = relation("Finished", { step: uuid, attempt: natural, holder: uuid }, ["step"])
+export const Work = schema("Work", [Step, Claim, Finished], [
+	race(Claim),
+	contained(on(Claim, "step"), on(Step, "id")),
+	contained(on(Claim, "step", pred("attempt")), on(Claim, "step", "attempt")),
+	contained(on(Finished, "step", "attempt", "holder"), on(Claim, "step", "attempt", "holder"))
+])
+```
+
+- **One holder per key.** A claimer names its work by key, `(step, attempt)`, from the message that woke it or a read
+  that found it, and a `holder` it draws fresh for its call, and inserts Claim there. Exactly one claimer of a key
+  holds it; every other meets the holder's row in `delta.met(Claim)`. A claimer that sends its call again after
+  `commitUnknown` meets its own row, its own holder in it.
+- **Only the winner goes on.** A member that runs for the winner alone reads Claim back at the key in a later statement
+  of the same ChangeSet, `holder` equal to its own, and writes from that read: a loser finds no row and writes nothing.
+  generate certifies that read as the row the race fixed, where the read binds the key as the insertion bound it and
+  nothing before the insertion read rows another call can write.
+- **Expiry is a new fact.** A claim never changes. A reclaim inserts Claim at the next attempt from the previous
+  attempt's row, read by its whole key, where `at + ttl` is before `now` (Compute.add over Compute.base of each); a
+  claim stamps `at` with `now`, and serving both `clocked(…, { now: "micros" })` judges both ends by the database's
+  clock ([The database's clock](#the-databases-clock)). Nothing revokes the earlier attempt, so two attempts' holders
+  may run at once: Finished's key decides which commits, and a later commit of the step is refused by that key, nothing
+  of its call written.
+- **All of it is certified READ COMMITTED.** The claim, the winner's read, the reclaim and a commit fenced by
+  Finished's containment into Claim each run READ COMMITTED, so none meets a serialization failure, and a lost race
+  answers on its first try. Searching for work inside the claim does not: taking the next due item reads rows a
+  concurrent call can add, skipping claimed items reads their absence, and allowing fewer than W running counts them,
+  and each keeps its role SERIALIZABLE (`pivot`, `absence`).
+- **Two races in two statements are two races.** A call that races two tables, each in its own statement, can win one
+  and meet the other. It then holds the key it won, and `delta.met` says which it met. To win both or neither, put
+  both keys on one row, the primary key raced and the other a key of the table, so a held other key refuses the call
+  whole; or race the first and insert the second, into a table that does not race, joined with the winner's read of
+  the first, so a held second key refuses the call and the first with it.
+- **Deadlocks.** A call that inserts one row into each table it races never waits on another in a cycle. A call that
+  inserts several rows into a table with two unique keys, or claims several keys in an order another call reverses,
+  can meet a deadlock (40P01), a `transient` failure, at any isolation level.
 
 ## Deploying
 

@@ -804,11 +804,14 @@ export interface ArmDesc {
  * - alternatives(parent, discriminator, roster, arms) is its own statement, which expandAlternatives states.
  * - retirable(header, bodies) is its own statement, which expandRetirable states: the groups of `header`, each a value of
  *   its key, and each group's rows of every body relation, which a retirement removes whole while the header stays.
+ * - race(R) makes R's primary key first come, first held: an insertion at a key another row holds meets that row,
+ *   never refused for differing from it (ir/law.ts Inserts).
  */
 export type StatementDesc<L = Located> = L &
 	(
 		| { readonly kind: "key"; readonly side: SideDesc }
 		| { readonly kind: "mutable"; readonly relation: string }
+		| { readonly kind: "race"; readonly relation: string }
 		| {
 				readonly kind: "check"
 				readonly name: string
@@ -1928,6 +1931,7 @@ const memberShape: S.Shape<SideDesc> = S.refine(
 const statementDescShape: S.Shape<StatementDesc> = S.tagged("kind", {
 	key: S.located(S.structWith({ side: sideDescShape }, loc)),
 	mutable: S.located(S.structWith({ relation: name }, loc)),
+	race: S.located(S.structWith({ relation: name }, loc)),
 	check: S.located(S.structWith({ name, relation: name, predicate: exprDescShape }, loc)),
 	contained: sideLinkShape,
 	family: S.located(
@@ -2014,7 +2018,11 @@ const retirementBoolean = (d: FieldDecl): boolean =>
 
 /** A serial field is of an integer type, which its sequence draws, and a retirement field a boolean. */
 const fieldDeclShape: S.Shape<FieldDecl> = S.refine(
-	S.refine(S.struct({ type: fieldDescShape, writing: writingShape }), serialDrawn, serialCapability),
+	S.refine(
+		S.struct({ type: fieldDescShape, writing: writingShape }),
+		serialDrawn,
+		serialCapability
+	),
 	retirementBoolean,
 	"a retirement field of boolean, false until its group is retired"
 )

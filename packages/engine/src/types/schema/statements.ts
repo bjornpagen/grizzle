@@ -79,6 +79,15 @@ export interface Mutable<R> {
 	readonly relation: R
 }
 
+/**
+ * race(R): R's primary key is held by its first insertion, and every later insertion at it meets that row, never
+ * refused for differing from it.
+ */
+export interface Race<R> {
+	readonly kind: "race"
+	readonly relation: R
+}
+
 export interface Check<Name extends string, R> {
 	readonly kind: "check"
 	readonly name: Name
@@ -534,6 +543,7 @@ export type MirrorsBase = Mirrors<unknown, unknown>
 export type Statement =
 	| Key<unknown>
 	| Mutable<unknown>
+	| Race<unknown>
 	| Check<string, unknown>
 	| Containment<unknown, unknown>
 	| MirrorsBase

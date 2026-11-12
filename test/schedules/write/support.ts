@@ -12,12 +12,14 @@ import type { Isolation } from "#compiler/core/isolation.ts"
 import { ownBuilt, trustedJson } from "#compiler/plan/common.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
 	key,
 	login,
 	mutable,
 	on,
+	race,
 	relation,
 	role,
 	schema
@@ -25,6 +27,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { servedFile } from "#compiler/served/json.ts"
+import type { DeltaSource } from "#compiler/types/changeset/changeset.ts"
 import type { ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
 import { defined } from "#test/support/assert.ts"
@@ -79,6 +82,8 @@ export const Ref = relation("Ref", { id: pg.integer, item: pg.integer }, ["id"])
 export const Zed = relation("Zed", { id: pg.integer }, ["id"])
 export const Badge = relation("Badge", { id: pg.integer, code: pg.integer }, ["id"])
 export const Gate = relation("Gate", { id: pg.integer }, ["id"])
+export const Claim = relation("Claim", { id: pg.integer, holder: pg.integer }, ["id"])
+export const Seat = relation("Seat", { id: pg.integer, holder: pg.integer }, ["id"])
 
 /** Code's and Ticket's candidate keys, and Ref's foreign key into Item: the laws a race names by these declarations. */
 export const codeKey = key(on(Code, "code"))
@@ -88,7 +93,7 @@ export const refItem = contained(on(Ref, "item"), on(Item, "id"))
 export const badgeCode = key(on(Badge, "code"))
 
 const shared = { Item, Note, Code, Ticket, Room, Ref, Zed } as const
-const relations = { ...shared, Badge, Gate } as const
+const relations = { ...shared, Badge, Gate, Claim, Seat } as const
 const written = ["Item", "Note", "Code", "Ticket", "Room", "Ref", "Zed"] as const
 const statements = [
 	mutable(Note),
@@ -98,7 +103,9 @@ const statements = [
 	codeKey,
 	ticketLabel,
 	refItem,
-	badgeCode
+	badgeCode,
+	race(Claim),
+	race(Seat)
 ] as const
 
 /**
@@ -117,6 +124,44 @@ const inserterOf = (base: ReturnType<typeof schedSchema>) =>
 	role(base, "inserter", { Badge, Gate }, { insert: ["Badge", "Gate"] })
 type Inserter = ReturnType<typeof inserterOf>
 
+/** The role `claimer` of the schedule schema `base`: Claim, Seat and Gate whole, inserting only. */
+const claimerOf = (base: ReturnType<typeof schedSchema>) =>
+	role(base, "claimer", { Claim, Seat, Gate }, { insert: ["Claim", "Seat", "Gate"] })
+type Claimer = ReturnType<typeof claimerOf>
+
+/** A delta side of Claim, read back whole. */
+const claimRows = (claimer: Claimer, side: DeltaSource<typeof Claim>) =>
+	query(claimer).rule((r) => {
+		const { id, holder } = v(side, "row")
+		return r.match(side, { id, holder }).find({ id, holder })
+	})
+
+/** A delta side of Seat, read back whole. */
+const seatRows = (claimer: Claimer, side: DeltaSource<typeof Seat>) =>
+	query(claimer).rule((r) => {
+		const { id, holder } = v(side, "row")
+		return r.match(side, { id, holder }).find({ id, holder })
+	})
+
+/**
+ * The role `claimer`'s one change: the Claim facts its call states, raced, then the Seat facts, raced, each in a
+ * statement of its own with what it added and what it met read back, then Gate's facts, the blocker, as `inserter`'s.
+ */
+const claimSeat = (claimer: Claimer) =>
+	ChangeSet.sequence(
+		ChangeSet.sequence(
+			ChangeSet.empty(claimer)
+				.insert(Claim, [])
+				.read("claimAdded", (d) => claimRows(claimer, d.added(Claim)))
+				.read("claimMet", (d) => claimRows(claimer, d.met(Claim))),
+			ChangeSet.empty(claimer)
+				.insert(Seat, [])
+				.read("seatAdded", (d) => seatRows(claimer, d.added(Seat)))
+				.read("seatMet", (d) => seatRows(claimer, d.met(Seat)))
+		),
+		ChangeSet.empty(claimer).insert(Gate, [])
+	)
+
 /** The schedule schema under `name`, over the relations and laws above. */
 const schedSchema = (name: string) => schema(name, Rec.values(relations), statements)
 
@@ -129,7 +174,8 @@ const schedSchema = (name: string) => schema(name, Rec.values(relations), statem
  * `noop`, the empty ChangeSet, a writer's first call, and `direct`, which raw pinned sessions take on through the login
  * `psql` to play the concurrent direct SQL writer. Both are certified SERIALIZABLE, and every table they write keeps its
  * guard. A third role of `server`, `inserter`, holds only Badge and Gate and inserts only (`insert`), its one change
- * `addBadges`; no other role writes either, so generate certifies it READ COMMITTED and neither table keeps a guard.
+ * `addBadges`; a fourth, `claimer`, holds only Claim, Seat and Gate and inserts only, its one change `claimSeat`; no
+ * other role writes any of them, so generate certifies both READ COMMITTED and none of those tables keeps a guard.
  * Every table, column and law a schedule names comes from the installation (`names`).
  *
  * The relations, each the shape of a put target or a transient reason:
@@ -146,8 +192,10 @@ const schedSchema = (name: string) => schema(name, Rec.values(relations), statem
  *   there, holding everything its earlier statements did, so a race can act between two statements of one grizzle
  *   transaction; and a put of it is the pair for a pure set;
  * - Badge: immutable, keyed by id, with the candidate key code (badgeCode): what two `inserter` calls race at;
- * - Gate: immutable, keyed by id, the `inserter`'s blocker: the owner's SHARE lock on it holds a call that inserts a Gate
- *   fact after its Badge rows, while writing nothing itself, so the role stays certified.
+ * - Gate: immutable, keyed by id, the `inserter`'s and the `claimer`'s blocker: the owner's SHARE lock on it holds a call
+ *   that inserts a Gate fact after its other rows, while writing nothing itself, so each role stays certified;
+ * - Claim and Seat: immutable, keyed by id, each raced (race): what two `claimer` calls race at, each in a statement of
+ *   its own, so a call can win one and meet the other.
  *
  * The schedule schema under the name its installation gives it, over the same relation values, with its worlds.
  */
@@ -156,15 +204,18 @@ const renamedSched = (name: string) => {
 	const app = role(base, "app", shared, { write: written })
 	const direct = role(base, "direct", shared, { write: written })
 	const inserter = inserterOf(base)
+	const claimer = claimerOf(base)
 	return {
 		schema: base,
 		app,
 		direct,
 		inserter,
-		server: login(base, "server", [app, inserter], {
+		claimer,
+		server: login(base, "server", [app, inserter, claimer], {
 			workload: [
 				workload(app, { noop: ChangeSet.empty(app) }),
-				workload(inserter, { addBadges: addBadges(inserter) })
+				workload(inserter, { addBadges: addBadges(inserter) }),
+				workload(claimer, { claimSeat: claimSeat(claimer) })
 			]
 		}),
 		psql: login(base, "psql", [direct])
@@ -197,8 +248,13 @@ export const openInserter =
 	(rig: Rig<SchedWorlds>) => (context: Context.Context<DbLayerOf<SchedWorlds["server"]>>) =>
 		openServed(rig.served.roles.inserter, {}).pipe(Effect.provideContext(context))
 
+/** The rig's served writer `open`: the role `claimer`'s Db over the writer's DbLayer of the served login. */
+export const openClaimer =
+	(rig: Rig<SchedWorlds>) => (context: Context.Context<DbLayerOf<SchedWorlds["server"]>>) =>
+		openServed(rig.served.roles.claimer, {}).pipe(Effect.provideContext(context))
+
 /** A role of the login `server` that runs ChangeSets. */
-export type Writing = "app" | "inserter"
+export type Writing = "app" | "inserter" | "claimer"
 
 /** A ChangeSet as a role of `server` serves it: its member, whose operations a writer runs, and its loaded change. */
 export interface RoleChange {

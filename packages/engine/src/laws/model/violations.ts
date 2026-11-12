@@ -40,6 +40,7 @@ type Written =
 const statementExprs = (s: OwnedStatement): ReadonlyArray<ExprDesc> => {
 	switch (s.kind) {
 		case "mutable":
+		case "race":
 			return []
 		case "key":
 			return s.side.selection.conjuncts

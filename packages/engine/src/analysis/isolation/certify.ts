@@ -1,12 +1,14 @@
-import type {
-	IsolationInput,
-	MemberFacts,
-	ProbeFact,
-	ReadFact,
-	RelationFacts,
-	RoleFacts,
-	RowSource,
-	StatementFacts
+import {
+	type FieldBinding,
+	groupFields,
+	type IsolationInput,
+	type MemberFacts,
+	type ProbeFact,
+	type ReadFact,
+	type RelationFacts,
+	type RoleFacts,
+	type RowSource,
+	type StatementFacts
 } from "#compiler/analysis/isolation/facts.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -129,10 +131,12 @@ export interface RoleIsolation {
  *   owner holding their count, a set the count law fixes, all of it or none;
  * - `point`: an outside read binding every field of a declared key of an insert-only relation, so one row at most,
  *   which no later call changes;
- * - `arbitrated`: a point read of an insert-only relation at exactly the group the call's own earlier statement
- *   arbitrated in it, by its parameters: once that statement inserted the row or met it as an exact repeat, DO SELECT
- *   waiting for its writer's commit, the row at the key is the call's own or committed and never changes, so the read
- *   sees exactly it and misses no write;
+ * - `arbitrated`: a point read of an insert-only relation that binds each field of a key the call's own earlier
+ *   statement arbitrated in it to what that arbitration bound it to, by its parameters, whatever else it binds: once
+ *   that statement inserted the row or met it, DO SELECT waiting for its writer's commit, the row at the key is the
+ *   call's own or committed and never changes, so the read sees exactly it, filtered by its other bindings, and misses
+ *   no write. A raced relation's arbitration fixes only the row at its race key, the one it met there whatever it holds
+ *   at its other keys;
  * - `unsealed`: any other outside read, with why; a read of one group per own row of the call among them, which
  *   another call's rows may split, some seen and some missed. An arbitration is no such read: the unique check decides
  *   each row it proposes on its own.
@@ -299,7 +303,7 @@ const sealOf = (at: Installation, read: ReadFact): ReadSeal => {
 	const group = read.group
 	if (read.mode === "arbiter") {
 		return at.writers.insertOnly(read.relation)
-			? arbiterSeal(facts, group?.fields)
+			? arbiterSeal(facts, group === undefined ? undefined : groupFields(group))
 			: {
 					kind: "unsealed",
 					detail:
@@ -319,10 +323,11 @@ const sealOf = (at: Installation, read: ReadFact): ReadSeal => {
 	if (!at.writers.insertOnly(read.relation)) {
 		return { kind: "unsealed", detail: "a role updates or deletes the relation" }
 	}
-	if (facts.countedGroups.some((k) => sameKey(k, group.fields))) {
-		return { kind: "counted", key: group.fields }
+	const fields = groupFields(group)
+	if (facts.countedGroups.some((k) => sameKey(k, fields))) {
+		return { kind: "counted", key: fields }
 	}
-	return pointSeal(facts, group.fields)
+	return pointSeal(facts, fields)
 }
 
 /** A read by `fields` of an insert-only relation: a point read where they hold a whole declared key, else unsealed. */
@@ -506,42 +511,89 @@ const neutralOf = (
 }
 
 /**
+ * A row a statement of a member fixed by its arbitration: the relation, the declared key it arbitrated (`key`), what
+ * each of that key's fields is bound to (`bound`), and the statement.
+ */
+interface Fixed {
+	readonly relation: string
+	readonly key: ReadonlyArray<string>
+	readonly bound: ReadonlyArray<FieldBinding>
+	readonly statement: number
+}
+
+/**
+ * Whether a committed arbitration at `key` of a relation whose facts are `facts` fixes the row there: every one of a
+ * repeatable relation, whose insertion at a stored row is an exact repeat at every field it states or refused, so each
+ * key it states holds the row it proposed; and a raced relation's at its race key alone, where the row it met may hold
+ * other values at its other keys than the ones it proposed. None of a relation the installation states no fact of.
+ */
+const fixesAt = (facts: RelationFacts | undefined, key: ReadonlyArray<string>): boolean => {
+	if (facts === undefined) {
+		return false
+	}
+	return facts.inserts.kind === "repeatable" || sameKey(facts.inserts.key, key)
+}
+
+/** The row of `fixed` a read reads: one fixed earlier in its member, of its relation, whose key fields it binds each to
+ * what the arbitration bound it to, whatever else it binds; none where no such row is. */
+const fixedFor = (
+	fixed: ReadonlyArray<Fixed>,
+	read: ReadFact,
+	statement: number
+): Fixed | undefined => {
+	const group = read.group
+	return group === undefined
+		? undefined
+		: fixed.find(
+				(f) =>
+					f.relation === read.relation &&
+					f.statement < statement &&
+					f.bound.every((b) => group.bound.some((r) => r.field === b.field && r.by === b.by))
+			)
+}
+
+/**
  * Every read of a member, each placed, sealed, and with its mode: its base mode where every probe above it is neutral
- * (neutralOf), else the mode it composes. A point read at a group an earlier statement of the member arbitrated is
- * arbitrated, whatever its mode, since the row there is fixed, where that statement and every one before it read only the call's own rows and arbitrations, so the
- * row it proposes at the group is the call's whatever the installation holds: an insert an outside read gates may
- * propose nothing, and the later read then meets another call's row (NEGATION's claimStart, the publication case).
+ * (neutralOf), else the mode it composes. A point read of a row an earlier statement of the member fixed by its
+ * arbitration, each field of the arbitrated key bound to what the arbitration bound it to, is arbitrated, whatever its
+ * mode and whatever else it binds, since the row there is fixed and its other bindings only filter that row, where that
+ * statement and every one before it read only the call's own rows and arbitrations, so the row it proposes at the key
+ * is the call's whatever the installation holds: an insert an outside read gates may propose nothing, and the later
+ * read then meets another call's row (NEGATION's claimStart, the publication case). A raced relation's arbitration
+ * fixes only the row at its race key (fixesAt).
  */
 const readsOf = (at: Installation, member: MemberFacts): ReadonlyArray<PlacedRead> => {
-	const arbitrated = new Map<string, number>()
+	const fixed: Array<Fixed> = []
 	for (const [statement, s] of member.statements.entries()) {
 		const seals = s.reads.map((read) => ({ read, seal: sealOf(at, read) }))
 		if (seals.some(({ seal }) => seal.kind !== "own" && seal.kind !== "arbiter")) {
 			break
 		}
 		for (const { read, seal } of seals) {
-			const g = groupOf(read)
+			const group = read.group
 			if (
 				read.mode === "arbiter" &&
 				seal.kind === "arbiter" &&
-				read.group?.rows === "one" &&
-				!arbitrated.has(g)
+				group?.rows === "one" &&
+				fixesAt(at.relations.get(read.relation), seal.key)
 			) {
-				arbitrated.set(g, statement)
+				fixed.push({
+					relation: read.relation,
+					key: seal.key,
+					bound: group.bound.filter((b) => seal.key.includes(b.field)),
+					statement
+				})
 			}
 		}
 	}
 	return member.statements.flatMap((s, statement) => {
 		const placed = s.reads.map((read, index) => {
 			const seal = sealOf(at, read)
-			const by = arbitrated.get(groupOf(read))
+			const by = seal.kind === "point" ? fixedFor(fixed, read, statement) : undefined
 			return {
 				index,
 				read,
-				seal:
-					seal.kind === "point" && by !== undefined && by < statement
-						? { kind: "arbitrated" as const, key: seal.key }
-						: seal
+				seal: by === undefined ? seal : { kind: "arbitrated" as const, key: by.key }
 			}
 		})
 		const neutral = neutralOf(s, placed)
@@ -557,7 +609,7 @@ const readsOf = (at: Installation, member: MemberFacts): ReadonlyArray<PlacedRea
 const groupOf = (r: ReadFact): string =>
 	r.group === undefined
 		? `${r.relation}()`
-		: `${r.relation}(${r.group.fields.join(",")})=${r.group.binding}`
+		: `${r.relation}(${groupFields(r.group).join(",")})=${r.group.bound.map((b) => b.by).join(",")}`
 
 /**
  * A read PostgreSQL makes for a foreign key, which no statement of the member shows: `referencing`, the insert or

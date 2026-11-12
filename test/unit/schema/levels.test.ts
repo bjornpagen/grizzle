@@ -4,10 +4,10 @@
  * between stored relations whose sides are fields with no span, into a side holding a key the target relation declares
  * and selected by constants alone (a deferred foreign key PostgreSQL judges at COMMIT; test/unit/laws/lowered-rules
  * draws the superkeys and constants), or as a row check over it, the level's own CHECK on the lower table
- * (test/pg/levels/level-checks), and never by a key, `mutable` or a family.
+ * (test/pg/levels/level-checks), and never by a key, `mutable`, `race` or a family.
  *
- * The box is every statement of a drawn space stated at the upper level `Up` over `Lo`: a key, a check, `mutable` and
- * a counted family over a lower and an upper relation; and every containment from one of four sources (an upper field
+ * The box is every statement of a drawn space stated at the upper level `Up` over `Lo`: a key, a check, `mutable`,
+ * `race` and a counted family over a lower and an upper relation; and every containment from one of four sources (an upper field
  * or a lower candidate key, every fact or a selection) into one of seven targets (the upper primary key, or the lower
  * primary key, candidate key or a field no key holds, every fact or a selection). Each is owned, and refused with LevelRefused, naming the lower
  * relation it reaches and both levels, exactly where the oracle refuses it; every other statement owns.
@@ -36,6 +36,7 @@ import {
 	keyBuilder,
 	mutableBuilder,
 	onBuilder,
+	raceBuilder,
 	selectBuilder
 } from "#compiler/schema/statements.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
@@ -60,7 +61,7 @@ const targetFields = ["id", "x", "y"] as const
 type TargetField = (typeof targetFields)[number]
 
 /** The statements a shape states, each a kind of law. */
-const kinds = ["key", "check", "mutable", "counted", "contained"] as const
+const kinds = ["key", "check", "mutable", "race", "counted", "contained"] as const
 
 type Situation =
 	| "admitted"
@@ -70,7 +71,7 @@ type Situation =
 	| "a lower check admitted"
 
 type Shape =
-	| { readonly kind: "key" | "check" | "mutable" | "counted"; readonly place: Place }
+	| { readonly kind: "key" | "check" | "mutable" | "race" | "counted"; readonly place: Place }
 	| {
 			readonly kind: "contained"
 			readonly source: { readonly place: Place; readonly selected: boolean }
@@ -89,6 +90,7 @@ const shapeGen: Gen<Shape> = (source) => {
 		case "key":
 		case "check":
 		case "mutable":
+		case "race":
 		case "counted":
 			return { kind, place: source.draw(element(places)) }
 		case "contained": {
@@ -115,6 +117,7 @@ const shapeText = (s: Shape): string => {
 		case "key":
 		case "check":
 		case "mutable":
+		case "race":
 		case "counted":
 			return `${s.kind} over the ${s.place} level`
 		case "contained":
@@ -150,6 +153,8 @@ const statementOf = (s: Shape): Statement => {
 			)
 		case "mutable":
 			return mutableBuilder(s.place === "lower" ? A : C)
+		case "race":
+			return raceBuilder(s.place === "lower" ? A : C)
 		case "counted":
 			return countedBuilder(
 				onBuilder(s.place === "lower" ? L : UM, ["owner"]),
@@ -177,6 +182,7 @@ const refusedAt = (s: Shape): string | undefined => {
 			return undefined
 		case "key":
 		case "mutable":
+		case "race":
 			return s.place === "lower" ? "A" : undefined
 		case "counted":
 			return s.place === "lower" ? "L" : undefined

@@ -79,6 +79,7 @@ import {
 	type Writing,
 	writtenNames
 } from "#compiler/ir/desc.ts"
+import type { Inserts } from "#compiler/ir/law.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
 import type { DeclaredKey } from "#compiler/ir/rel.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
@@ -155,6 +156,7 @@ export type OwnedRelation =
 				/** Each row check statement's check over it, in statement order. */
 				readonly checks: ReadonlyArray<OwnedCheck>
 				readonly mutable: boolean
+				readonly inserts: Inserts
 			})
 	| (Owning<"closed"> &
 			Installed<"rosterDomain"> & {
@@ -299,7 +301,7 @@ export type OwnedKeyLaw =
  * resolves.
  */
 export type OwnedStatement =
-	| Extract<StatementDesc, { readonly kind: "mutable" }>
+	| Extract<StatementDesc, { readonly kind: "mutable" | "race" }>
 	| (Extract<StatementDesc, { readonly kind: "key" }> & { readonly key: OwnedKeyLaw })
 	| (Extract<StatementDesc, { readonly kind: "check" }> & { readonly check: OwnedCheck })
 	| (Omit<Extract<StatementDesc, { readonly kind: "contained" }>, "left" | "right"> & {
@@ -417,7 +419,9 @@ const ownedLabel = (st: OwnedStatement): string =>
 		: statementLabel(st)
 
 /** A side's terms as field names, in order; a pred term names none, so a side of one is no plain grouping. */
-const termFields = (side: { readonly terms: ReadonlyArray<TermDesc> }): ReadonlyArray<string | undefined> =>
+const termFields = (side: {
+	readonly terms: ReadonlyArray<TermDesc>
+}): ReadonlyArray<string | undefined> =>
 	side.terms.map((t) => (t.kind === "field" ? t.field : undefined))
 
 /** The fields a selection's conjuncts read. */
@@ -536,6 +540,7 @@ const checkUnits = (
 	for (const st of statements) {
 		switch (st.kind) {
 			case "retirable":
+			case "race":
 				continue
 			case "mutable":
 				if (roles.get(st.relation)?.kind === "header") {
@@ -604,10 +609,7 @@ const checkUnits = (
 			case "fold":
 				continue
 			case "alternatives":
-				if (
-					roles.has(st.parent.relation) ||
-					st.arms.some((a) => roles.has(a.arm.relation))
-				) {
+				if (roles.has(st.parent.relation) || st.arms.some((a) => roles.has(a.arm.relation))) {
 					refuse(st, "over relations no retirable statement names")
 				}
 				continue
@@ -668,6 +670,11 @@ interface LawRelationEntry {
 	readonly desc: StoredRelationDesc
 	readonly level: number
 	readonly heading: Readonly<Record<string, FieldDesc>>
+}
+
+/** A law's relation that is an ordinary relation, whose facts its callers write. */
+interface OrdinaryEntry extends LawRelationEntry {
+	readonly desc: OrdinaryRelationOf
 }
 
 /** The relation a rule's side reads: a stored relation with its heading, or a derived one with its definition's fields. */
@@ -942,6 +949,7 @@ const canonicalStatement = (s: StatementDesc): Canonical<StatementDesc> => {
 			return madeOf(Object.freeze({ ...s, step: step.form }), new Map([["step", step.text]]))
 		}
 		case "mutable":
+		case "race":
 		case "family":
 		case "tree":
 		case "alternatives":
@@ -1039,6 +1047,8 @@ const statementLabel = (s: StatementDesc): string => {
 			return `key (${s.side.terms.map(termText).join(", ")}) of ${s.side.selection.conjuncts.length === 0 ? "" : "selected "}${s.side.relation}`
 		case "mutable":
 			return `mutable ${s.relation}`
+		case "race":
+			return `race ${s.relation}`
 		case "check":
 			return `check ${s.name}`
 		case "contained":
@@ -1253,6 +1263,8 @@ class Owner {
 		}
 	>()
 	readonly #mutable = new Set<string>()
+	/** Each raced relation, by the race statement that races it (#checkRaces). */
+	readonly #raced = new Map<string, StatementEntry>()
 
 	/**
 	 * Each level's statements, root first, as the level writes them, each in canonical form with its canonical text
@@ -1276,6 +1288,7 @@ class Owner {
 			this.#checkLevels(s)
 			return { text: s.text, statement }
 		})
+		this.#checkRaces(statements.map((s) => s.statement))
 		const relations = this.#ownRelations(statements.map((s) => s.statement))
 		checkUnits(
 			statements.map((s) => s.statement),
@@ -1670,16 +1683,17 @@ class Owner {
 			: { kind: "stored", entry: { desc, level: entry.level, heading: headingOf(desc) } }
 	}
 
-	#ordinary(name: string, s: StatementEntry, why: string): LawRelationEntry {
+	#ordinary(name: string, s: StatementEntry, why: string): OrdinaryEntry {
 		const entry = this.#lawRelation(name, s)
-		if (entry.desc.kind !== "relation") {
-			fail(
+		const desc = entry.desc
+		if (desc.kind !== "relation") {
+			return fail(
 				"MalformedDescription",
 				s.desc.loc,
 				`${statementLabel(s.desc)} over an ordinary relation; ${name} ${why}`
 			)
 		}
-		return entry
+		return { ...entry, desc }
 	}
 
 	#requireFields(entry: LawRelationEntry, fields: ReadonlyArray<string>, s: StatementEntry): void {
@@ -1927,6 +1941,7 @@ class Owner {
 			case "key":
 				return reach([d.side.relation])
 			case "mutable":
+			case "race":
 				return reach([d.relation])
 			case "check":
 				return
@@ -2033,6 +2048,12 @@ class Owner {
 				this.#ordinary(d.relation, s, "is a closed relation, immutable by nature")
 				this.#mutable.add(d.relation)
 				return d
+			case "race": {
+				const entry = this.#ordinary(d.relation, s, "has fixed facts, which no insertion races")
+				this.#checkRacedKey(entry.desc, s)
+				this.#raced.set(d.relation, s)
+				return d
+			}
 			case "check": {
 				const read = this.#sideRelation(d.relation, s)
 				if (read.kind === "derived") {
@@ -2148,8 +2169,8 @@ class Owner {
 						`${statementLabel(d)} over a key of ${d.header.relation}, every fact's: a group is one value of it`
 					)
 				}
-				const lifecycles = Object.entries(header.desc.kind === "relation" ? header.desc.fields : {}).flatMap(
-					([field, decl]) => (decl.writing.kind === "retirement" ? [field] : [])
+				const lifecycles = Object.entries(header.desc.fields).flatMap(([field, decl]) =>
+					decl.writing.kind === "retirement" ? [field] : []
 				)
 				if (lifecycles.length !== 1 || lifecycles[0] !== d.lifecycle) {
 					fail(
@@ -2207,6 +2228,71 @@ class Owner {
 	}
 
 	/** The slots of a count: its owner an ordinary relation of the statement's level or below, and its count a field. */
+	/**
+	 * A raced relation's primary key, which every insertion into it races at: one with a payload beside it, since at a
+	 * key that is the whole heading every row met is an exact repeat; no span, whose exclusion constraint PostgreSQL
+	 * arbitrates by DO NOTHING alone, which yields no row met; and no field the database or grizzle draws, so no
+	 * insertion meets stored rows at another key (write/insert/unique.ts generatedArbiter).
+	 */
+	#checkRacedKey(r: OrdinaryRelationOf, s: StatementEntry): void {
+		const key = r.primaryKey
+		if (Object.keys(r.fields).every((f) => key.includes(f))) {
+			fail(
+				"MalformedDescription",
+				s.desc.loc,
+				`${statementLabel(s.desc)} over a relation with a field beside its primary key; ${r.name}'s key is its whole heading, so every row an insertion meets there is an exact repeat`
+			)
+		}
+		const spans = key.filter((f) => spanned(r.fields[f]?.type))
+		if (spans.length > 0) {
+			fail(
+				"MalformedDescription",
+				s.desc.loc,
+				`${statementLabel(s.desc)} over a primary key of no span; ${r.name}.${spans.join(", ")} is a span, whose exclusion constraint PostgreSQL arbitrates by DO NOTHING alone, which yields no row an insertion met`
+			)
+		}
+		const drawn = key.filter((f) => {
+			const writing = r.fields[f]?.writing.kind
+			return writing === "serial" || writing === "drawn"
+		})
+		if (drawn.length > 0) {
+			fail(
+				"MalformedDescription",
+				s.desc.loc,
+				`${statementLabel(s.desc)} over a primary key its insertions state; ${r.name}.${drawn.join(", ")} is drawn, so an insertion that draws it meets stored rows at another key`
+			)
+		}
+	}
+
+	/**
+	 * Each raced relation against the statements beside its race: never mutable, since a row an insertion met could
+	 * change after, and never a family's member or owner, whose members grizzle writes under the owner the insertion
+	 * states.
+	 */
+	#checkRaces(statements: ReadonlyArray<OwnedStatement>): void {
+		const families = new Set(
+			statements.flatMap((s) =>
+				s.kind === "family" || s.kind === "tree" ? [s.member.relation, s.slots.owner] : []
+			)
+		)
+		for (const [relation, s] of this.#raced) {
+			if (this.#mutable.has(relation)) {
+				fail(
+					"MalformedDescription",
+					s.desc.loc,
+					`${statementLabel(s.desc)} over an immutable relation; ${relation} is mutable, so a row an insertion met may change`
+				)
+			}
+			if (families.has(relation)) {
+				fail(
+					"MalformedDescription",
+					s.desc.loc,
+					`${statementLabel(s.desc)} over a relation no family holds; ${relation} is a family's member or owner, whose members grizzle writes under the owner an insertion states`
+				)
+			}
+		}
+	}
+
 	#checkSlots(slots: SlotsDesc, s: StatementEntry): void {
 		const owner = this.#ordinary(slots.owner, s, "has no drawn count")
 		this.#requireFields(owner, [slots.count], s)
@@ -2353,7 +2439,8 @@ class Owner {
 			fields,
 			keys: distinctKeys(name, [primary, ...laws.keys]),
 			checks: laws.checks,
-			mutable: this.#mutable.has(name)
+			mutable: this.#mutable.has(name),
+			inserts: this.#raced.has(name) ? "race" : "repeatable"
 		}
 	}
 

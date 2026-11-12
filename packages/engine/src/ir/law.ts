@@ -133,11 +133,21 @@ interface StoredRelationOf<Kind extends "relation" | "closed"> extends LawRelati
 	readonly loc: SourceLoc
 }
 
+/**
+ * What an insertion into an ordinary relation meets at its primary key, a row another insertion holds there:
+ * `repeatable`, an exact repeat at every field it states, which changes nothing, else the key's law refusing it; or
+ * `race`, by race(R), that row whatever it holds, which the insertion meets and leaves as it is, the first insertion
+ * holding the key. Every insertion into a raced relation meets stored rows at its primary key, which holds no drawn
+ * field and no span, so no other key ever decides one of its races; a put asserts its row and never races.
+ */
+export type Inserts = "repeatable" | "race"
+
 /** An ordinary relation, the only kind a ChangeSet writes, with its installed table's identifier. */
 export interface RelationInfo extends StoredRelationOf<"relation">, TableRelation {
 	readonly name: StoredRelationName
 	/** The keys ownership declared on it, its primary key first. */
 	readonly keyNames: NonEmptyReadonlyArray<KeyName>
+	readonly inserts: Inserts
 }
 
 /**

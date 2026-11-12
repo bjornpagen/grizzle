@@ -5414,6 +5414,8 @@ const statementType = (desc: StatementDesc, ids: Ids): string => {
 			return `St.Key<${sideType(desc.side, ids)}>`
 		case "mutable":
 			return `St.Mutable<typeof ${ids(desc.relation)}>`
+		case "race":
+			return `St.Race<typeof ${ids(desc.relation)}>`
 		case "check":
 			return `St.Check<${jsonText(desc.name)}, typeof ${ids(desc.relation)}>`
 		case "contained":
@@ -5488,6 +5490,7 @@ const containmentTypes = (views: ReadonlyArray<StatementView>, ids: Ids): Readon
 					return Arr.map(expandAlternatives(s), (c) => statementType(c, ids))
 				case "key":
 				case "mutable":
+				case "race":
 				case "check":
 				case "family":
 				case "tree":

@@ -12,7 +12,9 @@ export const relationNames = [
 	"Ref",
 	"Zed",
 	"Badge",
-	"Gate"
+	"Gate",
+	"Claim",
+	"Seat"
 ] as const
 export type Rel = (typeof relationNames)[number]
 
@@ -28,7 +30,9 @@ export const columnsOf: Readonly<Record<Rel, ReadonlyArray<string>>> = {
 	Ref: ["id", "item"],
 	Zed: ["id"],
 	Badge: ["id", "code"],
-	Gate: ["id"]
+	Gate: ["id"],
+	Claim: ["id", "holder"],
+	Seat: ["id", "holder"]
 }
 
 /** Each relation's primary key, by column position: what a put displaces and a direct DELETE names. */
@@ -41,7 +45,9 @@ const primaryKeyOf: Readonly<Record<Rel, ReadonlyArray<number>>> = {
 	Ref: [0],
 	Zed: [0],
 	Badge: [0],
-	Gate: [0]
+	Gate: [0],
+	Claim: [0],
+	Seat: [0]
 }
 
 export type State = Readonly<Record<Rel, ReadonlyArray<Fact>>>
@@ -55,8 +61,16 @@ export const emptyState: State = {
 	Ref: [],
 	Zed: [],
 	Badge: [],
-	Gate: []
+	Gate: [],
+	Claim: [],
+	Seat: []
 }
+
+/**
+ * The relations the schedule schema races (support.ts, race(Claim) and race(Seat)): an insertion at a key a stored
+ * fact holds meets that fact and adds nothing, never refused for differing from it.
+ */
+const raced: ReadonlySet<Rel> = new Set<Rel>(["Claim", "Seat"])
 
 /**
  * A law, by its meaning. A direct writer meets a unique law as 23505, a span key as 23P01 and a containment as 23503.
@@ -276,7 +290,7 @@ const effectOf = (
 	}
 }
 
-/** One stratum: S' = (S \ D) ∪ A, relation by relation. */
+/** One stratum: S' = (S \ D) ∪ A, relation by relation, a raced relation's A less the facts at keys S \ D holds. */
 const applyStratum = (state: State, members: ReadonlyArray<Member>, pins: Pins): State => {
 	const effects = Arr.map(members, (m) => effectOf(state, m, pins))
 	let next = state
@@ -289,7 +303,14 @@ const applyStratum = (state: State, members: ReadonlyArray<Member>, pins: Pins):
 		}
 		const kept = Arr.filter(state[relation], (f) => !deleted.has(identity(f)))
 		const seen = new Set(Arr.map(kept, identity))
-		const unseen = Arr.filter(added, (f) => !seen.has(identity(f)))
+		const held = new Set(Arr.map(kept, (f) => project(f, primaryKeyOf[relation])))
+		/** A raced relation's fact at a key a kept fact holds meets that fact: it adds nothing. */
+		const unseen = Arr.filter(
+			added,
+			(f) =>
+				!seen.has(identity(f)) &&
+				!(raced.has(relation) && held.has(project(f, primaryKeyOf[relation])))
+		)
 		/** Each added fact not kept already, once: two facts of one identity are one fact. */
 		const fresh = [...new Map(Arr.map(unseen, (f) => [identity(f), f] as const)).values()]
 		next = withFacts(next, relation, [...kept, ...fresh])

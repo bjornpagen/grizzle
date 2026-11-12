@@ -21,6 +21,10 @@
  * - Drawn installations (support/drawn.ts): pivots and members of two statements over four relations are serial at
  *   generate's levels, and at the levels `certify` gives facts stated one to one with the drawing and the conditions
  *   restated over it give, wherever those differ from generate's.
+ * - den's lease (support/lease.ts): generate runs its spawner, claimer and committer READ COMMITTED, and every race of
+ *   its claims, the winner's Log, reclaims and commits is serial; each search for work (a take of the next due item, a
+ *   count of claims, a read at another key than the one the claim raced) is serial at generate's levels, which keep
+ *   it SERIALIZABLE, and caught forced READ COMMITTED.
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -42,6 +46,12 @@ import {
 	drawnRaceGen,
 	drawnShape
 } from "#test/pg/isolation/support/drawn.ts"
+import {
+	countShape,
+	leaseShape,
+	takeShape,
+	unmatchedShape
+} from "#test/pg/isolation/support/lease.ts"
 import {
 	type CallInput,
 	type Certifier,
@@ -1004,6 +1014,166 @@ const probeRaces = ({
 
 type ProbeFeature = "every probe race serial" | "the skew and the gated claim caught"
 
+/** The lease installations (support/lease.ts): each shape at generate's levels, and each search for work forced. */
+type LeaseInstall =
+	| "lease"
+	| "take"
+	| "take, claimer forced READ COMMITTED"
+	| "count"
+	| "count, claimer forced READ COMMITTED"
+	| "unmatched"
+	| "unmatched, claimer forced READ COMMITTED"
+
+/** A pinned race over one of the lease installations: serial in every run, or caught. */
+interface LeaseRace {
+	readonly label: string
+	readonly install: LeaseInstall
+	readonly expect: "serial" | "caught"
+	readonly initial: FactSet
+	readonly calls: Arr.NonEmptyReadonlyArray<CallSketch>
+	readonly schedule: CounterSchedule
+}
+
+/** A lease race's values: three holders, apart, and a claim's ttl. */
+interface LeaseValues {
+	readonly holders: readonly [number, number, number]
+	readonly ttl: bigint
+}
+
+const leaseValues: Gen<LeaseValues> = (source) => {
+	const first = source.draw(int(1, 3))
+	return { holders: [first, first + 3, first + 6], ttl: source.draw(element([2n, 3n])) }
+}
+
+/**
+ * den's lease races (support/lease.ts). At generate's levels, where every role of the lease runs READ COMMITTED, every
+ * run is serial: claimers of one key, a claim sent again with a later stamp, the winner's Log beside a rival's,
+ * reclaims of an expired claim beside a late claim, reclaims of a live one, a stale commit beside a new one, and a
+ * commit beside its claim in flight. Each search for work is serial at generate's levels, which keep it SERIALIZABLE,
+ * and caught forced READ COMMITTED: a take that misses an earlier Due a spawn commits while an auditor sees it, a count
+ * of claims two claimers of two steps both pass, and a winner's Log read at another step after the claim.
+ */
+const leaseRaces = ({
+	holders: [h1, h2, h3],
+	ttl
+}: LeaseValues): Arr.NonEmptyReadonlyArray<LeaseRace> => {
+	const s1 = uuidOf(1)
+	const s2 = uuidOf(2)
+	const s3 = uuidOf(3)
+	const claim = (step: string, attempt: bigint, holder: number, at: bigint) =>
+		call("claimer", "claim", { step, attempt, holder, at, ttl })
+	const claimFenced = (holder: number) =>
+		call("claimer", "claimFenced", { step: s1, attempt: 0n, holder, at: 1n, ttl })
+	const reclaim = (holder: number, now: bigint) =>
+		call("claimer", "reclaim", { step: s1, prev: 0n, attempt: 1n, holder, now, ttl })
+	const commit = (attempt: bigint, holder: number) =>
+		call("committer", "commit", { step: s1, attempt, holder })
+	const stepped: FactSet = { Step: [{ id: s1 }, { id: s2 }] }
+	const claimedAt = (at: bigint): FactSet => ({
+		...stepped,
+		Claim: [{ step: s1, attempt: 0n, holder: h3, at, ttl }]
+	})
+	const lease = (
+		label: string,
+		initial: FactSet,
+		calls: Arr.NonEmptyReadonlyArray<CallSketch>
+	): LeaseRace => ({
+		label,
+		install: "lease",
+		expect: "serial",
+		initial,
+		calls,
+		schedule: everyOrder
+	})
+	const searches = (forced: boolean): ReadonlyArray<LeaseRace> => [
+		{
+			label: `a take beside an earlier Due's spawn and an auditor${forced ? ", forced" : ""}`,
+			install: forced ? "take, claimer forced READ COMMITTED" : "take",
+			expect: forced ? "caught" : "serial",
+			initial: { Step: [{ id: s2 }], Due: [{ step: s2, at: 5n }] },
+			calls: [
+				call("claimer", "take", { now: 9n, holder: h1, ttl }),
+				call("spawner", "spawn", { step: s3, at: 1n }),
+				call("auditor", "audit", {})
+			],
+			schedule: pausedFirst([])
+		},
+		{
+			label: `two claims each alone by a count${forced ? ", forced" : ""}`,
+			install: forced ? "count, claimer forced READ COMMITTED" : "count",
+			expect: forced ? "caught" : "serial",
+			initial: stepped,
+			calls: [
+				call("claimer", "claimAlone", { step: s1, attempt: 0n, holder: h1, at: 1n, ttl }),
+				call("claimer", "claimAlone", { step: s2, attempt: 0n, holder: h2, at: 1n, ttl })
+			],
+			schedule: pausedFirst([])
+		},
+		{
+			label: `a Log at another step than the claim's, an auditor beside it${forced ? ", forced" : ""}`,
+			install: forced ? "unmatched, claimer forced READ COMMITTED" : "unmatched",
+			expect: forced ? "caught" : "serial",
+			initial: stepped,
+			calls: [
+				call("claimer", "claimOther", {
+					step: s1,
+					other: s2,
+					attempt: 0n,
+					holder: h1,
+					at: 1n,
+					ttl
+				}),
+				claim(s2, 0n, h2, 1n),
+				call("auditor", "audit", { step: s1, other: s2, attempt: 0n })
+			],
+			schedule: pausedFirst([])
+		}
+	]
+	const [first, ...rest] = [
+		lease("two claimers of one key", { Step: [{ id: s1 }] }, [
+			claim(s1, 0n, h1, 1n),
+			claim(s1, 0n, h2, 1n)
+		]),
+		lease("a claim sent again with a later stamp", { Step: [{ id: s1 }] }, [
+			claim(s1, 0n, h1, 1n),
+			claim(s1, 0n, h1, 2n)
+		]),
+		lease("the winner's Log beside a rival's", { Step: [{ id: s1 }] }, [
+			claimFenced(h1),
+			claimFenced(h2)
+		]),
+		lease("two reclaims of an expired claim beside a late claim", claimedAt(0n), [
+			reclaim(h1, 9n),
+			reclaim(h2, 9n),
+			claim(s1, 1n, h3, 9n)
+		]),
+		lease("two reclaims of a live claim", claimedAt(8n), [reclaim(h1, 9n), reclaim(h2, 9n)]),
+		lease(
+			"a stale commit beside a new one",
+			{
+				...stepped,
+				Claim: [
+					{ step: s1, attempt: 0n, holder: h1, at: 0n, ttl },
+					{ step: s1, attempt: 1n, holder: h2, at: 5n, ttl }
+				]
+			},
+			[commit(0n, h1), commit(1n, h2)]
+		),
+		lease("a commit beside its claim in flight", { Step: [{ id: s1 }] }, [
+			claim(s1, 0n, h1, 1n),
+			commit(0n, h1)
+		]),
+		...searches(false),
+		...searches(true)
+	]
+	return [defined(first, "a lease race"), ...rest]
+}
+
+type LeaseFeature =
+	| "every lease race serial"
+	| "each search for work caught forced"
+	| "the lease's claimer certified READ COMMITTED"
+
 /** How many cases the rotating stream runs; its floor runs a quarter of them. */
 const runs = 8
 
@@ -1467,6 +1637,117 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										)
 										c.note("every probe race serial")
 										c.note("the skew and the gated claim caught")
+									})
+							)
+						})
+					)
+				)
+		)
+
+		it.effect(
+			"den's lease races are serial at generate's levels, which run its claimer READ COMMITTED, and each search for work is caught forced READ COMMITTED",
+			(ctx) =>
+				searched(
+					ctx,
+					Effect.scoped(
+						Effect.gen(function* () {
+							const forced = (flaw: string): Certifier => ({
+								kind: "forced",
+								flaw,
+								roles: ["claimer"]
+							})
+							const installs: Readonly<Record<LeaseInstall, InstalledShape>> = {
+								lease: yield* installShape(leaseShape, generate),
+								take: yield* installShape(takeShape, generate),
+								"take, claimer forced READ COMMITTED": yield* installShape(
+									takeShape,
+									forced("a take of the next due item, rows of no one group, taken as sealed")
+								),
+								count: yield* installShape(countShape, generate),
+								"count, claimer forced READ COMMITTED": yield* installShape(
+									countShape,
+									forced("a count of what the claimer writes taken as no absence")
+								),
+								unmatched: yield* installShape(unmatchedShape, generate),
+								"unmatched, claimer forced READ COMMITTED": yield* installShape(
+									unmatchedShape,
+									forced(
+										"a read at another key than the claim raced taken as the row the race fixed"
+									)
+								)
+							}
+							for (const [r, level] of installs.lease.generated) {
+								if (level !== "readCommitted") {
+									return yield* Effect.die(
+										new Error(`generate certifies the lease's ${r} ${level}`)
+									)
+								}
+							}
+							return yield* explore(
+								{
+									oracle: {
+										kind: "specification",
+										name: "a strict serial order of the same calls"
+									},
+									suite: "pg/isolation/lease",
+									draw: drawn(leaseValues),
+									literal: Formatter.format,
+									coverage: required<LeaseFeature>(
+										[
+											"every lease race serial",
+											"each search for work caught forced",
+											"the lease's claimer certified READ COMMITTED"
+										],
+										{ cases: runs, sense: notesOnly }
+									),
+									kept: [],
+									runs,
+									shrink: { kind: "bounded", candidates: 40 },
+									concurrency: 1,
+									steerEvery: runs,
+									caseHang
+								},
+								(values, c) =>
+									Effect.gen(function* () {
+										c.note("the lease's claimer certified READ COMMITTED")
+										const races = leaseRaces(values)
+										yield* Effect.forEach(
+											races,
+											(race) =>
+												Effect.scoped(
+													Effect.flatMap(
+														Effect.result(
+															runIsolationRace(
+																installs[race.install],
+																raceOf(race),
+																counterStrategy(race.schedule, c),
+																() => undefined
+															)
+														),
+														(result) => {
+															const caught =
+																result._tag === "Failure" && result.failure._tag === "NoSerialOrder"
+															if (race.expect === "caught") {
+																return caught
+																	? Effect.void
+																	: result._tag === "Failure"
+																		? Effect.fail(result.failure)
+																		: Effect.die(
+																				new Error(
+																					`${race.label}: every run is serial, so the forced level cannot be caught`
+																				)
+																			)
+															}
+															return result._tag === "Failure"
+																? Effect.fail(result.failure)
+																: Effect.void
+														}
+													)
+												),
+											{ discard: true }
+										)
+										c.note("every lease race serial")
+										c.note("each search for work caught forced")
 									})
 							)
 						})

@@ -7,8 +7,8 @@
  * - Handles: every handle written against a closedId field, at any contract depth, is checked against its roster; a
  *   handle longer than a name's 63 bytes is refused, built or decoded. Oracles: the roster's own handles; NAMEDATALEN
  *   - 1, restated.
- * - Statements over a derived relation: a key, a check, a containment either way and mirrors own over one, and mutable
- *   and an alternatives arm are refused, from a description or the builders.
+ * - Statements over a derived relation: a key, a check, a containment either way and mirrors own over one, and
+ *   mutable, race and an alternatives arm are refused, from a description or the builders.
  * - Structure: a description naming what no level declares, or breaking a structural rule, is refused by its reason.
  *   Names no fixture declares are built so, ending in a digit, never drawn and filtered.
  *
@@ -59,6 +59,7 @@ import {
 	mirrorsBuilder,
 	mutableBuilder,
 	onBuilder,
+	raceBuilder,
 	selectBuilder
 } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
@@ -822,6 +823,7 @@ describe("statements over a derived relation", () => {
 	type DerivedStatementKind =
 		| "key"
 		| "mutable"
+		| "race"
 		| "check"
 		| "contained from"
 		| "contained into"
@@ -837,6 +839,7 @@ describe("statements over a derived relation", () => {
 	const described: Arr.NonEmptyReadonlyArray<Exclude<DerivedStatementKind, "mirrors">> = [
 		"key",
 		"mutable",
+		"race",
 		"check",
 		"contained from",
 		"contained into",
@@ -850,14 +853,14 @@ describe("statements over a derived relation", () => {
 		}))
 	]
 	/** Whether ownership reads the statement as a rule over the derived relation's definition: every rule but those that
-	 * name rows grizzle writes, mutable's and an alternatives arm's, which it refuses as MalformedDescription. */
+	 * name rows grizzle writes, mutable's, race's and an alternatives arm's, which it refuses as MalformedDescription. */
 	const ruled = (kind: DerivedStatementKind): boolean =>
-		kind !== "mutable" && kind !== "an alternatives arm"
+		kind !== "mutable" && kind !== "race" && kind !== "an alternatives arm"
 	const derivedSide = on("TaskIds", ["id"])
 	const baseSide = on("Task", ["id"])
 
 	it.effect(
-		"owns a key, check, containment either way and mirrors over a derived relation, and refuses mutable and an alternatives arm over one, from a description or the builders",
+		"owns a key, check, containment either way and mirrors over a derived relation, and refuses mutable, race and an alternatives arm over one, from a description or the builders",
 		(ctx) =>
 			Effect.gen(function* () {
 				const space: Gen<readonly [StatementForm, boolean]> = (source) =>
@@ -896,6 +899,8 @@ describe("statements over a derived relation", () => {
 												return key(derivedSide)
 											case "mutable":
 												return { kind: "mutable", relation: "TaskIds" }
+											case "race":
+												return { kind: "race", relation: "TaskIds" }
 											case "check":
 												return {
 													kind: "check",
@@ -947,6 +952,9 @@ describe("statements over a derived relation", () => {
 										return
 									case "mutable":
 										verdict(extended(mutableBuilder(TaskIds)))
+										return
+									case "race":
+										verdict(extended(raceBuilder(TaskIds)))
 										return
 									case "contained from":
 										verdict(

@@ -628,6 +628,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			primaryFields: keyed(r.desc.primaryKey),
 			keyFields: candidates.map((k) => keyed(k.fields)),
 			mutable: r.mutable,
+			inserts: r.inserts,
 			level: r.level,
 			loc
 		}

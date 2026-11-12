@@ -1,10 +1,11 @@
 /**
  * The isolation certifier (analysis/isolation/certify.ts) over drawn installations: two logins' roles over four
- * relations, each relation with trigger-held laws or not, declared keys, counted groups and foreign keys (immediate or
- * deferred alike, an update cascading or not), each role's privileges, and its change members' statements, each reading
- * relations, positively, negated, counted or as grizzle's key arbitration, its own rows or not, by a group bound to one
- * value or to one per own row, or none, and writing relations, by insert, update, delete or a retirement, which
- * changes none of them, with each written row joined with some of its statement's reads; its members as served at READ COMMITTED, and those of its SERIALIZABLE
+ * relations, each relation with trigger-held laws or not, declared keys, its first raced or not, counted groups and
+ * foreign keys (immediate or deferred alike, an update cascading or not), each role's privileges, and its change members'
+ * statements, each reading relations, positively, negated, counted or as grizzle's key arbitration, its own rows or not,
+ * by a group whose fields are bound to one value or to one per own row, k0 and k1 to one parameter or each to its own,
+ * or none, and writing relations, by insert, update, delete or a retirement, which changes none of them, with each
+ * written row joined with some of its statement's reads; its members as served at READ COMMITTED, and those of its SERIALIZABLE
  * form, which certification lowers it to once a round leaves it SERIALIZABLE. Some draws are counterexamples: two copiers, each inserting
  * into one relation and then copying the other's (by a scan, or at a whole key); a writer reading another's absence
  * beside a reader of both; a chain of SERIALIZABLE readers; a SERIALIZABLE pivot writing what an RC member reads
@@ -12,7 +13,10 @@
  * to; an inserter beside a SERIALIZABLE role that may insert too, whose guard would refuse its every write; and
  * NEGATION's four histories no serial order in real time explains, each reproduced on PostgreSQL: a reader of one point
  * group lagging an in-flight SERIALIZABLE pivot, a reader of one group per own row, a copy whose foreign key check
- * misses that pivot's row, and a copy over many own rows whose deferred check reads at COMMIT.
+ * misses that pivot's row, and a copy over many own rows whose deferred check reads at COMMIT. LEASE's race shapes: a
+ * read of a race's winner that binds the raced key as its arbitration did and another field besides, arbitrated and
+ * READ COMMITTED; the same read at another value of the key or of a part of it, and a raced relation's read at another
+ * key its insertion was probed at, each a pivot; and that read where the relation is not raced, whose probed key is fixed too.
  *
  * A retirement counts among its own role's writes, whose laws and guard it meets, and among no other role's judgement of
  * it: no co-writer's guard and no pivot's write of what another reads (physical/ddl/retire.ts, the hold).
@@ -27,7 +31,7 @@
  * members condition. Every role's certificate is the same with its own SERIALIZABLE form dropped: that form is served
  * only once the role runs SERIALIZABLE, so it never judges the role. Adding a capability (a privilege, a read, a
  * statement, a member, a member of a SERIALIZABLE form, a role, an insert with no insert, a trigger-held law, a foreign
- * key) never makes a SERIALIZABLE role READ COMMITTED, nor does removing a relation's fact, but for the first change
+ * key, a race over a relation's first key) never makes a SERIALIZABLE role READ COMMITTED, nor does removing a relation's fact, but for the first change
  * member of a role with none, which the members condition alone held. Every counterexample comes out SERIALIZABLE.
  *
  * Planted in a scratch copy, each of these fails the search: condition 2's SERIALIZABLE readers left out; the fixpoint
@@ -54,7 +58,12 @@
  * Plants (~/.cache/grizzle-release/BR03/plants), two of those as patches: certify-memberless-role-certified (a role
  * with no change member certified) and certify-fixpoint-once (the fixpoint over the roles a SERIALIZABLE role gives a
  * reason run once). Plants (~/.cache/grizzle-release/CERTIFY/plants): certify-own-lowering-self-included and
- * certify-lowering-cause-dropped, the last two.
+ * certify-lowering-cause-dropped, the last two. Plants (~/.cache/grizzle-release/LEASE/plants), each failing the search:
+ * certify-key-match-by-relation (a read of an arbitrated relation at any bindings arbitrated), certify-key-match-no-
+ * clean-prefix (a key-matched read arbitrated after an outside read), certify-key-match-part-of-key (a read matching
+ * the first field of an arbitrated key alone arbitrated), certify-race-other-key-fixed (a raced relation's arbitration
+ * at another key fixing its row) and certify-key-match-exact-group (a key-matched read with a binding besides the key
+ * left a point read, the old exact-group rule).
  *
  * Features: each condition failed and met, each counterexample shape, each level, each capability added or fact
  * removed, a role lowered in a later round, and a role whose lowered form alone reads the absence of what it writes
@@ -68,7 +77,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import {
 	type Candidate,
 	certify,
@@ -79,8 +88,10 @@ import {
 	readSeal
 } from "#compiler/analysis/isolation/certify.ts"
 import type {
+	InsertsFact,
 	IsolationInput,
 	MemberFacts,
+	ReadFact,
 	RoleFacts,
 	RowSource
 } from "#compiler/analysis/isolation/facts.ts"
@@ -92,7 +103,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 const RELATIONS = 4
-const KEYS: ReadonlyArray<ReadonlyArray<string>> = [["k0"], ["k1"], ["k0", "k1"]]
+const KEYS: ReadonlyArray<Arr.NonEmptyReadonlyArray<string>> = [["k0"], ["k1"], ["k0", "k1"]]
 
 interface WriteSketch {
 	readonly relation: number
@@ -105,7 +116,9 @@ interface ReadSketch {
 	readonly mode: "positive" | "negated" | "counted" | "arbiter"
 	readonly own: boolean
 	readonly group: number | undefined
+	/** What k0 is bound to, `$p<binding>`, and k1 too unless `split`, where k1 is bound to the other parameter. */
 	readonly binding: number
+	readonly split: boolean
 	readonly rows: "one" | "many"
 	/** The probes of its statement it stands beneath, by place; its mode composes them over its base. */
 	readonly probes: ReadonlyArray<number>
@@ -145,9 +158,12 @@ interface ReferenceSketch {
 	readonly onUpdate: "cascade" | "noAction"
 }
 
+/** A relation: its trigger-held laws, its declared keys among KEYS, its counted groups and foreign keys, and whether
+ * its first key is raced (InsertsFact `race`), which only a relation with a key is. */
 interface RelationSketch {
 	readonly triggerLaws: boolean
 	readonly keys: ReadonlyArray<number>
+	readonly race: boolean
 	readonly counted: ReadonlyArray<number>
 	readonly references: ReadonlyArray<ReferenceSketch>
 }
@@ -177,6 +193,7 @@ type Extension =
 	| { readonly kind: "triggerLaw"; readonly relation: number }
 	| { readonly kind: "reference"; readonly relation: number; readonly reference: ReferenceSketch }
 	| { readonly kind: "dropFact"; readonly relation: number }
+	| { readonly kind: "race"; readonly relation: number }
 
 type Shape =
 	| "drawn"
@@ -198,6 +215,11 @@ type Shape =
 	| "absentGate"
 	| "arbitratedRead"
 	| "arbitratedGated"
+	| "keyMatched"
+	| "keyUnmatched"
+	| "keyPartial"
+	| "raceOtherKey"
+	| "repeatableOtherKey"
 	| "fallbackUnion"
 	| "fallbackCount"
 	| "unjoinedGate"
@@ -278,6 +300,12 @@ const readBodyGen: Gen<Omit<ReadSketch, "mode" | "probes">> = (s) => ({
 		])
 	),
 	binding: s.draw(int(0, 1)),
+	split: s.draw(
+		weighted<boolean>([
+			[1, () => true],
+			[3, () => false]
+		])
+	),
 	rows: s.draw(
 		weighted<ReadSketch["rows"]>([
 			[3, () => "one"],
@@ -409,35 +437,47 @@ const referenceGen: Gen<ReferenceSketch> = (s) => ({
 	)
 })
 
-const relationSketchGen: Gen<RelationSketch> = (s) => ({
-	triggerLaws: s.draw(
-		weighted<boolean>([
-			[1, () => true],
-			[5, () => false]
-		])
-	),
-	keys: s.draw(
+const relationSketchGen: Gen<RelationSketch> = (s) => {
+	const keys = s.draw(
 		weighted<ReadonlyArray<number>>([
 			[2, () => [2]],
 			[1, () => [0]],
 			[1, () => [1]],
+			[1, () => [0, 1]],
 			[1, () => []]
 		])
-	),
-	counted: s.draw(
-		weighted<ReadonlyArray<number>>([
-			[3, () => []],
-			[1, () => [0]],
-			[1, () => [1]]
-		])
-	),
-	references: s.draw(
-		weighted<ReadonlyArray<ReferenceSketch>>([
-			[3, () => []],
-			[1, (t) => [t.draw(referenceGen)]]
-		])
 	)
-})
+	return {
+		triggerLaws: s.draw(
+			weighted<boolean>([
+				[1, () => true],
+				[5, () => false]
+			])
+		),
+		keys,
+		race:
+			keys.length > 0 &&
+			s.draw(
+				weighted<boolean>([
+					[1, () => true],
+					[3, () => false]
+				])
+			),
+		counted: s.draw(
+			weighted<ReadonlyArray<number>>([
+				[3, () => []],
+				[1, () => [0]],
+				[1, () => [1]]
+			])
+		),
+		references: s.draw(
+			weighted<ReadonlyArray<ReferenceSketch>>([
+				[3, () => []],
+				[1, (t) => [t.draw(referenceGen)]]
+			])
+		)
+	}
+}
 
 const sketchGen: Gen<Sketch> = (s) => ({
 	relations: Arr.makeBy(RELATIONS, () => s.draw(relationSketchGen)),
@@ -447,6 +487,7 @@ const sketchGen: Gen<Sketch> = (s) => ({
 const clean = (keys: ReadonlyArray<number>): RelationSketch => ({
 	triggerLaws: false,
 	keys,
+	race: false,
 	counted: [],
 	references: []
 })
@@ -467,6 +508,7 @@ const readOf = (
 	own: false,
 	group,
 	binding: 0,
+	split: false,
 	rows: "one",
 	probes: []
 })
@@ -594,6 +636,7 @@ const sealsGen: Gen<Sketch> = (s) => {
 		relations: Arr.makeBy(RELATIONS, (i) => ({
 			triggerLaws: false,
 			keys: i === b || i === a ? [2] : [],
+			race: false,
 			counted: i === c ? [0] : [],
 			references: i === a ? [{ relation: b, key: 2, onUpdate: "noAction" }] : []
 		})),
@@ -684,6 +727,7 @@ const triggeredGen: Gen<Case> = (s) => {
 			relations: Arr.makeBy(RELATIONS, (i) => ({
 				triggerLaws: i === x,
 				keys: [],
+				race: false,
 				counted: [],
 				references: []
 			})),
@@ -875,8 +919,9 @@ const lateWriter: Sketch = {
 }
 
 /**
- * B's foreign key into A carries A's updates (ON UPDATE CASCADE); r0 holds UPDATE on A, so it updates B too; r1 inserts
- * into B, which is then no insert-only relation, and its check of A reads a relation r0 updates.
+ * B's foreign key into A carries A's updates (ON UPDATE CASCADE); r0 holds UPDATE on A and updates it by its one
+ * member, so it updates B too; r1 inserts into B, which is then no insert-only relation, and its check of A reads a
+ * relation r0 updates.
  */
 const cascadedWriter: Sketch = {
 	relations: [
@@ -886,7 +931,14 @@ const cascadedWriter: Sketch = {
 		clean([])
 	],
 	roles: [
-		{ login: 0, privileges: [{ relation: 0, privilege: "UPDATE" }], members: [], serializable: [] },
+		{
+			login: 0,
+			privileges: [{ relation: 0, privilege: "UPDATE" }],
+			members: [
+				[{ writes: [{ relation: 0, op: "update", from: [] }], reads: [], probes: [], cores: [] }]
+			],
+			serializable: []
+		},
 		{
 			login: 1,
 			serializable: [],
@@ -1248,6 +1300,64 @@ const arbitratedOf = (gated: boolean): Sketch => ({
 })
 
 /**
+ * A race and the read of its winner. r0's first statement inserts into A, arbitrated at its key by its parameters, and
+ * its second reads A back and a row of its own and inserts into B from both. Key-matched (`matched`), A is raced at
+ * its key k0 and the read binds k0 as the arbitration did and k1 as well, so it reads the row the arbitration fixed,
+ * filtered: arbitrated, and r0 runs READ COMMITTED. Unmatched (`unmatched`), the read binds k0 to the other
+ * parameter: another call's row, read after r0's write, so r0 fails the pivot condition. With A keyed by (k0, k1), its
+ * arbitration binding both to one parameter (`partial`), a read binding k0 alike and k1 to the other parameter matches
+ * part of the key alone: another call's row, so r0 fails the pivot condition. With A keyed by k0 and by k1
+ * and its insertion probed at k1 too (`raceOther`, `repeatableOther`), the read is at k1, the probe's binding: where A
+ * is raced at k0 the row met there may hold another k1, so the read is another call's row and r0 fails the pivot
+ * condition; where A is not raced every row an insertion meets is an exact repeat, so the row at k1 is fixed too.
+ */
+const keyedOf = (
+	kind: "matched" | "unmatched" | "partial" | "raceOther" | "repeatableOther"
+): Sketch => {
+	const otherKey = kind === "raceOther" || kind === "repeatableOther"
+	const a: RelationSketch = {
+		...clean(otherKey ? [0, 1] : kind === "partial" ? [2] : [0]),
+		race: kind !== "repeatableOther"
+	}
+	const arbitrations: ReadonlyArray<ReadSketch> = otherKey
+		? [readOf(0, "arbiter", 0), readOf(0, "arbiter", 1)]
+		: [readOf(0, "arbiter", kind === "partial" ? 2 : 0)]
+	const back: ReadSketch = otherKey
+		? readOf(0, "positive", 1)
+		: { ...readOf(0, "positive", 2), binding: kind === "unmatched" ? 1 : 0, split: true }
+	return {
+		relations: [a, clean([]), clean([0]), clean([])],
+		roles: [
+			{
+				login: 0,
+				serializable: [],
+				privileges: [
+					{ relation: 0, privilege: "INSERT" },
+					{ relation: 1, privilege: "INSERT" }
+				],
+				members: [
+					[
+						{ writes: [insertOf(0, [])], reads: arbitrations, probes: [], cores: [] },
+						{
+							writes: [insertOf(1, [0, 1])],
+							reads: [back, { ...readOf(3, "positive", undefined), own: true }],
+							probes: [],
+							cores: []
+						}
+					]
+				]
+			},
+			{
+				login: 1,
+				serializable: [],
+				privileges: [{ relation: 2, privilege: "INSERT" }],
+				members: [[{ writes: [insertOf(2, [])], reads: [], probes: [], cores: [] }]]
+			}
+		]
+	}
+}
+
+/**
  * A role's SERIALIZABLE form, which it judges others by beside its READ COMMITTED one once lowered. r0 holds UPDATE on
  * D, so it runs SERIALIZABLE by its own privileges, and inserts into B in either form. In its SERIALIZABLE form it also
  * reads B by an own column (`cause`), so it may miss another call's write, and r1, reading B at its key, runs
@@ -1469,7 +1579,8 @@ const extensionGen =
 						reference: t.draw(referenceGen)
 					})
 				],
-				[1, (t) => ({ kind: "dropFact", relation: t.draw(relationGen) })]
+				[1, (t) => ({ kind: "dropFact", relation: t.draw(relationGen) })],
+				[1, (t) => ({ kind: "race", relation: t.draw(relationGen) })]
 			])
 		)
 	}
@@ -1525,6 +1636,16 @@ const shapeSketch = (
 			return arbitratedOf(false)
 		case "arbitratedGated":
 			return arbitratedOf(true)
+		case "keyMatched":
+			return keyedOf("matched")
+		case "keyUnmatched":
+			return keyedOf("unmatched")
+		case "keyPartial":
+			return keyedOf("partial")
+		case "raceOtherKey":
+			return keyedOf("raceOther")
+		case "repeatableOtherKey":
+			return keyedOf("repeatableOther")
 		case "fallbackUnion":
 			return fallbackOf("negated")
 		case "fallbackCount":
@@ -1584,6 +1705,11 @@ const caseGen: Gen<Case> = (s) => {
 			[1, () => "absentGate"],
 			[1, () => "arbitratedRead"],
 			[1, () => "arbitratedGated"],
+			[1, () => "keyMatched"],
+			[1, () => "keyUnmatched"],
+			[1, () => "keyPartial"],
+			[1, () => "raceOtherKey"],
+			[1, () => "repeatableOtherKey"],
 			[1, () => "fallbackUnion"],
 			[1, () => "fallbackCount"],
 			[1, () => "unjoinedGate"],
@@ -1623,10 +1749,14 @@ const baseOf = (r: ReadSketch): ReadSketch["mode"] => {
 	}
 	return "positive"
 }
-const keyOf = (i: number): ReadonlyArray<string> => Arr.getUnsafe(KEYS, i)
+const keyOf = (i: number): Arr.NonEmptyReadonlyArray<string> => Arr.getUnsafe(KEYS, i)
 const lawId = (i: number) => wild.lawId(`law_${i}`)
 
-const readFact = (r: ReadSketch) => ({
+/** What a read binds `field` to: `$p<binding>`, or k1, where it is split, the other parameter. */
+const byOf = (r: ReadSketch, field: string): string =>
+	`$p${field === "k1" && r.split ? 1 - r.binding : r.binding}`
+
+const readFact = (r: ReadSketch): ReadFact => ({
 	relation: relationName(r.relation),
 	mode: r.mode,
 	base: baseOf(r),
@@ -1635,8 +1765,20 @@ const readFact = (r: ReadSketch) => ({
 	group:
 		r.group === undefined
 			? undefined
-			: { fields: keyOf(r.group), binding: `$p${r.binding}`, rows: r.rows }
+			: {
+					bound: Arr.map(keyOf(r.group), (field) => ({ field, by: byOf(r, field) })),
+					rows: r.rows
+				}
 })
+
+/** What an insertion into a sketched relation meets at its first key: a race there where it is raced, else a
+ * repeatable insertion's. */
+const insertsOf = (r: RelationSketch): InsertsFact =>
+	Arr.match(r.keys, {
+		onEmpty: (): InsertsFact => ({ kind: "repeatable" }),
+		onNonEmpty: ([first]): InsertsFact =>
+			r.race ? { kind: "race", key: keyOf(first) } : { kind: "repeatable" }
+	})
 
 /** A role's members as the certifier reads them, each named by its place; a member of no statement sends none. */
 const membersOf = (
@@ -1675,7 +1817,8 @@ const inputOf = (sketch: Sketch): IsolationInput => ({
 					relation: relationName(ref.relation),
 					fields: keyOf(ref.key),
 					onUpdate: ref.onUpdate
-				}))
+				})),
+				inserts: insertsOf(r)
 			}
 		])
 	),
@@ -1791,6 +1934,8 @@ const extended = (sketch: Sketch, e: Extension): Sketch => {
 			}))
 		case "dropFact":
 			return sketch
+		case "race":
+			return withRelation(sketch, e.relation, (r) => ({ ...r, race: r.keys.length > 0 }))
 	}
 }
 
@@ -1809,6 +1954,7 @@ const givesFirstMember = (sketch: Sketch, e: Extension): boolean => {
 		case "triggerLaw":
 		case "reference":
 		case "dropFact":
+		case "race":
 			return false
 	}
 }
@@ -1984,13 +2130,42 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 			}
 		})
 	const groupName = (r: ReadSketch) =>
-		`${r.relation}/${r.group ?? "-"}/${r.group === undefined ? "-" : r.binding}`
+		r.group === undefined
+			? `${r.relation}/-`
+			: `${r.relation}/${Arr.join(
+					Arr.map(keyOf(r.group), (f) => `${f}=${byOf(r, f)}`),
+					","
+				)}`
+	/** The fields of a read's group, none where it binds none. */
+	const fieldsOfRead = (r: ReadSketch): ReadonlyArray<string> =>
+		r.group === undefined ? [] : keyOf(r.group)
+	/**
+	 * The row an arbitration fixes, where it fixes one: its relation's first declared key its group binds whole, of a
+	 * relation not raced, or raced at that key, its first.
+	 */
+	const fixedKeyOf = (r: ReadSketch): ReadonlyArray<string> | undefined => {
+		const relation = Arr.getUnsafe(relations, r.relation)
+		const fields = fieldsOfRead(r)
+		const key = Arr.findFirst(relation.keys, (k) => Arr.every(keyOf(k), (f) => fields.includes(f)))
+		if (Option.isNone(key)) {
+			return undefined
+		}
+		const raced = Arr.head(relation.keys)
+		return !relation.race || (Option.isSome(raced) && raced.value === key.value)
+			? keyOf(key.value)
+			: undefined
+	}
 	/**
 	 * A member's reads, each with its seal, an arbitrated one among them where an earlier statement of a prefix reading
-	 * only own rows and arbitrations arbitrated its group, and its mode, its base where every probe above it is neutral.
+	 * only own rows and arbitrations arbitrated a key whose row it fixes, each field of which the read binds as the
+	 * arbitration did, and its mode, its base where every probe above it is neutral.
 	 */
 	const placedOf = (statements: ReadonlyArray<StatementSketch>) => {
-		const arbitrated = new Map<string, number>()
+		const fixed: Array<{
+			readonly at: number
+			readonly read: ReadSketch
+			readonly key: ReadonlyArray<string>
+		}> = []
 		for (const [at, st] of statements.entries()) {
 			if (
 				Arr.some(st.reads, (r) => {
@@ -2001,22 +2176,29 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 				break
 			}
 			for (const r of st.reads) {
+				const key = fixedKeyOf(r)
 				if (
 					r.mode === "arbiter" &&
 					sealOfRead(r) === "arbiter" &&
 					r.group !== undefined &&
 					r.rows === "one" &&
-					!arbitrated.has(groupName(r))
+					key !== undefined
 				) {
-					arbitrated.set(groupName(r), at)
+					fixed.push({ at, read: r, key })
 				}
 			}
 		}
 		return Arr.map(statements, (st, at) => {
 			const sealed = Arr.map(st.reads, (read, index) => {
-				const by = arbitrated.get(groupName(read))
-				const seal: OracleSeal =
-					isPoint(read) && by !== undefined && by < at ? "arbitrated" : sealOfRead(read)
+				const fields = fieldsOfRead(read)
+				const arbitrated = Arr.some(
+					fixed,
+					(f) =>
+						f.at < at &&
+						f.read.relation === read.relation &&
+						Arr.every(f.key, (k) => fields.includes(k) && byOf(read, k) === byOf(f.read, k))
+				)
+				const seal: OracleSeal = isPoint(read) && arbitrated ? "arbitrated" : sealOfRead(read)
 				return { at, index, read, seal }
 			})
 			const neutral = (probe: number): boolean =>
@@ -2348,6 +2530,11 @@ const shapes: ReadonlyArray<Exclude<Shape, "drawn">> = [
 	"absentGate",
 	"arbitratedRead",
 	"arbitratedGated",
+	"keyMatched",
+	"keyUnmatched",
+	"keyPartial",
+	"raceOtherKey",
+	"repeatableOtherKey",
 	"fallbackUnion",
 	"fallbackCount",
 	"unjoinedGate",
@@ -2415,6 +2602,9 @@ const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "lateWriter":
 		case "sharedWriter":
 		case "arbitratedGated":
+		case "keyUnmatched":
+		case "keyPartial":
+		case "raceOtherKey":
 			return [0]
 		case "protocolUnsealed":
 		case "absentGate":
@@ -2435,11 +2625,18 @@ const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "unionSealed":
 		case "servedOwn":
 		case "arbitratedRead":
+		case "keyMatched":
+		case "repeatableOtherKey":
 		case "triggered":
 		case "droppedReference":
 			return []
 	}
 }
+
+/** The roles a shape the certifier must prove runs READ COMMITTED: a key-matched read of a race's winner, and a
+ * repeatable insertion's probed key. */
+const certifiedRoles = (shape: Shape): ReadonlyArray<number> =>
+	shape === "keyMatched" || shape === "repeatableOtherKey" ? [0, 1] : []
 
 describe("the isolation certifier", () => {
 	it.effect(
@@ -2569,6 +2766,13 @@ describe("the isolation certifier", () => {
 									Arr.getUnsafe(levelsOf(verdicts), i),
 									"serializable",
 									`the ${c.shape}'s role r${i} runs SERIALIZABLE`
+								)
+							}
+							for (const i of certifiedRoles(c.shape)) {
+								assert.equal(
+									Arr.getUnsafe(levelsOf(verdicts), i),
+									"readCommitted",
+									`the ${c.shape}'s role r${i} runs READ COMMITTED`
 								)
 							}
 							for (const role of c.sketch.roles) {

@@ -1,4 +1,5 @@
 import type {
+	InsertsFact,
 	IsolationInput,
 	MemberFacts,
 	Reference,
@@ -9,6 +10,7 @@ import type { LawId } from "#compiler/core/ids.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
+import type { OwnedRelation } from "#compiler/schema/own.ts"
 
 /**
  * One role of one login as the isolation facts read it: the login's and the role's names, what its grant plan is read
@@ -132,6 +134,13 @@ const nativeReferences = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Re
 		})
 	)
 
+/** What an insertion into a relation meets at its primary key: a raced relation's race at that key's fields, any other's
+ * a repeatable insertion's. */
+const insertsOf = (relation: OwnedRelation): InsertsFact =>
+	relation.kind === "relation" && relation.inserts === "race"
+		? { kind: "race", key: relation.desc.primaryKey }
+		: { kind: "repeatable" }
+
 /**
  * The isolation facts of an installation (analysis/isolation/facts.ts IsolationInput), total by construction: one
  * RelationFacts for every relation its owned schema states, at every level, stored, closed and derived alike, by its
@@ -146,13 +155,14 @@ export const isolationInput = <Checked, Names, Compiled>(
 	const counted = countedGroups(model)
 	const references = nativeReferences(model)
 	const relations = new Map<string, RelationFacts>(
-		Object.keys(model.owned.relations).map((name) => [
+		Object.entries(model.owned.relations).map(([name, relation]) => [
 			name,
 			{
 				triggerLaws: sources.triggerLawsOver(model, name),
 				keys: keys.get(name) ?? [],
 				countedGroups: counted.get(name) ?? [],
-				references: references.get(name) ?? []
+				references: references.get(name) ?? [],
+				inserts: insertsOf(relation)
 			}
 		])
 	)

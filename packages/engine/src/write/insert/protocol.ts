@@ -254,21 +254,18 @@ export const writesMet = (
 	return of === "insert" && (variant === "protocol" || variant === "pureSet")
 }
 
-/** The verdict of a differing occupant by the action an insert realizes (`occupantVerdict`). */
-const occupantOf: Readonly<Record<InsertOf, "conflict" | "met">> = {
-	insert: "conflict",
-	put: "conflict"
-}
-
 /**
  * The verdict of a stored fact an insert meets at its arbiter key that differs from the requested fact at a field it
- * states, by its relation and the action it realizes: an insertion's is the arbiter key law's conflict witness, which
- * refuses the write; a put's insert half's a concurrent commit at the key after its deletion, PutTargetConflict.
+ * states, by its relation and the action it realizes: an insertion into a raced relation (ir/law.ts Inserts `race`)
+ * meets it, the row its key's first insertion holds; any other insertion's is the arbiter key law's conflict witness,
+ * which refuses the write; and a put's insert half's a concurrent commit at the key after its deletion,
+ * PutTargetConflict, raced or not, since a put asserts its row.
  */
 export const occupantVerdict = (insert: {
 	readonly relation: WrittenRelation
 	readonly of: InsertOf
-}): "conflict" | "met" => occupantOf[insert.of]
+}): "conflict" | "met" =>
+	insert.of === "insert" && insert.relation.inserts === "race" ? "met" : "conflict"
 
 /** The fields an insert writes: every written field (`writtenFields`), or every one but those a generated addition
  * draws. */

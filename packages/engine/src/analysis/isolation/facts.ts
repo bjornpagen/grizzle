@@ -4,7 +4,7 @@
  * member's statements), so the certifier reads no compiled artifact and a search can draw the facts themselves.
  */
 import type { LawId } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 
 /**
@@ -12,15 +12,27 @@ import type { TablePrivilege } from "#compiler/core/privilege.ts"
  * triggers that read it (laws/model/model.ts triggerLawsOver), none where every law over it is native (a key, a CHECK, a
  * domain or a foreign key); its declared keys, its primary key and each UNIQUE, by their fields; its counted groups,
  * each by its key's fields: the members, under one value of the key, of a family whose immutable owner holds their
- * count (a counted, ordered or fin family), a set the count law fixes once the owner is written; and every foreign key
- * it holds, native or a rule lowered to one, immediate or deferred.
+ * count (a counted, ordered or fin family), a set the count law fixes once the owner is written; every foreign key it
+ * holds, native or a rule lowered to one, immediate or deferred; and what an insertion into it meets at its primary key
+ * (InsertsFact).
  */
 export interface RelationFacts {
 	readonly triggerLaws: ReadonlyArray<LawId>
 	readonly keys: ReadonlyArray<ReadonlyArray<string>>
 	readonly countedGroups: ReadonlyArray<ReadonlyArray<string>>
 	readonly references: ReadonlyArray<Reference>
+	readonly inserts: InsertsFact
 }
+
+/**
+ * What an insertion meets at a stored row (ir/law.ts Inserts): `repeatable`, an exact repeat at every field it states
+ * or a refusal, so once its statement commits every key it stated holds the row it proposed; or `race`, at `key`, its
+ * primary key's fields, any row, so only the arbitration at that key fixes the row there, and the row at another key
+ * it stated may be another call's or none.
+ */
+export type InsertsFact =
+	| { readonly kind: "repeatable" }
+	| { readonly kind: "race"; readonly key: NonEmptyReadonlyArray<string> }
 
 /**
  * One foreign key of a relation: the relation it references, that relation's fields it references, a declared key of
@@ -93,21 +105,33 @@ export interface ProbeFact {
 }
 
 /**
- * The fields a read binds to values that come from the call, an ON CONFLICT arbitration's its conflict columns';
- * `binding`, what they are bound to, as canonical text: a parameter by the declared parameter it carries (`:name`), or
- * by its number (`$n`) where it carries none, so two placeholders of one parameter, in one statement or two, bind one
- * value; a column of the call's own rows; or, for the row an ON CONFLICT proposes, the parameter each conflict column's
- * value carries, through the insert's source and the call's own cores it reads, else EXCLUDED's column. Two reads of
- * one relation by the same fields and binding read one group. `rows` is how many groups that is: `one` where every
- * field is bound to a parameter or to the session's context, a value the call holds once, and `many` where one is bound
- * to a column of the call's own rows, one group per row, which another call's rows may split, some seen and some
- * missed.
+ * One field a read binds to a value that comes from the call, and `by`, what it is bound to, as canonical text: a
+ * parameter by the declared parameter it carries (`:name`), or by its number (`$n`) where it carries none, so two
+ * placeholders of one parameter, in one statement or two, bind one value; a column of the call's own rows; or, for the
+ * row an ON CONFLICT proposes, the parameter its conflict column's value carries, through the insert's source and the
+ * call's own cores it reads, else EXCLUDED's column.
+ */
+export interface FieldBinding {
+	readonly field: string
+	readonly by: string
+}
+
+/**
+ * The fields a read binds, an ON CONFLICT arbitration's its conflict columns', each once and sorted by field, with what
+ * each is bound to (`bound`). Two reads of one relation by the same bindings read one group, and a read whose bindings
+ * on a declared key's fields are another's reads at most the row the other reads there. `rows` is how many groups that
+ * is: `one` where every field is bound to a parameter or to the session's context, a value the call holds once, and
+ * `many` where one is bound to a column of the call's own rows, one group per row, which another call's rows may split,
+ * some seen and some missed.
  */
 export interface Group {
-	readonly fields: ReadonlyArray<string>
-	readonly binding: string
+	readonly bound: NonEmptyReadonlyArray<FieldBinding>
 	readonly rows: "one" | "many"
 }
+
+/** The fields a group binds, sorted. */
+export const groupFields = (group: Group): NonEmptyReadonlyArray<string> =>
+	mapNonEmpty(group.bound, (b) => b.field)
 
 /**
  * One source every row of a statement's core comes through, the core's FROM sources joined inner or crosswise: a table

@@ -1609,13 +1609,19 @@ interface Expected {
 	readonly rows: "one" | "many" | undefined
 }
 
-/** A fact as the comparison reads it: its group's fields, binding and rows side by side. */
+/** A fact as the comparison reads it: its group's fields, what they are bound to in their order, and rows side by side. */
 const expectedOf = (r: ReadFact): Expected => ({
 	relation: r.relation,
 	mode: r.mode,
 	own: r.own,
-	group: r.group?.fields,
-	binding: r.group?.binding,
+	group: r.group === undefined ? undefined : Arr.map(r.group.bound, (b) => b.field),
+	binding:
+		r.group === undefined
+			? undefined
+			: Arr.join(
+					Arr.map(r.group.bound, (b) => b.by),
+					","
+				),
 	rows: r.group?.rows
 })
 

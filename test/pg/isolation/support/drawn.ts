@@ -211,7 +211,7 @@ const statementFacts = (statement: DrawnStatement): StatementFacts => {
 		base: "arbiter",
 		probes: [],
 		own: false,
-		group: { fields: ["k"], binding: "excluded.k", rows: "one" }
+		group: { bound: [{ field: "k", by: "excluded.k" }], rows: "one" }
 	}
 	const read = statement.read
 	switch (read.kind) {
@@ -235,7 +235,8 @@ const statementFacts = (statement: DrawnStatement): StatementFacts => {
 						base: read.kind === "absent" ? "negated" : "positive",
 						probes: [],
 						own: false,
-						group: read.kind === "all" ? undefined : { fields: ["k"], binding: "$k", rows: "one" }
+						group:
+							read.kind === "all" ? undefined : { bound: [{ field: "k", by: "$k" }], rows: "one" }
 					}
 				],
 				probes: [],
@@ -254,7 +255,16 @@ const drawnFacts = (d: DrawnInstallation): IsolationInput => ({
 		Arr.map(
 			Rec.keys(relations),
 			(name) =>
-				[name, { triggerLaws: [], keys: [["k"]], countedGroups: [], references: [] }] as const
+				[
+					name,
+					{
+						triggerLaws: [],
+						keys: [["k"]],
+						countedGroups: [],
+						references: [],
+						inserts: { kind: "repeatable" }
+					}
+				] as const
 		)
 	),
 	roles: Arr.map(d.members, (member, i) => {

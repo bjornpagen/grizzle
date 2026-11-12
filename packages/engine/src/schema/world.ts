@@ -226,6 +226,7 @@ const statementNames = (desc: StatementDesc): ReadonlyArray<string> => {
 		case "key":
 			return [desc.side.relation]
 		case "mutable":
+		case "race":
 		case "check":
 			return [desc.relation]
 		case "contained":

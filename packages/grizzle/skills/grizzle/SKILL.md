@@ -674,6 +674,12 @@ The command line's own refusals, by stage:
   content, a `publisher` role that inserts nothing else writes it, and the referencing role's foreign keys point at
   the published relation. `compileServed` of other programs than the committed workload serves every role
   SERIALIZABLE.
+- A claim of work races a key: `race(R)` among the rules makes R's primary key first come, first held, so an insertion
+  at a held key meets the holder's row in `delta.met(R)` and is never refused for differing from it (README's Races).
+  The claimer names the key and a fresh holder; a member for the winner alone reads R back at that key with its own
+  holder in a later statement; a reclaim inserts the next attempt from the expired one, read by its whole key. Each is
+  certified READ COMMITTED; a claim that searches for its work (the next due item, a count of holders, a claimed
+  item's absence) runs SERIALIZABLE. Two raced tables in two statements can be won one and met the other.
 - A role's `write` lists a query entry only when the entry is writable (README's Writing through a role); otherwise
   `role(...)` is refused as `RoleRefused`, its rule `writeUnwritable` naming the `entry` and the `why`. An entry over a
   family's owner writes the owner as a write of its table does: grizzle draws the owner's counts and ends, so no row

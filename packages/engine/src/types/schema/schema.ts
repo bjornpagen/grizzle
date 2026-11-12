@@ -34,6 +34,7 @@ import type {
 	MirrorsBase,
 	Mutable,
 	Ordered,
+	Race,
 	RelationOfKey,
 	Selection,
 	Side,
@@ -154,31 +155,35 @@ type StatementSpelled<St, Rs, To extends Spelling> =
 			? Spelled<R, Rs, To> extends infer X
 				? Mutable<X>
 				: never
-			: St extends Check<infer N extends string, infer R>
+			: St extends Race<infer R>
 				? Spelled<R, Rs, To> extends infer X
-					? Check<N, X>
+					? Race<X>
 					: never
-				: St extends Containment<infer L, infer R>
-					? [SideSpelled<L, Rs, To>, SideSpelled<R, Rs, To>] extends [infer A, infer B]
-						? Containment<A, B>
+				: St extends Check<infer N extends string, infer R>
+					? Spelled<R, Rs, To> extends infer X
+						? Check<N, X>
 						: never
-					: St extends Mirrors<infer L, infer R>
+					: St extends Containment<infer L, infer R>
 						? [SideSpelled<L, Rs, To>, SideSpelled<R, Rs, To>] extends [infer A, infer B]
-							? Mirrors<A, B>
+							? Containment<A, B>
 							: never
-						: St extends Alternatives<infer P, infer D extends string, infer C, infer Arms>
-							? [KeyRefSpelled<P, Rs, To>, Spelled<C, Rs, To>] extends [infer A, infer B]
-								? Alternatives<A, D, B, Arms>
+						: St extends Mirrors<infer L, infer R>
+							? [SideSpelled<L, Rs, To>, SideSpelled<R, Rs, To>] extends [infer A, infer B]
+								? Mirrors<A, B>
 								: never
-							: St extends Fold<infer Fa, infer M, infer S, infer E>
-								? [
-										FamilySpelled<Fa, Rs, To>,
-										SideSpelled<S, Rs, To>,
-										SideSpelled<E, Rs, To>
-									] extends [infer A, infer B, infer C]
-									? Fold<A, M, B, C>
+							: St extends Alternatives<infer P, infer D extends string, infer C, infer Arms>
+								? [KeyRefSpelled<P, Rs, To>, Spelled<C, Rs, To>] extends [infer A, infer B]
+									? Alternatives<A, D, B, Arms>
 									: never
-								: FamilySpelled<St, Rs, To>
+								: St extends Fold<infer Fa, infer M, infer S, infer E>
+									? [
+											FamilySpelled<Fa, Rs, To>,
+											SideSpelled<S, Rs, To>,
+											SideSpelled<E, Rs, To>
+										] extends [infer A, infer B, infer C]
+										? Fold<A, M, B, C>
+										: never
+									: FamilySpelled<St, Rs, To>
 
 /** Statements by name: each relation of the record a statement names spelled as its name. */
 export type StatementsByName<Statements, Relations> = {
@@ -217,7 +222,7 @@ export type DerivedAt<L> = L extends unknown
 	: never
 
 /**
- * The relations a statement names: the relation of a mutable or a check; the source of each law side (a selection's
+ * The relations a statement names: the relation of a mutable, a race or a check; the source of each law side (a selection's
  * relation), a key's, a family's, a tree's and a fold's included; a family's and a tree's owner; and an alternatives
  * law's parent, roster and arms.
  */
@@ -227,21 +232,23 @@ export type NamedBy<St> =
 		? SideNames<S>
 		: St extends Mutable<infer R>
 			? R
-			: St extends Check<string, infer R>
+			: St extends Race<infer R>
 				? R
-				: St extends Containment<infer L, infer R>
-					? SideNames<L> | SideNames<R>
-					: St extends Mirrors<infer L, infer R>
+				: St extends Check<string, infer R>
+					? R
+					: St extends Containment<infer L, infer R>
 						? SideNames<L> | SideNames<R>
-						: St extends Alternatives<infer P, string, infer C, infer Arms>
-							? RelationOfKey<P> | C | RelationOfKey<Exclude<Arms[keyof Arms], undefined>>
-							: St extends Ordered<infer F, infer Fi> | Counted<infer F, infer Fi>
-								? SideNames<F> | OwnerOf<Fi>
-								: St extends Tree<infer F, infer Fi, string>
+						: St extends Mirrors<infer L, infer R>
+							? SideNames<L> | SideNames<R>
+							: St extends Alternatives<infer P, string, infer C, infer Arms>
+								? RelationOfKey<P> | C | RelationOfKey<Exclude<Arms[keyof Arms], undefined>>
+								: St extends Ordered<infer F, infer Fi> | Counted<infer F, infer Fi>
 									? SideNames<F> | OwnerOf<Fi>
-									: St extends Fold<unknown, unknown, infer S, infer E>
-										? SideNames<S> | SideNames<E>
-										: never
+									: St extends Tree<infer F, infer Fi, string>
+										? SideNames<F> | OwnerOf<Fi>
+										: St extends Fold<unknown, unknown, infer S, infer E>
+											? SideNames<S> | SideNames<E>
+											: never
 
 /** The owner a family's slots count over. */
 type OwnerOf<Fi> = Fi extends Fin<infer O, string> ? O : never

@@ -1338,6 +1338,7 @@ export class Normalizer {
 				this.#fold(s, index)
 				return
 			case "mutable":
+			case "race":
 				return
 		}
 	}

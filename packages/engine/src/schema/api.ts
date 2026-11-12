@@ -20,6 +20,7 @@ import {
 	onBuilder,
 	orderedBuilder,
 	predBuilder,
+	raceBuilder,
 	retirableBuilder,
 	selectBuilder,
 	treeBuilder
@@ -109,6 +110,7 @@ import type {
 	OwnerRelationOf,
 	KeyShows,
 	Pred,
+	Race,
 	Retirable,
 	RowScalars,
 	Selection,
@@ -344,6 +346,12 @@ export const key = <
  * default is pinned.
  */
 export const mutable = <R extends AnyRelation>(target: R): Mutable<R> => mutableBuilder<R>(target)
+
+/**
+ * Race a relation's primary key: the first insertion at a key holds it, and every later insertion there meets the row
+ * that holds it, delivered in delta.met, never refused for differing from it. Its other keys stay laws.
+ */
+export const race = <R extends AnyRelation>(target: R): Race<R> => raceBuilder<R>(target)
 
 export const check = <
 	const Name extends string,

@@ -61,6 +61,7 @@ import type {
 	Mutable,
 	Ordered,
 	Pred,
+	Race,
 	Retirable,
 	Selection,
 	Side,
@@ -276,6 +277,23 @@ const admitMutable = (relation: unknown): StatementDesc => {
  */
 export const mutableBuilder = <R>(relation: R): Mutable<R> =>
 	ownedStatement({ kind: "mutable", relation }, admitMutable(relation))
+
+/** The race over a relation's primary key: its first insertion holds each key, which ownership judges (schema/own.ts). */
+const admitRace = (relation: unknown): StatementDesc => {
+	const rel = namedRelation(relation, "raced relation")
+	return admitted({
+		kind: "race",
+		relation: rel.name,
+		loc: builderLoc(`race ${rel.name}`, [rel.name, "race"])
+	})
+}
+
+/**
+ * Race a relation's primary key: the first insertion at a key holds it, and every later insertion there meets the row
+ * that holds it, delivered in delta.met, never refused for differing from it.
+ */
+export const raceBuilder = <R>(relation: R): Race<R> =>
+	ownedStatement({ kind: "race", relation }, admitRace(relation))
 
 /**
  * The predicate a row callback returns over the row of `relation`, `rel` its name and kind: a check's and a selection's
@@ -640,7 +658,10 @@ const admitRetirable = (header: unknown, bodies: unknown): StatementDesc => {
 	const named = new Set<string>()
 	for (const side of sides) {
 		if (named.has(side.relation)) {
-			throw builderRefusal(`${label} body ${side.relation}`, "a retirable statement names each body once")
+			throw builderRefusal(
+				`${label} body ${side.relation}`,
+				"a retirable statement names each body once"
+			)
 		}
 		named.add(side.relation)
 	}

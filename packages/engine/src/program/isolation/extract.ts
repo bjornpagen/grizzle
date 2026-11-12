@@ -9,7 +9,7 @@ import type {
 } from "#compiler/analysis/isolation/facts.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { overRowsOf } from "#compiler/lower/conservative/expr/lateral.ts"
 import type {
 	Assignment,
@@ -1195,18 +1195,17 @@ const byColumn = (a: Bound, b: Bound): number => {
 }
 
 /**
- * A read's group, from the fields it binds (each Bound's column a field), sorted by field: one value for the call where
- * every field takes one, else one group per own row; none where it binds none.
+ * A read's group, from the fields it binds (each Bound's column a field), each with what it is bound to, sorted by
+ * field: one value for the call where every field takes one, else one group per own row; none where it binds none.
  */
 const boundGroup = (bound: ReadonlyArray<Bound>): Group | undefined => {
 	const sorted = bound.toSorted(byColumn)
-	return sorted.length === 0
-		? undefined
-		: {
-				fields: sorted.map((b) => b.column),
-				binding: sorted.map((b) => b.by).join(","),
+	return isNonEmpty(sorted)
+		? {
+				bound: mapNonEmpty(sorted, (b) => ({ field: b.column, by: b.by })),
 				rows: sorted.every((b) => b.rows === "one") ? "one" : "many"
 			}
+		: undefined
 }
 
 /** What a column of the call's own sources takes: one value or many, none for a stored table's or an unknown name. */
