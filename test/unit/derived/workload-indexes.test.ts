@@ -35,6 +35,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { alterationStatement } from "#compiler/deploy/diff/plan.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { compareOps } from "#compiler/ir/desc.ts"
 import { workloadExtension, withWorkload } from "#compiler/physical/access/extension.ts"
@@ -157,7 +158,16 @@ const planned = (
 	g: GenerateResult
 ): ReadonlyArray<{ readonly slot: string; readonly statement: SqlStatement }> =>
 	Arr.flatMap(g.plan.steps, (step) =>
-		step.draft.kind === "statement" ? [{ slot: step.slot, statement: step.draft.statement }] : []
+		step.draft.kind === "statement"
+			? [{ slot: step.slot, statement: step.draft.statement }]
+			: step.draft.kind === "alteration"
+				? [
+						{
+							slot: step.slot,
+							statement: alterationStatement(step.draft.table, step.draft.actions)
+						}
+					]
+				: []
 	)
 
 /** AccountBudget's materialized view, as the naming door names it. */

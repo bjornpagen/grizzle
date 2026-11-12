@@ -36,7 +36,12 @@ import {
 	String as Str
 } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import type { Declarations, Named, Step } from "#compiler/deploy/diff/plan.ts"
+import {
+	alterationStatement,
+	type Declarations,
+	type Named,
+	type Step
+} from "#compiler/deploy/diff/plan.ts"
 import { draftMigration } from "#compiler/deploy/render/generate.ts"
 import {
 	codebookOf,
@@ -480,9 +485,11 @@ const statementsOf = (steps: ReadonlyArray<Step>): ReadonlyArray<SqlStatement> =
 	Arr.flatMap(steps, (s): ReadonlyArray<SqlStatement> =>
 		s.draft.kind === "statement"
 			? [s.draft.statement]
-			: s.draft.kind === "confirm"
-				? s.draft.keep
-				: []
+			: s.draft.kind === "alteration"
+				? [alterationStatement(s.draft.table, s.draft.actions)]
+				: s.draft.kind === "confirm"
+					? s.draft.keep
+					: []
 	)
 
 /** Where the chain of table renames a plan runs takes the table named `from`. */
