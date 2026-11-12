@@ -26,11 +26,13 @@
  * `migrate` first writes a batch of new facts through the login's served file (a ChangeSet of the version installed,
  * ordered members nested under their new owners), then drafts the pending version from the snapshot before it
  * (`grizzle generate`), declaring every dropped uuid field (`--drop`), and reviews it as a person does: each
- * placeholder takes a typed default, and below the last of them the harness writes the data step from the model's
- * mapping: each re-keyed relation's new key from its old one, each referencing row's new fields joined through its old
- * uuid, each filled field row by row. Then the files are checked as `grizzle check` checks them (every marker resolved,
- * every loss decided, no statement controlling the transaction), applied by `grizzle migrate`'s runner, whose admission
- * judges the catalog against the snapshot, with the installed-catalog checker. After every step:
+ * new column's placeholder takes a typed default, and where the marker says, right after the draft's own `SET
+ * CONSTRAINTS ALL IMMEDIATE`, the harness writes the data step from the model's mapping: each re-keyed relation's new
+ * key from its old one, each referencing row's new fields joined through its old uuid, each filled field row by row;
+ * a set-aside reference's fill takes the correlated read of its target's new key. Then the files are checked as
+ * `grizzle check` checks them (every marker resolved, every loss decided, no statement controlling the transaction),
+ * applied by `grizzle migrate`'s runner, whose admission judges the catalog against the snapshot, with the
+ * installed-catalog checker. After every step:
  *
  * - every table of the installation was rewritten at most once by the migration, by PostgreSQL's `table_rewrite`
  *   event trigger (test/support/migrate/rewrites.ts);
@@ -55,8 +57,9 @@
  * rows it holds, the catalog of a fresh install, and the table_rewrite events it fires.
  *
  * Features: each delta, a reference re-pointed under its own name among them; a re-keyed relation referenced by two
- * relations, and by a re-keyed relation; an ordered family's owner re-keyed and an ordered member re-keyed; ordered to counted with a fold over the family; a dropped
- * position a fold read; a key near BTMaxItemSize admitted and one past it refused; and a version with all six deltas.
+ * relations, and by a re-keyed relation; an ordered family's owner re-keyed and an ordered member re-keyed; ordered to
+ * counted with a fold over the family; a dropped position a fold read; a key near BTMaxItemSize admitted and one past
+ * it refused; and a version with all six deltas.
  * Each is aimed at by a steered case, drawn over a world that holds every structure, never by filtering draws.
  *
  * The seventh delta, a property of its own over TREEKEY's frozen old-form tree (test/support/migrate/old-form-tree.ts):
@@ -123,7 +126,6 @@ import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
-import { placeholderMarker } from "#compiler/deploy/render/markers.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
@@ -1301,47 +1303,27 @@ const dataStepOf = (h: History, m: Model): ReadonlyArray<string> => {
 			)};`
 		]
 	})
-	const updates = [...own, ...pointing, ...filled]
-	return updates.length === 0 ? [] : ["SET CONSTRAINTS ALL IMMEDIATE;", ...updates]
+	return [...own, ...pointing, ...filled]
 }
 
-/** The words of a placeholder marker that asks for a new column's value (deploy/render/sql.ts), never a set-aside
- * column's fill, which runs after every new column's and reads what the data step writes. */
-const newColumnMarker = "needs a value for the new column"
+/** The statement the draft makes every data step follow (the slot structure.immediate), as it spells it. */
+const immediate = "SET CONSTRAINTS ALL IMMEDIATE;"
 
 /**
- * A drafted folder with the data step below the last placeholder of a new column: after the two statements that follow
- * its marker, the table's ADD and its DROP DEFAULT, each ending a line at its semicolon, so it runs after every new
- * column is added and before any set-aside column's fill, the backfill and the constraints read them. A data step the
- * draft gives no such place to is a failure of the property.
+ * A drafted folder with the data step where the placeholder marker says it goes: right after the draft's own
+ * `SET CONSTRAINTS ALL IMMEDIATE;`, which follows every table's alteration and every new column's DROP DEFAULT and comes
+ * before every set-aside column's fill, the backfill and the constraints that read what the data step writes. A data
+ * step the draft gives no such place to is a failure of the property.
  */
 const withDataStep = (g: GenerateResult, step: ReadonlyArray<string>): GenerateResult => {
 	if (step.length === 0) {
 		return g
 	}
-	const at = (text: string): Option.Option<number> => {
-		const lines = Str.split(text, "\n")
-		return Option.map(
-			Arr.findLastIndex(
-				lines,
-				(l) =>
-					pipe(Str.trimStart(l), Str.startsWith(placeholderMarker)) &&
-					pipe(l, Str.includes(newColumnMarker))
-			),
-			(last) =>
-				nth(
-					Arr.filter(
-						indices(lines.length),
-						(i) => i > last && pipe(nth(lines, i, "line"), Str.trimEnd, Str.endsWith(";"))
-					),
-					1,
-					"the end of the last new column's DROP DEFAULT"
-				)
-		)
-	}
+	const at = (text: string): Option.Option<number> =>
+		Arr.findFirstIndex(Str.split(text, "\n"), (l) => Str.trim(l) === immediate)
 	assert.ok(
 		Arr.some(g.folder.files, (f) => Option.isSome(at(f.text))),
-		`the draft ${g.folder.name} has no new column below which its data step goes`
+		`the draft ${g.folder.name} drafts no ${immediate} for its data step to follow`
 	)
 	const files = Arr.map(g.folder.files, (f) =>
 		Option.match(at(f.text), {
