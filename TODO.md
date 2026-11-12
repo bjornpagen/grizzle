@@ -232,6 +232,13 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   rebased and kept until a release includes it. Tell qti-pie first: its database lives in the cluster.
 - **`bench:full` on a quiet machine.**
 - **Test layout:** tests move into packages/*/test, with their mutate and fallow paths and the docs.
+- **The fill kernel's rows have one handle, their `id` (RESTATED, 2026-11-12):** test/support/families/fill.ts follows a
+  row across a stored instance and its restatement by its `id` field (writtenRows' byId map, every memberOf owner,
+  instanceFacts), and a tree's root fields are named by its root's id (rootValuesOf), so G4 (test/pg/write/reinsert,
+  again.ts renamedInPlace) never renames a tree's root: that states its whole tree again under another root, its nodes'
+  ids kept, a second tree PostgreSQL holds beside the stored one, which the model merges into one. A tree's primary key
+  holds its drawn start, which shifts with every node added before it, so the key cannot be the handle either. Split a
+  model handle from the `id` field through fill.ts and the swarm suites, and draw a root's rename again.
 - **The worlds' page:anchored feature (WCOVER, 2026-11-10):** WCOVER-01 compares anchored pages but requires no feature
   that reaches one. With page:anchored required, isolation reads at TEST_SEED=3971498375 held a led case past its hang
   limit: both reads leads take every required feature, and a pending one keeps directTransaction's afterBegin

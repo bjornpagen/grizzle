@@ -29,7 +29,7 @@
 import { element, type Gen, int } from "@grizzle/testing/gen"
 import { type Swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { Array as Arr, Option, Order } from "effect"
-import { defined, nonEmpty } from "#test/support/assert.ts"
+import { deepEquals, defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	familyAt,
 	type FamilyKind,
@@ -42,6 +42,7 @@ import {
 	keyOfRelation,
 	membershipIn,
 	relationAt,
+	treeOn,
 	writtenRows
 } from "#test/support/families/fill.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -61,7 +62,8 @@ export type Standing = "tree node" | "ordered member" | "counted member" | "top 
  * - `moved`: row `id` placed at `to` in `to`'s family, the sequence it leaves closing up and the one it joins opening;
  * - `beside`: another instance under fresh keys;
  * - `renamed`: row `id` stated under the fresh id `to`, every row naming it as an owner naming `to`: a new row where the
- *   id is its key, and a tree node's id changed at its place, where its key is its root and start.
+ *   id is its key, and a tree node's id changed at its place, where its key is its root and start; never a tree's root,
+ *   whose id names its root fields (`renamedInPlace`).
  */
 export type Difference =
 	| { readonly kind: "payload"; readonly id: number; readonly v: bigint }
@@ -343,14 +345,18 @@ export const againVerdict = (
 }
 
 /**
- * What a difference aims at: a payload at a place, a member added, removed or moved in a family of a kind, a top row
- * left out, or another instance beside.
+ * What a difference aims at: a payload at a place, a member added to a family of a kind under an owner standing at a
+ * place, a member removed or moved in a family of a kind, a top row left out, or another instance beside.
  */
 export type Target =
 	| { readonly kind: "payload" | "renamed"; readonly place: Standing }
-	| { readonly kind: "added" | "removed" | "moved"; readonly family: FamilyKind }
+	| { readonly kind: "added"; readonly family: FamilyKind; readonly owner: Standing }
+	| { readonly kind: "removed" | "moved"; readonly family: FamilyKind }
 	| { readonly kind: "left out" }
 	| { readonly kind: "beside" }
+
+/** A target that names a member of a family. */
+type MemberTarget = Extract<Target, { readonly family: FamilyKind }>
 
 /** The ids handed out so far: a new row's key is the next, above every key the case has stored. */
 export interface Keys {
@@ -464,40 +470,61 @@ const movesOf = (
 	)
 }
 
-/** Every target `rows` admits: a payload at each place a row stands, a family's member added, removed or moved. */
+/**
+ * Whether row `r` is renamed in place: any row but a tree's root, whose id names its tree's root fields (fill.ts
+ * rootValuesOf), so a new id states its whole tree again under another root, every node at a new key, which `beside`
+ * draws under fresh ids; the model's rows are their ids, so it cannot hold that tree beside the stored one.
+ */
+const renamedInPlace = (spec: FillSpec, r: InstanceRow): boolean =>
+	Option.match(Option.fromUndefinedOr(treeOn(spec, r.relation)), {
+		onNone: () => true,
+		onSome: (f) => membershipIn(r, f) !== undefined
+	})
+
+/** Every target `rows` admits: a payload at each place a row stands, a row renamed at each place one is renamed in
+ * place, a family's member added, removed or moved. */
 export const targetsOf = (
 	spec: FillSpec,
 	rows: ReadonlyArray<InstanceRow>,
 	keys: Keys
 ): Arr.NonEmptyReadonlyArray<Target> => [
 	{ kind: "beside" },
-	...Arr.flatMap(Arr.dedupe(Arr.map(rows, (r) => standingOf(spec, r))), (place) => [
-		{ kind: "payload" as const, place },
-		{ kind: "renamed" as const, place }
-	]),
+	...Arr.map(Arr.dedupe(Arr.map(rows, (r) => standingOf(spec, r))), (place) => ({
+		kind: "payload" as const,
+		place
+	})),
+	...Arr.map(
+		Arr.dedupe(Arr.flatMap(rows, (r) => (renamedInPlace(spec, r) ? [standingOf(spec, r)] : []))),
+		(place) => ({ kind: "renamed" as const, place })
+	),
 	...(Arr.some(rows, (r) => standingOf(spec, r) === "top row")
 		? [{ kind: "left out" as const }]
 		: []),
-	...Arr.flatMap(["added", "removed", "moved"] as const, (kind) =>
-		Arr.map(
-			Arr.dedupe(
-				Arr.flatMap(spec.families, (f, k) =>
-					Arr.isReadonlyArrayNonEmpty(candidates(spec, rows, keys, { kind, family: f.kind }, k))
-						? [f.kind]
-						: []
-				)
-			),
-			(family) => ({ kind, family })
-		)
+	...Arr.dedupeWith(
+		Arr.flatMap(spec.families, (f, k) => {
+			const owners = Arr.dedupe(
+				Arr.flatMap(rows, (o) => (o.relation === f.owner ? [standingOf(spec, o)] : []))
+			)
+			const targets: ReadonlyArray<MemberTarget> = [
+				...Arr.map(owners, (owner): MemberTarget => ({ kind: "added", family: f.kind, owner })),
+				{ kind: "removed", family: f.kind },
+				{ kind: "moved", family: f.kind }
+			]
+			return Arr.filter(targets, (target) =>
+				Arr.isReadonlyArrayNonEmpty(candidates(spec, rows, keys, target, k))
+			)
+		}),
+		deepEquals
 	)
 ]
 
-/** The differences of family `k` aiming at a member target, each a generator of one: none where it is not of the target's kind. */
+/** The differences of family `k` aiming at a member target, each a generator of one: none where it is not of the target's
+ * kind, or, for an added member, where no owner of it stands at the target's place. */
 const candidates = (
 	spec: FillSpec,
 	rows: ReadonlyArray<InstanceRow>,
 	keys: Keys,
-	target: { readonly kind: "added" | "removed" | "moved"; readonly family: FamilyKind },
+	target: MemberTarget,
 	k: number
 ): ReadonlyArray<Gen<Difference>> => {
 	const family = familyAt(spec, k)
@@ -511,6 +538,7 @@ const candidates = (
 					rows,
 					(o) =>
 						o.relation === family.owner &&
+						standingOf(spec, o) === target.owner &&
 						(family.kind !== "counted" || relationAt(spec, family.owner).mutable)
 				),
 				(o: InstanceRow): ReadonlyArray<Gen<Difference>> =>
@@ -579,8 +607,11 @@ export const differenceAt =
 					id: source.draw(
 						element(
 							nonEmpty(
-								Arr.filter(rows, (r) => standingOf(spec, r) === target.place),
-								"a row at the target's place"
+								Arr.filter(
+									rows,
+									(r) => standingOf(spec, r) === target.place && renamedInPlace(spec, r)
+								),
+								"a row renamed in place at the target's place"
 							)
 						)
 					).id,

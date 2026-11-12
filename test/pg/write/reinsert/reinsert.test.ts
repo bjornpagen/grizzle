@@ -103,12 +103,17 @@ import { fullWorld } from "#test/support/worlds.ts"
  *
  * Features: each kind of difference, alone in its insert, at each family kind and place, with its verdict, a sequence's
  * member added, removed or moved under a mutable owner and under an immutable one (an owner stated again with fewer,
- * more or reordered members, README.md:2066); the same instance again and stated twice; two differences in one insert;
- * a replace of the same units, with a difference, and dropping a unit. A witness case aims at a pending one with a schema holding every family kind beside a plain relation, every relation
- * mutable or every one immutable, every count at its most, and one difference at it.
+ * more or reordered members, README.md:2066); a counted family's member added under a tree node and under a top row,
+ * the owner stated again as stored (a counted family is a set its inserts append to); the same instance again and
+ * stated twice; two differences in one insert; a replace of the same units, with a difference, and dropping a unit. A
+ * witness case aims at a pending one with a schema holding every family kind, a top row owning a counted and an ordered
+ * family, every relation mutable or every one immutable, every count at its most, and one difference at it.
  *
- * Plants: ~/.cache/grizzle-release/KEYSTRESS/plants/reinsert-no-change-as-accepted.patch, a committed write answered
- * `accepted` whatever its counts, must turn the property red.
+ * Plants, each of which must turn the property red: ~/.cache/grizzle-release/KEYSTRESS/plants/
+ * reinsert-no-change-as-accepted.patch, a committed write answered `accepted` whatever its counts; and under
+ * ~/.cache/grizzle-release/RESTATED/plants/, restated-sequence-accepted.patch, a nested owner's facts stating none of
+ * its sequences' counts and ends, and counted-append-refused.patch, a nested row compared at its counted families'
+ * counts and ends too.
  */
 
 /** A second insert of a case: its differences from the stored instance, in order, and whether it states every fact twice. */
@@ -147,6 +152,7 @@ type Situation =
 	| `${PlaceLabel}'s payload changed: ${VerdictLabel}`
 	| `${PlaceLabel} renamed: ${VerdictLabel}`
 	| `a member added to ${FamilyLabel}: ${VerdictLabel}`
+	| `a member added to a counted family under ${PlaceLabel}: ${VerdictLabel}`
 	| `a member removed from ${FamilyLabel}: ${VerdictLabel}`
 	| `a member moved in ${FamilyLabel}: ${VerdictLabel}`
 	| `a member ${"added to" | "removed from" | "moved in"} ${SequenceLabel} under ${MutabilityLabel} owner: ${VerdictLabel}`
@@ -189,11 +195,14 @@ const targetOf = (spec: FillSpec, stored: ReadonlyArray<InstanceRow>, d: Differe
 		case "payload":
 		case "renamed":
 			return { kind: d.kind, place: standingOf(spec, row(d.id)) }
-		case "added":
+		case "added": {
+			const at = defined(d.row.memberOf[0], "a new member's family")
 			return {
 				kind: "added",
-				family: familyAt(spec, defined(d.row.memberOf[0], "a new member's family").family).kind
+				family: familyAt(spec, at.family).kind,
+				owner: standingOf(spec, row(at.owner))
 			}
+		}
 		case "removed": {
 			const place = standingOf(spec, row(d.id))
 			switch (place) {
@@ -269,7 +278,9 @@ const situationOf = (t: Target, v: VerdictLabel, owner: MutabilityLabel): Situat
 		case "renamed":
 			return `${placeLabels[t.place]} renamed: ${v}`
 		case "added":
-			return `a member added to ${familyLabels[t.family]}: ${v}`
+			return t.family === "counted"
+				? `a member added to a counted family under ${placeLabels[t.owner]}: ${v}`
+				: `a member added to ${familyLabels[t.family]}: ${v}`
 		case "removed":
 			return `a member removed from ${familyLabels[t.family]}: ${v}`
 		case "moved":
@@ -312,23 +323,51 @@ const aims: Arr.NonEmptyReadonlyArray<readonly [Situation, Aim]> = [
 	],
 	[
 		"a member added to a tree under a mutable owner: refused on a key",
-		{ kind: "target", target: { kind: "added", family: "tree" }, mutable: true }
+		{
+			kind: "target",
+			target: { kind: "added", family: "tree", owner: "tree node" },
+			mutable: true
+		}
 	],
 	[
 		"a member added to a tree under an immutable owner: refused on a key",
-		{ kind: "target", target: { kind: "added", family: "tree" }, mutable: false }
+		{
+			kind: "target",
+			target: { kind: "added", family: "tree", owner: "tree node" },
+			mutable: false
+		}
 	],
 	[
 		"a member added to an ordered family under a mutable owner: refused on a key",
-		{ kind: "target", target: { kind: "added", family: "ordered" }, mutable: true }
+		{
+			kind: "target",
+			target: { kind: "added", family: "ordered", owner: "top row" },
+			mutable: true
+		}
 	],
 	[
 		"a member added to an ordered family under an immutable owner: refused on a key",
-		{ kind: "target", target: { kind: "added", family: "ordered" }, mutable: false }
+		{
+			kind: "target",
+			target: { kind: "added", family: "ordered", owner: "top row" },
+			mutable: false
+		}
 	],
 	[
-		"a member added to a counted family: accepted",
-		{ kind: "target", target: { kind: "added", family: "counted" }, mutable: true }
+		"a member added to a counted family under a tree node: accepted",
+		{
+			kind: "target",
+			target: { kind: "added", family: "counted", owner: "tree node" },
+			mutable: true
+		}
+	],
+	[
+		"a member added to a counted family under a top row: accepted",
+		{
+			kind: "target",
+			target: { kind: "added", family: "counted", owner: "top row" },
+			mutable: true
+		}
 	],
 	[
 		"a member removed from a tree under a mutable owner: refused on a key",
@@ -455,19 +494,37 @@ const caseGen: Gen<ReinsertCase> = (source) => {
 	return { spec, rows, again: source.draw(againsGen(spec, rows)) }
 }
 
+/** The folds an aimed schema's top row's families are drawn with. */
+const folds: Arr.NonEmptyReadonlyArray<"none" | "sum" | "count"> = ["none", "sum", "count"]
+
 /**
- * A plain relation beside a tree owning a counted family and an ordered family's member counted too, every relation
- * mutable or every one immutable, as the aim says.
+ * A top row owning a counted and an ordered family, each of a relation of no other family, so its ordered family takes
+ * a new member under an immutable owner too, which an ordered member counted too never does (again.ts newMember joins
+ * no immutable counted owner); an ordered family's member counted too; and a tree owning a counted family, every
+ * relation mutable or every one immutable, as the aim says. An instance is made in relation order up to its bound
+ * (fill.ts instanceBound), and a tree at its most outgrows it, so the tree comes last and holds what the others leave.
  */
 const aimedSpecGen =
 	(mutable: boolean): Gen<FillSpec> =>
 	(source) => {
 		const spec = besides(
 			besides(
-				{ relations: [{ generated: false, mutable: true }], families: [], copies: [], steps: [] },
-				source.draw(plantedGen("tree with a counted family"))
+				{
+					relations: [
+						{ generated: false, mutable: true },
+						{ generated: false, mutable: true },
+						{ generated: false, mutable: true }
+					],
+					families: [
+						{ kind: "counted", owner: 0, member: 1, fold: source.draw(element(folds)) },
+						{ kind: "ordered", owner: 0, member: 2, fold: source.draw(element(folds)) }
+					],
+					copies: [],
+					steps: []
+				},
+				source.draw(plantedGen("counted ordered member"))
 			),
-			source.draw(plantedGen("counted ordered member"))
+			source.draw(plantedGen("tree with a counted family"))
 		)
 		const [first, ...rest] = spec.relations
 		return {
@@ -752,32 +809,28 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 								),
 								(cs, r) => cs.insert(relationAtName(r), [])
 							)
-							/** The facts a delete of unit rows `ids` names, by relation: a tree's root fields, any other unit's fact. */
+							/**
+							 * The facts a delete of unit rows `ids` names, by relation: a tree's root fields, and any other unit's
+							 * written fields, its `id` and `v`, since a unit is no family's member, never the members its insert
+							 * nests at a sequence's count field.
+							 */
 							const unitFacts = (
 								stored: ReadonlyArray<InstanceRow>,
 								ids: ReadonlyArray<number>
-							): Readonly<Record<string, ReadonlyArray<unknown>>> => {
-								const facts = instanceFacts(spec, stored)
-								return Rec.fromEntries(
+							): Readonly<Record<string, ReadonlyArray<unknown>>> =>
+								Rec.fromEntries(
 									Arr.map(units, (r): readonly [string, ReadonlyArray<unknown>] => [
 										relationName(r),
-										Arr.flatMap(
+										Arr.map(
 											Arr.filter(stored, (x) => x.relation === r && ids.includes(x.id)),
-											(x: InstanceRow): ReadonlyArray<unknown> =>
+											(x: InstanceRow): unknown =>
 												Option.match(Option.fromUndefinedOr(treeOn(spec, r)), {
-													onSome: (f) => [Rec.fromEntries(rootEntries(f, x.id))],
-													onNone: () =>
-														Option.toArray(
-															Arr.findFirst(
-																facts.get(r) ?? [],
-																(fact) => fact["id"] === uuidOfRow(x.id)
-															)
-														)
+													onSome: (f) => Rec.fromEntries(rootEntries(f, x.id)),
+													onNone: () => ({ id: uuidOfRow(x.id), v: x.v })
 												})
 										)
 									])
 								)
-							}
 							yield* Effect.gen(function* () {
 								const db = yield* openServedDb(done, world.server.roles.app, {})
 								const flight = yield* oneFlight(db.ctx, done.as(world.server))
