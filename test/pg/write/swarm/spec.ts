@@ -83,7 +83,8 @@ export interface PlainSpec {
 /**
  * A law between the family core and the plain relations, each a statement of the schema:
  * - `into set`: `contained(on(R, "v"), on(P, "x"))`, P a pure set, so its foreign key is immediate;
- * - `into rows`: `contained(on(P, "r"), on(R, "id"))`, P a referrer;
+ * - `into rows`: `contained(on(P, "r"), on(R, "id"))`, P a referrer, R keyed by its id (no tree's relation, keyed by
+ *   its root and start);
  * - `into members`: `contained(on(P, "r", "x"), on(M, o<f>, "v"))`, P a referrer, M family `f`'s member;
  * - `owner into members`: `contained(on(O or select(O, n<f> = 1), "id", "v"), on(M, o<f>, "v"))`;
  * - `member key`: `key(on(M, o<f>, "v"))`, which a containment into a family's members needs, its target holding a key;
@@ -410,6 +411,11 @@ const aroundGen =
 		const sets = Arr.flatMap(plains, (p, j) => (p.kind === "set" ? [j] : []))
 		const referrers = Arr.flatMap(plains, (p, j) => (p.kind === "referrer" ? [j] : []))
 		const membered = memberFamilies(core)
+		/** The relations a referrer's `r` may name: those keyed by their id, a tree's relation keyed by its root and start. */
+		const idKeyed = Arr.filter(
+			Arr.map(core.relations, (_, r) => r),
+			(r) => keyOfRelation(core, r).length === 1
+		)
 		const held = Arr.map(core.copies, (_, j) => j)
 		const laws: Array<LawSpec> = []
 		const sourced = new Set<number>()
@@ -430,14 +436,10 @@ const aroundGen =
 					}
 					break
 				case "law into rows":
-					if (Arr.isReadonlyArrayNonEmpty(free)) {
+					if (Arr.isReadonlyArrayNonEmpty(free) && Arr.isReadonlyArrayNonEmpty(idKeyed)) {
 						const plain = source.draw(pick(free))
 						sourced.add(plain)
-						laws.push({
-							kind: "into rows",
-							plain,
-							relation: source.draw(int(0, core.relations.length - 1))
-						})
+						laws.push({ kind: "into rows", plain, relation: source.draw(pick(idKeyed)) })
 					}
 					break
 				case "law into members":
