@@ -25,14 +25,16 @@
  *   login deletes and inserts what the learner references, so generate fences it (analysis/isolation/certify.ts Fence):
  *   a same-key replace, an identical one, a removal of the learner's key, a replace of another key, NEGATION's case 3
  *   as a publish that misses a gate, and a removal of two fenced relations the learner checks in either order, each
- *   serial in every run. Its required features: the learner's check waiting on a same-key replace, a fenced write's
- *   lock waiting on a learner's check, the learner committing before the replace begins, a key removed, a check waiting
- *   on an in-flight publish, and a deadlock a fenced removal meets, which PostgreSQL breaks with 40P01, a transient
- *   abort the serial reference places nowhere. The learner's key into Pub is deferred, checked inside its COMMIT, one
- *   move, so only the immediate checks of PubA and PubZ can hold a lock the publisher's waits on; and PostgreSQL breaks a
- *   deadlock within the wait the driver settles before its next decision, so a run shows it as the 40P01 its victim
- *   answered. Plants (~/.cache/grizzle-release/G3VERIFY/plants): certify-fence-omitted, served writes with no lock,
- *   which a spurious 23503 or NEGATION's case 3 catches.
+ *   serial in every run. The learner's key into Pub is deferred, as edullm's learner's keys into its publications are:
+ *   its check runs inside its COMMIT, one move, taking ROW SHARE on Pub and then its snapshot. Its required features:
+ *   the learner's deferred check waiting on the fenced write's lock of a replace that deletes the checked key and
+ *   inserts it again, then finding the committed state; a fenced write's lock waiting on a learner's check, which only
+ *   the immediate checks of PubA and PubZ can hold across a move; the learner committing before the replace begins; a
+ *   key removed; a check waiting on an in-flight publish; and a deadlock a fenced removal meets, which PostgreSQL breaks
+ *   with 40P01, a transient abort the serial reference places nowhere. PostgreSQL breaks a deadlock within the wait the
+ *   driver settles before its next decision, so a run shows it as the 40P01 its victim answered. Plants
+ *   (~/.cache/grizzle-release/G3VERIFY/plants): certify-fence-omitted, served writes with no lock, whose same-key
+ *   replace the learner's deferred check refuses with a spurious 23503.
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -953,7 +955,7 @@ const fencedRaces = ({ a, b, s, t, k }: FencedValues): Arr.NonEmptyReadonlyArray
 type FencedFeature =
 	| "generate certifies the learner READ COMMITTED"
 	| "generate fences every publisher write of Pub"
-	| "a learner's check waited on a same-key replace"
+	| "a learner's deferred check waited on a fenced write's lock"
 	| "a fenced write's lock waited on a learner's check"
 	| "a learner committed before a same-key replace began"
 	| "a key removed beside a learner"
@@ -963,8 +965,9 @@ type FencedFeature =
 
 /**
  * The features one run of a fenced race reaches: s0 is the publisher's session and s1 the learner's, but in the
- * in-flight publish, whose learner is s2; a wait is a move observed waiting on the other's lock; the publisher's lock is
- * its move sending one of `locks`, its served writes' exclusions; and a deadlock is a move PostgreSQL answered 40P01.
+ * in-flight publish, whose learner is s2; a wait is a move observed waiting on the other's lock; the learner's deferred
+ * check is its COMMIT waiting for ROW SHARE on a relation; the publisher's lock is its move sending one of `locks`, its
+ * served writes' exclusions; and a deadlock is a move PostgreSQL answered 40P01.
  */
 const noteFencedRun =
 	(kind: FencedKind, locks: ReadonlySet<string>, note: (feature: FencedFeature) => void) =>
@@ -976,8 +979,19 @@ const noteFencedRun =
 				(m) => m.session === session && m.observed._tag === "Waited" && m.observed.on.includes(on)
 			)
 		if (kind === "same-key replace") {
-			if (waited(learner, "s0")) {
-				note("a learner's check waited on a same-key replace")
+			if (
+				Arr.some(
+					e.run.moves,
+					(m) =>
+						m.session === learner &&
+						m.label === "COMMIT" &&
+						m.observed._tag === "Waited" &&
+						m.observed.on.includes("s0") &&
+						m.observed.lock.locktype === "relation" &&
+						m.observed.lock.mode === "RowShareLock"
+				)
+			) {
+				note("a learner's deferred check waited on a fenced write's lock")
 			}
 			const publisher = e.run.spans["s0"]
 			const read = e.run.spans[learner]
@@ -1577,7 +1591,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										[
 											"generate certifies the learner READ COMMITTED",
 											"generate fences every publisher write of Pub",
-											"a learner's check waited on a same-key replace",
+											"a learner's deferred check waited on a fenced write's lock",
 											"a fenced write's lock waited on a learner's check",
 											"a learner committed before a same-key replace began",
 											"a key removed beside a learner",
