@@ -208,6 +208,31 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   pantry's 13 copies host-written (CHUNK).
 
 ### Next
+- **A family member's put that moves a key is witnessed by PostgreSQL alone (WITNESS, 2026-11-11):** every insert now
+  probes each unique object it does not arbitrate in its own statement, a family's additions and a planner's row insert
+  included (write/family/statements.ts candidateGate), so a stated row meeting one is refused with its key. A family's
+  removals statement does not (write/family/removals.ts): its re-placing INSERT and its UPDATEs in place of a put's
+  caller fields still raise PostgreSQL's 23505, whose witness the host names only where every row holds one value
+  (runtime/write/witness.ts uniqueJudgement), so a put of a member moving a secondary key onto a stored one is refused
+  `unreported`, against README's Witness. The statement deletes first, so a snapshot probe sees its own deleted rows and
+  must pass over the keys it deletes; an UPDATE's uniqueness is checked row by row, so a swap of two members' values is
+  refused where the final state is lawful, as put/choose.ts uniqueOutsideKey avoids for plain relations. Reach: no
+  qti-pie or edullm put of a member.
+- **A family statement's unseen occupant is a law outcome (WITNESS, 2026-11-11):** a 23505 or 23P01 a family statement
+  still raises at a probed object is an occupant committed past its snapshot, yet family steps list no unique aborts
+  (adapter/outcomes uniqueAbortsAt), so it reaches the classifier as `invariant-rejected` with an `unreported` witness
+  where the insert protocol's is TransientFailure{UnseenOccupant}. List each probed object of a family INSERT as its
+  step's abort, as the protocol's probed inserts do. Concurrency only; no stated row reaches it.
+- **Every insert's unique check at a flat success cost (WITNESS, 2026-11-11):** each insert probes every unique object
+  besides its arbiter for every row, beside PostgreSQL's own check, about doubling unique-index work on success. ON
+  CONFLICT DO NOTHING with no target arbitrates every unique and exclusion object at PostgreSQL's one check, and only the
+  rows it skipped, the met rows, need classifying: a stored occupant at each object in law order, else a row the same
+  INSERT returned, else an occupant the snapshot cannot see. Soundness to settle first: at SERIALIZABLE an unseen
+  occupant is 40001 (ExecCheckTupleVisible), but the arbitration's own fetch takes no SIRead lock, so each met row is
+  read again under the snapshot as the `every` arbitration does; at READ COMMITTED the arbitration skips a row committed
+  past the snapshot, which no read of the statement can name, so a met row unclassified there is an unseen occupant
+  whose constraint is unknown, and the certifier reads a targetless arbitration and a met read at READ COMMITTED as
+  opaque (program/isolation/extract.ts), which would lower every such role to SERIALIZABLE.
 - **Retirable units, served (RETIRE2, approved for den 2026-11-11):** a schema declares units and installs their fence,
   hold and retire functions, and the certifier counts a retirement as no change; nothing serves them yet. Owed: every
   served change member that touches a unit's body calls its hold before its first statement that does, refused

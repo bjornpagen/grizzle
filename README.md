@@ -3041,8 +3041,12 @@ grizzle decided them:
   foreign key or a rule over a query of the level above, or a row grizzle cannot judge.
 
 **Witness**: `{ kind: "key", relation, values }`, the key of one row that breaks the rule and never another column, or
-`{ kind: "unreported" }`. A key (over a table or a side of one) that grizzle's own write statement finds broken, by two
-rows you submitted or by a stored row inside or outside your role's view, is witnessed by the key you submitted, a
+`{ kind: "unreported" }`. Every insert, a family's members and a tree's nodes included, checks each key and unique of its
+table in the statement that writes the rows: a declared key, a key over a side, a family's (owner, index) and a tree's
+(root, start), against the stored rows and between the rows the statement writes. That is one index lookup per row and
+key beside PostgreSQL's own check, the same cost on every insert. So a key (over a table or a side of one) that a row you
+stated breaks, by two rows you submitted or by a stored row inside or outside your role's view, is grizzle's own
+finding, witnessed by that row's values at the key's fields, an index or a start at the value grizzle drew and a
 generated field at the value PostgreSQL computes. A row check, contract, pattern or generated field is refused by
 PostgreSQL, which states the row only in its message, never read by grizzle: grizzle judges on the host the rows your
 ChangeSet states for the refused statement (an inserted or put row, a query entry's row, a nested member) as the write
