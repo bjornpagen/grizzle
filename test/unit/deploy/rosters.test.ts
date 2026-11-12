@@ -377,11 +377,16 @@ const observedOf = (draft: Draft): ReadonlyArray<string> => {
 		switch (a.kind) {
 			case "statement":
 				return [statementWord(a.statement)]
-			case "placeholderColumn":
-				return [`placeholder column ${a.table.name}.${a.column.name}`]
+			case "alteration":
+				return Arr.map(a.actions, (sub) =>
+					sub.kind === "placeholderColumn"
+						? `placeholder column ${a.table.name}.${sub.column.name}`
+						: sub.kind === "placeholderRetype"
+							? `other ${sub.kind}`
+							: statementWord({ kind: "alterTable", table: a.table, actions: [sub] })
+				)
 			case "violation":
 				return [`check law ${a.law}`]
-			case "placeholderRetype":
 			case "analyze":
 			case "dropStatistics":
 				return [`other ${a.kind}`]
@@ -389,8 +394,7 @@ const observedOf = (draft: Draft): ReadonlyArray<string> => {
 	}
 	switch (draft.kind) {
 		case "statement":
-		case "placeholderColumn":
-		case "placeholderRetype":
+		case "alteration":
 		case "violation":
 		case "analyze":
 		case "dropStatistics":

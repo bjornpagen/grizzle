@@ -249,20 +249,24 @@ const swaps = (c: Case<Feature>, value: SwapCase): void => {
 	)
 	const conversion = Arr.findFirstIndex(
 		structure,
-		(a) => a.kind === "placeholderRetype" && a.column.name === retyped
+		(a) =>
+			a.kind === "alteration" &&
+			Arr.some(a.actions, (x) => x.kind === "placeholderRetype" && x.column.name === retyped)
 	)
 	assert.ok(Option.isSome(conversion), `Structure converts ${retyped} in place`)
 	const at = (name: string, kind: "dropConstraint" | "addConstraint") =>
-		Arr.findFirstIndex(
-			structure,
-			(a) =>
-				a.kind === "statement" &&
-				a.statement.kind === "alterTable" &&
-				Arr.some(a.statement.actions, (x) =>
+		Arr.findFirstIndex(structure, (a) =>
+			Arr.some(
+				a.kind === "statement" && a.statement.kind === "alterTable"
+					? a.statement.actions
+					: a.kind === "alteration"
+						? a.actions
+						: [],
+				(x) =>
 					kind === "dropConstraint"
 						? x.kind === "dropConstraint" && x.name === name
 						: x.kind === "addConstraint" && x.constraint.name === name && !x.notValid
-				)
+			)
 		)
 	const built = Arr.flatMap(planStatements(r.g.plan), (s) =>
 		s.kind === "createIndex" ? [s.name] : []

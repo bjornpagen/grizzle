@@ -1,11 +1,13 @@
 import { Array as Arr, Data, pipe, Result, String as Str } from "effect"
 import { readMeta } from "#adapter/boundary/meta.ts"
-import type {
-	Action,
-	Confirm,
-	Draft,
-	LossDecision,
-	MigrationPlan
+import {
+	type Action,
+	alterationStatement,
+	type Confirm,
+	type Draft,
+	type LossDecision,
+	type MigrationPlan,
+	type PlaceholderAlteration
 } from "#compiler/deploy/diff/plan.ts"
 import { type DraftFile, planFiles } from "#compiler/deploy/phases/files.ts"
 import { type LossDecided, lossDecisions } from "#compiler/deploy/render/folder.ts"
@@ -16,7 +18,7 @@ import {
 	lossMarker,
 	placeholderMarker
 } from "#compiler/deploy/render/markers.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
+import type { ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
 
 /**
@@ -41,10 +43,7 @@ import { placeholderToken } from "#compiler/sql/print.ts"
  *
  * A text that disagrees with meta.json or with the plan is a defect of the draft, thrown as DraftTextDefect.
  */
-export type Placeholder = Extract<
-	Action,
-	{ readonly kind: "placeholderColumn" | "placeholderRetype" }
->
+export type Placeholder = PlaceholderAlteration & { readonly table: ObjectName }
 
 /**
  * How a review decides each loss of stored data: its statement written in, so the data is lost, or left commented, so
@@ -67,8 +66,22 @@ export interface ReviewedFile {
 /** The defect of a draft whose text the reviewer cannot follow: the text, meta.json and the plan disagree. */
 class DraftTextDefect extends Data.TaggedError("DraftTextDefect")<{ readonly defect: string }> {}
 
-const isPlaceholder = (a: Action): a is Placeholder =>
-	a.kind === "placeholderColumn" || a.kind === "placeholderRetype"
+/** The placeholders of an action, in the order its text holds them: an alteration's, each with its table. */
+const actionPlaceholders = (a: Action): ReadonlyArray<Placeholder> => {
+	switch (a.kind) {
+		case "alteration":
+			return Arr.flatMap(a.actions, (sub): ReadonlyArray<Placeholder> =>
+				sub.kind === "placeholderColumn" || sub.kind === "placeholderRetype"
+					? [{ ...sub, table: a.table }]
+					: []
+			)
+		case "statement":
+		case "violation":
+		case "analyze":
+		case "dropStatistics":
+			return []
+	}
+}
 
 /** Every action a draft holds, a loss's statement and a confirmed group's among them. */
 export const draftActions = (d: Draft): ReadonlyArray<Action> => {
@@ -78,8 +91,7 @@ export const draftActions = (d: Draft): ReadonlyArray<Action> => {
 		case "loss":
 			return [{ kind: "statement", statement: d.statement }]
 		case "statement":
-		case "placeholderColumn":
-		case "placeholderRetype":
+		case "alteration":
 		case "violation":
 		case "analyze":
 		case "dropStatistics":
@@ -87,11 +99,25 @@ export const draftActions = (d: Draft): ReadonlyArray<Action> => {
 	}
 }
 
-/** Every statement a plan drafts, a loss's among them. */
+/** The statements an action drafts as the reviewer leaves them: a statement's own, and a table alteration's one ALTER
+ * TABLE when it holds no placeholder; one that holds a placeholder is the reviewer's to complete, and any other action
+ * is reviewer-facing template text. */
+export const reviewedStatements = (a: Action): ReadonlyArray<SqlStatement> => {
+	switch (a.kind) {
+		case "statement":
+			return [a.statement]
+		case "alteration":
+			return actionPlaceholders(a).length === 0 ? [alterationStatement(a.table, a.actions)] : []
+		case "violation":
+		case "analyze":
+		case "dropStatistics":
+			return []
+	}
+}
+
+/** Every statement a plan drafts as the reviewer leaves it (reviewedStatements), a loss's among them. */
 export const planStatements = (plan: MigrationPlan): ReadonlyArray<SqlStatement> =>
-	Arr.flatMap(plan.steps, (step) =>
-		Arr.flatMap(draftActions(step.draft), (a) => (a.kind === "statement" ? [a.statement] : []))
-	)
+	Arr.flatMap(plan.steps, (step) => Arr.flatMap(draftActions(step.draft), reviewedStatements))
 
 /** The drafted files of a generated folder, in the folder's order: none when nothing changed. */
 export const draftFiles = (g: GenerateResult): ReadonlyArray<DraftFile> =>
@@ -107,8 +133,7 @@ const reviewPlan = (g: GenerateResult, losses: LossReview): ReadonlyArray<Review
 					return losses === "written" ? draftActions(d) : []
 				case "confirm":
 				case "statement":
-				case "placeholderColumn":
-				case "placeholderRetype":
+				case "alteration":
 				case "violation":
 				case "analyze":
 				case "dropStatistics":
@@ -123,7 +148,7 @@ export const plainPlan = (g: GenerateResult): ReadonlyArray<ReviewedFile> =>
 
 /** The placeholders of a reviewed file, in order. */
 const placeholdersOf = (file: ReviewedFile): ReadonlyArray<Placeholder> =>
-	Arr.filter(file.actions, isPlaceholder)
+	Arr.flatMap(file.actions, actionPlaceholders)
 
 /**
  * A text with each placeholder marker line deleted and each placeholder token of its SQL replaced by its value, in

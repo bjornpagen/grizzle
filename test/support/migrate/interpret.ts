@@ -3742,25 +3742,31 @@ class Model {
 		this.#foreignKeysComparable()
 	}
 
-	/** ADD COLUMN with the reviewer's value as its default, then DROP DEFAULT. */
+	/** A table's alteration runs its subcommands in its order, PostgreSQL's pass order: a placeholder column ADD COLUMN
+	 * with the reviewer's value as its default, then DROP DEFAULT; a placeholder conversion by the reviewer's value. */
 	#perform(a: Action, placeholder: PlaceholderValue): void {
 		switch (a.kind) {
 			case "statement":
 				this.statement(a.statement)
 				return
-			case "placeholderColumn":
-				this.#typeExists(a.column.type)
-				this.#addColumn(a.table, columnOf(a.column, this.#schema), () => ({
-					kind: "value",
-					value: placeholder(a)
-				}))
-				return
-			case "placeholderRetype":
-				this.#typeExists(a.column.type)
-				this.#retype(a.table, a.column.name, a.column.type, {
-					kind: "given",
-					value: () => ({ kind: "value", value: placeholder(a) })
-				})
+			case "alteration":
+				for (const sub of a.actions) {
+					if (sub.kind === "placeholderColumn") {
+						this.#typeExists(sub.column.type)
+						this.#addColumn(a.table, columnOf(sub.column, this.#schema), () => ({
+							kind: "value",
+							value: placeholder({ ...sub, table: a.table })
+						}))
+					} else if (sub.kind === "placeholderRetype") {
+						this.#typeExists(sub.column.type)
+						this.#retype(a.table, sub.column.name, sub.column.type, {
+							kind: "given",
+							value: () => ({ kind: "value", value: placeholder({ ...sub, table: a.table }) })
+						})
+					} else {
+						this.statement({ kind: "alterTable", table: a.table, actions: [sub] })
+					}
+				}
 				return
 			case "analyze":
 				this.#relation(a.table)

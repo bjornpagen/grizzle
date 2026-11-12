@@ -337,8 +337,11 @@ const addedColumns = (plan: MigrationPlan): ReadonlyMap<string, number> => {
 		out.set(table, (out.get(table) ?? 0) + n)
 	}
 	for (const { draft: d } of plan.steps) {
-		if (d.kind === "placeholderColumn") {
-			add(d.table.name, 1)
+		if (d.kind === "alteration") {
+			add(
+				d.table.name,
+				d.actions.filter((a) => a.kind === "addColumn" || a.kind === "placeholderColumn").length
+			)
 			continue
 		}
 		const statements = d.kind === "statement" ? [d.statement] : d.kind === "confirm" ? d.keep : []
