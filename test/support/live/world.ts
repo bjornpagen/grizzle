@@ -421,8 +421,9 @@ export const probeMember = "probe"
 
 /**
  * The counted family every world holds and no read reads: a `Shelf(id)` owner whose drawn count `n` counts the
- * `Book(id, shelf)` members naming it, beside the items, so a write of a book naming a stored shelf appends a member to
- * a stored owner, which its one flight writes by the family write's additions statement.
+ * `Book(id, shelf)` members naming it, beside the items. A write of a book naming a stored shelf appends a member to a
+ * stored owner, which its one flight writes by the family write's additions statement, and which only a mutable owner
+ * takes (write/frontend/compile.ts), so Shelf is mutable.
  */
 export const familyRelations = { owner: "Shelf", member: "Book" } as const
 
@@ -462,6 +463,7 @@ export const liveWorld = (c: LiveCase, name: string) => {
 		[
 			...(c.mutable[0] ? [mutable(Item0)] : []),
 			...(c.mutable[1] ? [mutable(Item1)] : []),
+			mutable(Shelf),
 			counted(on(Book, "shelf"), fin(Shelf, "n"))
 		]
 	)
