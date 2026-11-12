@@ -6,7 +6,8 @@ import type {
 	RelationFacts,
 	RoleFacts,
 	RowSource,
-	StatementFacts
+	StatementFacts,
+	WriteFact
 } from "#compiler/analysis/isolation/facts.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -40,15 +41,19 @@ import * as Result from "#compiler/core/result.ts"
  *   with each group its own statement reads from outside, and, after a statement that read from outside, with a row its own
  *   call wrote; no write comes before a group the member reads only later. A group it misses makes it write nothing;
  *   a group it reads again is the same rows or none, since a sealed group is immutable and never extended. Each of its
- *   foreign key checks is sealed: a sealed check finds its row, immutable, or refuses the call whole;
+ *   foreign key checks is sealed: a sealed check finds its row, immutable or held (ReadSeal), or refuses the call whole;
  * - `writers`: no role that runs SERIALIZABLE and writes a relation the role reads from outside, by a statement or a
  *   foreign key check, can miss another call's write (pivotCauseOf), so none is the pivot of a cycle through it: no
  *   statement of it reads from outside, none of its foreign key checks is unsealed or reads the rows that reference a
  *   row it changes, and it writes no relation a trigger-held law reads. A sealed check of its own, of an insert-only
  *   relation at a whole declared key or of one no role writes, finds an immutable row or refuses its call, which at
- *   SERIALIZABLE then commits nothing, so it misses no write. The role's own checks are no such exemption: they are
+ *   SERIALIZABLE then commits nothing, so it misses no write; a held one finds a row its KEY SHARE lock keeps until it
+ *   commits, or a row deleted since its snapshot, which PostgreSQL refuses at SERIALIZABLE with 40001
+ *   (ri_triggers.c ri_LockPKTuple), or refuses its call. The role's own checks are no such exemption: they are
  *   outside reads 5c weighs against every role that runs SERIALIZABLE (the publication shape in
- *   test/unit/analysis/isolation/certify.test.ts). A sealed read is no exemption: a reader of one writer call's rows can miss an
+ *   test/unit/analysis/isolation/certify.test.ts). A sealed check that misses a key an in-flight writer inserts waits
+ *   for no lock and refuses its call (NEGATION's case 3, the refusedCopy shape there), and a sealed read is no
+ *   exemption either: a reader of one writer call's rows can miss an
  *   in-flight SERIALIZABLE writer whose read's writer committed before the reader began, which no serial order in real
  *   time explains. No role that runs SERIALIZABLE writes a relation the role writes, by a privilege, a member or a
  *   cascade: the installation's guard admits a READ COMMITTED write of a relation only where every role that writes it
@@ -125,6 +130,17 @@ export interface RoleIsolation {
  *   arbitrated in it, by its parameters: once that statement inserted the row or met it as an exact repeat, DO SELECT
  *   waiting for its writer's commit, the row at the key is the call's own or committed and never changes, so the read
  *   sees exactly it and misses no write;
+ * - `held`: a foreign key check, binding every field of a declared key, of a relation no role updates and no login
+ *   both deletes and inserts (Writers.held). PostgreSQL 19 takes the check's snapshot after its ROW SHARE lock on the
+ *   relation and locks the row it finds FOR KEY SHARE until the call ends (ri_triggers.c ri_FastPathCheck and
+ *   ri_LockPKTuple; the SPI path's FOR KEY SHARE query alike), a lock every deletion of the row waits for (heapam.c
+ *   heap_delete), so a row it finds stays until the call commits. A key it misses is absent from a point after the
+ *   call's statements took their snapshots: a deletion it waited on committed with no insert at the key in its own
+ *   transaction, and an insert at the key in a later one waits on the deletion's index entry. A deletion and an insert
+ *   at one key in one transaction refuse a READ COMMITTED check that waited on the deleted row with 23503 while the key
+ *   stands throughout, since the check probes the key once, finds the row it waited on deleted (TM_Deleted) and never
+ *   sees the inserted one; an update may move the key. Either leaves the check unsealed. A statement's read takes no
+ *   such lock and is never held;
  * - `unsealed`: any other outside read, with why; a read of one group per own row of the call among them, which
  *   another call's rows may split, some seen and some missed. An arbitration is no such read: the unique check decides
  *   each row it proposes on its own.
@@ -136,6 +152,7 @@ export type ReadSeal =
 	| { readonly kind: "counted"; readonly key: ReadonlyArray<string> }
 	| { readonly kind: "point"; readonly key: ReadonlyArray<string> }
 	| { readonly kind: "arbitrated"; readonly key: ReadonlyArray<string> }
+	| { readonly kind: "held"; readonly key: ReadonlyArray<string> }
 	| { readonly kind: "unsealed"; readonly detail: string }
 
 /** The privileges a writer holds; a role holding none of them on a relation only reads it. */
@@ -193,38 +210,102 @@ const updatedBy = (served: Served): ReadonlySet<string> =>
 		)
 	])
 
-/** What the installation's roles state of each relation, read once: whether any role writes it, and whether any
- * updates or deletes it, an update carried by a cascading foreign key among them. */
+/** The set `by` holds at `key`, made empty on first use. */
+const setAt = (by: Map<string, Set<string>>, key: string): Set<string> => {
+	const held = by.get(key)
+	if (held !== undefined) {
+		return held
+	}
+	const made = new Set<string>()
+	by.set(key, made)
+	return made
+}
+
+/** The write a privilege permits, none for SELECT. */
+const permitted = (p: TablePrivilege): WriteFact["op"] | undefined => {
+	switch (p) {
+		case "SELECT":
+			return undefined
+		case "INSERT":
+			return "insert"
+		case "UPDATE":
+			return "update"
+		case "DELETE":
+			return "delete"
+	}
+}
+
+/** The relations one login's roles delete and those they insert, by a privilege or a member. */
+interface LoginWrites {
+	readonly deletes: Set<string>
+	readonly inserts: Set<string>
+}
+
+/**
+ * What the installation's roles state of each relation, read once: whether any role writes it, whether any updates or
+ * deletes it, and whether any updates it, an update carried by a cascading foreign key among them; and whether one
+ * login's roles both delete and insert it, by a privilege or a member, so one transaction of that login may delete a
+ * row and insert another at its key: a login acts as each of its roles by SET ROLE (physical/ddl/roles.ts), and a
+ * direct transaction may change role between its statements.
+ */
 class Writers {
 	readonly #written = new Set<string>()
 	readonly #changed = new Set<string>()
+	readonly #updated = new Set<string>()
+	readonly #replaced = new Set<string>()
 
 	constructor(relations: ReadonlyMap<string, RelationFacts>, roles: ReadonlyArray<Served>) {
+		const deleted = new Map<string, Set<string>>()
+		const inserted = new Map<string, Set<string>>()
 		for (const served of roles) {
+			const login: LoginWrites = {
+				deletes: setAt(deleted, served.role.login),
+				inserts: setAt(inserted, served.role.login)
+			}
 			for (const [relation, privileges] of served.role.privileges) {
 				for (const p of privileges) {
-					if (writing.has(p)) {
-						this.#written.add(relation)
-					}
-					if (p === "UPDATE" || p === "DELETE") {
-						this.#changed.add(relation)
+					const op = permitted(p)
+					if (op !== undefined) {
+						this.#note(relation, op, login)
 					}
 				}
 			}
 			for (const member of served.members) {
 				for (const s of member.statements) {
 					for (const w of s.writes) {
-						this.#written.add(w.relation)
-						if (w.op !== "insert") {
-							this.#changed.add(w.relation)
-						}
+						this.#note(w.relation, w.op, login)
 					}
 				}
 			}
 			for (const relation of cascaded(relations, updatedBy(served))) {
-				this.#written.add(relation)
-				this.#changed.add(relation)
+				this.#note(relation, "update", login)
 			}
+		}
+		for (const [login, deletes] of deleted) {
+			const inserts = setAt(inserted, login)
+			for (const relation of deletes) {
+				if (inserts.has(relation)) {
+					this.#replaced.add(relation)
+				}
+			}
+		}
+	}
+
+	/** One write of `relation` by a role of `login`. */
+	#note(relation: string, op: WriteFact["op"], login: LoginWrites): void {
+		this.#written.add(relation)
+		switch (op) {
+			case "insert":
+				login.inserts.add(relation)
+				return
+			case "update":
+				this.#changed.add(relation)
+				this.#updated.add(relation)
+				return
+			case "delete":
+				this.#changed.add(relation)
+				login.deletes.add(relation)
+				return
 		}
 	}
 
@@ -236,6 +317,17 @@ class Writers {
 	/** Whether no role updates or deletes the relation: a row of it, once committed, stays as it is. */
 	insertOnly(relation: string): boolean {
 		return !this.#changed.has(relation)
+	}
+
+	/** Whether some role updates the relation, so a row may change the key a foreign key check found it at. */
+	updated(relation: string): boolean {
+		return this.#updated.has(relation)
+	}
+
+	/** Whether one login's roles both delete and insert the relation, so one transaction may delete a row and insert
+	 * another at its key. */
+	replaced(relation: string): boolean {
+		return this.#replaced.has(relation)
 	}
 }
 
@@ -314,24 +406,37 @@ const sealOf = (at: Installation, read: ReadFact): ReadSeal => {
 	if (facts.countedGroups.some((k) => sameKey(k, group.fields))) {
 		return { kind: "counted", key: group.fields }
 	}
-	return pointSeal(facts, group.fields)
+	return keyedSeal("point", facts, group.fields)
 }
 
-/** A read by `fields` of an insert-only relation: a point read where they hold a whole declared key, else unsealed. */
-const pointSeal = (facts: RelationFacts, fields: ReadonlyArray<string>): ReadSeal => {
-	const point = facts.keys.find((k) => k.every((f) => fields.includes(f)))
-	return point === undefined
-		? {
-				kind: "unsealed",
-				detail: `its group by ${fields.join(", ")} is neither a family's counted members nor a whole declared key`
-			}
-		: { kind: "point", key: point }
+/**
+ * A read by `fields` of an insert-only relation, a point, or a check of a relation Writers finds held, held: where they
+ * hold a whole declared key, else unsealed.
+ */
+const keyedSeal = (
+	kind: "point" | "held",
+	facts: RelationFacts,
+	fields: ReadonlyArray<string>
+): ReadSeal => {
+	const key = keyIn(facts, fields)
+	return key === undefined ? unkeyed(fields) : { kind, key }
 }
+
+/** A declared key of the relation whose every field `fields` holds, none where no key is. */
+const keyIn = (
+	facts: RelationFacts,
+	fields: ReadonlyArray<string>
+): ReadonlyArray<string> | undefined => facts.keys.find((k) => k.every((f) => fields.includes(f)))
+
+/** The seal of a read by `fields` that hold no whole declared key, nor a family's counted members. */
+const unkeyed = (fields: ReadonlyArray<string>): ReadSeal => ({
+	kind: "unsealed",
+	detail: `its group by ${fields.join(", ")} is neither a family's counted members nor a whole declared key`
+})
 
 /** An arbitration's seal: the declared key its group binds whole, which the unique check decides, or unsealed. */
 const arbiterSeal = (facts: RelationFacts, group: ReadonlyArray<string> | undefined): ReadSeal => {
-	const key =
-		group === undefined ? undefined : facts.keys.find((k) => k.every((f) => group.includes(f)))
+	const key = group === undefined ? undefined : keyIn(facts, group)
 	return key === undefined
 		? {
 				kind: "unsealed",
@@ -566,7 +671,11 @@ interface Check {
 	readonly seal: ReadSeal
 }
 
-/** A referencing check's seal: of the referenced relation, at its referenced key's fields. */
+/**
+ * A referencing check's seal: of the referenced relation, at its referenced key's fields. A point where the relation
+ * is insert-only, held (ReadSeal) where no role updates it and no login both deletes and inserts it, and unsealed
+ * otherwise.
+ */
 const referencingSeal = (
 	at: Installation,
 	relation: string,
@@ -579,9 +688,23 @@ const referencingSeal = (
 	if (at.writers.unwritten(relation)) {
 		return { kind: "unwritten" }
 	}
-	return at.writers.insertOnly(relation)
-		? pointSeal(facts, fields)
-		: { kind: "unsealed", detail: "a role updates or deletes the relation" }
+	if (at.writers.insertOnly(relation)) {
+		return keyedSeal("point", facts, fields)
+	}
+	if (at.writers.updated(relation)) {
+		return {
+			kind: "unsealed",
+			detail: "a role updates the relation, which may move the key a check found"
+		}
+	}
+	if (at.writers.replaced(relation)) {
+		return {
+			kind: "unsealed",
+			detail:
+				"one login both deletes and inserts the relation: a key it deletes and inserts again in one transaction refuses a READ COMMITTED check that waited on the deleted row with 23503"
+		}
+	}
+	return keyedSeal("held", facts, fields)
 }
 
 /** A referenced check's seal: every row of the referencing relation that references the written one. */
@@ -713,7 +836,8 @@ const memberView = (at: Installation, member: MemberFacts): MemberView => {
  * Why a role, were it SERIALIZABLE, may be the pivot of a cycle, by a read that can miss another call's write: an outside
  * read of a statement; a foreign key check that is unsealed, or that reads the rows referencing a row it changes; or a
  * law over a relation it writes held by triggers. None where it has no such read: each of its checks, sealed, finds an
- * immutable row or refuses its call whole.
+ * immutable row, or one its KEY SHARE lock holds until it commits (held), or refuses its call whole, a held row deleted
+ * since its snapshot refusing it with 40001.
  */
 const pivotCauseOf = (
 	at: Installation,
