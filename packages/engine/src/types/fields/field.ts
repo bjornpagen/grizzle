@@ -125,9 +125,9 @@ export interface NaturalField extends Field<
 /**
  * How a field is written, as its descriptor's type states it under `writing`; a caller's field carries none.
  * generated: by PostgreSQL from its row; drawn: by grizzle from the nested arrays its caller writes; accumulated: by
- * grizzle on the host, proved by PostgreSQL; serial: by its sequence.
+ * grizzle on the host, proved by PostgreSQL; serial: by its sequence; retirement: by its group's retirement.
  */
-export type WritingTag = "generated" | "drawn" | "accumulated" | "serial"
+export type WritingTag = "generated" | "drawn" | "accumulated" | "serial" | "retirement"
 
 /**
  * Lowers to GENERATED ALWAYS AS IDENTITY, with the sequence owned by the column. It is a column
@@ -286,6 +286,14 @@ export interface UnwrittenField {
 /** A natural grizzle draws: a family's index or count, or a tree's start or end. In a Fact, never in an Addition. */
 export interface DrawnField extends NaturalField, UnwrittenField {
 	readonly writing: "drawn"
+}
+
+/**
+ * A header's retirement field: a boolean PostgreSQL defaults to false when its row is inserted, and the retirement of its
+ * group sets to true for good (schema/relation.ts retirementField). In a Fact, never in an Addition.
+ */
+export interface RetirementField extends Field<boolean, "boolean">, UnwrittenField {
+	readonly writing: "retirement"
 }
 
 /**

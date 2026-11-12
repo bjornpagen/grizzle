@@ -68,6 +68,8 @@ const lawRelations = (s: OwnedStatement): ReadonlyArray<string> => {
 			return [s.family.owner, s.step.relation, s.end.relation]
 		case "alternatives":
 			return [s.parent.relation, ...s.arms.map((a) => a.arm.relation)]
+		case "retirable":
+			return [s.header.relation, ...s.bodies.map((b) => b.relation)]
 	}
 }
 
@@ -91,6 +93,8 @@ const appliedRelations = (s: OwnedStatement): ReadonlyArray<string> => {
 			return sides([s.step, s.end])
 		case "alternatives":
 			return [s.roster, ...sides([s.parent, ...s.arms.map((a) => a.arm)])]
+		case "retirable":
+			return sides([s.header, ...s.bodies])
 	}
 }
 
@@ -107,7 +111,9 @@ interface LawReads {
 }
 
 const lawReadsOf = (owned: Owned, s: OwnedStatement, expanded: ReadonlyArray<string>): LawReads =>
-	s.kind === "alternatives" || expanded.some((r) => owned.relations[r]?.kind === "derived")
+	s.kind === "alternatives" ||
+	s.kind === "retirable" ||
+	expanded.some((r) => owned.relations[r]?.kind === "derived")
 		? { kind: "within", reads: expanded }
 		: { kind: "exact", reads: s.kind === "fold" ? [s.step.relation, s.end.relation] : expanded }
 
@@ -246,6 +252,7 @@ export const closureOf = (owned: Owned, slice: Slice): Closure => {
 				return inComponent(s)
 			case "contained":
 			case "alternatives":
+			case "retirable":
 				return axes.some((axis) => s.reads.every((r) => axis.has(r)))
 			case "check":
 			case "mutable":

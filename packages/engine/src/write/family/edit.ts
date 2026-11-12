@@ -804,7 +804,8 @@ const typeOfKey = (relation: TableRelation, family: Family, key: ColumnKey): Law
 /**
  * The host value a new row holds a field at when nothing fills it: a drawn field, which beside a
  * member's own family values is its own counted family's count, at 0, and an accumulated one, its own family's end, at
- * its start, so a member that owns a family is inserted with that family empty; none for any other field.
+ * its start, so a member that owns a family is inserted with that family empty, and a retirement field at false, its
+ * group open; none for any other field.
  */
 const startHost = (ctx: FillContext, field: LawField): unknown => {
 	switch (field.writing.kind) {
@@ -812,6 +813,8 @@ const startHost = (ctx: FillContext, field: LawField): unknown => {
 			return 0n
 		case "accumulated":
 			return literalHost(specOf(ctx, field.type), field.writing.start)
+		case "retirement":
+			return false
 		case "caller":
 		case "serial":
 		case "generated":

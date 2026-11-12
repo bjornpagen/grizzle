@@ -93,10 +93,23 @@ import { textLookup } from "#compiler/text/refinement.ts"
  * What the statement a containment's law is from refuses two of its paired fields of other identities for: an
  * alternatives arm's key against its parent's, or the sides of a containment it states.
  */
-const containmentPairing = (source: LawSource): Refused =>
-	source.kind === "alternatives"
-		? "the arm's key does not match the parent key"
-		: "the sides' field types differ"
+const containmentPairing = (source: LawSource): Refused => {
+	switch (source.kind) {
+		case "alternatives":
+			return "the arm's key does not match the parent key"
+		case "retirable":
+			return "a body's group does not match the header key"
+		case "relation":
+		case "key":
+		case "contract":
+		case "check":
+		case "contained":
+		case "family":
+		case "tree":
+		case "fold":
+			return "the sides' field types differ"
+	}
+}
 
 /** A key of a relation as immediate evidence: the PRIMARY KEY or UNIQUE that holds at every statement. */
 interface KeyEvidence {
@@ -132,7 +145,7 @@ interface ContainmentEvidence {
 	 * What states it: a `contained` statement, or an alternatives statement's expansion (desc.ts expandAlternatives). attach reads only
 	 * declared containments.
 	 */
-	readonly statement: "contained" | "alternatives"
+	readonly statement: "contained" | "alternatives" | "retirable"
 	readonly context: EvidenceContext
 }
 
@@ -813,7 +826,10 @@ export const theoryEvidence = (
 					from: sides.from,
 					to: sides.to,
 					coverage: d.pairing.kind === "span",
-					statement: law.source.kind === "alternatives" ? "alternatives" : "contained",
+					statement:
+						law.source.kind === "alternatives" || law.source.kind === "retirable"
+							? law.source.kind
+							: "contained",
 					context:
 						d.to.rel.kind === "closed" || immediate.has(law.id) ? "immediate" : "committedSnapshot"
 				})

@@ -94,7 +94,7 @@ const primaryKeyOf = (b: InstallBuilder, pk: NamedPrimaryKey): PrimaryKey => {
 
 /**
  * A field's column's generation: a serial field's identity, or its `uuidv7()` default for a uuid (ir/desc.ts
- * serialDraw), a generated field's `GENERATED ALWAYS AS (e) STORED`, its
+ * serialDraw), a retirement field's `DEFAULT false`, a generated field's `GENERATED ALWAYS AS (e) STORED`, its
  * expression lowered over the row's own columns, or none for a field the caller writes and for one the host writes, a
  * family's drawn field or a fold's accumulated one.
  */
@@ -121,6 +121,8 @@ const fieldGeneration = (
 					`generated field ${relation.name}.${field.name}`
 				)
 			}
+		case "retirement":
+			return { kind: "retirement" }
 		case "caller":
 		case "drawn":
 		case "accumulated":

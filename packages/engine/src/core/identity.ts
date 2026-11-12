@@ -1100,6 +1100,24 @@ export const identity = Object.freeze({
 			`advance function of ${relation}.${field}`,
 			hashed
 		),
+	/** The hold function of a retirable header's groups, by the header relation: a unit has one header. */
+	hold: (header: string): Identity<"hold"> =>
+		mint(
+			"hold",
+			[header],
+			["hold", ...nameSegments(header)],
+			`hold function of the groups of ${header}`,
+			hashed
+		),
+	/** The retire function of a retirable header's groups, by the header relation. */
+	retire: (header: string): Identity<"retire"> =>
+		mint(
+			"retire",
+			[header],
+			["retire", ...nameSegments(header)],
+			`retire function of the groups of ${header}`,
+			hashed
+		),
 	/**
 	 * A stored relation's primary key, by its relation alone: a relation has exactly one, so a migration that moves it
 	 * to other fields replaces it under its name, the one order PostgreSQL admits (a table holds at most one: 42P16).

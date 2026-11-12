@@ -538,6 +538,7 @@ export type Statement =
 	| Containment<unknown, unknown>
 	| MirrorsBase
 	| AlternativesBase
+	| RetirableBase
 	| AnyFamily
 	| Fold<unknown, unknown, unknown, unknown>
 
@@ -740,6 +741,22 @@ export interface Alternatives<P, D extends string, C, Arms> {
 	readonly roster: C
 	readonly arms: Arms
 }
+
+/**
+ * A retirable statement: one statement of a schema whose header H, a relation standing for its primary key or a Key,
+ * keeps one row per group for good, holding its retirement field, and whose bodies B, sides over every fact of each
+ * body relation, name each row's group by the fields paired with the header's key. A retirement removes a group's
+ * rows of every body relation in one statement and sets its header's retirement field, so no group is read half
+ * retired and none is written again (ir/desc.ts expandRetirable states the fence that keeps it).
+ */
+export interface Retirable<H, B> {
+	readonly kind: "retirable"
+	readonly header: H
+	readonly bodies: B
+}
+
+/** Any retirable statement: Retirable is covariant in what it names. */
+export type RetirableBase = Retirable<unknown, unknown>
 
 /** Any alternatives law: Alternatives is covariant in what it names. */
 export type AlternativesBase = Alternatives<unknown, string, unknown, unknown>

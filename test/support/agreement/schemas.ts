@@ -5427,6 +5427,8 @@ const statementType = (desc: StatementDesc, ids: Ids): string => {
 			return `St.Fold<typeof ${ids("family")}, typeof Sc.Monoid.${desc.monoid}, ${sideType(desc.step, ids)}, ${sideType(desc.end, ids)}>`
 		case "alternatives":
 			return `St.Alternatives<typeof ${ids(desc.parent.relation)}, ${jsonText(desc.discriminator)}, typeof ${ids(desc.roster)}, ${objectType(Arr.map(desc.arms, (a) => [a.handle, `typeof ${ids(a.arm.relation)}`] as const))}>`
+		case "retirable":
+			return `St.Retirable<typeof ${ids(desc.header.relation)}, readonly [${Arr.join(Arr.map(desc.bodies, (b) => sideType(b, ids)), ", ")}]>`
 	}
 }
 
@@ -5486,6 +5488,7 @@ const containmentTypes = (views: ReadonlyArray<StatementView>, ids: Ids): Readon
 				case "family":
 				case "tree":
 				case "fold":
+				case "retirable":
 					return []
 			}
 		})
@@ -5496,6 +5499,8 @@ const descriptorType = (decl: FieldDecl, base: Base, ids: Ids): string => {
 	switch (decl.writing.kind) {
 		case "drawn":
 			return "Fi.DrawnField"
+		case "retirement":
+			return "Fi.RetirementField"
 		case "accumulated":
 			return `Fi.AccumulatedField<${valueDescriptorType(decl.type, base, ids)}>`
 		case "serial":

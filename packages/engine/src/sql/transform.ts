@@ -858,6 +858,7 @@ export class Transform {
 				return sequence === g.sequence ? g : { ...g, sequence }
 			}
 			case "uuidv7":
+			case "retirement":
 				return g
 			case "stored": {
 				const expr = this.expr(g.expr)
@@ -965,6 +966,7 @@ export class Transform {
 			case "dropColumn":
 			case "dropDefault":
 			case "setUuidv7Default":
+			case "setRetirementDefault":
 			case "dropIdentity":
 			case "enableRowSecurity":
 			case "disableRowSecurity":
@@ -1097,9 +1099,14 @@ export class Transform {
 				const body = this.plStatements(s.body)
 				return query === s.query && body === s.body ? s : { ...s, query, body }
 			}
-			case "perform": {
+			case "perform":
+			case "lockRows": {
 				const query = this.performQuery(s.query)
 				return query === s.query ? s : { ...s, query }
+			}
+			case "modify": {
+				const statement = this.update(s.statement)
+				return statement === s.statement ? s : { ...s, statement }
 			}
 			case "whenAbsent": {
 				const probe = this.performQuery(s.probe)

@@ -76,6 +76,10 @@ export interface InstallNames extends PhysicalNames {
 	readonly sequence: (relation: string, field: string) => ObjectName
 	/** A serial field's advance function, which takes the bigint to advance past. */
 	readonly advance: (relation: string, field: string) => ObjectName
+	/** A retirable header's hold function, in the header's level's schema, which takes its groups' key arrays. */
+	readonly hold: (header: string) => ObjectName
+	/** A retirable header's retire function, in the header's level's schema, which takes its groups' key arrays. */
+	readonly retire: (header: string) => ObjectName
 	/** The primary key constraint of a stored relation, which an insert into a span primary key names as its
 	 * arbiter. */
 	readonly primaryKey: (relation: string) => ConstraintName
@@ -498,6 +502,14 @@ export const installNames = (input: NamesInput): InstallNames => {
 				name: identifierOf(identity.advance(relation, field))
 			}
 		},
+		hold: (header) => ({
+			schema: identifierOf(levelOf(header)),
+			name: identifierOf(identity.hold(header))
+		}),
+		retire: (header) => ({
+			schema: identifierOf(levelOf(header)),
+			name: identifierOf(identity.retire(header))
+		}),
 		primaryKey: (relation) => {
 			const key = relationOf(owned, relation).keys.find((k) => k.primary)
 			if (key === undefined) {

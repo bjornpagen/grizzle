@@ -1753,6 +1753,8 @@ Every field has one writer. An insert or a put takes exactly the fields its call
   `start` its value where the axis begins.
 - **PostgreSQL, drawn:** a serial field, by its identity or its `uuidv7()` default, which an insert may leave out
   ([Writes](#writes)).
+- **Its group's retirement:** `retirement`, a retirable header's boolean, false when its row is inserted and true once
+  its group is retired ([Retirable units](#retirable-units)).
 
 **Generated fields.** A term reads its own row and closed relations ([Closed relations](#closed-relations)). `r` holds
 only the fields the caller writes, so reading a generated, drawn or accumulated field is a type error. Compiling the
@@ -2176,6 +2178,46 @@ narrowed into its column's type unproved.
   a union may still add the owner.
 - **A ChangeSet writes family members in one stratum**: writing them in a second is a type error at the call that
   makes it, and from JavaScript `UnsupportedOperation` when the ChangeSet compiles.
+
+### Retirable units
+
+Facts that only accumulate keep their writers certifiable at READ COMMITTED, but a workflow's leases, results and sent
+outbox rows must go once their work is finished. A retirable unit lets them go a group at a time:
+
+```ts
+export const Root = relation("Root", { id: uuid, retired: retirement }, ["id"])
+export const Step = relation("Step", { root: uuid, step: pg.int4 }, ["root", "step"])
+export const Claim = relation("Claim", { root: uuid, step: pg.int4, attempt: natural }, [
+	"root",
+	"step",
+	"attempt"
+])
+export const Work = schema("Work", [Root, Step, Claim], [
+	retirable(Root, [on(Step, "root"), on(Claim, "root")]),
+	contained(on(Claim, "root", "step"), on(Step, "root", "step"))
+])
+```
+
+- **The header** (`Root`) holds one row per group, which is never deleted: its key is the group, and its one
+  `retirement` field says whether the group is open (false, the value every insert writes) or retired (true).
+- **The bodies** (`Step`, `Claim`) are the rows of each group: each side names the fields that hold its row's group, in
+  the order of the header's key. Every key of a body holds them, a containment or a family into a body comes from a
+  body of the same unit carrying the group, and no other statement reads the retirement field; a schema that breaks one
+  is refused when it compiles (`MalformedDescription`). The header is immutable, no family's, tree's or alternatives
+  statement's relation, and no role's `write` list names it (`RoleRefused`, `writeRetirableHeader`).
+- **The fence.** The statement states, for each body, that its group is one of the header's open groups: a foreign key
+  from a constant column of the body into the header's key and retirement field. No writer, direct ones included, ever
+  writes a row into a group that is not open: such a write is refused with 23503.
+- **Its functions.** The unit installs two functions in its header's schema, which no role holds yet. Its hold, given
+  the groups of a call, locks their open headers until the transaction ends and refuses a group whose header is absent
+  or retired, `refused` on the first body's fence with the group as witness. Its retirement, given groups, waits for
+  every transaction that holds one of them, then deletes every body row of those groups and sets their headers'
+  retirement field, in one transaction: a reader sees a group whole or wholly retired, and a retired group stays
+  retired.
+- **Adopting a unit** on a table that holds rows: the migration adds the header's retirement field with its default,
+  false, and adds each body's constant column, a stored generated column, which rewrites the body's table once; every
+  body row must have its header, or the migration's foreign key refuses it (23503), and a data step must insert the
+  missing headers first.
 
 ## Permissions
 

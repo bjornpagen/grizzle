@@ -133,9 +133,10 @@ const heldAlike = (
 }
 
 /** Whether grizzle draws a field's values again, so its drop loses nothing its caller wrote: a generated, drawn or
- * accumulated field. A caller's field holds the caller's values, and a serial one the identities its rows were given. */
+ * accumulated field. A caller's field holds the caller's values, a serial one the identities its rows were given, and a
+ * retirement field which of its header's groups are retired. */
 const drawnAgain = (writing: SnapshotWriting): boolean =>
-	writing !== "caller" && writing !== "serial"
+	writing !== "caller" && writing !== "serial" && writing !== "retirement"
 
 /** A login a snapshot records, under its record's name. */
 interface HeldLogin {
@@ -1161,7 +1162,10 @@ const withColumns = (
 			...c,
 			name: nameIn(into)(c.name),
 			generated:
-				generated === undefined || generated.kind === "identity" || generated.kind === "uuidv7"
+				generated === undefined ||
+				generated.kind === "identity" ||
+				generated.kind === "uuidv7" ||
+				generated.kind === "retirement"
 					? generated
 					: generated.kind === "stored"
 						? { kind: "stored", expr: exprIn(into, generated.expr) }
@@ -1227,6 +1231,7 @@ const withColumns = (
 			case "dropColumn":
 			case "dropDefault":
 			case "setUuidv7Default":
+			case "setRetirementDefault":
 			case "addIdentity":
 			case "dropIdentity":
 				return { ...a, column: nameIn(into)(a.column) }

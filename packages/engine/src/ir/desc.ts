@@ -800,6 +800,8 @@ export interface ArmDesc {
  *   read per member row, each member once by its key in the family, where a key's or a containment's side is a set of
  *   tuples: two members of one step value both step.
  * - alternatives(parent, discriminator, roster, arms) is its own statement, which expandAlternatives states.
+ * - retirable(header, bodies) is its own statement, which expandRetirable states: the groups of `header`, each a value of
+ *   its key, and each group's rows of every body relation, which a retirement removes whole while the header stays.
  */
 export type StatementDesc<L = Located> = L &
 	(
@@ -840,6 +842,18 @@ export type StatementDesc<L = Located> = L &
 				readonly roster: string
 				readonly arms: NonEmptyReadonlyArray<ArmDesc>
 		  }
+		| {
+				readonly kind: "retirable"
+				/** The header's key side over every fact: a group is one value of it, and its header row is kept for good. */
+				readonly header: SideDesc
+				/** The header's retirement field, false while its group is open and true once it is retired. */
+				readonly lifecycle: string
+				/**
+				 * Each body relation's side over every fact, in statement order, its terms the fields that name a row's group,
+				 * paired by position with the header's key: every row of a body relation is in the group they name.
+				 */
+				readonly bodies: NonEmptyReadonlyArray<SideDesc>
+		  }
 	)
 
 /** A contained statement's Description. */
@@ -850,6 +864,39 @@ export type AlternativesDesc<L = Located> = Extract<
 	StatementDesc<L>,
 	{ readonly kind: "alternatives" }
 >
+
+/** A retirable statement's Description. */
+export type RetirableDesc<L = Located> = Extract<StatementDesc<L>, { readonly kind: "retirable" }>
+
+/** The header side of a retirable statement over its open groups: its key, where its retirement field is false. */
+export const openHeader = (r: RetirableDesc): SideDesc => ({
+	...r.header,
+	selection: {
+		conjuncts: [
+			{
+				kind: "compare",
+				op: "eq",
+				left: { kind: "field", field: r.lifecycle },
+				right: { kind: "literal", value: false }
+			}
+		]
+	}
+})
+
+/**
+ * The containments a retirable statement states, its fence: per body relation, its group among the header's open
+ * groups, so no row of a body relation is ever written into a group that is not open, by any writer, a retired one's
+ * least of all. Pure: ownership and the theory call it.
+ */
+export const expandRetirable = (r: RetirableDesc): NonEmptyReadonlyArray<ContainedDesc> => {
+	const open = openHeader(r)
+	return mapNonEmpty(r.bodies, (body): ContainedDesc => ({
+		kind: "contained",
+		left: body,
+		right: open,
+		loc: r.loc
+	}))
+}
 
 /** The parent side selected by its discriminator holding one of `handles`: `eq` for one, `in` for several. */
 const discriminated = (a: AlternativesDesc, handles: NonEmptyReadonlyArray<string>): SideDesc => {
@@ -911,6 +958,8 @@ export const expandAlternatives = (a: AlternativesDesc): NonEmptyReadonlyArray<C
  * - accumulated: by grizzle on the host, and proved by PostgreSQL: a fold's accumulator or a copy along a family axis,
  *   `start` at the axis's base, which exactly one fold or axis containment carries.
  * - serial: by its sequence, GENERATED ALWAYS AS IDENTITY, its field's type its integer.
+ * - retirement: by its group's retirement, a boolean false when its row is inserted and true once the group it heads is
+ *   retired, which exactly one retirable statement names (`RetirableDesc`).
  */
 export type Writing<L = Located> =
 	| { readonly kind: "caller" }
@@ -926,6 +975,7 @@ export type Writing<L = Located> =
 			readonly start: LiteralDesc
 	  }
 	| { readonly kind: "serial" }
+	| { readonly kind: "retirement" }
 
 /** A stored relation's field as declared: its type, and how it is written. */
 export interface FieldDecl<L = Located> {
@@ -1899,6 +1949,16 @@ const statementDescShape: S.Shape<StatementDesc> = S.tagged("kind", {
 			},
 			loc
 		)
+	),
+	retirable: S.located(
+		S.structWith(
+			{
+				header: memberShape,
+				lifecycle: name,
+				bodies: S.nonEmptyUniqueArray(memberShape, (b) => b.relation, "body relations")
+			},
+			loc
+		)
 	)
 })
 
@@ -1907,7 +1967,8 @@ const writingShape: S.Shape<Writing> = S.tagged("kind", {
 	generated: S.struct({ expr: exprDescShape }),
 	drawn: S.struct({}),
 	accumulated: S.struct({ start: literalDescShape }),
-	serial: S.struct({})
+	serial: S.struct({}),
+	retirement: S.struct({})
 })
 
 /** The integer types a sequence draws: smallint, integer and bigint. */
@@ -1930,16 +1991,21 @@ const serialDrawn = (d: FieldDecl): boolean =>
 const serialCapability =
 	"a serial field of smallint, integer or bigint, which its sequence draws, or of uuid, which uuidv7() draws"
 
-/** A serial field is of an integer type, which its sequence draws. */
+/** Whether a field's declaration is no retirement field, or one of boolean, the one type a group's state is of. */
+const retirementBoolean = (d: FieldDecl): boolean =>
+	d.writing.kind !== "retirement" || (d.type.kind === "pg" && d.type.type === "boolean")
+
+/** A serial field is of an integer type, which its sequence draws, and a retirement field a boolean. */
 const fieldDeclShape: S.Shape<FieldDecl> = S.refine(
-	S.struct({ type: fieldDescShape, writing: writingShape }),
-	serialDrawn,
-	serialCapability
+	S.refine(S.struct({ type: fieldDescShape, writing: writingShape }), serialDrawn, serialCapability),
+	retirementBoolean,
+	"a retirement field of boolean, false until its group is retired"
 )
 
 /**
  * Whether a field may be in a primary key: one whose value a fact holds when it is written, its caller's, its
- * sequence's or its family's. A generated or accumulated field is computed from the row it would identify.
+ * sequence's or its family's. A generated or accumulated field is computed from the row it would identify, and a
+ * retirement field changes when its group is retired.
  */
 const keyWriting = (decl: FieldDecl | undefined): boolean => {
 	switch (decl?.writing.kind) {
@@ -1949,6 +2015,7 @@ const keyWriting = (decl: FieldDecl | undefined): boolean => {
 			return true
 		case "generated":
 		case "accumulated":
+		case "retirement":
 		case undefined:
 			return false
 	}

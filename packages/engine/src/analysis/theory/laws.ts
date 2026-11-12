@@ -65,6 +65,7 @@ import {
 	type ExprDesc,
 	everyFact,
 	expandAlternatives,
+	expandRetirable,
 	type FieldDesc,
 	type InferredExpr,
 	type InferredQuery,
@@ -1312,6 +1313,17 @@ export class Normalizer {
 						scopeOf(c.right),
 						pairedTerms(c.left, c.right, loc),
 						{ statement: index, kind: "alternatives" },
+						loc
+					)
+				}
+				return
+			case "retirable":
+				for (const c of expandRetirable(s)) {
+					this.containment(
+						scopeOf(c.left),
+						scopeOf(c.right),
+						pairedTerms(c.left, c.right, loc),
+						{ statement: index, kind: "retirable" },
 						loc
 					)
 				}

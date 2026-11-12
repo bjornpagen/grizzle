@@ -89,8 +89,10 @@ import type {
 	DrawnField,
 	FieldBase,
 	GeneratedField,
+	Field,
 	HandleOf,
-	NaturalField
+	NaturalField,
+	RetirementField
 } from "#compiler/types/fields/field.ts"
 import type {
 	AnyRoster,
@@ -161,7 +163,7 @@ const slottedOf = (value: unknown): Slotted | undefined =>
  */
 interface WrittenBy {
 	readonly type: unknown
-	readonly writing: Extract<Writing, { readonly kind: "drawn" | "accumulated" }>
+	readonly writing: Extract<Writing, { readonly kind: "drawn" | "accumulated" | "retirement" }>
 }
 
 const writtenBy = new WeakMap<object, WrittenBy>()
@@ -204,6 +206,22 @@ export const drawnField = (type: NaturalField, extra: ReadonlyArray<unknown>): D
 		sql: type.sql
 	})
 	writtenBy.set(value, { type, writing: { kind: "drawn" } })
+	return value
+}
+
+/**
+ * The retirement field of a header (`retirable`), over `type`, PostgreSQL's boolean: false when its row is inserted,
+ * PostgreSQL's default, and true once its group is retired, which only the retirement of that group sets. The value
+ * carries boolean's column and SQL type, so it is read as every boolean is.
+ */
+export const retirementField = (type: Field<boolean, "boolean">): RetirementField => {
+	const value: RetirementField = Object.freeze({
+		...builtMark,
+		writing: "retirement",
+		column: type.column,
+		sql: type.sql
+	})
+	writtenBy.set(value, { type, writing: { kind: "retirement" } })
 	return value
 }
 

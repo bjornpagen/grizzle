@@ -426,8 +426,9 @@ export const isCarried = (field: Pick<LawField, "writing">): boolean =>
 
 /**
  * The value an insert writes a field at when its input does not carry it: a drawn field, which
- * outside a nesting is a fresh owner's count of a counted family, at 0, and an accumulated one, a fresh owner's empty
- * family's end, at its start; none for a field its fact carries.
+ * outside a nesting is a fresh owner's count of a counted family, at 0, an accumulated one, a fresh owner's empty
+ * family's end, at its start, and a retirement field at false, a fresh header's group open; none for a field its fact
+ * carries.
  */
 export const startOf = (names: PhysicalNames, field: LawField): Expr | undefined => {
 	switch (field.writing.kind) {
@@ -435,6 +436,8 @@ export const startOf = (names: PhysicalNames, field: LawField): Expr | undefined
 			return lowerLiteral(names, { kind: "int", value: 0n }, field.type)
 		case "accumulated":
 			return lowerLiteral(names, field.writing.start, field.type)
+		case "retirement":
+			return lowerLiteral(names, { kind: "bool", value: false }, field.type)
 		case "caller":
 		case "serial":
 		case "generated":

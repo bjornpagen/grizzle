@@ -1154,6 +1154,8 @@ const printGeneration = (g: ColumnGeneration): string => {
 			return `GENERATED ALWAYS AS IDENTITY (SEQUENCE NAME ${printObjectName(g.sequence)})`
 		case "uuidv7":
 			return "DEFAULT pg_catalog.uuidv7()"
+		case "retirement":
+			return "DEFAULT false"
 		case "stored":
 			return `GENERATED ALWAYS AS (${printExpr(g.expr)}) STORED`
 		case "partial":
@@ -1238,6 +1240,8 @@ const printAlterTableAction = (action: AlterTableAction): string => {
 			return `ALTER COLUMN ${quoteIdent(action.column)} DROP DEFAULT`
 		case "setUuidv7Default":
 			return `ALTER COLUMN ${quoteIdent(action.column)} SET ${printGeneration({ kind: "uuidv7" })}`
+		case "setRetirementDefault":
+			return `ALTER COLUMN ${quoteIdent(action.column)} SET ${printGeneration({ kind: "retirement" })}`
 		case "alterColumnType":
 			return `ALTER COLUMN ${quoteIdent(action.column)} TYPE ${printType(action.type)}${action.collation === undefined ? "" : ` COLLATE ${printObjectName(action.collation)}`} USING ${printUsing(action.using)}`
 		case "addIdentity":
@@ -1391,6 +1395,17 @@ const plStatement = (out: Lines, statement: PlStatement): void => {
 			return out.line("END LOOP;")
 		case "perform":
 			return performLine(out, statement.query)
+		case "lockRows":
+			return out.line(
+				`${inlineText((row) => {
+					coreClauses(row, statement.query.body, "PERFORM")
+					tailClauses(row, statement.query)
+					row.line(`FOR ${statement.strength} OF ${quoteIdent(statement.of)}`)
+				})};`
+			)
+		case "modify":
+			dmlStatementBlock(out, statement.statement)
+			return out.line(";")
 		case "whenAbsent":
 			performLine(out, statement.probe)
 			out.line("IF NOT FOUND THEN")

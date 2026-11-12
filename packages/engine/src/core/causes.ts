@@ -214,6 +214,8 @@ export type EntryKind = "relation" | "closed" | "derived" | "query"
  * - `writeUnwritable`: a write list naming a query entry the writable-entry analysis refuses, for `why`.
  * - `writeTwice`: two write entries, `entries`, that both write the base relation `relation`.
  * - `writeAndInsert`: a role stating both a write list and an insert list, where it writes by one of them.
+ * - `writeRetirableHeader`: a write list writing `relation`, a retirable statement's header, which every role only
+ *   inserts: its row is kept for good, and only its group's retirement changes it.
  * - `refreshKind`: a refresh list naming an entry that is no derived whole entry.
  */
 export type RoleRule =
@@ -231,6 +233,7 @@ export type RoleRule =
 			readonly entries: readonly [string, string]
 	  }
 	| { readonly kind: "writeAndInsert" }
+	| { readonly kind: "writeRetirableHeader"; readonly relation: string }
 	| { readonly kind: "refreshOutside"; readonly name: string }
 	| {
 			readonly kind: "refreshKind"
@@ -422,6 +425,8 @@ export const roleRuleText = (rule: RoleRule): string => {
 			return `one writable entry per base relation; ${rule.entries[0]} and ${rule.entries[1]} both write ${rule.relation}`
 		case "writeAndInsert":
 			return "a write list or an insert list; the role states both"
+		case "writeRetirableHeader":
+			return `an insert list over a retirable header, whose row is kept for good; the role writes ${rule.relation}`
 		case "refreshOutside":
 			return `a refresh list of the role's relations; ${rule.name} is none of them`
 		case "refreshKind":

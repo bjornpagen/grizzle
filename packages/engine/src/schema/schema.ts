@@ -228,7 +228,7 @@ const statementList = (
 		if (statement === undefined) {
 			throw malformed(
 				`${label} statement ${i}`,
-				"a statement built by key, mutable, check, contained, mirrors, alternatives, ordered, counted, tree or fold"
+				"a statement built by key, mutable, check, contained, mirrors, alternatives, retirable, ordered, counted, tree or fold"
 			)
 		}
 		return [

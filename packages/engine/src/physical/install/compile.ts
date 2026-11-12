@@ -18,6 +18,7 @@ import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { IndexRequest, InstallationManifest } from "#compiler/ir/products.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
 import { addAdvanceFunctions } from "#compiler/physical/ddl/advance.ts"
+import { addUnitFunctions } from "#compiler/physical/ddl/retire.ts"
 import { addClosedRelations, addRosters } from "#compiler/physical/ddl/constants.ts"
 import { InstallBuilder, type InstallSettings } from "#compiler/physical/ddl/context.ts"
 import {
@@ -381,6 +382,7 @@ export const installationOver = (
 				]
 				const { keyIndexes, tables, sequences } = addTables(b)
 				const advance = addAdvanceFunctions(b)
+				addUnitFunctions(b)
 				const ruleRequests = addRules(b)
 				addSpanStorage(b, plan.spans)
 

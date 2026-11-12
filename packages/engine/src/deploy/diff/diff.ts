@@ -87,6 +87,7 @@ import type {
 	GrantRole,
 	ObjectName,
 	PackConstant,
+	PlFunction,
 	Revoke,
 	SqlStatement,
 	TableConstraint,
@@ -223,6 +224,7 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	isolationTrigger: 3,
 	refusalFunction: 11,
 	advanceFunction: 11,
+	unitFunction: 11,
 	isolationFunction: 11,
 	snapshotGuard: 11,
 	lawFunction: 11,
@@ -1173,6 +1175,13 @@ class Differ {
 			case "statistics":
 				this.statistics(v, before)
 				return
+			case "unitFunction":
+				if (before === undefined) {
+					this.sql("structure", o.ddl)
+				} else if (!same(before.ddl, o.ddl)) {
+					this.unitFunction(before, v.create, o.ddl)
+				}
+				return
 			case "advanceFunction":
 				if (before === undefined || !same(before.ddl, o.ddl)) {
 					this.sql("structure", o.ddl)
@@ -1313,6 +1322,22 @@ class Differ {
 
 	/** A login's or a theory role's CREATE ROLE, in Publish. grizzle never sets a password, so a login dropped and created
 	 * again under another name has none until its operator sets one. */
+	/**
+	 * A retirable unit's hold or retire function whose definition changes: replaced in place by CREATE OR REPLACE where
+	 * its signature stands, which keeps its grants; dropped first where its parameters' types changed with its header's
+	 * key, since CREATE OR REPLACE would make a second function of the name, and its grantees' privileges, whose GRANT
+	 * names the function by its parameters, are granted again by their own changed statements.
+	 */
+	unitFunction(before: ManifestObject, create: PlFunction, ddl: ManifestObject["ddl"]): void {
+		const previous = installed(before)
+		const drop: ReadonlyArray<SqlStatement> =
+			previous.kind === "unitFunction" &&
+			!same(functionNameOf(previous.create), functionNameOf(create))
+				? [{ kind: "dropFunction", name: functionNameOf(previous.create), ifExists: false }]
+				: []
+		this.sql("structure", [...drop, ...ddl])
+	}
+
 	roleObject(v: Installed & { readonly kind: "role" }): void {
 		this.sql("publish.roles", [v.create])
 	}
@@ -2131,6 +2156,7 @@ class Differ {
 				return
 			case "refusalFunction":
 			case "advanceFunction":
+			case "unitFunction":
 			case "isolationFunction":
 			case "snapshotGuard":
 			case "lawFunction":
@@ -2705,7 +2731,7 @@ type SequenceFate = "dropped" | "recreated"
 type DrawnBefore =
 	| { readonly kind: "none" }
 	| { readonly kind: SequenceFate; readonly sequence: ObjectName }
-	| { readonly kind: "uuidv7" }
+	| { readonly kind: "uuidv7" | "retirement" }
 
 /** What a migration does to a field of a table both snapshots install, read off its type, its writing and its draw
  * before and after:
@@ -2731,6 +2757,8 @@ type FieldChange =
 	| { readonly kind: "serialRemoved"; readonly sequence: ObjectName }
 	| { readonly kind: "uuidv7Declared" }
 	| { readonly kind: "uuidv7Removed" }
+	| { readonly kind: "retirementDeclared" }
+	| { readonly kind: "retirementRemoved" }
 
 /** The identity sequence of a serial column. */
 const identitySequence = (c: ColumnDef): ObjectName | undefined =>
@@ -2761,12 +2789,16 @@ const fieldChange = (b: ColumnDef, c: ColumnDef, retyped: Retyped): FieldChange 
 	}
 	const wasUuidv7 = b.generated?.kind === "uuidv7"
 	const nowUuidv7 = c.generated?.kind === "uuidv7"
+	const wasRetirement = b.generated?.kind === "retirement"
+	const nowRetirement = c.generated?.kind === "retirement"
 	if (retyped(b, c)) {
 		return {
 			kind: "converted",
 			drawn: wasUuidv7
 				? { kind: "uuidv7" }
-				: was === undefined
+				: wasRetirement
+					? { kind: "retirement" }
+					: was === undefined
 					? { kind: "none" }
 					: {
 							kind: now !== undefined && nameKey(now) === nameKey(was) ? "recreated" : "dropped",
@@ -2779,6 +2811,9 @@ const fieldChange = (b: ColumnDef, c: ColumnDef, retyped: Retyped): FieldChange 
 	}
 	if (now !== undefined) {
 		return { kind: "serialDeclared", sequence: now }
+	}
+	if (wasRetirement !== nowRetirement) {
+		return nowRetirement ? { kind: "retirementDeclared" } : { kind: "retirementRemoved" }
 	}
 	return wasUuidv7 === nowUuidv7
 		? { kind: "kept" }
@@ -2914,7 +2949,8 @@ const inPlace = (
 	]
 	const giveUp = statement(alter(t, [{ kind: "dropIdentity", column: b.name }]))
 	const takeUuidv7 = statement(alter(t, [{ kind: "setUuidv7Default", column: c.name }]))
-	const giveUpUuidv7 = statement(alter(t, [{ kind: "dropDefault", column: b.name }]))
+	const takeRetirement = statement(alter(t, [{ kind: "setRetirementDefault", column: c.name }]))
+	const giveUpDefault = statement(alter(t, [{ kind: "dropDefault", column: b.name }]))
 	switch (change.kind) {
 		case "kept":
 			return []
@@ -2922,14 +2958,16 @@ const inPlace = (
 			const before =
 				change.drawn.kind === "none"
 					? []
-					: change.drawn.kind === "uuidv7"
-						? [giveUpUuidv7]
+					: change.drawn.kind === "uuidv7" || change.drawn.kind === "retirement"
+						? [giveUpDefault]
 						: [giveUp]
 			return c.generated?.kind === "identity"
 				? [...before, ...convert({ ...c, generated: undefined }), ...take(c.generated.sequence)]
 				: c.generated?.kind === "uuidv7"
 					? [...before, ...convert({ ...c, generated: undefined }), takeUuidv7]
-					: [...before, ...convert(c)]
+					: c.generated?.kind === "retirement"
+						? [...before, ...convert({ ...c, generated: undefined }), takeRetirement]
+						: [...before, ...convert(c)]
 		}
 		case "reexpressed":
 			return [statement(alter(t, [{ kind: "setExpression", column: c.name, expr: change.expr }]))]
@@ -2942,7 +2980,11 @@ const inPlace = (
 		case "uuidv7Declared":
 			return [takeUuidv7]
 		case "uuidv7Removed":
-			return [giveUpUuidv7]
+			return [giveUpDefault]
+		case "retirementDeclared":
+			return [takeRetirement]
+		case "retirementRemoved":
+			return [giveUpDefault]
 	}
 }
 
@@ -3117,6 +3159,7 @@ const replacementDrop = (v: Installed): Drop | undefined => {
 		case "table":
 		case "refusalFunction":
 		case "advanceFunction":
+		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
 		case "lawFunction":

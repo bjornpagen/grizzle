@@ -142,7 +142,7 @@ const columnsRead = (e: Expr): ReadonlyArray<string> => {
 /** The columns a column's generation reads: none for a column with none, an identity among them. */
 const generationReads = (c: ColumnDef): ReadonlyArray<string> => {
 	const g = c.generated
-	if (g === undefined || g.kind === "identity" || g.kind === "uuidv7") {
+	if (g === undefined || g.kind === "identity" || g.kind === "uuidv7" || g.kind === "retirement") {
 		return []
 	}
 	return g.kind === "stored"

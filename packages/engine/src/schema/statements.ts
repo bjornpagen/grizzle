@@ -61,6 +61,7 @@ import type {
 	Mutable,
 	Ordered,
 	Pred,
+	Retirable,
 	Selection,
 	Side,
 	Statement,
@@ -234,7 +235,8 @@ export const candidateKeyOf = (
  */
 const keyRef = (
 	value: unknown,
-	label: string
+	label: string,
+	derivedRefusal: Refused
 ): {
 	readonly value: unknown
 	readonly rel: NamedRelation
@@ -253,10 +255,7 @@ const keyRef = (
 	}
 	const rel = namedRelation(value, label)
 	if (rel.kind === "derived") {
-		throw builderRefusal(
-			label,
-			"alternatives relate stored relations: a derived relation's rows are its definition's, which no write draws"
-		)
+		throw builderRefusal(label, derivedRefusal)
 	}
 	return { value, rel, fields: rel.primaryKey }
 }
@@ -493,6 +492,14 @@ const ownExpansion = <V extends MirrorsBase>(value: V, expansion: ExpansionDesc)
 export const mirrorsBuilder = <L, R>(left: L, right: R): Mirrors<L, R> =>
 	ownExpansion({ kind: "mirrors", left, right }, admitMirrors(left, right))
 
+/** A derived relation in an alternatives statement, refused. */
+const altDerived: Refused =
+	"alternatives relate stored relations: a derived relation's rows are its definition's, which no write draws"
+
+/** A derived relation in a retirable statement, refused. */
+const retirableDerived: Refused =
+	"a retirable statement retires stored relations: a derived relation's rows are its definition's, which no write draws"
+
 /**
  * The admission core of alternatives(...): the arguments checked and the statement described.
  *
@@ -511,7 +518,7 @@ const admitAlternatives = (
 	roster: unknown,
 	arms: unknown
 ): StatementDesc => {
-	const parentKey = keyRef(parent, "alternatives parent")
+	const parentKey = keyRef(parent, "alternatives parent", altDerived)
 	const parentRel = parentKey.rel
 	const label = `alternatives ${parentRel.name}`
 	const disc = requireName(discriminator, label, "a discriminator field")
@@ -547,7 +554,7 @@ const admitAlternatives = (
 		if (arm === undefined) {
 			continue
 		}
-		const armKey = keyRef(arm, `${label} arm ${h}`)
+		const armKey = keyRef(arm, `${label} arm ${h}`, altDerived)
 		if (armKey.rel.name === parentRel.name) {
 			throw builderRefusal(`${label} arm ${h}`, "an arm is a relation other than its parent")
 		}
@@ -584,6 +591,77 @@ export const alternativesBuilder = <P, const D extends string, C, Arms extends o
 		{ kind: "alternatives", parent, discriminator, roster, arms: frozenCopy(arms) },
 		desc
 	)
+}
+
+/**
+ * The admission core of retirable(...): the arguments checked and the statement described.
+ *
+ * retirable(header, bodies) is one statement of a schema (ir/desc.ts expandRetirable states its fence): its header's key
+ * side, the header's one retirement field, and each body relation's side over every fact, its field terms the group
+ * fields paired by position with the header's key. The header is a stored relation, which a retirement keeps for good,
+ * and each body a stored relation other than it, named once.
+ */
+const admitRetirable = (header: unknown, bodies: unknown): StatementDesc => {
+	const headerKey = keyRef(header, "retirable header", retirableDerived)
+	const headerRel = headerKey.rel
+	const label = `retirable ${headerRel.name}`
+	const headerDesc = relationDescOf(headerKey.value, label)
+	if (headerDesc.kind !== "relation") {
+		throw builderRefusal(label, retirableDerived)
+	}
+	const lifecycles = Object.entries(headerDesc.fields).flatMap(([field, decl]) =>
+		decl.writing.kind === "retirement" ? [field] : []
+	)
+	const [lifecycle, ...more] = lifecycles
+	if (lifecycle === undefined || more.length > 0) {
+		throw builderRefusal(label, "a retirable header has exactly one retirement field")
+	}
+	if (!isList(bodies)) {
+		throw malformed(label, "a list of body sides built by on(relation, ...group fields)")
+	}
+	const sides = bodies.map((body, at) => {
+		const side = sideOf(body, `${label} body ${at}`)
+		const bodyLabel = `${label} body ${side.relation}`
+		if (side.selection.conjuncts.length > 0) {
+			throw builderRefusal(bodyLabel, "a retirable body is every fact of its relation")
+		}
+		if (side.relation === headerRel.name) {
+			throw builderRefusal(bodyLabel, "a retirable body is a relation other than its header")
+		}
+		if (side.terms.length !== headerKey.fields.length) {
+			throw builderRefusal(bodyLabel, "a body's group does not match the header key")
+		}
+		return side
+	})
+	const [first, ...rest] = sides
+	if (first === undefined) {
+		throw builderRefusal(label, "a retirable statement retires at least one body relation")
+	}
+	const named = new Set<string>()
+	for (const side of sides) {
+		if (named.has(side.relation)) {
+			throw builderRefusal(`${label} body ${side.relation}`, "a retirable statement names each body once")
+		}
+		named.add(side.relation)
+	}
+	const bodyList: readonly [SideDesc, ...Array<SideDesc>] = [first, ...rest]
+	Object.freeze(bodyList)
+	return admitted({
+		kind: "retirable",
+		header: admitOn(headerKey.value, headerKey.fields),
+		lifecycle,
+		bodies: bodyList,
+		loc: builderLoc(label, [headerRel.name, "retirable"])
+	})
+}
+
+/** The value holds its two inputs, the body list a frozen copy. */
+export const retirableBuilder = <H, const B extends ReadonlyArray<unknown>>(
+	header: H,
+	bodies: B
+): Retirable<H, readonly [...B]> => {
+	const desc = admitRetirable(header, bodies)
+	return ownedStatement({ kind: "retirable", header, bodies: frozenTuple<B>(bodies) }, desc)
 }
 
 /**

@@ -1900,6 +1900,7 @@ class StatementAuditor {
 				this.objectName(generated.sequence, "sequence", "generated")
 				return
 			case "uuidv7":
+			case "retirement":
 				return
 			case "stored":
 				this.ddlExpr(generated.expr, tableColumns, "generated")
@@ -2209,8 +2210,14 @@ class StatementAuditor {
 				})
 				return
 			case "perform":
+			case "lockRows":
 				this.at("query", () => {
 					embeddedSelect({ kind: "select", with: undefined, ...statement.query })
+				})
+				return
+			case "modify":
+				this.at("statement", () => {
+					this.dml(statement.statement, undefined, true)
 				})
 				return
 			case "whenAbsent":
@@ -2453,6 +2460,7 @@ class StatementAuditor {
 								case "dropColumn":
 								case "dropDefault":
 								case "setUuidv7Default":
+								case "setRetirementDefault":
 								case "dropIdentity":
 									this.ident(action.column, "column", "column")
 									return

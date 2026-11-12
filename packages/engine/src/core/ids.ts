@@ -52,6 +52,8 @@ export type IdentityKind =
 	| "closedConstant"
 	| "sequence"
 	| "advance"
+	| "hold"
+	| "retire"
 	| "primaryKey"
 	| "key"
 	| "check"

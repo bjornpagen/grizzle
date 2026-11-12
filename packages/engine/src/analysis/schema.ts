@@ -263,6 +263,9 @@ const serialWriting: FieldWriting = Object.freeze({ kind: "serial" })
 /** How a drawn field is written: by grizzle, from the nested arrays. */
 const drawnWriting: FieldWriting = Object.freeze({ kind: "drawn" })
 
+/** How a header's retirement field is written: false by its column's default, true by its group's retirement. */
+const retirementWriting: FieldWriting = Object.freeze({ kind: "retirement" })
+
 /**
  * What a generated field's expression reads: each written field's type (undefined for a generated field or no field),
  * the closed relations it applies, and whether a closed relation it names is declared above its own relation's level.
@@ -660,6 +663,8 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 					)
 				}
 				return drawnWriting
+			case "retirement":
+				return retirementWriting
 			case "accumulated":
 				if (storedOnly(type)) {
 					return fail(

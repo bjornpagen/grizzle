@@ -197,6 +197,12 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   pantry's 13 copies host-written (CHUNK).
 
 ### Next
+- **Retirable units, served (RETIRE2, approved for den 2026-11-11):** a schema declares units and installs their fence,
+  hold and retire functions, and the certifier counts a retirement as no change; nothing serves them yet. Owed: every
+  served change member that touches a unit's body calls its hold before its first statement that does, refused
+  `UnheldGroup` where it touches a group the call does not state; `ChangeSet.retire`, the role option `retire`, the
+  outcome's retired counts, EXECUTE grants, the README's served half and SKILL.md. The design, decisions and plants owed
+  are in ~/.cache/grizzle-release/RETIRE/handoff.txt.
 - **Reads forward PostgreSQL's bytes (WIREPASS, the owner, 2026-11-11):** the live wire decodes PostgreSQL's JSON
   (attachments are aggregated as JSON in the served statement, lower/shapes/attach) into host values, then re-encodes
   them in carrierWire's spellings (live/wire.ts): int8, numeric and money as strings, bytes as base64. That is a

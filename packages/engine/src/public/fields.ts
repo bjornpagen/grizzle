@@ -18,6 +18,7 @@ import {
 	closedIdOf,
 	drawnField,
 	generatedField,
+	retirementField,
 	slotField
 } from "#compiler/schema/relation.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
@@ -55,6 +56,7 @@ import type {
 	NaturalField,
 	NotSerial,
 	NotSerialBases,
+	RetirementField,
 	SpanField,
 	SpanWidthOf
 } from "#compiler/types/fields/field.ts"
@@ -92,6 +94,7 @@ export type {
 	LiteralOf,
 	NaturalField,
 	NumericTypmodField,
+	RetirementField,
 	SerialField,
 	SpanField,
 	SpanWidthOf,
@@ -230,6 +233,12 @@ export const generated: GeneratedConstructor = <F extends FieldBase>(
 	term: GeneratedTermOf<F>,
 	...extra: ReadonlyArray<never>
 ): GeneratedField<F> => generatedField<F>(type, term, extra)
+
+/**
+ * retirement: a retirable statement's header field, a boolean false while its group is open and true once its group is
+ * retired, never written by a caller (schema/relation.ts retirementField).
+ */
+export const retirement: RetirementField = retirementField(pgDescriptors.boolean)
 
 /** drawn(natural): a natural grizzle draws from the nested arrays its caller writes (schema/relation.ts drawnField). */
 export const drawn: DrawnConstructor = (

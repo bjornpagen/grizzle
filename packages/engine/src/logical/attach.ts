@@ -40,7 +40,7 @@ export interface ContainmentFact {
 	readonly from: EvidenceSide
 	readonly to: EvidenceSide
 	readonly coverage: boolean
-	readonly statement: "contained" | "alternatives"
+	readonly statement: "contained" | "alternatives" | "retirable"
 	readonly context: EvidenceContext
 }
 

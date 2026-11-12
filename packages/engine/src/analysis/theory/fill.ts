@@ -270,6 +270,7 @@ const entriesAt = (
 				break
 			case "drawn":
 			case "accumulated":
+			case "retirement":
 				break
 		}
 	}

@@ -444,6 +444,7 @@ export const physicalKinds = [
 	"foreignKey",
 	"refusalFunction",
 	"advanceFunction",
+	"unitFunction",
 	"isolationFunction",
 	"snapshotGuard",
 	"isolationTrigger",

@@ -845,6 +845,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			case "tree":
 			case "fold":
 			case "alternatives":
+			case "retirable":
 				break
 		}
 	}
@@ -976,6 +977,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			case "tree":
 			case "fold":
 			case "alternatives":
+			case "retirable":
 				omit(location, `a ${s.kind} law`, `a ${s.kind} law needs its native lowering`)
 				break
 			case "mutable":

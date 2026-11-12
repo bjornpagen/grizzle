@@ -54,11 +54,12 @@ export interface LawField extends HeadingColumn {
  * How a stored field is written, resolved: by the caller; generated, STORED by PostgreSQL from its row by `expr`, an
  * expression over the row's caller-written fields of the field's type; drawn by grizzle from the nested arrays it is a
  * family's index, count, start or end of; accumulated by grizzle on the host, the copy the one axis that carries it
- * gives it, `start` at the axis's base, and proved by PostgreSQL; or serial, by its sequence. Only a caller field is in
- * an insert's head, and a serial one by all-or-none.
+ * gives it, `start` at the axis's base, and proved by PostgreSQL; serial, by its sequence; or retirement, a header's
+ * boolean PostgreSQL defaults to false and its group's retirement alone sets true. Only a caller field is in an insert's
+ * head, and a serial one by all-or-none.
  */
 export type FieldWriting =
-	| { readonly kind: "caller" | "drawn" | "serial" }
+	| { readonly kind: "caller" | "drawn" | "serial" | "retirement" }
 	| { readonly kind: "generated"; readonly expr: ScalarExpr }
 	| { readonly kind: "accumulated"; readonly start: TypedLiteral }
 
@@ -205,8 +206,8 @@ export interface EvidenceSide {
 
 /**
  * What declares a law: `statement` is the index of the declaring statement in the schema description, of the relation
- * for a primary key, or of the contract for a contract. A law an alternatives statement, a family, a tree or a fold
- * expands to is its statement's, by the statement's kind.
+ * for a primary key, or of the contract for a contract. A law an alternatives or a retirable statement, a family, a tree
+ * or a fold expands to is its statement's, by the statement's kind.
  */
 export interface LawSource {
 	readonly kind:
@@ -219,6 +220,7 @@ export interface LawSource {
 		| "tree"
 		| "fold"
 		| "alternatives"
+		| "retirable"
 	readonly statement: number
 }
 

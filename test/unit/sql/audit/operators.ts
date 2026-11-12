@@ -523,6 +523,8 @@ const bodiesOf = (s: PlStatement): ReadonlyArray<PlBody> => {
 			}))
 		case "assign":
 		case "perform":
+		case "lockRows":
+		case "modify":
 		case "raise":
 		case "return":
 			return []

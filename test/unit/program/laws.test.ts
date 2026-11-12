@@ -709,6 +709,7 @@ const reportable = (installation: Installation): ReadonlyArray<IdentifiedLaw> =>
 						case "dropColumn":
 						case "dropDefault":
 						case "setUuidv7Default":
+						case "setRetirementDefault":
 						case "alterColumnType":
 						case "addIdentity":
 						case "dropIdentity":

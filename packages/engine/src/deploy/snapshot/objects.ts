@@ -112,6 +112,7 @@ export type Installed =
 			readonly kind:
 				| "refusalFunction"
 				| "advanceFunction"
+				| "unitFunction"
 				| "isolationFunction"
 				| "snapshotGuard"
 				| "lawFunction"
@@ -262,6 +263,7 @@ export const installed = (o: ManifestObject): Installed => {
 				: malformed("a rule's trigger installed by its CREATE CONSTRAINT TRIGGER")
 		case "refusalFunction":
 		case "advanceFunction":
+		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
 		case "lawFunction":
@@ -428,6 +430,7 @@ export const objectTable = (o: ManifestObject): ObjectName | undefined => {
 		case "domain":
 		case "refusalFunction":
 		case "advanceFunction":
+		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
 		case "lawFunction":
@@ -571,6 +574,7 @@ export const builtOver = (
 		case "materializedView":
 		case "refusalFunction":
 		case "advanceFunction":
+		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
 		case "lawFunction":
@@ -715,6 +719,7 @@ const objectParts = (
 		case "materializedView":
 		case "refusalFunction":
 		case "advanceFunction":
+		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
 		case "lawFunction":

@@ -1097,14 +1097,16 @@ export interface Merge {
 }
 
 /**
- * How a column is generated: an identity from its sequence; a uuid by its `DEFAULT pg_catalog.uuidv7()`, the one
- * default a column has; a STORED expression of the row; or a partial projection,
+ * How a column is generated: an identity from its sequence; a uuid by its `DEFAULT pg_catalog.uuidv7()`; a retirement
+ * field by its `DEFAULT false`, the state of a group not yet retired, which only the group's retirement changes; a STORED
+ * expression of the row; or a partial projection,
  * `GENERATED ALWAYS AS (CASE WHEN <when> THEN <expr> END) STORED`, which holds `expr` where `when` is true and NULL
  * everywhere else. A partial projection is the one form that yields NULL, so it never reaches an expression.
  */
 export type ColumnGeneration =
 	| { readonly kind: "identity"; readonly sequence: ObjectName }
 	| { readonly kind: "uuidv7" }
+	| { readonly kind: "retirement" }
 	| { readonly kind: "stored"; readonly expr: Expr }
 	| { readonly kind: "partial"; readonly when: Expr; readonly expr: Expr }
 
@@ -1252,6 +1254,11 @@ export type AlterTableAction =
 	| {
 			/** ALTER COLUMN ... SET DEFAULT pg_catalog.uuidv7(): a pg.uuidv7 field's draw, taken in place. */
 			readonly kind: "setUuidv7Default"
+			readonly column: string
+	  }
+	| {
+			/** ALTER COLUMN ... SET DEFAULT false: a retirement field's open state, taken in place. */
+			readonly kind: "setRetirementDefault"
 			readonly column: string
 	  }
 	| {
@@ -1838,6 +1845,23 @@ export type PlStatement =
 	  }
 	| { readonly kind: "raise"; readonly message: string; readonly using: ReadonlyArray<RaiseOption> }
 	| { readonly kind: "return"; readonly value: Expr }
+	| {
+			/**
+			 * PERFORM <query> FOR <strength> OF <of>: the rows the query finds, locked in its order until the transaction
+			 * ends. Only a retirable unit's functions lock a row (physical/ddl/retire.ts): a hold, KEY SHARE on the open
+			 * headers of the groups a call touches, and a retirement, UPDATE on the headers it retires.
+			 */
+			readonly kind: "lockRows"
+			readonly query: PerformQuery
+			readonly strength: "KEY SHARE" | "UPDATE"
+			readonly of: string
+	  }
+	| {
+			/** A data-modifying statement run for its effect alone: a retirement's deletes and its headers' state, one
+			 * statement. */
+			readonly kind: "modify"
+			readonly statement: Update
+	  }
 
 /** A block's statements are at least one: a trigger function that falls off its end without RETURN fails. */
 export interface PlBlock {

@@ -20,6 +20,7 @@ import {
 	onBuilder,
 	orderedBuilder,
 	predBuilder,
+	retirableBuilder,
 	selectBuilder,
 	treeBuilder
 } from "#compiler/schema/statements.ts"
@@ -108,6 +109,7 @@ import type {
 	OwnerRelationOf,
 	KeyShows,
 	Pred,
+	Retirable,
 	RowScalars,
 	Selection,
 	SelfFamily,
@@ -445,6 +447,21 @@ export const alternatives = <
 		AtLeastOneArm<Arms>
 ): Alternatives<PK, D, C, Arms> =>
 	alternativesBuilder<PK, D, C, Arms>(parent, discriminator, roster, arms)
+
+/**
+ * retirable(header, bodies): the groups of `header`, each a value of its key, which a retirement removes whole: every
+ * row of each body relation, its group named by the side's fields in the header key's order, in one statement, the
+ * header's row kept for good with its retirement field set, so a retired group is never written again
+ * (ir/desc.ts expandRetirable states the fence). The header is a stored relation standing for its primary key, or a Key
+ * over one, with exactly one `retirement` field; each body a side over every fact of another stored relation.
+ */
+export const retirable = <
+	H extends AnyRelation | Key<Side<AnyRelation, ReadonlyArray<string>>>,
+	const B extends NonEmptyReadonlyArray<AnySide>
+>(
+	header: H,
+	bodies: B
+): Retirable<H, readonly [...B]> => retirableBuilder<H, B>(header, bodies)
 
 /**
  * fin(O, n): the slots of O's count n: over an ordinary O, its drawn count, a family's second argument; over a closed O,

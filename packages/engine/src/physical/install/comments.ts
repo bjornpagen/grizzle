@@ -69,6 +69,7 @@ const actionCreated = (table: ObjectName, a: AlterTableAction): ReadonlyArray<Cr
 		case "dropColumn":
 		case "dropDefault":
 		case "setUuidv7Default":
+		case "setRetirementDefault":
 		case "alterColumnType":
 		case "setExpression":
 		case "dropIdentity":

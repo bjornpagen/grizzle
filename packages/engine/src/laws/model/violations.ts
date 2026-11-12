@@ -8,7 +8,7 @@ import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { LabelSupply } from "#compiler/ir/dag.ts"
-import type { ExprDesc } from "#compiler/ir/desc.ts"
+import { type ExprDesc, expandRetirable } from "#compiler/ir/desc.ts"
 import type { RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import { admittedReads } from "#compiler/scalar/compute/lower.ts"
 import type { Owned, OwnedStatement } from "#compiler/schema/own.ts"
@@ -54,6 +54,11 @@ const statementExprs = (s: OwnedStatement): ReadonlyArray<ExprDesc> => {
 			return [...s.step.selection.conjuncts, ...s.end.selection.conjuncts]
 		case "alternatives":
 			return [...s.parent.selection.conjuncts, ...s.arms.flatMap((a) => a.arm.selection.conjuncts)]
+		case "retirable":
+			return expandRetirable(s).flatMap((c) => [
+				...c.left.selection.conjuncts,
+				...c.right.selection.conjuncts
+			])
 	}
 }
 

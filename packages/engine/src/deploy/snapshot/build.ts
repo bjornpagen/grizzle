@@ -176,6 +176,7 @@ const recordedWriting = (
 	switch (w.kind) {
 		case "caller":
 		case "serial":
+		case "retirement":
 			return w.kind
 		case "generated":
 			if (declared.kind !== "generated") {
@@ -745,6 +746,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 			case "lawTrigger":
 			case "refusalFunction":
 			case "advanceFunction":
+			case "unitFunction":
 			case "isolationFunction":
 			case "snapshotGuard":
 			case "lawFunction":

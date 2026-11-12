@@ -30,6 +30,7 @@ const memberWrites = (writing: MemberColumn["writing"]["kind"]): boolean => {
 		case "generated":
 		case "drawn":
 		case "accumulated":
+		case "retirement":
 			return false
 	}
 }

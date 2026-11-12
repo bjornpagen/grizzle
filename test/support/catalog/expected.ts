@@ -310,8 +310,8 @@ export const projectCatalog = (catalog: Catalog): ProjectedCatalog => {
 }
 
 /**
- * A column's generation as grizzle declares it: GENERATED ALWAYS AS IDENTITY, the uuidv7() default, as pg_get_expr
- * spells it, or GENERATED ALWAYS AS (expr) STORED, a partial projection's expr its CASE.
+ * A column's generation as grizzle declares it: GENERATED ALWAYS AS IDENTITY, the uuidv7() default or a retirement
+ * field's false, as pg_get_expr spells each, or GENERATED ALWAYS AS (expr) STORED, a partial projection's expr its CASE.
  */
 const expectedGeneration = (g: ColumnDef["generated"]): ProjectedGeneration => {
 	if (g === undefined) {
@@ -322,6 +322,8 @@ const expectedGeneration = (g: ColumnDef["generated"]): ProjectedGeneration => {
 			return { kind: "identity", always: true, sequence: `${g.sequence.schema}.${g.sequence.name}` }
 		case "uuidv7":
 			return { kind: "default", expression: "uuidv7()" }
+		case "retirement":
+			return { kind: "default", expression: "false" }
 		case "stored":
 		case "partial":
 			return { kind: "computed", stored: true }
