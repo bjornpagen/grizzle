@@ -38,7 +38,12 @@ import { Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	flatMapNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import { nameKey } from "#compiler/deploy/snapshot/objects.ts"
 import type { SnapshotTheory } from "#compiler/deploy/snapshot/types.ts"
 import { compareAt, type OperatorNames, operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
@@ -504,12 +509,12 @@ const planesAdded = (fold: FamilyFold, added: ReadonlySet<string>): boolean =>
 	fold.planes.some((p) => holds(added, p.before) || holds(added, p.after))
 
 /** A family's member UPDATE: every column of its member the migration adds, drawn over the member's stored rows. */
-const memberUpdate = (
+const memberPart = (
 	input: BackfillInput,
 	family: Family,
 	table: ObjectName,
 	added: ReadonlySet<string>
-): Update | undefined => {
+): MemberPart | undefined => {
 	const { installation } = input
 	const member = relationOf(installation, family.member.name)
 	const index = columnOf(family.index)
@@ -521,10 +526,10 @@ const memberUpdate = (
 			"its index is drawn anew while a fold keeps its stored accumulators"
 		)
 	}
-	const assignments: Array<Assignment> = []
+	const assignments: Array<Drawn> = []
 	const assign = (column: string, value: string): void => {
 		if (added.has(column)) {
-			assignments.push({ column, value: col("b", value) })
+			assignments.push({ column, value })
 		}
 	}
 	assign(index, indexName)
@@ -564,13 +569,59 @@ const memberUpdate = (
 		...planeLayers(installation, folds, partition, inOrder)
 	])
 	return {
+		table,
+		rows,
+		key: keyed,
+		set: assignments,
+		reads: new Set([...carried, ...(drawIndex ? [] : [index]), ...foldReads(installation, family)])
+	}
+}
+
+/** A column a member's backfill draws, and the name of the column of its rows that holds it. */
+interface Drawn {
+	readonly column: string
+	readonly value: string
+}
+
+/**
+ * A family's member backfill before it is drafted (memberPart): its rows, one per member of `table`, each with its key
+ * and every value it draws; the member key its rows meet the table's on; the columns it draws, each by the column of
+ * its rows holding it; and the member columns it reads, its key, group, stored index and fold reads.
+ */
+interface MemberPart {
+	readonly table: ObjectName
+	readonly rows: Select
+	readonly key: NonEmptyReadonlyArray<KeyColumn>
+	readonly set: NonEmptyReadonlyArray<Drawn>
+	readonly reads: ReadonlySet<string>
+}
+
+/** The name a member part's rows take in its table's UPDATE: the first's `b`, as one part's always was, then b2, b3. */
+const partAlias = (i: number): string => (i === 0 ? "b" : `b${i + 1}`)
+
+/**
+ * One UPDATE of a table drawing the columns of each member part it holds: every part's rows hold one row per member, so
+ * each row of the table meets exactly one row of each part at its key, and the inner join of them all names every
+ * member once, as each part's UPDATE alone did.
+ */
+const memberUpdate = (parts: NonEmptyReadonlyArray<MemberPart>): Update => {
+	const [{ table }] = parts
+	return {
 		kind: "update",
 		with: undefined,
 		table,
 		alias: "t",
-		set: assignments,
-		from: [derived(rows, "b", [], false)],
-		where: sameKey(keyed, "t", "b"),
+		set: flatMapNonEmpty(parts, (p, i) =>
+			mapNonEmpty(p.set, (d) => ({ column: d.column, value: col(partAlias(i), d.value) }))
+		),
+		from: parts.map((p, i) => derived(p.rows, partAlias(i), [], false)),
+		where: and(
+			flatMapNonEmpty(parts, (p, i) =>
+				mapNonEmpty(p.key, (k) =>
+					compareAt("=", k.operators, col("t", k.column), col(partAlias(i), k.column))
+				)
+			)
+		),
 		returning: []
 	}
 }
@@ -1291,16 +1342,78 @@ const foldReads = (installation: Installation, family: Family): ReadonlySet<stri
 	)
 }
 
+/** A backfill statement as drafted, in order: a family's member part, which the table's member UPDATE takes (merged), or
+ * any other UPDATE. */
+type Drafted =
+	| { readonly kind: "member"; readonly part: MemberPart }
+	| { readonly kind: "update"; readonly update: Update }
+
+/** A backfill statement as merged: a table's member UPDATE of the parts it takes so far, or any other UPDATE. */
+type Merged =
+	| { readonly kind: "members"; readonly first: MemberPart; readonly rest: Array<MemberPart> }
+	| { readonly kind: "update"; readonly update: Update }
+
+/** The columns of `table` a merged statement draws. */
+const drawsOn = (m: Merged, table: ObjectName): ReadonlyArray<string> => {
+	switch (m.kind) {
+		case "members":
+			return nameKey(m.first.table) === nameKey(table)
+				? [m.first, ...m.rest].flatMap((p) => p.set.map((d) => d.column))
+				: []
+		case "update":
+			return nameKey(m.update.table) === nameKey(table) ? m.update.set.map((a) => a.column) : []
+	}
+}
+
+/**
+ * The backfill's statements, at most one member UPDATE of a table at each of its places: every UPDATE writes a new
+ * version of each row it names, which holds its space until the migration's transaction ends, so a table's member parts
+ * share one UPDATE wherever their reads allow. A member part reads its own table alone (memberPart), so it joins the
+ * table's latest member UPDATE when no statement from that one on draws a column it reads: run beside them, it reads
+ * every column as it read it after them, and what reads its columns still runs after it. Otherwise it opens its table's
+ * next member UPDATE where it stands. Every other UPDATE stands where drafted: an owner's, a tree's and a copy's name
+ * only some rows of their tables, which an inner join cannot keep beside another's.
+ */
+const merged = (drafted: ReadonlyArray<Drafted>): ReadonlyArray<Update> => {
+	const out: Array<Merged> = []
+	const open = new Map<string, Extract<Merged, { readonly kind: "members" }>>()
+	for (const d of drafted) {
+		if (d.kind === "update") {
+			out.push(d)
+			continue
+		}
+		const key = nameKey(d.part.table)
+		const latest = open.get(key)
+		const since = latest === undefined ? -1 : out.indexOf(latest)
+		if (
+			latest !== undefined &&
+			out.slice(since).every((m) => drawsOn(m, d.part.table).every((c) => !d.part.reads.has(c)))
+		) {
+			latest.rest.push(d.part)
+			continue
+		}
+		const opened: Extract<Merged, { readonly kind: "members" }> = {
+			kind: "members",
+			first: d.part,
+			rest: []
+		}
+		open.set(key, opened)
+		out.push(opened)
+	}
+	return out.map((m) => (m.kind === "update" ? m.update : memberUpdate([m.first, ...m.rest])))
+}
+
 /**
  * The backfill of every family of the target whose columns this migration adds to a table that may hold rows
- * (Backfill), family by family in the law model's order: its member's UPDATE, then its owner's, which reads the
+ * (Backfill), family by family in the law model's order: its member's part, then its owner's UPDATE, which reads the
  * member's backfilled rows (a tree's one UPDATE, then its fold ends); then every copy this migration adds, in an order
- * that reads each copy's target once it is drawn (orderedCopies). A family whose columns are all new to tables that hold
- * no row needs none: its placeholders are the values an empty family holds.
+ * that reads each copy's target once it is drawn (orderedCopies); each table's member parts sharing one UPDATE where
+ * their reads allow (merged). A family whose columns are all new to tables that hold no row needs none: its
+ * placeholders are the values an empty family holds.
  */
 export const backfillOf = (input: BackfillInput): Backfill => {
 	const { installation } = input
-	const updates: Array<SqlStatement> = []
+	const updates: Array<Drafted> = []
 	for (const family of installation.laws.families) {
 		const memberTable = tableOf(installation, family.member.name)
 		const ownerTable = tableOf(installation, family.owner.name)
@@ -1341,21 +1454,21 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 			}
 			const drawn = treeUpdate(input, family, shape, memberTable, onMember)
 			if (drawn !== undefined) {
-				updates.push(drawn)
+				updates.push({ kind: "update", update: drawn })
 			}
 			const ends = treeEndUpdate(input.installation.names, family, memberTable, onMember)
 			if (ends !== undefined) {
-				updates.push(ends)
+				updates.push({ kind: "update", update: ends })
 			}
 			continue
 		}
-		const m = memberUpdate(input, family, memberTable, mine)
+		const m = memberPart(input, family, memberTable, mine)
 		if (m !== undefined) {
-			updates.push(m)
+			updates.push({ kind: "member", part: m })
 		}
 		const o = ownerUpdate(input, family, ownerTable, memberTable, theirs)
 		if (o !== undefined) {
-			updates.push(o)
+			updates.push({ kind: "update", update: o })
 		}
 	}
 	const drawnCopies = installation.laws.families.flatMap((family) =>
@@ -1377,7 +1490,7 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 		}
 	}
 	for (const c of orderedCopies(drawnCopies)) {
-		updates.push(copyUpdate(installation.names, c))
+		updates.push({ kind: "update", update: copyUpdate(installation.names, c) })
 	}
 	const dropDefaults = [...input.added.values()].flatMap(
 		({ table, columns }): ReadonlyArray<SqlStatement> => {
@@ -1393,5 +1506,5 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 					]
 		}
 	)
-	return { updates, dropDefaults }
+	return { updates: merged(updates), dropDefaults }
 }
