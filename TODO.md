@@ -465,8 +465,6 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
 - upstream/plpgsql-lineno-rescan: PL/pgSQL rescans the source on every location-to-line lookup.
 - upstream/gist-costestimate-column-position: a pgsql-hackers reply to BUG #15408, for PostgreSQL 20.
 - upstream/relcache-planned-check-and-generation: the relcache patch the pin carries.
-- upstream/tsgo-zero-cpu-stall: tsgo at 0% CPU on a type error, unreproduced so far. Reproduce it without the
-  effect-tsgo patch first, then file at microsoft/TypeScript.
 - upstream/fallow-unused-class-member-union-property: fallow credits no class member called through a property of a
   union-typed value, so .fallowrc.json keeps use and useRelation. File at fallow-rs/fallow, then drop the entries once
   repro.sh reports Cell.never alone.

@@ -40,7 +40,7 @@ const stallWindow: Limit = measured({
 	scope:
 		"one tsgo check the type-test batch or a scaling test runs, from its spawn to its exit, measured on its whole process tree",
 	evidence:
-		"upstream/tsgo-zero-cpu-stall/EVIDENCE.txt, section 2: every sample of three runs of the batch's compiler options over the type tests' 18 fixture files, its process tree's CPU time read with ps every 100 ms, and two runs over the engine's sources and the fixtures read every 250 ms",
+		"test/types/batch/batch.test.ts, the stall guard's property, re-verifies the window: tsgo's watch mode, held at 0% CPU after its first check, fails with CompilerStalled, and a check run once, clean or with an error, never does. The result below is every sample of three runs of the batch's compiler options over the type tests' 18 fixture files, its process tree's CPU time read with ps every 100 ms, and two runs over the engine's sources and the fixtures read every 250 ms",
 	observed: "2026-11-06, 19:20 to 19:45 CST",
 	environment:
 		"macOS (Darwin 27.0.0, an arm64 virtual machine) on 10 cores, Node 26.13.0, TypeScript 7.1.0-beta (tsgo, Go 1.27.3) as pnpm install patches it, four checkers; load average 41 to 59 from other sessions throughout",
