@@ -485,8 +485,22 @@ export const keyOrCheckDefinition = (
 	return inline ?? refuse(c.object.ident, `a ${c.kind} its table declares`)
 }
 
-/** A table and columns of it that an object's definition reads. */
+/** The kinds of object built over columns of a table (builtOver). */
+export type BuiltOverKind =
+	| "index"
+	| "uniqueIndex"
+	| "statistics"
+	| "primaryKey"
+	| "unique"
+	| "check"
+	| "foreignKey"
+	| "lawColumn"
+	| "lawTrigger"
+
+/** An object built over columns of a table: the object, read as one of the kinds built over columns, the table and the
+ * columns of it that its definition reads. */
 export interface BuiltOver {
+	readonly part: Installed & { readonly kind: BuiltOverKind }
 	readonly table: ObjectName
 	readonly columns: ReadonlyArray<string>
 }
@@ -506,19 +520,20 @@ export const builtOver = (
 	switch (v.kind) {
 		case "index":
 		case "uniqueIndex":
-			return { table: v.create.table, columns: indexColumns(v.create) }
+			return { part: v, table: v.create.table, columns: indexColumns(v.create) }
 		case "statistics":
-			return { table: v.create.table, columns: v.create.columns }
+			return { part: v, table: v.create.table, columns: v.create.columns }
 		case "primaryKey":
 		case "unique":
 		case "check":
-			return { table: v.table, columns: constraintColumns(constraint(v)) }
+			return { part: v, table: v.table, columns: constraintColumns(constraint(v)) }
 		case "foreignKey":
-			return { table: v.table, columns: constraintColumns(v.constraint) }
+			return { part: v, table: v.table, columns: constraintColumns(v.constraint) }
 		case "lawColumn":
-			return { table: v.table, columns: columnsOf(v.definition.generated) }
+			return { part: v, table: v.table, columns: columnsOf(v.definition.generated) }
 		case "lawTrigger":
 			return {
+				part: v,
 				table: v.create.table,
 				columns: v.create.events.flatMap((e) => (e.kind === "update" ? e.columns : []))
 			}

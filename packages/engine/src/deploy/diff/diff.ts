@@ -55,6 +55,7 @@ import {
 } from "#compiler/deploy/diff/plan.ts"
 import { ledgerPrivilegesIdent } from "#compiler/deploy/ledger/ledger.ts"
 import {
+	type BuiltOver,
 	builtOver,
 	constraintColumns,
 	generationColumns,
@@ -353,11 +354,11 @@ interface ViewDrop {
 /** What takes an object of the previous installation away in Structure, before the target's objects are visited: the
  * drop of the roles' views, world functions and policies (dropWorlds); the drop of a materialized view, which takes the
  * indexes and statistics objects on it along (dropViews); or the replacement of a column it is built over
- * (takenByReplacement). */
+ * (takenByReplacement), before which its own `drop` takes it away (dropReplaced). */
 type Taken =
 	| { readonly kind: "world" }
 	| { readonly kind: "view" }
-	| { readonly kind: "replaced"; readonly how: Replacement }
+	| ({ readonly kind: "replaced" } & Replaced)
 
 /** What a migration does to an object of the previous installation, decided once when the Differ is built, so no rule
  * acts on an object an earlier step already took away: taken away in Structure (Taken); kept, the target holding it,
@@ -765,8 +766,8 @@ class Differ {
 		)
 		this.dropped = new Set(this.viewDrops.flatMap((d) => (d.fate === "dropped" ? [d.key] : [])))
 		/** What this migration takes away and builds again beneath the roles' objects without changing its DDL: each
-		 * materialized view it drops (recreated or not), each object a replaced column takes along, and each table a
-		 * column of which it converts in place. */
+		 * materialized view it drops (recreated or not), each object it drops before replacing a column it is built
+		 * over, and each table a column of which it converts in place. */
 		const tableKeys = new Map(
 			[...previousObjects, ...targetObjects].flatMap((o) => {
 				const v = installed(o)
@@ -793,8 +794,8 @@ class Differ {
 			if (on !== undefined && viewKeys.has(nameKey(on))) {
 				return { kind: "view" }
 			}
-			const how = replacedBy.get(o.ident)
-			return how === undefined ? undefined : { kind: "replaced", how }
+			const replaced = replacedBy.get(o.ident)
+			return replaced === undefined ? undefined : { kind: "replaced", ...replaced }
 		}
 		const taken = new Map(
 			previousObjects.flatMap((o): ReadonlyArray<readonly [string, Taken]> => {
@@ -1309,12 +1310,11 @@ class Differ {
 	}
 
 	/** The previous objects built over a column this migration replaces (ColumnFate converted or redefined), by identity,
-	 * each with how: what is built over a column converted in place (objects.ts builtOver: a constraint, an index, a
-	 * statistics object or a law column computed from it), and each foreign key referencing a key over
-	 * one, which dropReplaced drops before the conversion; and what is built over a law column dropped and added again,
-	 * which goes with the drop, a foreign key referencing a key over it dropped first by dropReplaced. */
-	takenByReplacement(): ReadonlyMap<string, Replacement> {
-		const out = new Map<string, Replacement>()
+	 * each with how and its own drop (Replaced): what is built over the column (objects.ts builtOver: a constraint, an
+	 * index, a statistics object, a law column computed from it or a rule trigger fired by its update), and each foreign
+	 * key referencing a key over one, which dropReplaced drops before the column is converted or dropped. */
+	takenByReplacement(): ReadonlyMap<string, Replaced> {
+		const out = new Map<string, Replaced>()
 		/** How each of `columns` of `table` is replaced, of those this migration replaces: only a table both hold has
 		 * a column replaced. */
 		const hows = (
@@ -1331,10 +1331,13 @@ class Differ {
 			})
 		}
 		for (const o of this.prev.values()) {
-			const v = installed(o)
-			const over = builtOver(v, (c) => keyOrCheckDefinition(c, this.prev))
-			const taken = strongestReplacement([
-				...(over === undefined ? [] : hows(over.table, over.columns)),
+			const over = builtOver(installed(o), (c) => keyOrCheckDefinition(c, this.prev))
+			if (over === undefined) {
+				continue
+			}
+			const v = over.part
+			const how = strongestReplacement([
+				...hows(over.table, over.columns),
 				...(v.kind === "foreignKey"
 					? hows(
 							v.constraint.references,
@@ -1342,34 +1345,21 @@ class Differ {
 						)
 					: [])
 			])
-			if (taken !== undefined) {
-				out.set(o.ident, taken)
+			if (how !== undefined) {
+				out.set(o.ident, { how, drop: replacementDrop(v) })
 			}
 		}
 		return out
 	}
 
-	/** Drops what a conversion in place takes away (Taken replaced), before the conversion, in Structure: the foreign keys
-	 * first, then the keys and CHECKs, the indexes and the statistics objects. PostgreSQL would carry each across the
-	 * conversion under its old definition, or refuse the conversion under it (a foreign key compares only once both its
-	 * sides are converted), so the target's is built again as
-	 * on any relation that may hold rows. Of what a column dropped and added again takes, it drops the foreign keys and
-	 * the generated law columns: the column's DROP COLUMN drops every constraint and index of its own table over it, but
-	 * refuses one a foreign key of another table depends on (2BP01), an arm's into an alternatives parent's key over its
-	 * arm tag, and a generated column that reads it. */
+	/** Drafts the drop of everything a replacement of a column takes away (Taken replaced), each by its own statement, in
+	 * structure.drop, before the column is converted in place or dropped and added again: the foreign keys and the rule
+	 * triggers first, then the keys and CHECKs, the indexes, the statistics objects and the generated law columns
+	 * (dropOrder). Nothing a replacement takes is left to the replacement itself, which converts or drops only the column;
+	 * the target's are built again as on any relation that may hold rows. */
 	dropReplaced(): void {
 		const drops = this.previous
-			.flatMap(({ object: o, fate }) => {
-				const v = installed(o)
-				if (
-					fate.kind !== "replaced" ||
-					(fate.how === "redefined" && v.kind !== "foreignKey" && v.kind !== "lawColumn")
-				) {
-					return []
-				}
-				const drop = replacementDrop(v)
-				return drop === undefined ? [] : [drop]
-			})
+			.flatMap(({ fate }) => (fate.kind === "replaced" ? [fate.drop] : []))
 			.toSorted(byDropOrder)
 		for (const d of drops) {
 			this.push("structure.drop", d.draft)
@@ -1869,7 +1859,7 @@ class Differ {
 	 * field's type changed or a field it reads converted (fieldChange): its drop, in structure.drop, before anything is
 	 * converted, the values its caller wrote going as the schema now declares; then its addition in Structure, a
 	 * generated field by its expression and one its caller writes by the reviewer's placeholder. Every object built over
-	 * the column goes with its drop and is built again as the target declares it (ColumnFate redefined). */
+	 * the column is dropped before it (dropReplaced) and built again as the target declares it (ColumnFate redefined). */
 	rewriteField(t: ObjectName, b: ColumnDef, c: ColumnDef): void {
 		this.sql("structure.drop", [alter(t, [{ kind: "dropColumn", column: b.name }])])
 		this.alter("structure", t, [this.addedField(t, c)])
@@ -3013,9 +3003,16 @@ const setOf = (
 }
 
 /** How a migration replaces the physical column of a table both snapshots install (ColumnFate): a field whose type
- * changes is converted in place, which first drops what is built over it (dropReplaced); a law column whose
- * definition changes is redefined (lawColumn), which takes every constraint and index over it along. */
+ * changes is converted in place; a law column whose definition changes, or a field rewritten, is redefined, dropped and
+ * added again. Either first drops everything built over the column (dropReplaced). */
 type Replacement = "converted" | "redefined"
+
+/** What a replacement of a column does to an object built over it: `how` the column is replaced, and the object's own
+ * drop, which dropReplaced drafts before the replacement. */
+interface Replaced {
+	readonly how: Replacement
+	readonly drop: Drop
+}
 
 /** The strongest of `hows`: a conversion in place takes more than a law column dropped and added again. */
 const strongestReplacement = (hows: ReadonlyArray<Replacement>): Replacement | undefined =>
@@ -3412,10 +3409,10 @@ const installedReads = (
 	return out
 }
 
-/** The drop of what a conversion in place of a column takes away, in the drop order (dropOrder): the foreign keys
- * first, then the keys and CHECKs, the indexes, the statistics objects and the law columns whose
- * generation reads the column, which PostgreSQL refuses to convert it under (0A000); none for any other kind. */
-const replacementDrop = (v: Installed): Drop | undefined => {
+/** The drop of an object built over a column (objects.ts builtOver), which a replacement of the column takes away, in
+ * the drop order (dropOrder): the foreign keys and rule triggers first, then the keys and CHECKs, the indexes, the
+ * statistics objects and the law columns whose generation reads the column. */
+const replacementDrop = (v: BuiltOver["part"]): Drop => {
 	switch (v.kind) {
 		case "foreignKey":
 		case "check":
@@ -3453,30 +3450,6 @@ const replacementDrop = (v: Installed): Drop | undefined => {
 				rank: dropOrder.lawColumn,
 				draft: statement(alter(v.table, [{ kind: "dropColumn", column: v.column }]))
 			}
-		case "databaseDefault":
-		case "schema":
-		case "extension":
-		case "constant":
-		case "domain":
-		case "table":
-		case "refusalFunction":
-		case "advanceFunction":
-		case "isolationFunction":
-		case "snapshotGuard":
-		case "lawFunction":
-		case "isolationTrigger":
-		case "materializedView":
-		case "validation":
-		case "role":
-		case "membership":
-		case "privileges":
-		case "roleSchema":
-		case "view":
-		case "worldFunction":
-		case "policy":
-		case "rowSecurity":
-		case "ledger":
-			return undefined
 	}
 }
 
@@ -3541,11 +3514,11 @@ const sameInputs = (
  * Structure or in Publish, Differ.visit): each the target holds whose DDL changes, or that waits for an object the
  * migration changes (one whose DDL changes, one the previous manifest lacks, one the target lacks, one whose compile
  * inputs change, or one `beneath` names, which the migration takes away and builds again without changing its DDL: a
- * materialized view it drops, an object a replaced column takes along, a table it converts a column of), read off the
- * target's edges in install order, a world object waiting for every relation, type and function its statements read
- * (`readsOf`); and each the target no longer holds. PostgreSQL refuses to convert, drop or rename what a view, a policy
- * or a function body reads beneath it, so dropping them first leaves every structural change free, and they hold
- * nothing a drop could lose.
+ * materialized view it drops, an object it drops before replacing a column it is built over, a table it converts a
+ * column of), read off the target's edges in install order, a world object waiting for every relation, type and
+ * function its statements read (`readsOf`); and each the target no longer holds. PostgreSQL refuses to convert, drop or
+ * rename what a view, a policy or a function body reads beneath it, so dropping them first leaves every structural
+ * change free, and they hold nothing a drop could lose.
  *
  * A world object depends on every compile input of what it reads: the keys its compilation proves uniqueness by and
  * the containments it proves existence by. A table's keys are in its CREATE TABLE, so its DDL changes with them; a
