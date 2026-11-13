@@ -384,11 +384,6 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   witness contract. test/pg/fin/counted-set and test/pg/write/reinsert stay red on it. The fix is on the live branch
   (283f0295, d7cc2586, 899b370d: every family insert probes each unique it does not arbitrate); main takes it only by
   the owner's word, since nothing moves from live to main.
-- **oxlint crashes on cassowary's Node (2026-11-12):** oxlint 1.91.0's linux-arm64 binding fails `v8::ArrayBuffer::New`
-  with out-of-memory at its default thread count under the official Node 26.13.1 build, which has the V8 sandbox and
-  pointer compression on; the whole repository lints at `--threads=2` and crashes at 4 and 8. Find the allocation
-  that outgrows the sandbox, write the fix as upstream/oxlint-v8-sandbox for the owner to file, and lint at the
-  default thread count again once a release carries it.
 
 ### Parked by the scope lock (the owner, 2026-11-10)
 - **UPSTREAM:** an audit of every upstream/ and scripts/pg/patches patch to maintainer quality (the owner's order,
