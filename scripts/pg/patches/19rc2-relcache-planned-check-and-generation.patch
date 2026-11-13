@@ -1,4 +1,4 @@
-PostgreSQL 19rc1: CHECK constraint and generation expressions are planned once per relcache entry, not per statement.
+PostgreSQL 19rc2: CHECK constraint and generation expressions are planned once per relcache entry, not per statement.
 
 ExecRelCheck (execMain.c) and ExecInitGenerated (nodeModifyTable.c) re-read every CHECK's ccbin with stringToNode, and
 every generation expression with build_column_default, and run each through ExecPrepareExpr, in every statement that
@@ -87,7 +87,7 @@ This is not upstream, and no release includes it, so every repin carries it.
  #include "rewrite/rewriteManip.h"
  #include "storage/lmgr.h"
  #include "utils/builtins.h"
-@@ -487,7 +486,7 @@ ExecInitGenerated(ResultRelInfo *resultRelInfo,
+@@ -488,7 +487,7 @@ ExecInitGenerated(ResultRelInfo *resultRelInfo,
  			Expr	   *expr;
  
  			/* Fetch the GENERATED AS expression tree */
@@ -96,7 +96,7 @@ This is not upstream, and no release includes it, so every repin carries it.
  			if (expr == NULL)
  				elog(ERROR, "no generation expression found for column number %d of table \"%s\"",
  					 i + 1, RelationGetRelationName(rel));
-@@ -506,10 +505,14 @@ ExecInitGenerated(ResultRelInfo *resultRelInfo,
+@@ -507,10 +506,14 @@ ExecInitGenerated(ResultRelInfo *resultRelInfo,
  					continue;	/* need not update this column */
  			}
  
@@ -115,7 +115,7 @@ This is not upstream, and no release includes it, so every repin carries it.
  
 --- a/src/backend/utils/cache/relcache.c
 +++ b/src/backend/utils/cache/relcache.c
-@@ -75,6 +75,7 @@
+@@ -76,6 +76,7 @@
  #include "optimizer/optimizer.h"
  #include "pgstat.h"
  #include "rewrite/rewriteDefine.h"
@@ -123,7 +123,7 @@ This is not upstream, and no release includes it, so every repin carries it.
  #include "rewrite/rowsecurity.h"
  #include "storage/fd.h"
  #include "storage/lmgr.h"
-@@ -208,6 +209,21 @@ static int	EOXactTupleDescArrayLen = 0;
+@@ -209,6 +210,21 @@ static int	EOXactTupleDescArrayLen = 0;
  static int	EOXactTupleDescArrayLen = 0;
  
  /*
@@ -145,7 +145,7 @@ This is not upstream, and no release includes it, so every repin carries it.
   *		macros to manipulate the lookup hashtable
   */
  #define RelationCacheInsert(RELATION, replace_allowed)	\
-@@ -287,6 +303,9 @@ static void RememberToFreeTupleDescAtEOX(TupleDesc td)
+@@ -288,6 +304,9 @@ static void RememberToFreeTupleDescAtEOX(TupleDesc td)
  static void RelationReloadNailed(Relation relation);
  static void RelationFlushRelation(Relation relation);
  static void RememberToFreeTupleDescAtEOX(TupleDesc td);
@@ -155,7 +155,7 @@ This is not upstream, and no release includes it, so every repin carries it.
  #ifdef USE_ASSERT_CHECKING
  static void AssertPendingSyncConsistency(Relation relation);
  #endif
-@@ -1219,6 +1238,14 @@ retry:
+@@ -1272,6 +1291,14 @@ retry:
  	relation->rd_partcheckvalid = false;
  	relation->rd_partcheckcxt = NULL;
  
@@ -170,7 +170,7 @@ This is not upstream, and no release includes it, so every repin carries it.
  	/*
  	 * initialize access method information
  	 */
-@@ -2224,8 +2251,9 @@ RelationCloseCleanup(Relation relation)
+@@ -2277,8 +2304,9 @@ RelationCloseCleanup(Relation relation)
  {
  	/*
  	 * If the relation is no longer open in this session, we can clean up any
@@ -182,7 +182,7 @@ This is not upstream, and no release includes it, so every repin carries it.
  	 */
  	if (RelationHasReferenceCountZero(relation))
  	{
-@@ -2236,6 +2264,10 @@ RelationCloseCleanup(Relation relation)
+@@ -2289,6 +2317,10 @@ RelationCloseCleanup(Relation relation)
  		if (relation->rd_pddcxt != NULL &&
  			relation->rd_pddcxt->firstchild != NULL)
  			MemoryContextDeleteChildren(relation->rd_pddcxt);
@@ -193,7 +193,7 @@ This is not upstream, and no release includes it, so every repin carries it.
  	}
  
  #ifdef RELCACHE_FORCE_RELEASE
-@@ -2500,6 +2532,8 @@ RelationDestroyRelation(Relation relation, bool rememb
+@@ -2554,6 +2586,8 @@ RelationDestroyRelation(Relation relation, bool rememb
  		MemoryContextDelete(relation->rd_pddcxt);
  	if (relation->rd_partcheckcxt)
  		MemoryContextDelete(relation->rd_partcheckcxt);
@@ -202,7 +202,7 @@ This is not upstream, and no release includes it, so every repin carries it.
  	pfree(relation);
  }
  
-@@ -2757,6 +2791,27 @@ RelationRebuildRelation(Relation relation)
+@@ -2811,6 +2845,27 @@ RelationRebuildRelation(Relation relation)
  		{
  			SWAPFIELD(PartitionKey, rd_partkey);
  			SWAPFIELD(MemoryContext, rd_partkeycxt);
@@ -230,7 +230,7 @@ This is not upstream, and no release includes it, so every repin carries it.
  		}
  		if (newrel->rd_pdcxt != NULL || newrel->rd_pddcxt != NULL)
  		{
-@@ -5272,9 +5327,240 @@ RelationGetIndexPredicate(Relation relation)
+@@ -5326,9 +5381,240 @@ RelationGetIndexPredicate(Relation relation)
  	MemoryContextSwitchTo(oldcxt);
  
  	return result;
@@ -471,7 +471,7 @@ This is not upstream, and no release includes it, so every repin carries it.
   * RelationGetIndexAttrBitmap -- get a bitmap of index attribute numbers
   *
   * The result has a bit set for each attribute used anywhere in the index
-@@ -6511,6 +6797,12 @@ load_relcache_init_file(bool shared)
+@@ -6565,6 +6851,12 @@ load_relcache_init_file(bool shared)
  		rel->rd_exclprocs = NULL;
  		rel->rd_exclstrats = NULL;
  		rel->rd_fdwroutine = NULL;
@@ -522,12 +522,12 @@ This is not upstream, and no release includes it, so every repin carries it.
  /*
 --- a/src/test/regress/parallel_schedule
 +++ b/src/test/regress/parallel_schedule
-@@ -123,7 +123,7 @@ test: plancache limit plpgsql copy2 temp domain rangef
+@@ -128,7 +128,7 @@ test: rowtypes_alter
  # The stats test resets stats, so nothing else needing stats access can be in
  # this group.
  # ----------
--test: partition_join partition_prune reloptions hash_part indexing partition_aggregate partition_info tuplesort explain memoize stats predicate numa eager_aggregate planner_est
-+test: partition_join partition_prune reloptions hash_part indexing partition_aggregate partition_info tuplesort explain memoize stats predicate numa eager_aggregate planner_est relcache_exprs
+-test: partition_join partition_prune reloptions hash_part indexing partition_aggregate partition_info tuplesort explain memoize stats predicate numa eager_aggregate planner_est attribute_version
++test: partition_join partition_prune reloptions hash_part indexing partition_aggregate partition_info tuplesort explain memoize stats predicate numa eager_aggregate planner_est attribute_version relcache_exprs
  
  # ----------
  # Another group of parallel tests (compression)
