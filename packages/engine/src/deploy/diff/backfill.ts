@@ -24,8 +24,9 @@
  *   siblings. A tree whose index the migration keeps keeps its caller's sibling order: every column drawn anew reads
  *   the stored index, and only the columns the migration adds are written. The stored start and end are its rows'
  *   pre-order, kept as its index is (deploy/diff/declared.ts sameSequence): a parent drawn anew is drawn from them first,
- *   each row's parent the start of the row of its root value whose interval holds its own most tightly (parentUpdate),
- *   and a migration that draws a tree's start or end anew on a table that may hold rows is refused, naming the tree.
+ *   each row's parent the start of the row of its root value whose interval holds its own most tightly, read off one
+ *   sorted stream of the intervals' bounds (parentUpdate), and a migration that draws a tree's start or end anew on a
+ *   table that may hold rows is refused, naming the tree.
  *
  * - **Tree folds:** over each row's siblings in slot order, their order by start, the root alone at slot 0, its before
  *   the identity; each row's end its last child's after. A fold added to a tree that holds rows, or changed on one, is
@@ -39,6 +40,11 @@
  * each column whole in that order draws every row after every row it reads. A column that reads itself through the
  * columns it is drawn from has no such order, and is refused, naming the cycle.
  *
+ * Every statement is a join of the table it updates with rows computed apart from it, each table row meeting its row at
+ * a key (Drawing, MemberPart): nothing it holds reads the row it updates but that key, so none is a probe run once per
+ * row, which before any index of the table exists (structure.backfill runs before them) would read the whole table for
+ * each of its rows.
+ *
  * Window functions and the one recursive CTE are admitted here: a migration is reviewed text, and grizzle's limits on
  * them are limits on its run-time queries.
  */
@@ -47,6 +53,8 @@ import { unsupported } from "#compiler/core/errors.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
+	appendNonEmpty,
+	dedupeNonEmpty,
 	flatMapNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
@@ -67,18 +75,19 @@ import {
 } from "#compiler/physical/ddl/expr.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type {
-	Assignment,
 	Expr,
 	FromItem,
 	FromSource,
 	ObjectName,
 	Select,
+	SetCore,
 	SqlStatement,
 	Target,
 	TypeRef,
 	TypeSchema,
 	Update,
-	WindowSpec
+	WindowSpec,
+	With
 } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -87,24 +96,24 @@ import {
 	call,
 	cast,
 	col,
+	conjunction,
 	core,
 	countStar,
 	cte,
 	cteRefAs,
 	derived,
 	eq,
-	firstNonNull,
 	join,
 	lit,
 	not,
 	objectName,
-	operandSelect,
 	provedCore,
 	select,
 	setOperation,
 	tableCol,
 	targetAs,
-	types
+	types,
+	unionAll
 } from "#compiler/sql/build.ts"
 import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 
@@ -244,7 +253,7 @@ const window = (
 
 /** A window function's call over `over`. */
 const over = (
-	fn: "row_number" | "sum" | "max" | "bit_or" | "string_agg" | "lag",
+	fn: "row_number" | "sum" | "max" | "min" | "bit_or" | "string_agg" | "lag",
 	args: ReadonlyArray<Expr>,
 	spec: WindowSpec
 ): Expr => ({
@@ -420,6 +429,10 @@ const sameKey = (key: NonEmptyReadonlyArray<KeyColumn>, left: string, right: str
 	and(
 		mapNonEmpty(key, (k) => compareAt("=", k.operators, col(left, k.column), col(right, k.column)))
 	)
+
+/** A member key's columns met by the same columns of a drawing's rows (Match). */
+const keyMatch = (key: NonEmptyReadonlyArray<KeyColumn>): NonEmptyReadonlyArray<Match> =>
+	mapNonEmpty(key, (k) => ({ target: k.column, source: k.column, operators: k.operators }))
 
 /** The type of a family's group field at `k`, its owner's side, which its member's side shares. */
 const groupType = (family: Family, k: number): ScalarType =>
@@ -641,6 +654,104 @@ const memberUpdate = (parts: NonEmptyReadonlyArray<MemberPart>): Update => {
 	}
 }
 
+/**
+ * A column a drawing meets each row of its table by: the table's `target` holds the value the row of its rows holds in
+ * `source`, compared at `operators` (ir/compare.ts operatorSchemaOf).
+ */
+interface Match {
+	readonly target: string
+	readonly source: string
+	readonly operators: TypeSchema | undefined
+}
+
+/** The rows a drawing draws from: a stored table read whole, or a query. Neither is LATERAL, so neither reads a row of
+ * the table the drawing updates. */
+type Rows =
+	| { readonly kind: "table"; readonly table: ObjectName }
+	| { readonly kind: "query"; readonly query: Select }
+
+/**
+ * A backfill UPDATE besides the member parts (MemberPart): `[WITH …] UPDATE <table> AS "t" SET <column> = "b"."<value>",
+ * … FROM <rows> AS "b" WHERE "t"."<target>" = "b"."<source>" AND …`. Every value it draws is a column of the row of
+ * `rows` a row of the table meets at `match`, and nothing it holds reads a row of the table but `match`: its WITH and
+ * its rows are computed apart from the table's rows, so it is one join of two sets of rows, never a probe run once per
+ * row of the table it updates.
+ */
+interface Drawing {
+	readonly table: ObjectName
+	readonly with: With | undefined
+	readonly rows: Rows
+	readonly match: NonEmptyReadonlyArray<Match>
+	readonly set: NonEmptyReadonlyArray<Drawn>
+}
+
+/** The name a drawing's rows take in its UPDATE. */
+const drawnAlias = "b"
+
+/** A drawing's UPDATE (Drawing). */
+const drawingUpdate = (d: Drawing): Update => ({
+	kind: "update",
+	with: d.with,
+	table: d.table,
+	alias: "t",
+	set: mapNonEmpty(d.set, (x) => ({ column: x.column, value: col(drawnAlias, x.value) })),
+	from: [
+		d.rows.kind === "table"
+			? { kind: "table", table: d.rows.table, alias: drawnAlias }
+			: derived(d.rows.query, drawnAlias, [], false)
+	],
+	where: and(
+		mapNonEmpty(d.match, (m) =>
+			compareAt("=", m.operators, col("t", m.target), col(drawnAlias, m.source))
+		)
+	),
+	returning: []
+})
+
+/** The rows of a drawing read off `table` under `alias`: each of `columns` once, by its own name, and each of `computed`
+ * by its name, of the rows `where` keeps. */
+const readOff = (
+	table: ObjectName,
+	alias: string,
+	columns: NonEmptyReadonlyArray<string>,
+	computed: ReadonlyArray<{ readonly name: string; readonly expr: Expr }>,
+	where: Expr | undefined
+): Rows => ({
+	kind: "query",
+	query: select(
+		provedCore(
+			"keyed",
+			[
+				...dedupeNonEmpty(columns).map((c) => targetAs(col(alias, c), c)),
+				...computed.map((c) => targetAs(c.expr, c.name))
+			],
+			[{ kind: "table", table, alias }],
+			where
+		)
+	)
+})
+
+/** Each group field of a family met at the operators of its type, the table's side `target` and the rows' `source`:
+ * each its owner's key field or its member's group field. */
+const groupMatch = (
+	names: OperatorNames,
+	family: Family,
+	target: "owner" | "member",
+	source: "owner" | "member"
+): NonEmptyReadonlyArray<Match> =>
+	mapNonEmpty(family.group, (g) => ({
+		target: g[target].column,
+		source: g[source].column,
+		operators: operatorSchemaOf(names, g.owner.type)
+	}))
+
+/** Whether a family's member at `alias` is its last: its index one less than its copy of the count. */
+const lastOf = (family: Family, alias: string): Expr =>
+	eq(
+		col(alias, columnOf(family.index)),
+		binary("-", col(alias, family.copy), lit.int(1n, types.bigint))
+	)
+
 /** A family's owner UPDATE: every column of its owner the migration adds, its last member's (its count's copy, each
  * plane's after), read off the member's backfilled rows; an owner with no member keeps its placeholder, which is the
  * value it holds (0, the identity). */
@@ -650,48 +761,38 @@ const ownerUpdate = (
 	table: ObjectName,
 	memberTable: ObjectName,
 	added: ReadonlySet<string>
-): DraftedUpdate | undefined => {
-	const assignments: Array<Assignment> = []
+): DraftedDrawing | undefined => {
+	const set: Array<Drawn> = []
 	const afters: Array<string> = []
 	if (added.has(family.count.column)) {
-		assignments.push({ column: family.count.column, value: col("m", family.copy) })
+		set.push({ column: family.count.column, value: family.copy })
 	}
 	for (const fold of family.folds) {
 		for (const plane of fold.planes) {
 			if (added.has(plane.end.column)) {
-				assignments.push({ column: plane.end.column, value: col("m", columnOf(plane.after)) })
+				set.push({ column: plane.end.column, value: columnOf(plane.after) })
 				afters.push(columnOf(plane.after))
 			}
 		}
 	}
-	if (!isNonEmpty(assignments) || !input.mayHoldRows(memberTable)) {
+	if (!isNonEmpty(set) || !input.mayHoldRows(memberTable)) {
 		return undefined
 	}
-	const last = eq(
-		col("m", columnOf(family.index)),
-		binary("-", col("m", family.copy), lit.int(1n, types.bigint))
-	)
+	const group = mapNonEmpty(family.group, (g) => g.member.column)
 	return {
-		kind: "update",
-		update: {
-			kind: "update",
-			with: undefined,
+		kind: "drawing",
+		drawing: {
 			table,
-			alias: "t",
-			set: assignments,
-			from: [{ kind: "table", table: memberTable, alias: "m" }],
-			where: and([
-				...mapNonEmpty(family.group, (g) =>
-					typedEq(
-						g.owner.type,
-						col("t", g.owner.column),
-						col("m", g.member.column),
-						input.installation.names
-					)
-				),
-				last
-			]),
-			returning: []
+			with: undefined,
+			rows: readOff(
+				memberTable,
+				"m",
+				[...group, ...set.map((d) => d.value)],
+				[],
+				lastOf(family, "m")
+			),
+			match: groupMatch(input.installation.names, family, "owner", "member"),
+			set
 		},
 		reads: [
 			...cellsOf(
@@ -754,7 +855,7 @@ const treeUpdate = (
 	shape: TreeShape,
 	table: ObjectName,
 	added: ReadonlySet<string>
-): DraftedUpdate | undefined => {
+): DraftedDrawing | undefined => {
 	const { installation } = input
 	const member = relationOf(installation, family.member.name)
 	const owner = mapNonEmpty(family.group, (g) => g.owner.column)
@@ -1090,27 +1191,24 @@ const treeUpdate = (
 		)
 	)
 	const set = [
-		{ column: columnOf(family.index), value: col("b", "__at") },
-		{ column: family.count.column, value: col("b", "__children") },
-		{ column: family.copy, value: col("b", "__n") },
-		{ column: shape.start.column, value: col("b", "__start") },
-		{ column: shape.end.column, value: col("b", "__end") },
-		...planes.map(({ column, name }) => ({ column, value: col("b", name) }))
+		{ column: columnOf(family.index), value: "__at" },
+		{ column: family.count.column, value: "__children" },
+		{ column: family.copy, value: "__n" },
+		{ column: shape.start.column, value: "__start" },
+		{ column: shape.end.column, value: "__end" },
+		...planes.map(({ column, name }) => ({ column, value: name }))
 	].filter((a) => added.has(a.column))
 	if (!isNonEmpty(set)) {
 		return undefined
 	}
 	return {
-		kind: "update",
-		update: {
-			kind: "update",
-			with: { recursive: true, ctes: [closure, sized, ranked, stepped, started, ...folded] },
+		kind: "drawing",
+		drawing: {
 			table,
-			alias: "t",
-			set,
-			from: [derived(drawn, "b", [], false)],
-			where: sameKey(keyed, "t", "b"),
-			returning: []
+			with: { recursive: true, ctes: [closure, sized, ranked, stepped, started, ...folded] },
+			rows: { kind: "query", query: drawn },
+			match: keyMatch(keyed),
+			set
 		},
 		reads: cellsOf(table, [
 			...carried,
@@ -1120,51 +1218,181 @@ const treeUpdate = (
 	}
 }
 
+/** The names a tree's parent drawing gives what it computes (parentUpdate), none a field's. */
+const levelsName = "__levels"
+const rolesName = "__roles"
+const headsName = "__heads"
+
 /**
  * A tree's parent drawn anew over its kept intervals (deploy/diff/declared.ts sameSequence): each row's parent is the
- * start of the row of its own root value whose interval holds its own most tightly, the greatest start of a row of its
- * root that starts before it and ends at or after its end, and a row no row of its root encloses is its tree's root, its
- * own parent. Pre-order intervals nest, so the enclosing rows of a row are its ancestors and the one starting last is
- * its parent. Intervals that make no tree under the new root values, two trees merged under one or one split across
- * two, are drawn anyway, and VALIDATE refuses them by the tree's laws and its relation's key.
+ * start of the row of its own root value whose interval holds its own most tightly, and a row no row of its root holds
+ * is its tree's root, its own parent. A row's interval runs from its start to its end, one past its last descendant's
+ * start (T5, T6), so pre-order intervals nest: the rows holding a row are its ancestors, one at each depth above its
+ * own, and its parent is the one at the depth just above it. It is drawn over each root value's rows sorted, never by a
+ * probe per row:
+ *
+ * - `__levels`: each row's level, its depth plus one: over each root value's starts (+1) and ends (−1) in position
+ *   order, an end before a start at one position, the running sum at its own start, which counts itself and every row
+ *   that starts before it and has not ended by its start, its ancestors.
+ * - `__roles`: each row twice, a child at its own level and a candidate parent at the level below it, and over each
+ *   level of a root value in start order, `__run`, how many candidates start at or before each: a candidate and the
+ *   children after it, up to the next candidate, share one run.
+ * - `__heads`: each child's parent, the start of its run's candidate, the run's least start: between a row and its
+ *   parent in pre-order lie only the parent's descendants, so its parent is the last row of the level above it to start
+ *   before it. A child of run 0 has no row of the level above it before it, the root alone at level 1: its own start.
+ *
+ * Each window's frame is its default, RANGE, so rows tied at a position count together and every value is a function
+ * of the stored rows, whatever order PostgreSQL gives peers. Intervals that make no tree under the new root values, two
+ * trees merged under one or one split across two, are drawn anyway, and VALIDATE refuses them by the tree's laws and its
+ * relation's key: no parents make a tree of intervals that do not nest, and over nesting intervals of distinct starts
+ * each row's parent drawn here is the row holding it most tightly.
  */
-const parentUpdate = (names: OperatorNames, shape: TreeShape, table: ObjectName): DraftedUpdate => {
+const parentUpdate = (
+	input: BackfillInput,
+	family: Family,
+	shape: TreeShape,
+	table: ObjectName,
+	added: ReadonlySet<string>
+): DraftedDrawing => {
+	const keyed = memberKey(input, family, relationOf(input.installation, family.member.name), added)
+	const key = mapNonEmpty(keyed, (k) => k.column)
 	const start = shape.start.column
 	const end = shape.end.column
-	const enclosing = operandSelect(
-		core(
-			[targetAs(call("max", [col("o", start)]), "__parent")],
-			[{ kind: "table", table, alias: "o" }],
-			and([
-				...mapNonEmpty(shape.root, (r) =>
-					typedEq(r.type, col("o", r.column), col("t", r.column), names)
-				),
-				binary("<", col("o", start), col("t", start)),
-				binary(">=", col("o", end), col("t", end))
-			])
+	const root = mapNonEmpty(shape.root, (r) => r.column)
+	const carried = dedupeNonEmpty([...key, ...root, start])
+	const carry = (alias: string): ReadonlyArray<Target> =>
+		carried.map((c) => targetAs(col(alias, c), c))
+	const rootOf = (alias: string): ReadonlyArray<Expr> => root.map((r) => col(alias, r))
+	const int = (value: bigint): Expr => lit.int(value, types.integer)
+	const bound = (at: string, step: bigint): SetCore =>
+		provedCore(
+			"keyed",
+			[...carry("t"), targetAs(col("t", at), "__at"), targetAs(int(step), "__step")],
+			[{ kind: "table", table, alias: "t" }],
+			undefined
+		)
+	const levels = cte(
+		levelsName,
+		[],
+		select(
+			provedCore(
+				"keyed",
+				[
+					...carry("e"),
+					targetAs(col("e", "__step"), "__step"),
+					targetAs(
+						over(
+							"sum",
+							[col("e", "__step")],
+							window(rootOf("e"), [col("e", "__at"), col("e", "__step")], false)
+						),
+						"__level"
+					)
+				],
+				[
+					derived(select(unionAll("disjoint", [bound(start, 1n), bound(end, -1n)])), "e", [], false)
+				],
+				undefined
+			)
+		)
+	)
+	const role = (level: Expr, candidate: bigint): SetCore =>
+		provedCore(
+			"keyed",
+			[...carry("l"), targetAs(level, "__level"), targetAs(int(candidate), "__candidate")],
+			[cteRefAs(levelsName, "l")],
+			eq(col("l", "__step"), int(1n))
+		)
+	const roles = cte(
+		rolesName,
+		[],
+		select(
+			provedCore(
+				"keyed",
+				[
+					...carry("d"),
+					targetAs(col("d", "__level"), "__level"),
+					targetAs(col("d", "__candidate"), "__candidate"),
+					targetAs(
+						over(
+							"sum",
+							[col("d", "__candidate")],
+							window([...rootOf("d"), col("d", "__level")], [col("d", start)], false)
+						),
+						"__run"
+					)
+				],
+				[
+					derived(
+						select(
+							unionAll("disjoint", [
+								role(col("l", "__level"), 0n),
+								role(binary("+", col("l", "__level"), int(1n)), 1n)
+							])
+						),
+						"d",
+						[],
+						false
+					)
+				],
+				undefined
+			)
+		)
+	)
+	const heads = cte(
+		headsName,
+		[],
+		select(
+			provedCore(
+				"keyed",
+				[
+					...key.map((k) => targetAs(col("r", k), k)),
+					targetAs(col("r", "__candidate"), "__candidate"),
+					targetAs(
+						cast(
+							{
+								kind: "case",
+								operand: undefined,
+								whens: [{ when: eq(col("r", "__run"), int(0n)), result: col("r", start) }],
+								else: over(
+									"min",
+									[col("r", start)],
+									window([...rootOf("r"), col("r", "__level"), col("r", "__run")], [], false)
+								)
+							},
+							types.bigint
+						),
+						"__parent"
+					)
+				],
+				[cteRefAs(rolesName, "r")],
+				undefined
+			)
 		)
 	)
 	return {
-		kind: "update",
-		update: {
-			kind: "update",
-			with: undefined,
+		kind: "drawing",
+		drawing: {
 			table,
-			alias: "t",
-			set: [
-				{
-					column: shape.parent.column,
-					value: cast(
-						firstNonNull([{ kind: "subquery", query: enclosing }, col("t", start)]),
-						types.bigint
+			with: { recursive: false, ctes: [levels, roles, heads] },
+			rows: {
+				kind: "query",
+				query: select(
+					provedCore(
+						"keyed",
+						[
+							...key.map((k) => targetAs(col("h", k), k)),
+							targetAs(col("h", "__parent"), "__parent")
+						],
+						[cteRefAs(headsName, "h")],
+						eq(col("h", "__candidate"), int(0n))
 					)
-				}
-			],
-			from: [],
-			where: undefined,
-			returning: []
+				)
+			},
+			match: keyMatch(keyed),
+			set: [{ column: shape.parent.column, value: "__parent" }]
 		},
-		reads: cellsOf(table, [start, end, ...shape.root.map((r) => r.column)])
+		reads: cellsOf(table, [...carried, end])
 	}
 }
 
@@ -1175,43 +1403,28 @@ const treeEndUpdate = (
 	family: Family,
 	table: ObjectName,
 	added: ReadonlySet<string>
-): DraftedUpdate | undefined => {
+): DraftedDrawing | undefined => {
 	const planes = family.folds.flatMap((fold) =>
 		fold.planes.filter((plane) => added.has(plane.end.column))
 	)
-	const set = planes.map((plane) => ({
-		column: plane.end.column,
-		value: col("c", columnOf(plane.after))
-	}))
+	const set = planes.map((plane) => ({ column: plane.end.column, value: columnOf(plane.after) }))
 	if (!isNonEmpty(set)) {
 		return undefined
 	}
 	return {
-		kind: "update",
-		update: {
-			kind: "update",
-			with: undefined,
+		kind: "drawing",
+		drawing: {
 			table,
-			alias: "t",
-			set,
-			from: [{ kind: "table", table, alias: "c" }],
-			where: and([
-				...mapNonEmpty(family.group, (g) =>
-					typedEq(g.owner.type, col("c", g.member.column), col("t", g.owner.column), names)
-				),
-				not(
-					and(
-						mapNonEmpty(family.group, (g) =>
-							typedEq(g.owner.type, col("c", g.member.column), col("c", g.owner.column), names)
-						)
-					)
-				),
-				eq(
-					col("c", columnOf(family.index)),
-					binary("-", col("c", family.copy), lit.int(1n, types.bigint))
-				)
-			]),
-			returning: []
+			with: undefined,
+			rows: readOff(
+				table,
+				"c",
+				[...mapNonEmpty(family.group, (g) => g.member.column), ...set.map((d) => d.value)],
+				[],
+				and(appendNonEmpty(nonRoot(names, family, "c"), lastOf(family, "c")))
+			),
+			match: groupMatch(names, family, "owner", "member"),
+			set
 		},
 		reads: cellsOf(table, [
 			...family.group.flatMap((g) => [g.member.column, g.owner.column]),
@@ -1324,74 +1537,78 @@ const nonRoot = (names: OperatorNames, family: Family, alias: string): ReadonlyA
 			]
 		: []
 
-/** A copy's UPDATE: its column set, on every source row, to `to` on the row its axis names, read as the table stood
- * before the statement; a source row whose axis names none keeps its base. It reads its axis's columns on both rows, and
- * `to` on the target's. */
-const copyUpdate = (names: OperatorNames, copy: Copy): DraftedUpdate => {
+/** The name a predecessor copy's rows give the slot after each member's (copyUpdate), none a field's. */
+const nextName = "__next"
+
+/**
+ * A copy's UPDATE: its column set, on every source row, to `to` on the row its axis names, read as the table stood
+ * before the statement; a source row whose axis names none keeps its base. Its rows are the axis's targets, each met at
+ * the key the axis names it by: an owner at its key; a member at its group and the slot after its own, a tree's root
+ * never one, whose slot is none's after (the root pin holds it at slot 0); a member last of its family at its group. It
+ * reads its axis's columns on both rows, and `to` on the target's.
+ */
+const copyUpdate = (names: OperatorNames, copy: Copy): DraftedDrawing => {
 	const { family, from, to } = copy
 	const index = columnOf(family.index)
-	const members = family.group.map((g) => g.member.column)
+	const value = columnOf(to)
+	const members = mapNonEmpty(family.group, (g) => g.member.column)
 	const owners = family.group.map((g) => g.owner.column)
 	const rooted = family.members.kind === "tree" ? [...members, ...owners] : []
-	const predecessorOf = (row: string, before: string): Expr =>
-		eq(col(before, index), binary("-", col(row, index), lit.int(1n, types.bigint)))
 	const axis = ((): {
-		readonly where: NonEmptyReadonlyArray<Expr>
+		readonly rows: Rows
+		readonly match: NonEmptyReadonlyArray<Match>
 		readonly source: ReadonlyArray<string>
 		readonly target: ReadonlyArray<string>
 	} => {
 		switch (copy.axis) {
 			case "owner":
 				return {
-					where: mapNonEmpty(family.group, (g) =>
-						typedEq(g.owner.type, col("t", g.member.column), col("a", g.owner.column), names)
-					),
+					rows: { kind: "table", table: copy.target },
+					match: groupMatch(names, family, "member", "owner"),
 					source: members,
 					target: owners
 				}
 			case "predecessor":
 				return {
-					where: [
-						...mapNonEmpty(family.group, (g) =>
-							typedEq(g.owner.type, col("t", g.member.column), col("a", g.member.column), names)
-						),
-						...nonRoot(names, family, "t"),
-						...nonRoot(names, family, "a"),
-						predecessorOf("t", "a")
+					rows: readOff(
+						copy.target,
+						"a",
+						[...members, value],
+						[{ name: nextName, expr: binary("+", col("a", index), lit.int(1n, types.bigint)) }],
+						conjunction(nonRoot(names, family, "a"))
+					),
+					match: [
+						...groupMatch(names, family, "member", "member"),
+						{ target: index, source: nextName, operators: undefined }
 					],
-					source: [...members, index, ...rooted],
+					source: [...members, index],
 					target: [...members, index, ...rooted]
 				}
 			case "last":
 				return {
-					where: [
-						...mapNonEmpty(family.group, (g) =>
-							typedEq(g.owner.type, col("a", g.member.column), col("t", g.owner.column), names)
-						),
-						...nonRoot(names, family, "a"),
-						eq(col("a", index), binary("-", col("a", family.copy), lit.int(1n, types.bigint)))
-					],
+					rows: readOff(
+						copy.target,
+						"a",
+						[...members, value],
+						[],
+						and(appendNonEmpty(nonRoot(names, family, "a"), lastOf(family, "a")))
+					),
+					match: groupMatch(names, family, "owner", "member"),
 					source: owners,
 					target: [...members, index, family.copy, ...rooted]
 				}
 		}
 	})()
 	return {
-		kind: "update",
-		update: {
-			kind: "update",
-			with: undefined,
+		kind: "drawing",
+		drawing: {
 			table: copy.source,
-			alias: "t",
-			set: [{ column: columnOf(from), value: col("a", columnOf(to)) }],
-			from: [{ kind: "table", table: copy.target, alias: "a" }],
-			where: and(axis.where),
-			returning: []
+			with: undefined,
+			rows: axis.rows,
+			match: axis.match,
+			set: [{ column: columnOf(from), value }]
 		},
-		reads: [
-			...cellsOf(copy.source, axis.source),
-			...cellsOf(copy.target, [...axis.target, columnOf(to)])
-		]
+		reads: [...cellsOf(copy.source, axis.source), ...cellsOf(copy.target, [...axis.target, value])]
 	}
 }
 
@@ -1454,10 +1671,10 @@ const cellName = (c: Cell): string => `${c.table.name}.${c.column}`
  * UPDATE, with the columns it reads (a member part's are its own table's, MemberPart reads). */
 type Drafted =
 	| { readonly kind: "member"; readonly part: MemberPart }
-	| { readonly kind: "update"; readonly update: Update; readonly reads: ReadonlyArray<Cell> }
+	| { readonly kind: "drawing"; readonly drawing: Drawing; readonly reads: ReadonlyArray<Cell> }
 
-/** A backfill UPDATE as drafted, with the columns it reads. */
-type DraftedUpdate = Extract<Drafted, { readonly kind: "update" }>
+/** A backfill drawing as drafted, with the columns it reads. */
+type DraftedDrawing = Extract<Drafted, { readonly kind: "drawing" }>
 
 /** The columns a drafted statement draws: those it sets. */
 const drawsOf = (d: Drafted): ReadonlyArray<Cell> =>
@@ -1467,8 +1684,8 @@ const drawsOf = (d: Drafted): ReadonlyArray<Cell> =>
 				d.part.set.map((x) => x.column)
 			)
 		: cellsOf(
-				d.update.table,
-				d.update.set.map((a) => a.column)
+				d.drawing.table,
+				d.drawing.set.map((a) => a.column)
 			)
 
 /** The columns a drafted statement reads. */
@@ -1544,10 +1761,10 @@ const ordered = (planned: ReadonlyArray<Planned>): ReadonlyArray<Drafted> => {
 	return out
 }
 
-/** A backfill statement as merged: a table's member UPDATE of the parts it takes so far, or any other UPDATE. */
+/** A backfill statement as merged: a table's member UPDATE of the parts it takes so far, or a drawing. */
 type Merged =
 	| { readonly kind: "members"; readonly first: MemberPart; readonly rest: Array<MemberPart> }
-	| { readonly kind: "update"; readonly update: Update }
+	| { readonly kind: "drawing"; readonly drawing: Drawing }
 
 /** The columns of `table` a merged statement draws. */
 const drawsOn = (m: Merged, table: ObjectName): ReadonlyArray<string> => {
@@ -1556,8 +1773,8 @@ const drawsOn = (m: Merged, table: ObjectName): ReadonlyArray<string> => {
 			return nameKey(m.first.table) === nameKey(table)
 				? [m.first, ...m.rest].flatMap((p) => p.set.map((d) => d.column))
 				: []
-		case "update":
-			return nameKey(m.update.table) === nameKey(table) ? m.update.set.map((a) => a.column) : []
+		case "drawing":
+			return nameKey(m.drawing.table) === nameKey(table) ? m.drawing.set.map((a) => a.column) : []
 	}
 }
 
@@ -1574,8 +1791,8 @@ const merged = (drafted: ReadonlyArray<Drafted>): ReadonlyArray<Update> => {
 	const out: Array<Merged> = []
 	const open = new Map<string, Extract<Merged, { readonly kind: "members" }>>()
 	for (const d of drafted) {
-		if (d.kind === "update") {
-			out.push({ kind: "update", update: d.update })
+		if (d.kind === "drawing") {
+			out.push({ kind: "drawing", drawing: d.drawing })
 			continue
 		}
 		const key = nameKey(d.part.table)
@@ -1596,7 +1813,9 @@ const merged = (drafted: ReadonlyArray<Drafted>): ReadonlyArray<Update> => {
 		open.set(key, opened)
 		out.push(opened)
 	}
-	return out.map((m) => (m.kind === "update" ? m.update : memberUpdate([m.first, ...m.rest])))
+	return out.map((m) =>
+		m.kind === "drawing" ? drawingUpdate(m.drawing) : memberUpdate([m.first, ...m.rest])
+	)
 }
 
 /**
@@ -1657,7 +1876,7 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 				)
 			}
 			if (onMember.has(shape.parent.column)) {
-				plan(family, parentUpdate(input.installation.names, shape, memberTable))
+				plan(family, parentUpdate(input, family, shape, memberTable, onMember))
 			}
 			if (!columns.some((c) => onMember.has(c))) {
 				continue
