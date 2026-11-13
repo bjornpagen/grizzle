@@ -79,9 +79,14 @@
  * holds (families/tree.ts numbered, the direct pre-order numbering, and turnsOf over it), at a fresh install's catalog, every table rewritten
  * at most once, nothing left to generate; two documents mapped onto one root, a named case of its own weight, are
  * refused at migrate by a law of the keyed tree, its primary key's, its family's or its fold's, read from the compiled
- * installation. Its features: the old tree keyed, a tree of three levels or more, several old trees each its own root,
- * the refused merge, a fold over the copies selecting a member, a node whose parent's kind is not its
- * grandparent's, and a tree's count carried along the anchor family's owner axis from another node.
+ * installation. The parent drawn anew is read off each root's intervals sorted (backfill.ts parentUpdate), so every
+ * statement of the draft's backfill is judged on its SQL AST to read no row once per row of another, neither a
+ * subquery reading a row outside it nor a LATERAL source (test/support/migrate/probes.ts). Its features: the old tree
+ * keyed, a tree of three levels or more, several old trees each its own root, the refused merge, a fold over the copies
+ * selecting a member, a node whose parent's kind is not its grandparent's, a tree's count carried along the anchor
+ * family's owner axis from another node, and the shapes whose depths and levels the parent's backfill numbers: a
+ * single-node tree, a chain four levels deep, three siblings or more under one parent, and one level under two parents,
+ * each aimed at by a steered case that constructs it.
  *
  * Plants (~/.cache/grizzle-release/MIGSTRESS/plants): cutover-fk-keeps-old-key (a re-pointed foreign key keeps the
  * referenced table's old key), cutover-backfill-skips-rows (the family backfill skips a row of each group),
@@ -91,7 +96,10 @@
  * cutover-order-renumbered (a re-pointed sequence's stored index drawn again in its members' key order, which
  * a3b86f66 fixed); (~/.cache/grizzle-release/BACKFILLORDER/plants) backfill-fold-before-copies (a tree's fold drawn
  * before the copies its selection reads, as 73c7406e ordered them) and backfill-family-column-copied (a column a family
- * draws also drafted as another family's copy, which the backfill's order refuses as one column of two statements).
+ * draws also drafted as another family's copy, which the backfill's order refuses as one column of two statements);
+ * (~/.cache/grizzle-release/BACKFILLPROBE/plants) parent-correlated-probe (the parent drawn by a correlated max(start)
+ * over the tree's rows, one probe per row) and parent-depth-off-by-one (a row's level counting the rows that end at its
+ * start as still holding it).
  *
  * The file builds Substrate.isolatedLayer: the rewrite observer's event trigger is the database's.
  */
@@ -185,6 +193,7 @@ import {
 	type Previous
 } from "#test/support/migrate/kit.ts"
 import { type OldFormTree, oldFormTree } from "#test/support/migrate/old-form-tree.ts"
+import { perRowReads } from "#test/support/migrate/probes.ts"
 import { type Placeholder, readsBack, review } from "#test/support/migrate/review.ts"
 import { type RewriteObserver, rewriteObserver } from "#test/support/migrate/rewrites.ts"
 import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
@@ -1780,6 +1789,97 @@ const treeCaseGen: Gen<TreeCase> = (source) => {
 	}
 }
 
+/** The shapes of a tree whose depths and levels the parent's backfill numbers (backfill.ts parentUpdate). */
+type TreeShape =
+	| "a single-node tree"
+	| "a chain four levels deep"
+	| "three siblings or more under one parent"
+	| "one level under two parents"
+
+/** The shapes a tree case aims at. */
+const treeShapes: ReadonlyArray<TreeShape> = [
+	"a single-node tree",
+	"a chain four levels deep",
+	"three siblings or more under one parent",
+	"one level under two parents"
+]
+
+/** Each node's depth in a tree of `parents` (treeOfParents's numbering), the root's 0. */
+const depthsOf = (parents: ReadonlyArray<number>): ReadonlyArray<number> =>
+	Arr.reduce(parents, [0], (depths: ReadonlyArray<number>, p) => [
+		...depths,
+		nth(depths, p, "a parent numbered before its child") + 1
+	])
+
+/** The shapes a tree of `parents` has. */
+const shapesOf = (parents: ReadonlyArray<number>): ReadonlyArray<TreeShape> => {
+	const depths = depthsOf(parents)
+	const has: Readonly<Record<TreeShape, boolean>> = {
+		"a single-node tree": parents.length === 0,
+		"a chain four levels deep": Arr.some(depths, (d) => d >= 3),
+		"three siblings or more under one parent": Arr.some(
+			depths,
+			(_, p) => Arr.filter(parents, (q) => q === p).length >= 3
+		),
+		"one level under two parents": Arr.some(parents, (p, i) =>
+			Arr.some(parents, (q, j) => p !== q && depths[i + 1] === depths[j + 1])
+		)
+	}
+	return Arr.filter(treeShapes, (shape) => has[shape])
+}
+
+/** A document of `shape` by construction, its kinds drawn: one node; a chain of four to six; a root over three to five
+ * children; or a root over two children, each over at least one of the further nodes, so one level holds nodes of two
+ * parents. */
+const shapedDocumentGen =
+	(shape: TreeShape): Gen<OldDocument> =>
+	(source) => {
+		const parents = ((): ReadonlyArray<number> => {
+			switch (shape) {
+				case "a single-node tree":
+					return []
+				case "a chain four levels deep":
+					return indices(source.draw(int(3, 5)))
+				case "three siblings or more under one parent":
+					return Arr.map(indices(source.draw(int(3, 5))), () => 0)
+				case "one level under two parents":
+					return [
+						0,
+						0,
+						1,
+						2,
+						...Arr.map(indices(source.draw(int(0, 2))), () => source.draw(int(1, 2)))
+					]
+			}
+		})()
+		return { parents, kinds: Arr.map(indices(parents.length + 1), () => source.draw(int(0, 3))) }
+	}
+
+/** A tree case aimed at what is pending: a document of each pending shape and, where several trees or a merge are
+ * pending, a drawn document beside them; the second document mapped onto the first's root only where a merge is pending
+ * and no shape is, since a merge is refused before its rows are read. */
+const steeredTreeGen =
+	(pending: ReadonlySet<TreeFeature>): Gen<TreeCase> =>
+	(source) => {
+		const shapes = Arr.filter(treeShapes, (shape) => pending.has(shape))
+		const merge = shapes.length === 0 && pending.has("two old trees mapped onto one root, refused")
+		const shaped = Arr.map(shapes, (shape) => source.draw(shapedDocumentGen(shape)))
+		const documents =
+			shaped.length === 0 ||
+			merge ||
+			(shaped.length === 1 && pending.has("several old trees, each its own root"))
+				? [...shaped, source.draw(oldDocumentGen), source.draw(oldDocumentGen)]
+				: shaped
+		const own = Arr.map(documents, (_, d) => d)
+		return {
+			documents: nonEmpty(documents, "an old forest's documents"),
+			roots: nonEmpty(
+				merge ? Arr.map(own, (d) => (d === 1 ? 0 : d)) : own,
+				"the new root of each document"
+			)
+		}
+	}
+
 /** Whether a case maps two documents onto one new root. */
 const mergesTrees = (c: TreeCase): boolean => new Set(c.roots).size < c.roots.length
 
@@ -2086,6 +2186,18 @@ type TreeFeature =
 	| "two old trees mapped onto one root, refused"
 	| "a fold over copies along the parent, one hop and two, selecting a member"
 	| "a tree's count carried along another family's owner axis from another node"
+	| TreeShape
+
+/** What the tree property must reach. */
+const treeFeatures: Arr.NonEmptyReadonlyArray<TreeFeature> = [
+	"an old-form tree keyed by its root and start",
+	"a tree of three levels or more",
+	"several old trees, each its own root",
+	"two old trees mapped onto one root, refused",
+	"a fold over copies along the parent, one hop and two, selecting a member",
+	"a tree's count carried along another family's owner axis from another node",
+	...treeShapes
+]
 
 /** The laws a refused merge may name: the keyed tree's primary key, its family's and its fold's. */
 const treeLaws = (installation: Installation): ReadonlySet<string> =>
@@ -2143,6 +2255,11 @@ const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
 					}
 				}),
 				"the keyed tree drafts"
+			)
+			assert.deepEqual(
+				perRowReads(g.plan.steps),
+				[],
+				"the keyed tree's backfill reads no row once per row"
 			)
 			const reviewed = review(withDataStep(g, treeDataStep(tree, c)), {
 				losses: "written",
@@ -2221,6 +2338,11 @@ const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
 			if (anchorsElsewhere(c)) {
 				note("a tree's count carried along another family's owner axis from another node")
 			}
+			for (const doc of c.documents) {
+				for (const shape of shapesOf(doc.parents)) {
+					note(shape)
+				}
+			}
 			const again = succeeded(
 				generate({
 					previous: fromSnapshot(g.snapshot),
@@ -2285,17 +2407,7 @@ layer(Substrate.isolatedLayer)("the migrator under the identity cutover's deltas
 						suite: "pg/migrate/cutover-tree",
 						draw: drawn(treeCaseGen),
 						literal: Formatter.format,
-						coverage: required<TreeFeature>(
-							[
-								"an old-form tree keyed by its root and start",
-								"a tree of three levels or more",
-								"several old trees, each its own root",
-								"two old trees mapped onto one root, refused",
-								"a fold over copies along the parent, one hop and two, selecting a member",
-								"a tree's count carried along another family's owner axis from another node"
-							],
-							{ cases: 16, sense: notesOnly }
-						),
+						coverage: required<TreeFeature>(treeFeatures, { cases: 16, sense: notesOnly }),
 						kept: [],
 						runs: 2,
 						shrink: { kind: "bounded", candidates: 30 },
@@ -2303,7 +2415,15 @@ layer(Substrate.isolatedLayer)("the migrator under the identity cutover's deltas
 						steerEvery: 4,
 						caseHang
 					},
-					(c, k: Case<TreeFeature>) => treeHistory(c, (f) => k.note(f))
+					(drawnCase, k: Case<TreeFeature>) =>
+						treeHistory(
+							Option.match(k.steering, {
+								onNone: () => drawnCase,
+								onSome: (pending) =>
+									k.draw(steeredTreeGen(new Set(Arr.filter(treeFeatures, (f) => pending.has(f)))))
+							}),
+							(f) => k.note(f)
+						)
 				)
 			)
 	)

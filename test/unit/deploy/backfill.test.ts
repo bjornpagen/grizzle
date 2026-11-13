@@ -96,6 +96,7 @@ import {
 	generate,
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
+import { perRowReads } from "#test/support/migrate/probes.ts"
 import { plainPlan } from "#test/support/migrate/review.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -716,6 +717,7 @@ const assertBackfillOrder = (m: Migration, columns: ReadonlyArray<string>): void
 		Arr.every(slotsOf(steps, addsConstraint), (slot) => slot !== "structure"),
 		"no constraint is added before the backfill"
 	)
+	assert.deepEqual(perRowReads(steps), [], "no backfill statement reads a row once per row")
 }
 
 /** The ordered families, by how their lines are keyed after the migration. */
