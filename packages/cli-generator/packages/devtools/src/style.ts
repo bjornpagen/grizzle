@@ -19,7 +19,7 @@ import { DevtoolFailure } from "#shared/devtool.ts"
 import { type Finding, findingAt, type Report, renderFindings, statusOf } from "#shared/finding.ts"
 import { fixtureMismatchesOf, renderFixtureMismatches } from "#shared/fixtures.ts"
 import { gitFilesUnder } from "#shared/git.ts"
-import { nativeSession, openProgram, openProject } from "#shared/native-api.ts"
+import { withProgram } from "#shared/native-api.ts"
 import {
 	covers,
 	isGeneratedPath,
@@ -286,33 +286,34 @@ const lintApp = Effect.fn("lintApp")(function* (
 	const listed = Arr.filter(tracked, (file) => !isVendored(file) && !isGeneratedPath(file))
 	const css = Arr.filter(listed, isStylesheetPath)
 	const html = Arr.filter(listed, isHtmlPath)
-	return yield* Effect.scoped(
-		Effect.gen(function* () {
-			const project = yield* openProgram({
-				config: `${app.root}/tsconfig.json`,
-				extraFiles: Arr.filter(invocation.paths, isTypeScriptPath)
+	return yield* withProgram(
+		{
+			config: `${app.root}/tsconfig.json`,
+			extraFiles: Arr.filter(invocation.paths, isTypeScriptPath)
+		},
+		(project) =>
+			Effect.gen(function* () {
+				const programSources = yield* programSourcesOf(project, (file) => !isVendored(file))
+				const sources = Arr.filter(programSources, (sourceFile) =>
+					covers({ selected: app.root, file: sourceFile.fileName })
+				)
+				const selected = yield* selectFiles({
+					available: [...Arr.map(sources, (sourceFile) => sourceFile.fileName), ...css, ...html],
+					paths: invocation.paths
+				})
+				const isSelected = (file: string): boolean => Arr.contains(selected, file)
+				return yield* styleFindingsOf({
+					project,
+					files: Arr.filter(sources, (sourceFile) => isSelected(sourceFile.fileName)),
+					stylesheets: Arr.filter(css, isSelected),
+					appStylesheets: [app.stylesheet],
+					html: Arr.filter(html, isSelected),
+					known: [...Arr.map(programSources, (sourceFile) => sourceFile.fileName), ...css, ...html],
+					classHelper: app.classHelper,
+					system,
+					options
+				})
 			})
-			const programSources = yield* programSourcesOf(project, (file) => !isVendored(file))
-			const sources = Arr.filter(programSources, (sourceFile) =>
-				covers({ selected: app.root, file: sourceFile.fileName })
-			)
-			const selected = yield* selectFiles({
-				available: [...Arr.map(sources, (sourceFile) => sourceFile.fileName), ...css, ...html],
-				paths: invocation.paths
-			})
-			const isSelected = (file: string): boolean => Arr.contains(selected, file)
-			return yield* styleFindingsOf({
-				project,
-				files: Arr.filter(sources, (sourceFile) => isSelected(sourceFile.fileName)),
-				stylesheets: Arr.filter(css, isSelected),
-				appStylesheets: [app.stylesheet],
-				html: Arr.filter(html, isSelected),
-				known: [...Arr.map(programSources, (sourceFile) => sourceFile.fileName), ...css, ...html],
-				classHelper: app.classHelper,
-				system,
-				options
-			})
-		})
 	)
 })
 
@@ -358,45 +359,45 @@ const checkFixtures = Effect.gen(function* () {
 		Order.String
 	)
 	const sheetTexts = yield* readTexts(cssFiles)
-	const mismatches = yield* Effect.scoped(
-		Effect.gen(function* () {
-			const api = yield* nativeSession({ cwd: FIXTURES_ROOT })
-			const project = yield* openProject({ api, config: `${FIXTURES_ROOT}/tsconfig.json` })
-			const files = yield* programSourcesOf(project, (file) =>
-				covers({ selected: FIXTURES_ROOT, file })
-			)
-			const findings = yield* styleFindingsOf({
-				project,
-				files,
-				stylesheets: cssFiles,
-				appStylesheets: FIXTURE_APP_STYLESHEETS,
-				html: [],
-				known: [...Arr.map(files, (sourceFile) => sourceFile.fileName), ...cssFiles],
-				classHelper: `${FIXTURE_SUPPORT}/cn.ts`,
-				system,
-				options: FIXTURE_OPTIONS
-			})
-			const texts = new Map([
-				...Arr.map(files, (sourceFile) => [sourceFile.fileName, sourceFile.text] as const),
-				...Arr.map(sheetTexts, (sheet) => [sheet.file, sheet.text] as const)
-			])
-			return Arr.flatMap(FIXTURE_CASES, (fixtureCase) =>
-				fixtureMismatchesOf({
-					root: FIXTURES_ROOT,
-					extensionOf: () => (fixtureCase.rule === "stylesheet" ? ".css" : ".tsx"),
-					rules: [fixtureCase.directory],
-					runOf: ({ file }) =>
-						Option.map(Option.fromUndefinedOr(texts.get(file)), (text) => ({
-							text,
-							reported: Arr.filterMap(findings, (finding) =>
-								finding.file === file && finding.rule === fixtureCase.rule
-									? Result.succeed(finding.line)
-									: Result.failVoid
-							)
-						}))
+	const mismatches = yield* withProgram(
+		{ config: `${FIXTURES_ROOT}/tsconfig.json`, extraFiles: [] },
+		(project) =>
+			Effect.gen(function* () {
+				const files = yield* programSourcesOf(project, (file) =>
+					covers({ selected: FIXTURES_ROOT, file })
+				)
+				const findings = yield* styleFindingsOf({
+					project,
+					files,
+					stylesheets: cssFiles,
+					appStylesheets: FIXTURE_APP_STYLESHEETS,
+					html: [],
+					known: [...Arr.map(files, (sourceFile) => sourceFile.fileName), ...cssFiles],
+					classHelper: `${FIXTURE_SUPPORT}/cn.ts`,
+					system,
+					options: FIXTURE_OPTIONS
 				})
-			)
-		})
+				const texts = new Map([
+					...Arr.map(files, (sourceFile) => [sourceFile.fileName, sourceFile.text] as const),
+					...Arr.map(sheetTexts, (sheet) => [sheet.file, sheet.text] as const)
+				])
+				return Arr.flatMap(FIXTURE_CASES, (fixtureCase) =>
+					fixtureMismatchesOf({
+						root: FIXTURES_ROOT,
+						extensionOf: () => (fixtureCase.rule === "stylesheet" ? ".css" : ".tsx"),
+						rules: [fixtureCase.directory],
+						runOf: ({ file }) =>
+							Option.map(Option.fromUndefinedOr(texts.get(file)), (text) => ({
+								text,
+								reported: Arr.filterMap(findings, (finding) =>
+									finding.file === file && finding.rule === fixtureCase.rule
+										? Result.succeed(finding.line)
+										: Result.failVoid
+								)
+							}))
+					})
+				)
+			})
 	)
 	yield* Console.log(
 		renderFixtureMismatches({ tool: "style", root, rules: STYLE_RULES.length, mismatches })

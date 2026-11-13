@@ -12,7 +12,7 @@ import {
 	String as Str
 } from "effect"
 import type * as ts from "typescript/ast"
-import type { Checker } from "typescript/sync"
+import type { Checker, Project } from "typescript/sync"
 import { FIXTURE_OPTIONS, SuperlintOptions } from "#lint/options.ts"
 import { isAtAny } from "#lint/paths.ts"
 import { RULES } from "#lint/rules/index.ts"
@@ -22,7 +22,7 @@ import { DevtoolFailure } from "#shared/devtool.ts"
 import { type Finding, findingAt, renderFindings, statusOf } from "#shared/finding.ts"
 import { fixtureMismatchesOf, renderFixtureMismatches } from "#shared/fixtures.ts"
 import { gitFilesUnder } from "#shared/git.ts"
-import { nativeSession, openProgram, openProject } from "#shared/native-api.ts"
+import { withProgram } from "#shared/native-api.ts"
 import {
 	covers,
 	isGeneratedPath,
@@ -184,15 +184,12 @@ const tsOnlyExtensionFindings = Effect.gen(function* () {
 	)
 })
 
-/** The package's program and the source files it owns. */
-const openLintProgram = (
-	input: Readonly<{ packageRoot: string; extraFiles: ReadonlyArray<string> }>
-) =>
+/** The source files of the package's program that the package owns. */
+const ownedSourcesOf = (input: Readonly<{ project: Project; packageRoot: string }>) =>
 	Effect.gen(function* () {
 		const path = yield* Path.Path
 		const { app } = yield* Repository
-		const config = yield* configOf(input.packageRoot)
-		const project = yield* openProgram({ config, extraFiles: input.extraFiles })
+		const { project } = input
 		const fileNames = yield* Effect.try({
 			try: () => project.program.getSourceFileNames(),
 			catch: (cause) =>
@@ -256,11 +253,10 @@ const FIXTURES_ROOT = `${import.meta.dirname}/lint/fixtures`
 
 const checkFixtures = Effect.gen(function* () {
 	const { root } = yield* Repository
-	const mismatches = yield* Effect.scoped(
-		Effect.gen(function* () {
-			const api = yield* nativeSession({ cwd: FIXTURES_ROOT })
-			const project = yield* openProject({ api, config: `${FIXTURES_ROOT}/tsconfig.json` })
-			return yield* Effect.try({
+	const mismatches = yield* withProgram(
+		{ config: `${FIXTURES_ROOT}/tsconfig.json`, extraFiles: [] },
+		(project) =>
+			Effect.try({
 				try: () =>
 					fixtureMismatchesOf({
 						root: FIXTURES_ROOT,
@@ -281,7 +277,6 @@ const checkFixtures = Effect.gen(function* () {
 					}),
 				catch: (cause) => DevtoolFailure.make({ detail: "superlint fixtures failed to run", cause })
 			})
-		})
 	)
 	yield* Console.log(
 		renderFixtureMismatches({ tool: "superlint", root, rules: RULES.length, mismatches })
@@ -314,25 +309,25 @@ const main = Effect.gen(function* () {
 	const packageRoot = yield* Effect.sync(() => process.cwd())
 	const { root } = yield* Repository
 	const options = yield* projectOptions
-	const findings = yield* Effect.scoped(
-		Effect.gen(function* () {
-			const owned = yield* openLintProgram({
-				packageRoot,
-				extraFiles: Arr.filter(invocation.paths, isTypeScriptPath)
+	const config = yield* configOf(packageRoot)
+	const findings = yield* withProgram(
+		{ config, extraFiles: Arr.filter(invocation.paths, isTypeScriptPath) },
+		(project) =>
+			Effect.gen(function* () {
+				const owned = yield* ownedSourcesOf({ project, packageRoot })
+				const selected = yield* selectFiles({
+					available: Arr.map(owned, (source) => source.sourceFile.fileName),
+					paths: invocation.paths
+				})
+				const sources = Arr.filter(owned, (source) =>
+					Arr.contains(selected, source.sourceFile.fileName)
+				)
+				return yield* Effect.try({
+					try: () => Arr.flatMap(sources, (source) => findingsOf(source, options)),
+					catch: (cause) =>
+						DevtoolFailure.make({ detail: "superlint failed while collecting findings", cause })
+				})
 			})
-			const selected = yield* selectFiles({
-				available: Arr.map(owned, (source) => source.sourceFile.fileName),
-				paths: invocation.paths
-			})
-			const sources = Arr.filter(owned, (source) =>
-				Arr.contains(selected, source.sourceFile.fileName)
-			)
-			return yield* Effect.try({
-				try: () => Arr.flatMap(sources, (source) => findingsOf(source, options)),
-				catch: (cause) =>
-					DevtoolFailure.make({ detail: "superlint failed while collecting findings", cause })
-			})
-		})
 	)
 	const repository =
 		packageRoot === root

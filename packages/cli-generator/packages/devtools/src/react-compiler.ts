@@ -18,12 +18,13 @@ import {
 	Result,
 	String as Str
 } from "effect"
+import type { Project } from "typescript/sync"
 import { REACT_COMPILER_OPTIONS } from "#react-compiler/options.ts"
 import { invocationOf } from "#shared/arguments.ts"
 import { DevtoolFailure } from "#shared/devtool.ts"
 import { type Finding, renderFindings, statusOf } from "#shared/finding.ts"
 import { fixtureMismatchesOf, renderFixtureMismatches } from "#shared/fixtures.ts"
-import { openProgram } from "#shared/native-api.ts"
+import { withProgram } from "#shared/native-api.ts"
 import { isGeneratedPath, isTypeScriptPath, Repository } from "#shared/repository.ts"
 import { runDevtool } from "#shared/run.ts"
 import { selectFiles } from "#shared/selection.ts"
@@ -184,8 +185,7 @@ const compileAll = (
 
 /** The TypeScript sources of the package's program, installed and generated code and declaration files aside, in
  * name order. */
-const programSources = Effect.fn("programSources")(function* (packageRoot: string) {
-	const project = yield* openProgram({ config: `${packageRoot}/tsconfig.json`, extraFiles: [] })
+const programSources = Effect.fn("programSources")(function* (project: Project) {
 	const unreadable = (cause: unknown) =>
 		DevtoolFailure.make({ detail: "The program's source files could not be read", cause })
 	const candidates = yield* Effect.try({
@@ -258,7 +258,10 @@ const main = Effect.gen(function* () {
 	}
 	const packageRoot = yield* Effect.sync(() => process.cwd())
 	const { root } = yield* Repository
-	const available = yield* Effect.scoped(programSources(packageRoot))
+	const available = yield* withProgram(
+		{ config: `${packageRoot}/tsconfig.json`, extraFiles: [] },
+		programSources
+	)
 	const files = yield* selectFiles({ available, paths: invocation.paths })
 	const compiled = yield* compileAll({ compiler, files })
 	const findings = Arr.flatMap(compiled, (entry) => entry.findings)
