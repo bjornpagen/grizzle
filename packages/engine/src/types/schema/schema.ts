@@ -165,23 +165,32 @@ type FinSpelled<Fi, Rs, To extends Spelling> =
 
 type FamilySpelled<Fa, Rs, To extends Spelling> =
 	Fa extends Ordered<infer F, infer Fi>
-		? [SideSpelled<F, Rs, To>, FinSpelled<Fi, Rs, To>] extends [infer A, infer B]
-			? Ordered<A, B>
+		? SideSpelled<F, Rs, To> extends infer A
+			? FinSpelled<Fi, Rs, To> extends infer B
+				? Ordered<A, B>
+				: never
 			: never
 		: Fa extends Counted<infer F, infer Fi>
-			? [SideSpelled<F, Rs, To>, FinSpelled<Fi, Rs, To>] extends [infer A, infer B]
-				? Counted<A, B>
+			? SideSpelled<F, Rs, To> extends infer A
+				? FinSpelled<Fi, Rs, To> extends infer B
+					? Counted<A, B>
+					: never
 				: never
 			: Fa extends Tree<infer F, infer Fi, infer Root extends ReadonlyArray<string>>
-				? [SideSpelled<F, Rs, To>, FinSpelled<Fi, Rs, To>] extends [infer A, infer B]
-					? Tree<A, B, Root>
+				? SideSpelled<F, Rs, To> extends infer A
+					? FinSpelled<Fi, Rs, To> extends infer B
+						? Tree<A, B, Root>
+						: never
 					: never
 				: Fa
 
 /**
  * One statement spelled, each relation it names in place: an alternatives law keeps its arm map as written, the
  * caller's own object-literal type, which the checker instantiates as one type without walking its arms. Every
- * statement is built by an `infer` binding, so no spelled statement is a type reference the checker defers.
+ * statement is built by an `infer` binding, so no spelled statement is a type reference the checker defers, and each
+ * part is bound alone: inside a type alias the checker defers a tuple whose element is an alias, `[A<…>, B<…>]`, and
+ * instantiates it again for each check of the conditional it stands in, walking every relation of the record it
+ * names, where an alias bound by itself, `A<…> extends infer X`, is resolved once.
  */
 type StatementSpelled<St, Rs, To extends Spelling> =
 	St extends Key<infer S>
@@ -201,24 +210,30 @@ type StatementSpelled<St, Rs, To extends Spelling> =
 						? Check<N, X>
 						: never
 					: St extends Containment<infer L, infer R>
-						? [SideSpelled<L, Rs, To>, SideSpelled<R, Rs, To>] extends [infer A, infer B]
-							? Containment<A, B>
+						? SideSpelled<L, Rs, To> extends infer A
+							? SideSpelled<R, Rs, To> extends infer B
+								? Containment<A, B>
+								: never
 							: never
 						: St extends Mirrors<infer L, infer R>
-							? [SideSpelled<L, Rs, To>, SideSpelled<R, Rs, To>] extends [infer A, infer B]
-								? Mirrors<A, B>
+							? SideSpelled<L, Rs, To> extends infer A
+								? SideSpelled<R, Rs, To> extends infer B
+									? Mirrors<A, B>
+									: never
 								: never
 							: St extends Alternatives<infer P, infer D extends string, infer C, infer Arms>
-								? [KeyRefSpelled<P, Rs, To>, Spelled<C, Rs, To>] extends [infer A, infer B]
-									? Alternatives<A, D, B, Arms>
+								? KeyRefSpelled<P, Rs, To> extends infer A
+									? Spelled<C, Rs, To> extends infer B
+										? Alternatives<A, D, B, Arms>
+										: never
 									: never
 								: St extends Fold<infer Fa, infer M, infer S, infer E>
-									? [
-											FamilySpelled<Fa, Rs, To>,
-											SideSpelled<S, Rs, To>,
-											SideSpelled<E, Rs, To>
-										] extends [infer A, infer B, infer C]
-										? Fold<A, M, B, C>
+									? FamilySpelled<Fa, Rs, To> extends infer A
+										? SideSpelled<S, Rs, To> extends infer B
+											? SideSpelled<E, Rs, To> extends infer C
+												? Fold<A, M, B, C>
+												: never
+											: never
 										: never
 									: FamilySpelled<St, Rs, To>
 
