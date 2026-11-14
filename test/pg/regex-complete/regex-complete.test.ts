@@ -12,7 +12,8 @@
  *   reader's bind (adapter/reader/relations.ts executionInputs) parses only its base carrier, a value outside its
  *   refinement is refused with 23514 on that domain, and a value inside them matches exactly its rows, under generic and custom plans and unprepared, in both artifacts, also
  *   where the query emits the parameter, a fused attachment's child emits it inside its array, or a union's arm emits
- *   it beside an arm that stores it; each forced plan is checked against pg_prepared_statements;
+ *   it beside an arm that stores it; each forced plan is checked against pg_prepared_statements, and each refusal to
+ *   come before PostgreSQL chooses any plan;
  * - a scalar parameter's and a relation parameter's refined values alike, a relation parameter's refined column, which
  *   the optimized delivery casts to its domain in the output list (lower/shapes/refined), included;
  * - a Compute.cast into a refinement no value of its operand is proved to satisfy is refused by compilation
@@ -315,11 +316,14 @@ const literal = (text: string): string => `'${Str.replaceAll("'", "''")(text)}'`
 type Plan = "generic" | "custom"
 
 /**
- * Runs one statement under a forced plan, through PREPARE and EXECUTE, and checks in pg_prepared_statements that
- * PostgreSQL used that plan, whether the execution succeeded or failed: PostgreSQL counts the plan it chose before
- * it runs it. A statement with no bound value is never given a custom plan, so the check also refuses a case that
- * could not exercise one. The execution's own outcome is returned. The plan mode and the prepared statement are held in
- * the call's scope, so both are released however the call ends, and one name serves every call.
+ * Runs one statement under a forced plan, through PREPARE and EXECUTE, and checks in pg_prepared_statements which plan
+ * PostgreSQL chose: the forced plan where the execution ran, and none where it failed. Every refusal these suites draw
+ * is a parameter its domain refuses as it is bound, and EXECUTE binds its parameters before it chooses a plan
+ * (commands/prepare.c ExecuteQuery: EvaluateParams, then GetCachedPlan, which counts the plan it returns), so a
+ * failure that came with a plan chosen did not come at bind. A statement with no bound value is never given a custom
+ * plan, so the check also refuses a case that could not exercise one. The execution's own outcome is returned. The
+ * plan mode and the prepared statement are held in the call's scope, so both are released however the call ends, and
+ * one name serves every call.
  */
 const runPlanned = (
 	session: RawSession,
@@ -351,14 +355,19 @@ const runPlanned = (
 			`SELECT generic_plans::text, custom_plans::text FROM pg_catalog.pg_prepared_statements WHERE name = '${name}'`,
 			[]
 		)
+		if (Exit.isFailure(run)) {
+			assert.deepEqual(
+				counts[0],
+				["0", "0"],
+				`no plan chosen under force_${plan}_plan: refused at bind`
+			)
+			return yield* Effect.failCause(run.cause)
+		}
 		assert.deepEqual(
 			counts[0],
 			plan === "generic" ? ["1", "0"] : ["0", "1"],
 			`the plan PostgreSQL used under force_${plan}_plan`
 		)
-		if (Exit.isFailure(run)) {
-			return yield* Effect.failCause(run.cause)
-		}
 		return run.value
 	}).pipe(Effect.scoped)
 
