@@ -195,9 +195,12 @@ const importsOf = (
 				imports.push({ specifier: next.text, line: t.line, kind: "static" })
 				continue
 			}
-			/** import <bindings> from "m" */
+			/** import <bindings> from "m": the `from` its specifier follows, as a binding may be named from */
 			let j = i + 1
-			while (j < tokens.length && !isIdent(tokens[j], "from")) {
+			while (
+				j < tokens.length &&
+				!(isIdent(tokens[j], "from") && tokens[j + 1]?.kind === "string")
+			) {
 				j += 1
 			}
 			const spec = tokens[j + 1]

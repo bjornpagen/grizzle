@@ -247,13 +247,13 @@ export const mapShape = <L, M>(member: MemberShape<L>, f: (leaf: L) => M): Membe
 
 /**
  * How the caller spells an Option, which the engine loads no Effect to build or read: Effect's `Option.some`,
- * `Option.none()`, `Option.isOption` and `Option.match`, passed where a codec of a member is made.
+ * `Option.none()`, `Option.isOption` and `Option.match` as `fold`, passed where a codec of a member is made.
  */
 export interface WireOptions {
 	readonly some: <A>(value: A) => Option.Option<A>
 	readonly none: Option.Option<never>
 	readonly is: (value: unknown) => value is Option.Option<unknown>
-	readonly match: <A, B>(
+	readonly fold: <A, B>(
 		option: Option.Option<A>,
 		cases: { readonly onNone: () => B; readonly onSome: (value: A) => B }
 	) => B

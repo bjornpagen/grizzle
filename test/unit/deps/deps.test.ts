@@ -21,7 +21,10 @@
  *
  * Plants (~/.cache/grizzle-release/BR07/plants): deps-audit-instanceof-blind.patch (the audit missing `new RegExp`)
  * turns the planted-module property red; deps-src-regexp.patch (a src module building and running a RegExp as it
- * loads) the tree's audit and the runtime one.
+ * loads) the tree's audit and the runtime one. In ~/.cache/grizzle-release/SOURCEEXPORT/plants:
+ * import-from-binding-scan.patch (an import's clause read at the first `from`, a binding's name) turns the
+ * planted-module property and the tree's audit red; wire-options-match-name.patch (live/shape.ts WireOptions' `fold`
+ * named `match` again) the tree's audit.
  *
  * The layering (which areas a module may import) is fallow's boundaries (.fallowrc.json), and the packages an area may
  * load are oxlint's no-restricted-imports (oxlint.config.ts).

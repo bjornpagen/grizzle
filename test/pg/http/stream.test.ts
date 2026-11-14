@@ -342,7 +342,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a call over HTTP", (it) =
 									some: Option.some,
 									none: Option.none(),
 									is: Option.isOption,
-									match: Option.match
+									fold: Option.match
 								})
 								const body = bodyOf(call)
 								const response = yield* Effect.promise(() =>

@@ -131,7 +131,7 @@ const encodeOption = (
 	if (!options.is(value)) {
 		throw defect("an Option of a child record")
 	}
-	return options.match(value, {
+	return options.fold(value, {
 		onNone: (): WireJson => null,
 		onSome: (record) => encodeRecord(child, record, options)
 	})

@@ -113,6 +113,7 @@ type ImportFeature =
 	| "an import of a type binding"
 	| "a named import"
 	| "a renamed import"
+	| "an import of a binding named from"
 	| "a namespace import"
 	| "a default import"
 	| "a side-effect import"
@@ -194,6 +195,7 @@ export const plantedFeatures: Arr.NonEmptyReadonlyArray<PlantedFeature> = [
 	"an import of a type binding",
 	"a named import",
 	"a renamed import",
+	"an import of a binding named from",
 	"a namespace import",
 	"a default import",
 	"a side-effect import",
@@ -646,6 +648,12 @@ const importPiece =
 				() => runs("an import of a type binding", "static", `import { type T${n} } from "${spec}"`),
 				() => runs("a named import", "static", `import { a${n} } from "${spec}"`),
 				() => runs("a renamed import", "static", `import { a${n} as b${n} } from "${spec}"`),
+				() =>
+					runs(
+						"an import of a binding named from",
+						"static",
+						`import { from as f${n} } from "${spec}"`
+					),
 				() => runs("a namespace import", "static", `import * as ns${n} from "${spec}"`),
 				() => runs("a default import", "static", `import d${n} from "${spec}"`),
 				() => runs("a side-effect import", "static", `import "${spec}"`),

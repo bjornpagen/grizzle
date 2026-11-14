@@ -157,7 +157,7 @@ const wireOptions: WireOptions = {
 	some: Option.some,
 	none: Option.none(),
 	is: Option.isOption,
-	match: Option.match
+	fold: Option.match
 }
 
 /**
