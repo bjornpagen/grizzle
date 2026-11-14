@@ -610,6 +610,35 @@ const neutralBy = (s: StatementFacts, probe: ProbeFact, g: string): Neutral | un
 		: { positive, joins, path }
 }
 
+/** One read of a statement with its seal. */
+interface SealedRead {
+	readonly read: ReadFact
+	readonly seal: ReadSeal
+}
+
+/**
+ * A statement's outside reads beneath each of its probes, by the probe's place: each outside read once under every
+ * probe it stands beneath, in the reads' order. A probe no outside read stands beneath has none.
+ */
+const outsideBeneath = (
+	placed: ReadonlyArray<SealedRead>
+): ReadonlyMap<number, ReadonlyArray<SealedRead>> => {
+	const by = new Map<number, Array<SealedRead>>()
+	for (const p of placed) {
+		if (outside(p.seal)) {
+			for (const id of new Set(p.read.probes)) {
+				const held = by.get(id)
+				if (held === undefined) {
+					by.set(id, [p])
+				} else {
+					held.push(p)
+				}
+			}
+		}
+	}
+	return by
+}
+
 /**
  * The probes of a statement that are a function of positive reads, by their places, each with its proof, one Neutral
  * per non-own outside read beneath it: each such read is of a sealed group the statement also reads positively, beneath
@@ -626,15 +655,13 @@ const neutralBy = (s: StatementFacts, probe: ProbeFact, g: string): Neutral | un
  */
 const neutralOf = (
 	s: StatementFacts,
-	placed: ReadonlyArray<{ readonly read: ReadFact; readonly seal: ReadSeal }>
+	placed: ReadonlyArray<SealedRead>
 ): ReadonlyMap<number, ReadonlyArray<Neutral>> => {
+	const beneath = outsideBeneath(placed)
 	const neutral = new Map<number, ReadonlyArray<Neutral>>()
 	for (const [id, probe] of s.probes.entries()) {
 		const proofs: Array<Neutral> = []
-		const holds = placed.every(({ read, seal }) => {
-			if (!read.probes.includes(id) || !outside(seal)) {
-				return true
-			}
+		const holds = (beneath.get(id) ?? []).every(({ read, seal }) => {
 			const proof = seal.kind === "unsealed" ? undefined : neutralBy(s, probe, groupOf(read))
 			if (proof !== undefined) {
 				proofs.push(proof)
