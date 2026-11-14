@@ -991,66 +991,62 @@ const changeSetOf = (
 	const appRole = o.rig.worlds.app
 	const params: Record<string, ReadonlyArray<unknown>> = {}
 	const stratumOf = (members: ReadonlyArray<Member>): ChangeSetValue =>
-		Arr.reduce(
-			members,
-			ChangeSet.empty(appRole),
-			(changes: ChangeSetValue, m): ChangeSetValue => {
-				switch (m.kind) {
-					case "enumerated": {
-						const facts = Arr.map(m.facts, (f) => recordOf(m.relation, f))
-						const relation = relationOf[m.relation]
-						return m.op === "insert"
-							? changes.insert(relation, facts)
-							: m.op === "delete"
-								? changes.delete(relation, facts)
-								: changes.put(relation, facts)
-					}
-					case "generated":
-						return changes.insert(
-							Ticket,
-							Arr.map(m.labels, (label) => ({ label }))
+		Arr.reduce(members, ChangeSet.empty(appRole), (changes: ChangeSetValue, m): ChangeSetValue => {
+			switch (m.kind) {
+				case "enumerated": {
+					const facts = Arr.map(m.facts, (f) => recordOf(m.relation, f))
+					const relation = relationOf[m.relation]
+					return m.op === "insert"
+						? changes.insert(relation, facts)
+						: m.op === "delete"
+							? changes.delete(relation, facts)
+							: changes.put(relation, facts)
+				}
+				case "generated":
+					return changes.insert(
+						Ticket,
+						Arr.map(m.labels, (label) => ({ label }))
+					)
+				case "move":
+					return changes.put(
+						Note,
+						query(appRole).rule((r: RuleValue) =>
+							r.match(Note, { id: Number(m.id) }).find({ id: Number(m.id), label: m.label })
 						)
-					case "move":
-						return changes.put(
-							Note,
-							query(appRole).rule((r: RuleValue) =>
-								r.match(Note, { id: Number(m.id) }).find({ id: Number(m.id), label: m.label })
-							)
-						)
-					case "scoped": {
-						const name = scopedItems
-						params[name] = Arr.map(m.facts, (f) => recordOf("Note", f))
-						return changes
-							.put(
-								Note,
-								query(appRole).rule((r: RuleValue) => {
-									const { id, label } = v(Note, "note")
-									return r.match(r.relation(name, Note), { id, label }).find({ id, label })
-								})
-							)
-							.delete(
-								Note,
-								query(appRole).rule((r: RuleValue) => {
-									const { id, label } = v(Note, "note")
-									return r
-										.match(Note, { id, label })
-										.where(r.eq(label, m.scope))
-										.where(r.not(r.relation(name, Note), { id }))
-										.find({ id, label })
-								})
-							)
-					}
-					case "copied":
-						return changes.put(
+					)
+				case "scoped": {
+					const name = scopedItems
+					params[name] = Arr.map(m.facts, (f) => recordOf("Note", f))
+					return changes
+						.put(
 							Note,
 							query(appRole).rule((r: RuleValue) => {
-								const { label } = v(Item, "item")
-								return r.match(Item, { id: Number(m.id), label }).find({ id: Number(m.id), label })
+								const { id, label } = v(Note, "note")
+								return r.match(r.relation(name, Note), { id, label }).find({ id, label })
+							})
+						)
+						.delete(
+							Note,
+							query(appRole).rule((r: RuleValue) => {
+								const { id, label } = v(Note, "note")
+								return r
+									.match(Note, { id, label })
+									.where(r.eq(label, m.scope))
+									.where(r.not(r.relation(name, Note), { id }))
+									.find({ id, label })
 							})
 						)
 				}
+				case "copied":
+					return changes.put(
+						Note,
+						query(appRole).rule((r: RuleValue) => {
+							const { label } = v(Item, "item")
+							return r.match(Item, { id: Number(m.id), label }).find({ id: Number(m.id), label })
+						})
+					)
 			}
-		)
+		})
 	const [first, ...rest] = Arr.map(op.strata, stratumOf)
 	if (first === undefined) {
 		throw new Error("a grizzle op of no stratum")

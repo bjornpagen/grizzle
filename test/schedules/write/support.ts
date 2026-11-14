@@ -87,7 +87,7 @@ export const Seat = relation("Seat", { id: pg.integer, holder: pg.integer }, ["i
 
 /** Code's and Ticket's candidate keys, and Ref's foreign key into Item, which the write model reads off the schema's own
  * description (races.test.ts lawsOf). */
-export const codeKey = key(on(Code, "code"))
+const codeKey = key(on(Code, "code"))
 const ticketLabel = key(on(Ticket, "label"))
 const refItem = contained(on(Ref, "item"), on(Item, "id"))
 /** Badge's candidate key: the unique object beside its arbiter that two certified READ COMMITTED inserts race at. */
@@ -288,7 +288,7 @@ export const openClaimer =
 		openServed(rig.served.roles.claimer, {}).pipe(Effect.provideContext(context))
 
 /** A role of the login `server` that runs ChangeSets. */
-export type Writing = "app" | "inserter" | "claimer"
+export type ServerWriter = "app" | "inserter" | "claimer"
 
 /** A ChangeSet as a role of `server` serves it: its member, whose operations a writer runs, and its loaded change. */
 export interface RoleChange {
@@ -306,7 +306,11 @@ export interface ServedChanges {
 }
 
 /** The one of `roles` that is the role `name`, by `nameOf`. */
-const roleNamed = <T>(roles: ReadonlyArray<T>, nameOf: (role: T) => string, name: Writing): T =>
+const roleNamed = <T>(
+	roles: ReadonlyArray<T>,
+	nameOf: (role: T) => string,
+	name: ServerWriter
+): T =>
 	defined(
 		Option.getOrUndefined(Arr.findFirst(roles, (r) => nameOf(r) === name)),
 		`the role ${name} of the served login`
@@ -331,7 +335,7 @@ const changesOf = (members: ReadonlyArray<LoadedMember>): ReadonlyMap<string, Ro
  */
 export const servedChanges = (
 	o: Opened,
-	role: Writing,
+	role: ServerWriter,
 	programs: Readonly<Record<string, ChangeSetValue>>
 ): Effect.Effect<ServedChanges, ServedRefusal | CompileError | OpenError> =>
 	Effect.gen(function* () {
@@ -367,7 +371,7 @@ export const servedChanges = (
  */
 export const committedChanges = (
 	o: Opened,
-	role: Writing
+	role: ServerWriter
 ): Effect.Effect<
 	{ readonly isolation: Isolation; readonly changes: ReadonlyMap<string, RoleChange> },
 	OpenError
