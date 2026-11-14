@@ -25,6 +25,7 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
+import { TupleSet } from "#compiler/core/tuple-map.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import {
@@ -93,19 +94,17 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 						const shown = yield* session.values(`SHOW ${p.parameter}`, [])
 						assert.deepEqual(shown, [[p.value]], p.parameter)
 					}
-					const eligible = (account: string): number =>
-						Arr.filter(
-							fx.facts,
-							(d) =>
-								d.account === account && Arr.some(d.embeddings, (e) => e.revision === d.current)
-						).length
-					const current = new Set(
-						Arr.flatMap(fx.facts, (d) =>
-							Arr.some(d.embeddings, (e) => e.revision === d.current)
-								? [`${d.id}/${d.current}`]
-								: []
-						)
+					/** The documents whose current revision has an embedding: each an eligible fact, keyed (document, revision). */
+					const eligibleFacts = Arr.filter(fx.facts, (d) =>
+						Arr.some(d.embeddings, (e) => e.revision === d.current)
 					)
+					const eligible = (account: string): number =>
+						Arr.filter(eligibleFacts, (d) => d.account === account).length
+					/** The eligible facts' keys as values, which a row's (document, revision) is one of when its values are. */
+					const current = new TupleSet<ReadonlyArray<unknown>>()
+					for (const d of eligibleFacts) {
+						current.add([d.id, d.current])
+					}
 					return yield* withServedDb(fx.installed, fx.opened.server.roles.app, {}, ({ serve }) =>
 						Effect.gen(function* () {
 							const served = yield* serve(fx.opened.programs)
@@ -146,8 +145,8 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 											`account ${label}: the request filled up to the eligible facts`
 										)
 										for (const row of rows) {
-											const fact = `${Formatter.format(row["document"])}/${Formatter.format(row["revision"])}`
-											assert.ok(current.has(fact), `${fact} is an eligible fact`)
+											const fact = [row["document"], row["revision"]]
+											assert.ok(current.has(fact), `${Formatter.format(fact)} is an eligible fact`)
 											assert.equal(typeof row["distance"], "number")
 										}
 										c.note(`account ${label}`)
