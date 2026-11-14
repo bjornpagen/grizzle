@@ -287,14 +287,15 @@ export const treeShape = (
 	if (s.slots.owner !== t.name || atTerm === undefined || extra.length > 0) {
 		return refuseNamed(loc, familySides.tree)
 	}
+	/**
+	 * A field grizzle draws for the tree, its parent, its index or its interval, refused as the tree's shape where it is
+	 * none, as the types refuse it (types/schema/statements.ts SelfFamily).
+	 */
+	const drawnOfTree = (f: LawField | undefined): LawField =>
+		f?.writing.kind === "drawn" ? f : refuseNamed(loc, familySides.tree)
 	/** A tree's interval field by its name, drawn by its one depth-first walk. */
-	const interval = (name: "start" | "end"): LawField => {
-		const f = t.fields.find((g) => g.name === name)
-		if (f?.writing.kind !== "drawn") {
-			return refuseNamed(loc, familySides.tree)
-		}
-		return f
-	}
+	const interval = (name: "start" | "end"): LawField =>
+		drawnOfTree(t.fields.find((g) => g.name === name))
 	const start = interval("start")
 	const root = mapNonEmpty(s.root, (name) => {
 		const f = fieldOf(t, name, loc)
@@ -309,8 +310,8 @@ export const treeShape = (
 	) {
 		return refuseNamed(loc, familySides.tree)
 	}
-	const parent = drawnField(t, fieldTerm(t, parentTerm, "a tree's side", loc), "parent", loc)
-	const at = drawnField(t, fieldTerm(t, atTerm, "a tree's side", loc), "index", loc)
+	const parent = drawnOfTree(fieldTerm(t, parentTerm, "a tree's side", loc))
+	const at = drawnOfTree(fieldTerm(t, atTerm, "a tree's side", loc))
 	const id: FamilyId = { owner: t.name, count: s.slots.count }
 	const count = drawnField(t, fieldOf(t, s.slots.count, loc), "count", loc)
 	const group: TreeFamilyShape["group"] = appendNonEmpty(

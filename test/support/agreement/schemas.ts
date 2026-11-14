@@ -235,6 +235,8 @@ const schemaForms = [
 	"derivedNegated",
 	"finOfKey",
 	"finOfAccumulated",
+	"treeParentWritten",
+	"treeIndexWritten",
 	"closedKeyOne",
 	"closedKeyTwo",
 	"closedKeyThree",
@@ -298,7 +300,7 @@ const schemaFaults = [
 	"countedPair",
 	"monoidMismatch",
 	"endPlanes",
-	"treeParentType",
+	"treeSideWritten",
 	"drawnNotNatural",
 	"accumulatedWriting",
 	"accumulatedStart",
@@ -560,7 +562,7 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 		"the monoid admits the step value's type: sum an exact number, or and twos a set, max an ordered value with a least one, concat a text"
 	),
 	endPlanes: named("a fold's end names one accumulated field of the owner per plane"),
-	treeParentType: named(
+	treeSideWritten: named(
 		"a tree is a family of T over itself, on(T, parent, at), keyed by its root fields then start, with drawn parent, start and end"
 	),
 	drawnNotNatural: structural({ tag: "MalformedDescription" }, "a drawn field is a natural"),
@@ -4431,7 +4433,7 @@ const tallyName = "Tally"
 const familyProbe = (d: Drawing, base: Base): Probe => {
 	const roster = d.from(base.rosters)
 	const drawn = d.from<
-		FoldFault | "treeParentType" | "countedSide" | "concatFold" | "refinedFold" | undefined
+		FoldFault | "treeSideWritten" | "countedSide" | "concatFold" | "refinedFold" | undefined
 	>([
 		undefined,
 		undefined,
@@ -4444,12 +4446,12 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 		"concatCounted",
 		"concatHidden",
 		"contractEnd",
-		"treeParentType",
+		"treeSideWritten",
 		"countedSide"
 	])
 	const fault = drawn === "concatFold" || drawn === "refinedFold" ? undefined : drawn
 	const refined = drawn === "refinedFold"
-	if (fault === "treeParentType") {
+	if (fault === "treeSideWritten") {
 		return treeProbe(d)
 	}
 	if (fault === "countedSide") {
@@ -4834,24 +4836,29 @@ const selectedMemberProbe = (fault: KeptFault): Probe => {
 }
 
 /**
- * A tree of its own: a node relation over itself keyed by its root field and its start, its parent drawn, or, a planted
- * fault, its caller's integer.
+ * A tree of its own: a node relation over itself keyed by its root field and its start, its side's parent and index
+ * drawn, or, a planted fault, one of them its caller's integer.
  */
 const treeProbe = (d: Drawing): Probe => {
-	const loose = d.upTo(1) === 1
+	const written = d.from([undefined, "parent", "at"] as const)
+	if (written !== undefined) {
+		d.note(written === "parent" ? "treeParentWritten" : "treeIndexWritten")
+	}
 	const drawnField = (name: string): FieldSpec => ({
 		name,
 		type: { kind: "natural" },
 		writing: { kind: "drawn" }
 	})
+	const sideField = (name: "parent" | "at"): FieldSpec =>
+		name === written
+			? { name, type: { kind: "pg", spelling: "integer" }, writing: callerWriting }
+			: drawnField(name)
 	const node: RelationSpec = {
 		name: "T",
 		fields: [
 			{ name: "doc", type: { kind: "uuid" }, writing: callerWriting },
-			loose
-				? { name: "parent", type: { kind: "pg", spelling: "integer" }, writing: callerWriting }
-				: drawnField("parent"),
-			drawnField("at"),
+			sideField("parent"),
+			sideField("at"),
 			drawnField("children"),
 			drawnField("start"),
 			drawnField("end")
@@ -4860,7 +4867,7 @@ const treeProbe = (d: Drawing): Probe => {
 	}
 	return {
 		construct: "familyProbe",
-		refused: loose ? "treeParentType" : undefined,
+		refused: written === undefined ? undefined : "treeSideWritten",
 		text: (ids, own) => {
 			const mine = (name: string) => (name === "T" ? `${own}_T` : ids(name))
 			return {
