@@ -112,7 +112,7 @@ import {
 	type Var
 } from "#test/support/oracle/public/program.ts"
 import { argType, computedType } from "#test/support/oracle/public/terms.ts"
-import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
+import { pickFrom, pickGen, pickIndex, pickOf } from "#test/support/pick.ts"
 
 /**
  * The features a case's swarm turns on, off and thins.
@@ -1242,6 +1242,32 @@ export const caseSketchGen: Gen<CaseSketch> = (decisions) => {
 		relations: decisions.draw(array(relationGen, { min: 1, max: 3 })),
 		reads: decisions.draw(array(readGen, { min: 1, max: 3 })),
 		planted: decisions.draw(plantedGen)
+	}
+}
+
+/** A field kind pick that selects a kind other than prose: the pick itself, or the next kind's where it selects prose. */
+const offProse = (pick: number): number => {
+	const at = pickIndex(pick, fieldKinds.length)
+	return fieldKinds[at] === "prose" ? pickOf((at + 1) % fieldKinds.length, fieldKinds.length) : pick
+}
+
+/**
+ * A case sketch whose case the compile admits by construction and whose reads look up by their parameters: the
+ * form-directed population, which turns on compared and bound parameters (formsOn), each relation's fields of kinds
+ * other than prose, the one text with no byte bound (build.ts prose), so no index the compile plans for a read is
+ * over one. A differential aims here so that it always compares programs the compile serves
+ * (test/pg/live/differential.test.ts).
+ */
+export const admittedSketchGen: Gen<CaseSketch> = (decisions) => {
+	const sketch = decisions.draw(caseSketchGen)
+	return {
+		...sketch,
+		population: "forms",
+		swarm: decisions.draw(populationSwarm("forms")),
+		relations: Arr.map(sketch.relations, (r) => ({
+			...r,
+			fields: Arr.map(r.fields, (f) => ({ ...f, kind: offProse(f.kind) }))
+		}))
 	}
 }
 

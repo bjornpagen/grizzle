@@ -34,7 +34,11 @@
  * text included), under which a read keyed by bounded text is refused, which the case does not expect.
  *
  * Features: a set read, an ordered read, an attachment, a relation parameter, a read of no row, a read of several rows,
- * a column the reference declines, a read refused for a key over prose.
+ * a column the reference declines, a read refused for a key over prose, and, required and aimed, an admitted program
+ * whose live answers match the reference over an index read: a read looked up by a scalar parameter, which the compile
+ * serves by the index its lookup plans or a key, agreeing on both surfaces with the reference. A case whose turn aims
+ * at it (Case.steering) is drawn from the sketches the compile admits by construction (oracle/public/generate.ts
+ * admittedSketchGen), so a run that draws mostly refused programs still compares served ones.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -71,7 +75,11 @@ import {
 	shapeOf
 } from "#test/support/oracle/public/answer.ts"
 import { buildRoot, buildSchema, factRecord, hostValue } from "#test/support/oracle/public/build.ts"
-import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
+import {
+	admittedSketchGen,
+	caseSketchGen,
+	resolveCase
+} from "#test/support/oracle/public/generate.ts"
 import { expectedQuery } from "#test/support/oracle/public/meaning.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import {
@@ -98,6 +106,7 @@ type Feature =
 	| "a read of several rows"
 	| "a column the reference declines"
 	| "a read refused for a key over prose"
+	| "an admitted program whose live answers match the reference over an index read"
 
 const cases = 40
 
@@ -180,7 +189,8 @@ layer(Substrate.layer)("a generated program", (it) => {
 								"an attachment",
 								"a relation parameter",
 								"a read of no row",
-								"a read of several rows"
+								"a read of several rows",
+								"an admitted program whose live answers match the reference over an index read"
 							],
 							{ cases: 60, sense: notesOnly }
 						),
@@ -193,7 +203,12 @@ layer(Substrate.layer)("a generated program", (it) => {
 					},
 					(sketch, notes) =>
 						Effect.gen(function* () {
-							const c = notes.draw(resolveCase(sketch))
+							const aimed = Option.exists(notes.steering, (pending) =>
+								pending.aimed(
+									"an admitted program whose live answers match the reference over an index read"
+								)
+							)
+							const c = notes.draw(resolveCase(aimed ? notes.draw(admittedSketchGen) : sketch))
 							const reads = Arr.flatMap(c.reads, (read, place) =>
 								read.kind === "query" ? [{ read, place }] : []
 							)
@@ -316,6 +331,11 @@ layer(Substrate.layer)("a generated program", (it) => {
 												report: `${label}: ${disagreement.message}\n${printCase(c)}`
 											})
 									)
+									if (Arr.isReadonlyArrayNonEmpty(read.params)) {
+										notes.note(
+											"an admitted program whose live answers match the reference over an index read"
+										)
+									}
 								}
 							}).pipe(withLayer(fixtureLayer))
 						}).pipe(
