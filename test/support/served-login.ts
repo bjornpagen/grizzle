@@ -11,7 +11,7 @@ import { builtLogin, type LayerRole, ownLoginOver } from "#adapter/served/login.
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import { contextFieldAdmits, type SchemaDesc } from "#compiler/ir/desc.ts"
+import { contextFieldAdmits, type FieldDecl, type SchemaDesc } from "#compiler/ir/desc.ts"
 import { clockedMember, workload } from "#compiler/program/workload/value.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
@@ -172,22 +172,76 @@ const descriptorOf = (drawn: DrawnSchema, at: FieldAt): unknown =>
 const levelsOf = (desc: SchemaDesc | undefined): ReadonlyArray<SchemaDesc> =>
 	desc === undefined ? [] : [desc, ...levelsOf(desc.extends)]
 
+/** A field of the drawn schema's stored relations, and the declaration it has. */
+interface DeclaredField {
+	readonly at: FieldAt
+	readonly decl: FieldDecl
+}
+
+/** Every field of the drawn schema's stored relations, every level's, read off the description its builders made. */
+const declaredFields = (drawn: DrawnSchema): ReadonlyArray<DeclaredField> =>
+	Arr.flatMap(levelsOf(schemaDescOf(drawn.laws.schema)), (level) =>
+		Arr.flatMap(level.relations, (r) =>
+			r.kind === "relation"
+				? Arr.map(Rec.toEntries(r.fields), ([field, decl]): DeclaredField => ({
+						at: { relation: r.name, field },
+						decl
+					}))
+				: []
+		)
+	)
+
+/** Whether a context's claim may carry a field: its caller writes it, and a claim admits its type. */
+const carriesClaim = (f: DeclaredField): boolean =>
+	f.decl.writing.kind === "caller" && contextFieldAdmits(f.decl.type)
+
 /**
  * Every field of the drawn schema's relations a context's claim may carry, read off the description its builders made,
  * every level's: a field its caller writes whose type a claim admits (ir/desc.ts contextFieldAdmits).
  */
 const claimFields = (drawn: DrawnSchema): ReadonlyArray<FieldAt> =>
-	Arr.flatMap(levelsOf(schemaDescOf(drawn.laws.schema)), (level) =>
-		Arr.flatMap(level.relations, (r) =>
-			r.kind === "relation"
-				? Arr.flatMap(Rec.toEntries(r.fields), ([field, decl]): ReadonlyArray<FieldAt> =>
-						decl.writing.kind === "caller" && contextFieldAdmits(decl.type)
-							? [{ relation: r.name, field }]
-							: []
-					)
-				: []
+	Arr.map(Arr.filter(declaredFields(drawn), carriesClaim), (f) => f.at)
+
+/** Whether a field's type is a checked contract, whose domain holds its predicate as a CHECK. */
+const checkedContract = (f: DeclaredField): boolean =>
+	f.decl.type.kind === "contract" && f.decl.type.predicate !== undefined
+
+/**
+ * A role writing through its query entry alone, its `held` claim typed as a checked contract and the entry's target a
+ * relation declaring no checked contract's field: the contract's domain types no column the role writes, so a write
+ * through the entry meets that domain's CHECK when it casts the claim (test/unit/served/refusals.test.ts). The key, the
+ * held claim and the write's op are drawn among those that qualify; none where no field qualifies for either.
+ */
+export const contractClaimRoleGen =
+	(drawn: DrawnSchema): Gen<Option.Option<RoleShape>> =>
+	(source) => {
+		const fields = declaredFields(drawn)
+		const contracted = new Set(Arr.map(Arr.filter(fields, checkedContract), (f) => f.at.relation))
+		const [heldFirst, ...heldRest] = Arr.filter(
+			fields,
+			(f) => checkedContract(f) && carriesClaim(f)
 		)
-	)
+		const [keyFirst, ...keyRest] = Arr.filter(
+			fields,
+			(f) => carriesClaim(f) && !contracted.has(f.at.relation)
+		)
+		if (heldFirst === undefined || keyFirst === undefined) {
+			return Option.none()
+		}
+		const key = source.draw(element([keyFirst, ...keyRest])).at
+		const held = source.draw(element([heldFirst, ...heldRest])).at
+		return Option.some({
+			writes: [],
+			entry: Option.some({ target: key.relation, key: key.field, held }),
+			changes: [
+				{ target: { kind: "entry" }, op: source.draw(element(["insert", "delete"] as const)) }
+			],
+			reads: [],
+			worldReads: [],
+			clocked: false,
+			refreshes: false
+		})
+	}
 
 /** A query entry over a relation of the schema with a field a claim may carry, or none where no relation has one. */
 const heldEntryGen =

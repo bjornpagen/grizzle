@@ -33,7 +33,7 @@
  * types only unwritten columns is no law of the cut.
  */
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { element, type Gen, int, map, subarray } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -64,6 +64,7 @@ import { printCase } from "#test/support/oracle/public/print.ts"
 import { encodeRefusalDetail } from "#test/support/oracle/write/detail.ts"
 import {
 	compiledLogin,
+	contractClaimRoleGen,
 	drawnLogin,
 	drawnSchema,
 	type DrawnSchema,
@@ -478,6 +479,28 @@ const differential = (
 		}
 	})
 
+/** The requirement a drawn login seldom meets, which a case whose turn aims at it is constructed to meet. */
+const contractClaim: Feature =
+	"a write reading a context field whose contract domain types only unwritten stored columns"
+
+/**
+ * The login a case's roles are: its drawn ones, or, where its turn aims at a write casting a context claim to a checked
+ * contract's domain that types only unwritten columns (Case.steering), the one role constructed to (served-login.ts
+ * contractClaimRoleGen), where the schema holds such a claim and an entry target apart from it. A drawn role meets it
+ * only with a query entry, a write through it, a held claim drawn as a checked contract's field among every claim
+ * field, and no write to a relation that contract types, and the streams the suite's label fixes held none.
+ */
+const aimedLogin = (
+	drawn: DrawnSchema,
+	notes: Case<Feature>
+): Arr.NonEmptyReadonlyArray<RoleShape> =>
+	Option.exists(notes.steering, (pending) => pending.aimed(contractClaim))
+		? Option.match(notes.draw(contractClaimRoleGen(drawn)), {
+				onNone: () => notes.draw(loginGen(drawn)),
+				onSome: (role): Arr.NonEmptyReadonlyArray<RoleShape> => [role]
+			})
+		: notes.draw(loginGen(drawn))
+
 describe("a served login's classifier", () => {
 	it.effect(
 		"classifies every refusal a role's writes can raise exactly as its installation's full classifier does",
@@ -523,7 +546,7 @@ describe("a served login's classifier", () => {
 					([sketch, level], notes) =>
 						Effect.suspend(() => {
 							const drawn = drawnSchema(notes.draw(resolveCase(sketch)), level)
-							return differential(drawn, level, notes.draw(loginGen(drawn)), notes.draw, notes.note)
+							return differential(drawn, level, aimedLogin(drawn, notes), notes.draw, notes.note)
 						})
 				)
 			)

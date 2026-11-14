@@ -33,10 +33,13 @@
  * Plants: window-after-seek-inclusive (the after template's seek admits the anchor's own row),
  * window-anchor-length-unchecked (a key of another length than the comparators reaches SQL).
  *
- * Features: each query through each member, each anchor kind, the anchors the walk names, and each input refusal.
+ * Features: each query through each member, each anchor kind, the anchors the walk names, and each input refusal. A
+ * drawn input reaches its key's own refusal only past every earlier check, about one input in a hundred, so an input
+ * whose turn aims at one (Case.steering) is admitted by every check before its key and carries the refused key
+ * (keyAims).
  */
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import {
 	array,
@@ -460,6 +463,19 @@ interface InputSketch {
 		| { readonly kind: "no list" }
 }
 
+/** A key one value shorter or longer than the delivered row's. */
+const otherLengthGen: Gen<InputSketch["key"]> = element<InputSketch["key"]>([
+	{ kind: "one shorter" },
+	{ kind: "one longer" }
+])
+
+/** A key with one value no codec admits, at a drawn pick. */
+const refusedKeyGen: Gen<InputSketch["key"]> = (inner) => ({
+	kind: "a refused value",
+	at: inner.draw(pickGen),
+	value: inner.draw(element<Refused>(["null", "undefined", "a symbol"]))
+})
+
 /** Values no codec admits: no key holds null or undefined, and no carrier's host value is a symbol. */
 type Refused = "null" | "undefined" | "a symbol"
 
@@ -547,20 +563,48 @@ const inputSketchGen: Gen<InputSketch> = (source) => ({
 	key: source.draw(
 		weighted<InputSketch["key"]>([
 			[6, constant({ kind: "the row's" })],
-			[1, constant({ kind: "one shorter" })],
-			[1, constant({ kind: "one longer" })],
-			[
-				2,
-				(inner) => ({
-					kind: "a refused value",
-					at: inner.draw(pickGen),
-					value: inner.draw(element<Refused>(["null", "undefined", "a symbol"]))
-				})
-			],
+			[2, otherLengthGen],
+			[2, refusedKeyGen],
 			[1, constant({ kind: "no list" })]
 		])
 	)
 })
+
+/** An input every check admits, its query and size drawn: an after or a before anchored at the delivered row's key. */
+const admittedGen: Gen<InputSketch> = (source) => ({
+	query: source.draw(element(pagedQueryNames)),
+	envelope: "exact",
+	facts: "none",
+	window: "exact",
+	size: source.draw(int(1, 7)),
+	anchor: "a record",
+	kind: source.draw(element(["after", "before"] as const)),
+	keyMember: true,
+	extra: false,
+	key: { kind: "the row's" }
+})
+
+/** Each refusal of an input's key, with the key a case whose turn aims at it carries (see the header). */
+const keyAims: ReadonlyArray<readonly [InputFeature, Gen<InputSketch["key"]>]> = [
+	["a key of another length", otherLengthGen],
+	["a key value no codec admits", refusedKeyGen]
+]
+
+/**
+ * The input a case reads: its drawn one, or, where its turn aims at a key's refusal (Case.steering), one every check
+ * before its key admits (admittedGen), carrying that refusal's key (keyAims). The features noted are still the rule's
+ * (expectedOf), so a note never claims what the input does not hold.
+ */
+const aimedInput = (drawnInput: InputSketch, notes: Case<InputFeature>): InputSketch =>
+	Option.match(
+		Option.flatMap(notes.steering, (pending) =>
+			Arr.findFirst(keyAims, ([feature]) => pending.aimed(feature))
+		),
+		{
+			onNone: () => drawnInput,
+			onSome: ([, key]) => ({ ...notes.draw(admittedGen), key: notes.draw(key) })
+		}
+	)
 
 /** The key an input's anchor carries, from `row`, the delivered row's key. */
 const keyInput = (sketch: InputSketch["key"], row: RowKey): unknown => {
@@ -1026,8 +1070,9 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 											{ cases: 200, sense: notesOnly }
 										)
 									},
-									(c, notes) =>
+									(drawnInput, notes) =>
 										Effect.gen(function* () {
+											const c = aimedInput(drawnInput, notes)
 											const paging = member(loaded, memberName(c.query, "member"))
 											const calls = onceCalls(recording.ctx, paging)
 											const compiled = pageTemplate(paging, opened.installed.names.codes)
