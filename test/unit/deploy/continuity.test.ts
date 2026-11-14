@@ -21,9 +21,8 @@
  * Plant (~/.cache/grizzle-release/BR06/plants): continuity-codes-restarted (every roster's codes drafted afresh, none
  * continued).
  */
-import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	constant,
@@ -32,10 +31,11 @@ import {
 	shuffled,
 	type Weight,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"

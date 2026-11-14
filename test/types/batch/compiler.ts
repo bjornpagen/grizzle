@@ -1,4 +1,4 @@
-import { liveMillis, liveSleep } from "@grizzle/testing/live"
+import { liveMillis, liveSleep } from "@bjornpagen/testing/live"
 import { regex } from "arkregex"
 import {
 	Array as Arr,

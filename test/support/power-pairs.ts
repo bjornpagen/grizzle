@@ -9,9 +9,9 @@ import {
 	oneOf,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
-import { keep, swarm } from "@grizzle/testing/swarm"
-import { bigint } from "@grizzle/testing/values"
+} from "@bjornpagen/testing/gen"
+import { keep, swarm } from "@bjornpagen/testing/swarm"
+import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, String as Str } from "effect"
 import { measured, type Limit } from "#compiler/core/limits.ts"
 
@@ -106,7 +106,7 @@ const pairArms = ["ordinary", "near exp(6000)"] as const
 const nearSlots = 4
 
 /**
- * One case's powers, drawn under a swarm over the two arms (@grizzle/testing/swarm), so a case explores either alone or
+ * One case's powers, drawn under a swarm over the two arms (@bjornpagen/testing/swarm), so a case explores either alone or
  * both at its weights: up to 1000 ordinary pairs, and up to four next to exp(6000). The bound is one predicate of a
  * pair's weight, which each pair tests on one side or the other, so a few a case reach both sides (the suites require
  * each), while each costs about two hundred ordinary pairs to evaluate, a result of 2600 digits.

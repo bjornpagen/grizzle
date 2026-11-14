@@ -1,6 +1,5 @@
-import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -12,9 +11,10 @@ import {
 	option,
 	weighted,
 	type Weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"

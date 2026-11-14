@@ -1,5 +1,4 @@
-import { defineTestConfig } from "@grizzle/testing/vitest/config"
-import { Option } from "effect"
+import { defineTestConfig } from "@bjornpagen/testing/vitest/config"
 import { mergeConfig } from "vitest/config"
 import { derived, type Limit } from "#compiler/core/limits.ts"
 import { testTimeout } from "#test/support/limits.ts"
@@ -44,7 +43,6 @@ export default mergeConfig(
 			test: { kind: "bounded", millis: mutationTestTimeout.value },
 			hook: { kind: "bounded", millis: mutationTestTimeout.value }
 		},
-		maxWorkers: Option.none(),
 		smallStack: []
 	}),
 	{ test: { setupFiles: [`${import.meta.dirname}/take-coverage.ts`] } }

@@ -17,12 +17,12 @@
  *
  * Plants: values-decimal-prototype-brand (a Decimal recognized by its prototype, so a prototype object passes as one).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
 import {
 	normalArray,

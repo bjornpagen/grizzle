@@ -50,13 +50,13 @@
  * so must ~/.cache/grizzle-release/DELTAMET/plants/met-keep-where.patch, the arbiter's DO SELECT returning only an
  * occupant whose payload differs, so an exact repeat meets nothing it reads back.
  */
+import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { element, type Gen, int } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Fiber, Formatter, Option, Order, Result } from "effect"
 import { openServed } from "#adapter/db/served.ts"
 import type { CallError, WriteOutcome } from "#compiler/live/index.ts"

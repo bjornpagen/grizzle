@@ -17,11 +17,11 @@
  *
  * Features: each axis, and each copy's verdict.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { array, element, type Gen, int, map } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { array, element, type Gen, int, map } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { AxisKind } from "#compiler/ir/family.ts"
 import type { NativeOf } from "#compiler/ir/law.ts"

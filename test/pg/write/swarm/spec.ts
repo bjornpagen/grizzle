@@ -18,8 +18,8 @@
  * extra fold end `e<f>`, the plain relations `P<j>`, the check `C<i>`, and a naming relation's copy of family `f`'s
  * group `o<f>` (the shared-field column) beside the named row's id `m<f>` and `v` `w<f>`.
  */
-import { boolean, type Gen, int } from "@grizzle/testing/gen"
-import { keep, type Swarm, swarm, swarmChoice, weightOf } from "@grizzle/testing/swarm"
+import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
+import { keep, type Swarm, swarm, swarmChoice, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
 import { int8Min } from "#compiler/core/limits.ts"
 import { accumulated, bits, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"

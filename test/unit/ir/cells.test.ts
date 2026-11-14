@@ -22,9 +22,8 @@
  * a hole's code), ir-cells-reorder-admitted (a reorder of kept codes admitted), ir-cells-side-largest-key (a side keyed
  * by its largest contained key), ir-cells-digest-no-payload (a digest blind to payloads).
  */
-import { describe, it } from "@effect/vitest"
-import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
+import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -35,10 +34,11 @@ import {
 	shuffled,
 	subarray,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"

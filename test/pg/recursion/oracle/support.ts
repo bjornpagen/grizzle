@@ -1,5 +1,5 @@
-import { drawn } from "@grizzle/testing/explore"
-import type { Gen } from "@grizzle/testing/gen"
+import { drawn } from "@bjornpagen/testing/explore"
+import type { Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"

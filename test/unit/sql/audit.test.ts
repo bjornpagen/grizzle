@@ -36,13 +36,18 @@
  * defined twice (audit-alias-once, the faithful rewrites); a NULL admitted by the text audit (audit-text-null); an
  * ANALYZE of an uncreated carrier admitted (audit-carrier-uncreated).
  */
+import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import {
+	type Reached,
+	required,
+	requiredInSpace,
+	type Situations
+} from "@bjornpagen/testing/features"
+import { array, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { type Reached, required, requiredInSpace, type Situations } from "@grizzle/testing/features"
-import { array, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { decode, encode, everyProperty, noRevivers } from "#compiler/core/canonical.ts"
 import { writeJsonText } from "#compiler/deploy/snapshot/build.ts"

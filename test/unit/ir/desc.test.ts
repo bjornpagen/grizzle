@@ -27,9 +27,8 @@
  * ir-canonical-tilde-unrestored (a doubled tilde read back doubled), ir-desc-connective-unit-swapped (an empty and
  * decoded as false).
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -43,17 +42,18 @@ import {
 	option,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
+} from "@bjornpagen/testing/gen"
 import {
 	type CorruptedFeature,
 	type Corruption,
 	corrupted,
 	corruptedFeature
-} from "@grizzle/testing/lsw"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint, float } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/lsw"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { bigint, float } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, pipe, Record as Rec, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { type Canonicalizable, canonicalTag, type Json } from "#compiler/core/canonical.ts"

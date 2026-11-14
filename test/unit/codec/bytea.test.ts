@@ -10,13 +10,13 @@
  *
  * Plant (~/.cache/grizzle-release/BR06/plants): bytea-digest-unchecked (the copy written without its digest checked).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, constant, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, constant, type Gen, int, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { byteaArray } from "#compiler/codec/bytea.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"

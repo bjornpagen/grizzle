@@ -23,13 +23,22 @@
  * early), text-nfa-unadmitted-text (a NUL or lone surrogate matched), text-finite-member-twice (a finite language
  * listing a member twice), text-dfa-key-sets-dropped (a DFA's key without its edges' sets).
  */
+import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	array,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	shuffled,
+	weighted
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int, map, oneOf, shuffled, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"

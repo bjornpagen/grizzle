@@ -21,12 +21,12 @@
  * Plant: ~/.cache/grizzle-release/BR08/plants/fin-scale-owner-axis-no-cascade.patch, the owner axis installed with no
  * action, refuses the long family's count update and must turn the property red.
  */
+import { drawn as drawnCase, explore } from "@bjornpagen/testing/explore"
+import { noCoverage } from "@bjornpagen/testing/features"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn as drawnCase, explore } from "@grizzle/testing/explore"
-import { noCoverage } from "@grizzle/testing/features"
-import { element, type Gen, int } from "@grizzle/testing/gen"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { outcomeText } from "#bench/harness/outcome.ts"
 import { measureTransaction, type TransactionMeasure } from "#bench/harness/transaction.ts"

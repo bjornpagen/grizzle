@@ -12,14 +12,14 @@
  * races-alternatives-no-forward.patch, an alternatives statement expanded to its reverse containments alone, commits
  * an arm row whose parent is of another handle.
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required, type Situations } from "@bjornpagen/testing/features"
+import { array, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { pctSchedule } from "@bjornpagen/testing/interleave"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { fullSwarm, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required, type Situations } from "@grizzle/testing/features"
-import { array, type Gen, int, weighted } from "@grizzle/testing/gen"
-import { pctSchedule } from "@grizzle/testing/interleave"
-import { notesOnly } from "@grizzle/testing/sense"
-import { fullSwarm, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Formatter, Option, String as Str } from "effect"
 import { Cause, Effect, Record, type Scope } from "effect"
 import { indices } from "#compiler/core/array.ts"

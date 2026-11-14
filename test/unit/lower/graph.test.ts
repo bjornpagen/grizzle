@@ -28,13 +28,13 @@
  * (graph-alike-literal); a double precision origin never restrictable (graph-float8-origin); every state column of a
  * recursion restrictable, the advanced endpoint included (graph-restrict-endpoint).
  */
+import { drawn, exhaust, explore, type Kept, sketched } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, type GenValue, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore, type Kept, sketched } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, type GenValue, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { appendAll } from "#compiler/core/array.ts"

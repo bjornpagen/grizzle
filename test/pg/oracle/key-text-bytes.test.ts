@@ -17,12 +17,12 @@
  *
  * Features: the text's place in the key, a closed id beside it, and the width of the bounding code point.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	Effect,

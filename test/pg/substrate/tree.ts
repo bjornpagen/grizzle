@@ -27,7 +27,7 @@
  * start, one representation. Every count, index and interval is the `natural` domain over int8, and every column
  * grizzle generates or copies is int8, its base type, as G2's are.
  */
-import { element, type Gen, int, shuffled } from "@grizzle/testing/gen"
+import { element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"

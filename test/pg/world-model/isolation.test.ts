@@ -1,6 +1,6 @@
+import type { Situations } from "@bjornpagen/testing/features"
+import { constant, oneOf } from "@bjornpagen/testing/gen"
 import { layer } from "@effect/vitest"
-import type { Situations } from "@grizzle/testing/features"
-import { constant, oneOf } from "@grizzle/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { reachingPastRefused } from "#test/support/worlds/drive/acting.ts"

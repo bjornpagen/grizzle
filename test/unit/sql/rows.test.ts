@@ -18,11 +18,11 @@
  * bound read as keeping one of equal rows (rows-any-limit); every core read as one row (rows-one-row-any); every grouped
  * core read as one row a group (rows-groups-any).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { noCoverage, requiredInSpace } from "@bjornpagen/testing/features"
+import { element, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
-import { element, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type {
 	Cte,

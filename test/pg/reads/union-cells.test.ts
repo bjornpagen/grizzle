@@ -1,6 +1,5 @@
-import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -12,11 +11,12 @@ import {
 	oneOf,
 	shuffled,
 	weighted
-} from "@grizzle/testing/gen"
-import { type Equivalence, set, structuralHash } from "@grizzle/testing/oracle"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { type Equivalence, set, structuralHash } from "@bjornpagen/testing/oracle"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { type OnceCalls, onceCalls } from "#adapter/db/handles.ts"
 import { OpenError } from "#adapter/errors/execution.ts"

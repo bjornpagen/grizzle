@@ -29,13 +29,13 @@
  * Plants (~/.cache/grizzle-release/BR11/plants): family-grants-owner-whole (a member writer holds column SELECT on every
  * field of its family's owner) and family-grants-no-recount (a member writer holds no column UPDATE on its owner).
  */
+import { drawn as drawnCase, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, element, type Gen, int, oneOf, subarray } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn as drawnCase, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int, oneOf, subarray } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	Effect,

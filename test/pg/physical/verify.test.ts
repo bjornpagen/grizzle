@@ -19,13 +19,13 @@
  * holds), verify-not-valid-unread (the projection reads every constraint as validated) and verify-barrier-unjudged (no
  * view's security barrier is judged).
  */
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { identifierOf } from "#compiler/core/identity.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"

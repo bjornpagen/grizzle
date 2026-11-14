@@ -8,9 +8,9 @@
  * Plant (~/.cache/grizzle-release/BR14/plants): api-open-token-optional.patch lets Db.open take no token for a role
  * that reads a context.
  */
+import { unreachedOf } from "@bjornpagen/testing/features"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { unreachedOf } from "@grizzle/testing/features"
 import { Effect } from "effect"
 import { accessRequired, accessWitnesses } from "#test/support/agreement/access.ts"
 import { assert } from "#test/support/assert.ts"

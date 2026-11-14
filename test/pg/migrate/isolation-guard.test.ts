@@ -29,13 +29,13 @@
  * Plants (~/.cache/grizzle-release/BR11/plants): isolation-guard-kept (a migration never drops a table's isolation guard
  * while the table stands).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { constant, element, type Gen, subarray, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { constant, element, type Gen, subarray, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Record as Rec } from "effect"
 import type { FolderSource } from "#adapter/migrate/input.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"

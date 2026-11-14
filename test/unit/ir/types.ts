@@ -9,8 +9,8 @@ import {
 	oneOf,
 	option,
 	weighted
-} from "@grizzle/testing/gen"
-import { bigint } from "@grizzle/testing/values"
+} from "@bjornpagen/testing/gen"
+import { bigint } from "@bjornpagen/testing/values"
 import { Option } from "effect"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import {

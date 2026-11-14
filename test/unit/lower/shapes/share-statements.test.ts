@@ -18,12 +18,12 @@
  * Plants, each failing its search: a sub-query carried only past three statements (share-carried-three); a CTE only
  * past three reads (share-cte-three); no attachment part fed from an earlier one (share-feed-none).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { int } from "@bjornpagen/testing/gen"
+import { agree, exact, set, structuralHash } from "@bjornpagen/testing/oracle"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { int } from "@grizzle/testing/gen"
-import { agree, exact, set, structuralHash } from "@grizzle/testing/oracle"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"

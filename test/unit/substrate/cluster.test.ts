@@ -20,11 +20,11 @@
  * read by Config.Port alone, which admits 05440 and 5e3).
  */
 import { homedir } from "node:os"
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { assert } from "#test/support/assert.ts"
 import { clusterVariable, type LocalCluster, pgPin, selectCluster } from "#test/support/env.ts"

@@ -20,11 +20,11 @@
  * Plants (~/.cache/grizzle-release/BR11/plants): flights-drift-extra (the drift check reads the server's lock-table
  * settings in a flight of their own before its own).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { type Gen, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { applyOnSession, checkDrift, type SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import { type MigrationTarget, parseTarget } from "#adapter/migrate/input.ts"

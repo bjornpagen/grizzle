@@ -28,10 +28,8 @@
  * harness-record-leak-keeps-verdicts.patch (a leaked release keeping its verdicts), harness-gate-owner-swapped.patch (a
  * gate owned by the other directory), harness-full-takes-arguments.patch (`full` taking arguments).
  */
-import { NodeServices } from "@effect/platform-node"
-import { describe, it, layer } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -41,11 +39,13 @@ import {
 	int,
 	subarray,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { generate, recorder, simplestChooser } from "@grizzle/testing/source"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { generate, recorder, simplestChooser } from "@bjornpagen/testing/source"
+import { searched } from "@bjornpagen/testing/vitest"
+import { NodeServices } from "@effect/platform-node"
+import { describe, it, layer } from "@effect/vitest"
 import {
 	Array as Arr,
 	Data,

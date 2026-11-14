@@ -46,12 +46,12 @@
  * ~/.cache/grizzle-release/BR09/plants/superkey-orders-unique-per-order.patch, a UNIQUE's identity read in its plan's
  * order instead of as its column set, installs two unique indexes over one set.
  */
+import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, int, shuffled, subset } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, shuffled, subset } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import type { FolderSource } from "#adapter/migrate/input.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"

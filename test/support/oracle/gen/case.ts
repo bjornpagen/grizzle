@@ -1,5 +1,5 @@
-import { array, constant, type Gen } from "@grizzle/testing/gen"
-import { type Swarm, swarm } from "@grizzle/testing/swarm"
+import { array, constant, type Gen } from "@bjornpagen/testing/gen"
+import { type Swarm, swarm } from "@bjornpagen/testing/swarm"
 import type { Array as Arr } from "effect"
 import { type Spelling, type SpellingMode } from "#test/support/oracle/gen/domain.ts"
 

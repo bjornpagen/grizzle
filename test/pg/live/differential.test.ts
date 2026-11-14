@@ -25,12 +25,12 @@
  * Features: a set read, an ordered read, an attachment, a relation parameter, a read of no row, a read of several rows,
  * a column the reference declines.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { agree } from "@bjornpagen/testing/oracle"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { agree } from "@grizzle/testing/oracle"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { served } from "#adapter/public/layer.ts"
 import type { ServedLogin } from "#adapter/types/layer.ts"

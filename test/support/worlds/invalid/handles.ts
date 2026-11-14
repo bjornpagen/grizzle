@@ -1,4 +1,4 @@
-import { constant, element, type Gen, map, oneOf } from "@grizzle/testing/gen"
+import { constant, element, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record } from "effect"
 import { knownNonEmpty } from "#test/support/worlds/generate/domain.ts"
 import type { BoundaryArms, Strata, Variant } from "#test/support/worlds/invalid/kinds.ts"

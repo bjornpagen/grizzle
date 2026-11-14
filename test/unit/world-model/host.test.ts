@@ -29,9 +29,8 @@
  * first property red; host-member-any.patch (every target fact a member) the second; host-every-key.patch (every field
  * set a key) the third.
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	constant,
@@ -43,9 +42,10 @@ import {
 	shuffled,
 	type Weighted,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import {
 	Array as Arr,
 	Effect,

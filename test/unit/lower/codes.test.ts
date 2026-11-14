@@ -18,13 +18,13 @@
  *
  * Plant, failing the search: a handle lowered to its position among the live handles (codes-position).
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { type Reached, required } from "@bjornpagen/testing/features"
+import { subset } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { type Reached, required } from "@grizzle/testing/features"
-import { subset } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"

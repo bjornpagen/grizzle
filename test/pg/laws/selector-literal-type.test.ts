@@ -24,11 +24,11 @@
  * rule lowering counting a typed literal its field does not hold as fixing it, so the keyed B's rule over 1.25 is
  * refused when the schema compiles as a containment into an unkeyed side): each caught.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"

@@ -17,11 +17,11 @@
  *
  * Features: the population's required features (suite.ts and the file's own).
  */
+import type { Kept } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import type { Kept } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Formatter, Record } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"

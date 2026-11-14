@@ -1,4 +1,4 @@
-import { array, element, type Gen, int } from "@grizzle/testing/gen"
+import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Result } from "effect"
 import { canonicalTag } from "#compiler/core/canonical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"

@@ -16,12 +16,12 @@
  * Plants (~/.cache/grizzle-release/BR07/plants): kit-right-only-agrees.patch (a key on the right only agreeing) turns
  * the keyed property red; kit-repeats-ignored.patch (a repeated row agreeing) the delivered one.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, int, map, shuffled } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, map, shuffled } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { agreementCounts, deliveredAgree, within } from "#bench/query/support/kit.ts"
 import { assert, defined } from "#test/support/assert.ts"

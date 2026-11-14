@@ -20,13 +20,13 @@
  * Plants (~/.cache/grizzle-release/LIVE-NEST/plants): nest-top-level (a nested input's own level found as the one at the
  * top, so a tree's roots refuse), nest-tree-members-at-root (a tree's members read at its roots' level).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { rating, required } from "@bjornpagen/testing/features"
+import type { Gen } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { boundedShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { rating, required } from "@grizzle/testing/features"
-import type { Gen } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { boundedShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Result as Answered, Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { servedEntryOf, snapshotCompiled } from "#adapter/served/compile.ts"
 import { builtLogin, ownLoginOver } from "#adapter/served/login.ts"

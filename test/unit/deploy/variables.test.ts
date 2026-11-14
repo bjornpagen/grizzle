@@ -33,13 +33,13 @@
  * its stem), prefix-applied-twice.patch (a role variable filled with the prefix twice), database-variable-misfilled.patch
  * (the database variable filled with a role's name).
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, codePoint, element, type Gen, option, string } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, codePoint, element, type Gen, option, string } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
 import {
 	Array as Arr,

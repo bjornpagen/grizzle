@@ -39,13 +39,22 @@
  * cycle, into a replaceable target, or off every cycle into a key no write replaces; mirrors over whole relations or a
  * selected side; and each Item selection.
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	subset
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { boolean, constant, element, type Gen, int, map, oneOf, subset } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import {
 	compileInstallation,

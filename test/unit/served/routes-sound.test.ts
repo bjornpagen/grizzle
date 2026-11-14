@@ -32,13 +32,13 @@
  * ~/.cache/grizzle-release/LOWERFIX/plants/inline-worlds-unbound.patch inlines a world match under its own bindings
  * alone, so the plan refuses the count through Seen that the role admits.
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Result as Answered, Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Footprint } from "#compiler/logical/routes.ts"

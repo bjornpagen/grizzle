@@ -16,9 +16,8 @@
  * Plants (~/.cache/grizzle-release/BR13/plants): endpoints-upper-inclusive.patch (pointIn of an upper endpoint read as
  * inclusive).
  */
-import { layer } from "@effect/vitest"
-import { drawn, exhaust } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
+import { drawn, exhaust } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -29,11 +28,12 @@ import {
 	map,
 	oneOf,
 	weighted
-} from "@grizzle/testing/gen"
-import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { exact, ordered, set, structuralHash } from "@bjornpagen/testing/oracle"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, pipe, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { jsonText } from "#compiler/core/trusted.ts"

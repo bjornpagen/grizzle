@@ -21,13 +21,13 @@
  * Plants (~/.cache/grizzle-release/BR11/plants): lock-table-settings-swapped (the refusal reports
  * max_connections as max_locks_per_transaction and the other way round).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { element, type Gen, int, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { driftFlight } from "#adapter/admission/drift.ts"
 import { BatchRefused, ServerError } from "#adapter/errors/failures.ts"

@@ -1,4 +1,4 @@
-import { constant, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { constant, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import {
 	act,
 	claimsOf,

@@ -11,11 +11,11 @@
  * Plant (~/.cache/grizzle-release/BR06/plants): attnums-not-carried (a table's attribute numbers read from the target
  * alone, the columns its earlier migrations added and dropped forgotten).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { array, element, type Gen, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"

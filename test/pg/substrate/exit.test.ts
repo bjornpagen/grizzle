@@ -10,12 +10,12 @@
  *
  * Plants (main's test phase): substrate-exit-pool-never-ended.patch.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { NodeChildProcessSpawner, NodeFileSystem, NodePath } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Fiber, Formatter, Layer, Option, Stream } from "effect"
 import { ChildProcess } from "effect/process"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"

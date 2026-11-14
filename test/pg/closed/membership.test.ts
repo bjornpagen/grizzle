@@ -25,13 +25,21 @@
  * (codeOf's size) where its codes run past them, so a reader's mixed radix aliases two keys on a roster with holes,
  * which the history's removals make common.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	boolean,
+	constant,
+	element,
+	type Gen,
+	map,
+	subset,
+	weighted
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { boolean, constant, element, type Gen, map, subset, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"

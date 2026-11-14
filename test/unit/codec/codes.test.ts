@@ -16,11 +16,11 @@
  *
  * Plant (~/.cache/grizzle-release/BR06/plants): codes-set-first-code-lost (a set's text read from its second code on).
  */
+import { type Case, exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { type Gen, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { scalarReader } from "#compiler/codec/read.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"

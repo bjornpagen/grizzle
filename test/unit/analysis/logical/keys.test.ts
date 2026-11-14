@@ -18,13 +18,13 @@
  * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: one or several minimal keys and a key of
  * several columns; each class shape and projection; each arm's copies and equalities; each forged mapping.
  */
+import { drawn, explore, type Kept, sketched } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, constant, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore, type Kept, sketched } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, constant, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"

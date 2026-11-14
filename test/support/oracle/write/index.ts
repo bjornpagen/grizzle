@@ -6,13 +6,13 @@ import {
 	type Kept,
 	type Run,
 	type SearchFailure
-} from "@grizzle/testing/explore"
-import { failureText } from "@grizzle/testing/failure"
-import type { Coverage } from "@grizzle/testing/features"
-import { array, element, type Gen } from "@grizzle/testing/gen"
-import { boundedShrink } from "@grizzle/testing/shrink"
-import { forcedChooser, generate, recorder } from "@grizzle/testing/source"
-import { tokenOf, valuesFromToken } from "@grizzle/testing/tape"
+} from "@bjornpagen/testing/explore"
+import { failureText } from "@bjornpagen/testing/failure"
+import type { Coverage } from "@bjornpagen/testing/features"
+import { array, element, type Gen } from "@bjornpagen/testing/gen"
+import { boundedShrink } from "@bjornpagen/testing/shrink"
+import { forcedChooser, generate, recorder } from "@bjornpagen/testing/source"
+import { tokenOf, valuesFromToken } from "@bjornpagen/testing/tape"
 import { Array as Arr, Cause, Effect, Formatter, Option, type Scope } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { type AmbientSession, ambientFeatures, ambientSessionGen } from "#test/support/ambient.ts"

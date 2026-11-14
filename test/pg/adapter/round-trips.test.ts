@@ -32,13 +32,13 @@
  * (an explain's transaction committed); ~/.cache/grizzle-release/DEFERRABLE/plants/read-never-deferrable.patch (a
  * deferrable member's read begun without DEFERRABLE), read-always-deferrable.patch (every read begun DEFERRABLE).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, shuffled } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { onceCalls } from "#adapter/db/handles.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"

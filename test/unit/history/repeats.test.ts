@@ -22,11 +22,11 @@
  * exact repeat through.
  */
 
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { array, boolean, codePoint, type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { array, boolean, codePoint, type Gen, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
 import { assert } from "#test/support/assert.ts"
 import { expectFor, type WriterKind } from "#test/support/history/model.ts"

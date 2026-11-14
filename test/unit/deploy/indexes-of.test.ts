@@ -19,11 +19,11 @@
  * Plants (~/.cache/grizzle-release/EXPLAIN/plants): index-reasons-dropped.patch (the derived facts record each index
  * with its first reason alone); index-columns-reversed.patch (an index's key columns recorded in reverse order).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import { indexesOf } from "#adapter/public/compile.ts"

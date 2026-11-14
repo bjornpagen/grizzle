@@ -12,12 +12,12 @@
  * Plants (~/.cache/grizzle-release/BR13/plants): dates-range-before-era.patch (the date column's range CHECK starting
  * before the common era).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { element, type Gen, int, oneOf } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Effect, Formatter, pipe, Result, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"

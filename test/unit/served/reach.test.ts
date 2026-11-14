@@ -32,12 +32,12 @@
  * parameters alone, so a role that only reads a closed roster by a parameter of its type holds a roster domain the
  * oracle says it never reaches (minimality red).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Result as Answered, Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { loadServed } from "#adapter/served/load.ts"
 import { isRecord } from "#compiler/core/record.ts"

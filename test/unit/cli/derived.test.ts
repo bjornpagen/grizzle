@@ -1,9 +1,9 @@
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, constant, type Gen, oneOf, subarray } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, constant, type Gen, oneOf, subarray } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	DateTime,

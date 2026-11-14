@@ -26,13 +26,13 @@
  * That the index is the one the program's statement uses on PostgreSQL is the database suite's
  * (test/pg/derived/workload-index.test.ts).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, type Gen, int } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, type Gen, int } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { alterationStatement } from "#compiler/deploy/diff/plan.ts"

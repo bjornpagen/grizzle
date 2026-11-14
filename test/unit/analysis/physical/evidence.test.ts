@@ -7,11 +7,11 @@
  * (a declared key's proof holds only in a committed snapshot). Features: no key proves the scan, a key proves the scan,
  * a key not read.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, subset } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, subset } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { theoryCatalog } from "#compiler/analysis/physical/evidence.ts"
 import { keyedBy } from "#compiler/analysis/physical/props.ts"

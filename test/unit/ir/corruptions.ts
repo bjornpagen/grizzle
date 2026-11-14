@@ -1,4 +1,4 @@
-import type { Broken, Corruption } from "@grizzle/testing/lsw"
+import type { Broken, Corruption } from "@bjornpagen/testing/lsw"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { ExprId, NodeId, VarId } from "#compiler/core/ids.ts"

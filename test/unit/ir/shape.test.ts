@@ -23,9 +23,8 @@
  * ir-shape-zero-positive (zero taken as positive), ir-shape-deferred-inline (a recursive part read on the call stack),
  * ir-shape-cycle-unrefused (a container that holds itself decoded until the stack overflows).
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import {
 	array,
 	codePoint,
@@ -38,12 +37,13 @@ import {
 	string,
 	uniqueArray,
 	weighted
-} from "@grizzle/testing/gen"
-import { type Drawn, passed, wild } from "@grizzle/testing/lsw"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { double } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { type Drawn, passed, wild } from "@bjornpagen/testing/lsw"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { double } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import * as S from "#compiler/ir/shape.ts"

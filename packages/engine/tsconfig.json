@@ -8,8 +8,7 @@
 		"declarationMap": true,
 		"rootDir": "src",
 		"outDir": "types",
-		"tsBuildInfoFile": "types/tsconfig.tsbuildinfo",
-		"plugins": []
+		"tsBuildInfoFile": "types/tsconfig.tsbuildinfo"
 	},
 	"include": ["src"]
 }

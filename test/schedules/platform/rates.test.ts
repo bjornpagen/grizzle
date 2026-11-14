@@ -22,8 +22,8 @@
  * ENFORCED, so pricedByCard admits a charge no card prices).
  */
 
-import { array, element, type Gen, int } from "@grizzle/testing/gen"
-import { keep, type Swarm, swarm } from "@grizzle/testing/swarm"
+import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
+import { keep, type Swarm, swarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Order } from "effect"
 import {
 	amountOf,

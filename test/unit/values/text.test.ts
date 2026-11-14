@@ -15,9 +15,8 @@
  * Plants: values-text-surrogate (a lone surrogate admitted), values-codepoint-units (texts ordered by code unit),
  * values-tuple-prefix-first (a tuple ordered before its own prefix).
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	constant,
@@ -28,10 +27,11 @@ import {
 	oneOf,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { compareStrings } from "#compiler/core/order.ts"
 import {

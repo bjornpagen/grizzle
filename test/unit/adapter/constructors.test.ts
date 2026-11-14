@@ -1,6 +1,5 @@
-import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -13,11 +12,12 @@ import {
 	map,
 	oneOf,
 	string
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { bigint } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { DatabaseError } from "pg"
 import { serializationRefusal, transientReason } from "#adapter/errors/execution.ts"

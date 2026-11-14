@@ -22,10 +22,17 @@
  * descriptors-vector-dims-past-max (a vector of one dimension past pgvector's admitted) and
  * descriptors-repeated-handle-admitted (a roster's repeated handle admitted).
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, constant, type Gen, int, option, uniqueKeys, weighted } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import {
+	array,
+	constant,
+	type Gen,
+	int,
+	option,
+	uniqueKeys,
+	weighted
+} from "@bjornpagen/testing/gen"
 import {
 	type Broken,
 	corrupted,
@@ -38,12 +45,13 @@ import {
 	passed,
 	WILD_KINDS,
 	wild
-} from "@grizzle/testing/lsw"
-import { matching } from "@grizzle/testing/pattern"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/lsw"
+import { matching } from "@bjornpagen/testing/pattern"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { bigint } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"

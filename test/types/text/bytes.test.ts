@@ -7,9 +7,9 @@
  * Plant (~/.cache/grizzle-release/BR14/plants): text-bytes-field.patch types str.bytes as a text field that is no
  * pattern's.
  */
+import { unreachedOf } from "@bjornpagen/testing/features"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { unreachedOf } from "@grizzle/testing/features"
 import { Effect } from "effect"
 import { assert } from "#test/support/assert.ts"
 import { bytesProgram } from "#test/support/text/bytes.ts"

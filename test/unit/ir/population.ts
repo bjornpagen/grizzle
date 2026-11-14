@@ -1,4 +1,4 @@
-import { type Gen, map, oneOf } from "@grizzle/testing/gen"
+import { type Gen, map, oneOf } from "@bjornpagen/testing/gen"
 import type { ValidDag } from "#compiler/ir/rel.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { defaultRecursiveLimits, recursiveCaseGen } from "#test/support/oracle/gen/recursive.ts"

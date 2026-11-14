@@ -1,4 +1,4 @@
-import { array, boolean, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, type Scope, String as Str } from "effect"
 import { ALLEN, fullAllenMask } from "#compiler/allen/mask.ts"
 import type { FieldDesc, QueryDesc } from "#compiler/ir/desc.ts"

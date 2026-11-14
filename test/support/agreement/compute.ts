@@ -4,11 +4,11 @@ import {
 	type Reached,
 	type Tally,
 	tallyOf
-} from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
-import { sample, type Source } from "@grizzle/testing/source"
-import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
+} from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { floorSeed, rotatingSeed } from "@bjornpagen/testing/random"
+import { sample, type Source } from "@bjornpagen/testing/source"
+import { keep, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, Record as Rec, Result, String as Str } from "effect"
 import { CompileError, type CompileReason } from "#compiler/core/errors.ts"
@@ -65,7 +65,7 @@ import { preludeAt, type PreludeAt, preludeFrom, preludeProgram } from "#test/su
  * - an admitted term's TypeOfTerm and SqlOfTerm are the engine's typed term's, its query's head the engine's heading and
  *   its parameters the engine's, each through a generated exact-equality assertion.
  *
- * A case is drawn under a swarm over its constructs (@grizzle/testing/swarm), so the forms that crowd others out are
+ * A case is drawn under a swarm over its constructs (@bjornpagen/testing/swarm), so the forms that crowd others out are
  * left out of some cases. Each operation's first operand is drawn from the families it is defined over four times in
  * five, and its other operands like the first, so both verdicts are common; a literal stands first where the swarm keeps
  * it. The floor's witnesses (computeWitnesses), the same in every run, reach every construct both admitted and refused

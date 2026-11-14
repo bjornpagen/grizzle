@@ -21,13 +21,13 @@
  * Plants (~/.cache/grizzle-release/BR11/plants): insert-grants-delete (a role that writes by its insert list holds
  * DELETE on what it writes).
  */
+import { drawn as drawnCase, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, element, type Gen } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn as drawnCase, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, element, type Gen } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"

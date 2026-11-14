@@ -43,7 +43,6 @@
  * ~/.cache/grizzle-release/BR09/plants/migrations-domain-never-validated.patch, a domain's new CHECK added NOT VALID and
  * never validated, applies a removal over rows that still hold the removed code.
  */
-import { layer } from "@effect/vitest"
 import {
 	accepted,
 	type Machine,
@@ -53,13 +52,14 @@ import {
 	refused,
 	runProgram,
 	took
-} from "@grizzle/testing/commands"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { constant, element, type Gen, map, subset } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { type Swarm, swarm } from "@grizzle/testing/swarm"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/commands"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { constant, element, type Gen, map, subset } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { type Swarm, swarm } from "@bjornpagen/testing/swarm"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import {
 	Array as Arr,
 	Effect,

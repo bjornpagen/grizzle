@@ -29,11 +29,11 @@
  * probing the Automatic arm's selection key, a law column of the table its view does not hold, so the described put of
  * an automatic task names a column its scan lacks).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet, sameLaw } from "#compiler/public/changeset.ts"

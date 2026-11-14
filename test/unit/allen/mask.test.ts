@@ -16,11 +16,11 @@
  * Plants (~/.cache/grizzle-release/BR07/plants): allen-covers-without-equals.patch (covers missing equals) turns the
  * named masks red; allen-mask-past-range.patch (a fourteenth bit admitted) the entry points.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import {
 	ALLEN,

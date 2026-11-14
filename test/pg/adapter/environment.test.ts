@@ -20,14 +20,14 @@
  * Plants (~/.cache/grizzle-release/BR13/plants): environment-pgoptions.patch (a login's startup options left out, so
  * pg sends PGOPTIONS).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { boolean, constant, type Gen, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { boolean, constant, type Gen, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	Effect,

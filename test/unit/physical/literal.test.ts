@@ -33,14 +33,14 @@
  * Features: each roster width, padded or whole; each closed relation's key and payload kind; each set expression; a
  * changed cell and a padding bit set; a lowercase digit, an edited row count and a literal out of its printed form.
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, int, subarray, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { bigint } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, subarray, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
 import {
 	Array as Arr,

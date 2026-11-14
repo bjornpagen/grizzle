@@ -24,12 +24,12 @@
  * Plant (~/.cache/grizzle-release/MIGBATCH/plants/rewrites-one-statement-per-column.patch): the diff drafts one ALTER
  * TABLE per subcommand again, so a table gaining two generated columns is rewritten twice.
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, type Gen, int, shuffled } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"

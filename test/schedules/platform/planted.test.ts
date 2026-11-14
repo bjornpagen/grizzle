@@ -27,13 +27,13 @@
  * on no DELETE).
  */
 
+import { exhaust, Run } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { floorSeed, rotatingSeed } from "@bjornpagen/testing/random"
+import { sample } from "@bjornpagen/testing/source"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust, Run } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
-import { sample } from "@grizzle/testing/source"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { columnOf, fieldsOf, racesAt, tableOf } from "#test/schedules/platform/support.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"

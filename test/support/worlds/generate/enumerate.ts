@@ -1,4 +1,4 @@
-import { WILD_KINDS } from "@grizzle/testing/lsw"
+import { WILD_KINDS } from "@bjornpagen/testing/lsw"
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { TupleMap, TupleSet } from "#compiler/core/tuple-map.ts"

@@ -12,12 +12,12 @@
  * Features: each rule refused, and each admitted shape: one heading, headings told apart by Kind or by every literal
  * column, a widened column, an attached arm, a keyed order, a narrowed match, a set beside a discriminant of Kind.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"

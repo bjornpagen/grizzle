@@ -19,11 +19,11 @@
  * Features: a span-alone key over a selection, a span-alone key over every fact, a guarded span key with a scalar, a
  * span key with a scalar over every fact.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, type Gen, shuffled } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, type Gen, shuffled } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Effect, Formatter } from "effect"
 import { pg, span, uuid } from "#compiler/public/fields.ts"
 import { relation } from "#compiler/schema/relation.ts"

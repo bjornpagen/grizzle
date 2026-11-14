@@ -1,4 +1,4 @@
-import { array, boolean, element, type Gen, int, map } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, int, map } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { expect, projection, selected } from "#test/support/laws/model.ts"
 import {

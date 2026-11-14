@@ -33,11 +33,11 @@
  * Plant: ~/.cache/grizzle-release/BR08/plants/fin-fold-check-after-equals-before.patch, a fold's CHECK holding each
  * after to its before, refuses every lawful fold and must turn both properties red.
  */
+import { exhaust, type Oracle } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust, type Oracle } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
 import { fin, fold, Monoid, on, relation, schema, tree } from "#compiler/public/schema.ts"

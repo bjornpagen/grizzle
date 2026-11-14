@@ -15,14 +15,14 @@
  * Plants, each failing its search: a wide column the order reads fetched late (late-fetch-ordered-payload); a
  * correlated take's payload fetched late (late-fetch-correlated).
  */
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
 import { assertNone } from "@effect/vitest/utils"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"

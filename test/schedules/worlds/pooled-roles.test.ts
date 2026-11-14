@@ -1,5 +1,5 @@
-import { type Gen, int } from "@grizzle/testing/gen"
-import { type Nature, type PctSchedule, pctSchedule } from "@grizzle/testing/interleave"
+import { type Gen, int } from "@bjornpagen/testing/gen"
+import { type Nature, type PctSchedule, pctSchedule } from "@bjornpagen/testing/interleave"
 import {
 	act,
 	claimsOf,

@@ -18,9 +18,8 @@
  *
  * Features: a value the domain admits and one it refuses, for each contract.
  */
-import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { noCoverage, required } from "@bjornpagen/testing/features"
 import {
 	array,
 	codePoint,
@@ -31,11 +30,12 @@ import {
 	oneOf,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint, double } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { bigint, double } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, pipe, String as Str } from "effect"
 import type { CompileReason } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"

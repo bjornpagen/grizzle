@@ -37,13 +37,13 @@
  * Plant (~/.cache/grizzle-release/BR06/plants): backfill-counts-from-one (a family's counts and indices drawn from one,
  * not zero).
  */
+import { drawn as generated, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { element, type Gen, int as between, map, shuffled, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn as generated, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { element, type Gen, int as between, map, shuffled, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import {
 	alterationStatement,

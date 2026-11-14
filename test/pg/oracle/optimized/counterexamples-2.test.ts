@@ -10,8 +10,8 @@
  * Features: a case the mutant rewrote, and one on which it was told apart.
  */
 
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { searched } from "@grizzle/testing/vitest"
 import { nonReproduction, populations, within } from "#test/pg/oracle/optimized/counterexamples.ts"
 import { mutants } from "#test/support/oracle/mutants/mutants.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

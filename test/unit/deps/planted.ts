@@ -1,4 +1,4 @@
-import { array, element, type Gen, weighted } from "@grizzle/testing/gen"
+import { array, element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { upTo } from "#test/support/up-to.ts"
 import type { RuntimeImport } from "#test/unit/deps/audit.ts"

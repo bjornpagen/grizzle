@@ -20,12 +20,12 @@
  * check) turns the validity property red; query-acyclic-ignored.patch (the acyclic configuration ignored) the
  * configuration one.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { noCoverage, required } from "@bjornpagen/testing/features"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { caseHang } from "#test/support/limits.ts"
 
 import { Array as Arr, Effect, Formatter, Order, Record } from "effect"

@@ -12,11 +12,11 @@
  * Plants (~/.cache/grizzle-release/BR07/plants): allen-place-meets.patch (meets placing A's upper end before B) turns
  * the places red; allen-endpoint-le-strict.patch (≤ read as <) the masks.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, map, oneOf } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { type EndpointComparison, endpointMask, pointInMask } from "#compiler/allen/endpoints.ts"
 import {

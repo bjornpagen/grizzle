@@ -1,13 +1,13 @@
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, constant, element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
+import { agree, exact, set, structuralHash } from "@bjornpagen/testing/oracle"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { float, uuid } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, constant, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
-import { agree, exact, set, structuralHash } from "@grizzle/testing/oracle"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { float, uuid } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
 import {
 	Result as Answered,
 	Array as Arr,

@@ -30,13 +30,13 @@
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): interrupt-no-cancel.patch.
  */
+import { type Case, explore, type Kept, sketched } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { exact } from "@bjornpagen/testing/oracle"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case, explore, type Kept, sketched } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { exact } from "@grizzle/testing/oracle"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Fiber, Formatter, Option, Order } from "effect"
 import { oneShotStatement } from "#adapter/wire/batch.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"

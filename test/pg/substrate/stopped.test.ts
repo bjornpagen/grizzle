@@ -1,4 +1,3 @@
-import { layer } from "@effect/vitest"
 import {
 	type Deadline,
 	drawn,
@@ -7,13 +6,14 @@ import {
 	PRINT_MARGIN_MILLIS,
 	Run,
 	type SearchFailure
-} from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { boolean, element, type Gen, int, subarray } from "@grizzle/testing/gen"
-import { liveMillis } from "@grizzle/testing/live"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/explore"
+import { noCoverage, required } from "@bjornpagen/testing/features"
+import { boolean, element, type Gen, int, subarray } from "@bjornpagen/testing/gen"
+import { liveMillis } from "@bjornpagen/testing/live"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import {
 	Array as Arr,
 	Cause,

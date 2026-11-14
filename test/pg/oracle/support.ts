@@ -1,4 +1,4 @@
-import type { Gen } from "@grizzle/testing/gen"
+import type { Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record, String as Str } from "effect"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"

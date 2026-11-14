@@ -16,11 +16,11 @@
  * The box (doctrine rule 9): roster {a, b, c}, a armed by relation A, b by B, c unarmed; at most two parents of any kind
  * and every subset of arm rows for them, written parents first, then the arm rows, in one transaction.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { codeOf } from "#compiler/ir/codes.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"

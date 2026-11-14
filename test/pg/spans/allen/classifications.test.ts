@@ -17,14 +17,14 @@
  * Plants (~/.cache/grizzle-release/BR13/plants): allen-atom-before-strict.patch,
  * classifications-point-in-doubled.patch (pointIn lowered over the point doubled).
  */
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace, type Situations } from "@bjornpagen/testing/features"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { exact, ordered } from "@bjornpagen/testing/oracle"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace, type Situations } from "@grizzle/testing/features"
-import { element, type Gen, int } from "@grizzle/testing/gen"
-import { exact, ordered } from "@grizzle/testing/oracle"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Predicate, Record as Rec } from "effect"
 import { fullAllenMask } from "#compiler/allen/mask.ts"
 import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"

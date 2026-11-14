@@ -52,15 +52,15 @@
  * so no state here witnesses it: test/pg/adapter/round-trips.test.ts, which reads each explain's transaction off the
  * wire, kills it.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
+import { set } from "@bjornpagen/testing/oracle"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { assertInstanceOf } from "@effect/vitest/utils"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, shuffled } from "@grizzle/testing/gen"
-import { set } from "@grizzle/testing/oracle"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	Effect,

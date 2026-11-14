@@ -34,9 +34,8 @@
  *
  * Features: the population's required features (suite.ts and the file's own).
  */
-import { layer } from "@effect/vitest"
-import { sketched } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { sketched } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	constant,
@@ -47,9 +46,10 @@ import {
 	oneOf,
 	uniqueArray,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import { Array as Arr, Formatter } from "effect"
 import { type Direction, directions } from "#compiler/core/order.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"

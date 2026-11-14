@@ -13,14 +13,14 @@
  * Plants, each failing its search: an ANALYZE writing none of its carriers (access-analyze-writes); a traversal copying
  * an ANALYZE it changes nothing in (transform-analyze-copied).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, element, type Gen, increasing, int, map, oneOf } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { json } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, increasing, int, map, oneOf } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { json } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { relationAccess } from "#compiler/sql/access.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"

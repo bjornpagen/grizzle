@@ -21,12 +21,21 @@
  * - verdicts: a probe is admitted into both exactly when its pair is a row of Last, refused with 23514 otherwise.
  * - stored rows: every admitted probe is kept by every later migration.
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	array,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	subarray
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, constant, element, type Gen, int, map, oneOf, subarray } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"

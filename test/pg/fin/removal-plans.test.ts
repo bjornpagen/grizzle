@@ -26,11 +26,11 @@
  * Plant (~/.cache/grizzle-release/DENTRIAGE/plants/removals-or-exists.patch): removals.ts before the keysets, every site
  * an OR of EXISTS over its stored table: caught.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Layer } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { Plan } from "#adapter/types/db.ts"

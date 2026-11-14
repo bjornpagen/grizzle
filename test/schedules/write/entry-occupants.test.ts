@@ -39,11 +39,11 @@
  * entry-occupants-first-try.patch (the oracle expects the key's law on A's first call, the contract PostgreSQL 19rc1's
  * order gave), each of which must turn the property red.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Fiber, Formatter, Order, Result } from "effect"
 import { openServed } from "#adapter/db/served.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"

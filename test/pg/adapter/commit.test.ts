@@ -22,11 +22,11 @@
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): commit-transient-tag.patch (a 40001 reported as a deadlock).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Cause, Effect, Exit, Fiber, Formatter, Option } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { CallError } from "#compiler/live/index.ts"

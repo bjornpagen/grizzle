@@ -35,9 +35,8 @@
  * lower.ts concat), installs the schema the case expects refused, and generated-refusal-dies.patch, the install harness
  * turning generate's refusal into a defect (test/support/install-migrate.ts generatedDraft), dies on it.
  */
-import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -48,10 +47,11 @@ import {
 	oneOf,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { boundedShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { boundedShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"

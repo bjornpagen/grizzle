@@ -27,14 +27,14 @@
  * left lawful) the fourth; gen-forced-none.patch (no move ever forced) the fifth; gen-box-duplicate.patch (the box
  * holding an action twice) the sixth.
  */
+import { drawn, exhaust, explore, Run } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import { floorSeed, rotatingSeed } from "@bjornpagen/testing/random"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { sample } from "@bjornpagen/testing/source"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore, Run } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
-import { notesOnly } from "@grizzle/testing/sense"
-import { sample } from "@grizzle/testing/source"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record } from "effect"
 import { assert } from "#test/support/assert.ts"
 import { educationBase, educationInstall } from "#test/support/fixtures/education/index.ts"

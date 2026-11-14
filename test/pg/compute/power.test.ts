@@ -15,14 +15,14 @@
  * Features: value agreement, a refusal at compilation, an underflow to zero, each side of exp(6000), a guarded power
  * refused and proved, and each float refusal.
  */
+import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, type Gen, int, map, oneOf, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { bigint } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, type Gen, int, map, oneOf, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { PreconditionKind } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"

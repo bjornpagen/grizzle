@@ -16,25 +16,19 @@
 		"scripts/pg/live-slot-bound.ts",
 		"scripts/gen/allen/main.ts",
 		"scripts/pg/cluster-size.ts",
-		"packages/devtools/src/oxlint/fixtures.config.ts",
-		"packages/testing/src/vitest/coverage.ts",
-		"packages/testing/src/vitest/mutated-setup.ts",
-		"packages/testing/src/witness.fixtures.ts"
+		"scripts/dev/toolchain-imports.ts"
 	],
 	"ignorePatterns": [
 		"!packages/engine/src/query/build/**",
 		"!test/unit/query/build/**",
-		"packages/devtools/src/*/fixtures/**",
+		// The toolchain, another repository's, which its own gate checks.
+		"vendor/**",
 		// Reports for other projects: each reproduction runs alone under plain node, psql or sh and is no part of grizzle.
 		"upstream/**"
 	],
 	"ignoreDependencies": ["grizzle:config"],
 	"boundaries": {
 		"zones": [
-			{
-				"name": "testing",
-				"patterns": ["packages/testing/**"]
-			},
 			{
 				// The one reader of PostgreSQL's output texts (codec/read.ts), which the decode zones alone import.
 				"name": "reader",
@@ -401,10 +395,6 @@
 					"types",
 					"values"
 				]
-			},
-			{
-				"from": "testing",
-				"allow": []
 			},
 			{
 				"from": "reader",
@@ -990,8 +980,8 @@
 				"test/**",
 				"bench/**",
 				"scripts/**",
-				"packages/devtools/**",
 				"oxlint.config.ts",
+				"toolchain.config.ts",
 				"vitest.config.ts",
 				"vitest.network.config.ts"
 			]

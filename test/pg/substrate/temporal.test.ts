@@ -15,11 +15,11 @@
  *
  * Plants (main's test phase): substrate-temporal-key-without-overlaps-dropped.patch.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"

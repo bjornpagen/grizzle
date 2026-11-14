@@ -1,4 +1,4 @@
-import { DevtoolFailure, failureFrom } from "@grizzle/devtools/devtool"
+import { DevtoolFailure, failureFrom } from "@bjornpagen/devtools/devtool"
 import { Array as Arr, Effect, FileSystem, Option, Order, Record as Rec, Result } from "effect"
 import type { Json } from "#compiler/core/canonical.ts"
 import { jsonDocument, trustedJson } from "#compiler/core/trusted.ts"
@@ -96,7 +96,7 @@ const readVerdicts = Effect.fn("readVerdicts")(function* (path: string) {
 
 /**
  * The triage verdicts at `path`, each keyed by the mutant id it judges. A verdict is a claim about one mutant of the
- * current population (@grizzle/testing/mutants: the id digests the file, operator, enclosing function, original and
+ * current population (@bjornpagen/testing/mutants: the id digests the file, operator, enclosing function, original and
  * replacement text and ordinal), so a verdict whose id no current mutant has is refused: its code moved or changed,
  * and the fault it judged now has another id, which a run lists as untriaged.
  */

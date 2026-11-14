@@ -28,9 +28,8 @@
  * evaluated as includes), compute-matches-unbounded-subject (a query's matches over a subject no pattern bounds
  * admitted), compute-case-arm-source (a CASE arm hands `~` its source rather than its ARE).
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -40,10 +39,11 @@ import {
 	map,
 	uniqueKeys,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { regexMaxDepth } from "#compiler/core/limits.ts"

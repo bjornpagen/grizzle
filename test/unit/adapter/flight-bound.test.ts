@@ -2,9 +2,8 @@ import { Buffer } from "node:buffer"
 import { createServer, type Server, Socket } from "node:net"
 import { availableParallelism } from "node:os"
 import { TLSSocket } from "node:tls"
-import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	bytes,
@@ -15,10 +14,11 @@ import {
 	int,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { boundedShrink, completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { boundedShrink, completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import {
 	Array as Arr,
 	Cause,

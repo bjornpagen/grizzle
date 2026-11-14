@@ -42,14 +42,14 @@
  *
  * Features: every operator family in every position, reached by a NULL operand.
  */
+import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { type Reached, required } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen } from "@bjornpagen/testing/gen"
+import { agree, exact } from "@bjornpagen/testing/oracle"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { boundedShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { type Reached, required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen } from "@grizzle/testing/gen"
-import { agree, exact } from "@grizzle/testing/oracle"
-import { notesOnly } from "@grizzle/testing/sense"
-import { boundedShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	Effect,

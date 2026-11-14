@@ -12,11 +12,11 @@
  * its relation's first handle alone, refuses the run of a shared relation's other handle.
  */
 
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { grizzleFirstSession, ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"

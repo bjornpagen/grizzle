@@ -16,11 +16,11 @@
  * refused `invariant-rejected` otherwise, naming rules the state breaks, its witness `unreported`. The box is every
  * state of each shape over one or two nodes, records, items and keys, which reaches each rule broken alone.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Layer } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"

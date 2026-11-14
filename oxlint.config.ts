@@ -1,6 +1,9 @@
-import { active, lintConfig, restrictedImports } from "@grizzle/devtools/preset"
-import { CLOCK_RULES, EVERY_FILE_RULES, TEST_RULES } from "@grizzle/testing/oxlint"
+import { restrictedImports, standard } from "@bjornpagen/devtools/preset"
+import { CLOCK_RULES, EVERY_FILE_RULES, TEST_RULES } from "@bjornpagen/testing/oxlint"
 import { defineConfig } from "oxlint"
+import toolchain from "#toolchain.config.ts"
+
+const { active, lintConfig } = standard(toolchain)
 
 /** The engine's clock and scheduling ban, one message for every global it names. */
 const NO_CLOCK = "The engine reads no clock and schedules nothing: a time it needs is an argument."
@@ -128,18 +131,16 @@ const ASSERTIONS_MESSAGE =
 /** grizzle's lists for the shared standard; everything else comes from the dev tools' preset. */
 export default defineConfig(
 	lintConfig({
-		ignorePatterns: [
-			"packages/*/types/**",
-			"packages/devtools/src/*/fixtures/**",
-			"test/types/**/.*-??????/**"
-		],
+		ignorePatterns: ["packages/*/types/**", "test/types/**/.*-??????/**", "vendor/**"],
 		restrictedImports: { paths: [ZOD], patterns: [] },
 		restrictedGlobals: [],
 		restrictedProperties: [],
 		unassignedImports: [],
-		effectFree: ["packages/engine/**"],
-		ceremony: ["test/**", "bench/**", "scripts/**", "packages/devtools/**"],
+		ceremony: ["test/**", "bench/**", "scripts/**"],
 		plugin: {
+			"bearer-owners": {
+				owners: ["packages/grizzle/src/client/call.ts", "test/pg/live/errors.test.ts"]
+			},
 			"side-effect-free": {
 				modules: [
 					{
@@ -195,7 +196,6 @@ export default defineConfig(
 			},
 			"brands-sole-mint": {
 				mints: [
-					{ doors: ["packages/testing/src/vitest/mutated-file.ts"], brands: ["RealPath"] },
 					{
 						doors: ["packages/engine/src/core/identity.ts"],
 						brands: [
@@ -252,12 +252,7 @@ export default defineConfig(
 				]
 			},
 			"no-raw-sql": {
-				sources: [
-					"packages/engine/src",
-					"packages/grizzle/src",
-					"packages/testing/src",
-					"packages/devtools/src"
-				],
+				sources: ["packages/engine/src", "packages/grizzle/src"],
 				writers: [
 					"packages/engine/src/sql/print.ts",
 					"packages/engine/src/sql/lexer.ts",
@@ -274,11 +269,13 @@ export default defineConfig(
 			},
 			"test-no-spelled-names": { markers: NAME_MARKERS }
 		},
+		ownPlugins: [],
 		tests: {
-			jsPlugin: "@grizzle/testing/oxlint",
+			library: "installed",
+			jsPlugin: "@bjornpagen/testing/oxlint",
 			rules: TEST_RULES,
 			everyFile: EVERY_FILE_RULES,
-			clock: { files: ["packages/testing/src/**", "test/**"], rules: CLOCK_RULES }
+			clock: { files: ["test/**"], rules: CLOCK_RULES }
 		},
 		overrides: [
 			{
@@ -486,13 +483,6 @@ export default defineConfig(
 				})
 			},
 			{
-				files: ["packages/testing/src/live.ts"],
-				rules: active({
-					/** The live clock a case's hang guard and a fuzz run's time budget read: its job is the clock. */
-					"testing/no-wall-clock-verdict": "off"
-				})
-			},
-			{
 				files: [
 					"test/types/batch/global-setup.ts",
 					"bench/cold/probe.ts",
@@ -516,7 +506,7 @@ export default defineConfig(
 				})
 			},
 			{
-				files: ["test/types/**/fixtures/**", "packages/testing/src/witness.fixtures.ts"],
+				files: ["test/types/**/fixtures/**"],
 				rules: active({
 					/** A type test's refusal is a `@ts-expect-error` that names what it refuses. */
 					"typescript/ban-ts-comment": [

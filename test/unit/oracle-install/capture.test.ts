@@ -15,13 +15,20 @@
  * Plants: ~/.cache/grizzle-release/BR07/plants/capture-lone-quote.patch (a lone quote read as itself) turns the refusal
  * red; capture-backslash-kept.patch (an E literal's backslashes left doubled) turns the round trip red.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	constant,
+	element,
+	type Gen,
+	string,
+	unicodeScalar,
+	weighted
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { constant, element, type Gen, string, unicodeScalar, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Effect, Formatter, Option, pipe, String as Str } from "effect"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"

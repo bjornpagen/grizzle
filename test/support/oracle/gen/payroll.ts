@@ -1,4 +1,4 @@
-import { array, boolean, type Gen, int } from "@grizzle/testing/gen"
+import { array, boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, pipe, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"

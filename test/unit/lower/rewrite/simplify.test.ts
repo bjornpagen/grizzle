@@ -28,11 +28,11 @@
  * folding keeping the rejected facts (simplify-finite-inverted); branch removal keeping empty arms
  * (simplify-empty-arms); equality propagation leaving the region its own metadata (simplify-equality-meta).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, int, map, oneOf, subset } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, map, oneOf, subset } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { VectorText } from "#compiler/ir/carriers.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"

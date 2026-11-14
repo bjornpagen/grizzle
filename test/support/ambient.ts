@@ -1,4 +1,4 @@
-import { constant, type Gen, weighted } from "@grizzle/testing/gen"
+import { constant, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Brand, Effect, type Scope } from "effect"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"

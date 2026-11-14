@@ -25,9 +25,8 @@
  * Features: each width of code point, U+FFFF, a code point past the first supplementary plane and the empty text in
  * the SQL's batches; each bound of the text's type and each side of the guard, a refusal, and an admission at the limit.
  */
-import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	element,
@@ -36,11 +35,12 @@ import {
 	type Weight,
 	type Weighted,
 	weighted
-} from "@grizzle/testing/gen"
-import { agree, exact, ordered } from "@grizzle/testing/oracle"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { agree, exact, ordered } from "@bjornpagen/testing/oracle"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { regexTextMaxBytes } from "#compiler/core/limits.ts"

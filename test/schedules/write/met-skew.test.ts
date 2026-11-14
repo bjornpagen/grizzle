@@ -32,11 +32,11 @@
  * Plant: ~/.cache/grizzle-release/DELTAMET/plants/met-unseen.patch, a SERIALIZABLE `returned` insert classing a met row
  * with no read of it under the snapshot, must turn the property red: the skew commits.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
 import { openServed } from "#adapter/db/served.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"

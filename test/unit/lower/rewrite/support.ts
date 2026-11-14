@@ -1,4 +1,4 @@
-import { type Equivalence, ordered, set } from "@grizzle/testing/oracle"
+import { type Equivalence, ordered, set } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Hash, Option, Record as Rec, Result } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"

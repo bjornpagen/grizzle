@@ -60,14 +60,14 @@
  *
  * Features: SliceFeature, the shapes and laws each case reached; a direct and a nested match for the second.
  */
+import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, type Gen, int } from "@bjornpagen/testing/gen"
+import { agree, exact, set, structuralHash } from "@bjornpagen/testing/oracle"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, type Gen, int } from "@grizzle/testing/gen"
-import { agree, exact, set, structuralHash } from "@grizzle/testing/oracle"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { installationWitness } from "#adapter/served/refusals.ts"
 import { noLevelAbove } from "#adapter/witness/keylaw.ts"

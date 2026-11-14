@@ -28,13 +28,13 @@
  * ~/.cache/grizzle-release/BR08/plants/native-errors-views-writable.patch, every view granted INSERT, UPDATE and DELETE
  * beside SELECT, must turn the second red.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record, Result } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"

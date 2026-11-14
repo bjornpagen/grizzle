@@ -1,4 +1,4 @@
-import { exact, set, structuralHash } from "@grizzle/testing/oracle"
+import { exact, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Data, Formatter, Option, Order, Record as Rec, String as Str } from "effect"
 import { CompileError, type CompileReason, prose, type ProseTag } from "#compiler/core/errors.ts"
 import type { DomainDigest } from "#compiler/core/fingerprint.ts"

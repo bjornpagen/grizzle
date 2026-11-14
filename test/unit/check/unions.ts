@@ -8,7 +8,7 @@ import {
 	shuffled,
 	subarray,
 	weighted
-} from "@grizzle/testing/gen"
+} from "@bjornpagen/testing/gen"
 import { Array as Arr, Equivalence, Option, Order } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { type Direction, directions } from "#compiler/core/order.ts"

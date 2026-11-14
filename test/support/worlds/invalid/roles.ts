@@ -1,4 +1,4 @@
-import { constant, element, map } from "@grizzle/testing/gen"
+import { constant, element, map } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { knownNonEmpty } from "#test/support/worlds/generate/domain.ts"
 import { roleNames } from "#test/support/worlds/generate/install.ts"

@@ -26,12 +26,12 @@
  * Plants (~/.cache/grizzle-release/BR11/plants): checks-span-upper-unchecked (a span's endpoint CHECK holds its
  * contract's predicate of the lower endpoint alone).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"

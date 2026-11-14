@@ -30,9 +30,8 @@
  * (lower/conservative/context.ts scalarParam casting to the base type): the pattern parameter, numeric contract and
  * attachment and union suites fail on a refused value that runs.
  */
-import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	characterOf,
@@ -42,10 +41,11 @@ import {
 	map,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Exit, Formatter, Option, Order, String as Str } from "effect"
 import { partRuns } from "#adapter/reader/execution.ts"

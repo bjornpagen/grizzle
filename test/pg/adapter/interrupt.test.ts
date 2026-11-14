@@ -26,9 +26,8 @@
  * CancelRequest), interrupt-lease-leaked.patch (an interrupted call's retired session never counted out of the pool's
  * leases).
  */
-import { layer } from "@effect/vitest"
-import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -37,10 +36,11 @@ import {
 	type Gen,
 	weighted,
 	type Weight
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Exit, Fiber, Formatter, Option, Order } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { onceCalls, variantOf } from "#adapter/db/handles.ts"

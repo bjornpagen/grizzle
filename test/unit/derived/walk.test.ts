@@ -17,13 +17,13 @@
  * Features: an input bound to a variable, to an importer's parameter, to a literal, or left open; the import matched
  * itself; an importer's parameter named as an import's; a parameterless importer of a parameterized import.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { type Gen, int, map, option, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { type Gen, int, map, option, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"

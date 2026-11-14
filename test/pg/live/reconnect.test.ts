@@ -24,13 +24,13 @@
  * Features: each drop point, each surface, a drop before the first answer and one after COMMIT's, a drop with a re-run
  * in flight.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { awaitFact } from "@bjornpagen/testing/fact"
+import { required } from "@bjornpagen/testing/features"
+import { boolean, type Gen, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { awaitFact } from "@grizzle/testing/fact"
-import { required } from "@grizzle/testing/features"
-import { boolean, type Gen, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Ref } from "effect"
 import { caseHang } from "#test/support/limits.ts"
 import { commitLive, inputOf, worldSurfaces } from "#test/support/live/calls.ts"

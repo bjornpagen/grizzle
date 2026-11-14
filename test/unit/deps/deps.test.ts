@@ -29,14 +29,14 @@
  * The layering (which areas a module may import) is fallow's boundaries (.fallowrc.json), and the packages an area may
  * load are oxlint's no-restricted-imports (oxlint.config.ts).
  */
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { noCoverage, required } from "@bjornpagen/testing/features"
+import { element } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
 import { describe, it, layer } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
 import {
 	Array as Arr,

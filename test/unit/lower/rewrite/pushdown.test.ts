@@ -11,8 +11,8 @@
  *
  * Plant, failing the search: a filter moved below a take (pushdown-below-take).
  */
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { searched } from "@grizzle/testing/vitest"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import { pushdownPass } from "#compiler/lower/optimize/pushdown/index.ts"
 import { guardSearch, rowsAgreeAt } from "#test/unit/lower/rewrite/guarded.ts"

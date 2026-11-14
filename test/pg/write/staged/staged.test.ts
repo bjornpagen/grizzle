@@ -48,13 +48,13 @@
  * staged form, sends its rows inline past the planted bound, which the flight's builder refuses as InputTooLarge
  * (message) where the inline write commits, so the search fails on pantry's kept case.
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, type Gen, int } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, type Gen, int } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { onceCalls } from "#adapter/db/handles.ts"

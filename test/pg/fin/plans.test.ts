@@ -27,13 +27,13 @@
  * Plant: ~/.cache/grizzle-release/TREEKEY/plants/fin-plans-tree-key-start-first.patch, the tree's primary key planned
  * as (start, r), leaves the export no index in its order and must turn the property red.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { boolean, constant, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { boolean, constant, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import {
 	explain,

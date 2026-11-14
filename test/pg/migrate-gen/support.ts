@@ -1,5 +1,5 @@
-import { array, boolean, constant, element, type Gen, int, map } from "@grizzle/testing/gen"
-import { type Swarm, swarm, swarmChoice, weightOf } from "@grizzle/testing/swarm"
+import { array, boolean, constant, element, type Gen, int, map } from "@bjornpagen/testing/gen"
+import { type Swarm, swarm, swarmChoice, weightOf } from "@bjornpagen/testing/swarm"
 import {
 	Array as Arr,
 	Equal,

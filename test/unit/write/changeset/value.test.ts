@@ -1,4 +1,3 @@
-import { describe, it } from "@effect/vitest"
 import {
 	accepted,
 	type Answer,
@@ -11,9 +10,9 @@ import {
 	type StepFeature,
 	took,
 	type Verdict
-} from "@grizzle/testing/commands"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+} from "@bjornpagen/testing/commands"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	codePoint,
@@ -26,12 +25,13 @@ import {
 	shuffled,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
-import { lsw, passed, type WildKind } from "@grizzle/testing/lsw"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { fullSwarm } from "@grizzle/testing/swarm"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { lsw, passed, type WildKind } from "@bjornpagen/testing/lsw"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { fullSwarm } from "@bjornpagen/testing/swarm"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Stream } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
@@ -103,7 +103,7 @@ import {
  * - bind closes every free parameter with a value, no more and no NULL, and a bound parameter leaves the namespace: a
  *   parameter of its name added later, or brought by a combined ChangeSet, is free and separate.
  *
- * A program of steps over a pool of ChangeSets (`@grizzle/testing/commands`) is judged step by step: what the real
+ * A program of steps over a pool of ChangeSets (`@bjornpagen/testing/commands`) is judged step by step: what the real
  * value holds, read back into the model's terms (each query member and read-back recognised as the one its shape and
  * its parameters' values make), must be the model's prediction, with every earlier value's Description unchanged; and
  * the Description must be canonical, the same text as the normal form that builds the model's ChangeSet member by

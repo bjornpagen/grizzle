@@ -32,11 +32,20 @@
  * (catalog-parents-auto); an as-of ordered toward the parent admitted (catalog-as-of-order); a total over another
  * source admitted (catalog-r28-source); a fresh node label that differs run to run (catalog-fresh-labels).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf
+} from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { array, boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
 import { catchRefusal, encode, everyProperty } from "#compiler/core/canonical.ts"
 import { VarId } from "#compiler/core/ids.ts"

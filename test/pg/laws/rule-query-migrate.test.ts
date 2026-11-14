@@ -35,12 +35,12 @@
  * the parts of a dropped table left to its DROP TABLE, so its rule trigger stands when its function is dropped before
  * the table (2BP01).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"

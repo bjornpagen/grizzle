@@ -21,12 +21,12 @@
  * Plants (~/.cache/grizzle-release/BR13/plants): deadlines-statement-timeout.patch (a login's startup options setting
  * statement_timeout).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element } from "@bjornpagen/testing/gen"
+import type { Source } from "@bjornpagen/testing/source"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
-import type { Source } from "@grizzle/testing/source"
-import { searched } from "@grizzle/testing/vitest"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Array as Arr, Clock, Effect, Formatter, Option } from "effect"
 import { oneShotStatement, runTransaction, type Transaction } from "#adapter/wire/batch.ts"

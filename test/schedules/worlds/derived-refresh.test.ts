@@ -1,5 +1,5 @@
-import { constant, element, type Gen, weighted } from "@grizzle/testing/gen"
-import { type Nature, type PctSchedule, pctSchedule } from "@grizzle/testing/interleave"
+import { constant, element, type Gen, weighted } from "@bjornpagen/testing/gen"
+import { type Nature, type PctSchedule, pctSchedule } from "@bjornpagen/testing/interleave"
 import { Array as Arr } from "effect"
 import {
 	act,

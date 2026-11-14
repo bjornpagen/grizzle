@@ -22,12 +22,12 @@
  * its bucket) turns the plan properties red; index-identity-outside-roster.patch (a handle outside its roster given an
  * identity) the indexIdentity one.
  */
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { noCoverage, requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import type { RelDag } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"

@@ -1,5 +1,5 @@
 import { inspect } from "node:util"
-import { type Equivalence, exact, ordered } from "@grizzle/testing/oracle"
+import { type Equivalence, exact, ordered } from "@bjornpagen/testing/oracle"
 import {
 	Array as Arr,
 	Data,
@@ -109,7 +109,7 @@ import { type FullWorld, fullWorld } from "#test/support/worlds.ts"
  *   column cast to text in the generated heading's order, as the runtime's statements cast them, so the
  *   raw rows compare exactly.
  *
- * Equivalence is the testing library's judgment (@grizzle/testing/oracle), checked twice: raw text row sets between
+ * Equivalence is the testing library's judgment (@bjornpagen/testing/oracle), checked twice: raw text row sets between
  * statements that deliver the same rows (the harness's rowsAgree), and the delivered public results, nested
  * attachments and merged heading groups included, between the two artifacts (deliveredAgree). Double-precision
  * catalog entries compare keyed numeric texts within a stated tolerance (within).

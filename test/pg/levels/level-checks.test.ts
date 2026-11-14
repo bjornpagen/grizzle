@@ -47,13 +47,13 @@
  * Validate file), levelcheck-own-dropped (a lower login's own checks go unnamed when a level's check refused the row),
  * levelcheck-refused (a row check over a lower relation refused as LevelRefused).
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
+import { exact } from "@bjornpagen/testing/oracle"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
-import { exact } from "@grizzle/testing/oracle"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Result, String as Str } from "effect"
 import { applyOnSession } from "#adapter/migrate/apply.ts"
 import type { MigrateError, MigrationPlace } from "#adapter/migrate/errors.ts"

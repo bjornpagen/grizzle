@@ -11,14 +11,14 @@
  *
  * Plants: values-fault-echo (the refusal's location names the refused input).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { element } from "@bjornpagen/testing/gen"
+import { matching } from "@bjornpagen/testing/pattern"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
-import { matching } from "@grizzle/testing/pattern"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Effect, Formatter } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { numericMaxIntegerDigits } from "#compiler/ir/carriers.ts"

@@ -22,7 +22,7 @@
  * relation per monoid. Values are exact: an integer in its own unit, numeric(8, 2) in hundredths, money in cents, a
  * closed id as its code and a set as the bit mask of its codes, text as itself.
  */
-import { constant, element, type Gen, int, string, weighted } from "@grizzle/testing/gen"
+import { constant, element, type Gen, int, string, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { int2Min, int4Min, int8Min } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"

@@ -1,4 +1,4 @@
-import { element, type Gen } from "@grizzle/testing/gen"
+import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { FieldDesc, QueryDesc } from "#compiler/ir/desc.ts"

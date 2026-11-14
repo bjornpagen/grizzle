@@ -9,8 +9,8 @@
  * delete of everything. A case that keeps unlawful writes breaks a law in its last ChangeSet: a pure set's needed value
  * deleted, a referrer naming no row, two facts at one key, or a counted member naming no owner.
  */
-import { boolean, type Gen, int } from "@grizzle/testing/gen"
-import { keep, type Swarm } from "@grizzle/testing/swarm"
+import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
+import { keep, type Swarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option } from "effect"
 import {
 	absentId,

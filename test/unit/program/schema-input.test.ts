@@ -1,16 +1,16 @@
-import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore, type Kept } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, oneOf } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore, type Kept } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import {
 	corrupted,
 	corruptedFeature,
 	type CorruptedFeature,
 	type Corruption
-} from "@grizzle/testing/lsw"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/lsw"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { formatLoc, formatPath } from "#compiler/core/loc.ts"
@@ -81,7 +81,7 @@ import { upTo } from "#test/support/up-to.ts"
  * - A schema value the decoder refuses is refused with the decoder's own path, by parseSchemaInput and by a workload
  *   compiled against it, never by a generic "a schema value or SchemaDesc". The values are generated schemas (the
  *   differential oracle's, gen/schema.ts), each broken at one site of one decoder rule (a corruption,
- *   @grizzle/testing/lsw), and the path is the site's, held segment by segment, never as printed text.
+ *   @bjornpagen/testing/lsw), and the path is the site's, held segment by segment, never as printed text.
  *
  * A changed Db is drawn from every site of every change of content that installs, the finite space cut once; a rename
  * draws a schema name other than the root's own. No case is discarded.

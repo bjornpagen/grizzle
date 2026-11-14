@@ -19,13 +19,13 @@
  * Plants: text-raw-nfa-frame-arcs (the frame's arcs miscounted), text-limit-anchors-at (a pattern at the anchors
  * limit refused), text-charset-upper-bound (a set's last code point left out of it).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, element, type Gen, int, map, oneOf, string, subset } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int, map, oneOf, string, subset } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
 import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
 import {

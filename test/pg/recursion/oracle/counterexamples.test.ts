@@ -1,10 +1,10 @@
+import { drawn } from "@bjornpagen/testing/explore"
+import { type Coverage, noCoverage, required } from "@bjornpagen/testing/features"
+import type { Gen } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn } from "@grizzle/testing/explore"
-import { type Coverage, noCoverage, required } from "@grizzle/testing/features"
-import type { Gen } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter } from "effect"
 import {
 	bagRecursion,

@@ -14,10 +14,10 @@
  * - Plant: ~/.cache/grizzle-release/BR08/plants/write-oracle-removal-keeps-addition.patch, a removal that keeps the
  *   addition it should cancel across strata, must turn the property red.
  */
+import { required } from "@bjornpagen/testing/features"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { exploreWrite, type WriteSuite, writeSituations } from "#test/support/oracle/write/index.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

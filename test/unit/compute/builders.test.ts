@@ -14,10 +14,9 @@
  * Plants: compute-span-endpoint-unchecked (a span function takes any endpoint descriptor),
  * compute-literal-number-coerced (a JavaScript number read as a bigint literal's value).
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { constant, element, type Gen, oneOf } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { constant, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import {
 	type Drawn,
 	drawnFeature,
@@ -25,11 +24,12 @@ import {
 	lsw,
 	passed,
 	WILD_KINDS
-} from "@grizzle/testing/lsw"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/lsw"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { bigint } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"

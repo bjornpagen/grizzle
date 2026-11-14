@@ -33,8 +33,8 @@
  * refuses only a refill of an immutable relation's rows; the instance a follow-up leaves (`followUpRows`) is the
  * reference writer's to fill, every refilled value among it.
  */
-import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
-import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
+import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
+import { keep, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
 import type { ChangedColumn, DerivedReader, FamilyName } from "#compiler/core/causes.ts"
 import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"

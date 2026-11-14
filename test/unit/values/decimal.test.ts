@@ -42,9 +42,8 @@
  * greatest precision refused), values-numeric-tie-toward-zero (a tie rounded toward zero),
  * values-decimal-number-admitted (a number read through its text).
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	boolean,
 	characterOf,
@@ -57,11 +56,12 @@ import {
 	option,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
-import { type DrawnFeature, drawnFeature, lsw, passed, WILD_KINDS } from "@grizzle/testing/lsw"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { type DrawnFeature, drawnFeature, lsw, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, pipe, String as Str } from "effect"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import { isCompileError, type ValueFault } from "#compiler/core/errors.ts"

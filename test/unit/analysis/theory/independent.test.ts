@@ -18,11 +18,11 @@
  * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: each arrangement for the shape; each family's
  * verdict, and the other's state beside it, for the laws.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { Theory } from "#compiler/analysis/theory/theory.ts"

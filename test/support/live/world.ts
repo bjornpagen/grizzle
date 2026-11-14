@@ -1,4 +1,4 @@
-import { array, boolean, type Gen, int, uniqueKeys, weighted } from "@grizzle/testing/gen"
+import { array, boolean, type Gen, int, uniqueKeys, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"

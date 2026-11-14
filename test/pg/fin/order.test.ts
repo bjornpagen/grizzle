@@ -20,11 +20,11 @@
  * Plant: ~/.cache/grizzle-release/BR08/plants/fin-predecessor-axis-deferral-swapped.patch, the ordered predecessor axis
  * installed deferred, commits a split the model refuses and must turn the property red.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, int, shuffled } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { Disagreed, familySeat, judgedFamily } from "#test/pg/fin/family.ts"
 import { endedBy, type EndFeature, endGen, refusedAtCommitBy } from "#test/pg/fin/installed.ts"

@@ -1,4 +1,4 @@
-import type { Case } from "@grizzle/testing/explore"
+import type { Case } from "@bjornpagen/testing/explore"
 import {
 	Array as Arr,
 	Data,

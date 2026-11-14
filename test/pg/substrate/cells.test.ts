@@ -25,11 +25,11 @@
  *
  * Plants (main's test phase): substrate-cells-pack-no-absence-offset.patch, substrate-bits-cell-word-boundary.patch.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { cell, fromText } from "#compiler/codec/bits.ts"
 import { indices } from "#compiler/core/array.ts"

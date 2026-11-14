@@ -7,7 +7,7 @@ import {
 	map,
 	oneOf,
 	weighted
-} from "@grizzle/testing/gen"
+} from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, pipe, Record as Rec, String as Str } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { defined } from "#test/support/assert.ts"

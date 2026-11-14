@@ -14,8 +14,8 @@
  *
  * Features: suite.ts's situations, every program form and identifier kind, and each decline of the reference.
  */
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { searched } from "@grizzle/testing/vitest"
 import { cases, explorePublic } from "#test/pg/oracle/public/suite.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

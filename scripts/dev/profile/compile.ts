@@ -1,7 +1,7 @@
 #!/usr/bin/env -S node
 import { parseArgs } from "node:util"
-import { DevtoolFailure, failureFrom } from "@grizzle/devtools/devtool"
-import { runDevtool } from "@grizzle/devtools/run"
+import { DevtoolFailure, failureFrom } from "@bjornpagen/devtools/devtool"
+import { runDevtool } from "@bjornpagen/devtools/run"
 import {
 	Array as Arr,
 	Console,

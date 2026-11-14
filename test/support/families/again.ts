@@ -26,8 +26,8 @@
  * member is added only under mutable owners: the README fixes an immutable owner's family when the owner is inserted
  * and states no outcome for an insert joining a stored one.
  */
-import { element, type Gen, int } from "@grizzle/testing/gen"
-import { type Swarm, swarmChoice } from "@grizzle/testing/swarm"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { type Swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order } from "effect"
 import { deepEquals, defined, nonEmpty } from "#test/support/assert.ts"
 import {

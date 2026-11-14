@@ -1,4 +1,4 @@
-import { type Equivalence, equivalence } from "@grizzle/testing/oracle"
+import { type Equivalence, equivalence } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Equal, Formatter, Hash, Order, Record as Rec } from "effect"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 

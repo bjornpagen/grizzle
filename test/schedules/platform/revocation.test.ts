@@ -15,7 +15,7 @@
  * ENFORCED, so usageWhileActive admits usage past the cut).
  */
 
-import { array, element, type Gen, int } from "@grizzle/testing/gen"
+import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import {
 	beforeOf,

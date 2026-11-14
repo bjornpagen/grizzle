@@ -4126,6 +4126,7 @@ There are no stability guarantees. Every release is a hard cutover, with no depr
 Everything runs natively on Linux, with no Docker. There is no build step: Node runs each package's `src/*.ts` directly, and each package's `exports` and `bin` name its `src/` modules, so the repository and every consumer resolve the packages' names to the source.
 
 ```sh
+git submodule update --init       # the toolchain, vendor/toolchain: the dev tools and the testing library
 pnpm install
 pnpm pg:build                     # build the pinned PostgreSQL 19rc2 from source, with its patches and pgvector
 pnpm pg:init                      # create the local cluster on port 5433: TLS and SCRAM only
@@ -4159,8 +4160,7 @@ Every generated suite draws from one seed, `TEST_SEED`, which a run prints first
 - `bench/`: performance gates.
 - `scripts/pg/`: the pinned PostgreSQL's source, build, cluster, doctor and patches.
 - `scripts/dev/`: the mutation tester and the profiler.
-- `packages/devtools/`: the lint tooling: the oxlint preset and plugin, superlint and the tsconfig base.
-- `packages/testing/`: `@grizzle/testing`, the testing library every test runs on, and `pnpm fuzz`'s script.
+- `vendor/toolchain/`: the [toolchain](https://github.com/bjornpagen/toolchain), a git submodule pinned by commit, whose packages join the workspace: `@bjornpagen/devtools`, the lint tooling (superlint, the oxlint preset and plugin), which `toolchain.config.ts` configures, and `@bjornpagen/testing`, the testing library every test runs on, with `pnpm fuzz`'s script.
 
 ## License
 

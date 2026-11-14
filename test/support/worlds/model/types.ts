@@ -1,4 +1,4 @@
-import type { WildKind } from "@grizzle/testing/lsw"
+import type { WildKind } from "@bjornpagen/testing/lsw"
 import type { Array as Arr } from "effect"
 import type { Identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"

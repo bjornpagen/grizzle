@@ -6,9 +6,9 @@
  *
  * Plant (~/.cache/grizzle-release/BR14/plants): api-recursion-arms.patch admits a recursion with no base arm.
  */
+import { unreachedOf } from "@bjornpagen/testing/features"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { unreachedOf } from "@grizzle/testing/features"
 import { Effect } from "effect"
 import { recursionRequired, recursionWitnesses } from "#test/support/agreement/recursion.ts"
 import { assert } from "#test/support/assert.ts"

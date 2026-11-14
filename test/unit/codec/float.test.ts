@@ -20,15 +20,15 @@
  * float-real-negative-infinity-lost (-Infinity read as Infinity) and float-text-sixteen-digits (a double written to
  * sixteen significant digits, not its shortest).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { boolean, element, int, map, string, weighted } from "@bjornpagen/testing/gen"
+import { matching } from "@bjornpagen/testing/pattern"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { double, float } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { boolean, element, int, map, string, weighted } from "@grizzle/testing/gen"
-import { matching } from "@grizzle/testing/pattern"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { double, float } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
 import { floatText } from "#compiler/scalar/values/float.ts"

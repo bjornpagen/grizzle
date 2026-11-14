@@ -28,12 +28,12 @@
  *
  * Features: each class above, each surface.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { boolean, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { boolean, type Gen, int, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Fiber, Formatter } from "effect"
 import { served } from "#adapter/public/layer.ts"
 import { type CallError, type CallErrorKind, callErrors } from "#compiler/live/index.ts"

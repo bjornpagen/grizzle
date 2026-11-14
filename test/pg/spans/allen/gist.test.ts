@@ -14,13 +14,13 @@
  * Plants (~/.cache/grizzle-release/BR13/plants): gist-access-btree.patch (the access index over a span created as a
  * B-tree).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { boolean, constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
 import { planIndexNames, planNodeTypes } from "#bench/harness/explain.ts"
 import { allenFormula } from "#compiler/allen/lower.ts"

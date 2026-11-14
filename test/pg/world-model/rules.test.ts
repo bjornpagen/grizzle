@@ -1,6 +1,6 @@
+import type { Situations } from "@bjornpagen/testing/features"
+import { constant, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { layer } from "@effect/vitest"
-import type { Situations } from "@grizzle/testing/features"
-import { constant, type Gen, weighted } from "@grizzle/testing/gen"
 import { Array as Arr } from "effect"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { witnessesShowTheirOwn } from "#test/support/worlds/drive/acting.ts"

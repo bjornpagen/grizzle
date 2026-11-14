@@ -12,13 +12,13 @@
  *
  * Features: each payroll program, and a case that delivers rows.
  */
+import { sketched } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, type Gen } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { sketched } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, type Gen } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import {
 	type PayrollProgramName,

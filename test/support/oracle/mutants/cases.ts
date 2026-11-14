@@ -8,7 +8,7 @@ import {
 	map,
 	oneOf,
 	shuffled
-} from "@grizzle/testing/gen"
+} from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"

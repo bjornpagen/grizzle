@@ -24,11 +24,11 @@
  * every one required of the space. Plant: ~/.cache/grizzle-release/BR09/plants/coverage-period-fk-immediate.patch,
  * the PERIOD foreign key installed immediate, refuses a gap at its statement where the model refuses it at COMMIT.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { pg, span } from "#compiler/public/fields.ts"
 import { contained, key, on, relation, schema, select } from "#compiler/public/schema.ts"

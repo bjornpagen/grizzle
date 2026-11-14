@@ -18,12 +18,12 @@
  * bare), sql-shape-alias-sensitive (a shape that reads an alias's length), sql-onehole-root-unmarked (the root's
  * rewrites given another kind) and sql-onehole-replaces-past-site (every site from the hole on replaced).
  */
+import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, Record } from "effect"
 import type {

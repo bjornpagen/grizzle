@@ -22,11 +22,11 @@
  * Features: an arm of one handle, an arm of several handles, an unarmed handle, two arm relations.
  */
 
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { array, element, type Gen, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import type { LawRelation, NativeColumn } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"

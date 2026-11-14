@@ -29,12 +29,12 @@
  * turns the first property red; install-order-quadratic.patch (every two ready objects compared at each pop) the
  * second.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { noCoverage } from "@bjornpagen/testing/features"
+import { int, map } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { noCoverage } from "@grizzle/testing/features"
-import { int, map } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, FileSystem, Formatter, Layer, Record as Rec } from "effect"
 import { served } from "#adapter/public/layer.ts"
 import { resolveConfig } from "#cli/config.ts"

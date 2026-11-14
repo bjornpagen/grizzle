@@ -1,4 +1,4 @@
-import type { Situations } from "@grizzle/testing/features"
+import type { Situations } from "@bjornpagen/testing/features"
 import { Array as Arr, Option, Record } from "effect"
 import { isSpan, sameValue } from "#test/support/laws/model.ts"
 import { invalidKindsOf } from "#test/support/worlds/generate/classify.ts"

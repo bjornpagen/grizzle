@@ -47,9 +47,8 @@
  *
  * Plant, failing the search: a counter's last produced value read one step past its bound (termination-produced).
  */
-import { describe, it } from "@effect/vitest"
-import { explore, type Kept, sketched } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { explore, type Kept, sketched } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -60,10 +59,11 @@ import {
 	map,
 	oneOf,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import {
 	Array as Arr,
 	Effect,

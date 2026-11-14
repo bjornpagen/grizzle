@@ -14,11 +14,11 @@
  * Plants: compute-bits-door-unstated (the codec's door reads a set's handles alone, its stated roster unchecked, so
  * Bits.of(Alpha, ["low"]) at a field over Beta is admitted where Beta holds "low").
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Result } from "effect"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { CompileError } from "#compiler/core/errors.ts"

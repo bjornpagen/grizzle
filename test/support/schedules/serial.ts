@@ -1,5 +1,5 @@
-import type * as Interleave from "@grizzle/testing/interleave"
-import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
+import type * as Interleave from "@bjornpagen/testing/interleave"
+import { exact, ordered, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { regex } from "arkregex"
 import {
 	Array as Arr,

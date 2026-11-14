@@ -17,11 +17,11 @@
  *
  * Features: a row accepted, and a row breaking each check alone and with others.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Order } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"

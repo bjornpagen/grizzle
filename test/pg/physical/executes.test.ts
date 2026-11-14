@@ -23,11 +23,11 @@
  * Plants (~/.cache/grizzle-release/BR11/plants): executes-written-unfollowed (a role's EXECUTE grants follow its views
  * alone, never the statements on the tables it writes).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { handlesText } from "#compiler/ir/codes.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"

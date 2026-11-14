@@ -20,11 +20,11 @@
  *
  * Plants are patches in ~/.cache/grizzle-release/BR03/plants.
  */
+import { type Case, exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { constant, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { constant, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { alignUp, maxAlign, typlens } from "#compiler/core/limits.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"

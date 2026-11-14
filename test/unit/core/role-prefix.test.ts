@@ -20,12 +20,12 @@
  * Plants (~/.cache/grizzle-release/ROLESPACE/plants): role-prefix-converted.patch (the prefix converted as a declared
  * name, `gr8des` installing as `gr_8_des`).
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, codePoint, element, type Gen, int, string } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, codePoint, element, type Gen, int, string } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { maxIdentifierBytes, parseRolePrefix, roleInSpace } from "#compiler/core/identity.ts"

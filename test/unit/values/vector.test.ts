@@ -19,15 +19,15 @@
  * caller's buffer), values-vector-payload-spelling (a payload component's spelling unchecked),
  * values-vector-negative-zero-text (a -0 component written as -0).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, constant, element, type Gen, map, weighted } from "@bjornpagen/testing/gen"
+import { type DrawnFeature, drawnFeature, lsw, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { float } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, constant, element, type Gen, map, weighted } from "@grizzle/testing/gen"
-import { type DrawnFeature, drawnFeature, lsw, passed, WILD_KINDS } from "@grizzle/testing/lsw"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { float } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, pipe, String as Str } from "effect"
 import { decode, encode, everyProperty } from "#compiler/core/canonical.ts"
 import { CompileError } from "#compiler/core/errors.ts"

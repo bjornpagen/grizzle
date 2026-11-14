@@ -39,13 +39,13 @@
  * entry; a cascading and a deferred foreign key; a decoding view; a relation written whole; a tree's relation written
  * through a query entry refused when declared.
  */
+import { type Case, explore, sketched } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, type Gen, int } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, explore, sketched } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, type Gen, int } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { identifierOf } from "#compiler/core/identity.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"

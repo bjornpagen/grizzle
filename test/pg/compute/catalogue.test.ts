@@ -15,9 +15,8 @@
  *
  * Features: each boundary and spelling situation, a declined case, power's value, and lcm past its operands' digits.
  */
-import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	constant,
@@ -29,11 +28,12 @@ import {
 	proportional,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint, double } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { bigint, double } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError, PreconditionKind } from "#compiler/core/errors.ts"

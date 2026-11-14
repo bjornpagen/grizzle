@@ -1,4 +1,4 @@
-import { exact, ordered } from "@grizzle/testing/oracle"
+import { exact, ordered } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { type PlanLabel, planEdges, planNodeTypes } from "#bench/harness/explain.ts"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"

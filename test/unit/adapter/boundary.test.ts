@@ -1,7 +1,14 @@
-import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { codePoint, constant, element, type Gen, int, string, weighted } from "@grizzle/testing/gen"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	codePoint,
+	constant,
+	element,
+	type Gen,
+	int,
+	string,
+	weighted
+} from "@bjornpagen/testing/gen"
 import {
 	type Drawn,
 	type DrawnFeature,
@@ -10,10 +17,11 @@ import {
 	passed,
 	WILD_KINDS,
 	type WildKind
-} from "@grizzle/testing/lsw"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/lsw"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { absurd, Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { windowedInput } from "#adapter/db/input.ts"
 import type { CallInputFault } from "#adapter/errors/failures.ts"

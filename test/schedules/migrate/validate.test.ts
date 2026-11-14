@@ -44,13 +44,13 @@
  * validated).
  */
 
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { noCoverage, requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, increasing, int, shuffled } from "@bjornpagen/testing/gen"
+import { matching } from "@bjornpagen/testing/pattern"
+import type { Source } from "@bjornpagen/testing/source"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, increasing, int, shuffled } from "@grizzle/testing/gen"
-import { matching } from "@grizzle/testing/pattern"
-import type { Source } from "@grizzle/testing/source"
-import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	Effect,

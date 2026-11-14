@@ -8,11 +8,11 @@
  * servedText, spells it `~op:<code>:<carrier>`; the JSON value an import of that file yields, read by servedFile, holds
  * that very instance; and the file read back writes as the same text again.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"

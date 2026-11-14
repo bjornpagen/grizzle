@@ -16,11 +16,11 @@
  * Plants (~/.cache/grizzle-release/BR11/plants): attnums-one-past (a draft admits an addition one attribute number past
  * PostgreSQL's bound).
  */
+import { type Case, exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case, exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { tableMaxColumns } from "#compiler/core/limits.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"

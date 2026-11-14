@@ -7,7 +7,7 @@
  *   EncodingFailure, whose message names both, never the value). One field of an otherwise live fact at a time
  *   (an integer, a bigint, a boolean, a refined text, a uuid, a span) is drawn a value of its field's invalid class,
  *   constructed, never filtered (a string that holds a non-hex letter, an integer past its type's range, a non-boolean,
- *   a text holding NUL, a span whose end is not past its start), or a Wild value (@grizzle/testing/lsw), passed as a
+ *   a text holding NUL, a span whose end is not past its start), or a Wild value (@bjornpagen/testing/lsw), passed as a
  *   call's fact of an array member, or a scalar parameter of a described member. The oracle is the codecs' fault
  *   vocabulary (scalar/values/fault.ts), each class's one fault: a value of a class is refused with that fault, a
  *   parameter's with the parameter as its slot, with no frontend message sent and nothing stored; a wild value the
@@ -29,9 +29,8 @@
  * Plants (~/.cache/grizzle-release/BR13/plants): api-errors-nul-admitted.patch (the text codec admitting NUL past a
  * text's first character), api-errors-slot-lost.patch (a parameter's refusal placed at another slot).
  */
-import { layer } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	boolean,
 	characterOf,
@@ -43,11 +42,12 @@ import {
 	oneOf,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
-import { passed, type Wild, WILD_KINDS, type WildKind, wild, wildOf } from "@grizzle/testing/lsw"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { passed, type Wild, WILD_KINDS, type WildKind, wild, wildOf } from "@bjornpagen/testing/lsw"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
 import { onceCalls, variantOf } from "#adapter/db/handles.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"

@@ -4,9 +4,9 @@ import {
 	type Run,
 	type SearchFailure,
 	sketched
-} from "@grizzle/testing/explore"
-import { constant, type Gen } from "@grizzle/testing/gen"
-import type { ShrinkBudget } from "@grizzle/testing/shrink"
+} from "@bjornpagen/testing/explore"
+import { constant, type Gen } from "@bjornpagen/testing/gen"
+import type { ShrinkBudget } from "@bjornpagen/testing/shrink"
 import { Array as Arr, Effect, Record, type Scope } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"

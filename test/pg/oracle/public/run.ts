@@ -1,5 +1,5 @@
-import type { Case as Notes } from "@grizzle/testing/explore"
-import { agree, type Equivalence, type Side } from "@grizzle/testing/oracle"
+import type { Case as Notes } from "@bjornpagen/testing/explore"
+import { agree, type Equivalence, type Side } from "@bjornpagen/testing/oracle"
 import {
 	Array as Arr,
 	Cause,

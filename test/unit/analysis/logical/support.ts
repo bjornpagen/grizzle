@@ -14,7 +14,7 @@ import { literalDescShape } from "#compiler/ir/desc.ts"
 import { classMembers, type KeyProof, keyWith } from "#compiler/ir/keys.ts"
 import { type TheoryViolations, theoryViolations } from "#compiler/laws/model/violations.ts"
 
-import type { Case } from "@grizzle/testing/explore"
+import type { Case } from "@bjornpagen/testing/explore"
 import type { Heading, KeySet, NodeOf, RelDag, RelKind, RelNode } from "#compiler/ir/rel.ts"
 import * as S from "#compiler/ir/shape.ts"
 import { checkerEvidence, type LogicalEnv } from "#compiler/logical/annotate.ts"

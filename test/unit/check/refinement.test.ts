@@ -22,15 +22,15 @@
  * Features: one language, two languages, the wildcard, a contract, one or two typmods and another carrier; each union
  * shape; a refined cell, an unrefined one and no row.
  */
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { array, element, type Gen, subarray } from "@bjornpagen/testing/gen"
+import { matching } from "@bjornpagen/testing/pattern"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { bigint } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, element, type Gen, subarray } from "@grizzle/testing/gen"
-import { matching } from "@grizzle/testing/pattern"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { guarantees, refinedConstants, refinement } from "#compiler/check/refinement/index.ts"
 import type { FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"

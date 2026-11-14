@@ -39,11 +39,11 @@
  * Features: self-reads, 2-cycles, 3-cycles and acyclic chains; each input beyond a row, pre-order against
  * breadth-first; each level of a closed read; each place a query states a term.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, int, subset } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, subset } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import type { GeneratedRule } from "#compiler/core/causes.ts"
 import type { CompileError } from "#compiler/core/errors.ts"

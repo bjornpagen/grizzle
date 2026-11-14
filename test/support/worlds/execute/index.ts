@@ -1,4 +1,4 @@
-import { passed, type WildKind, wildOf } from "@grizzle/testing/lsw"
+import { passed, type WildKind, wildOf } from "@bjornpagen/testing/lsw"
 import {
 	Array as Arr,
 	Cause,

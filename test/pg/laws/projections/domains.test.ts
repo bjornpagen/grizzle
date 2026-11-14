@@ -30,9 +30,8 @@
  * domains-natural-admits-minus-one.patch, natural's CHECK at VALUE >= -1, admits a count of -1; and
  * domains-pred-defined-at-zero.patch, pred(x) defined at x = 0 as -1, refuses a box of no slots its laws admit.
  */
-import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	constant,
@@ -41,9 +40,10 @@ import {
 	int,
 	proportional,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"

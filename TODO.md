@@ -262,11 +262,6 @@ read against main 5b049abf); a Q label points at its entry above.
 
 ### qti-pie's test-survey asks, for the owner to schedule (2026-11-14)
 From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.md, section 4), logged only.
-- **grizzle-mutate on TypeScript 7.0.2:** packages/testing's mutants.ts and scripts/mutate.ts import typescript/ast,
-  typescript/fs and typescript/sync, which 7.0.2 (qti-pie's override) exports only under ./unstable/, so no one can
-  mutation-test qti-pie. Stable import paths fix it, or qti-pie moves to grizzle's 7.1.
-- **A repetition cap for @grizzle/testing/pattern's `matching`:** it refuses unbounded `*`, `+` and `{n,}`, so pantry
-  rewrites them by hand (lexical-harness.ts:829, :1013).
 - **An orphan family member refused under its family's law:** a member appended under an owner the stratum does not
   insert is a CompileError that names no law (write/family/edit.ts:507); it should be the family law's refusal, with
   a witness.
@@ -382,8 +377,6 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   limit: both reads leads take every required feature, and a pending one keeps directTransaction's afterBegin
   look-ahead (test/support/worlds/drive/suite.ts) running. Require it again once the reads leads stop looking ahead at
   features a direct transaction can't reach. The cause is read from the code; no run confirmed it.
-- **Cross-repo, outside school hours for edullm:** grizzle's packages/testing differs from superstarter's in 43 files.
-  Reconcile them, then copy the library into edullm with the shared lint standard.
 - **pg/fin/fold-ends' lone-writer 40001 is PostgreSQL's summarized conflict-out path
   (upstream/ssi-summarized-conflict-out):** CheckForSerializableConflictOut tests no concurrency before pg_serial, so
   under a cluster-wide pinned xmin and a full SSI pool any SERIALIZABLE call that scans dead versions can fail with no
@@ -446,7 +439,7 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
 - **Unit and type tier remainder (CULLU):**
   - Growth gates read a bare `const linear = 2.5`: read the n/2n/4n increment ratio instead in test/unit/startup/work,
     startup/guarded-keys (two gates), analysis/logical/join-cost, laws/scaling, program/size and
-    lower/conservative/sharing, and likewise packages/testing's oracle.test set-comparison cost bound (8·n·log n).
+    lower/conservative/sharing.
   - Hand verdicts through element(...) inside generators: unit/lower/feedback (count its blocks and scans by an
     independent walk, depths int(1, 5) for element([1, 4, 5])) and unit/analysis/logical/logical (hold it to universe
     truth, option a); unit/analysis/theory/families keeps a fixed tree branch.
@@ -454,7 +447,7 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   - Slim: types/evidence/agreement (reorderedVerdicts re-derives notes; floor witnesses recomputed),
     lower/rewrite/universe, analysis/small/claims (a second Reference) and logical/evidence (logicalUnsound re-checks
     key proofs per input), types/schema/budget/families (armed and disarmed both run full checks). Not profiled yet:
-    types/schema/budget/scaling, types/query/budget/scaling, packages/testing/consumer.
+    types/schema/budget/scaling, types/query/budget/scaling.
 - **World-model, education, tree, page and derived suites (CULLWM), each a proposal, built only on the owner's go:**
   - Delete test/pg/substrate/tree.test.ts's five boxes, which duplicate fin/tree's generators and oracle (fin uses
     substrate's predicted), keeping tree.ts's model and generators; delete ddlOf when fallow flags it; carry "T3 without
@@ -501,9 +494,6 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   foreign key and rule trigger that nothing after the data-step slot reads before that slot (never a primary key or
   UNIQUE: the fills join through the old keys' indexes), with a property that no doomed RI or rule trigger stands at a
   data step; then tell edullm to delete its workaround on its next migration.
-- **A steered failure's replay does not reproduce it (RESTATED, 2026-11-12):** when a search fails in its steered
-  phase, the case it reports after shrinking is the plain drawn case, not the aimed one that failed, so its
-  TEST_REPLAY token can pass alone. The replay must reproduce the failing case, aim included (packages/testing).
 - **Unreported witness on a native unique met by a family insert (WITNESS, known red on main):** a family INSERT that
   meets a native UNIQUE (a member's primary key, an ordered family's (group, index), a tree's key) is refused with an
   `unreported` witness (runtime/write/witness.ts uniqueJudgement; adapter/witness/classify.ts), against README's

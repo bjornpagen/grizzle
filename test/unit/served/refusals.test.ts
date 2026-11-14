@@ -32,13 +32,13 @@
  * leaves a cast value's contract chain out of the domains it meets: a context claim of a checked contract whose domain
  * types only unwritten columns is no law of the cut.
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { element, type Gen, int, map, subarray } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { element, type Gen, int, map, subarray } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Result as Answered, Array as Arr, Effect, Formatter, Option } from "effect"
 import { installationWitness } from "#adapter/served/refusals.ts"
 import type { WrittenAt } from "#adapter/witness/classify.ts"

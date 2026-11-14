@@ -41,12 +41,12 @@
  *   against REPEATABLE READ), ~/.cache/grizzle-release/BR08/plants/isolation-no-database-default.patch (the
  *   installation leaves the database's default level alone); each must turn the property red.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
+import { exact, ordered, set, structuralHash } from "@bjornpagen/testing/oracle"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, type Gen } from "@grizzle/testing/gen"
-import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { pg } from "#compiler/public/fields.ts"

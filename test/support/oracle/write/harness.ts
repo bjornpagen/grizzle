@@ -1,5 +1,5 @@
-import type { Case } from "@grizzle/testing/explore"
-import { boolean, type Gen } from "@grizzle/testing/gen"
+import type { Case } from "@bjornpagen/testing/explore"
+import { boolean, type Gen } from "@bjornpagen/testing/gen"
 import {
 	Array as Arr,
 	Data,
@@ -1213,7 +1213,7 @@ export interface Ran {
  * generated facts in its expected final state and read-backs, which no other field holds (changeset.ts draws them in
  * the last stratum only). Each identity sequence must end at the largest value drawn into its field.
  *
- * Every case notes its features through its Case (@grizzle/testing/explore): the shapes it drew and what the compiler
+ * Every case notes its features through its Case (@bjornpagen/testing/explore): the shapes it drew and what the compiler
  * and the database decided, so the suite fails when its population stops reaching one.
  *
  * Runs one case three ways (see the header); fails with the printable case on any disagreement.

@@ -1,5 +1,5 @@
-import { array, constant, element, type Gen, weighted } from "@grizzle/testing/gen"
-import type { Source as Decisions } from "@grizzle/testing/source"
+import { array, constant, element, type Gen, weighted } from "@bjornpagen/testing/gen"
+import type { Source as Decisions } from "@bjornpagen/testing/source"
 import {
 	keep,
 	type Presence,
@@ -8,7 +8,7 @@ import {
 	swarm,
 	swarmChoice,
 	weightOf
-} from "@grizzle/testing/swarm"
+} from "@bjornpagen/testing/swarm"
 import { Array as Arr, Effect, Option } from "effect"
 import { AllenMask, fullAllenMask } from "#compiler/allen/mask.ts"
 import { indices } from "#compiler/core/array.ts"

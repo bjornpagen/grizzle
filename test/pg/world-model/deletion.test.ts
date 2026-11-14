@@ -1,5 +1,5 @@
+import type { Situations } from "@bjornpagen/testing/features"
 import { layer } from "@effect/vitest"
-import type { Situations } from "@grizzle/testing/features"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
 	dbSession,

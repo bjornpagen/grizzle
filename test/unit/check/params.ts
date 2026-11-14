@@ -1,4 +1,4 @@
-import { array, element, type Gen, weighted } from "@grizzle/testing/gen"
+import { array, element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"

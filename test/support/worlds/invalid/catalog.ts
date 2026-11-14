@@ -1,4 +1,4 @@
-import { boolean, constant, element, type Gen, map, oneOf } from "@grizzle/testing/gen"
+import { boolean, constant, element, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { knownNonEmpty } from "#test/support/worlds/generate/domain.ts"

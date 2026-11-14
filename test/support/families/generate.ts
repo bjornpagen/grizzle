@@ -12,8 +12,8 @@
  * Span-keyed owners (`spanOwnersGen`) are those families' owners keyed by an id and a span WITHOUT OVERLAPS instead,
  * which a put must update in place.
  */
-import { array, type Gen, int, shuffled, type Size } from "@grizzle/testing/gen"
-import { swarm, swarmChoice } from "@grizzle/testing/swarm"
+import { array, type Gen, int, shuffled, type Size } from "@bjornpagen/testing/gen"
+import { swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { Families, Family } from "#test/support/families/theorem.ts"

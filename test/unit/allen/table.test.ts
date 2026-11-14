@@ -26,11 +26,11 @@
  * allen-universe-lower-exclusive.patch (an exclusive lower bound moved two), allen-converse-starts.patch,
  * allen-atom-equals-holds.patch (= given @>'s relations), allen-formula-wrong-entry.patch (mask 3 read as mask 1).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
 import {
 	allenAtomCount,

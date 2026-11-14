@@ -32,9 +32,8 @@
  * Features: the relational reads' joins, subqueries and frames; the expressions' types and a collated BETWEEN bound;
  * the catalog read's shared and apart arms; each privilege outcome; and a literal at an integer type's bound.
  */
-import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore, sketched } from "@grizzle/testing/explore"
-import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
+import { drawn, exhaust, explore, sketched } from "@bjornpagen/testing/explore"
+import { noCoverage, required, requiredInSpace } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -47,12 +46,13 @@ import {
 	option,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import type { Source } from "@grizzle/testing/source"
-import { bigint, double, float } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import type { Source } from "@bjornpagen/testing/source"
+import { bigint, double, float } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import type {
 	AlterDefaultPrivileges,

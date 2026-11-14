@@ -31,7 +31,6 @@
  * Plant (~/.cache/grizzle-release/BR06/plants): rosters-handle-renames-ignored (a roster's declared handle renames
  * ignored when its codes are drafted).
  */
-import { describe, it } from "@effect/vitest"
 import {
 	accepted,
 	type Answer,
@@ -44,11 +43,12 @@ import {
 	type StepFeature,
 	took,
 	type Verdict
-} from "@grizzle/testing/commands"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { constant, element, type Gen, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/commands"
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { constant, element, type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result, String as Str } from "effect"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import { canonicalTextOf, everyProperty } from "#compiler/core/canonical.ts"

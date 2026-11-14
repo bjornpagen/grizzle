@@ -28,13 +28,20 @@
  *   ~/.cache/grizzle-release/BR08/plants/open-vector-schema-granted-to-every-role.patch, every role granted USAGE on
  *   the vector schema, answers Work's vector probe; each must turn the property red.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { type Reached, required } from "@bjornpagen/testing/features"
+import {
+	bytes as bytesGen,
+	constant,
+	type Gen,
+	int,
+	oneOf,
+	weighted
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { type Reached, required } from "@grizzle/testing/features"
-import { bytes as bytesGen, constant, type Gen, int, oneOf, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Result, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { CallError } from "#compiler/live/index.ts"

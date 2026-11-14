@@ -41,12 +41,12 @@
  * Features: a touched and an untouched subscription of one relation, a commit touching several subscriptions, an
  * update moving a row between groups, each read shape, each writer.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { awaitFact } from "@bjornpagen/testing/fact"
+import { required } from "@bjornpagen/testing/features"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { awaitFact } from "@grizzle/testing/fact"
-import { required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { formOf, RowKey } from "#compiler/live/index.ts"
 import { servedFile } from "#compiler/served/json.ts"

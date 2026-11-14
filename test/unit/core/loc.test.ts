@@ -26,9 +26,8 @@
  * A file as a stack names it: a user's, or the library's or the runtime's, which a user-facing location skips.
  */
 import { compileFunction } from "node:vm"
-import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	codePoint,
@@ -39,11 +38,12 @@ import {
 	option,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
-import { matching } from "@grizzle/testing/pattern"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { matching } from "@bjornpagen/testing/pattern"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { malformedDescription, within } from "#compiler/core/errors.ts"

@@ -1,4 +1,4 @@
-import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
+import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, type Context, Effect, Option, Record as Rec, type Scope } from "effect"
 import { openServed } from "#adapter/db/served.ts"
 import { fromEngine } from "#adapter/engine.ts"

@@ -145,9 +145,9 @@ export const messageMaxBytes = derived({
 
 ## The limit-evidence gate
 
-`limit-evidence` (`packages/devtools/src/lint/rules/limit-evidence.ts`) runs in `pnpm check`, and alone on paths with
+`limit-evidence` (the toolchain's `vendor/toolchain/packages/devtools/src/lint/rules/limit-evidence.ts`) runs in `pnpm check`, and alone on paths with
 `pnpm superlint <files or dirs>`. Its names (the limits module and mints, the vocabularies, the scopes) are
-`superlint.limitEvidence` in the root `package.json`. A file is in the first scope that names it:
+`limitEvidence` in the grizzle pack of `toolchain.config.ts`. A file is in the first scope that names it:
 
 | Files                                                                 | Checks                                                                                                                                                        |
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -205,7 +205,7 @@ compute reads none of the limits it derives from: a derived limit's value is com
 pageMaxSize names a bound (max) and holds a bare number: a bound is a Limit's value or a caller's input.
 ```
 
-Each report and admission has a line in the rule's fixtures, `packages/devtools/src/lint/fixtures/limit-evidence/`
+Each report and admission has a line in the rule's fixtures, `vendor/toolchain/packages/devtools/src/lint/fixtures/limit-evidence/`
 (`violating.ts`, `clean.ts`, and `tests/` for the tiers). Read them when a report surprises you.
 
 The gate cannot see, so review must:

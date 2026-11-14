@@ -230,6 +230,79 @@
 								"preferEffectString": "off"
 							}
 						}
+					},
+					{
+						"include": [
+							"packages/grizzle/src/adapter/apply/readback.ts",
+							"packages/grizzle/src/adapter/apply/run.ts",
+							"packages/grizzle/src/adapter/connection/config.ts",
+							"packages/grizzle/src/adapter/connection/environment.ts",
+							"packages/grizzle/src/adapter/db/claims.ts",
+							"packages/grizzle/src/adapter/db/handles.ts",
+							"packages/grizzle/src/adapter/db/ops.ts",
+							"packages/grizzle/src/adapter/db/served.ts",
+							"packages/grizzle/src/adapter/engine.ts",
+							"packages/grizzle/src/adapter/errors/execution.ts",
+							"packages/grizzle/src/adapter/errors/failures.ts",
+							"packages/grizzle/src/adapter/outcomes/index.ts",
+							"packages/grizzle/src/adapter/page/edges.ts",
+							"packages/grizzle/src/adapter/page/execute.ts",
+							"packages/grizzle/src/adapter/page/request.ts",
+							"packages/grizzle/src/adapter/page/template.ts",
+							"packages/grizzle/src/adapter/pool/served.ts",
+							"packages/grizzle/src/adapter/public/layer.ts",
+							"packages/grizzle/src/adapter/reader/execution.ts",
+							"packages/grizzle/src/adapter/reader/executor.ts",
+							"packages/grizzle/src/adapter/reader/params.ts",
+							"packages/grizzle/src/adapter/reader/relations.ts",
+							"packages/grizzle/src/adapter/reader/run.ts",
+							"packages/grizzle/src/adapter/refresh/detail.ts",
+							"packages/grizzle/src/adapter/refresh/run.ts",
+							"packages/grizzle/src/adapter/served/load.ts",
+							"packages/grizzle/src/adapter/served/served.ts",
+							"packages/grizzle/src/adapter/wire/batch.ts",
+							"packages/grizzle/src/adapter/wire/failure.ts",
+							"packages/grizzle/src/adapter/wire/releasing-pool.ts",
+							"packages/grizzle/src/adapter/wire/session.ts",
+							"packages/grizzle/src/adapter/witness/classify.ts",
+							"packages/grizzle/src/adapter/witness/keylaw.ts",
+							"packages/grizzle/src/client.ts",
+							"packages/grizzle/src/client/call.ts",
+							"packages/grizzle/src/client/client.ts",
+							"packages/grizzle/src/client/handler.ts",
+							"packages/grizzle/src/client/sse.ts"
+						],
+						"options": {
+							"namespaceImportPackages": ["effect"],
+							"barrelImportPackages": []
+						}
+					},
+					{
+						"include": ["packages/grizzle/src/cli/main.ts"],
+						"options": {
+							"diagnosticSeverity": {
+								"strictEffectProvide": "off"
+							}
+						}
+					},
+					{
+						"include": [
+							"packages/grizzle/src/adapter/page/execute.ts",
+							"packages/grizzle/src/adapter/reader/execution.ts",
+							"packages/grizzle/src/adapter/reader/run.ts",
+							"packages/grizzle/src/adapter/wire/batch.ts",
+							"packages/grizzle/src/adapter/wire/naming.ts",
+							"packages/grizzle/src/adapter/wire/session.ts",
+							"packages/grizzle/src/adapter/wire/statement.ts",
+							"packages/grizzle/src/client/sse.ts"
+						],
+						"options": {
+							"diagnosticSeverity": {
+								"preferEffectArray": "off",
+								"preferEffectRecord": "off",
+								"preferEffectString": "off"
+							}
+						}
 					}
 				]
 			}
@@ -250,6 +323,7 @@
 		"scripts/dev",
 		"scripts/pg",
 		"oxlint.config.ts",
+		"toolchain.config.ts",
 		"vitest.config.ts",
 		"vitest.network.config.ts"
 	]

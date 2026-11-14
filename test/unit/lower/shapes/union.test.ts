@@ -23,14 +23,23 @@
  * (union-attachments-optimized); every bounded arm deduplicated (union-arm-distinct); the merge keeping one row past its
  * take (union-merge-take); decimals compared by coefficient whatever their scale (decimal-scale-ignored).
  */
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { bigint, double } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint, double } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	Effect,

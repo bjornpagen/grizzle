@@ -47,12 +47,12 @@
  * the target's key alone and admits a target row outside D's constants; and lowering-no-target-unique.patch, the
  * lowering omitting the UNIQUE its foreign key references, which no installation then accepts.
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Layer, Option, Record as Rec } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { LawId } from "#compiler/core/ids.ts"

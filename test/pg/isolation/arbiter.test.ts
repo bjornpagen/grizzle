@@ -34,14 +34,14 @@
  * arbiter-met-classes-not-materialized.patch, the met rows' classes computed in a CTE PostgreSQL may inline, which lets
  * a filter on the class read the stored rows of every fact the INSERT inserted, a SIRead lock past Invoice's indexes.
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { pctSchedule } from "@bjornpagen/testing/interleave"
+import { agree, type Equivalence, exact, ordered } from "@bjornpagen/testing/oracle"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
-import { pctSchedule } from "@grizzle/testing/interleave"
-import { agree, type Equivalence, exact, ordered } from "@grizzle/testing/oracle"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import type { RoleCertificate } from "#compiler/analysis/isolation/certify.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"

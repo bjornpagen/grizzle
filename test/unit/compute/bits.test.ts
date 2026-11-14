@@ -21,11 +21,11 @@
  * Plants: compute-bits-difference (difference evaluated as intersection), compute-roster-ignored (two rosters' types
  * taken as one).
  */
+import { type Case, exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"

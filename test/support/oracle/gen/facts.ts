@@ -1,5 +1,5 @@
-import { array, type Gen, int } from "@grizzle/testing/gen"
-import { type Swarm, weightOf } from "@grizzle/testing/swarm"
+import { array, type Gen, int } from "@bjornpagen/testing/gen"
+import { type Swarm, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"

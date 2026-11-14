@@ -19,14 +19,14 @@
  *
  * Features: "out of range" and "admitted at the edge", an edge amount on each side of the refusal.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { noCoverage, required } from "@bjornpagen/testing/features"
+import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { bigint } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { array, element, type Gen, int, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import { jsonText } from "#compiler/core/trusted.ts"

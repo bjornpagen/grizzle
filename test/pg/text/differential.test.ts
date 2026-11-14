@@ -21,9 +21,8 @@
  * matching before a final newline), differential-states-undercounted.patch (the compile space's held states counted
  * once, so a pattern past PostgreSQL's limit is admitted).
  */
-import { layer } from "@effect/vitest"
-import { drawn, explore, sketched } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore, sketched } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -34,10 +33,11 @@ import {
 	oneOf,
 	uniqueKeys,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Exit, Formatter, Option, Pool, String as Str } from "effect"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"

@@ -12,9 +12,8 @@
  *
  * Plants: ir-scope-own-refs-dropped (a node's own references left out of its scope).
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	constant,
@@ -24,10 +23,11 @@ import {
 	type Weight,
 	type Weighted,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { ExprId, NodeId, OccurrenceId, ScopeId, VarId } from "#compiler/core/ids.ts"

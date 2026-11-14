@@ -1,7 +1,7 @@
-import { type Explored, type Run, type SearchFailure, sketched } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { constant, type Gen } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
+import { type Explored, type Run, type SearchFailure, sketched } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { constant, type Gen } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
 import { Array as Arr, Effect, Formatter, type Scope, String as Str } from "effect"
 import { optimizedShrink } from "#test/pg/oracle/optimized/suite.ts"
 import {

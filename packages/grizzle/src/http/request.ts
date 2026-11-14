@@ -28,7 +28,7 @@ const bearerScheme = "bearer "
  * as Db.open's options are), so in process and over HTTP the same tokens are accepted; any other header is a refused
  * token.
  */
-export const bearerToken = (
+export const authorizationToken = (
 	request: Request
 ): Result.Result<Option.Option<Token>, CallErrorOf<"tokenRefused">> =>
 	Option.match(Option.fromNullishOr(request.headers.get("authorization")), {

@@ -87,9 +87,8 @@
  * so is the downstream count bound, a payload compared only where `C.has` holds the key, and the conditional that reads
  * a payload where the key is held and a literal where it is not.
  */
-import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -99,10 +98,11 @@ import {
 	oneOf,
 	subarray,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { boundedShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { boundedShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec, Result } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"

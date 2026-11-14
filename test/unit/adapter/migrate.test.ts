@@ -28,9 +28,8 @@
  * Features: each statement form and comment placement; each input fault; each plan's resume and refusal.
  */
 import { inspect } from "node:util"
-import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -42,10 +41,11 @@ import {
 	oneOf,
 	shuffled,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, pipe, String as Str } from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import { type ParsedTarget, parseTarget, transactionControl } from "#adapter/migrate/input.ts"

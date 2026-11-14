@@ -21,11 +21,11 @@
  * Plants (~/.cache/grizzle-release/BR13/plants): laws-le-strict.patch (a check's `le` lowered as `<`, so a grant spent
  * exactly is refused).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
 import type { CallError } from "#compiler/live/index.ts"
 import { applyFacts, openPlatform, type PlatformDb } from "#test/pg/e2e-platform/support.ts"

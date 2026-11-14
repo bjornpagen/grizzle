@@ -1,4 +1,4 @@
-import { constant, element, type Gen, map, weighted } from "@grizzle/testing/gen"
+import { constant, element, type Gen, map, weighted } from "@bjornpagen/testing/gen"
 import { type Array as Arr, Effect, Option, Record as Rec, type Scope } from "effect"
 
 /**

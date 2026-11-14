@@ -13,11 +13,11 @@
  * Plant: ~/.cache/grizzle-release/BR07/plants/bits-strict-subset.patch (subset read as a strict subset) turns the
  * property red.
  */
+import { type Case, exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { type Gen, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { ExprId } from "#compiler/core/ids.ts"

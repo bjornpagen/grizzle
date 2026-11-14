@@ -12,11 +12,11 @@
  *
  * Features: lawful forests, and each mutation kind's verdict.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { type Gen, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import { type KeyedRow, lawful, numbered, treeOfParents } from "#test/support/families/tree.ts"

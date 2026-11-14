@@ -21,9 +21,8 @@
  * Plants (~/.cache/grizzle-release/BR06/plants): recordset-order-kept (a set encoded in the order given, not its
  * canonical order) and recordset-array-quote-unescaped (a quote inside an array element written bare).
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, explore, type Kept, sketched } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore, type Kept, sketched } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	codePoint,
@@ -35,11 +34,12 @@ import {
 	string,
 	uniqueArray,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { double, uuid } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { double, uuid } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record, String as Str } from "effect"
 import {
 	arrayTexts,

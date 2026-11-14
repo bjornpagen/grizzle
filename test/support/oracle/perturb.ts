@@ -1,4 +1,4 @@
-import { type Gen, int, subarray } from "@grizzle/testing/gen"
+import { type Gen, int, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Context, Effect, Option, Order, pipe, String as Str } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { oneShotStatement } from "#adapter/wire/batch.ts"

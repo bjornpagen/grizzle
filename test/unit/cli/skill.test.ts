@@ -12,12 +12,12 @@
  *
  * Features: none; the box is every text.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { noCoverage } from "@bjornpagen/testing/features"
+import { element } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { noCoverage } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Effect, FileSystem, Formatter } from "effect"
 import { containsText, nonEmpty } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"

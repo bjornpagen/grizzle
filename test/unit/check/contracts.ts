@@ -1,4 +1,4 @@
-import { array, boolean, element, type Gen } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import {

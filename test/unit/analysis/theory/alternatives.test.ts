@@ -10,11 +10,11 @@
  *
  * Features: one handle per arm, an arm of several handles, an unarmed handle, a restated containment.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { type ExprDesc, expandAlternatives, type StatementDesc } from "#compiler/ir/desc.ts"

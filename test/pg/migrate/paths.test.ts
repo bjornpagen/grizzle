@@ -52,15 +52,15 @@
  * rename) and paths-field-rename-ignored (a draft ignores every declared field rename); ROLEVARS/plants:
  * intents-unaimed (a steered case runs its drawn intents).
  */
+import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import type { ShrinkBudget } from "@bjornpagen/testing/shrink"
+import { generate, recorder, simplestChooser } from "@bjornpagen/testing/source"
+import { tokenOf } from "@bjornpagen/testing/tape"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import type { ShrinkBudget } from "@grizzle/testing/shrink"
-import { generate, recorder, simplestChooser } from "@grizzle/testing/source"
-import { tokenOf } from "@grizzle/testing/tape"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
 import {
 	carryChain,

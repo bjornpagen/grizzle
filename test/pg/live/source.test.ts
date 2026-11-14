@@ -33,11 +33,11 @@
  * table, a write of a table read whole, a direct writer's commit, a grizzle call's commit, a rolled-back transaction
  * that wrote, the live source opens, a login's read of the secret refused.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { transactionReader } from "#adapter/live/changes.ts"
 import { decodeMessage } from "#adapter/live/pgoutput.ts"

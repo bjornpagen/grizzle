@@ -39,12 +39,12 @@
  * Plants (~/.cache/grizzle-release/BR11/plants): fixtures-redraft-changes (a version drafted again after itself
  * reports a schema change).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { element, type Gen, int } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Layer, Option, Record as Rec } from "effect"
 import type { FolderSource } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"

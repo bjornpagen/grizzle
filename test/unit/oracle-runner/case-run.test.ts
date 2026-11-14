@@ -3,7 +3,7 @@
  * the test itself is interrupted, every case it started is interrupted or has ended, so the finalizers of each release
  * what it holds (a leased session's open transaction, in the database suites). That a hung case its hang guard stops
  * releases what it holds too, before the hang is reported, is the library's own suite's
- * (packages/testing/src/explore.test.ts).
+ * (vendor/toolchain/packages/testing/src/explore.test.ts).
  *
  * The property draws a search: how many cases it runs, how many at once, and which case in start order hangs. Every
  * case holds a resource, counting its acquisition and its release; the hanging case never finishes. The search runs as
@@ -15,13 +15,13 @@
  * Plant: ~/.cache/grizzle-release/BR07/plants/case-interrupted-left-running.patch (a case the search's interruption
  * reaches left running rather than stopped) turns the property red.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { noCoverage, required } from "@bjornpagen/testing/features"
+import { int } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink, type ShrinkBudget } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { int } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink, type ShrinkBudget } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Deferred, Effect, Fiber, Formatter } from "effect"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"

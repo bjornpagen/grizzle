@@ -16,9 +16,9 @@
  * Plants (~/.cache/grizzle-release/BR14/plants): harness-open-situations.patch widens a required situation to any
  * string; harness-door-text-number.patch admits a number as assert.deepEqual's expected value where the actual is text.
  */
+import { unreachedOf } from "@bjornpagen/testing/features"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { unreachedOf } from "@grizzle/testing/features"
 import { Effect } from "effect"
 import { assert } from "#test/support/assert.ts"
 import { checked } from "#test/types/batch/batch.ts"

@@ -12,7 +12,7 @@
  * population, on the rota keyed over its approved shifts: a second approved shift of a sheet's week.
  */
 
-import type { Kept } from "@grizzle/testing/explore"
+import type { Kept } from "@bjornpagen/testing/explore"
 import { Array as Arr, Option } from "effect"
 import {
 	employees,

@@ -1,5 +1,5 @@
-import type { Case } from "@grizzle/testing/explore"
-import type { Gen } from "@grizzle/testing/gen"
+import type { Case } from "@bjornpagen/testing/explore"
+import type { Gen } from "@bjornpagen/testing/gen"
 import {
 	Array as Arr,
 	Cause,

@@ -22,9 +22,8 @@
  * every spelling of a check name, each a required situation. Plant: ~/.cache/grizzle-release/BR09/plants/
  * checks-between-reversed.patch, BETWEEN printed SYMMETRIC, stores a row inside reversed bounds the predicate refuses.
  */
-import { layer } from "@effect/vitest"
-import { type Case as SearchCase, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -35,9 +34,10 @@ import {
 	oneOf,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Record, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { pg } from "#compiler/public/fields.ts"

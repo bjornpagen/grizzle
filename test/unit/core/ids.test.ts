@@ -18,13 +18,13 @@
  * "%2E" and a dot spell one component) and ids-escape-order (the dot escaped before the percent sign, so a dot reads
  * back as "%2E").
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, codePoint, constant, type Gen, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, codePoint, constant, type Gen, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
 import { FieldId } from "#compiler/core/ids.ts"
 import { assert } from "#test/support/assert.ts"

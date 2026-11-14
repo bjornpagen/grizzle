@@ -10,7 +10,7 @@
  * columns; and whether the source side is a selection, whose columns are law columns that may be NULL. The rule is
  * restated over index_form_tuple's layout of each run (heaptuple.c fill_val) against nbtree.h's BTMaxItemSize.
  */
-import { array, boolean, element, type Gen, weighted } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { uuid } from "#compiler/public/fields.ts"

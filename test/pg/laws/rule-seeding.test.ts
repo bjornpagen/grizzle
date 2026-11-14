@@ -66,12 +66,21 @@
  * triggers accept; and rule-seed-arm-split-drops-arm.patch, lacks reading the target's first arm alone, so a probe's
  * negation of the target misses a key a later arm holds, fails them by refusing a lawful state.
  */
+import { drawn, explore, type Case as Search } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	array,
+	boolean,
+	element,
+	type Gen,
+	int,
+	map,
+	subset,
+	weighted
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Case as Search } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, map, subset, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "effect"
 import { parsePlan, rowsRead } from "#bench/harness/explain.ts"
 import { identifierOf } from "#compiler/core/identity.ts"

@@ -17,11 +17,11 @@
  * admitted); ~/.cache/grizzle-release/LEVELCHECK/plants/levelcheck-refused (a row check over a lower relation refused
  * as LevelRefused).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect } from "effect"
 import { conversionOf, identifierOf } from "#compiler/core/identity.ts"
 import { drawn, natural, uuid } from "#compiler/public/fields.ts"

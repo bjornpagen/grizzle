@@ -17,11 +17,11 @@
  *
  * Plant, failing the search: a cast output's ORDER BY item left uncast (refined-order-uncast).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"

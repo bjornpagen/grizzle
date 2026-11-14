@@ -7,9 +7,9 @@ import {
 	int,
 	oneOf,
 	weighted
-} from "@grizzle/testing/gen"
-import { exact, set, structuralHash } from "@grizzle/testing/oracle"
-import { fullSwarm, keep, type Swarm, weightOf } from "@grizzle/testing/swarm"
+} from "@bjornpagen/testing/gen"
+import { exact, set, structuralHash } from "@bjornpagen/testing/oracle"
+import { fullSwarm, keep, type Swarm, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"

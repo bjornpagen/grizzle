@@ -1,4 +1,4 @@
-import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
+import { exact, ordered, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Effect, Option, Order, Predicate } from "effect"
 import {
 	type CaseRecord,

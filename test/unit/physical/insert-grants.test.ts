@@ -34,13 +34,13 @@
  * Features: each declaration refused and admitted, each role's way of writing each relation, an owner mutable or not,
  * and each program the control admits or the insert role is refused, with the kept case's stratum.
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, constant, element, type Gen, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, constant, element, type Gen, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { CompileError } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"

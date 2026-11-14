@@ -7,7 +7,8 @@
 		"**/*.tgz",
 		"tsconfig.json",
 		"tsconfig.base.json",
-		"oxlint.config.ts"
+		"oxlint.config.ts",
+		"toolchain.config.ts"
 	],
 	"globalEnv": ["NODE_OPTIONS", "NODE_ENV"],
 	"globalPassThroughEnv": ["TMPDIR"],
@@ -21,31 +22,20 @@
 			"dependsOn": ["^typecheck"],
 			"outputs": ["types/**"]
 		},
-		"@grizzle/devtools#typecheck": {
-			"description": "The dev tools and the testing library check with --noEmit: no declarations to cache.",
-			"dependsOn": ["^typecheck"],
-			"outputs": []
-		},
-		"@grizzle/testing#typecheck": {
-			"dependsOn": ["^typecheck"],
-			"outputs": []
-		},
 		"superlint": {
-			"description": "The dev tools' rules and the superlint options in the root package.json are inputs too. It reads the declarations its dependencies' typechecks emit through their project references, so it runs after those typechecks, never while they rewrite them.",
+			"description": "The toolchain's rules (vendor/toolchain) are inputs too; toolchain.config.ts, its options, is a global dependency. It reads the declarations its dependencies' typechecks emit through their project references, so it runs after those typechecks, never while they rewrite them.",
 			"dependsOn": ["^source", "^typecheck"],
-			"inputs": [
-				"$TURBO_DEFAULT$",
-				"$TURBO_ROOT$/package.json",
-				"$TURBO_ROOT$/packages/devtools/src/**"
-			]
+			"inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/vendor/toolchain/packages/devtools/src/**"]
 		},
 		"oxlint": {
-			"description": "The dev tools' preset and plugin are inputs too.",
+			"description": "The toolchain's preset and plugins (vendor/toolchain) are inputs too.",
 			"dependsOn": ["^source"],
-			"inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/packages/devtools/src/**"]
+			"inputs": [
+				"$TURBO_DEFAULT$",
+				"$TURBO_ROOT$/vendor/toolchain/packages/devtools/src/**",
+				"$TURBO_ROOT$/vendor/toolchain/packages/testing/src/oxlint/**"
+			]
 		},
-		"fixtures:superlint": {},
-		"fixtures:oxlint": {},
 		"//#typecheck": {
 			"description": "The tooling project (test, bench, scripts) builds after both packages' projects, which tsrs -b then finds up to date. A root task's inputs are the whole repository; the root checks but format read no Markdown, so theirs leave it out.",
 			"dependsOn": ["@bjornpagen/grizzle-engine#typecheck", "@bjornpagen/grizzle#typecheck"],

@@ -1,4 +1,4 @@
-import { array, element, type Gen, subset, weighted } from "@grizzle/testing/gen"
+import { array, element, type Gen, subset, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { Bits, bits, closedId, contract, pg, uuid } from "#compiler/public/fields.ts"

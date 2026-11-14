@@ -3,7 +3,7 @@ import {
 	type Operator as LibraryOperator,
 	OPERATORS,
 	type Rule
-} from "@grizzle/testing/mutants"
+} from "@bjornpagen/testing/mutants"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Result, String as Str } from "effect"
 import * as ts from "typescript/ast"

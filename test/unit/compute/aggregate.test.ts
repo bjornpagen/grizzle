@@ -20,11 +20,11 @@
  * deliver their argument's base), compute-mean-no-carry-digit (a mean rounding past its argument loses the digit it
  * carries).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type CompareOp, type ComputeFn, computeFns } from "#compiler/ir/desc.ts"

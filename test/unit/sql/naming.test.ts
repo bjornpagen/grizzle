@@ -14,14 +14,14 @@
  *
  * Plant, failing the search: a set operation's first arm alone renamed (rename-second-arm).
  */
+import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { fullSwarm } from "@bjornpagen/testing/swarm"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { type Gen, int, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { fullSwarm } from "@grizzle/testing/swarm"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { Expr, Select, SelectCore, SetOperand, SqlStatement } from "#compiler/sql/ast.ts"
 import { mapTargets, setBodyOf, target, withArms } from "#compiler/sql/build.ts"

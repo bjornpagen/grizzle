@@ -1,4 +1,4 @@
-import { awaitFact } from "@grizzle/testing/fact"
+import { awaitFact } from "@bjornpagen/testing/fact"
 import {
 	Array as Arr,
 	Data,

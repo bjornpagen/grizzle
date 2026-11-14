@@ -1,4 +1,4 @@
-import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import {

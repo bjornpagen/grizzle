@@ -18,9 +18,8 @@
  * text), fingerprint-domain-multiline (a domain of two lines admitted) and fingerprint-level-below-ignored (a level over
  * another hashed without the level below's text).
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -32,10 +31,11 @@ import {
 	string,
 	uniqueArray,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Record } from "effect"
 import { everyProperty, type Path } from "#compiler/core/canonical.ts"
 import { digest, schemaLevel } from "#compiler/core/fingerprint.ts"

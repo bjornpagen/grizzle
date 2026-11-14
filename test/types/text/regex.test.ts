@@ -8,9 +8,9 @@
  * Plant (~/.cache/grizzle-release/BR14/plants): text-host-drops-empty.patch drops the empty string from every inferred
  * host type.
  */
+import { unreachedOf } from "@bjornpagen/testing/features"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { unreachedOf } from "@grizzle/testing/features"
 import { Effect } from "effect"
 import { assert } from "#test/support/assert.ts"
 import { checked } from "#test/types/batch/batch.ts"

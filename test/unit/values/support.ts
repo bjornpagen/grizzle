@@ -9,8 +9,8 @@ import {
 	option,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
-import { passed, type Wild, type WildKind, wild } from "@grizzle/testing/lsw"
+} from "@bjornpagen/testing/gen"
+import { passed, type Wild, type WildKind, wild } from "@bjornpagen/testing/lsw"
 import { Array as Arr, Option, Order } from "effect"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"

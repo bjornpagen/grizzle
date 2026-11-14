@@ -38,11 +38,11 @@
  * fin-no-range-check.patch, a dependent key read without its slot digits' range checks, reads an aliasing slot digit
  * as another key's cell.
  */
+import { type Case, exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case, exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"

@@ -27,14 +27,14 @@
  * Plants (~/.cache/grizzle-release/BR13/plants): reads-page-skips.patch (a forward page's seek made inclusive, so its
  * anchor repeats).
  */
+import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, type Gen } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { fullSwarm } from "@bjornpagen/testing/swarm"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, type Gen } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { fullSwarm } from "@grizzle/testing/swarm"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"

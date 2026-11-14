@@ -25,13 +25,13 @@
  *
  * Features: "overflow by rounding", "negative scale" and "scale above precision", the coercions the typmod turns on.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { noCoverage, required } from "@bjornpagen/testing/features"
+import { array, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { array, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"

@@ -39,12 +39,12 @@
  * Plants (~/.cache/grizzle-release/BR11/plants): worlds-login-recreated (a draft ignores every declared login rename,
  * so the renamed login is a new PostgreSQL role).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { boolean, constant, element, type Gen, map, subset } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { boolean, constant, element, type Gen, map, subset } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { roleNameOf } from "#adapter/served/served.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"

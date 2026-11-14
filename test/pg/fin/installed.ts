@@ -11,7 +11,7 @@
  * its columns' roles in key order, a foreign key also by its target's, with its deferral and its update action as the
  * catalog states them, and the law the installation's constraint map says it reports.
  */
-import { constant, type Gen, type Weight, weighted } from "@grizzle/testing/gen"
+import { constant, type Gen, type Weight, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, type Scope, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"

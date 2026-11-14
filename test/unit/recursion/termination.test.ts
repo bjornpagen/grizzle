@@ -13,11 +13,11 @@
  * Plants, each failing its search: a counting recursion's estimate one more than its states (refusals-estimate); a set
  * state column counted as hashable (termination-bits-hashable).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, element, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { uuid } from "#compiler/public/fields.ts"

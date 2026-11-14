@@ -44,9 +44,8 @@
  * the inserter alone's.
  */
 
-import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -60,10 +59,11 @@ import {
 	shuffled,
 	subarray,
 	weighted
-} from "@grizzle/testing/gen"
-import { pctSchedule } from "@grizzle/testing/interleave"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { pctSchedule } from "@bjornpagen/testing/interleave"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import {
 	Array as Arr,
 	Cause,

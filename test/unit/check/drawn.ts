@@ -1,4 +1,4 @@
-import { boolean, element, type Gen, int, subarray, weighted } from "@grizzle/testing/gen"
+import { boolean, element, type Gen, int, subarray, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import type { FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import {

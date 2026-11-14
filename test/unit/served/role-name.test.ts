@@ -43,12 +43,20 @@
  * carries its served login's stem, not the live source's), decoder-unbounded.patch (the live source's stem carries the
  * root's segments again), role-aside-unbounded.patch (a role's aside name carries its stem's segments again).
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	array,
+	boolean,
+	codePoint,
+	element,
+	type Gen,
+	option,
+	string
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, codePoint, element, type Gen, option, string } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { served } from "#adapter/public/layer.ts"

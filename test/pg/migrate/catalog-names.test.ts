@@ -29,11 +29,11 @@
  * Plants (~/.cache/grizzle-release/BR11/plants): catalog-names-bare (the printer spells every pg_catalog type it should
  * qualify bare, so the installation's own type of that name answers under the installation-first path).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { type Reached, requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { type Reached, requiredInSpace } from "@grizzle/testing/features"
-import { boolean, type Gen, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { decodeDesc, type LoginDesc, type SchemaDesc } from "#compiler/ir/desc.ts"

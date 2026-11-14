@@ -17,11 +17,11 @@
  *
  * Plants (~/.cache/grizzle-release/BR06/plants): seek-reverse-first-key-only (a reversal of the first key alone).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { noCoverage, requiredInSpace } from "@bjornpagen/testing/features"
+import { array, element } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
-import { array, element } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, type Order, String as Str } from "effect"
 import { type Direction, directions, opposite } from "#compiler/core/order.ts"
 import type { CompletedOrder } from "#compiler/ir/rel.ts"

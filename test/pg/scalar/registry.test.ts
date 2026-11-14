@@ -26,13 +26,13 @@
  * numeric's "admitted" and "refused"; vector's "refused below", "admitted" and "refused above"; and the carriers' "a
  * native capability excluded", "a spannable carrier", "a discrete range named as a limit" and "no discrete range".
  */
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { array, element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, pipe, Result, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"

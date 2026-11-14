@@ -1,5 +1,5 @@
-import { array, boolean, element, type Gen, int, map, span } from "@grizzle/testing/gen"
-import { forcedChooser, generate, recorder, type Source } from "@grizzle/testing/source"
+import { array, boolean, element, type Gen, int, map, span } from "@bjornpagen/testing/gen"
+import { forcedChooser, generate, recorder, type Source } from "@bjornpagen/testing/source"
 import {
 	keep,
 	type Presence,
@@ -7,7 +7,7 @@ import {
 	swarm,
 	swarmChoice,
 	weightOf
-} from "@grizzle/testing/swarm"
+} from "@bjornpagen/testing/swarm"
 import { Array as Arr } from "effect"
 import { exactParts } from "#compiler/core/decimal.ts"
 import type {

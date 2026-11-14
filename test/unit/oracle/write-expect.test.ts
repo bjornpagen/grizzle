@@ -36,13 +36,13 @@
  * write-expect-cast-unrounded.patch (the oracle's cast giving the source's value unrounded, as it did before the exact
  * parse, which the planted "typmod cast" arm reaches while the cast's situation is pending).
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { boolean } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { boolean } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record, Result } from "effect"
 import { ExecutionFailure } from "#adapter/errors/execution.ts"
 import { ParamRejected } from "#adapter/errors/failures.ts"

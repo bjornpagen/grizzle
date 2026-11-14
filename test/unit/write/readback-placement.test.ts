@@ -41,11 +41,11 @@
  * ~/.cache/grizzle-release/READBACK/plants/placement-drawn-whole.patch (a generated addition taken never to cancel
  * with its stratum's removals, so its read-back beside a deletion rides).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import type { NamedSide, ReadBackCrossing } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"

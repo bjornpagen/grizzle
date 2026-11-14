@@ -27,13 +27,13 @@
  * Plants (~/.cache/grizzle-release/BR13/plants): pool-permit-lost.patch (a closed session's permit never handed back),
  * pool-retired-reused.patch, pool-release-awaits.patch.
  */
+import { drawn, exhaust, explore, type Kept } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { array, element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore, type Kept } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	Clock,

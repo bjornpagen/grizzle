@@ -47,8 +47,6 @@
  * Plants (~/.cache/grizzle-release/BR13/plants): workflow-markers-unchecked.patch (check finding no unresolved
  * marker), workflow-drift-unchecked.patch (the drift check comparing no catalog fact).
  */
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
 import {
 	accepting,
 	type Command,
@@ -58,13 +56,15 @@ import {
 	type Real,
 	runProgram,
 	took
-} from "@grizzle/testing/commands"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { boolean, constant, element } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { fullSwarm } from "@grizzle/testing/swarm"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/commands"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { boolean, constant, element } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { fullSwarm } from "@bjornpagen/testing/swarm"
+import { searched } from "@bjornpagen/testing/vitest"
+import { NodeServices } from "@effect/platform-node"
+import { layer } from "@effect/vitest"
 import {
 	Array as Arr,
 	Effect,

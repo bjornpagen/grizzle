@@ -14,11 +14,11 @@
  * leaving an inclusive upper bound where it is), allen-atom-before-strict.patch (the `<<` atom's relations read as
  * strictly before, without meets).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { atomLiterals, literalNegated } from "#compiler/allen/atoms.ts"
 import { AllenMask, fullAllenMask } from "#compiler/allen/mask.ts"

@@ -1,12 +1,12 @@
 #!/usr/bin/env -S node
 import { availableParallelism } from "node:os"
 import { parseArgs } from "node:util"
-import { DevtoolFailure, failureFrom } from "@grizzle/devtools/devtool"
-import { runDevtool } from "@grizzle/devtools/run"
-import { shuffled } from "@grizzle/testing/gen"
-import { applied, type Mutant as LibraryMutant, mutantsOf } from "@grizzle/testing/mutants"
-import { wordsOf } from "@grizzle/testing/random"
-import { generate, randomChooser, recorder } from "@grizzle/testing/source"
+import { DevtoolFailure, failureFrom } from "@bjornpagen/devtools/devtool"
+import { runDevtool } from "@bjornpagen/devtools/run"
+import { shuffled } from "@bjornpagen/testing/gen"
+import { applied, type Mutant as LibraryMutant, mutantsOf } from "@bjornpagen/testing/mutants"
+import { wordsOf } from "@bjornpagen/testing/random"
+import { generate, randomChooser, recorder } from "@bjornpagen/testing/source"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -58,6 +58,9 @@ import { hardenedNode } from "#test/support/process.ts"
 /** This tool's directory, which every worker tree takes from the working tree rather than from the commit. */
 const self = "scripts/dev/mutate"
 
+/** The toolchain's submodule, whose testing library every test runs on: git archive leaves it empty. */
+const toolchain = "vendor/toolchain"
+
 /**
  * grizzle's own mutation tester for the compiler and the adapter: it breaks a rewrite, a proof, a guard or a runtime
  * decision on purpose and checks that some test notices.
@@ -70,7 +73,7 @@ const self = "scripts/dev/mutate"
  *
  * --operators takes operators and families, comma-separated: `classic` (comparison, conjunct, boolean-return, bound and
  * guard from the library's mutants, and set-semantics), `sql-world` (world.ts, aimed at the code that builds the
- * emitted world SQL), `library` (every operator of @grizzle/testing/mutants); the classic and sql-world families when
+ * emitted world SQL), `library` (every operator of @bjornpagen/testing/mutants); the classic and sql-world families when
  * absent. --scope limits the mutants to the files under the given prefixes. --plan lists the planned
  * mutants and runs nothing. --prune-triage drops from triage.json every verdict whose mutant is in no current
  * population, and runs nothing. --plan, --retriage and --prune-triage exclude one another.
@@ -78,7 +81,7 @@ const self = "scripts/dev/mutate"
  * 1. The committed tree (git archive HEAD, or the commit --commit names), with this directory as it is in the working
  *    tree, is unpacked under the system temporary directory once per worker; the repository itself is never written,
  *    except for the report and the logs.
- * 2. The mutants are every mutant @grizzle/testing/mutants finds in the scoped source modules with grizzle's two
+ * 2. The mutants are every mutant @bjornpagen/testing/mutants finds in the scoped source modules with grizzle's two
  *    families (world.ts), of the operators chosen, or with --sample N a seeded sample of
  *    N spread over the areas and operators, or with --mutant the named ones (to recheck a triaged survivor).
  * 3. A coverage pass runs every stage-1 test file (the unit project, less the generators' own tests) once on the
@@ -328,8 +331,8 @@ const cloneInto = Effect.fn("cloneInto")(function* (from: string, to: string) {
 /**
  * The workspace's node_modules in `into`: the root's with its package store linked to the repository's, and each
  * package's the tests load, so the workspace packages' own links (the root's to the packages, the shell's to the
- * engine) resolve to the packages of this tree, never the repository's: the engine, the shell, and the testing library
- * every test runs on.
+ * engine) resolve to the packages of this tree, never the repository's: the engine, the shell, and the toolchain's
+ * testing library every test runs on and dev tools the root's configs load.
  */
 const linkNodeModules = Effect.fn("linkNodeModules")(function* (repo: string, into: string) {
 	const fs = yield* FileSystem.FileSystem
@@ -352,23 +355,27 @@ const linkNodeModules = Effect.fn("linkNodeModules")(function* (repo: string, in
 		[
 			"packages/engine/node_modules",
 			"packages/grizzle/node_modules",
-			"packages/testing/node_modules"
+			`${toolchain}/packages/devtools/node_modules`,
+			`${toolchain}/packages/testing/node_modules`
 		],
 		(dir) => cloneInto(path.join(repo, dir), path.join(into, dir)),
 		{ discard: true }
 	)
 })
 
-/** The commit's tree unpacked into `into`, with this tool's directory from the working tree and the workspace's node_modules. */
-const unpack = Effect.fn("unpack")(function* (repo: string, commit: string, into: string) {
+/** The tree of `revision` in the repository at `repo`, unpacked into `into`. */
+const archiveInto = Effect.fn("archiveInto")(function* (
+	repo: string,
+	revision: string,
+	into: string
+) {
 	const fs = yield* FileSystem.FileSystem
-	const path = yield* Path.Path
 	const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
 	yield* fs.makeDirectory(into, { recursive: true })
 	const [archived, extracted] = yield* Effect.scoped(
 		Effect.gen(function* () {
 			const archive = yield* spawner.spawn(
-				ChildProcess.make("git", ["archive", "--format=tar", commit], {
+				ChildProcess.make("git", ["archive", "--format=tar", revision], {
 					cwd: repo,
 					stderr: "inherit"
 				})
@@ -381,9 +388,39 @@ const unpack = Effect.fn("unpack")(function* (repo: string, commit: string, into
 	)
 	if (archived !== 0 || extracted !== 0) {
 		return yield* DevtoolFailure.make({
-			detail: `git archive ${commit} | tar -x exited ${archived} and ${extracted}`
+			detail: `git archive ${revision} in ${repo} | tar -x exited ${archived} and ${extracted}`
 		})
 	}
+})
+
+/** The toolchain commit `commit` pins (its gitlink at vendor/toolchain). */
+const toolchainOf = Effect.fn("toolchainOf")(function* (repo: string, commit: string) {
+	const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+	const out = yield* spawner.string(
+		ChildProcess.make("git", ["rev-parse", "--verify", `${commit}:${toolchain}`], {
+			cwd: repo,
+			stderr: "ignore"
+		})
+	)
+	const pinned = Str.trim(out)
+	if (pinned === "") {
+		return yield* DevtoolFailure.make({
+			detail: `${commit} pins no ${toolchain}: the testing library its tests run on is the toolchain's submodule`
+		})
+	}
+	return pinned
+})
+
+/**
+ * The commit's tree unpacked into `into`, with the toolchain at the commit it pins, this tool's directory from the
+ * working tree, and the workspace's node_modules.
+ */
+const unpack = Effect.fn("unpack")(function* (repo: string, commit: string, into: string) {
+	const fs = yield* FileSystem.FileSystem
+	const path = yield* Path.Path
+	yield* archiveInto(repo, commit, into)
+	const pinned = yield* toolchainOf(repo, commit)
+	yield* archiveInto(path.join(repo, toolchain), pinned, path.join(into, toolchain))
 	yield* fs.copy(path.join(repo, self), path.join(into, self), { overwrite: true })
 	yield* linkNodeModules(repo, into)
 })

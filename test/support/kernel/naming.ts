@@ -1,4 +1,4 @@
-import { exact, ordered } from "@grizzle/testing/oracle"
+import { exact, ordered } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { CompileError } from "#compiler/core/errors.ts"

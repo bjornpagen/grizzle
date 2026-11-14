@@ -1,4 +1,4 @@
-import { array, type Gen } from "@grizzle/testing/gen"
+import { array, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import type { Fact } from "#test/support/oracle/addwins.ts"

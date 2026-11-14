@@ -30,12 +30,12 @@
  * read-repeatable.patch (a deferrable read begun REPEATABLE READ READ ONLY), served-deferrable-dropped.patch (a served
  * read never deferrable), certify-laws-reader-half.patch (condition `laws` without a SERIALIZABLE member's read).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { type Gen, int } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { type Gen, int } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"

@@ -26,13 +26,13 @@
  * Plants (~/.cache/grizzle-release/BR02/plants): staged-cut-ignores-parameters, staged-analyze-dropped; and the planted
  * statement with no staged form the second test runs.
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { noCoverage, required } from "@bjornpagen/testing/features"
+import { array, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { array, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"

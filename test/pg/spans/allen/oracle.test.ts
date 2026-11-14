@@ -7,13 +7,13 @@
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): allen-atom-before-strict.patch.
  */
+import { drawn } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { exact, ordered, set, structuralHash } from "@bjornpagen/testing/oracle"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { compileSpanDesc, installSpans, rowsAs, runArtifact } from "#test/pg/spans/allen/support.ts"

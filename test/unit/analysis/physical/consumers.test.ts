@@ -1,3 +1,8 @@
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 /**
  * The observed nodes (analysis/physical/consumers.ts observedNodes), against every observation path of each node
  * enumerated by brute force: each path climbs preserving edges from the node and ends at the first edge that observes
@@ -10,11 +15,6 @@
  * by an edge into it that observes, never through a preserving edge). Features: an end that observes, an end that
  * ignores.
  */ import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { unplaced } from "#compiler/analysis/physical/analyze.ts"
 import { type ConsumerEdge, observedNodes } from "#compiler/analysis/physical/consumers.ts"

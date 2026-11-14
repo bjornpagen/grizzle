@@ -31,11 +31,11 @@
  * Features: each monoid and carrier, named and hidden, ordered and counted, selected or not; each hidden fold removed,
  * a fold before the removed one and one after it.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, type Gen, int, shuffled } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import type { ColumnIdent } from "#compiler/core/ids.ts"
 import {

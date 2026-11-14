@@ -1,3 +1,18 @@
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 /**
  * Order completion: the page completion policy, union roster-order completion included.
  *
@@ -15,12 +30,6 @@
  * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: each completion's appended parts and refusals;
  * each wrapper completed and refused.
  */ import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"

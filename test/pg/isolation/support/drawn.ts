@@ -1,4 +1,4 @@
-import { array, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import {
 	type Candidate,

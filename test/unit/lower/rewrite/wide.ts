@@ -1,4 +1,4 @@
-import { boolean, type Gen, int as intGen, map, option, uniqueArray } from "@grizzle/testing/gen"
+import { boolean, type Gen, int as intGen, map, option, uniqueArray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import { makeIdSupply, type NodeId } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"

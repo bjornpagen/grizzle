@@ -25,13 +25,21 @@
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): long-names-limit-off-by-one.patch (the 63-byte rule admitting 64).
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	array,
+	boolean,
+	codePoint,
+	element,
+	type Gen,
+	option,
+	string
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, codePoint, element, type Gen, option, string } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	DateTime,

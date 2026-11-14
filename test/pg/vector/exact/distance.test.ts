@@ -22,17 +22,26 @@
  *
  * Features: each probe kind, a tie ordered by the key, each width and pair kind, each side of each norm bound.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { noCoverage, required } from "@bjornpagen/testing/features"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf
+} from "@bjornpagen/testing/gen"
+import { floorSeed, rotatingSeed } from "@bjornpagen/testing/random"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { sample } from "@bjornpagen/testing/source"
+import { double, float } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
+import { runOfProcess } from "@bjornpagen/testing/vitest/run"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { array, boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { sample } from "@grizzle/testing/source"
-import { double, float } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
-import { runOfProcess } from "@grizzle/testing/vitest/run"
 import {
 	Array as Arr,
 	Effect,

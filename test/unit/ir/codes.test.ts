@@ -18,11 +18,11 @@
  *
  * Plants: ir-codes-size-live-only (a codec counts its live codes alone, not every code minted).
  */
+import { type Case, exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { type Gen, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { sameOrder } from "#compiler/core/array.ts"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"

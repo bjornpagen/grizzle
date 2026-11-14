@@ -21,7 +21,7 @@ import {
 	type WireOptions
 } from "#compiler/plan/runtime.ts"
 import { listFrame, refusedFrames, setFrame, type SlotEncoders, writeFrame } from "#http/events.ts"
-import { bearerToken, bodyJson, requestLine, wireNamed } from "#http/request.ts"
+import { authorizationToken, bodyJson, requestLine, wireNamed } from "#http/request.ts"
 import { type HttpRoute, type RouteOf, routeLine, routeTable } from "#http/routes.ts"
 import { type SseEvent, sseHeaders, sseStream } from "#http/sse.ts"
 
@@ -252,7 +252,7 @@ const routeCall = (
 ): Effect.Effect<Stream.Stream<SseEvent>, FailureOf<"door" | "open">> =>
 	Effect.gen(function* () {
 		yield* Effect.fromResult(wireNamed(request, route.member.loaded.wire.digest))
-		const given = yield* Effect.fromResult(bearerToken(request))
+		const given = yield* Effect.fromResult(authorizationToken(request))
 		const token = yield* Effect.fromResult(openingToken(route.role.held.role, given))
 		const body = yield* bodyJson(request)
 		const ctx = yield* Effect.mapError(servedContext(route.role.held, token), openCallError)

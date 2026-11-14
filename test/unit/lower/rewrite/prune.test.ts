@@ -13,11 +13,11 @@
  * Plants, each failing its search: a fold demanding only its keys and its aggregates' arguments (prune-fold-bound); a
  * node a recursive step reads pruned like any other (prune-step-unpinned).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, subarray } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, subarray } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"

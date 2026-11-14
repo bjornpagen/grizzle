@@ -10,9 +10,9 @@ import {
 	proportional,
 	span,
 	weighted
-} from "@grizzle/testing/gen"
-import type { Source } from "@grizzle/testing/source"
-import { fullSwarm, keep, type Swarm, weightOf } from "@grizzle/testing/swarm"
+} from "@bjornpagen/testing/gen"
+import type { Source } from "@bjornpagen/testing/source"
+import { fullSwarm, keep, type Swarm, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { AllenMask, fullAllenMask } from "#compiler/allen/mask.ts"
 import { allenExpr } from "#compiler/check/allen.ts"

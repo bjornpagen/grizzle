@@ -9,11 +9,11 @@
  *
  * Features: an entry of each kind, operator, function, cast, input and construct.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Equivalence, Option, pipe, String as Str } from "effect"
 import { describeOp } from "#compiler/ir/expr.ts"
 import {

@@ -17,9 +17,8 @@
  * Plant (~/.cache/grizzle-release/BR06/plants): own-statements-in-written-order (statements kept in the order written,
  * so reordering moves the fingerprint).
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -30,12 +29,13 @@ import {
 	map,
 	shuffled,
 	weighted
-} from "@grizzle/testing/gen"
-import { matching } from "@grizzle/testing/pattern"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { matching } from "@bjornpagen/testing/pattern"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { bigint } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record, String as Str } from "effect"
 import type { Refused } from "#compiler/core/refusals.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"

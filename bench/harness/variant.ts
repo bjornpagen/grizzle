@@ -1,4 +1,4 @@
-import { type Equivalence, exact, ordered } from "@grizzle/testing/oracle"
+import { type Equivalence, exact, ordered } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Data, Effect, Formatter, Option, type Ordering, Result } from "effect"
 import { type Summary, summarizePhases } from "#bench/cold/stats.ts"
 import {

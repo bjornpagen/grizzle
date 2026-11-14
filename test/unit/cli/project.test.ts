@@ -1,5 +1,3 @@
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
 import {
 	accepted,
 	type Answer,
@@ -11,13 +9,24 @@ import {
 	runProgram,
 	took,
 	type Verdict
-} from "@grizzle/testing/commands"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, constant, element, type Gen, int, map, oneOf, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { fullSwarm } from "@grizzle/testing/swarm"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/commands"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	array,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	weighted
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { fullSwarm } from "@bjornpagen/testing/swarm"
+import { searched } from "@bjornpagen/testing/vitest"
+import { NodeServices } from "@effect/platform-node"
+import { layer } from "@effect/vitest"
 import {
 	Array as Arr,
 	DateTime,

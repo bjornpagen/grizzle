@@ -1,4 +1,4 @@
-import type { Broken, Corruption } from "@grizzle/testing/lsw"
+import type { Broken, Corruption } from "@bjornpagen/testing/lsw"
 import { Array as Arr, Record as Rec } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"

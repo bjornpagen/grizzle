@@ -48,13 +48,21 @@
  * re-pointed family's index is drawn again in member-key order) and orderkeep-silent-renumber (a kept index is
  * renumbered within each new group, so no regroup is refused).
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	parents,
+	shuffled
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { boolean, constant, element, type Gen, int, parents, shuffled } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
-import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	Effect,

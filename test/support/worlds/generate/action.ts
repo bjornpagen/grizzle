@@ -10,9 +10,9 @@ import {
 	shuffled,
 	weighted,
 	proportional
-} from "@grizzle/testing/gen"
-import { WILD_KINDS } from "@grizzle/testing/lsw"
-import type { Source } from "@grizzle/testing/source"
+} from "@bjornpagen/testing/gen"
+import { WILD_KINDS } from "@bjornpagen/testing/lsw"
+import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Option, pipe, Record } from "effect"
 import { valueText } from "#test/support/laws/model.ts"
 import {

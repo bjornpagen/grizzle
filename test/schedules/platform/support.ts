@@ -1,11 +1,11 @@
+import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { required, type Situations } from "@bjornpagen/testing/features"
+import { array, constant, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import { type PctSchedule, pctSchedule } from "@bjornpagen/testing/interleave"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { required, type Situations } from "@grizzle/testing/features"
-import { array, constant, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { type PctSchedule, pctSchedule } from "@grizzle/testing/interleave"
-import { notesOnly } from "@grizzle/testing/sense"
-import { type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
-import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	Effect,

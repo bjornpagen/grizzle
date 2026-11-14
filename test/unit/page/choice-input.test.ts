@@ -15,11 +15,11 @@
  * Plant (~/.cache/grizzle-release/BR06/plants): choice-large-at-threshold (the whole-relation form chosen at
  * lateralParentMax facts).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, pipe, Result, String as Str } from "effect"
 import { formFor } from "#adapter/reader/execution.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"

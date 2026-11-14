@@ -14,13 +14,13 @@
  * Plant: ~/.cache/grizzle-release/BR07/plants/scanners-sqlstate-range.patch (the capitals' range ending at Y) turns
  * the property red.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { element, type Gen, int, string, unicodeScalar, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { element, type Gen, int, string, unicodeScalar, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
 import { Effect, Formatter, String as Str } from "effect"
 import { Sqlstate } from "#compiler/core/sqlstate.ts"

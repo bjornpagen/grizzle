@@ -1,4 +1,4 @@
-import { exact, set, structuralHash } from "@grizzle/testing/oracle"
+import { exact, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Option } from "effect"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"

@@ -13,14 +13,14 @@
  * The space: groups, steps and attempts 0 and 1, and up to eight transactions of one operation each, run in order as
  * the installation's owner.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, element, type Gen } from "@bjornpagen/testing/gen"
+import { agree, exact } from "@bjornpagen/testing/oracle"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, element, type Gen } from "@grizzle/testing/gen"
-import { agree, exact } from "@grizzle/testing/oracle"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "effect"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import { pg, retirement } from "#compiler/public/fields.ts"

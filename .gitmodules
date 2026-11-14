@@ -1,0 +1,3 @@
+[submodule "vendor/toolchain"]
+	path = vendor/toolchain
+	url = https://github.com/bjornpagen/toolchain.git

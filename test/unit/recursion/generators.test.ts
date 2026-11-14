@@ -14,12 +14,12 @@
  * Plants, each failing its search: the chain's edges pointed backwards (generator-chain-reversed); an acyclic
  * recursion counted as looping (generator-bag-bounded-only).
  */
+import { drawn, explore, sketched } from "@bjornpagen/testing/explore"
+import { noCoverage, required } from "@bjornpagen/testing/features"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore, sketched } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { assert, containsEqual, defined, like, matchers } from "#test/support/assert.ts"

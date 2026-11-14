@@ -22,9 +22,8 @@
  * B-tree probe, an ordered and a range request, each planted refusal, two methods on one column list, and two indexes on
  * one column list.
  */
-import { describe, it } from "@effect/vitest"
-import { explore, type Kept, sketched } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { explore, type Kept, sketched } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -35,11 +34,12 @@ import {
 	map,
 	shuffled,
 	weighted
-} from "@grizzle/testing/gen"
-import { matching } from "@grizzle/testing/pattern"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { matching } from "@bjornpagen/testing/pattern"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Equivalence, Formatter, Option, Order } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"

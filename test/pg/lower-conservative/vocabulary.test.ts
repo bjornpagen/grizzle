@@ -14,11 +14,11 @@
  * Plants (~/.cache/grizzle-release/BR11/plants): conservative-mod-as-div (the table spells the modulo functions with the
  * division symbol) and conservative-call-misnamed (every function lowers to a call of abs).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { ExprId } from "#compiler/core/ids.ts"

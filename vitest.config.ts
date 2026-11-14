@@ -1,9 +1,8 @@
-import { defineTestConfig } from "@grizzle/testing/vitest/config"
-import { Option } from "effect"
+import { defineTestConfig } from "@bjornpagen/testing/vitest/config"
 import { testTimeout } from "#test/support/limits.ts"
 
 /**
- * `pnpm test`: the tests that need no network, the unit tier, the type tier and the testing library's own suite. The type tier's checks are one tsgo
+ * `pnpm test`: the tests that need no network, the unit tier and the type tier. The type tier's checks are one tsgo
  * program, built once per run by its global setup while the files run (test/types/batch/global-setup.ts). The engine's
  * generative suites of the SQL printer and audit,
  * the lowerings, the migration drafter, the write compiler and the text refinements, and the canonical serializer's and
@@ -12,19 +11,14 @@ import { testTimeout } from "#test/support/limits.ts"
  * no width the stack bounds, and the generated rewrite suites run the same pipeline under the small stack.
  */
 export default defineTestConfig({
-	include: [
-		"test/unit/**/*.test.ts",
-		"test/types/**/*.test.ts",
-		"packages/testing/src/**/*.test.ts"
-	],
-	guided: ["packages/testing/src/sense.test.ts"],
+	include: ["test/unit/**/*.test.ts", "test/types/**/*.test.ts"],
+	guided: [],
 	setup: ["test/types/batch/global-setup.ts"],
 	conditions: [],
 	timeouts: {
 		test: { kind: "bounded", millis: testTimeout.value },
 		hook: { kind: "bounded", millis: testTimeout.value }
 	},
-	maxWorkers: Option.none(),
 	smallStack: [
 		"test/unit/sql/**/*.test.ts",
 		"test/unit/lower/*.test.ts",

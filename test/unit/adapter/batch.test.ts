@@ -1,11 +1,11 @@
+import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { type Reached, required, requiredInSpace } from "@bjornpagen/testing/features"
+import { array, int } from "@bjornpagen/testing/gen"
+import { exact } from "@bjornpagen/testing/oracle"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { type Reached, required, requiredInSpace } from "@grizzle/testing/features"
-import { array, int } from "@grizzle/testing/gen"
-import { exact } from "@grizzle/testing/oracle"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import {
 	type BatchStatement,

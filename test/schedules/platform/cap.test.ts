@@ -16,8 +16,8 @@
  * Plants (~/.cache/grizzle-release/BR13/plants): laws-le-strict.patch.
  */
 
-import { array, type Gen, int, map, weighted } from "@grizzle/testing/gen"
-import { fullSwarm, keep, type Swarm, swarm } from "@grizzle/testing/swarm"
+import { array, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
+import { fullSwarm, keep, type Swarm, swarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option } from "effect"
 import {
 	beforeOf,

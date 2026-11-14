@@ -25,12 +25,12 @@
  * Plants (~/.cache/grizzle-release/BR11/plants): keys-swap-unrecorded (a key's index built under its swap name is no
  * Swap of the plan, so a refused build names no law).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"

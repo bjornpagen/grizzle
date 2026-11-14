@@ -1,7 +1,5 @@
-import { defineTestConfig } from "@grizzle/testing/vitest/config"
-import { Option } from "effect"
+import { defineTestConfig } from "@bjornpagen/testing/vitest/config"
 import { testTimeout } from "#test/support/limits.ts"
-import { networkWorkers } from "#test/support/substrate/workers.ts"
 
 /**
  * `pnpm test:network`: the tests that talk to the local PostgreSQL cluster, the pg tier and the schedules tier. The
@@ -14,7 +12,8 @@ import { networkWorkers } from "#test/support/substrate/workers.ts"
  *
  * A hook takes as long as it takes: a suite's layer build may wait for a slot of the cluster-wide connection lease
  * behind other runs' files, as long as they hold it (substrate/shared.ts leaseConnections), and a wait for a resource
- * others hold is no hang. `maxWorkers` is the worker count the setup clones databases for (substrate/workers.ts).
+ * others hold is no hang. The library runs one file per worker, testWorkers of them, and the setup clones a database for
+ * each (substrate/workers.ts).
  */
 export default defineTestConfig({
 	include: ["test/pg/**/*.test.ts", "test/schedules/**/*.test.ts"],
@@ -25,6 +24,5 @@ export default defineTestConfig({
 		test: { kind: "bounded", millis: testTimeout.value },
 		hook: { kind: "bounded", millis: testTimeout.value }
 	},
-	maxWorkers: Option.some(networkWorkers),
 	smallStack: []
 })

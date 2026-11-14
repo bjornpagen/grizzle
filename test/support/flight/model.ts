@@ -1,4 +1,4 @@
-import { failureText } from "@grizzle/testing/failure"
+import { failureText } from "@bjornpagen/testing/failure"
 import { Array as Arr } from "effect"
 import { Cause, Effect, Exit, Option, Result } from "effect"
 import type { ConnectionLost, DriverFailure, TransactionFate } from "#adapter/errors/failures.ts"

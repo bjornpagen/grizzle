@@ -17,11 +17,11 @@
  * Plants, each failing its search: a payload read admitted as a membership (closed-payload); a narrowed Closed node
  * keeping its declared name (closed-narrowed-name); an occurrence read laterally rewritten (closed-lateral).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, type Gen, oneOf } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type Heading, type RelNode } from "#compiler/ir/rel.ts"

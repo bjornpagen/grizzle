@@ -21,8 +21,8 @@
  * builds one platform of pinned sizes by modular arithmetic over row numbers, for the plan properties: the same rules,
  * at a volume where the planner's choices matter.
  */
-import { array, type Gen, int, map, type Size } from "@grizzle/testing/gen"
-import { keep, type Swarm, swarm, weightOf } from "@grizzle/testing/swarm"
+import { array, type Gen, int, map, type Size } from "@bjornpagen/testing/gen"
+import { keep, type Swarm, swarm, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order, pipe, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { Addition } from "#compiler/public/changeset.ts"

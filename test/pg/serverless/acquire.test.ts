@@ -15,11 +15,11 @@
  * Plants (~/.cache/grizzle-release/BR13/plants): acquire-credential-stage.patch (a CredentialError read at stage
  * transport).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Effect, Exit, Formatter, Option } from "effect"
 import { CredentialError } from "#adapter/errors/failures.ts"
 import { Db } from "#adapter/public/db.ts"

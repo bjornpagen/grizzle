@@ -21,13 +21,13 @@
  * Features: each statement kind it plans, each Wild operator of a mirrored rule PostgreSQL refuses, the LATERAL
  * rewrite planned, each zero-width form planned, and the shape of every statement it plans.
  */
+import { explore, drawn, type Kept } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, type Gen } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { explore, drawn, type Kept } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, type Gen } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
 import type { CreateTable, SqlStatement } from "#compiler/sql/ast.ts"

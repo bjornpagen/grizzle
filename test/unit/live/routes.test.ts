@@ -19,12 +19,12 @@
  * Features: a role that serves nothing, a role that serves programs, two roles, a read member, a paged member, a change
  * member.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Result as Answered, Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { served } from "#adapter/public/layer.ts"
 import { httpRoutes } from "#http/index.ts"

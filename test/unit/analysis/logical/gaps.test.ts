@@ -1,3 +1,9 @@
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, constant, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 /**
  * Key inferences the logical analysis makes over four shapes, each searched against an oracle written apart from it: a
  * closure brute-forced over the shape's own dependencies, which each inference must reach exactly, and the reference
@@ -23,12 +29,6 @@
  * Features: each shape's classes, keys and dependencies (GapFeature of each search), and each claim the reference
  * evaluator checked.
  */ import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, constant, type Gen, int, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { makeIdSupply } from "#compiler/core/ids.ts"

@@ -27,11 +27,11 @@
  * Features: each invalid mutant killed.
  */
 
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Option, Order, Record, Result } from "effect"
 import { runMutant } from "#test/pg/oracle/mutants/support.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"

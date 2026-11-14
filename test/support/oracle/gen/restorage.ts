@@ -1,4 +1,4 @@
-import { type Gen, int } from "@grizzle/testing/gen"
+import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Context, Option } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"

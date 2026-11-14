@@ -1,3 +1,7 @@
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, type Gen, subarray } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 /**
  * A keyed tree's natives are exactly w4-w7 §2.2's table over trees.md's T0 to T6, read from the law model's native
  * objects, for a tree keyed by its root field doc and its drawn start. The oracle is the specification turned into a
@@ -36,10 +40,6 @@
  * Features: an immutable tree, a mutable tree, a parent copy, an accumulated parent copy, two copies, a fold over the
  * tree.
  */ import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, type Gen, subarray } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"

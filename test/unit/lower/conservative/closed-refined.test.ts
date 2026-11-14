@@ -19,11 +19,11 @@
  *
  * Plant, failing the search: the tracer admitting every text literal of a patterned claim (closed-refined-admit).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"

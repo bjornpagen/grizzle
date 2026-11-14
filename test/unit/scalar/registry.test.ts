@@ -23,9 +23,8 @@
  * Plants (~/.cache/grizzle-release/BR06/plants): registry-closed-id-bits-caps (a closed id given the bits carrier's
  * capabilities) and registry-wild-value-throws (a value that is no record thrown at, not refused).
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore, sketched } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
+import { drawn, exhaust, explore, sketched } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -36,7 +35,7 @@ import {
 	map,
 	uniqueKeys,
 	weighted
-} from "@grizzle/testing/gen"
+} from "@bjornpagen/testing/gen"
 import {
 	type Drawn,
 	drawnFeature,
@@ -45,12 +44,13 @@ import {
 	passed,
 	type Stale,
 	WILD_KINDS
-} from "@grizzle/testing/lsw"
-import { matching } from "@grizzle/testing/pattern"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint, double, uuid } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/lsw"
+import { matching } from "@bjornpagen/testing/pattern"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { bigint, double, uuid } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import {
 	Array as Arr,
 	Effect,

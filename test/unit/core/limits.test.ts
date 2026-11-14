@@ -21,11 +21,11 @@
  * limits-align-overshoot (a misaligned size rounded one past its alignment) and limits-heap-tuple-past (the heap tuple
  * bound an alignment past the page).
  */
+import { type Case, exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, int, weighted } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Effect, Formatter, Record as Rec } from "effect"
 import {
 	alignUp,

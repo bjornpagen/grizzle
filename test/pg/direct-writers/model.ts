@@ -1,5 +1,5 @@
-import type { Case } from "@grizzle/testing/explore"
-import { array, boolean, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import type { Case } from "@bjornpagen/testing/explore"
+import { array, boolean, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import {
 	Array as Arr,
 	Effect,

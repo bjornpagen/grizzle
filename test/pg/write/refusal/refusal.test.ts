@@ -10,14 +10,14 @@
  * - Plant: ~/.cache/grizzle-release/BR08/plants/refusal-detail-tab-read-as-t.patch, the DETAIL reader reading an
  *   escaped tab as a letter t, must turn the property red.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { codePoint, element, type Gen, oneOf, string, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { bigint, uuid } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { codePoint, element, type Gen, oneOf, string, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint, uuid } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"

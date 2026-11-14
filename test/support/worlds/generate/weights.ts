@@ -1,5 +1,5 @@
-import { constant, type Gen, int, oneOf } from "@grizzle/testing/gen"
-import { type Swarm, swarm, weightOf } from "@grizzle/testing/swarm"
+import { constant, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
+import { type Swarm, swarm, weightOf } from "@bjornpagen/testing/swarm"
 import { type Array as Arr, Record } from "effect"
 import { knownNonEmpty } from "#test/support/worlds/generate/domain.ts"
 import type {

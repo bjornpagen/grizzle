@@ -1,7 +1,7 @@
-import type { Case } from "@grizzle/testing/explore"
-import type { Reached } from "@grizzle/testing/features"
-import { array, constant, element, type Gen, int, oneOf, weighted } from "@grizzle/testing/gen"
-import { agree } from "@grizzle/testing/oracle"
+import type { Case } from "@bjornpagen/testing/explore"
+import type { Reached } from "@bjornpagen/testing/features"
+import { array, constant, element, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen"
+import { agree } from "@bjornpagen/testing/oracle"
 import {
 	Array as Arr,
 	Effect,

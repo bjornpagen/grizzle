@@ -16,13 +16,13 @@
  * That each inferred type is PostgreSQL's own result type, for every aggregate overload, refinement, roster and
  * contract, with its typmod and collation, is the database suite's, against the installed views' catalog.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, constant, type Gen, int, subarray } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, constant, type Gen, int, subarray } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
 import { fieldDescOf } from "#compiler/analysis/derived/fields.ts"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"

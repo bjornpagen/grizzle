@@ -18,9 +18,8 @@
  * lines-refuses-at-limit (a text exactly at the limit refused), lines-separator-counted-once (every separator measured
  * as one code unit) and lines-nesting-flat (a nested view indented one unit whatever its depth).
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import {
 	array,
 	characterOf,
@@ -31,10 +30,11 @@ import {
 	int,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"

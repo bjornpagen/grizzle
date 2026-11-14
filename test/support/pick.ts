@@ -1,4 +1,4 @@
-import { type Gen, int } from "@grizzle/testing/gen"
+import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 
 /**

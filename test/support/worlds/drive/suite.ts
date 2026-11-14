@@ -1,9 +1,9 @@
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { type Reached, required, type Situations } from "@bjornpagen/testing/features"
+import { element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import type { Vitest } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { type Reached, required, type Situations } from "@grizzle/testing/features"
-import { element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	Effect,

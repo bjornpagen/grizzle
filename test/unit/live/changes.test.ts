@@ -22,13 +22,13 @@
  * table key an announcement names, so a forged announcement re-runs every read of a stored table); ledger-unread.patch
  * (the ledger read as a table no program reads, so a migration ends no live read).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, Result, String as Str } from "effect"
 import { transactionReader } from "#adapter/live/changes.ts"
 import type { Cell, Message, OldImage, Tuple } from "#adapter/live/pgoutput.ts"

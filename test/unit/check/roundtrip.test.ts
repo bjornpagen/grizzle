@@ -16,21 +16,21 @@
  *
  * Features: the live case, each faithful rewrite, and each corruption, stale or wild.
  */
-import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import type { Gen } from "@grizzle/testing/gen"
+import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import type { Gen } from "@bjornpagen/testing/gen"
 import {
 	type Broken,
 	type CorruptedFeature,
 	type Corruption,
 	corrupted as corruptedGen,
 	corruptedFeature
-} from "@grizzle/testing/lsw"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { tokenOf } from "@grizzle/testing/tape"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/lsw"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { tokenOf } from "@bjornpagen/testing/tape"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record } from "effect"
 import { allenBit } from "#compiler/allen/mask.ts"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"

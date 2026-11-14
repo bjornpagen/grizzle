@@ -1,4 +1,3 @@
-import { layer } from "@effect/vitest"
 import {
 	accepting,
 	type Machine,
@@ -6,15 +5,16 @@ import {
 	type Real,
 	runProgram,
 	took
-} from "@grizzle/testing/commands"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { constant } from "@grizzle/testing/gen"
-import { passed, WILD_KINDS, type Wild, wild } from "@grizzle/testing/lsw"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { fullSwarm } from "@grizzle/testing/swarm"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/commands"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { constant } from "@bjornpagen/testing/gen"
+import { passed, WILD_KINDS, type Wild, wild } from "@bjornpagen/testing/lsw"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { fullSwarm } from "@bjornpagen/testing/swarm"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import { Array as Arr, Cause, Effect, Exit, Formatter, Option, Scope, Struct } from "effect"
 import { onceCalls, type OnceCalls } from "#adapter/db/handles.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"

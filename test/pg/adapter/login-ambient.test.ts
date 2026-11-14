@@ -27,9 +27,8 @@
  * Plants (~/.cache/grizzle-release/BR13/plants): environment-pgoptions.patch (a login's startup options left out, so
  * its pinned defaults are not sent).
  */
-import { layer } from "@effect/vitest"
-import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -39,9 +38,10 @@ import {
 	int,
 	map,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { Anchor, KeyedList } from "#compiler/live/index.ts"

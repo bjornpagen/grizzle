@@ -105,7 +105,6 @@
  *
  * The file builds Substrate.isolatedLayer: the rewrite observer's event trigger is the database's.
  */
-import { layer } from "@effect/vitest"
 import {
 	accepted,
 	type Command,
@@ -116,9 +115,9 @@ import {
 	refused,
 	runProgram,
 	took
-} from "@grizzle/testing/commands"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+} from "@bjornpagen/testing/commands"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array as arrayGen,
 	boolean,
@@ -127,10 +126,11 @@ import {
 	int,
 	parents as parentsGen,
 	subset
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { fullSwarm, type Swarm, swarm } from "@grizzle/testing/swarm"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { fullSwarm, type Swarm, swarm } from "@bjornpagen/testing/swarm"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import {
 	Array as Arr,
 	Effect,

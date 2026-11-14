@@ -1,7 +1,7 @@
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { type Coverage, noCoverage } from "@grizzle/testing/features"
-import type { Gen } from "@grizzle/testing/gen"
-import { boundedShrink } from "@grizzle/testing/shrink"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { type Coverage, noCoverage } from "@bjornpagen/testing/features"
+import type { Gen } from "@bjornpagen/testing/gen"
+import { boundedShrink } from "@bjornpagen/testing/shrink"
 import { Config, Data, Effect, Formatter } from "effect"
 import { caseHang } from "#test/support/limits.ts"
 

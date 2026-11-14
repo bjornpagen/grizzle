@@ -1,4 +1,4 @@
-import { array, constant, element, type Gen, weighted } from "@grizzle/testing/gen"
+import { array, constant, element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, pipe, Record } from "effect"
 import {
 	type HostLaw,

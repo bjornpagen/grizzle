@@ -21,13 +21,13 @@
  * correlated node evaluated per outer tuple, a node read by two consumers, a constant read laterally; a filter of two
  * conjuncts and a column fixed to two values for the conjunct order.
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { noCoverage, required } from "@bjornpagen/testing/features"
+import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { boolean, element, type Gen } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { type PhysicalEnv, unplaced } from "#compiler/analysis/physical/analyze.ts"
 import type { Realization } from "#compiler/analysis/physical/props.ts"

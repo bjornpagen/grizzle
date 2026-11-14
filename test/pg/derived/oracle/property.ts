@@ -1,5 +1,5 @@
-import type { Case } from "@grizzle/testing/explore"
-import { set } from "@grizzle/testing/oracle"
+import type { Case } from "@bjornpagen/testing/explore"
+import { set } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Effect, Option, Record } from "effect"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"

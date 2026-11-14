@@ -1,4 +1,4 @@
-import { element, type Gen, weighted } from "@grizzle/testing/gen"
+import { element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import type {

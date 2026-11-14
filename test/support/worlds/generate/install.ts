@@ -1,6 +1,6 @@
-import { array, boolean, element, type Gen, int, map, span } from "@grizzle/testing/gen"
-import type { Source } from "@grizzle/testing/source"
-import { keep, type Swarm, swarm, swarmChoice, weightOf } from "@grizzle/testing/swarm"
+import { array, boolean, element, type Gen, int, map, span } from "@bjornpagen/testing/gen"
+import type { Source } from "@bjornpagen/testing/source"
+import { keep, type Swarm, swarm, swarmChoice, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { valueText } from "#test/support/laws/model.ts"
 import {

@@ -1,6 +1,6 @@
+import type { Situations } from "@bjornpagen/testing/features"
+import { constant, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { layer } from "@effect/vitest"
-import type { Situations } from "@grizzle/testing/features"
-import { constant, type Gen, weighted } from "@grizzle/testing/gen"
 import { Array as Arr, Option } from "effect"
 import { assert } from "#test/support/assert.ts"
 import { isImmediate } from "#test/support/laws/model.ts"

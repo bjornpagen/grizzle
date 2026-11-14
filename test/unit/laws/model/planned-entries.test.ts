@@ -22,9 +22,8 @@
  * Features: the target the declared key or a superkey; admitted; the declared key refused; the target's UNIQUE refused
  * as unbounded or over the limit, or admitted at the limit; a referencing run no B-tree entry holds, admitted.
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	boolean,
 	constant,
@@ -34,11 +33,12 @@ import {
 	map,
 	oneOf,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import type { Source } from "@grizzle/testing/source"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import type { Source } from "@bjornpagen/testing/source"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"

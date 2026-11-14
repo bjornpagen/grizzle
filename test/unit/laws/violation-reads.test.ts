@@ -39,11 +39,11 @@
  * its widest join; violation-stale-view.patch, a materialized derived relation read through its view, fails the first by
  * the view it reads.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { Step } from "#compiler/deploy/diff/plan.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"

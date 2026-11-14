@@ -1,4 +1,4 @@
-import { boolean, type Gen, int, map, oneOf, option, weighted } from "@grizzle/testing/gen"
+import { boolean, type Gen, int, map, oneOf, option, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Predicate, Record as Rec } from "effect"
 import { bits, pg, uuid } from "#compiler/public/fields.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"

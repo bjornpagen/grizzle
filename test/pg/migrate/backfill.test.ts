@@ -56,9 +56,8 @@
  * orderkeep-silent-renumber (a kept index is renumbered within each new group, so no regroup is refused) and
  * orderkeep-declared-drop-refused (`--drop M.at` beside a declared M.at is refused).
  */
-import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	boolean,
 	composition,
@@ -69,10 +68,11 @@ import {
 	map,
 	parents,
 	shuffled
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import {
 	Array as Arr,
 	Effect,

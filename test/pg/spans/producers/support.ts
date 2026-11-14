@@ -1,4 +1,4 @@
-import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
+import { exact, ordered, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import { identity } from "#compiler/core/identity.ts"

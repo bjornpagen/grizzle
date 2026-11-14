@@ -18,9 +18,8 @@
  * compute-domain-cast-unproved (a domain cast carries no proof), compute-common-type-first-typmod (two typmods'
  * common type the first's).
  */
-import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	boolean,
 	constant,
@@ -30,11 +29,12 @@ import {
 	map,
 	oneOf,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { bigint } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import type { CompareOp, ExprDesc } from "#compiler/ir/desc.ts"

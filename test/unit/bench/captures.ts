@@ -6,8 +6,8 @@
  * triggers, serialization and settings; the reading each must read back; its text as PostgreSQL prints it, keys no
  * reader reads among them; and faults PostgreSQL never prints, planted in it.
  */
-import { array, boolean, element, type Gen, int, weighted } from "@grizzle/testing/gen"
-import type { Source } from "@grizzle/testing/source"
+import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type {
 	Buffers,

@@ -9,7 +9,7 @@ import {
 	oneOf,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
+} from "@bjornpagen/testing/gen"
 import { type Array as Arr, DateTime, Record as Rec, String as Str } from "effect"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import { decimalTextMaxBytes, type LexicalTarget } from "#compiler/scalar/lexical.ts"

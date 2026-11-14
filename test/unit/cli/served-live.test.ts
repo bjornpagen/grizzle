@@ -17,13 +17,13 @@
  * Plants (~/.cache/grizzle-release/LIVE-ROUTES/plants): live-route-dropped.patch leaves each table's first routed
  * field out of the live plan; live-views-dropped.patch leaves every materialized derived relation out of it.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Result as Answered, Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"

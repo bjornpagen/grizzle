@@ -1,5 +1,5 @@
-import { array, boolean, type Gen, int, map, weighted } from "@grizzle/testing/gen"
-import { keep, type Swarm, swarm as swarmOf, weightOf } from "@grizzle/testing/swarm"
+import { array, boolean, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
+import { keep, type Swarm, swarm as swarmOf, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order, Record as Rec, Stream } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { Decimal } from "#compiler/public/fields.ts"
@@ -384,7 +384,7 @@ export const plantedBehind = (arm: PlantedArm): boolean =>
 export interface ChangeSetSketch {
 	readonly strata: Arr.NonEmptyReadonlyArray<ReadonlyArray<MemberSketch>>
 	readonly reads: ReadonlyArray<ReadSketch>
-	/** The case's swarm (@grizzle/testing/swarm) over writeFeatures. */
+	/** The case's swarm (@bjornpagen/testing/swarm) over writeFeatures. */
 	readonly swarm: Swarm<WriteFeature>
 }
 

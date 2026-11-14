@@ -7,7 +7,7 @@ import {
 	subarray,
 	type Weighted,
 	weighted
-} from "@grizzle/testing/gen"
+} from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { assert } from "#test/support/assert.ts"

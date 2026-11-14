@@ -10,13 +10,13 @@
  *
  * Plants: ir-desc-bind-unfilled (an omitted bind map left absent rather than filled as the empty map).
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { boolean, constant, element, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { boolean, constant, element, type Gen, map, oneOf } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { type Array as Arr, Effect, Formatter } from "effect"
 import type { Json } from "#compiler/core/canonical.ts"
 import { type DescKind, decodeDesc, descText, descToJson } from "#compiler/ir/desc.ts"

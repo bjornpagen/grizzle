@@ -1,6 +1,6 @@
-import { array, type Gen, int, map } from "@grizzle/testing/gen"
-import { exact, set, structuralHash } from "@grizzle/testing/oracle"
-import { keep, type Swarm, swarm as swarmOf, weightOf } from "@grizzle/testing/swarm"
+import { array, type Gen, int, map } from "@bjornpagen/testing/gen"
+import { exact, set, structuralHash } from "@bjornpagen/testing/oracle"
+import { keep, type Swarm, swarm as swarmOf, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
@@ -95,7 +95,7 @@ export interface WGroup {
  *
  * A write run installs one generated schema of one to three independent groups of relations and opens it as one Db
  * (run.ts); each of its cases writes the relations of one group. A schema is drawn as a sketch of picks and a swarm
- * (@grizzle/testing/swarm), resolved by a generator that draws only the swarm's thinning, so a shrink of the case's
+ * (@bjornpagen/testing/swarm), resolved by a generator that draws only the swarm's thinning, so a shrink of the case's
  * tape shrinks every part of a failing schema and every resolution is a valid schema. Each relation has:
  *
  * - one to four fields named a, b, c and d, so relations of the schema share field names with different types, and two

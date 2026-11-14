@@ -1,5 +1,5 @@
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { searched } from "@grizzle/testing/vitest"
 import { Effect } from "effect"
 import { firstFailure, oracleCases } from "#scripts/dev/mutate/oracle/check.ts"
 import { projectedMirrors, projectedSource } from "#test/pg/laws/projections/families.ts"

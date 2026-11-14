@@ -1,6 +1,6 @@
 /**
  * Mutations of families as the statements a writer sends, the model of what PostgreSQL does with each transaction of
- * them, and programs of mutations as a state machine over the families they leave (`@grizzle/testing/commands`).
+ * them, and programs of mutations as a state machine over the families they leave (`@bjornpagen/testing/commands`).
  *
  * The model is the theorem's lowering (theorem.ts) with the moment PostgreSQL checks each constraint: a transaction
  * applies its statements in order, is refused at the first statement after which a constraint checked there is broken,
@@ -45,9 +45,9 @@ import {
 	type Program as Steps,
 	type Real,
 	took
-} from "@grizzle/testing/commands"
-import { boolean, element, type Gen, int, shuffled, type Size } from "@grizzle/testing/gen"
-import { fullSwarm, type Swarm, swarm, weightOf } from "@grizzle/testing/swarm"
+} from "@bjornpagen/testing/commands"
+import { boolean, element, type Gen, int, shuffled, type Size } from "@bjornpagen/testing/gen"
+import { fullSwarm, type Swarm, swarm, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Effect, Formatter, Option, Result, Struct } from "effect"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import { nonEmpty } from "#test/support/assert.ts"

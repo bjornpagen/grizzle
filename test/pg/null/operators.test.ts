@@ -24,12 +24,12 @@
  *
  * Features: every operation form, a NULL operand and none, and each of Kleene's and SQL's NULL rules the box turns on.
  */
+import { type Case, exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { agree, exact } from "@bjornpagen/testing/oracle"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case, exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, int } from "@grizzle/testing/gen"
-import { agree, exact } from "@grizzle/testing/oracle"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { ExprId, NodeId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"

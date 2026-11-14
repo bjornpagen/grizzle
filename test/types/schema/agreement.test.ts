@@ -6,9 +6,9 @@
  *
  * Plant (~/.cache/grizzle-release/BR14/plants): schema-own-names.patch admits a relation held under another name.
  */
+import { unreachedOf } from "@bjornpagen/testing/features"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { unreachedOf } from "@grizzle/testing/features"
 import { Effect } from "effect"
 import { schemaRequired, schemaWitnesses } from "#test/support/agreement/schemas.ts"
 import { assert } from "#test/support/assert.ts"

@@ -20,9 +20,8 @@
  * Plants (~/.cache/grizzle-release/BR06/plants): codec-span-empty-admitted (a span whose start is its end admitted)
  * and codec-int8-leading-zero (the strict reading admitting an integer's leading zero).
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -35,11 +34,12 @@ import {
 	string,
 	type Weighted,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint, float } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { bigint, float } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, DateTime, Effect, Formatter, pipe, String as Str } from "effect"
 import type { CodecFault } from "#compiler/core/errors.ts"
 import { int4Max, int4Min, int8Max, int8Min } from "#compiler/core/limits.ts"

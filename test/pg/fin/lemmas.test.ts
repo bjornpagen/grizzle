@@ -30,14 +30,14 @@
  * Plant: ~/.cache/grizzle-release/BR08/plants/fin-bound-check-at-most-count.patch, the bound CHECK admitting a row at
  * the count, commits a row beyond the family and must turn both properties red.
  */
+import { runProgram } from "@bjornpagen/testing/commands"
+import { drawn as drawnCase, exhaust, explore, type Oracle } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { runProgram } from "@grizzle/testing/commands"
-import { drawn as drawnCase, exhaust, explore, type Oracle } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { quoteString } from "#compiler/sql/print.ts"
 import {

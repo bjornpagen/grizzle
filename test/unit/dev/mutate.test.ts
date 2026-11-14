@@ -15,13 +15,13 @@
  * Plant: ~/.cache/grizzle-release/BR07/plants/mutate-definer-text.patch (world-definer writing a replacement other than
  * INVOKER) turns the property red.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element } from "@bjornpagen/testing/gen"
+import { applied, type Mutant, mutantsOf } from "@bjornpagen/testing/mutants"
+import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
-import { applied, type Mutant, mutantsOf } from "@grizzle/testing/mutants"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, FileSystem, String as Str } from "effect"
 import {
 	type Operator,

@@ -17,12 +17,12 @@
  *
  * Features: the language's own terms the program reaches, each mixed form, and each node kind the checked IR holds.
  */
+import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { rating, required } from "@bjornpagen/testing/features"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { rating, required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"

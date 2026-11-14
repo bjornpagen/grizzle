@@ -1,4 +1,4 @@
-import type { WildKind } from "@grizzle/testing/lsw"
+import type { WildKind } from "@bjornpagen/testing/lsw"
 import { regex } from "arkregex"
 import { Array as Arr, Option } from "effect"
 import {

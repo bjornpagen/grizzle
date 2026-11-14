@@ -53,11 +53,11 @@
  * the second; each literal kind, arm placement and reader for the third; each negated source, placement and reader,
  * admitted and refused, for the fourth.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import type { Refused } from "#compiler/core/refusals.ts"

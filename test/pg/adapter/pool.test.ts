@@ -21,13 +21,13 @@
  * error, so pg's Pool keeps it), interrupt-session-kept.patch (an interrupted flight's session left undestroyed),
  * pool-release-awaits.patch (a layer's release leaving its sessions' connections up).
  */
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, element, type Gen, int } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Exit, Fiber, Formatter, Scope } from "effect"
 import { type BatchStatement, oneShotStatement, runTransaction } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"

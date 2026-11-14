@@ -12,10 +12,10 @@
  *
  * Features: an attachment's part planted, and each part passed.
  */
+import { required } from "@bjornpagen/testing/features"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"

@@ -7,8 +7,8 @@ import {
 	shuffled,
 	subset,
 	weighted
-} from "@grizzle/testing/gen"
-import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
+} from "@bjornpagen/testing/gen"
+import { keep, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { CompareOp } from "#compiler/ir/desc.ts"

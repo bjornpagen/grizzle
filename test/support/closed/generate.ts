@@ -32,10 +32,10 @@ import {
 	refused,
 	type Step,
 	type Verdict
-} from "@grizzle/testing/commands"
-import type { Reached } from "@grizzle/testing/features"
-import { element, type Gen, int, type Size, subset } from "@grizzle/testing/gen"
-import { type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
+} from "@bjornpagen/testing/commands"
+import type { Reached } from "@bjornpagen/testing/features"
+import { element, type Gen, int, type Size, subset } from "@bjornpagen/testing/gen"
+import { type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, String as Str } from "effect"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"

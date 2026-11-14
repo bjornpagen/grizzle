@@ -18,13 +18,13 @@
  * Plants (~/.cache/grizzle-release/BR11/plants): row-security-whole-unpoliced (a table under row security holds no
  * policy for a writer that writes it whole).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { assertInstanceOf } from "@effect/vitest/utils"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { Drifted } from "#adapter/migrate/errors.ts"
 import { roleNameOf } from "#adapter/served/served.ts"

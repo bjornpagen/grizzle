@@ -7,7 +7,7 @@
  * descriptor, a negation's source and bindings, the head and one head term, an order pair, a take bound, an
  * attachment's name, child and delivery, a stage's name, approximateNearest's column and bound, an Allen left operand,
  * a pointIn point, a vector-valued binding) is given either its Live argument, inside an otherwise valid query, or a Wild value of every
- * kind the library draws (@grizzle/testing/lsw). A Stale argument is a value that was live in another scope of the builder: a
+ * kind the library draws (@bjornpagen/testing/lsw). A Stale argument is a value that was live in another scope of the builder: a
  * variable, a rule builder, a Finished, an interior stage, a parent variable or a self of another rule, attachment or
  * recursive definition, each named by where it comes from. A near miss is a value the builder branches on, one call
  * each at the position it names: a take bound, an order pair, an attachment name, a binding's value, a binding of a
@@ -39,10 +39,9 @@
  * builder's entry) and named-scopes-calls-swapped (the duplicate reported at the earlier call); MISUSE/plants:
  * stray-binding-untyped-throw (a binding naming no field thrown as an untyped error).
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { constant, element, type Gen, map, weighted } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { noCoverage, required } from "@bjornpagen/testing/features"
+import { constant, element, type Gen, map, weighted } from "@bjornpagen/testing/gen"
 import {
 	type Drawn,
 	type DrawnFeature,
@@ -51,10 +50,11 @@ import {
 	passed,
 	type Stale,
 	WILD_KINDS
-} from "@grizzle/testing/lsw"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/lsw"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { ALLEN } from "#compiler/allen/mask.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"

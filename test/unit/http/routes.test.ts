@@ -31,9 +31,8 @@
  * answer is not the stream). Plant (~/.cache/grizzle-release/STEERSWEEP/plants): http-token-after-body.patch (a call's
  * missing token checked after its body's JSON: a call with no bearer token and no JSON body is an `input`).
  */
-import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	characterOf,
 	constant,
@@ -43,10 +42,11 @@ import {
 	oneOf,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import {
 	Result as Answered,
 	Array as Arr,

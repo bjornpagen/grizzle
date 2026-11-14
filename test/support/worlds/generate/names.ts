@@ -1,4 +1,4 @@
-import { constant, element, type Gen, map, weighted, type Weighted } from "@grizzle/testing/gen"
+import { constant, element, type Gen, map, weighted, type Weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { conversionOf, parseDeclaredName } from "#compiler/core/identity.ts"
 import {

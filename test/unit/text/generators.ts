@@ -8,7 +8,7 @@ import {
 	map,
 	oneOf,
 	weighted
-} from "@grizzle/testing/gen"
+} from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, pipe, String as Str } from "effect"
 import { codePointsText } from "#compiler/core/text.ts"
 import type { CharSet } from "#compiler/scalar/regex/charset.ts"

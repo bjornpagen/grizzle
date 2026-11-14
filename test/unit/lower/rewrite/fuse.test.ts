@@ -15,11 +15,11 @@
  * Plants, each failing its search: a fused region delivering the variables its import hid (fuse-hidden-delivered); one
  * inner variable two fixed columns carry fused (fuse-fixed-twice); a correlated stage fused (fuse-correlated).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"

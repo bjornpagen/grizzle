@@ -5,9 +5,9 @@ import {
 	type Kept,
 	type Run,
 	type SearchFailure
-} from "@grizzle/testing/explore"
-import { rating, required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
+} from "@bjornpagen/testing/explore"
+import { rating, required } from "@bjornpagen/testing/features"
+import { notesOnly } from "@bjornpagen/testing/sense"
 import { Array as Arr, type Effect, Formatter } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { runCase } from "#test/pg/oracle/public/run.ts"

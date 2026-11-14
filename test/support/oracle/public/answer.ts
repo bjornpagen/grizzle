@@ -1,4 +1,4 @@
-import { type Equivalence, exact, ordered, type Side, set } from "@grizzle/testing/oracle"
+import { type Equivalence, exact, ordered, type Side, set } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Formatter, Hash, Option, Predicate, Record, Result } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"

@@ -24,13 +24,13 @@
  * lacks a patch but holds as many built) and verdict-repin-fewer.patch (the commit's refusal kept, and a pin of
  * another release with fewer patches refused too, a GA repin among them) each turn it red.
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, element, type Gen, shuffled, subset } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, shuffled, subset } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Equivalence, Formatter, Option } from "effect"
 import { type Build, type Verdict, verdict } from "#scripts/pg/installation.ts"
 import { assert } from "#test/support/assert.ts"

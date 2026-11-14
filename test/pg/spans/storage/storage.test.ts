@@ -16,15 +16,24 @@
  * laws-le-strict.patch (a contract's `le` lowered as `<`, so an endpoint at Tick's bound is refused),
  * storage-param-open-lower.patch (a span parameter's text written with an exclusive lower bound).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { boundedShrink } from "@bjornpagen/testing/shrink"
+import type { Source } from "@bjornpagen/testing/source"
+import { bigint } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { boundedShrink } from "@grizzle/testing/shrink"
-import type { Source } from "@grizzle/testing/source"
-import { bigint } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import { ALLEN } from "#compiler/public/allen.ts"

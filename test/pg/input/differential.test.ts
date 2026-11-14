@@ -26,14 +26,23 @@
  *
  * Features: per lookup, "<lookup> refused alike" and "<lookup> admitted alike".
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	array,
+	codePoint,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	string
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { bigint } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, codePoint, element, type Gen, int, map, oneOf, string } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Exit, Formatter, Option } from "effect"
 import type { ServerError } from "#adapter/errors/failures.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"

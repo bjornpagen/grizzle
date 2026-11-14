@@ -20,12 +20,12 @@
  * ~/.cache/grizzle-release/BR09/plants/reverse-probe-short-btree.patch, a reverse B-tree one column short of the run
  * the rule plans, gives a single bounded column a hash index where the rule plans a B-tree.
  */
+import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case as SearchCase, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
 import { indices } from "#compiler/core/array.ts"

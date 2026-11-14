@@ -23,20 +23,20 @@
  * a pair two laws carry, a key carried alone, an accumulated field filled by none, one or two statements, each
  * comparison's verdict for a tree, and each lawful shape and refusal for the resolution.
  */
-import { describe, it } from "@effect/vitest"
-import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import {
 	type Corruption,
 	type CorruptedFeature,
 	corrupted,
 	corruptedFeature
-} from "@grizzle/testing/lsw"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/lsw"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { bigint } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import {
 	familyShape,

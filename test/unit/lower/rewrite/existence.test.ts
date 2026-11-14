@@ -17,12 +17,12 @@
  * comparison rewritten over a unique right input (existence-right-unique); an occurrence over a correlated source moved
  * into a semi-join (existence-correlated).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
 import { assertNone } from "@effect/vitest/utils"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"

@@ -26,9 +26,8 @@
  * Plants (~/.cache/grizzle-release/BR06/plants): naming-digest-low-bits (a hashed name's digest from the low bits of
  * its hex, none dropped) and naming-kit-trigger-as-domain (the kit taking a trigger's owner for a domain).
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import {
 	boolean,
 	codePoint,
@@ -38,10 +37,11 @@ import {
 	string,
 	uniqueKeys,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { conversionOf, identifierOf, maxIdentifierBytes } from "#compiler/core/identity.ts"

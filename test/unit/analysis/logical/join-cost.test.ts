@@ -1,3 +1,7 @@
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 /**
  * The logical analysis of k relations matched in one region, each of two columns a and b, each its own declared key,
  * no variable shared: 2^k minimal keys, which one proof states over k independent factors (logical/props.ts finish).
@@ -16,10 +20,6 @@
  *
  * Features: from k = 4, from k = 6.
  */ import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { makeIdSupply } from "#compiler/core/ids.ts"

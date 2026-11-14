@@ -1,5 +1,5 @@
-import { constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
-import { matching } from "@grizzle/testing/pattern"
+import { constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { matching } from "@bjornpagen/testing/pattern"
 import { Array as Arr } from "effect"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"

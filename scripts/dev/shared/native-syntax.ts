@@ -1,5 +1,5 @@
-import { DevtoolFailure, failureFrom } from "@grizzle/devtools/devtool"
-import { nativeSession, openProject } from "@grizzle/devtools/native-api"
+import { DevtoolFailure, failureFrom } from "@bjornpagen/devtools/devtool"
+import { nativeSession, openProject } from "@bjornpagen/devtools/native-api"
 import { Array as Arr, Effect, type Scope, String as Str } from "effect"
 import type { SourceFile } from "typescript/ast"
 import { createFileSystem } from "typescript/fs"

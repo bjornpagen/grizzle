@@ -1,4 +1,4 @@
-import { array, boolean, element, type Gen, map } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, map } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { pool } from "#test/support/worlds/generate/domain.ts"

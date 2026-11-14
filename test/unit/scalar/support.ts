@@ -8,9 +8,9 @@ import {
 	uniqueKeys,
 	weighted,
 	type Weighted
-} from "@grizzle/testing/gen"
-import { matching } from "@grizzle/testing/pattern"
-import { bigint } from "@grizzle/testing/values"
+} from "@bjornpagen/testing/gen"
+import { matching } from "@bjornpagen/testing/pattern"
+import { bigint } from "@bjornpagen/testing/values"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import {

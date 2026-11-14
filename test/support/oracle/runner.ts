@@ -10,11 +10,11 @@ import {
 	type Run as SearchRun,
 	type SearchFailure,
 	sketched
-} from "@grizzle/testing/explore"
-import { failureText } from "@grizzle/testing/failure"
-import type { Coverage } from "@grizzle/testing/features"
-import { constant, type Gen } from "@grizzle/testing/gen"
-import type { ShrinkBudget } from "@grizzle/testing/shrink"
+} from "@bjornpagen/testing/explore"
+import { failureText } from "@bjornpagen/testing/failure"
+import type { Coverage } from "@bjornpagen/testing/features"
+import { constant, type Gen } from "@bjornpagen/testing/gen"
+import type { ShrinkBudget } from "@bjornpagen/testing/shrink"
 import {
 	Array as Arr,
 	Cause,
@@ -872,7 +872,7 @@ const inRolledBackTransaction = <A, E>(
  * statement does not terminate is a hang, which the case's hang guard reports, and the mutation tester's own timeout
  * counts.
  *
- * oracleCheck explores a property over a suite's draw with the library's exploration (@grizzle/testing/explore), so a
+ * oracleCheck explores a property over a suite's draw with the library's exploration (@bjornpagen/testing/explore), so a
  * failing case shrinks and is reported in its printable form (the suite's literal) with the comparison that failed. A
  * suite names itself to oracleCheck: its kept sketches replay first, then its floor stream, seeded from the suite's
  * label, and the run's rotating stream, every case under a plan perturbation drawn with it (perturb.ts), which

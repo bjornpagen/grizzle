@@ -21,10 +21,10 @@
 		"test/support/openapi/oas-3.2-schema-2025-09-17.json",
 		"pnpm-lock.yaml",
 		"*.md",
-		"packages/devtools/src/*/fixtures/**",
 		"test/types/**/.*-??????/**",
 		"test/pg/cli/.ws-*/**",
 		".probe-*/**",
-		"upstream/**"
+		"upstream/**",
+		"vendor/**"
 	]
 }

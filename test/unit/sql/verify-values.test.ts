@@ -14,13 +14,13 @@
  * past an integer type's greatest value admitted (audit-integer-bound); a numeric precision of 0 admitted
  * (audit-precision-zero).
  */
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { noCoverage, requiredInSpace } from "@bjornpagen/testing/features"
+import { array, constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import { matching } from "@bjornpagen/testing/pattern"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
-import { array, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { matching } from "@grizzle/testing/pattern"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { exactParts } from "#compiler/core/decimal.ts"

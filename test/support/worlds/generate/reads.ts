@@ -7,8 +7,8 @@ import {
 	map,
 	oneOf,
 	shuffled
-} from "@grizzle/testing/gen"
-import type { Source } from "@grizzle/testing/source"
+} from "@bjornpagen/testing/gen"
+import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { directions } from "#compiler/core/order.ts"
 import { projection } from "#test/support/laws/model.ts"

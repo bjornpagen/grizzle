@@ -1,4 +1,4 @@
-import { exact, set, structuralHash } from "@grizzle/testing/oracle"
+import { exact, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Formatter, Option, Order } from "effect"
 import type { TransientTag } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"

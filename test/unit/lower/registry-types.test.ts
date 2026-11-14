@@ -14,12 +14,12 @@
  * Plant, failing the search: a delivered heading rebuilding each column's type with its capabilities reordered
  * (registry-types-rebuilt).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Effect, Formatter } from "effect"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"

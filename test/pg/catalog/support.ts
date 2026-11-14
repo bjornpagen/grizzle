@@ -1,4 +1,4 @@
-import { array, constant, type Gen, int, map, weighted } from "@grizzle/testing/gen"
+import { array, constant, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"

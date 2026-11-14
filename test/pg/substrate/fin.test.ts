@@ -23,7 +23,6 @@
  *
  * Plants (main's test phase): substrate-fin-bound-at-or-below-count.patch.
  */
-import { layer } from "@effect/vitest"
 import {
 	type Answer,
 	accepted,
@@ -33,14 +32,15 @@ import {
 	runProgram,
 	took,
 	type Verdict as StepVerdict
-} from "@grizzle/testing/commands"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, type Gen, int, shuffled } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import type { Swarm } from "@grizzle/testing/swarm"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/commands"
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import type { Swarm } from "@bjornpagen/testing/swarm"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import {
 	Array as Arr,
 	Data,

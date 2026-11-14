@@ -1,4 +1,4 @@
-import { element, type Gen, proportional } from "@grizzle/testing/gen"
+import { element, type Gen, proportional } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
 import { Array as Arr, Order, String as Str } from "effect"
 import {

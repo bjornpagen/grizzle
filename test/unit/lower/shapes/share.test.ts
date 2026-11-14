@@ -8,11 +8,11 @@
  *
  * Plant, failing the search: a share key that reads the node's label (share-key-labels).
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Effect, Formatter } from "effect"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"

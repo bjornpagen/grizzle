@@ -1,4 +1,4 @@
-import { type Gen, map, oneOf, proportional } from "@grizzle/testing/gen"
+import { type Gen, map, oneOf, proportional } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record } from "effect"
 import type { InvalidKind, ValidityWeights } from "#test/support/worlds/model/types.ts"
 

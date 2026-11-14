@@ -15,13 +15,13 @@
  * Features: a relation no role holds, one a role only reads, one every writer of which inserts at READ COMMITTED, one
  * two such inserters write, one a SERIALIZABLE role writes, and one a READ COMMITTED role updates or deletes.
  */
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, element, type Gen, subarray } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, subarray } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"

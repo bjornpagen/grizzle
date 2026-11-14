@@ -54,7 +54,6 @@
  *
  * Features: the vocabulary Feature below, each command and each expression kind a program reaches.
  */
-import { layer } from "@effect/vitest"
 import {
 	accepted,
 	type Machine,
@@ -66,14 +65,15 @@ import {
 	type Step,
 	took,
 	type Verdict
-} from "@grizzle/testing/commands"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { boolean, constant, element, type Gen, int, subset } from "@grizzle/testing/gen"
-import { agree, type Disagreement, exact } from "@grizzle/testing/oracle"
-import { notesOnly } from "@grizzle/testing/sense"
-import { type Swarm, swarm } from "@grizzle/testing/swarm"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/commands"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { boolean, constant, element, type Gen, int, subset } from "@bjornpagen/testing/gen"
+import { agree, type Disagreement, exact } from "@bjornpagen/testing/oracle"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { type Swarm, swarm } from "@bjornpagen/testing/swarm"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import {
 	Array as Arr,
 	Effect,

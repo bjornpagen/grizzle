@@ -1,4 +1,4 @@
-import { array, boolean, element, type Gen, subarray } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import {
 	type CompiledServed,

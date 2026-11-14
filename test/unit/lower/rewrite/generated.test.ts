@@ -27,13 +27,13 @@
  * projection's evidence (simplify-identity-evidence); a wide column the order reads fetched late
  * (late-fetch-ordered-payload: the wide late-fetch search).
  */
+import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { type Coverage, noCoverage, required } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { type Coverage, noCoverage, required } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"

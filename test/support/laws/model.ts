@@ -1,4 +1,4 @@
-import { type Equivalence, exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
+import { type Equivalence, exact, ordered, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 

@@ -42,7 +42,6 @@
  * Plants (~/.cache/grizzle-release/BR11/plants): histories-login-dropped (a draft ignores every declared login rename,
  * so the login's PostgreSQL role is dropped and created again under its new name).
  */
-import { layer } from "@effect/vitest"
 import {
 	accepting,
 	type Command,
@@ -52,13 +51,14 @@ import {
 	type Real,
 	runProgram,
 	took
-} from "@grizzle/testing/commands"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { element, type Gen, int, map } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { fullSwarm } from "@grizzle/testing/swarm"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/commands"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { element, type Gen, int, map } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { fullSwarm } from "@bjornpagen/testing/swarm"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
 import {
 	Array as Arr,
 	Effect,

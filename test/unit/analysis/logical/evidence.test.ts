@@ -23,13 +23,13 @@
  * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: each claim checked (EvidenceFeature), each
  * execution and containment context and an orphaned containment; each claim and delivered type for idempotence.
  */
+import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { required, type Situations } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, map } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { required, type Situations } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, map } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import type { TestContext } from "vitest"
 import { makeIdSupply } from "#compiler/core/ids.ts"

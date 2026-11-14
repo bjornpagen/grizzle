@@ -1,9 +1,9 @@
-import { floorPopulation, type Reached } from "@grizzle/testing/features"
-import { array, element, type Gen, int, shuffled } from "@grizzle/testing/gen"
-import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
-import { forcedChooser, generate, recorder, sample, type Source } from "@grizzle/testing/source"
-import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
-import { valuesFromToken } from "@grizzle/testing/tape"
+import { floorPopulation, type Reached } from "@bjornpagen/testing/features"
+import { array, element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
+import { floorSeed, rotatingSeed } from "@bjornpagen/testing/random"
+import { forcedChooser, generate, recorder, sample, type Source } from "@bjornpagen/testing/source"
+import { keep, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
+import { valuesFromToken } from "@bjornpagen/testing/tape"
 import { Array as Arr, Effect, Option, pipe, Record as Rec, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { headingsOf } from "#compiler/core/decoder.ts"
@@ -114,7 +114,7 @@ import { upTo } from "#test/support/up-to.ts"
  * every value a `string` holds at run time is a literal: the types refuse the widening of every name the engine
  * admits, so two scopes never share a type.
  *
- * Each case first draws a swarm over the constructs (@grizzle/testing/swarm), then its query construct by construct:
+ * Each case first draws a swarm over the constructs (@bjornpagen/testing/swarm), then its query construct by construct:
  * the swarm turns constructs off for a whole case and thins the rest, so the forms that crowd others out are left out
  * of some cases and the rest combine. Each constant's construct is drawn at a place every case visits, so a case whose
  * swarm keeps it holds it and the floor reaches it by construction: a constant of Tone through the rule's anchor

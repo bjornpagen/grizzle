@@ -11,9 +11,8 @@
  * Plant (~/.cache/grizzle-release/BR06/plants): delivery-ord-reversed (the delivered rows assembled in the reverse of
  * their numbers' order).
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	codePoint,
@@ -24,10 +23,11 @@ import {
 	shuffled,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { assembledIn, type CellKind, deliveryOf } from "#compiler/codec/delivery.ts"
 import { maxOf } from "#compiler/core/array.ts"

@@ -14,11 +14,11 @@
  * The box: nodes 0 and 1, each absent or of a kind, a document and a depth, and every subset of document rows over
  * them, nodes written first, in one transaction.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { codeOf } from "#compiler/ir/codes.ts"
 import { closedId, natural, pg } from "#compiler/public/fields.ts"

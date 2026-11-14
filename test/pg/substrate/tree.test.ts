@@ -38,11 +38,11 @@
  *
  * Plants (main's test phase): substrate-tree-rfc-without-T2.patch.
  */
+import { type Case, exhaust, type Oracle } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { type Case, exhaust, type Oracle } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, Pool } from "effect"
 import {
 	type TreeBreach,

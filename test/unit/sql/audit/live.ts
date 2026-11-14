@@ -1,4 +1,4 @@
-import { boolean, clone, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
+import { boolean, clone, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"

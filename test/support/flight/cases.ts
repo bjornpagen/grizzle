@@ -8,8 +8,8 @@ import {
 	oneOf,
 	type Size,
 	weighted
-} from "@grizzle/testing/gen"
-import { type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
+} from "@bjornpagen/testing/gen"
+import { type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr } from "effect"
 import {
 	type AlongsideFrame,

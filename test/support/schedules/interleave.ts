@@ -1,4 +1,4 @@
-import * as Interleave from "@grizzle/testing/interleave"
+import * as Interleave from "@bjornpagen/testing/interleave"
 import {
 	Array as Arr,
 	Data,

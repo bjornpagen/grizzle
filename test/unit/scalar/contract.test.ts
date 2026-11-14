@@ -6,7 +6,7 @@
  * before the predicate runs, as the one refusal its rule names, and a callback that builds no predicate is malformed.
  *
  * Admission: contract(name, base) builds exactly from a declared name, a descriptor and no argument past the predicate,
- * over Live names near the rule's edges and Wild names and bases of every kind (@grizzle/testing/lsw); everything else
+ * over Live names near the rule's edges and Wild names and bases of every kind (@bjornpagen/testing/lsw); everything else
  * is MalformedDescription.
  *
  * Oracles: the base's own description, for what a domain keeps of it; the field identity text, for one identity per
@@ -19,9 +19,8 @@
  * it is refused), contract-identity-nameless (a contract's Description without its name) and
  * contract-extra-argument-admitted (one argument past the declaration admitted).
  */
-import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -32,13 +31,14 @@ import {
 	map,
 	string,
 	weighted
-} from "@grizzle/testing/gen"
-import { lsw, passed, WILD_KINDS, type WildKind } from "@grizzle/testing/lsw"
-import { matching } from "@grizzle/testing/pattern"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { json } from "@grizzle/testing/values"
-import { searched } from "@grizzle/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { lsw, passed, WILD_KINDS, type WildKind } from "@bjornpagen/testing/lsw"
+import { matching } from "@bjornpagen/testing/pattern"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { json } from "@bjornpagen/testing/values"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
