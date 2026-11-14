@@ -1,5 +1,5 @@
 /**
- * A bytes field is written and read back whole, on PostgreSQL 19rc1: every value a case draws (the empty value, every
+ * A bytes field is written and read back whole, on PostgreSQL 19rc2: every value a case draws (the empty value, every
  * byte value 0x00 to 0xff in a drawn rotation, short drawn values, a long value of a few MiB, and values one short of,
  * at and one past a chunk of the delivery in force, core/limits.ts bytesChunkLength, and of several chunks) is written
  * through db.apply, one fact per call or all in one batched insert, whose member array travels as a binary bytea[], and

@@ -44,7 +44,7 @@ import { fullWorld } from "#test/support/worlds.ts"
 
 /**
  * A counted SET keyed by three fields and a name, its owner keyed by (text, text, int), with folds over it, under
- * grizzle's writes on PostgreSQL 19rc1: qti-pie's Attribute (package, path, start, name), counted under its Node.
+ * grizzle's writes on PostgreSQL 19rc2: qti-pie's Attribute (package, path, start, name), counted under its Node.
  *
  * Owner(a, b, k) holds a label its caller writes, its drawn count `n`, and three ends: the Monoid.sum of its members'
  * `x`, the Monoid.or of their `flags` (a set over folds.ts's roster Tag), and the Monoid.count of those whose `x` is

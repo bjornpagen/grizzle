@@ -12,7 +12,7 @@ owner files it by hand.
    - Found through grizzle. A closed relation is installed as an IMMUTABLE function returning a bitmap, and every
      table CHECK and generated field that reads one paid for the constant on every statement (README, "PostgreSQL
      known issues").
-   - grizzle carries it as scripts/pg/patches/19rc1-relcache-planned-check-and-generation.patch, applied to every
+   - grizzle carries it as scripts/pg/patches/19rc2-relcache-planned-check-and-generation.patch, applied to every
      build. This folder is the same change on master, for upstream. The pin patch is unchanged by this folder.
    - Known upstream in part (CHECKLIST.txt A): Korry Douglas and Noah Misch proposed caching the stringToNode() form
      of ccbin in 2013. That thread stalled on a memory-management defect and on whether the executor may share the
@@ -31,7 +31,7 @@ owner files it by hand.
          git format-patch -1 -v1
      Or edit the From: line by hand. The sending address is deliberately not written anywhere in this public
      repository.
-   - Mind the release cycle. PostgreSQL 19 is between RC1 (2026-10-15) and RC2 (2026-11-12). This is a master patch
+   - Mind the release cycle. PostgreSQL 19 is between RC2 (2026-11-12) and GA (due 2026-11-19). This is a master patch
      for the 20 cycle. The open commitfest is PG20-4 (until 2026-12-31). A reviewer may ask it to wait; that costs
      grizzle nothing, since the pin carries the patch.
    - If master moves before filing, rebase and re-run EVIDENCE.txt 5. A conflict is most likely in ExecRelCheck, which

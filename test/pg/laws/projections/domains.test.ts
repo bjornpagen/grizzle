@@ -1,11 +1,11 @@
 /**
- * `natural` and `pred` against PostgreSQL 19rc1, through the engine's own lowering: the domain a `natural` field is,
+ * `natural` and `pred` against PostgreSQL 19rc2, through the engine's own lowering: the domain a `natural` field is,
  * the STORED generated column a `pred` term is, and the foreign keys between the two, out of pred's column into a
  * natural key and out of a selected side's natural columns into pred's column.
  *
  * A partial term is null outside its definition, pred(x) at x = 0 among them. pred's column is generated as the natural
  * domain's base, int8, as every law column is typed by its base (physical/ddl/names.ts lawColumnType): its value,
- * x - 1 where x > 0, is a natural its generation proves, so the domain's CHECK would only judge it again. 19rc1 would
+ * x - 1 where x > 0, is a natural its generation proves, so the domain's CHECK would only judge it again. 19rc2 would
  * take the domain, since it refuses a domain only to a virtual generated column (catalog/heap.c CheckAttributeType). A
  * box of no slots leaves pred's column null: the last slot's foreign key, out of that column, passes, and marked's,
  * into it, finds no key there, so the box's state is admitted and a slot marked last in it refused.

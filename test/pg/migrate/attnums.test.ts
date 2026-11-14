@@ -1,5 +1,5 @@
 /**
- * A table's attribute numbers on PostgreSQL 19rc1, around the bound: PostgreSQL never reuses a dropped
+ * A table's attribute numbers on PostgreSQL 19rc2, around the bound: PostgreSQL never reuses a dropped
  * column's attribute number, and refuses a table past 1600 of them, live and dropped together, with 54011 (heap.c,
  * MaxHeapAttributeNumber). grizzle's snapshot records each table's attribute numbers ever used, so its draft refuses an
  * ADD COLUMN past that limit, naming the relation and saying to recreate it, exactly where PostgreSQL would refuse the
@@ -93,7 +93,7 @@ const placeOf = (added: number): Place => {
 }
 
 layer(Substrate.layer)(
-	"a table's attribute numbers through grizzle's migrations on PostgreSQL 19rc1",
+	"a table's attribute numbers through grizzle's migrations on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
 			"a table migrated near 1600 attribute numbers holds them, and grizzle's draft refuses exactly the additions PostgreSQL refuses",

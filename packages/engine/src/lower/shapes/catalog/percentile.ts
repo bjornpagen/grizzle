@@ -50,25 +50,25 @@ const pageLayout = "https://www.postgresql.org/docs/19/storage-page-layout.html"
 /** The largest block number of a relation: its pages are numbered from 0 to it. */
 const maxBlockNumber = published({
 	value: 0xffff_fffe,
-	owner: "PostgreSQL 19rc1's storage manager",
+	owner: "PostgreSQL 19rc2's storage manager",
 	unit: "pages, as their block numbers count them from 0",
 	scope: "one relation's main fork",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/include/storage/block.h#L35`,
 	quote: "#define MaxBlockNumber\t\t\t((BlockNumber) 0xFFFFFFFE)",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /** The largest page PostgreSQL can be built with, so a bound on rows per page at it bounds every build's. */
 const largestBlockSize = published({
 	value: 32_768,
-	owner: "PostgreSQL 19rc1's build",
+	owner: "PostgreSQL 19rc2's build",
 	unit: "bytes",
 	scope: "one heap page, under the largest block size configure admits",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/configure.ac#L257`,
 	quote: " 32) BLCKSZ=32768;;",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /**
@@ -77,13 +77,13 @@ const largestBlockSize = published({
  */
 const tupleHeaderBytes = published({
 	value: 23,
-	owner: "PostgreSQL 19rc1's page layout",
+	owner: "PostgreSQL 19rc2's page layout",
 	unit: "bytes",
 	scope: "one heap tuple",
 	constraint: "compile-time constant",
 	source: pageLayout,
 	quote: "There is a fixed-size header (occupying 23 bytes on most machines)",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /**
@@ -92,7 +92,7 @@ const tupleHeaderBytes = published({
  * MaxHeapTuplesPerPage computes with the header aligned, src/include/access/htup_details.h).
  */
 const storedMaxRows = derived({
-	owner: "PostgreSQL 19rc1's heap storage",
+	owner: "PostgreSQL 19rc2's heap storage",
 	unit: "rows",
 	scope: "one stored relation, at any block size",
 	from: [maxBlockNumber, largestBlockSize, pageHeaderBytes, tupleHeaderBytes, itemIdBytes],

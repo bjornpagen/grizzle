@@ -1,5 +1,5 @@
 /**
- * The bit algebra of fin.md §16 on PostgreSQL 19rc1, differentially: PostgreSQL's `bit(n)` operators (`&`, `|`, `#`,
+ * The bit algebra of fin.md §16 on PostgreSQL 19rc2, differentially: PostgreSQL's `bit(n)` operators (`&`, `|`, `#`,
  * `~`, `bit_count`, `substring`), the set laws written with them (subset, disjointness, at least one, at most one), and
  * the saturating two-plane fold, against the host bitsets (packages/engine/src/codec/bits.ts) where the host has the
  * operation, and a naive reference, a `Set<number>` of positions.
@@ -176,7 +176,7 @@ type BitFeature =
 	| "a substring past either end"
 	| "a cell past either end"
 
-layer(Substrate.layer)("the bit algebra of fin.md §16 on PostgreSQL 19rc1", (it) => {
+layer(Substrate.layer)("the bit algebra of fin.md §16 on PostgreSQL 19rc2", (it) => {
 	it.effect(
 		"compute every bit(n) operator, law and twos fold as the host bitsets and the reference set do",
 		(ctx) =>

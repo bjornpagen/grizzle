@@ -189,7 +189,7 @@ export type Alteration = AlterTableAction | PlaceholderAlteration
 /**
  * A field converted at the reviewer's value, set aside: a field whose type changes to one that holds other values, for
  * its `reason` (RetypeReason). No ALTER COLUMN ... TYPE ... USING converts it in place, since a USING expression reads
- * the row alone, its subqueries refused (PostgreSQL 19rc1, src/backend/parser/parse_utilcmd.c 3678 transforms it as
+ * the row alone, its subqueries refused (PostgreSQL 19rc2, src/backend/parser/parse_utilcmd.c 3678 transforms it as
  * EXPR_KIND_ALTER_COL_TRANSFORM, which transformSubLink refuses at src/backend/parser/parse_expr.c 1850-1851, "cannot
  * use subquery in transform expression"), and a re-pointed reference's value lies in its target's row, which a
  * placeholder column of the same migration may only now be filling. So its table's one alteration adds the column
@@ -205,8 +205,8 @@ export interface SetAside {
 
 /**
  * The passes one ALTER TABLE runs its subcommands in, in order, each pass's subcommands in the order the statement lists
- * them (PostgreSQL 19rc1, src/backend/commands/tablecmds.c: AlterTablePass at 150-166, run in order by
- * ATRewriteCatalogs at 5345-5396, a CommandCounterIncrement after each subcommand at 5738, so each sees the ones before
+ * them (PostgreSQL 19rc2, src/backend/commands/tablecmds.c: AlterTablePass at 153-169, run in order by
+ * ATRewriteCatalogs at 5359-5410, a CommandCounterIncrement after each subcommand at 5752, so each sees the ones before
  * it): the drops, the type conversions, the added columns, the re-expressed generations, the re-added indexes and
  * constraints of the converted columns, the constraints as first examined, the columns' attributes, the keys, the
  * indexes, then the other constraints, identities and defaults, and the rest.
@@ -227,8 +227,8 @@ export const alterTablePasses = [
 ] as const
 export type AlterTablePass = (typeof alterTablePasses)[number]
 
-/** The pass a subcommand runs in (alterTablePasses): ATPrepCmd's (tablecmds.c 4977-5191), an added constraint's as
- * ATParseTransformCmd moves it on (5807-5840), a key's to the keys and a CHECK's or foreign key's to the other
+/** The pass a subcommand runs in (alterTablePasses): ATPrepCmd's (tablecmds.c 4991-5205), an added constraint's as
+ * ATParseTransformCmd moves it on (5821-5854), a key's to the keys and a CHECK's or foreign key's to the other
  * constraints. */
 export const alterationPass = (a: Alteration): AlterTablePass => {
 	switch (a.kind) {
@@ -307,8 +307,8 @@ export const alterationStatement = (
  * - `statement`: one statement, audited and printed by `emit`;
  * - `alteration`: a table's one ALTER TABLE in a slot that alters each table once (TableSlot), its subcommands in
  *   PostgreSQL's pass order (alterationPass), so PostgreSQL rewrites the table at most once for all of them: in its one
- *   phase 3 (tablecmds.c ATRewriteTables at 5882, the rewrite at 5929-6053, fired once per table at 6006), which also
- *   checks every CHECK the statement adds (ATRewriteTable at 6236-6237); then one DROP DEFAULT of each placeholder column (PlaceholderAlteration),
+ *   phase 3 (tablecmds.c ATRewriteTables at 5896, the rewrite at 5945-6069, fired once per table at 6022), which also
+ *   checks every CHECK the statement adds (ATRewriteTable at 6252-6253); then one DROP DEFAULT of each placeholder column (PlaceholderAlteration),
  *   after the reviewer's optional UPDATE;
  * - `fill`: a table's fill of its set-aside fields (SetAside), in structure.fill, after every table's alteration: one
  *   UPDATE setting each set-aside column to the reviewer's value at its placeholder, under a marker each, the row aliased

@@ -32,7 +32,7 @@ gate reads them.
 `Limit<N extends number | bigint = number>` states four things every kind shares, then its kind's evidence:
 
 - `value`: the number, as a `number` or, for `Limit<bigint>`, a `bigint`. `AnyLimit` is either.
-- `owner`: who sets it. Another system by its pinned version ("PostgreSQL 19rc1", "V8 14.6, Node 26.13.0's JavaScript
+- `owner`: who sets it. Another system by its pinned version ("PostgreSQL 19rc2", "V8 14.6, Node 26.13.0's JavaScript
   engine"), or grizzle's own unit by file and function ("grizzle's take(k) lowering (lower/shapes/take)").
 - `unit`: what it counts, plural: "bytes", "columns", "bound parents", "NFA positions", "milliseconds".
 - `scope`: exactly what one instance of the bound covers: "one table, view or materialized view, its dropped columns
@@ -52,21 +52,21 @@ parameter where a test drives that decision with a smaller value; production pas
 ### published
 
 ```ts
-const postgresSource = "https://github.com/postgres/postgres/blob/REL_19_RC1"
+const postgresSource = "https://github.com/postgres/postgres/blob/REL_19_RC2"
 
 export const regexMaxRepeat = published({
 	value: 255,
-	owner: "PostgreSQL 19rc1's regex compiler",
+	owner: "PostgreSQL 19rc2's regex compiler",
 	unit: "repetitions",
 	scope: "each bound of a counted repetition in one str.regex pattern",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/include/regex/regguts.h#L95`,
 	quote: "#define _POSIX2_RE_DUP_MAX\t255",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 ```
 
-- `source`: an `https://` URL pinned to the exact release grizzle runs (a tag such as `REL_19_RC1` or `v26.13.0`, a
+- `source`: an `https://` URL pinned to the exact release grizzle runs (a tag such as `REL_19_RC2` or `v26.13.0`, a
   versioned docs path such as `/docs/19/`), anchored to the line that states the number. A moving branch is no source.
 - `quote`: that line's text, verbatim and short, read at the anchor.
 - `value`: written as the source spells it, so a reader compares the two at a glance: `2 ** 29 - 24` for
@@ -124,11 +124,11 @@ The fields are `SKILL.md`'s seven, each a required string holding what `SKILL.md
 
 ```ts
 export const messageMaxBytes = derived({
-	owner: "PostgreSQL 19rc1's frontend/backend protocol",
+	owner: "PostgreSQL 19rc2's frontend/backend protocol",
 	unit: "bytes",
 	scope: "one message from client to server, as its Int32 length counts it, itself included",
 	from: [maxAllocSize],
-	derivation: `a protocol constant, PQ_LARGE_MESSAGE_LIMIT, which libpq.h defines as one less than MaxAllocSize: "#define PQ_LARGE_MESSAGE_LIMIT\t(MaxAllocSize - 1)" (${postgresSource}/src/include/libpq/libpq.h#L34, verified 2026-11-05)`,
+	derivation: `a protocol constant, PQ_LARGE_MESSAGE_LIMIT, which libpq.h defines as one less than MaxAllocSize: "#define PQ_LARGE_MESSAGE_LIMIT\t(MaxAllocSize - 1)" (${postgresSource}/src/include/libpq/libpq.h#L34, verified 2026-11-14)`,
 	compute: ([alloc]) => alloc.value - 1
 })
 ```

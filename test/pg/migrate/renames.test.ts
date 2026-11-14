@@ -1,5 +1,5 @@
 /**
- * Declared renames through grizzle's migrations, on PostgreSQL 19rc1, generated: every rename and drop a migration
+ * Declared renames through grizzle's migrations, on PostgreSQL 19rc2, generated: every rename and drop a migration
  * makes is declared (`--rename R=S`, `--rename R.f=S.g`, `--rename Roster#old=new`, `--drop`), and a declared rename is
  * drafted as a rename, so the stored data migrates with it.
  *
@@ -524,7 +524,7 @@ const renamesCase = (p: Plan, c: Case<RenameFeature>) =>
 	})
 
 layer(Substrate.layer)(
-	"declared renames through grizzle's migrations on PostgreSQL 19rc1",
+	"declared renames through grizzle's migrations on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
 			"a declared rename keeps the table, the column and the code it renames, with every stored value, and a declared drop leaves exactly the fields that stand",

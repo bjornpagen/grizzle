@@ -1,6 +1,6 @@
 /**
  * A containment into a derived relation, lowered to foreign keys, against the same containment discharged by triggers,
- * on PostgreSQL 19rc1.
+ * on PostgreSQL 19rc2.
  *
  * The theory lowers contained(on(S, s̄), on(D, h̄)) to native objects where D's definition meets seven conditions
  * (analysis/theory/laws.ts RuleLowering): each match of the definition a part, referenced from S by a foreign key
@@ -1421,7 +1421,7 @@ const property = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>) =>
 const steeredCases = 240
 
 layer(Substrate.layer, { excludeTestServices: true })(
-	"a containment into a derived relation, lowered to foreign keys, on PostgreSQL 19rc1",
+	"a containment into a derived relation, lowered to foreign keys, on PostgreSQL 19rc2",
 	(it) => {
 		for (const shape of shapes) {
 			it.effect(

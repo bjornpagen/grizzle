@@ -1,5 +1,5 @@
 /**
- * Long families and large imports through grizzle's lowering, on PostgreSQL 19rc1 (fin.md §11, "Scale", §15): what a
+ * Long families and large imports through grizzle's lowering, on PostgreSQL 19rc2 (fin.md §11, "Scale", §15): what a
  * bound that bites only at scale must still satisfy, the sizes drawn afresh each run (doctrine rule 10) rather than
  * fixed small.
  *
@@ -90,7 +90,7 @@ const committed = (m: TransactionMeasure, what: string): void =>
 	assert.equal(m.outcome.kind, "committed", `${what}; it ${outcomeText(m.outcome)}`)
 
 layer(Substrate.layer)(
-	"long families and large imports through grizzle's lowering on PostgreSQL 19rc1",
+	"long families and large imports through grizzle's lowering on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
 			"grow and shrink a long family by its cascade and suffix rewrite, and import many families and a large tree with the deferred queue linear in its deferred checks",

@@ -68,10 +68,13 @@ import { paramBinary, paramText } from "#test/support/wire.ts"
  *
  * Each case runs its call twice, on two fresh sessions of the adapter's own wire. The first session writes the call
  * under the production bound, and its server reads the bytes of every message: that is the oracle, the wire
- * itself, independent of grizzle's accounting. The second session writes the call under a test-sized bound drawn about
- * one of those flights' bytes, short of it, at it or past it, and must be refused exactly when the flight is longer
- * than its bound, with the flight's bytes and the bound, its server reading none of the flight; an admitted flight's
- * server reads exactly what the first one read. A refused call then runs again under the production bound and writes
+ * itself, independent of grizzle's accounting. A flight's bytes are as pg writes it on a new connection, the most it
+ * writes on any, so a refusal never depends on the connection (wire/batch.ts accountFlight): the flight's own messages,
+ * and the Parse the wire carried in an earlier flight of each name it binds without parsing, which its connection had
+ * already parsed. The second session writes the call under a test-sized bound drawn about one of those flights' bytes,
+ * short of it, at it or past it, and must be refused exactly when the flight is longer than its bound, with the
+ * flight's bytes and the bound, its server reading none of the flight; an admitted flight's server reads exactly what
+ * the first one read. A refused call then runs again under the production bound and writes
  * exactly what the first session wrote, so the refusal changed nothing of the session. A call of two
  * flights refused at its second rolls the first one's transaction back, and one refused at its first sends nothing at
  * all.
@@ -120,13 +123,14 @@ const commandComplete = (tag: string): Buffer => frame("C", Buffer.from(`${tag}\
 const readyForQuery = (open: boolean): Buffer => frame("Z", Buffer.from(open ? "T" : "I", "latin1"))
 
 /**
- * One frontend message the server read past the startup: its type, its bytes on the wire, and the text of a Query or
- * of a Parse, the statement's.
+ * One frontend message the server read past the startup: its type, its bytes on the wire, the text of a Query or of a
+ * Parse, the statement's, and the name of the statement a Parse prepares or a Bind binds, empty for the unnamed one.
  */
 interface Read {
 	readonly type: string
 	readonly bytes: number
 	readonly text: string
+	readonly name: string
 }
 
 /** The text a Query or a Parse carries, a Parse's after its statement's name; none for every other message. */
@@ -139,6 +143,21 @@ const messageText = (type: string, body: Buffer): string => {
 	}
 	const name = body.indexOf(0)
 	return body.toString("utf8", name + 1, body.indexOf(0, name + 1))
+}
+
+/**
+ * The name of the statement a Parse prepares, its first field, or a Bind binds, its second after the portal's; empty
+ * for every other message.
+ */
+const messageName = (type: string, body: Buffer): string => {
+	if (type === "P") {
+		return body.toString("latin1", 0, body.indexOf(0))
+	}
+	if (type !== "B") {
+		return ""
+	}
+	const portal = body.indexOf(0)
+	return body.toString("latin1", portal + 1, body.indexOf(0, portal + 1))
 }
 
 /** The SSLRequest message: its length, 8, and the request code 80877103. */
@@ -311,7 +330,12 @@ class WireServer {
 				}
 				const type = message.toString("latin1", 0, 1)
 				const body = message.subarray(5)
-				this.read.push({ type, bytes: length, text: messageText(type, body) })
+				this.read.push({
+					type,
+					bytes: length,
+					text: messageText(type, body),
+					name: messageName(type, body)
+				})
 				this.#answer(raw, secure, type, body)
 			}
 		})
@@ -322,6 +346,40 @@ class WireServer {
 /** The bytes of `messages`, as the server read them. */
 const bytesOf = (messages: ReadonlyArray<Read>): number =>
 	Arr.reduce(messages, 0, (sum, message) => sum + message.bytes)
+
+/**
+ * The bytes of `flight` as pg writes it on a new connection, from `wire`, the server's record of the whole call the
+ * flight is part of: the flight's own messages, and the Parse `wire` carries of each statement name the flight binds
+ * but does not parse, its connection having parsed the name in an earlier flight, since pg sends that Parse at the
+ * name's first statement on a connection that has not.
+ */
+const newConnectionBytesOf = (flight: ReadonlyArray<Read>, wire: ReadonlyArray<Read>): number => {
+	const parses = new Map(
+		Arr.map(
+			Arr.filter(wire, (m) => m.type === "P"),
+			(m): readonly [string, number] => [m.name, m.bytes]
+		)
+	)
+	const parsed = new Set(
+		Arr.map(
+			Arr.filter(flight, (m) => m.type === "P"),
+			(m) => m.name
+		)
+	)
+	const unparsed = new Set(
+		Arr.map(
+			Arr.filter(flight, (m) => m.type === "B" && !parsed.has(m.name)),
+			(m) => m.name
+		)
+	)
+	return Arr.reduce(
+		Arr.fromIterable(unparsed),
+		bytesOf(flight),
+		(sum, name) =>
+			sum +
+			defined(parses.get(name), "the Parse an earlier flight carried of a name the flight binds")
+	)
+}
 
 /** The case's statement text, padded with a trailing comment of `pad`. */
 const textOf = (pad: string): string => `SELECT $1::text AS s -- ${pad}`
@@ -566,7 +624,7 @@ describe("the flight bound", () => {
 									flights[c.by === "second" && c.runner === "framedTwice" ? 1 : 0],
 									"the flight the bound is drawn by"
 								)
-								const measured = bytesOf(drawnBy)
+								const measured = newConnectionBytesOf(drawnBy, wire)
 								const limit =
 									c.at === "short of"
 										? Math.max(0, measured - c.distance)
@@ -578,7 +636,10 @@ describe("the flight bound", () => {
 								const exit = yield* Effect.exit(callOf(c, bounded))
 								const failure = failureOf(exit)
 								const read = subject.server.read.slice(subject.mark)
-								const refusedAt = Arr.findFirstIndex(flights, (flight) => bytesOf(flight) > limit)
+								const refusedAt = Arr.findFirstIndex(
+									flights,
+									(flight) => newConnectionBytesOf(flight, wire) > limit
+								)
 								if (Option.isNone(refusedAt)) {
 									assert.ok(
 										Option.isNone(failure),
@@ -586,7 +647,7 @@ describe("the flight bound", () => {
 									)
 									assert.deepEqual(read, wire, "an admitted call is written whole, as the twin's")
 									k.note(`${c.runner}: admitted`)
-									if (Arr.some(flights, (flight) => bytesOf(flight) === limit)) {
+									if (Arr.some(flights, (flight) => newConnectionBytesOf(flight, wire) === limit)) {
 										k.note("admitted at exactly the bound")
 									}
 									return
@@ -599,7 +660,7 @@ describe("the flight bound", () => {
 								if (Option.isSome(failure) && failure.value instanceof InputTooLarge) {
 									assert.deepEqual(failure.value.bound, {
 										kind: "flight",
-										bytes: bytesOf(refused),
+										bytes: newConnectionBytesOf(refused, wire),
 										limit
 									})
 								}

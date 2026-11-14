@@ -1,6 +1,6 @@
 /**
  * One rewrite per table: a migration over a populated installation rewrites each table at most once, however many
- * stored generated columns it adds to it, converts or drops, on PostgreSQL 19rc1.
+ * stored generated columns it adds to it, converts or drops, on PostgreSQL 19rc2.
  *
  * A case draws a populated first version, R(id, a, b, e, gone) and S(id, x), its rows, and a delta to a second
  * version: k ≤ 3 containments of R's rows selected by b = j into S's key, each a partial projection of a, which grizzle
@@ -208,7 +208,10 @@ const second = (name: string, d: Delta): SchemaDesc => ({
 	],
 	statements: [
 		...Array.from({ length: d.selections }, (_, j) =>
-			contained(onWhere("R", ["a"], eq(field("b"), literal(d.retyped ? BigInt(j) : j))), on("S", ["id"]))
+			contained(
+				onWhere("R", ["a"], eq(field("b"), literal(d.retyped ? BigInt(j) : j))),
+				on("S", ["id"])
+			)
 		),
 		...(d.added && d.checked ? [check("CNonNegative", "R", ge(field("c"), literal(0)))] : []),
 		...(d.referenced ? [key(on("S", ["x"])), contained(on("R", ["e"]), on("S", ["x"]))] : [])

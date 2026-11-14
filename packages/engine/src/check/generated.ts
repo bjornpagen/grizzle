@@ -9,7 +9,7 @@ import { type ScalarType, sameEnteredType, typeLabel } from "#compiler/ir/scalar
  * closed relations, and nothing else, and its value is of the column's declared type (PostgreSQL: "The generation
  * expression can only use immutable functions and cannot use subqueries or reference anything other than the current
  * row in any way", "A generation expression cannot reference another generated column",
- * https://github.com/postgres/postgres/blob/REL_19_RC1/doc/src/sgml/ddl.sgml#L406-L413).
+ * https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/ddl.sgml#L406-L413).
  *
  * analysis/schema.ts applies it to every generated field of a checked schema, in field order, as the one place the rule
  * lives: the builder's row is typed by the written fields alone, so a JavaScript caller never meets it, and a decoded

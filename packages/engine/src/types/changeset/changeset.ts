@@ -515,7 +515,7 @@ type TreeRootOf<S, R> =
  * they own, a tree's relation its own family's member. Seen holds the relations walked, so the walk stops at a relation
  * met again.
  */
-export type UnitWrites<S, R, Seen = never> =
+type UnitWrites<S, R, Seen = never> =
 	Visited<R, Seen> extends true
 		? never
 		: [DrawnFieldOf<R>] extends [never]

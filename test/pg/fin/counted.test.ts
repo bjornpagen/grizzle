@@ -1,5 +1,5 @@
 /**
- * Counted swap-with-last through grizzle's lowering, on PostgreSQL 19rc1 (fin.md §4.2, §11, "Counted swap-with-last
+ * Counted swap-with-last through grizzle's lowering, on PostgreSQL 19rc2 (fin.md §4.2, §11, "Counted swap-with-last
  * with the deferred closure FK"): a counted family hides its index ‹i› and its fold's accumulators, so removing a
  * member moves the last member into the freed slot, refolds the hidden accumulators from that slot on, and lowers the
  * count with the new end (test/support/families/counted.ts swapWithLast). Between the delete and the move the freed
@@ -114,7 +114,7 @@ type CountedFeature = `${string} ${Position} ${Sending} ${FoldVerdict}` | EndFea
 const COUNTED = Object.freeze(Arr.filter(FOLD_SPECS, (s) => s.shape === "counted"))
 
 layer(Substrate.layer)(
-	"counted swap-with-last through grizzle's lowering on PostgreSQL 19rc1",
+	"counted swap-with-last through grizzle's lowering on PostgreSQL 19rc2",
 	(it) => {
 		for (const spec of COUNTED) {
 			it.effect(

@@ -31,13 +31,13 @@ export type NumericResult = Result.Result<Decimal, Undefined>
  */
 export const decDigits: Limit = published({
 	value: 4,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "decimal digits",
 	scope: "one NBASE digit of a numeric value, the unit of its weight",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/backend/utils/adt/numeric.c#L99`,
 	quote: "#define DEC_DIGITS\t4\t\t\t/* decimal digits per NBASE digit */",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 const pow10 = (n: number): bigint => 10n ** BigInt(n)

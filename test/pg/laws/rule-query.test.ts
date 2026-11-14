@@ -1,5 +1,5 @@
 /**
- * Rules over queries on PostgreSQL 19rc1: a rule whose side reads a derived relation holds at every COMMIT, judged on
+ * Rules over queries on PostgreSQL 19rc2: a rule whose side reads a derived relation holds at every COMMIT, judged on
  * its definition, live, whoever writes and however writes interleave.
  *
  * The schema joins two and three relations, selects, projects and negates: J2 = R ⋈ S on k, J3 = J2 ⋈ U on (a, b), the
@@ -1047,7 +1047,7 @@ const unchanged = (before: State, after: State): boolean =>
 const serializationFailure = "40001"
 
 layer(Substrate.layer, { excludeTestServices: true })(
-	"rules over queries on PostgreSQL 19rc1",
+	"rules over queries on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
 			"commit exactly the histories whose every state keeps every rule over a query, refusing the rest by the broken rule's trigger, and commit no broken state under concurrent writers",

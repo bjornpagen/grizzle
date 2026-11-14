@@ -284,12 +284,7 @@ export const treeShape = (
 	everyMember(s.member, loc, familySides.tree)
 	const t = ordinary(relations, s.member.relation, "member", loc)
 	const [parentTerm, atTerm, ...extra] = s.member.terms
-	if (
-		s.slots.owner !== t.name ||
-		parentTerm === undefined ||
-		atTerm === undefined ||
-		extra.length > 0
-	) {
+	if (s.slots.owner !== t.name || atTerm === undefined || extra.length > 0) {
 		return refuseNamed(loc, familySides.tree)
 	}
 	/** A tree's interval field by its name, drawn by its one depth-first walk. */

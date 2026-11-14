@@ -1,5 +1,5 @@
 /**
- * A family's members carrying bytes, on PostgreSQL 19rc1: an owner of a bytes value of its own, which its nested write
+ * A family's members carrying bytes, on PostgreSQL 19rc2: an owner of a bytes value of its own, which its nested write
  * admits once for the owner's row and once for its own insert, is inserted with members nested in order, each
  * member's bytes value empty, short, or one short of, at or one past a chunk of the delivery in force
  * (core/limits.ts bytesChunkLength), or of several chunks; then one member is deleted, which re-places every later

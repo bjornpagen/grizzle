@@ -1,5 +1,5 @@
 /**
- * Compute.parseDouble on PostgreSQL 19rc1: over drawn decimal texts of doubles (test/support/lexical.ts doubleTextGen),
+ * Compute.parseDouble on PostgreSQL 19rc2: over drawn decimal texts of doubles (test/support/lexical.ts doubleTextGen),
  * weighted at every point binary64's rounding turns on (the greatest finite double and the overflow threshold past it,
  * the least normal, subnormals, half the least subnormal, midpoints between neighbouring doubles, each exactly, cut
  * short and one digit past), digits of up to 40 places and past 700 near either threshold and far past both, signed

@@ -22,52 +22,52 @@ import { decDigits } from "#compiler/scalar/compute/numeric.ts"
 /** A tuple identifier, ItemPointerData. */
 const itemPointerBytes: Limit = published({
 	value: 6,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "the heap tuple identifier an index tuple and a B-tree pivot carry",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/include/storage/itemptr.h#L30-L31`,
 	quote: "The struct is designed to be six bytes long (it contains three int16 fields)",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /** An index tuple's header, IndexTupleData: its heap tuple identifier and its two-byte t_info. */
 const indexTupleHeader: Limit = published({
 	value: 8,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "the header of every B-tree and GiST index tuple",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/include/access/itup.h#L35-L51`,
 	quote:
 		"typedef struct IndexTupleData { ItemPointerData t_tid; unsigned short t_info; } IndexTupleData;",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /** A B-tree page's special space, BTPageOpaqueData: two block numbers, a level, flags and a cycle id. */
 const btreeOpaqueBytes: Limit = published({
 	value: 16,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "the special space of every B-tree page",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/include/access/nbtree.h#L63-L70`,
 	quote:
 		"typedef struct BTPageOpaqueData { BlockNumber btpo_prev; BlockNumber btpo_next; uint32 btpo_level; uint16 btpo_flags; BTCycleId btpo_cycleid; } BTPageOpaqueData;",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /** A GiST page's special space, GISTPageOpaqueData: an LSN, a block number, flags and the page id. */
 const gistOpaqueBytes: Limit = published({
 	value: 16,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "the special space of every GiST page",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/include/access/gist.h#L80-L86`,
 	quote:
 		"typedef struct GISTPageOpaqueData { PageGistNSN nsn; BlockNumber rightlink; uint16 flags; uint16 gist_page_id; } GISTPageOpaqueData;",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /**
@@ -76,14 +76,14 @@ const gistOpaqueBytes: Limit = published({
  */
 const varlenaHeaderBytes: Limit = published({
 	value: 4,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope:
 		"the header of one variable-length datum, uncompressed and in line: a numeric, a text, a range, a vector",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/include/c.h#L787`,
 	quote: "#define VARHDRSZ\t\t((int32) sizeof(int32))",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /**
@@ -99,7 +99,7 @@ const bitsPerByte = 8
  * hold, so the bound is the one every installation's roster keeps within: its most codes.
  */
 const bitsBytes: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "one set over a roster, its bit(n) datum",
 	from: [varlenaHeaderBytes, typlens.int4, rosterMaxCodes],
@@ -113,7 +113,7 @@ const bounds = ["lower", "upper"] as const
 
 /** A range's header, sizeof(RangeType): its varlena header and its range type's OID, which its bounds follow. */
 const rangeHeaderBytes: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "the header of one range datum",
 	from: [varlenaHeaderBytes, typlens.oid],
@@ -124,18 +124,18 @@ const rangeHeaderBytes: Limit = derived({
 /** A range's flags byte, after its bounds. */
 const rangeFlagBytes: Limit = published({
 	value: 1,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "the flags of one range datum",
 	constraint: "compile-time constant",
-	source: `${postgresSource}/src/backend/utils/adt/rangetypes.c#L2049-L2050`,
+	source: `${postgresSource}/src/backend/utils/adt/rangetypes.c#L2072-L2073`,
 	quote: "/* Add space for flag byte */ msize += sizeof(char);",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /** A numeric's header, NUMERIC_HDRSZ: its varlena header, its sign and display scale, and its weight. */
 const numericHeaderBytes: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "the long header of one numeric datum, the longest it takes",
 	from: [varlenaHeaderBytes, typlens.int2],
@@ -145,7 +145,7 @@ const numericHeaderBytes: Limit = derived({
 
 /** A numeric's NBASE digit, NumericDigit, an int16. */
 const numericDigitBytes: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "one NBASE digit of a numeric datum",
 	from: [typlens.int2],
@@ -170,7 +170,7 @@ const alignDown = (n: number, a: number): number => Math.floor(n / a) * a
 
 /** The most bytes one B-tree entry takes: BTMaxItemSize, a third of a page, its pivot's heap tuple identifier left. */
 export const btreeMaxItemSize: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "one B-tree index entry, a key's index's among them",
 	from: [blockSize, maxAlign, pageHeaderBytes, itemIdBytes, btreeOpaqueBytes, itemPointerBytes],
@@ -187,7 +187,7 @@ export const btreeMaxItemSize: Limit = derived({
 
 /** The most bytes one GiST entry takes: an empty page, GiSTPageSize, less its one line pointer. */
 export const gistMaxItemSize: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "one GiST index entry, a span key's among them",
 	from: [blockSize, maxAlign, pageHeaderBytes, gistOpaqueBytes, itemIdBytes],
@@ -199,13 +199,13 @@ export const gistMaxItemSize: Limit = derived({
 /** The most columns one index holds, INDEX_MAX_KEYS: a key's index has one per field. */
 export const indexMaxKeys: Limit = published({
 	value: 32,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "columns",
 	scope: "one index: a key's, a span key's GiST constraint, an access path's",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/include/pg_config_manual.h#L79`,
 	quote: "#define INDEX_MAX_KEYS\t\t32",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /**
@@ -213,11 +213,11 @@ export const indexMaxKeys: Limit = published({
  * own count, which follows the header exactly when the tuple holds a null.
  */
 const indexNullBitmapBytes: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "the null bitmap of one index tuple that holds a null",
 	from: [indexMaxKeys, bitsPerByteLimit],
-	derivation: `"typedef struct IndexAttributeBitMapData { uint8 bits[(INDEX_MAX_KEYS + 8 - 1) / 8]; }" (${postgresSource}/src/include/access/itup.h#L55-L58, verified 2026-11-06): a byte per eight of INDEX_MAX_KEYS bits, C's integer division`,
+	derivation: `"typedef struct IndexAttributeBitMapData { uint8 bits[(INDEX_MAX_KEYS + 8 - 1) / 8]; }" (${postgresSource}/src/include/access/itup.h#L55-L58, verified 2026-11-14): a byte per eight of INDEX_MAX_KEYS bits, C's integer division`,
 	compute: ([keys, bits]) => Math.floor((keys.value + bits.value - 1) / bits.value)
 })
 

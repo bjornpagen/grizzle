@@ -1,5 +1,5 @@
 /**
- * The seeding of a rule over a query's deferred triggers on PostgreSQL 19rc1: each trigger's probe is the rule's
+ * The seeding of a rule over a query's deferred triggers on PostgreSQL 19rc2: each trigger's probe is the rule's
  * violation restricted to the rows its write touched and those its chain reaches from them, so it judges exactly what
  * the rule's whole check judges, and reads only the rows of the touched row's key.
  *

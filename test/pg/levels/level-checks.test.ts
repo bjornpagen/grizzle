@@ -1,5 +1,5 @@
 /**
- * A level's row check over a relation of the level below it, on PostgreSQL 19rc1.
+ * A level's row check over a relation of the level below it, on PostgreSQL 19rc2.
  *
  * Each case draws a base level `Base` holding Attribute (an integer key, an unbounded text `value` and an integer `n`),
  * its own row checks over Attribute, and a level `Media` over it whose list states row checks over Attribute too, each a
@@ -432,7 +432,7 @@ const levelRecord = (snapshot: DeploySnapshot, at: number) => {
 }
 
 layer(Substrate.layer, { excludeTestServices: true })(
-	"a level's row check over a lower relation on PostgreSQL 19rc1",
+	"a level's row check over a lower relation on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
 			"stores exactly the rows every check holds on, and each login names the checks a row breaks as its level states them",

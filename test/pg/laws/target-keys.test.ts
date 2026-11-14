@@ -1,5 +1,5 @@
 /**
- * Which containment targets hold a key, through grizzle's lowering on PostgreSQL 19rc1: a search over a relation
+ * Which containment targets hold a key, through grizzle's lowering on PostgreSQL 19rc2: a search over a relation
  * Tgt(id, a, b, c, flag, depth) keyed by id and by at most one drawn key, over Tgt or a drawn selection of it, and a
  * containment from Src(sid, p, q, r) into a drawn selection of Tgt on a drawn list of its terms id, a and b, each
  * selection one condition per field at most, a field equal to a value, to another field, or other than a value.
@@ -682,7 +682,7 @@ const KEPT: ReadonlyArray<Kept<Sketch, TargetKeyFeature>> = [
 	}
 ]
 
-layer(Substrate.layer)("which containment targets hold a key on PostgreSQL 19rc1", (it) => {
+layer(Substrate.layer)("which containment targets hold a key on PostgreSQL 19rc2", (it) => {
 	it.effect(
 		"admit a target exactly when it holds a key, and refuse no state its key and its containment admit",
 		(ctx) =>

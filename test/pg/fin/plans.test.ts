@@ -1,5 +1,5 @@
 /**
- * The reads of families and trees through grizzle's installed indexes, on PostgreSQL 19rc1 (fin.md §11, "Plan audits",
+ * The reads of families and trees through grizzle's installed indexes, on PostgreSQL 19rc2 (fin.md §11, "Plan audits",
  * trees.md §3, §5): the export, every subtree's descendants and every family's members are an index or range scan of
  * the index grizzle installs for them, with no sort, no sequential scan and no recursion, and return exactly the rows
  * the parent links say they should.
@@ -144,7 +144,7 @@ const planFacts = (plan: PlanNode) => ({
 })
 
 layer(Substrate.layer)(
-	"family and tree reads through grizzle's installed indexes on PostgreSQL 19rc1",
+	"family and tree reads through grizzle's installed indexes on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
 			"read a tree in document order with no sort, each subtree's descendants by a range scan of T1's index, and a family's members by its key, with no sequential scan and no recursion",

@@ -258,9 +258,9 @@ const dropOrder: { readonly [K in Dropped]: number } = {
  * migration's own transaction wrote (a table rewritten by a generated column's ADD COLUMN or a conversion, or updated
  * by an earlier UPDATE) queues the check of every deferrable foreign key over them until the commit, since
  * PostgreSQL fires a referencing row's check whatever its keys when its own transaction wrote the row (PostgreSQL
- * 19rc1, src/backend/utils/adt/ri_triggers.c RI_FKey_fk_upd_check_required at 1515, slot_is_current_xact_tuple at
- * 1585-1586), and refuses to alter a table with a check pending (src/backend/commands/tablecmds.c CheckTableNotInUse at
- * 4448, AfterTriggerPendingOnRel at 4462, 55006 at 4466), as a fill's DROP COLUMN, the backfill's DROP DEFAULT and
+ * 19rc2, src/backend/utils/adt/ri_triggers.c RI_FKey_fk_upd_check_required at 1524, slot_is_current_xact_tuple at
+ * 1596-1597), and refuses to alter a table with a check pending (src/backend/commands/tablecmds.c CheckTableNotInUse at
+ * 4462, AfterTriggerPendingOnRel at 4476, 55006 at 4478), as a fill's DROP COLUMN, the backfill's DROP DEFAULT and
  * every constraint added after them do. Under it each check runs at the end of its UPDATE. It holds for the rest of the
  * Structure transaction, which every data step, the reviewer's, a fill's and the backfill's, runs after: Structure's
  * statements before it, its drops and its tables' alterations, write no row. */

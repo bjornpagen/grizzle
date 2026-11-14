@@ -1,5 +1,5 @@
 /**
- * Coverage through grizzle's lowering, on PostgreSQL 19rc1 (fin.md §7, w4-w7 §2.5): a containment of a selected source's
+ * Coverage through grizzle's lowering, on PostgreSQL 19rc2 (fin.md §7, w4-w7 §2.5): a containment of a selected source's
  * span into a selected target's, `contained(on(select(Source, on), "k", "during"), on(select(Target, on), "k",
  * "during"))`, with the target keyed by `key(on(select(Target, on), "k", "during"))`, which over a span term is
  * WITHOUT OVERLAPS; grizzle lowers it to a PERIOD foreign key over the sides' law columns, NO ACTION, deferred only by
@@ -172,7 +172,7 @@ type CoverageFeature =
 	| `refused ${Refusal}`
 	| "refused coverage across a gap"
 
-layer(Substrate.layer)("coverage through grizzle's lowering on PostgreSQL 19rc1", (it) => {
+layer(Substrate.layer)("coverage through grizzle's lowering on PostgreSQL 19rc2", (it) => {
 	it.effect(
 		"commit exactly the covered states of G2's box, refuse a gap or an overlap by its native, and an empty span by the span's named CHECK, each at its statement",
 		(ctx) =>

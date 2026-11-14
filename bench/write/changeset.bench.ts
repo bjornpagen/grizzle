@@ -196,7 +196,7 @@ const backendsOf = Effect.fn("backendsOf")(function* (
 /**
  * Returns once each backend of `pids`, whose client has closed it, has exited, and so reported its statistics, which a
  * backend does as it exits, before it leaves the process array and its process ends. pg_terminate_backend with a
- * timeout signals the ending backend and waits until no process has its pid (PostgreSQL 19rc1's signalfuncs.c
+ * timeout signals the ending backend and waits until no process has its pid (PostgreSQL 19rc2's signalfuncs.c
  * pg_wait_until_termination), and answers at once for a pid no backend in the process array has any more.
  */
 const exited = Effect.fn("exited")(function* (

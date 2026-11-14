@@ -1,5 +1,5 @@
 /**
- * A family over stored rows across a migration that renames it or changes what fills it, on PostgreSQL 19rc1,
+ * A family over stored rows across a migration that renames it or changes what fills it, on PostgreSQL 19rc2,
  * generated.
  *
  * A history: relations with rows stored at their first version, a roster's kinds among them, a tree's keyed by its
@@ -1402,7 +1402,7 @@ const changeCase = (drawnCase: ChangeCase, k: Case<ChangeFeature>) =>
 	})
 
 layer(Substrate.layer)(
-	"a family over stored rows renamed or refilled through grizzle's migrations on PostgreSQL 19rc1",
+	"a family over stored rows renamed or refilled through grizzle's migrations on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
 			"a declared rename of a family's relations, the owner's fields, a roster and its handles, swaps and chains among them, renames every law column, drawn field, constraint and index in place: no table rewritten, no row updated, nothing built or validated again",

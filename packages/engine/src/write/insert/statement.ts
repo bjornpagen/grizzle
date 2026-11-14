@@ -73,7 +73,7 @@ export type InsertOf = "insert" | "put"
  *   put's commit after its deletion;
  * - `unstored`: into a family owner, only those at no stored key. A proposed owner carries every
  *   count and end its input does not carry at its start, and PostgreSQL judges a proposed row by every CHECK before any
- *   arbiter meets its key (19rc1 nodeModifyTable.c ExecInsert: ExecConstraints, then the speculative insertion), so a
+ *   arbiter meets its key (19rc2 nodeModifyTable.c ExecInsert: ExecConstraints, then the speculative insertion), so a
  *   stored owner proposed again would meet a check over an end, such as an invoice's lines summing to its amount, at
  *   that placeholder. A stored owner at a requested key is instead an insertion's exact repeat or its conflict, read
  *   from its row, or the row a put's UPDATE wrote, its families as they are.

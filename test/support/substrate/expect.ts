@@ -23,7 +23,7 @@ type Outcome =
 
 /**
  * `attempt` run once and judged. SERIALIZABLE never refuses an attempt that runs alone: a 40001 needs a concurrent
- * transaction in its set of conflicts to have committed (PostgreSQL 19rc1's src/backend/storage/lmgr/README-SSI: "no
+ * transaction in its set of conflicts to have committed (PostgreSQL 19rc2's src/backend/storage/lmgr/README-SSI: "no
  * transaction is canceled until one of the other transactions in the set of conflicts which could generate an anomaly
  * has successfully committed"), and a 40P01 a second backend waiting on it. An attempt beside a concurrent transaction
  * may meet a refusal, which is judged like any other SQLSTATE: the one expected, or a failure of the expectation.

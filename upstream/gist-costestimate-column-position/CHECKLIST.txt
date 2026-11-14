@@ -34,7 +34,7 @@ A. GATES BEFORE REPORTING
       - Measured on 19rc1 (0b8bff042a) and on master b6178c942e (20devel, cassert), with identical costs and buffers.
       - The three costing functions, the GiST scan and the planner code cited are identical at origin/master
         73a28d2733, 2026-11-04 (EVIDENCE.txt 1 and 3).
-  [x] Mind the release cycle. 19 is between RC1 and RC2 (2026-11-12).
+  [x] Mind the release cycle. 19 is between RC2 (2026-11-12) and GA (due 2026-11-19).
       - A cost-model change is 20 material, and the email says "for 20".
       - Tom Lane in 2018: "we'd be unlikely to back-patch such a change into existing release branches". The email
         asks for no backpatch.

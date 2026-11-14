@@ -25,7 +25,7 @@
 	"scripts": {
 		"build": "node --conditions=grizzle-source scripts/build.ts",
 		"prepare": "effect-tsgo patch",
-		"check": "turbo run typecheck superlint oxlint fixtures:superlint fixtures:oxlint format dead-code architecture dedupe",
+		"check": "turbo run typecheck superlint oxlint fixtures:superlint fixtures:oxlint format dead-code architecture dedupe --continue=dependencies-successful",
 		"typecheck": "effect-tsgo tsrs -b",
 		"superlint": "superlint",
 		"oxlint": "oxlint test bench scripts oxlint.config.ts",

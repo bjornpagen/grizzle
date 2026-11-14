@@ -1,5 +1,5 @@
 /**
- * Every rewrite of a comparison is three-valued exactly as the comparison's plain meaning is, on PostgreSQL 19rc1:
+ * Every rewrite of a comparison is three-valued exactly as the comparison's plain meaning is, on PostgreSQL 19rc2:
  * NULL where an operand it reads is NULL, as a closed read at an absent key reads.
  *
  * The lowering decides some comparisons by another form: a text's equation with a concatenation, `t = p || q`, by its

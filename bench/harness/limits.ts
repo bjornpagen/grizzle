@@ -46,6 +46,6 @@ export const benchExitWait: Limit = derived({
 		"one pg_terminate_backend a benchmark's sample calls to wait for a closed session's backend to exit, on the local cluster",
 	from: [nodeTimerMax],
 	derivation:
-		'PostgreSQL waits only for a positive timeout and a benchmark sets no deadline of its own, so it is the longest wait a benchmark states, the longest delay a Node timer keeps, which pg_terminate_backend keeps too, reading its timeout into a C int (REL_19_RC1 src/backend/storage/ipc/signalfuncs.c: "int timeout; /* milliseconds */"): a backend that never exits is the operator\'s to interrupt',
+		'PostgreSQL waits only for a positive timeout and a benchmark sets no deadline of its own, so it is the longest wait a benchmark states, the longest delay a Node timer keeps, which pg_terminate_backend keeps too, reading its timeout into a C int (REL_19_RC2 src/backend/storage/ipc/signalfuncs.c: "int timeout; /* milliseconds */"): a backend that never exits is the operator\'s to interrupt',
 	compute: ([max]) => max.value
 })

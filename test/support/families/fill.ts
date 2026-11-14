@@ -134,7 +134,7 @@ export const rootFieldsOf = (f: number): Arr.NonEmptyReadonlyArray<string> => [
 ]
 
 /** The text a tree root's fields hold, from its row's id: a package shared by a third of the roots, and a path its own. */
-export const rootValuesOf = (id: number): readonly [string, string] => [`p${id % 3}`, `q${id}`]
+const rootValuesOf = (id: number): readonly [string, string] => [`p${id % 3}`, `q${id}`]
 
 /** A tree root's root fields and their values, as its fact states them and every node of its tree holds them. */
 export const rootEntries = (f: number, id: number): ReadonlyArray<readonly [string, string]> =>

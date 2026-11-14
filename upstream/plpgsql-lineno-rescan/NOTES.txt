@@ -26,7 +26,7 @@ Status: ready to file, NOT filed. Nothing has been sent to any list or posted an
          git commit --amend --reset-author --no-edit
          git format-patch -1 -v1
      Or edit the From: line by hand. The sending address is deliberately not written anywhere in this public repository.
-   - Mind the release cycle (CHECKLIST.txt A). PostgreSQL 19 is between RC1 (2026-10-15) and RC2 (2026-11-12). A
+   - Mind the release cycle (CHECKLIST.txt A). PostgreSQL 19 is between RC2 (2026-11-12) and GA (due 2026-11-19). A
      performance patch for master belongs to the 20 cycle, and a reviewer may ask it to wait for the next commitfest.
      That costs grizzle nothing.
    - If master moves before filing, rebase and re-run the checks in EVIDENCE.txt 5. The dedicated checkout is ready

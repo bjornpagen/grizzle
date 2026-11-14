@@ -66,7 +66,7 @@ import { fullWorld } from "#test/support/worlds.ts"
 
 /**
  * A stored nested instance inserted again, identically or with drawn differences, answers as the README's set rule
- * says, on PostgreSQL 19rc1 ("Writes": "add these rows; a row already present is no change"; "A row holds the fields
+ * says, on PostgreSQL 19rc2 ("Writes": "add these rows; a row already present is no change"; "A row holds the fields
  * its caller writes"; "A relation's rows are a set. Identical rows are one row. Two rows of one relation that share a
  * key and differ elsewhere are invariant-rejected on that key"; "Families": "the insert states the owner's members").
  *

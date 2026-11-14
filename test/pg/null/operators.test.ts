@@ -1,6 +1,6 @@
 /**
  * Every operation of grizzle's scalar language over operands that are each NULL or one of two values, on PostgreSQL
- * 19rc1: grizzle's host evaluator (scalar/compute/evaluate.ts) agrees with PostgreSQL, NULL included, and so does the
+ * 19rc2: grizzle's host evaluator (scalar/compute/evaluate.ts) agrees with PostgreSQL, NULL included, and so does the
  * model of language.ts.
  *
  * The box, exhausted: each operation the host evaluates in a check (each comparison over each sort, BETWEEN, IN, AND,

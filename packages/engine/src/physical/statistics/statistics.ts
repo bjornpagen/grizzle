@@ -10,13 +10,13 @@ import type { CreateStatistics } from "#compiler/sql/ast.ts"
 /** The most columns one extended statistics object covers, STATS_MAX_DIMENSIONS. */
 export const statisticsMaxColumns: Limit = published({
 	value: 8,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "columns",
 	scope: "one extended statistics object: a request's and an access path's",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/include/statistics/statistics.h#L19`,
 	quote: "#define STATS_MAX_DIMENSIONS\t8\t/* max number of attributes */",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 export const statisticsKinds = ["ndistinct", "dependencies", "mcv"] as const

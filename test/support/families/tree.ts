@@ -126,7 +126,7 @@ const sameRoot = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =
  * its root value whose parent is its start, in slot order, exactly 0 … count − 1, every row reached once. None where
  * the rows describe no forest.
  */
-export const forestOf = (rows: ReadonlyArray<KeyedRow>): Option.Option<Forest> => {
+const forestOf = (rows: ReadonlyArray<KeyedRow>): Option.Option<Forest> => {
 	const roots = Arr.dedupeWith(
 		Arr.map(rows, (r) => r.root),
 		sameRoot

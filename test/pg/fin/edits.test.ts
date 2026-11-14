@@ -1,5 +1,5 @@
 /**
- * Counted put and delete through grizzle's own apply, on PostgreSQL 19rc1 (rows-first §2, §3): a counted family's
+ * Counted put and delete through grizzle's own apply, on PostgreSQL 19rc2 (rows-first §2, §3): a counted family's
  * members are rows, and grizzle plans every edit to them. A member put that changes its step value refills the fold
  * from its slot, and a member delete swaps the last member into the freed slot and refills from there, each one suffix
  * rewrite after the read flight of the stored suffix.
@@ -205,7 +205,7 @@ type EditFeature =
 	| "a put of the first slot refilled every slot"
 
 layer(Substrate.layer, { excludeTestServices: true })(
-	"counted put and delete through grizzle's apply on PostgreSQL 19rc1",
+	"counted put and delete through grizzle's apply on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
 			"leave exactly the state the families model and the reference fold state after each member's put of a new step value and each member's delete",

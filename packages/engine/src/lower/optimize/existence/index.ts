@@ -95,15 +95,15 @@ const shapedExistence = (cx: RewriteCx, cell: Cell, region: Region): ReadonlyArr
  */
 export const collapseLimit = published({
 	value: 8,
-	owner: "PostgreSQL 19rc1's planner",
+	owner: "PostgreSQL 19rc2's planner",
 	unit: "FROM items",
 	scope:
 		"one join problem the planner flattens, under the session default no grizzle session changes",
 	constraint: "configurable default",
-	source: `${postgresSource}/src/backend/utils/misc/guc_parameters.dat#L1529-L1537`,
+	source: `${postgresSource}/src/backend/utils/misc/guc_parameters.dat#L1538-L1546`,
 	quote:
 		"{ name => 'join_collapse_limit', type => 'int', context => 'PGC_USERSET', [...] boot_val => '8',",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /**

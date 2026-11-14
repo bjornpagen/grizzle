@@ -1,5 +1,5 @@
 /**
- * Closed ids as codes on PostgreSQL 19rc1: a roster's smallint domain, its names constant, the decoded column of a role
+ * Closed ids as codes on PostgreSQL 19rc2: a roster's smallint domain, its names constant, the decoded column of a role
  * view, and a set's bit string, each judged against A8's model of the roster's history (test/support/closed/generate.ts),
  * a list of code slots replayed command by command that shares no code with the engine's codebook.
  *
@@ -680,7 +680,7 @@ const aimedHistory = (drawnHistory: BitsHistory, k: Case<BitsFeature>): BitsHist
 		? k.draw(pastDigitHistoryGen)
 		: drawnHistory
 
-layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
+layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc2", (it) => {
 	it.effect(
 		"a roster's domain admits exactly its live codes, in a fresh backend and in one that cached the CHECK a migration swapped",
 		(ctx) =>

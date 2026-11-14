@@ -1220,7 +1220,7 @@ const untouchedComponents = (before: Model, after: Model, w: Write): ReadonlyArr
 	})
 
 layer(Substrate.layer, { excludeTestServices: true })(
-	"deleting a group whole and replacing it, on PostgreSQL 19rc1",
+	"deleting a group whole and replacing it, on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
 			"every ChangeSet stores the model's rows and answers its outcome, counts and refusals",

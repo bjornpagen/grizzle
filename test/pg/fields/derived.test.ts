@@ -1,5 +1,5 @@
 /**
- * Generated fields on PostgreSQL 19rc1: STORED generated columns, run as programs of a commands machine whose model
+ * Generated fields on PostgreSQL 19rc2: STORED generated columns, run as programs of a commands machine whose model
  * predicts every verdict (testing doctrine, rule 11).
  *
  * The relation R holds a caller's key, a closed id `tier` over the roster Tier and two sets over it, a and b, and up to
@@ -1373,7 +1373,7 @@ const real = (
 		})
 })
 
-layer(Substrate.layer)("generated fields on PostgreSQL 19rc1", (it) => {
+layer(Substrate.layer)("generated fields on PostgreSQL 19rc2", (it) => {
 	it.effect(
 		"every generated column holds what the host evaluator computes from its row, PostgreSQL refuses a writer's value for one and an absent key, and a changed expression migrates in place",
 		(ctx) =>
