@@ -304,7 +304,8 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   trailing zeros, date and span forms). Think it through and fix it once live works; the oracle is byte equality with
   today's encode over every carrier.
 - **PostgreSQL:** repin to 19 GA on 2026-11-19 (pin.env, rebuild, re-init, delete the 19rc2 build); the relcache
-  patch is rebased and kept until a release includes it. Tell qti-pie first: its database lives in the cluster. When
+  patch is rebased and kept until a release includes it, and so are the btree_gist backport of b82d69abf6 and the
+  PL/pgSQL line lookup, each dropped once its release includes it. Tell qti-pie first: its database lives in the cluster. When
   the patch next changes, restate its header's "Its output matches stock 19rc1's except for that last line" from a run
   on the stock release it is rebased onto: the RC2 rebase left that RC1 observation as it was, since any edit changes
   the patch's SHA-256 in pin.env and so rebuilds every build.
@@ -540,7 +541,8 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   delete the folder.
 - upstream/generated-column-collation-before-planning: PostgreSQL 19 can't choose a collation for a generated column's
   comparison of two texts that read no row (42P22); grizzle folds such constants on the host.
-- upstream/plpgsql-lineno-rescan: PL/pgSQL rescans the source on every location-to-line lookup.
+- upstream/plpgsql-lineno-rescan: PL/pgSQL rescans the source on every location-to-line lookup. The pin carries the
+  fix as scripts/pg/patches/19rc2-plpgsql-lineno-binary-search.patch.
 - upstream/gist-costestimate-column-position: a pgsql-hackers reply to BUG #15408, for PostgreSQL 20.
 - upstream/relcache-planned-check-and-generation: the relcache patch the pin carries.
 - upstream/fallow-unused-class-member-union-property: fallow credits no class member called through a property of a

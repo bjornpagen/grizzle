@@ -1,0 +1,382 @@
+PostgreSQL 19rc2: btree_gist prices a multibyte text key by its bytes past the common prefix, not by a character's.
+
+gbt_var_penalty (btree_utils_var.c) prices adding a key to a subtree, when the key extends the subtree's bounds without
+shortening their common prefix, by the bytes just past that prefix. In 19rc2 gbt_var_node_cp_len ends the prefix at a
+character boundary in a multibyte encoding, so for UTF8 text the penalty compares the leading bytes of the next
+characters, which whole ranges of characters share: all of Latin-1 Supplement begins with C2 or C3, all of the CJK
+Unified Ideographs with one of E4 to E9. Adding such a key then costs about the same in every subtree, gistchoose places
+it with no regard to its order, the leaf pages' key ranges overlap, and a point lookup descends into many of them: 14
+buffers for one row of 20,000 two-ideograph keys, where ASCII keys take 3 (README, PostgreSQL known issues).
+
+This backports master's b82d69abf6 (Tom Lane, 2026-07-03, "Remove btree_gist's useless logic for encoding-aware
+truncation", for PostgreSQL 20) byte for byte. It removes the character alignment as dead code, which also fixes the
+pricing, and with it gbtree_vinfo.eml, so the gbtree_vinfo structs become const. It adds the regression test text_utf8,
+which upstream does not have: it inserts keys of two CJK ideographs into an existing index and uses pageinspect to count
+the keys that the ranges of three or more leaf pages cover, most of them with 19rc2's prefix and none with this one, and
+checks that lookups by multibyte keys return the right rows. It needs a UTF8 database and is skipped otherwise
+(text_utf8_1.out).
+
+b82d69abf6 is on master only, so every PostgreSQL 19 repin carries this until a 19 release includes it.
+
+--- a/contrib/btree_gist/Makefile
++++ b/contrib/btree_gist/Makefile
+@@ -38,10 +38,11 @@ DATA = btree_gist--1.0--1.1.sql \
+        btree_gist--1.9.sql
+ PGFILEDESC = "btree_gist - B-tree equivalent GiST operator classes"
+ 
++EXTRA_INSTALL = contrib/pageinspect
+ REGRESS = init int2 int4 int8 float4 float8 cash oid timestamp timestamptz \
+         time timetz date interval macaddr macaddr8 inet cidr text varchar char \
+         bytea bit varbit numeric uuid not_equal enum bool partitions \
+-        stratnum without_overlaps
++        stratnum without_overlaps text_utf8
+ 
+ SHLIB_LINK += $(filter -lm, $(LIBS))
+ 
+--- a/contrib/btree_gist/btree_bit.c
++++ b/contrib/btree_gist/btree_bit.c
+@@ -109,7 +109,6 @@ gbt_bit_l2n(GBT_VARKEY *leaf, FmgrInfo *flinfo)
+ static const gbtree_vinfo tinfo =
+ {
+ 	gbt_t_bit,
+-	0,
+ 	true,
+ 	gbt_bitgt,
+ 	gbt_bitge,
+--- a/contrib/btree_gist/btree_bytea.c
++++ b/contrib/btree_gist/btree_bytea.c
+@@ -71,7 +71,6 @@ gbt_byteacmp(const void *a, const void *b, Oid collation, FmgrInfo *flinfo)
+ static const gbtree_vinfo tinfo =
+ {
+ 	gbt_t_bytea,
+-	0,
+ 	true,
+ 	gbt_byteagt,
+ 	gbt_byteage,
+--- a/contrib/btree_gist/btree_numeric.c
++++ b/contrib/btree_gist/btree_numeric.c
+@@ -76,7 +76,6 @@ gbt_numeric_cmp(const void *a, const void *b, Oid collation, FmgrInfo *flinfo)
+ static const gbtree_vinfo tinfo =
+ {
+ 	gbt_t_numeric,
+-	0,
+ 	false,
+ 	gbt_numeric_gt,
+ 	gbt_numeric_ge,
+--- a/contrib/btree_gist/btree_text.c
++++ b/contrib/btree_gist/btree_text.c
+@@ -78,10 +78,9 @@ gbt_textcmp(const void *a, const void *b, Oid collation, FmgrInfo *flinfo)
+ 												 PointerGetDatum(b)));
+ }
+ 
+-static gbtree_vinfo tinfo =
++static const gbtree_vinfo tinfo =
+ {
+ 	gbt_t_text,
+-	0,
+ 	false,
+ 	gbt_textgt,
+ 	gbt_textge,
+@@ -148,10 +147,9 @@ gbt_bpcharcmp(const void *a, const void *b, Oid collation, FmgrInfo *flinfo)
+ 												 PointerGetDatum(b)));
+ }
+ 
+-static gbtree_vinfo bptinfo =
++static const gbtree_vinfo bptinfo =
+ {
+ 	gbt_t_bpchar,
+-	0,
+ 	false,
+ 	gbt_bpchargt,
+ 	gbt_bpcharge,
+@@ -172,11 +170,6 @@ gbt_text_compress(PG_FUNCTION_ARGS)
+ {
+ 	GISTENTRY  *entry = (GISTENTRY *) PG_GETARG_POINTER(0);
+ 
+-	if (tinfo.eml == 0)
+-	{
+-		tinfo.eml = pg_database_encoding_max_length();
+-	}
+-
+ 	PG_RETURN_POINTER(gbt_var_compress(entry, &tinfo));
+ }
+ 
+@@ -204,11 +197,6 @@ gbt_text_consistent(PG_FUNCTION_ARGS)
+ 	/* All cases served by this function are exact */
+ 	*recheck = false;
+ 
+-	if (tinfo.eml == 0)
+-	{
+-		tinfo.eml = pg_database_encoding_max_length();
+-	}
+-
+ 	retval = gbt_var_consistent(&r, query, strategy, PG_GET_COLLATION(),
+ 								GIST_LEAF(entry), &tinfo, fcinfo->flinfo);
+ 
+@@ -232,11 +220,6 @@ gbt_bpchar_consistent(PG_FUNCTION_ARGS)
+ 	/* All cases served by this function are exact */
+ 	*recheck = false;
+ 
+-	if (bptinfo.eml == 0)
+-	{
+-		bptinfo.eml = pg_database_encoding_max_length();
+-	}
+-
+ 	retval = gbt_var_consistent(&r, query, strategy, PG_GET_COLLATION(),
+ 								GIST_LEAF(entry), &bptinfo, fcinfo->flinfo);
+ 	PG_RETURN_BOOL(retval);
+--- a/contrib/btree_gist/btree_utils_var.c
++++ b/contrib/btree_gist/btree_utils_var.c
+@@ -8,7 +8,6 @@
+ 
+ #include "btree_gist.h"
+ #include "btree_utils_var.h"
+-#include "mb/pg_wchar.h"
+ #include "utils/rel.h"
+ #include "varatt.h"
+ 
+@@ -116,56 +115,32 @@ gbt_var_leaf2node(GBT_VARKEY *leaf, const gbtree_vinfo *tinfo, FmgrInfo *flinfo)
+ /*
+  * returns the common prefix length of a node key
+  *
+- * If the underlying type is character data, the prefix length may point in
+- * the middle of a multibyte character.
++ * This is not used for any cases where the underlying type is character data
++ * (except in gbt_var_penalty, where it doesn't matter since we're just making
++ * an estimated correction not constructing a truncated string).  If it were,
++ * we'd need to be careful not to truncate in the middle of a multibyte
++ * character.
+  */
+ static int32
+ gbt_var_node_cp_len(const GBT_VARKEY *node, const gbtree_vinfo *tinfo)
+ {
+ 	GBT_VARKEY_R r = gbt_var_key_readable(node);
+ 	int32		i = 0;
+-	int32		l_left_to_match = 0;
+-	int32		l_total = 0;
+ 	int32		t1len = VARSIZE(r.lower) - VARHDRSZ;
+ 	int32		t2len = VARSIZE(r.upper) - VARHDRSZ;
+ 	int32		ml = Min(t1len, t2len);
+ 	char	   *p1 = VARDATA(r.lower);
+ 	char	   *p2 = VARDATA(r.upper);
+-	const char *end1 = p1 + t1len;
+-	const char *end2 = p2 + t2len;
+ 
+ 	if (ml == 0)
+ 		return 0;
+ 
+ 	while (i < ml)
+ 	{
+-		if (tinfo->eml > 1 && l_left_to_match == 0)
+-		{
+-			l_total = pg_mblen_range(p1, end1);
+-			if (l_total != pg_mblen_range(p2, end2))
+-			{
+-				return i;
+-			}
+-			l_left_to_match = l_total;
+-		}
+ 		if (*p1 != *p2)
+-		{
+-			if (tinfo->eml > 1)
+-			{
+-				int32		l_matched_subset = l_total - l_left_to_match;
+-
+-				/* end common prefix at final byte of last matching char */
+-				return i - l_matched_subset;
+-			}
+-			else
+-			{
+-				return i;
+-			}
+-		}
+-
++			return i;
+ 		p1++;
+ 		p2++;
+-		l_left_to_match--;
+ 		i++;
+ 	}
+ 	return ml;					/* lower == upper */
+--- a/contrib/btree_gist/btree_utils_var.h
++++ b/contrib/btree_gist/btree_utils_var.h
+@@ -26,8 +26,6 @@ typedef struct
+ 	/* Attribs */
+ 
+ 	enum gbtree_type t;			/* data type */
+-	int32		eml;			/* cached pg_database_encoding_max_length (0:
+-								 * undefined) */
+ 	bool		trnc;			/* truncate (=compress) key */
+ 
+ 	/* Methods */
+--- /dev/null
++++ b/contrib/btree_gist/expected/text_utf8.out
+@@ -0,0 +1,83 @@
++/*
++ * This test must be run in a database with UTF-8 encoding,
++ * because other encodings don't support all the characters used.
++ */
++SELECT getdatabaseencoding() <> 'UTF8'
++       AS skip_test \gset
++\if :skip_test
++\quit
++\endif
++CREATE EXTENSION pageinspect;
++-- Keys of two CJK ideographs, whose UTF-8 encodings all begin with the
++-- same byte.  They are inserted one at a time into an existing index, so
++-- that the penalty function places each of them.
++CREATE TEMP TABLE textutf8tmp (a text COLLATE "C");
++CREATE INDEX textutf8idx ON textutf8tmp USING gist (a);
++INSERT INTO textutf8tmp
++  SELECT chr(19968 + g / 100) || chr(19968 + g % 100)
++  FROM generate_series(0, 1999) g;
++SET enable_seqscan = off;
++SELECT count(*) FROM textutf8tmp WHERE a <  '丌丢';
++ count 
++-------
++  1234
++(1 row)
++
++SELECT count(*) FROM textutf8tmp WHERE a <= '丌丢';
++ count 
++-------
++  1235
++(1 row)
++
++SELECT count(*) FROM textutf8tmp WHERE a =  '丌丢';
++ count 
++-------
++     1
++(1 row)
++
++SELECT count(*) FROM textutf8tmp WHERE a >= '丌丢';
++ count 
++-------
++   766
++(1 row)
++
++SELECT count(*) FROM textutf8tmp WHERE a >  '丌丢';
++ count 
++-------
++   765
++(1 row)
++
++-- Every key is found exactly once
++SELECT count(*) FROM generate_series(0, 1999) g
++  WHERE (SELECT count(*) FROM textutf8tmp
++         WHERE a = chr(19968 + g / 100) || chr(19968 + g % 100)) = 1;
++ count 
++-------
++  2000
++(1 row)
++
++RESET enable_seqscan;
++-- The key ranges of the leaf pages should barely overlap, so that a lookup
++-- descends into one or two of them.  Count the keys that three or more
++-- leaf pages' ranges cover.
++WITH leaf AS (
++  SELECT min(t.a) AS lo, max(t.a) AS hi
++  FROM generate_series(0, pg_relation_size('textutf8idx') /
++                          current_setting('block_size')::int - 1) blkno,
++       LATERAL get_raw_page('textutf8idx', blkno) page,
++       LATERAL gist_page_opaque_info(page) o,
++       LATERAL gist_page_items_bytea(page) i
++       JOIN textutf8tmp t ON t.ctid = i.ctid
++  WHERE 'leaf' = ANY (o.flags)
++  GROUP BY blkno
++)
++SELECT count(*) AS keys,
++       count(*) FILTER (WHERE n >= 3) AS keys_in_3_or_more_leaves
++FROM (SELECT count(*) AS n
++      FROM textutf8tmp t JOIN leaf ON t.a BETWEEN leaf.lo AND leaf.hi
++      GROUP BY t.a) s;
++ keys | keys_in_3_or_more_leaves 
++------+--------------------------
++ 2000 |                        0
++(1 row)
++
+--- /dev/null
++++ b/contrib/btree_gist/expected/text_utf8_1.out
+@@ -0,0 +1,8 @@
++/*
++ * This test must be run in a database with UTF-8 encoding,
++ * because other encodings don't support all the characters used.
++ */
++SELECT getdatabaseencoding() <> 'UTF8'
++       AS skip_test \gset
++\if :skip_test
++\quit
+--- a/contrib/btree_gist/meson.build
++++ b/contrib/btree_gist/meson.build
+@@ -93,6 +93,7 @@ tests += {
+       'partitions',
+       'stratnum',
+       'without_overlaps',
++      'text_utf8',
+     ],
+   },
+ }
+--- /dev/null
++++ b/contrib/btree_gist/sql/text_utf8.sql
+@@ -0,0 +1,61 @@
++/*
++ * This test must be run in a database with UTF-8 encoding,
++ * because other encodings don't support all the characters used.
++ */
++SELECT getdatabaseencoding() <> 'UTF8'
++       AS skip_test \gset
++\if :skip_test
++\quit
++\endif
++
++CREATE EXTENSION pageinspect;
++
++-- Keys of two CJK ideographs, whose UTF-8 encodings all begin with the
++-- same byte.  They are inserted one at a time into an existing index, so
++-- that the penalty function places each of them.
++CREATE TEMP TABLE textutf8tmp (a text COLLATE "C");
++
++CREATE INDEX textutf8idx ON textutf8tmp USING gist (a);
++
++INSERT INTO textutf8tmp
++  SELECT chr(19968 + g / 100) || chr(19968 + g % 100)
++  FROM generate_series(0, 1999) g;
++
++SET enable_seqscan = off;
++
++SELECT count(*) FROM textutf8tmp WHERE a <  '丌丢';
++
++SELECT count(*) FROM textutf8tmp WHERE a <= '丌丢';
++
++SELECT count(*) FROM textutf8tmp WHERE a =  '丌丢';
++
++SELECT count(*) FROM textutf8tmp WHERE a >= '丌丢';
++
++SELECT count(*) FROM textutf8tmp WHERE a >  '丌丢';
++
++-- Every key is found exactly once
++SELECT count(*) FROM generate_series(0, 1999) g
++  WHERE (SELECT count(*) FROM textutf8tmp
++         WHERE a = chr(19968 + g / 100) || chr(19968 + g % 100)) = 1;
++
++RESET enable_seqscan;
++
++-- The key ranges of the leaf pages should barely overlap, so that a lookup
++-- descends into one or two of them.  Count the keys that three or more
++-- leaf pages' ranges cover.
++WITH leaf AS (
++  SELECT min(t.a) AS lo, max(t.a) AS hi
++  FROM generate_series(0, pg_relation_size('textutf8idx') /
++                          current_setting('block_size')::int - 1) blkno,
++       LATERAL get_raw_page('textutf8idx', blkno) page,
++       LATERAL gist_page_opaque_info(page) o,
++       LATERAL gist_page_items_bytea(page) i
++       JOIN textutf8tmp t ON t.ctid = i.ctid
++  WHERE 'leaf' = ANY (o.flags)
++  GROUP BY blkno
++)
++SELECT count(*) AS keys,
++       count(*) FILTER (WHERE n >= 3) AS keys_in_3_or_more_leaves
++FROM (SELECT count(*) AS n
++      FROM textutf8tmp t JOIN leaf ON t.a BETWEEN leaf.lo AND leaf.hi
++      GROUP BY t.a) s;

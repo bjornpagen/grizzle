@@ -76,7 +76,7 @@ time.
 | Transactions             | interactive, at the isolation level you pick                    | one SERIALIZABLE transaction per call, pipelined                                      |
 | Migrations               | drizzle-kit generates SQL from your schema changes, or pushes them | `grizzle generate` drafts SQL that you review and commit; nothing is pushed        |
 
-grizzle is opinionated in return. It runs on PostgreSQL 19 only, tested on 19rc2 with the patch under
+grizzle is opinionated in return. It runs on PostgreSQL 19 only, tested on 19rc2 with the patches under
 [PostgreSQL known issues](#postgresql-known-issues), and it owns its database: existing schemas, and tables created
 outside its migrations, are not supported. There are no nullable columns, outer joins, window functions, interactive
 transactions or raw SQL at run time. Read [Limits](#limits) before you adopt it.
@@ -1254,7 +1254,7 @@ None of it is a trigger or a policy you keep in step by hand. Migrations are pla
 
 ## Install
 
-You need PostgreSQL 19, Node 26 or later, and Effect 4.1. grizzle is tested on PostgreSQL 19rc2 with the patch under [PostgreSQL known issues](#postgresql-known-issues). PostgreSQL 19 GA is due on 2026-11-19; until hosted providers offer it, run the server yourself.
+You need PostgreSQL 19, Node 26 or later, and Effect 4.1. grizzle is tested on PostgreSQL 19rc2 with the patches under [PostgreSQL known issues](#postgresql-known-issues). PostgreSQL 19 GA is due on 2026-11-19; until hosted providers offer it, run the server yourself.
 
 grizzle is not a package: you take this repository as a git submodule, pinned by commit, and add its two packages to your pnpm workspace. Node runs grizzle's TypeScript source directly, so there is no build step, and `@bjornpagen/grizzle` and its subpaths resolve to the source with no export condition, in Node, TypeScript, Vite and Vitest alike.
 
@@ -3983,7 +3983,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 
 ### Scope
 
-- **PostgreSQL 19 only**, tested on 19rc2 with the patch under [PostgreSQL known issues](#postgresql-known-issues); **Node 26 or later**; **Effect 4.1**.
+- **PostgreSQL 19 only**, tested on 19rc2 with the patches under [PostgreSQL known issues](#postgresql-known-issues); **Node 26 or later**; **Effect 4.1**.
 - **grizzle owns the database.** Existing schemas, and tables created outside its migrations, are not supported.
 - **No nullable columns, outer joins, window functions, SKIP LOCKED or raw SQL at run time.** A query is written in grizzle's query language or not at all.
 - **No interactive transactions and no retries.** A transaction is one call; you run a `transient` call again yourself.
@@ -4056,9 +4056,11 @@ grizzle fits applications that own their data end to end, with rules worth decla
 
 ## PostgreSQL known issues
 
-**Imprecise GiST indexes over multibyte text.** Through PostgreSQL 19, btree_gist prices a UTF8 text key by the byte after the common prefix of its subtree's bounds, cut at a character boundary, so characters that share leading bytes, such as the CJK Unified Ideographs, price alike, and a GiST index led by such text is imprecise: a point lookup takes 14 buffers for one row of 20,000 two-ideograph keys, where ASCII keys take 3. grizzle builds such an index only for a no-overlap key or a span filter whose text field comes first. It stays valid; only its lookups cost more. PostgreSQL's master branch fixes this in commit b82d69abf6, for PostgreSQL 20, where the lookup takes 3 buffers; rebuild an older index there.
+**Imprecise GiST indexes over multibyte text.** Through PostgreSQL 19, btree_gist prices a UTF8 text key by the byte after the common prefix of its subtree's bounds, cut at a character boundary, so characters that share leading bytes, such as the CJK Unified Ideographs, price alike, and a GiST index led by such text is imprecise: a point lookup takes 14 buffers for one row of 20,000 two-ideograph keys, where ASCII keys take 3. grizzle builds such an index only for a no-overlap key or a span filter whose text field comes first. It stays valid; only its lookups cost more. PostgreSQL's master branch fixes this in commit b82d69abf6, for PostgreSQL 20, where the lookup takes 3 buffers; rebuild an older index there. The repository's build carries that commit backported to 19rc2 ([scripts/pg/patches/19rc2-btree-gist-multibyte-penalty.patch](scripts/pg/patches/19rc2-btree-gist-multibyte-penalty.patch)), with a regression test of the placement, so the indexes the test suite builds are precise; a stock 19 server's are not.
 
 **CHECKs and generated columns re-planned per statement.** Stock 19rc2 parses and plans every CHECK and stored generation expression in each statement that needs it, calling each IMMUTABLE function it reads and copying the result in. A closed relation is installed as such a function ([Closed relations](#closed-relations)): on one-row INSERTs into a bare table (measured on 19rc1, whose ExecRelCheck and ExecInitGenerated 19rc2 keeps byte for byte), a CHECK over a 33 KB constant adds 13 µs, one over 128 KiB 20 µs, and a generated column over 128 KiB 22 µs. The repository's build plans them once per relcache entry, as PostgreSQL does index expressions and domain checks ([scripts/pg/patches/19rc2-relcache-planned-check-and-generation.patch](scripts/pg/patches/19rc2-relcache-planned-check-and-generation.patch)), for 0.4 to 1.2 µs each, whether the constant is 363 bits or 128 KiB. A roster's domain is unaffected: a domain's check is planned once per backend. Only the cost differs, never the behaviour. The patch is grizzle's own and in no PostgreSQL release, so every repin carries it.
+
+**PL/pgSQL functions with many IFs or CASE arms compile in quadratic time.** PL/pgSQL learns an IF's, an ELSIF's and a CASE WHEN's line number after its body's statements have asked for theirs, and stock 19rc2 rescans the function's source from its start whenever a location goes backwards, so a function of N such statements compiles in O(N x length), at CREATE FUNCTION and again at its first call in each backend: one CASE of 40,000 arms takes about 17 s. grizzle's law functions hold such CASEs, so their first call in a backend pays it. The repository's build records where each line starts once and finds a location's line by binary search ([scripts/pg/patches/19rc2-plpgsql-lineno-binary-search.patch](scripts/pg/patches/19rc2-plpgsql-lineno-binary-search.patch)), for about 60 ms, with the same line numbers. The patch is grizzle's own, prepared for pgsql-hackers in [upstream/plpgsql-lineno-rescan](upstream/plpgsql-lineno-rescan) and not yet sent, so every repin carries it.
 
 ## Status
 
@@ -4072,7 +4074,7 @@ Everything runs natively on Linux, with no Docker. There is no build step: Node 
 
 ```sh
 pnpm install
-pnpm pg:build                     # build the pinned PostgreSQL 19rc2 from source, with its patch and pgvector
+pnpm pg:build                     # build the pinned PostgreSQL 19rc2 from source, with its patches and pgvector
 pnpm pg:init                      # create the local cluster on port 5433: TLS and SCRAM only
 pnpm pg:doctor                    # the go/no-go check of the cluster
 pnpm test                         # the unit and types tiers, which need no network

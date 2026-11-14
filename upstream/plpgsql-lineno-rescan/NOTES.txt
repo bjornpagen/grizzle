@@ -32,9 +32,10 @@ Status: ready to file, NOT filed. Nothing has been sent to any list or posted an
    - If master moves before filing, rebase and re-run the checks in EVIDENCE.txt 5. The dedicated checkout is ready
      (item 5).
 
-3. Grizzle carries no pin patch for this.
-   - Per issue #5 §11.6, it becomes a pin patch only if it is accepted for a release grizzle pins.
-   - The repin process (scripts/pg/pin.env, scripts/pg/patches/) is unchanged by this folder.
+3. Grizzle carries it as a pin patch: scripts/pg/patches/19rc2-plpgsql-lineno-binary-search.patch, in PG_PIN_PATCHES
+   since 2026-11-14, by the owner's decision, ahead of acceptance (issue #5 §11.6 had waited for a release to take it).
+   - It is this commit's code hunks; its test is appended to 19rc2's plpgsql_misc, which lacks master's preceding test
+     of unterminated constructs.
 
 4. Files.
    - v1-0001-...patch       The fix and its regression test, one commit on master b6178c942e (2026-11-03).
@@ -48,8 +49,7 @@ Status: ready to file, NOT filed. Nothing has been sent to any list or posted an
    - email.txt              The pgsql-hackers draft.
 
 5. Where the commit lives.
-   - ~/Documents/postgres-upstream-plpgsql-lineno-rescan, branch plpgsql-lineno-rescan, commit 34ed71b90b, on
-     origin/master b6178c942e. It is a partial clone of github.com/postgres/postgres. Its build directory build-check
-     (cassert) holds the verified build.
-   - The owner's other PostgreSQL checkouts (~/Documents/postgres-upstream*) were never modified.
+   - In this folder: v1-0001-...patch is commit 34ed71b90b on origin/master b6178c942e, and git am applies it to master.
+     The checkout it was made in, ~/Documents/postgres-upstream-plpgsql-lineno-rescan, was deleted on 2026-11-14, when
+     the machine kept one PostgreSQL source tree, ~/Documents/postgres.
    - The scratch databases used for the measurements (lane_5_upstream, upstream_lineno_check) were dropped.

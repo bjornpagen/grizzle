@@ -53,9 +53,10 @@ commit gate. The typecheck and lint, `pnpm check`, run by hand before a release.
   mode, a peer dependency of the shell that the application passes in as each connection's `driver`, and
   `pnpm install --frozen-lockfile` installs everything.
 - **`pnpm pg:build`** builds the pinned PostgreSQL, 19rc2, from source. The pin is in `scripts/pg/pin.env`, which
-  every script reads. The build verifies the tarball's SHA256, applies the pin's one source patch
-  (`scripts/pg/patches/`, checksummed in pin.env and applied without fuzz), the relcache-planned CHECK and generation
-  expressions. It runs PostgreSQL's own regression suites, and builds
+  every script reads. The build verifies the tarball's SHA256, applies the pin's three source patches
+  (`scripts/pg/patches/`, checksummed in pin.env and applied without fuzz, in order): the relcache-planned CHECK and
+  generation expressions, master's btree_gist multibyte-penalty fix (b82d69abf6) backported, and PL/pgSQL's
+  binary-search line lookup. It runs PostgreSQL's own regression suites, and builds
   pgvector at its pinned tag. The installation goes under `~/.local/opt/postgresql/<version>/`, the source under
   `~/.cache/grizzle/src/`. The build is made and tested in a staging tree beside the installation, which one rename puts
   in its place only once it is complete, so a failed build leaves the previous installation as it was. The cluster runs
