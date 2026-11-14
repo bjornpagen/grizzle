@@ -13,7 +13,7 @@ Status: ready to file, NOT filed. Nothing has been sent anywhere. The owner file
 
 2. What grizzle does about it now.
    - check/params.ts ParamCell is a parameter's unification cell. Its uses widen or fix its type through use and
-     useRelation, and the checker calls both on the cell of BindValue's "param" arm, a discriminated union, in
+     relationUse, and the checker calls both on the cell of BindValue's "param" arm, a discriminated union, in
      check/checker.ts. fallow reports both as unused (EVIDENCE.txt 2).
    - ParamCell stays a class. Its type is mutable state that only a checked use may change, and the private #entry is
      what keeps any other writer out. The alternatives are each worse:
@@ -23,9 +23,9 @@ Status: ready to file, NOT filed. Nothing has been sent anywhere. The owner file
        - a record of closures is a class in disguise that only hides the members from fallow.
      BindValue stays a union, because the bound value is a param, a literal or a column. The code is right, and fallow
      is the part that has to change.
-   - So .fallowrc.json keeps "use" and "useRelation" in usedClassMembers, with a pointer to this folder.
+   - So .fallowrc.json keeps "use" and "relationUse" in usedClassMembers, with a pointer to this folder.
    - The cost of the entry: it is global by name, and a scoped rule needs an extends or implements clause, which
-     ParamCell has neither of. Today no other class declares a use or useRelation member. A dead member named that on
+     ParamCell has neither of. Today no other class declares a use or relationUse member. A dead member named that on
      another class would go unreported (EVIDENCE.txt 4).
    - WriteParams.member is called on the params of a StatementPlaceholders, a union too
      (lower/conservative/context.ts). Its arms type params differently, an interface and a class, so it is credited
@@ -34,7 +34,7 @@ Status: ready to file, NOT filed. Nothing has been sent anywhere. The owner file
 3. When a fallow release fixes it.
    - Run `sh repro.sh <path to the new fallow binary>`. The fix is in when the report lists Cell.never alone.
      Cell.never is the control: a run that reports nothing found no unused member at all, and it proves nothing.
-   - Then delete "use" and "useRelation" from usedClassMembers, along with their sentence in the comment above it.
+   - Then delete "use" and "relationUse" from usedClassMembers, along with their sentence in the comment above it.
      Also delete "member" if `pnpm -s dead-code` stays clean without it. Delete this folder and its TODO.md line.
 
 4. Where it goes.

@@ -62,7 +62,7 @@ import {
 	type TextColumnUse,
 	type TypeUse,
 	type UsedType,
-	useColumns,
+	columnDomains,
 	usedNodes
 } from "#compiler/physical/ddl/domains.ts"
 import { snapshotGuardFunction } from "#compiler/physical/ddl/ledger.ts"
@@ -1255,12 +1255,12 @@ const addRole = (
 	const viewStatements: Array<SqlStatement> = []
 	for (const r of checked.entries.map(roleRelation)) {
 		if (r.kind === "closed") {
-			useColumns(b, r.relation.fields, use)
+			columnDomains(b, r.relation.fields, use)
 			continue
 		}
 		const plan = viewOf(b, cx, role, named, schema, r)
 		const own = emptyUse()
-		useColumns(b, plan.heading, own)
+		columnDomains(b, plan.heading, own)
 		const view = b.add(
 			{
 				kind: "view",
@@ -1271,7 +1271,7 @@ const addRole = (
 			},
 			[schemaObject, ...plan.reads, ...readsOf(b, [plan.create]), ...usedNodes(own)]
 		)
-		useColumns(b, plan.heading, use)
+		columnDomains(b, plan.heading, use)
 		views.push(plan.create.name)
 		viewStatements.push(plan.create)
 		after.push(view)
@@ -1282,7 +1282,7 @@ const addRole = (
 	for (const w of written) {
 		const plan = writePlan(b, cx, role, named, w)
 		const relation = w.relation.name
-		useColumns(b, w.relation.fields, use)
+		columnDomains(b, w.relation.fields, use)
 		appendAll(grants, plan.grants)
 		appendAll(after, [
 			b.table(relation),
@@ -1328,7 +1328,7 @@ const addRole = (
 				to: theory
 			})
 		}
-		useColumns(b, hold.update, use)
+		columnDomains(b, hold.update, use)
 		after.push(b.table(owner))
 		const membership = familyMembership(
 			mapNonEmpty(hold.families, (f) => {

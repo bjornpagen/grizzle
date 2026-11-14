@@ -111,6 +111,13 @@ const NAME_MARKERS = [
 	"__migrations"
 ] as const
 
+/**
+ * A name React's isHookName does not read as a hook's, /^use[A-Z0-9]/: a consumer's React Compiler compiles grizzle's
+ * source and refuses a conditional call of anything named like a hook, and grizzle has no hooks. id-match takes no
+ * look-ahead, so the pattern spells every other start.
+ */
+const HOOK_FREE_NAME = "^(?:[^u]|u$|u[^s]|us$|us[^e]|use$|use[^A-Z0-9])"
+
 const ASSERTIONS_MESSAGE =
 	"Import assertions from #test/support/assert.ts: its equalities type the expected value by the actual one."
 
@@ -283,6 +290,17 @@ export default defineConfig(
 						paths: [ZOD, SCHEMA_IMPORTS.path],
 						patterns: [PLATFORM_SDKS, SCHEMA_IMPORTS.pattern]
 					})
+				})
+			},
+			{
+				/** No declaration of the source a consumer compiles is named like a React hook (HOOK_FREE_NAME). */
+				files: ["packages/engine/src/**", "packages/grizzle/src/**"],
+				rules: active({
+					"eslint/id-match": [
+						"error",
+						HOOK_FREE_NAME,
+						{ properties: true, classFields: true, onlyDeclarations: true }
+					]
 				})
 			},
 			{

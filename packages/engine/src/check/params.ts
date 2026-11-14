@@ -112,7 +112,7 @@ export class ParamCell {
 	 * Records a use of the parameter as a relation with its declared heading; a heading of a stored-only field, which no
 	 * parameter carries, is refused.
 	 */
-	useRelation(heading: Heading, loc: SourceLoc): ParamId {
+	relationUse(heading: Heading, loc: SourceLoc): ParamId {
 		const stored = heading.find((c) => storedOnly(c.type))
 		if (stored !== undefined) {
 			return fail(
