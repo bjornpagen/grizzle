@@ -89,7 +89,12 @@ import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { draftCodes, migrationFolders, parsedMigrationName } from "#test/support/migrate/kit.ts"
+import {
+	draftCodes,
+	loginFileFindings,
+	migrationFolders,
+	parsedMigrationName
+} from "#test/support/migrate/kit.ts"
 import { owning } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -752,9 +757,9 @@ const findingsOf = (s: SchemaState): ReadonlyArray<FindingKind> => {
 		: neededOf(s).length > 0
 			? ["undeclaredDrop"]
 			: committed === undefined
-				? ["ungenerated", "servedMissing", "documentMissing"]
+				? ["ungenerated", ...Arr.map(loginFileFindings("missing"), (f) => f.kind)]
 				: !sameSpec(committed, s.current)
-					? ["ungenerated", "servedStale", "documentStale"]
+					? ["ungenerated", ...Arr.map(loginFileFindings("stale"), (f) => f.kind)]
 					: []
 	return [...files, ...draft]
 }

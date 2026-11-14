@@ -18,6 +18,7 @@ import {
 	String as Str
 } from "effect"
 import { check } from "#cli/check.ts"
+import { loginFiles } from "#cli/files.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
@@ -38,6 +39,7 @@ import {
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { loginFileFindings } from "#test/support/migrate/kit.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
@@ -53,9 +55,14 @@ import { upTo } from "#test/support/up-to.ts"
  * The oracle is the first draft of each set of relations, taken before any case: its refresh member's targets are the
  * set's relations in declared level order, whatever order and repeats a call names them in, so a case's draft is the
  * first draft of its call's set byte for byte. check passes when the configured call names the committed one's set, and
- * otherwise finds exactly one stale served file, naming the login and the refresh member; generate then writes the
+ * otherwise finds the login's files stale as the shared model states it (test/support/migrate/kit.ts loginFileFindings):
+ * its served file, naming the login and the refresh member, and its OpenAPI document, naming the login, which states
+ * what each program does with the relations it names, the refresh's targets among them. generate then writes the
  * configured set's first draft, drafting no folder and leaving snapshot.json and manifest.json byte for byte, since a
  * refresh member plans no access; and check passes again.
+ *
+ * Plant (~/.cache/grizzle-release/OUTPUTSIZE/plants/check-documents-unread.patch): check holds the served files alone,
+ * so a stale document goes unfound.
  */
 
 type Situation =
@@ -317,13 +324,17 @@ layer(NodeServices.layer, { excludeTestServices: true })("served refresh members
 									const read = yield* resolvedConfig(configured, `${ws}/${configName}`)
 									const [result] = yield* check(succeeded(read), ws)
 									const findings = defined(result, "the schema's check").findings
+									const expected = same ? [] : loginFileFindings("stale")
 									assert.deepEqual(
 										Arr.map(findings, (f) => ({ kind: f.kind, where: f.where })),
-										same ? [] : [{ kind: "servedStale", where: servedAt }],
+										Arr.map(expected, (f) => ({
+											kind: f.kind,
+											where: `${schemaDir}/${loginFiles[f.file].path(loginName)}`
+										})),
 										Formatter.format(calls)
 									)
-									for (const found of findings) {
-										const says = `login ${loginName}, first at program ${memberName} of role ${roleName}:`
+									for (const [found, model] of Arr.zip(findings, expected)) {
+										const says = `login ${loginName}, ${model.file === "served" ? `first at program ${memberName} of role ${roleName}:` : ""}`
 										assert.ok(
 											Str.startsWith(says)(found.problem),
 											`the finding names ${says}: ${Formatter.format(found)}`

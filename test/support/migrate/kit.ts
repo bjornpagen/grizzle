@@ -7,7 +7,8 @@ import {
 	String as Str
 } from "effect"
 import { formatTimestamp } from "#cli/clock.ts"
-import { loginFileKinds, loginFiles } from "#cli/files.ts"
+import { type LoginFileKind, loginFileKinds, loginFiles } from "#cli/files.ts"
+import type { refusalText } from "#cli/refusals.ts"
 import { rosterRenames } from "#cli/renames.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -181,6 +182,35 @@ export const migrationFolders = (entries: ReadonlyArray<string>): Array<string> 
 		Arr.filter(entries, (n) => !besideFolders.has(n) && !Str.startsWith(".")(n)),
 		Order.String
 	)
+
+/**
+ * How a login's committed files beside the snapshot (cli/files.ts loginFiles) stand to the ones generate writes now:
+ * `missing`, none committed; `stale`, committed before a change the OpenAPI document states too. The document is read
+ * off the served file (live/openapi.ts) and states the snapshot's fingerprint, as its `version`, and what every program
+ * does with the relations it names, a refresh's targets among them, so such a change leaves both files stale.
+ */
+export type LoginFilesState = "missing" | "stale"
+
+/** The finding `grizzle check` names a login's file of each kind by, in each LoginFilesState. */
+const loginFileFinding = {
+	served: { missing: "servedMissing", stale: "servedStale" },
+	openapi: { missing: "documentMissing", stale: "documentStale" }
+} as const satisfies {
+	readonly [K in LoginFileKind]: { readonly [S in LoginFilesState]: keyof typeof refusalText }
+}
+
+/** One of check's findings on a login's files: its kind, and the kind of file it names. */
+export interface LoginFileFinding {
+	readonly kind: keyof typeof refusalText
+	readonly file: LoginFileKind
+}
+
+/**
+ * What `grizzle check` finds of one login's files in `state` (LoginFilesState): each kind of file generate writes per
+ * login found so, in the order check reads them, the served file's finding, then its document's.
+ */
+export const loginFileFindings = (state: LoginFilesState): ReadonlyArray<LoginFileFinding> =>
+	Arr.map(loginFileKinds, (file) => ({ kind: loginFileFinding[file][state], file }))
 
 /** A migration name a test gives, parsed as `--name` is (folder.ts parseMigrationName): one it refuses is a defect of
  * the test. */
