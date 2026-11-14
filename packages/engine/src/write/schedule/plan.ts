@@ -738,11 +738,12 @@ const bothSides: ReadonlyArray<DeltaSide> = ["added", "removed"]
  * statement of the write added it. */
 const nettedAgainst = (side: DeltaSide): DeltaSide => (side === "added" ? "removed" : "added")
 
-/** One side of a relation's delta a statement makes: by a write of it, or by a family statement, which no read-back's
- * delta names (frontend/compile.ts refuses one) and which is never one half of a put. */
+/** One side of a relation's delta a statement of stratum `stratum` makes: by a write of it, or by a family statement,
+ * which no read-back's delta names (frontend/compile.ts refuses one). */
 type SideWrite = {
 	readonly relation: string
 	readonly side: DeltaSide
+	readonly stratum: StratumAt
 } & ({ readonly kind: "write"; readonly write: PlannedWrite } | { readonly kind: "family" })
 
 /** The sides of the relations' deltas a step's statements make: a write's by its op, a single statement's by its
@@ -754,6 +755,7 @@ const stepSides = (step: PlanStep): ReadonlyArray<SideWrite> => {
 			kind: "write",
 			relation: write.relation.name,
 			side,
+			stratum: write.action.stratum,
 			write
 		}))
 	switch (step.kind) {
@@ -763,7 +765,12 @@ const stepSides = (step: PlanStep): ReadonlyArray<SideWrite> => {
 			return step.writes.flatMap(ofWrite)
 		case "family":
 			return familyNodeRelations(step.node).flatMap((relation) =>
-				bothSides.map((side): SideWrite => ({ kind: "family", relation, side }))
+				bothSides.map((side): SideWrite => ({
+					kind: "family",
+					relation,
+					side,
+					stratum: step.stratum
+				}))
 			)
 		case "createCarrier":
 		case "fillMember":
@@ -777,16 +784,21 @@ const stepSides = (step: PlanStep): ReadonlyArray<SideWrite> => {
 	}
 }
 
-/** Whether `a` and `b` are the two statements of one put realized as the DELETE-then-insert pair: its displacing
- * deletion and its insert half. The deletion makes only removals and the insert half only additions, and no fact is
- * both: a displaced occupant differs in its payload from the one fact the put names at its key (write/delete/exact.ts
- * buildDisplacingDelete), and the insert half adds only facts the put names, so the pair's sides never cancel. */
-const putHalves = (a: SideWrite, b: SideWrite): boolean =>
-	a.kind === "write" &&
-	b.kind === "write" &&
-	a.write.action === b.write.action &&
-	((a.write.op === "displace" && b.write.op === "putInsert") ||
-		(a.write.op === "putInsert" && b.write.op === "displace"))
+/**
+ * Whether the rows of `other`, which makes the side `side` nets against (`nettedAgainst`), may cancel rows of `side` that
+ * `maker` makes (runtime/write/net.ts). A met fact is no met one where any addition of the write made it, one of its own
+ * stratum too: an insertion's generated class meets a fact its complete class added. An addition and a removal cancel
+ * only across strata, or where a family statement makes either: no write of a stratum removes a fact another of its
+ * writes adds (README "A row one stratum both adds and deletes stays"), since an exact deletion excepts the stratum's
+ * complete additions (`exceptsOf`, the host netting two enumerated sides) and removes only a stored fact, a put's
+ * displacing deletion removes only an occupant other than the fact the put names at its key (write/delete/exact.ts
+ * buildDisplacingDelete), and an addition makes present only a fact its stratum did not hold.
+ */
+const cancels = (side: DeltaSide, maker: SideWrite, other: SideWrite): boolean =>
+	side === "met" ||
+	maker.kind === "family" ||
+	other.kind === "family" ||
+	maker.stratum !== other.stratum
 
 /** Where a read-back's named side is made whole: the position of the one statement that makes it, or the crossing
  * that leaves it made by no one statement. */
@@ -804,9 +816,10 @@ type Completion =
  * over a delta some statement writes is evaluated inside the one statement S that makes every side it names, over S's
  * RETURNING (write/readback/deltas.ts deltaCte), and its delta never leaves S. That is sound exactly where:
  *
- * - every side it names is made whole by S: S is the only statement that makes that side of the relation, and every
- *   other statement that makes the side it nets against (`nettedAgainst`) is the other half of S's own put
- *   (`putHalves`), whose rows never cancel S's; so S's rows of the side are the netted delta (runtime/write/net.ts);
+ * - every side it names is made whole by S: S is the only statement that makes that side of the relation, and no
+ *   other statement that makes the side it nets against (`nettedAgainst`) may cancel S's rows (`cancels`): an addition
+ *   and a removal made by writes of one stratum never do; so S's rows of the side are the netted delta
+ *   (runtime/write/net.ts);
  * - no statement at or after S writes a stored relation it reads as state, directly, through a role's view, or through
  *   a cascading foreign key, S's own writes included: S's snapshot is from before S's own writes, and the state after S
  *   is the state after the last stratum only where no later statement changes it.
@@ -855,11 +868,9 @@ const placeReadBacks = (
 			return twice
 		}
 		const netting = makers(named.relation, nettedAgainst(named.side)).filter(
-			(other) => other.position !== maker.position
+			(other) => other.position !== maker.position && cancels(named.side, maker.write, other.write)
 		)
-		return netting.every((other) => putHalves(maker.write, other.write))
-			? { kind: "at", position: maker.position }
-			: twice
+		return netting.length === 0 ? { kind: "at", position: maker.position } : twice
 	}
 	/** The statement `read` rides, or the crossing that leaves it no statement to ride; none where it reads no delta a
 	 * statement writes. */

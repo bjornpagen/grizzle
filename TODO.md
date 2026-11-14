@@ -10,15 +10,20 @@ post-beta swarm's fixes for the next release.
 ### After the 1,000-children goal (the owner's pinned goal, 2026-11-10)
 - **A read-back over a delta no one statement makes is refused (CARRIER, 2026-11-11):** a read-back runs inside the
   one statement that makes its delta, whose rows exist nowhere else, and no delta carrier is left, so
-  ReadBackCrossesStatements refuses three crossings: a side two statements make or net (a delete and an insert of one
-  relation, one relation in two strata, an ownerPut's UPDATE and insert half); two sides two statements make (a put's
-  added and removed read in one read-back); and a relation it reads as state written at or after the delta's
-  statement (another part of a one-statement stratum, a write an immediate key holds after it, a later stratum).
-  Neither downstream reads one. Follow-ups, each on a downstream's ask: (1) state written in the riding statement
-  itself, read as that statement's snapshot less the keys it changed plus its added rows, which needs the isolation
-  extractor to push key equalities into UNION ALL arms; (2) a mutable put read back on both sides as one ON CONFLICT
-  DO UPDATE with RETURNING old; (3) an ownerPut's added side in one statement, its UPDATE and insert half touching
-  disjoint keys.
+  ReadBackCrossesStatements refuses three crossings: a side two statements make, or a statement of another stratum
+  nets (one relation in two strata, an ownerPut's UPDATE and insert half, an array or Stream inserted into a relation
+  with serial fields, whose complete and generated classes are a statement each; the writes of one stratum never net,
+  READBACK 2026-11-14, so an insert and a delete of one relation in one stratum, each read back, compile: the shape
+  of edullm's publish of PublishedTest); two sides two statements make (a put's added and removed read in one read-back); and a relation it reads
+  as state written at or after the delta's statement (another part of a one-statement stratum, a write an immediate
+  key holds after it, a later stratum). Follow-ups, each on a downstream's ask: (1) state written in the riding
+  statement itself, read as that statement's snapshot less the keys it changed plus its added rows, which needs the
+  isolation extractor to push key equalities into UNION ALL arms; (2) a mutable put read back on both sides as one ON
+  CONFLICT DO UPDATE with RETURNING old; (3) an ownerPut's added side in one statement, its UPDATE and insert half
+  touching disjoint keys; (4) an array of a relation with serial fields read back on added or met: both serial classes
+  in one statement, which needs the generated class to meet the complete class's rows of the same call at its arbiter
+  and at every other key without seeing them in its snapshot (a query member leaving the serial fields out compiles
+  now), or a crossing of its own naming the two classes.
 - **Member and shared sub-query carriers stay per call (CARRIER, 2026-11-11):** a stratum realized statement by
   statement still carries, in a temporary table created on every call, a described member two of its statements read
   (an immutable put's displacing deletion and insert half, an insert and its sequence advance, a deletion's D EXCEPT A)

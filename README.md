@@ -2715,10 +2715,13 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   statement at or after it writes a table the read-back reads. A stratum runs the writes of tables whose deltas a
   read-back reads after its others where its foreign keys allow. A delta of a table no statement writes is empty,
   and a read-back that reads no other runs after the change. Any other read-back is refused when the ChangeSet
-  compiles (`ReadBackCrossesStatements`), as its `crossing` says: a side two statements make, or one another statement
-  nets (a delete and an insert of one table, one table in two strata; a put's delete of what it replaces and its
-  insert are one statement each and never net): write the table in one action of one stratum, or read it back by its
-  key; two sides two statements make: read each in a read-back of its own; a table the read-back reads, written at or
+  compiles (`ReadBackCrossesStatements`), as its `crossing` says: a side two statements make, or one a statement of
+  another stratum nets (one table written in two strata; an array or a `Stream` inserted into a table with serial
+  columns, whose rows that state them and rows that leave them out are inserted by a statement each; the writes of one
+  stratum never net, since a row one stratum both adds and deletes stays, so a delete and an insert of one table there
+  each make their side whole): write the table in one action of one stratum, from a query whose rows leave out its
+  serial columns where it has any, or read it back by its key; two sides two statements make: read each in a read-back
+  of its own; a table the read-back reads, written at or
   after the statement making its delta: read `delta.added` of that table in its place, or write it in an earlier
   stratum with `ChangeSet.sequence`.
 - **Strata.** Every write in a stratum reads the state before it, so build order means nothing.
@@ -2812,8 +2815,10 @@ transaction's snapshot fails the call with 40001, whose retry's precheck refuses
 
 `delta.met` of a relation whose primary key holds a span is refused when the ChangeSet compiles: its exclusion
 constraint arbitrates only by `ON CONFLICT DO NOTHING`, so no statement can tell a row it met from one it made. A
-family's members are a type error, since their family statement writes them. A met side never crosses statements: a
-read-back over `delta.met(T)` rides the one statement that writes `T`, and one that cannot is refused.
+family's members are a type error, since their family statement writes them. A read-back over `delta.met(T)` rides
+the one statement that inserts into `T`, and one that cannot is refused: an array or a `Stream` of a table with serial
+columns is two insertions, one of the rows that state them and one of the rows that leave them out, so insert such
+rows from a query whose rows leave the serial columns out, such as one over a relation parameter of the call.
 
 ## Derived tables
 

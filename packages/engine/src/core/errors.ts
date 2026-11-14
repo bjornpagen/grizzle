@@ -665,9 +665,11 @@ export interface NamedSide {
 /**
  * Why no one statement of a write holds what a read-back reads (ReadBackCrossesStatements):
  *
- * - `sideWrittenTwice`: the side is made by two statements, or netted against facts another statement makes the other
- *   side of (a deletion beside an insertion of one relation, one relation written in two strata), so no statement's
- *   rows are the whole delta; a put's displacing deletion and its insert half are one statement each and never net;
+ * - `sideWrittenTwice`: the side is made by two statements, or netted against facts a statement of another stratum makes
+ *   the other side of, so no statement's rows are the whole delta: one relation written in two strata, or an array or
+ *   Stream inserted into a relation with serial fields, whose rows that state them and rows that leave them out are
+ *   inserted by a statement each; an addition and a removal made in one stratum never net, since a row one stratum both
+ *   adds and deletes stays;
  * - `sidesApart`: `first` and `second` are made whole by two different statements;
  * - `stateAfter`: the read-back reads `state`, which a statement at or after the one making `delta` writes, so that
  *   statement still sees `state` as it was before the change.
@@ -688,7 +690,7 @@ const readBackCrossingText = (read: string, crossing: ReadBackCrossing): string 
 	const evaluated = `read-back ${read} is evaluated inside the one statement that makes the delta it reads, whose rows exist nowhere else`
 	switch (crossing.kind) {
 		case "sideWrittenTwice":
-			return `${evaluated}, and ${namedSideText(crossing)} is made by more than one statement of the write, or netted against another's: write ${crossing.relation} in one action of one stratum, or read ${crossing.relation} back by its key after the change`
+			return `${evaluated}, and ${namedSideText(crossing)} is made by more than one statement of the write, or netted against a statement's of another stratum: write ${crossing.relation} in one action of one stratum, inserting it from a query whose rows leave out its serial fields where it has any (an array or a Stream inserts the rows that state them and the rows that leave them out by a statement each), or read ${crossing.relation} back by its key after the change`
 		case "sidesApart":
 			return `${evaluated}, and ${namedSideText(crossing.first)} and ${namedSideText(crossing.second)} are made by two statements: read each in a read-back of its own`
 		case "stateAfter":

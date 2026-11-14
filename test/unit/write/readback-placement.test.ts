@@ -15,7 +15,8 @@
  * an insert's or a delete's, or a put's two, its displacing deletion making removed facts and its insert half added
  * ones; an action beside it is one more; a second stratum's insert is one more. A stratum of one-statement writes of
  * two relations is one statement. A side is made whole by a statement exactly where that statement is its only maker
- * and every maker of the opposite side is the other half of its put; a read-back rides where every side it names, of a
+ * and no maker of the opposite side is of another stratum, since no fact is both added and removed by the writes of
+ * one stratum (README, "A row one stratum both adds and deletes stays"); a read-back rides where every side it names, of a
  * side some statement makes, is made whole by one statement and W, which the read-back reads as state, is written
  * before it: W written at that statement (one statement of both writes) or in a later stratum is state after it, and W
  * written beside M in a stratum of several statements is ordered first. The model's crossings are every side not made
@@ -23,14 +24,16 @@
  * exactly where there is one. A read-back naming no side any statement makes runs after the writes.
  *
  * Features: riding an insert, a delete, a put's insert half, a put's displacing deletion and one statement of two
- * writes; riding after W's state written beside M, by name before M and after it; running after the writes; and each
- * crossing refused.
+ * writes; riding beside the opposite action of M in its stratum; riding after W's state written beside M, by name
+ * before M and after it; running after the writes; and each crossing refused.
  *
  * Plants (~/.cache/grizzle-release/CARRIER/plants): placement-relation-writers (a delta's writers counted by relation,
  * as before, so a put's sides never ride), placement-no-netting (a side's one maker taken whole whatever nets against
  * it), placement-no-order-key (the canonical order with no key for the delta relations), placement-own-writes-settled
  * (the statement a read-back rides left out of the writes after it), placement-strata-settled (the writes of later
- * strata left out), placement-sides-together (a read-back of two sides placed at the first's statement).
+ * strata left out), placement-sides-together (a read-back of two sides placed at the first's statement); and
+ * ~/.cache/grizzle-release/READBACK/plants/placement-stratum-cancels.patch (an addition and a removal of one stratum
+ * taken to cancel, so a read-back beside the opposite action of its relation is refused).
  */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
@@ -95,14 +98,14 @@ const sketchGen: Gen<Sketch> = (source) => ({
  * a deletion's or a put's displacing deletion's. */
 type Maker = "insert" | "put" | "delete" | "displaced"
 
-/** A write the construction implies: the relation and side it makes, the statement it is part of, its kind, and
- * whether it is one half of the put of M. */
+/** A write the construction implies: the relation and side it makes, its stratum, the statement it is part of, and its
+ * kind. */
 interface Write {
 	readonly relation: string
 	readonly side: Side
+	readonly stratum: 1 | 2
 	readonly statement: string
 	readonly maker: Maker
-	readonly half: boolean
 }
 
 /** The writes a case implies, each in the statement the realization puts it in. */
@@ -113,32 +116,29 @@ const writesOf = (s: Sketch): ReadonlyArray<Write> => {
 		(stratum === 1 && firstSingle) || (stratum === 2 && secondSingle)
 			? `stratum ${stratum}`
 			: `stratum ${stratum}: ${own}`
-	const of = (
-		relation: string,
-		side: Side,
-		statement: string,
-		maker: Maker,
-		half: boolean
-	): Write => ({ relation, side, statement, maker, half })
+	const of = (relation: string, side: Side, stratum: 1 | 2, own: string, maker: Maker): Write => ({
+		relation,
+		side,
+		stratum,
+		statement: at(stratum, own),
+		maker
+	})
 	const first: ReadonlyArray<Write> =
 		s.op === "insert"
-			? [of("M", "added", at(1, "M"), "insert", false)]
+			? [of("M", "added", 1, "M", "insert")]
 			: s.op === "delete"
-				? [of("M", "removed", at(1, "M"), "delete", false)]
-				: [
-						of("M", "removed", at(1, "M displaced"), "displaced", true),
-						of("M", "added", at(1, "M put"), "put", true)
-					]
+				? [of("M", "removed", 1, "M", "delete")]
+				: [of("M", "removed", 1, "M displaced", "displaced"), of("M", "added", 1, "M put", "put")]
 	const beside: ReadonlyArray<Write> = !s.beside
 		? []
 		: s.op === "delete"
-			? [of("M", "added", at(1, "M beside"), "insert", false)]
-			: [of("M", "removed", at(1, "M beside"), "delete", false)]
-	const again: ReadonlyArray<Write> = s.again ? [of("M", "added", at(2, "M"), "insert", false)] : []
+			? [of("M", "added", 1, "M beside", "insert")]
+			: [of("M", "removed", 1, "M beside", "delete")]
+	const again: ReadonlyArray<Write> = s.again ? [of("M", "added", 2, "M", "insert")] : []
 	const other: ReadonlyArray<Write> =
 		s.written === "none"
 			? []
-			: [of(s.other, "added", at(s.written === "first" ? 1 : 2, s.other), "insert", false)]
+			: [of(s.other, "added", s.written === "first" ? 1 : 2, s.other, "insert")]
 	return [...first, ...beside, ...again, ...other]
 }
 
@@ -172,9 +172,9 @@ const verdictOf = (s: Sketch): Verdict => {
 		}
 		const netting = Arr.filter(
 			makers(n.relation, n.side === "added" ? "removed" : "added"),
-			(w) => w.statement !== maker.statement
+			(w) => w.stratum !== maker.stratum
 		)
-		return Arr.every(netting, (w) => w.half && maker.half) ? maker : undefined
+		return Arr.isReadonlyArrayEmpty(netting) ? maker : undefined
 	}
 	const [first] = named
 	if (first === undefined) {
@@ -358,6 +358,7 @@ type Feature =
 	| "rides a put's insert half"
 	| "rides a put's displacing deletion"
 	| "rides one statement of two writes"
+	| "rides beside the opposite action of M in its stratum"
 	| "rides after state written beside it, named before it"
 	| "rides after state written beside it, named after it"
 	| "runs after the writes"
@@ -400,6 +401,7 @@ describe("a ChangeSet's read-back", () => {
 							"rides a put's insert half",
 							"rides a put's displacing deletion",
 							"rides one statement of two writes",
+							"rides beside the opposite action of M in its stratum",
 							"rides after state written beside it, named before it",
 							"rides after state written beside it, named after it",
 							"runs after the writes",
@@ -456,6 +458,9 @@ describe("a ChangeSet's read-back", () => {
 							c.note(ridingNotes[verdict.maker])
 							if (verdict.writes.length > 1) {
 								c.note("rides one statement of two writes")
+							}
+							if (sketch.beside) {
+								c.note("rides beside the opposite action of M in its stratum")
 							}
 							if (sketch.reads === "state" && sketch.written === "first") {
 								c.note(
