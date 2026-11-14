@@ -522,15 +522,16 @@ export class AppliedEdited extends Data.TaggedError("AppliedEdited")<{
 	}
 }
 
-/** Why a pending folder cannot continue the ledger's chain (deploy/ledger/ledger.ts FolderRefusal). */
+/** Why a pending folder cannot continue the ledger's chain (deploy/ledger/decide.ts FolderRefusal). */
 type FolderRefusal =
 	| { readonly kind: "moved"; readonly source: string; readonly target: string }
 	| { readonly kind: "resized"; readonly started: number; readonly holds: number }
+	| { readonly kind: "redrafted"; readonly file: string }
 	| { readonly kind: "partialFirst"; readonly partial: string }
 	| { readonly kind: "sortsBefore"; readonly applied: string }
 	| { readonly kind: "source"; readonly source: string; readonly latest: string }
 
-/** `folder` of `schema` cannot continue the ledger's chain, for `refusal` (ledger/ledger.ts decideFolder). */
+/** `folder` of `schema` cannot continue the ledger's chain, for `refusal` (ledger/decide.ts decideFolder). */
 export class FolderRefused extends Data.TaggedError("FolderRefused")<{
 	readonly schema: string
 	readonly folder: string
@@ -543,6 +544,8 @@ export class FolderRefused extends Data.TaggedError("FolderRefused")<{
 				return `folder ${this.folder} was recorded with source ${refusal.source} and target ${refusal.target}, not the fingerprints its meta.json names`
 			case "resized":
 				return `folder ${this.folder} was started with ${refusal.started} files and now holds ${refusal.holds}`
+			case "redrafted":
+				return `folder ${this.folder} was redrafted after it started, and its meta.json does not record ${refusal.file} as it ran: a redraft resumes only when it records every completed file as that file's text holds it`
 			case "partialFirst":
 				return `folder ${refusal.partial} is partially applied; it resumes before ${this.folder} runs`
 			case "sortsBefore":

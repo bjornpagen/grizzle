@@ -272,6 +272,45 @@ export const lossDecisions = (
 		})
 	})
 
+/** Every statement a recorded step holds, in its place. */
+const stepStatements = (s: ReadStep): ReadonlyArray<Spelled> => {
+	switch (s.kind) {
+		case "statement":
+		case "loss":
+			return [s.statement]
+		case "confirm":
+			return s.statements
+	}
+}
+
+/**
+ * Whether a folder's meta records a file exactly as its text holds it: a drafted folder's record holds the file, and the
+ * file's statements are the record's every statement of it, in draft order, one for one, each written as its recorded
+ * statement (writtenAs: a placeholder filled by any value). So a loss left out or a confirmed group removed is no file
+ * the record states. A custom migration records no statement, so no file.
+ */
+export const recordsAsWritten = (
+	meta: ReadMeta,
+	file: { readonly name: string; readonly text: string }
+): boolean => {
+	if (meta.kind === "custom") {
+		return false
+	}
+	const recorded = meta.record.files.find((f) => f.name === file.name)
+	if (recorded === undefined) {
+		return false
+	}
+	const drafted = recorded.steps.flatMap(stepStatements)
+	const written = splitStatements(file.text)
+	return (
+		drafted.length === written.length &&
+		written.every((w, i) => {
+			const d = drafted[i]
+			return d !== undefined && writtenAs(d.tokens, statementTokens(w))
+		})
+	)
+}
+
 /** A committed folder's meta.json as readMeta reads it. */
 export type ReadMeta =
 	| (MetaFields & {

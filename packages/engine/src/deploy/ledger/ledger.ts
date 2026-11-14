@@ -21,7 +21,8 @@ import type {
 	ObjectName,
 	Revoke,
 	Select,
-	SqlStatement
+	SqlStatement,
+	Update
 } from "#compiler/sql/ast.ts"
 
 import {
@@ -30,6 +31,7 @@ import {
 	cast,
 	col,
 	cUtf8Collation,
+	eq,
 	ge,
 	lit,
 	objectName,
@@ -120,7 +122,10 @@ const ledgerColumnTypes: { readonly [C in LedgerColumn]: "text" | "integer" } = 
  * row; the latest applied folder's target is the database's snapshot, and a folder whose source is not
  * that fingerprint fails before any statement runs.
  *
- * Every row of a folder carries the folder's facts: its source and target and its file count.
+ * Every row of a folder carries the folder's facts: its source and target and its file count. A row is never deleted,
+ * and only one write updates rows: a partial folder resumed under a redraft (deploy/ledger/decide.ts) takes the
+ * redraft's target on every row and its meta.json's digest on the folder row, in the transaction of the file it resumes
+ * at (redraftFolder), so the ledger records the redraft exactly when that file committed.
  *
  * The ledger is created by the first migration of its schema: the drafted Setup file creates the schema, the
  * SERIALIZABLE guard's function, the ledger and its guard trigger, as every table grizzle installs carries one, so the
@@ -257,6 +262,12 @@ const insertRow = (schema: string, ordinal: "param" | "folder", onConflict: bool
 export interface LedgerStatements {
 	/** INSERT the folder row if absent: $1 folder, $2 source, $3 target, $4 files, $5 digest of meta.json. */
 	readonly recordFolder: EmittedSql
+	/**
+	 * UPDATE the rows of a folder resumed under a redraft (deploy/ledger/decide.ts Redraft), in the transaction of the
+	 * file it resumes at: every row of the folder $1 takes the redraft's target $2, and its folder row the digest $3 of
+	 * the redraft's meta.json.
+	 */
+	readonly redraftFolder: EmittedSql
 	/** INSERT a file row: $1 folder, $2 ordinal, $3 file, $4 source, $5 target, $6 files, $7 digest of the file. */
 	readonly recordFile: EmittedSql
 	/** Every row as its seven columns in ledgerColumns order, the integers as text, by folder and ordinal. */
@@ -284,6 +295,37 @@ const ledgerLock = (
 	mode,
 	wait
 })
+
+/** The rows of the folder $1 re-recorded under a redraft (LedgerStatements.redraftFolder). */
+const redraftUpdate = (schema: string): Update => {
+	const r1 = "r1"
+	return {
+		kind: "update",
+		with: undefined,
+		table: ledgerName(schema),
+		alias: r1,
+		set: [
+			{ column: "target", value: param(2, types.text) },
+			{
+				column: "digest",
+				value: {
+					kind: "case",
+					operand: undefined,
+					whens: [
+						{
+							when: eq(col(r1, "ordinal"), lit.int(BigInt(folderOrdinal), types.integer)),
+							result: param(3, types.text)
+						}
+					],
+					else: col(r1, "digest")
+				}
+			}
+		],
+		from: [],
+		where: eq(col(r1, "folder"), param(1, types.text)),
+		returning: []
+	}
+}
 
 /** The guard of the fingerprint at `$1`. */
 const guardCall = (schema: string): Expr =>
@@ -325,6 +367,7 @@ export const ledgerStatements = (schema: string): Result.Result<LedgerStatements
 		)
 		return {
 			recordFolder: emitted(insertRow(schema, "folder", true)),
+			redraftFolder: emitted(redraftUpdate(schema)),
 			recordFile: emitted(insertRow(schema, "param", false)),
 			rows: emitted(rows),
 			fence: emitted(ledgerLock(schema, "ACCESS SHARE", "nowait")),
@@ -347,22 +390,23 @@ export interface LedgerRow {
 	readonly digest: string
 }
 
-/** A recorded row's file and the digest of the text that ran: the folder row's meta.json at ordinal 0, else an SQL file. */
+/** A recorded file row: the SQL file of its ordinal that completed, and the digest of the text that ran. */
 interface RecordedFile {
 	readonly ordinal: number
 	readonly file: string
 	readonly digest: string
 }
 
-/** A folder the ledger records: the fingerprints and file count its folder row states, and every row of it,
- * the folder row first, by ordinal: what an apply compares the folder's texts with, so an applied file edited
- * afterwards is refused. Its file rows are the files that completed. */
+/** A folder the ledger records: the fingerprints and file count its folder row states, the digest of the meta.json its
+ * folder row records, and its file rows by ordinal, the files that completed: what an apply compares the folder's texts
+ * with, so an applied file edited afterwards is refused. */
 export interface RecordedFolder {
 	readonly folder: string
 	readonly source: SchemaFingerprint
 	readonly target: SchemaFingerprint
 	readonly files: number
-	readonly recorded: ReadonlyArray<RecordedFile>
+	readonly meta: string
+	readonly completed: ReadonlyArray<RecordedFile>
 }
 
 /** The ledger as an apply reads it: the folders every file of which completed, and the one folder a failed apply left
@@ -378,7 +422,7 @@ export interface LedgerState {
 
 /** The ordinals of a recorded folder's files that completed. */
 export const completedFiles = (f: RecordedFolder): ReadonlyArray<number> =>
-	f.recorded.flatMap((r) => (r.ordinal === folderOrdinal ? [] : [r.ordinal]))
+	f.completed.map((r) => r.ordinal)
 
 /** Folders by name, in code point order. */
 const byName = ([a]: readonly [string, unknown], [b]: readonly [string, unknown]): number =>
@@ -432,7 +476,9 @@ export const ledgerState = (
 				source: head.source,
 				target: head.target,
 				files: head.files,
-				recorded: list
+				meta: head.digest,
+				completed: list
+					.filter((r) => r.ordinal !== folderOrdinal)
 					.toSorted(mapInput(compareNumbers, (r: (typeof list)[number]) => r.ordinal))
 					.map((r) => ({ ordinal: r.ordinal, file: r.file, digest: r.digest }))
 			}
@@ -449,78 +495,3 @@ export const ledgerState = (
 			partial
 		}
 	})
-
-/** What a pending folder needs, checked before any statement runs. */
-interface FolderToApply {
-	readonly folder: string
-	readonly source: SchemaFingerprint
-	readonly target: SchemaFingerprint
-	/** The ordinals of its SQL files, in order. */
-	readonly ordinals: ReadonlyArray<number>
-}
-
-/**
- * Why a pending folder cannot continue the ledger's chain: the ledger recorded it with other fingerprints than its
- * meta.json names (`moved`); it was started with another number of files than it holds now (`resized`); another folder
- * is partially applied, and resumes first (`partialFirst`); it sorts before the latest applied folder (`sortsBefore`);
- * or it starts from another snapshot than the database's latest applied target (`source`).
- */
-type FolderRefusal =
-	| {
-			readonly kind: "moved"
-			readonly source: SchemaFingerprint
-			readonly target: SchemaFingerprint
-	  }
-	| { readonly kind: "resized"; readonly started: number; readonly holds: number }
-	| { readonly kind: "partialFirst"; readonly partial: string }
-	| { readonly kind: "sortsBefore"; readonly applied: string }
-	| {
-			readonly kind: "source"
-			readonly source: SchemaFingerprint
-			readonly latest: SchemaFingerprint
-	  }
-
-type FolderDecision =
-	| { readonly kind: "applied" }
-	| { readonly kind: "start" }
-	| { readonly kind: "resume"; readonly run: ReadonlyArray<number> }
-	| { readonly kind: "refused"; readonly refusal: FolderRefusal }
-
-const refused = (refusal: FolderRefusal): FolderDecision => ({ kind: "refused", refusal })
-
-export const decideFolder = (state: LedgerState, folder: FolderToApply): FolderDecision => {
-	/** Whether a recorded folder's rows name the fingerprints its meta.json names, and the refusal when they do not. */
-	const agrees = (recorded: RecordedFolder): boolean =>
-		recorded.source === folder.source && recorded.target === folder.target
-	const moved = (recorded: RecordedFolder): FolderDecision =>
-		refused({ kind: "moved", source: recorded.source, target: recorded.target })
-	const complete = state.complete.find((f) => f.folder === folder.folder)
-	if (complete !== undefined) {
-		return agrees(complete) ? { kind: "applied" } : moved(complete)
-	}
-	const partial = state.partial
-	if (partial !== undefined && partial.folder === folder.folder) {
-		const started = partial
-		if (!agrees(started)) {
-			return moved(started)
-		}
-		if (started.files !== folder.ordinals.length) {
-			return refused({ kind: "resized", started: started.files, holds: folder.ordinals.length })
-		}
-		const done = new Set(completedFiles(started))
-		return { kind: "resume", run: folder.ordinals.filter((o) => !done.has(o)) }
-	}
-	if (partial !== undefined) {
-		return refused({ kind: "partialFirst", partial: partial.folder })
-	}
-	/** Folders apply in name order, which is their creation order: the latest target and the partial
-	 * folder are both read by name, so a new folder that sorts before a recorded one is out of order. */
-	const last = state.complete.at(-1)
-	if (last !== undefined && compareCodePoints(folder.folder, last.folder) <= 0) {
-		return refused({ kind: "sortsBefore", applied: last.folder })
-	}
-	if (folder.source !== state.latest) {
-		return refused({ kind: "source", source: folder.source, latest: state.latest })
-	}
-	return { kind: "start" }
-}

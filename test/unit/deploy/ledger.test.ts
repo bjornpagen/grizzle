@@ -256,13 +256,11 @@ const modelState = (folders: ReadonlyArray<Folder>): LedgerState => {
 			source,
 			target,
 			files: f.ordinals.length,
-			recorded: [
-				{ ordinal: folderOrdinal, file: metaFileName, digest: `${f.name}/${metaFileName}` },
-				...Arr.map(Arr.take(f.ordinals, f.completed), (o) => {
-					const file = `${Str.padStart(2, "0")(String(o))}-step.sql`
-					return { ordinal: o, file, digest: `${f.name}/${file}` }
-				})
-			]
+			meta: `${f.name}/${metaFileName}`,
+			completed: Arr.map(Arr.take(f.ordinals, f.completed), (o) => {
+				const file = `${Str.padStart(2, "0")(String(o))}-step.sql`
+				return { ordinal: o, file, digest: `${f.name}/${file}` }
+			})
 		}
 		return { folder, complete: f.completed === f.ordinals.length }
 	})

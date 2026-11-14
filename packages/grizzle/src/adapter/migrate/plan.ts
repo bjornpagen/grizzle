@@ -13,12 +13,19 @@ import {
 } from "#adapter/migrate/errors.ts"
 import type { ParsedFile, ParsedFolder, ParsedTarget } from "#adapter/migrate/input.ts"
 import type { SchemaFingerprint } from "#compiler/plan/common.ts"
-import { findMarkers, lossDecisions, lossText } from "#compiler/plan/migration.ts"
-import { decideFolder, type LedgerState, type RecordedFolder } from "#compiler/plan/serve.ts"
+import {
+	decideFolder,
+	findMarkers,
+	lossDecisions,
+	lossText,
+	type Redraft
+} from "#compiler/plan/migration.ts"
+import type { LedgerState, RecordedFolder } from "#compiler/plan/serve.ts"
 
 /**
  * A folder the apply runs: one no apply started, every file of it, or the partially applied one, resumed at the files it
- * has not completed, in ordinal order.
+ * has not completed, in ordinal order, under the draft that started it (`resume`) or under a redraft, whose meta.json
+ * digest and target the ledger takes in the transaction of the first file it runs (`redraft`, decide.ts Redraft).
  */
 type FolderRun =
 	| { readonly kind: "start"; readonly folder: ParsedFolder }
@@ -26,6 +33,12 @@ type FolderRun =
 			readonly kind: "resume"
 			readonly folder: ParsedFolder
 			readonly files: ReadonlyArray<ParsedFile>
+	  }
+	| {
+			readonly kind: "redraft"
+			readonly folder: ParsedFolder
+			readonly files: ReadonlyArray<ParsedFile>
+			readonly record: Redraft
 	  }
 
 /**
@@ -36,14 +49,17 @@ type FolderRun =
  * and each one is decided against the state the earlier ones leave (decideFolder):
  *
  * - a completed folder is skipped;
- * - the partial folder resumes at its first file without a row: a rerun after a failure resumes at the failed file;
+ * - the partial folder resumes at its first file without a row: a rerun after a failure resumes at the failed file. A
+ *   partial folder redrafted since it started, its meta.json another, resumes under the redraft when its source is the
+ *   one the ledger records and its meta.json records every completed file as it ran (decide.ts);
  * - a new folder runs every file, but only when no folder is partial, when it sorts after every recorded folder, and
  *   when its source fingerprint is the latest target, which the folders before it in this apply advance; otherwise
  *   the whole apply is refused before any statement runs.
  *
  * Every recorded folder's texts must still be the ones that ran: each row's digest is compared with the SHA-256 of the
- * file of its ordinal, meta.json included, so an applied file edited, renamed or deleted afterwards, or a file added to
- * a folder that completed, is refused with every such file named, before anything else is decided (stage `edited`).
+ * file of its ordinal, a complete folder's meta.json included, so an applied file edited, renamed or deleted afterwards,
+ * or a file added to a folder that completed, is refused with every such file named, before anything else is decided
+ * (stage `edited`). The partial folder's meta.json is the decision's (decide.ts): a redraft's is another.
  * The database ran what the ledger records; the repository must say the same, so the fix is to restore it.
  *
  * The chain must end at the snapshot the application knows: after the last folder the latest target is that
@@ -76,10 +92,12 @@ const advance = (state: LedgerState, folder: ParsedFolder): LedgerState => {
 		source: folder.meta.source,
 		target: folder.meta.target,
 		files: folder.files.length,
-		recorded: [
-			{ ordinal: 0, file: "meta.json", digest: folder.metaDigest },
-			...Arr.map(folder.files, (f) => ({ ordinal: f.ordinal, file: f.name, digest: f.digest }))
-		]
+		meta: folder.metaDigest,
+		completed: Arr.map(folder.files, (f) => ({
+			ordinal: f.ordinal,
+			file: f.name,
+			digest: f.digest
+		}))
 	}
 	return { latest: folder.meta.target, complete: [...state.complete, done], partial: undefined }
 }
@@ -87,8 +105,8 @@ const advance = (state: LedgerState, folder: ParsedFolder): LedgerState => {
 /** The applied files of the recorded folders whose texts are no longer the ones that ran. */
 const appliedEdits = (target: ParsedTarget, state: LedgerState): ReadonlyArray<AppliedEdit> => {
 	/**
-	 * The edits of a recorded folder: its meta.json missing, when the directory no longer holds it; else each row whose
-	 * file is missing or edited, and what `beyond` finds of the folder's files beyond its rows.
+	 * The edits of a recorded folder: its meta.json missing, when the directory no longer holds it; else each file row
+	 * whose file is missing or edited, and what `beyond` finds of the folder's meta.json and of its files beyond its rows.
 	 */
 	const editsOf = (
 		recorded: RecordedFolder,
@@ -99,33 +117,39 @@ const appliedEdits = (target: ParsedTarget, state: LedgerState): ReadonlyArray<A
 			return [{ folder: recorded.folder, file: "meta.json", kind: "missing" }]
 		}
 		const folder = found.value
-		const at = (file: string, kind: AppliedEdit["kind"]): ReadonlyArray<AppliedEdit> => [
-			{ folder: folder.name, file, kind }
-		]
-		const rows = Arr.flatMap(recorded.recorded, (row): ReadonlyArray<AppliedEdit> => {
-			if (row.ordinal === 0) {
-				return row.digest === folder.metaDigest ? [] : at("meta.json", "edited")
-			}
+		const rows = Arr.flatMap(recorded.completed, (row): ReadonlyArray<AppliedEdit> => {
 			const file = Arr.findFirst(folder.files, (f) => f.ordinal === row.ordinal)
 			if (Option.isNone(file) || file.value.name !== row.file) {
-				return at(row.file, "missing")
+				return [{ folder: folder.name, file: row.file, kind: "missing" }]
 			}
-			return file.value.digest === row.digest ? [] : at(row.file, "edited")
+			return file.value.digest === row.digest
+				? []
+				: [{ folder: folder.name, file: row.file, kind: "edited" }]
 		})
 		return [...rows, ...beyond(folder)]
 	}
 	/**
-	 * A complete folder holds no file beyond its rows; the partial folder's files without a row are the ones it resumes
-	 * at.
+	 * A complete folder's meta.json is the one its folder row records, and it holds no file beyond its rows; the partial
+	 * folder's meta.json is its decision's (decide.ts), and its files without a row are the ones it resumes at.
 	 */
-	const added = (recorded: RecordedFolder) => (folder: ParsedFolder) =>
-		Arr.flatMap(folder.files, (f): ReadonlyArray<AppliedEdit> =>
-			Arr.some(recorded.recorded, (r) => r.ordinal === f.ordinal && r.file === f.name)
-				? []
-				: [{ folder: folder.name, file: f.name, kind: "added" }]
-		)
+	const completeEdits =
+		(recorded: RecordedFolder) =>
+		(folder: ParsedFolder): ReadonlyArray<AppliedEdit> => {
+			const meta: ReadonlyArray<AppliedEdit> =
+				recorded.meta === folder.metaDigest
+					? []
+					: [{ folder: folder.name, file: "meta.json", kind: "edited" }]
+			return [
+				...meta,
+				...Arr.flatMap(folder.files, (f): ReadonlyArray<AppliedEdit> =>
+					Arr.some(recorded.completed, (r) => r.ordinal === f.ordinal && r.file === f.name)
+						? []
+						: [{ folder: folder.name, file: f.name, kind: "added" }]
+				)
+			]
+		}
 	return [
-		...Arr.flatMap(state.complete, (recorded) => editsOf(recorded, added(recorded))),
+		...Arr.flatMap(state.complete, (recorded) => editsOf(recorded, completeEdits(recorded))),
 		...(state.partial === undefined ? [] : editsOf(state.partial, () => []))
 	]
 }
@@ -142,12 +166,12 @@ export const planApply = (
 	const runs: Array<FolderRun> = []
 	let at = state
 	for (const folder of target.folders) {
-		const decision = decideFolder(at, {
-			folder: folder.name,
-			source: folder.meta.source,
-			target: folder.meta.target,
-			ordinals: Arr.map(folder.files, (f) => f.ordinal)
-		})
+		const decision = decideFolder(at, folder)
+		/** The folder's files of the ordinals a resume runs. */
+		const filesOf = (run: ReadonlyArray<number>): ReadonlyArray<ParsedFile> => {
+			const ordinals = new Set(run)
+			return Arr.filter(folder.files, (f) => ordinals.has(f.ordinal))
+		}
 		switch (decision.kind) {
 			case "refused":
 				return Result.fail(
@@ -158,15 +182,17 @@ export const planApply = (
 			case "start":
 				runs.push({ kind: "start", folder })
 				break
-			case "resume": {
-				const run = new Set(decision.run)
+			case "resume":
+				runs.push({ kind: "resume", folder, files: filesOf(decision.run) })
+				break
+			case "redraft":
 				runs.push({
-					kind: "resume",
+					kind: "redraft",
 					folder,
-					files: Arr.filter(folder.files, (f) => run.has(f.ordinal))
+					files: filesOf(decision.run),
+					record: decision.record
 				})
 				break
-			}
 		}
 		at = advance(at, folder)
 	}

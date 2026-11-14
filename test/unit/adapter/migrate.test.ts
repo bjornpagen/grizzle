@@ -9,7 +9,9 @@
  *   that fault, at that folder.
  * - **The plan:** against a ledger of applied folders, the plan resumes the partial folder at its first file without a
  *   row, applies the rest, and refuses an applied file edited, renamed or deleted, or a file added to a completed
- *   folder, naming every such file.
+ *   folder, naming every such file. A partial folder redrafted since it started resumes under the redraft, its ledger
+ *   rows to take the redraft's meta.json digest and target, when it keeps its source and file count and its meta.json
+ *   records every completed file as it ran; otherwise it is refused.
  *
  * A folder's files as the reviewer leaves them: unedited, or each file's text through `edit`.
  *
@@ -18,6 +20,9 @@
  *
  * Plants (~/.cache/grizzle-release/BR04/plants): migrate-rollback-work-to.patch (ROLLBACK WORK TO read as a
  * transaction's rollback), migrate-applied-edit-unseen.patch (an applied file edited afterwards goes unnoticed).
+ * Plants (~/.cache/grizzle-release/LEDGERRESUME/plants): redraft-source-unchecked.patch (a redraft of another source
+ * resumes), redraft-record-unchecked.patch (a redraft that does not record a completed file as it ran resumes),
+ * partial-digest-unchecked.patch (the partial folder's completed files are not compared with the texts that ran).
  *
  * Features: each statement form and comment placement; each input fault; each plan's resume and refusal.
  */
@@ -46,9 +51,10 @@ import { type ParsedTarget, parseTarget, transactionControl } from "#adapter/mig
 import { planApply, runFiles } from "#adapter/migrate/plan.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { LedgerState, RecordedFolder } from "#compiler/deploy/ledger/ledger.ts"
 import { type MigrationFolder, writeMeta } from "#compiler/deploy/render/folder.ts"
-import { generateMigration } from "#compiler/deploy/render/generate.ts"
+import { type GenerateResult, generateMigration } from "#compiler/deploy/render/generate.ts"
 import { confirmMarker, placeholderMarker } from "#compiler/deploy/render/markers.ts"
 import type { InstallationNames } from "#compiler/deploy/render/variables.ts"
 import { emptyFingerprint, emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
@@ -784,12 +790,18 @@ describe("the input check before any connection", () => {
  * Over drawn targets and ledgers: the shop's chain of three folders, or a schema's first migration beside an abandoned
  * one; which of the chain's folders the target holds, each reviewed or not (markers left, or losses left undecided);
  * the snapshot it knows, the empty one or a version's; a ledger whose first folders completed and whose next is partial,
- * at any of its files; and a recorded file edited after it ran, or a file added to a folder that completed. The oracle
- * is the planner's documented order, restated over the chain's positions: an applied file edited, missing or added
- * stops it first; then each folder in name order is skipped when complete, resumed past its recorded files when
- * partial, started when it continues the ledger's latest target, and refused otherwise, as is a recorded folder whose
- * ledger rows name another target than its meta.json; the latest target must then be the known snapshot's; then no file
- * that runs may hold a marker, and no folder that runs a loss left undecided.
+ * at any of its files; and a recorded file edited after it ran, or a file added to a folder that completed. The partial
+ * folder's ledger rows record the draft that started it or another one (a redraft since), of its source or of another,
+ * its target kept or another, its file count the folder's or one more, and one of its completed files may have run
+ * with a statement no draft records. The oracle is the planner's documented order, restated over the chain's positions:
+ * an applied file edited, missing or added stops it first; then each folder in name order is skipped when complete,
+ * resumed past its recorded files when partial, started when it continues the ledger's latest target, and refused
+ * otherwise, as is a recorded folder whose ledger rows name another target than its meta.json. A partial folder of
+ * another file count is refused; one the ledger records under its own draft resumes; one redrafted since resumes under
+ * the redraft, the ledger to take the redraft's meta.json digest and target, exactly when the redraft keeps its source
+ * and records every completed file as it ran (none run with a statement no draft records, none holding a loss left
+ * commented), and is refused otherwise. The latest target must then be the known snapshot's; then no file that runs
+ * may hold a marker, and no folder that runs a loss left undecided.
  */
 type ChainName = "the shop" | "a first migration beside an abandoned schema"
 
@@ -798,6 +810,16 @@ type Edit =
 	| { readonly kind: "a recorded file edited"; readonly pick: number }
 	| { readonly kind: "a file added to a complete folder"; readonly pick: number }
 	| { readonly kind: "a recorded folder of another target"; readonly pick: number }
+
+/** The draft the ledger's rows record the partial folder under: the one that started it, or a redraft since, of its
+ * source or of another, its target kept or another. */
+type PartialDraft =
+	| { readonly kind: "its own" }
+	| {
+			readonly kind: "a redraft"
+			readonly source: "kept" | "another"
+			readonly target: "kept" | "another"
+	  }
 
 interface PlanCase {
 	readonly chain: ChainName
@@ -808,7 +830,15 @@ interface PlanCase {
 	readonly complete: number
 	readonly partial:
 		| { readonly kind: "none" }
-		| { readonly kind: "partial"; readonly recorded: number }
+		| {
+				readonly kind: "partial"
+				readonly recorded: number
+				readonly draft: PartialDraft
+				/** The file count its rows record: the folder's, or one more. */
+				readonly files: "kept" | "one more"
+				/** A completed file that ran with a statement no draft records, picked among them. */
+				readonly extra: Option.Option<number>
+		  }
 	readonly edit: Edit
 }
 
@@ -850,7 +880,40 @@ const planCaseGen: Gen<PlanCase> = (source) => {
 				: source.draw(
 						oneOf<PlanCase["partial"]>([
 							constant({ kind: "none" }),
-							map(int(0, 0xffff), (recorded) => ({ kind: "partial", recorded }))
+							(s): PlanCase["partial"] => ({
+								kind: "partial",
+								recorded: s.draw(int(0, 0xffff)),
+								draft: s.draw(
+									weighted<PartialDraft>([
+										[2, constant({ kind: "its own" })],
+										[
+											2,
+											(d) => ({
+												kind: "a redraft",
+												source: d.draw(
+													weighted<"kept" | "another">([
+														[3, constant("kept")],
+														[1, constant("another")]
+													])
+												),
+												target: d.draw(element(["kept", "another"]))
+											})
+										]
+									])
+								),
+								files: s.draw(
+									weighted<"kept" | "one more">([
+										[5, constant("kept")],
+										[1, constant("one more")]
+									])
+								),
+								extra: s.draw(
+									weighted<Option.Option<number>>([
+										[3, constant(Option.none())],
+										[1, map(int(0, 0xffff), Option.some)]
+									])
+								)
+							})
 						])
 					),
 		edit: source.draw(
@@ -877,31 +940,96 @@ const reviewedSource = (c: PlanCase, folder: MigrationFolder, i: number): Folder
 				: leavingLosses
 	)
 
-/** The ledger rows of a parsed folder's first `files` files, its folder row first. */
+/** The ledger rows of a parsed folder's first `files` files and its folder row. */
 const recordedOf = (folder: ParsedTarget["folders"][number], files: number): RecordedFolder => ({
 	folder: folder.name,
 	source: folder.meta.source,
 	target: folder.meta.target,
 	files: folder.files.length,
-	recorded: [
-		{ ordinal: 0, file: "meta.json", digest: folder.metaDigest },
-		...Arr.map(Arr.take(folder.files, files), (f) => ({
-			ordinal: f.ordinal,
-			file: f.name,
-			digest: f.digest
-		}))
-	]
+	meta: folder.metaDigest,
+	completed: Arr.map(Arr.take(folder.files, files), (f) => ({
+		ordinal: f.ordinal,
+		file: f.name,
+		digest: f.digest
+	}))
 })
+
+/**
+ * A case's partial folder, resolved against its chain: its index, how many of its files completed, the draft its rows
+ * record, its recorded file count, and the completed file that ran with a statement no draft records, by index.
+ */
+interface PartialFolder {
+	readonly index: number
+	readonly recorded: number
+	readonly draft: PartialDraft
+	readonly files: "kept" | "one more"
+	readonly extra: Option.Option<number>
+}
+
+const partialOf = (
+	c: PlanCase,
+	chain: ReadonlyArray<GenerateResult>
+): PartialFolder | undefined => {
+	const p = c.partial
+	if (p.kind === "none") {
+		return undefined
+	}
+	const recorded = p.recorded % defined(chain[c.complete], "the partial folder").folder.files.length
+	return {
+		index: c.complete,
+		recorded,
+		draft: p.draft,
+		files: p.files,
+		extra: recorded === 0 ? Option.none() : Option.map(p.extra, (pick) => pick % recorded)
+	}
+}
+
+/** The partial folder's rows as its draft records them, from the rows `rows` of the draft that started it. */
+const underDraft = (p: PartialFolder, rows: RecordedFolder): RecordedFolder => {
+	const files = p.files === "one more" ? rows.files + 1 : rows.files
+	const draft = p.draft
+	return draft.kind === "its own"
+		? { ...rows, files }
+		: {
+				...rows,
+				files,
+				meta: "the digest of another draft's meta.json",
+				source: draft.source === "another" ? strangerFingerprint : rows.source,
+				target: draft.target === "another" ? strangerFingerprint : rows.target
+			}
+}
+
+/** A fingerprint no folder of any chain starts from or reaches: a redraft's other source or target. */
+const strangerFingerprint = SchemaFingerprint(Str.repeat(64)("f"))
+
+/** The statement a completed file ran with that no draft records. */
+const unrecordedStatement = "\nSELECT 1;\n"
+
+/** The files of a drafted folder holding a loss of stored data, as its meta.json records them. */
+const lossFiles = (folder: MigrationFolder): ReadonlyArray<string> =>
+	folder.meta.kind === "drafted"
+		? Arr.flatMap(folder.meta.files, (f) =>
+				Arr.some(f.steps, (st) => st.kind === "loss") ? [f.name] : []
+			)
+		: []
+
+/** A run as the model states it: a redraft's with what its ledger rows take. */
+type RunVerdict = {
+	readonly folder: string
+	readonly ordinals: ReadonlyArray<number>
+} & (
+	| { readonly kind: "start" | "resume" }
+	| {
+			readonly kind: "redraft"
+			readonly record: { readonly meta: string; readonly target: string }
+	  }
+)
 
 /** What the planner decides, as the model states it. */
 type PlanVerdict =
 	| {
 			readonly kind: "plan"
-			readonly runs: ReadonlyArray<{
-				readonly folder: string
-				readonly kind: "start" | "resume"
-				readonly ordinals: ReadonlyArray<number>
-			}>
+			readonly runs: ReadonlyArray<RunVerdict>
 			readonly after: string
 	  }
 	| {
@@ -918,6 +1046,11 @@ type PlanFeature =
 	| "every folder run from the empty snapshot"
 	| "the applied folders skipped"
 	| "a partial folder resumed"
+	| "a partial folder resumed under a redraft of another target"
+	| "a partial folder resumed under a redraft of its target"
+	| "a redraft of another source refused"
+	| "a redraft not recording a completed file refused"
+	| "a partial folder of another file count refused"
 	| "a folder started after a resumed one"
 	| "nothing to run"
 	| `refused ${Extract<PlanVerdict, { readonly kind: "refused" }>["reason"]}`
@@ -942,6 +1075,11 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 								"every folder run from the empty snapshot",
 								"the applied folders skipped",
 								"a partial folder resumed",
+								"a partial folder resumed under a redraft of another target",
+								"a partial folder resumed under a redraft of its target",
+								"a redraft of another source refused",
+								"a redraft not recording a completed file refused",
+								"a partial folder of another file count refused",
 								"a folder started after a resumed one",
 								"nothing to run",
 								"refused AppliedEdited",
@@ -962,7 +1100,21 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 					(c, k) =>
 						Effect.sync(() => {
 							const chain = chainOf(c.chain)
-							const sources = Arr.map(chain, (g, i) => reviewedSource(c, g.folder, i))
+							const partial = partialOf(c, chain)
+							/** Every folder as the reviewer left it, the extra statement of the partial folder's file in it. */
+							const sources = Arr.map(chain, (g, i) => {
+								const reviewed = reviewedSource(c, g.folder, i)
+								const extra = partial?.index === i ? partial.extra : Option.none()
+								return Option.match(extra, {
+									onNone: () => reviewed,
+									onSome: (at) => ({
+										...reviewed,
+										files: Arr.map(reviewed.files, (f, j) =>
+											j === at ? { ...f, text: `${f.text}${unrecordedStatement}` } : f
+										)
+									})
+								})
+							})
 							/** Every folder as it ran, which the ledger's digests record. */
 							const ran = succeeded(
 								parseTarget(
@@ -974,15 +1126,6 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 									stemsInstallation
 								)
 							).folders
-							const partial =
-								c.partial.kind === "partial"
-									? {
-											index: c.complete,
-											recorded:
-												c.partial.recorded %
-												defined(ran[c.complete], "the partial folder").files.length
-										}
-									: undefined
 							const recordedFolders = [
 								...Arr.map(Arr.take(ran, c.complete), (f) => ({
 									folder: f,
@@ -1017,7 +1160,10 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 								partial:
 									partial === undefined
 										? undefined
-										: recordedAt(partial.index, defined(ran[partial.index]), partial.recorded)
+										: underDraft(
+												partial,
+												recordedAt(partial.index, defined(ran[partial.index]), partial.recorded)
+											)
 							}
 							/** The edit, resolved: the recorded file it edits, or the complete folder a file is added to. */
 							const recordedFiles = Arr.flatMap(recordedFolders, ({ folder, files }) =>
@@ -1056,6 +1202,22 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 							}))
 							const known: DeploySnapshot =
 								c.known < 0 ? emptyShop : defined(chain[c.known], "the known version").snapshot
+							/** The model's notes of the partial folder's decision. */
+							const notes: Array<PlanFeature> = []
+							/** Whether a redraft fails to record a completed file of the partial folder as it ran: one ran with a
+							 * statement no draft records, or holds a loss its reviewer left commented. */
+							const unrecorded = (p: PartialFolder): boolean => {
+								const drafted = defined(chain[p.index], "the partial folder").folder
+								const losses = lossFiles(drafted)
+								return (
+									Option.isSome(p.extra) ||
+									(c.chain === "a first migration beside an abandoned schema" &&
+										c.reviewed[p.index] !== true &&
+										Arr.some(Arr.take(drafted.files, p.recorded), (f) =>
+											Arr.contains(losses, f.name)
+										))
+								)
+							}
 							const verdict = ((): PlanVerdict => {
 								const recordedIndices = [
 									...indices(c.complete),
@@ -1076,14 +1238,11 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 								) {
 									return { kind: "refused", reason: "AppliedEdited" }
 								}
-								const runs: Array<{
-									readonly index: number
-									readonly kind: "start" | "resume"
-									readonly ordinals: ReadonlyArray<number>
-								}> = []
+								const runs: Array<{ readonly index: number; readonly run: RunVerdict }> = []
 								let latest = c.complete - 1
 								for (const i of indices(chain.length)) {
-									if (i === moved && c.held[i] === true) {
+									const redrafted = partial?.index === i && partial.draft.kind === "a redraft"
+									if (i === moved && c.held[i] === true && !redrafted) {
 										return { kind: "refused", reason: "FolderRefused" }
 									}
 									if (c.held[i] !== true || i < c.complete) {
@@ -1092,13 +1251,37 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 									const folder = defined(ran[i])
 									const ordinals = Arr.map(folder.files, (f) => f.ordinal)
 									if (partial?.index === i) {
-										runs.push({
-											index: i,
-											kind: "resume",
-											ordinals: Arr.drop(ordinals, partial.recorded)
-										})
+										const draft = partial.draft
+										const run = Arr.drop(ordinals, partial.recorded)
+										if (draft.kind === "a redraft" && draft.source === "another") {
+											notes.push("a redraft of another source refused")
+											return { kind: "refused", reason: "FolderRefused" }
+										}
+										if (partial.files === "one more") {
+											notes.push("a partial folder of another file count refused")
+											return { kind: "refused", reason: "FolderRefused" }
+										}
+										if (draft.kind === "its own") {
+											runs.push({
+												index: i,
+												run: { folder: folder.name, kind: "resume", ordinals: run }
+											})
+										} else if (unrecorded(partial)) {
+											notes.push("a redraft not recording a completed file refused")
+											return { kind: "refused", reason: "FolderRefused" }
+										} else {
+											runs.push({
+												index: i,
+												run: {
+													folder: folder.name,
+													kind: "redraft",
+													ordinals: run,
+													record: { meta: folder.metaDigest, target: folder.meta.target }
+												}
+											})
+										}
 									} else if (i === latest + 1) {
-										runs.push({ index: i, kind: "start", ordinals })
+										runs.push({ index: i, run: { folder: folder.name, kind: "start", ordinals } })
 									} else {
 										return { kind: "refused", reason: "FolderRefused" }
 									}
@@ -1107,8 +1290,8 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 								if (latest !== c.known) {
 									return { kind: "refused", reason: "SnapshotUnreached" }
 								}
-								const runText = (run: (typeof runs)[number]) =>
-									Arr.flatMap(defined(ran[run.index]).files, (f) =>
+								const runText = ({ index, run }: (typeof runs)[number]) =>
+									Arr.flatMap(defined(ran[index]).files, (f) =>
 										Arr.contains(run.ordinals, f.ordinal) ? [f.text] : []
 									)
 								if (Arr.some(runs, (run) => Arr.some(runText(run), marked))) {
@@ -1122,11 +1305,7 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 								}
 								return {
 									kind: "plan",
-									runs: Arr.map(runs, (run) => ({
-										folder: defined(ran[run.index]).name,
-										kind: run.kind,
-										ordinals: run.ordinals
-									})),
+									runs: Arr.map(runs, ({ run }) => run),
 									after: known.fingerprint
 								}
 							})()
@@ -1138,17 +1317,19 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 								const refusal: MigrateError = failed(planned)
 								assert.equal(refusal.reason._tag, verdict.reason)
 								k.note(`refused ${verdict.reason}`)
+								Arr.forEach(notes, (n) => k.note(n))
 								return
 							}
 							const plan = succeeded(planned)
 							assert.deepEqual<PlanVerdict>(
 								{
 									kind: "plan" as const,
-									runs: Arr.map(plan.runs, (r) => ({
-										folder: r.folder.name,
-										kind: r.kind,
-										ordinals: Arr.map(runFiles(r), (f) => f.ordinal)
-									})),
+									runs: Arr.map(plan.runs, (r): RunVerdict => {
+										const ordinals = Arr.map(runFiles(r), (f) => f.ordinal)
+										return r.kind === "redraft"
+											? { folder: r.folder.name, kind: r.kind, ordinals, record: r.record }
+											: { folder: r.folder.name, kind: r.kind, ordinals }
+									}),
 									after: plan.after
 								},
 								verdict
@@ -1169,9 +1350,21 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 							}
 							if (Arr.some(plan.runs, (r) => r.kind === "resume")) {
 								k.note("a partial folder resumed")
-								if (Arr.some(plan.runs, (r) => r.kind === "start")) {
-									k.note("a folder started after a resumed one")
+							}
+							for (const r of plan.runs) {
+								if (r.kind === "redraft") {
+									k.note(
+										state.partial?.target === r.record.target
+											? "a partial folder resumed under a redraft of its target"
+											: "a partial folder resumed under a redraft of another target"
+									)
 								}
+							}
+							if (
+								Arr.some(plan.runs, (r) => r.kind !== "start") &&
+								Arr.some(plan.runs, (r) => r.kind === "start")
+							) {
+								k.note("a folder started after a resumed one")
 							}
 						})
 				)

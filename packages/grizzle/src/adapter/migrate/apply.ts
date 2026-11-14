@@ -51,6 +51,7 @@ import {
 	type LedgerRead,
 	ledgerOfAnswers,
 	ledgerReads,
+	redraftParams,
 	statementsFor
 } from "#adapter/migrate/ledger.ts"
 import { type ApplyPlan, planApply, runFiles } from "#adapter/migrate/plan.ts"
@@ -114,10 +115,11 @@ import type { DeploySnapshot, LedgerStatements } from "#compiler/plan/serve.ts"
  *
  * - a transactional file: one flight, BEGIN ISOLATION LEVEL SERIALIZABLE, the ledger's ACCESS EXCLUSIVE lock, each
  *   statement in order, then the folder's row if absent and the file's row, then COMMIT; any failure rolls the whole
- *   file back, its row with it;
+ *   file back, its row with it. The first file a resume under a redraft runs re-records its folder first among its
+ *   rows (ledger/ledger.ts redraftFolder), so the ledger takes the redraft exactly when that file commits;
  * - a no-transaction file (`-- grizzle: no-transaction` first): its folder's row if absent, under the ledger's lock, in
- *   a transaction of its own; then each statement alone, in autocommit, in a step of its own; then the rows, under the
- *   lock, in a transaction of their own. Each statement is a step because whether it runs depends on the answer of the
+ *   a transaction of its own; then each statement alone, in autocommit, in a step of its own; then the rows, a
+ *   redraft's re-record among them, under the lock, in a transaction of their own. Each statement is a step because whether it runs depends on the answer of the
  *   one before it: a failure stops at the failing statement, so a failed CREATE INDEX CONCURRENTLY never lets a later
  *   statement run, and a rerun runs the file again from its first statement, which its drafted statements make safe;
  * - a folder with no file (an untouched custom migration) records its folder row alone, under the lock.
@@ -469,7 +471,8 @@ const brokenLaw = (laws: FolderLaws): ((failure: StatementFailure) => LawId | un
 }
 
 /**
- * Runs one file and records it, a refusal naming the law it breaks (`broken`, brokenLaw).
+ * Runs one file and records it, a refusal naming the law it breaks (`broken`, brokenLaw), its rows after the ledger
+ * statements `redraft` its transaction runs first among them: a redraft's re-record of its folder, or none.
  *
  * Each statement alone, in a step of its own: whether it runs depends on the one before it (see the header).
  */
@@ -480,7 +483,8 @@ const runFile = (
 	folder: ParsedFolder,
 	file: ParsedFile,
 	ledger: LedgerTable,
-	broken: (failure: StatementFailure) => LawId | undefined
+	broken: (failure: StatementFailure) => LawId | undefined,
+	redraft: ReadonlyArray<BatchStatement>
 ): Effect.Effect<void, MigrateError> => {
 	const at: RecordPlace = { kind: "file", folder: folder.name, file: file.name }
 	const fence = fenceOf(statements, ledger)
@@ -513,6 +517,7 @@ const runFile = (
 				: new FileCommitLost({ schema, at })
 		)
 	const record = [
+		...redraft,
 		oneShotStatement(statements.recordFolder.text, folderParams(folder)),
 		oneShotStatement(statements.recordFile.text, fileParams(folder, file))
 	]
@@ -656,9 +661,15 @@ const runPlan = Effect.fn("runPlan")(function* (
 			ledger = "present"
 		}
 		const broken = brokenLaw(r.folder.meta.laws)
+		/** A redraft's re-record, which the transaction of the first file it runs carries, and no other. */
+		let redraft: ReadonlyArray<BatchStatement> =
+			r.kind === "redraft"
+				? [oneShotStatement(statements.redraftFolder.text, redraftParams(r.folder, r.record))]
+				: []
 		for (const f of runFiles(r)) {
-			yield* runFile(session, plan.schema, statements, r.folder, f, ledger, broken)
+			yield* runFile(session, plan.schema, statements, r.folder, f, ledger, broken, redraft)
 			ledger = "present"
+			redraft = []
 		}
 	}
 	return {
@@ -669,7 +680,7 @@ const runPlan = Effect.fn("runPlan")(function* (
 		applied: Arr.map(plan.runs, (r) => ({
 			folder: r.folder.name,
 			files: Arr.map(runFiles(r), (f) => f.name),
-			resumed: r.kind === "resume"
+			resumed: r.kind !== "start"
 		}))
 	}
 })
