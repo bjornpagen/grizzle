@@ -25,6 +25,7 @@ export const update = Command.make(
     Input.mergeBody({
       body: flags.body,
       bodyFile: flags.bodyFile,
+      constants: {},
       fields: { "/address/city": flags.addressCity, "/name": flags.name },
       required: true,
       schema: UserUpdate,
@@ -108,6 +109,7 @@ export const setAvatar = Command.make(
           Input.mergeBody({
             body: flags.body,
             bodyFile: flags.bodyFile,
+            constants: {},
             fields: { "/url": flags.url },
             required: true,
             schema: Avatar,

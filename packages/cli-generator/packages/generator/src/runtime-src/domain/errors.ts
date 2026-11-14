@@ -135,13 +135,20 @@ export class RedirectRefused extends Schema.TaggedError<RedirectRefused>()("Redi
 }
 
 /**
- * Sequential decoding failed, or a response body stream went idle.
+ * Sequential decoding failed, a response body stream went idle, or an event stream sent an event its contract does not
+ * admit (`unexpectedEvent`).
  */
 export class ResponseStreamError extends Schema.TaggedError<ResponseStreamError>()(
 	"ResponseStreamError",
 	{
 		itemIndex: Schema.optionalKey(Schema.Int),
-		reason: Schema.Literals(["truncated", "recordTooLarge", "invalidFraming", "idleTimeout"])
+		reason: Schema.Literals([
+			"truncated",
+			"recordTooLarge",
+			"invalidFraming",
+			"idleTimeout",
+			"unexpectedEvent"
+		])
 	}
 ) {
 	readonly [Runtime.errorExitCode] = 5

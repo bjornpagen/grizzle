@@ -50,9 +50,9 @@ import type { Api, MediaAlternative, Operation, Parameter } from "#model/entitie
 import { formatPointer } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { constantOf } from "#names/constant.ts"
-import type { ConstantValue } from "#names/constant.ts"
 import { packageImports, rootNamespaceImports, runtimeNamespaces } from "#names/domain.ts"
-import { isPositionalBody } from "#names/flatten.ts"
+import type { BodyConstant } from "#names/flatten.ts"
+import { flattenBody, isPositionalBody } from "#names/flatten.ts"
 import { foldIdentifier } from "#names/fold.ts"
 import type {
 	NamePlan,
@@ -1105,6 +1105,15 @@ const alternativeBody = (
 				structured ? "Input.structuredBody" : "Input.mergeBody",
 				obj([
 					...sources,
+					[
+						"constants",
+						obj(
+							Arr.map(bodyConstantsOf(context, alternative), (constant) => [
+								constant.pointer,
+								str(jsonTextOf(constant.value))
+							])
+						)
+					],
 					["fields", obj(fields)],
 					["required", bool(required)],
 					["schema", ident(yield* identifier(schemaName))]
@@ -1632,44 +1641,90 @@ const record = (entries: Readonly<Record<string, string>>): Expr =>
  * The operation's constant parameters, each with the value the request sends (`constantOf`), in
  * parameter order.
  */
-const constantsOf = (
-	command: PlannedCommand,
-	defs: Defs
-): ReadonlyArray<readonly [Parameter, ConstantValue]> =>
-	Arr.flatMap(command.operation.parameters, (parameter) =>
-		Option.match(constantOf(defs, parameter), {
-			onNone: () => [],
-			onSome: (value) => [[parameter, value] as const]
-		})
-	)
+/**
+ * The body members of a JSON or form alternative that admit one value (`flattenBody`'s constants), which its merge sends
+ * with no flag; none for any other alternative, or one whose schema the walk cannot follow.
+ */
+const bodyConstantsOf = (
+	store: FieldStore,
+	alternative: MediaAlternative
+): ReadonlyArray<BodyConstant> =>
+	alternative.codec === "json" || alternative.codec === "form"
+		? Result.match(flattenBody(store.defs, alternative, store.line), {
+				onFailure: () => [],
+				onSuccess: (flattened) => flattened.constants
+			})
+		: []
+
+/** A value a command sends with no flag: where it goes, its use site, its name on the wire and its value as JSON text. */
+interface ConstantSite {
+	readonly location: string
+	readonly pointer: string
+	readonly value: string
+	readonly wireName: string
+}
 
 /**
- * The `--describe` binding of each constant parameter: where it goes, its name and use site, and
- * its value as JSON text.
+ * Every value the command sends with no flag: each constant parameter, in parameter order, then each body member that
+ * admits one value, in media then member order, a member two alternatives share once. Each is where it goes, its use
+ * site, its name on the wire (a body member's RFC 6901 pointer) and its value as JSON text.
  */
-const describeConstants = (command: PlannedCommand, defs: Defs): Expr =>
+const constantsOf = (command: PlannedCommand, store: FieldStore): ReadonlyArray<ConstantSite> => {
+	const parameters = Arr.flatMap(command.operation.parameters, (parameter) =>
+		Option.match(constantOf(store.defs, parameter), {
+			onNone: (): ReadonlyArray<ConstantSite> => [],
+			onSome: (value): ReadonlyArray<ConstantSite> => [
+				{
+					location: parameter.location,
+					pointer: parameter.origin.pointer,
+					value: jsonTextOf(value),
+					wireName: parameter.wireName
+				}
+			]
+		})
+	)
+	const body = Arr.dedupeWith(
+		Arr.flatMap(command.operation.body?.alternatives ?? [], (alternative) =>
+			Arr.map(bodyConstantsOf(store, alternative), (constant): ConstantSite => ({
+				location: "body",
+				pointer: alternative.origin.pointer,
+				value: jsonTextOf(constant.value),
+				wireName: constant.pointer
+			}))
+		),
+		(one: ConstantSite, two: ConstantSite) =>
+			one.wireName === two.wireName && one.value === two.value
+	)
+
+	return [...parameters, ...body]
+}
+
+/**
+ * The `--describe` binding of each constant: where it goes, its name and use site, and its value
+ * as JSON text.
+ */
+const describeConstants = (command: PlannedCommand, store: FieldStore): Expr =>
 	arr(
-		Arr.map(constantsOf(command, defs), ([parameter, value]) =>
+		Arr.map(constantsOf(command, store), (constant) =>
 			obj([
-				["location", str(parameter.location)],
-				["pointer", str(parameter.origin.pointer)],
-				["value", str(jsonTextOf(value))],
-				["wireName", str(parameter.wireName)]
+				["location", str(constant.location)],
+				["pointer", str(constant.pointer)],
+				["value", str(constant.value)],
+				["wireName", str(constant.wireName)]
 			])
 		)
 	)
 
 /**
- * The help line of the constant parameters: each one's location, name and value, in parameter
- * order.
+ * The help line of the constants: each one's location, name and value, in `constantsOf`'s order.
  */
 const constantsHelp = (
 	command: PlannedCommand,
-	defs: Defs
+	store: FieldStore
 ): Option.Option<readonly [string, string]> => {
 	const lines = Arr.map(
-		constantsOf(command, defs),
-		([parameter, value]) => `${parameter.location} ${parameter.wireName} = ${jsonTextOf(value)}`
+		constantsOf(command, store),
+		(constant) => `${constant.location} ${constant.wireName} = ${constant.value}`
 	)
 
 	return Arr.isReadonlyArrayNonEmpty(lines)
@@ -1722,7 +1777,10 @@ const followsOf = (operation: Operation): boolean =>
 		Arr.filter(operation.responses, (response) => matchesSuccess(response.key)),
 		(response) =>
 			Arr.some(response.alternatives, (alternative) =>
-				Arr.some(alternative.events?.events ?? [], (event) => event.role === "ready")
+				Arr.some(
+					alternative.events?.events ?? [],
+					(event) => event.role === "ready" && !("next" in event)
+				)
 			)
 	)
 
@@ -1817,8 +1875,8 @@ const annotationsOf = (command: PlannedCommand, meta: Expr, context: CommandCont
 			"Command.annotate",
 			path("Describe.Binding"),
 			obj([
-				...(Arr.isReadonlyArrayNonEmpty(constantsOf(command, context.defs))
-					? ([["constants", describeConstants(command, context.defs)]] as const)
+				...(Arr.isReadonlyArrayNonEmpty(constantsOf(command, context))
+					? ([["constants", describeConstants(command, context)]] as const)
 					: []),
 				["operation", meta],
 				["parameters", describeParameters(command)]
@@ -1834,7 +1892,7 @@ const annotationsOf = (command: PlannedCommand, meta: Expr, context: CommandCont
 					"sections",
 					arr(
 						Arr.map(
-							[...help.sections, ...Option.toArray(constantsHelp(command, context.defs))],
+							[...help.sections, ...Option.toArray(constantsHelp(command, context))],
 							([label, text]) => arr([str(label), str(text)])
 						)
 					)

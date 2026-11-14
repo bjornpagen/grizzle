@@ -1054,9 +1054,16 @@ const sourceOf = (options: {
 		: Effect.succeedNone
 }
 
+/**
+ * The body members that admit one value, by RFC 6901 pointer from the body root, each as its JSON text: the request
+ * sends them as it sends a constant parameter, and no flag reads them.
+ */
+type Constants = Readonly<Record<string, string>>
+
 interface BodyOptions {
 	readonly body: Option.Option<string>
 	readonly bodyFile: Option.Option<string>
+	readonly constants: Constants
 	readonly fields: Fields
 	readonly required: boolean
 	readonly schema: Schema.Top
@@ -1106,14 +1113,8 @@ const mergeSources = (
 				)
 			)
 
-		if (Option.isNone(source) && overrides.length === 0) {
-			if (!options.required) {
-				return settled({ _tag: "Empty" })
-			}
-
-			yield* assert("{}")
-
-			return settled({ _tag: "Merged", text: "{}", value: bare() })
+		if (Option.isNone(source) && overrides.length === 0 && !options.required) {
+			return settled({ _tag: "Empty" })
 		}
 
 		if (Option.isSome(source) && overrides.length === 0) {
@@ -1130,6 +1131,11 @@ const mergeSources = (
 
 		if (!isObject(base)) {
 			return yield* usage(flag, "must be a JSON object to take field flags")
+		}
+
+		for (const [pointer, text] of Rec.toEntries(options.constants)) {
+			const constant = yield* parse(text)
+			yield* setAt(base, pointer, constant)
 		}
 
 		for (const [pointer, given] of overrides) {
@@ -1166,9 +1172,10 @@ const mergeSources = (
  * flags are keyed by RFC 6901 pointer from the body root and override the body; the objects they
  * touch have no prototype, so `__proto__`, `constructor` and `prototype` are ordinary own keys.
  * The merged value is asserted against `schema`, never decoded, and the merged value is what is
- * sent. Without a field flag the operator's bytes are sent verbatim. With no input at all a
- * required body is `{}` (still asserted) and an optional one is empty. Failures name a flag and
- * never a value or a path.
+ * sent. Without a field flag the operator's bytes are sent verbatim. Otherwise the merged value
+ * holds the body's constants, its members that admit one value, before the field flags are set; with
+ * no input at all a required body is its constants alone (`{}` when it has none, still asserted) and
+ * an optional one is empty. Failures name a flag and never a value or a path.
  */
 export const mergeBody = (
 	options: BodyOptions
@@ -1189,7 +1196,7 @@ export const mergeBody = (
  * A structured request body (`application/x-www-form-urlencoded`) as the JSON value its encoder
  * takes, merged from the same sources by the same rules and failures as `mergeBody`. Numbers whose
  * text `JSON.parse` would change stay a `JsonNumber`, and objects have no prototype. With no input
- * an optional body is `undefined` and a required one is `{}`.
+ * an optional body is `undefined` and a required one is its constants alone (`{}` when it has none).
  */
 export const structuredBody = (
 	options: BodyOptions

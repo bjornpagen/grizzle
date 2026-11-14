@@ -227,7 +227,8 @@ export const RetryWhen = Schema.Struct({
 /**
  * One event type of an SSE response's item union (`x-stream`, design of the event lifecycle): its name, how its data
  * prints and its role. An `item` is printed and the stream goes on; `ready` ends the initial state, the default stop;
- * `end` ends the stream; `error` ends it with a failure, retried only when its JSON data holds `retryWhen`'s value.
+ * a `ready` with a `next` is followed by that one event alone, so the stream has no live part to follow; `end` ends
+ * the stream; `error` ends it with a failure, retried only when its JSON data holds `retryWhen`'s value.
  */
 export const StreamEvent = Schema.Union([
 	Schema.Struct({
@@ -239,18 +240,33 @@ export const StreamEvent = Schema.Union([
 	Schema.Struct({
 		data: EventData,
 		name: EventName,
+		next: EventName,
+		role: Schema.Literal("ready")
+	}),
+	Schema.Struct({
+		data: EventData,
+		name: EventName,
 		role: Schema.Literals(["end", "error", "item", "ready"])
 	})
 ])
 
 /**
+ * What an event of a type the contract does not name is: a violation of a `Closed` contract, whose union names every
+ * event it admits, or an item of an `Open` one, its data printed as `data` says.
+ */
+const EventOtherwise = Schema.Union([
+	Schema.TaggedStruct("Closed", {}),
+	Schema.TaggedStruct("Open", { data: EventData })
+])
+
+/**
  * The event contract of a `text/event-stream` response alternative, read from its `itemSchema`: each event type its
- * union names, each name once, and how the data of an event of any other type prints.
+ * union names, each name once, and what an event of any other type is.
  */
 export class EventContract extends Schema.Class<EventContract, { readonly brand: unique symbol }>(
 	"EventContract"
 )(
-	Schema.Struct({ events: Schema.Array(StreamEvent), otherwise: EventData }).check(
+	Schema.Struct({ events: Schema.Array(StreamEvent), otherwise: EventOtherwise }).check(
 		Schema.makeFilter(
 			(contract) =>
 				Arr.dedupe(Arr.map(contract.events, (event) => event.name)).length ===

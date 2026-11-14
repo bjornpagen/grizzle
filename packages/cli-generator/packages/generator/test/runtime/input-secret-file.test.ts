@@ -66,6 +66,7 @@ const secret = (path: string) => Option.some(new Input.SecretField({ flag: FLAG,
 
 const merge = (options: { readonly bodyFile?: string; readonly fields: Input.Fields }) =>
 	Input.mergeBody({
+		constants: {},
 		body: Option.none(),
 		bodyFile: Option.fromNullishOr(options.bodyFile),
 		fields: options.fields,

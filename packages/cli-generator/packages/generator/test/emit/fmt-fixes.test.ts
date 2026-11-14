@@ -143,6 +143,7 @@ const sent = (args: readonly string[]) =>
 			})
 			const command = Command.make("create", numberFlags, (flags) =>
 				Input.mergeBody({
+					constants: {},
 					body: Option.none(),
 					bodyFile: Option.none(),
 					fields: { "/count": flags.count, "/ratio": flags.ratio },

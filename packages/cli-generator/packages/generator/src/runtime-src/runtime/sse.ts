@@ -342,15 +342,24 @@ export interface RetryWhen {
  */
 export type EventRow =
 	| { readonly data: EventData; readonly role: "end" | "error" | "item" | "ready" }
+	| { readonly data: EventData; readonly next: string; readonly role: "ready" }
 	| { readonly data: "json"; readonly retryWhen: RetryWhen; readonly role: "error" }
 
 /**
- * An SSE response's events by type, from the media type's `itemSchema`; an event of a type it does not name is an
- * item whose data prints as `otherwise` says.
+ * What an event of a type the contract does not name is: a violation of a `Closed` contract, which names every event
+ * it admits, or an item of an `Open` one, its data printed as `data` says.
+ */
+export type EventOtherwise =
+	| { readonly _tag: "Closed" }
+	| { readonly _tag: "Open"; readonly data: EventData }
+
+/**
+ * An SSE response's events by type, from the media type's `itemSchema`, and what an event of a type it does not name
+ * is (`otherwise`).
  */
 export interface EventContract {
 	readonly events: Readonly<Record<string, EventRow>>
-	readonly otherwise: EventData
+	readonly otherwise: EventOtherwise
 }
 
 /**
@@ -362,7 +371,10 @@ export type EventTable = Readonly<Record<string, Readonly<Record<string, EventCo
  * The contract of a stream whose `itemSchema` names no event: every event is an item whose data prints as text, and the
  * stream ends with its body.
  */
-export const openContract: EventContract = { events: {}, otherwise: "text" }
+export const openContract: EventContract = {
+	events: {},
+	otherwise: { _tag: "Open", data: "text" }
+}
 
 /**
  * Where a command stops reading its stream: at the first `ready` event, or only at a terminal event (`end` or `error`)
@@ -527,18 +539,38 @@ type Step =
 
 /**
  * One body's reading between chunks: its parser, how many events it has read, the reconnection time the stream last
- * set, and whether the stream has ended.
+ * set, the one event a `ready` with a `next` said comes next, and whether the stream has ended.
  */
 interface Reading {
 	readonly parser: SseParser
 	ended: boolean
+	expected: Option.Option<string>
 	index: number
 	reconnect: Option.Option<string>
 }
 
 /**
+ * The row of an event's type: the contract's, an item of an open contract, or none where the event breaks the
+ * contract: a type a closed contract does not name, or any type but the one a `ready` with a `next` said comes next.
+ */
+const rowOf = (
+	reading: Reading,
+	event: SseEvent,
+	contract: EventContract
+): Option.Option<EventRow> =>
+	Option.isSome(reading.expected) && reading.expected.value !== event.type
+		? Option.none()
+		: Option.orElse(Rec.get(contract.events, event.type), () =>
+				contract.otherwise._tag === "Open"
+					? Option.some<EventRow>({ data: contract.otherwise.data, role: "item" })
+					: Option.none()
+			)
+
+/**
  * The steps of one event under the contract: the event, the stream's last when it is the stop point or an `end` event,
- * then the failure when it is an `error` event.
+ * then the failure when it is an `error` event; or `unexpectedEvent` for an event that breaks the contract (`rowOf`),
+ * after every event before it and, under `bytes`, after the event's own bytes, every one of which was received and
+ * the rest already written. A `ready` with a `next` is never a stop point: its one next event is read.
  */
 const eventSteps = (
 	reading: Reading,
@@ -546,14 +578,24 @@ const eventSteps = (
 	received: Uint8Array,
 	settings: EventReading
 ): ReadonlyArray<Step> => {
-	const row = Option.getOrElse(Rec.get(settings.contract.events, event.type), (): EventRow => ({
-		data: settings.contract.otherwise,
-		role: "item"
-	}))
+	const found = rowOf(reading, event, settings.contract)
 	const itemIndex = reading.index
-	const last = row.role === "end" || (row.role === "ready" && settings.stopAt === "ready")
+	if (Option.isNone(found)) {
+		reading.ended = true
+		const failure: Step = {
+			_tag: "Fail",
+			failure: ResponseStreamError.make({ itemIndex, reason: "unexpectedEvent" })
+		}
+
+		return settings.output === "bytes" ? [{ _tag: "Bytes", bytes: received }, failure] : [failure]
+	}
+
+	const row = found.value
+	const last =
+		row.role === "end" || (row.role === "ready" && !("next" in row) && settings.stopAt === "ready")
 	reading.index += 1
 	reading.reconnect = Option.orElse(event.retry, () => reading.reconnect)
+	reading.expected = "next" in row ? Option.some(row.next) : Option.none()
 	reading.ended = last || row.role === "error"
 	const step: Step = { _tag: "Event", event, itemIndex, last, received, row }
 
@@ -663,6 +705,7 @@ export const eventStream =
 			Stream.mapAccum(
 				(): Reading => ({
 					ended: false,
+					expected: Option.none(),
 					index: 0,
 					parser: sseParser(settings.maxRecordBytes),
 					reconnect: Option.none()

@@ -8,20 +8,22 @@
  *   last line cut short, encoded and cut into chunks of any size. Oracles: a transcription of the WHATWG algorithm over
  *   the whole body decoded at once, with the bound's two readings; and, under the production bound, the generating
  *   events themselves.
- * - The event stream (eventStream): event lists under generated contracts, stop points and outputs. Oracle: the
- *   contract's specification: each event's line, or its bytes, through the first stop event; after an `error` event the
- *   failure with the verdict its data's pointer gives; `truncated` for a stream whose contract names a role and that
- *   ends before either.
+ * - The event stream (eventStream): event lists under generated contracts, open or closed, stop points and outputs.
+ *   Oracle: the contract's specification: each event's line, or its bytes, through the first stop event (a `ready` with
+ *   a `next` is none, and only its `next` may follow it); after an `error` event the failure with the verdict its
+ *   data's pointer gives; `unexpectedEvent` for an event a closed contract does not name or one other than the `next`
+ *   its `ready` named, its bytes written first under the raw output; `truncated` for a stream whose contract names a role and that ends before either.
  *
  * Features: every line end, a CRLF and a character split across chunks, multi-line data, the default type, a comment,
  * an unknown field, a field without a colon, a block with no data, the byte order mark, malformed UTF-8, an id carried
  * on, retry digits with leading zeros, a body cut inside an event, a record over the bound; a stop at ready, a stream
  * followed past ready, an end, failures safe and never, invalid JSON data, a lifecycle cut short, an open stream to its
- * end, raw bytes and an undeclared event type.
+ * end, raw bytes, an undeclared event type, a ready read past to its next event, and an unexpected event.
  *
  * Plants (~/.cache/effect-openapi-cli-generator/plants): sse-joins-across-blank-line.patch (a blank line dispatches
  * the event without clearing its data, so the next event's data joins it), sse-stops-before-ready.patch (the stream
- * stops one event before its stop point).
+ * stops one event before its stop point); and, applied to src/runtime-src/runtime/sse.ts, seen to fail and reverted, an
+ * event outside a closed contract read as a text item, and a `ready` with a `next` taken as the stop point.
  */
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
@@ -60,6 +62,7 @@ import {
 import {
 	type EventContract,
 	type EventData,
+	type EventOtherwise,
 	type EventOutput,
 	type EventRow,
 	eventStream,
@@ -636,7 +639,7 @@ type StreamEvent = Readonly<{
 /** A stream under a contract: the contract's rows, the events, the stop point, the output and the chunk sizes. */
 type ControlCase = Readonly<{
 	rows: ReadonlyArray<readonly [string, EventRow]>
-	otherwise: EventData
+	otherwise: EventOtherwise
 	events: ReadonlyArray<StreamEvent>
 	stopAt: StopAt
 	output: EventOutput
@@ -655,6 +658,8 @@ type ControlFeature =
 	| "open stream to its end"
 	| "raw bytes"
 	| "undeclared event type"
+	| "ready read past to its next event"
+	| "unexpected event"
 
 const declaredTypes: Arr.NonEmptyReadonlyArray<string> = [
 	"reset",
@@ -667,6 +672,9 @@ const declaredTypes: Arr.NonEmptyReadonlyArray<string> = [
 const row: Gen<EventRow> = (source) => {
 	const data = element<EventData>(["json", "text"])(source)
 	const role = element<EventRow["role"]>(["item", "ready", "end", "error"])(source)
+	if (role === "ready" && boolean(source)) {
+		return { data, next: element(declaredTypes)(source), role }
+	}
 	return role === "error" && data === "json" && boolean(source)
 		? { data, retryWhen: { pointer: "/error/retry", equals: "safe" }, role }
 		: { data, role }
@@ -687,7 +695,11 @@ const streamEvent: Gen<StreamEvent> = (source) => {
 
 const controlCase: Gen<ControlCase> = (source) => ({
 	rows: Arr.map(declaredTypes, (type) => [type, row(source)] as const),
-	otherwise: element<EventData>(["text", "json"])(source),
+	otherwise: element<EventOtherwise>([
+		{ _tag: "Open", data: "text" },
+		{ _tag: "Open", data: "json" },
+		{ _tag: "Closed" }
+	])(source),
 	events: array(streamEvent, { min: 0, max: 6 })(source),
 	stopAt: element<StopAt>(["ready", "terminal"])(source),
 	output: element<EventOutput>(["lines", "bytes"])(source),
@@ -699,15 +711,21 @@ const contractOf = (control: ControlCase): EventContract => ({
 	otherwise: control.otherwise
 })
 
-const rowOf = (control: ControlCase, type: string): EventRow =>
-	Option.getOrElse(Rec.get(contractOf(control).events, type), (): EventRow => ({
-		data: control.otherwise,
-		role: "item"
-	}))
+/** An event type's row: the contract's, an item of an open contract, or none under a closed one. */
+const rowOf = (control: ControlCase, type: string): Option.Option<EventRow> =>
+	Option.orElse(Rec.get(contractOf(control).events, type), () =>
+		control.otherwise._tag === "Open"
+			? Option.some<EventRow>({ data: control.otherwise.data, role: "item" })
+			: Option.none()
+	)
+
+/** How an event type's data is written and printed: its row's, text where it has none. */
+const dataOf = (control: ControlCase, type: string): EventData =>
+	Option.match(rowOf(control, type), { onNone: () => "text", onSome: (found) => found.data })
 
 /** An event's data as it is written: its JSON tokens with their gaps, or its text. */
 const writtenData = (control: ControlCase, event: StreamEvent): string =>
-	rowOf(control, event.type).data === "json"
+	dataOf(control, event.type) === "json"
 		? Arr.join(
 				Arr.map(event.json.tokens, (token, index) =>
 					index === 0
@@ -743,7 +761,7 @@ const outcome = (written: string, end: Expected["end"]): Expected => ({ written,
 const expectedLine = (control: ControlCase, event: StreamEvent) =>
 	Effect.gen(function* () {
 		const data =
-			rowOf(control, event.type).data === "json"
+			dataOf(control, event.type) === "json"
 				? Arr.join(event.json.tokens, "")
 				: yield* quoted(event.text)
 		return `{"data":${data},"event":${yield* quoted(event.type)}}\n`
@@ -753,8 +771,20 @@ const expectedLine = (control: ControlCase, event: StreamEvent) =>
 const expectedOf = (control: ControlCase) =>
 	Effect.gen(function* () {
 		let written = ""
+		let expected = Option.none<string>()
 		for (const [index, event] of control.events.entries()) {
-			const eventRow = rowOf(control, event.type)
+			const found =
+				Option.isSome(expected) && expected.value !== event.type
+					? Option.none<EventRow>()
+					: rowOf(control, event.type)
+			if (Option.isNone(found)) {
+				return outcome(
+					control.output === "bytes" ? `${written}${eventText(control, event)}` : written,
+					{ kind: "stream error", reason: "unexpectedEvent", itemIndex: index }
+				)
+			}
+			const eventRow = found.value
+			expected = "next" in eventRow ? Option.some(eventRow.next) : Option.none()
 			const invalid = eventRow.data === "json" && !event.json.valid
 			if (control.output === "lines" && invalid) {
 				return outcome(written, {
@@ -766,7 +796,10 @@ const expectedOf = (control: ControlCase) =>
 			const line =
 				control.output === "lines" ? yield* expectedLine(control, event) : eventText(control, event)
 			written = `${written}${line}`
-			if (eventRow.role === "end" || (eventRow.role === "ready" && control.stopAt === "ready")) {
+			if (
+				eventRow.role === "end" ||
+				(eventRow.role === "ready" && !("next" in eventRow) && control.stopAt === "ready")
+			) {
 				return outcome(written, { kind: "done" })
 			}
 			if (eventRow.role === "error") {
@@ -833,9 +866,10 @@ const controlFeatures = (
 	control: ControlCase,
 	expected: Expected
 ): ReadonlyArray<ControlFeature> => {
-	const readyPassed = Arr.some(
-		control.events,
-		(event) => rowOf(control, event.type).role === "ready"
+	const roleOf = (type: string): Option.Option<EventRow["role"]> =>
+		Option.map(rowOf(control, type), (found) => found.role)
+	const readyPassed = Arr.some(control.events, (event) =>
+		Option.exists(roleOf(event.type), (role) => role === "ready")
 	)
 	const features: ReadonlyArray<readonly [ControlFeature, boolean]> = [
 		["stopped at ready", control.stopAt === "ready" && expected.end.kind === "done" && readyPassed],
@@ -843,7 +877,9 @@ const controlFeatures = (
 		[
 			"ended at end",
 			expected.end.kind === "done" &&
-				Arr.some(control.events, (event) => rowOf(control, event.type).role === "end")
+				Arr.some(control.events, (event) =>
+					Option.exists(roleOf(event.type), (role) => role === "end")
+				)
 		],
 		["failed, retry safe", expected.end.kind === "event failed" && expected.end.retrySafe],
 		["failed, retry never", expected.end.kind === "event failed" && !expected.end.retrySafe],
@@ -862,7 +898,22 @@ const controlFeatures = (
 				control.events.length > 0
 		],
 		["raw bytes", control.output === "bytes"],
-		["undeclared event type", Arr.some(control.events, (event) => event.type === "other")]
+		["undeclared event type", Arr.some(control.events, (event) => event.type === "other")],
+		[
+			"ready read past to its next event",
+			Arr.some(control.events, (event, index) =>
+				Option.exists(
+					rowOf(control, event.type),
+					(found) =>
+						"next" in found &&
+						Option.exists(Arr.get(control.events, index + 1), (after) => after.type === found.next)
+				)
+			) && expected.end.kind === "done"
+		],
+		[
+			"unexpected event",
+			expected.end.kind === "stream error" && expected.end.reason === "unexpectedEvent"
+		]
 	]
 	return Arr.flatMap(features, ([feature, reached]) => (reached ? [feature] : []))
 }
@@ -946,7 +997,9 @@ describe("an event stream", () => {
 								"lifecycle cut short",
 								"open stream to its end",
 								"raw bytes",
-								"undeclared event type"
+								"undeclared event type",
+								"ready read past to its next event",
+								"unexpected event"
 							],
 							{ cases: 2000, sense: notesOnly }
 						),

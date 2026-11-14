@@ -38,13 +38,12 @@ const ContentMedia = Schema.Struct({ contentMediaType: Schema.optionalKey(Schema
 const Annotated = Schema.Struct({ "x-stream": Schema.optionalKey(Schema.Unknown) })
 
 /**
- * The forms of `x-stream`: a role, a failure role with the pointer and value that say retrying is safe, or a `ready`
- * that names the `end` as the one event after it, as grizzle writes for a read at its call's instant alone, which no
- * change reaches. Any other member refuses the form.
+ * The forms of `x-stream`: a role; a failure role with the pointer and value that say retrying is safe; or a ready role
+ * with the name of the one event that follows it. Any other member refuses the form.
  */
 const StreamRole = Schema.Union([
 	Schema.Struct({ retryWhen: RetryWhen, role: Schema.Literal("error") }),
-	Schema.Struct({ next: Schema.Literal("end"), role: Schema.Literal("ready") }),
+	Schema.Struct({ next: Schema.String, role: Schema.Literal("ready") }),
 	Schema.Struct({ role: Schema.Literals(["end", "error", "ready"]) })
 ])
 
@@ -75,7 +74,8 @@ const sameRow = (left: typeof StreamEvent.Type, right: typeof StreamEvent.Type):
 		? "retryWhen" in right &&
 			left.retryWhen.equals === right.retryWhen.equals &&
 			left.retryWhen.pointer === right.retryWhen.pointer
-		: !("retryWhen" in right))
+		: !("retryWhen" in right)) &&
+	("next" in left ? "next" in right && left.next === right.next : !("next" in right))
 
 /**
  * The schema at a key after its references, and its node.
@@ -232,13 +232,6 @@ const readBranch = (
 }
 
 /**
- * The role a branch's `x-stream` gives its event in the contract: its own, but a `ready` whose next event is the `end`
- * ends the stream, since nothing past it is left to follow.
- */
-const roleOf = (role: typeof StreamRole.Type): "end" | "error" | "ready" =>
-	"next" in role ? role.next : role.role
-
-/**
  * The contract's row of a named branch.
  */
 const rowOf = (name: string, branch: BranchReading): typeof StreamEvent.Type =>
@@ -247,16 +240,19 @@ const rowOf = (name: string, branch: BranchReading): typeof StreamEvent.Type =>
 		onSome: (role) =>
 			"retryWhen" in role
 				? { data: "json", name, retryWhen: role.retryWhen, role: role.role }
-				: { data: branch.data, name, role: roleOf(role) }
+				: "next" in role
+					? { data: branch.data, name, next: role.next, role: role.role }
+					: { data: branch.data, name, role: role.role }
 	})
 
 /**
  * Read the event contract of a `text/event-stream` media type's `itemSchema` at `site` (design of the event lifecycle):
  * each branch of its union, or the schema itself when it is no union, names an event when its `event` property admits
  * one string; its data is JSON when its `data` property's `contentMediaType` is; and its `x-stream` gives its role.
- * Branches that name no event say how the data of an event of any other type prints, JSON only when every such branch
- * says JSON. `None` when the contract names no event and prints other data as text, which is the open contract every
- * stream has without one. A malformed `x-stream`, one on an unnamed branch, a `retryWhen` on text data, or one event
+ * A union whose every branch names its event is `Closed`: an event of any other type breaks the contract. Otherwise
+ * the branches that name no event say how the data of an event of any other type prints, JSON only when every such
+ * branch says JSON. `None` when the contract names no event and prints other data as text, which is the open contract
+ * every stream has without one. A ready role's `next` names an event of the contract. A malformed `x-stream`, one on an unnamed branch, a `retryWhen` on text data, or one event
  * named twice with different rows is a finding, so the stream's lifecycle is never guessed.
  */
 export const readEventContract = (
@@ -291,12 +287,29 @@ export const readEventContract = (
 
 	const rows: ReadonlyArray<typeof StreamEvent.Type> = Arr.map(named, ([, row]) => row)
 	const events = Arr.dedupeWith(rows, (left, right) => left.name === right.name)
-	const otherwise =
+	const strays = Arr.findFirst(
+		named,
+		([, row]) => "next" in row && !Arr.some(events, (event) => event.name === row.next)
+	)
+	if (Option.isSome(strays)) {
+		return Result.fail({
+			at: childKey(strays.value[0].at, "x-stream"),
+			code: "MED-18/stream-role-invalid"
+		})
+	}
+
+	if (Arr.isReadonlyArrayNonEmpty(events) && !Arr.isReadonlyArrayNonEmpty(unnamed)) {
+		return Result.succeed(Option.some({ events, otherwise: { _tag: "Closed" } }))
+	}
+
+	const data =
 		Arr.isReadonlyArrayNonEmpty(unnamed) && Arr.every(unnamed, (branch) => branch.data === "json")
 			? "json"
 			: "text"
 
 	return Result.succeed(
-		events.length === 0 && otherwise === "text" ? Option.none() : Option.some({ events, otherwise })
+		events.length === 0 && data === "text"
+			? Option.none()
+			: Option.some({ events, otherwise: { _tag: "Open", data } })
 	)
 }

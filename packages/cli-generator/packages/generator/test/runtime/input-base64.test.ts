@@ -57,6 +57,7 @@ const merge = (options: {
 	readonly fields: Input.Fields
 }) =>
 	Input.mergeBody({
+		constants: {},
 		body: Option.fromNullishOr(options.body),
 		bodyFile: Option.fromNullishOr(options.bodyFile),
 		fields: options.fields,

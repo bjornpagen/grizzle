@@ -313,7 +313,8 @@ const refusedEntry = (alternatives: readonly MediaAlternative[]): Option.Option<
 }
 
 /**
- * One event row of a contract as the runtime's `EventRow` holds it: its data, its retry rule when it has one, its role.
+ * One event row of a contract as the runtime's `EventRow` holds it: its data, its retry rule or the one event that
+ * follows it when it has one, its role.
  */
 const eventRowExpr = (event: EventContract["events"][number]): Expr =>
 	obj([
@@ -336,11 +337,12 @@ const eventRowExpr = (event: EventContract["events"][number]): Expr =>
 					]
 				] as const)
 			: []),
+		...("next" in event ? ([["next", str(event.next)]] as const) : []),
 		["role", str(event.role)]
 	])
 
 /**
- * An event contract as the runtime's `EventContract` holds it: its rows by event name, and how other events print.
+ * An event contract as the runtime's `EventContract` holds it: its rows by event name, and what other events are.
  */
 const eventContractExpr = (contract: EventContract): Expr =>
 	obj([
@@ -348,7 +350,15 @@ const eventContractExpr = (contract: EventContract): Expr =>
 			"events",
 			obj(Arr.map(contract.events, (event) => [event.name, eventRowExpr(event)] as const))
 		],
-		["otherwise", str(contract.otherwise)]
+		[
+			"otherwise",
+			contract.otherwise._tag === "Closed"
+				? obj([["_tag", str("Closed")]])
+				: obj([
+						["_tag", str("Open")],
+						["data", str(contract.otherwise.data)]
+					])
+		]
 	])
 
 /**

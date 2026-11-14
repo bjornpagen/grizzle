@@ -71,7 +71,17 @@ export interface SkippedProperty {
 	readonly reason: "EmptyFold" | "UnsupportedPart"
 }
 
+/**
+ * A required body member whose schema admits exactly one value: the RFC 6901 pointer of its wire path inside the body
+ * and that value. The request sends it, as it sends a constant parameter, and no flag reads it.
+ */
+export interface BodyConstant {
+	readonly pointer: string
+	readonly value: Schema.Json
+}
+
 export interface FlattenedBody {
+	readonly constants: readonly BodyConstant[]
 	readonly flags: readonly BodyFlag[]
 	readonly reserved: readonly ReservedClash[]
 	readonly skipped: readonly SkippedProperty[]
@@ -708,23 +718,128 @@ const isReadOnly = (ctx: Ctx, schema: Schema.Json): boolean => {
 const omitted = (ctx: Ctx, schema: Schema.Json): boolean =>
 	ctx.readOnlyOmitted && isReadOnly(ctx, schema)
 
+/**
+ * The keywords a closed object admitting one value may carry beside its shape: annotations, which assert nothing.
+ */
+const annotationKeywords: ReadonlySet<string> = new Set([
+	"$comment",
+	"deprecated",
+	"description",
+	"example",
+	"examples",
+	"readOnly",
+	"title",
+	"writeOnly"
+])
+
+/** The keywords that shape a closed object admitting one value. */
+const closedObjectKeywords: ReadonlySet<string> = new Set([
+	"additionalProperties",
+	"properties",
+	"required",
+	"type"
+])
+
+/**
+ * The one value a schema admits, when it admits exactly one, after its `$ref` chain: its `const`; the member of a
+ * one-member `enum`; or a closed object (`additionalProperties: false`, nothing beside its shape but annotations) whose
+ * every property is required and admits one value itself, so a closed object with no properties admits `{}` alone.
+ * Every node visited spends from the call's budget.
+ */
+const oneValue = (
+	ctx: Ctx,
+	json: Schema.Json,
+	hops: number
+): Result.Result<Option.Option<Schema.Json>, FlattenError> => {
+	ctx.visits += 1
+	if (ctx.visits > maxVisits) {
+		return exceeded()
+	}
+
+	if (!isObject(json)) {
+		return Result.succeed(Option.none())
+	}
+
+	if (Record.has<string, Schema.Json>(json, "const")) {
+		return Result.succeed(Record.get<string, Schema.Json>(json, "const"))
+	}
+
+	const { $ref, enum: members } = json
+	if (members !== undefined && isJsonArray(members)) {
+		return Result.succeed(members.length === 1 ? Arr.head(members) : Option.none())
+	}
+
+	if (Predicate.isString($ref)) {
+		const name = defsKeyOf($ref)
+		const target = name === undefined ? undefined : ctx.defs[name]
+
+		return target === undefined || hops >= maxDefsRefHops
+			? Result.fail(UnresolvedBodyRef.make({ ref: $ref }))
+			: oneValue(ctx, target, hops + 1)
+	}
+
+	const node = decodeNode(json)
+	const shaped = Arr.every(
+		Record.keys<string, Schema.Json>(json),
+		(keyword) =>
+			closedObjectKeywords.has(keyword) ||
+			annotationKeywords.has(keyword) ||
+			Str.startsWith("x-")(keyword)
+	)
+	if (
+		Option.isNone(node) ||
+		!shaped ||
+		node.value.type !== "object" ||
+		node.value.additionalProperties !== false
+	) {
+		return Result.succeed(Option.none())
+	}
+
+	const properties = Record.toEntries(node.value.properties ?? {})
+	const required = requiredOf(node.value)
+	if (!Arr.every(properties, ([key]) => required.has(key))) {
+		return Result.succeed(Option.none())
+	}
+
+	const value: Record<string, Schema.Json> = {}
+	for (const [key, child] of properties) {
+		const one = oneValue(ctx, child, hops)
+		if (Result.isFailure(one)) {
+			return one
+		}
+
+		if (Option.isNone(one.success)) {
+			return Result.succeed(Option.none())
+		}
+
+		value[key] = one.success.value
+	}
+
+	return Result.succeed(Option.some(value))
+}
+
 interface Walk {
+	readonly constants: readonly BodyConstant[]
 	readonly flags: readonly BodyFlag[]
 	readonly skipped: readonly SkippedProperty[]
 }
 
 const walkProperties = (
 	ctx: Ctx,
-	properties: ReadonlyMap<string, Property>,
+	object: {
+		readonly properties: ReadonlyMap<string, Property>
+		readonly required: ReadonlySet<string>
+	},
 	at: {
 		readonly depth: number
 		readonly names: readonly string[]
 		readonly tokens: readonly string[]
 	}
 ): Result.Result<Walk, FlattenError> => {
+	const constants: BodyConstant[] = []
 	const flags: BodyFlag[] = []
 	const skipped: SkippedProperty[] = []
-	for (const [key, { schema: child, site }] of properties) {
+	for (const [key, { schema: child, site }] of object.properties) {
 		ctx.visits += 1
 		if (ctx.visits > maxVisits) {
 			return exceeded()
@@ -736,6 +851,17 @@ const walkProperties = (
 
 		const tokens = [...at.tokens, key]
 		const pointer = formatPointer(tokens)
+		if (object.required.has(key)) {
+			const one = oneValue(ctx, child, 0)
+			if (Result.isFailure(one)) {
+				return Result.fail(one.failure)
+			}
+
+			if (Option.isSome(one.success)) {
+				constants.push({ pointer, value: one.success.value })
+				continue
+			}
+		}
 		const folded = foldKebab(key)
 		if (Result.isFailure(folded)) {
 			skipped.push({ pointer, reason: "EmptyFold" })
@@ -762,9 +888,13 @@ const walkProperties = (
 
 		const nested = classified.success
 		if (nested._tag === "Object" && at.depth < maxDepth && nested.properties.size > 0) {
-			const inner = walkProperties(ctx, nested.properties, { depth: at.depth + 1, names, tokens })
+			const inner = walkProperties(ctx, nested, { depth: at.depth + 1, names, tokens })
 			if (Result.isFailure(inner)) {
 				return Result.fail(inner.failure)
+			}
+
+			for (const constant of inner.success.constants) {
+				constants.push(constant)
 			}
 
 			for (const flag of inner.success.flags) {
@@ -788,7 +918,7 @@ const walkProperties = (
 		})
 	}
 
-	return Result.succeed({ flags, skipped })
+	return Result.succeed({ constants, flags, skipped })
 }
 
 type PartBase = Pick<BodyFlag, "name" | "notes" | "pointer">
@@ -888,7 +1018,7 @@ const nestedFlags = (
 		})
 	}
 
-	return Result.succeed(Option.some({ flags, skipped }))
+	return Result.succeed(Option.some({ constants: [], flags, skipped }))
 }
 
 /**
@@ -981,7 +1111,7 @@ const walkParts = (
 		})
 	}
 
-	return Result.succeed({ flags, skipped })
+	return Result.succeed({ constants: [], flags, skipped })
 }
 
 const wholeBody = (kind: "body" | "body-file" | "part"): BodyFlag => ({
@@ -1046,6 +1176,9 @@ const clashesOf = (flag: BodyFlag): readonly ReservedClash[] => [
  *
  * A form property whose Encoding rule carries `nonStandardScalars` is one JSON-valued flag (design
  * 6.1 Scalar switch).
+ *
+ * A required JSON or form property whose schema admits exactly one value (`oneValue`) is no flag but one of the body's
+ * `constants`, which the request sends as it sends a constant parameter.
  */
 export const flattenBody = (
 	defs: Defs,
@@ -1060,22 +1193,32 @@ export const flattenBody = (
 ): Result.Result<FlattenedBody, FlattenError> => {
 	const { codec, mediaType } = alternative
 	if (mediaType !== undefined && isPositionalBody({ ...alternative, mediaType })) {
-		return Result.succeed({ flags: [wholeBody("part")], reserved: [], skipped: [] })
+		return Result.succeed({ constants: [], flags: [wholeBody("part")], reserved: [], skipped: [] })
 	}
 
 	if (codec === "binary") {
-		return Result.succeed({ flags: [wholeBody("body-file")], reserved: [], skipped: [] })
+		return Result.succeed({
+			constants: [],
+			flags: [wholeBody("body-file")],
+			reserved: [],
+			skipped: []
+		})
 	}
 
 	if (codec === "xml") {
-		return Result.succeed({ flags: [wholeBody("body-file")], reserved: [], skipped: [] })
+		return Result.succeed({
+			constants: [],
+			flags: [wholeBody("body-file")],
+			reserved: [],
+			skipped: []
+		})
 	}
 
 	const multipart = codec === "multipart"
 	const whole = multipart ? [] : [wholeBody("body"), wholeBody("body-file")]
 	const key = alternative.schema?.key
 	if ((codec !== "json" && codec !== "form" && !multipart) || key === undefined) {
-		return Result.succeed({ flags: whole, reserved: [], skipped: [] })
+		return Result.succeed({ constants: [], flags: whole, reserved: [], skipped: [] })
 	}
 
 	const ctx = newCtx(defs, codec, alternative.encoding ?? [], alternative.refusedFields ?? [], line)
@@ -1090,17 +1233,16 @@ export const flattenBody = (
 	}
 
 	const { success: rootClass } = classified
-	const walkRoot = (properties: ReadonlyMap<string, Property>) =>
-		multipart
-			? walkParts(ctx, properties)
-			: walkProperties(ctx, properties, { depth: 1, names: [], tokens: [] })
 	const walked =
-		rootClass._tag === "Object"
-			? walkRoot(rootClass.properties)
-			: Result.succeed<Walk>({ flags: [], skipped: [] })
+		rootClass._tag !== "Object"
+			? Result.succeed<Walk>({ constants: [], flags: [], skipped: [] })
+			: multipart
+				? walkParts(ctx, rootClass.properties)
+				: walkProperties(ctx, rootClass, { depth: 1, names: [], tokens: [] })
 
 	return walked.pipe(
-		Result.map(({ flags, skipped }) => ({
+		Result.map(({ constants, flags, skipped }) => ({
+			constants,
 			flags: Arr.sort([...whole, ...flags], flagOrder),
 			reserved: Arr.sort(Arr.flatMap(flags, clashesOf), clashOrder),
 			skipped: Arr.sort(

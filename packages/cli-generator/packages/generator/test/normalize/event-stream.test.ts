@@ -1,19 +1,23 @@
 /**
  * An SSE response's event contract is read from its media type's `itemSchema` as the event lifecycle states it: each
  * branch of its `oneOf` or `anyOf` union, or the schema itself, names an event by its `event` property's one value; its
- * data is JSON when its `data` property's `contentMediaType` is; its `x-stream` gives its role. Branches that name no
- * event say how other events' data prints. A malformed `x-stream`, one on an unnamed branch, a `retryWhen` on text data
- * and one event named twice with different rows are refused at operation scope, so a lifecycle is never guessed.
+ * data is JSON when its `data` property's `contentMediaType` is; its `x-stream` gives its role, a ready role perhaps
+ * with the one event that follows it (`next`). A union whose every branch names its event is closed; otherwise the
+ * branches that name no event say how other events' data prints. A malformed `x-stream`, one on an unnamed branch, a
+ * `retryWhen` on text data, one event named twice with different rows and a `next` naming no event of the contract are
+ * refused at operation scope, so a lifecycle is never guessed.
  *
  * Generated item schemas: unions of up to four branches, each written inline, behind a `$ref` or through `allOf`, its
  * event named by `const` or a one-member `enum` or not at all, its data JSON, text or undeclared, its `x-stream` absent,
- * one of the four forms, or malformed. Oracle: the reading's specification, applied to the generated branches.
+ * one of its forms (a ready role with a `next` among them), or malformed. Oracle: the reading's specification, applied
+ * to the generated branches.
  *
  * Features: each placement, each union form, each finding, a contract with a retry rule, JSON data for other events,
- * the open contract, a name repeated with the same row.
+ * the open contract, a closed contract, a ready role with its next event, a name repeated with the same row.
  *
  * Plants (~/.cache/effect-openapi-cli-generator/plants): event-stream-role-ignored.patch (a malformed `x-stream` reads
- * as no role).
+ * as no role); and, applied to src/normalize/event-stream.ts, seen to fail and reverted, a `next` naming no event
+ * accepted, and a union whose every branch names its event read as open.
  */
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
@@ -45,6 +49,7 @@ type Role =
 	| Readonly<{ kind: "none" }>
 	| Readonly<{ kind: "role"; role: "end" | "error" | "ready" }>
 	| Readonly<{ kind: "retry"; equals: string }>
+	| Readonly<{ kind: "next"; next: string }>
 	| Readonly<{ kind: "malformed"; value: Json }>
 
 /** One branch of a generated item schema. */
@@ -76,6 +81,9 @@ type ReadingFeature =
 	| "retry rule read"
 	| "JSON data for other events"
 	| "open contract"
+	| "closed contract"
+	| "ready role with its next event"
+	| "next naming no event"
 
 const eventName: Gen<string> = element(["ready", "end", "error", "upsert"])
 
@@ -92,6 +100,7 @@ const role: Gen<Role> = oneOf([
 		role: value
 	})),
 	map(element(["safe", "yes"]), (equals): Role => ({ kind: "retry", equals })),
+	map(element(["end", "upsert", "gone"]), (next): Role => ({ kind: "next", next })),
 	map(
 		element<Json>([
 			"ready",
@@ -130,6 +139,8 @@ const roleValue = (value: Role): Option.Option<Json> => {
 				role: "error",
 				retryWhen: { pointer: "/error/retry", equals: value.equals }
 			})
+		case "next":
+			return Option.some({ role: "ready", next: value.next })
 		case "malformed":
 			return Option.some(value.value)
 	}
@@ -249,6 +260,8 @@ const rowOf = (written: Branch, name: string): Row => {
 				retryWhen: { equals: written.role.equals, pointer: "/error/retry" },
 				role: "error"
 			}
+		case "next":
+			return { data: dataOf(written), name, next: written.role.next, role: "ready" }
 		case "malformed":
 			return { data: dataOf(written), name, role: "item" }
 	}
@@ -278,7 +291,8 @@ const sameRow = (left: Row, right: Row): boolean =>
 		? "retryWhen" in right &&
 			left.retryWhen.equals === right.retryWhen.equals &&
 			left.retryWhen.pointer === right.retryWhen.pointer
-		: !("retryWhen" in right))
+		: !("retryWhen" in right)) &&
+	("next" in left ? "next" in right && left.next === right.next : !("next" in right))
 
 /** The specification of the reading, over the generated branches. */
 const expectedOf = (schema: ItemSchema): Expected => {
@@ -316,17 +330,38 @@ const expectedOf = (schema: ItemSchema): Expected => {
 	}
 	const rows: ReadonlyArray<Row> = Arr.map(named, (each) => each.row)
 	const events = Arr.dedupeWith(rows, (left, right) => left.name === right.name)
+	const stray = Arr.findFirst(named, ({ row }) => {
+		if (!("next" in row)) {
+			return false
+		}
+		const { next } = row
+		return !Arr.some(events, (event) => event.name === next)
+	})
+	if (Option.isSome(stray)) {
+		return {
+			kind: "refused",
+			code: "MED-18/stream-role-invalid",
+			pointer: childPointer(
+				branchPointer(schema, stray.value.written, stray.value.index),
+				"x-stream"
+			),
+			scope: "operation"
+		}
+	}
 	const unnamed = Arr.filter(branchesOf(schema), (written) => written.naming.kind === "none")
-	const otherwise =
+	if (Arr.isReadonlyArrayNonEmpty(events) && !Arr.isReadonlyArrayNonEmpty(unnamed)) {
+		return { kind: "contract", contract: Option.some({ events, otherwise: { _tag: "Closed" } }) }
+	}
+	const data =
 		Arr.isReadonlyArrayNonEmpty(unnamed) && Arr.every(unnamed, (written) => written.data === "json")
 			? "json"
 			: "text"
 	return {
 		kind: "contract",
 		contract:
-			events.length === 0 && otherwise === "text"
+			events.length === 0 && data === "text"
 				? Option.none()
-				: Option.some({ events, otherwise })
+				: Option.some({ events, otherwise: { _tag: "Open", data } })
 	}
 }
 
@@ -408,9 +443,30 @@ const readingFeatures = (schema: ItemSchema, expected: Expected): ReadonlyArray<
 		[
 			"JSON data for other events",
 			expected.kind === "contract" &&
-				Option.exists(expected.contract, (contract) => contract.otherwise === "json")
+				Option.exists(
+					expected.contract,
+					(contract) => contract.otherwise._tag === "Open" && contract.otherwise.data === "json"
+				)
 		],
-		["open contract", expected.kind === "contract" && Option.isNone(expected.contract)]
+		["open contract", expected.kind === "contract" && Option.isNone(expected.contract)],
+		[
+			"closed contract",
+			expected.kind === "contract" &&
+				Option.exists(expected.contract, (contract) => contract.otherwise._tag === "Closed")
+		],
+		[
+			"ready role with its next event",
+			expected.kind === "contract" &&
+				Option.exists(expected.contract, (contract) =>
+					Arr.some(contract.events, (event) => "next" in event)
+				)
+		],
+		[
+			"next naming no event",
+			expected.kind === "refused" &&
+				expected.code === "MED-18/stream-role-invalid" &&
+				!Arr.some(branchesOf(schema), (written) => written.role.kind === "malformed")
+		]
 	]
 	return Arr.flatMap(features, ([feature, reached]) => (reached ? [feature] : []))
 }
@@ -440,7 +496,10 @@ describe("an SSE response's event contract", () => {
 								"event named twice alike",
 								"retry rule read",
 								"JSON data for other events",
-								"open contract"
+								"open contract",
+								"closed contract",
+								"ready role with its next event",
+								"next naming no event"
 							],
 							{ cases: 2000, sense: notesOnly }
 						),

@@ -47,7 +47,8 @@ const optionsOf = (given: Given) => ({
 	bodyFile: Option.fromNullishOr(given.bodyFile),
 	fields: given.fields ?? {},
 	required: given.required ?? true,
-	schema: given.schema ?? Schema.Unknown
+	schema: given.schema ?? Schema.Unknown,
+	constants: {}
 })
 
 const layerOf = (given: Given) =>
