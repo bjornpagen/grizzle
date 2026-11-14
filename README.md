@@ -3409,7 +3409,8 @@ fails with its `CallError`, by kind:
   - `tooManyConnections`: 53300, the server's or the role's connection limit;
   - `layerReleased`: the `DbLayer` the Db was opened under, or a live read registered on, was released;
   - `sessionLost`: a session of a live read's source, its listener's or its leader's, was lost with no report of the
-    server's (one the server ended with a report reads by its SQLSTATE, 57P01 as `serverDown`);
+    server's (one the server ended with a report reads by its SQLSTATE, 57P01 as `serverDown`), its connection having
+    ended; pg's own refusal of a query on a connection still standing is `failed`, never a lost session;
   - `slotAbsent`, `slotInvalidated`: the installation's replication slot does not stand yet, or was invalidated: its
     live leader makes it;
   - `leaderFailed`: the live leader's candidacy failed otherwise: an answer, a message or a secret it cannot read, a
@@ -3445,11 +3446,11 @@ A call's `CallError` is read from the reason that failed it, each reason a class
 
 | Reason                                                                                                                                                                       | `kind`          |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
-| the server's `ServerError`, 53200 and 54001 among them; `TemporaryRefused`, below; `UnreadableAnswer`, rows grizzle cannot read or its compiled proof says the query cannot deliver; `CompileError` | `failed`        |
+| the server's `ServerError`, 53200 and 54001 among them; `TemporaryRefused`, below; `UnreadableAnswer`, rows grizzle cannot read or its compiled proof says the query cannot deliver; `CompileError`; `DriverFailure`, pg's refusal of a query on a connection still standing | `failed`        |
 | `CredentialError`; `StartupRefused` of SQLSTATE class 28; `TlsRefused`, but a handshake's failure with a system error's code; `DriverRefused` | `credentialRefused` |
 | `StartupRefused` of any other SQLSTATE, with the server's report; `SocketFailed`; `TlsRefused` of a system error's code; `ConnectTimedOut`; `ConnectionClosed`; `LayerReleased`, a layer whose scope has closed | `unavailable`   |
 | `NoCancelKey`                                                                                                                                                                 | `failed`        |
-| `ConnectionLost`, `CommitLost`, `DriverFailure`                                                                                                                              | `transport`     |
+| `ConnectionLost`, `CommitLost`                                                                                                                                               | `transport`     |
 | `EncodingFailure`; `ParamRejected`, a parameter's value outside its pattern; `InputTooLarge`, below; `CallInputRefused`, below                                               | `input`         |
 | `LawRejected`, the laws a contract's or a pattern's domain discharges, which refused a value a statement cast to it; `InputRejected`, below                                 | `refused`       |
 | `TransientFailure`, its reason the `CallError`'s `reason`                                                                                                                    | `transient`     |

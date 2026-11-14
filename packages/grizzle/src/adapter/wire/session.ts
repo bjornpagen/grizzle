@@ -33,6 +33,7 @@ import {
 	type ConnectRefusal,
 	ConnectTimedOut,
 	CredentialError,
+	DriverFailure,
 	DriverRefused,
 	LayerReleased,
 	ConnectionLost,
@@ -984,11 +985,25 @@ export const connectListener = (
 		})
 		client.once("end", hooks.ended)
 	})
-/** How a query on a replication connection failed: the server refused it, or the session ended under it. */
-export type ReplicationFailure = ServerError | ConnectionLost
+/**
+ * How a query on a replication connection failed: the server refused it, the session ended under it, or pg would not
+ * send it or answered what the connection cannot account for (DriverFailure).
+ */
+export type ReplicationFailure = ServerError | ConnectionLost | DriverFailure
 
-/** The failure an answer that is no result reads as on a replication connection. */
+/**
+ * A replication query's end with no ErrorResponse, by whether its connection ended, as batch.ts `broken` reads a
+ * pipeline's by its session's state: a stream destroyed, or whose read side ended, is the connection's loss; a stream
+ * still standing is pg's own refusal of the query, a DriverFailure and never a transport loss.
+ */
+const unexplained = (client: PgClient): ConnectionLost | DriverFailure =>
+	client.connection.stream.destroyed || client.connection.stream.readableEnded
+		? new ConnectionLost({ operation: "query", ended: { by: "transport" } })
+		: new DriverFailure({ operation: "query" })
+
+/** The failure an answer that is no result reads as on `client`'s replication connection. */
 const replicationFailure = (
+	client: PgClient,
 	answer: Exclude<Answer, { readonly _tag: "result" | "unreadable" }>
 ): ReplicationFailure => {
 	switch (answer._tag) {
@@ -1000,7 +1015,7 @@ const replicationFailure = (
 				ended: { by: "server", error: answer.error }
 			})
 		case "failed":
-			return new ConnectionLost({ operation: "query", ended: { by: "transport" } })
+			return unexplained(client)
 	}
 }
 
@@ -1045,7 +1060,7 @@ const completed = (
 				case "refused":
 				case "terminated":
 				case "failed":
-					resume(Effect.fail(replicationFailure(answer)))
+					resume(Effect.fail(replicationFailure(client, answer)))
 			}
 		})
 	})
@@ -1081,7 +1096,8 @@ const copyChunk = (message: unknown): Uint8Array | undefined =>
  * A replication session over `client` (ReplicationSession). The stream is pg's own Submittable, which pg makes the
  * client's active query (client.js _pulseQueryQueue) and hands every CopyData it reads (_handleCopyData), the
  * CopyBothResponse before them being a message pg reads and leaves to no one; its every other handler is the end of
- * the stream: an ErrorResponse its refusal, the connection's end its loss, a ReadyForQuery the server's end of it.
+ * the stream: an ErrorResponse its refusal, the connection's end its loss, pg's own error on a connection still
+ * standing, or a CopyData that carries no chunk, a DriverFailure (unexplained), a ReadyForQuery the server's end of it.
  */
 const replicationOf = (
 	client: PgClient,
@@ -1108,9 +1124,7 @@ const replicationOf = (
 				handleCopyData: (message: unknown) => {
 					const chunk = copyChunk(message)
 					if (chunk === undefined) {
-						resume(
-							Effect.fail(new ConnectionLost({ operation: "query", ended: { by: "transport" } }))
-						)
+						resume(Effect.fail(new DriverFailure({ operation: "query" })))
 						return
 					}
 					data(chunk)
@@ -1120,8 +1134,8 @@ const replicationOf = (
 					resume(
 						Effect.fail(
 							answer._tag === "result" || answer._tag === "unreadable"
-								? new ConnectionLost({ operation: "query", ended: { by: "transport" } })
-								: replicationFailure(answer)
+								? unexplained(client)
+								: replicationFailure(client, answer)
 						)
 					)
 				},

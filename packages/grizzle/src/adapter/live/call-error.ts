@@ -105,7 +105,8 @@ const openReading = {
  * host's refusal of its input is `input`, and so is PostgreSQL's refusal of a parameter's value by its pattern as it
  * binds it; a refusal by laws, PostgreSQL's by a contract's or a pattern's domain (LawRejected) or an explain's of the
  * host's key parse (InputRejected), is `refused` with its laws; a serialization failure or a deadlock is `transient`;
- * the fence's refusal is `stale`; the rest is the server's.
+ * the fence's refusal is `stale`; the rest is the server's or the driver's: pg's refusal of a query on a connection
+ * still standing (DriverFailure) is no connection broken, so it is `failed`.
  */
 const readReading = {
 	ServerError: "failed",
@@ -114,7 +115,7 @@ const readReading = {
 	ParamRejected: "input",
 	ConnectionLost: "transport",
 	CommitLost: "transport",
-	DriverFailure: "transport",
+	DriverFailure: "failed",
 	UnreadableAnswer: "failed",
 	CompileError: "failed",
 	EncodingFailure: "input",
@@ -133,11 +134,13 @@ const readReading = {
  * otherwise, a session never had aside (connectCallError): its session broke before its COMMIT was sent, `transport`;
  * a relation input past its bound, a parameter's value PostgreSQL refused by its pattern as it bound it, or an input
  * the host refused, `input`; a serialization failure or a concurrent writer's change, `transient`; the fence's
- * refusal, `stale`; a COMMIT sent and unanswered, `commitUnknown`; the rest is the server's.
+ * refusal, `stale`; a COMMIT sent and unanswered, `commitUnknown`; the rest is the server's or the driver's: pg's
+ * refusal of a query or a ROLLBACK on a connection still standing (DriverFailure), which broke no connection and
+ * leaves the transaction's end unproven, is `failed`.
  */
 const applyReading = {
 	ConnectionLost: "transport",
-	DriverFailure: "transport",
+	DriverFailure: "failed",
 	ServerError: "failed",
 	ParamRejected: "input",
 	CompileError: "failed",
@@ -159,12 +162,14 @@ const applyReading = {
 /**
  * What ends a live read's subscription (live/subscriptions.ts) as a kind of its own, besides its source's refusal of a
  * connection and its server's refusals (sourceCallError) and the causes that leave it unavailable (watchUnavailable):
- * an answer no format reads, a slot's secret that is no key, or a statement of its source past a bound, which meet the
- * same refusal again, `failed`; a migration of the installation, `stale`; a layer whose login's served file holds no
- * live source, `failed`; and its token's expiry, `tokenExpired`.
+ * an answer no format reads, a slot's secret that is no key, a statement of its source past a bound, or pg's refusal of
+ * a query on a connection still standing (DriverFailure), which meet the same refusal again, `failed`; a migration of
+ * the installation, `stale`; a layer whose login's served file holds no live source, `failed`; and its token's expiry,
+ * `tokenExpired`.
  */
 const watchReading = {
 	UnreadableAnswer: "failed",
+	DriverFailure: "failed",
 	SecretUnreadable: "failed",
 	InputTooLarge: "failed",
 	SourceMigrated: "stale",
@@ -174,12 +179,11 @@ const watchReading = {
 
 /**
  * What ends a live read's subscription and leaves it `unavailable`, which a client calls again, by its reason: its
- * listening session's end, or a session of its source whose driver failed, `sessionLost`; the installation's slot not
- * standing yet, `slotAbsent`, or invalidated, `slotInvalidated`, each of which its leader makes; its layer's release,
- * `layerReleased`. A connection its source lost reads by who ended it (lostCallError).
+ * listening session's end, `sessionLost`; the installation's slot not standing yet, `slotAbsent`, or invalidated,
+ * `slotInvalidated`, each of which its leader makes; its layer's release, `layerReleased`. A connection its source
+ * lost reads by who ended it (lostCallError).
  */
 const watchUnavailable = {
-	DriverFailure: "sessionLost",
 	ListenerLost: "sessionLost",
 	SlotAbsent: "slotAbsent",
 	SourceInvalidated: "slotInvalidated",
@@ -379,10 +383,11 @@ const lostCallError = (
 /**
  * The failure of the process's candidacy for the installation's live leader, by its cause: a refused connection as
  * connectCallError reads it; the server's refusal of a statement, of a fan-out's statement or of its COMMIT by its
- * SQLSTATE (serverCallError); a connection lost as lostCallError reads it; a fan-out's COMMIT whose answer was lost, a
- * driver's failure, or a replication stream silent past its deadline, `sessionLost`, a session of the leader lost; and
- * any other cause, an answer, a message or a secret it cannot read, a statement past a bound, or a stream the server
- * ended, `leaderFailed`, since the next candidacy runs afresh.
+ * SQLSTATE (serverCallError); a connection lost as lostCallError reads it; a fan-out's COMMIT whose answer was lost,
+ * or a replication stream silent past its deadline, `sessionLost`, a session of the leader lost; pg's refusal of a
+ * query on a connection still standing (DriverFailure), which every candidacy meets again, `failed`; and any other
+ * cause, an answer, a message or a secret it cannot read, a statement past a bound, or a stream the server ended,
+ * `leaderFailed`, since the next candidacy runs afresh.
  */
 const leaderCallError = (reason: LeaderReason, message: string): CallErrorIn<ConnectKind> => {
 	if (isAcquireRefusal(reason)) {
@@ -397,9 +402,10 @@ const leaderCallError = (reason: LeaderReason, message: string): CallErrorIn<Con
 		case "ConnectionLost":
 			return lostCallError(reason, message)
 		case "CommitLost":
-		case "DriverFailure":
 		case "ReplicationSilent":
 			return unavailable("sessionLost", message)
+		case "DriverFailure":
+			return messageErrors.failed(message)
 		case "UnreadableAnswer":
 		case "InputTooLarge":
 		case "ReplicationEnded":
@@ -437,12 +443,12 @@ export const sourceCallError = (
 			return leaderCallError(reason.reason, message)
 		case "ConnectionLost":
 			return lostCallError(reason, message)
-		case "DriverFailure":
 		case "ListenerLost":
 		case "SlotAbsent":
 		case "SourceInvalidated":
 			return unavailable(watchUnavailable[reason._tag], message)
 		case "UnreadableAnswer":
+		case "DriverFailure":
 		case "SecretUnreadable":
 		case "InputTooLarge":
 		case "SourceMigrated":

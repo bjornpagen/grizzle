@@ -101,14 +101,16 @@
 				]
 			},
 			{
-				// What only generate, check and migrate load: drafting and rendering a migration, the installation's DDL and
-				// its indexes, the workload's access compile, and their facade (plan/migration.ts). No zone a login's runtime
-				// loads imports one, so DbLayer.make and a Db load none of them; plan/serve.ts is the runtime's facade.
+				// What only generate, check and migrate load: drafting and rendering a migration, migrate's decision of a
+				// pending folder against the ledger (deploy/ledger/decide.ts), the installation's DDL and its indexes, the
+				// workload's access compile, and their facade (plan/migration.ts). No zone a login's runtime loads imports one,
+				// so DbLayer.make and a Db load none of them; plan/serve.ts is the runtime's facade.
 				"name": "install",
 				"patterns": [
 					"packages/engine/src/plan/migration.ts",
 					"packages/engine/src/deploy/admission/manifest.ts",
 					"packages/engine/src/deploy/diff/**",
+					"packages/engine/src/deploy/ledger/decide.ts",
 					"packages/engine/src/deploy/phases/**",
 					"packages/engine/src/deploy/render/**",
 					"packages/engine/src/laws/model/restate.ts",

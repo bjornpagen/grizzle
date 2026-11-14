@@ -32,8 +32,9 @@
  * by a code (each errno name of this platform, os.constants.errno, the resolver's, Node's own and any drawn one), a TLS
  * handshake's failure by a code (a certificate's, a negotiation's or a system error's), and every other way an attempt
  * ends, each met by a read, a write, a live source's open and a live leader's candidacy; a released layer's lease, met
- * by a read and a write; and a live source's open session lost by the transport, ended by the server with a drawn
- * SQLSTATE, or refused a statement with one, met by the source and by its leader:
+ * by a read and a write; a live source's open session lost by the transport, ended by the server with a drawn
+ * SQLSTATE, or refused a statement with one, met by the source and by its leader; and pg's refusal of a query on a
+ * connection still standing (DriverFailure, wire/session.ts unexplained and batch.ts broken), met on every path:
  *
  * - Total and exact: the call error is the oracle table's, its kind and its reason, the table written from
  *   PostgreSQL 19's errcodes.txt (class 28, Invalid Authorization Specification, is the login's refusal and 28P01,
@@ -81,6 +82,7 @@ import {
 	ConnectionLost,
 	ConnectTimedOut,
 	CredentialError,
+	DriverFailure,
 	DriverRefused,
 	LayerReleased,
 	NoCancelKey,
@@ -430,6 +432,7 @@ type Failure =
 	| { readonly kind: "lost by the transport" }
 	| { readonly kind: "ended by the server"; readonly sqlstate: string }
 	| { readonly kind: "statement refused"; readonly sqlstate: string }
+	| { readonly kind: "driver refused" }
 
 /** Where the failure met a call: a read's lease, a write's, a live source's open, a live leader's candidacy. */
 type Path = "a read" | "a write" | "a live source" | "a live leader"
@@ -520,7 +523,8 @@ const failureGen: Gen<Failure> = weighted<Failure>([
 	[1, () => ({ kind: "released" })],
 	[1, () => ({ kind: "lost by the transport" })],
 	[1, (source) => ({ kind: "ended by the server", sqlstate: source.draw(sqlstateGen) })],
-	[1, (source) => ({ kind: "statement refused", sqlstate: source.draw(sqlstateGen) })]
+	[1, (source) => ({ kind: "statement refused", sqlstate: source.draw(sqlstateGen) })],
+	[1, () => ({ kind: "driver refused" })]
 ])
 
 const paths: Arr.NonEmptyReadonlyArray<Path> = [
@@ -550,6 +554,7 @@ const pathsOf = (failure: Failure): Arr.NonEmptyReadonlyArray<Path> => {
 		case "socket":
 		case "handshake":
 		case "ended":
+		case "driver refused":
 			return paths
 	}
 }
@@ -625,10 +630,14 @@ const sessionFailureOf = (
 }
 
 /** The failure a case's draw is: a lease's refusal, a connection's, or a live source's open session's. */
-const causeOf = (failure: Failure): AcquireRefusal | ConnectionLost | ServerError => {
+const causeOf = (
+	failure: Failure
+): AcquireRefusal | ConnectionLost | ServerError | DriverFailure => {
 	switch (failure.kind) {
 		case "released":
 			return new LayerReleased()
+		case "driver refused":
+			return new DriverFailure({ operation: "query" })
 		case "lost by the transport":
 		case "ended by the server":
 		case "statement refused":
@@ -659,6 +668,8 @@ const expectedOf = (failure: Failure): Expected => {
 		case "ended by the server":
 		case "statement refused":
 			return expectedOfSqlstate(failure.sqlstate)
+		case "driver refused":
+			return { kind: "failed" }
 	}
 }
 
@@ -716,13 +727,14 @@ const errorOptions: WireOptions = {
 	fold: (option, cases) => Option.match(option, cases)
 }
 
-/** The features of a case: the reason its error reads as, `failed`, and its path. */
+/** The features of a case: the reason its error reads as, `failed`, a driver's refusal, and its path. */
 type Reached =
 	| CredentialReason
 	| UnavailableCause
 	| "otherSqlstate"
 	| "otherSocketCode"
 	| "failed"
+	| "a driver's refusal"
 	| Path
 
 /** The reason an expected error names, as a feature. */
@@ -767,6 +779,7 @@ describe("a session never had", () => {
 								"otherSqlstate",
 								"otherSocketCode",
 								"failed",
+								"a driver's refusal",
 								"a read",
 								"a write",
 								"a live source",
@@ -799,6 +812,9 @@ describe("a session never had", () => {
 							assert.deepEqual(decoded, error, "the wire carries the error unchanged")
 							notes.note(reachedOf(expected))
 							notes.note(path)
+							if (failure.kind === "driver refused") {
+								notes.note("a driver's refusal")
+							}
 						})
 				)
 			)

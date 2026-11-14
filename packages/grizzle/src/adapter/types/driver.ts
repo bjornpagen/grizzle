@@ -142,13 +142,15 @@ interface PgConnection {
 /**
  * The stream of a client's connection: the transport's socket, or the TLS socket over it once upgraded, whose
  * handshake ends with `secureConnect` and whose failures are its `error` events. A write's callback reports how the
- * write ended, an Error when it failed, and `destroyed` whether the stream was destroyed.
+ * write ended, an Error when it failed, `destroyed` whether the stream was destroyed, and `readableEnded` whether its
+ * read side ended, the server having closed it.
  */
 interface PgStream {
 	cork(): void
 	uncork(): void
 	write(chunk: Uint8Array, callback: (error: unknown) => void): unknown
 	readonly destroyed: boolean
+	readonly readableEnded: boolean
 	destroy(): unknown
 	once(event: "secureConnect", listener: () => void): unknown
 	prependListener(event: "error", listener: (error: unknown) => void): unknown
