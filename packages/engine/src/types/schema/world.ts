@@ -8,7 +8,8 @@ import type {
 	Invariant,
 	Origin,
 	Refusal,
-	Repeats
+	Repeats,
+	Simplify
 } from "#compiler/types/core/phantom.ts"
 import type { AnyWorkload, Workload } from "#compiler/types/db/workload.ts"
 import type {
@@ -242,11 +243,14 @@ type UnheldRelation = AnyClosedRelation | AnyLive
 /**
  * A full role's entries over a schema's record of relations: each relation under its own key, whole, but the relations
  * no role holds (UnheldRelation). One key per relation, kept or dropped by its own type alone, so a record of n
- * relations costs n conditionals and an unheld relation can never stand among the entries.
+ * relations costs n conditionals and an unheld relation can never stand among the entries. The record is read through
+ * Simplify, which holds its keys once, as its constraint: the checker computes the keys of a mapped type that drops
+ * keys (`as`) again at every `keyof` of it, one conditional per relation, and a role's write list, its refresh list and
+ * every check of its entries read them.
  */
-export type WholeEntries<Rs> = {
+export type WholeEntries<Rs> = Simplify<{
 	readonly [K in keyof Rs as Rs[K] extends UnheldRelation ? never : K]: Rs[K]
-}
+}>
 
 /**
  * The entries of a full role over Base (wholeEntriesOf): every relation of every level of the base, under its own name,
@@ -312,15 +316,23 @@ type UnheldOf<BaseRelations, Relations> = {
  * (EntriesCheck), so "R is a whole entry" is "R is the entry under R's name", one lookup, never a pass over the entries.
  */
 type NotWhole<Relations, Named> = Named extends unknown
-	? [Named] extends [UnderName<Relations, NameOf<Named>>]
-		? never
-		: Named
+	? UnderName<Relations, NameOf<Named>> extends infer Entry
+		? [Named] extends [Entry]
+			? never
+			: Named
+		: never
 	: never
 
-/** The base's laws a role keeps: those whose every relation is the role's entry under that relation's name. */
+/**
+ * The base's laws a role keeps: those whose every relation is the role's entry under that relation's name. Each test
+ * binds its alias before the tuple that compares it (schema.ts StatementSpelled), so no tuple the checker defers walks
+ * the role's relations once per law.
+ */
 type KeptStatement<St, Relations> = St extends unknown
-	? [NotWhole<Relations, NamedBy<St>>] extends [never]
-		? St
+	? NotWhole<Relations, NamedBy<St>> extends infer Outside
+		? [Outside] extends [never]
+			? St
+			: never
 		: never
 	: never
 
