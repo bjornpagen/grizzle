@@ -35,7 +35,6 @@ import {
 import { appendAll } from "#compiler/core/array.ts"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { identity } from "#compiler/core/identity.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
@@ -48,7 +47,7 @@ import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { queryInput } from "#compiler/program/compile.ts"
-import type { SchemaArtifacts } from "#compiler/program/schema.ts"
+import type { InstalledArtifacts } from "#compiler/program/schema.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { type CompiledTemplate, templateFor } from "#compiler/program/template.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -61,14 +60,11 @@ import { printStatement, quoteIdent } from "#compiler/sql/print.ts"
 import type { AnyLogin, AnyRole } from "#compiler/types/schema/world.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import {
-	inputArtifacts,
-	installedCodes,
+	installedArtifacts,
 	partSelects,
 	partStatement,
 	programAsts,
 	schemaInputOf,
-	testCompile,
-	type TestNaming,
 	paramsOver,
 	workloadOver
 } from "#test/support/compile.ts"
@@ -79,7 +75,7 @@ import {
 } from "#test/support/conservative.ts"
 import { ledgerPrologue } from "#test/support/flight/model.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
-import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { clusterConnection, parsedConnection, SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -138,8 +134,6 @@ export interface Fixture<S> {
 	 * every raw and runtime session takes on unless a gate names another it installed.
 	 */
 	readonly world: FullWorld
-	/** The names the fixture's schema is installed under, which every artifacts of it are computed under. */
-	readonly naming: TestNaming
 	/** The qualified, quoted table of a relation, and the quoted column of one of its fields. */
 	readonly table: (relation: string) => string
 	readonly column: (relation: string, field: string) => string
@@ -209,11 +203,6 @@ export const installFixture = Effect.fn("installFixture")(function* <
 		schema,
 		installed,
 		world,
-		naming: {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared)),
-			codes: installedCodes(names.codes)
-		},
 		table,
 		column,
 		columnName,
@@ -353,7 +342,9 @@ export interface Compiled {
 	/** The decoder of the query's rows, which a delivery reads them with. */
 	readonly decoder: RowDecoder<unknown>
 	readonly desc: QueryDesc
-	readonly artifacts: SchemaArtifacts
+	/** What it compiled over, the installation's own (test/support/compile.ts installedArtifacts): a gate runs only what
+	 * its installation stands behind, so no parameter is cast to a type the installation lacks. */
+	readonly artifacts: InstalledArtifacts
 	readonly spine: ServedSpine
 	/** The first compilation, and the compilations of the same query after it. */
 	readonly compileFirstMs: number
@@ -397,10 +388,11 @@ export const compile = <S>(
 	const reading = schemaInputOf(options.role)
 	/**
 	 * The role reads through the views its installation created, in the role schema named after the installed schema:
-	 * its artifacts are computed once, under the installed schema's names, as a DbLayer computes them.
+	 * its artifacts are computed once, under the installed schema's names and the parameter types the installation
+	 * installs, as a served compile under its snapshot computes them.
 	 */
 	const artifacts = unwrap(
-		inputArtifacts(reading, fixture.naming),
+		installedArtifacts(reading, fixture.installed.installation),
 		"the role's artifacts under the installed schema"
 	)
 	const start = performance.now()

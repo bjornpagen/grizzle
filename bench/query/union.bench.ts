@@ -52,7 +52,7 @@ import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { inputArtifacts, partSelects, schemaInputOf } from "#test/support/compile.ts"
+import { installedArtifacts, partSelects, schemaInputOf } from "#test/support/compile.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 
 /**
@@ -414,14 +414,16 @@ export default defineGate({
 			const consumedVersusHand = compareVariants(consumedM.generated, consumedHand)
 			/** A bound over a union whose common fields hold no key is refused. */
 			const appInput = schemaInputOf(fx.world.app)
-			const noteBound = Engine.flatMap(inputArtifacts(appInput, fx.naming), (artifacts) =>
-				Engine.flatMap(queryInput(noteActivity), (input) =>
-					templateFor(input, appInput, artifacts, {
-						context: "snapshot",
-						read: "rows",
-						clock: noClock
-					})
-				)
+			const noteBound = Engine.flatMap(
+				installedArtifacts(appInput, fx.installed.installation),
+				(artifacts) =>
+					Engine.flatMap(queryInput(noteActivity), (input) =>
+						templateFor(input, appInput, artifacts, {
+							context: "snapshot",
+							read: "rows",
+							clock: noClock
+						})
+					)
 			)
 			cases.push(
 				{

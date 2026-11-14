@@ -44,7 +44,7 @@ import {
 	noContribution,
 	noFences
 } from "#compiler/physical/install/extension.ts"
-import { installBasis, unserved } from "#compiler/physical/install/plan.ts"
+import { installBasis, type ParamSource, unserved } from "#compiler/physical/install/plan.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { textOfParam } from "#test/support/wire.ts"
 
@@ -57,6 +57,7 @@ import {
 
 import {
 	baseArtifacts,
+	type InstalledArtifacts,
 	parseSchemaInput,
 	roleArtifacts,
 	type SchemaArtifacts,
@@ -186,18 +187,43 @@ export const inputArtifacts = (
 	Result.flatMap(codebookFor(input, naming.codes), (codes) =>
 		naming.installation === undefined
 			? schemaArtifacts(input, { codes })
-			: allocatedArtifacts(input, identifierOf(naming.installation), codes)
+			: allocatedArtifacts(input, identifierOf(naming.installation), codes, unserved)
 	)
 
-/** The artifacts of `input` with every level of its schema, a role's base among them, renamed under `allocated`. */
-const allocatedArtifacts = (
+/**
+ * The artifacts of a parsed schema input as the installation `installation` installs it: every level renamed under its
+ * allocation, under its codes, their programs' parameters cast to the types it installs (ParamSource `recorded`,
+ * Installation.installedParams, what its snapshot.json records), so a program compiled over them casts a parameter
+ * only to a type the installation installs or is refused as UninstalledDomain where it compiles. What a harness that
+ * runs what it compiles reads (InstalledArtifacts), as a served compile under the installation's snapshot does.
+ */
+export const installedArtifacts = (
+	input: SchemaInput,
+	installation: Installation
+): Result.Result<InstalledArtifacts, CompileError> =>
+	allocatedArtifacts(
+		input,
+		identifierOf(installation.names.installation),
+		installation.names.codes,
+		{
+			kind: "recorded",
+			installed: installation.installedParams
+		}
+	)
+
+/**
+ * The artifacts of `input` with every level of its schema, a role's base among them, renamed under `allocated`, their
+ * programs' parameters cast to the types `params` gives (physical/install/plan.ts ParamSource).
+ */
+const allocatedArtifacts = <S extends ParamSource>(
 	input: SchemaInput,
 	allocated: string,
-	codes: Codebook
-): Result.Result<SchemaArtifacts, CompileError> => {
+	codes: Codebook,
+	params: S
+): Result.Result<SchemaArtifacts<S>, CompileError> => {
 	const over = (owned: Owned) =>
 		Result.flatMap(installBasis(owned, codes, everySlice(owned)), (basis) =>
-			baseArtifacts(basis, unserved)
+			baseArtifacts(basis, params)
 		)
 	return input.kind === "role"
 		? Result.flatMap(
