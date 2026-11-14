@@ -7,12 +7,7 @@ import type { AccessIndexRequest, AccessPath } from "#compiler/ir/products.ts"
 import { type LivePlan, noLive } from "#compiler/live/notify.ts"
 import { pathRequest } from "#compiler/physical/access/paths.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
-import {
-	addParamDomains,
-	noTextDomainUses,
-	type ParamContract,
-	type ParamDomainUse
-} from "#compiler/physical/ddl/domains.ts"
+import { noTextDomainUses, type ParamTypes } from "#compiler/physical/ddl/domains.ts"
 import type { InstallOptions } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallContribution,
@@ -36,17 +31,11 @@ export interface WorkloadPhysical {
 	readonly paths: ReadonlyArray<AccessPath>
 	readonly statistics: ReadonlyArray<StatisticsRequest>
 	/**
-	 * Every pattern its programs' declared parameters name, at the parameter's place (physical/ddl/domains.ts
-	 * paramDomainUses): each parameter's own pattern domain, which every placeholder of it is cast to, so installing the
-	 * workload installs the domains its statements name.
+	 * The types its programs' declared parameters are cast to (physical/ddl/domains.ts ParamTypes): each pattern
+	 * parameter's own pattern domain and each contract a parameter is typed by, so installing the workload installs the
+	 * domains its statements name.
 	 */
-	readonly paramDomains: ReadonlyArray<ParamDomainUse>
-	/**
-	 * Every contract its programs' declared parameters are typed by (physical/ddl/domains.ts paramContracts), which
-	 * every placeholder of such a parameter is cast to the domain of, so installing the workload installs the domains its
-	 * statements name.
-	 */
-	readonly paramContracts: ReadonlyArray<ParamContract>
+	readonly params: ParamTypes
 }
 
 const kindOf = (b: InstallBuilder, relation: string): string | undefined =>
@@ -60,10 +49,8 @@ export const workloadRequests = (
 	workload.paths.map((path) => pathRequest(path, vectorSchema))
 
 /** The workload in the installation: access-path index requests and statistics through the installer's extensions,
- * the pattern domain of every pattern its programs' parameters name (physical/ddl/domains.ts addParamDomains), and the
- * contracts its programs' parameters are typed by, which the installation's plan gives a domain each
- * (InstallExtension.paramContracts), so no installation of a workload lacks a domain its statements cast a parameter
- * to.
+ * and the types its programs' parameters are cast to (InstallExtension.params), which the installation plans and
+ * installs, so no installation of a workload lacks a domain its statements cast a parameter to.
  * The workload compiler extracts each program's access paths and statistics and merges them across programs. This
  * extension hands the paths to the one index engine as IndexRequests with role `access`, beside the law-maintenance
  * requests, so a request lands on a key, enforcement or law index that serves it, adding the access reason to that
@@ -97,13 +84,12 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
 		const contribution: InstallContribution = {
 			...noContribution,
 			indexRequests: workloadRequests(workload, b.settings.vectorSchema),
-			statisticsRequests: workload.statistics,
-			domains: addParamDomains(b, workload.paramDomains)
+			statisticsRequests: workload.statistics
 		}
 		return Result.ok(contribution)
 	},
 	textDomainUses: noTextDomainUses,
-	paramContracts: workload.paramContracts,
+	params: () => Result.ok(workload.params),
 	certifies: noCertificates,
 	carriers: noCarriers,
 	holds: noHolds,
@@ -112,7 +98,7 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
 })
 
 /**
- * The served workload's extension: the workload's (workloadExtension), its parameters' pattern domains among it; the
+ * The served workload's extension: the workload's (workloadExtension), its parameters' types among it; the
  * certificate of every role of every login its plan certified (program/workload/compile.ts servedWorkload), which the
  * installation's guards follow; the roles whose served ChangeSets create a carrier, which it grants TEMPORARY on
  * the database; the roles whose served ChangeSets hold a retirable unit, which it grants EXECUTE on the unit's hold

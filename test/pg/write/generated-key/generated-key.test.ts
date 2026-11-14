@@ -170,10 +170,26 @@ const Keys = schema(
 )
 
 /**
- * The full world's workload: the stored state's insert, MapKey, Use, Tag and new mappings from each call's facts; and
- * each relation's rows as grizzle reads them, generated and drawn fields included.
+ * The rows of a query over the relation parameter `name`, as a stratum's query write reads them (see the case's
+ * stratum): each row's `text` a KeyText, which the write casts to the parameter's own pattern domain.
+ */
+const paramRows = (name: string) =>
+	query(Keys).rule((r) => {
+		const rows = r.relation(name, { id: pg.integer, text: KeyText })
+		const row = v(rows, "row")
+		return r.match(rows, row).find(row)
+	})
+
+/**
+ * The full world's workload: the stored state's insert, MapKey, Use, Tag and new mappings from each call's facts; each
+ * relation's rows as grizzle reads them, generated and drawn fields included; and a Tag insert from the rows of each
+ * relation parameter a case's stratum may bind, rows0 to rows2, one per write, so the installation installs the pattern
+ * domain of each one's text, the only types a stratum served under its snapshot may cast a parameter to.
  */
 const programs = Object.freeze({
+	rows0: ChangeSet.empty(Keys).insert(Tag, paramRows("rows0")),
+	rows1: ChangeSet.empty(Keys).insert(Tag, paramRows("rows1")),
+	rows2: ChangeSet.empty(Keys).insert(Tag, paramRows("rows2")),
 	seed: ChangeSet.empty(Keys)
 		.insert(MapKey, [])
 		.insert(Use, [])

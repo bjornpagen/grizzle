@@ -8,7 +8,9 @@ import {
 	type DeclaredName,
 	type Identity,
 	identifierOf,
-	identity
+	identity,
+	type ParamPlace,
+	paramPlaceText
 } from "#compiler/core/identity.ts"
 import type { Identifier, LawId } from "#compiler/core/ids.ts"
 import { headNonEmpty, isNonEmpty, mapNonEmpty, sortNonEmpty } from "#compiler/core/nonempty.ts"
@@ -17,7 +19,7 @@ import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ClosedTheoryRelation, TableRelation } from "#compiler/ir/law.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
-import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { contractOf, patternsText, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type ConstraintLaw,
 	type ConstraintLawOf,
@@ -40,11 +42,14 @@ import {
 	contractDigest,
 	type FieldPatternLaw,
 	fieldPatternLaws,
+	type InstalledParams,
+	noParamTypes,
 	type OutsideContract,
 	type OutsideContracts,
 	outsideContracts,
-	type ParamContract,
 	paramContractsDefined,
+	type ParamDomainUse,
+	type ParamTypes,
 	patternLawId,
 	planTextDomains,
 	storedTextDomains,
@@ -60,7 +65,8 @@ import {
 	type InstallNames,
 	installNames,
 	namedRole,
-	selectionKeysOf
+	selectionKeysOf,
+	uninstalled
 } from "#compiler/physical/ddl/names.ts"
 import {
 	type CheckedLogin,
@@ -217,6 +223,12 @@ export interface InstallPlan {
 	 * workload's parameters are typed by (physical/ddl/domains.ts outsideContracts): each gets its domain, which
 	 * admission validates a claim against and every placeholder of such a parameter is cast to. */
 	readonly outsideContracts: OutsideContracts
+	/** Each pattern parameter's own pattern domain the installation installs for the programs it serves, each identity
+	 * once (ParamSource `planned`): none where its parameter types are recorded, since such a plan installs nothing. */
+	readonly paramDomains: ReadonlyArray<ParamDomainUse>
+	/** The parameter types the installation installs, in installed terms (physical/ddl/domains.ts InstalledParams):
+	 * what snapshot.json records, and what a served compile under it casts parameters to (ParamSource `recorded`). */
+	readonly installedParams: InstalledParams
 	/** Each login's roles read against the installed schema, once: the worlds install them, and the text domains read
 	 * their query entries' view columns, which type their own patterns as a derived relation's do. */
 	readonly logins: ReadonlyArray<CheckedLogin>
@@ -307,15 +319,16 @@ const describedContract = (contract: DeclaredName): ConstraintLawOf => ({
 })
 
 /**
- * Each checked contract domain's constraint, a base contract's and a context contract's alike: each column of a stored
- * relation the domain checks, down its type's contract chain, with the law of the contract that column's chain names
+ * Each checked contract domain's constraint, of the contracts `checked` whose domains have a CHECK, a base contract's,
+ * a context contract's and a served parameter's alike: each column of a stored relation the domain checks, down its
+ * type's contract chain, with the law of the contract that column's chain names
  * it by, which a violation on that column reports, in canonical use order; or, for a domain no stored column types,
  * the laws of every contract whose definition it holds, in contract name order, since contracts of one definition
  * share one domain.
  */
 const contractConstraintLaws = (
 	names: InstallNames,
-	contracts: ReadonlyMap<DeclaredName, ContractSource>,
+	checked: ReadonlyArray<DeclaredName>,
 	relations: ReadonlyArray<TableRelation>
 ): ReadonlyArray<ConstraintLaw> => {
 	const byDomain = new Map<
@@ -325,10 +338,7 @@ const contractConstraintLaws = (
 			readonly contracts: [DeclaredName, ...Array<DeclaredName>]
 		}
 	>()
-	for (const [contract, source] of [...contracts].toSorted(([a], [b]) => compareStrings(a, b))) {
-		if (source.check.kind !== "checked") {
-			continue
-		}
+	for (const contract of checked.toSorted(compareStrings)) {
 		const named = names.contractNamed(contract)
 		const known = byDomain.get(named.identifier)
 		if (known === undefined) {
@@ -365,8 +375,9 @@ const contractConstraintLaws = (
 }
 
 /**
- * Every contract the installation gives a domain, by declared name, with what its domain is defined from: each base
- * contract's law-model native, then each contract outside the base, a role's context field's or a served parameter's.
+ * Every contract the installation gives a domain by its definition, by declared name, with what its domain is defined
+ * from: each base contract's law-model native, then each contract outside the base, a role's context field's or a
+ * served parameter's.
  */
 const contractSources = (
 	model: LawModel,
@@ -384,31 +395,96 @@ const contractSources = (
 	])
 
 /**
+ * Where the types a plan's statements cast their parameters to come from (physical/ddl/domains.ts ParamTypes). One rule
+ * holds wherever an installation stands behind the plan: the plan names a parameter's pattern domain or a contract's
+ * domain outside the base exactly when that installation installs it, and refuses any other as UninstalledDomain where
+ * the statement is compiled.
+ *
+ * - `planned`: the plan of an installation serving programs whose declarations are `types`, as generate plans the
+ *   installation of its workload and the artifacts its served files compile over: it installs each contract they name
+ *   and each pattern parameter's own domain, and names those alone.
+ * - `recorded`: the installation a snapshot describes, which installs `installed`, as snapshot.json records it: a served
+ *   compile under the snapshot names those alone.
+ * - `unserved`: no installation stands behind the plan, as for a compile that serves nothing (a query lowered to be
+ *   read, a test's compile over a schema): it installs no parameter type, names each pattern parameter's own domain by
+ *   its place and pattern, and names no contract outside the base.
+ */
+export type ParamSource =
+	| { readonly kind: "planned"; readonly types: ParamTypes }
+	| { readonly kind: "recorded"; readonly installed: InstalledParams }
+	| { readonly kind: "unserved" }
+
+/** A plan no installation stands behind (ParamSource `unserved`). */
+export const unserved: ParamSource = { kind: "unserved" }
+
+/** The identifiers of the pattern domains of `uses`, in code point order. */
+const domainIdentifiers = (uses: ReadonlyArray<ParamDomainUse>): ReadonlyArray<string> =>
+	uses
+		.map(({ place, regex }) => identifierOf(paramDomainIdentity(place, regex)))
+		.toSorted(compareStrings)
+
+/**
+ * A parameter's pattern domain where the installation installs it, `installed` holding its identifier, and otherwise
+ * UninstalledDomain: the naming of an installation's plan (ParamSource `planned` and `recorded`).
+ */
+const installedParamNamed = (
+	installed: ReadonlyArray<string>
+): ((place: ParamPlace, regex: RegexRef) => Identity<"paramDomain">) => {
+	const held = new Set(installed)
+	return (place, regex) => {
+		const named = paramDomainIdentity(place, regex)
+		return held.has(identifierOf(named))
+			? named
+			: uninstalled({
+					kind: "param",
+					param: paramPlaceText(place),
+					pattern: patternsText(regex.patterns)
+				})
+	}
+}
+
+/** `uses`, each pattern domain identity once, in their order. */
+const distinctDomains = (uses: ReadonlyArray<ParamDomainUse>): ReadonlyArray<ParamDomainUse> => {
+	const seen = new Set<string>()
+	return uses.filter(({ place, regex }) => {
+		const id = identifierOf(paramDomainIdentity(place, regex))
+		if (seen.has(id)) {
+			return false
+		}
+		seen.add(id)
+		return true
+	})
+}
+
+/**
  * The plan of the installation over a basis (installBasis, planBasis) under `settings`, which its caller admitted
- * (physical/install/compile.ts installationOver) or made fresh (freshPlanSettings), with what `extensions` state before
- * any name is chosen (PlanExtension), each once: their text domain uses, and the contracts their served parameters are
- * typed by, which the installation gives a domain beside the base's and the context fields' (outsideContracts), each
- * parameter held to its contract name's one definition once the names are read (paramContractsDefined).
+ * (physical/install/compile.ts installationOver) or made fresh (freshPlanSettings), with the text domain uses
+ * `extensions` state before any name is chosen (PlanExtension), each once, and the types its served programs'
+ * parameters are cast to from `params` (ParamSource): planned from the programs' declarations, each contract outside
+ * the base admitted beside the context fields' (outsideContracts) and held to its name's one definition once the names
+ * are read (paramContractsDefined); or recorded by a snapshot's installation, so a parameter whose domain it lacks is
+ * refused where it is compiled.
  */
 export const planInstallation = (
 	basis: PlanBasis,
 	settings: PlanSettings,
-	extensions: ReadonlyArray<PlanExtension>
+	extensions: ReadonlyArray<PlanExtension>,
+	params: ParamSource
 ): Result.Result<InstallPlan, CompileError> =>
 	catchRefusal((): InstallPlan => {
 		const { owned, model, codes, closed } = basis
 		const roles = settings.logins.flatMap((l) => l.roles)
 		const checked = model.checked
 		const extraUses: Array<TextColumnUse> = []
-		const params: Array<ParamContract> = []
 		for (const extension of new Set(extensions)) {
 			const uses = extension.textDomainUses(checked)
 			if (!uses.ok) {
 				throw new Refusal(uses.error)
 			}
 			appendAll(extraUses, uses.value)
-			appendAll(params, extension.paramContracts)
 		}
+		const planned = params.kind === "planned" ? params.types : noParamTypes
+		const paramDomains = distinctDomains(planned.domains)
 		const fields = contextFieldsOf(checked, roles)
 		if (!fields.ok) {
 			throw new Refusal(fields.error)
@@ -433,33 +509,62 @@ export const planInstallation = (
 			)
 		)
 		const textPlans = planTextDomains(owned, model.theory, extraUses)
-		const outside = outsideContracts(owned, fields.value, params)
+		const outside = outsideContracts(owned, fields.value, planned.contracts)
 		if (!outside.ok) {
 			throw new Refusal(outside.error)
 		}
 		const contracts = contractSources(model, outside.value)
+		const recorded = params.kind === "recorded" ? params.installed.contracts : []
 		const names = installNames({
 			owned,
 			levels: settings.levels,
 			vectorSchema: settings.vectorSchema,
 			textDomains: new Map([...textDomainNames(textPlans), ...basis.textDomains]),
 			contracts,
-			paramNamed: paramDomainIdentity,
+			recordedContracts: new Map(recorded.map((c) => [c.name, c.digest] as const)),
+			paramNamed:
+				params.kind === "unserved"
+					? paramDomainIdentity
+					: installedParamNamed(
+							params.kind === "recorded"
+								? params.installed.domains
+								: domainIdentifiers(paramDomains)
+						),
 			define: contractDigest,
 			codes,
 			closed: qualifiedClosed(identifierOf(headNonEmpty(settings.levels)), closed),
 			selectionKeys: selectionKeysOf(model.natives)
 		})
-		const defined = paramContractsDefined(names, owned, outside.value.context, params)
+		const defined = paramContractsDefined(names, owned, outside.value.context, planned.contracts)
 		if (!defined.ok) {
 			throw new Refusal(defined.error)
 		}
+		const installedParams: InstalledParams =
+			params.kind === "recorded"
+				? params.installed
+				: {
+						domains: domainIdentifiers(paramDomains),
+						contracts: outside.value.params.map((c) => ({
+							name: c.name,
+							digest: contractDigest(names, c.name, { base: c.contract.base, check: c.check }),
+							checked: c.check.kind === "checked"
+						}))
+					}
 		const stored = [...model.relations.values()].map((r) => r.relation)
 		const spans = spanColumns(model)
 		const constraintLaws: ReadonlyArray<ConstraintLaw> = [
 			...model.constraints,
 			...textDomainConstraintLaws(textPlans, fieldPatternLaws(model)),
-			...contractConstraintLaws(names, contracts, stored),
+			...contractConstraintLaws(
+				names,
+				[
+					...[...contracts].flatMap(([name, source]) =>
+						source.check.kind === "checked" ? [name] : []
+					),
+					...recorded.flatMap((c) => (c.checked ? [c.name] : []))
+				],
+				stored
+			),
 			...spanConstraintLaws(spans)
 		]
 		const theoryLaws = model.theory.laws.map((law): DescribedLaw<Identifier<"law">> =>
@@ -473,6 +578,8 @@ export const planInstallation = (
 			closed,
 			textPlans,
 			outsideContracts: outside.value,
+			paramDomains,
+			installedParams,
 			logins,
 			spans,
 			constraintLaws,

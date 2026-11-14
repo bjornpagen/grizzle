@@ -19,11 +19,7 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { type RegexRef, rosterOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { derivedKeyConstraints } from "#compiler/laws/model/catalog.ts"
 import type { ConstraintLaw, LawModel } from "#compiler/laws/model/model.ts"
-import {
-	noTextDomainUses,
-	type ParamContract,
-	textDomainIdentity
-} from "#compiler/physical/ddl/domains.ts"
+import { textDomainIdentity } from "#compiler/physical/ddl/domains.ts"
 import {
 	type InstallNames,
 	roleReadNames,
@@ -38,12 +34,13 @@ import {
 	contextFieldsOf,
 	worldTextDomainUses
 } from "#compiler/physical/ddl/roles.ts"
-import { noParamContracts } from "#compiler/physical/install/extension.ts"
 import {
 	contractChain,
 	freshPlanSettings,
 	installBasis,
 	type InstallPlan,
+	unserved,
+	type ParamSource,
 	type PlanBasis,
 	planInstallation
 } from "#compiler/physical/install/plan.ts"
@@ -348,7 +345,7 @@ export const schemaArtifacts = (
 ): Result.Result<SchemaArtifacts, CompileError> => {
 	const over = (owned: Owned) =>
 		Result.flatMap(installBasis(owned, options.codes, everySlice(owned)), (basis) =>
-			baseArtifacts(basis, noParamContracts)
+			baseArtifacts(basis, unserved)
 		)
 	return schema.kind === "role"
 		? Result.flatMap(ownRole(schema.desc), (role) =>
@@ -363,20 +360,17 @@ export const schemaArtifacts = (
  * The artifacts of an owned schema under the target identifiers, read from the plan of its fresh installation over its
  * basis (the law model and the closed constants' names under the installation's codes, physical/install/plan.ts
  * PlanBasis: a Db's from its snapshot, planBasis, everyone else's planned, installBasis), which builds no DDL and packs
- * no cell, serving programs whose parameters are typed by the contracts `params` (physical/ddl/domains.ts
- * ParamContract), each of which it gives a domain as the installation that serves them does: what the artifacts of
- * every role over it read through their views (roleArtifacts). Their holder (the layer, generate) computes them once
- * for a schema and its served programs and hands them to every role and every compilation over the schema; generate
- * installs its draft over the same basis.
+ * no cell, its programs' parameters cast to the types `params` gives (ParamSource): planned from the programs it serves,
+ * or recorded by its snapshot. What the artifacts of every role over it read through their views (roleArtifacts).
+ * Their holder (the layer, generate) computes them once for a schema and hands them to every role and every
+ * compilation over the schema; generate installs its draft over the same basis.
  */
 export const baseArtifacts = (
 	basis: PlanBasis,
-	params: ReadonlyArray<ParamContract>
+	params: ParamSource
 ): Result.Result<SchemaArtifacts, CompileError> =>
 	Result.map(
-		planInstallation(basis, freshPlanSettings(basis.owned), [
-			{ textDomainUses: noTextDomainUses, paramContracts: params }
-		]),
+		planInstallation(basis, freshPlanSettings(basis.owned), [], params),
 		(plan): SchemaArtifacts => {
 			const derived = derivedAnalysis(plan.checked)
 			return {

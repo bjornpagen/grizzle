@@ -302,7 +302,7 @@ const innerFirstContracts = (t: ScalarType): ReadonlyArray<ContractInfo> => {
  * parameter binds (ir/products.ts paramColumns), a scalar's, a clock reading's and each field of a relation's facts,
  * down its type's base chain, innermost first, so a contract follows the contracts its base names.
  */
-export const paramContracts = (
+const paramContracts = (
 	program: string,
 	params: ReadonlyArray<ParamDecl>
 ): ReadonlyArray<ParamContract> =>
@@ -312,6 +312,46 @@ export const paramContracts = (
 			innerFirstContracts(c.type).map((contract): ParamContract => ({ contract, loc }))
 		)
 	})
+
+/**
+ * The types the declared parameters of the programs an installation serves are cast to, which it installs: each
+ * pattern parameter's own pattern domain at its place (ParamDomainUse) and each contract a parameter is typed by
+ * (ParamContract), as the programs' declarations name them.
+ */
+export interface ParamTypes {
+	readonly domains: ReadonlyArray<ParamDomainUse>
+	readonly contracts: ReadonlyArray<ParamContract>
+}
+
+/** No parameter type: what a plan serving no program is given. */
+export const noParamTypes: ParamTypes = { domains: [], contracts: [] }
+
+/** The types the declared parameters `params` of the program `program` are cast to (ParamTypes). */
+export const paramTypesOf = (program: string, params: ReadonlyArray<ParamDecl>): ParamTypes => ({
+	domains: paramDomainUses(params),
+	contracts: paramContracts(program, params)
+})
+
+/**
+ * A contract outside the base whose domain an installation installs for its served parameters, in installed terms:
+ * its declared name, the digest of its domain's definition, which names the domain (InstallNames.contractNamed), and
+ * whether the domain has a CHECK, which a refusal by it reports as the contract's law.
+ */
+export interface InstalledContract {
+	readonly name: DeclaredName
+	readonly digest: DomainDigest
+	readonly checked: boolean
+}
+
+/**
+ * The parameter types an installation installs (ParamTypes in installed terms), as snapshot.json records them: each
+ * parameter's pattern domain by its identifier, in code point order, and each contract outside the base a parameter is
+ * typed by (InstalledContract), base first. A served compile under the snapshot casts a parameter only to these.
+ */
+export interface InstalledParams {
+	readonly domains: ReadonlyArray<string>
+	readonly contracts: ReadonlyArray<InstalledContract>
+}
 
 /** A parameter's pattern domain as a refusal by it names the parameter: its place's text and its patterns. */
 export interface ParamDomain {

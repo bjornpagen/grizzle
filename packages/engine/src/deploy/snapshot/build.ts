@@ -812,12 +812,14 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 
 /** The installation's derived runtime facts, which snapshot.json records beside the snapshot's content (SnapshotDerived):
  * each closed relation's constants as readers address them, the installation's plan's, the foreign key graph's
- * cycles, its law model's, which planned them from every law, and every table and materialized view it installs with
- * its indexes (snapshotTablesOf). */
+ * cycles, its law model's, which planned them from every law, every table and materialized view it installs with its
+ * indexes (snapshotTablesOf), its live source, and the types its plan casts its served parameters to
+ * (InstallPlan.installedParams). */
 export const derivedOf = (installation: Installation): SnapshotDerived => ({
 	...derivedFacts(installation.owned, installation.closed, installation.laws),
 	tables: snapshotTablesOf(installation),
-	live: liveSourceOf(installation)
+	live: liveSourceOf(installation),
+	params: installation.installedParams
 })
 
 /**
@@ -1157,6 +1159,14 @@ const closedForm = (c: NamedClosed): SnapshotForm => ({
 /** The JSON form of the installation's derived runtime facts (SnapshotDerived): each member's form by its owner. */
 const derivedForm = (d: SnapshotDerived): SnapshotForm => ({
 	live: d.live,
+	params: {
+		domains: d.params.domains,
+		contracts: d.params.contracts.map((c) => ({
+			name: c.name,
+			digest: c.digest,
+			checked: c.checked
+		}))
+	},
 	closed: Object.fromEntries([...d.closed].map(([name, c]) => [name, closedForm(c)] as const)),
 	fkCycles: d.fkCycles,
 	references: d.references.map((r) => ({ law: r.law, part: r.part })),

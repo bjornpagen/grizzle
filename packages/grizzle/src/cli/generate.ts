@@ -48,7 +48,8 @@ import {
 	defect,
 	draftCodebook,
 	namedLogin,
-	noParamContracts,
+	unserved,
+	type ParamSource,
 	rostersOf,
 	sameLevel,
 	type SchemaArtifacts,
@@ -298,8 +299,9 @@ export type ServedBasis =
  * compileWorkload), then each login's ChangeSets compiled once over the artifacts its served file compiles over
  * (servedWorkload): the configured schema's for a login over its level, and for a login over a level below, that
  * level's, compiled from the basis's derived facts as a snapshot records them (deploy/snapshot/build.ts derivedFacts,
- * adapter/served/login.ts artifactsUnder), under the draft's codes `codes`, each serving the contracts its programs'
- * parameters are typed by (WorkloadPlan.loginContracts). The plan, with what each login's served file compiles over
+ * adapter/served/login.ts artifactsUnder), under the draft's codes `codes`, each casting the programs' parameters to
+ * the types the workload's plan declares (WorkloadPhysical.params), which the installation drafted installs and its
+ * snapshot records. The plan, with what each login's served file compiles over
  * (ServedBasis). Every login's roles are named under its artifacts' installation before any login compiles
  * (physical/ddl/names.ts namedLogin), so a role whose PostgreSQL role does not fit is DraftRefused with
  * RoleNameTooLong; a program the checker refuses is DraftRefused, and a login's ChangeSet that does not compile
@@ -313,7 +315,7 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 	const { configured, logins } = schema
 	const refusedAt = (step: DraftRefused["step"]) => draftRefused(configured.declared, step)
 	const configuredArtifacts = yield* Effect.mapError(
-		fromEngine(artifactsOver(basis, noParamContracts)),
+		fromEngine(artifactsOver(basis, unserved)),
 		refusedAt("workload")
 	)
 	const options = {
@@ -331,14 +333,15 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 		refusedAt("workload")
 	)
 	const derived = derivedFacts(basis.owned, basis.closed, basis.model)
-	const served = yield* Effect.forEach(logins, (l) => {
-		const params = workload.loginContracts.get(l.owned.name)
-		if (params === undefined) {
-			throw defect(`the parameters' contracts of login ${l.owned.name}, a login of the plan`)
-		}
-		return Effect.flatMap(
+	const params: ParamSource = { kind: "planned", types: workload.params }
+	const servedArtifacts = yield* Effect.mapError(
+		fromEngine(artifactsOver(basis, params)),
+		refusedAt("workload")
+	)
+	const served = yield* Effect.forEach(logins, (l) =>
+		Effect.flatMap(
 			sameLevel(l.login.base.content, configured.built.content)
-				? Effect.mapError(fromEngine(artifactsOver(basis, params)), refusedAt("workload"))
+				? Effect.succeed(servedArtifacts)
 				: Effect.mapBoth(
 						fromEngine(
 							artifactsUnder(l.owned.base, codes, derived, everySlice(l.owned.base), params)
@@ -351,7 +354,7 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 					onSuccess: (named) => ({ login: l, named, artifacts })
 				})
 		)
-	})
+	)
 	const plan = yield* Effect.mapError(
 		fromEngine(
 			servedWorkload(

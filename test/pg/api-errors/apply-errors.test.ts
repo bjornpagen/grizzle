@@ -129,6 +129,30 @@ const insertedIn = (text: string, at: number, inserted: string): string =>
 const beyond = int(0, 2 ** 20)
 
 /**
+ * The members the cases call, built over the fixture, which they run against under its installed name (a level is its
+ * content): an insert of an array's facts, and the described member, every field but the key a scalar parameter of its
+ * type. The installation's login serves them, so it installs every type their parameters are cast to, `label`'s own
+ * pattern domain among them.
+ */
+const programs = Object.freeze({
+	array: changeSetOver.empty(Fixture).insert(Typed, []),
+	parameter: changeSetOver.empty(Fixture).insert(
+		Typed,
+		query(Fixture).rule((r) => {
+			const { id } = v(Seed, "seed")
+			return r.match(Seed, { id }).find({
+				id,
+				n: r.param("n", Typed.fields.n),
+				b: r.param("b", Typed.fields.b),
+				flag: r.param("flag", Typed.fields.flag),
+				label: r.param("label", Typed.fields.label),
+				during: r.param("during", Typed.fields.during)
+			})
+		})
+	)
+})
+
+/**
  * Each field's invalid class, constructed, never filtered: a string holding a letter no uuid's hexadecimal holds; an
  * integer past int4's range, either side; a bigint past int8's; a value of no boolean type; a text of the label's
  * letters holding NUL; a span of bigint endpoints whose end is not past its start.
@@ -267,7 +291,7 @@ const encodingKept: ReadonlyArray<Kept<EncodingCase, EncodingFeature>> = [
 ]
 
 layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the public API", (it) => {
-	const opened = installed(Fixture, { Seed: [{ id: seed }] }, { label: "real", programs: {} })
+	const opened = installed(Fixture, { Seed: [{ id: seed }] }, { label: "real", programs })
 
 	it.effect(
 		"a value its codec refuses is refused as input naming its fault and slot, before any SQL; one it admits is answered",
@@ -280,24 +304,7 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 					const names = namesOf(o.installed)
 					return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, load }) =>
 						Effect.gen(function* () {
-							const members = yield* load({
-								array: changeSetOver.empty(o.schema).insert(Typed, []),
-								/** The described member: every field but the key a scalar parameter of its type. */
-								parameter: changeSetOver.empty(o.schema).insert(
-									Typed,
-									query(o.schema).rule((r) => {
-										const { id } = v(Seed, "seed")
-										return r.match(Seed, { id }).find({
-											id,
-											n: r.param("n", Typed.fields.n),
-											b: r.param("b", Typed.fields.b),
-											flag: r.param("flag", Typed.fields.flag),
-											label: r.param("label", Typed.fields.label),
-											during: r.param("during", Typed.fields.during)
-										})
-									})
-								)
-							})
+							const members = yield* load(programs)
 							const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
 							const tapped = { ...ctx, pool }
 							return yield* explore(

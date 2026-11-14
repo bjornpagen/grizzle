@@ -43,7 +43,7 @@ import {
 	sameScalarType
 } from "#compiler/ir/scalar.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
-import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
+import { noParamTypes, noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallExtension,
@@ -51,7 +51,7 @@ import {
 	noCertificates,
 	noFences,
 	noHolds,
-	noParamContracts
+	servesNoParams
 } from "#compiler/physical/install/extension.ts"
 import {
 	type StatisticsRequest,
@@ -1000,11 +1000,10 @@ export const extensionsOf = (v: Version): ReadonlyArray<InstallExtension> => {
 							schema: b.owned.fingerprint,
 							paths: [],
 							statistics,
-							paramDomains: [],
-							paramContracts: noParamContracts
+							params: noParamTypes
 						}).contribute(b),
 					textDomainUses: noTextDomainUses,
-					paramContracts: noParamContracts,
+					params: servesNoParams,
 					certifies: noCertificates,
 					carriers: noCarriers,
 					holds: noHolds,

@@ -250,26 +250,28 @@ const memberClocked = (member: WorkloadForm): ReadonlyArray<ClockParamDecl> => {
 }
 
 /**
- * The types of the values a role's statements cast (see the header): every parameter of its served members, a
- * scalar's type and a relation's heading's, every parameter its compiled members bind to the database's clock, and,
- * where it writes, its contexts' claims.
+ * The parameters a role's statements declare: every parameter of its served members, and every parameter its compiled
+ * members bind to the database's clock.
  */
-export const castBy = (role: ServedRoleForm, compiled: LayerRole): ReadonlyArray<ScalarType> => {
-	const params: ReadonlyArray<CallerParamDecl> = Arr.flatMap(role.members, (member) =>
-		memberParams(member)
+export const declaredBy = (role: ServedRoleForm, compiled: LayerRole): ReadonlyArray<ParamDecl> => [
+	...Arr.flatMap(role.members, (member): ReadonlyArray<CallerParamDecl> => memberParams(member)),
+	...Arr.flatMap(compiled.workload, (member): ReadonlyArray<ClockParamDecl> =>
+		memberClocked(member)
 	)
-	return [
-		...(Arr.some(role.members, (member) => member.kind === "change")
-			? Arr.flatMap(role.contexts, (c) => Arr.map(c.fields, (f) => f.type))
-			: []),
-		...Arr.flatMap(params, (param): ReadonlyArray<ScalarType> =>
-			param.kind === "scalar" ? [param.type] : Arr.map(param.heading, (column) => column.type)
-		),
-		...Arr.flatMap(compiled.workload, (member): ReadonlyArray<ScalarType> =>
-			Arr.map(memberClocked(member), (param) => param.type)
-		)
-	]
-}
+]
+
+/**
+ * The types of the values a role's statements cast (see the header): every parameter it declares (declaredBy), a
+ * scalar's or a clock reading's type and a relation's heading's, and, where it writes, its contexts' claims.
+ */
+export const castBy = (role: ServedRoleForm, compiled: LayerRole): ReadonlyArray<ScalarType> => [
+	...(Arr.some(role.members, (member) => member.kind === "change")
+		? Arr.flatMap(role.contexts, (c) => Arr.map(c.fields, (f) => f.type))
+		: []),
+	...Arr.flatMap(declaredBy(role, compiled), (param): ReadonlyArray<ScalarType> =>
+		param.kind === "relation" ? Arr.map(param.heading, (column) => column.type) : [param.type]
+	)
+]
 
 /** The contracts of a type's chain, outermost first: its own, then its base's, down to a type of no contract. */
 const contractsOf = (type: ScalarType): ReadonlyArray<DeclaredName> => {

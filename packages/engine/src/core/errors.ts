@@ -407,6 +407,9 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `UnheldGroup`: the ChangeSet at `at` reads or writes `relation`, a body of the retirable unit headed by `header`, or
  *   reads that header's retirement field, at a group it does not state, as `why` says (UnheldWhy): a served call holds
  *   every group it touches before it touches it (write/hold/stated.ts), so no retirement of one commits while it runs.
+ * - `UninstalledDomain`: a statement at `at` casts a value to `domain` (UninstalledType), a domain the installation it is
+ *   compiled for installs none of: a statement is served only over the domains its installation holds, so a value cast
+ *   to another is refused where it is compiled, never by PostgreSQL where it runs.
  */
 export type CompileReason =
 	| { readonly _tag: "Refused"; readonly at: SourceLoc; readonly refusal: Refused }
@@ -604,7 +607,28 @@ export type CompileReason =
 			readonly header: string
 			readonly why: UnheldWhy
 	  }
+	| { readonly _tag: "UninstalledDomain"; readonly at: SourceLoc; readonly domain: UninstalledType }
 export type CompileReasonTag = CompileReason["_tag"]
+
+/**
+ * A domain a statement casts a value to that its installation does not install (UninstalledDomain): the domain of the
+ * contract `contract`, which no stored field, context field or served parameter of the installation is typed by; or the
+ * pattern domain of the parameter `param` over `pattern`, the patterns' text, which no program of the installation's
+ * served workload declares at that place.
+ */
+export type UninstalledType =
+	| { readonly kind: "contract"; readonly contract: string }
+	| { readonly kind: "param"; readonly param: string; readonly pattern: string }
+
+/** What an installation would need to install `domain`, and what installs it (UninstalledDomain). */
+const uninstalledText = (domain: UninstalledType): string => {
+	switch (domain.kind) {
+		case "contract":
+			return `the installation installs no domain of contract ${domain.contract}, which no stored field, context field or served parameter of it is typed by: type the value by a contract the schema declares, or serve the program from a workload of a login of the installation and run grizzle generate`
+		case "param":
+			return `the installation installs no pattern domain of parameter ${domain.param} over ${domain.pattern}, which no program of its served workload declares: serve the program from a workload of a login of the installation and run grizzle generate`
+	}
+}
 
 /**
  * Why a ChangeSet touches a retirable unit's relation at a group it does not state (UnheldGroup), the group's fields
@@ -872,6 +896,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return readBackCrossingText(reason.read, reason.crossing)
 		case "UnheldGroup":
 			return unheldGroupText(reason.relation, reason.header, reason.why)
+		case "UninstalledDomain":
+			return uninstalledText(reason.domain)
 		case "UndeclaredDrop": {
 			const spelled = droppedText(reason.dropped)
 			return `${spelled} is dropped but not declared: declare it with --drop ${spelled}, or --rename it`

@@ -2,13 +2,16 @@ import type { Fence, RoleIsolation } from "#compiler/analysis/isolation/certify.
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type * as Result from "#compiler/core/result.ts"
+import * as Result from "#compiler/core/result.ts"
 import type { IndexRequest } from "#compiler/ir/products.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
-import type { ParamContract, TextColumnUse } from "#compiler/physical/ddl/domains.ts"
+import {
+	noParamTypes,
+	type ParamTypes,
+	type TextColumnUse
+} from "#compiler/physical/ddl/domains.ts"
 import type { StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
-import type { ObjectName } from "#compiler/sql/ast.ts"
 
 /** What an extension contributes to the installation it runs in beyond the objects it adds to the builder: an
  * extension spreads `noContribution` and states what it contributes. */
@@ -17,16 +20,12 @@ export interface InstallContribution {
 	readonly statisticsRequests: ReadonlyArray<StatisticsRequest>
 	/** The derived relations whose materialized views it installs. */
 	readonly derivedRelations: ReadonlyArray<string>
-	/** The domains it creates, which PUBLIC is revoked from as from the installation's own: the served workload's
-	 * parameters' pattern domains (physical/ddl/domains.ts addParamDomains). */
-	readonly domains: ReadonlyArray<ObjectName>
 }
 
 export const noContribution: InstallContribution = {
 	indexRequests: [],
 	statisticsRequests: [],
-	derivedRelations: [],
-	domains: []
+	derivedRelations: []
 }
 
 /** What another package installs, plugged into an installation: the materialized views of derived relations, the
@@ -46,14 +45,14 @@ export interface InstallExtension {
 		checked: CheckedSchema
 	) => Result.Result<ReadonlyArray<TextColumnUse>, CompileError>
 	/**
-	 * The contracts the parameters of the programs it serves are typed by (physical/ddl/domains.ts ParamContract), which
-	 * the installation reads before any name is chosen, as it reads `textDomainUses`, and gives a domain beside the
-	 * base's and the context fields' (physical/install/plan.ts planInstallation), since every placeholder of such a
-	 * parameter is cast to its contract's domain: the workload's (physical/access/extension.ts workloadExtension), from
-	 * its programs' declared parameters (program/workload/compile.ts compileWorkload); every other extension's, none
-	 * (`noParamContracts`).
+	 * The types the declared parameters of the programs it serves are cast to (physical/ddl/domains.ts ParamTypes), over
+	 * the installation's checked schema: each pattern parameter's own pattern domain and each contract a parameter is
+	 * typed by, which the installation reads before any name is chosen, as it reads `textDomainUses`, and installs
+	 * (physical/install/compile.ts installationOver), so it serves no statement that casts a parameter to a type it lacks:
+	 * the workload's (physical/access/extension.ts workloadExtension), from its programs' declarations
+	 * (program/workload/compile.ts compileWorkload); every other extension's, none (`servesNoParams`).
 	 */
-	readonly paramContracts: ReadonlyArray<ParamContract>
+	readonly params: (checked: CheckedSchema) => Result.Result<ParamTypes, CompileError>
 	/**
 	 * The certificates of the roles it certifies (analysis/isolation/certify.ts), which the installation reads before
 	 * it builds anything, since each table's guard follows the levels of the roles that write it: the served
@@ -90,12 +89,12 @@ export interface InstallExtension {
 	readonly fences: ReadonlyArray<LoginFence>
 }
 
-/** What the plan of an installation reads of an extension, before any name is chosen (physical/install/plan.ts
- * planInstallation): its text domain uses and its parameters' contracts. */
-export type PlanExtension = Pick<InstallExtension, "textDomainUses" | "paramContracts">
+/** What the plan of an installation reads of an extension before any name is chosen (physical/install/plan.ts
+ * planInstallation): its text domain uses. */
+export type PlanExtension = Pick<InstallExtension, "textDomainUses">
 
-/** No parameter's contract: what an extension that serves no program states. */
-export const noParamContracts: ReadonlyArray<ParamContract> = []
+/** No parameter type: what an extension that serves no program states. */
+export const servesNoParams = (): Result.Result<ParamTypes, CompileError> => Result.ok(noParamTypes)
 
 /** The relations a login fences, by their declared names, in code-unit order. */
 export interface LoginFence {

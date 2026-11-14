@@ -10,7 +10,7 @@ import {
 	noCertificates,
 	noContribution,
 	noFences,
-	noParamContracts
+	servesNoParams
 } from "#compiler/physical/install/extension.ts"
 
 /** The installer extension that adds the closed payloads' validation object to an installation's Publish phase: every
@@ -36,7 +36,7 @@ export const refinedConstantsExtension: InstallExtension = {
 			return noContribution
 		}),
 	textDomainUses: noTextDomainUses,
-	paramContracts: noParamContracts,
+	params: servesNoParams,
 	certifies: noCertificates,
 	carriers: noCarriers,
 	holds: noHolds,

@@ -1,6 +1,6 @@
 import { nominal } from "#compiler/core/brand.ts"
-import { catchCompileError } from "#compiler/core/canonical.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
+import { catchCompileError, Refusal } from "#compiler/core/canonical.ts"
+import { CompileError, type UninstalledType } from "#compiler/core/errors.ts"
 import type { DomainDigest } from "#compiler/core/fingerprint.ts"
 import {
 	type DeclaredName,
@@ -13,6 +13,7 @@ import {
 	roleIdentity
 } from "#compiler/core/identity.ts"
 import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
@@ -141,9 +142,15 @@ interface NamesInput {
 	/** Each pattern the installation gives a structural text domain, by its canonical key, with its domain's
 	 * definition's digest. */
 	readonly textDomains: ReadonlyMap<string, DomainDigest>
-	/** Each contract the installation gives a domain, a base one or a context field's, by its declared name. */
+	/** Each contract the installation gives a domain by its definition, a base one, a context field's or a served
+	 * parameter's, by its declared name. */
 	readonly contracts: ReadonlyMap<DeclaredName, ContractSource>
-	/** The pattern domain of a parameter's place over a pattern (physical/ddl/domains.ts paramDomainIdentity). */
+	/** Each contract outside the base a snapshot's installation installs for its served parameters, by its declared
+	 * name, with the digest of its domain's definition, as snapshot.json records it (physical/ddl/domains.ts
+	 * InstalledParams). */
+	readonly recordedContracts: ReadonlyMap<DeclaredName, DomainDigest>
+	/** The pattern domain of a parameter's place over a pattern (physical/ddl/domains.ts paramDomainIdentity), refused
+	 * as UninstalledDomain where the installation installs none (physical/install/plan.ts ParamSource). */
 	readonly paramNamed: (place: ParamPlace, regex: RegexRef) => Identity<"paramDomain">
 	/** The digest of a contract's domain's definition over `names` (physical/ddl/domains.ts). */
 	readonly define: (
@@ -378,6 +385,16 @@ const rosterOf = (owned: Owned, roster: string) => {
  * text column is `text COLLATE pg_catalog.pg_c_utf8`, a closed id by its roster's domain over smallint, a set by its
  * roster's bits domain, a span by int4range or int8range, a vector by the extension's vector(N), and every other scalar
  * by the native type of its name. The base type, which drops every refinement but a set's, is the lowering's. */
+/**
+ * A cast to `domain`, which the installation does not install, refused as UninstalledDomain where the statement is
+ * compiled, never by PostgreSQL where it runs. A function declaration, so that control flow knows a call never returns.
+ */
+export function uninstalled(domain: UninstalledType): never {
+	throw new Refusal(
+		CompileError.make({ _tag: "UninstalledDomain", at: SourceLoc("physical names", []), domain })
+	)
+}
+
 export const installNames = (input: NamesInput): InstallNames => {
 	const { owned, levels } = input
 	const installation = levels[0]
@@ -396,9 +413,13 @@ export const installNames = (input: NamesInput): InstallNames => {
 		if (known !== undefined) {
 			return known
 		}
-		const source =
-			input.contracts.get(contract) ?? missing(`physical: no domain for contract ${contract}`)
-		const named = identity.contractDomain(input.define(names, contract, source))
+		const source = input.contracts.get(contract)
+		const recorded = input.recordedContracts.get(contract)
+		const named = identity.contractDomain(
+			source !== undefined
+				? input.define(names, contract, source)
+				: (recorded ?? uninstalled({ kind: "contract", contract }))
+		)
 		domains.set(contract, named)
 		return named
 	}
@@ -453,7 +474,8 @@ export const installNames = (input: NamesInput): InstallNames => {
 		closed: (relation) =>
 			input.closed.get(relation) ?? missing(`physical: no closed relation ${relation}`),
 		selectionKeys: (relation) => input.selectionKeys.get(relation) ?? [],
-		/** A contract's domain by its name, whether the base declares it or a context field does, named by its definition. */
+		/** A contract's domain by its name, whether the base declares it, a context field or a served parameter, named by
+		 * its definition. */
 		contractDomain: (contract) => ({ schema: types, name: identifierOf(contractNamed(contract)) }),
 		contractNamed,
 		textDomain: (regex) => {

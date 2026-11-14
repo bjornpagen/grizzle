@@ -10,7 +10,7 @@ import {
 	noContribution,
 	noFences,
 	noHolds,
-	noParamContracts
+	servesNoParams
 } from "#compiler/physical/install/extension.ts"
 import { eq, key, on, onWhere, type SchemaDesc, textDesc } from "#test/support/fixtures/ir/desc.ts"
 
@@ -24,7 +24,7 @@ export const owner = "grizzle_dev"
 export const requesting = (requests: ReadonlyArray<IndexRequest>): InstallExtension => ({
 	contribute: () => Result.ok({ ...noContribution, indexRequests: requests }),
 	textDomainUses: noTextDomainUses,
-	paramContracts: noParamContracts,
+	params: servesNoParams,
 	certifies: noCertificates,
 	carriers: noCarriers,
 	holds: noHolds,

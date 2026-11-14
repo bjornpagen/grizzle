@@ -17,9 +17,7 @@ import {
 	Engine,
 	levelChain,
 	type LoginDesc,
-	noParamContracts,
 	type OwnedLogin,
-	type ParamContract,
 	type SchemaArtifacts
 } from "#compiler/plan/common.ts"
 import {
@@ -210,12 +208,12 @@ export const servedEntry = (
 
 /**
  * The compile of `login` under `snapshot` alone, no installation compiled beside it: the installation's artifacts
- * compiled from what the snapshot records (its codes, its closed relations' constant names, its text domains and its
- * foreign key graph's cycles) over every relation, the law model generate compiles from the schema, its workload
- * planned over them (compileWorkload), whose query programs' footprints and parameters' contracts are the plan's, then
- * the login over those artifacts serving its parameters' contracts, as generate compiles it (compileServed): its roles,
- * each with its workload's programs compiled, which a test reads beside the file they project (a change form's compiled
- * entry, its put choices among it).
+ * compiled from what the snapshot records (its codes, its closed relations' constant names, its text domains, its
+ * foreign key graph's cycles and the types it casts its served parameters to) over every relation, the law model
+ * generate compiles from the schema, then the login over them (compileServed), its query programs' footprints its
+ * workload's plan's (compileWorkload): its roles, each with its workload's programs compiled, which a test reads beside
+ * the file they project (a change form's compiled entry, its put choices among it). A program that casts a parameter to
+ * a type the snapshot's installation does not install is refused at its role and program as UninstalledDomain.
  */
 export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 	login: ServedInput,
@@ -226,34 +224,33 @@ export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 		atLogin
 	)
 	const base = login.owned.base
-	const artifactsServing = (params: ReadonlyArray<ParamContract>) =>
-		Effect.mapError(
-			fromEngine(artifactsUnder(base, served.codes, served.derived, everySlice(base), params)),
-			atLogin
-		)
-	const checking = yield* artifactsServing(noParamContracts)
+	const { artifacts } = yield* Effect.mapError(
+		fromEngine(
+			artifactsUnder(base, served.codes, served.derived, everySlice(base), {
+				kind: "recorded",
+				installed: served.derived.params
+			})
+		),
+		atLogin
+	)
+	const changes = yield* Effect.mapError(
+		loginChangesOver(login.login, login.owned, artifacts, "serializable"),
+		atRole
+	)
 	const name = login.login.desc.name
 	const planned = yield* Effect.mapError(
 		fromEngine(
 			compileWorkload([{ login: name, workloads: login.login.workload }], login.login.base, {
-				artifacts: checking.artifacts,
+				artifacts,
 				roles: []
 			})
 		),
 		atLogin
 	)
 	const footprints = planned.footprints.get(name)
-	const params = planned.loginContracts.get(name)
-	if (footprints === undefined || params === undefined) {
-		throw defect(
-			`the footprints and the parameters' contracts of login ${name}, the one login its workload plan plans`
-		)
+	if (footprints === undefined) {
+		throw defect(`the footprints of login ${name}, the one login its workload plan plans`)
 	}
-	const { artifacts } = yield* artifactsServing(params)
-	const changes = yield* Effect.mapError(
-		loginChangesOver(login.login, login.owned, artifacts, "serializable"),
-		atRole
-	)
 	return yield* compileServed(login, snapshot, artifacts, changes, footprints)
 })
 

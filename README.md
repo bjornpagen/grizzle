@@ -3282,7 +3282,8 @@ one key that differ elsewhere are `refused` on that key before any SQL, since th
 **Contracts and patterns.** The encoder checks only the base type, so a value its contract or pattern refuses is refused
 by its domain's CHECK as the statement casts it, before the row's constraints and row-level security. A parameter's
 value is cast as PostgreSQL binds it, to its contract's domain or to its own pattern domain, one per parameter and
-pattern, which `grizzle generate` installs for every pattern a served parameter names: a value outside them is refused
+pattern, which `grizzle generate` installs for every contract and every pattern a served parameter names: a value
+outside them is refused
 there, before the statement reads a row. A contract's refusal of a parameter is `refused` on the contract's law, its
 witness `unreported`, a write's and a read's (`LawRejected`) alike; a pattern's refusal of a parameter is `input`
 (`ParamRejected`), its message naming the parameter, `<parameter>.<field>` for a field of a relation parameter's facts,
@@ -3608,6 +3609,14 @@ over an installation with no live source would miss the migration that ends it `
 program, a `ServedRefusal` at the program whose error is `UncoveredRead`, naming the missing source, or each table and
 column. Only a snapshot of a database migrated without the program's workload has one, since `grizzle generate` builds
 the publication from the same workload.
+
+**compileServed refuses a parameter type the installation lacks.** `grizzle generate` installs the domain of every
+contract a served parameter is typed by and the pattern domain of every pattern parameter, one per parameter and
+pattern, and `snapshot.json` records them. A program that `compileServed` compiles casts each parameter to one of
+those, so a parameter whose contract or pattern the committed workload never served at that parameter is a
+`ServedRefusal` at the program whose error is `UninstalledDomain`, naming the contract or the parameter and its
+pattern, never a `type ... does not exist` from PostgreSQL. Serve the program from a workload of the login, or declare
+the parameter in one, and run `grizzle generate`.
 
 **Direct SQL.** A direct writer, psql included, writes at SERIALIZABLE, and the guard refuses anything below it with
 25000, except on a table whose every writer is certified READ COMMITTED. There it may write at any level, as the role it

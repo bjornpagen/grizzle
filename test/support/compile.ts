@@ -41,10 +41,10 @@ import {
 	noCarriers,
 	noHolds,
 	noCertificates,
-	noFences,
-	noParamContracts
+	noContribution,
+	noFences
 } from "#compiler/physical/install/extension.ts"
-import { installBasis } from "#compiler/physical/install/plan.ts"
+import { installBasis, unserved } from "#compiler/physical/install/plan.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { textOfParam } from "#test/support/wire.ts"
 
@@ -196,7 +196,7 @@ const allocatedArtifacts = (
 ): Result.Result<SchemaArtifacts, CompileError> => {
 	const over = (owned: Owned) =>
 		Result.flatMap(installBasis(owned, codes, everySlice(owned)), (basis) =>
-			baseArtifacts(basis, noParamContracts)
+			baseArtifacts(basis, unserved)
 		)
 	return input.kind === "role"
 		? Result.flatMap(
@@ -398,31 +398,44 @@ export const compileInputWorkload = (
 const workloadExtensionOver = (
 	logins: ReadonlyArray<LoginWorkloads>,
 	rolesOf: (installing: ReadonlyArray<OwnedLogin>) => ReadonlyArray<OwnedRole>
-): InstallExtension => ({
-	contribute: (b) =>
-		Result.flatMap(parseSchemaInput(b.owned.desc), (input) =>
+): InstallExtension => {
+	/** The workload's plan against the installed schema `owned`, beside the write filters of `roles`. */
+	const planOver = (owned: Owned, roles: ReadonlyArray<OwnedRole>) =>
+		Result.flatMap(parseSchemaInput(owned.desc), (input) =>
 			Result.flatMap(inputArtifacts(input, testCompile), (artifacts) =>
-				Result.flatMap(
-					compileWorkload(logins, input, {
-						artifacts,
-						roles: rolesOf(b.settings.logins)
-					}),
-					(plan) => workloadExtension(plan).contribute(b)
-				)
+				compileWorkload(logins, input, { artifacts, roles })
 			)
-		),
-	textDomainUses: noTextDomainUses,
-	paramContracts: noParamContracts,
-	certifies: noCertificates,
-	carriers: noCarriers,
-	holds: noHolds,
-	live: noLive,
-	fences: noFences
-})
+		)
+	return {
+		contribute: (b) =>
+			Result.flatMap(planOver(b.owned, rolesOf(b.settings.logins)), (plan) =>
+				workloadExtension(plan).contribute(b)
+			),
+		textDomainUses: noTextDomainUses,
+		params: (checked) => Result.map(planOver(checked.owned, []), (plan) => plan.params),
+		certifies: noCertificates,
+		carriers: noCarriers,
+		holds: noHolds,
+		live: noLive,
+		fences: noFences
+	}
+}
 
 /** The workload of `logins` alone (compileTestWorkload), compiled against the schema the installation installs. */
 export const workloadOver = (logins: ReadonlyArray<LoginWorkloads>): InstallExtension =>
 	workloadExtensionOver(logins, () => [])
+
+/**
+ * The types the programs of `logins`' workloads cast their parameters to, and nothing else of their workload: an
+ * installer extension whose plan states them (InstallExtension.params), compiled against the schema the installation
+ * installs, so a harness that serves those programs through a served compile under the installation's snapshot
+ * (test/support/served-db.ts) installs every type they cast a parameter to, and no index or statistics object of their
+ * workload's.
+ */
+export const paramsOver = (logins: ReadonlyArray<LoginWorkloads>): InstallExtension => ({
+	...workloadExtensionOver(logins, () => []),
+	contribute: () => Result.ok(noContribution)
+})
 
 /**
  * The workload of `logins` beside every installed login's write filters, as `grizzle generate` plans a deployment's,

@@ -24,6 +24,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { schema, type Statement } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { workload } from "#compiler/public/workload.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 import { relation } from "#compiler/schema/relation.ts"
 import { btreeMaxItemSize, keyLayout } from "#compiler/schema/representability.ts"
@@ -40,6 +41,7 @@ import { rowOf } from "#test/pg/page/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, deepEquals, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
 import { answered, readOnce, type WriteAnswer, writeOnce } from "#test/support/calls.ts"
+import { paramsOver } from "#test/support/compile.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -739,12 +741,72 @@ layer(Substrate.layer, { excludeTestServices: true })("compound text keys", (it)
 							const b = built(s)
 							const widestRow = widest(s, k.salt)
 							const declared = b.rename("Keyed")
+							const field = (f: string) => defined(b.Parent.fields[f], "a Parent field")
+							/**
+							 * The case's members over `over`, the declared schema or the installed one, which a level's content
+							 * makes one: its writes, and its reads by the key, the declared key and the child's id.
+							 */
+							const programsOver = (over: typeof declared) => ({
+								insert: ChangeSet.empty(over).insert(b.Parent, []).insert(b.Child, []),
+								put: ChangeSet.empty(over).put(b.Parent, []),
+								delete: ChangeSet.empty(over).delete(b.Parent, []),
+								byKey: query(over).rule((r) => {
+									const p = v(b.Parent, "p")
+									const bound = Rec.fromEntries(
+										Arr.map(Rec.keys(b.Parent.fields), (f) =>
+											Arr.some(s.key, (x) => x === f)
+												? ([f, r.param(`k_${f}`, field(f))] as const)
+												: ([f, defined(p[f], "a variable")] as const)
+										)
+									)
+									return r.match(b.Parent, bound).find(bound)
+								}),
+								byUnique: query(over).rule((r) => {
+									const p = v(b.Parent, "p")
+									const bound = Rec.fromEntries(
+										Arr.map(Rec.keys(b.Parent.fields), (f) =>
+											Arr.some(s.unique, (x) => x === f)
+												? ([f, r.param(`u_${f}`, field(f))] as const)
+												: ([f, defined(p[f], "a variable")] as const)
+										)
+									)
+									return r.match(b.Parent, bound).find(bound)
+								}),
+								childParent: query(over).rule((r) => {
+									const ch = v(b.Child, "c")
+									const p = v(b.Parent, "p")
+									const joined = Rec.fromEntries(
+										Arr.map(Rec.keys(b.Parent.fields), (f) => {
+											const keyed = Arr.findFirst(s.key, (x) => x === f)
+											return [
+												f,
+												Option.isSome(keyed)
+													? defined(ch[childField(keyed.value)], "a child variable")
+													: defined(p[f], "a parent variable")
+											] as const
+										})
+									)
+									return r
+										.match(b.Child, ch)
+										.match(b.Parent, joined)
+										.where(r.eq(defined(ch["id"], "the child id"), r.param("id", pg.int4)))
+										.find(joined)
+								})
+							})
+							const declaredWorld = fullWorld(declared, {})
 							const installedOrNot = yield* Effect.result(
 								installMigrated(declared, {
 									ambient: ordinarySession,
 									label: "keyed",
-									logins: [fullWorld(declared, {}).server],
-									extensions: []
+									logins: [declaredWorld.server],
+									extensions: [
+										paramsOver([
+											{
+												login: "server",
+												workloads: [workload(declaredWorld.app, programsOver(declared))]
+											}
+										])
+									]
 								})
 							)
 							if (Result.isFailure(installedOrNot)) {
@@ -847,54 +909,7 @@ layer(Substrate.layer, { excludeTestServices: true })("compound text keys", (it)
 								"the child key": ["id"],
 								"the containment": []
 							}
-							const field = (f: string) => defined(b.Parent.fields[f], "a Parent field")
-							const programs = {
-								insert: ChangeSet.empty(value).insert(b.Parent, []).insert(b.Child, []),
-								put: ChangeSet.empty(value).put(b.Parent, []),
-								delete: ChangeSet.empty(value).delete(b.Parent, []),
-								byKey: query(value).rule((r) => {
-									const p = v(b.Parent, "p")
-									const bound = Rec.fromEntries(
-										Arr.map(Rec.keys(b.Parent.fields), (f) =>
-											Arr.some(s.key, (x) => x === f)
-												? ([f, r.param(`k_${f}`, field(f))] as const)
-												: ([f, defined(p[f], "a variable")] as const)
-										)
-									)
-									return r.match(b.Parent, bound).find(bound)
-								}),
-								byUnique: query(value).rule((r) => {
-									const p = v(b.Parent, "p")
-									const bound = Rec.fromEntries(
-										Arr.map(Rec.keys(b.Parent.fields), (f) =>
-											Arr.some(s.unique, (x) => x === f)
-												? ([f, r.param(`u_${f}`, field(f))] as const)
-												: ([f, defined(p[f], "a variable")] as const)
-										)
-									)
-									return r.match(b.Parent, bound).find(bound)
-								}),
-								childParent: query(value).rule((r) => {
-									const ch = v(b.Child, "c")
-									const p = v(b.Parent, "p")
-									const joined = Rec.fromEntries(
-										Arr.map(Rec.keys(b.Parent.fields), (f) => {
-											const keyed = Arr.findFirst(s.key, (x) => x === f)
-											return [
-												f,
-												Option.isSome(keyed)
-													? defined(ch[childField(keyed.value)], "a child variable")
-													: defined(p[f], "a parent variable")
-											] as const
-										})
-									)
-									return r
-										.match(b.Child, ch)
-										.match(b.Parent, joined)
-										.where(r.eq(defined(ch["id"], "the child id"), r.param("id", pg.int4)))
-										.find(joined)
-								})
-							}
+							const programs = programsOver(value)
 							yield* Effect.gen(function* () {
 								const db = yield* openServedDb(done, world.server.roles.app, {})
 								const loaded = yield* db.load(programs)

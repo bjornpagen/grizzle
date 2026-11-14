@@ -1,3 +1,4 @@
+import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
@@ -23,7 +24,10 @@ import { InstallBuilder, type InstallSettings } from "#compiler/physical/ddl/con
 import {
 	addContractDomains,
 	addOutsideContractDomains,
+	addParamDomains,
 	addTextDomains,
+	type ParamContract,
+	type ParamDomainUse,
 	type TextDomain
 } from "#compiler/physical/ddl/domains.ts"
 import { readCommittedRelations } from "#compiler/physical/ddl/isolation.ts"
@@ -49,6 +53,7 @@ import {
 	conservativeBasis,
 	installBasis,
 	type InstallPlan,
+	type ParamSource,
 	planInstallation
 } from "#compiler/physical/install/plan.ts"
 import { refinedConstantsExtension } from "#compiler/physical/refined/constants.ts"
@@ -56,7 +61,7 @@ import { addSpanStorage } from "#compiler/physical/span/storage.ts"
 import { planStatistics, type StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
 import { type Owned, ownedIdentities, rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
-import type { ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
+import type { SqlStatement } from "#compiler/sql/ast.ts"
 
 /** The settings the installation runs under (`InstallSettings`: the owner a fresh-install script names, undefined for
  * a migration; the PostgreSQL schema; the vector extension's and btree_gist's schemas; the logins over the schema), the
@@ -360,17 +365,53 @@ const admittedSettings = (
 }
 
 /**
+ * The types the programs `extensions` serve cast their parameters to over the installation's checked schema `checked`
+ * (InstallExtension.params), every extension's once: what an installation plans from its served programs' declarations
+ * (physical/install/plan.ts ParamSource `planned`).
+ */
+const servedParams = (
+	extensions: ReadonlyArray<InstallExtension>,
+	checked: CheckedSchema
+): Result.Result<ParamSource, CompileError> =>
+	catchRefusal((): ParamSource => {
+		const domains: Array<ParamDomainUse> = []
+		const contracts: Array<ParamContract> = []
+		for (const extension of new Set(extensions)) {
+			const types = extension.params(checked)
+			if (!types.ok) {
+				throw new Refusal(types.error)
+			}
+			appendAll(domains, types.value.domains)
+			appendAll(contracts, types.value.contracts)
+		}
+		return { kind: "planned", types: { domains, contracts } }
+	})
+
+/** The plan of the installation over `basis` under `settings` with `extensions`, the types their served programs cast
+ * their parameters to among it (servedParams). */
+const servedPlan = (
+	basis: InstallBasis,
+	settings: InstallSettings,
+	extensions: ReadonlyArray<InstallExtension>
+): Result.Result<InstallPlan, CompileError> =>
+	Result.flatMap(servedParams(extensions, basis.model.checked), (params) =>
+		planInstallation(basis, settings, extensions, params)
+	)
+
+/**
  * The installation over a basis (installBasis) under the settings and extensions of `options`, whose codes are the
- * basis's (compileInstallation): its settings admitted, its plan (planInstallation), then its objects built from the
- * plan. The span CHECKs (`addSpanStorage`) and the closed facts' validation (`refinedConstantsExtension`) precede the
- * caller's extensions, each once: a caller that lists one extension twice adds nothing twice.
+ * basis's (compileInstallation): its settings admitted, its plan (planInstallation) with the types its extensions'
+ * served programs cast their parameters to (servedParams), then its objects built from the plan, those parameters'
+ * pattern domains and contracts' domains among them. The span CHECKs (`addSpanStorage`) and the closed facts'
+ * validation (`refinedConstantsExtension`) precede the caller's extensions, each once: a caller that lists one
+ * extension twice adds nothing twice.
  */
 export const installationOver = (
 	basis: InstallBasis,
 	options: Omit<InstallOptions, "codes">
 ): Result.Result<Installation, CompileError> =>
 	Result.flatMap(admittedSettings(basis.owned, options), (settings) =>
-		Result.flatMap(planInstallation(basis, settings, options.extensions), (plan) =>
+		Result.flatMap(servedPlan(basis, settings, options.extensions), (plan) =>
 			catchRefusal((): Installation => {
 				const { owned, model, planned } = basis
 				const certification = certificationOf(plan, options.extensions)
@@ -411,7 +452,6 @@ export const installationOver = (
 				addSpanStorage(b, plan.spans)
 
 				const claimedDerived = new Set<string>()
-				const extensionDomains: Array<ObjectName> = []
 				const extensionRequests: Array<IndexRequest> = []
 				const statisticsRequests: Array<StatisticsRequest> = []
 				for (const extension of new Set([refinedConstantsExtension, ...options.extensions])) {
@@ -420,13 +460,13 @@ export const installationOver = (
 						throw new Refusal(contribution.error)
 					}
 					const c = contribution.value
-					appendAll(extensionDomains, c.domains)
 					appendAll(extensionRequests, c.indexRequests)
 					appendAll(statisticsRequests, c.statisticsRequests)
 					for (const d of c.derivedRelations) {
 						claimedDerived.add(d)
 					}
 				}
+				const paramDomains = addParamDomains(b, plan.paramDomains)
 
 				const requests = [...reverseRequests(b), ...ruleRequests, ...extensionRequests]
 				const indexes = planIndexes(b, keyIndexes, requests)
@@ -440,7 +480,7 @@ export const installationOver = (
 					b,
 					advance,
 					units,
-					{ tables, sequences, domains: [...domains, ...extensionDomains] },
+					{ tables, sequences, domains: [...domains, ...paramDomains] },
 					plan.logins,
 					statedOnce(
 						installedRoles(plan),

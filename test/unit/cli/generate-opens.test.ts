@@ -16,8 +16,7 @@ import * as Engine from "#compiler/core/result.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
-import { noParamContracts } from "#compiler/physical/install/extension.ts"
-import { installBasis } from "#compiler/physical/install/plan.ts"
+import { installBasis, unserved } from "#compiler/physical/install/plan.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { login, relation, role, schema } from "#compiler/public/schema.ts"
@@ -178,7 +177,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 												layerOver(slice, (sliced) =>
 													Engine.flatMap(
 														installBasis(compiledLogin.owned.base, codes, sliced),
-														(basis) => artifactsOver(basis, noParamContracts)
+														(basis) => artifactsOver(basis, unserved)
 													)
 												)
 											),

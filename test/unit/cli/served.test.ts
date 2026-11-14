@@ -467,7 +467,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("served files", (it) =>
 									shop.schema,
 									testCompile
 								)
-							).paramDomains,
+							).params.domains,
 							(use) => identifierOf(paramDomainIdentity(use.place, use.regex))
 						),
 						"the pattern domains the served parameters name"

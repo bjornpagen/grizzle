@@ -24,10 +24,10 @@ import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { storedKeyPremise } from "#compiler/logical/props.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
 import {
+	columnDomains,
 	emptyUse,
 	structuralRegex,
 	type TextColumnUse,
-	columnDomains,
 	usedNodes
 } from "#compiler/physical/ddl/domains.ts"
 import { lowerDefinition } from "#compiler/physical/derived/definition.ts"
@@ -40,7 +40,7 @@ import {
 	noCertificates,
 	noContribution,
 	noFences,
-	noParamContracts
+	servesNoParams
 } from "#compiler/physical/install/extension.ts"
 
 import { noLive } from "#compiler/live/notify.ts"
@@ -281,7 +281,7 @@ const derivedRelationExtension = (): InstallExtension => {
 	return {
 		contribute: extension,
 		textDomainUses: (checked: CheckedSchema) => Result.ok(textColumnUses(derivedAnalysis(checked))),
-		paramContracts: noParamContracts,
+		params: servesNoParams,
 		certifies: noCertificates,
 		carriers: noCarriers,
 		holds: noHolds,

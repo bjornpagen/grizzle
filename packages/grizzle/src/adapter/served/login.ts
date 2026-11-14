@@ -43,7 +43,7 @@ import {
 	type Owned,
 	ownedEntry,
 	type OwnedLogin,
-	type ParamContract,
+	type ParamSource,
 	parseBuiltSchema,
 	type ProgramDesc,
 	roleArtifacts,
@@ -142,14 +142,13 @@ export interface LayerArtifacts {
 }
 
 /**
- * The artifacts of a base over its plan's basis (physical/install/plan.ts PlanBasis), under its own installation,
- * serving programs whose parameters are typed by the contracts `params` (program/schema.ts baseArtifacts): a login's
- * programs' (program/workload/compile.ts WorkloadPlan.loginContracts) where they compile, none where they are only
- * checked.
+ * The artifacts of a base over its plan's basis (physical/install/plan.ts PlanBasis), under its own installation, its
+ * programs' parameters cast to the types `params` gives (program/schema.ts baseArtifacts): planned from the workload
+ * generate plans the installation from, or recorded by the snapshot a served compile reads.
  */
 export const artifactsOver = (
 	basis: PlanBasis,
-	params: ReadonlyArray<ParamContract>
+	params: ParamSource
 ): Engine.Result<SchemaArtifacts, CompileError> => baseArtifacts(basis, params)
 
 /** The login's artifacts over `slice`, compiled by `over`, which compiles them over any other slice alike. */
@@ -163,14 +162,14 @@ export const layerOver = (
  * The artifacts of a login's base over `slice`, its law model compiled under the installation's codes `codes` and the
  * facts `derived` its snapshot records (physical/install/plan.ts planBasis): the closed relations' constant names, so
  * no closed relation's cells are packed, and the foreign key graph's cycles, so the law model plans only the laws the
- * slice names; serving programs whose parameters are typed by the contracts `params` (artifactsOver).
+ * slice names; its programs' parameters cast to the types `params` gives (artifactsOver).
  */
 export const artifactsUnder = (
 	base: Owned,
 	codes: Codebook,
 	derived: CompileFacts,
 	slice: Slice,
-	params: ReadonlyArray<ParamContract>
+	params: ParamSource
 ): Engine.Result<LayerArtifacts, CompileError> =>
 	layerOver(slice, (sliced) =>
 		Engine.flatMap(

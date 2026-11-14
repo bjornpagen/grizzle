@@ -13,7 +13,7 @@ import type { FkCycles } from "#compiler/laws/model/model.ts"
 import type { ReferenceChoice } from "#compiler/laws/model/plan.ts"
 import type { LivePlan, LiveSource } from "#compiler/live/notify.ts"
 import type { ClosedNames } from "#compiler/physical/ddl/constants.ts"
-import type { TextDomainNames } from "#compiler/physical/ddl/domains.ts"
+import type { InstalledParams, TextDomainNames } from "#compiler/physical/ddl/domains.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 
@@ -290,7 +290,8 @@ export type SnapshotTables = Readonly<Record<string, Readonly<Record<string, Sna
  * `grizzle generate` writes them from the compile it drafts from (build.ts derivedOf), and the served compile reads them
  * instead of compiling them again: the facts a level's artifacts compile under (CompileFacts), and every table and
  * materialized view the installation installs with its indexes (`tables`), which a login's served file cuts to its
- * own statements' (adapter/served/project.ts) and an explain names a plan's relations and indexes by.
+ * own statements' (adapter/served/project.ts) and an explain names a plan's relations and indexes by, its live source
+ * and its served parameters' types.
  */
 export interface SnapshotDerived extends CompileFacts {
 	readonly tables: SnapshotTables
@@ -299,6 +300,12 @@ export interface SnapshotDerived extends CompileFacts {
 	 * with the texts its leader and listeners send (program/live.ts servedLiveOf).
 	 */
 	readonly live: LiveSource
+	/**
+	 * The types the installation casts its served programs' parameters to, in installed terms (physical/ddl/domains.ts
+	 * InstalledParams): a served compile under the snapshot casts a parameter only to these, and refuses one whose
+	 * domain the installation lacks where it is compiled (physical/install/plan.ts ParamSource `recorded`).
+	 */
+	readonly params: InstalledParams
 }
 
 /** A snapshot without its fingerprint: what the fingerprint is computed over. */
