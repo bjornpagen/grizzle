@@ -57,8 +57,9 @@ import type {
  * The schema this one extends (never for a root schema) is a phantom, so the levels below a schema are part of its
  * type. It is the type-level image of SchemaDesc.extends; an extension's runtime value also holds its base, and a root
  * schema's holds undefined. The fragments its list holds (Fragments, never for none) are a phantom too, each a level of
- * the schema (LevelsOf). An extension's statements are its base's, then its own, then its fragments', each
- * fragment's held by name as the fragment holds them.
+ * the schema (LevelsOf). An extension's statements are its base's, then its own, exactly the tuple its calls wrote; the
+ * statements of the fragments its levels list, its base's then its own, each fragment's held by name as the fragment
+ * holds them, are apart from them (`listed`), and StatementsOf reads both.
  */
 export interface Schema<
 	Name extends string,
@@ -70,11 +71,8 @@ export interface Schema<
 	readonly kind: "schema"
 	readonly name: Name
 	readonly relations: Relations
-	readonly statements: readonly [
-		...StatementsBelow<Base>,
-		...StatementsFromNames<Named, Relations>,
-		...ReadonlyArray<Fragments["statements"][number]>
-	]
+	readonly statements: readonly [...StatementsBelow<Base>, ...StatementsFromNames<Named, Relations>]
+	readonly listed: ReadonlyArray<Base["listed"][number] | Fragments["statements"][number]>
 }
 
 /**
@@ -253,6 +251,7 @@ export interface AnySchema extends Built {
 	readonly name: string
 	readonly relations: Readonly<Record<string, AnyRelation | AnyClosed | AnyDerived>>
 	readonly statements: ReadonlyArray<Statement>
+	readonly listed: ReadonlyArray<Statement>
 }
 
 /** A derived relation whose definition is a query over one of the levels L. */
@@ -508,10 +507,18 @@ export type UnderName<Rs, N> = N extends keyof Rs ? Rs[N] : never
  */
 export type IsRelationOf<S, R> = 0 extends 1 & S ? true : [R] extends [RelationOf<S>] ? true : false
 
+/**
+ * The statements of S: a level's own and its base's, then those of the fragments its levels list where it lists one,
+ * so a level that lists none has exactly the tuple its calls wrote; a role's or a fragment's, its own.
+ */
 export type StatementsOf<S> = S extends {
 	readonly statements: infer St extends ReadonlyArray<Statement>
 }
-	? St
+	? S extends { readonly listed: ReadonlyArray<infer L extends Statement> }
+		? [L] extends [never]
+			? St
+			: readonly [...St, ...ReadonlyArray<L>]
+		: St
 	: never
 type StatementOf<S> = StatementsOf<S>[number]
 

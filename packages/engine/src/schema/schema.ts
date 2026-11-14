@@ -424,7 +424,8 @@ const rootSchema = <
 			kind: "schema",
 			name,
 			relations: levelRecord<Relations>(admitted.names),
-			statements: frozenTuple([...read, ...listedStatements(relations)]),
+			statements: frozenTuple(read),
+			listed: listedStatements(relations),
 			extends: undefined
 		},
 		"schema",
@@ -593,10 +594,12 @@ const extend = <
 	> = statements
 	const all: readonly [
 		...StatementsBelow<Base>,
-		...StatementsReadBack<Statements, DeclaredOver<Base["relations"], Relations>>,
-		...ReadonlyArray<FragmentsIn<Relations>["statements"][number]>
-	] = [...below, ...added, ...listedStatements(relations)]
+		...StatementsReadBack<Statements, DeclaredOver<Base["relations"], Relations>>
+	] = [...below, ...added]
 	Object.freeze(all)
+	const listed: ReadonlyArray<
+		Base["listed"][number] | FragmentsIn<Relations>["statements"][number]
+	> = Object.freeze([...base.listed, ...listedStatements(relations)])
 	return ownValue(
 		{
 			...builtMark,
@@ -604,6 +607,7 @@ const extend = <
 			name,
 			relations: levelRecordOver<Base["relations"], Relations>(base.relations, admitted.names),
 			statements: all,
+			listed,
 			extends: base
 		},
 		"schema",
@@ -614,14 +618,16 @@ const extend = <
 
 /**
  * The statements of the fragments a level's list holds, each fragment's in its own order and the fragments in the
- * list's: a listed fragment's statements are its level's, after the level's own.
+ * list's, frozen: a listed fragment's statements are its level's, held apart from the level's own (Schema `listed`).
  */
 const listedStatements = <Relations extends ReadonlyArray<unknown>>(
 	relations: Relations
 ): ReadonlyArray<FragmentsIn<Relations>["statements"][number]> =>
-	relations
-		.filter((item): item is FragmentsIn<Relations> => listedFragment(item) !== undefined)
-		.flatMap((f): ReadonlyArray<FragmentsIn<Relations>["statements"][number]> => f.statements)
+	Object.freeze(
+		relations
+			.filter((item): item is FragmentsIn<Relations> => listedFragment(item) !== undefined)
+			.flatMap((f): ReadonlyArray<FragmentsIn<Relations>["statements"][number]> => f.statements)
+	)
 
 /**
  * The admission core of fragment(...): a JavaScript caller's arguments checked and described, as a root level's are

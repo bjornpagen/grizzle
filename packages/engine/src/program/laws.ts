@@ -13,7 +13,7 @@ import { malformed, orThrow } from "#compiler/schema/protocol.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
 import type { IdentifiedLaw, OwnLaw } from "#compiler/types/changeset/changeset.ts"
-import type { AnySchema } from "#compiler/types/schema/schema.ts"
+import type { AnySchema, StatementsOf } from "#compiler/types/schema/schema.ts"
 
 /** A law at its position in lawsOf's list. */
 interface PlacedLaw {
@@ -179,7 +179,7 @@ const placedOf = (
  */
 export const lawsByStatement = <S extends AnySchema>(
 	schema: S
-): ((statement: S["statements"][number]) => ReadonlyArray<OwnLaw>) => {
+): ((statement: StatementsOf<S>[number]) => ReadonlyArray<OwnLaw>) => {
 	const { byStatement } = schemaLaws(lawModelOf(schema, "lawsByStatement"))
 	return (statement) =>
 		Object.freeze([

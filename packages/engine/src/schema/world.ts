@@ -567,8 +567,9 @@ export const role = <
 		}
 		return world(key, value, draft)
 	})
-	const kept = (s: Base["statements"][number]): s is KeptStatements<Base, RoleRelations<Rs>> =>
-		namesOf(s).every((n) => admitted.whole.has(n))
+	const kept = (
+		s: Base["statements"][number] | Base["listed"][number]
+	): s is KeptStatements<Base, RoleRelations<Rs>> => namesOf(s).every((n) => admitted.whole.has(n))
 	const value = ownValue(
 		{
 			...builtMark,
@@ -577,7 +578,7 @@ export const role = <
 			stem: roleStem(admitted.desc),
 			base,
 			relations: relationsValue,
-			statements: Object.freeze(base.statements.filter(kept)),
+			statements: Object.freeze([...base.statements, ...base.listed].filter(kept)),
 			write:
 				options?.insert !== undefined
 					? frozenTuple(options.insert)
