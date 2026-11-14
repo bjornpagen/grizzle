@@ -15,7 +15,14 @@
  * password, given or wrong, appears in a message or anywhere in either error; and the messages of the plants are all
  * distinct.
  *
- * Features: every plant through each path.
+ * A Db's call reads its class as the CallError README "Errors and outcomes" names (adapter/live/call-error.ts
+ * readCallError): a wrong password `credentialRefused`, `passwordRefused`; nothing listening `unavailable`,
+ * `connectionRefused`; a CA that is not the server's `credentialRefused`, `tlsUnverified`; and each other plant its own
+ * kind and reason, `retry` `never` for `credentialRefused` and `safe` for `unavailable`. The wrong password is a real
+ * login's, on the local cluster, in the substrate's own database: the login role it makes for this run.
+ *
+ * Features: every plant through each path, a wrong password, nothing listening and a CA that is not the server's among
+ * them.
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): connect-classes-closed-as-socket.patch (pg's report of a connection
  * closed at once no longer recognized, so it is misclassified).
@@ -31,8 +38,10 @@ import { Array as Arr, Effect, Redacted, String as Str } from "effect"
 import pgDriver from "pg"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { type ConnectRefusal, CredentialError } from "#adapter/errors/failures.ts"
+import { readCallError } from "#adapter/live/call-error.ts"
 import { openMigrationSession } from "#adapter/migrate/session.ts"
 import { makePool, type Password } from "#adapter/wire/session.ts"
+import type { CallError } from "#compiler/live/events.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { substrateLogin } from "#test/pg/adapter/support.ts"
@@ -98,20 +107,73 @@ const classOf = (refusal: ConnectRefusal): string => {
  */
 const silentTimeout = nodeTimerMin.value
 
+/**
+ * What a call error states, as README "Errors and outcomes" names it: its kind, its reason (an unavailable reason's
+ * kind, and the SQLSTATE or code an `other` one carries), and its retry.
+ */
+const statedOf = (error: CallError): ReadonlyArray<string> => {
+	if (error.kind === "credentialRefused") {
+		return [error.kind, error.reason, error.retry]
+	}
+	if (error.kind !== "unavailable") {
+		return [error.kind, error.retry]
+	}
+	const reason = error.reason
+	return reason.kind === "otherSqlstate"
+		? [error.kind, reason.kind, reason.sqlstate, error.retry]
+		: reason.kind === "otherSocketCode"
+			? [error.kind, reason.kind, reason.code, error.retry]
+			: [error.kind, reason.kind, error.retry]
+}
+
+/** Each plant's class (its fact) and the call error a Db's call reads it as (README "Errors and outcomes"). */
 const plantedClass: {
-	readonly [P in Plant]: { readonly fact: string }
+	readonly [P in Plant]: { readonly fact: string; readonly called: ReadonlyArray<string> }
 } = {
-	"a server that never answers": { fact: `timed out after ${silentTimeout}` },
-	"nothing listening": { fact: "socket ECONNREFUSED" },
-	"a role over its connection limit": { fact: "server 53300" },
-	"a wrong password": { fact: "server 28P01" },
-	"no such database": { fact: "server 3D000" },
-	"a CA that is not the server's": { fact: "tls handshake" },
-	"a server that offers no TLS": { fact: "tls notOffered" },
-	"a server that answers neither": { fact: "tls unanswered" },
-	"a server that closes at once": { fact: "closed" },
-	"a failing password Effect": { fact: "credential" },
-	"no password for a SCRAM role": { fact: "driver" }
+	"a server that never answers": {
+		fact: `timed out after ${silentTimeout}`,
+		called: ["unavailable", "timedOut", "safe"]
+	},
+	"nothing listening": {
+		fact: "socket ECONNREFUSED",
+		called: ["unavailable", "connectionRefused", "safe"]
+	},
+	"a role over its connection limit": {
+		fact: "server 53300",
+		called: ["unavailable", "tooManyConnections", "safe"]
+	},
+	"a wrong password": {
+		fact: "server 28P01",
+		called: ["credentialRefused", "passwordRefused", "never"]
+	},
+	"no such database": {
+		fact: "server 3D000",
+		called: ["unavailable", "otherSqlstate", "3D000", "safe"]
+	},
+	"a CA that is not the server's": {
+		fact: "tls handshake",
+		called: ["credentialRefused", "tlsUnverified", "never"]
+	},
+	"a server that offers no TLS": {
+		fact: "tls notOffered",
+		called: ["credentialRefused", "tlsUnverified", "never"]
+	},
+	"a server that answers neither": {
+		fact: "tls unanswered",
+		called: ["credentialRefused", "tlsUnverified", "never"]
+	},
+	"a server that closes at once": {
+		fact: "closed",
+		called: ["unavailable", "connectionClosed", "safe"]
+	},
+	"a failing password Effect": {
+		fact: "credential",
+		called: ["credentialRefused", "passwordFailed", "never"]
+	},
+	"no password for a SCRAM role": {
+		fact: "driver",
+		called: ["credentialRefused", "driverRefused", "never"]
+	}
 }
 
 /**
@@ -289,9 +351,9 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 
 					/**
 					 * The attempt's failure through a pool's lease, as a Db's call takes one: a ReadFailure at stage acquire,
-					 * whose reason is the class.
+					 * whose reason is the class, and which the call reads as the plant's CallError.
 					 */
-					const throughCall = (attempt: Attempt) =>
+					const throughCall = (attempt: Attempt, plant: Plant) =>
 						Effect.gen(function* () {
 							const pool = yield* makePool({
 								connection: connectionOf(attempt),
@@ -306,10 +368,16 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 							)
 							const failure = new ReadFailure({ reason: refusal })
 							assert.equal(failure.stage, "acquire")
+							const called = readCallError(failure)
+							assert.deepEqual(
+								statedOf(called),
+								plantedClass[plant].called,
+								`${plant} through a Db's call: its CallError, ${called.message}`
+							)
 							return {
 								refusal,
 								stated: refusal.message,
-								text: `${failure.message}\n${inspect(failure, { depth: 12 })}`
+								text: `${failure.message}\n${inspect(failure, { depth: 12 })}\n${inspect(called, { depth: 12 })}`
 							}
 						})
 
@@ -344,7 +412,7 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 								const reported =
 									path === "grizzle migrate"
 										? yield* throughMigrate(attempt)
-										: yield* throughCall(attempt)
+										: yield* throughCall(attempt, plant)
 								const planted = plantedClass[plant]
 								assert.equal(
 									classOf(reported.refusal),
