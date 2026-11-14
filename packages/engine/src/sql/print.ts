@@ -1364,7 +1364,7 @@ const printGrantee = (grantee: Grantee): string =>
 	grantee.kind === "PUBLIC" ? "PUBLIC" : printRole(grantee.name)
 
 /** One PostgreSQL command, as it writes its lines into a sink, unterminated: what one protocol message carries. */
-type Command = (out: Lines) => void
+export type Command = (out: Lines) => void
 
 /**
  * The commands a statement is, by who else writes the catalog rows it writes: `own`, a row of the installation's own
@@ -1978,9 +1978,11 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
  * The commands `statement` is (Emitter): a statement that writes a catalog row another installation in the same
  * database writes too is the database lock's command and its own (databaseWide): the database default's block, every
  * ALTER DEFAULT PRIVILEGES, every CREATE EXTENSION, and a GRANT or REVOKE on the database or a schema (grantEmitter).
- * Every other statement is its own command alone.
+ * Every other statement is its own command alone. The one source of a statement's commands: a drafted file writes
+ * them (writeStatement, deploy/render/sql.ts), meta.json records them (deploy/render/sql.ts recordFile), and a driver
+ * sends them (printCommands), so none of the three can split a statement another way.
  */
-const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Command> => {
+export const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Command> => {
 	const command: Command = (out) => writeCommand(out, statement)
 	switch (statement.kind) {
 		case "alterDatabaseDefault":

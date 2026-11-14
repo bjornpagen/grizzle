@@ -2,7 +2,13 @@ import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { Lines } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	concatNonEmpty,
+	flatMapNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import {
 	type Action,
@@ -26,8 +32,10 @@ import {
 import type { ColumnDef, ObjectName, PlBlock, SqlStatement } from "#compiler/sql/ast.ts"
 import { cast, exists, lit, tableCol, types } from "#compiler/sql/build.ts"
 import {
+	commandsOf,
 	commented,
 	placeholderToken,
+	printCommands,
 	printExpr,
 	printObjectName,
 	printStatement,
@@ -36,8 +44,7 @@ import {
 	sqlText,
 	statementText,
 	terminated,
-	writeDoBlock,
-	writeStatement
+	writeDoBlock
 } from "#compiler/sql/print.ts"
 
 /** What a loss loses, as its marker and `grizzle check` name it (meta.json records it as data, MetaLosses). */
@@ -66,13 +73,18 @@ const lossHead = (out: Lines, loss: LossDecision): void => {
 	)
 }
 
-/** A statement as a drafted file writes it: its lines, the last ending in its terminator. */
-const statementLines = (out: Lines, statement: SqlStatement): void =>
-	terminated(out, (lines) => writeStatement(lines, statement))
+/** A statement as a drafted file writes it: its commands (commandsOf), each ending in its terminator. */
+const statementLines = (out: Lines, statement: SqlStatement): void => {
+	for (const command of commandsOf(statement)) {
+		terminated(out, command)
+	}
+}
 
 /**
- * One statement as a drafted file spells it: the comment lines above it, and the writer of its lines from its first
- * token, the text meta.json records (spelledText), which the file ends with its terminator.
+ * One command as a drafted file spells it: the comment lines above it, and the writer of its lines from its first
+ * token, the text meta.json records (spelledText), which the file ends with its terminator. A statement of several
+ * commands (sql/print.ts commandsOf: one behind the database lock) is as many, so the file's statements, split where
+ * PostgreSQL's scanner ends each (render/markers.ts splitStatements), are the record's one for one.
  */
 interface Spelled {
 	readonly above: ReadonlyArray<string>
@@ -94,10 +106,16 @@ const spelledLines = (out: Lines, s: Spelled): void => {
 	terminated(out, s.write)
 }
 
-const bare = (statement: SqlStatement): Spelled => ({
-	above: [],
-	write: (out) => writeStatement(out, statement)
-})
+/** `statement`'s commands as the file spells them (commandsOf), the comment lines `above` its first. */
+const spelled = (
+	above: ReadonlyArray<string>,
+	statement: SqlStatement
+): NonEmptyReadonlyArray<Spelled> => {
+	const [first, ...rest] = commandsOf(statement)
+	return [{ above, write: first }, ...rest.map((write): Spelled => ({ above: [], write }))]
+}
+
+const bare = (statement: SqlStatement): NonEmptyReadonlyArray<Spelled> => spelled([], statement)
 
 /** A statement printed on its one line, which the SQL AST has no form for: ANALYZE and DROP STATISTICS. */
 const oneLine = (above: ReadonlyArray<string>, text: string): Spelled => ({
@@ -156,27 +174,27 @@ const spellAlteration = (
 ): NonEmptyReadonlyArray<Spelled> => {
 	const placeholders = placeholdersOf(actions)
 	const dropped = placeholders.map((p) => p.column.name)
-	const alteration: Spelled = {
-		above: placeholders.map((p) => placeholderNote(table, p)),
-		write: (out) => writeStatement(out, alterationStatement(table, actions))
-	}
+	const alteration = spelled(
+		placeholders.map((p) => placeholderNote(table, p)),
+		alterationStatement(table, actions)
+	)
 	return isNonEmpty(dropped)
-		? [
+		? concatNonEmpty(
 				alteration,
 				bare({
 					kind: "alterTable",
 					table,
 					actions: mapNonEmpty(dropped, (column) => ({ kind: "dropDefault", column }))
 				})
-			]
-		: [alteration]
+			)
+		: alteration
 }
 
 /** The statements an action drafts, in order, as the file spells them: every action drafts one at least. */
 const spellAction = (action: Action): NonEmptyReadonlyArray<Spelled> => {
 	switch (action.kind) {
 		case "statement":
-			return [bare(action.statement)]
+			return bare(action.statement)
 		case "alteration":
 			return spellAlteration(action.table, action.actions)
 		case "fill":
@@ -305,7 +323,7 @@ const recordStep = (d: Draft): ReadonlyArray<MetaStep> => {
 		case "dropStatistics":
 			return spellAction(d).map((x): MetaStep => ({ kind: "statement", statement: spelledText(x) }))
 		case "confirm":
-			return [{ kind: "confirm", statements: mapNonEmpty(d.keep, (k) => printStatement(k)) }]
+			return [{ kind: "confirm", statements: flatMapNonEmpty(d.keep, (k) => printCommands(k)) }]
 		case "loss":
 			return [{ kind: "loss", loses: lossesOf(d.loses), statement: printStatement(d.statement) }]
 	}
