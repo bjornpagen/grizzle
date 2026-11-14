@@ -175,9 +175,14 @@ every test process and every child a file spawns run under the hardened flags, w
 `NODE_OPTIONS` (`test/support/process.ts` `hardenedNode`, `packages/testing/src/vitest/config.ts` `HARDENED_FLAGS`):
 `--disable-proto=delete`, `--disable-sigusr1`, `--throw-deprecation`, `--pending-deprecation`, `--force-context-aware`,
 `--no-global-search-paths` and `--unhandled-rejections=strict`. V8's JIT and code generation from strings stay on: never `--jitless`,
-`--disallow-code-generation-from-strings`, `--frozen-intrinsics` or `--no-addons`. Every file runs beside every other:
-none needs the cluster to itself, so none holds a SERIALIZABLE transaction long enough to summarize everyone else's,
-and a file that changes its database itself builds a database of its own (Substrate.isolatedLayer). Each pg or
+`--disallow-code-generation-from-strings`, `--frozen-intrinsics` or `--no-addons`. Every file runs beside every other,
+and all of them share one cluster's SSI state. PostgreSQL keeps a finished SERIALIZABLE transaction until every
+transaction that overlapped it ends, in a pool of ten per backend the cluster admits (REL_19_RC2 predicate.c:
+`max_serializable_xacts = (MaxBackends + max_prepared_xacts) * 10`), and once the pool is full it summarizes the
+oldest, which every file's transactions then pay for. So one SERIALIZABLE transaction kept open while the cluster
+commits that many, seconds at one file per core, makes every file slower and its conflicts coarser. No file holds one
+open past its own work, and a file that changes its database itself builds a database of its own
+(Substrate.isolatedLayer). Each pg or
 schedules file uses its worker's long-lived
 database, `gz_shared_<VITEST_POOL_ID>`, and unique schema names, because roles are cluster-wide. The network run's
 global setup (`test/support/pg-global-setup.ts`) runs the doctor's quick checks, sweeps what ended runs left behind, and
