@@ -95,13 +95,13 @@ export const lateralParentMax = measured({
 		"the distinct parents of one execution's bound parent set, at or below which take(k) per parent is the LATERAL probe",
 	evidence:
 		"bench/results/gates/query-take.full.json, the uncommitted record of `pnpm bench gates --only R20` (bench/query/take.bench.ts, gate R20)",
-	observed: "2026-11-05 10:01:00 to 10:07:00 UTC, one full-scale run",
+	observed: "2026-11-14 07:53:25 to 08:03:31 UTC, one full-scale run",
 	environment:
-		"macOS (Darwin 27.0.0, an arm64 virtual machine) on 10 cores, Node 26.13.0, the local PostgreSQL 19rc1 cluster (scripts/pg/pin.env), grizzle 48256f8d6148; load average 9 to 10 from other sessions on the machine",
+		"cassowary, Ubuntu 26.04 on an AWS Graviton3 (Neoverse-V1, arm64) instance with every logical CPU nproc reports, Node 26.13.1, the local PostgreSQL 19rc2 cluster with scripts/pg/pin.env's three patches, grizzle 01cc8dda; load average 2.8 to 8.5 over the run, no other session active on the cluster",
 	workload:
 		"the Lab fixture's take bench: take(1) as DISTINCT ON and take(3) as row_number over every group, against the LATERAL probe of LIMIT k per parent, for group sizes 2 to 128 and bound parent sets of 1 to 16384, 15 timed samples each after a warm run",
 	result:
-		"execute p50 in ms, LATERAL / whole-relation, groups of 2: at 256 parents 0.573/919.829 (k 1) and 0.614/0.737 (k 3); at 1024 parents 2.056/1.303 (k 1), the first measured count at which the whole-relation form is the faster. No throttling or errors",
+		"execute p50 in ms, LATERAL / whole-relation, groups of 2: at 256 parents 1.007/1416.029 (k 1) and 1.166/1.185 (k 3); at 1024 parents 2.406/2.057 (k 1), the first measured count at which the whole-relation form is the faster. No throttling or errors",
 	decision:
 		"256 is the largest measured parent count at which the LATERAL probe is no slower than the whole-relation pass at every group size and k; at the next measured count, 1024, the whole-relation pass is faster for groups of two. No headroom added: a parent count between 256 and 1024 is unmeasured",
 	revalidate:

@@ -142,14 +142,14 @@ export const lateralParentMax = measured({
 	scope:
 		"the distinct parents of one execution's bound parent set, at or below which take(k) per parent is the LATERAL probe",
 	evidence:
-		"bench/results/gates/query-take.full.json, the uncommitted record of `pnpm bench gates --only R20,R07` (bench/query/take.bench.ts, gate R20)",
-	observed: "2026-11-05 10:01:00 to 10:07:00 UTC, one full-scale run",
+		"bench/results/gates/query-take.full.json in RC2CITE's clone (~/.cache/grizzle-release/RC2CITE/repo), the uncommitted record of `pnpm bench gates --only R20,R07` (bench/query/take.bench.ts, gate R20)",
+	observed: "2026-11-14 07:53:25 to 08:03:31 UTC, one full-scale run",
 	environment:
-		"macOS (Darwin 27.0.0, an arm64 virtual machine) on 10 cores, Node 26.13.0, the local PostgreSQL 19rc1 cluster (scripts/pg/pin.env), grizzle 48256f8d6148 with the mechanism-only cutover uncommitted; load average 9 to 10 from other sessions on the machine",
+		"cassowary, Ubuntu 26.04 on an AWS Graviton3 (Neoverse-V1, arm64) instance with every logical CPU nproc reports and 247 GiB, Node 26.13.1, the local PostgreSQL 19rc2 cluster with scripts/pg/pin.env's three patches (gcc 15.2.0, jit off), grizzle 01cc8dda; load average 2.8 to 8.5 over the run, no other session active on the cluster",
 	workload:
 		"the Lab fixture's take bench: take(1) as DISTINCT ON and take(3) as row_number over every group, against the LATERAL probe of LIMIT k per parent, for group sizes 2, 8, 32 and 128 and bound parent sets of 1, 4, 16, 64, 256, 1024, 4096 and 16384, 15 timed samples each after a warm run",
 	result:
-		"execute p50 in ms, LATERAL / whole-relation: at 256 parents, groups of 2: 0.573/919.829 (k 1) and 0.614/0.737 (k 3); groups of 8: 0.591/948.179 and 1.992/14.858; groups of 32: 0.870/981.629 and 1.159/67.779; groups of 128: 1.222/921.952 and 1.735/209.854. At 1024 parents, groups of 2: 2.056/1.303 (k 1) and 1.753/1.755 (k 3), the first measured count at which the whole-relation form is the faster; groups of 8 or more keep the LATERAL probe the faster through 16384 parents. No throttling or errors; the machine's load is not separated per sample",
+		"execute p50 in ms, LATERAL / whole-relation: at 256 parents, groups of 2: 1.007/1416.029 (k 1) and 1.166/1.185 (k 3); groups of 8: 1.053/1412.888 and 1.410/29.262; groups of 32: 1.373/1413.435 and 1.904/130.986; groups of 128: 2.899/1557.081 and 2.604/386.970. At 1024 parents, groups of 2: 2.406/2.057 (k 1) and 3.183/3.179 (k 3), the first measured count at which the whole-relation form is the faster; groups of 8 or more keep the LATERAL probe the faster through 16384 parents. R20, R27 and R42 pass; no throttling or errors; the machine's load is not separated per sample",
 	decision:
 		"256 is the largest measured parent count at which the LATERAL probe is no slower than the whole-relation pass at every group size and k; at the next measured count, 1024, the whole-relation pass is faster for groups of two. No headroom added: a parent count between 256 and 1024 is unmeasured",
 	revalidate:
@@ -363,10 +363,11 @@ export const maxStackDepth = published({
  */
 const compileLimitsRun = {
 	evidence:
-		"a one-off bisection over each shape's count against PostgreSQL, a fresh backend per probe, whose output is not preserved; test/pg/text/differential.test.ts \"compiles the largest pattern the limits admit along a drawn shape, at each limit's edge\" re-verifies that what the limits admit compiles",
-	observed: "2026-11-07 22:37 to 23:40 CST (UTC-6), one bisection per shape",
+		"a one-off bisection over each shape's count against PostgreSQL, a fresh backend per probe, recorded in ~/.cache/grizzle-release/RC2CITE/out/idle/regex/regex-edges-2026-11-14T080636.949Z.json by the uncommitted probe .scratch/regex-edges.ts in RC2CITE's clone; test/pg/text/differential.test.ts \"compiles the largest pattern the limits admit along a drawn shape, at each limit's edge\" re-verifies that what the limits admit compiles",
+	observed:
+		"2026-11-14 08:06:36 to 08:10:19 UTC, one bisection per shape and every count of the anchors' shapes at once",
 	environment:
-		"PostgreSQL 19rc1 as scripts/pg/pin.env builds it, on the local cluster CONTRIBUTING.md sets up, max_stack_depth 2048 kB, its default; macOS (Darwin 27.0.0) on an arm64 virtual machine, Node 26.13.0; grizzle 00209792 with this change uncommitted; other sessions loading the machine",
+		"PostgreSQL 19rc2 as scripts/pg/pin.env builds it, its three patches applied (gcc 15.2.0), on the local cluster CONTRIBUTING.md sets up, max_stack_depth 2048 kB, its default; cassowary, Ubuntu 26.04 on an AWS Graviton3 (Neoverse-V1, arm64) instance with every logical CPU nproc reports and 247 GiB, Node 26.13.1; grizzle 01cc8dda; load average 5.0 to 10.3, no other session active on the cluster",
 	revalidate:
 		"a PostgreSQL repin; a change of max_stack_depth's default or of the platform's stack frames; a change to the ARE printer (scalar/regex/are.ts) or to the model of PostgreSQL's raw NFA (scalar/regex/space.ts); a pattern the suite finds refused as too complex"
 } as const
@@ -389,9 +390,9 @@ export const regexMaxDepth = measured({
 	workload:
 		"each pattern's ARE compiled by `SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ $1::text`, and again inside an INSERT in a PL/pgSQL function two PL/pgSQL calls deep, over three shapes: a chain of plain code points in counted runs, nested optional groups `(?:a(?:a…)?)?`, and nested + groups `(?:(?:a)+b)+b…`; the chain again at max_stack_depth 1MB",
 	result:
-		'the longest path compiled and the shortest refused, in arcs: the chain 43,364 and 43,563, and 21,597 and 21,694 at 1MB, so the edge follows the setting; nested optional groups 32,570 and 32,685, two PL/pgSQL calls deep 32,450 and 32,570; nested + groups 43,478 and 43,646, two calls deep 43,317 and 43,478; every refusal "regular expression is too complex" at under 100,000 states held, far inside the compile space; nested + groups near their edge compiled in 18 to 24 s',
+		'the longest path compiled and the shortest refused, in arcs: the chain 43,523 and 43,524, two PL/pgSQL calls deep 43,407 and 43,408, and 21,677 and 21,678 at 1MB, so the edge follows the setting; nested optional groups 38,406 and 38,411, two PL/pgSQL calls deep 38,301 and 38,306; nested + groups 43,520 and 43,527, two calls deep 43,401 and 43,408; every refusal "regular expression is too complex" at under 90,000 states held, far inside the compile space; every compile near an edge within 6 s',
 	decision:
-		"16,000: about half the shallowest edge measured, 32,450 arcs two PL/pgSQL calls deep, leaving about 1MB of the 2MB stack for a call path deeper than the measured one when a pattern is first compiled; the two calls cost the shallowest shape 120 arcs"
+		"16,000: below half the shallowest edge measured, 38,301 arcs two PL/pgSQL calls deep, leaving more than 1MB of the 2MB stack for a call path deeper than the measured one when a pattern is first compiled; the two calls cost the shallowest shape 105 arcs"
 })
 
 /**
@@ -410,7 +411,7 @@ export const regexMaxMatchStates = measured({
 	workload:
 		"each pattern's ARE matched by `SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ $1::text`: an anchored union of k words of four letters, digits and underscores, and the same union repeated by +",
 	result:
-		'the union matched at 21,649 words, 64,953 states as the model counts them, and failed at 22,039 words, 66,123 states, with "invalid memory alloc request size 1093385124", the state sets\' bit vectors, (2S + 1) words of ⌈S/32⌉ four-byte words for S states, which first pass MaxAllocSize at 65,536 states; the repeated union matched at 21,799 words and failed at 21,857 alike',
+		"the union matched at 21,843 words, 65,535 states as the model counts them, and failed at 21,844 words, 65,538 states, with \"invalid memory alloc request size 1073750016\", the state sets' bit vectors, (2S + 1) words of ⌈S/32⌉ four-byte words for PostgreSQL's S = 65,536 states, the first count past MaxAllocSize; the repeated union matched at 21,843 words and failed at 21,844 alike",
 	decision:
 		"64,000: below the 65,536 states at which the bit vectors pass MaxAllocSize, the measured edge, with 1,535 states, about 2%, of headroom; the model counts each state makesearch may split twice"
 })
@@ -431,7 +432,7 @@ export const regexMaxMatchCells = measured({
 	workload:
 		"each pattern's ARE matched by `SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ $1::text`: an anchored union of k words of a code point of their own and a common one, and the same union repeated by * before a last code point",
 	result:
-		'the union matched at 5,778 words, 33,344,850 states times colors as the model counts them, and failed at 5,793, 33,611,006, with "invalid memory alloc request size 1075737696", the entries of 16 bytes, which first pass MaxAllocSize at 33,554,432 states times colors; the repeated union matched at 5,771 words and failed at 5,794 alike',
+		'the union matched at 5,787 words, 33,535,677 states times colors as the model counts them, and failed at 5,788, 33,547,260, with "invalid memory alloc request size 1073883136", the entries of 16 bytes, which first pass MaxAllocSize at 33,554,432 states times colors: PostgreSQL\'s map held two colors more than the model counts, 5,792 against 5,790 at 5,794 states; the repeated union matched at 5,786 words and failed at 5,787 alike',
 	decision:
 		"16,000,000: about half the measured edge, since freeing the colors a set empties can leave a color map up to twice a pattern's colors (regexMaxColors), and the arrays count the map's colors"
 })
@@ -451,9 +452,9 @@ export const regexMaxAnchors = measured({
 	workload:
 		"each pattern's ARE compiled by `SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ $1::text`, over two shapes: k optional `$` before 256 code points of their own and four runs of 255 copies of a class of them, and `(?:^|.{1,255}|$){k}b`, an anchor on either side of a wide run, each count k from 1 to 64",
 	result:
-		'the first shape compiled at every k, 64 anchors to move over an NFA of 316,829 optimized arcs in 0.7 s; the second, two anchors to move for each k past the first, compiled 15 in 5 s and 19 in 143 s, ran 21 past the probe\'s 300 s statement_timeout, and refused 23 after 33 s, 31 after 20 s and 63 after 143 s as "regular expression is too complex"',
+		'the first shape compiled at every k, 64 anchors to move over a raw NFA of 261,848 arcs in 1.4 s; the second, two anchors to move for each k past the first, compiled 15 in 22 s, 19 in 162 s and 21 in 220 s, inside the probe\'s 300 s statement_timeout, and refused 23 after 42 s, 31 after 22 s and 63 after 148 s as "regular expression is too complex"',
 	decision:
-		"8: about half the most anchors the binding shape compiled, 19, whose compile already took minutes; the arcs an anchor crosses bind nothing measured, so no measure weighs them"
+		"8: below half the most anchors the binding shape compiled, 21, whose compile already took minutes; the arcs an anchor crosses bind nothing measured, so no measure weighs them"
 })
 
 /**
@@ -627,16 +628,16 @@ export const bytesChunkLength = measured({
 	unit: "bytes",
 	scope: "one chunk of one bytes value in one result row",
 	evidence:
-		"bench/results/bytes/bytes-2026-11-08T045419.json, the uncommitted record of `pnpm bench bytes` (bench/bytes/main.ts)",
-	observed: "2026-11-08 04:54:19 to 05:01:03 UTC, one run",
+		"bench/results/bytes/bytes-2026-11-14T080336.json in RC2CITE's clone (~/.cache/grizzle-release/RC2CITE/repo), the uncommitted record of `pnpm bench bytes` (bench/bytes/main.ts)",
+	observed: "2026-11-14 08:03:32 to 08:06:35 UTC, one run",
 	environment:
-		"macOS 27.0.1 (Darwin 27.0.0, an arm64 virtual machine, Apple M2 Max, 10 cores, 64 GiB), Node 26.13.0, pg 8.23.1, the local PostgreSQL 19rc1 cluster (scripts/pg/pin.env), grizzle 36b85dad and the bytes delivery, in a scratch copy whose own commit the record's gitSha names; other sessions' load on the machine is not separated",
+		"cassowary, Ubuntu 26.04 on an AWS Graviton3 (Neoverse-V1, arm64) instance with every logical CPU nproc reports and 247 GiB, Node 26.13.1, pg 8.23.1, the local PostgreSQL 19rc2 cluster with scripts/pg/pin.env's three patches, default_toast_compression lz4, grizzle 01cc8dda; load average 5.0 to 8.5, no other session active on the cluster",
 	workload:
 		"one row of one 256 MiB bytes value, once xorshift bytes, which PostgreSQL stores uncompressed, and once a repeating sentence, which it compresses, read back through its delivered SQL on one session and assembled, three runs a chunk length: 64 KiB to 64 MiB by factors of four for the random value, 1 MiB to 64 MiB for the repeating one",
 	result:
-		"p50 of read and assembly in ms, random: 2,603 at 64 KiB, 2,114 at 256 KiB, 1,956 at 1 MiB, 2,136 at 4 MiB, 2,409 at 16 MiB, 2,237 at 64 MiB; repeating: 36,586 at 1 MiB, 8,212 at 4 MiB, 1,884 at 16 MiB, 1,288 at 64 MiB, the square of the chunks since every chunk's substring decompresses the value from its start (a 64 KiB read of it ran past six minutes in an earlier run and was stopped). Process rss after a case 1,742 to 2,546 MiB up to 16 MiB, 2,811 to 2,831 MiB at 64 MiB. Every value read back whole; no errors",
+		"p50 of read and assembly in ms, random: 1,093 at 64 KiB, 941 at 256 KiB, 796 at 1 MiB, 733 at 4 MiB, 748 at 16 MiB, 823 at 64 MiB; repeating: 15,138 at 1 MiB, 4,271 at 4 MiB, 1,544 at 16 MiB, 959 at 64 MiB, the square of the chunks since every chunk's substring decompresses the value from its start (a 64 KiB read of it ran past six minutes in an earlier run and was stopped). Process rss after a case 1,906 to 2,403 MiB, 2,309 to 2,358 MiB at 16 MiB and 1,906 to 2,329 MiB at 64 MiB. Every value read back whole; no errors",
 	decision:
-		"16 MiB: the random value's time is flat across every length measured, and the compressed value's falls with the square of the chunks until 16 MiB, where it is within the random value's; 64 MiB saves the compressed value about 0.6 s of 256 MiB at about 0.7 GiB more rss, and a result row holds a base64url chunk of 4/3 of this for each bytes column its statement delivers within MaxAllocSize, which admits 47 such columns at 16 MiB and 11 at 64 MiB",
+		"16 MiB: the random value's time is flat from 1 MiB on and no faster at 64 MiB, and the compressed value's falls with the square of the chunks to 1.5 s of 256 MiB at 16 MiB; 64 MiB saves the compressed value about 0.6 s of 256 MiB at no more rss, but a result row holds a base64url chunk of 4/3 of this for each bytes column its statement delivers within MaxAllocSize, which admits 47 such columns at 16 MiB and 11 at 64 MiB",
 	revalidate:
 		"a PostgreSQL upgrade that changes TOAST slicing or the default compression; a driver or Node upgrade that changes how a result cell is read; a bytes value bound past 1 GiB"
 })
