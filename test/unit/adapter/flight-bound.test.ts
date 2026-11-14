@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer"
 import { createServer, type Server, Socket } from "node:net"
+import { availableParallelism } from "node:os"
 import { TLSSocket } from "node:tls"
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -16,7 +17,7 @@ import {
 	weighted
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
+import { boundedShrink, completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -54,7 +55,7 @@ import type { Param } from "#compiler/core/wire.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { flightPrologue } from "#test/support/flight/model.ts"
-import { caseHang, testConnectTimeout } from "#test/support/limits.ts"
+import { caseHang, flightBoundShrinkCandidates, testConnectTimeout } from "#test/support/limits.ts"
 import { tlsMaterial } from "#test/support/memory-tls.ts"
 import { noPassword } from "#test/support/pg.ts"
 import { parsedConnection } from "#test/support/pg.ts"
@@ -94,8 +95,11 @@ import { paramBinary, paramText } from "#test/support/wire.ts"
  * written), flight-reset-write-failure-unseen.patch (a write that fails before its last byte is not seen as the cut
  * it is, so the call reads as CommitLost).
  *
- * Features: a bound short of, at and past a flight; a call of one flight and of two, refused at either; each way the
+ * Features: a bound short of, at and past a flight, and one byte short of it; a call of one flight and of two, refused at either; each way the
  * connection breaks; and each message the parse reads.
+ *
+ * Every case opens servers and sessions of its own, so each search runs as many cases at once as the machine has cores.
+ * The flight bound's search shrinks a failure by at most flightBoundShrinkCandidates (test/support/limits.ts).
  */
 
 const frame = (type: string, body: Uint8Array): Buffer => {
@@ -579,10 +583,12 @@ type FlightFeature =
 	| `${Runner}: refused`
 	| `${Runner}: admitted`
 	| "admitted at exactly the bound"
+	| "refused one byte past the bound"
 	| "refused at the second flight"
 
 const features: Arr.NonEmptyReadonlyArray<FlightFeature> = [
 	"admitted at exactly the bound",
+	"refused one byte past the bound",
 	"refused at the second flight",
 	...Arr.flatMap(runners, (r): ReadonlyArray<FlightFeature> => [`${r}: refused`, `${r}: admitted`])
 ]
@@ -605,8 +611,8 @@ describe("the flight bound", () => {
 						coverage: required<FlightFeature>(features, { cases: 160, sense: notesOnly }),
 						kept: [],
 						runs: 160,
-						shrink: completeShrink,
-						concurrency: 1,
+						shrink: boundedShrink(flightBoundShrinkCandidates.value),
+						concurrency: availableParallelism(),
 						steerEvery: 16,
 						caseHang
 					},
@@ -665,6 +671,9 @@ describe("the flight bound", () => {
 									})
 								}
 								k.note(`${c.runner}: refused`)
+								if (newConnectionBytesOf(refused, wire) === limit + 1) {
+									k.note("refused one byte past the bound")
+								}
 								if (refusedAt.value === 0) {
 									assert.deepEqual(
 										read,
@@ -786,7 +795,7 @@ describe("a flight whose connection is reset", () => {
 						kept: [],
 						runs: 120,
 						shrink: completeShrink,
-						concurrency: 1,
+						concurrency: availableParallelism(),
 						steerEvery: 16,
 						caseHang
 					},
@@ -915,7 +924,7 @@ describe("a statement's Parse message", () => {
 						kept: [],
 						runs: 160,
 						shrink: completeShrink,
-						concurrency: 1,
+						concurrency: availableParallelism(),
 						steerEvery: 16,
 						caseHang
 					},

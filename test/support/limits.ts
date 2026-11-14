@@ -36,6 +36,32 @@ export const testTimeout: Limit = measured({
 })
 
 /**
+ * How many candidates the flight bound's search (test/unit/adapter/flight-bound.test.ts, "the flight bound") shrinks a
+ * failing case by, each a call written twice on fresh verify-full TLS sessions to the test's own server, one at a
+ * time: every planted failure of the bound reached its smallest case within it, and a failure that needs more reports
+ * the smallest it reached, with its replay token, minutes rather than half an hour after it failed.
+ */
+export const flightBoundShrinkCandidates: Limit = measured({
+	value: 2_161,
+	owner: "grizzle's unit tier",
+	unit: "shrink candidates",
+	scope: "one failing case of the flight bound's search, in one test process",
+	evidence:
+		"~/.cache/grizzle-release/TESTSPEED/plant-runs/ on cassowary: flight-bound-one-byte-over.txt, flight-parse-counted-every-statement.txt and flight-parse-counted-once-per-process.txt, the output of `pnpm test test/unit/adapter/flight-bound.test.ts` under each plant of ~/.cache/grizzle-release/TESTSPEED/plants with the search's shrink complete",
+	observed: "2026-11-14 00:40 to 00:52 UTC",
+	environment:
+		"cassowary, Ubuntu 26.04 arm64 on 64 cores, Node 26.13.1 without V8's sandbox, Vitest 5.1.0, grizzle at d4949bd4 with each plant applied, the search's cases one at a time; other sessions' load not recorded",
+	workload:
+		"three plants of the bound, each a run of the whole file: a flight one byte past its bound written; a Parse counted at every statement under a name; a name's Parse counted once per process. Each failing floor case shrunk until no pass made progress",
+	result:
+		"every plant red, each shrink ended minimal: 2,161 candidates (one byte over, the search 247.6 s in all), 1,096 (every statement, 68.6 s) and 980 (once per process, 181.4 s), about 0.1 s a candidate. The stale oracle d4949bd4 fixed was reported to have shrunk 12,536 candidates over about 30 minutes, not measured here",
+	decision:
+		"the most candidates a planted failure needed to reach its smallest case, 2,161, so every planted failure still reports its smallest case, and a failure that needs more stops after about four minutes of shrinking (2,161 at about 0.1 s) with the smallest case it reached",
+	revalidate:
+		"a new plant of the bound, a change to the search's generator or property, a Node, Vitest or TLS change, and a failure of the search cut short by this budget"
+})
+
+/**
  * How long one case or shrink candidate of a search may run before it is stopped and reported as hung
  * (Exploration.caseHang): as long as its test may.
  */
