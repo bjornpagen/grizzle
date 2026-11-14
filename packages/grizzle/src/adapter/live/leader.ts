@@ -186,8 +186,7 @@ export const alone = (
 	})
 
 /** The first cell of the first row of an answer: a statement of one value's. */
-const onlyCell = (rows: ReadonlyArray<ReadonlyArray<string>>): string | undefined =>
-	rows[0]?.[0]
+const onlyCell = (rows: ReadonlyArray<ReadonlyArray<string>>): string | undefined => rows[0]?.[0]
 
 /** PostgreSQL's output text of true, the one the statements answering a boolean answer with. */
 const trueText = "t"

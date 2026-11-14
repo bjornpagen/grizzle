@@ -219,9 +219,14 @@ const expectedOf = (step: Step): ReadonlyArray<Notification> => {
 		return Arr.some(
 			texts,
 			(text) =>
-				!["view:", "unknown_view:", "routed:", "routed:g=1", ":invalidated=5", ":migrated"].includes(
-					text
-				)
+				![
+					"view:",
+					"unknown_view:",
+					"routed:",
+					"routed:g=1",
+					":invalidated=5",
+					":migrated"
+				].includes(text)
 		)
 			? []
 			: Arr.flatMap(texts, (text): ReadonlyArray<Notification> =>
