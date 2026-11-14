@@ -275,6 +275,27 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
 - **Text keys past PostgreSQL's B-tree item size:** so pantry drops its "Key text bound" law.
 
 ### Next
+- **The repeats left in a login's served file and OpenAPI document (OUTPUTSIZE, 2026-11-14; main: not now):** since
+  5e47fdd7 every repeated shape is written once wherever a reference can stand, but some are still written again where
+  none can. Measured on qti-pie pantry's author_app (f65ea15e plus 5e47fdd7's change) as the bytes a reference would
+  save over every repeat longer than it (~/.cache/grizzle-release/OUTPUTSIZE/scripts/rest.mjs). These figures replace
+  5e47fdd7's estimate of about 90 KB and 85 KB. Each item needs its prerequisite first:
+  - Served file (14,908,504 bytes; about 397 KB to save, 2.7%):
+    - Revive marker lists (`~`): 88,011 lists, 509 distinct, 334,095 bytes. Prerequisite: the format reads a marker as
+      part of the record or array it marks, so a reference can stand for both; for example, a record's keys and marker
+      are one frame the table holds.
+    - Roster handles, spelled in `rosters` (the codebook a load reads first) and again in a WireScalar's `handles`:
+      62,785 bytes, 34,901 of them Governor's. Prerequisite: a WireScalar names its roster and reads the handles from
+      the file's rosters.
+  - OpenAPI document (819,464 bytes; about 166 KB to save, 20%):
+    - `properties` maps that a fact's closed object and the role witness's key object share: 144 maps, each written
+      twice, 98,871 bytes. Prerequisite: an allOf core for closed objects (`allOf` over a shared core, with
+      `unevaluatedProperties: false`), so the core with its `properties` is one component.
+    - Roster handles spelled in a schema's `enum` and again in the wire's `handles`: 14 lists, 63,099 bytes.
+      Prerequisite: the same WireScalar that names its roster, with each roster's handles written once in the document.
+
+  Once these land, the "each shape once" properties (test/unit/served/file.test.ts, test/unit/live/openapi.test.ts)
+  extend to these positions.
 - **A redraft can't see a started draft's no-transaction file (fail-open edge left by 7abb6fc4):** decideFolder refuses
   a redraft whose next file runs outside a transaction (`redraftUnverifiable`), but it reads the redraft's file at that
   ordinal. If the started draft's file there ran outside a transaction and the redraft's runs inside one, the ledger
