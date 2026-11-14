@@ -23,11 +23,8 @@
  *
  * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
-import { layer } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import { jsonTextOf } from "@superstarter/json"
-import { type Case as SearchCase, drawn, exhaust, explore } from "@superstarter/testing/explore"
-import { required, type RequiredCoverage, requiredInSpace } from "@superstarter/testing/features"
+import { type Case as SearchCase, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, type RequiredCoverage, requiredInSpace } from "@bjornpagen/testing/features"
 import {
 	boolean,
 	characterOf,
@@ -41,9 +38,12 @@ import {
 	string,
 	uniqueArray,
 	weighted
-} from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { deepStrictEqual } from "@effect/vitest/utils"
+import { jsonTextOf } from "@superstarter/json"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -173,9 +173,9 @@ const PATH_TARGETS: Arr.NonEmptyReadonlyArray<PathTarget> = [
 	MATRIX_EXPLODED
 ]
 
-const OBJECT = { type: "object" }
+const OBJECT = { type: "object" } as const
 
-const DONE = { "204": { description: "Done." } }
+const DONE = { "204": { description: "Done." } } as const
 
 /** One GET per path style; a GET with three object query parameters; a GET with two object headers; a JSON body. */
 const spec = jsonTextOf({
@@ -1145,13 +1145,17 @@ type Location<C, F extends string> = Readonly<{
 }>
 
 /** The steered phase every location's coverage runs. */
-const STEERED = { cases: 24, sense: notesOnly }
+const STEERED = { cases: 24, sense: notesOnly } as const
 
 /** A location's exploration: a focus drawn from its features, aimed at a pending one, each case one run. */
 const exploreLocation = <C, F extends string>(location: Location<C, F>) =>
 	explore(
 		{
 			suite: location.suite,
+			oracle: {
+				kind: "second-implementation",
+				name: "each style's RFC 6570 expansion of the drawn object, byte for byte against what reached the server"
+			},
 			draw: drawn(focusOf(location.features)),
 			literal: Formatter.format,
 			coverage: location.coverage,
@@ -1286,12 +1290,14 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's object paramete
 			exhaust(
 				{
 					suite: "object parameters: text that is not JSON",
+					oracle: { kind: "specification", name: "exit 2 before any connection" },
+					box: "every JSON input kind, given R alone or R and one of , = 1",
+					concurrency: 1,
 					generator: (source) => ({
 						target: element(NOT_JSON_TARGETS)(source),
 						text: NOT_JSON(source)
 					}),
 					literal: Formatter.format,
-					limit: 32,
 					coverage: requiredInSpace<NotJsonTarget>(NOT_JSON_TARGETS),
 					caseHang: Duration.seconds(60)
 				},

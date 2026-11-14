@@ -7,7 +7,7 @@ import {
 	element,
 	option,
 	string
-} from "@superstarter/testing/gen"
+} from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import type { HeaderList, WireRequest } from "#test/support/http.ts"

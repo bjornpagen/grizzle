@@ -6,9 +6,9 @@ import { Operation, SecurityScheme } from "#model/entities.ts"
 import { GenerationReport, makeGenerationReport, printGenerationReport } from "#report/index.ts"
 import type { GenerationReportInput } from "#report/index.ts"
 
-const origin = { document: "file:///spec.json", pointer: "/paths/~1x/get" }
+const origin = { document: "file:///spec.json", pointer: "/paths/~1x/get" } as const
 
-const rows = ["SEC-08"]
+const rows = ["SEC-08"] as const
 
 const scheme = (name: string, source: "author-supplied" | "spec") =>
 	Schema.decodeUnknownSync(SecurityScheme)({

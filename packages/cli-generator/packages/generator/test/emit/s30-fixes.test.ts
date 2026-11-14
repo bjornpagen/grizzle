@@ -22,11 +22,11 @@ const config = {
 		package: { name: "s30-fixes-cli", version: "0.1.0" }
 	}),
 	configDocument: Schema.decodeUnknownSync(DocumentUri)("file:///spec/author.json")
-}
+} as const
 
 type Line = "3.0" | "3.1" | "3.2"
 
-const openapi: Record<Line, string> = { "3.0": "3.0.4", "3.1": "3.1.2", "3.2": "3.2.0" }
+const openapi: Readonly<Record<Line, string>> = { "3.0": "3.0.4", "3.1": "3.1.2", "3.2": "3.2.0" }
 
 // One operation whose JSON body has `properties`, with `components.schemas` beside it.
 const documentOf = (line: Line, properties: Json, schemas: Json = {}): Json => ({

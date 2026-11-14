@@ -5,7 +5,7 @@ import { describe, expect, test } from "vitest"
 import * as Input from "#runtime-src/runtime/input.ts"
 
 // Five bytes whose base64 text uses both '+' and '/', so base64 and base64url differ.
-const five = Uint8Array.from([0xfb, 0xff, 0xbf, 0x01, 0x02])
+const five = (): Uint8Array => Uint8Array.from([0xfb, 0xff, 0xbf, 0x01, 0x02])
 
 const decoder = new TextDecoder()
 
@@ -67,13 +67,13 @@ const merge = (options: {
 
 const run = <A, E>(
 	effect: Effect.Effect<A, E, FileSystem.FileSystem | Stdio.Stdio | Input.StdinClaim>,
-	stdin: Uint8Array = five
+	stdin: Uint8Array = five()
 ) => Effect.runPromise(effect.pipe(Effect.provide(layer(stdin))))
 
 describe("a base64 field flag", () => {
 	test("a 5-byte file lands at its pointer as padded base64", async () => {
 		const text = await run(
-			withTempFile(five, (path) =>
+			withTempFile(five(), (path) =>
 				merge({ fields: { "/avatar": file("base64", path) } }).pipe(Effect.map(textOf))
 			)
 		)
@@ -83,7 +83,7 @@ describe("a base64 field flag", () => {
 
 	test("the same file under base64url lands as padded base64url", async () => {
 		const text = await run(
-			withTempFile(five, (path) =>
+			withTempFile(five(), (path) =>
 				merge({ fields: { "/avatar": file("base64url", path) } }).pipe(Effect.map(textOf))
 			)
 		)
@@ -121,7 +121,7 @@ describe("a base64 field flag", () => {
 
 	test("a nested pointer is written and the rest of --body is kept", async () => {
 		const text = await run(
-			withTempFile(five, (path) =>
+			withTempFile(five(), (path) =>
 				merge({
 					body: '{"name":"x"}',
 					fields: { "/user/avatar": file("base64", path) }

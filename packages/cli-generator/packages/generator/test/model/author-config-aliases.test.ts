@@ -8,7 +8,7 @@ const document = Schema.decodeUnknownSync(DocumentUri)("file:///work/author.json
 
 const context: AuthorConfigContext = { document }
 
-const base = { binName: "example", package: { name: "example-cli", version: "1.0.0" } }
+const base = { binName: "example", package: { name: "example-cli", version: "1.0.0" } } as const
 
 const withAliases = (aliases: Schema.Json) => ({
 	...base,

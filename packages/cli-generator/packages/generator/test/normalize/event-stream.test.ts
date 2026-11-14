@@ -19,14 +19,14 @@
  * as no role); and, applied to src/normalize/event-stream.ts, seen to fail and reverted, a `next` naming no event
  * accepted, and a union whose every branch names its event read as open.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, constant, element, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
-import { array, constant, element, type Gen, map, oneOf } from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { completeShrink } from "@superstarter/testing/shrink"
-import { searched } from "@superstarter/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec, Schema } from "effect"
 import { DocumentUri } from "#model/brands.ts"
 import { EventContract } from "#model/entities.ts"
@@ -480,6 +480,10 @@ describe("an SSE response's event contract", () => {
 				explore(
 					{
 						suite: "normalize/event-stream",
+						oracle: {
+							kind: "specification",
+							name: "the event lifecycle's reading, applied to the generated branches"
+						},
 						draw: drawn(itemSchema),
 						literal: Formatter.format,
 						coverage: required<ReadingFeature>(

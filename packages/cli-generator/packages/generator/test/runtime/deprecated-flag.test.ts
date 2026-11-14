@@ -28,9 +28,9 @@ const flags = {
 	old: Flag.String("old").pipe(Flag.optional, Input.deprecated("old")),
 	olds: Flag.String("olds").pipe(Flag.atLeast(0), Input.deprecated("olds")),
 	quiet: Flag.Boolean("quiet").pipe(Flag.optional, Input.deprecated("quiet"))
-}
+} as const
 
-const positional = { id: Argument.String("id").pipe(Input.deprecatedArgument("id")) }
+const positional = { id: Argument.String("id").pipe(Input.deprecatedArgument("id")) } as const
 
 // A Stdio stream that appends what it is given to `lines`.
 const into = (lines: string[]) => () =>

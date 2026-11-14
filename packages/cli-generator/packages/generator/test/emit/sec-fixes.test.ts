@@ -16,7 +16,11 @@ const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
 const configUri = Schema.decodeUnknownSync(DocumentUri)("file:///spec/author.json")
 
-const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Readonly<Record<SpecLine, string>> = {
+	"3.0": "3.0.3",
+	"3.1": "3.1.1",
+	"3.2": "3.2.0"
+}
 
 const keyed: Json = { in: "header", name: "X-Key", type: "apiKey" }
 
@@ -139,9 +143,9 @@ describe("one diagnostic per undeclared requirement name", () => {
 	})
 })
 
-const origin = { document: "file:///spec.json", pointer: "/paths/~1x/get" }
+const origin = { document: "file:///spec.json", pointer: "/paths/~1x/get" } as const
 
-const rows = ["SEC-01"]
+const rows = ["SEC-01"] as const
 
 const scheme = Schema.decodeUnknownSync(SecurityScheme)({
 	credentialSources: ["flag", "env"],
@@ -175,7 +179,7 @@ const helpFor = (security: Json): HelpInput => ({
 const auth = (security: Json) =>
 	operationHelp(helpFor(security)).sections.find(([title]) => title === "AUTH")?.[1]
 
-const keyUse = { uses: [{ scheme: "headerKey", scopes: [] }] }
+const keyUse = { uses: [{ scheme: "headerKey", scopes: [] }] } as const
 
 const keyLine =
 	"headerKey (apiKey header X-Key): --header-key-file <path|->, env EXAMPLE_HEADER_KEY"

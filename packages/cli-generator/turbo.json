@@ -31,25 +31,30 @@
 			"dependsOn": ["^source"],
 			"inputs": [
 				"$TURBO_DEFAULT$",
-				"$TURBO_ROOT$/packages/devtools/tsconfig.base.json",
-				"$TURBO_ROOT$/packages/devtools/tsconfig.effect-free.json"
+				"$TURBO_ROOT$/vendor/toolchain/packages/devtools/tsconfig.base.json",
+				"$TURBO_ROOT$/vendor/toolchain/packages/devtools/tsconfig.effect-free.json"
 			]
 		},
 		"superlint": {
-			"description": "The dev tools' rules and the superlint options in the root package.json are inputs too.",
+			"description": "The dev tools' rules and the repository's toolchain config are inputs too.",
 			"dependsOn": ["^source"],
 			"inputs": [
 				"$TURBO_DEFAULT$",
-				"$TURBO_ROOT$/package.json",
-				"$TURBO_ROOT$/packages/devtools/src/**",
-				"$TURBO_ROOT$/packages/devtools/tsconfig.base.json",
-				"$TURBO_ROOT$/packages/devtools/tsconfig.effect-free.json"
+				"$TURBO_ROOT$/toolchain.config.ts",
+				"$TURBO_ROOT$/vendor/toolchain/packages/devtools/src/**",
+				"$TURBO_ROOT$/vendor/toolchain/packages/devtools/tsconfig.base.json",
+				"$TURBO_ROOT$/vendor/toolchain/packages/devtools/tsconfig.effect-free.json"
 			]
 		},
 		"oxlint": {
-			"description": "The dev tools' preset and plugin are inputs too.",
+			"description": "The dev tools' preset and plugin, the testing library's plugin and the repository's toolchain config are inputs too.",
 			"dependsOn": ["^source"],
-			"inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/packages/devtools/src/**"]
+			"inputs": [
+				"$TURBO_DEFAULT$",
+				"$TURBO_ROOT$/toolchain.config.ts",
+				"$TURBO_ROOT$/vendor/toolchain/packages/devtools/src/**",
+				"$TURBO_ROOT$/vendor/toolchain/packages/testing/src/oxlint/**"
+			]
 		},
 		"runtime-gate": {
 			"description": "Generates the runtime-gate fixture into a scratch directory and typechecks the generated package against the installed dependencies, until the property that every emitted package typechecks covers it.",
@@ -59,10 +64,6 @@
 			"description": "Generates every corpus specification whose bytes are committed (qti-pie's grizzle documents), builds each package against the installed dependencies, compares its verdict byte for byte and runs every command's --help and --dry-run against what its document describes.",
 			"dependsOn": ["^source"]
 		},
-		"fixtures:superlint": {},
-		"fixtures:style": {},
-		"fixtures:oxlint": {},
-		"fixtures:react-compiler": {},
 		"//#typecheck": {},
 		"//#superlint": {},
 		"//#oxlint": {},

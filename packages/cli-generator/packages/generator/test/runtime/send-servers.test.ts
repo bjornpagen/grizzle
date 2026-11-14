@@ -30,9 +30,9 @@ import * as Serialize from "#runtime-src/runtime/serialize.ts"
 
 const SECRET = "tok-SRV-SECRET"
 
-const ok = { "200": { description: "ok" } }
+const ok = { "200": { description: "ok" } } as const
 
-const bearer = [{ bearerAuth: [] }]
+const bearer = [{ bearerAuth: [] }] as const
 
 const spec = {
 	components: { securitySchemes: { bearerAuth: { scheme: "bearer", type: "http" } } },
@@ -55,7 +55,7 @@ const spec = {
 		"/r": { get: { operationId: "r-get", responses: ok, security: bearer } }
 	},
 	servers: [{ url: "https://api.example.com/v1" }]
-}
+} as const
 
 const config = {
 	binName: "x",
@@ -64,12 +64,12 @@ const config = {
 	servers: {
 		accepted: ["https://api.example.com/v1", "https://a.example.com/v1", "https://b.example.com"]
 	}
-}
+} as const
 
 const decodeUri = Schema.decodeUnknownSync(DocumentUri)
 
 // Generates the spec into a scoped temp directory and returns the emitted api modules.
-const emitted = await Effect.runPromise(
+const emitted: Readonly<{ root: string; servers: string }> = await Effect.runPromise(
 	Effect.scoped(
 		Effect.gen(function* emit() {
 			const fs = yield* FileSystem.FileSystem

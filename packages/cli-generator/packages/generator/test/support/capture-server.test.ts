@@ -1,4 +1,18 @@
 import { connect as connectTls } from "node:tls"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	array,
+	boolean,
+	bytes,
+	constant,
+	element,
+	type Gen,
+	int,
+	oneOf
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 /**
  * The capture server records every request exactly as a client sent it and answers exactly as its script says, and the
  * TLS capture server records which connections presented the client certificate.
@@ -25,20 +39,6 @@ import { connect as connectTls } from "node:tls"
  */
 import { describe, it, layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
-import {
-	array,
-	boolean,
-	bytes,
-	constant,
-	element,
-	type Gen,
-	int,
-	oneOf
-} from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
 import {
 	captureServer,
@@ -302,6 +302,10 @@ describe("the capture server", () => {
 					return yield* explore(
 						{
 							suite: "capture server recording",
+							oracle: {
+								kind: "second-implementation",
+								name: "the sketches as wire.ts's reference writer frames them"
+							},
 							draw: drawn((source): Arr.NonEmptyReadonlyArray<ConnectionSketch> =>
 								Arr.prepend(
 									array(connectionSketch, { min: 0, max: 1 })(source),
@@ -391,6 +395,10 @@ describe("the capture server", () => {
 			explore(
 				{
 					suite: "capture server reading",
+					oracle: {
+						kind: "second-implementation",
+						name: "the sketches as wire.ts's reference writer frames them, and nothing left over"
+					},
 					draw: drawn((source) => ({
 						connection: connectionSketch(source),
 						cuts: array(int(1, 40), { min: 0, max: 6 })(source)
@@ -466,6 +474,10 @@ describe("the capture server", () => {
 					return yield* explore(
 						{
 							suite: "capture server answering",
+							oracle: {
+								kind: "second-implementation",
+								name: "wire.ts's response reader over the scripted sequence"
+							},
 							draw: drawn(answeringCase),
 							literal: Formatter.format,
 							coverage: required<AnsweringFeature>(
@@ -516,7 +528,7 @@ describe("the capture server", () => {
 								})
 								const observed = yield* server.observe(
 									(_request, attempt) => ({ ...answerAt(attempt), delay: Duration.zero }),
-									Effect.forEach(Arr.range(1, c.asks), () =>
+									Effect.forEach(Array.from({ length: c.asks }), () =>
 										exchange(
 											portOf(server.origins["127.0.0.1"]),
 											closingGet(c.method, "/scripted"),
@@ -528,7 +540,7 @@ describe("the capture server", () => {
 									Arr.map(observed.result, (received) =>
 										readResponse(received, c.method === "HEAD")
 									),
-									Arr.map(Arr.range(0, c.asks - 1), (attempt): Option.Option<ReadResponse> => {
+									Array.from({ length: c.asks }, (_, attempt): Option.Option<ReadResponse> => {
 										const answer = answerAt(attempt)
 										return Option.some({
 											status: answer.status,
@@ -553,6 +565,10 @@ describe("the capture server", () => {
 				return yield* explore(
 					{
 						suite: "capture server holding",
+						oracle: {
+							kind: "specification",
+							name: "exactly the promised prefix of a held body, and an observation that completes once the client closes"
+						},
 						draw: drawn(holdingCase),
 						literal: Formatter.format,
 						coverage: required<HoldingFeature>(
@@ -668,6 +684,10 @@ layer(harnessLayer, { excludeTestServices: true })("the TLS capture server", (it
 					return yield* explore(
 						{
 							suite: "TLS capture server certificates",
+							oracle: {
+								kind: "specification",
+								name: "each connection's origin, with the certificate subject exactly when the client presented one"
+							},
 							draw: drawn((source): Arr.NonEmptyReadonlyArray<TlsSketch> =>
 								Arr.prepend(array(tlsSketch, { min: 0, max: 2 })(source), tlsSketch(source))
 							),

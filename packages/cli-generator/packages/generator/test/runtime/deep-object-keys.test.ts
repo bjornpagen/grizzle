@@ -4,7 +4,7 @@ import { UsageError } from "#runtime-src/domain/errors.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
 import type { Json, Nested } from "#runtime-src/runtime/serialize.ts"
 
-const strict = { allowReserved: false, explode: true, required: false }
+const strict = { allowReserved: false, explode: true, required: false } as const
 
 const expand = (value: Nested, brackets: boolean) =>
 	Serialize.deepObject("a", value, { ...strict, brackets }).expand

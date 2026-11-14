@@ -20,13 +20,13 @@ import { fileBody, partFilename } from "#runtime-src/runtime/multipart.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
 import type { Value } from "#runtime-src/runtime/serialize.ts"
 
-const plain = { allowReserved: false, explode: false }
+const plain = { allowReserved: false, explode: false } as const
 
-const exploded = { allowReserved: false, explode: true }
+const exploded = { allowReserved: false, explode: true } as const
 
-const reserved = { allowReserved: true, explode: false }
+const reserved = { allowReserved: true, explode: false } as const
 
-const reservedExploded = { allowReserved: true, explode: true }
+const reservedExploded = { allowReserved: true, explode: true } as const
 
 const array: Value = ["red", "green", "blue"]
 

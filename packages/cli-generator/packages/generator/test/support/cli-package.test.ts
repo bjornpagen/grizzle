@@ -11,10 +11,8 @@
  * Plants (local only, reverted): cli-package.ts runBin with `extendEnv: true`; runBin dropping its first argument;
  * process.ts finished reading stderr from stdout.
  */
-import { layer } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	bytes,
@@ -23,9 +21,11 @@ import {
 	map,
 	string,
 	uniqueArray
-} from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { deepStrictEqual } from "@effect/vitest/utils"
 import {
 	Array as Arr,
 	Duration,
@@ -151,6 +151,10 @@ layer(harnessLayer, { excludeTestServices: true })("a built bin's run", (it) => 
 					return yield* explore(
 						{
 							suite: "built bin invocation",
+							oracle: {
+								kind: "universal",
+								name: "the invocation a bin reports is the one it was given"
+							},
 							draw: drawn(invocation),
 							literal: Formatter.format,
 							coverage: required<InvocationFeature>(

@@ -29,7 +29,7 @@ const sample = {
 	},
 	package: { name: "example-cli", version: "1.0.0" },
 	servers: { accepted: ["https://api.example.com"] }
-}
+} as const
 
 const full = {
 	...sample,
@@ -41,7 +41,7 @@ const full = {
 	},
 	retrievalUri: "https://example.com/openapi.json",
 	security: { bearerAuth: { env: "EXAMPLE_TOKEN" } }
-}
+} as const
 
 const refusals = (input: Schema.Json, ctx = context) => {
 	const exit = Effect.runSyncExit(decodeAuthorConfig(input, ctx))

@@ -7,9 +7,9 @@ const json = "application/json"
 
 const text = "text/plain"
 
-const optional = { required: false }
+const optional = { required: false } as const
 
-const required = { required: true }
+const required = { required: true } as const
 
 const expectUsage = async (expansion: Effect.Effect<string | undefined, UsageError>) => {
 	const error = await Effect.runPromise(Effect.flip(expansion))

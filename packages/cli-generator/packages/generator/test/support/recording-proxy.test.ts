@@ -13,21 +13,13 @@
  * Plants (local only, reverted): recording-proxy.ts routeOf keeping Proxy-Authorization; routeOf ignoring the
  * scheme's default port; serveProxied never answering `200 Connection Established`.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, constant, element, type Gen, oneOf, option } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
-import {
-	array,
-	boolean,
-	constant,
-	element,
-	type Gen,
-	oneOf,
-	option
-} from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -281,6 +273,10 @@ describe("the recording proxy", () => {
 					return yield* explore(
 						{
 							suite: "recording proxy",
+							oracle: {
+								kind: "specification",
+								name: "the heads as sent, the tunnelled and forwarded requests as wire.ts frames them, and 502 for an unmapped authority"
+							},
 							draw: drawn((source): Arr.NonEmptyReadonlyArray<Hop> =>
 								Arr.prepend(array(hop, { min: 0, max: 2 })(source), hop(source))
 							),

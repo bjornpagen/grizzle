@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 3091,
+		"total": 3088,
 		"files": {
 			"packages/generator/src/emit/api.ts": 125,
 			"packages/generator/src/emit/cli.ts": 123,
@@ -79,7 +79,7 @@
 			"packages/generator/test/normalize/servers.test.ts": 40,
 			"packages/generator/test/report/command-names.test.ts": 24,
 			"packages/generator/test/report/human.test.ts": 8,
-			"packages/generator/test/report/report.test.ts": 20,
+			"packages/generator/test/report/report.test.ts": 18,
 			"packages/generator/test/resolve/document-set.test.ts": 6,
 			"packages/generator/test/runtime/auth-prompt.test.ts": 16,
 			"packages/generator/test/runtime/auth-token.test.ts": 48,
@@ -129,7 +129,7 @@
 			"packages/generator/test/runtime/serialize.test.ts": 183,
 			"packages/generator/test/validate/diagnostics.test.ts": 36,
 			"packages/generator/test/validate/locations.test.ts": 8,
-			"packages/generator/test/validate/validate.test.ts": 24,
+			"packages/generator/test/validate/validate.test.ts": 23,
 			"packages/generator/test/write/lock.test.ts": 8
 		}
 	},
@@ -160,7 +160,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 1494,
+		"total": 1492,
 		"files": {
 			"packages/generator/src/emit/api.ts": 110,
 			"packages/generator/src/emit/cli.ts": 148,
@@ -192,7 +192,7 @@
 			"packages/generator/test/load/json.test.ts": 2,
 			"packages/generator/test/load/ref-root.test.ts": 6,
 			"packages/generator/test/load/yaml.test.ts": 5,
-			"packages/generator/test/model/author-config.test.ts": 15,
+			"packages/generator/test/model/author-config.test.ts": 14,
 			"packages/generator/test/model/brands.test.ts": 25,
 			"packages/generator/test/model/diagnostic.test.ts": 12,
 			"packages/generator/test/model/json-tree.test.ts": 3,
@@ -281,7 +281,7 @@
 			"packages/generator/test/runtime/serialize.test.ts": 36,
 			"packages/generator/test/validate/diagnostics.test.ts": 9,
 			"packages/generator/test/validate/locations.test.ts": 1,
-			"packages/generator/test/validate/validate.test.ts": 3,
+			"packages/generator/test/validate/validate.test.ts": 2,
 			"packages/generator/test/write/lock.test.ts": 4
 		}
 	}

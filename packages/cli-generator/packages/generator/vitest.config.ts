@@ -1,9 +1,7 @@
-import { defineTestConfig } from "@superstarter/testing/vitest/config"
-import { Option } from "effect"
+import { defineTestConfig } from "@bjornpagen/testing/vitest/config"
 
 export default defineTestConfig({
 	include: ["test/**/*.test.ts"],
-	exclusive: [],
 	guided: [],
 	setup: [],
 	conditions: [],
@@ -11,6 +9,5 @@ export default defineTestConfig({
 		test: { kind: "bounded", millis: 120_000 },
 		hook: { kind: "bounded", millis: 120_000 }
 	},
-	maxWorkers: Option.none(),
 	smallStack: []
 })

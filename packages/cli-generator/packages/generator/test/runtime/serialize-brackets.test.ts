@@ -5,9 +5,9 @@ import { jsonNull } from "#runtime-src/runtime/input.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
 import type { Json, Nested } from "#runtime-src/runtime/serialize.ts"
 
-const strict = { allowReserved: false, explode: true, required: false }
+const strict = { allowReserved: false, explode: true, required: false } as const
 
-const brackets = { ...strict, brackets: true }
+const brackets = { ...strict, brackets: true } as const
 
 const query = (value: Nested, options: Serialize.QueryOptions = brackets) =>
 	Effect.runPromise(Serialize.deepObject("a", value, options).expand)
@@ -39,7 +39,7 @@ const nestedTo = (depth: number, leaf: string): Json => {
 	return value
 }
 
-const sample = { b: { c: 1 }, d: [1, { e: "x y" }] }
+const sample = { b: { c: 1 }, d: [1, { e: "x y" }] } as const
 
 describe("query deepObject with brackets", () => {
 	test("each leaf is named by its path, brackets encoded, array members from 0", async () => {

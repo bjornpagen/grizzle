@@ -14,7 +14,7 @@ import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { NodeCrypto, NodeFileSystem, NodePath } from "@effect/platform-node"
 import { Effect, FileSystem, Layer, Schema } from "effect"
-import { afterEach, describe, expect, test } from "vitest"
+import { describe, expect, onTestFinished, test } from "vitest"
 import { setMembers } from "#generate.ts"
 import {
 	makeDocumentSet,
@@ -30,8 +30,6 @@ const fixtures = path.join(import.meta.dirname, "..", "fixtures", "document-set"
 
 const scratch = path.join(import.meta.dirname, "..", "..", "work")
 
-const made: string[] = []
-
 /**
  * A fresh copy of the fixture tree, plus a sibling directory outside it, under `work/`.
  */
@@ -42,19 +40,15 @@ const workspace = () => {
 	const root = path.join(base, "root")
 	const outside = path.join(base, "outside")
 
-	made.push(base)
+	onTestFinished(() => {
+		rmSync(base, { force: true, recursive: true })
+	})
 	cpSync(path.join(fixtures, "tree"), root, { recursive: true })
 	mkdirSync(outside)
 	cpSync(path.join(fixtures, "outside.json"), path.join(outside, "secret.json"))
 
 	return { base, outside, root }
 }
-
-afterEach(() => {
-	for (const base of made.splice(0)) {
-		rmSync(base, { force: true, recursive: true })
-	}
-})
 
 const layer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.layerDigest)
 

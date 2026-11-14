@@ -24,11 +24,8 @@
  *
  * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
-import { layer } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import { jsonTextOf } from "@superstarter/json"
-import { type Case as SearchCase, drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
+import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -38,9 +35,12 @@ import {
 	map,
 	option,
 	weighted
-} from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { deepStrictEqual } from "@effect/vitest/utils"
+import { jsonTextOf } from "@superstarter/json"
 import {
 	Array as Arr,
 	Context,
@@ -74,14 +74,14 @@ import { latin1Bytes } from "#test/support/wire.ts"
 const answered = {
 	description: "Done.",
 	content: { "application/json": { schema: { type: "object" } } }
-}
+} as const
 
-const ID = { name: "id", in: "path", required: true, schema: { type: "string" } }
+const ID = { name: "id", in: "path", required: true, schema: { type: "string" } } as const
 
 const OCTETS = {
 	required: true,
 	content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } }
-}
+} as const
 
 /** A GET, a POST with a JSON body and an optional Idempotency-Key, and a POST and a PUT of octet bodies. */
 const spec = jsonTextOf({
@@ -179,7 +179,8 @@ const operationOf = (send: Send): Operation => {
 const NOTE = '{"note":"again"}'
 
 /** 64 KiB of a pattern that repeats no line, so a re-send that drops or reorders a span is told apart. */
-const OCTET_BODY = Uint8Array.from({ length: 64 * 1024 }, (_, index) => (index * 31 + 7) % 251)
+const octetBody = (): Uint8Array =>
+	Uint8Array.from({ length: 64 * 1024 }, (_, index) => (index * 31 + 7) % 251)
 
 /** One answer the server gives an attempt. */
 type Answer =
@@ -325,7 +326,7 @@ const bodyOf = (send: Send): Uint8Array => {
 			return latin1Bytes(NOTE)
 		case "upload":
 		case "blob":
-			return OCTET_BODY
+			return octetBody()
 	}
 }
 
@@ -388,7 +389,7 @@ const expectedOf = (c: Case): Outcome => {
 	}
 	return {
 		exitCode: exitCodeOf(model.ended),
-		attempts: Arr.replicate(attempt, model.attempts),
+		attempts: Array.from({ length: model.attempts }, () => attempt),
 		retryNotices: model.retried,
 		unreplayable: model.unreplayable,
 		error: errorOfEnd(model.ended, model.capped)
@@ -435,7 +436,7 @@ const attemptOf =
 		})
 	})
 
-const OBJECT = latin1Bytes('{"done":true}')
+const doneObject = (): Uint8Array => latin1Bytes('{"done":true}')
 
 /** The server's response to an answer. */
 const responseOf = (answer: Answer): ScriptedResponse => {
@@ -445,7 +446,7 @@ const responseOf = (answer: Answer): ScriptedResponse => {
 				status: 200,
 				headers: [["Content-Type", "application/json"]],
 				delay: Duration.zero,
-				body: { kind: "complete", bytes: OBJECT }
+				body: { kind: "complete", bytes: doneObject() }
 			}
 		case "status":
 			return {
@@ -462,7 +463,7 @@ const responseOf = (answer: Answer): ScriptedResponse => {
 				status: 200,
 				headers: [["Content-Type", "application/json"]],
 				delay: Duration.seconds(2),
-				body: { kind: "complete", bytes: OBJECT }
+				body: { kind: "complete", bytes: doneObject() }
 			}
 	}
 }
@@ -509,10 +510,13 @@ const when = (holds: boolean, feature: Feature): ReadonlyArray<Feature> => (hold
 const caseFeatures = (c: Case): ReadonlyArray<Feature> => {
 	const model = modelled(c)
 	const firstEnded = endedBy(Arr.headNonEmpty(c.answers), c.timeout)
-	const waited = Arr.some(Arr.range(0, model.retried - 1), (index) => {
-		const answer = answerAt(c.answers, index)
-		return answer.kind === "status" && Option.exists(answer.retryAfter, (seconds) => seconds > 0)
-	})
+	const waited = Arr.some(
+		Array.from({ length: model.retried }, (_, index) => index),
+		(index) => {
+			const answer = answerAt(c.answers, index)
+			return answer.kind === "status" && Option.exists(answer.retryAfter, (seconds) => seconds > 0)
+		}
+	)
 	return Arr.flatten<ReadonlyArray<ReadonlyArray<Feature>>>([
 		when(model.retried > 0 && model.ended.kind === "success", "a retried status retried"),
 		when(
@@ -553,7 +557,7 @@ const caseFeatures = (c: Case): ReadonlyArray<Feature> => {
 		when(Option.isSome(model.capped), "a Retry-After past the timeout"),
 		when(
 			Arr.some(
-				Arr.range(0, model.attempts - 1),
+				Array.from({ length: model.attempts }, (_, index) => index),
 				(index) => endedBy(answerAt(c.answers, index), c.timeout).kind === "timeout"
 			),
 			"a header timeout"
@@ -573,7 +577,7 @@ const caseFeatures = (c: Case): ReadonlyArray<Feature> => {
 		when(
 			Option.exists(c.timeout, (timeout) => timeout.seconds === 0) &&
 				Arr.some(
-					Arr.range(0, model.attempts - 1),
+					Array.from({ length: model.attempts }, (_, index) => index),
 					(index) => answerAt(c.answers, index).kind === "slow"
 				),
 			"a zero timeout"
@@ -894,7 +898,7 @@ const fixture = Layer.effect(
 		)
 		const scratch = yield* fs.makeTempDirectoryScoped({ prefix: "retry-policy-" })
 		const file = path.join(scratch, "octets.bin")
-		yield* fs.writeFile(file, OCTET_BODY)
+		yield* fs.writeFile(file, octetBody())
 		return { server, built, commands, file }
 	})
 ).pipe(Layer.provideMerge(harnessLayer))
@@ -908,6 +912,10 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's retries", (it) 
 				return yield* explore(
 					{
 						suite: "retry policy",
+						oracle: {
+							kind: "second-implementation",
+							name: "a model of the retry rules run over the server's sequence of answers"
+						},
 						draw: drawn(FOCUS),
 						literal: Formatter.format,
 						coverage: required<Feature>(FEATURES, { cases: 24, sense: notesOnly }),
@@ -952,7 +960,7 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's retries", (it) 
 											}
 										)
 									},
-									stdin: isOneShot(c.send) ? OCTET_BODY : new Uint8Array(0)
+									stdin: isOneShot(c.send) ? octetBody() : new Uint8Array(0)
 								})
 							)
 							const lines = Str.split("\n")(Buffer.from(observed.result.stderr).toString("utf8"))

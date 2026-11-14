@@ -19,11 +19,8 @@
  *
  * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
-import { layer } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import { jsonTextOf } from "@superstarter/json"
-import { type Case as SearchCase, drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
+import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -37,9 +34,12 @@ import {
 	option,
 	string,
 	weighted
-} from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { deepStrictEqual } from "@effect/vitest/utils"
+import { jsonTextOf } from "@superstarter/json"
 import {
 	Array as Arr,
 	Context,
@@ -94,9 +94,9 @@ const OBJECT_OPERATIONS: Arr.NonEmptyReadonlyArray<Operation> = [
 	"nested"
 ]
 
-const STRING = { type: "string" }
+const STRING = { type: "string" } as const
 
-const INTEGER = { type: "integer" }
+const INTEGER = { type: "integer" } as const
 
 /** Each operation's body schema. */
 const SCHEMAS: Readonly<Record<Operation, Schema.Json>> = {
@@ -737,6 +737,10 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's JSON request bo
 				return yield* explore(
 					{
 						suite: "JSON body schemas",
+						oracle: {
+							kind: "second-implementation",
+							name: "a reference check of the body against each schema's rules"
+						},
 						draw: drawn(FOCUS),
 						literal: Formatter.format,
 						coverage: required<Feature>(FEATURES, { cases: 24, sense: notesOnly }),

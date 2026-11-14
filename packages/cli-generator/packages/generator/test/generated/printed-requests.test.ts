@@ -27,11 +27,8 @@
  * - output.ts's dry run without the `content-length` line, so it no longer showed every header the send carried.
  */
 import { createServer } from "node:net"
-import { layer } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import { jsonTextOf } from "@superstarter/json"
-import { type Case as SearchCase, drawn, exhaust, explore } from "@superstarter/testing/explore"
-import { required, requiredInSpace } from "@superstarter/testing/features"
+import { type Case as SearchCase, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import {
 	characterOf,
 	constant,
@@ -42,9 +39,12 @@ import {
 	option,
 	string,
 	weighted
-} from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { deepStrictEqual } from "@effect/vitest/utils"
+import { jsonTextOf } from "@superstarter/json"
 import {
 	Array as Arr,
 	Context,
@@ -74,7 +74,7 @@ import { listen } from "#test/support/connection.ts"
 import { valuesOf, type WireRequest } from "#test/support/http.ts"
 import { latin1Bytes } from "#test/support/wire.ts"
 
-const OBJECT = { "application/json": { schema: { type: "object" } } }
+const OBJECT = { "application/json": { schema: { type: "object" } } } as const
 
 /** A secured GET with a header parameter and a 404 declaring its request id, a secured POST, and an open GET. */
 const spec = jsonTextOf({
@@ -670,6 +670,10 @@ layer(fixture, { excludeTestServices: true })(
 						return yield* explore(
 							{
 								suite: "printed requests",
+								oracle: {
+									kind: "specification",
+									name: "the dry run, the verbose send and what reached the capture server, each against the others"
+								},
 								draw: drawn(FOCUS),
 								literal: Formatter.format,
 								coverage: required<ShownFeature>(SHOWN_FEATURES, { cases: 16, sense: notesOnly }),
@@ -761,9 +765,14 @@ layer(fixture, { excludeTestServices: true })(
 						return yield* exhaust(
 							{
 								suite: "JSON errors",
+								oracle: {
+									kind: "specification",
+									name: "one JSON error line with the keys its error carries, nothing on stdout, and its exit code"
+								},
+								box: "every failure the suite lists: API errors with and without a request id, a refused connection, a missing credential, a usage error and a Retry-After past the timeout",
+								concurrency: 1,
 								generator: element(FAILURES),
 								literal: Formatter.format,
-								limit: FAILURES.length,
 								coverage: requiredInSpace<Failure>(FAILURES),
 								caseHang: Duration.seconds(60)
 							},

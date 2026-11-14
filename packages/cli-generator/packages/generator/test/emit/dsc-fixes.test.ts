@@ -35,7 +35,7 @@ const config = {
 	binName: "dscfx",
 	envPrefix: "DSCFX",
 	package: { name: "dsc-fixes-cli", version: "0.1.0" }
-}
+} as const
 
 const done: Json = { "204": { description: "done" } }
 

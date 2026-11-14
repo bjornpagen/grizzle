@@ -9,7 +9,7 @@ const loopback = [
 	"http://[::ffff:127.0.0.1]",
 	"http://localhost",
 	"http://api.localhost"
-]
+] as const
 
 describe("plaintextWarning", () => {
 	test.each(loopback)("an allowed loopback http base %s warns nothing", (baseUrl) => {

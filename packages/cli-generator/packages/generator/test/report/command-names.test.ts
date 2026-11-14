@@ -14,12 +14,12 @@ const layer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.la
 
 const decodeReport = Schema.decodeUnknownSync(Schema.fromJsonString(GenerationReport))
 
-const ok = { responses: { "200": { description: "ok" } } }
+const ok = { responses: { "200": { description: "ok" } } } as const
 
 const baseConfig = {
 	binName: "example",
 	package: { name: "example-cli", version: "1.0.0" }
-}
+} as const
 
 const spec = (paths: { readonly [path: string]: Json }): Json => ({
 	info: { title: "names", version: "1" },
@@ -83,7 +83,7 @@ const curated = spec({
 const curatedConfig = {
 	...baseConfig,
 	naming: { operations: { listWidgets: { command: "show-all", group: "inventory" } } }
-}
+} as const
 
 // Tags, operationIds and routes only.
 const plain = spec({
@@ -107,7 +107,7 @@ const added = {
 			schemes: { token: { scheme: "bearer", type: "http" } }
 		}
 	}
-}
+} as const
 
 // Runs `generate` in a scoped temp directory and returns the report file's bytes.
 const reportText = (value: Json, config: Json): Promise<string> =>

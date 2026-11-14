@@ -204,11 +204,13 @@ const valueOf = (schema: Json, walk: Walk): Effect.Effect<Json, Unbuildable> =>
 			)
 			const below: Walk = { ...inner, arrays: inner.arrays + 1 }
 
-			return yield* Effect.forEach(count > 0 ? Arr.range(0, count - 1) : [], (at) =>
-				valueOf(
-					Option.getOrElse(Arr.get(prefixed, at), () => items),
-					below
-				)
+			return yield* Effect.forEach(
+				Array.from({ length: count }, (_, at) => at),
+				(at) =>
+					valueOf(
+						Option.getOrElse(Arr.get(prefixed, at), () => items),
+						below
+					)
 			)
 		}
 
@@ -351,7 +353,7 @@ const groupsOf = (commands: readonly Command[]): readonly (readonly string[])[] 
 	const separator = "\u0000"
 	const joined = Arr.dedupe(
 		Arr.flatMap(commands, (command) =>
-			Arr.map(Arr.range(0, command.path.length - 1), (length) =>
+			Array.from({ length: command.path.length }, (_, length) =>
 				Arr.join(Arr.take(command.path, length), separator)
 			)
 		)

@@ -9,7 +9,11 @@ import { resolve } from "#resolve/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
-const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Readonly<Record<SpecLine, string>> = {
+	"3.0": "3.0.3",
+	"3.1": "3.1.1",
+	"3.2": "3.2.0"
+}
 
 interface Members {
 	readonly [key: string]: Json

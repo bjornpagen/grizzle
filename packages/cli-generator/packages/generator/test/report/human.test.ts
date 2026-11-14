@@ -14,12 +14,13 @@ const base = {
 	scope: "operation",
 	severity: "refusal",
 	specSection: "https://spec.openapis.org/oas/v3.0.4.html#style-values"
-}
+} as const
 
-const make = (fields: Partial<typeof base> & { readonly operation?: object }) =>
-	Schema.decodeUnknownSync(Diagnostic)({ ...base, ...fields })
+const make = (
+	fields: Partial<Readonly<Record<keyof typeof base, string>>> & { readonly operation?: object }
+) => Schema.decodeUnknownSync(Diagnostic)({ ...base, ...fields })
 
-const operation = { method: "GET", operationId: "list-charges", path: "/v1/charges" }
+const operation = { method: "GET", operationId: "list-charges", path: "/v1/charges" } as const
 
 describe("humanLine", () => {
 	test("fields appear in the design 8.1 order", () => {

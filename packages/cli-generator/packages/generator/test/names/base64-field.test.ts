@@ -22,7 +22,7 @@ const config: Schema.Json = {
 
 type Line = "3.0" | "3.1" | "3.2"
 
-const versions: Record<Line, string> = { "3.0": "3.0.4", "3.1": "3.1.1", "3.2": "3.2.0" }
+const versions: Readonly<Record<Line, string>> = { "3.0": "3.0.4", "3.1": "3.1.1", "3.2": "3.2.0" }
 
 interface Case {
 	readonly encoding: FieldEncoding

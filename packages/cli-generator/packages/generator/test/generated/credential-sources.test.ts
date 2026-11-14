@@ -21,14 +21,14 @@
  * Plants (local only, reverted): input.ts stripLineEnd keeping a credential file's line end; auth.ts appendCookie
  * joining the cookie's name and value with a colon.
  */
+import { type Case as SearchCase, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, characterOf, element, type Gen, string } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { jsonTextOf } from "@superstarter/json"
-import { type Case as SearchCase, drawn, exhaust, explore } from "@superstarter/testing/explore"
-import { required, requiredInSpace } from "@superstarter/testing/features"
-import { boolean, characterOf, element, type Gen, string } from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
 import {
 	Array as Arr,
 	Context,
@@ -96,7 +96,7 @@ const SCOPES: ReadonlyArray<string> = [
 const landed = {
 	content: { "application/json": { schema: { type: "object" } } },
 	description: "Landed."
-}
+} as const
 
 /** The document: one GET per scheme at `/s/<scheme>`, each requiring that scheme alone; flow URLs name `origin`. */
 const specOf = (origin: string): string =>
@@ -567,6 +567,7 @@ const aimedScheme = (drawnScheme: Scheme, k: SearchCase<CredentialFeature>): Sch
 /** Checks the contract on every case of a small box of runs, against the suite's built package. */
 const exhaustRuns = (
 	suite: string,
+	box: string,
 	generator: Gen<Case>,
 	situations: Arr.NonEmptyReadonlyArray<CredentialFeature>
 ) =>
@@ -578,9 +579,14 @@ const exhaustRuns = (
 		return yield* exhaust(
 			{
 				suite,
+				oracle: {
+					kind: "specification",
+					name: "one request with the credential in exactly its scheme's place, exit 3 or 2 with no request when there is none or it is refused, and its value nowhere in what the run prints"
+				},
+				box,
+				concurrency: 1,
 				generator,
 				literal: Formatter.format,
-				limit: 32,
 				coverage: requiredInSpace<CredentialFeature>(situations),
 				caseHang: Duration.seconds(60)
 			},
@@ -603,7 +609,12 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's credentials", (
 		it.effect(`go where their scheme says from ${from}, and nowhere else`, (ctx) =>
 			searched(
 				ctx,
-				exhaustRuns(`credential sources: ${from}`, sourceCaseOf(from), sourceFeatures(from))
+				exhaustRuns(
+					`credential sources: ${from}`,
+					`every scheme's simple credential from ${from}, with and without a last line end where it can hold one`,
+					sourceCaseOf(from),
+					sourceFeatures(from)
+				)
 			)
 		)
 	})
@@ -619,6 +630,10 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's credentials", (
 				return yield* explore(
 					{
 						suite: "credential values",
+						oracle: {
+							kind: "specification",
+							name: "the credential in exactly its scheme's place on the one request, and its value nowhere in what the run prints"
+						},
 						draw: drawn(element(SCHEMES)),
 						literal: Formatter.format,
 						coverage: required<CredentialFeature>(
@@ -658,6 +673,7 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's credentials", (
 					ctx,
 					exhaustRuns(
 						`credential faults: ${Arr.join(families, ", ")}`,
+						`every fault of ${Arr.join(families, " and ")}, under each scheme whose carrier refuses it, from the environment, a file and stdin`,
 						faultCaseOf(families),
 						Arr.appendAll(families, ["the environment", "a file", "stdin"])
 					)
@@ -673,6 +689,10 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's credentials", (
 				return yield* explore(
 					{
 						suite: "credential prompt",
+						oracle: {
+							kind: "specification",
+							name: "the typed credential in its scheme's place on the one request, and the typed value nowhere the terminal shows"
+						},
 						draw: drawn(element(SCHEMES)),
 						literal: Formatter.format,
 						coverage: required<CredentialFeature>(SCHEMES, { cases: 20, sense: notesOnly }),

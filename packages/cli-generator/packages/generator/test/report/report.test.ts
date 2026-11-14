@@ -1,4 +1,4 @@
-import { Effect, Exit, Schema } from "effect"
+import { Array as Arr, Effect, Exit, Option, Schema, String as Str } from "effect"
 import { describe, expect, test } from "vitest"
 import { Diagnostic } from "#model/diagnostic.ts"
 import {
@@ -15,7 +15,7 @@ const base = {
 	message: "deepObject value has nested objects",
 	openapi: "3.0.3",
 	specSection: "https://spec.openapis.org/oas/v3.0.4.html#style-values"
-}
+} as const
 
 const make = (
 	severity: "notice" | "refusal",
@@ -68,8 +68,10 @@ describe("generation report bytes", () => {
 		expect(text.endsWith("}\n")).toBe(true)
 	})
 
-	test("keys are sorted at the top level", () => {
-		const keys = Object.keys(Schema.decodeUnknownSync(GenerationReport)(parsed))
+	test("keys are sorted at the top level of the printed text", () => {
+		const keys = Arr.flatMap(Str.split("\n")(text), (line) =>
+			Str.startsWith('  "')(line) ? Option.toArray(Arr.get(Str.split('"')(line), 1)) : []
+		)
 
 		expect(keys).toEqual([
 			"acceptedServers",

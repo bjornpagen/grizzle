@@ -15,7 +15,6 @@
  * alternatives share its fields, so a field is one flag; no field, part or parameter shares a flag; and a security
  * requirement uses at most one scheme that writes the Authorization header. A suite that needs a refusal plants it.
  */
-import { jsonTextOf } from "@superstarter/json"
 import {
 	array,
 	boolean,
@@ -30,7 +29,8 @@ import {
 	uniqueArray,
 	weighted,
 	type Weighted
-} from "@superstarter/testing/gen"
+} from "@bjornpagen/testing/gen"
+import { jsonTextOf } from "@superstarter/json"
 import { Array as Arr, Option, Record, Schema, String as Str } from "effect"
 
 /** The OpenAPI lines the generator reads, each written with its latest patch version. */
@@ -1210,7 +1210,7 @@ export const documentGen: Gen<DocumentSketch> = (s) => {
 		components,
 		schemes,
 		security: s.draw(option(requirementsGen(line, schemes))),
-		operations: Arr.map(Arr.range(0, s.draw(int(0, 5)) - 1), (index) =>
+		operations: Array.from({ length: s.draw(int(0, 5)) }, (_, index) =>
 			s.draw(operationGen(line, names, schemes, tagNames)(index))
 		),
 		webhooks: line === "3.0" ? [] : s.draw(subarray(["userCreated", "pet.deleted", "évènement"]))

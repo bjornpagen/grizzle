@@ -20,11 +20,8 @@
  * constant a flag again); input.ts mergeSources skipping the constants; flatten.ts shapes answering true for every
  * allOf member (the refined string a JSON flag).
  */
-import { layer } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import { jsonTextOf } from "@superstarter/json"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	boolean,
 	characterOf,
@@ -33,9 +30,12 @@ import {
 	int,
 	option,
 	string
-} from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { deepStrictEqual } from "@effect/vitest/utils"
+import { jsonTextOf } from "@superstarter/json"
 import {
 	Array as Arr,
 	Context,
@@ -349,6 +349,10 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's body constants"
 					return yield* explore(
 						{
 							suite: "body constants",
+							oracle: {
+								kind: "specification",
+								name: "the schema's constants and the drawn values: the body that reached the server, as JSON, or exit 2 and no request"
+							},
 							draw: drawn(run),
 							literal: Formatter.format,
 							coverage: required<ConstantFeature>(

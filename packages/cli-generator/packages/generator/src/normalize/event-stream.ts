@@ -112,7 +112,7 @@ const branchesOf = (resolution: Resolution, root: CanonicalKey): ReadonlyArray<C
 	return Option.match(listed, {
 		onNone: () => [root],
 		onSome: ([keyword, count]) =>
-			Arr.map(Arr.range(0, count - 1), (index) =>
+			Array.from({ length: count }, (_, index) =>
 				settle(resolution, childKey(root, keyword, String(index)))
 			)
 	})
@@ -138,8 +138,8 @@ const composedOf = (resolution: Resolution, branch: CanonicalKey): ReadonlyArray
 
 		return [
 			at,
-			...Arr.flatMap(Arr.range(0, members.length - 1), (index) =>
-				index < members.length ? walk(settle(resolution, childKey(at, "allOf", String(index)))) : []
+			...Arr.flatMap(members, (_, index) =>
+				walk(settle(resolution, childKey(at, "allOf", String(index))))
 			)
 		]
 	}

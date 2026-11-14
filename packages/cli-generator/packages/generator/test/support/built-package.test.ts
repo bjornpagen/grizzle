@@ -15,10 +15,8 @@
  * Plants (local only, reverted): errors.ts UsageError's exit code set to 70; output.ts reading `({}).__proto__` at
  * start-up, which only the hardened flags break.
  */
-import { layer } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	bytes,
@@ -29,9 +27,11 @@ import {
 	option,
 	string,
 	weighted
-} from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { deepStrictEqual } from "@effect/vitest/utils"
 import {
 	Array as Arr,
 	Context,
@@ -252,6 +252,10 @@ layer(fixture, { excludeTestServices: true })("a built generated CLI", (it) => {
 				return yield* explore(
 					{
 						suite: "built package exits",
+						oracle: {
+							kind: "universal",
+							name: "a documented exit code, and a second run of the same invocation exits and prints the same"
+						},
 						draw: drawn(invocationOf(commands)),
 						literal: Formatter.format,
 						coverage: required<ExitFeature>(["success", "non-2xx", "usage", "a request sent"], {

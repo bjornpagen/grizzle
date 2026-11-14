@@ -15,11 +15,9 @@
  * - definitionsOnly keeping every reference, its names check always true;
  * - definitionsOnly leaving a property's type as it found it, so a reference it names stays unwritten.
  */
-import { describe, it } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import { drawn, explore } from "@superstarter/testing/explore"
-import type { Kept } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import type { Kept } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	boolean,
 	element,
@@ -32,9 +30,11 @@ import {
 	uniqueArray,
 	weighted,
 	type Weighted
-} from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
+import { deepStrictEqual } from "@effect/vitest/utils"
 import {
 	Array as Arr,
 	Cause,
@@ -129,9 +129,9 @@ const leafGen = (reach: Reach): Gen<Json> =>
 		[
 			1,
 			(s) => ({
-				enum: Arr.map(
-					Arr.range(0, s.draw(int(1, 10))),
-					(index) => `${s.draw(element(["s", "a_much_longer_state_name"]))}_${index}`
+				enum: Array.from(
+					{ length: s.draw(int(1, 10)) + 1 },
+					(_, index) => `${s.draw(element(["s", "a_much_longer_state_name"]))}_${index}`
 				)
 			})
 		],
@@ -535,6 +535,10 @@ describe("emit: the domain module", () => {
 						return yield* explore(
 							{
 								suite: "domain module",
+								oracle: {
+									kind: "specification",
+									name: "TypeScript's parser and oxfmt as judges, and exactly the reachable definitions under the identifier map's names, each after what it reads"
+								},
 								draw: drawn(caseGen),
 								literal: Formatter.format,
 								coverage: required<Feature>(
@@ -622,6 +626,7 @@ describe("emit: the domain module", () => {
 				explore(
 					{
 						suite: "domain refusals",
+						oracle: { kind: "specification", name: "each planted fault's refusal reason" },
 						draw: drawn(plantedGen),
 						literal: Formatter.format,
 						coverage: required<Fault>(

@@ -1,5 +1,5 @@
+import { HARDENED_FLAGS } from "@bjornpagen/testing/vitest/config"
 import { NodeCrypto, NodeServices } from "@effect/platform-node"
-import { HARDENED_FLAGS } from "@superstarter/testing/vitest/config"
 import {
 	Array as Arr,
 	Deferred,

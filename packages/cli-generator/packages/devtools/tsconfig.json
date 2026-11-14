@@ -1,6 +1,0 @@
-{
-	"$schema": "../../node_modules/@effect/tsgo/schema.json",
-	"extends": "../../tsconfig.json",
-	"include": ["**/*"],
-	"exclude": ["node_modules", "src/*/fixtures"]
-}

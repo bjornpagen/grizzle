@@ -65,7 +65,7 @@ const withPaths = (replacement: Readonly<Record<string, Schema.Json>>): Schema.J
 	paths: replacement
 })
 
-const ok = { "200": { description: "ok" } }
+const ok = { "200": { description: "ok" } } as const
 
 describe("emitApi: the golden users-update fixture", () => {
 	test("reproduces expected/src/api/users.ts and expected/src/api/servers.ts byte for byte", async () => {
@@ -376,7 +376,7 @@ const importSchema = {
 		["tags", { items: { type: "string" }, type: "array" }]
 	]),
 	type: "object"
-}
+} as const
 
 describe("emitApi: multipart request bodies", () => {
 	test("the builder streams the part values through Serialize.formData in Encoding order", async () => {
@@ -576,7 +576,7 @@ const formMedia = "application/x-www-form-urlencoded"
 const accountSchema = {
 	properties: { metadata: { type: "object" }, name: { type: "string" } },
 	type: "object"
-}
+} as const
 
 const accounts = (content: Readonly<Record<string, Schema.Json>>) =>
 	withPaths({

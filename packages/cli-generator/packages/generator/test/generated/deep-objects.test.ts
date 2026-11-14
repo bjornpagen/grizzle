@@ -26,11 +26,8 @@
  *
  * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
-import { layer } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import { jsonTextOf } from "@superstarter/json"
-import { type Case as SearchCase, drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
+import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	characterOf,
@@ -44,9 +41,12 @@ import {
 	string,
 	subarray,
 	weighted
-} from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { deepStrictEqual } from "@effect/vitest/utils"
+import { jsonTextOf } from "@superstarter/json"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -139,11 +139,11 @@ const admits = (mode: Mode, at: Field | Parameter): boolean =>
 const FORM = "application/x-www-form-urlencoded"
 
 /** A `deepObject` Encoding entry or parameter style. */
-const DEEP = { style: "deepObject", explode: true }
+const DEEP = { style: "deepObject", explode: true } as const
 
-const NUMBER = { type: "number" }
+const NUMBER = { type: "number" } as const
 
-const STRING = { type: "string" }
+const STRING = { type: "string" } as const
 
 /** An object schema with these properties. */
 const objectSchema = (properties: Readonly<Record<string, Schema.Json>>): Schema.Json => ({
@@ -1246,6 +1246,10 @@ Arr.forEach(MODES, (mode) => {
 						return yield* explore(
 							{
 								suite: `deepObject values under ${mode.label}`,
+								oracle: {
+									kind: "second-implementation",
+									name: "the pairs the deepObject rules give, read back off the wire by each wire's own rules, and exit 2 with no connection for a fault"
+								},
 								draw: drawn(element(featuresOf(mode))),
 								literal: Formatter.format,
 								coverage: required<Feature>(featuresOf(mode), { cases: 24, sense: notesOnly }),

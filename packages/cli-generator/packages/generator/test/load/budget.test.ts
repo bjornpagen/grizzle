@@ -10,7 +10,7 @@ import {
 import path from "node:path"
 import { NodeFileSystem } from "@effect/platform-node"
 import { ByteSize, Effect, FileSystem, Option, Schema } from "effect"
-import { afterEach, describe, expect, test } from "vitest"
+import { describe, expect, onTestFinished, test } from "vitest"
 import {
 	defaultLoadLimits,
 	LoadRefusal,
@@ -24,23 +24,17 @@ import { DocumentUri } from "#model/brands.ts"
 
 const scratch = path.join(import.meta.dirname, "..", "..", "work")
 
-const made: string[] = []
-
 const directory = () => {
 	mkdirSync(scratch, { recursive: true })
 
 	const base = realpathSync(mkdtempSync(path.join(scratch, "budget-")))
 
-	made.push(base)
+	onTestFinished(() => {
+		rmSync(base, { force: true, recursive: true })
+	})
 
 	return base
 }
-
-afterEach(() => {
-	for (const base of made.splice(0)) {
-		rmSync(base, { force: true, recursive: true })
-	}
-})
 
 const document = Schema.decodeUnknownSync(DocumentUri)("https://example.com/doc.json")
 

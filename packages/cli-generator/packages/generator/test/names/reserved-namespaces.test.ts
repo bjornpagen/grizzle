@@ -12,14 +12,14 @@
  * over-refusal that cost GitHub's follow); plan.ts holding parameter flags against the reserved command names only;
  * index.ts dropping the reserved command names from the group check.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { element, type Gen, oneOf } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { jsonTextOf } from "@superstarter/json"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
-import { element, type Gen, oneOf } from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
 import {
 	Array as Arr,
 	Duration,
@@ -63,7 +63,7 @@ const caseGen: Gen<NameCase> = (s) => ({
 	method: s.draw(element<NameCase["method"]>(["post", "put"]))
 })
 
-const ok = { "200": { description: "ok" } }
+const ok = { "200": { description: "ok" } } as const
 
 /** The one operation, holding the name at its site. */
 const operationOf = (c: NameCase): Schema.JsonObject => {
@@ -216,6 +216,10 @@ layer(harnessLayer, { excludeTestServices: true })("names: reserved namespaces",
 			explore(
 				{
 					suite: "reserved namespaces",
+					oracle: {
+						kind: "specification",
+						name: "the site's namespace alone decides a refusal (design 4.4)"
+					},
 					draw: drawn(caseGen),
 					literal: Formatter.format,
 					coverage: required<NamespaceFeature>(

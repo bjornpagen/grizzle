@@ -18,10 +18,8 @@
  * movesBelow ignoring a breakable value's first line; keyText printing `__proto__` bare; `\u` escapes in lower case;
  * printJson keeping an object's keys in insertion order.
  */
-import { describe, it } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -38,9 +36,11 @@ import {
 	uniqueArray,
 	weighted,
 	type Weighted
-} from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
+import { deepStrictEqual } from "@effect/vitest/utils"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -2482,6 +2482,10 @@ describe("emit: the printer", () => {
 						return yield* explore(
 							{
 								suite: "printer module",
+								oracle: {
+									kind: "universal",
+									name: "TypeScript's parse of the printed text reads back as the module, in a layout oxfmt leaves unchanged"
+								},
 								draw: drawn(moduleGen),
 								literal: Formatter.format,
 								coverage: required<Feature>(
@@ -2576,6 +2580,7 @@ describe("emit: the printer", () => {
 				explore(
 					{
 						suite: "printer refusals",
+						oracle: { kind: "specification", name: "each planted construct's refusal reason" },
 						draw: drawn(faultyGen),
 						literal: Formatter.format,
 						coverage: required<FaultFeature>(
@@ -2631,6 +2636,10 @@ describe("emit: the printer", () => {
 						return yield* explore(
 							{
 								suite: "printer json",
+								oracle: {
+									kind: "universal",
+									name: "the printed text reads back as the value, its keys sorted, and oxfmt leaves it unchanged"
+								},
 								draw: drawn(jsonGen(3)),
 								literal: Formatter.format,
 								coverage: required<JsonFeature>(
@@ -2702,6 +2711,10 @@ describe("emit: the printer", () => {
 						return yield* explore(
 							{
 								suite: "printer package.json",
+								oracle: {
+									kind: "specification",
+									name: "the manifest's documented key order and sorted maps, and oxfmt's fixed point"
+								},
 								draw: drawn(manifestCaseGen),
 								literal: Formatter.format,
 								coverage: required<ManifestFeature>(

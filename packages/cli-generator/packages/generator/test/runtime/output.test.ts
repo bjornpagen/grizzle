@@ -61,11 +61,11 @@ type Env =
 	| GlobalFlag.Setting.Identifier<"force">
 	| GlobalFlag.Setting.Identifier<"output">
 
-const chunkA = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00])
+const chunkA = (): Uint8Array => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00])
 
-const chunkB = new Uint8Array([0xfe, 0x01, 0x80])
+const chunkB = (): Uint8Array => new Uint8Array([0xfe, 0x01, 0x80])
 
-const bytes = new Uint8Array([...chunkA, ...chunkB])
+const bytes = (): Uint8Array => new Uint8Array([...chunkA(), ...chunkB()])
 
 const brokenPipe = systemError({
 	_tag: "Unknown",
@@ -97,7 +97,7 @@ const countedBody = (
 ) => {
 	const pulled = { count: 0 }
 	const body: ResponseBody<never, Env> = {
-		bytes: Stream.fromIterable([chunkA, chunkB]).pipe(
+		bytes: Stream.fromIterable([chunkA(), chunkB()]).pipe(
 			Stream.tap(() =>
 				Effect.suspend(() => {
 					pulled.count += 1
@@ -162,21 +162,21 @@ describe("stdout sink", () => {
 		const { body } = countedBody("application/json")
 		const result = await run({}, writeBody(body))
 		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.stdout).toEqual(bytes)
+		expect(result.stdout).toEqual(bytes())
 	})
 
 	test("a text body to a terminal is allowed", async () => {
 		const { body } = countedBody("text/plain; charset=utf-8")
 		const result = await run({ isTerminal: true }, writeBody(body))
 		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.stdout).toEqual(bytes)
+		expect(result.stdout).toEqual(bytes())
 	})
 
 	test("--output - sends a binary body to a terminal", async () => {
 		const { body } = countedBody("image/png")
 		const result = await run({ isTerminal: true, output: "-" }, writeBody(body))
 		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.stdout).toEqual(bytes)
+		expect(result.stdout).toEqual(bytes())
 	})
 
 	test("binary media to a terminal is refused with UsageError and zero body bytes read", async () => {
@@ -252,7 +252,7 @@ describe("--output file", () => {
 				new Uint8Array(
 					await Effect.runPromise(fs.readFile(target).pipe(Effect.provide(NodeFileSystem.layer)))
 				)
-			).toEqual(bytes)
+			).toEqual(bytes())
 			expect(
 				await Effect.runPromise(fs.readDirectory(dir).pipe(Effect.provide(NodeFileSystem.layer)))
 			).toEqual(["out.bin"])
@@ -293,7 +293,7 @@ describe("--output file", () => {
 				new Uint8Array(
 					await Effect.runPromise(fs.readFile(target).pipe(Effect.provide(NodeFileSystem.layer)))
 				)
-			).toEqual(bytes)
+			).toEqual(bytes())
 			expect(
 				await Effect.runPromise(fs.readDirectory(dir).pipe(Effect.provide(NodeFileSystem.layer)))
 			).toEqual(["out.bin"])
@@ -323,7 +323,7 @@ describe("--output file", () => {
 		await inDir(async (dir, fs, path) => {
 			const target = path.join(dir, "out.bin")
 			const failing: ResponseBody<"boom"> = {
-				bytes: Stream.concat(Stream.make(chunkA), Stream.fail("boom" as const)),
+				bytes: Stream.concat(Stream.make(chunkA()), Stream.fail("boom" as const)),
 				mediaType: "application/json"
 			}
 			const result = await run({ output: target }, writeBody(failing))

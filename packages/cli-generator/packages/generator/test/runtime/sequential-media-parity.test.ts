@@ -28,7 +28,7 @@ const sequentialCandidates = [
 	"application/geo+json-seq",
 	"Application/Geo+JSON-Seq",
 	"application/vnd.example+json-seq; charset=utf-8"
-]
+] as const
 
 /**
  * Media types neither side treats as sequential, including near misses of the suffix rule.
@@ -39,9 +39,9 @@ const plainCandidates = [
 	"application/octet-stream",
 	"text/plain",
 	"application/json-seq+xml"
-]
+] as const
 
-const candidates = [...sequentialCandidates, ...plainCandidates]
+const candidates = [...sequentialCandidates, ...plainCandidates] as const
 
 /**
  * The codec the generator assigns each declared response media key.

@@ -14,11 +14,11 @@ import { resolve } from "#resolve/index.ts"
 
 // A directly marked model: the marker is set on the entries, as the author config would set it.
 
-const origin = { document: "file:///spec.json", pointer: "/paths/~1search/post" }
+const origin = { document: "file:///spec.json", pointer: "/paths/~1search/post" } as const
 
-const rows = ["OPR-01"]
+const rows = ["OPR-01"] as const
 
-const schema = { key: "S" }
+const schema = { key: "S" } as const
 
 const note = "non-standard: sent as name[a][b]=v (author config nonStandard.deepObjectBrackets)"
 

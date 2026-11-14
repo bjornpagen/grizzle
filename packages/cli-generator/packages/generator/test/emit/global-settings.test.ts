@@ -62,7 +62,7 @@ const registered = [
 	"Output.errorFormatSetting",
 	"Output.dryRunSetting",
 	"credentialFiles"
-]
+] as const
 
 const recordRun = 'Command.provideEffectDiscard(Output.recordRun("EXAMPLE"))'
 

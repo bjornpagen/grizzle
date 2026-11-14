@@ -21,15 +21,15 @@
  * its stop point), event-retry-without-budget.patch (a retry-safe error event retries with no `--retries`),
  * constant-not-sent.patch (a constant parameter is sent empty).
  */
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
 import { NodeChildProcessSpawner, NodeCrypto, NodeHttpServer } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
-import { drawn, exhaust, explore } from "@superstarter/testing/explore"
-import { required, requiredInSpace } from "@superstarter/testing/features"
-import { array, boolean, element, type Gen, int } from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { completeShrink } from "@superstarter/testing/shrink"
-import { searched } from "@superstarter/testing/vitest"
 import {
 	Array as Arr,
 	Context,
@@ -350,7 +350,7 @@ const bodyOf = (sent: Feed): string =>
 /** The body cut into the feed's number of writes. */
 const writesOf = (body: string, writes: number): ReadonlyArray<string> => {
 	const size = Math.ceil(body.length / writes)
-	return Arr.map(Arr.range(0, writes - 1), (index) =>
+	return Array.from({ length: writes }, (_, index) =>
 		Str.slice(index * size, (index + 1) * size)(body)
 	)
 }
@@ -465,6 +465,10 @@ layer(environment, { timeout: Duration.minutes(5) })(
 					explore(
 						{
 							suite: "generated/event-stream-feed",
+							oracle: {
+								kind: "specification",
+								name: "the events' own lines, through the stop point the command's flags name"
+							},
 							draw: drawn(feed),
 							literal: Formatter.format,
 							coverage: required<FeedFeature>(
@@ -520,9 +524,14 @@ layer(environment, { timeout: Duration.minutes(5) })(
 					exhaust(
 						{
 							suite: "generated/event-stream-failure",
+							oracle: {
+								kind: "specification",
+								name: "the stream's contract: the lines printed, the exit code, the calls made and the header each carried"
+							},
+							box: "every pairing of the error event's verdict, a --retries budget or none, and the read or the write",
+							concurrency: 1,
 							generator: failureCase,
 							literal: Formatter.format,
-							limit: 100,
 							coverage: requiredInSpace<FailureFeature>([
 								"safe with a budget on post-page",
 								"safe without a budget on post-page",
@@ -625,7 +634,7 @@ layer(environment, { timeout: Duration.minutes(5) })(
 								const requests = yield* server.requests
 								const wire = yield* server.wire
 								c.note(failureFeature(failure))
-								deepStrictEqual(wire, Arr.getSomes(Arr.replicate(digest, requests)))
+								deepStrictEqual(wire, Arr.getSomes(Array.from({ length: requests }, () => digest)))
 								deepStrictEqual(
 									{
 										exitCode: run.exitCode,

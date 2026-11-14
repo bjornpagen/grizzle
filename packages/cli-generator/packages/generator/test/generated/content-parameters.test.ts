@@ -11,11 +11,8 @@
  *
  * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
-import { layer } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import { jsonTextOf } from "@superstarter/json"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -25,9 +22,12 @@ import {
 	int,
 	option,
 	string
-} from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { deepStrictEqual } from "@effect/vitest/utils"
+import { jsonTextOf } from "@superstarter/json"
 import {
 	Array as Arr,
 	Context,
@@ -341,6 +341,10 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's content paramet
 					return yield* explore(
 						{
 							suite: "content parameters",
+							oracle: {
+								kind: "specification",
+								name: "the query's pairs parsed back to the values given, the header's and the cookie's text as given, and exit 2 with no connection for a fault"
+							},
 							draw: drawn(runOf),
 							literal: Formatter.format,
 							coverage: required<ContentFeature>(

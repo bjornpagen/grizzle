@@ -2,9 +2,9 @@ import { Schema } from "effect"
 import { describe, expect, test } from "vitest"
 import { VerdictCoverage } from "#model/verdict.ts"
 
-const site = { document: "file:///spec.json", pointer: "/paths/~1x/get" }
+const site = { document: "file:///spec.json", pointer: "/paths/~1x/get" } as const
 
-const claim = { path: ["users", "list"] }
+const claim = { path: ["users", "list"] } as const
 
 // Each value spreads its site or claim last, so the encoded text shows the schema's key order.
 const elements = [
@@ -15,7 +15,7 @@ const elements = [
 	{ key: "200", kind: "response", ...site },
 	{ kind: "securityAlternative", schemes: ["apiKey"], ...site },
 	{ kind: "server", url: "https://api.example.com", ...site }
-]
+] as const
 
 const invented = [
 	{ kind: "command", ...claim },
@@ -24,7 +24,7 @@ const invented = [
 	{ key: "200", kind: "response", ...claim },
 	{ kind: "securityAlternative", schemes: ["apiKey"], ...claim },
 	{ kind: "server", url: "https://api.example.com", ...claim }
-]
+] as const
 
 const siteText = '"document":"file:///spec.json","pointer":"/paths/~1x/get"'
 
@@ -51,7 +51,7 @@ const expected = [
 
 describe("VerdictCoverage", () => {
 	test("verdict variants encode in key order", () => {
-		const coverage = Schema.decodeUnknownSync(VerdictCoverage)({
+		const coverage = Schema.decodeSync(VerdictCoverage)({
 			byNotice: elements,
 			checked: true,
 			invented,

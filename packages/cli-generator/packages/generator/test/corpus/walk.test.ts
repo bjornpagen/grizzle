@@ -42,9 +42,9 @@ const lines = (value: Json): readonly string[] =>
 		return `server ${element.pointer} ${element.url}`
 	})
 
-const base = { info: { title: "t", version: "1" }, openapi: "3.1.1" }
+const base = { info: { title: "t", version: "1" }, openapi: "3.1.1" } as const
 
-const ok = { "200": { description: "ok" } }
+const ok = { "200": { description: "ok" } } as const
 
 describe("outline walk", () => {
 	test("a small spec yields the exact element list", () => {

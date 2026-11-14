@@ -46,8 +46,8 @@
 	},
 	"devDependencies": {
 		"@effect/vitest": "catalog:",
-		"@superstarter/devtools": "workspace:*",
-		"@superstarter/testing": "workspace:*",
+		"@bjornpagen/devtools": "workspace:*",
+		"@bjornpagen/testing": "workspace:*",
 		"oxfmt": "catalog:",
 		"vitest": "catalog:"
 	}

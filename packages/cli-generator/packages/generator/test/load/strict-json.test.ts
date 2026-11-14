@@ -11,13 +11,22 @@
  * one (`>=`); `valueContext` treating every key under `properties` as a keyword; `isUnsafeNumber` reading only the
  * integer part; `locate` counting UTF-16 units for the column.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	oneOf,
+	weighted
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
-import { array, boolean, element, type Gen, int, oneOf, weighted } from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
 import {
 	Array as Arr,
 	Cause,
@@ -178,12 +187,19 @@ const memberGen =
 const membersGen = (depth: number): Gen<ReadonlyArray<Member>> =>
 	array(memberGen(depth), { min: 0, max: 4 })
 
-/** The whitespace JSON admits between tokens. */
-const GAPS: Arr.NonEmptyReadonlyArray<string> = ["", "", " ", "\n", "\t", "\r\n", "  \n "]
+/** The whitespace JSON admits between tokens, no whitespace at all twice as often as each other gap. */
+const GAP: Gen<string> = weighted([
+	[2, constant("")],
+	[1, constant(" ")],
+	[1, constant("\n")],
+	[1, constant("\t")],
+	[1, constant("\r\n")],
+	[1, constant("  \n ")]
+])
 
 const documentGen: Gen<Document> = (s) => ({
 	root: s.draw(membersGen(3)),
-	gaps: s.draw(array(element(GAPS), { min: 1, max: 6 })),
+	gaps: s.draw(array(GAP, { min: 1, max: 6 })),
 	bom: s.draw(boolean),
 	trailingComma: s.draw(
 		weighted([
@@ -241,7 +257,7 @@ const spell = (c: Char): string => {
 
 /** The UTF-16 code units of a character. */
 const utf16 = (char: string): ReadonlyArray<number> =>
-	Arr.getSomes(Arr.map(Arr.range(0, char.length - 1), (index) => Str.charCodeAt(index)(char)))
+	Arr.getSomes(Array.from({ length: char.length }, (_, index) => Str.charCodeAt(index)(char)))
 
 const textOf = (chars: ReadonlyArray<Char>): string =>
 	Arr.join(
@@ -622,6 +638,10 @@ describe("load: strict JSON", () => {
 				explore(
 					{
 						suite: "strict json",
+						oracle: {
+							kind: "second-implementation",
+							name: "the document's value, or the refusal's code, pointer and position, derived from the tree it was rendered from"
+						},
 						draw: drawn(documentGen),
 						literal: Formatter.format,
 						coverage: required<Feature>(

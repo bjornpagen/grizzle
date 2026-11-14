@@ -16,13 +16,13 @@
  *
  * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { jsonTextOf } from "@superstarter/json"
-import { exhaust } from "@superstarter/testing/explore"
-import { requiredInSpace } from "@superstarter/testing/features"
-import { element, type Gen } from "@superstarter/testing/gen"
-import { searched } from "@superstarter/testing/vitest"
 import {
 	Array as Arr,
 	Context,
@@ -278,9 +278,14 @@ const exhaustFault = (fault: Fault) =>
 		return yield* exhaust(
 			{
 				suite: `run-scoped errors: ${fault}`,
+				oracle: {
+					kind: "specification",
+					name: "design 7.4's error format: the error once in the run's format, exit 2 before any connection, and no secret shown"
+				},
+				box: "every error-format flag and variable setting, an invalid variable among them",
+				concurrency: 1,
 				generator: (source): Case => ({ fault, setting: settingOf(source) }),
 				literal: Formatter.format,
-				limit: 12,
 				coverage: requiredInSpace<FormatFeature>([
 					"rendered as json",
 					"rendered as text",
@@ -358,7 +363,7 @@ type WarningOutcome = Readonly<{
 /** The warning run the rules give: every attempt answered `503` and carrying the key, one warning naming the host. */
 const expectedWarning = (retries: Retries): WarningOutcome => ({
 	exitCode: 1,
-	keys: Arr.replicate([KEY], retries + 1),
+	keys: Array.from({ length: retries + 1 }, () => [KEY]),
 	warningsNamingTheHost: [true]
 })
 
@@ -383,9 +388,14 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's run-scoped rend
 				return yield* exhaust(
 					{
 						suite: "run-scoped warnings",
+						oracle: {
+							kind: "specification",
+							name: "one plaintext warning a run, however many attempts carry the credential"
+						},
+						box: "0, 1 and 2 retries",
+						concurrency: 1,
 						generator: element<Retries>([0, 1, 2]),
 						literal: Formatter.format,
-						limit: 3,
 						coverage: requiredInSpace<RetryFeature>(["no retry", "one retry", "two retries"]),
 						caseHang: Duration.seconds(60)
 					},

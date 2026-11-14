@@ -55,7 +55,7 @@ const deep = (name: string, schema: Schema.Json, required = false) => ({
 	style: "deepObject"
 })
 
-const ok = { "200": { description: "ok" } }
+const ok = { "200": { description: "ok" } } as const
 
 const spec = {
 	info: { title: "Deep any", version: "1.0.0" },
@@ -81,7 +81,7 @@ const spec = {
 		}
 	},
 	servers: [{ url: "https://api.example.com" }]
-}
+} as const
 
 interface Switches {
 	readonly deepObjectBrackets?: boolean
@@ -134,7 +134,7 @@ const runWith = (nonStandard: Switches) =>
 const runs = {
 	off: await runWith({ deepObjectBrackets: false }),
 	on: await runWith({ deepObjectBrackets: true })
-}
+} as const
 
 describe("PRM-27: a deepObject over a schema that admits non-objects", () => {
 	for (const [label, run] of Object.entries(runs)) {
@@ -204,7 +204,7 @@ describe("m2-objfact: a deepObject over all-object anyOf or oneOf takes JSON", (
 const scalarRuns = {
 	both: await runWith({ deepObjectBrackets: true, deepObjectScalars: true }),
 	scalars: await runWith({ deepObjectScalars: true })
-}
+} as const
 
 describe("PRM-27 scalar switch: a deepObject over anyOf of an object and an integer", () => {
 	for (const [label, run] of Object.entries(scalarRuns)) {

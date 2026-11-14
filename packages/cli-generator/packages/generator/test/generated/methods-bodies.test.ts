@@ -13,14 +13,14 @@
  * Plants (local only, reverted): input.ts stdinBody announcing a length of zero; normalize/operations.ts upper-casing
  * an additional operation's method.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { bytes, element, type Gen, int } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { jsonTextOf } from "@superstarter/json"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
-import { bytes, element, type Gen, int } from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
 import {
 	Array as Arr,
 	Context,
@@ -275,6 +275,10 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's requests", (it)
 				return yield* explore(
 					{
 						suite: "methods and bodies",
+						oracle: {
+							kind: "specification",
+							name: "the document and the invocation: the method as spelled, the path, the body's bytes and its framing"
+						},
 						draw: drawn(send),
 						literal: Formatter.format,
 						coverage: required<MethodFeature>(

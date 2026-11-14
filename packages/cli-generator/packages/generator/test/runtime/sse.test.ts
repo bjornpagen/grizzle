@@ -25,10 +25,8 @@
  * stops one event before its stop point); and, applied to src/runtime-src/runtime/sse.ts, seen to fail and reverted, an
  * event outside a closed contract read as a text item, and a `ready` with a `next` taken as the stop point.
  */
-import { describe, it } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -42,10 +40,12 @@ import {
 	option,
 	production,
 	string
-} from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { completeShrink } from "@superstarter/testing/shrink"
-import { searched } from "@superstarter/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
+import { deepStrictEqual } from "@effect/vitest/utils"
 import {
 	Array as Arr,
 	Cause,
@@ -927,6 +927,10 @@ describe("the SSE parser", () => {
 				explore(
 					{
 						suite: "runtime/sse-parser",
+						oracle: {
+							kind: "second-implementation",
+							name: "a transcription of WHATWG's event-stream parsing over the whole body decoded at once"
+						},
 						draw: drawn(framing),
 						literal: Formatter.format,
 						coverage: required<ParseFeature>(
@@ -984,6 +988,10 @@ describe("an event stream", () => {
 				explore(
 					{
 						suite: "runtime/sse-stream",
+						oracle: {
+							kind: "specification",
+							name: "the event contract: each event's line or bytes through the first stop event, and the failure an error event names"
+						},
 						draw: drawn(controlCase),
 						literal: Formatter.format,
 						coverage: required<ControlFeature>(

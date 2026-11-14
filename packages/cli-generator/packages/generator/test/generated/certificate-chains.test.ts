@@ -18,14 +18,14 @@
  * presentsCertificate answering yes for every origin; errors.ts CredentialMissing's exit code set to 1; entry.ts's
  * unreadable-file error printing the path it could not read.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { jsonTextOf } from "@superstarter/json"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
-import { boolean, element, type Gen } from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
 import {
 	Array as Arr,
 	Context,
@@ -72,7 +72,7 @@ const landing: ScriptedResponse = {
 const landed = {
 	content: { "application/json": { schema: { type: "object" } } },
 	description: "Landed."
-}
+} as const
 
 /** One GET behind a mutualTLS scheme. */
 const spec = jsonTextOf({
@@ -441,6 +441,10 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's client certific
 				return yield* explore(
 					{
 						suite: "certificate chains",
+						oracle: {
+							kind: "second-implementation",
+							name: "the redirect loop's model (redirect-model.ts), with the certificate on exactly the hops to the bound origin"
+						},
 						draw: drawn(runOf),
 						literal: Formatter.format,
 						coverage: required<ChainFeature>(
@@ -510,6 +514,10 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's client certific
 					return yield* explore(
 						{
 							suite: "certificate stops",
+							oracle: {
+								kind: "specification",
+								name: "no connection, the exit code and the one error each planted fault names, and no path printed"
+							},
 							draw: drawn(stoppedOf),
 							literal: Formatter.format,
 							coverage: required<Stop | StartFeature>(

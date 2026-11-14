@@ -16,14 +16,14 @@
  * ignoring 303; client.ts nextHop refusing the eleventh redirect (the old hop cap); client.ts nextHop's loop identity
  * without the method; client.ts nextHop's loop identity without the origin.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { characterOf, element, type Gen, option, string } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { jsonTextOf } from "@superstarter/json"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
-import { characterOf, element, type Gen, option, string } from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -71,7 +71,7 @@ const landing: ScriptedResponse = {
 const landed = {
 	content: { "application/json": { schema: { type: "object" } } },
 	description: "Landed."
-}
+} as const
 
 /** One path with a GET and a POST whose JSON body is optional, behind four schemes that must all be sent. */
 const spec = jsonTextOf({
@@ -354,6 +354,10 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's redirects", (it
 				return yield* explore(
 					{
 						suite: "redirect chains",
+						oracle: {
+							kind: "second-implementation",
+							name: "the redirect loop's specification as a model (redirect-model.ts)"
+						},
 						draw: drawn(chain),
 						literal: Formatter.format,
 						coverage: required<ChainFeature>(

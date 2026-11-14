@@ -22,14 +22,14 @@
  * - cli.ts's isArrayParameter without its content check, so an optional array parameter written by content reached its
  *   builder as the flag's Option (the kept case).
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import type { Kept } from "@bjornpagen/testing/explore"
+import { noCoverage, required } from "@bjornpagen/testing/features"
+import type { Gen } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
-import { drawn, explore } from "@superstarter/testing/explore"
-import type { Kept } from "@superstarter/testing/explore"
-import { noCoverage, required } from "@superstarter/testing/features"
-import type { Gen } from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -76,6 +76,31 @@ type PackageCase = Readonly<{ document: DocumentSketch; config: ConfigSketch }>
 const caseGen: Gen<PackageCase> = (s) => {
 	const sketch = s.draw(documentGen)
 	return { document: sketch, config: s.draw(configGen(sketch)) }
+}
+
+/** A GET no emitter refuses, with no parameter, no body and one empty answer, at a path no drawn operation takes. */
+const COMMANDED: OperationSketch = {
+	method: "get",
+	segments: ["commanded"],
+	operationId: Option.none(),
+	tags: [],
+	summary: Option.none(),
+	description: Option.none(),
+	deprecated: false,
+	parameters: [],
+	querystring: Option.none(),
+	body: Option.none(),
+	responses: [{ status: "204", description: "Done", content: [], headers: [] }],
+	security: Option.none(),
+	aliases: []
+}
+
+/** A package case whose package has a command, so its root services layer provides Servers: a generated document
+ * with COMMANDED among its operations, and an author config that fits it. */
+const commandedCaseGen: Gen<PackageCase> = (s) => {
+	const sketch = s.draw(documentGen)
+	const document: DocumentSketch = { ...sketch, operations: [...sketch.operations, COMMANDED] }
+	return { document, config: s.draw(configGen(document)) }
 }
 
 /** The files the printer writes: every module and JSON file of the package but the runtime's sources, which ship
@@ -557,6 +582,10 @@ layer(harnessLayer, { excludeTestServices: true })("emit: generated packages", (
 				explore(
 					{
 						suite: "emitted package",
+						oracle: {
+							kind: "specification",
+							name: "tsc over the emitted package, oxfmt's fixed point, the runtime's sources byte for byte and the lazy root's imports"
+						},
 						draw: drawn(caseGen),
 						literal: Formatter.format,
 						coverage: required<Feature>(
@@ -657,7 +686,11 @@ layer(harnessLayer, { excludeTestServices: true })("emit: generated packages", (
 				explore(
 					{
 						suite: "dropped service",
-						draw: drawn(caseGen),
+						oracle: {
+							kind: "specification",
+							name: "tsc refuses the package and names Servers, the service its commands require"
+						},
+						draw: drawn(commandedCaseGen),
 						literal: Formatter.format,
 						coverage: noCoverage,
 						kept: [],
@@ -667,7 +700,7 @@ layer(harnessLayer, { excludeTestServices: true })("emit: generated packages", (
 						steerEvery: 4,
 						caseHang: Duration.minutes(2)
 					},
-					(drawnCase, k) =>
+					(drawnCase) =>
 						Effect.scoped(
 							Effect.gen(function* () {
 								const fs = yield* FileSystem.FileSystem
@@ -677,7 +710,6 @@ layer(harnessLayer, { excludeTestServices: true })("emit: generated packages", (
 									config: { path: "author-config.json", text: textOf(configOf(drawnCase.config)) },
 									authorFiles: []
 								})
-								yield* k.assume(Arr.isReadonlyArrayNonEmpty(generated.result.report.commandNames))
 								const rootPath = path.join(generated.dir, "src", "cli", "root.ts")
 								const root = yield* fs.readFileString(rootPath)
 								const dropped = Str.replace(baseUrlLayer, "")(root)

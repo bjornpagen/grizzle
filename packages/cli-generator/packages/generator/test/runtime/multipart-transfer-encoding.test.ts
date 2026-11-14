@@ -22,12 +22,12 @@ const textOf = async (parts: readonly Part[]) => {
 
 // Bytes whose base64 uses the alphabet's last two characters: 0xfb 0xff 0xfe is "+//+" in base64
 // and would be "-__-" in base64url.
-const alphabetBytes = Uint8Array.from([0xfb, 0xff, 0xfe, 0x01])
+const alphabetBytes = (): Uint8Array => Uint8Array.from([0xfb, 0xff, 0xfe, 0x01])
 
 describe("multipart base64 transfer encoding", () => {
 	test("a base64 part and a plain binary part sit side by side, byte for byte", async () => {
 		const text = await textOf([
-			{ body: Stream.make(alphabetBytes), contentEncoding: "base64", name: "a" },
+			{ body: Stream.make(alphabetBytes()), contentEncoding: "base64", name: "a" },
 			{ body: encoder.encode("plain"), contentType: "application/octet-stream", name: "c" }
 		])
 
@@ -114,7 +114,7 @@ describe("Serialize.formData: a part entry's contentEncoding", () => {
 	test("a base64 part entry writes one Content-Transfer-Encoding line and a base64 body", async () => {
 		const text = await formDataText(
 			{
-				doc: [{ filename: "doc.bin", stream: Stream.make(alphabetBytes) }],
+				doc: [{ filename: "doc.bin", stream: Stream.make(alphabetBytes()) }],
 				title: ["plain"]
 			},
 			{

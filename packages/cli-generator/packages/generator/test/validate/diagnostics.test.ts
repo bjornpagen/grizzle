@@ -19,7 +19,7 @@ const layer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.la
 const diagnose = (document: Json) =>
 	Effect.runPromise(diagnoseDocument(document, uri).pipe(Effect.provide(layer)))
 
-const ok = { "200": { description: "ok" } }
+const ok = { "200": { description: "ok" } } as const
 
 const document = (openapi: string, extra: Record<string, Json> = {}): Json => ({
 	info: { title: "t", version: "1" },
@@ -43,11 +43,11 @@ const link = (parameters: Json): Json =>
 		responses: { "200": { description: "ok", links: { l: { operationId: "x", parameters } } } }
 	})
 
-const classes: {
+const classes: ReadonlyArray<{
 	readonly code: string
 	readonly document: Json
 	readonly pointer: string
-}[] = [
+}> = [
 	{ code: "DOC-02/patch-digits", document: document("3.0.10"), pointer: "/openapi" },
 	{
 		code: "DOC-03/self-fragment",

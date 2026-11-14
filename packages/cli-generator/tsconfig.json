@@ -1,6 +1,6 @@
 {
 	"$schema": "./node_modules/@effect/tsgo/schema.json",
-	"extends": "@superstarter/devtools/tsconfig.base.json",
+	"extends": "@bjornpagen/devtools/tsconfig.base.json",
 	"compilerOptions": {
 		"plugins": [
 			{
@@ -178,18 +178,9 @@
 				"allowedUnstableApis": [],
 				"allowedExperimentalApis": [],
 				"allowedDuplicatedPackages": [],
-				"overrides": [
-					{
-						"include": ["packages/testing/src/vitest/run.ts"],
-						"options": {
-							"diagnosticSeverity": {
-								"strictEffectProvide": "off"
-							}
-						}
-					}
-				]
+				"overrides": []
 			}
 		]
 	},
-	"include": ["oxlint.config.ts"]
+	"include": ["oxlint.config.ts", "toolchain.config.ts"]
 }

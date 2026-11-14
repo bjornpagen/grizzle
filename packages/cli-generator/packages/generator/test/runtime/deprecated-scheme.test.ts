@@ -83,7 +83,7 @@ describe("deprecated scheme notice", () => {
 	})
 })
 
-const origin = { document: "file:///spec.json", pointer: "/paths/~1x/get" }
+const origin = { document: "file:///spec.json", pointer: "/paths/~1x/get" } as const
 
 const scheme = (name: string, deprecated: boolean) =>
 	Schema.decodeUnknownSync(SecurityScheme)({

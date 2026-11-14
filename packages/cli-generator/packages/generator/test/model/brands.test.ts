@@ -63,7 +63,7 @@ const PathCases = Schema.Struct({
 const pathCases = Schema.decodeUnknownSync(PathCases)(paths).cases
 
 // The once-per-expression rule belongs to the cross-check slice, not the brand.
-const brandAcceptsAnyway = new Set(["path-reject-duplicate-expression"])
+const brandAcceptsAnyway: ReadonlySet<string> = new Set(["path-reject-duplicate-expression"])
 
 const brands = [
 	["WireName", WireName, "page[size]", ""],

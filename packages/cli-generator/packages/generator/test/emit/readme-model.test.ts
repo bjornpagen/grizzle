@@ -11,13 +11,13 @@
  *
  * Plants, each applied to src/emit/readme.ts, seen to fail this suite and reverted: none yet.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import type { Gen } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
-import type { Gen } from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { format } from "oxfmt"
@@ -318,6 +318,10 @@ layer(harnessLayer, { excludeTestServices: true })("emit: the README", (it) => {
 				explore(
 					{
 						suite: "readme",
+						oracle: {
+							kind: "specification",
+							name: "the README's contract, fact by fact, against the model, config, plan and diagnostics it is written from"
+						},
 						draw: drawn(caseGen),
 						literal: Formatter.format,
 						coverage: required<Feature>(

@@ -11,7 +11,7 @@ const root = nodePath.resolve(import.meta.dirname, "../..")
 // check lexes: it blanks comments, string, template and regex literal text, then reads each
 // `Effect.fn` / `Effect.fnUntraced` call to its closing parenthesis.
 
-const regexAfterWord = new Set([
+const regexAfterWord: ReadonlySet<string> = new Set([
 	"await",
 	"case",
 	"delete",
@@ -27,8 +27,6 @@ const regexAfterWord = new Set([
 	"void",
 	"yield"
 ])
-
-const word = /[\w$]+/uy
 
 // Whether a `/` after `last` (the previous punctuator or word) opens a regex literal.
 const opensRegex = (last: string): boolean =>
@@ -95,6 +93,7 @@ const flatAt = (text: string, at: number, last: string): Flat | undefined => {
  * the quotes of double-quoted strings kept), so the remaining parentheses and words are code.
  */
 export const blank = (text: string): string => {
+	const word = /[\w$]+/uy
 	const cleared = new Uint8Array(text.length)
 	// The brace depth each open `${` returns to its template at.
 	const templates: number[] = []
@@ -140,12 +139,6 @@ export const blank = (text: string): string => {
 	)
 }
 
-// Each `Effect.fn(`, `Effect.fnUntraced(` or `Effect.fn("span")(` call, opening its argument list.
-const call = /\bEffect\.fn(?:Untraced)?\s*(?:\(\s*"[^"]*"\s*\)\s*)?\(/gu
-
-// The `function* name(` that the call's first argument opens with.
-const generator = /\s*function\s*\*\s*(?<name>[\w$]*)\s*\(/uy
-
 interface Scan {
 	readonly sites: number
 	readonly read: number
@@ -158,6 +151,10 @@ interface Scan {
  * itself between its `function* name(` and the call's closing parenthesis.
  */
 export const scan = (text: string): Scan => {
+	// Each `Effect.fn(`, `Effect.fnUntraced(` or `Effect.fn("span")(` call, opening its argument list.
+	const call = /\bEffect\.fn(?:Untraced)?\s*(?:\(\s*"[^"]*"\s*\)\s*)?\(/gu
+	// The `function* name(` that the call's first argument opens with.
+	const generator = /\s*function\s*\*\s*(?<name>[\w$]*)\s*\(/uy
 	const code = blank(text)
 	const matches = [...code.matchAll(call)]
 	const read = matches.flatMap((match) => {

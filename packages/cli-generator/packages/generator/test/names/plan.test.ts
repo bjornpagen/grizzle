@@ -127,7 +127,7 @@ const operationJson = (input: OperationInput): Json => {
 const baseDefs = {
 	boolean: { type: "boolean" },
 	string: { type: "string" }
-} satisfies Readonly<Record<string, Json>>
+} as const satisfies Readonly<Record<string, Json>>
 
 const makeApi = (input: ApiInput): Api =>
 	Schema.decodeUnknownSync(Api)({

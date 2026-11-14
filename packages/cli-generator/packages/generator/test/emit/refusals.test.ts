@@ -11,13 +11,13 @@
  * - positionalEntry refusing a boolean path parameter as `unsupported-flag`, so its operation was reported as
  *   `EMT-1/unsupported-flag`.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { element, type Gen, oneOf, shuffled } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
-import { element, type Gen, oneOf, shuffled } from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
 import {
 	Array as Arr,
 	Cause,
@@ -57,7 +57,7 @@ type Plant = Readonly<{
 	reason: "unsupported-parameter" | "unsupported-body"
 }>
 
-const ok = { "200": { description: "ok" } }
+const ok = { "200": { description: "ok" } } as const
 
 const pathParameter = (name: string, schema: Schema.Json) => ({
 	in: "path",
@@ -234,6 +234,10 @@ layer(harnessLayer, { excludeTestServices: true })("emit: operation refusals", (
 				explore(
 					{
 						suite: "emit refusals",
+						oracle: {
+							kind: "specification",
+							name: "each planted family's EMT-1 reason, once at its pointer, and nothing written under --strict"
+						},
 						draw: drawn(caseGen),
 						literal: Formatter.format,
 						coverage: required<Family>(

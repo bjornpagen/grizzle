@@ -7,7 +7,7 @@ import {
 	type Size,
 	span,
 	weighted
-} from "@superstarter/testing/gen"
+} from "@bjornpagen/testing/gen"
 import { Array as Arr, Duration, Option, String as Str } from "effect"
 import type { Script, ScriptedResponse } from "#test/support/capture-server.ts"
 

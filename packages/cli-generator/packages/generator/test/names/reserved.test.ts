@@ -55,10 +55,10 @@ describe("reservedIdentifiers", () => {
 
 // The bindings `cli/root.ts` declares or imports beside the fixed namespaces: the lazy root's
 // `table`, `root`, `args`, `groups`, `Groups` and `Arr`.
-const rootBindings = ["table", "root", "args", "groups", "Groups", "Arr"]
+const rootBindings = ["table", "root", "args", "groups", "Groups", "Arr"] as const
 
 // The operation ids that fold to a distinct command identifier each.
-const folding = ["table", "root", "args", "groups"]
+const folding = ["table", "root", "args", "groups"] as const
 
 const document = "file:///spec/openapi.json"
 
@@ -110,7 +110,7 @@ const planOf = (api: Api) =>
 	)
 
 // Tags whose Pascal fold is a binding of `cli/root.ts` or a namespace every cli module imports.
-const clashingTags = ["Groups", "Arr", "Command", "Effect"]
+const clashingTags = ["Groups", "Arr", "Command", "Effect"] as const
 
 describe("planNames: the cli/root.ts bindings", () => {
 	test("a root command folding to a root binding is renamed, not left to clash", () => {

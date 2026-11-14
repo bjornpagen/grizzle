@@ -94,7 +94,7 @@ const capture = (into: Buffer[]) => () =>
 		})
 	)
 
-const locations = new Map([
+const locations: ReadonlyMap<string, string> = new Map([
 	[`${API}/users/away`, `${UNBOUND}/landed`],
 	[`${API}/users/same`, `${API}/landed`]
 ])

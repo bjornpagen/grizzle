@@ -58,7 +58,11 @@ const refusal = (
 const at = (resolution: Resolution, site: CanonicalKey): ResolvedReference | undefined =>
 	resolution.references.get(keyOf(site))
 
-const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Readonly<Record<SpecLine, string>> = {
+	"3.0": "3.0.3",
+	"3.1": "3.1.1",
+	"3.2": "3.2.0"
+}
 
 const spec = (line: SpecLine, members: Record<string, Json>): Json => ({
 	info: { title: "t", version: "1" },

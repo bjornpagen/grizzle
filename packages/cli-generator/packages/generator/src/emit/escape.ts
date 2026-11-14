@@ -35,7 +35,7 @@ const unitEscape = (unit: number): string =>
  * The UTF-16 code units of one code point: two surrogates outside the BMP, else one.
  */
 const codeUnits = (char: string): ReadonlyArray<number> =>
-	Arr.getSomes(Arr.makeBy(Str.length(char), (index) => Str.charCodeAt(char, index)))
+	Arr.getSomes(Array.from({ length: Str.length(char) }, (_, index) => Str.charCodeAt(char, index)))
 
 /**
  * One escape per UTF-16 code unit: a code point outside the BMP becomes its two surrogates.

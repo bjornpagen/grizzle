@@ -27,7 +27,7 @@ const outcome = (parameter: Json, schemas: Record<string, Json> = {}) => {
 	)
 }
 
-const holder = { $dynamicAnchor: "node", type: "string" }
+const holder = { $dynamicAnchor: "node", type: "string" } as const
 
 const schemasUnderTest: readonly (readonly [string, Json, Record<string, Json>])[] = [
 	["a $dynamicRef", { $dynamicRef: "#node" }, {}],

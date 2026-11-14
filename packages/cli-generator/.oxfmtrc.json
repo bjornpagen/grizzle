@@ -18,11 +18,11 @@
 		"partitionByNewline": true
 	},
 	"ignorePatterns": [
-		"packages/devtools/src/*/fixtures/**",
 		"packages/generator/src/validate/schemas/*.json",
 		"packages/generator/test/fixtures/**",
 		"packages/generator/corpus/fixtures/**",
 		"packages/generator/corpus/specs/**",
-		"packages/generator/corpus/verdicts/**"
+		"packages/generator/corpus/verdicts/**",
+		"vendor/**"
 	]
 }

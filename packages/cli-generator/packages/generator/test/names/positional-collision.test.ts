@@ -11,7 +11,7 @@ const configDocument = Schema.decodeUnknownSync(DocumentUri)("file:///fx-cfdk/au
 
 const layer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.layerDigest)
 
-const pathName = { in: "path", name: "name", required: true, schema: { type: "string" } }
+const pathName = { in: "path", name: "name", required: true, schema: { type: "string" } } as const
 
 // Cloudflare's shape (want 34ff5250): a path `{name}` beside a JSON body property `name`, plus two
 // operations that must still generate, one whose query flag only shares a leading word.
@@ -60,7 +60,7 @@ const baseConfig = {
 	envPrefix: "EXAMPLE",
 	package: { name: "example-cli", version: "1.0.0" },
 	servers: { accepted: ["https://api.example.com"] }
-}
+} as const
 
 const renamedConfig = {
 	...baseConfig,
@@ -68,7 +68,7 @@ const renamedConfig = {
 		byPointer: {},
 		operations: { "repos-fork": { parameters: { "path:name": { flag: "repo-name" } } } }
 	}
-}
+} as const
 
 const forkPathPointer = "/paths/~1repos~1{name}~1fork/post/parameters/0"
 

@@ -5,11 +5,11 @@ import { JsonNumber } from "#runtime-src/runtime/input.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
 import type { FormEncoding, Json, Nested } from "#runtime-src/runtime/serialize.ts"
 
-const strict = { allowReserved: false, explode: true, required: false }
+const strict = { allowReserved: false, explode: true, required: false } as const
 
-const scalars = { ...strict, scalars: true }
+const scalars = { ...strict, scalars: true } as const
 
-const both = { ...scalars, brackets: true }
+const both = { ...scalars, brackets: true } as const
 
 const query = (value: Nested, options: Serialize.QueryOptions = scalars) =>
 	Effect.runPromise(Serialize.deepObject("a", value, options).expand)

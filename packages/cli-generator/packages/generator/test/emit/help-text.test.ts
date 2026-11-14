@@ -21,11 +21,8 @@
  * - brands.ts's maxProseLength at 1999 (sanitizing prose, and no description reaches the cap);
  * - a scheme's `deprecated` marker left out of AUTH.
  */
-import { describe, it } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import { jsonTextOf } from "@superstarter/json"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -40,9 +37,12 @@ import {
 	subarray,
 	uniqueArray,
 	weighted
-} from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { describe, it } from "@effect/vitest"
+import { deepStrictEqual } from "@effect/vitest/utils"
+import { jsonTextOf } from "@superstarter/json"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -92,7 +92,7 @@ import type { Json } from "#model/pointer.ts"
 
 const document = DocumentUri.make("file:///help/openapi.json")
 
-const origin = { document, pointer: JsonPointer.make("/paths") }
+const origin = { document, pointer: JsonPointer.make("/paths") } as const
 
 /** Characters help must keep out of a terminal line, beside plain, wide and separator characters. */
 const HOSTILE: ReadonlyArray<string> = [
@@ -1233,6 +1233,10 @@ describe("emit: help", () => {
 				explore(
 					{
 						suite: "help",
+						oracle: {
+							kind: "specification",
+							name: "help's contract, fact by fact, against the operation it renders"
+						},
 						draw: drawn(helpInputGen),
 						literal: Formatter.format,
 						coverage: required<Feature>(
@@ -1325,6 +1329,10 @@ describe("emit: help", () => {
 			explore(
 				{
 					suite: "sanitize prose",
+					oracle: {
+						kind: "second-implementation",
+						name: "the prose's safe code points, filtered in order and taken up to the cap"
+					},
 					draw: drawn(
 						weighted<string>([
 							[6, string(characterOf(PROSE_CHARS), { min: 0, max: 30 })],

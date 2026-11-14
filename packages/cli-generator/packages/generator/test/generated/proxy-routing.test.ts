@@ -15,14 +15,14 @@
  *
  * Plants (local only, reverted):
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, option } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { jsonTextOf } from "@superstarter/json"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
-import { array, boolean, element, type Gen, option } from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -277,7 +277,7 @@ const scriptOf =
 const landed = {
 	content: { "application/json": { schema: { type: "object" } } },
 	description: "Landed."
-}
+} as const
 
 /** One GET behind a bearer token. */
 const spec = jsonTextOf({
@@ -418,6 +418,10 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's routes", (it) =
 					return yield* explore(
 						{
 							suite: "proxy routing",
+							oracle: {
+								kind: "specification",
+								name: "the routing rule's route for each hop, the proxy's heads, and where the credentials and Proxy-Authorization went"
+							},
 							draw: drawn(runOf),
 							literal: Formatter.format,
 							coverage: required<RouteFeature>(

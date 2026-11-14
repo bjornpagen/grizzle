@@ -18,19 +18,19 @@ const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
 const configUri = Schema.decodeUnknownSync(DocumentUri)("file:///spec/author.json")
 
-const base = { binName: "example", package: { name: "example-cli", version: "1.0.0" } }
+const base = { binName: "example", package: { name: "example-cli", version: "1.0.0" } } as const
 
 const decodeConfig = Schema.decodeUnknownSync(AuthorConfig)
 
 type Switch = "absent" | "false" | "true"
 
-const configs: Record<Switch, AuthorConfig> = {
+const configs: Readonly<Record<Switch, AuthorConfig>> = {
 	absent: decodeConfig(base),
 	false: decodeConfig({ ...base, nonStandard: { deepObjectBrackets: false } }),
 	true: decodeConfig({ ...base, nonStandard: { deepObjectBrackets: true } })
 }
 
-const openapi: Record<"3.0" | "3.1", string> = { "3.0": "3.0.3", "3.1": "3.1.1" }
+const openapi: Readonly<Record<"3.0" | "3.1", string>> = { "3.0": "3.0.3", "3.1": "3.1.1" }
 
 const lines = ["3.0", "3.1"] as const
 

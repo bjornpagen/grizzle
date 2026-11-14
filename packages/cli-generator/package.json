@@ -3,7 +3,7 @@
 	"private": true,
 	"type": "module",
 	"imports": {
-		"#package.json": "./package.json"
+		"#toolchain.config.ts": "./toolchain.config.ts"
 	},
 	"packageManager": "pnpm@12.16.1",
 	"devEngines": {
@@ -15,13 +15,13 @@
 	},
 	"scripts": {
 		"prepare": "effect-tsgo patch",
-		"check": "turbo run typecheck runtime-gate benchmark superlint oxlint fixtures:superlint fixtures:style fixtures:oxlint fixtures:react-compiler format dead-code architecture dedupe --continue=dependencies-successful",
-		"lint": "turbo run superlint oxlint dead-code architecture",
-		"test": "turbo run test",
-		"corpus": "turbo run corpus",
-		"fuzz": "node packages/testing/scripts/fuzz.ts",
-		"mutate": "node packages/testing/scripts/mutate.ts",
-		"format:write": "oxfmt . && turbo run oxlint -- --fix && oxfmt .",
+		"check": "turbo run typecheck runtime-gate benchmark superlint oxlint format dead-code architecture dedupe --filter=./packages/* --filter=// --continue=dependencies-successful",
+		"lint": "turbo run superlint oxlint dead-code architecture --filter=./packages/* --filter=//",
+		"test": "turbo run test --filter=./packages/*",
+		"corpus": "turbo run corpus --filter=./packages/*",
+		"fuzz": "node vendor/toolchain/packages/testing/scripts/fuzz.ts",
+		"mutate": "bjornpagen-mutate",
+		"format:write": "oxfmt . && turbo run oxlint --filter=./packages/* --filter=// -- --fix && oxfmt .",
 		"typecheck": "effect-tsgo tsrs",
 		"superlint": "superlint",
 		"oxlint": "oxlint oxlint.config.ts",
@@ -32,9 +32,9 @@
 		"ratchet:lower": "pnpm --filter effect-openapi-cli-generator run ratchet:lower && node packages/generator/scripts/ratchet.ts dead-code --lower"
 	},
 	"devDependencies": {
+		"@bjornpagen/devtools": "workspace:*",
+		"@bjornpagen/testing": "workspace:*",
 		"@effect/tsgo": "catalog:",
-		"@superstarter/devtools": "workspace:*",
-		"@superstarter/testing": "workspace:*",
 		"@types/node": "catalog:",
 		"fallow": "catalog:",
 		"lefthook": "catalog:",
@@ -42,61 +42,8 @@
 		"oxlint": "catalog:",
 		"oxlint-tsgolint": "catalog:",
 		"turbo": "catalog:",
-		"typescript": "catalog:"
-	},
-	"superlint": {
-		"appDatabase": "none",
-		"effectFree": [],
-		"exceptions": [
-			{
-				"rule": "no-module-state",
-				"files": [
-					"packages/testing/src/vitest/coverage.ts"
-				]
-			}
-		],
-		"sqlLeafOwnersOnly": {
-			"owners": []
-		},
-		"sqlCastOwner": {
-			"owners": []
-		},
-		"sqlJsonOwner": {
-			"owners": []
-		},
-		"sqlDynamicSchema": {
-			"tableFactories": []
-		},
-		"sqlQueryDeadline": {
-			"files": [],
-			"properties": [],
-			"refusals": [],
-			"admitted": []
-		},
-		"sqlRawExecution": {
-			"statementOwners": [],
-			"copyStreamOwners": [],
-			"nativeClientOwners": [],
-			"declaredExecutions": []
-		},
-		"sqlRawStatement": {
-			"recursiveEnvelopeOwners": [],
-			"projectionEnvelopeOwners": [],
-			"declaredStatements": []
-		},
-		"uncheckedVocabularyLiteral": {
-			"support": [],
-			"vocabularies": [],
-			"titled": [
-				"describe",
-				"it",
-				"effect",
-				"live",
-				"each"
-			],
-			"explanations": [
-				"message"
-			]
-		}
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vitest": "catalog:"
 	}
 }

@@ -14,11 +14,8 @@
  *
  * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
-import { layer } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import { jsonTextOf } from "@superstarter/json"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -28,9 +25,12 @@ import {
 	type Gen,
 	option,
 	string
-} from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { deepStrictEqual } from "@effect/vitest/utils"
+import { jsonTextOf } from "@superstarter/json"
 import {
 	Array as Arr,
 	Context,
@@ -589,6 +589,10 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's request bodies"
 					return yield* explore(
 						{
 							suite: "body alternatives",
+							oracle: {
+								kind: "specification",
+								name: "each media type's own reading of the body, and exit 2 with no connection for a planted fault"
+							},
 							draw: drawn(send),
 							literal: Formatter.format,
 							coverage: required<AlternativeFeature>(

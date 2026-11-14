@@ -14,14 +14,14 @@
  *
  * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { bytes, characterOf, element, type Gen, option, string } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { jsonTextOf } from "@superstarter/json"
-import { drawn, explore } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
-import { bytes, characterOf, element, type Gen, option, string } from "@superstarter/testing/gen"
-import { notesOnly } from "@superstarter/testing/sense"
-import { searched } from "@superstarter/testing/vitest"
 import {
 	Array as Arr,
 	Context,
@@ -61,7 +61,7 @@ const POINTERS: Readonly<Record<Operation, string>> = {
 }
 
 /** A file part's schema. */
-const fileSchema = { contentMediaType: "application/octet-stream", type: "string" }
+const fileSchema = { contentMediaType: "application/octet-stream", type: "string" } as const
 
 /** An upload whose file part may be PNG or JPEG, and a document whose PNG file part declares two headers. */
 const spec = jsonTextOf({
@@ -500,6 +500,10 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's multipart parts
 					return yield* explore(
 						{
 							suite: "multipart parts",
+							oracle: {
+								kind: "second-implementation",
+								name: "the reference multipart reader (multipart.ts), and exit 2 with no connection for a planted fault"
+							},
 							draw: drawn(runOf),
 							literal: Formatter.format,
 							coverage: required<PartFeature>(

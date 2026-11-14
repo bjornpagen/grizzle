@@ -1,5 +1,0 @@
-{
-	"devDependencies": {
-		"@effect/vitest": "catalog:"
-	}
-}

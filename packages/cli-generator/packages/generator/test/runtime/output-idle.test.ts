@@ -175,7 +175,7 @@ const run = async (world: World) => {
 	}
 }
 
-const idleTimeout = { _tag: "ResponseStreamError", reason: "idleTimeout" }
+const idleTimeout = { _tag: "ResponseStreamError", reason: "idleTimeout" } as const
 
 const inDir = <A>(use: (dir: string, fs: FileSystem.FileSystem, path: Path.Path) => Promise<A>) =>
 	Effect.runPromise(

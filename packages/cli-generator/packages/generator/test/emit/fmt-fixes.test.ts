@@ -35,7 +35,7 @@ import * as Serialize from "#runtime-src/runtime/serialize.ts"
 
 type Line = "3.0" | "3.1" | "3.2"
 
-const versions: Record<Line, string> = { "3.0": "3.0.4", "3.1": "3.1.1", "3.2": "3.2.0" }
+const versions: Readonly<Record<Line, string>> = { "3.0": "3.0.4", "3.1": "3.1.1", "3.2": "3.2.0" }
 
 const document = Schema.decodeUnknownSync(DocumentUri)("file:///fmt/openapi.json")
 
@@ -115,7 +115,7 @@ const numberFlags = {
 		Flag.optional
 	),
 	total: Input.int64Flag("total").pipe(Flag.optional)
-}
+} as const
 
 const decoder = new TextDecoder()
 

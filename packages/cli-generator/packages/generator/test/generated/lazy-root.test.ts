@@ -15,12 +15,13 @@
  *
  * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
+import { testWorkers } from "@bjornpagen/testing/vitest/config"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
-import { exhaust } from "@superstarter/testing/explore"
-import { requiredInSpace } from "@superstarter/testing/features"
-import { element, type Gen, int } from "@superstarter/testing/gen"
-import { searched } from "@superstarter/testing/vitest"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -343,9 +344,14 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's lazy root", (it
 				return yield* exhaust(
 					{
 						suite: "lazy root against the eager oracle",
+						oracle: {
+							kind: "second-implementation",
+							name: "an eager build of the same package: the same bytes and the same exit code"
+						},
+						box: "every help, unknown name, --describe and --completions bash invocation of the package's groups and commands",
+						concurrency: testWorkers,
 						generator: element(invocations),
 						literal: Formatter.format,
-						limit: invocations.length,
 						coverage: requiredInSpace<InvocationFeature>([
 							"the root's help",
 							"no arguments",
@@ -420,9 +426,14 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's lazy root", (it
 				return yield* exhaust(
 					{
 						suite: "lazy root global flag placement",
+						oracle: {
+							kind: "specification",
+							name: "one request, carrying the key, wherever the global flags go"
+						},
+						box: "each global flag before the group or after the arguments, under a limit of 1 or 2",
+						concurrency: 1,
 						generator: requestCaseOf,
 						literal: Formatter.format,
-						limit: 8,
 						coverage: requiredInSpace<RequestFeature>([
 							"every global flag before the group",
 							"every global flag after the arguments",

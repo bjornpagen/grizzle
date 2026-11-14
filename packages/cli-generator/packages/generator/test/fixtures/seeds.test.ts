@@ -30,14 +30,16 @@ const readSeed = <A, I>(name: string, schema: Schema.Codec<A, I>): A =>
     readFileSync(path.join(seedsDirectory, name), "utf-8"),
   );
 
-const seedFiles = Arr.sort(
+const seedFiles: ReadonlyArray<string> = Arr.sort(
   readdirSync(seedsDirectory).filter((name) => name.endsWith(".json")),
   Order.String,
 );
 
-const caseFileNames = seedFiles.filter((name) => name !== operationIdsFile);
+const caseFileNames: ReadonlyArray<string> = seedFiles.filter((name) => name !== operationIdsFile);
 
-const caseFiles = caseFileNames.map((name) => ({ name, value: readSeed(name, CaseFile) }));
+const caseFiles: ReadonlyArray<Readonly<{ name: string; value: typeof CaseFile.Type }>> = caseFileNames.map(
+  (name) => ({ name, value: readSeed(name, CaseFile) }),
+);
 
 describe("seed files", () => {
   test("the Resend operationId list and at least one case file exist", () => {

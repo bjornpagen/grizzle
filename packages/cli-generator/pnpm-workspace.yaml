@@ -1,5 +1,9 @@
 packages:
   - packages/*
+  # The toolchain, the submodule pinned at its commit: its dev tools and testing library join the workspace and run from
+  # source, and its own gate proves them.
+  - vendor/toolchain/packages/devtools
+  - vendor/toolchain/packages/testing
 nodeLinker: hoisted
 verifyDepsBeforeRun: error
 # A dependency is written at the exact version installed, and an engine a package refuses fails the install.
@@ -29,19 +33,14 @@ catalog:
   "@tailwindcss/node": 4.3.4
   "@types/babel__core": 7.20.5
   "@types/node": 26.6.6
-  "@types/pg": 8.23.1
-  "@types/react": 19.3.0
   arkregex: 0.0.14
   babel-plugin-react-compiler: 1.0.0
-  drizzle-orm: 1.0.0-rc.5
   effect: 4.1.2
   fallow: 3.39.0
   lefthook: 2.2.2
   oxfmt: 0.76.0
   oxlint: 1.91.0
   oxlint-tsgolint: 7.0.2005
-  pg: 8.23.1
-  tailwindcss: 4.3.4
   turbo: 2.11.10
   typescript: 7.1.0-beta
   vite: 8.3.5

@@ -3,7 +3,7 @@ import { NodeCrypto, NodeFileSystem, NodePath } from "@effect/platform-node"
 import { Effect, Layer, Option, PlatformError, Predicate, Schema } from "effect"
 import type { FileSystem, Path } from "effect"
 import type { Digest } from "effect/crypto"
-import { describe, expect, test } from "vitest"
+import { describe, expect, onTestFinished, test, vi } from "vitest"
 import { DocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
 import { declaredOpenapi } from "#model/spec-section.ts"
@@ -22,7 +22,7 @@ const fixtures = {
 	"3.0": { invalid: invalid30, valid: valid30 },
 	"3.1": { invalid: invalid31, valid: valid31 },
 	"3.2": { invalid: invalid32, valid: valid32 }
-}
+} as const
 
 const deepFreeze = (value: Json): Json => {
 	if (Predicate.isObject(value)) {
@@ -116,21 +116,13 @@ describe("validateDocument", () => {
 	)
 
 	test("validation never touches the network", async () => {
-		const attempts: string[] = []
-		const original = globalThis.fetch
-
-		globalThis.fetch = Object.assign(
-			() => {
-				attempts.push("fetch")
-
-				return Promise.reject(new Error("network blocked"))
-			},
-			{ preconnect: original.preconnect }
-		)
+		const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network blocked"))
+		onTestFinished(() => {
+			fetch.mockRestore()
+		})
 		await Effect.runPromise(validateDocument(valid31).pipe(Effect.provide(layer)))
-		globalThis.fetch = original
 
-		expect(attempts).toEqual([])
+		expect(fetch).not.toHaveBeenCalled()
 	})
 
 	test("an unsupported or missing openapi version is a typed refusal", async () => {

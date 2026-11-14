@@ -1,28 +1,16 @@
 {
 	"$schema": "./node_modules/fallow/schema.json",
 	"entry": [
-		"packages/devtools/src/oxlint/fixtures.config.ts",
-		"packages/testing/src/vitest/coverage.ts",
-		"packages/testing/src/vitest/mutated-setup.ts",
-		"packages/testing/src/witness.fixtures.ts",
 		"packages/generator/src/runtime-src/**/*.ts",
 		"packages/generator/scripts/*.ts",
 		"packages/generator/corpus/tools/*.ts"
 	],
-	"ignorePatterns": [
-		"packages/devtools/src/*/fixtures/**",
-		"packages/generator/test/fixtures/golden/**"
-	],
-	"ignoreDependencies": ["tailwindcss", "@types/react", "drizzle-orm", "pg"],
+	"ignorePatterns": ["packages/generator/test/fixtures/golden/**", "vendor/**"],
 	"rules": {
 		"require-suppression-reason": "error"
 	},
 	"boundaries": {
 		"zones": [
-			{
-				"name": "testing-suites",
-				"patterns": ["packages/testing/src/**/*.test.ts", "packages/testing/vitest.config.ts"]
-			},
 			{
 				"name": "generator-suites",
 				"patterns": ["packages/generator/test/**", "packages/generator/vitest.config.ts"]
@@ -36,20 +24,8 @@
 				"patterns": ["packages/generator/scripts/**"]
 			},
 			{
-				"name": "testing",
-				"patterns": ["packages/testing/**"]
-			},
-			{
 				"name": "json",
 				"patterns": ["packages/json/**"]
-			},
-			{
-				"name": "react-compiler-options",
-				"patterns": ["packages/devtools/src/react-compiler/options.ts"]
-			},
-			{
-				"name": "devtools",
-				"patterns": ["packages/devtools/**"]
 			},
 			{
 				"name": "runtime",
@@ -104,15 +80,11 @@
 				]
 			},
 			{
-				"name": "lint-config",
-				"patterns": ["oxlint.config.ts"]
+				"name": "configs",
+				"patterns": ["oxlint.config.ts", "toolchain.config.ts"]
 			}
 		],
 		"rules": [
-			{
-				"from": "testing-suites",
-				"allow": ["json", "testing"]
-			},
 			{
 				"from": "generator-suites",
 				"allow": [
@@ -122,7 +94,6 @@
 					"json",
 					"model",
 					"runtime",
-					"testing",
 					"load",
 					"validate",
 					"resolve",
@@ -170,20 +141,8 @@
 				]
 			},
 			{
-				"from": "testing",
-				"allow": ["json"]
-			},
-			{
 				"from": "json",
 				"allow": []
-			},
-			{
-				"from": "react-compiler-options",
-				"allow": ["json"]
-			},
-			{
-				"from": "devtools",
-				"allow": ["json", "react-compiler-options"]
 			},
 			{
 				"from": "runtime",
@@ -280,8 +239,8 @@
 				]
 			},
 			{
-				"from": "lint-config",
-				"allow": ["devtools", "json", "testing"]
+				"from": "configs",
+				"allow": []
 			}
 		],
 		"coverage": {
