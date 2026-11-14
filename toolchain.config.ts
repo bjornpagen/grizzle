@@ -434,6 +434,7 @@ export default toolchain({
 							"test/types/evidence/agreement.test.ts",
 							"test/types/evidence/attachments.test.ts",
 							"test/types/evidence/parameter.test.ts",
+							"test/types/executor/boundary.test.ts",
 							"test/types/harness/harness.test.ts",
 							"test/types/regex/agreement.test.ts",
 							"test/types/schema/agreement.test.ts",

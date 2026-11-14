@@ -18,6 +18,7 @@ import type { Group, UnitSpec } from "#test/types/batch/batch.ts"
 import { entryOwnerEntriesFrom, entryOwnerSource } from "#test/types/changeset/entry-owner.ts"
 import { nestingCases, nestingSource } from "#test/types/changeset/nesting.ts"
 import { parameterSource } from "#test/types/evidence/parameter.ts"
+import { boundaryEntriesFrom, boundarySource } from "#test/types/executor/boundary.ts"
 import { doorEntriesFrom, doorModule } from "#test/types/harness/door.ts"
 import { vocabularyModule } from "#test/types/harness/vocabulary.ts"
 import {
@@ -254,6 +255,21 @@ const typeGroups: ReadonlyArray<Group> = [
 		}
 	},
 	{ owner: "test/types/examples/examples.test.ts", units: fixtureUnits("examples") },
+	{
+		owner: "test/types/executor/boundary.test.ts",
+		units: {
+			"executor/boundary": {
+				kind: "program",
+				dir: "test/types/executor",
+				prefix: ".boundary-",
+				disarm: true,
+				heavy: false,
+				source: (entry) => [
+					{ file: "index.ts", source: boundarySource(boundaryEntriesFrom(entry)) }
+				]
+			}
+		}
+	},
 	{
 		owner: "test/types/harness/harness.test.ts",
 		units: {
