@@ -2,7 +2,7 @@
  * Endpoints equal programs: a login's HTTP routes are exactly its served members. Over generated public schemas
  * (test/support/oracle/public), each extended by a drawn law level, and a login drawn over each (test/support/served-login.ts:
  * one or two roles, each writing some relations through ChangeSets and reading some of the case's queries, an ordered
- * one perhaps paged, a role perhaps serving nothing), compiled as `grizzle generate` compiles it with no database and
+ * one perhaps paged, perhaps reading at its call's instant, a role perhaps serving nothing), compiled as `grizzle generate` compiles it with no database and
  * served from its file as an application serves it (served(file, name)):
  *
  * - the route table the handler dispatches on (http httpRoutes) holds exactly one route for every member of every
@@ -34,6 +34,7 @@ import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate
 import { type LawLevel, lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import {
+	clockedReadName,
 	compiledLogin,
 	drawnLogin,
 	drawnSchema,
@@ -64,7 +65,8 @@ interface ExpectedRoute {
 
 /**
  * The routes the drawn login's roles serve, by the names the drawing gave its programs (served-login.ts roleOf): each
- * ChangeSet `<role>change<i>` and each read `<role>read<place>`.
+ * ChangeSet `<role>change<i>`, each read `<role>read<place>`, and a clocked read `<role>clock` (clockedReadName), read at
+ * its call's instant.
  */
 const expectedRoutes = (
 	shapes: Arr.NonEmptyReadonlyArray<RoleShape>
@@ -73,7 +75,8 @@ const expectedRoutes = (
 		const role = roleName(place)
 		const programs = [
 			...Arr.map(shape.changes, (_, i) => `${role}change${i}`),
-			...Arr.map(shape.reads, (read) => `${role}read${read.place}`)
+			...Arr.map(shape.reads, (read) => `${role}read${read.place}`),
+			...(shape.clocked ? [clockedReadName(place)] : [])
 		]
 		return Arr.map(programs, (program) => ({
 			line: `POST /${loginName}/${role}/${program}`,

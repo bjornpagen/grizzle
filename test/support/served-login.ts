@@ -149,7 +149,7 @@ const Instant = contract("Instant", pg.bigint, (m) => m.ge(0n))
 const refreshName = (place: number): string => `${roleName(place)}refresh`
 
 /** The name of a role's clocked read, by the role's place. */
-const clockedReadName = (place: number): string => `${roleName(place)}clock`
+export const clockedReadName = (place: number): string => `${roleName(place)}clock`
 
 /** The name of the query entry a role writes through, and of the login every case draws. */
 const entryName = "Mine"
