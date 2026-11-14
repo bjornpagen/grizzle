@@ -77,7 +77,7 @@ import {
 	type WindowSpec,
 	type With
 } from "#compiler/sql/ast.ts"
-import { types } from "#compiler/sql/build.ts"
+import { and, conjunction, types } from "#compiler/sql/build.ts"
 import {
 	type CatalogCall,
 	type CatalogCast,
@@ -810,7 +810,7 @@ const printFromItem = (item: FromItem): string => {
 				item.inner,
 				item.columns,
 				item.alias,
-				[...item.by.columns.map((c) => boundColumn(item.inner, c)), ...item.filter.map(printExpr)],
+				[...item.by.columns.map((c) => boundColumn(item.inner, c)), ...item.filter],
 				probeTail(item.inner, item.by)
 			)
 		case "met":
@@ -819,20 +819,22 @@ const printFromItem = (item: FromItem): string => {
 				item.inner,
 				item.columns,
 				item.alias,
-				[...item.key.map((k) => metBound(item.inner, k, item.rows)), ...item.filter.map(printExpr)],
+				[...item.key.map((k) => metBound(item.inner, k, item.rows)), ...item.filter],
 				"LIMIT 1"
 			)
 		case "metRows": {
 			const read = item.columns.map((c) => `${quoteIdent(item.scan)}.${quoteIdent(c)}`).join(", ")
-			const unreturned = mapNonEmpty(item.key, (k) =>
-				printExpr({
-					kind: "binary",
-					op: "=",
-					left: { kind: "column", table: item.returned, column: k.from },
-					right: { kind: "column", table: item.scan, column: k.column },
-					schema: k.schema
-				})
-			).join(" AND ")
+			const unreturned = printExpr(
+				and(
+					mapNonEmpty(item.key, (k): Expr => ({
+						kind: "binary",
+						op: "=",
+						left: { kind: "column", table: item.returned, column: k.from },
+						right: { kind: "column", table: item.scan, column: k.column },
+						schema: k.schema
+					}))
+				)
+			)
 			return `(SELECT ${read} FROM ${quoteIdent(item.proposed)} AS ${quoteIdent(item.scan)} WHERE NOT EXISTS (SELECT 1 FROM ${quoteIdent(item.insert)} AS ${quoteIdent(item.returned)} WHERE ${unreturned})) AS ${quoteIdent(item.alias)}(${printIdentList(item.columns)})`
 		}
 		case "cte":
@@ -868,24 +870,22 @@ const printFromItem = (item: FromItem): string => {
 }
 
 /** A probed column bound to its driving row's value: `"<inner>"."<column>" = <value>`, at its operator. */
-const boundColumn = (inner: string, c: ProbeColumn): string =>
-	printExpr({
-		kind: "binary",
-		op: "=",
-		left: { kind: "column", table: inner, column: c.column },
-		right: c.value,
-		schema: c.schema
-	})
+const boundColumn = (inner: string, c: ProbeColumn): Expr => ({
+	kind: "binary",
+	op: "=",
+	left: { kind: "column", table: inner, column: c.column },
+	right: c.value,
+	schema: c.schema
+})
 
 /** A met row's column bound to a stored one: `"<inner>"."<column>" = "<rows>"."<from>"`, at its operator. */
-const metBound = (inner: string, k: MetKey, rows: string): string =>
-	printExpr({
-		kind: "binary",
-		op: "=",
-		left: { kind: "column", table: inner, column: k.column },
-		right: { kind: "column", table: rows, column: k.from },
-		schema: k.schema
-	})
+const metBound = (inner: string, k: MetKey, rows: string): Expr => ({
+	kind: "binary",
+	op: "=",
+	left: { kind: "column", table: inner, column: k.column },
+	right: { kind: "column", table: rows, column: k.from },
+	schema: k.schema
+})
 
 /** What follows a probe's WHERE: a key's LIMIT 1, a group's ORDER BY over its order columns, a group's last row's
  * ORDER BY them descending and LIMIT 1. */
@@ -907,17 +907,21 @@ const probeTail = (inner: string, by: ProbeBy): string => {
 /**
  * A stored table's rows a driving row reaches (sql/ast.ts FromSource `probe` and `met`): `LATERAL (SELECT
  * "<inner>"."<column>", ... FROM <table> AS "<inner>" WHERE <conditions> <tail>) AS "<alias>"("<column>", ...)`.
+ * The conditions, its key's bindings and then its filter, are one conjunction the printer parenthesizes by precedence,
+ * so a condition that binds more loosely than AND, a selection's guard `φ OR ψ` among them, narrows the key's rows
+ * whole and never reaches a row at another key.
  */
 const printDriven = (
 	table: ObjectName,
 	inner: string,
 	columns: NonEmptyReadonlyArray<DrivenColumn>,
 	alias: string,
-	conditions: ReadonlyArray<string>,
+	conditions: ReadonlyArray<Expr>,
 	tail: string
 ): string => {
 	const read = columns.map((c) => `${quoteIdent(inner)}.${quoteIdent(c.read)}`).join(", ")
-	return `LATERAL (SELECT ${read} FROM ${printObjectName(table)} AS ${quoteIdent(inner)} ${conditions.length === 0 ? "" : `WHERE ${conditions.join(" AND ")} `}${tail}) AS ${quoteIdent(alias)}(${printIdentList(mapNonEmpty(columns, (c) => c.as))})`
+	const where = conjunction(conditions)
+	return `LATERAL (SELECT ${read} FROM ${printObjectName(table)} AS ${quoteIdent(inner)} ${where === undefined ? "" : `WHERE ${printExpr(where)} `}${tail}) AS ${quoteIdent(alias)}(${printIdentList(mapNonEmpty(columns, (c) => c.as))})`
 }
 
 const printFrom = (items: ReadonlyArray<FromItem>): string => items.map(printFromItem).join(", ")
