@@ -59,6 +59,7 @@ import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { scalarOfSpec, valueClasses } from "#test/support/oracle/gen/domain.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
+import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import {
 	closedIdType,
 	type GenClosed,
@@ -466,7 +467,8 @@ const subplansOf = (c: LabelledCase, lowering: Lowering, schema: string) =>
 				schemaDesc(c.schema),
 				identity.schema(parsedSchemaName(schema)),
 				substrate.owner.role,
-				schemaCodes(c.schema)
+				schemaCodes(c.schema),
+				genParamDecls(c.query)
 			)
 			if (!planned.ok) {
 				return yield* Effect.die(new Error(planned.error.message))

@@ -766,7 +766,7 @@ const runDifferential = (
 			facts: multiplyFacts(normalized.schema, normalized.facts, perturbation.multiplier)
 		}
 		/** The case's own codes, which its facts, its parameters and every delivered closed id are encoded by. */
-		const installation = yield* caseInstallation(c.schema, options.placement).pipe(
+		const installation = yield* caseInstallation(c.schema, paramDecls(c), options.placement).pipe(
 			Effect.mapError((e) =>
 				e.stage === "plan"
 					? failure("plan", "install", e.message)
@@ -997,7 +997,7 @@ export const typedPlants = (
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const c = normalizedCase(input)
-		const installation = yield* caseInstallation(c.schema, options.placement).pipe(
+		const installation = yield* caseInstallation(c.schema, paramDecls(c), options.placement).pipe(
 			Effect.mapError((e) =>
 				e.stage === "plan"
 					? failure("plan", "install", e.message)

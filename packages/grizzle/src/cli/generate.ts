@@ -47,12 +47,13 @@ import {
 	type CompileError,
 	defect,
 	draftCodebook,
+	type InstalledArtifacts,
+	type InstalledSource,
+	type Isolation,
 	namedLogin,
 	unserved,
-	type ParamSource,
 	rostersOf,
 	sameLevel,
-	type SchemaArtifacts,
 	trustedJson
 } from "#compiler/plan/common.ts"
 import {
@@ -274,8 +275,8 @@ type SchemaDraft = (
  * login; and the footprint of every query program of its workloads, by name, the plan's (WorkloadFootprints).
  */
 export interface PlannedLogin {
-	readonly artifacts: SchemaArtifacts
-	readonly roles: ReadonlyMap<string, RoleChanges>
+	readonly artifacts: InstalledArtifacts
+	readonly roles: ReadonlyMap<string, RoleChanges<Isolation, InstalledSource>>
 	readonly footprints: ProgramFootprints
 }
 
@@ -333,7 +334,7 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 		(refused) => refusedAt("workload")(refused.error)
 	)
 	const derived = derivedFacts(basis.owned, basis.closed, basis.model)
-	const params: ParamSource = { kind: "planned", types: workload.params }
+	const params: InstalledSource = { kind: "planned", types: workload.params }
 	const servedArtifacts = yield* Effect.mapError(
 		fromEngine(artifactsOver(basis, params)),
 		refusedAt("workload")

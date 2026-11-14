@@ -268,7 +268,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the direct-writer model",
 								}
 								const cases = casesOf(run)
 								const target = yield* Effect.mapError(
-									openTarget(schema, "analyzed", ordinarySession),
+									openTarget(schema, "analyzed", ordinarySession, []),
 									(e) =>
 										new CaseFailed({
 											report: `${printSchema(schema)}\ndid not install: ${messageOf(e)}`

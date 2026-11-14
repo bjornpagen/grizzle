@@ -22,6 +22,7 @@ import {
 	Effect,
 	MutableHashMap,
 	Option,
+	Order,
 	pipe,
 	Record as Rec,
 	Result,
@@ -32,13 +33,14 @@ import { partRuns } from "#adapter/reader/execution.ts"
 import { assembled, cellKindOf, deliveryOf } from "#compiler/codec/delivery.ts"
 import { canonicalTag, catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { identity } from "#compiler/core/identity.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { moneyMinorUnits } from "#compiler/ir/carriers.ts"
 import { type Codebook, codecOf, codeOf, type RosterCodec } from "#compiler/ir/codes.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
+import type { ParamDecl } from "#compiler/ir/products.ts"
 import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import {
@@ -54,6 +56,7 @@ import {
 	type SentStatement,
 	type StatementParts
 } from "#compiler/lower/shapes/index.ts"
+import { paramDomainIdentity, paramTypesOf } from "#compiler/physical/ddl/domains.ts"
 import { statementOutput, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { hexOfText, setText } from "#test/support/closed/bit-text.ts"
@@ -320,23 +323,35 @@ class InstallationFailed extends Data.TaggedError("InstallationFailed")<{
 }> {}
 
 /**
- * The installations of one test: each distinct case schema it meets, installed once and committed under a schema of its
- * own that the substrate allocated in the test's scope, whose finalizer drops the schema's roles and the schema when the
- * test ends. Two case schemas are one when they are structurally equal (Effect's Equal over the GenSchema, from which
- * the plan is derived). An explicit value the test makes (installations) and passes in RunOptions, never a memo.
+ * The installations of one test: each distinct case schema it meets with each distinct set of types its cases' queries
+ * cast their parameters to, installed once and committed under a schema of its own that the substrate allocated in the
+ * test's scope, whose finalizer drops the schema's roles and the schema when the test ends. Two case schemas are one
+ * when they are structurally equal (Effect's Equal over the GenSchema, from which the plan is derived), and two sets of
+ * parameter types are one when they name the same pattern domains and contracts (paramTypesKey). An explicit value the
+ * test makes (installations) and passes in RunOptions, never a memo.
  *
  * The committed installation runs every statement of its plan, the database default's DO block among them: every test
  * database already carries default_transaction_isolation = serializable (test/support/pg.ts testDatabaseSettings), so
  * the default it writes is the one the database holds, and the database's settings never change.
  */
 export interface Installations {
-	/** The plan of `schema`'s installation, installed and committed the first time the test meets the schema. */
-	readonly planOf: (schema: GenSchema) => Effect.Effect<RealInstallPlan, InstallationFailed>
+	/**
+	 * The plan of `schema`'s installation with the types `params` are cast to, installed and committed the first time the
+	 * test meets the schema with those types.
+	 */
+	readonly planOf: (
+		schema: GenSchema,
+		params: ReadonlyArray<ParamDecl>
+	) => Effect.Effect<RealInstallPlan, InstallationFailed>
 }
 
-/** The plan of `schema`'s installation under the schema `name`, owned by `owner` (install/real.ts oraclePlanUnder). */
+/**
+ * The plan of `schema`'s installation under the schema `name`, owned by `owner`, installing the types the case's query
+ * casts its declared parameters `params` to (install/real.ts oraclePlanUnder).
+ */
 const planned = (
 	schema: GenSchema,
+	params: ReadonlyArray<ParamDecl>,
 	name: string,
 	owner: string
 ): Effect.Effect<RealInstallPlan, InstallationFailed> => {
@@ -344,7 +359,8 @@ const planned = (
 		schemaDesc(schema),
 		identity.schema(parsedSchemaName(name)),
 		owner,
-		schemaCodes(schema)
+		schemaCodes(schema),
+		params
 	)
 	return plan.ok
 		? Effect.succeed(plan.value)
@@ -378,6 +394,20 @@ export const runStaged = <E>(
 		Effect.asVoid
 	)
 
+/**
+ * The types declared parameters `params` are cast to as one key: the identifier of each pattern domain they name and
+ * the name of each contract they are typed by, each kind sorted, each once. Two cases of one schema whose keys agree
+ * install the same installation.
+ */
+const paramTypesKey = (params: ReadonlyArray<ParamDecl>): string => {
+	const types = paramTypesOf("the case's query", params)
+	const sortedOnce = (names: ReadonlyArray<string>): string =>
+		Arr.join(Arr.dedupe(Arr.sort(names, Order.String)), " ")
+	return `${sortedOnce(
+		Arr.map(types.domains, (d) => identifierOf(paramDomainIdentity(d.place, d.regex)))
+	)}\n${sortedOnce(Arr.map(types.contracts, (c) => c.contract.name))}`
+}
+
 /** A test's Installations, each of its schemas allocated under `label` in the test's scope. */
 const installations = (
 	label: string
@@ -385,29 +415,41 @@ const installations = (
 	Effect.gen(function* () {
 		const scope = yield* Effect.scope
 		const substrate = yield* Substrate
-		const installed = MutableHashMap.empty<GenSchema, RealInstallPlan>()
-		const install = (schema: GenSchema) =>
+		const installed = MutableHashMap.empty<GenSchema, Map<string, RealInstallPlan>>()
+		const install = (schema: GenSchema, params: ReadonlyArray<ParamDecl>, key: string) =>
 			Effect.gen(function* () {
 				const name = yield* Scope.provide(substrate.schema({ create: false, label }), scope).pipe(
 					Effect.mapError(
 						(e) => new InstallationFailed({ stage: "install", message: sqlMessage(e) })
 					)
 				)
-				const plan = yield* planned(schema, name, substrate.owner.role)
+				const plan = yield* planned(schema, params, name, substrate.owner.role)
 				yield* runStaged(
 					substrate.admin,
 					staged("install", ["BEGIN", ...filledSql(plan.drafted, substrate.database), "COMMIT"]),
 					({ message }) => new InstallationFailed({ stage: "install", message })
 				)
-				MutableHashMap.set(installed, schema, plan)
+				const byTypes = Option.getOrElse(
+					MutableHashMap.get(installed, schema),
+					() => new Map<string, RealInstallPlan>()
+				)
+				byTypes.set(key, plan)
+				MutableHashMap.set(installed, schema, byTypes)
 				return plan
 			})
 		return {
-			planOf: (schema) =>
-				Option.match(MutableHashMap.get(installed, schema), {
-					onSome: (plan) => Effect.succeed(plan),
-					onNone: () => install(schema)
-				})
+			planOf: (schema, params) => {
+				const key = paramTypesKey(params)
+				return Option.match(
+					Option.flatMapNullishOr(MutableHashMap.get(installed, schema), (byTypes) =>
+						byTypes.get(key)
+					),
+					{
+						onSome: (plan) => Effect.succeed(plan),
+						onNone: () => install(schema, params, key)
+					}
+				)
+			}
 		}
 	})
 
@@ -436,20 +478,24 @@ export interface CaseInstallation {
 	readonly statements: ReadonlyArray<string>
 }
 
-/** The installation of a case of `schema` placed by `placement`. */
+/**
+ * The installation of a case of `schema` placed by `placement`, installing the types its query casts its declared
+ * parameters `params` to (planned).
+ */
 export const caseInstallation = (
 	schema: GenSchema,
+	params: ReadonlyArray<ParamDecl>,
 	placement: Placement
 ): Effect.Effect<CaseInstallation, InstallationFailed, Substrate> => {
 	switch (placement.kind) {
 		case "named":
 			return Effect.gen(function* () {
 				const substrate = yield* Substrate
-				const plan = yield* planned(schema, placement.name, substrate.owner.role)
+				const plan = yield* planned(schema, params, placement.name, substrate.owner.role)
 				return { plan, statements: filledSql(plan.drafted, substrate.database) }
 			})
 		case "installed":
-			return Effect.map(placement.installations.planOf(schema), (plan) => ({
+			return Effect.map(placement.installations.planOf(schema, params), (plan) => ({
 				plan,
 				statements: []
 			}))
@@ -945,7 +991,7 @@ const runNamed = (
 						name: yield* Effect.scoped(substrate.schema({ create: false, label: "oracle" }))
 					}
 				: options.schema
-		const installation = yield* caseInstallation(c.schema, placement).pipe(
+		const installation = yield* caseInstallation(c.schema, genParamDecls(c.query), placement).pipe(
 			Effect.mapError((e) =>
 				e.stage === "plan"
 					? failure("plan", "install", e.message)

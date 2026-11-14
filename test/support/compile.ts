@@ -33,9 +33,9 @@ import {
 import { catalogLowerers } from "#compiler/lower/shapes/catalog/native.ts"
 import type { SentStatement, StatementParts } from "#compiler/lower/shapes/index.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
-import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
+import { noTextDomainUses, type ParamTypes, paramTypesOf } from "#compiler/physical/ddl/domains.ts"
 import { namedRole } from "#compiler/physical/ddl/names.ts"
-import type { Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation, InstallOptions } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallExtension,
 	noCarriers,
@@ -72,6 +72,7 @@ import {
 	type LoginWorkloads,
 	type WorkloadPlan
 } from "#compiler/program/workload/compile.ts"
+import { workload } from "#compiler/program/workload/value.ts"
 import type { Chunks } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import {
@@ -441,6 +442,48 @@ export const paramsOver = (logins: ReadonlyArray<LoginWorkloads>): InstallExtens
 	...workloadExtensionOver(logins, () => [], noLive),
 	contribute: () => Result.ok(noContribution)
 })
+
+/**
+ * `options` with the types the programs `programs` over `over` (a schema or a role) cast their parameters to installed
+ * beside its extensions (paramsOver), each pattern domain and outside contract, and nothing else of their workload: the
+ * options of an installation a test compiles those programs over, so they name only the parameter types it installs
+ * (physical/install/plan.ts ParamSource `planned`) and the catalog is the bare migration's otherwise.
+ */
+export const servingParams = (
+	options: InstallOptions,
+	over: unknown,
+	programs: Readonly<Record<string, unknown>>
+): InstallOptions => ({
+	...options,
+	extensions: [
+		...options.extensions,
+		paramsOver([{ login: "server", workloads: [workload(over, programs)] }])
+	]
+})
+
+/**
+ * The types the declared parameters `params` of the one program `program` cast them to (physical/ddl/domains.ts
+ * paramTypesOf), and nothing else: an installer extension whose plan states them (InstallExtension.params), so a
+ * harness that lowers a program over the installation's names and executes it installs every pattern domain and
+ * outside contract it casts a parameter to, as paramsOver does for a workload's programs, and the catalog stays the
+ * bare migration's otherwise.
+ */
+export const declaredParams = (
+	program: string,
+	params: ReadonlyArray<ParamDecl>
+): InstallExtension => {
+	const types: ParamTypes = paramTypesOf(program, params)
+	return {
+		contribute: () => Result.ok(noContribution),
+		textDomainUses: noTextDomainUses,
+		params: () => Result.ok(types),
+		certifies: noCertificates,
+		carriers: noCarriers,
+		holds: noHolds,
+		live: noLive,
+		fences: noFences
+	}
+}
 
 /**
  * The workload of `logins` beside every installed login's write filters, as `grizzle generate` plans a deployment's,

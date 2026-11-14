@@ -155,6 +155,8 @@ export { loginStem } from "#compiler/schema/stem.ts"
 export {
 	baseArtifacts,
 	type BuiltSchema,
+	type InstalledArtifacts,
+	type InstalledSource,
 	levelSchema,
 	parseBuiltSchema,
 	type ParsedRole,

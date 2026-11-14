@@ -29,6 +29,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import type { Schema } from "#compiler/types/schema/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { unorderedEqual } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
@@ -65,6 +66,26 @@ interface Binding {
 	readonly k: number
 	readonly tag: string
 }
+
+/**
+ * The imported query over the schema value `over`: a group's items scored at least `lo`, none a mark of `tag` names,
+ * the first `k` by score. The installation serves it over the declared schema, so it installs the pattern domain its
+ * `tag` parameter casts to, and every importer and every direct read of it is compiled under the installed name.
+ */
+const topOver = <N extends string>(over: Schema<N, (typeof Scores)["relations"], []>) =>
+	query(over)
+		.rule((r) => {
+			const { id, score } = v(Item, "item")
+			return r
+				.match(Item, { id, grp: r.param("grp", Item.fields.grp), score })
+				.where(
+					r.ge(score, r.param("lo", pg.integer)),
+					r.not(Mark, { item: id, tag: r.param("tag", Mark.fields.tag) })
+				)
+				.find({ id, score })
+		})
+		.orderBy(["score", "desc"], ["id", "asc"])
+		.take("k")
 
 /** The tags a mark holds; a binding also draws one no mark holds. */
 const markTags = ["red", "blue"] as const
@@ -124,23 +145,15 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const opened = yield* installed(Scores, {}, { label: "real", programs: {} })
+					const opened = yield* installed(
+						Scores,
+						{},
+						{ label: "real", programs: { top: topOver(Scores) } }
+					)
 					const names = namesOf(opened.installed)
 					const itemInsert = `INSERT INTO ${names.table(Item)} (${names.column(Item, "id")}, ${names.column(Item, "grp")}, ${names.column(Item, "score")}) VALUES ($1::int4, $2::int4, $3::int4)`
 					const markInsert = `INSERT INTO ${names.table(Mark)} (${names.column(Mark, "item")}, ${names.column(Mark, "tag")}) VALUES ($1::int4, $2::text)`
-					const top = query(opened.schema)
-						.rule((r) => {
-							const { id, score } = v(Item, "item")
-							return r
-								.match(Item, { id, grp: r.param("grp", Item.fields.grp), score })
-								.where(
-									r.ge(score, r.param("lo", pg.integer)),
-									r.not(Mark, { item: id, tag: r.param("tag", Mark.fields.tag) })
-								)
-								.find({ id, score })
-						})
-						.orderBy(["score", "desc"], ["id", "asc"])
-						.take("k")
+					const top = topOver(opened.schema)
 					return yield* explore(
 						{
 							oracle: {

@@ -4,6 +4,7 @@ import { checkQuery } from "#compiler/check/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { catchCompileError, compareText } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, within } from "#compiler/core/errors.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
@@ -39,6 +40,7 @@ import { uniquePaths } from "#compiler/physical/access/paths.ts"
 import { type ParamTypes, paramTypesOf } from "#compiler/physical/ddl/domains.ts"
 import { namedRole, type WorldNames, worldNames } from "#compiler/physical/ddl/names.ts"
 import type { RoleHold, RoleOfLogin } from "#compiler/physical/install/extension.ts"
+import type { ParamSource } from "#compiler/physical/install/plan.ts"
 import {
 	mergeStatistics,
 	type StatisticsRequest,
@@ -626,7 +628,7 @@ export const compileWorkload = (
 }
 
 /** A login of the installation as generate compiles it (ChangeLogin), by its name. */
-export interface ServedLogin extends ChangeLogin {
+export interface ServedLogin<S extends ParamSource = ParamSource> extends ChangeLogin<S> {
 	readonly name: string
 }
 
@@ -640,8 +642,8 @@ export interface ServedLogin extends ChangeLogin {
  * whose served ChangeSets hold a retirable unit; and the fences the certification states
  * (analysis/isolation/certify.ts Fence), each with the roles certified READ COMMITTED that rely on it.
  */
-export interface ServedWorkloadPlan extends WorkloadPlan {
-	readonly changes: ReadonlyMap<string, ReadonlyMap<string, RoleChanges>>
+export interface ServedWorkloadPlan<S extends ParamSource = ParamSource> extends WorkloadPlan {
+	readonly changes: ReadonlyMap<string, ReadonlyMap<string, RoleChanges<Isolation, S>>>
 	readonly certification: ReadonlyArray<RoleIsolation>
 	/** The roles whose served ChangeSets create a carrier (servedCarriers), which the installation grants TEMPORARY on the
 	 * database. */
@@ -708,12 +710,12 @@ export type ServedWorkloadRefused =
  * login's served file compiles over, which serve the plan's parameter types (WorkloadPhysical.params), then every
  * role's certificate over them under the options' artifacts.
  */
-export const servedWorkload = (
+export const servedWorkload = <S extends ParamSource>(
 	planned: WorkloadPlan,
-	logins: ReadonlyArray<ServedLogin>,
+	logins: ReadonlyArray<ServedLogin<S>>,
 	options: WorkloadOptions
-): Result.Result<ServedWorkloadPlan, ServedWorkloadRefused> => {
-	const changes = new Map<string, ReadonlyMap<string, RoleChanges<"readCommitted">>>()
+): Result.Result<ServedWorkloadPlan<S>, ServedWorkloadRefused> => {
+	const changes = new Map<string, ReadonlyMap<string, RoleChanges<"readCommitted", S>>>()
 	for (const login of logins) {
 		const roles = loginChanges(login, "readCommitted")
 		if (!roles.ok) {
@@ -726,7 +728,7 @@ export const servedWorkload = (
 			kind: "workload",
 			error
 		})),
-		(certified): ServedWorkloadPlan => ({
+		(certified): ServedWorkloadPlan<S> => ({
 			...planned,
 			changes: certified.served,
 			certification: certified.certificates,

@@ -76,7 +76,12 @@ import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
  * (analysis/derived/world.ts). A program over a role's base runs on the role when the role holds every relation of its
  * base whole (a full role), by the level rule (levelSchema).
  */
-export interface SchemaArtifacts {
+export interface SchemaArtifacts<S extends ParamSource = ParamSource> {
+	/**
+	 * Where the types its programs cast their parameters to come from (physical/install/plan.ts ParamSource), the plan's
+	 * own: only artifacts an installation stands behind (InstalledArtifacts) compile a program that runs.
+	 */
+	readonly params: S
 	/** Reality's owned schema, a role's base's for a role, and its fingerprint, the snapshot's (theory.schema). */
 	readonly owned: Owned
 	readonly fingerprint: SchemaFingerprint
@@ -102,6 +107,19 @@ export interface SchemaArtifacts {
 	/** Every law a violation can report, by its LawId, as an outcome names it (physical/install InstallPlan). */
 	readonly described: ReadonlyMap<LawId, OwnLaw>
 }
+
+/**
+ * A ParamSource an installation stands behind: `planned` from the programs it serves, or `recorded` by its snapshot.
+ * Every type a statement compiled under it casts a parameter to is one that installation installs, which `unserved`
+ * never promises: it names a pattern parameter's own domain freely and installs nothing.
+ */
+export type InstalledSource = Exclude<ParamSource, { readonly kind: "unserved" }>
+
+/**
+ * The artifacts of an installation that stands behind them (InstalledSource): what every program that runs is compiled
+ * over (adapter/served/role.ts RoleContext), so PostgreSQL never meets a cast to a type its installation lacks.
+ */
+export type InstalledArtifacts = SchemaArtifacts<InstalledSource>
 
 /** What a compilation reads as: reality, or a role over its base. */
 export type ArtifactsWorld =
@@ -365,15 +383,16 @@ export const schemaArtifacts = (
  * Their holder (the layer, generate) computes them once for a schema and hands them to every role and every
  * compilation over the schema; generate installs its draft over the same basis.
  */
-export const baseArtifacts = (
+export const baseArtifacts = <S extends ParamSource>(
 	basis: PlanBasis,
-	params: ParamSource
-): Result.Result<SchemaArtifacts, CompileError> =>
+	params: S
+): Result.Result<SchemaArtifacts<S>, CompileError> =>
 	Result.map(
 		planInstallation(basis, freshPlanSettings(basis.owned), [], params),
-		(plan): SchemaArtifacts => {
+		(plan): SchemaArtifacts<S> => {
 			const derived = derivedAnalysis(plan.checked)
 			return {
+				params,
 				owned: plan.owned,
 				fingerprint: plan.owned.fingerprint,
 				names: plan.names,
@@ -421,10 +440,10 @@ const worldTextNames = (
  * A role's artifacts, the role named under its base's installation (names.ts namedRole): its base's (baseArtifacts),
  * which compile nothing again, read through the role's views, its world relations keyed by their definitions.
  */
-export const roleArtifacts = (
+export const roleArtifacts = <S extends ParamSource>(
 	named: NamedRole,
-	base: SchemaArtifacts
-): Result.Result<SchemaArtifacts, CompileError> => {
+	base: SchemaArtifacts<S>
+): Result.Result<SchemaArtifacts<S>, CompileError> => {
 	const role = named.owned
 	const read = checkedRole(base.derived.schema, named)
 	if (!read.ok) {
@@ -439,7 +458,7 @@ export const roleArtifacts = (
 	if (!reads.ok) {
 		return reads
 	}
-	const artifacts: SchemaArtifacts = {
+	const artifacts: SchemaArtifacts<S> = {
 		...base,
 		names: installed.value,
 		reads: reads.value,

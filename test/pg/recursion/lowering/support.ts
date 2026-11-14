@@ -15,7 +15,7 @@ import { lowerAligned, partStatement, filledSql } from "#test/support/compile.ts
 import { genCatalog } from "#test/support/evidence.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
-import type { GenParam } from "#test/support/oracle/gen/query.ts"
+import { type GenParam, genParamDecls } from "#test/support/oracle/gen/query.ts"
 import { schemaCodes, schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import { oraclePlanUnder } from "#test/support/oracle/install/real.ts"
@@ -116,7 +116,8 @@ export const explainMain = (c: QueryCase, lowering: Lowering) =>
 				desc,
 				identity.schema(parsedSchemaName(schema)),
 				substrate.owner.role,
-				codes
+				codes,
+				genParamDecls(c.query)
 			)
 			if (!planned.ok) {
 				return yield* Effect.die(new Error(planned.error.message))

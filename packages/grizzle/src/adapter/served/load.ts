@@ -1,6 +1,6 @@
 import * as Arr from "effect/Array"
 import * as Result from "effect/Result"
-import type { WriteEntry } from "#adapter/apply/compile.ts"
+import { loadedEntry, type WriteEntry } from "#adapter/apply/compile.ts"
 import { readBacks } from "#adapter/apply/readback.ts"
 import type { BoundReads, HostCall } from "#adapter/apply/run.ts"
 import { contextOver, type TypedContext } from "#adapter/db/claims.ts"
@@ -283,13 +283,13 @@ const loadChange = (
 	patterns: PatternReads
 ): Result.Result<LoadedChange, CompileError> => {
 	const program = change.program
-	const entry: WriteEntry = {
+	const entry = loadedEntry({
 		program: servedRunnable(loadWrite(program, codes, closed, patterns)),
 		witness,
 		readBacks: readBacks(change.readBacks, codes),
 		codecs: paramCodecs(program.params, codes),
 		bind
-	}
+	})
 	return Result.map(servedReads(entry, change.decoder), (reads) => ({
 		entry,
 		reads,

@@ -20,10 +20,12 @@ import {
 	type CompileError,
 	defect,
 	Engine,
+	type InstalledArtifacts,
+	type InstalledSource,
+	type Isolation,
 	levelChain,
 	type LoginDesc,
-	type OwnedLogin,
-	type SchemaArtifacts
+	type OwnedLogin
 } from "#compiler/plan/common.ts"
 import {
 	compileWorkload,
@@ -142,8 +144,8 @@ export const atRole = (refused: ChangeRefused): ServedRefusal => ({
 const compileServed = Effect.fn("compileServed")(function* (
 	login: ServedInput,
 	snapshot: unknown,
-	artifacts: SchemaArtifacts,
-	changes: ReadonlyMap<string, RoleChanges>,
+	artifacts: InstalledArtifacts,
+	changes: ReadonlyMap<string, RoleChanges<Isolation, InstalledSource>>,
 	footprints: ProgramFootprints
 ): Effect.fn.Return<CompiledServed, ServedRefusal> {
 	const served = yield* Effect.mapError(
@@ -232,8 +234,8 @@ const onceEntryOf = Effect.fn("onceEntryOf")(function* (compiled: CompiledServed
 export const servedEntry = (
 	login: ServedInput,
 	snapshot: unknown,
-	artifacts: SchemaArtifacts,
-	changes: ReadonlyMap<string, RoleChanges>,
+	artifacts: InstalledArtifacts,
+	changes: ReadonlyMap<string, RoleChanges<Isolation, InstalledSource>>,
 	footprints: ProgramFootprints
 ): Effect.Effect<ServedEntry, ServedRefusal> =>
 	Effect.flatMap(compileServed(login, snapshot, artifacts, changes, footprints), servedEntryOf)

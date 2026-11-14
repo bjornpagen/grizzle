@@ -13,6 +13,7 @@ import {
 	serialDraw
 } from "#compiler/ir/desc.ts"
 import { fieldColumnType, domainBase } from "#compiler/ir/physical.ts"
+import type { ParamDecl } from "#compiler/ir/products.ts"
 import {
 	baseOf,
 	type ContractInfo,
@@ -40,7 +41,13 @@ import {
 } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
-import { allocatedDesc, draftedSql, type FixtureSchema, filledSql } from "#test/support/compile.ts"
+import {
+	allocatedDesc,
+	declaredParams,
+	draftedSql,
+	type FixtureSchema,
+	filledSql
+} from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { foreignKeyColumns, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -515,19 +522,24 @@ export const planRealInstall = (
 /**
  * The plan of a generated schema on the real installer under `installation`, owned by `owner`, with the one login a
  * generated schema runs as (oracleLogin), its rosters numbered by `codes`: the codes its case states, which every
- * literal and parameter of the case is encoded by.
+ * literal and parameter of the case is encoded by. It installs the types the case's query casts its declared parameters
+ * `params` to (test/support/compile.ts declaredParams), each pattern parameter's own domain and each contract outside
+ * the base, which the plan's names name and no others (physical/install/plan.ts ParamSource `planned`), so a program
+ * lowered over its names casts a parameter only to a type the installation installs; nothing else of a workload, so
+ * the catalog is the bare migration's otherwise.
  */
 export const oraclePlanUnder = (
 	desc: SchemaDesc,
 	installation: Identity<"schema">,
 	owner: string,
-	codes: Codebook
+	codes: Codebook,
+	params: ReadonlyArray<ParamDecl>
 ): Result.Result<RealInstallPlan, CompileError> =>
 	planRealInstall(desc, {
 		installation,
 		owner,
 		logins: [oracleLogin(desc)],
-		extensions: [],
+		extensions: [declaredParams("the case's query", params)],
 		codes,
 		compile: compileInstallation
 	})
@@ -539,10 +551,11 @@ export const oraclePlanUnder = (
 export const oraclePlan = (
 	desc: SchemaDesc,
 	installation: Identity<"schema">,
-	owner: string
+	owner: string,
+	params: ReadonlyArray<ParamDecl>
 ): Result.Result<RealInstallPlan, CompileError> =>
 	Result.flatMap(ownedInput(desc), (owned) =>
-		oraclePlanUnder(desc, installation, owner, firstCodebook(rostersOf(owned)))
+		oraclePlanUnder(desc, installation, owner, firstCodebook(rostersOf(owned)), params)
 	)
 
 interface InstalledRealSchema {

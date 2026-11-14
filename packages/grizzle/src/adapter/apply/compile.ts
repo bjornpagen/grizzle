@@ -1,8 +1,15 @@
 import type { ReadBackRuns } from "#adapter/apply/readback.ts"
 import type { ParamCodecs } from "#adapter/reader/relations.ts"
 import type { InstallationWitness } from "#adapter/witness/index.ts"
-import type { CompiledWrite, ParsedChangeSet, RunnableWrite } from "#compiler/plan/change.ts"
-import type { BindContext } from "#compiler/plan/common.ts"
+import type {
+	ChangeEntry,
+	CompiledWrite,
+	ParsedChangeSet,
+	RunnableWrite
+} from "#compiler/plan/change.ts"
+import { type BindContext, type InstalledSource, nominal } from "#compiler/plan/common.ts"
+
+declare const installedBrand: unique symbol
 
 /**
  * Compiling a ChangeSet for a role.
@@ -30,7 +37,36 @@ export interface WriteEntry {
 	readonly codecs: ParamCodecs
 	/** What the ChangeSet's reads decoder binds under besides its layout: the role's (db/context.ts RoleContext). */
 	readonly bind: BindContext
+	/**
+	 * Type only, with no runtime form: the program was compiled under a plan an installation stands behind
+	 * (program/schema.ts InstalledSource, ParamSource `planned` or `recorded`), so every type its statements cast a
+	 * parameter to is one that installation installs, and no `unserved` compile reaches a run (apply/run.ts runWrite).
+	 * Two doors mint it: installedEntry, over a ChangeSet compiled over InstalledArtifacts, and loadedEntry, over a served
+	 * file's program.
+	 */
+	readonly [installedBrand]: true
 }
+
+/** A WriteEntry's fields but its brand: what a door mints an entry from. */
+export type WriteEntryParts = Omit<WriteEntry, typeof installedBrand>
+
+/**
+ * The entry `build` makes over `compiled`, a ChangeSet compiled over InstalledArtifacts (program/workload/change.ts
+ * ChangeEntry `params`), branded as an installed plan's: the door of every entry a compile makes (served/forms.ts
+ * runtimeEntry).
+ */
+export const installedEntry = <E extends WriteEntryParts>(
+	compiled: ChangeEntry<InstalledSource>,
+	build: (compiled: ChangeEntry<InstalledSource>) => E
+): E & WriteEntry => nominal<E, E & WriteEntry>()(build(compiled))
+
+/**
+ * A served file's program as its entry, branded as an installed plan's: generate compiled it under ParamSource
+ * `planned`, and a served compile under the snapshot's `recorded` parameter types (served/compile.ts compileServed
+ * takes InstalledArtifacts), so the file a layer loads is the proof (served/load.ts loadChange).
+ */
+export const loadedEntry = (parts: WriteEntryParts): WriteEntry =>
+	nominal<WriteEntryParts, WriteEntry>()(parts)
 
 /**
  * A ChangeSet compiled for a role: its program entry, the program as it compiled, which a served file holds

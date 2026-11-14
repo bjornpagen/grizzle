@@ -45,7 +45,7 @@ import { isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
 import { snapshotGuardName } from "#compiler/physical/ddl/ledger.ts"
-import { Engine, levelChain, unserved, ownBuilt, type RowDecoder } from "#compiler/plan/common.ts"
+import { Engine, levelChain, ownBuilt, type RowDecoder } from "#compiler/plan/common.ts"
 import { everySlice, planBasis, servedSnapshot } from "#compiler/plan/serve.ts"
 import type { WriteStepResult } from "#compiler/runtime/write/steps.ts"
 import type { Insert, SqlStatement, With } from "#compiler/sql/ast.ts"
@@ -153,10 +153,11 @@ export interface OpenedDb extends ServedDb {
 }
 
 /**
- * `role` as the one compile `grizzle generate` commits reads it (adapter/served/compile.ts snapshotServedEntry): its
+ * `role` as the one compile `grizzle generate` commits reads it (adapter/served/compile.ts snapshotCompiled): its
  * login's base owned, the snapshot `installed` reached read over the base's level as that compile reads it, the
- * installation's artifacts planned from what the snapshot records over every relation, and the login's roles compiled
- * over them (adapter/served/login.ts loginRoles), its own workload left out: a gate compiles its programs one at a time
+ * installation's artifacts planned from what the snapshot records over every relation, its parameters cast to the
+ * types the snapshot records the installation installs (ParamSource `recorded`), and the login's roles compiled over
+ * them (adapter/served/login.ts loginRoles), its own workload left out: a gate compiles its programs one at a time
  * (observedChange). A role of no login login(...) built, or of none the login holds, is a defect of the gate's setup.
  */
 const servedRoleOf = (
@@ -191,7 +192,7 @@ const servedRoleOf = (
 						references: snapshot.derived.references
 					}
 				),
-				(basis) => artifactsOver(basis, unserved)
+				(basis) => artifactsOver(basis, { kind: "recorded", installed: snapshot.derived.params })
 			)
 		)
 		const roles = yield* Effect.mapError(

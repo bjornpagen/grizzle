@@ -20,10 +20,12 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
+import { workload } from "#compiler/program/workload/value.ts"
 import { type FactIdentity, factIdentity } from "#compiler/scalar/values/identity.ts"
 import type { Law, Refused, RefusedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
+import { paramsOver } from "#test/support/compile.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf, reportedLawId } from "#test/support/kernel/naming.ts"
 import type { Fact, FactSet, OracleState } from "#test/support/oracle/addwins.ts"
@@ -31,7 +33,7 @@ import { factStatements } from "#test/support/oracle/install/load.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { type Perturbation, perturbedContext } from "#test/support/oracle/perturb.ts"
 import { batchProblems, type Flight } from "#test/support/oracle/write/batch.ts"
-import { isFact } from "#test/support/oracle/write/changeset.ts"
+import { buildChangeSet, isFact, type WChangeSet } from "#test/support/oracle/write/changeset.ts"
 import { typeInfo } from "#test/support/oracle/write/domain.ts"
 import type { Collisions } from "#test/support/oracle/write/expect.ts"
 import type { WFacts } from "#test/support/oracle/write/facts.ts"
@@ -160,20 +162,37 @@ type TargetError =
  * world are declared again under the installed name over the very same relation values and statements, so the
  * ChangeSets built over those values are the Db's own (test/pg/reads/support.ts does the same for the fixtures). Every
  * law of a write schema is native, so the installation leaves nothing to the residual laws' extension.
+ *
+ * The installation installs the types `changes`, every ChangeSet the run applies, cast their parameters to: each built
+ * over the declared schema, a program of the writer's workload whose parameter types alone are planned
+ * (test/support/compile.ts paramsOver), each pattern domain and outside contract, and no index or statistics object of
+ * that workload, so the catalog is the bare migration's otherwise. The writer's role compiles every case's ChangeSet
+ * under what the snapshot records the installation installs (served-role.ts servedRoleContext), so none casts a
+ * parameter to a type the installation lacks.
  */
 export const openTarget = (
 	schema: WSchema,
 	statistics: Statistics,
-	ambient: AmbientSession
+	ambient: AmbientSession,
+	changes: ReadonlyArray<{ readonly group: WGroup; readonly changes: WChangeSet }>
 ): Effect.Effect<WriteTarget, TargetError, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const built = buildWSchema(schema, "Wo")
+		const declared = built.worldOf(built.value)
+		const programs = Rec.fromEntries(
+			Arr.map(changes, (c, i) => [
+				`change${i}`,
+				buildChangeSet(built.value, built.relations, c.group, c.changes).changes
+			])
+		)
 		const done = yield* install(built.value, {
 			ambient,
 			label: "real",
-			logins: [built.worldOf(built.value).server],
-			extensions: []
+			logins: [declared.server],
+			extensions: [
+				paramsOver([{ login: "server", workloads: [workload(declared.writer, programs)] }])
+			]
 		})
 		/** Planner statistics are the run's (step 1 of the header), never autovacuum's. */
 		const laws = lawNames(done.plan)

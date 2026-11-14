@@ -1,7 +1,8 @@
 import { Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
-import type * as Result from "#compiler/core/result.ts"
+import * as Result from "#compiler/core/result.ts"
+import type { ParamDecl } from "#compiler/ir/products.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import {
@@ -19,6 +20,7 @@ import { str } from "#compiler/public/text.ts"
 import { type QueryValue, queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
+import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import {
 	type CompiledWrite,
@@ -26,7 +28,7 @@ import {
 	compileWrite
 } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { declaredParams, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { conservativeWrite } from "#test/support/conservative.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { checking, owning } from "#test/support/policy.ts"
@@ -118,31 +120,52 @@ interface ShopWriter {
 }
 
 /**
- * The write compiler of a Shop: its names as installed under the schema `shop`, the keys of its views as its artifacts
- * know them, and the reality it writes.
+ * The write compiler of a Shop: its names as installed under the schema `shop` by the installation that serves the
+ * write, the keys of its views as its artifacts know them, and the reality it writes. A write's installation installs
+ * the types its declared parameters cast to, which its front end reads (write/frontend/compile.ts compileChangeSet), and
+ * nothing else of a workload (test/support/compile.ts declaredParams), so the write names only a pattern domain or
+ * contract its installation installs.
  */
 const shopWriter = (s: typeof Shop | typeof MutableCrewShop): ShopWriter => {
 	const owned = owning(s)
-	const names: WriteNames = succeeded(
-		compileInstallation(owned, {
-			...installOptions(owned, "owner"),
-			levels: [identity.schema(parsedSchemaName("shop"))]
-		})
-	).names
 	const artifacts = succeeded(testArtifacts(s, testCompile))
+	const names = (params: ReadonlyArray<ParamDecl>): Result.Result<WriteNames, CompileError> =>
+		Result.map(
+			compileInstallation(owned, {
+				...installOptions(owned, "owner"),
+				levels: [identity.schema(parsedSchemaName("shop"))],
+				extensions: [declaredParams("the Shop's write", params)]
+			}),
+			(installation) => installation.names
+		)
 	return {
-		write: (value: unknown, options: ShopCompile) =>
-			compileWrite(checking(s), descOf(value), {
-				names,
-				reads: names,
+		write: (value: unknown, options: ShopCompile) => {
+			const desc = descOf(value)
+			const over: Pick<CompileWriteOptions, "claims" | "world" | "laws" | "derived"> = {
 				claims: options.claims,
 				world: { kind: "reality" },
 				laws: artifacts.laws,
-				derived: artifacts.derived,
-				level: "serializable"
-			}),
-		/** The write oracle's baseline of a write of the Shop (write/program/compile.ts conservativeWrite). */
-		conservative: (program: CompiledWrite) => conservativeWrite(program, { names, reads: names })
+				derived: artifacts.derived
+			}
+			return Result.flatMap(
+				compileChangeSet(checking(s), desc, { ...over, codes: artifacts.names.codes }),
+				(frontend) =>
+					Result.flatMap(names(frontend.params), (installed) =>
+						compileWrite(checking(s), desc, {
+							...over,
+							names: installed,
+							reads: installed,
+							level: "serializable"
+						})
+					)
+			)
+		},
+		/** The write oracle's baseline of a write of the Shop (write/program/compile.ts conservativeWrite), over the names
+		 * of the installation that serves it. */
+		conservative: (program: CompiledWrite) =>
+			Result.flatMap(names(program.frontend.params), (installed) =>
+				conservativeWrite(program, { names: installed, reads: installed })
+			)
 	}
 }
 

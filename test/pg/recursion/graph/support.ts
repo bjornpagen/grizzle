@@ -280,7 +280,8 @@ export const inInstalledCase = <A, E>(
 				desc,
 				identity.schema(parsedSchemaName(schema)),
 				substrate.owner.role,
-				schemaCodes(c.schema)
+				schemaCodes(c.schema),
+				genParamDecls(c.query)
 			)
 			if (!planned.ok) {
 				return yield* new HarnessFailure({ message: planned.error.message })

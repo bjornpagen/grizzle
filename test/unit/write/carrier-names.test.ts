@@ -15,7 +15,7 @@ import { changeSetDesc } from "#compiler/write/changeset/value.ts"
 import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { servingParams, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { conservativeWrite } from "#test/support/conservative.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -166,10 +166,17 @@ const carriersOf = (layout: Layout): Created => {
 	const { S, changes } = layoutOf(layout)
 	const owned = owning(S)
 	const names = succeeded(
-		compileInstallation(owned, {
-			...installOptions(owned, "owner"),
-			levels: [identity.schema(parsedSchemaName(schemaName))]
-		})
+		compileInstallation(
+			owned,
+			servingParams(
+				{
+					...installOptions(owned, "owner"),
+					levels: [identity.schema(parsedSchemaName(schemaName))]
+				},
+				S,
+				{ put: changes }
+			)
+		)
 	).names
 	const artifacts = succeeded(testArtifacts(S, testCompile))
 	const program = succeeded(

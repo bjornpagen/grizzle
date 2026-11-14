@@ -33,6 +33,8 @@ import {
 	type CompileError,
 	defect,
 	Engine,
+	type InstalledArtifacts,
+	type InstalledSource,
 	type Isolation,
 	type LoginDesc,
 	malformedDescription,
@@ -137,8 +139,8 @@ export const builtLogin = (value: unknown): BuiltLogin | undefined => {
  */
 export interface LayerArtifacts {
 	readonly slice: Slice
-	readonly artifacts: SchemaArtifacts
-	readonly over: (slice: Slice) => Engine.Result<SchemaArtifacts, CompileError>
+	readonly artifacts: InstalledArtifacts
+	readonly over: (slice: Slice) => Engine.Result<InstalledArtifacts, CompileError>
 }
 
 /**
@@ -146,15 +148,15 @@ export interface LayerArtifacts {
  * programs' parameters cast to the types `params` gives (program/schema.ts baseArtifacts): planned from the workload
  * generate plans the installation from, or recorded by the snapshot a served compile reads.
  */
-export const artifactsOver = (
+export const artifactsOver = <S extends ParamSource>(
 	basis: PlanBasis,
-	params: ParamSource
-): Engine.Result<SchemaArtifacts, CompileError> => baseArtifacts(basis, params)
+	params: S
+): Engine.Result<SchemaArtifacts<S>, CompileError> => baseArtifacts(basis, params)
 
 /** The login's artifacts over `slice`, compiled by `over`, which compiles them over any other slice alike. */
 export const layerOver = (
 	slice: Slice,
-	over: (slice: Slice) => Engine.Result<SchemaArtifacts, CompileError>
+	over: (slice: Slice) => Engine.Result<InstalledArtifacts, CompileError>
 ): Engine.Result<LayerArtifacts, CompileError> =>
 	Engine.map(over(slice), (artifacts) => ({ slice, artifacts, over }))
 
@@ -169,7 +171,7 @@ export const artifactsUnder = (
 	codes: Codebook,
 	derived: CompileFacts,
 	slice: Slice,
-	params: ParamSource
+	params: InstalledSource
 ): Engine.Result<LayerArtifacts, CompileError> =>
 	layerOver(slice, (sliced) =>
 		Engine.flatMap(
@@ -223,7 +225,7 @@ export const workloadSlice = (
 const layerVariants = (
 	role: RoleContext,
 	witness: InstallationWitness,
-	variants: CompiledVariants
+	variants: CompiledVariants<InstalledSource>
 ): Result.Result<ChangeVariants, CompileError> => {
 	if (variants.kind === "form") {
 		const entry = runtimeEntry(variants.entry, role.artifacts.names.codes, witness, role.bind)
@@ -245,7 +247,7 @@ const layerVariants = (
  */
 const programForm = (
 	role: RoleContext,
-	changes: RoleChanges,
+	changes: RoleChanges<Isolation, InstalledSource>,
 	witness: InstallationWitness,
 	program: WorkloadProgram
 ): Result.Result<WorkloadForm, CompileError> => {
@@ -332,7 +334,7 @@ const programForm = (
 const compileRoleWorkload = (
 	name: string,
 	role: RoleContext,
-	changes: RoleChanges,
+	changes: RoleChanges<Isolation, InstalledSource>,
 	witness: InstallationWitness,
 	workloads: ReadonlyArray<AnyWorkload>
 ): Result.Result<ReadonlyArray<WorkloadForm>, WorkloadRefused> =>
@@ -400,7 +402,7 @@ export interface LayerRole extends RoleContext {
 const layerRole = (
 	name: string,
 	value: unknown,
-	changes: RoleChanges,
+	changes: RoleChanges<Isolation, InstalledSource>,
 	layer: LayerArtifacts,
 	workload: ReadonlyArray<AnyWorkload>,
 	bind: BindContext,
@@ -477,12 +479,12 @@ const namedOver = (
  * compiled over them at `level` (program/workload/change.ts loginChanges), by its name in the login: what the login's
  * compile reads of each role (plannedLoginRoles).
  */
-export const loginChangesOver = <L extends Isolation>(
+export const loginChangesOver = <L extends Isolation, S extends ParamSource>(
 	login: BuiltLogin,
 	owned: OwnedLogin,
-	artifacts: SchemaArtifacts,
+	artifacts: SchemaArtifacts<S>,
 	level: L
-): Effect.Effect<ReadonlyMap<string, RoleChanges<L>>, WorkloadRefused> =>
+): Effect.Effect<ReadonlyMap<string, RoleChanges<L, S>>, WorkloadRefused> =>
 	Effect.flatMap(namedOver(owned, artifacts), (named) =>
 		Effect.mapError(
 			fromEngine(
@@ -502,7 +504,7 @@ export const loginChangesOver = <L extends Isolation>(
  */
 export const plannedLoginRoles = (
 	login: BuiltLogin,
-	changes: ReadonlyMap<string, RoleChanges>,
+	changes: ReadonlyMap<string, RoleChanges<Isolation, InstalledSource>>,
 	layer: LayerArtifacts,
 	above: LawsAbove
 ): Effect.Effect<ReadonlyArray<LayerRole>, WorkloadRefused> => {

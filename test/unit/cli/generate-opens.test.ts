@@ -16,7 +16,9 @@ import * as Engine from "#compiler/core/result.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
-import { installBasis, unserved } from "#compiler/physical/install/plan.ts"
+import { noParamTypes } from "#compiler/physical/ddl/domains.ts"
+import { installBasis } from "#compiler/physical/install/plan.ts"
+import type { InstalledSource } from "#compiler/program/schema.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { login, relation, role, schema } from "#compiler/public/schema.ts"
@@ -54,6 +56,13 @@ import { upTo } from "#test/support/up-to.ts"
  *
  * Features: a head on the bound, and one past it.
  */
+
+/**
+ * Where the layer's artifacts take the types its programs cast their parameters to: planned from the workload's
+ * programs, as generate plans the artifacts its served file compiles over (cli/generate.ts plannedLogins), which here
+ * are none, the box's one query declaring no parameter.
+ */
+const boxParams: InstalledSource = { kind: "planned", types: noParamTypes }
 
 /** A head around the select list's bound: its entries, and how many of them are the left relation's fields. */
 interface Head {
@@ -177,7 +186,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 												layerOver(slice, (sliced) =>
 													Engine.flatMap(
 														installBasis(compiledLogin.owned.base, codes, sliced),
-														(basis) => artifactsOver(basis, unserved)
+														(basis) => artifactsOver(basis, boxParams)
 													)
 												)
 											),

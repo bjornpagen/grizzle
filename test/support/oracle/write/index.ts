@@ -251,14 +251,6 @@ const runResolved = (
 		for (const feature of ambientFeatures(run.ambient)) {
 			note(feature)
 		}
-		const t = yield* openTarget(schema, run.statistics, run.ambient)
-		const privileges = yield* privilegeProblems(t)
-		if (privileges.length > 0) {
-			return yield* new CaseFailed({
-				report: `${printSchema(schema)}\n${Arr.join(privileges, "\n")}`
-			})
-		}
-		const reads: Array<{ readonly group: WGroup; readonly relation: string }> = []
 		const planted = Arr.findFirst(schema.groups, (g) => g.role === "planted")
 		const cases = [
 			...resolved.drawn,
@@ -267,6 +259,14 @@ const runResolved = (
 				onSome: (group) => Arr.map(plantedArms, (arm) => plantedCase(group, arm, run.planted.facts))
 			})
 		]
+		const t = yield* openTarget(schema, run.statistics, run.ambient, cases)
+		const privileges = yield* privilegeProblems(t)
+		if (privileges.length > 0) {
+			return yield* new CaseFailed({
+				report: `${printSchema(schema)}\n${Arr.join(privileges, "\n")}`
+			})
+		}
+		const reads: Array<{ readonly group: WGroup; readonly relation: string }> = []
 		for (const [i, rc] of cases.entries()) {
 			const ran = yield* runCase(t, rc, note).pipe(
 				Effect.mapError((e) =>

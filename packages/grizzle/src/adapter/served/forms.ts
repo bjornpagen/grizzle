@@ -1,5 +1,5 @@
 import { Result } from "effect"
-import type { CompiledChange, WriteEntry } from "#adapter/apply/compile.ts"
+import { type CompiledChange, installedEntry, type WriteEntry } from "#adapter/apply/compile.ts"
 import type { ChangeForm } from "#adapter/apply/index.ts"
 import { readBacks } from "#adapter/apply/readback.ts"
 import type { BoundReads } from "#adapter/apply/run.ts"
@@ -32,6 +32,7 @@ import {
 	type Codebook,
 	CompileError,
 	Engine,
+	type InstalledSource,
 	noClock,
 	prose,
 	type QueryDesc,
@@ -271,24 +272,22 @@ export interface CompiledEntry extends CompiledChange {
  * codecs, beside the witness decoding of the artifacts it compiled against and the role's bind context.
  */
 export const runtimeEntry = (
-	entry: ChangeEntry,
+	entry: ChangeEntry<InstalledSource>,
 	codes: Codebook,
 	witness: InstallationWitness,
 	bind: BindContext
-): CompiledEntry => {
-	const { compiled } = entry
-	return {
+): CompiledEntry =>
+	installedEntry(entry, ({ compiled, schema, names, change }) => ({
 		program: runnableWrite(compiled, codes),
 		compiled,
-		schema: entry.schema,
-		names: entry.names,
+		schema,
+		names,
 		witness,
 		readBacks: readBacks(servedReadBacks(compiled.artifact.readBacks), codes),
 		codecs: paramCodecs(compiled.params, codes),
 		bind,
-		change: entry.change
-	}
-}
+		change
+	}))
 
 /** The program entry of a ChangeSet for a role, compiled now for the contexts `claims` holds a fact of, against the
  * role's artifacts for it (db/context.ts RoleContext.programArtifacts). */

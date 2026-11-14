@@ -3,10 +3,10 @@ import type {
 	BindContext,
 	CompileError,
 	Engine,
+	InstalledArtifacts,
 	ParsedRole,
 	ProgramDesc,
-	RoleDesc,
-	SchemaArtifacts
+	RoleDesc
 } from "#compiler/plan/common.ts"
 import type { CompiledTemplate, ExecutionRequest, QueryInput } from "#compiler/plan/read.ts"
 
@@ -25,8 +25,10 @@ export interface RoleContext {
 	/** The role's Description. */
 	readonly role: RoleDesc
 	/** The role's artifacts over the layer's slice: the installation's codes and names every decoder of the role reads,
-	 * and what every program of the layer's workloads compiles against. */
-	readonly artifacts: SchemaArtifacts
+	 * and what every program of the layer's workloads compiles against. An installation stands behind them
+	 * (InstalledArtifacts): every program compiled through the role is one that runs, so none casts a parameter to a type
+	 * its installation lacks. */
+	readonly artifacts: InstalledArtifacts
 	/**
 	 * How a query is compiled for one request: against the role and its artifacts for the query (programArtifacts,
 	 * program/template.ts templateFor), with those artifacts. Every read, page and explain a Db runs that no one
@@ -54,12 +56,12 @@ export interface RoleContext {
 /** A query's template compiled for one request, with the artifacts it was compiled against, which its page reads. */
 export interface ProgramTemplate {
 	readonly compiled: CompiledTemplate
-	readonly artifacts: SchemaArtifacts
+	readonly artifacts: InstalledArtifacts
 }
 
 /** What one program of a role compiles against: the role's artifacts over a slice holding the program's, and their
  * witness decoding. */
 export interface SliceArtifacts {
-	readonly artifacts: SchemaArtifacts
+	readonly artifacts: InstalledArtifacts
 	readonly witness: InstallationWitness
 }

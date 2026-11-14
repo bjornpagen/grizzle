@@ -19,6 +19,7 @@ import type { NativeColumn, NativeObject } from "#compiler/ir/law.ts"
 import { triggerLawsOver } from "#compiler/laws/model/model.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { checkedRole, grantedPrivileges } from "#compiler/physical/ddl/roles.ts"
+import type { ParamSource } from "#compiler/physical/install/plan.ts"
 import { type ExtractNames, memberFacts } from "#compiler/program/isolation/extract.ts"
 import { isolationInput, type RoleSource } from "#compiler/program/isolation/input.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
@@ -285,13 +286,13 @@ const exclusionOf = (
 }
 
 /** A change member's variants, each compiled write locking what it writes of `fenced` (exclusionOf). */
-const fencedVariants = (
+const fencedVariants = <S extends ParamSource>(
 	name: string,
-	variants: CompiledVariants,
+	variants: CompiledVariants<S>,
 	fenced: ReadonlySet<string>,
 	role: RoleChanges,
 	names: ExtractNames
-): CompiledVariants =>
+): CompiledVariants<S> =>
 	variants.kind === "form"
 		? {
 				...variants,
@@ -307,11 +308,11 @@ const fencedVariants = (
 			}
 
 /** A role's served changes with each of its writes locking what it writes of `fenced`, its login's fences. */
-const fencedChanges = <L extends Isolation>(
-	role: RoleChanges<L>,
+const fencedChanges = <L extends Isolation, S extends ParamSource>(
+	role: RoleChanges<L, S>,
 	fenced: ReadonlySet<string>,
 	names: ExtractNames
-): RoleChanges<L> => ({
+): RoleChanges<L, S> => ({
 	...role,
 	members: new Map(
 		[...role.members].map(
@@ -341,9 +342,9 @@ const zipped = <A, B>(
  * (RoleChanges.level) is its certificate's, each write of a login that fences a relation it writes locking it before
  * its snapshot; and the fences (analysis/isolation/certify.ts Fence), by login then relation.
  */
-export interface Certification {
+export interface Certification<S extends ParamSource = ParamSource> {
 	readonly certificates: ReadonlyArray<RoleIsolation>
-	readonly served: ReadonlyMap<string, ReadonlyMap<string, RoleChanges>>
+	readonly served: ReadonlyMap<string, ReadonlyMap<string, RoleChanges<Isolation, S>>>
 	readonly fences: ReadonlyArray<Fence>
 }
 
@@ -360,12 +361,12 @@ export interface Certification {
  * judges every role over its READ COMMITTED form, and lowers each role it leaves SERIALIZABLE to its SERIALIZABLE form
  * (serializableChanges), whose facts it judges the others by from then on.
  */
-export const certification = (
+export const certification = <S extends ParamSource>(
 	artifacts: SchemaArtifacts,
-	changes: ReadonlyMap<string, ReadonlyMap<string, RoleChanges<"readCommitted">>>
-): Result.Result<Certification, CompileError> => {
+	changes: ReadonlyMap<string, ReadonlyMap<string, RoleChanges<"readCommitted", S>>>
+): Result.Result<Certification<S>, CompileError> => {
 	const sources: Array<{
-		readonly changes: RoleChanges<"readCommitted">
+		readonly changes: RoleChanges<"readCommitted", S>
 		readonly source: RoleSource<CheckedSchema<RoleWorld>, ExtractNames, CompiledVariants>
 	}> = []
 	for (const [login, logged] of changes) {
@@ -388,8 +389,8 @@ export const certification = (
 		input.relations,
 		zipped(sources, input.roles).map(
 			([r, role]): Candidate<
-				RoleChanges<"readCommitted">,
-				RoleChanges<"serializable">,
+				RoleChanges<"readCommitted", S>,
+				RoleChanges<"serializable", S>,
 				CompileError
 			> => ({
 				role,
@@ -413,9 +414,9 @@ export const certification = (
 		relations.add(f.relation)
 		fenced.set(f.login, relations)
 	}
-	const served = new Map<string, Map<string, RoleChanges>>()
+	const served = new Map<string, Map<string, RoleChanges<Isolation, S>>>()
 	for (const [c, { source }] of zipped(certified.value.roles, sources)) {
-		const logged = served.get(c.role.login) ?? new Map<string, RoleChanges>()
+		const logged = served.get(c.role.login) ?? new Map<string, RoleChanges<Isolation, S>>()
 		const relations = fenced.get(c.role.login)
 		logged.set(
 			c.role.role,
