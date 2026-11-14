@@ -21,8 +21,9 @@ import { upTo } from "#test/support/up-to.ts"
 import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
- * A put or a delete names each row by its relation's primary key, and a family's edit names each member by it, so a
- * primary key holding a field grizzle writes names no row a caller can state: a put or a delete of a sequence's member
+ * A put names each row by its relation's primary key, a delete names each row exactly, at every field a fact carries,
+ * the primary key's among them, and a family's edit names each member by its primary key, so a primary key holding a
+ * field grizzle writes names no row a caller can state: a put or a delete of a sequence's member
  * whose primary key holds its drawn index is refused, by the write and the key (UnstatedKey), when the ChangeSet is
  * compiled, where its facts used to reach the host's same-key check and the family's edit without the index, an
  * internal invariant. A put's same-key check compares its facts at every declared key too, the primary key's first,
