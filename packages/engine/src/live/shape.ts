@@ -16,15 +16,18 @@ import { transientTags } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { int8Max } from "#compiler/core/limits.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { sqlstateBody } from "#compiler/core/sqlstate.ts"
 import {
 	type Answer,
 	answers,
 	callErrors,
+	credentialReasons,
 	failures,
 	servedSources,
 	type Shape,
 	type ShapeAnswers,
-	type Slot
+	type Slot,
+	unavailableCauses
 } from "#compiler/live/events.ts"
 import type { KeyFields } from "#compiler/live/key.ts"
 import { anchored, naturals } from "#compiler/live/pattern.ts"
@@ -673,6 +676,24 @@ const errorSchema = (kinds: ReadonlySet<string>, schemas: PayloadSchemas): WireS
 		)
 })
 
+/**
+ * The JSON Schema of an unavailable CallError's reason (live/events.ts UnavailableReason): a named cause alone, another
+ * SQLSTATE, or another socket code.
+ */
+const unavailableReasonSchema: WireSchema = {
+	oneOf: [
+		closedObject([["kind", { type: "string", enum: [...unavailableCauses] }]]),
+		closedObject([
+			["kind", { const: "otherSqlstate" }],
+			["sqlstate", { type: "string", pattern: anchored(sqlstateBody) }]
+		]),
+		closedObject([
+			["kind", { const: "otherSocketCode" }],
+			["code", { type: "string" }]
+		])
+	]
+}
+
 /** The JSON Schema no value meets: a slot's of a shape whose events never carry it. */
 const noValue: WireSchema = { not: {} }
 
@@ -690,7 +711,9 @@ export const slotSchemas = <L>(
 		text: { type: "string" },
 		refused: refusedSchema,
 		witness: witnessSchema(member.witness, leaf),
-		transientReason: { type: "string", enum: [...transientTags] }
+		transientReason: { type: "string", enum: [...transientTags] },
+		credentialReason: { type: "string", enum: [...credentialReasons] },
+		unavailableReason: unavailableReasonSchema
 	}
 	if (member.shape === "write") {
 		const schemas: PayloadSchemas = {

@@ -180,8 +180,8 @@ const kindsAt = (sources: ReadonlyArray<FailureSource>): Array<string> =>
 	Arr.sort(
 		Arr.dedupe(
 			Arr.flatMap(sources, (source) => {
-				const reading: Readonly<Record<string, string>> = readings[source]
-				return Rec.values(reading)
+				const reading: ReadonlyArray<string> = readings[source]
+				return reading
 			})
 		),
 		Order.String

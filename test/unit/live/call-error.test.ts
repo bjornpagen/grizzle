@@ -147,8 +147,8 @@ describe("every source's reading", () => {
 						},
 						(source, c) =>
 							Effect.sync(() => {
-								const reading: Readonly<Record<string, string>> = readings[source]
-								const read = Arr.sort(Arr.dedupe(Rec.values(reading)), Order.String)
+								const reading: ReadonlyArray<string> = readings[source]
+								const read = Arr.sort(Arr.dedupe(reading), Order.String)
 								const given = Arr.sort(Arr.dedupe(failures[source]), Order.String)
 								assert.deepEqual(read, given, `the reading of ${source}`)
 								c.note(source)

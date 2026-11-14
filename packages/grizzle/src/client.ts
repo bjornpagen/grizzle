@@ -26,6 +26,7 @@ export {
 	type Anchor,
 	type CallError,
 	type CallErrorKind,
+	type CredentialReason,
 	Decimal,
 	Keyed,
 	type KeyedList,
@@ -35,6 +36,8 @@ export {
 	type RelationCounts,
 	type Retry,
 	RowKey,
+	type UnavailableCause,
+	type UnavailableReason,
 	Vector,
 	type Window,
 	type WriteOutcome

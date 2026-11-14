@@ -3365,7 +3365,8 @@ fails with its `CallError`, by kind:
 | `refused`       | `never` | the schema's laws refused the write (`refused`, `witness`)                                                      |
 | `outsideWorld`  | `never` | a row the write adds lies outside the written world relation (`relation`)                                       |
 | `transient`     | `safe`  | the attempt changed nothing, refused by a concurrent transaction (`reason`)                                     |
-| `unavailable`   | `safe`  | no session could be had: the password Effect, TLS, the server, a released layer                                 |
+| `credentialRefused` | `never` | no session could be had: its connection was not authenticated, either way (`reason`)                       |
+| `unavailable`   | `safe`  | no session could be had for now: the network, the server, a released layer (`reason`)                          |
 | `transport`     | `safe`  | a connection broke before the call's end: a read's, which commits nothing, or a write's before COMMIT was sent |
 | `stale`         | `never` | the database is not at the Db's snapshot ([Deploying](#deploying)), so the call ran nothing                     |
 | `commitUnknown` | `never` | a write's COMMIT was sent and no answer came: it may have committed                                             |
@@ -3384,8 +3385,38 @@ fails with its `CallError`, by kind:
 - **`commitUnknown`**: COMMIT was sent whole and no answer came, so the change may have committed. Read back before
   running it again. A write the socket failed before COMMIT's last byte left the process is `transport` instead: COMMIT
   never reached the server.
-- **`unavailable`** and **`transport`** change nothing. Waiting for a session never fails: a call waits until it has one
-  or is interrupted.
+- **`credentialRefused`**: no session could be had, and the same call meets the same refusal until the connection's
+  configuration changes, so it is never to retry. Its `reason`, a string:
+  - `passwordFailed`: your `password` Effect failed (`CredentialError`), so no password was offered;
+  - `passwordRefused`: the server refused the password, SQLSTATE 28P01;
+  - `loginRefused`: the server refused the login with any other SQLSTATE of class 28, 28000 among them: no
+    `pg_hba.conf` entry admits it, or its role does not exist or may not log in;
+  - `tlsUnverified`: TLS did not come up verified: the server's certificate does not chain to `ca` or does not name
+    the host, the handshake failed with a code no system error has, or the server offers no TLS or answered the
+    SSLRequest with neither yes nor no;
+  - `driverRefused`: pg ended the startup itself, with no SQLSTATE and no code: a SCRAM exchange whose server proof
+    does not verify, a mechanism it does not support, a server that asks a password of a role given none.
+- **`unavailable`**: no session could be had for now, for a cause that may pass. Its `reason` is `{ kind }`, a cause
+  of a closed set read off the SQLSTATE or the socket's code, never off the message:
+  - `connectionRefused`: nothing accepted the connection at its address, ECONNREFUSED or ENOENT;
+  - `hostUnreachable`: no route reaches the host, EHOSTUNREACH, ENETUNREACH, EHOSTDOWN or ENETDOWN;
+  - `hostUnresolved`: the host's name did not resolve, ENOTFOUND or EAI_AGAIN;
+  - `timedOut`: no answer within `connectTimeoutMs` (`ConnectTimedOut`), or ETIMEDOUT;
+  - `connectionClosed`: the connection closed before the session was ready, with no ErrorResponse
+    (`ConnectionClosed`), ECONNRESET, EPIPE or ECONNABORTED, a TLS handshake's among them;
+  - `serverDown`: 57P01 (admin_shutdown), 57P02 (crash_shutdown) or 57P03 (cannot_connect_now: starting, recovering
+    or stopping);
+  - `tooManyConnections`: 53300, the server's or the role's connection limit;
+  - `layerReleased`: the `DbLayer` the Db was opened under, or a live read registered on, was released;
+  - `sessionLost`, `slotAbsent`, `slotInvalidated`, `leaderFailed`: a live read's source lost a session, its
+    replication slot does not stand yet or was invalidated (its live leader makes it), or its leader's candidacy
+    failed otherwise;
+  - `{ kind: "otherSqlstate", sqlstate }`: the server refused with any other SQLSTATE, such as 3D000 for a database
+    that does not exist;
+  - `{ kind: "otherSocketCode", code }`: the socket failed with any other code, its errno's name for a system error.
+- **`credentialRefused`**, **`unavailable`** and **`transport`** change nothing. Waiting for a session never fails: a
+  call waits until it has one or is interrupted. A server that reaches ReadyForQuery without a cancellation key
+  (`NoCancelKey`) is `failed`: every attempt meets it.
 - **The server's report** is in the `message` of every call PostgreSQL's refusal ends, `SQLSTATE <code>: <message>`, its
   message exactly as the server gave it. The server writes in the language of `lc_messages`, the database owner's
   setting; grizzle classifies a refusal by its SQLSTATE and the fields it names, never its words. A message can quote
@@ -3412,7 +3443,9 @@ A call's `CallError` is read from the reason that failed it, each reason a class
 | Reason                                                                                                                                                                       | `kind`          |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
 | the server's `ServerError`, 53200 and 54001 among them; `TemporaryRefused`, below; `UnreadableAnswer`, rows grizzle cannot read or its compiled proof says the query cannot deliver; `CompileError` | `failed`        |
-| `CredentialError`; `TlsRefused`; `StartupRefused`, with the server's report; `ConnectTimedOut`, `SocketFailed`, `ConnectionClosed`, `DriverRefused`, `NoCancelKey`; `LayerReleased`, a layer whose scope has closed | `unavailable`   |
+| `CredentialError`; `StartupRefused` of SQLSTATE class 28; `TlsRefused`, but a handshake's failure with a system error's code; `DriverRefused` | `credentialRefused` |
+| `StartupRefused` of any other SQLSTATE, with the server's report; `SocketFailed`; `TlsRefused` of a system error's code; `ConnectTimedOut`; `ConnectionClosed`; `LayerReleased`, a layer whose scope has closed | `unavailable`   |
+| `NoCancelKey`                                                                                                                                                                 | `failed`        |
 | `ConnectionLost`, `CommitLost`, `DriverFailure`                                                                                                                              | `transport`     |
 | `EncodingFailure`; `ParamRejected`, a parameter's value outside its pattern; `InputTooLarge`, below; `CallInputRefused`, below                                               | `input`         |
 | `LawRejected`, the laws a contract's or a pattern's domain discharges, which refused a value a statement cast to it; `InputRejected`, below                                 | `refused`       |

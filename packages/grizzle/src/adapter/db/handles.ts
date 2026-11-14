@@ -13,7 +13,7 @@ import {
 	TransportFailure
 } from "#adapter/errors/execution.ts"
 import type { CallInputRefused } from "#adapter/errors/failures.ts"
-import { applyCallError, readCallError, readings } from "#adapter/live/call-error.ts"
+import { applyCallError, outcomeReading, readCallError } from "#adapter/live/call-error.ts"
 import { routeKeys } from "#adapter/live/router.ts"
 import type { Live, LiveAnswer } from "#adapter/live/subscriptions.ts"
 import { applyOutcome } from "#adapter/outcomes/index.ts"
@@ -617,7 +617,7 @@ const writtenOf = (
 			return Result.succeed({ kind: "unchanged", reads: outcome.reads })
 		case "invariant-rejected":
 			return Result.fail(
-				callError(readings.outcome[outcome.kind], {
+				callError(outcomeReading[outcome.kind], {
 					message: "the schema's laws refused the write",
 					refused: outcome.refused,
 					witness: outcome.witness
@@ -625,7 +625,7 @@ const writtenOf = (
 			)
 		case "outside-world":
 			return Result.fail(
-				callError(readings.outcome[outcome.kind], {
+				callError(outcomeReading[outcome.kind], {
 					message: `a fact the write adds lies outside the world relation ${outcome.relation}`,
 					relation: outcome.relation
 				})

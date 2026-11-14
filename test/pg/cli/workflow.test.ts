@@ -705,8 +705,8 @@ const runTamper = (r: Workspace, kind: TamperKind, model: Model) =>
  * A Db opened through the login's served file generate wrote, under the committed snapshot's fingerprint, and its first
  * call, the served key's read: Db.open contacts nothing, so it always opens,
  * and the read answers once the ledger's latest complete target is the snapshot, whichever folders are still pending.
- * The first migration creates the login's role: before it there is no role to log in as, and the read finds no session,
- * the CallError `unavailable`, whatever its password. Both versions' login is one login, `server`. A pending folder
+ * The first migration creates the login's role: before it there is no role to log in as, and the server refuses the
+ * read's login, the CallError `credentialRefused`, whatever its password. Both versions' login is one login, `server`. A pending folder
  * leaves the ledger behind, and the read's fence refuses it, the CallError `stale`.
  */
 const runOpen = (r: Workspace, model: Model) =>
@@ -771,7 +771,7 @@ const runOpen = (r: Workspace, model: Model) =>
 			)
 			assert.equal(
 				failure.kind,
-				model.applied === 0 ? "unavailable" : "stale",
+				model.applied === 0 ? "credentialRefused" : "stale",
 				`the read's failure: ${failure.message}`
 			)
 		}

@@ -21,6 +21,9 @@ const sqlstateLength = 5
  */
 const sqlstateClassLength = 2
 
+/** A SQLSTATE's text as a regular expression's body: the characters `parse` admits, `sqlstateLength` of them. */
+export const sqlstateBody = `[0-9A-Z]{${sqlstateLength}}`
+
 /** The code a server reported, as a SQLSTATE, or undefined for any other text. */
 const parse = (code: string): Sqlstate | undefined => {
 	if (code.length !== sqlstateLength) {
@@ -54,6 +57,16 @@ export const Sqlstate = Object.freeze({ parse })
 export const sqlstates = {
 	/** Class 28, invalid authorization: a startup the server refused for its role or password. */
 	invalidAuthorizationSpecification: brand("28000"),
+	/** A startup the server refused for its password: the password a role was given does not authenticate it. */
+	invalidPassword: brand("28P01"),
+	/** A startup the server refused because every connection slot it or the role allows is taken. */
+	tooManyConnections: brand("53300"),
+	/** The server ended a session or refused a startup because its administrator shut it down. */
+	adminShutdown: brand("57P01"),
+	/** The server ended a session or refused a startup because another of its processes crashed. */
+	crashShutdown: brand("57P02"),
+	/** A startup the server refused because it is starting up, recovering or shutting down. */
+	cannotConnectNow: brand("57P03"),
 	/**
 	 * A server statement the session named and the backend no longer has, or whose cached plan changed its result
 	 * type.

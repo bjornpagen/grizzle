@@ -209,6 +209,7 @@ const retryOf = (kind: CallErrorKind): "safe" | "never" => {
 		case "tokenRefused":
 		case "refused":
 		case "outsideWorld":
+		case "credentialRefused":
 		case "stale":
 		case "commitUnknown":
 		case "failed":

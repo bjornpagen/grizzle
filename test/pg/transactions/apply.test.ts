@@ -13,7 +13,8 @@
  *   at its member, with the CompileError OutsideRole; one over a sibling with Work's relations and other statements, or
  *   over an extension of the Db's schema, is refused where its workload is built, MalformedDescription, as its schema
  *   is no level of the role's; and the stored state is as it was;
- * - a failed acquisition is the CallError `unavailable`, from a member loaded while the credential still worked.
+ * - a failed acquisition, its password Effect failing, is the CallError `credentialRefused`, its reason
+ *   `passwordFailed`, from a member loaded while the credential still worked.
  *
  * The Db runs on a tapped pool whose first session is warmed, so a window of the tap holds one call's traffic. Every
  * refusal leaves the stored state as it was.
@@ -404,7 +405,13 @@ layer(Substrate.layer)("a change member's apply", (it) => {
 															const failed = yield* failureOf(
 																applied(tapped, run("base"), { insert: { TaskNote: notes } })
 															)
-															assert.equal(failed.kind, "unavailable", failed.message)
+															assert.deepEqual(
+																failed.kind === "credentialRefused"
+																	? [failed.kind, failed.reason]
+																	: [failed.kind],
+																["credentialRefused", "passwordFailed"],
+																failed.message
+															)
 														})
 													)
 													credential.ok = true

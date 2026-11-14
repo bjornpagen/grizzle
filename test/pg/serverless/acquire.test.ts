@@ -1,12 +1,13 @@
 /**
- * A connection that can't be had, for a Db already open (README "Errors and outcomes"): a failing `password` Effect or
- * a released layer fails a read and a write alike with the CallError `unavailable`, which is safe to retry: no session
- * was had, so nothing was sent.
+ * A connection that can't be had, for a Db already open (README "Errors and outcomes"): a failing `password` Effect
+ * fails a read and a write alike with the CallError `credentialRefused`, reason `passwordFailed`, never to retry, since
+ * the same call meets the same credential; a released layer with `unavailable`, reason `layerReleased`, which is safe
+ * to retry. Either way no session was had, so nothing was sent.
  *
  * The box, exhausted: each call that needs a session, a set read's, a key read's and a paged read's once and a write's,
  * against each way its connection can't be had: the password Effect failing for every connection after the Db opened,
  * once the pool's one session closed for idleness, or the Db's layer released. The oracle is the README's sentence,
- * restated per call: the call fails with `unavailable`, its retry `safe`.
+ * restated per call: the call fails with the way's kind, reason and retry.
  *
  *
  * Features: every call by every way its connection can't be had.
@@ -49,6 +50,20 @@ const point: Gen<readonly [Call, Unhad]> = (source) =>
 
 type AcquireFeature = `${Call}: ${Unhad}`
 
+/** What the README says each way a connection can't be had fails a call with: its kind, its reason and its retry. */
+const unhadError: { readonly [U in Unhad]: readonly [string, string, string] } = {
+	"the password fails": ["credentialRefused", "passwordFailed", "never"],
+	"the layer released": ["unavailable", "layerReleased", "safe"]
+}
+
+/** A call's failure as the README states it: its kind, its reason where its kind holds one, and its retry. */
+const statedOf = (failure: CallError): ReadonlyArray<string> =>
+	failure.kind === "credentialRefused"
+		? [failure.kind, failure.reason, failure.retry]
+		: failure.kind === "unavailable"
+			? [failure.kind, failure.reason.kind, failure.retry]
+			: [failure.kind, failure.retry]
+
 /**
  * The full world's workload, one member per call that needs a session: a read of an account's automatic tasks, the
  * Task key's read, a page of every task by id, and a note written with the facts each call gives.
@@ -77,7 +92,7 @@ const failureOf = <A, E>(
 
 layer(Substrate.layer)("a connection that can't be had", (it) => {
 	it.effect(
-		"fails a read and a write with the CallError unavailable, safe to retry, whichever way its connection can't be had",
+		"fails a read and a write with the CallError its way names, whichever way its connection can't be had",
 		(ctx) =>
 			searched(
 				ctx,
@@ -106,7 +121,7 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 							box: "each call that needs a session, against each way its connection can't be had",
 							oracle: {
 								kind: "specification",
-								name: "README: a connection that can't be had fails a read and a write with unavailable, safe to retry"
+								name: "README: a failing password fails a read and a write with credentialRefused, a released layer with unavailable"
 							},
 							caseHang,
 							concurrency: 1
@@ -181,8 +196,8 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 										`the call's failure: ${Formatter.format(failure)}`
 									)
 									assert.deepEqual(
-										[failure.kind, failure.retry],
-										["unavailable", "safe"],
+										statedOf(failure),
+										unhadError[unhad],
 										`${call}'s failure: ${failure.message}`
 									)
 									c.note(`${call}: ${unhad}`)

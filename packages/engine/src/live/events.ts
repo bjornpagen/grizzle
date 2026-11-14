@@ -13,14 +13,91 @@
  */
 import type { TransientTag } from "#compiler/core/errors.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { Sqlstate } from "#compiler/core/sqlstate.ts"
 import type { KeyFields, RowKey } from "#compiler/live/key.ts"
 import type { Refused, Witness } from "#compiler/types/changeset/changeset.ts"
 
 /**
+ * Why a session's connection was not authenticated, either way (`credentialRefused`), each met again by the same call
+ * until the connection's configuration changes:
+ *
+ * - `passwordFailed`: the connection's password Effect failed (CredentialError), so no credential was offered;
+ * - `passwordRefused`: the server refused the password, SQLSTATE 28P01 (invalid_password);
+ * - `loginRefused`: the server refused the login with any other SQLSTATE of class 28 (invalid authorization
+ *   specification), 28000 among them: no pg_hba.conf entry admits it, or its role does not exist or may not log in;
+ * - `tlsUnverified`: TLS did not come up verified: the server's certificate does not chain to the CA bundle or does
+ *   not name the host, the handshake failed with a code no system error has, or the server offers no TLS or answered
+ *   the SSLRequest with neither yes nor no;
+ * - `driverRefused`: the driver ended the authentication itself, with no SQLSTATE and no code: a SCRAM exchange whose
+ *   server proof does not verify, a mechanism it does not support, or a server asking a password of a role given none.
+ */
+export const credentialReasons = [
+	"passwordFailed",
+	"passwordRefused",
+	"loginRefused",
+	"tlsUnverified",
+	"driverRefused"
+] as const
+
+/** Why a session's connection was not authenticated (credentialReasons). */
+export type CredentialReason = (typeof credentialReasons)[number]
+
+/**
+ * The causes no session could be had for now (`unavailable`) that carry nothing beside their name, each one that may
+ * pass:
+ *
+ * - `connectionRefused`: nothing accepted the connection at its address: ECONNREFUSED, or ENOENT where a socket's path
+ *   is absent;
+ * - `hostUnreachable`: no route reaches the host: EHOSTUNREACH, ENETUNREACH, EHOSTDOWN, ENETDOWN;
+ * - `hostUnresolved`: the host's name did not resolve: ENOTFOUND, EAI_AGAIN;
+ * - `timedOut`: no answer within the connection's connect timeout, or the socket's own, ETIMEDOUT;
+ * - `connectionClosed`: the connection closed before the session was ready: the server closed it with no
+ *   ErrorResponse, or the socket was reset, ECONNRESET, EPIPE, ECONNABORTED;
+ * - `serverDown`: the server is shut down by its administrator (57P01 admin_shutdown), after a crash (57P02
+ *   crash_shutdown), or accepts no connection now, starting, recovering or stopping (57P03 cannot_connect_now);
+ * - `tooManyConnections`: every connection slot the server or the role allows is taken, 53300 too_many_connections;
+ * - `layerReleased`: the DbLayer the Db was opened under, or the live read registered on, was released;
+ * - `sessionLost`: a session the installation's live source holds ended;
+ * - `slotAbsent`: the installation's replication slot does not stand yet: its live leader makes it;
+ * - `slotInvalidated`: the installation's replication slot was invalidated: its live leader makes it again;
+ * - `leaderFailed`: the process's candidacy for the installation's live leader failed with no connection's or
+ *   server's refusal as its cause.
+ */
+export const unavailableCauses = [
+	"connectionRefused",
+	"hostUnreachable",
+	"hostUnresolved",
+	"timedOut",
+	"connectionClosed",
+	"serverDown",
+	"tooManyConnections",
+	"layerReleased",
+	"sessionLost",
+	"slotAbsent",
+	"slotInvalidated",
+	"leaderFailed"
+] as const
+
+/** A cause no session could be had for now that carries nothing beside its name (unavailableCauses). */
+export type UnavailableCause = (typeof unavailableCauses)[number]
+
+/**
+ * Why no session could be had for now (`unavailable`): a named cause (unavailableCauses); or, for a cause no name
+ * classifies, the code that reports it, never its words: `otherSqlstate`, the server's refusal with any other SQLSTATE,
+ * 3D000 for a database that does not exist among them; `otherSocketCode`, the socket's failure with any other code,
+ * its errno's name for a system error.
+ */
+export type UnavailableReason =
+	| { readonly kind: UnavailableCause }
+	| { readonly kind: "otherSqlstate"; readonly sqlstate: Sqlstate }
+	| { readonly kind: "otherSocketCode"; readonly code: string }
+
+/**
  * What one payload member holds, by the slot that types it: a text; reset's key fields; a row; a key; the key an
  * ordered row follows, null for the first; a write's outcome; a CallError, of the kinds its answer may end with
- * (Failure); a refusal's laws and witness; and which concurrent refusal a transient error met (core/errors.ts
- * TransientTag).
+ * (Failure); a refusal's laws and witness; which concurrent refusal a transient error met (core/errors.ts
+ * TransientTag); why a connection was not authenticated (CredentialReason); and why no session could be had for now
+ * (UnavailableReason).
  */
 export interface SlotValues<Row, Outcome, Failure = CallError> {
 	readonly text: string
@@ -33,6 +110,8 @@ export interface SlotValues<Row, Outcome, Failure = CallError> {
 	readonly refused: Refused
 	readonly witness: Witness
 	readonly transientReason: TransientTag
+	readonly credentialReason: CredentialReason
+	readonly unavailableReason: UnavailableReason
 }
 
 /** The slots a payload member is typed by. */
@@ -61,7 +140,12 @@ export type Retry = "safe" | "never"
  * - `outsideWorld`: a fact the write adds lies outside the written world relation.
  * - `transient`: SERIALIZABLE refused the attempt (40001, 40P01) or a concurrent writer's change met it, and it
  *   changed nothing (TransientFailure); `reason` names which.
- * - `unavailable`: no session could be opened: the pool or the handle refused one before anything was sent.
+ * - `credentialRefused`: no session could be had because its connection was not authenticated, either way: the
+ *   credential could not be had or the server refused it, or the server's certificate did not verify; nothing was
+ *   sent, and the same call meets the same refusal until the connection's configuration changes; `reason` names which
+ *   (CredentialReason).
+ * - `unavailable`: no session could be had for now: the pool or the handle refused one before anything was sent, for
+ *   a cause that may pass; `reason` names which (UnavailableReason).
  * - `transport`: a connection broke before the terminal event, the client's exchange or the server's session, of a
  *   read, which commits nothing, or of a write before its COMMIT was sent.
  * - `stale`: the database does not hold the snapshot the server was deployed with, so the call ran nothing.
@@ -80,7 +164,8 @@ export const callErrors = {
 	},
 	outsideWorld: { retry: "never", payload: { message: "text", relation: "text" } },
 	transient: { retry: "safe", payload: { message: "text", reason: "transientReason" } },
-	unavailable: { retry: "safe", payload: { message: "text" } },
+	credentialRefused: { retry: "never", payload: { message: "text", reason: "credentialReason" } },
+	unavailable: { retry: "safe", payload: { message: "text", reason: "unavailableReason" } },
 	transport: { retry: "safe", payload: { message: "text" } },
 	stale: { retry: "never", payload: { message: "text" } },
 	commitUnknown: { retry: "never", payload: { message: "text" } },
@@ -133,9 +218,27 @@ export const callError = <K extends CallErrorKind>(
 export const failures = {
 	door: ["route", "input", "tokenRefused", "stale"],
 	open: ["route", "tokenRefused", "failed"],
-	read: ["refused", "input", "transient", "unavailable", "transport", "stale", "failed"],
-	watch: ["unavailable", "stale", "failed", "tokenExpired"],
-	apply: ["input", "transient", "unavailable", "transport", "stale", "commitUnknown", "failed"],
+	read: [
+		"refused",
+		"input",
+		"transient",
+		"credentialRefused",
+		"unavailable",
+		"transport",
+		"stale",
+		"failed"
+	],
+	watch: ["credentialRefused", "unavailable", "stale", "failed", "tokenExpired"],
+	apply: [
+		"input",
+		"transient",
+		"credentialRefused",
+		"unavailable",
+		"transport",
+		"stale",
+		"commitUnknown",
+		"failed"
+	],
 	outcome: ["refused", "outsideWorld"]
 } as const satisfies { readonly [source: string]: NonEmptyReadonlyArray<CallErrorKind> }
 

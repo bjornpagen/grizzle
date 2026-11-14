@@ -5,10 +5,13 @@
 export {
 	type AnswerFailure,
 	type CallError,
+	type CallErrorIn,
 	type CallErrorKind,
 	type CallErrorOf,
+	type CredentialReason,
 	callError,
 	callErrors,
+	credentialReasons,
 	type EventDescriptor,
 	type EventOfShape,
 	events,
@@ -31,6 +34,9 @@ export {
 	type ShapeFailure,
 	type Slot,
 	type SlotValues,
+	type UnavailableCause,
+	type UnavailableReason,
+	unavailableCauses,
 	type WriteEvent
 } from "#compiler/live/events.ts"
 export {

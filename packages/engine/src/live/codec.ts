@@ -14,14 +14,20 @@ import { type TransientTag, transientTags } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
+import { Sqlstate } from "#compiler/core/sqlstate.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import {
 	type CallError,
 	type CallErrorKind,
+	type CredentialReason,
 	callError,
 	callErrors,
+	credentialReasons,
 	type Slot,
-	type SlotValues
+	type SlotValues,
+	type UnavailableCause,
+	type UnavailableReason,
+	unavailableCauses
 } from "#compiler/live/events.ts"
 import { type KeyFields, RowKey } from "#compiler/live/key.ts"
 import type { Anchor, Input, NoFacts, Window, WindowInput } from "#compiler/live/program.ts"
@@ -885,6 +891,13 @@ const encodeErrorMember = (
 				throw defect("a transient CallError's reason, one of transientTags")
 			}
 			return value
+		case "credentialReason":
+			if (!isCredentialReason(value)) {
+				throw defect("a credentialRefused CallError's reason, one of credentialReasons")
+			}
+			return value
+		case "unavailableReason":
+			return encodeUnavailableReason(value)
 		case "fields":
 		case "row":
 		case "key":
@@ -898,6 +911,56 @@ const encodeErrorMember = (
 /** Whether a value is a transient refusal's tag (core/errors.ts transientTags). */
 const isTransientTag = (value: unknown): value is TransientTag =>
 	transientTags.some((tag) => tag === value)
+
+/** Whether a value is a reason a connection was not authenticated (live/events.ts credentialReasons). */
+const isCredentialReason = (value: unknown): value is CredentialReason =>
+	credentialReasons.some((reason) => reason === value)
+
+/** Whether a value is a named cause no session could be had for now (live/events.ts unavailableCauses). */
+const isUnavailableCause = (value: unknown): value is UnavailableCause =>
+	unavailableCauses.some((cause) => cause === value)
+
+/**
+ * The JSON of an unavailable CallError's reason (live/events.ts UnavailableReason): a named cause alone, or the
+ * SQLSTATE or the socket's code no name classifies, each member exactly as the reason holds it.
+ */
+const encodeUnavailableReason = (value: unknown): WireJson => {
+	if (isPlainRecord(value)) {
+		const kind = value["kind"]
+		if (isUnavailableCause(kind)) {
+			return { kind }
+		}
+		const sqlstate = value["sqlstate"]
+		if (
+			kind === "otherSqlstate" &&
+			typeof sqlstate === "string" &&
+			Sqlstate.parse(sqlstate) !== undefined
+		) {
+			return { kind, sqlstate }
+		}
+		const code = value["code"]
+		if (kind === "otherSocketCode" && typeof code === "string") {
+			return { kind, code }
+		}
+	}
+	throw defect(
+		"an unavailable CallError's reason, a named cause or another SQLSTATE or socket code"
+	)
+}
+
+/** An unavailable CallError's reason from the server's own JSON. */
+const decodeUnavailableReason = (json: WireJson): UnavailableReason => {
+	const record = trustedRecord(json)
+	const kind = trustedString(trustedMember(record, "kind"))
+	switch (kind) {
+		case "otherSqlstate":
+			return { kind, sqlstate: trusted<Sqlstate>(trustedString(trustedMember(record, "sqlstate"))) }
+		case "otherSocketCode":
+			return { kind, code: trustedString(trustedMember(record, "code")) }
+		default:
+			return { kind: trusted<UnavailableCause>(kind) }
+	}
+}
 
 /** The JSON of a CallError: its kind, its retry and its payload's members by their slots. */
 const encodeError = (wire: MemberWire, error: CallError, options: WireOptions): WireJson => {
@@ -922,7 +985,9 @@ export const slotEncoders = (wire: MemberWire, options: WireOptions): SlotEncode
 	error: (value) => encodeError(wire, value, options),
 	refused: (value) => plainJson(value),
 	witness: (value) => encodeWitness(wire.witness, value, options),
-	transientReason: (value) => value
+	transientReason: (value) => value,
+	credentialReason: (value) => value,
+	unavailableReason: encodeUnavailableReason
 })
 
 /** A CallError's message from the server's own JSON. */
@@ -956,8 +1021,17 @@ const errorDecoders = (
 			message: messageOf(r),
 			reason: trusted<TransientTag>(trustedString(trustedMember(r, "reason")))
 		}),
+	credentialRefused: (r) =>
+		callError("credentialRefused", {
+			message: messageOf(r),
+			reason: trusted<CredentialReason>(trustedString(trustedMember(r, "reason")))
+		}),
 	transport: (r) => callError("transport", { message: messageOf(r) }),
-	unavailable: (r) => callError("unavailable", { message: messageOf(r) }),
+	unavailable: (r) =>
+		callError("unavailable", {
+			message: messageOf(r),
+			reason: decodeUnavailableReason(trustedMember(r, "reason"))
+		}),
 	stale: (r) => callError("stale", { message: messageOf(r) }),
 	commitUnknown: (r) => callError("commitUnknown", { message: messageOf(r) }),
 	failed: (r) => callError("failed", { message: messageOf(r) })
@@ -990,5 +1064,7 @@ export const slotDecoders = (wire: MemberWire, options: WireOptions): SlotDecode
 	error: (json) => decodeError(wire, json, options),
 	refused: (json) => trusted<Refused>(json),
 	witness: (json) => decodeWitness(wire.witness, json, options),
-	transientReason: (json) => trusted<TransientTag>(trustedString(json))
+	transientReason: (json) => trusted<TransientTag>(trustedString(json)),
+	credentialReason: (json) => trusted<CredentialReason>(trustedString(json)),
+	unavailableReason: decodeUnavailableReason
 })

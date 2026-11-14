@@ -10,6 +10,7 @@ export { encodeInput, slotDecoders, wireText } from "#compiler/live/codec.ts"
 export {
 	type CallError,
 	type CallErrorKind,
+	type CredentialReason,
 	callError,
 	type EventDescriptor,
 	events,
@@ -17,6 +18,8 @@ export {
 	type ReadShape,
 	type Retry,
 	type Shape,
+	type UnavailableCause,
+	type UnavailableReason,
 	type WriteEvent,
 	wireHeader
 } from "#compiler/live/events.ts"

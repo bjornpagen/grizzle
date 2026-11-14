@@ -554,9 +554,13 @@ The command line's own refusals, by stage:
   transaction and meets the check too, so a stale `Db` never answers it `unchanged`. Deploy the code that
   carries the new snapshot.json, and open new `Db`s with it.
 - Handle a call's failure by its `CallError`'s `kind`, one of a closed set, and its `retry`: `"safe"` when the same
-  call may succeed run again (`transient`, its `reason` naming the concurrent work that refused it; `unavailable`;
-  `transport`; `tokenExpired`), `"never"` otherwise (`input`, `tokenRefused`, `refused`, `outsideWorld`, `stale`,
-  `commitUnknown`, `failed`, and over HTTP `route`). Its `message` is the failure's own words, the server's report
+  call may succeed run again (`transient`, its `reason` naming the concurrent work that refused it; `unavailable`, its
+  `reason` a `{ kind }` naming why no session could be had for now, the network, the server or a released layer, with
+  the SQLSTATE or socket code of a cause no name classifies; `transport`; `tokenExpired`), `"never"` otherwise
+  (`input`, `tokenRefused`, `refused`, `outsideWorld`, `credentialRefused`, its `reason` naming how the connection
+  was not authenticated: `passwordFailed`, `passwordRefused`, `loginRefused`, `tlsUnverified`, `driverRefused`;
+  `stale`, `commitUnknown`, `failed`, and over HTTP `route`). A configuration fault is `credentialRefused`; a database
+  that is down is `unavailable`. Its `message` is the failure's own words, the server's report
   where the database refused; read facts from the kind's members, never from the message. Run a call again only when
   its `retry` is `"safe"`, with `Effect.retry` and your own `Schedule`; after `commitUnknown`, read back before running
   the call again. `DbLayer.make` and `Db.open` fail with `OpenError`, whose tagged `reason` `Effect.catchReason`

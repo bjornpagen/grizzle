@@ -1,7 +1,7 @@
 import { Clock, Deferred, Duration, Effect, Option, Result, type Scope, Stream } from "effect"
 import type { Expiry } from "#adapter/db/claims.ts"
 import type { ServerError } from "#adapter/errors/failures.ts"
-import { watchError } from "#adapter/live/call-error.ts"
+import { sourceCallError, watchEnded } from "#adapter/live/call-error.ts"
 import { addRoutes, removeRoutes, route, type RouteIndex } from "#adapter/live/router.ts"
 import type { ChangeSink, ChangeSource, SourceLoss, SourceRefusal } from "#adapter/live/source.ts"
 import type { AnswerFailure, FailureOf, Keyed, ReadShape, ReadState } from "#compiler/live/index.ts"
@@ -97,50 +97,30 @@ const reported = (error: ServerError): string =>
 	error.hint === undefined ? error.message : `${error.message} (${error.hint})`
 
 /**
- * The error a source's refusal or loss ends a read with: `unavailable`, which a client calls again, for every one but
- * an answer no format reads or a slot's secret that is no key, which are `failed`, and a migration of the installation,
- * `stale`, which the process's served files then are; the server's own report keeps its hint, which names the setting
- * a refusal like 53400's asks to raise.
+ * The words a source's refusal or loss ends a read with: the server's own report keeps its hint, which names the
+ * setting a refusal like 53400's asks to raise, its leader's as its own; any other cause's message.
  */
-const sourceError = (reason: SourceRefusal | SourceLoss): FailureOf<"watch"> => {
-	switch (reason._tag) {
-		case "ServerError":
-			return watchError(reason._tag, reported(reason))
-		case "LeaderFailed":
-			return watchError(
-				reason._tag,
-				reason.reason._tag === "ServerError"
-					? `the installation's live leader in this process failed: ${reported(reason.reason)}`
-					: reason.message
-			)
-		case "UnreadableAnswer":
-		case "SecretUnreadable":
-		case "CredentialError":
-		case "ConnectTimedOut":
-		case "SocketFailed":
-		case "StartupRefused":
-		case "TlsRefused":
-		case "ConnectionClosed":
-		case "DriverRefused":
-		case "NoCancelKey":
-		case "ConnectionLost":
-		case "DriverFailure":
-		case "InputTooLarge":
-		case "SlotAbsent":
-		case "ListenerLost":
-		case "SourceInvalidated":
-		case "SourceMigrated":
-			return watchError(reason._tag, reason.message)
-	}
-}
+const sourceMessage = (reason: SourceRefusal | SourceLoss): string =>
+	reason._tag === "ServerError"
+		? reported(reason)
+		: reason._tag === "LeaderFailed" && reason.reason._tag === "ServerError"
+			? `the installation's live leader in this process failed: ${reported(reason.reason)}`
+			: reason.message
+
+/**
+ * The error a source's refusal or loss ends a read with, by its cause (live/call-error.ts sourceCallError): a client
+ * calls again after `unavailable`, never after `credentialRefused`, `failed` or `stale`.
+ */
+const sourceError = (reason: SourceRefusal | SourceLoss): FailureOf<"watch"> =>
+	sourceCallError(reason, sourceMessage(reason))
 
 /** The error a source's scope closing ends its reads with: the layer was released. */
 const sourceClosed = (): FailureOf<"watch"> =>
-	watchError("SourceClosed", "the DbLayer the live read was registered on has been released")
+	watchEnded("SourceClosed", "the DbLayer the live read was registered on has been released")
 
 /** The error a read's token's expiry ends it with. */
 const tokenExpired = (): FailureOf<"watch"> =>
-	watchError("TokenExpired", "the token the Db was opened with expired")
+	watchEnded("TokenExpired", "the token the Db was opened with expired")
 
 /** The generation open: a subscription waiting for it registers. */
 const openGeneration = (generation: Generation): void => {
@@ -225,7 +205,7 @@ export interface Subscriptions {
 export const unsourced: Subscriptions = {
 	register: (request) =>
 		Effect.sync(() => {
-			const error = watchError(
+			const error = watchEnded(
 				"Unsourced",
 				"the live source was built over a login whose served file holds no live source: build it over one that serves a read"
 			)
