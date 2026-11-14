@@ -17,7 +17,7 @@ import {
 } from "#test/support/worlds/model/host.ts"
 import { reachedPairs, steppedPairs } from "#test/support/worlds/model/reads.ts"
 import { compileRefused, readBackClasses } from "#test/support/worlds/model/session/apply.ts"
-import { handSetFaults } from "#test/support/worlds/model/session/direct.ts"
+import { handSetFaults, onConflictSets } from "#test/support/worlds/model/session/direct.ts"
 import { reorderedRoster } from "#test/support/worlds/model/session/migrate.ts"
 import {
 	dbSessionAt,
@@ -37,6 +37,7 @@ import {
 	installedWrite,
 	keysOf,
 	serialHead,
+	updatableFields,
 	writtenNamed
 } from "#test/support/worlds/model/session/writes.ts"
 import type {
@@ -740,6 +741,27 @@ const raiseOnTable = (actor: RoleActor, touch: Touch, field: string, value: Host
 			Option.exists(Record.get(s.fact, field), (v) => equalValues(v, value))
 	)
 
+/**
+ * Whether a direct writer's ON CONFLICT reaches the stored row it meets with every privilege it needs: a DO SELECT
+ * always, a DO UPDATE where the role may set each column its SET names (onConflictSets, updatableFields), since
+ * PostgreSQL refuses a column it may not update before it meets any row. Only then is a 42501 the conflicting row's.
+ */
+const conflictJudged = (
+	actor: RoleActor,
+	relation: string,
+	fact: HostFact,
+	kind: "select" | "update"
+): boolean => {
+	if (kind === "select") {
+		return true
+	}
+	const written = installedWrite(actor.state, actor.role.name, relation)
+	const updatable = written === undefined ? [] : updatableFields(actor.state.install.base, written)
+	return Arr.every(onConflictSets(actor.state.install.base, relation, fact), (f) =>
+		updatable.includes(f)
+	)
+}
+
 /** The privilege a direct statement on a base relation needs, which the role holds by writing the relation. */
 const holdsFor = (state: ModelState, role: RoleSpec, statement: DirectStatement): boolean => {
 	const base = state.install.base
@@ -962,6 +984,11 @@ const statementObjects = (
 								resolution.kind !== "nothing" &&
 								resolution.where.kind === "raise-on" &&
 								refusedPrivilege(observation) &&
+								conflictJudged(actor, statement.relation, statement.fact, resolution.kind) &&
+								membershipOf(actor, touch, {
+									relation: statement.relation,
+									fact: statement.fact
+								}) === "inside" &&
 								raiseOnTable(actor, touch, resolution.where.field, resolution.where.value)
 							return [
 								...(observation.kind === "ok"

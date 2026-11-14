@@ -343,6 +343,21 @@ const metBy = (
 	}
 }
 
+/**
+ * The columns a direct writer's INSERT ... ON CONFLICT DO UPDATE sets on the stored row it meets (execute/direct.ts
+ * onConflictSql): each field the fact states outside every key, or, where it states none, its primary key's fields, which
+ * it sets to the proposed row's.
+ */
+export const onConflictSets = (
+	base: BaseSpec,
+	relation: string,
+	fact: HostFact
+): ReadonlyArray<string> => {
+	const keyed = new Set(keysOf(base, relation).flat())
+	const payload = Arr.filter(Record.keys(fact), (f) => !keyed.has(f))
+	return payload.length > 0 ? payload : (relationSpecOf(base, relation)?.key ?? [])
+}
+
 /** One hand-set claim's fault an answer refused: its context and field, the field's domain, and the SQLSTATE it met. */
 interface ClaimFault {
 	readonly context: string
@@ -1186,14 +1201,9 @@ export const directBranches = (
 				return [parsed]
 			}
 			const at = write(statement.relation)
-			const keyed = new Set(keysOf(base, statement.relation).flat())
-			const payload = Arr.filter(Record.keys(statement.fact), (f) => !keyed.has(f))
 			const key = relationSpecOf(base, statement.relation)?.key ?? []
-			/**
-			 * A fact with no field outside every key sets its primary key's fields to the proposed row's, an identity's
-			 * drawn value where the fact leaves a serial key field to it.
-			 */
-			const sets = payload.length > 0 ? payload : key
+			/** An identity's drawn value sets a serial key field where the fact leaves it to the default. */
+			const sets = onConflictSets(base, statement.relation, statement.fact)
 			const resolution = statement.onConflict
 			/** The writer's predicate over the stored row, which DO NOTHING states none of. */
 			const where: ViewFilter = resolution.kind === "nothing" ? { kind: "none" } : resolution.where

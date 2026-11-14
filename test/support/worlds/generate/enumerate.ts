@@ -1304,17 +1304,31 @@ const directStatements = (
 					)
 		}),
 		...Arr.flatMap(relations, (r) =>
-			Arr.flatMap(viewOf(r.name), (fact): ReadonlyArray<DirectStatement> => {
+			Arr.flatMap(viewOf(r.name), (stored): ReadonlyArray<DirectStatement> => {
 				const field = Arr.headNonEmpty(r.key)
-				const value = fact[field]
+				const value = stored[field]
+				const atKey = keyOf(stored, r.key)
 				return value === undefined
 					? []
-					: Arr.map(["select", "update"] as const, (kind): DirectStatement => ({
-							kind: "insert-on-conflict",
-							relation: r.name,
-							fact,
-							onConflict: { kind, where: { kind: "raise-on", field, value } }
-						}))
+					: Arr.flatMap(
+							[
+								stored,
+								...Arr.map(
+									eachChoice(
+										Arr.filter(r.fields, (f) => !r.key.includes(f.name)),
+										(f) => valuesFor(state, f.domain, scope)
+									),
+									(payload): HostFact => ({ ...payload, ...atKey })
+								)
+							],
+							(fact) =>
+								Arr.map(["select", "update"] as const, (kind): DirectStatement => ({
+									kind: "insert-on-conflict",
+									relation: r.name,
+									fact,
+									onConflict: { kind, where: { kind: "raise-on", field, value } }
+								}))
+						)
 			})
 		),
 		...Arr.flatMap(relations, (r) =>
