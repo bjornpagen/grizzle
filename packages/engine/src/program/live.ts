@@ -11,6 +11,9 @@ import {
 	arrayParam,
 	bool,
 	call,
+	asText,
+	type CatalogExpr,
+	cast,
 	coalesce,
 	eq,
 	exists,
@@ -21,6 +24,7 @@ import {
 	not,
 	param,
 	query,
+	scalar,
 	text
 } from "#compiler/sql/catalog.ts"
 import { emitCatalog } from "#compiler/sql/emit.ts"
@@ -29,13 +33,19 @@ import { emitCatalog } from "#compiler/sql/emit.ts"
 const preparedRead = (read: CatalogSelect) => prepared(emitCatalog(read))
 
 /**
- * Whether the slot of `$1::name` stands in the current database, not invalidated: a read of pg_replication_slots,
- * which PUBLIC reads, as every catalog view.
+ * A WAL position as a live source's texts carry it (live/notify.ts WalPosition): its bytes from 0/0, as decimal text.
  */
-const slotStands = (): CatalogSelect => {
+const positionText = (lsn: CatalogExpr): CatalogExpr =>
+	asText(call("pg_wal_lsn_diff", [lsn, cast(text("0/0"), "pg_lsn")]))
+
+/**
+ * The position the slot of `$1::name` stands at in the current database, not invalidated: its confirmed_flush_lsn
+ * (positionText), read from pg_replication_slots, which PUBLIC reads, as every catalog view; no row where none stands.
+ */
+const slotPosition = (): CatalogSelect => {
 	const slot = from("pg_replication_slots", "r")
 	return query(
-		[bool(true)],
+		[positionText(slot.col("confirmed_flush_lsn"))],
 		[slot.item],
 		and([
 			eq(slot.col("slot_name"), param(1, "name")),
@@ -131,7 +141,16 @@ export const servedLiveOf = (root: string, source: LiveSource): ServedLive => {
 		),
 		createSlot: createSlotTemplate,
 		start: startTemplate(publication),
-		check: preparedRead(query([exists(slotStands())], [], undefined)),
+		check: preparedRead(
+			query(
+				[
+					coalesce([scalar(slotPosition()), text("")]),
+					positionText(call("pg_current_wal_lsn", []))
+				],
+				[],
+				undefined
+			)
+		),
 		visible: preparedRead(
 			query(
 				[

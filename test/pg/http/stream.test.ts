@@ -11,23 +11,29 @@
  *   answers' next batches up to their `ready` are again one batch.
  * - A write, a put of drawn items: its answer over HTTP is its outcome, then `end`, accepted exactly when some item it
  *   puts is not stored as it states it, and the same put again in-process is unchanged.
- * - Disconnect: the HTTP answer's body cancelled while its read is live, every session of the login's pool is back,
- *   none leased, so the call released what it held.
+ * - Disconnect: the HTTP answer's body cancelled while its read is live, and the in-process read stopped with it,
+ *   every session of the login's pool comes back, none leased, read after each release pg's pool reports, so the call
+ *   released what it held; one it never released leaves the case waiting, which the hang guard reports.
+ * - Before a read's first call, its in-process watch is called until it settles at its ready, each refusal before that
+ *   `unavailable` and safe to call again (test/support/live/standing.ts): a fresh installation's first live
+ *   registrations meet no replication slot until its leader makes one, and a caller calls again. The in-process read's
+ *   events ending before their next ready fail the case, never wait.
  *
  * Every answer is read as WHATWG HTML reads an event stream (test/support/event-stream.ts), never through the
- * server's framing.
+ * server's framing. A case whose turn aims at a pending call feature runs one constructed to reach it (aimedCase), so the
+ * label-fixed streams reach every kind of call.
  *
  * Plants (~/.cache/grizzle-release/LIVE-HTTP/plants): http-buffered.patch (the answer's events collected before the
  * body is written: a live read's first upsert never reaches its client, the case hangs and fails).
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { constant, element, type Gen, int, oneOf, shuffled } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Queue, Result, Stream } from "effect"
+import { Array as Arr, Deferred, Effect, Formatter, Option, Queue, Result, Stream } from "effect"
 import { memberCalls, type ServedCalls } from "#adapter/db/handles.ts"
 import { openServed } from "#adapter/db/served.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
@@ -47,6 +53,7 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { holdsCount, openStream, readStream, type StreamEvent } from "#test/support/event-stream.ts"
 import { caseHang, nodeTimerMax, nodeTimerMin } from "#test/support/limits.ts"
+import { standing } from "#test/support/live/standing.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -112,6 +119,7 @@ type Feature =
 	| "a write unchanged"
 	| "a live change reaching both answers"
 	| "a disconnect while live"
+	| "a read called again once the slot stood"
 
 const ids = Object.freeze(Arr.range(1, 12))
 
@@ -175,6 +183,89 @@ const caseGen: Gen<StreamCase> = (source) => {
 	}
 }
 
+/**
+ * Each call feature with the case constructed to reach it, drawn on the case's own tape: a set read, a key, an ordered
+ * read's window from its start or its end, a put of one item at an id the stored items leave free, which no stored item
+ * states, so it is accepted, and a put of stored items as stored, so it is unchanged.
+ */
+const aims: ReadonlyArray<readonly [Feature, Gen<StreamCase>]> = Arr.map(
+	[
+		[
+			"a set read",
+			(): Gen<Call> => (source) => ({
+				member: "atLeast",
+				input: { params: { floor: source.draw(int(-3, 3)) } }
+			})
+		],
+		[
+			"a key",
+			(): Gen<Call> => (source) => ({
+				member: "item",
+				input: { params: { id: source.draw(element([...ids] as const)) } }
+			})
+		],
+		...Arr.map(
+			["start", "end"] as const,
+			(kind) =>
+				[
+					kind === "start" ? "an ordered read from its start" : "an ordered read from its end",
+					(): Gen<Call> => (source) => ({
+						member: "ranked",
+						input: { window: { anchor: { kind }, size: source.draw(int(1, 5)) } }
+					})
+				] as const
+		),
+		[
+			"a write accepted",
+			(stored: ReadonlyArray<ItemFact>): Gen<Call> =>
+				(source) => {
+					const free = Arr.filter(ids, (id) => !Arr.some(stored, (item) => item.id === id))
+					return {
+						member: "put",
+						input: {
+							put: [
+								{
+									id: source.draw(element(Arr.isReadonlyArrayNonEmpty(free) ? free : ids)),
+									score: source.draw(int(-3, 3))
+								}
+							]
+						}
+					}
+				}
+		],
+		[
+			"a write unchanged",
+			(stored: ReadonlyArray<ItemFact>): Gen<Call> =>
+				() => ({
+					member: "put",
+					input: { put: Arr.take(stored, 2) }
+				})
+		]
+	] as const,
+	([feature, callOf]): readonly [Feature, Gen<StreamCase>] => [
+		feature,
+		(source) => {
+			const stored = source.draw(itemsGen(feature === "a write unchanged" ? 1 : 0, 6))
+			return {
+				stored,
+				call: source.draw(callOf(stored)),
+				write: source.draw(itemsGen(1, 3)),
+				heartbeatMs: source.draw(heartbeatGen)
+			}
+		}
+	]
+)
+
+/**
+ * The case a property runs: its drawn one, or, where its turn aims at a pending call feature (Case.steering), one
+ * constructed to reach it, drawn on the case's own tape, so the cases of one window aim at distinct pending features.
+ */
+const aimedCase = (drawnCase: StreamCase, k: Case<Feature>): StreamCase => {
+	const pending = Option.getOrUndefined(k.steering)
+	const aim = Arr.findFirst(aims, ([feature]) => pending?.aimed(feature) === true)
+	return Option.isNone(aim) ? drawnCase : k.draw(aim.value[1])
+}
+
 /** A call's body, `{ params, facts }` and a window's, every member present, `{}` where none. */
 const bodyOf = (call: Call): Json => {
 	switch (call.member) {
@@ -214,14 +305,14 @@ const inProcess = (
 	}
 }
 
-/** The events from `from` through the `count`th `ready`: one batch of an answer. */
+/** The events from `from` through the `count`th `ready` at or after it: one batch of an answer. */
 const batch = (
 	events: ReadonlyArray<StreamEvent>,
 	from: number,
 	count: number
 ): ReadonlyArray<StreamEvent> => {
 	const readies = Arr.filterMap(events, (e, place) =>
-		e.event === "ready" ? Result.succeed(place) : Result.failVoid
+		e.event === "ready" && place >= from ? Result.succeed(place) : Result.failVoid
 	)
 	return events.slice(from, defined(readies[count - 1], `ready ${count}`) + 1)
 }
@@ -327,8 +418,9 @@ layer(Substrate.layer, { excludeTestServices: true })("a call over HTTP", (it) =
 						steerEvery: 4,
 						caseHang
 					},
-					({ stored, call, write, heartbeatMs }, notes) =>
+					(drawnCase, notes) =>
 						Effect.gen(function* () {
+							const { stored, call, write, heartbeatMs } = aimedCase(drawnCase, notes)
 							const o = yield* installed(Items, { Item: stored }, { label: "http", programs })
 							const printed = () => Formatter.format({ stored, call, write, heartbeatMs })
 							const login = o.served.login
@@ -345,6 +437,12 @@ layer(Substrate.layer, { excludeTestServices: true })("a call over HTTP", (it) =
 									fold: Option.match
 								})
 								const body = bodyOf(call)
+								if (calls.shape === "set" || calls.shape === "list") {
+									const live = calls
+									if ((yield* standing(() => live.watch(body))) > 0) {
+										notes.note("a read called again once the slot stood")
+									}
+								}
 								const response = yield* Effect.promise(() =>
 									handler(
 										new Request(`${origin}/${login.name}/${role.role}/${call.member}`, {
@@ -383,20 +481,39 @@ layer(Substrate.layer, { excludeTestServices: true })("a call over HTTP", (it) =
 									)
 								}
 								const local = yield* Queue.unbounded<StreamEvent>()
-								yield* Effect.forkScoped(
-									Stream.runForEach(inProcess(calls, slots, body), (e) => Queue.offer(local, e))
-								)
+								const pool = opened.sessions.pool
+								const release = { next: Deferred.makeUnsafe<void>() }
+								pool.native.on("release", () => {
+									const released = release.next
+									release.next = Deferred.makeUnsafe<void>()
+									Deferred.doneUnsafe(released, Effect.void)
+								})
+								/** Every lease of the pool released: its count read after each release pg reports, never a timer. */
+								const allReleased: Effect.Effect<void> = Effect.suspend(() => {
+									const next = release.next
+									return Effect.flatMap(pool.leased, (leased) =>
+										leased === 0 ? Effect.void : Effect.andThen(Deferred.await(next), allReleased)
+									)
+								})
 								const localUntil = (count: number) =>
 									Effect.gen(function* () {
 										const events: Array<StreamEvent> = []
 										while (Arr.filter(events, (e) => e.event === "ready").length < count) {
 											const event = yield* Queue.take(local)
+											if (event.event === "error" || event.event === "end") {
+												return yield* Effect.die(
+													`the in-process read ends before its next ready: ${Formatter.format(events.concat(event))}\n${printed()}`
+												)
+											}
 											events.push(event)
 										}
 										return events
 									})
 								yield* Effect.scoped(
 									Effect.gen(function* () {
+										yield* Effect.forkScoped(
+											Stream.runForEach(inProcess(calls, slots, body), (e) => Queue.offer(local, e))
+										)
 										const http = yield* openStream(answer)
 										const first = yield* http.until(holdsCount("ready", 1))
 										const localFirst = yield* localUntil(1)
@@ -424,9 +541,8 @@ layer(Substrate.layer, { excludeTestServices: true })("a call over HTTP", (it) =
 										notes.note("a live change reaching both answers")
 									})
 								)
+								yield* allReleased
 								notes.note("a disconnect while live")
-								const leased = yield* opened.sessions.pool.leased
-								assert.equal(leased, 0, `the call its client left holds no session\n${printed()}`)
 							}).pipe(withLayer(o.served.layer))
 						}).pipe(Effect.scoped, Effect.orDie)
 				)

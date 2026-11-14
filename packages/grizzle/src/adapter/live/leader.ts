@@ -43,13 +43,15 @@ import {
 	type Notification,
 	parseLiveSecret,
 	parseSenderDeadline,
+	parseWalPosition,
 	type ReplicationCommand,
 	sealBatch,
 	sealNonce,
 	sealNonceBytes,
 	type SenderDeadline,
 	textArrayParam,
-	textParam
+	textParam,
+	type WalPosition
 } from "#compiler/plan/runtime.ts"
 import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
 
@@ -60,8 +62,10 @@ import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
  * connection ends and another process's candidacy takes it at once; and an ordinary session, for the statements a
  * walsender does not run mid-stream. No two leaders run: the lock is the leadership.
  *
- * Leading, where no slot stands, or one stands invalidated, it fans out `invalidated`, since a slot made now holds no
- * change from before it, so a live read registered over an earlier slot must end, then makes the slot, which fails
+ * Leading, where no slot stands, or one stands invalidated, it fans out `invalidated` of the WAL position its slot check
+ * read (live/notify.ts WalPosition), since a slot made now holds no change from before it, so a live read registered
+ * over an earlier slot must end, and none registered over the slot it then makes: that slot stands past the position
+ * (live/listen.ts heardInvalidation). Then it makes the slot, which fails
  * where an invalidated one still stands; then streams the slot from the position it last confirmed. Each transaction arrives whole at its commit (live/pgoutput.ts, live/changes.ts), and a round takes every
  * transaction that arrived while the round before it ran, so rounds are paced by the stream and the fan-out alone:
  *
@@ -195,6 +199,33 @@ export const secretOf = (
 	const cell = onlyCell(rows)
 	const secret = cell === undefined ? undefined : parseLiveSecret(cell)
 	return secret?.ok === true ? Effect.succeed(secret.value) : Effect.fail(new SecretUnreadable())
+}
+
+/**
+ * What the source's slot check answered (ServedLive `check`): the slot standing at its position, its
+ * confirmed_flush_lsn, or none standing, beside the WAL's insert position as the check read it, the position an
+ * invalidation names (live/notify.ts WalPosition).
+ */
+export type SlotCheck =
+	| { readonly kind: "stands"; readonly at: WalPosition }
+	| { readonly kind: "absent"; readonly now: WalPosition }
+
+/**
+ * The slot check's one row, read as SlotCheck: an empty first cell where no slot stands. PostgreSQL answers grizzle's
+ * own statement, so its answer is converted, never refused (core/trusted.ts): an answer of another shape is a defect.
+ */
+export const slotCheckOf = (rows: ReadonlyArray<ReadonlyArray<string>>): SlotCheck => {
+	const [standing, now] = rows[0] ?? []
+	const position = (text: string | undefined): WalPosition => {
+		const read = text === undefined ? undefined : parseWalPosition(text)
+		if (read?.ok !== true) {
+			throw defect(`the slot check answers WAL positions, not ${String(text)}`)
+		}
+		return read.value
+	}
+	return standing === ""
+		? { kind: "absent", now: position(now) }
+		: { kind: "stands", at: position(standing) }
 }
 
 /** The deadline the source's sender timeout query's answer states (ServedLive `senderTimeout`). */
@@ -472,10 +503,14 @@ const streamed = (
 		(refused) =>
 			Effect.flatMap(
 				alone(leading.session, statement(candidacy.source.check, [textParam(candidacy.slot)])),
-				(rows) =>
-					onlyCell(rows) === trueText
+				(rows) => {
+					const check = slotCheckOf(rows)
+					return check.kind === "stands"
 						? Effect.fail(refused)
-						: Effect.flatMap(fanout(leading, [{ kind: "invalidated" }]), () => Effect.fail(refused))
+						: Effect.flatMap(fanout(leading, [{ kind: "invalidated", before: check.now }]), () =>
+								Effect.fail(refused)
+							)
+				}
 			)
 	)
 }
@@ -498,14 +533,14 @@ export const candidacy = (running: Candidacy): Effect.Effect<never, LeaderReason
 			)
 			const slot = textParam(running.slot)
 			const checked = yield* alone(session, statement(running.source.check, [slot]))
-			const standing = onlyCell(checked)
+			const check = slotCheckOf(checked)
 			const secret = yield* Effect.flatMap(
 				alone(session, statement(running.source.secret, [])),
 				secretOf
 			)
 			const leading: Leading = { session, candidacy: running, secret }
-			if (standing !== trueText) {
-				yield* fanout(leading, [{ kind: "invalidated" }])
+			if (check.kind === "absent") {
+				yield* fanout(leading, [{ kind: "invalidated", before: check.now }])
 				yield* replication.run(running.createSlot)
 			}
 			const delivered: Delivered = {

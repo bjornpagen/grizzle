@@ -41,26 +41,29 @@ export type RouteKey =
 	  }
 
 /**
- * What the fan-out channel carries: a route key; that the installation's change source is lost, its slot invalidated,
- * so no later change of any table is read and every live program's stream ends; or that the installation was migrated,
- * a row of a migrations ledger written, so every served file of it is stale and every live program's stream ends
+ * What the fan-out channel carries: a route key; that the installation's change source is lost, `before` the WAL
+ * position the leader read where it found no slot standing, so every source opened on a slot that stood at a position
+ * at or before it reads no later change of any table and every live program's stream on it ends, while one opened on a
+ * slot made since stands past it and is no source this invalidation names; or that the installation was migrated, a
+ * row of a migrations ledger written, so every served file of it is stale and every live program's stream ends
  * `stale`.
  */
 export type Notification =
 	| RouteKey
-	| { readonly kind: "invalidated" }
+	| { readonly kind: "invalidated"; readonly before: WalPosition }
 	| { readonly kind: "migrated" }
 
 /**
- * The text of a notification: `<table>:<column>=<value>` for a keyed key, `<table>:` for a table's, `:invalidated` for
- * the lost source and `:migrated` for a migration, led by `:` where every key's text is led by its table's identifier. An installed
+ * The text of a notification: `<table>:<column>=<value>` for a keyed key, `<table>:` for a table's,
+ * `:invalidated=<position>` for the lost source, its WAL position in decimal, and `:migrated` for a migration, led by
+ * `:` where every key's text is led by its table's identifier. An installed
  * identifier holds neither `:` nor `=`, so the first of each ends the name before it, the value is the rest, and no two
  * notifications share a text. No text holds NUL: no identifier does, and no PostgreSQL text value can.
  */
 export const notificationText = (notification: Notification): string => {
 	switch (notification.kind) {
 		case "invalidated":
-			return ":invalidated"
+			return `${invalidatedLead}${notification.before}`
 		case "migrated":
 			return ":migrated"
 		case "table":
@@ -69,6 +72,9 @@ export const notificationText = (notification: Notification): string => {
 			return `${notification.table}:${notification.column}=${notification.value}`
 	}
 }
+
+/** The lead of an invalidation's text, before its WAL position. */
+const invalidatedLead = ":invalidated="
 
 /** A text of the channel, a batch or the secret table that spells no payload, notification or secret. */
 export interface LiveTextRefused {
@@ -86,6 +92,31 @@ const isLetter = (unit: number): boolean => unit >= 0x61 && unit <= 0x7a
 const isDigit = (unit: number): boolean => unit >= 0x30 && unit <= 0x39
 
 const isHexDigit = (unit: number): boolean => isDigit(unit) || (unit >= 0x61 && unit <= 0x66)
+
+declare const walPositionBrand: unique symbol
+
+/**
+ * A WAL position, its bytes from 0/0 (pg_wal_lsn_diff): what the live source's slot check reads of the slot that
+ * stands, its confirmed_flush_lsn, and of the WAL, its insert position, and what an invalidation names. A slot made
+ * after a position stands past it: making a logical slot writes its running transactions' record before the slot's
+ * consistent point, so a slot's position is the incarnation it is.
+ */
+export type WalPosition = bigint & { readonly [walPositionBrand]: true }
+
+const walPositionOf = nominal<bigint, WalPosition>()
+
+/** The WAL position a decimal text spells (positionText of program/live.ts), its digits alone, or its refusal. */
+export const parseWalPosition = (text: string): Result.Result<WalPosition, LiveTextRefused> => {
+	if (text.length === 0 || (text.length > 1 && text.charCodeAt(0) === 0x30)) {
+		return refused(text, "a WAL position: decimal digits, no leading zero")
+	}
+	for (let at = 0; at < text.length; at += 1) {
+		if (!isDigit(text.charCodeAt(at))) {
+			return refused(text, "a WAL position: decimal digits, no leading zero")
+		}
+	}
+	return Result.ok(walPositionOf(BigInt(text)))
+}
 
 /**
  * Whether `text` spells an identifier grizzle installs: a readable one, a declared name's conversion, lowercase ASCII
@@ -109,13 +140,16 @@ const isInstalledIdentifier = (text: string): boolean => {
 }
 
 /**
- * The notification a text spells (`notificationText`), or what it parts from the grammar at: `:invalidated` or
- * `:migrated` whole, or a table's
+ * The notification a text spells (`notificationText`), or what it parts from the grammar at: `:invalidated=` and a WAL
+ * position, `:migrated` whole, or a table's
  * identifier and `:`, then nothing for the table's key, or a column's identifier, `=` and the value.
  */
 export const parseNotification = (text: string): Result.Result<Notification, LiveTextRefused> => {
-	if (text === ":invalidated") {
-		return Result.ok({ kind: "invalidated" })
+	if (text.startsWith(invalidatedLead)) {
+		return Result.map(parseWalPosition(text.slice(invalidatedLead.length)), (before) => ({
+			kind: "invalidated",
+			before
+		}))
 	}
 	if (text === ":migrated") {
 		return Result.ok({ kind: "migrated" })
@@ -125,7 +159,7 @@ export const parseNotification = (text: string): Result.Result<Notification, Liv
 	if (colon < 0 || !isInstalledIdentifier(table)) {
 		return refused(
 			text,
-			"':invalidated', ':migrated', or an installed table's identifier, then ':'"
+			"':invalidated=' and a WAL position, ':migrated', or an installed table's identifier, then ':'"
 		)
 	}
 	const route = text.slice(colon + 1)

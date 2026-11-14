@@ -199,7 +199,10 @@ export interface UncoveredRead {
  *   (live/replication.ts parseSenderDeadline), a simple query;
  * - `createSlot`: CREATE_REPLICATION_SLOT of the slot, and `start`: START_REPLICATION of it from the position it last
  *   confirmed, over the publication, each its text around the slot's name;
- * - `check`: whether the slot stands in the current database, not invalidated;
+ * - `check`: the position the slot stands at in the current database, not invalidated, its confirmed_flush_lsn, or an
+ *   empty text where none stands, and the WAL's insert position, each its bytes from 0/0 in decimal (live/notify.ts
+ *   WalPosition): a listener's source stands on the slot at its position, and a leader that finds none fans out an
+ *   invalidation of the insert position, which names every slot that stood at or before it and none made since;
  * - `visible`: for each transaction id of `$1::text[]`, whether the statement's snapshot holds its commit;
  * - `fanout`: a notification on the channel for each payload of `$1::text[]`;
  * - `announce`: the text of a materialized view's table key, `$1::text` (live/notify.ts notificationText), emitted as

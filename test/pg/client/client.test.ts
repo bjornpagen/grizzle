@@ -54,6 +54,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { installGenerated, loadMigrated } from "#test/support/install-migrate.ts"
 import { caseHang, testTimeout } from "#test/support/limits.ts"
+import { standing } from "#test/support/live/standing.ts"
 import { servedFixtureOf } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -234,6 +235,13 @@ const holdsAll = (stored: ReadonlyArray<ItemFact>, put: ReadonlyArray<ItemFact>)
 const sentinelId = 11
 
 /**
+ * The largest and the least int8, the bounds of the sentinel's `big`: past every value bigGen draws, whose magnitude is
+ * at most 3 * 2^61 + 3, so the sentinel meets any drawn floor and enters an ordered window from either end.
+ */
+const int8Max = 2n ** 63n - 1n
+const int8Min = -(2n ** 63n)
+
+/**
  * The items a live read's next batch must show, beside the case's drawn write: a set read's new item above every
  * floor, a key's own item changed, an ordered read's new item first in its order from the start and last from the
  * end. A drawn item of the key's id is left out of the write, which puts each key once.
@@ -245,17 +253,14 @@ const visibleWrite = (
 ): ReadonlyArray<ItemFact> => {
 	switch (call.member) {
 		case "atLeast":
-			return [...write, { ...seen, id: sentinelId, big: 2n ** 62n }]
+			return [...write, { ...seen, id: sentinelId, big: int8Max }]
 		case "item":
 			return [
 				...Arr.filter(write, (item) => item.id !== call.id),
 				{ ...seen, id: call.id, flag: !seen.flag }
 			]
 		case "ranked":
-			return [
-				...write,
-				{ ...seen, id: sentinelId, big: call.from === "start" ? 2n ** 62n : -(2n ** 62n) }
-			]
+			return [...write, { ...seen, id: sentinelId, big: call.from === "start" ? int8Max : int8Min }]
 		case "put":
 			return write
 	}
@@ -266,35 +271,6 @@ const memberNamed = (members: ReadonlyArray<LoadedMember>, name: string): Loaded
 	defined(Option.getOrUndefined(Arr.findFirst(members, (m) => m.name === name)), `member ${name}`)
 
 /** The in-process events of a read up to and including their next `ready`, taken from `events`. */
-/**
- * The installation's live source standing for `watch`: its events run to the first that settles them, a `ready` or the
- * `error` that ended them, and the watch called again each time that error is `unavailable`, whose retry is safe, as the call's
- * contract asks of its caller: a fresh installation's first watches meet no replication slot until its live leader,
- * which the first of them starts, makes one (adapter/errors/failures.ts SlotAbsent). The refusal itself paces it, never
- * a timer; `refused` counts the calls refused before the source stood. Any other error, or none, fails the case.
- */
-const standing = (
-	watch: () => Stream.Stream<SetEvent<object> | ListEvent<object>>,
-	refused: number
-): Effect.Effect<number> =>
-	Effect.flatMap(
-		Stream.runHead(Stream.filter(watch(), (e) => e.kind === "ready" || e.kind === "error")),
-		(settled) => {
-			if (Option.isNone(settled)) {
-				return Effect.die("a watch settles at its ready or its error")
-			}
-			const event = settled.value
-			if (event.kind === "ready") {
-				return Effect.succeed(refused)
-			}
-			return event.error.kind === "unavailable"
-				? standing(watch, refused + 1)
-				: Effect.die(
-						`a watch settles at its ready, or is refused unavailable and safe to call again: ${Formatter.format(event)}`
-					)
-		}
-	)
-
 const untilReady = <E extends { readonly kind: string }>(
 	events: Queue.Queue<E>
 ): Effect.Effect<ReadonlyArray<E>> =>
@@ -440,7 +416,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the client over HTTP", (i
 												call.member === "atLeast"
 													? { params: { floor: call.floor }, facts: {} }
 													: { params: { id: call.id }, facts: {} }
-											if ((yield* standing(() => here.watch(input), 0)) > 0) {
+											if ((yield* standing(() => here.watch(input))) > 0) {
 												notes.note("a watch called again once the slot stood")
 											}
 											const remoteOnce =
@@ -499,7 +475,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the client over HTTP", (i
 												facts: {},
 												window: { anchor: { kind: call.from }, size: call.size }
 											}
-											if ((yield* standing(() => here.watch(input), 0)) > 0) {
+											if ((yield* standing(() => here.watch(input))) > 0) {
 												notes.note("a watch called again once the slot stood")
 											}
 											const remoteOnce = yield* overHttp(client.app.ranked.once(input))

@@ -147,7 +147,7 @@ const announcedGen: Gen<string> = element([
 	"unknown_view:",
 	"routed:",
 	"routed:g=1",
-	":invalidated",
+	":invalidated=5",
 	":migrated",
 	"not a key"
 ])
@@ -219,7 +219,7 @@ const expectedOf = (step: Step): ReadonlyArray<Notification> => {
 		return Arr.some(
 			texts,
 			(text) =>
-				!["view:", "unknown_view:", "routed:", "routed:g=1", ":invalidated", ":migrated"].includes(
+				!["view:", "unknown_view:", "routed:", "routed:g=1", ":invalidated=5", ":migrated"].includes(
 					text
 				)
 		)
@@ -368,7 +368,7 @@ describe("the live leader's reading of a replication stream", () => {
 									if (texts.includes("routed:")) {
 										c.note("an announced stored table's key")
 									}
-									if (texts.includes(":invalidated")) {
+									if (texts.includes(":invalidated=5")) {
 										c.note("invalidated announced")
 									}
 									if (texts.includes(":migrated")) {

@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit, Result, type Scope } from "effect"
+import { Cause, Effect, Exit, Option, Result, type Scope } from "effect"
 import {
 	ListenerLost,
 	SlotAbsent,
@@ -12,14 +12,18 @@ import {
 	LeaderFailed,
 	type LeaderReason,
 	alone,
-	onlyCell,
 	secretOf,
-	trueText
+	slotCheckOf
 } from "#adapter/live/leader.ts"
 import type { ChangeSink, ChangeSource } from "#adapter/live/source.ts"
 import { preparedStatement } from "#adapter/wire/batch.ts"
 import { connectListener, type LoginConnection } from "#adapter/wire/session.ts"
-import { type LiveSecret, openPayload, textParam } from "#compiler/plan/runtime.ts"
+import {
+	type LiveSecret,
+	openPayload,
+	textParam,
+	type WalPosition
+} from "#compiler/plan/runtime.ts"
 import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
 
 /**
@@ -98,6 +102,64 @@ export const leading = (
 		)
 	})
 
+/**
+ * What a listener knows of the slot its source stands on: `unchecked` until its open's slot check answers, with the
+ * latest invalidation it heard meanwhile; `checked`, the position the slot stood at when it answered, the incarnation
+ * the source stands on (live/notify.ts WalPosition).
+ */
+export type SlotSeen =
+	| { readonly kind: "unchecked"; readonly heard: Option.Option<WalPosition> }
+	| { readonly kind: "checked"; readonly at: WalPosition }
+
+/** What a listener's source comes to after an event: what it knows of its slot, and whether its source is lost. */
+export interface SlotTurn {
+	readonly seen: SlotSeen
+	readonly lost: boolean
+}
+
+/**
+ * Whether an invalidation of `before`, the WAL position its leader read where it found no slot standing, names the
+ * slot a source saw standing at `at`: that slot stood at or before it. A slot made since stands past it, so its
+ * sources are none an earlier slot's invalidation names.
+ */
+const invalidates = (before: WalPosition, at: WalPosition): boolean => at <= before
+
+/**
+ * An invalidation of `before` heard: before the slot check, kept, the latest of those heard, for the check to judge;
+ * after it, it loses the source exactly where it names the slot the source stands on (invalidates).
+ */
+export const heardInvalidation = (seen: SlotSeen, before: WalPosition): SlotTurn => {
+	switch (seen.kind) {
+		case "unchecked":
+			return {
+				seen: {
+					kind: "unchecked",
+					heard: Option.some(
+						Option.match(seen.heard, {
+							onNone: () => before,
+							onSome: (earlier) => (earlier > before ? earlier : before)
+						})
+					)
+				},
+				lost: false
+			}
+		case "checked":
+			return { seen, lost: invalidates(before, seen.at) }
+	}
+}
+
+/**
+ * The slot check found the slot standing at `at`: the source stands on it, and is lost already where an invalidation
+ * heard before the check names it.
+ */
+export const checkedSlot = (
+	seen: Extract<SlotSeen, { readonly kind: "unchecked" }>,
+	at: WalPosition
+): SlotTurn => ({
+	seen: { kind: "checked", at },
+	lost: Option.exists(seen.heard, (before) => invalidates(before, at))
+})
+
 /** The fan-out's change source, in the layer's scope (see the header). */
 export const fanoutSource = (fanout: Fanout): Effect.Effect<ChangeSource, never, Scope.Scope> =>
 	Effect.map(Effect.scope, (layer) => {
@@ -112,7 +174,7 @@ export const fanoutSource = (fanout: Fanout): Effect.Effect<ChangeSource, never,
 					const state: {
 						current:
 							| { readonly kind: "opening" }
-							| { readonly kind: "listening"; readonly secret: LiveSecret }
+							| { readonly kind: "listening"; readonly secret: LiveSecret; readonly seen: SlotSeen }
 							| { readonly kind: "over" }
 					} = { current: { kind: "opening" } }
 					const lose = (reason: ListenerLost | SourceInvalidated | SourceMigrated): void => {
@@ -135,9 +197,19 @@ export const fanoutSource = (fanout: Fanout): Effect.Effect<ChangeSource, never,
 								}
 								for (const notification of opened.value) {
 									switch (notification.kind) {
-										case "invalidated":
-											lose(new SourceInvalidated())
-											return
+										case "invalidated": {
+											const listening = state.current
+											if (listening.kind !== "listening") {
+												return
+											}
+											const turn = heardInvalidation(listening.seen, notification.before)
+											if (turn.lost) {
+												lose(new SourceInvalidated())
+												return
+											}
+											state.current = { ...listening, seen: turn.seen }
+											break
+										}
 										case "migrated":
 											lose(new SourceMigrated())
 											return
@@ -157,12 +229,26 @@ export const fanoutSource = (fanout: Fanout): Effect.Effect<ChangeSource, never,
 						secretOf
 					)
 					if (state.current.kind === "opening") {
-						state.current = { kind: "listening", secret }
+						state.current = {
+							kind: "listening",
+							secret,
+							seen: { kind: "unchecked", heard: Option.none() }
+						}
 					}
 					yield* alone(session, preparedStatement(fanout.source.listen, []))
 					const checked = yield* alone(session, preparedStatement(fanout.source.check, [slot]))
-					if (onlyCell(checked) !== trueText) {
+					const check = slotCheckOf(checked)
+					if (check.kind === "absent") {
 						return yield* new SlotAbsent()
+					}
+					const listening = state.current
+					if (listening.kind === "listening" && listening.seen.kind === "unchecked") {
+						const turn = checkedSlot(listening.seen, check.at)
+						if (turn.lost) {
+							lose(new SourceInvalidated())
+						} else {
+							state.current = { ...listening, seen: turn.seen }
+						}
 					}
 				})
 		}
