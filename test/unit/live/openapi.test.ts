@@ -16,12 +16,17 @@
  *   each, discriminated by `event`; a list's upsert carries `after`, a set's does not, and a write's answer is its
  *   outcome; a paged member's body takes its window. An instant read's `ready` says in its `x-stream` that `end`
  *   follows it, and no other's does.
- * - Described: one tag per role, in the login's order, whose description names every program of the role, the relations
- *   its writes and refreshes name, and every context it reads, and says its calls need a bearer token exactly where it
- *   reads one; each operation's summary says what its program is (live or at its call's instant, ordered, paged by
- *   window, a write or a refresh), naming the relations it writes or refreshes; its body's description names every
- *   parameter and every relation its facts are given for; and its `grizzle-wire` header's description names what a call
- *   naming no digest and one naming another are answered (live/events.ts wireRefusals).
+ * - Described, each name once: one tag per role, in the login's order, whose description names every context the role
+ *   reads and says its calls need a bearer token exactly where it reads one; each operation's summary says what its
+ *   program is (live or at its call's instant, ordered, paged by window, a write or a refresh); each operation's
+ *   description names every relation its program writes or refreshes, its key's fields and its parameters; and its
+ *   `grizzle-wire` header's description names what a call naming no digest and one naming another are answered
+ *   (live/events.ts wireRefusals).
+ * - Short: what each text may depend on bounds it, whatever the program's size. A summary depends on its program's
+ *   kind and shape alone; a body's description on its input's kind, its parameters' count and its facts' count by op;
+ *   a tag's description on its role's name, its programs' count by what they do, and its contexts. Each is held to
+ *   that over every document a run draws: two operations alike in what it may depend on have the same text, so no
+ *   summary grows with its program's relations.
  * - Bearer exactly where used: the document declares its bearer scheme exactly when some role reads a context, and an
  *   operation's security names it exactly when its role reads one.
  * - Exact errors: each operation's error event admits exactly the kinds of CallError its call over HTTP may end with:
@@ -38,9 +43,11 @@
  * Plants (~/.cache/grizzle-release/LIVE-OPENAPI/plants): openapi-non-program-operation (an operation for each role
  * beside its programs'), openapi-list-without-after (an ordered program's upsert from the set shape's events).
  * Plants (~/.cache/grizzle-release/OPENAPI/plants): instant-ready-unmarked (an instant read's ready without `next`),
- * tag-drops-program (a role's description names all its programs but its last), summary-instant-live (an instant
- * read's summary says live), body-drops-facts (a body's description names no facts), wire-header-undescribed (the
- * header's description names no stale answer), bearer-always (the bearer scheme declared for every login),
+ * summary-instant-live (an instant read's summary says live), summary-lists-relations (a write's summary names the
+ * relations it writes), tag-lists-relations (a role's description names the relations its programs write),
+ * body-lists-facts (a body's description names the relations of its facts), description-drops-relation (an
+ * operation's description names all its written relations but its last), wire-header-undescribed (the header's
+ * description names no stale answer), bearer-always (the bearer scheme declared for every login),
  * errors-every-kind (every error event admits all twelve kinds, as before), refresh-meets-outcome (the model gives a
  * refresh a ChangeSet's refusing outcome too).
  */
@@ -138,6 +145,44 @@ const namesAll = (value: unknown, names: ReadonlyArray<string>): boolean => {
 	return Arr.every(names, (name) => words.has(name))
 }
 
+/**
+ * The texts a run has seen, each under what it may depend on (dependsOnly): a summary's, a body description's and a
+ * tag description's.
+ */
+interface Seen {
+	readonly summaries: Map<string, unknown>
+	readonly bodies: Map<string, unknown>
+	readonly tags: Map<string, unknown>
+}
+
+/** A run's seen texts, none yet. */
+const unseen = (): Seen => ({ summaries: new Map(), bodies: new Map(), tags: new Map() })
+
+/**
+ * That `text` depends on `on` alone: the text of every earlier document of the run seen under the same `on` is this
+ * one, else `text` is seen under it.
+ */
+const dependsOnly = (seen: Map<string, unknown>, on: unknown, text: unknown, message: string) => {
+	const key = Formatter.format(on)
+	const before = seen.get(key)
+	if (before === undefined) {
+		seen.set(key, text)
+		return
+	}
+	assert.deepEqual(
+		text,
+		before,
+		`${message}: ${Formatter.format(text)} beside ${Formatter.format(before)}`
+	)
+}
+
+/** How many programs of a role do each thing, by their served forms: read, write or refresh. */
+const deedsOf = (members: ReadonlyArray<ServedMember>) => ({
+	reads: Arr.filter(members, (m) => m.kind !== "change" && m.kind !== "refresh").length,
+	writes: Arr.filter(members, (m) => m.kind === "change").length,
+	refreshes: Arr.filter(members, (m) => m.kind === "refresh").length
+})
+
 /** The relations a member's wire says it writes or refreshes: a ChangeSet's outcome's, a refresh's targets'. */
 const relationsOf = (member: ServedMember): ReadonlyArray<string> => {
 	switch (member.kind) {
@@ -210,6 +255,7 @@ const kindWords = (member: ServedMember): ReadonlyArray<readonly [string, boolea
 const holds = (
 	file: ServedFile,
 	text: string,
+	seen: Seen,
 	note: (feature: Feature) => void,
 	printed: () => string
 ) =>
@@ -247,14 +293,22 @@ const holds = (
 		)
 		for (const [r, tag] of Arr.zip(file.roles, isList(tags) ? tags : [])) {
 			const description = at(tag, "description")
-			const named = [
-				...Arr.map(r.members, (member) => member.name),
-				...Arr.flatMap(r.members, relationsOf),
-				...Arr.map(r.contexts, (context) => context.name)
-			]
 			assert.ok(
-				namesAll(description, named),
-				`role ${r.name}'s description names its programs, the relations they write and refresh and its contexts: ${Formatter.format(description)}\n${printed()}`
+				namesAll(
+					description,
+					Arr.map(r.contexts, (context) => context.name)
+				),
+				`role ${r.name}'s description names its contexts: ${Formatter.format(description)}\n${printed()}`
+			)
+			dependsOnly(
+				seen.tags,
+				{
+					role: r.name,
+					contexts: r.contexts,
+					programs: deedsOf(r.members)
+				},
+				description,
+				`role ${r.name}'s description depends on its name, its contexts and its programs' count by deed alone\n${printed()}`
 			)
 			assert.ok(
 				typeof description === "string" &&
@@ -314,17 +368,36 @@ const holds = (
 					`${path}: its summary ${holds ? "says" : "does not say"} ${word}: ${Formatter.format(summary)}`
 				)
 			}
-			assert.ok(
-				namesAll(summary, relationsOf(member)),
-				`${path}: its summary names the relations it writes or refreshes: ${Formatter.format(summary)}`
+			dependsOnly(
+				seen.summaries,
+				{ kind: member.kind, shape: member.wire.member.shape },
+				summary,
+				`${path}: its summary depends on its program's kind and shape alone\n${printed()}`
 			)
 			const input = member.wire.member.input
 			assert.ok(
-				namesAll(at(operation, "requestBody", "description"), [
-					...Arr.map(input.params, (p) => p.name),
-					...(input.kind === "call" ? Arr.map(input.facts, (f) => f.relation) : [])
+				namesAll(at(operation, "description"), [
+					...relationsOf(member),
+					...(member.kind === "key" ? member.fields : []),
+					...Arr.map(input.params, (p) => p.name)
 				]),
-				`${path}: its body's description names its parameters and the relations of its facts\n${printed()}`
+				`${path}: its description names the relations it writes or refreshes, its key's fields and its parameters: ${Formatter.format(at(operation, "description"))}\n${printed()}`
+			)
+			dependsOnly(
+				seen.bodies,
+				{
+					input: input.kind,
+					params: input.params.length,
+					facts:
+						input.kind === "call"
+							? Arr.map(
+									Arr.dedupe(Arr.map(input.facts, (f) => f.op)),
+									(op) => [op, Arr.filter(input.facts, (f) => f.op === op).length] as const
+								)
+							: []
+				},
+				at(operation, "requestBody", "description"),
+				`${path}: its body's description depends on its input's kind, its parameters' count and its facts' count by op alone\n${printed()}`
 			)
 			assert.ok(
 				deepEquals<unknown>(at(operation, "x-grizzle-wire"), member.wire),
@@ -443,8 +516,9 @@ const servedShape = (c: WChangeSet): WChangeSet => ({
 layer(NodeServices.layer, { excludeTestServices: true })("a login's OpenAPI document", (it) => {
 	it.effect(
 		"validates, is canonical, and holds one operation per program, its events its shape's",
-		(ctx) =>
-			searched(
+		(ctx) => {
+			const seen = unseen()
+			return searched(
 				ctx,
 				explore(
 					{
@@ -496,16 +570,18 @@ layer(NodeServices.layer, { excludeTestServices: true })("a login's OpenAPI docu
 								return
 							}
 							const entry = compiled.success.entry
-							yield* holds(entry.file, entry.openapi, notes.note, printed)
+							yield* holds(entry.file, entry.openapi, seen, notes.note, printed)
 						}).pipe(Effect.scoped, Effect.orDie)
 				)
 			)
+		}
 	)
 
 	it.effect(
 		"documents every served ChangeSet's facts and outcome, valid and one operation per program",
-		(ctx) =>
-			searched(
+		(ctx) => {
+			const seen = unseen()
+			return searched(
 				ctx,
 				explore(
 					{
@@ -563,9 +639,10 @@ layer(NodeServices.layer, { excludeTestServices: true })("a login's OpenAPI docu
 								return
 							}
 							const entry = compiled.success.entry
-							yield* holds(entry.file, entry.openapi, notes.note, () => Formatter.format(c))
+							yield* holds(entry.file, entry.openapi, seen, notes.note, () => Formatter.format(c))
 						}).pipe(Effect.scoped, Effect.orDie)
 				)
 			)
+		}
 	)
 })

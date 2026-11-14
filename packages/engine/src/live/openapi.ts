@@ -204,21 +204,24 @@ const deedOf = (member: ServedMember, shape: MemberShape<ServedLeaf>): Deed => {
 	}
 }
 
-/** The relations a deed names, after its verb; none for a read. */
-const relationWords = (deed: Deed): string =>
-	deed.kind === "reads" || deed.relations.length === 0 ? "" : ` of ${listed(deed.relations)}`
+/** A count of things in words: `1 relation`, `2 relations`. */
+const counted = (count: number, one: string, many: string): string =>
+	`${count} ${count === 1 ? one : many}`
 
 /**
- * An operation's summary: what its program is, by its served form (served/forms.ts ServedMemberForm), a live read of a
- * set or an ordered one, by its key's fields, paged by window, a read at its call's instant alone, a write of the
- * relations it writes, or a refresh of its targets.
+ * An operation's summary: what its program is, by its served form (served/forms.ts ServedMemberForm) alone, so it is
+ * as short for a program of hundreds of relations as for one of one: a live read of a set or an ordered one, by its
+ * key, paged by window, a read at its call's instant alone, a write or a refresh. What the program names is its
+ * description's (descriptionOf).
  */
-const summaryOf = (member: ServedMember, deed: Deed): string => {
+const summaryOf = (member: ServedMember): string => {
 	switch (member.kind) {
 		case "read":
 			return member.read.key.kind === "set" ? "A live set read" : "A live ordered read"
 		case "key":
-			return `A live ${member.read.key.kind === "set" ? "set" : "ordered"} read by its key ${listed(member.fields)}`
+			return member.read.key.kind === "set"
+				? "A live set read by its key"
+				: "A live ordered read by its key"
 		case "paged":
 			return "A live ordered read paged by window"
 		case "instant":
@@ -226,41 +229,65 @@ const summaryOf = (member: ServedMember, deed: Deed): string => {
 				? "A set read at the call's instant"
 				: "An ordered read at the call's instant"
 		case "change":
-			return `A write${relationWords(deed)}`
+			return "A write"
 		case "refresh":
-			return `A refresh${relationWords(deed)}`
+			return "A refresh"
 	}
 }
 
-/** A parameter as an input's description names it: its name, a relation parameter's marked as a relation's facts. */
+/** A parameter as a description names it: its name, a relation parameter's marked as a relation's facts. */
 const paramWords = (param: WireParam<ServedLeaf>): string =>
 	param.param.kind === "scalar" ? param.name : `${param.name} (a relation's facts)`
 
-/** The words of an op of a ChangeSet's facts on its relation. */
-const factWords = (facts: WireFacts<ServedLeaf>): string => {
-	switch (facts.op) {
-		case "insert":
-			return `insert into ${facts.relation}`
-		case "delete":
-			return `delete from ${facts.relation}`
-		case "put":
-			return `put into ${facts.relation}`
-	}
+/**
+ * An operation's description: what its program names, each once, the one place the document lists it: the relations
+ * its ChangeSet writes or its refresh refreshes, a key read's key fields, and the parameters its program declares.
+ */
+const descriptionOf = (member: ServedMember, deed: Deed, input: WireInput<ServedLeaf>): string =>
+	[
+		...(deed.kind === "reads" || deed.relations.length === 0
+			? []
+			: [`It ${deed.kind} ${listed(deed.relations)}.`]),
+		...(member.kind === "key" ? [`It reads by its key ${listed(member.fields)}.`] : []),
+		input.params.length === 0
+			? "It takes no params."
+			: `It takes the params ${listed(input.params.map(paramWords))}.`
+	].join(" ")
+
+/** The words of an op of a ChangeSet's facts, before the relations it is given for. */
+const opWords: { readonly [Op in WireFacts<ServedLeaf>["op"]]: string } = {
+	insert: "insert into",
+	delete: "delete from",
+	put: "put into"
 }
 
 /**
- * A request body's description, read off its program's input (live/shape.ts WireInput): the parameters its program
- * declares, by name, then the facts a ChangeSet's array members take from the call, by op and relation, or a page's
- * window.
+ * The facts a ChangeSet's array members take from the call, counted by op: how many relations the call gives facts to
+ * insert into, delete from or put into, in the order the ops first appear; their relations are the schema's.
+ */
+const factsWords = (facts: ReadonlyArray<WireFacts<ServedLeaf>>): string => {
+	const ops = new Map<WireFacts<ServedLeaf>["op"], number>()
+	for (const member of facts) {
+		ops.set(member.op, (ops.get(member.op) ?? 0) + 1)
+	}
+	return ops.size === 0
+		? "no facts"
+		: `the facts to ${listed(
+				[...ops].map(([op, count]) => `${opWords[op]} ${counted(count, "relation", "relations")}`)
+			)}`
+}
+
+/**
+ * A request body's description, read off its program's input (live/shape.ts WireInput): how many parameters its
+ * program declares, and the facts its ChangeSet's array members take from the call counted by op, or a page's window;
+ * their names are its schema's and its operation's description's.
  */
 const inputDescription = (input: WireInput<ServedLeaf>): string => {
 	const params =
-		input.params.length === 0 ? "no params" : `the params ${listed(input.params.map(paramWords))}`
+		input.params.length === 0 ? "no params" : counted(input.params.length, "param", "params")
 	switch (input.kind) {
 		case "call":
-			return `The call's input: ${params}; ${
-				input.facts.length === 0 ? "no facts" : `the facts to ${listed(input.facts.map(factWords))}`
-			}.`
+			return `The call's input: ${params}; ${factsWords(input.facts)}.`
 		case "window":
 			return `The call's input: ${params}; no facts; and the window of its page, an anchor and a size.`
 	}
@@ -269,7 +296,8 @@ const inputDescription = (input: WireInput<ServedLeaf>): string => {
 /**
  * The operation of one member of `role` in `file`'s document: its shape read off its served form, as generate read its
  * wire, whose digest its request names in its one header, and which its `x-grizzle-wire` carries for a client; its
- * summary, what its program is, and its body's description, what its input holds.
+ * summary, what its program is; its description, what its program names; and its body's description, what its input
+ * holds.
  */
 const operationOf = (
 	file: ServedFile,
@@ -284,7 +312,8 @@ const operationOf = (
 			path: `/${file.login}/${role.name}/${member.name}`,
 			operation: {
 				operationId,
-				summary: summaryOf(member, deed),
+				summary: summaryOf(member),
+				description: descriptionOf(member, deed, shape.input),
 				tags: [role.name],
 				security: readsContext(role) ? [{ [bearer]: [] }] : [],
 				parameters: [
@@ -336,30 +365,25 @@ const operationOf = (
 		}
 	})
 
-/** The relations `deeds` name, each once, in their order. */
-const relationsOf = (deeds: ReadonlyArray<Deed>): ReadonlyArray<string> => [
-	...new Set(deeds.flatMap((deed) => (deed.kind === "reads" ? [] : deed.relations)))
-]
+/** The words of each deed in a role's count of its programs. */
+const deedWords: { readonly [K in Deed["kind"]]: string } = {
+	reads: "reading",
+	writes: "writing",
+	refreshes: "refreshing"
+}
 
 /**
- * A role's tag description, read off its served form and its programs' deeds: the programs it reads by, the relations
- * it writes and the programs it writes them by, the relations it refreshes and the programs it refreshes them by; and
- * whether its calls need a bearer token, with the contexts it reads from the token's claims.
+ * A role's tag description, read off its served form and its programs' deeds: how many programs it serves, counted
+ * by what they do, each one's names its operation's; and whether its calls need a bearer token, with the contexts it
+ * reads from the token's claims.
  */
 const roleDescription = (
 	role: ServedRoleForm,
 	programs: ReadonlyArray<Operation["program"]>
 ): string => {
-	const serves = (["reads", "writes", "refreshes"] as const).flatMap((verb) => {
-		const mine = programs.filter((program) => program.deed.kind === verb)
-		const relations = relationsOf(mine.map((program) => program.deed))
-		return mine.length === 0
-			? []
-			: [
-					`it ${verb}${relations.length === 0 ? "" : ` ${listed(relations)}`} by ${listed(
-						mine.map((program) => program.name)
-					)}`
-				]
+	const serves = (["reads", "writes", "refreshes"] as const).flatMap((kind) => {
+		const count = programs.filter((program) => program.deed.kind === kind).length
+		return count === 0 ? [] : [`${count} ${deedWords[kind]}`]
 	})
 	const token = readsContext(role)
 		? `Its calls need a bearer token: it reads ${listed(
@@ -370,7 +394,11 @@ const roleDescription = (
 				)
 			)}.`
 		: "Its calls need no bearer token: it reads no context."
-	return `Role ${role.name}: ${serves.length === 0 ? "it serves no program" : serves.join("; ")}. ${token}`
+	return `Role ${role.name}: ${
+		programs.length === 0
+			? "it serves no program"
+			: `it serves ${counted(programs.length, "program", "programs")}, ${listed(serves)}`
+	}. ${token}`
 }
 
 /**
