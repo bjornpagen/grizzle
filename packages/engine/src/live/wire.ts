@@ -924,6 +924,15 @@ const encodeAt = <C extends Carrier>(spec: WireSpec<C>, value: unknown): WireJso
 	return row.encode(value, spec)
 }
 
+/** A caller's host value's JSON under its carrier's spelling, refused `json` where it is of another host type. */
+const givenAt = <C extends Carrier>(
+	spec: WireSpec<C>,
+	value: unknown
+): Result.Result<WireJson, WireFaultKind> => {
+	const row = rowOf(spec)
+	return row.is(value) ? Result.ok(row.encode(value, spec)) : Result.err("json")
+}
+
 /** A caller's JSON parsed to its carrier's host value. */
 const parseAt = <C extends Carrier>(
 	spec: WireSpec<C>,
@@ -943,6 +952,17 @@ export const scalarSchema = (spec: WireScalar): WireSchema => schemaAt(spec)
  * a value's carrier type is read.
  */
 export const encodeScalar = (spec: WireScalar, value: unknown): WireJson => encodeAt(spec, value)
+
+/**
+ * A caller's host value's JSON under its scalar's spelling: a value the client's caller gives (live/codec.ts
+ * encodeInput), whose type nothing proved, so a value of another carrier's host type is refused `json`, no value of
+ * the spelling's kind, as parseScalar refuses JSON of another kind. Its spelling is encodeScalar's; what the type's
+ * range, scale or roster refuses beyond its host type is the server's exact parse's to refuse.
+ */
+export const encodeGiven = (
+	spec: WireScalar,
+	value: unknown
+): Result.Result<WireJson, WireFaultKind> => givenAt(spec, value)
 
 /** A caller's JSON parsed to its scalar's host value, exactly (see the module's header). */
 export const parseScalar = (

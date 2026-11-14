@@ -172,14 +172,18 @@ const property = (c: NestCase, note: (feature: Feature) => void): Effect.Effect<
 			input.facts,
 			new Map(Arr.map(inserted, (r) => [relationName(r), facts.get(r) ?? []] as const))
 		)
-		const json = encodeInput(input, call)
+		const json = succeeded(encodeInput(input, call), "the encode of a drawn instance's facts")
 		const parsed = parseInput(input, json)
 		assert.ok(
 			parsed.ok,
 			`the wire parses the JSON its encode writes\n${Formatter.format(parsed)}\n${Formatter.format(json)}`
 		)
 		assert.deepEqual(parsed.value, call, "the parse reads back the facts the encode wrote")
-		assert.deepEqual(encodeInput(input, parsed.value), json, "the parsed facts encode as they did")
+		assert.deepEqual(
+			succeeded(encodeInput(input, parsed.value), "the encode of the parsed facts"),
+			json,
+			"the parsed facts encode as they did"
+		)
 		if (
 			Arr.some(rows, (row) =>
 				Arr.some(row.memberOf, (m) => spec.families[m.family]?.kind === "tree")

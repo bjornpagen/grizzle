@@ -12,8 +12,9 @@
  */
 import type { Path } from "#compiler/core/canonical.ts"
 import { type TransientTag, transientTags } from "#compiler/core/errors.ts"
+import { hostRead } from "#compiler/core/host.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import { isList, isPlainRecord } from "#compiler/core/record.ts"
+import { isIterable, isList, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { Sqlstate } from "#compiler/core/sqlstate.ts"
 import { trusted } from "#compiler/core/trusted.ts"
@@ -49,6 +50,7 @@ import type {
 } from "#compiler/live/shape.ts"
 import {
 	decodeScalar,
+	encodeGiven,
 	encodeScalar,
 	parseScalar,
 	sameJson,
@@ -589,105 +591,295 @@ export const parseInput = (input: WireInput<WireScalar>, json: unknown): Parsed<
 	)
 }
 
-/** The JSON of a record of scalar fields a caller gives, of one of `headings`, with its families' members. */
+type Encoded<A> = Result.Result<A, WireFault>
+
+/**
+ * A read of a caller's value at `at`, its own code run once (core/host.ts hostRead): a getter or a proxy's trap that
+ * throws refuses it `json`, as no value of the input's shape.
+ */
+const givenRead = <A>(at: Path, read: () => Encoded<A>): Encoded<A> =>
+	hostRead(() => ({ kind: "json", at }), read)
+
+/**
+ * A caller's plain record at `at` holding exactly the members `names`, each read once through its own descriptor, as
+ * the in-process boundary reads one (adapter db/input.ts exactRecord): refused `json` where it is no plain record and
+ * `members` where it holds others, lacks one or holds an accessor.
+ */
+const givenRecord = (
+	value: unknown,
+	names: ReadonlyArray<string>,
+	at: Path
+): Encoded<Readonly<Record<string, unknown>>> =>
+	givenRead(at, () => {
+		if (!isPlainRecord(value)) {
+			return refused("json", at)
+		}
+		if (!holdsExactly(value, names)) {
+			return refused("members", at)
+		}
+		const out: Record<string, unknown> = {}
+		for (const name of names) {
+			const descriptor = Reflect.getOwnPropertyDescriptor(value, name)
+			if (descriptor === undefined || !Object.hasOwn(descriptor, "value")) {
+				return refused("members", at)
+			}
+			out[name] = descriptor.value
+		}
+		return Result.ok(out)
+	})
+
+/**
+ * A caller's elements at `at`, read once: a list's, the facts a member's call gives (runtime/write/members.ts), or any
+ * iterable's where `iterable`, a relation parameter's facts (core/record.ts isIterable); refused `json` otherwise.
+ */
+const givenElements = (
+	value: unknown,
+	iterable: boolean,
+	at: Path
+): Encoded<ReadonlyArray<unknown>> =>
+	givenRead(at, () =>
+		isList(value) || (iterable && isIterable(value))
+			? Result.ok(Array.from(value))
+			: refused("json", at)
+	)
+
+/** A caller's value of a scalar at `at` as JSON (live/wire.ts encodeGiven), refused at `at` where it is none. */
+const givenScalar = (scalar: WireScalar, value: unknown, at: Path): Encoded<WireJson> =>
+	Result.mapError(encodeGiven(scalar, value), (kind) => ({ kind, at }))
+
+/** A caller's facts at `at`, each encoded by `encode` at its index. */
+const givenFacts = (
+	facts: unknown,
+	iterable: boolean,
+	at: Path,
+	encode: (fact: unknown, at: Path) => Encoded<WireJson>
+): Encoded<WireJson> =>
+	Result.flatMap(givenElements(facts, iterable, at), (elements) =>
+		parseEach(elements, (fact, index) => encode(fact, [...at, index]))
+	)
+
+/**
+ * A caller's fact of the level at `index` among `levels`, at `at`, as JSON: one of the level's headings' fields, each a
+ * scalar's value, and under each family's count field its members' facts, each a fact of the member level, to any depth.
+ */
 const encodeLevelFact = (
 	levels: WireFacts<WireScalar>["levels"],
 	index: number,
-	fact: unknown
-): WireJson => {
+	fact: unknown,
+	at: Path
+): Encoded<WireJson> => {
 	const level = levels[index]
 	if (level === undefined) {
 		throw defect("a fact's level among its levels")
 	}
-	if (typeof fact !== "object" || fact === null) {
-		throw defect("a fact to encode")
-	}
 	const counts = level.families.map((family) => family.count)
-	const heading = level.headings.find((h) =>
-		holdsExactly(fact, [...h.map((named) => named.name), ...counts])
+	const heading = givenRead(at, () => {
+		if (!isPlainRecord(fact)) {
+			return refused("json", at)
+		}
+		const found = level.headings.find((h) =>
+			holdsExactly(fact, [...h.map((named) => named.name), ...counts])
+		)
+		return found === undefined ? refused("members", at) : Result.ok(found)
+	})
+	return Result.flatMap(heading, (found) =>
+		Result.flatMap(
+			givenRecord(fact, [...found.map((named) => named.name), ...counts], at),
+			(given) =>
+				Result.flatMap(
+					parseEach(found, (named) => {
+						const field = named.field
+						if (field.kind !== "scalar" && field.kind !== "constant") {
+							throw defect("a fact's field of a scalar")
+						}
+						return Result.map(
+							givenScalar(field.scalar, given[named.name], [...at, named.name]),
+							(json): readonly [string, WireJson] => [named.name, json]
+						)
+					}),
+					(own) =>
+						Result.map(
+							parseEach(level.families, (family) =>
+								Result.map(
+									givenFacts(
+										given[family.count],
+										false,
+										[...at, family.count],
+										(member, memberAt) => encodeLevelFact(levels, family.level, member, memberAt)
+									),
+									(json): readonly [string, WireJson] => [family.count, json]
+								)
+							),
+							(nested): WireJson => Object.fromEntries([...own, ...nested])
+						)
+				)
+		)
 	)
-	if (heading === undefined) {
-		throw defect("a fact of one of its level's headings")
-	}
-	const out: Record<string, WireJson> = {}
-	for (const named of heading) {
-		const field = named.field
-		if (field.kind !== "scalar" && field.kind !== "constant") {
-			throw defect("a fact's field of a scalar")
-		}
-		out[named.name] = encodeScalar(field.scalar, ownMember(fact, named.name))
-	}
-	for (const family of level.families) {
-		out[family.count] = factsJson(ownMember(fact, family.count), (member) =>
-			encodeLevelFact(levels, family.level, member)
+}
+
+/** A caller's parameters at `at` as JSON: exactly the program's, a scalar's value or a relation's facts each. */
+const encodeParams = (
+	params: ReadonlyArray<WireParam<WireScalar>>,
+	value: unknown,
+	at: Path
+): Encoded<WireJson> =>
+	Result.flatMap(
+		givenRecord(
+			value,
+			params.map((p) => p.name),
+			at
+		),
+		(given) =>
+			Result.map(
+				parseEach(params, (p) => {
+					const here = [...at, p.name]
+					const param = p.param
+					const encoded =
+						param.kind === "scalar"
+							? givenScalar(param.scalar, given[p.name], here)
+							: givenFacts(given[p.name], true, here, (fact, factAt) =>
+									encodeLevelFact([{ headings: [param.heading], families: [] }], 0, fact, factAt)
+								)
+					return Result.map(encoded, (json): readonly [string, WireJson] => [p.name, json])
+				}),
+				(entries): WireJson => Object.fromEntries(entries)
+			)
+	)
+
+/**
+ * A caller's facts at `at` as JSON: under each op of the ChangeSet's array members, under each of its relations, a list
+ * of facts, and nothing else.
+ */
+const encodeFacts = (
+	facts: ReadonlyArray<WireFacts<WireScalar>>,
+	value: unknown,
+	at: Path
+): Encoded<WireJson> => {
+	const ops = [...new Set(facts.map((member) => member.op))]
+	return Result.flatMap(givenRecord(value, ops, at), (byOp) =>
+		Result.map(
+			parseEach(ops, (op) => {
+				const members = facts.filter((member) => member.op === op)
+				const here = [...at, op]
+				return Result.flatMap(
+					givenRecord(
+						byOp[op],
+						members.map((member) => member.relation),
+						here
+					),
+					(byRelation) =>
+						Result.map(
+							parseEach(members, (member) =>
+								Result.map(
+									givenFacts(
+										byRelation[member.relation],
+										false,
+										[...here, member.relation],
+										(fact, factAt) => encodeLevelFact(member.levels, 0, fact, factAt)
+									),
+									(json): readonly [string, WireJson] => [member.relation, json]
+								)
+							),
+							(entries): readonly [string, WireJson] => [op, Object.fromEntries(entries)]
+						)
+				)
+			}),
+			(entries): WireJson => Object.fromEntries(entries)
 		)
-	}
-	return out
+	)
 }
 
-/** The JSON of an iterable of facts, each by `encode`. */
-const factsJson = (facts: unknown, encode: (fact: unknown) => WireJson): WireJson => {
-	if (typeof facts !== "object" || facts === null || !(Symbol.iterator in facts)) {
-		throw defect("facts to encode")
-	}
-	return Array.from(trusted<Iterable<unknown>>(facts), encode)
-}
+/** A caller's key of a page's anchor at `at` as JSON: its columns' values in key order. */
+const encodeAnchorKey = (
+	key: ReadonlyArray<WireColumn<WireScalar>>,
+	value: unknown,
+	at: Path
+): Encoded<WireJson> =>
+	Result.flatMap(givenElements(value, false, at), (values) =>
+		values.length === key.length
+			? parseEach(key, (column, index) => givenScalar(column.scalar, values[index], [...at, index]))
+			: refused("members", at)
+	)
 
-/** The JSON of a caller's parameters. */
-const encodeParams = (params: ReadonlyArray<WireParam<WireScalar>>, given: unknown): WireJson => {
-	const out: Record<string, WireJson> = {}
-	for (const p of params) {
-		const value = ownMember(given, p.name)
-		const param = p.param
-		out[p.name] =
-			param.kind === "scalar"
-				? encodeScalar(param.scalar, value)
-				: factsJson(value, (fact) =>
-						encodeLevelFact([{ headings: [param.heading], families: [] }], 0, fact)
+/** A caller's anchor at `at` as JSON: tagged by its kind, a keyed one's key encoded. */
+const encodeAnchor = (
+	key: ReadonlyArray<WireColumn<WireScalar>>,
+	value: unknown,
+	at: Path
+): Encoded<WireJson> =>
+	Result.flatMap(
+		givenRead(at, () =>
+			isPlainRecord(value)
+				? Result.ok(Reflect.getOwnPropertyDescriptor(value, "kind")?.value)
+				: refused("json", at)
+		),
+		(kind): Encoded<WireJson> => {
+			switch (kind) {
+				case "start":
+				case "end":
+					return Result.map(givenRecord(value, ["kind"], at), (): WireJson => ({ kind }))
+				case "after":
+				case "before":
+					return Result.flatMap(givenRecord(value, ["kind", "key"], at), (given) =>
+						Result.map(encodeAnchorKey(key, given["key"], [...at, "key"]), (json): WireJson => ({
+							kind,
+							key: json
+						}))
 					)
-	}
-	return out
-}
+				default:
+					return refused("members", [...at, "kind"])
+			}
+		}
+	)
 
-/** The JSON of a client's input to a program, in the program's input shape (the inverse of parseInput). */
-export const encodeInput = (input: WireInput<WireScalar>, value: unknown): WireJson => {
-	const params = encodeParams(input.params, ownMember(value, "params"))
-	if (input.kind === "window") {
-		const window = ownMember(value, "window")
-		const anchor = ownMember(window, "anchor")
-		const kind = ownMember(anchor, "kind")
-		if (kind !== "start" && kind !== "end" && kind !== "after" && kind !== "before") {
-			throw defect("a window's anchor")
-		}
-		const anchorJson: WireJson =
-			kind === "start" || kind === "end"
-				? { kind }
-				: { kind, key: encodeKey(input.key, RowKey(keyValues(ownMember(anchor, "key")))) }
-		const size = ownMember(window, "size")
-		if (typeof size !== "number") {
-			throw defect("a window's size")
-		}
-		return { params, facts: {}, window: { anchor: anchorJson, size } }
-	}
-	const given = ownMember(value, "facts")
-	const facts: Record<string, Record<string, WireJson>> = {}
-	for (const member of input.facts) {
-		const byRelation = facts[member.op] ?? {}
-		byRelation[member.relation] = factsJson(
-			ownMember(ownMember(given, member.op), member.relation),
-			(fact) => encodeLevelFact(member.levels, 0, fact)
+/** A caller's window at `at` as JSON: its anchor and its size, a positive safe integer. */
+const encodeWindow = (
+	key: ReadonlyArray<WireColumn<WireScalar>>,
+	value: unknown,
+	at: Path
+): Encoded<WireJson> =>
+	Result.flatMap(givenRecord(value, ["anchor", "size"], at), (given) =>
+		Result.flatMap(encodeAnchor(key, given["anchor"], [...at, "anchor"]), (anchor) => {
+			const size = given["size"]
+			if (typeof size !== "number") {
+				return refused("json", [...at, "size"])
+			}
+			return Number.isSafeInteger(size) && size >= 1
+				? Result.ok({ anchor, size })
+				: refused("range", [...at, "size"])
+		})
+	)
+
+/**
+ * A caller's input to a program as JSON, in the program's input shape: the inverse of parseInput, over the caller's
+ * own values as the client's untyped door takes them. Every value of the input's shape encodes, and any other is
+ * refused with its fault at its path (WireFault), as parseInput refuses JSON: a record that is no plain record or does
+ * not hold exactly its members, no list where facts or a key stand, a value of another type than its scalar's host type
+ * (live/wire.ts encodeGiven), a window's size that is no positive safe integer, or a value whose reading throws. A
+ * value the caller gives is never asserted: only the server's own values are (encodeRecord, encodeKey).
+ */
+export const encodeInput = (input: WireInput<WireScalar>, value: unknown): Encoded<WireJson> => {
+	if (input.kind === "call") {
+		return Result.flatMap(givenRecord(value, ["params", "facts"], []), (body) =>
+			Result.flatMap(encodeParams(input.params, body["params"], ["params"]), (params) =>
+				Result.map(encodeFacts(input.facts, body["facts"], ["facts"]), (facts): WireJson => ({
+					params,
+					facts
+				}))
+			)
 		)
-		facts[member.op] = byRelation
 	}
-	return { params, facts }
-}
-
-/** A key's values a caller gives: an array of them in key order. */
-const keyValues = (value: unknown): ReadonlyArray<unknown> => {
-	if (!isList(value)) {
-		throw defect("a key's values")
-	}
-	return value
+	return Result.flatMap(givenRecord(value, ["params", "facts", "window"], []), (body) =>
+		Result.flatMap(encodeParams(input.params, body["params"], ["params"]), (params) =>
+			Result.flatMap(givenRecord(body["facts"], [], ["facts"]), () =>
+				Result.map(encodeWindow(input.key, body["window"], ["window"]), (window): WireJson => ({
+					params,
+					facts: {},
+					window
+				}))
+			)
+		)
+	)
 }
 
 /** Plain data (types/changeset Refused) as JSON: strings, finite numbers, booleans, arrays and plain records. */

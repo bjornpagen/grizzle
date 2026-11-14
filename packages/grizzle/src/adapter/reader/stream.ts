@@ -30,12 +30,16 @@ import type { Row } from "#compiler/plan/common.ts"
  * watch, and every re-run of its subscription (live/subscriptions.ts), so the initial value and each re-run send the
  * same named statement through the same frame by construction.
  *
- * It opens with `reset`, naming the key fields its rows are keyed by; sends one `upsert` per delivered row the moment
- * its Row is whole, provisional (reader/run.ts Emission: a one-part program's as its row arrives, every other's once its
+ * It opens with `reset`, naming the key fields its rows are keyed by, once the read has answered: right before its first
+ * `upsert`, or before `ready` where it delivers no row. It sends one `upsert` per delivered row the moment its Row is
+ * whole, provisional (reader/run.ts Emission: a one-part program's as its row arrives, every other's once its
  * statement has answered); and ends with `ready` once the read's COMMIT answered. A failure ends it with one `error` in
  * place of `ready`, which voids every upsert before it: the acquisition's refusal, the statement's encoding past a
  * bound, any failure of the flight (wire/batch.ts readFailureIn), and an answer that contradicts the program's proofs
- * (UnreadableAnswer), each classified once (live/call-error.ts readCallError). The stream itself never fails.
+ * (UnreadableAnswer), each classified once (live/call-error.ts readCallError). A failure before the read answered a row
+ * is the stream's one event: a call whose input PostgreSQL refuses as it binds it (a parameter outside its pattern or
+ * contract, ParamRejected, LawRejected), whose session is never acquired or whose statement never encodes, never
+ * opened an answer, so no `reset` says one began. The stream itself never fails.
  *
  * Its session is leased for the flight alone and released as the flight ends, before `ready` is sent; interrupting the
  * stream while the flight runs interrupts the flight (wire/batch.ts: one CancelRequest, the session destroyed), a
@@ -164,6 +168,19 @@ const runRead = (
 		})
 	)
 
+/**
+ * The sending of a stream's opening event, `reset`: offered to `queue` at its first call alone, the first row or the
+ * ready that follows the read's answer, and never where the stream ends at an error before either (see the header).
+ */
+const openingOf = <E, D>(queue: Queue.Queue<E, D>, reset: E): (() => void) => {
+	const pending = [reset]
+	return () => {
+		for (const event of pending.splice(0)) {
+			Queue.offerUnsafe(queue, event)
+		}
+	}
+}
+
 /** The events of one read call through the Db's frame, each made by its shape's `events` (see the header). */
 export const readStream = <E>(
 	ctx: Pick<ServedDbContext, "pool" | "prologue" | "domain">,
@@ -172,12 +189,16 @@ export const readStream = <E>(
 ): Stream.Stream<E> =>
 	Stream.callback<E>((queue) =>
 		Effect.gen(function* () {
-			Queue.offerUnsafe(queue, events.reset(call.fields))
+			const opening = openingOf(queue, events.reset(call.fields))
 			const upsert = events.upserts(call.fields)
 			const last = yield* runRead(ctx, call, (row) => {
+				opening()
 				Queue.offerUnsafe(queue, upsert(call.decode(row)))
 			}).pipe(
-				Effect.as(events.ready),
+				Effect.map(() => {
+					opening()
+					return events.ready
+				}),
 				Effect.catch((failure) => Effect.succeed(events.error(readCallError(failure))))
 			)
 			Queue.offerUnsafe(queue, last)

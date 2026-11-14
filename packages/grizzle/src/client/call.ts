@@ -231,11 +231,11 @@ interface Unanswered {
 	readonly message: string
 }
 
-/** The frames of the member's answer to one call, its request sent with `token` and the input's JSON. */
+/** The frames of the member's answer to one call, its request sent with `token` and `body`, the input's JSON. */
 const exchange = (
 	member: ClientMember,
 	token: Option.Option<Redacted.Redacted>,
-	input: unknown
+	body: WireJson
 ): Stream.Stream<SseEvent, Unanswered, HttpClient.HttpClient> => {
 	const bearer = Option.match(token, {
 		onNone: () => ({}),
@@ -244,7 +244,7 @@ const exchange = (
 	const request = HttpClientRequest.post(member.route, {
 		accept: "text/event-stream",
 		headers: { [wireHeader]: member.digest, ...bearer },
-		body: HttpBody.text(wireText(encodeInput(member.wire.input, input)), "application/json")
+		body: HttpBody.text(wireText(body), "application/json")
 	})
 	return request.pipe(
 		HttpClient.execute,
@@ -260,6 +260,8 @@ const exchange = (
 /**
  * One call's answer read by its shape's reading: each value whole at a committed snapshot with the events that made
  * it, failing with the server's CallError or with the cut of its exchange as the shape reads it, and ending at `end`.
+ * An input the member's wire does not encode (live/codec.ts encodeInput) is the call's `input` CallError, before any
+ * request, as the server's door refuses a body its wire does not parse.
  */
 const answer = <St, V, Ev extends { readonly kind: string }>(
 	member: ClientMember,
@@ -267,9 +269,21 @@ const answer = <St, V, Ev extends { readonly kind: string }>(
 	token: Option.Option<Redacted.Redacted>,
 	input: unknown
 ): Stream.Stream<Answered<V, Ev>, CallError, HttpClient.HttpClient> => {
+	const encoded = encodeInput(member.wire.input, input)
+	if (!encoded.ok) {
+		const { kind, at } = encoded.error
+		return Stream.fail(
+			callError("input", {
+				message: `the input does not encode as the program's input: ${kind} at ${Arr.join(
+					Arr.map(at, (step) => `${step}`),
+					"."
+				)}`
+			})
+		)
+	}
 	const halted = (batch: Batch<St, Ev>): ReadonlyArray<Step<V, Ev>> =>
 		batch.over ? [] : [reading.cut(batch.state, "the answer ended before its terminal event")]
-	return exchange(member, token, input).pipe(
+	return exchange(member, token, encoded.value).pipe(
 		Stream.map(framesOf<Ev>(member.wire, member.witness)),
 		Stream.orElseSucceed((broken): Arrival<Ev> => ({ kind: "cut", message: broken.message })),
 		Stream.mapAccum(

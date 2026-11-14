@@ -3,13 +3,15 @@
  * name and the slots its payload holds, from which the TypeScript types below, the SSE frames and the OpenAPI schema
  * all derive, so no shape is spelled twice.
  *
- * A read's answer opens with `reset`, which names the key fields its rows are keyed by; sends an `upsert` per row as it
- * decodes, provisional until `ready`, which follows the read's COMMIT; and then, live, an `upsert` or `remove` per
- * change, each sent after its re-run's COMMIT. A set read's upsert carries its row alone; an ordered read's carries the
+ * A read's answer opens with `reset`, which names the key fields its rows are keyed by, once its read has answered;
+ * sends an `upsert` per row as it decodes, provisional until `ready`, which follows the read's COMMIT; and then, live,
+ * an `upsert` or `remove` per change, each sent after its re-run's COMMIT. A set read's upsert carries its row alone; an ordered read's carries the
  * key of the row it follows too, null for the first. An instant read's answer, a read whose member binds a parameter to
  * the database's clock, is its read at its call's instant alone: `reset`, its upserts, `ready`, then `end`, with no
  * `remove`, since time passing is no change. A write's answer is its `outcome`, after its COMMIT. Every failure is one
- * `error`, and an answer ends with `end` after its error or outcome, an instant read's after its ready too.
+ * `error`, and an answer ends with `end` after its error or outcome, an instant read's after its ready too. A read that
+ * fails before it answered, its input refused at the door or by PostgreSQL as it binds it among them, answers its error
+ * alone: no `reset` opened an answer it never gave.
  */
 import type { TransientTag } from "#compiler/core/errors.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
