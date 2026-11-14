@@ -14,19 +14,21 @@ import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "e
  * Store and Item whole.
  *
  * A case draws a stored state, stores at three keys, each absent or in a region under a label with up to two Items, and
- * one write through one entry role: an insert, a put or a delete of a store at a stored or a fresh key, under a label
- * the label filter admits or refuses. The oracle is a model of the entry over the family: the role sees exactly the
- * north stores its filter admits; an insert or a put of a fact outside the entry is `outsideWorld`; one at a key a
- * store the role cannot see holds is `refused` on Store's key, as is an insert at a key a visible store
- * holds under another label; a put of a visible store sets its label and leaves its count, its stock and its Items as
- * they are; a fresh store is inserted with no Item, its count and stock at their starts; a delete of a visible store
- * with Items is `refused` on its family's laws, and of one the role cannot see is `unchanged`, as is every
- * write that leaves the stores as they were, an insert of a visible store under its own label among them. A case that
- * is both outside the entry and at an unseen store's key may report either, as the README promises.
+ * one write through one entry role: an insert or a put of a store at a stored or a fresh key, under a label the label
+ * filter admits or refuses. The oracle is a model of the entry over the family: the role sees exactly the north stores
+ * its filter admits; an insert or a put of a fact outside the entry is `outsideWorld`; one at a key a store the role
+ * cannot see holds is `refused` on Store's key, as is an insert at a key a visible store holds under another label; a
+ * put of a visible store sets its label and leaves its count, its stock and its Items as they are; a fresh store is
+ * inserted with no Item, its count and stock at their starts; every write that leaves the stores as they were, an
+ * insert of a visible store under its own label among them, is `unchanged`. A case that is both outside the entry and
+ * at an unseen store's key may report either, as the README promises.
+ *
+ * A delete through the entry is no case: it is a whole delete of Store, which removes each store with its Items, and
+ * no write through a query entry may, so its ChangeSet is refused when it compiles, before any SQL
+ * (test/unit/write/entry-owner.test.ts holds that refusal).
  *
  * Each role's writes are a JavaScript caller's ChangeSets, served as members of its workload on a Db of its own, each
- * from its call's facts: the keeper's insert of Store and Item, and each entry role's insert, put and delete of its
- * entry.
+ * from its call's facts: the keeper's insert of Store and Item, and each entry role's insert and put of its entry.
  *
  * Plant: ~/.cache/grizzle-release/BR08/plants/entry-owner-outside-never-refused.patch, an entry's check never refusing
  * a fact outside it, must turn the property red.
@@ -75,7 +77,7 @@ interface StoredStore {
 interface Write {
 	readonly holds: Holds
 	readonly filter: Extract<Filter, "region" | "label">
-	readonly op: Op
+	readonly op: Extract<Op, "insert" | "put">
 	readonly key: number
 	readonly label: Label
 }
@@ -103,7 +105,7 @@ const caseGen: Gen<EntryCase> = (source) => {
 		write: {
 			holds: source.draw(element(holdsAll)),
 			filter: source.draw(element(statedFilters)),
-			op: source.draw(element(["insert", "put", "delete"] as const)),
+			op: source.draw(element(["insert", "put"] as const)),
 			key: source.draw(int(1, 4)),
 			label: source.draw(element(["a", "b", "zz"] as const))
 		}
@@ -125,14 +127,12 @@ const rowOf = (s: StoredStore): Row => [
 type Expected =
 	| { readonly kind: "accepted"; readonly stores: ReadonlyArray<StoredStore> }
 	| { readonly kind: "key law" }
-	| { readonly kind: "family laws" }
 	| { readonly kind: "outside" }
 	| { readonly kind: "outside or key law" }
 
 type Feature =
-	| `${Op}: ${"a visible store" | "an unseen store" | "a fresh key"}`
+	| `${Write["op"]}: ${"a visible store" | "an unseen store" | "a fresh key"}`
 	| `${"insert" | "put"} of a fact outside the entry`
-	| "a delete of a visible store with Items"
 	| `a head holding ${Holds}`
 
 const expectedOf = (c: EntryCase): { readonly expected: Expected; readonly situation: Feature } => {
@@ -147,18 +147,6 @@ const expectedOf = (c: EntryCase): { readonly expected: Expected; readonly situa
 			inside(s.region, s.label) ? ("a visible store" as const) : ("an unseen store" as const)
 	})
 	const situation: Feature = `${w.op}: ${where}`
-	if (w.op === "delete") {
-		if (
-			Option.isNone(stored) ||
-			!inside(stored.value.region, stored.value.label) ||
-			stored.value.label !== w.label
-		) {
-			return { expected: { kind: "accepted", stores: c.stores }, situation }
-		}
-		return Arr.isReadonlyArrayNonEmpty(stored.value.qtys)
-			? { expected: { kind: "family laws" }, situation: "a delete of a visible store with Items" }
-			: { expected: { kind: "accepted", stores: others }, situation }
-	}
 	const outside = !inside("north", w.label)
 	if (Option.isSome(stored) && !inside(stored.value.region, stored.value.label)) {
 		return { expected: outside ? { kind: "outside or key law" } : { kind: "key law" }, situation }
@@ -217,7 +205,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 	"a family's owner written through a role's query entry on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
-			"inserts, puts and deletes the north stores each entry sees as the model of the entry over the family states, leaving every count, stock and Item as the family holds them",
+			"inserts and puts the north stores each entry sees as the model of the entry over the family states, leaving every count, stock and Item as the family holds them",
 			(ctx) =>
 				searched(
 					ctx,
@@ -266,7 +254,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									.insert(defined(b.keeper.relations["Store"], "the keeper's Store"), [])
 									.insert(defined(b.keeper.relations["Item"], "the keeper's Item"), [])
 							})
-							/** Each entry role's insert, put and delete of its entry, served on its own Db, by the role's name. */
+							/** Each entry role's insert and put of its entry, served on its own Db, by the role's name. */
 							const opened = yield* Effect.forEach(
 								Arr.flatMap(holdsAll, (holds) =>
 									Arr.map(statedFilters, (filter) => [holds, filter] as const)
@@ -287,8 +275,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										const empty = changeSetOver.empty(writerRole)
 										const served = yield* db.serve({
 											insert: empty.insert(relation, []),
-											put: empty.put(relation, []),
-											delete: empty.delete(relation, [])
+											put: empty.put(relation, [])
 										})
 										return [name, served] as const
 									})
@@ -301,11 +288,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									literal: Formatter.format,
 									oracle: {
 										kind: "second-implementation",
-										name: "a model of the entry over the family: the north stores its filter admits, put in place, inserted at the family's starts, deleted only without Items"
+										name: "a model of the entry over the family: the north stores its filter admits, put in place, inserted at the family's starts"
 									},
 									coverage: required<Feature>(
 										[
-											...Arr.flatMap(["insert", "put", "delete"] as const, (op) =>
+											...Arr.flatMap(["insert", "put"] as const, (op) =>
 												Arr.map(
 													["a visible store", "an unseen store", "a fresh key"] as const,
 													(where): Feature => `${op}: ${where}`
@@ -313,7 +300,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											),
 											"insert of a fact outside the entry",
 											"put of a fact outside the entry",
-											"a delete of a visible store with Items",
 											...Arr.map(holdsAll, (holds): Feature => `a head holding ${holds}`)
 										],
 										{ cases: 120, sense: notesOnly }
@@ -392,13 +378,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											}
 											case "key law":
 												assert.deepEqual([outcome.kind, laws], ["refused", ["primaryKey"]], what)
-												break
-											case "family laws":
-												assert.deepEqual(
-													[outcome.kind, laws],
-													["refused", ["contained", "family"]],
-													what
-												)
 												break
 											case "outside":
 												assert.equal(outcome.kind, "outsideWorld", what)

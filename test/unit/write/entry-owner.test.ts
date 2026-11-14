@@ -6,7 +6,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { CompileError } from "#compiler/core/errors.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, placeOf, refusalLoc, refused } from "#test/support/assert.ts"
 import {
 	type EntryOwnerCase,
 	entryName,
@@ -25,16 +25,18 @@ import { offlineBind, offlineCompile, parsedChange } from "#test/support/worlds/
  * every fact, each case's role declared and its write compiled and bound with no PostgreSQL, as db.apply does.
  *
  * The oracle is the box's specification: a role is refused when it is declared exactly when its entry's filter reads a
- * family field, as `filterReadsFamily` naming it; through every other role, an insert, a put and a delete of a fact
- * stating the entry's own fields compile and bind, a put being the owner's put in place, which sets the entry's free
- * label alone and never deletes the owner from under its members; and a fact stating the count is refused, at bind, as
- * no fact of the entry.
+ * family field, as `filterReadsFamily` naming it; through every other role, an insert and a put of a fact stating the
+ * entry's own fields compile and bind, a put being the owner's put in place, which sets the entry's free label alone
+ * and never deletes the owner from under its members; a fact stating the count is refused, at bind, as no fact of the
+ * entry; and a delete of any fact is refused when it compiles (UnsupportedOperation, at the delete), since a delete of
+ * Store removes each store whole with its Items, which no write through a query entry may.
  *
  * Features: refused when declared at each family field; each op of each fact through a declared role; a put of the
  * owner in place.
  *
  * Plants (~/.cache/grizzle-release/BR02/plants): entry-owner-family-filter-admitted, an entry whose filter reads a
- * family field declared.
+ * family field declared. (~/.cache/grizzle-release/WHOLEDEL/plants): entry-owner-whole-delete-through-entry-compiled,
+ * the refusal of a whole delete through a query entry removed (write/frontend/compile.ts `unitDelete`).
  */
 const built = Object.freeze(shopOf("Shop"))
 
@@ -56,24 +58,29 @@ const caseGen: Gen<EntryOwnerCase> = (source) => {
 
 type Feature =
 	| `refused when declared: its filter reads ${"items" | "stock"}`
-	| `${EntryOwnerCase["op"]} of ${EntryOwnerCase["fact"]} through a declared role`
+	| `${"insert" | "put"} of ${EntryOwnerCase["fact"]} through a declared role`
+	| `delete of ${EntryOwnerCase["fact"]} through a declared role, refused when compiled`
 	| "a put of the owner in place"
 
 const features: Arr.NonEmptyReadonlyArray<Feature> = [
 	"refused when declared: its filter reads items",
 	"refused when declared: its filter reads stock",
-	...Arr.flatMap(["insert", "put", "delete"] as const, (op) =>
+	...Arr.flatMap(["insert", "put"] as const, (op) =>
 		Arr.map(
 			["stated", "count stated"] as const,
 			(fact): Feature => `${op} of ${fact} through a declared role`
 		)
+	),
+	...Arr.map(
+		["stated", "count stated"] as const,
+		(fact): Feature => `delete of ${fact} through a declared role, refused when compiled`
 	),
 	"a put of the owner in place"
 ]
 
 describe("a family's owner written through a query entry", () => {
 	it.effect(
-		"declares exactly the roles whose entry's filter reads no family field, and compiles and binds through them every write whose fact states no family field",
+		"declares exactly the roles whose entry's filter reads no family field, and compiles and binds through them every insert and put whose fact states no family field, and refuses every delete through them when it compiles",
 		(ctx) =>
 			searched(
 				ctx,
@@ -132,6 +139,20 @@ describe("a family's owner written through a query entry", () => {
 										: empty.delete(relation, [fact])
 							const parsed = parsedChange(changes)
 							const compiled = offlineCompile(writer, parsed, new Set())
+							if (c.op === "delete") {
+								const refusal = refused(
+									compiled,
+									"UnsupportedOperation",
+									`${Formatter.format(c)}: a whole delete through a query entry`
+								)
+								assert.deepEqual(
+									placeOf(refusalLoc(refusal)),
+									placeOf(defined(parsed.desc.strata[0]?.members[0], "the delete").loc),
+									`${Formatter.format(c)}: the refusal's place`
+								)
+								run.note(`delete of ${c.fact} through a declared role, refused when compiled`)
+								return
+							}
 							assert.ok(compiled.ok, `${Formatter.format(c)} was refused when compiled`)
 							if (c.op === "put") {
 								assert.deepEqual(

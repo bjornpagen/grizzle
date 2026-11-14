@@ -2212,10 +2212,10 @@ narrowed into its column's type unproved.
   relation it removes rows of. A delete of a tree whose nodes are another family's members is a type error, and so is a
   put or a delete of a family's member that owns a sequence. Refused when the ChangeSet compiles: a delete whose nested
   rows include a member of a family whose owner it does not remove; one whose families nest its relations in a cycle;
-  one in a stratum that also puts a relation nested under it, or puts the relation it deletes. A delete of a family's
-  member beside it in one stratum removes that member's named rows too, as an edit of its family after the whole
-  delete: a row inside the deleted groups is gone already, one outside them is removed as any member's is. A delete of
-  any other family's member is an edit of its family, as before.
+  one through a query entry; one in a stratum that also puts a relation nested under it, or puts the relation it
+  deletes. A delete of a family's member beside it in one stratum removes that member's named rows too, as an edit of
+  its family after the whole delete: a row inside the deleted groups is gone already, one outside them is removed as
+  any member's is. A delete of any other family's member is an edit of its family, as before.
 - **A replace is a delete and an insert in one stratum**: `ChangeSet.empty(S).delete(Node, roots).insertAll(rows)`.
   The delete runs first, as one statement, so the inserts meet no stored row at a key it removed, and the outcome is
   the difference of the two states: an identical replace answers `no-change`, and the counts are the rows each
@@ -2425,7 +2425,10 @@ reason.
   and a put updates the entry's own columns in place and leaves the family as it is. Its filter may read no field its
   family draws (a count, an end, an index, a tree's start), and no key of the table may hold one, else the role is
   `RoleRefused` (`writeUnwritable`) with `why` `filterReadsFamily` or `keyHoldsFamily`, naming the field. A tree's
-  table is keyed by its root fields and its drawn start, so no query entry writes it.
+  table is keyed by its root fields and its drawn start, so no query entry writes it. A delete through it is
+  `UnsupportedOperation` when the ChangeSet compiles: a delete of an owner that is no family's member removes its rows
+  whole with every row nested under them ([Families](#families)), which a role does only through a whole entry of the
+  owner.
 - **A collision with a row outside the entry**, by a put or an insert, on a key over the table or over a side of it,
   is `refused` on that rule. The witness is the key you submitted, in the entry's fields, never the other
   row. An error PostgreSQL still raises there is a typed failure, never an outcome.

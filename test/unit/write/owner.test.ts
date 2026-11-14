@@ -28,7 +28,7 @@ import {
 } from "#compiler/write/changeset/value.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { assert, defined, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -46,13 +46,19 @@ import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  * by facts is inserted at its final count and end with its members, which the families swarm
  * (test/pg/write/swarm/families.test.ts) runs.
  *
- * The oracle is that rule over generated ChangeSets of one or two strata over a ledger whose entries sum to its total.
+ * A deletion of ledgers, from a query or stated, removes each ledger with its entries whole (README "Families", a group
+ * is deleted whole through its owner), so a stratum that also puts an entry is refused when it compiles
+ * (UnsupportedOperation, at the entry's put); beside an entry's insert or removal it compiles.
  *
- * Features: each refused write of given ledgers beside each member write, and each kind of compiled write
- * (compiledFeatures).
+ * The oracle is those two rules over generated ChangeSets of one or two strata over a ledger whose entries sum to its
+ * total. A ChangeSet writes an entry in one stratum at most, so no ChangeSet breaks both.
+ *
+ * Features: each refused write of given ledgers beside each member write, a deletion of ledgers beside an entry's put
+ * refused, and each kind of compiled write (compiledFeatures).
  *
  * Plants (~/.cache/grizzle-release/BR02/plants): owner-append-put-allowed, a put of queried owners beside an append
- * compiled.
+ * compiled. (~/.cache/grizzle-release/WHOLEDEL/plants): owner-put-beside-whole-delete-compiled, the refusal of a put
+ * of a relation below a whole delete's units removed (write/frontend/compile.ts `edited`).
  */
 const Ledger = relation(
 	"Ledger",
@@ -180,8 +186,21 @@ const refusalOf = (strata: ReadonlyArray<Stratum>) =>
 			: Option.none()
 	)
 
+/** The first stratum that deletes ledgers, each whole with its entries, beside a put of an entry: the put's place. */
+const wholeRefusalOf = (strata: ReadonlyArray<Stratum>) =>
+	Arr.findFirst(strata, (s, at) =>
+		Option.isSome(s.owner) &&
+		s.owner.value.op === "delete" &&
+		Option.isSome(s.member) &&
+		s.member.value === "put"
+			? Option.some({ at })
+			: Option.none()
+	)
+
 type OwnerFeature =
 	| `${"insert" | "put"} of given ledgers beside ${"insert" | "put"} of an entry: refused`
+	| "a deletion of ledgers beside a put of an entry: refused"
+	| "a deletion of ledgers beside an entry's removal: compiled"
 	| "given ledgers beside an entry's removal: compiled"
 	| "given ledgers beside no entry: compiled"
 	| "restated ledgers beside an append: compiled"
@@ -201,9 +220,14 @@ const compiledFeatures = (strata: ReadonlyArray<Stratum>): ReadonlyArray<OwnerFe
 			(t) => Option.isSome(t.member) && t.member.value !== "delete"
 		)
 		if (s.owner.value.op === "delete") {
-			return s.owner.value.source === "given" && appends
-				? ["a deletion of given ledgers beside an append: compiled"]
-				: []
+			return [
+				...(s.owner.value.source === "given" && appends
+					? (["a deletion of given ledgers beside an append: compiled"] as const)
+					: []),
+				...(Option.isSome(s.member) && s.member.value === "delete"
+					? (["a deletion of ledgers beside an entry's removal: compiled"] as const)
+					: [])
+			]
 		}
 		switch (s.owner.value.source) {
 			case "given":
@@ -242,7 +266,9 @@ describe("an owner of counted families read from a query", () => {
 								"restated ledgers beside an append: compiled",
 								"stated ledgers beside an append: compiled",
 								"given ledgers sequenced before an append: compiled",
-								"a deletion of given ledgers beside an append: compiled"
+								"a deletion of given ledgers beside an append: compiled",
+								"a deletion of ledgers beside a put of an entry: refused",
+								"a deletion of ledgers beside an entry's removal: compiled"
 							],
 							{ cases: 300, sense: notesOnly }
 						),
@@ -252,7 +278,10 @@ describe("an owner of counted families read from a query", () => {
 						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
-						oracle: { kind: "specification", name: "the queried owner's append rule" }
+						oracle: {
+							kind: "specification",
+							name: "the queried owner's append rule and the whole delete's put rule"
+						}
 					},
 					(strata, c) =>
 						Effect.sync(() => {
@@ -261,6 +290,26 @@ describe("an owner of counted families read from a query", () => {
 								ChangeSet.sequence(a, b)
 							)
 							const refusal = refusalOf(strata)
+							const whole = wholeRefusalOf(strata)
+							if (Option.isSome(whole)) {
+								c.note("a deletion of ledgers beside a put of an entry: refused")
+								const put = Arr.findFirst(
+									defined(descOf(value).strata[whole.value.at], "the refused stratum").members,
+									(m) => m.op === "put" && m.relation === "Entry"
+								)
+								assert.deepEqual(
+									refusalLoc(
+										refused(
+											compile(value),
+											"UnsupportedOperation",
+											"a put of an entry beside a whole delete of its ledgers"
+										)
+									),
+									defined(Option.getOrUndefined(put), "the entry's put").loc,
+									"the refusal is at the entry's put"
+								)
+								return
+							}
 							if (Option.isNone(refusal)) {
 								succeeded(compile(value), "a write that inserts no owner it appends to compiles")
 								c.noteAll(compiledFeatures(strata))

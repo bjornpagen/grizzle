@@ -30,7 +30,10 @@ import type { BuiltRole } from "#test/support/worlds/execute/build.ts"
  *
  * The oracle, schema/entry.ts writableEntry and the ChangeSet types: a role whose entry's filter reads a family field
  * is refused when it is declared, `filterReadsFamily` naming the field; every other role is declared, and a write
- * through its entry is admitted exactly when its fact states no family field, which no fact of the entry states.
+ * through its entry is admitted exactly when its fact states no family field, which no fact of the entry states. A
+ * delete through the entry is refused when its ChangeSet compiles, whatever its fact: Store owns a family and is no
+ * family's member, so a delete of it removes each store whole with its Items (README "Families"), which no write
+ * through a query entry may (write/frontend/compile.ts, a whole delete through a query entry).
  */
 
 /** The family fields an entry's head holds besides `id` and `label`. */

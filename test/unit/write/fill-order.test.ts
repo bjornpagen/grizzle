@@ -83,7 +83,10 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  *   every relation a caller inserts (a sequence's members nested under their owners, a counted family's members by
  *   their group keys), which also binds, its family reads finding nothing stored; and each relation's own insert, put
  *   and delete wherever the README's rules admit them (an immutable owner's family fixed when it is inserted, a tree
- *   written whole, a sequence's members nested, and a family's member that owns a sequence written only nested).
+ *   written whole, a sequence's members nested, and a family's member that owns a sequence written only nested). A
+ *   delete of a relation that owns a family and is no other family's member removes its rows whole with every row
+ *   nested under them, so where a nested relation is a member of a family whose owner it does not remove, or the
+ *   families nest them in a cycle, it is refused when it compiles (UnsupportedOperation), as `wholeDeleteRefused` names.
  * - **The nested write fills what the reference writer fills** (fill.ts `writtenRows`): every field of every nested row
  *   the insert writes, a tree's to any depth, its interval, index, counts, fold ends and copies among them, but the
  *   counts, ends and copies a counted family's own fill writes later, a nested counted member's among them.
@@ -103,7 +106,9 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  * Plants (~/.cache/grizzle-release/BR02/plants): fill-order-read-later-admitted, the planted bug above as a patch;
  * (~/.cache/grizzle-release/FILLORDER/plants): fill-order-generated-copy-drawn, an owner copy of a generated column of
  * owners the stratum inserts read from the table after their statement, never from the fields its generation reads,
- * which the kept case of TEST_SEED=2002821052 refuses as UnorderableStratum.
+ * which the kept case of TEST_SEED=2002821052 refuses as UnorderableStratum. (~/.cache/grizzle-release/WHOLEDEL/plants):
+ * fill-order-whole-delete-partial-compiled, a whole delete's refusal of a nested member whose family's owner it keeps
+ * removed (write/frontend/compile.ts unitBelow), which the kept ordered case reaches on every seed.
  */
 
 type FillSituation =
@@ -123,6 +128,7 @@ type FillSituation =
 	| "admitted: a copy of a sibling sequence's end"
 	| "refused: copies of each other's ends along sibling sequences"
 	| "admitted: a copy of a tree's end"
+	| "refused: a whole delete reaching a family whose owner it keeps"
 	| "admitted: a nesting three deep"
 	| "written: a follow-up over the stored instance"
 	| "refilled: a value through a copy after a put"
@@ -311,6 +317,47 @@ const judged = (
 	}
 }
 
+/**
+ * Whether a delete of relation `r` is a whole delete the README refuses when its ChangeSet compiles (README
+ * "Families", a group is deleted whole, through its owner): `r` owns a family and is no family's member but its own
+ * tree's, so the delete removes its rows with every row nested under them through every family but a tree's own, to any
+ * depth; and a relation so nested is a member of a family whose owner the delete does not remove, whose groups it
+ * would leave partial, or those families nest the relations below `r` in a cycle.
+ */
+const wholeDeleteRefused = (spec: FillSpec, r: number): boolean => {
+	const families = spec.families
+	const own = (f: FillSpec["families"][number]): boolean => f.kind === "tree"
+	const memberOf = Arr.filter(families, (f) => f.member === r && !own(f))
+	if (!Arr.some(families, (f) => f.owner === r) || Arr.isReadonlyArrayNonEmpty(memberOf)) {
+		return false
+	}
+	const reached: Array<number> = [r]
+	for (const owner of reached) {
+		for (const f of families) {
+			if (f.owner === owner && !own(f) && !reached.includes(f.member)) {
+				reached.push(f.member)
+			}
+		}
+	}
+	const into = (x: number) => Arr.filter(families, (f) => f.member === x && !own(f))
+	const below = Arr.filter(reached, (x) => x !== r)
+	if (Arr.some(below, (x) => Arr.some(into(x), (f) => !reached.includes(f.owner)))) {
+		return true
+	}
+	const ordered: Array<number> = [r]
+	for (let remaining = below; Arr.isReadonlyArrayNonEmpty(remaining);) {
+		const next = Arr.findFirst(remaining, (x) =>
+			Arr.every(into(x), (f) => ordered.includes(f.owner))
+		)
+		if (Option.isNone(next)) {
+			return true
+		}
+		ordered.push(next.value)
+		remaining = Arr.filter(remaining, (x) => x !== next.value)
+	}
+	return false
+}
+
 /** Whether the README's rules admit a write of relation `r` by `op`, which then must compile. */
 const ruleAdmits = (spec: FillSpec, r: number, op: "insert" | "put" | "delete"): boolean => {
 	const families = spec.families
@@ -348,7 +395,7 @@ const ruleAdmits = (spec: FillSpec, r: number, op: "insert" | "put" | "delete"):
 		case "put":
 			return !tree && !nestsUnderMember && (!owns || defined(spec.relations[r]).mutable)
 		case "delete":
-			return !tree && !nestsUnderMember && !immutableOwner
+			return !tree && !nestsUnderMember && !immutableOwner && !wholeDeleteRefused(spec, r)
 	}
 }
 
@@ -691,6 +738,19 @@ const property = (
 			}
 			if (ruleAdmits(spec, r, "delete")) {
 				one(ChangeSet.empty(value).delete(relation, []), "delete")
+			} else if (wholeDeleteRefused(spec, r)) {
+				const refusal = refusalOf(
+					compileWrite(checked, descOf(ChangeSet.empty(value).delete(relation, [])), options)
+				)
+				assert.equal(
+					defined(
+						refusal,
+						`a whole delete of ${relationName(r)} leaving a group partial is refused`
+					).reason._tag,
+					"UnsupportedOperation",
+					`a whole delete of ${relationName(r)} leaving a group partial`
+				)
+				note("refused: a whole delete reaching a family whose owner it keeps")
 			}
 		}
 		if (Option.isSome(followUp)) {
@@ -810,6 +870,7 @@ const fillSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
 	"refused: copies of each other's ends along sibling sequences",
 	"admitted: a copy of a tree's end",
 	"admitted: a nesting three deep",
+	"refused: a whole delete reaching a family whose owner it keeps",
 	"written: a follow-up over the stored instance"
 ]
 
@@ -821,45 +882,57 @@ const fillSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
  * The shapes the engine once refused (UnfillableField, a column no fill reaches) where the reference admits them: R0 is
  * the member of a sequence, an ordered family of R2 or a tree of its own, and of R1's counted family, whose sum fold
  * steps R0's copy along the sequence's owner axis of a caller's `v` or a generated `g`. The walk fills the copy on
- * entering R0, and the counted family completes the row afterwards, as it completes any row the walk left.
+ * entering R0, and the counted family completes the row afterwards, as it completes any row the walk left. Where R0 is
+ * R2's ordered member, a delete of R1 removes R0's rows whole, which would leave R2's groups partial, so it is refused
+ * when it compiles.
  */
-const stepsOfSequenceCopies: ReadonlyArray<{ readonly note: string; readonly sketch: FillCase }> =
-	Arr.map(
-		[
-			{
-				note: "an ordered family's copy of a caller's v",
-				family: { kind: "ordered", owner: 2, member: 0, fold: "none" },
-				source: "caller"
-			},
-			{
-				note: "a tree's copy of its parent's caller v",
-				family: { kind: "tree", owner: 0, member: 0, fold: "none" },
-				source: "caller"
-			},
-			{
-				note: "a tree's copy of its parent's generated g",
-				family: { kind: "tree", owner: 0, member: 0, fold: "none" },
-				source: "generated"
-			}
-		] as const,
-		({ note, family, source }) => {
-			const relation = { generated: false, mutable: false }
-			const spec: FillSpec = {
-				relations: [
-					{ ...relation, generated: source === "generated" },
-					relation,
-					...(family.kind === "ordered" ? [relation] : [])
-				],
-				families: [family, { kind: "counted", owner: 1, member: 0, fold: "sum" }],
-				copies: [{ family: 0, axis: "owner", source: { kind: source } }],
-				steps: [{ family: 1, copy: 0 }]
-			}
-			return {
-				note: `a counted fold stepping its member's copy along a sequence's owner axis: ${note}`,
-				sketch: { spec, rows: fullInstance(spec), followUp: Option.none() }
-			}
+const stepsOfSequenceCopies: ReadonlyArray<{
+	readonly note: string
+	readonly sketch: FillCase
+	readonly reaches: Arr.NonEmptyReadonlyArray<FillSituation>
+}> = Arr.map(
+	[
+		{
+			note: "an ordered family's copy of a caller's v",
+			family: { kind: "ordered", owner: 2, member: 0, fold: "none" },
+			source: "caller"
+		},
+		{
+			note: "a tree's copy of its parent's caller v",
+			family: { kind: "tree", owner: 0, member: 0, fold: "none" },
+			source: "caller"
+		},
+		{
+			note: "a tree's copy of its parent's generated g",
+			family: { kind: "tree", owner: 0, member: 0, fold: "none" },
+			source: "generated"
 		}
-	)
+	] as const,
+	({ note, family, source }) => {
+		const relation = { generated: false, mutable: false }
+		const spec: FillSpec = {
+			relations: [
+				{ ...relation, generated: source === "generated" },
+				relation,
+				...(family.kind === "ordered" ? [relation] : [])
+			],
+			families: [family, { kind: "counted", owner: 1, member: 0, fold: "sum" }],
+			copies: [{ family: 0, axis: "owner", source: { kind: source } }],
+			steps: [{ family: 1, copy: 0 }]
+		}
+		return {
+			note: `a counted fold stepping its member's copy along a sequence's owner axis: ${note}`,
+			sketch: { spec, rows: fullInstance(spec), followUp: Option.none() },
+			reaches: [
+				"admitted",
+				"admitted: a counted fold stepping a sequence's copy of its owner's",
+				...(family.kind === "ordered"
+					? (["refused: a whole delete reaching a family whose owner it keeps"] as const)
+					: [])
+			]
+		}
+	}
+)
 
 /** The cases the drawn search found, each kept by value. */
 const foundCases: ReadonlyArray<Kept<FillCase, FillSituation>> = [
@@ -929,6 +1002,7 @@ const aims: ReadonlyArray<readonly [FillSituation, Planted]> = [
 	["admitted: a copy of a sibling sequence's end", "sibling's end"],
 	["refused: copies of each other's ends along sibling sequences", "siblings' ends"],
 	["admitted: a counted member that is an ordered family's", "counted ordered member"],
+	["refused: a whole delete reaching a family whose owner it keeps", "counted ordered member"],
 	["admitted: a counted member that is a tree's node", "counted tree node"],
 	["admitted: a counted member that owns a sequence", "counted sequence owner"],
 	[
@@ -1496,14 +1570,11 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 						kept: [
 							...Arr.map(
 								stepsOfSequenceCopies,
-								({ note, sketch }): Kept<FillCase, FillSituation> => ({
+								({ note, sketch, reaches }): Kept<FillCase, FillSituation> => ({
 									note,
 									sketch,
 									draws: "",
-									reaches: [
-										"admitted",
-										"admitted: a counted fold stepping a sequence's copy of its owner's"
-									]
+									reaches
 								})
 							),
 							...foundCases
