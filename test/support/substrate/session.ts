@@ -2,7 +2,13 @@ import { Effect, Formatter, Option, type Redacted, type Scope, String as Str } f
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { ownPidOf, ownPidQuery } from "#test/support/kernel/sanitize.ts"
-import { type PgConnection, type RawQueryResult, type SqlError, session } from "#test/support/pg.ts"
+import {
+	type PgConnection,
+	type PipelineRefused,
+	type RawQueryResult,
+	type SqlError,
+	session
+} from "#test/support/pg.ts"
 import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 
@@ -55,6 +61,13 @@ export interface RawSession {
 		sql: string,
 		params: ReadonlyArray<unknown>
 	) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, SqlError>
+	/**
+	 * Statements of no parameters in one write, before any answer is read (PgConnection pipeline): every answer in order,
+	 * or the first statement PostgreSQL refused, by its position (PipelineRefused).
+	 */
+	readonly pipeline: (
+		statements: ReadonlyArray<string>
+	) => Effect.Effect<ReadonlyArray<RawQueryResult>, PipelineRefused>
 	/** BEGIN ISOLATION LEVEL SERIALIZABLE. */
 	readonly begin: Effect.Effect<void, SqlError>
 	/** A planted below-SERIALIZABLE BEGIN, for a writer whose writes grizzle must refuse. */
@@ -122,6 +135,7 @@ export const openSession = Effect.fnUntraced(function* (
 		pid: own.value,
 		query,
 		values,
+		pipeline: pinned.pipeline,
 		begin: Effect.asVoid(query(beginSerializable, [])),
 		beginBelow: (level) => Effect.asVoid(query(beginBelowStatement(level), [])),
 		commit: Effect.flatMap(query("COMMIT", []), (result) =>
