@@ -1,4 +1,4 @@
-import { Effect, type Scope } from "effect"
+import { Cause, Effect, Exit, Result, type Scope } from "effect"
 import {
 	ListenerLost,
 	SlotAbsent,
@@ -8,7 +8,9 @@ import {
 import {
 	type Candidacy,
 	candidacy,
+	LeaderDied,
 	LeaderFailed,
+	type LeaderReason,
 	alone,
 	onlyCell,
 	secretOf,
@@ -24,8 +26,8 @@ import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
  * The installation's fan-out as a change source (live/source.ts ChangeSource), one per process's live source, built in
  * its scope (pool/live.ts): a listening session of the installation's decoder login, outside any pool (wire/session.ts
  * connectListener), on the installation's channel, and the process's candidacy for the installation's leader
- * (live/leader.ts), which a source's open starts where none runs, in the live source's scope, and whose failure loses
- * the source it last opened.
+ * (live/leader.ts), which a source's open starts where none runs, in the live source's scope, and whose end, of any
+ * kind, loses the source it last opened (leading).
  *
  * An open reads the installation's secret, sends the LISTEN, then checks the slot: a slot that does not stand refuses
  * the open, since a read begun before the slot stands could miss a change no slot decodes; one that stands means every
@@ -46,30 +48,61 @@ export interface Fanout {
 	readonly candidacy: Candidacy
 }
 
+/**
+ * The process's leadership of the installation: whether a candidacy runs, and the source it reports its end to, the one
+ * a read last opened.
+ */
+export interface Leadership {
+	running: boolean
+	sink: ChangeSink | undefined
+}
+
+/** What a candidacy's end comes to: its failure's reason, or LeaderDied for a defect or an interruption. */
+const endedBy = (exit: Exit.Exit<never, LeaderReason>): LeaderReason =>
+	Exit.isSuccess(exit)
+		? exit.value
+		: Result.match(Cause.findError(exit.cause), {
+				onSuccess: (reason) => reason,
+				onFailure: (cause) => new LeaderDied({ cause })
+			})
+
+/**
+ * `run`, a candidacy, started in `scope` where none runs, and nothing where one does. The leadership is taken from the
+ * moment it starts until its fiber ends, by its own exit, which takes it back whatever the end: a failure, a defect or
+ * an interruption, each reported to the source the leadership last served as LeaderFailed (endedBy), so every read
+ * waiting on it ends with that typed outcome and the next open starts another candidacy. A fiber the scope never runs,
+ * one forked into a scope already closing, leaves it taken; that scope's source serves no read again.
+ */
+export const leading = (
+	leadership: Leadership,
+	run: Effect.Effect<never, LeaderReason>,
+	scope: Scope.Scope
+): Effect.Effect<void> =>
+	Effect.suspend(() => {
+		if (leadership.running) {
+			return Effect.void
+		}
+		leadership.running = true
+		return Effect.asVoid(
+			Effect.forkIn(
+				Effect.exit(
+					Effect.onExit(run, (exit) =>
+						Effect.sync(() => {
+							leadership.running = false
+							leadership.sink?.lost(new LeaderFailed({ reason: endedBy(exit) }))
+						})
+					)
+				),
+				scope
+			)
+		)
+	})
+
 /** The fan-out's change source, in the layer's scope (see the header). */
 export const fanoutSource = (fanout: Fanout): Effect.Effect<ChangeSource, never, Scope.Scope> =>
 	Effect.map(Effect.scope, (layer) => {
-		const leader: { running: boolean; sink: ChangeSink | undefined } = {
-			running: false,
-			sink: undefined
-		}
-		const lead = Effect.suspend(() => {
-			if (leader.running) {
-				return Effect.void
-			}
-			leader.running = true
-			return Effect.asVoid(
-				Effect.forkIn(
-					Effect.catch(candidacy(fanout.candidacy), (reason) =>
-						Effect.sync(() => {
-							leader.running = false
-							leader.sink?.lost(new LeaderFailed({ reason }))
-						})
-					),
-					layer
-				)
-			)
-		})
+		const leader: Leadership = { running: false, sink: undefined }
+		const lead = leading(leader, candidacy(fanout.candidacy), layer)
 		const slot = textParam(fanout.candidacy.slot)
 		return {
 			open: (sink) =>

@@ -20,10 +20,13 @@
  *   replication slot until the live leader it starts makes one, and its caller calls again, as the contract says. Over
  *   HTTP a read's once is its watch's first value, so it registers live too. A refusal of any other kind fails the case.
  *
+ * A case whose turn aims at a pending write feature (Case.steering) runs one constructed to reach it (aimedCase): a put
+ * of an item no stored item states, or a put of stored items as stored, so the label-fixed streams reach both.
+ *
  * Plants (~/.cache/grizzle-release/LIVE-CLIENT/plants): client-int8-decoded-as-number (live/wire.ts carrierWire.int8
  * decoding an int8 as a number), client-watch-every-event (watch's value taken at every event, before `ready`).
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { boolean, constant, element, type Gen, int, oneOf, shuffled } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -173,6 +176,48 @@ const caseGen: Gen<ClientCase> = (source) => {
 	return { stored, call: source.draw(callGen(stored)), write: source.draw(itemsGen(1, 3)) }
 }
 
+/**
+ * Each write feature with the case constructed to reach it, drawn on the case's own tape: a put of one item whose id
+ * the stored items leave free, which no stored item states, so it is accepted; or a put of stored items exactly as
+ * stored, so it is unchanged.
+ */
+const aims: ReadonlyArray<readonly [Feature, Gen<ClientCase>]> = [
+	[
+		"a write accepted",
+		(source) => {
+			const stored = source.draw(itemsGen(0, 6))
+			const free = Arr.filter(ids, (id) => !Arr.some(stored, (item) => item.id === id))
+			const id = source.draw(element(Arr.isReadonlyArrayNonEmpty(free) ? free : ids))
+			return {
+				stored,
+				call: { member: "put", put: [source.draw(itemGen(id))] },
+				write: source.draw(itemsGen(1, 3))
+			}
+		}
+	],
+	[
+		"a write unchanged",
+		(source) => {
+			const stored = source.draw(itemsGen(1, 6))
+			return {
+				stored,
+				call: { member: "put", put: Arr.take(stored, 2) },
+				write: source.draw(itemsGen(1, 3))
+			}
+		}
+	]
+]
+
+/**
+ * The case a property runs: its drawn one, or, where its turn aims at a pending write feature (Case.steering), one
+ * constructed to reach it, drawn on the case's own tape, so the cases of one window aim at distinct pending features.
+ */
+const aimedCase = (drawnCase: ClientCase, k: Case<Feature>): ClientCase => {
+	const pending = Option.getOrUndefined(k.steering)
+	const aim = Arr.findFirst(aims, ([feature]) => pending?.aimed(feature) === true)
+	return Option.isNone(aim) ? drawnCase : k.draw(aim.value[1])
+}
+
 /** Whether two items state one fact. */
 const sameItem = (a: ItemFact, b: ItemFact): boolean =>
 	a.id === b.id &&
@@ -258,6 +303,11 @@ const untilReady = <E extends { readonly kind: string }>(
 		let ready = false
 		while (!ready) {
 			const event = yield* Queue.take(events)
+			if (event.kind === "error" || event.kind === "end") {
+				return yield* Effect.die(
+					`a live read's events end before their next ready: ${Formatter.format(event)}`
+				)
+			}
 			batch.push(event)
 			ready = event.kind === "ready"
 		}
@@ -310,8 +360,9 @@ layer(Substrate.layer, { excludeTestServices: true })("the client over HTTP", (i
 					steerEvery: 4,
 					caseHang
 				},
-				({ stored, call, write }, notes) =>
+				(drawnCase, notes) =>
 					Effect.gen(function* () {
+						const { stored, call, write } = aimedCase(drawnCase, notes)
 						const generated = yield* installGenerated(
 							(name) => ({
 								schema: itemsNamed(name),

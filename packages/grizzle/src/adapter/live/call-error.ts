@@ -405,6 +405,7 @@ const leaderCallError = (reason: LeaderReason, message: string): CallErrorIn<Con
 		case "ReplicationSilent":
 			return unavailable("sessionLost", message)
 		case "DriverFailure":
+		case "LeaderDied":
 			return messageErrors.failed(message)
 		case "UnreadableAnswer":
 		case "InputTooLarge":

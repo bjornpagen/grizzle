@@ -1,4 +1,4 @@
-import { Array as Arr, Clock, Data, Deferred, Duration, Effect, Result } from "effect"
+import { Array as Arr, Cause, Clock, Data, Deferred, Duration, Effect, Result } from "effect"
 import { SecureRandom } from "effect/crypto"
 import type {
 	BatchFailure,
@@ -98,6 +98,7 @@ export type LeaderReason =
 	| SecretUnreadable
 	| SenderTimeoutUnreadable
 	| ReplicationSilent
+	| LeaderDied
 
 /** The process's candidacy for the installation's leader failed for `reason`, so its live reads end. */
 export class LeaderFailed extends Data.TaggedError("LeaderFailed")<{
@@ -105,6 +106,19 @@ export class LeaderFailed extends Data.TaggedError("LeaderFailed")<{
 }> {
 	override get message(): string {
 		return `the installation's live leader in this process failed: ${this.reason.message}`
+	}
+}
+
+/**
+ * A candidacy that ended with no failure of its own, `cause` all there is of its end: a defect of grizzle's, which the
+ * same candidacy meets again, or its fiber interrupted. Every end of a candidacy is one of its failures or this, so no
+ * end leaves the leadership taken (live/listen.ts leading).
+ */
+export class LeaderDied extends Data.TaggedError("LeaderDied")<{
+	readonly cause: Cause.Cause<never>
+}> {
+	override get message(): string {
+		return `the installation's live leader in this process died: ${Cause.pretty(this.cause)}`
 	}
 }
 
