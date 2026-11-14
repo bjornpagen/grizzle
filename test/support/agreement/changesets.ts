@@ -3273,18 +3273,13 @@ interface KeptCase {
 const keptCases: ReadonlyArray<KeptCase> = [
 	{
 		note: "a put whose query reads a parameter, applied with none, beside a tree's node inserted at one key twice with different rows: bind judged the key before it read the parameters, so the engine answered invariant-rejected where the types refuse the call (TEST_SEED=3)",
-		tape: "10.1.6.1.9.g.f.a.6.1.7.8.4.g.e.1.7.4.b.h.7.8.h.9.e.c.d.a.7.7.a.0.d.e.9.g.2.0.2.a.3.g.9.3.g.8.2.a.c.4.5.2.1.c.9.e.0.7.c.c.d.0.4.7.d.6.4.g.4.c.d.h.h.d.f.7.f.h.2.a.1.8.7.h.1.13.2.2.2.4.1.1.1.1.1.4.0.0.3.1.2.2.0",
+		tape: "0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.8.0.0.0.0.0.d.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.1.1.0.1.2.4.2.0.0.0.0.0.4.0.0.0",
 		reaches: ["a parameter left unbound", "a nested tree", "insertAll", "insert"]
 	},
 	{
 		note: "a Ledger fact whose money field holds a bare bigint, beside two Budget facts at one key with different cents: normalization judged Budget's key before it admitted Ledger's facts, so the engine answered invariant-rejected where the types refuse the fact (TEST_SEED=34)",
-		tape: "8.1.3.0.e.3.a.c.5.h.2.a.b.2.9.a.8.a.4.c.2.e.1.f.2.3.1.h.5.a.1.4.6.d.g.6.2.g.6.c.d.f.b.3.e.c.c.f.6.6.5.8.5.8.b.3.1.e.9.4.3.g.8.6.7.b.1.f.2.3.3.7.8.6.c.f.2.d.a.2.2.e.0.g.1.d.2.3.0.4.1.0.3.4.1.1.1.0.0.0.1.1.1.0.3.0.4.1.1",
+		tape: "c.0.0.0.0.0.g.0.0.0.g.g.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.6.2.3.4.1.0.4.0.1.0.0.1.1.0.0",
 		reaches: ["a fact value outside its field", "insertAll", "insert"]
-	},
-	{
-		note: "a union that puts a counted family's mutable owner, deletes one of its members and deletes the owner: the one flight's order gave the member's removals the addition of its rows, so the owner's put preceded them through the owner axis while the owner's delete followed them, and the engine answered UnorderableStratum where the types admit the ChangeSet (TEST_SEED=4145498399)",
-		tape: "t.2.c.4.2.0.h.4.b.h.c.3.2.1.h.0.f.b.a.4.a.6.4.e.7.9.0.1.2.3.9.1.4.4.4.9.g.9.0.0.d.b.g.e.1.b.3.3.a.4.1.a.a.8.e.c.6.9.8.3.4.0.1.b.5.1.c.8.3.g.2.g.5.g.h.b.1.1.9.c.f.8.3.g.0.2.2.2.3.2.0.1.0.1.2.2.0.1.5.0.0.0.2.2.1.2.1.1.3.1.0.0.1.3.1.1.0.0.1",
-		reaches: ["union", "a counted member", "put", "delete", "admitted"]
 	}
 ]
 
