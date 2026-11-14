@@ -164,12 +164,14 @@ export type LoadedMember = { readonly name: string; readonly wire: ServedMember[
 
 /**
  * One role of the login, loaded: its name in the login, the PostgreSQL role each of its Dbs' transactions enters, the
- * contexts its relations read, typed, which a token's claims decode through, and its workload's members in order.
+ * contexts its relations read, typed, which a token's claims decode through, its wire as generate committed it
+ * (live/member.ts RoleWire), whose witness every member's errors are encoded by, and its workload's members in order.
  */
 export interface LoadedRole {
 	readonly name: string
 	readonly installed: string
 	readonly contexts: ReadonlyArray<TypedContext>
+	readonly wire: ServedRoleForm["wire"]
 	readonly members: ReadonlyArray<LoadedMember>
 	/** A read's refusal by a domain its statements cast a value to (witness/classify.ts domainRefusal). */
 	readonly domain: InstallationWitness["domain"]
@@ -409,6 +411,7 @@ const loadRole = (
 			name: role.name,
 			installed: role.installed,
 			contexts: Arr.map(role.contexts, (context) => contextOver(context, context.fields, codes)),
+			wire: role.wire,
 			members,
 			domain: witness.domain,
 			isolation: role.isolation

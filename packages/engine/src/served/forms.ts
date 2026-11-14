@@ -19,7 +19,7 @@ import type { CallerParamDecl, ConstraintLaws, PageFill } from "#compiler/ir/pro
 import type { CompletedOrder, Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import type { Patterns } from "#compiler/ir/scalar.ts"
 import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
-import type { ServedWire } from "#compiler/live/member.ts"
+import type { RoleWire, ServedWire } from "#compiler/live/member.ts"
 import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
 import type { PageRequestProgram } from "#compiler/lower/shapes/page/compile.ts"
 import type { PageComparator, PageVariant, VariantFill } from "#compiler/lower/shapes/page/seek.ts"
@@ -246,7 +246,8 @@ export const servedPath = (login: string): string => `${servedDirectory}/${login
 /**
  * One role of a login as its Dbs serve it: its name in the login, its installed PostgreSQL role, the isolation level
  * its writes begin at, the contexts its relations read, typed, which a Db's claims are decoded through, the classifier
- * of its refusals, and its workload members in the workloads' order, each program's own record order.
+ * of its refusals, its wire (live/member.ts RoleWire), the witnesses its refusals may name on the wire, once for all its
+ * members, and its workload members in the workloads' order, each program's own record order.
  */
 export interface ServedRoleForm {
 	readonly name: string
@@ -259,6 +260,7 @@ export interface ServedRoleForm {
 	readonly isolation: Isolation
 	readonly contexts: ReadonlyArray<ServedContext>
 	readonly refusals: ServedRefusals
+	readonly wire: RoleWire
 	readonly members: ReadonlyArray<ServedMember>
 }
 

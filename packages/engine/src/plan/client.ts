@@ -7,6 +7,7 @@
 export { defect } from "#compiler/core/invariant.ts"
 export { trusted, trustedJson } from "#compiler/core/trusted.ts"
 export { encodeInput, slotDecoders, wireText } from "#compiler/live/codec.ts"
+export { documentWire } from "#compiler/live/document.ts"
 export {
 	type CallError,
 	type CallErrorKind,
@@ -46,8 +47,8 @@ export type {
 	Window,
 	WriteOutcome
 } from "#compiler/live/program.ts"
-export type { MemberWire, WireOptions } from "#compiler/live/shape.ts"
-export { trustedMember, type WireJson } from "#compiler/live/wire.ts"
+export type { MemberWire, RoleWitness, WireOptions } from "#compiler/live/shape.ts"
+export { trustedMember, type WireJson, type WireScalar } from "#compiler/live/wire.ts"
 export { Decimal } from "#compiler/scalar/values/decimal.ts"
 export { Money } from "#compiler/scalar/values/money.ts"
 export { Vector } from "#compiler/scalar/values/vector.ts"

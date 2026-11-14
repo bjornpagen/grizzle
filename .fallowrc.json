@@ -293,14 +293,16 @@
 			},
 			{
 				// The wire's spelling of every served value (live/wire.ts), its regular languages (live/pattern.ts), a served
-				// program's wire shape (live/shape.ts) and its codecs (live/codec.ts): runtime-free and browser-safe, the one
-				// table the server, the client and the OpenAPI document read.
+				// program's wire shape (live/shape.ts), its codecs (live/codec.ts) and its reading off a login's OpenAPI
+				// document (live/document.ts): runtime-free and browser-safe, the one table the server, the client and the
+				// OpenAPI document read.
 				"name": "live-wire",
 				"patterns": [
 					"packages/engine/src/live/wire.ts",
 					"packages/engine/src/live/pattern.ts",
 					"packages/engine/src/live/shape.ts",
-					"packages/engine/src/live/codec.ts"
+					"packages/engine/src/live/codec.ts",
+					"packages/engine/src/live/document.ts"
 				]
 			},
 			{

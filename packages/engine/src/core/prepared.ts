@@ -13,7 +13,7 @@
  * by, whole.
  */
 import { nominal } from "#compiler/core/brand.ts"
-import { sha256Hex } from "#compiler/core/sha256.ts"
+import { sha256Base32, sha256Base32Chars } from "#compiler/core/sha256.ts"
 
 declare const statementNameBrand: unique symbol
 
@@ -30,50 +30,9 @@ const statementName = nominal<string, StatementName>()
 
 const namePrefix = "grizzle_"
 
-const base32 = "abcdefghijklmnopqrstuvwxyz234567"
-
-/**
- * The bits of a SHA-256 digest.
- *
- * @formatConstant SHA-256's digest: 256 bits
- */
-const digestBits = 256
-
-/**
- * The bits one base32 character holds.
- *
- * @formatConstant RFC 4648 base32: 5 bits a character
- */
-const base32Bits = 5
-
-/**
- * The bits one hex digit holds.
- *
- * @formatConstant a hex digit: 4 bits
- */
-const hexBits = 4
-
 /** The bytes of every statement's name: its prefix and its digest's base32 characters, all ASCII. */
-export const statementNameBytes = namePrefix.length + Math.ceil(digestBits / base32Bits)
+export const statementNameBytes = namePrefix.length + sha256Base32Chars
 
-/** `sql` and the name it is prepared under: `grizzle_` and its SHA-256 in base32, its last character's low bits zero. */
-export const prepared = <Text extends string>(sql: Text): Prepared<Text> => {
-	const hex = sha256Hex(sql)
-	let name = namePrefix
-	let held = 0
-	let bits = 0
-	for (let at = 0; at < hex.length; at++) {
-		held = (held << hexBits) | Number.parseInt(hex.charAt(at), 16)
-		bits += hexBits
-		if (bits < base32Bits) {
-			continue
-		}
-		bits -= base32Bits
-		name += base32.charAt(held >> bits)
-		held &= (1 << bits) - 1
-	}
-	if (bits > 0) {
-		name += base32.charAt(held << (base32Bits - bits))
-	}
-	return Object.freeze({ name: statementName(name), sql })
-}
+/** `sql` and the name it is prepared under: `grizzle_` and its SHA-256 in base32 (core/sha256.ts sha256Base32). */
+export const prepared = <Text extends string>(sql: Text): Prepared<Text> =>
+	Object.freeze({ name: statementName(`${namePrefix}${sha256Base32(sql)}`), sql })

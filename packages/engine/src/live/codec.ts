@@ -1,7 +1,8 @@
 /**
- * The codecs of a served program's wire shape (live/shape.ts MemberWire): the server's encode of its rows, keys,
- * outcomes and errors and its exact parse of a caller's input, and the client's trusting decode of the server's frames
- * and its encode of an input, each an interpreter of the one shape over the one scalar table (live/wire.ts).
+ * The codecs of a served program's wire shape (live/shape.ts MemberWire) and its role's witness (RoleWitness): the
+ * server's encode of its rows, keys, outcomes and errors and its exact parse of a caller's input, and the client's
+ * trusting decode of the server's frames and its encode of an input, each an interpreter of the one shape over the one
+ * scalar table (live/wire.ts).
  *
  * The server reads its own values (a decoded row, an outcome, a CallError) as unknown, since a row is a record no type
  * ties to its heading at run time: a value of another shape there is a defect, and throws. The client reads the
@@ -33,6 +34,7 @@ import { type KeyFields, RowKey } from "#compiler/live/key.ts"
 import type { Anchor, Input, NoFacts, Window, WindowInput } from "#compiler/live/program.ts"
 import type {
 	MemberWire,
+	RoleWitness,
 	WireColumn,
 	WireFacts,
 	WireFault,
@@ -711,7 +713,7 @@ const plainJson = (value: unknown): WireJson => {
 
 /** The witness relation a key witness names, among the role's. */
 const witnessOf = (
-	witness: ReadonlyArray<WireWitness<WireScalar>>,
+	witness: RoleWitness<WireScalar>,
 	relation: unknown
 ): WireWitness<WireScalar> => {
 	const found = witness.find((w) => w.relation === relation)
@@ -732,7 +734,7 @@ const witnessField = (w: WireWitness<WireScalar>, name: string): WireField<WireS
 
 /** The JSON of a refusal's witness: a key's values typed by its relation's fields, or none reported. */
 const encodeWitness = (
-	witness: ReadonlyArray<WireWitness<WireScalar>>,
+	witness: RoleWitness<WireScalar>,
 	value: unknown,
 	options: WireOptions
 ): WireJson => {
@@ -755,7 +757,7 @@ const encodeWitness = (
 
 /** A refusal's witness from the server's own JSON. */
 const decodeWitness = (
-	witness: ReadonlyArray<WireWitness<WireScalar>>,
+	witness: RoleWitness<WireScalar>,
 	json: WireJson,
 	options: WireOptions
 ): Witness => {
@@ -871,7 +873,7 @@ type SlotDecoders = { readonly [S in Slot]: (json: WireJson) => SlotValues<unkno
 
 /** The JSON of a payload member of a CallError, by its slot: a text, a refusal's laws or its witness. */
 const encodeErrorMember = (
-	wire: MemberWire,
+	witness: RoleWitness<WireScalar>,
 	slot: Slot,
 	value: unknown,
 	options: WireOptions
@@ -885,7 +887,7 @@ const encodeErrorMember = (
 		case "refused":
 			return plainJson(value)
 		case "witness":
-			return encodeWitness(wire.witness, value, options)
+			return encodeWitness(witness, value, options)
 		case "transientReason":
 			if (!isTransientTag(value)) {
 				throw defect("a transient CallError's reason, one of transientTags")
@@ -963,28 +965,36 @@ const decodeUnavailableReason = (json: WireJson): UnavailableReason => {
 }
 
 /** The JSON of a CallError: its kind, its retry and its payload's members by their slots. */
-const encodeError = (wire: MemberWire, error: CallError, options: WireOptions): WireJson => {
+const encodeError = (
+	witness: RoleWitness<WireScalar>,
+	error: CallError,
+	options: WireOptions
+): WireJson => {
 	const out: Record<string, WireJson> = { kind: error.kind, retry: error.retry }
 	for (const [member, slot] of Object.entries(callErrors[error.kind].payload)) {
-		out[member] = encodeErrorMember(wire, slot, ownMember(error, member), options)
+		out[member] = encodeErrorMember(witness, slot, ownMember(error, member), options)
 	}
 	return out
 }
 
 /**
- * Each slot's encoder for one member's events (live/events.ts SlotValues): the server's frames walk an event's payload
- * and encode each member by its slot's.
+ * Each slot's encoder for one member's events (live/events.ts SlotValues), the member of a role whose refusals name
+ * `witness`: the server's frames walk an event's payload and encode each member by its slot's.
  */
-export const slotEncoders = (wire: MemberWire, options: WireOptions): SlotEncoders => ({
+export const slotEncoders = (
+	wire: MemberWire,
+	witness: RoleWitness<WireScalar>,
+	options: WireOptions
+): SlotEncoders => ({
 	text: (value) => value,
 	fields: (value) => [...value],
 	row: (value) => encodeRecord(readOf(wire).record, value, options),
 	key: (value) => encodeKey(readOf(wire).key, value),
 	after: (value) => (value === null ? null : encodeKey(readOf(wire).key, value)),
 	outcome: (value) => encodeOutcome(wire, value, options),
-	error: (value) => encodeError(wire, value, options),
+	error: (value) => encodeError(witness, value, options),
 	refused: (value) => plainJson(value),
-	witness: (value) => encodeWitness(wire.witness, value, options),
+	witness: (value) => encodeWitness(witness, value, options),
 	transientReason: (value) => value,
 	credentialReason: (value) => value,
 	unavailableReason: encodeUnavailableReason
@@ -996,7 +1006,7 @@ const messageOf = (record: { readonly [member: string]: WireJson }): string =>
 
 /** Each CallError's decoder, by its kind: its payload's members, each by its slot. */
 const errorDecoders = (
-	wire: MemberWire,
+	witness: RoleWitness<WireScalar>,
 	options: WireOptions
 ): {
 	readonly [K in CallErrorKind]: (record: { readonly [member: string]: WireJson }) => CallError
@@ -1009,7 +1019,7 @@ const errorDecoders = (
 		callError("refused", {
 			message: messageOf(r),
 			refused: trusted<Refused>(trustedMember(r, "refused")),
-			witness: decodeWitness(wire.witness, trustedMember(r, "witness"), options)
+			witness: decodeWitness(witness, trustedMember(r, "witness"), options)
 		}),
 	outsideWorld: (r) =>
 		callError("outsideWorld", {
@@ -1041,29 +1051,37 @@ const errorDecoders = (
 const isCallErrorKind = (kind: string): kind is CallErrorKind => Object.hasOwn(callErrors, kind)
 
 /** A CallError from the server's own JSON. */
-const decodeError = (wire: MemberWire, json: WireJson, options: WireOptions): CallError => {
+const decodeError = (
+	witness: RoleWitness<WireScalar>,
+	json: WireJson,
+	options: WireOptions
+): CallError => {
 	const record = trustedRecord(json)
 	const kind = trustedString(trustedMember(record, "kind"))
 	if (!isCallErrorKind(kind)) {
 		throw defect("a CallError's kind")
 	}
-	return errorDecoders(wire, options)[kind](record)
+	return errorDecoders(witness, options)[kind](record)
 }
 
 /**
- * Each slot's decoder for one member's events, the client's: each payload member of a frame from the server's own
- * JSON, trusted.
+ * Each slot's decoder for one member's events, the member of a role whose refusals name `witness`, the client's: each
+ * payload member of a frame from the server's own JSON, trusted.
  */
-export const slotDecoders = (wire: MemberWire, options: WireOptions): SlotDecoders => ({
+export const slotDecoders = (
+	wire: MemberWire,
+	witness: RoleWitness<WireScalar>,
+	options: WireOptions
+): SlotDecoders => ({
 	text: trustedString,
 	fields: (json): KeyFields => trustedArray(json).map(trustedString),
 	row: (json) => decodeRecord(readOf(wire).record, json, options),
 	key: (json) => decodeKey(readOf(wire).key, json),
 	after: (json) => (json === null ? null : decodeKey(readOf(wire).key, json)),
 	outcome: (json) => decodeOutcome(wire, json, options),
-	error: (json) => decodeError(wire, json, options),
+	error: (json) => decodeError(witness, json, options),
 	refused: (json) => trusted<Refused>(json),
-	witness: (json) => decodeWitness(wire.witness, json, options),
+	witness: (json) => decodeWitness(witness, json, options),
 	transientReason: (json) => trusted<TransientTag>(trustedString(json)),
 	credentialReason: (json) => trusted<CredentialReason>(trustedString(json)),
 	unavailableReason: decodeUnavailableReason

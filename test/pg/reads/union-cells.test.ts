@@ -541,7 +541,7 @@ const records = (calls: OnceCalls) => readOnce(calls)({ params: {}, facts: {} })
 const keyedOnTheWire = (wire: MemberWire, delivered: ReadonlyArray<unknown>) =>
 	Effect.gen(function* () {
 		assert.ok(wire.shape !== "write", "a read member's wire is a read's")
-		const schema = slotSchemas(wire, scalarSchema).key
+		const schema = slotSchemas(wire, [], scalarSchema).key
 		for (const row of delivered) {
 			assert.ok(isRecord(row), "a delivered row is a record")
 			const key = keyOf(wire.fields, row)

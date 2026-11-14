@@ -1,7 +1,8 @@
 /**
  * What one served program takes and answers on the wire, as data over its scalars (live/wire.ts), and the walks of it:
- * a program's input (its parameters, its facts and a page's window), its rows, its keys, its write's outcome and its
- * errors' witnesses, each read off the served member (live/member.ts memberShape) once. The shapes are generic over
+ * a program's input (its parameters, its facts and a page's window), its rows, its keys and its write's outcome, each
+ * read off the served member (live/member.ts memberShape) once, and the witnesses its role's errors may name, read off
+ * the role once (live/member.ts roleWitness), which every program of the role shares. The shapes are generic over
  * their leaf, so one walk of the served member gives both the codecs' leaves (WireScalar) and the document's (a scalar
  * with its refinements), and the JSON Schema, the server's encode and parse and the client's decode and encode are
  * interpreters of the one shape.
@@ -156,7 +157,8 @@ export type WireOutcome<L> =
 
 /**
  * A served program on the wire, over its leaf L: a read's shape (a set or a list), its key fields, its input, its
- * record and its key columns; or a write's input and outcome. Each holds the witnesses its role's refusals may name.
+ * record and its key columns; or a write's input and outcome. The witnesses a refusal may name are its role's
+ * (RoleWitness), one for every program of the role.
  */
 export type MemberShape<L> =
 	| {
@@ -165,14 +167,15 @@ export type MemberShape<L> =
 			readonly input: WireInput<L>
 			readonly record: WireRecord<L>
 			readonly key: ReadonlyArray<WireKeyColumn<L>>
-			readonly witness: ReadonlyArray<WireWitness<L>>
 	  }
 	| {
 			readonly shape: "write"
 			readonly input: WireInput<L>
 			readonly outcome: WireOutcome<L>
-			readonly witness: ReadonlyArray<WireWitness<L>>
 	  }
+
+/** The relations a refusal's witness may name for one role, over leaf L: what every program of the role's errors read. */
+export type RoleWitness<L> = ReadonlyArray<WireWitness<L>>
 
 /** A served program on the wire over its codecs' leaves: what a document carries for its client and a server loads. */
 export type MemberWire = MemberShape<WireScalar>
@@ -251,10 +254,8 @@ const mapInput = <L, M>(input: WireInput<L>, f: (leaf: L) => M): WireInput<M> =>
 				key: input.key.map((column) => mapColumn(column, f))
 			}
 
-const mapWitness = <L, M>(
-	witness: ReadonlyArray<WireWitness<L>>,
-	f: (leaf: L) => M
-): ReadonlyArray<WireWitness<M>> =>
+/** A role's witness, its leaves mapped by `f`: the document's leaves to the codecs' (live/member.ts roleWire). */
+export const mapWitness = <L, M>(witness: RoleWitness<L>, f: (leaf: L) => M): RoleWitness<M> =>
 	witness.map((w) => ({ relation: w.relation, fields: mapHeading(w.fields, f) }))
 
 /** A member shape's leaves mapped by `f`: the document's leaves to the codecs' (live/member.ts memberWire). */
@@ -270,16 +271,14 @@ export const mapShape = <L, M>(member: MemberShape<L>, f: (leaf: L) => M): Membe
 								relations: member.outcome.relations,
 								reads: mapRecord(member.outcome.reads, f)
 							}
-						: member.outcome,
-				witness: mapWitness(member.witness, f)
+						: member.outcome
 			}
 		: {
 				shape: member.shape,
 				fields: member.fields,
 				input: mapInput(member.input, f),
 				record: mapRecord(member.record, f),
-				key: member.key.map((column) => mapKeyColumn(column, f)),
-				witness: mapWitness(member.witness, f)
+				key: member.key.map((column) => mapKeyColumn(column, f))
 			}
 
 /**
@@ -455,49 +454,81 @@ const levelSchema = <L>(
 		)
 	)
 
-/** The name of a fact's level among its schema's definitions. */
-const levelName = (level: number): string => `level${level}`
+/** The name of a fact's level among the schemas its fact is defined by, after its fact's name. */
+const levelName = (fact: string, level: number): string => `${fact}.level${level}`
+
+/** How a schema references one defined beside it: the reference to the schema defined under `name`. */
+export type SchemaReference = (name: string) => WireSchema
 
 /**
- * The JSON Schema of one fact of an array member: its one level's, inline; or, where it nests, a schema resource of its
- * own (`id`), each level a definition of it, a family's members a reference to theirs, so a tree's facts nest to any
- * depth.
+ * A JSON Schema, and the schemas it references (SchemaReference) by name, each to be defined once beside it: a nesting
+ * fact's levels.
  */
-const factSchema = <L>(facts: WireFacts<L>, id: string, leaf: (l: L) => WireSchema): WireSchema => {
+export interface ReferencingSchema {
+	readonly schema: WireSchema
+	readonly named: ReadonlyArray<readonly [string, WireSchema]>
+}
+
+/**
+ * The JSON Schema of one fact of an array member named `fact`: its one level's, inline; or, where it nests, a reference
+ * to its first level's, each level a schema of its own named after the fact (levelName), a family's members a reference
+ * to theirs, so a tree's facts nest to any depth.
+ */
+const factSchema = <L>(
+	facts: WireFacts<L>,
+	fact: string,
+	leaf: (l: L) => WireSchema,
+	reference: SchemaReference
+): ReferencingSchema => {
 	const [own, ...rest] = facts.levels
-	const reference = (level: number): WireSchema => ({ $ref: `#/$defs/${levelName(level)}` })
+	const levelReference = (level: number): WireSchema => reference(levelName(fact, level))
 	if (rest.length === 0 && own.families.length === 0) {
-		return levelSchema(own, reference, leaf)
+		return { schema: levelSchema(own, levelReference, leaf), named: [] }
 	}
 	return {
-		$id: id,
-		$defs: Object.fromEntries(
-			facts.levels.map((level, at) => [levelName(at), levelSchema(level, reference, leaf)])
-		),
-		$ref: `#/$defs/${levelName(0)}`
+		schema: levelReference(0),
+		named: facts.levels.map((level, at) => [
+			levelName(fact, at),
+			levelSchema(level, levelReference, leaf)
+		])
 	}
 }
 
 /**
- * The JSON Schema of a ChangeSet's facts: under each op, under each relation, an array of its facts, a nesting fact's
- * schema resource identified under `id`.
+ * The JSON Schema of a ChangeSet's facts: under each op, under each relation, an array of its facts, a nesting fact
+ * named `<name>.<op>.<relation>`.
  */
 const factsSchema = <L>(
 	facts: ReadonlyArray<WireFacts<L>>,
-	id: string,
-	leaf: (l: L) => WireSchema
-): WireSchema =>
-	closedObject(
-		factsByOp(facts).map(([op, members]) => [
-			op,
-			closedObject(
-				members.map((member) => [
-					member.relation,
-					{ type: "array", items: factSchema(member, `${id}:${op}:${member.relation}`, leaf) }
-				])
-			)
-		])
+	name: string,
+	leaf: (l: L) => WireSchema,
+	reference: SchemaReference
+): ReferencingSchema => {
+	const byOp = factsByOp(facts).map(
+		([op, members]) =>
+			[
+				op,
+				members.map(
+					(member) =>
+						[
+							member.relation,
+							factSchema(member, `${name}.${op}.${member.relation}`, leaf, reference)
+						] as const
+				)
+			] as const
 	)
+	return {
+		schema: closedObject(
+			byOp.map(([op, members]) => [
+				op,
+				closedObject(
+					members.map(([relation, fact]) => [relation, { type: "array", items: fact.schema }])
+				)
+			])
+		),
+		named: byOp.flatMap(([, members]) => members.flatMap(([, fact]) => fact.named))
+	}
+}
 
 /** The JSON Schema of a page's window: its anchor, tagged by kind, and its size, a positive JSON integer. */
 const windowSchema = <L>(
@@ -517,24 +548,34 @@ const windowSchema = <L>(
 }
 
 /**
- * The JSON Schema of a program's input: `{ params, facts }`, or a page's `{ params, facts: {}, window }`; `id` is the
- * document's own URI of the program, under which a nesting fact's schema is identified.
+ * The JSON Schema of a program's input: `{ params, facts }`, or a page's `{ params, facts: {}, window }`, and the schemas
+ * it references by name (ReferencingSchema), each a nesting fact's level, named after `name`, the program's.
  */
 export const inputSchema = <L>(
 	input: WireInput<L>,
-	id: string,
-	leaf: (l: L) => WireSchema
-): WireSchema =>
-	input.kind === "call"
-		? closedObject([
-				["params", paramsSchema(input.params, leaf)],
-				["facts", factsSchema(input.facts, id, leaf)]
-			])
-		: closedObject([
+	name: string,
+	leaf: (l: L) => WireSchema,
+	reference: SchemaReference
+): ReferencingSchema => {
+	if (input.kind === "window") {
+		return {
+			schema: closedObject([
 				["params", paramsSchema(input.params, leaf)],
 				["facts", closedObject([])],
 				["window", windowSchema(input.key, leaf)]
-			])
+			]),
+			named: []
+		}
+	}
+	const facts = factsSchema(input.facts, name, leaf, reference)
+	return {
+		schema: closedObject([
+			["params", paramsSchema(input.params, leaf)],
+			["facts", facts.schema]
+		]),
+		named: facts.named
+	}
+}
 
 /** The spelling of a count a write's outcome states: a natural bigint, in the wire's integer grammar. */
 const countSchema: WireSchema = { type: "string", pattern: anchored(naturals(0n, int8Max.value)) }
@@ -570,10 +611,7 @@ const outcomeSchema = <L>(outcome: WireOutcome<L>, leaf: (l: L) => WireSchema): 
 }
 
 /** The JSON Schema of a refusal's witness: a key of one of the role's relations, or none reported. */
-const witnessSchema = <L>(
-	witness: ReadonlyArray<WireWitness<L>>,
-	leaf: (l: L) => WireSchema
-): WireSchema =>
+const witnessSchema = <L>(witness: RoleWitness<L>, leaf: (l: L) => WireSchema): WireSchema =>
 	oneOfSchemas([
 		closedObject([["kind", { const: "unreported" }]]),
 		...witness.map((w) =>
@@ -698,19 +736,20 @@ const unavailableReasonSchema: WireSchema = {
 const noValue: WireSchema = { not: {} }
 
 /**
- * The JSON Schema of each slot's values for one member (live/events.ts SlotValues): a read's rows, keys and key fields,
- * or a write's outcome, and the slots every answer may carry, its texts, its refusal's laws and witness and its errors,
- * of exactly the kinds its call over HTTP may end with (servedKinds). A slot no event of the member's shape carries
- * admits no value.
+ * The JSON Schema of each slot's values for one member of a role whose refusals name `witness` (live/events.ts
+ * SlotValues): a read's rows, keys and key fields, or a write's outcome, and the slots every answer may carry, its texts,
+ * its refusal's laws and witness and its errors, of exactly the kinds its call over HTTP may end with (servedKinds). A
+ * slot no event of the member's shape carries admits no value.
  */
 export const slotSchemas = <L>(
 	member: MemberShape<L>,
+	witness: RoleWitness<L>,
 	leaf: (l: L) => WireSchema
 ): { readonly [S in Slot]: WireSchema } => {
 	const common = {
 		text: { type: "string" },
 		refused: refusedSchema,
-		witness: witnessSchema(member.witness, leaf),
+		witness: witnessSchema(witness, leaf),
 		transientReason: { type: "string", enum: [...transientTags] },
 		credentialReason: { type: "string", enum: [...credentialReasons] },
 		unavailableReason: unavailableReasonSchema

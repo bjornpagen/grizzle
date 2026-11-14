@@ -34,6 +34,7 @@ import {
 	type Footprint,
 	memberWire,
 	type ProgramFootprints,
+	roleWire,
 	servedMatchers,
 	servedMembers,
 	servedRosters,
@@ -372,9 +373,10 @@ const memberClocked = (member: WorkloadForm): ReadonlyArray<ClockParamDecl> => {
 }
 
 /**
- * One role of the login, served: its name, its PostgreSQL role, its level, its contexts, its classifier and its
- * members, each read with its footprint among the login's, `footprints`, and each with its wire, read off its form once
- * (live/member.ts memberWire), which a member whose shape no wire spells refuses.
+ * One role of the login, served: its name, its PostgreSQL role, its level, its contexts, its classifier, its wire, read
+ * off its classifier once (live/member.ts roleWire), and its members, each read with its footprint among the login's,
+ * `footprints`, and each with its wire, read off its form once (live/member.ts memberWire), which a member whose shape
+ * no wire spells refuses.
  */
 const roleOf = (
 	role: LayerRole,
@@ -384,18 +386,24 @@ const roleOf = (
 		const forms = yield* Result.all(
 			Arr.map(role.workload, (member) => memberOf(member, footprints, role.artifacts.names))
 		)
-		const named = { name: role.role.name, refusals: refusalsOf(role) }
+		const name = role.role.name
+		const refusals = refusalsOf(role)
+		const wire = roleWire({ refusals })
 		const members = yield* Result.all(
 			Arr.map(forms, (form) =>
-				Result.map(toResult(memberWire(form, named)), (wire): ServedMember => ({ ...form, wire }))
+				Result.map(toResult(memberWire(form, name, wire)), (own): ServedMember => ({
+					...form,
+					wire: own
+				}))
 			)
 		)
 		return {
-			name: named.name,
+			name,
 			installed: role.theory,
 			isolation: role.isolation,
 			contexts: contextsOf(role),
-			refusals: named.refusals,
+			refusals,
+			wire,
 			members
 		}
 	})

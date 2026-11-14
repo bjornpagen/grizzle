@@ -338,7 +338,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a call over HTTP", (it) =
 								const opened = yield* openServed(role, {})
 								const member = memberNamed(opened.role.members, call.member)
 								const calls = memberCalls(opened.ctx, member)
-								const slots = slotEncoders(member.wire.member, {
+								const slots = slotEncoders(member.wire.member, opened.role.wire.witness, {
 									some: Option.some,
 									none: Option.none(),
 									is: Option.isOption,

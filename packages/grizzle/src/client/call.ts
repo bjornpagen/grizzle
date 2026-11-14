@@ -21,6 +21,7 @@ import {
 	type Keyed,
 	type MemberWire,
 	opening,
+	type RoleWitness,
 	type ReadEvent,
 	type ReadShape,
 	type ReadState,
@@ -31,6 +32,7 @@ import {
 	trustedMember,
 	type WireJson,
 	type WireOptions,
+	type WireScalar,
 	type WriteEvent,
 	type WriteState,
 	wireHeader,
@@ -44,11 +46,15 @@ import {
  */
 export type Token<E> = Redacted.Redacted | Effect.Effect<Redacted.Redacted, E>
 
-/** A served program as the client calls it: the URL it posts to, the digest of its wire form, and the form. */
+/**
+ * A served program as the client calls it: the URL it posts to, the digest of its wire form, the form, and its role's
+ * witness, which its errors are decoded by.
+ */
 export interface ClientMember {
 	readonly route: URL
 	readonly digest: string
 	readonly wire: MemberWire
+	readonly witness: RoleWitness<WireScalar>
 }
 
 /**
@@ -150,8 +156,11 @@ const wireOptions: WireOptions = {
  * event, an `error` its CallError, an `end` the end. Its event is the program's, Ev, as the member's wire form says and
  * the server wrote it: the one site of that trust. A frame of a kind the shape has not is a defect of the server.
  */
-const framesOf = <Ev>(wire: MemberWire): ((frame: SseEvent) => Arrival<Ev>) => {
-	const decoders = slotDecoders(wire, wireOptions)
+const framesOf = <Ev>(
+	wire: MemberWire,
+	witness: RoleWitness<WireScalar>
+): ((frame: SseEvent) => Arrival<Ev>) => {
+	const decoders = slotDecoders(wire, witness, wireOptions)
 	return (frame) => {
 		const descriptor = Option.getOrThrowWith(descriptorOf(wire.shape, frame.type), () =>
 			defect(`an answer's frame of a kind its shape has not, ${frame.type}`)
@@ -261,7 +270,7 @@ const answer = <St, V, Ev extends { readonly kind: string }>(
 	const halted = (batch: Batch<St, Ev>): ReadonlyArray<Step<V, Ev>> =>
 		batch.over ? [] : [reading.cut(batch.state, "the answer ended before its terminal event")]
 	return exchange(member, token, input).pipe(
-		Stream.map(framesOf<Ev>(member.wire)),
+		Stream.map(framesOf<Ev>(member.wire, member.witness)),
 		Stream.orElseSucceed((broken): Arrival<Ev> => ({ kind: "cut", message: broken.message })),
 		Stream.mapAccum(
 			(): Batch<St, Ev> => ({ state: reading.opening, pending: [], over: false }),

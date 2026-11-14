@@ -16,11 +16,13 @@ import {
 	FileSystem,
 	Formatter,
 	Layer,
-	Record as Rec
+	Record as Rec,
+	String as Str
 } from "effect"
 import { served } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
 import { appendAll } from "#compiler/core/array.ts"
+import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
@@ -89,6 +91,10 @@ import { testVerify } from "#test/support/worlds.ts"
  *
  * Properties, of each file:
  * - Round trip: the file read back is the file written (runtimeDifference finds no member that differs).
+ * - Each shape once: no record, array, Map or Set the file's JSON value holds as a value stands at two places (its
+ *   members but its rosters, the codebook's own form a load reads first, and its table's entries; within each, a
+ *   record's members but its `~` marker, a revived array's items, a Map's keys and values, a Set's members) unless its
+ *   canonical text is no longer than a reference to the table's next entry (`"~s:<n>"`).
  * - Plant: one member of the file's JSON value, drawn among all of them, left out; the file read back differs from the
  *   one written, or reading it is a defect: a member the encoder drops is never one the decoder makes up.
  * - A host's read: the file's bytes, written to disk, read back and parsed, as an application reads its committed file;
@@ -103,9 +109,13 @@ import { testVerify } from "#test/support/worlds.ts"
  *   whatever the caller writes to it after.
  *
  * The oracle is the file the compile served, compared as the runtime reads it.
+ *
+ * Plants (~/.cache/grizzle-release/OUTPUTSIZE/plants): served-roles-unshared (the file's roles written as the writer
+ * wrote them, outside the table), served-maps-unshared (no Map ever an entry of the table).
  */
 
 type Feature =
+	| "a shape shared"
 	| "a read"
 	| "a paged read"
 	| "an attachment"
@@ -117,6 +127,7 @@ type Feature =
 	| "a list holding a Map"
 
 type ChangeFeature =
+	| "a shape shared"
 	| "a served write"
 	| "an array member"
 	| "a query member"
@@ -144,6 +155,75 @@ const ok = <A, E extends { readonly message: string }>(
 		throw new Error(`${what}: ${r.error.message}\n${printed()}`)
 	}
 	return r.value
+}
+
+/** A JSON value's canonical text. */
+const canonicalText = (value: unknown): string => {
+	const text = writeCanonicalJson(trusted<Json>(value))
+	if (!text.ok) {
+		throw new Error(`a served file's value with a canonical text: ${text.error.message}`)
+	}
+	return text.value
+}
+
+/**
+ * Every record, array, Map and Set at and under a value of a served file's JSON form, as the file's grammar reads its
+ * values (served/json.ts): a record's members but its `~` marker list, a revived array's items, a Map's keys and values
+ * (its entry pairs are the format's), a Set's members.
+ */
+const servedValues = (value: unknown): ReadonlyArray<unknown> => {
+	if (isList(value)) {
+		return [value, ...Arr.flatMap(value, servedValues)]
+	}
+	if (!isRecord(value)) {
+		return []
+	}
+	const entries = value["~map"]
+	if (isList(entries)) {
+		return [
+			value,
+			...Arr.flatMap(entries, (entry) => (isList(entry) ? Arr.flatMap(entry, servedValues) : []))
+		]
+	}
+	const members = value["~set"] ?? value["~a"]
+	if (isList(members)) {
+		return [value, ...Arr.flatMap(members, servedValues)]
+	}
+	return [
+		value,
+		...Arr.flatMap(Rec.toEntries(value), ([key, member]) =>
+			key === "~" ? [] : servedValues(member)
+		)
+	]
+}
+
+/**
+ * The canonical texts, cut short, of the values a served file's JSON form holds at two places or more that are longer
+ * than a reference to its table's next entry: every value of its members but its rosters and its table, and of each
+ * entry of its table.
+ */
+const repeatedShapes = (json: unknown): ReadonlyArray<string> => {
+	if (!isRecord(json)) {
+		return ["a served file's JSON form is a record"]
+	}
+	const table = json["shared"]
+	const entries = isList(table) ? table : []
+	const bound = `"~s:${entries.length}"`.length
+	const counts = new Map<string, number>()
+	const values = [
+		...Arr.flatMap(Rec.toEntries(json), ([key, member]) =>
+			key === "rosters" || key === "shared" || key === "~" ? [] : servedValues(member)
+		),
+		...Arr.flatMap(entries, servedValues)
+	]
+	for (const value of values) {
+		const text = canonicalText(value)
+		counts.set(text, (counts.get(text) ?? 0) + 1)
+	}
+	return Arr.map(
+		Arr.filter(Arr.fromIterable(counts), ([text, count]) => count > 1 && text.length > bound),
+		([text]) => Str.slice(0, 200)(text)
+	)
 }
 
 /** The file `json` reads back as, or none where reading it throws: a file missing a member its reader needs. */
@@ -251,6 +331,12 @@ const readsBackWhole = (file: ServedFile, pick: number, printed: () => string) =
 		const back = servedFile(json)
 		const differs = runtimeDifference(file, back)
 		assert.equal(differs, undefined, `the file reads back otherwise at ${differs}\n${printed()}`)
+		assert.deepEqual(
+			repeatedShapes(json),
+			[],
+			`no shape longer than a reference into the file's table stands at two places\n${printed()}`
+		)
+		const table = isRecord(json) ? json["shared"] : undefined
 		const paths = memberPaths(json, [])
 		const dropped = paths[pick % paths.length]
 		if (dropped !== undefined) {
@@ -261,7 +347,12 @@ const readsBackWhole = (file: ServedFile, pick: number, printed: () => string) =
 			)
 		}
 		yield* hostReads(file, text, printed)
-		return { back, dropped: dropped !== undefined, stale: staleNamed(back, text, pick, printed) }
+		return {
+			back,
+			dropped: dropped !== undefined,
+			stale: staleNamed(back, text, pick, printed),
+			shared: isList(table) && table.length > 0
+		}
 	})
 
 /**
@@ -334,6 +425,9 @@ const loginTrip = (
 			note("a roster with a hole")
 		}
 		const reached = yield* readsBackWhole(file, pick, printed)
+		if (reached.shared) {
+			note("a shape shared")
+		}
 		if (reached.dropped) {
 			note("a dropped member that does not read back")
 		}
@@ -399,6 +493,9 @@ const changeTrip = (
 			note("more than one stratum")
 		}
 		const reached = yield* readsBackWhole(file, pick, printed)
+		if (reached.shared) {
+			note("a shape shared")
+		}
 		if (reached.dropped) {
 			note("a dropped member that does not read back")
 		}
@@ -506,6 +603,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("a served file", (it) =
 						literal: Formatter.format,
 						coverage: required<Feature>(
 							[
+								"a shape shared",
 								"a read",
 								"a paged read",
 								"an attachment",
@@ -558,6 +656,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("a served file", (it) =
 						literal: Formatter.format,
 						coverage: required<ChangeFeature>(
 							[
+								"a shape shared",
 								"a served write",
 								"an array member",
 								"a query member",

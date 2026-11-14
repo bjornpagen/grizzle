@@ -9,10 +9,10 @@ import { type ClientMember, memberCalls, type ShapedCalls, type Token } from "#c
 import {
 	type CallError,
 	defect,
+	documentWire,
 	type EventOf,
 	type InputCheck,
 	type InstantShape,
-	type MemberWire,
 	type ShapeOf,
 	trusted,
 	type ValueOf
@@ -104,22 +104,6 @@ export type ClientCalls<E> = {
 	readonly [role: string]: { readonly [program: string]: ShapedCalls<E> }
 }
 
-/**
- * The parts of a login's OpenAPI document (`grizzle generate`'s migrations/<schema>/openapi/<login>.json) the client
- * reads: the login's declared name, and each operation's wire form and its digest, under its path,
- * `/<login>/<role>/<program>`.
- */
-interface ClientDocument {
-	readonly info: { readonly "x-grizzle-login": string }
-	readonly paths: {
-		readonly [path: string]: {
-			readonly post: {
-				readonly "x-grizzle-wire": { readonly digest: string; readonly member: MemberWire }
-			}
-		}
-	}
-}
-
 /** The login, the role and the program a path names: `/<login>/<role>/<program>`. */
 const routeOf = (
 	path: string
@@ -163,24 +147,24 @@ export const clientCalls = <E = never>(
 	name: string,
 	options: TokenClientOptions<E> | UrlClientOptions
 ): ClientCalls<E> => {
-	const read = trusted<ClientDocument>(document)
-	if (read.info["x-grizzle-login"] !== name) {
-		throw defect(
-			`a client of login ${name} over the document of login ${read.info["x-grizzle-login"]}`
-		)
+	const read = documentWire(document)
+	if (read.login !== name) {
+		throw defect(`a client of login ${name} over the document of login ${read.login}`)
 	}
 	const token = tokenOf(options)
 	const roles: Record<string, Record<string, ShapedCalls<E>>> = {}
-	for (const [path, operation] of Rec.toEntries(read.paths)) {
+	for (const [path, wire] of read.operations) {
 		const route = routeOf(path)
 		if (route.login !== name) {
 			throw defect(`a document of login ${name} holding the path ${path}`)
 		}
-		const wire = operation.post["x-grizzle-wire"]
 		const member: ClientMember = {
 			route: urlOf(options.url, path),
 			digest: wire.digest,
-			wire: wire.member
+			wire: wire.member,
+			witness: Option.getOrThrowWith(Option.fromUndefinedOr(read.roles.get(route.role)), () =>
+				defect(`a document of login ${name} holding the witness of role ${route.role}`)
+			)
 		}
 		const programs = roles[route.role] ?? {}
 		programs[route.program] = memberCalls(member, token)

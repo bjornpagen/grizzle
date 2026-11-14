@@ -177,7 +177,7 @@ const servedRoles = <S>(
 						members: Arr.map(held.role.members, (loaded) => ({
 							name: loaded.name,
 							loaded,
-							slots: slotEncoders(loaded.wire.member, wireOptions)
+							slots: slotEncoders(loaded.wire.member, held.role.wire.witness, wireOptions)
 						})),
 						held
 					})

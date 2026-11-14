@@ -5,13 +5,24 @@
  * an interpreter of the program's wire shape (live/shape.ts) over the wire's one scalar table (live/wire.ts), refined
  * here by what each scalar type states beyond its carrier. `grizzle generate` writes it beside the served file as
  * canonical JSON, and `grizzle check` compares its bytes.
+ *
+ * Every shape is written once (core/share.ts): a Schema Object that stands in the document more than once, and is
+ * longer than a reference to it, is the component named by its digest (sharedName), referenced from every place it
+ * stood, so a type's schema, a role's witness or a heading two relations share is one component; and the wire every
+ * operation and role carries for a client (`x-grizzle-wire`) holds each node it shares once, in the root's table, as
+ * live/document.ts reads it. Every reference is the document's own, from its root.
  */
 import { appendAll } from "#compiler/core/array.ts"
-import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
+import { compareText, type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
+import { sha256Base32 } from "#compiler/core/sha256.ts"
+import { type Parts, type SharingFormat, shareRepeated } from "#compiler/core/share.ts"
 import { contractOf, octetsOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
+import { referenceKey, wireExtension, wireReference } from "#compiler/live/document.ts"
 import {
 	type EventDescriptor,
 	events,
@@ -20,10 +31,18 @@ import {
 	wireHeader,
 	wireRefusals
 } from "#compiler/live/events.ts"
-import { memberShape, type ServedLeaf, wireScalarOf } from "#compiler/live/member.ts"
+import {
+	memberShape,
+	roleWitness,
+	type ServedLeaf,
+	type ServedWire,
+	wireScalarOf
+} from "#compiler/live/member.ts"
 import {
 	inputSchema,
 	type MemberShape,
+	type RoleWitness,
+	type SchemaReference,
 	slotSchemas,
 	type WireFacts,
 	type WireInput,
@@ -129,20 +148,44 @@ type Deed =
 	| { readonly kind: "reads" }
 	| { readonly kind: "writes" | "refreshes"; readonly relations: ReadonlyArray<string> }
 
-/** One program's operation, the schemas of its events, by their components' names, and its name and deed. */
+/**
+ * One program's operation: its path; its operation object but for its parameters, its request body, its response and
+ * its wire, which the document's sharing writes (operationJson); its operationId; the schema of its one header, its
+ * wire's digest; its body's description and schema; its stream's item schema; its components by name, its events'
+ * schemas and a nesting fact's levels; its wire as generate read it; and its program's name and deed.
+ */
 interface Operation {
 	readonly path: string
-	readonly operation: WireSchema
-	readonly events: ReadonlyArray<readonly [string, WireSchema]>
+	readonly operation: { readonly [member: string]: Json }
+	readonly id: string
+	readonly answer: string
+	readonly header: WireSchema
+	readonly bodyDescription: string
+	readonly body: WireSchema
+	readonly items: WireSchema
+	readonly components: ReadonlyArray<readonly [string, WireSchema]>
+	readonly wire: ServedWire
 	readonly program: { readonly name: string; readonly deed: Deed }
 }
 
-/** An operation's events (live/events.ts events), each the SSE item of its name and its payload's JSON as its data. */
+/** Where the document's components are, before a component's name. */
+const componentsPointer = "#/components/schemas/"
+
+/** The reference to the component named `name`. */
+const componentReference: SchemaReference = (name) => ({
+	[referenceKey]: `${componentsPointer}${name}`
+})
+
+/**
+ * An operation's events (live/events.ts events), the operation of a member of a role whose refusals name `witness`, each
+ * the SSE item of its name and its payload's JSON as its data.
+ */
 const eventsOf = (
 	shape: MemberShape<ServedLeaf>,
+	witness: RoleWitness<ServedLeaf>,
 	prefix: string
 ): ReadonlyArray<readonly [string, string, WireSchema]> => {
-	const slots = slotSchemas(shape, leafSchema)
+	const slots = slotSchemas(shape, witness, leafSchema)
 	const named: ReadonlyArray<readonly [string, EventDescriptor]> = Object.entries(
 		events[shape.shape]
 	)
@@ -294,20 +337,23 @@ const inputDescription = (input: WireInput<ServedLeaf>): string => {
 }
 
 /**
- * The operation of one member of `role` in `file`'s document: its shape read off its served form, as generate read its
- * wire, whose digest its request names in its one header, and which its `x-grizzle-wire` carries for a client; its
- * summary, what its program is; its description, what its program names; and its body's description, what its input
+ * The operation of one member of `role`, whose refusals name `witness`, in `file`'s document: its shape read off its
+ * served form, as generate read its wire, whose digest its request names in its one header, and which its
+ * `x-grizzle-wire` carries for a client; its summary, what its program is; its description, what its program names;
+ * and its body's description, what its input
  * holds.
  */
 const operationOf = (
 	file: ServedFile,
 	role: ServedRoleForm,
+	witness: RoleWitness<ServedLeaf>,
 	member: ServedMember
 ): Result.Result<Operation, CompileError> =>
-	Result.map(memberShape(member, role), (shape): Operation => {
+	Result.map(memberShape(member, role.name), (shape): Operation => {
 		const operationId = `${role.name}.${member.name}`
-		const items = eventsOf(shape, operationId)
+		const items = eventsOf(shape, witness, operationId)
 		const deed = deedOf(member, shape)
+		const input = inputSchema(shape.input, operationId, leafSchema, componentReference)
 		return {
 			path: `/${file.login}/${role.name}/${member.name}`,
 			operation: {
@@ -315,55 +361,65 @@ const operationOf = (
 				summary: summaryOf(member),
 				description: descriptionOf(member, deed, shape.input),
 				tags: [role.name],
-				security: readsContext(role) ? [{ [bearer]: [] }] : [],
-				parameters: [
-					{
-						in: "header",
-						name: wireHeader,
-						description: `The digest of the program's wire form, as x-grizzle-wire states it: a call naming none is answered ${wireRefusals.absent}, and one naming another form ${wireRefusals.other}, so no client decodes by a form the server no longer serves.`,
-						required: true,
-						schema: { type: "string", const: member.wire.digest }
-					}
-				],
-				requestBody: {
-					description: inputDescription(shape.input),
-					required: true,
-					content: {
-						"application/json": {
-							schema: inputSchema(
-								shape.input,
-								`urn:grizzle:${file.login}:${role.name}:${member.name}`,
-								leafSchema
-							)
-						}
-					}
-				},
-				responses: {
-					"200": {
-						description: `The ${shape.shape} answer of ${operationId}: its events, then its end`,
-						content: {
-							"text/event-stream": {
-								itemSchema: {
-									oneOf: items.map(([, component]) => ({
-										$ref: `#/components/schemas/${component}`
-									})),
-									discriminator: {
-										propertyName: "event",
-										mapping: Object.fromEntries(
-											items.map(([name, component]) => [name, `#/components/schemas/${component}`])
-										)
-									}
-								}
-							}
-						}
-					}
-				},
-				"x-grizzle-wire": { digest: member.wire.digest, member: member.wire.member }
+				security: readsContext(role) ? [{ [bearer]: [] }] : []
 			},
-			events: items.map(([, component, schema]) => [component, schema]),
+			id: operationId,
+			answer: shape.shape,
+			header: { type: "string", const: member.wire.digest },
+			bodyDescription: inputDescription(shape.input),
+			body: input.schema,
+			items: {
+				oneOf: items.map(([, component]) => componentReference(component)),
+				discriminator: {
+					propertyName: "event",
+					mapping: Object.fromEntries(
+						items.map(([name, component]) => [name, `${componentsPointer}${component}`])
+					)
+				}
+			},
+			components: [
+				...items.map(([, component, schema]) => [component, schema] as const),
+				...input.named
+			],
+			wire: member.wire,
 			program: { name: member.name, deed }
 		}
 	})
+
+/** The schemas each operation holds beside its components, in the order the document's sharing reads them. */
+const operationSchemaKeys = ["header", "body", "items"] as const
+
+/** An operation's schemas, as the document's sharing wrote them: its header's, its body's and its stream's items'. */
+type OperationSchemas = { readonly [K in (typeof operationSchemaKeys)[number]]: Json }
+
+/**
+ * An operation as the document holds it: its object, its one header, its request body, its response, and its wire, its
+ * schemas `schemas` and its wire's member `member` as the document's sharing wrote them.
+ */
+const operationJson = (o: Operation, schemas: OperationSchemas, member: Json): Json => ({
+	...o.operation,
+	parameters: [
+		{
+			in: "header",
+			name: wireHeader,
+			description: `The digest of the program's wire form, as x-grizzle-wire states it: a call naming none is answered ${wireRefusals.absent}, and one naming another form ${wireRefusals.other}, so no client decodes by a form the server no longer serves.`,
+			required: true,
+			schema: schemas.header
+		}
+	],
+	requestBody: {
+		description: o.bodyDescription,
+		required: true,
+		content: { "application/json": { schema: schemas.body } }
+	},
+	responses: {
+		"200": {
+			description: `The ${o.answer} answer of ${o.id}: its events, then its end`,
+			content: { "text/event-stream": { itemSchema: schemas.items } }
+		}
+	},
+	[wireExtension]: { digest: o.wire.digest, member }
+})
 
 /** The words of each deed in a role's count of its programs. */
 const deedWords: { readonly [K in Deed["kind"]]: string } = {
@@ -421,19 +477,204 @@ const securitySchemes = (file: ServedFile): ReadonlyArray<readonly [string, Json
 			]
 		: []
 
+/** A JSON value's canonical text, which every value the document's builders make has. */
+const canonicalText = (json: Json): string => {
+	const text = writeCanonicalJson(json)
+	if (!text.ok) {
+		throw defect(`a document's value with a canonical text: ${text.error.message}`)
+	}
+	return text.value
+}
+
+/** A Schema Object's member as the document's sharing reads it: its slots, by its keyword (schemaMembers). */
+type SchemaMember =
+	| { readonly key: string; readonly kind: "properties"; readonly names: ReadonlyArray<string> }
+	| { readonly key: string; readonly kind: "list"; readonly length: number }
+	| { readonly key: string; readonly kind: "one" }
+	| { readonly key: string; readonly kind: "frame"; readonly value: Json }
+
+/** The keywords whose value is one schema, a slot. */
+const oneSchemaKeywords: ReadonlySet<string> = new Set([
+	"additionalProperties",
+	"contentSchema",
+	"items",
+	"not"
+])
+
+/** The keywords whose value is a list of schemas, each a slot. */
+const schemaListKeywords: ReadonlySet<string> = new Set(["allOf", "anyOf", "oneOf", "prefixItems"])
+
+/** The keyword whose value names a schema for each property, each a slot. */
+const propertiesKeyword = "properties"
+
+/**
+ * A Schema Object's members in code-unit order, each read by its keyword: a schema of each property, a list of schemas,
+ * one schema, or a value of the schema's own, its frame's.
+ */
+const schemaMembers = (schema: { readonly [key: string]: Json }): ReadonlyArray<SchemaMember> =>
+	Object.keys(schema)
+		.toSorted(compareText)
+		.map((key): SchemaMember => {
+			const value = defined(schema[key], `a schema's member ${key}`)
+			if (key === propertiesKeyword && typeof value === "object" && !isList(value)) {
+				return { key, kind: "properties", names: Object.keys(value).toSorted(compareText) }
+			}
+			if (schemaListKeywords.has(key) && isList(value)) {
+				return { key, kind: "list", length: value.length }
+			}
+			return oneSchemaKeywords.has(key) ? { key, kind: "one" } : { key, kind: "frame", value }
+		})
+
+/** The schemas a Schema Object's member holds in its slots (schemaMembers): none for one of its frame. */
+const memberSlots = (
+	schema: { readonly [key: string]: Json },
+	member: SchemaMember
+): ReadonlyArray<Json> => {
+	const value = defined(schema[member.key], `a schema's member ${member.key}`)
+	switch (member.kind) {
+		case "properties":
+			return typeof value === "object" && !isList(value)
+				? member.names.map((name) => defined(value[name], `a schema of the property ${name}`))
+				: []
+		case "list":
+			return isList(value) ? value : []
+		case "one":
+			return [value]
+		case "frame":
+			return []
+	}
+}
+
+/** What a Schema Object's member adds to its frame: its keyword, and its names, its count or its value. */
+const memberFrame = (member: SchemaMember): Json => {
+	switch (member.kind) {
+		case "properties":
+			return [member.key, member.names]
+		case "list":
+			return [member.key, member.length]
+		case "one":
+			return [member.key]
+		case "frame":
+			return [member.key, member.value]
+	}
+}
+
+/** A Schema Object's member rebuilt with the schemas `take` gives its slots, in their order. */
+const memberRebuilt = (member: SchemaMember, take: () => Json): readonly [string, Json] => {
+	switch (member.kind) {
+		case "properties":
+			return [member.key, Object.fromEntries(member.names.map((name) => [name, take()]))]
+		case "list":
+			return [member.key, Array.from({ length: member.length }, take)]
+		case "one":
+			return [member.key, take()]
+		case "frame":
+			return [member.key, member.value]
+	}
+}
+
+/** The name of the component a shared schema is: `shared.` and its canonical text's SHA-256 in base32. */
+const sharedName = (schema: Json): string => `shared.${sha256Base32(canonicalText(schema))}`
+
+/**
+ * The document's Schema Objects as its sharing reads them (core/share.ts): each object a schema stands at, its slots the
+ * schemas it holds (each property's, a list's members, one schema's), its frame every other member, as its canonical
+ * text; a shared schema is the component of its digest's name (sharedName).
+ */
+const schemaSharing: SharingFormat = {
+	parts: (node): Parts | undefined => {
+		if (typeof node !== "object" || isList(node)) {
+			return undefined
+		}
+		const members = schemaMembers(node)
+		return {
+			frame: canonicalText(members.map(memberFrame)),
+			slots: members.flatMap((member) => memberSlots(node, member))
+		}
+	},
+	rebuild: (node, slots) => {
+		if (typeof node !== "object" || isList(node)) {
+			return node
+		}
+		let next = 0
+		const take = (): Json => {
+			const slot = defined(slots[next], "a schema for each slot")
+			next += 1
+			return slot
+		}
+		return Object.fromEntries(schemaMembers(node).map((member) => memberRebuilt(member, take)))
+	},
+	reference: (node) => componentReference(sharedName(node))
+}
+
+/**
+ * The document's wire as its sharing reads it (core/share.ts): every record and array of it, each member or item a
+ * slot; a shared node is an entry of the root's table, referenced by its index (live/document.ts wireReference). A
+ * wire record holds no `$ref` of its own, which a reference alone holds.
+ */
+const wireSharing: SharingFormat = {
+	parts: (node): Parts | undefined => {
+		if (typeof node !== "object") {
+			return undefined
+		}
+		if (isList(node)) {
+			return { frame: "[", slots: node }
+		}
+		if (Object.hasOwn(node, referenceKey)) {
+			throw defect(`a wire record holding no member ${referenceKey}`)
+		}
+		const keys = Object.keys(node).toSorted(compareText)
+		return {
+			frame: `{${canonicalText(keys)}`,
+			slots: keys.map((key) => defined(node[key], `a wire record's member ${key}`))
+		}
+	},
+	rebuild: (node, slots) => {
+		if (typeof node !== "object" || isList(node)) {
+			return isList(node) ? slots : node
+		}
+		return Object.fromEntries(
+			Object.keys(node)
+				.toSorted(compareText)
+				.map((key, at) => [key, defined(slots[at], `a wire record's member ${key}`)])
+		)
+	},
+	reference: (_, at) => ({ [referenceKey]: wireReference(at) })
+}
+
+/** The root at `at` of values shared (core/share.ts). */
+const rootAt = (roots: ReadonlyArray<Json>, at: number): Json =>
+	defined(roots[at], "a root for each value shared")
+
+/** Components by name, each name once: a name two components take is a defect of the document's naming. */
+const componentsByName = (
+	components: ReadonlyArray<readonly [string, Json]>
+): { readonly [name: string]: Json } => {
+	const out = new Map<string, Json>()
+	for (const [name, schema] of components) {
+		if (out.has(name)) {
+			throw defect(`one component named ${name}`)
+		}
+		out.set(name, schema)
+	}
+	return Object.fromEntries(out)
+}
+
 /**
  * The OpenAPI 3.2 document of a login's served file (see the module's header): its info naming the login, the level it
  * is over and the snapshot fingerprint it serves, a tag per role describing it, an operation per program of each role,
- * every event's schema a component, and the bearer scheme a role that reads a context is called under, declared
- * exactly where one does. A member whose wire shape is refused refuses it.
+ * every event's schema and every nesting fact's level a component, each repeated schema a component of its own, the
+ * wire of each role and each operation with its shared nodes in the root's table, and the bearer scheme a role that
+ * reads a context is called under, declared exactly where one does. A member whose wire shape is refused refuses it.
  */
 const openApiDocument = (file: ServedFile): Result.Result<Json, CompileError> => {
 	const operations: Array<Operation> = []
 	const tags: Array<Json> = []
 	for (const role of file.roles) {
+		const witness = roleWitness(role)
 		const own: Array<Operation> = []
 		for (const member of role.members) {
-			const operation = operationOf(file, role, member)
+			const operation = operationOf(file, role, witness, member)
 			if (!operation.ok) {
 				return operation
 			}
@@ -448,6 +689,28 @@ const openApiDocument = (file: ServedFile): Result.Result<Json, CompileError> =>
 			)
 		})
 	}
+	const components = operations.flatMap((o) => o.components)
+	const schemas = shareRepeated(
+		[
+			...components.map(([, schema]) => schema),
+			...operations.flatMap((o) => operationSchemaKeys.map((key) => o[key]))
+		],
+		schemaSharing
+	)
+	const schemaOf = (at: number, key: (typeof operationSchemaKeys)[number]): Json =>
+		rootAt(
+			schemas.roots,
+			components.length + operationSchemaKeys.length * at + operationSchemaKeys.indexOf(key)
+		)
+	const operationSchemas = (at: number): OperationSchemas => ({
+		header: schemaOf(at, "header"),
+		body: schemaOf(at, "body"),
+		items: schemaOf(at, "items")
+	})
+	const wires = shareRepeated(
+		[...file.roles.map((role) => role.wire.witness), ...operations.map((o) => o.wire.member)],
+		wireSharing
+	)
 	return Result.ok({
 		openapi: openApiVersion,
 		info: {
@@ -457,11 +720,30 @@ const openApiDocument = (file: ServedFile): Result.Result<Json, CompileError> =>
 			"x-grizzle-login": file.login
 		},
 		tags,
-		paths: Object.fromEntries(operations.map((o) => [o.path, { post: o.operation }])),
+		paths: Object.fromEntries(
+			operations.map((o, at) => [
+				o.path,
+				{
+					post: operationJson(o, operationSchemas(at), rootAt(wires.roots, file.roles.length + at))
+				}
+			])
+		),
 		components: Object.fromEntries([
-			["schemas", Object.fromEntries(operations.flatMap((o) => o.events))],
+			[
+				"schemas",
+				componentsByName([
+					...components.map(([name], at) => [name, rootAt(schemas.roots, at)] as const),
+					...schemas.table.map((entry) => [sharedName(entry.node), entry.node] as const)
+				])
+			],
 			...securitySchemes(file)
-		])
+		]),
+		[wireExtension]: {
+			roles: Object.fromEntries(
+				file.roles.map((role, at) => [role.name, { witness: rootAt(wires.roots, at) }])
+			),
+			shared: wires.table.map((entry) => entry.node)
+		}
 	})
 }
 

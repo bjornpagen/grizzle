@@ -1,8 +1,9 @@
 /**
  * A served program's wire shape, read off its served form once (served/forms.ts ServedMember): its input from its
  * declared parameters, its array members' facts and a page's window; its rows from its decoder bound to the typed
- * layouts of its delivered parts; its key from its served key; a write's outcome from its read-backs; and the witnesses
- * its role's refusals may name. What generate writes into the served file (ServedWire) and the OpenAPI document, so the
+ * layouts of its delivered parts; its key from its served key; and a write's outcome from its read-backs. Beside
+ * it, the witnesses its role's refusals may name, read off the role once (roleWitness), which every program of the role
+ * shares. What generate writes into the served file (ServedWire, RoleWire) and the OpenAPI document, so the
  * server, the client and the document read one shape.
  *
  * Each leaf is a ServedLeaf: the codecs' WireScalar, and the scalar types its column holds, whose refinements the
@@ -35,6 +36,8 @@ import {
 	mapField,
 	type WireColumn,
 	mapShape,
+	mapWitness,
+	type RoleWitness,
 	type WireFacts,
 	type WireField,
 	type WireHeading,
@@ -43,8 +46,7 @@ import {
 	type WireLevel,
 	type WireNamed,
 	type WireParam,
-	type WireRecord,
-	type WireWitness
+	type WireRecord
 } from "#compiler/live/shape.ts"
 import { encodeScalar, sameJson, type WireJson, type WireScalar } from "#compiler/live/wire.ts"
 import type { InputData } from "#compiler/runtime/write/normalize.ts"
@@ -607,11 +609,7 @@ const changesOf = (variants: ServedVariants): NonEmptyReadonlyArray<ServedChange
 }
 
 /** A change's wire: its input and outcome over one of its variants' compiles. */
-const changeShape = (
-	binding: Binding,
-	change: ServedChange,
-	witness: ReadonlyArray<WireWitness<ServedLeaf>>
-): Bound<MemberShape<ServedLeaf>> =>
+const changeShape = (binding: Binding, change: ServedChange): Bound<MemberShape<ServedLeaf>> =>
 	Result.flatMap(changeInput(binding, change), (input) =>
 		Result.map(readsOf(binding, change), (reads): MemberShape<ServedLeaf> => ({
 			shape: "write",
@@ -620,8 +618,7 @@ const changeShape = (
 				kind: "change",
 				relations: change.program.written.map((written) => written.relation),
 				reads
-			},
-			witness
+			}
 		}))
 	)
 
@@ -629,11 +626,14 @@ const changeShape = (
 const shapeWire = (shape: MemberShape<ServedLeaf>): MemberWire =>
 	mapShape(shape, (leaf) => leaf.wire)
 
-/** What a member's wire reads of its role: its name, and its refusals, whose relations its witnesses name. */
-export type WireRole = Pick<ServedRoleForm, "name" | "refusals">
+/** What a role's wire reads of it: its refusals, whose relations its witnesses name. */
+export type WireRole = Pick<ServedRoleForm, "refusals">
 
-/** The relations a refusal's witness may name for a role (adapter witness/index.ts statedWitness), typed by heading. */
-const witnessOf = (role: WireRole): ReadonlyArray<WireWitness<ServedLeaf>> =>
+/**
+ * The relations a refusal's witness may name for a role (adapter witness/index.ts statedWitness), typed by heading: one
+ * for the role, which every program of it reads.
+ */
+export const roleWitness = (role: WireRole): RoleWitness<ServedLeaf> =>
 	[...role.refusals.relations].map(([relation, heading]) => {
 		const entry = role.refusals.entries.get(relation)
 		if (entry === undefined) {
@@ -652,16 +652,15 @@ const witnessOf = (role: WireRole): ReadonlyArray<WireWitness<ServedLeaf>> =>
 	})
 
 /**
- * The wire shape of a member of `role` (see the module's header): refused, a CompileError naming the member, where its
- * served form holds what no wire spells: a decoder no layout binds, a key field no heading holds as a column of one
- * scalar spelling, or a page key column some heading lacks.
+ * The wire shape of a member of the role named `role` (see the module's header): refused, a CompileError naming the
+ * member, where its served form holds what no wire spells: a decoder no layout binds, a key field no heading holds as a
+ * column of one scalar spelling, or a page key column some heading lacks.
  */
 export const memberShape = (
 	member: ServedMemberForm,
-	role: WireRole
+	role: string
 ): Bound<MemberShape<ServedLeaf>> => {
-	const binding: Binding = { role: role.name, member: member.name }
-	const witness = witnessOf(role)
+	const binding: Binding = { role, member: member.name }
 	switch (member.kind) {
 		case "read":
 		case "key": {
@@ -672,8 +671,7 @@ export const memberShape = (
 					fields: read.key.fields,
 					input: { kind: "call", params: paramsOf(read.params), facts: [] },
 					record,
-					key,
-					witness
+					key
 				}))
 			)
 		}
@@ -686,8 +684,7 @@ export const memberShape = (
 						fields: read.key.fields,
 						input: { kind: "window", params: paramsOf(read.params), key: anchor },
 						record,
-						key,
-						witness
+						key
 					}))
 				)
 			)
@@ -700,16 +697,15 @@ export const memberShape = (
 					fields: read.key.fields,
 					input: { kind: "call", params: paramsOf(read.params), facts: [] },
 					record,
-					key,
-					witness
+					key
 				}))
 			)
 		}
 		case "change": {
 			const [first, ...rest] = changesOf(member.variants)
-			return Result.flatMap(changeShape(binding, first, witness), (shape) =>
+			return Result.flatMap(changeShape(binding, first), (shape) =>
 				Result.flatMap(
-					each(rest, (change) => changeShape(binding, change, witness)),
+					each(rest, (change) => changeShape(binding, change)),
 					(others) =>
 						others.every((other) => sameJson(shapeWire(other), shapeWire(shape)))
 							? Result.ok(shape)
@@ -727,8 +723,7 @@ export const memberShape = (
 			return Result.ok({
 				shape: "write",
 				input: { kind: "call", params: [], facts: [] },
-				outcome: { kind: "refresh" },
-				witness
+				outcome: { kind: "refresh" }
 			})
 	}
 }
@@ -740,18 +735,42 @@ export type WireDigest = string & { readonly [wireDigestBrand]: true }
 
 const wireDigest = nominal<string, WireDigest>()
 
-/** A served member's wire, as the served file and the document carry it: its shape, and the digest of its text. */
+/**
+ * A served member's wire, as the served file and the document carry it: its shape, and the digest of its text with its
+ * role's witness, which its errors are decoded by too.
+ */
 export interface ServedWire {
 	readonly digest: WireDigest
 	readonly member: MemberWire
 }
 
-/** A member's wire, its leaves its codecs' scalars, with its digest (ServedWire), or the refusal of its shape. */
-export const memberWire = (member: ServedMemberForm, role: WireRole): Bound<ServedWire> =>
+/**
+ * A served role's wire, as the served file and the document carry it: its witness over the codecs' leaves, once for all
+ * its members.
+ */
+export interface RoleWire {
+	readonly witness: RoleWitness<WireScalar>
+}
+
+/** A role's wire, its leaves its codecs' scalars (RoleWire). */
+export const roleWire = (role: WireRole): RoleWire => ({
+	witness: mapWitness(roleWitness(role), (leaf) => leaf.wire)
+})
+
+/**
+ * A member of the role named `role`, whose wire is `wire`: the member's wire, its leaves its codecs' scalars, with its
+ * digest (ServedWire), or the refusal of its shape. The digest is of the canonical text of the member's shape with the
+ * role's witness as its `witness`, so a client built for one witness names a stale wire once the witness changes.
+ */
+export const memberWire = (
+	member: ServedMemberForm,
+	role: string,
+	wire: RoleWire
+): Bound<ServedWire> =>
 	Result.flatMap(memberShape(member, role), (shape) => {
-		const wire = shapeWire(shape)
-		return Result.map(writeCanonicalJson(wire), (text) => ({
+		const own = shapeWire(shape)
+		return Result.map(writeCanonicalJson({ ...own, witness: wire.witness }), (text) => ({
 			digest: wireDigest(sha256Hex(text)),
-			member: wire
+			member: own
 		}))
 	})

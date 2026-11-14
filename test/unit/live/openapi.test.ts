@@ -11,7 +11,15 @@
  * - Canonical: its text is its value's canonical JSON, a final newline after it, so check compares bytes.
  * - One operation per program: its paths are exactly `/<login>/<role>/<program>` of each member of each role, each with
  *   one POST, its operationId `<role>.<program>` and its tags the role alone, its `grizzle-wire` header the one value of
- *   its wire's digest, and its `x-grizzle-wire` its served wire.
+ *   its wire's digest, and its `x-grizzle-wire`, as the client reads it (live/document.ts documentWire), its served
+ *   wire; and the document's root `x-grizzle-wire` holds each role's served witness, by the role's name.
+ * - Each shape once: no Schema Object stands at two places in the document (every position JSON Schema 2020-12 reads a
+ *   schema at, from each component, each request body, each event stream's item schema and each parameter's schema)
+ *   unless its canonical text is no longer than the reference to the component of its digest
+ *   (`{"$ref":"#/components/schemas/shared.<its SHA-256 in base32>"}`), and no record or array stands at two places in
+ *   the document's wire (the root's roles and table, each operation's member) unless its text is no longer than a
+ *   reference to the table's next entry (`{"$ref":"#/x-grizzle-wire/shared/<n>"}`). Every reference is read through as
+ *   a reader does, so the properties above read the document as its readers do.
  * - Events by shape: each operation's stream is the events of its member's shape (live/events.ts events), one component
  *   each, discriminated by `event`; a list's upsert carries `after`, a set's does not, and a write's answer is its
  *   outcome; a paged member's body takes its window. An instant read's `ready` says in its `x-stream` that `end`
@@ -38,7 +46,8 @@
  * classification's tables.
  *
  * Features: a set read, a list read, a paged read, an instant read, a write, a refresh, a write with an array member, a
- * write with a read-back, a role reading a context, a role reading none, a login no role of which reads a context.
+ * write with a read-back, a role reading a context, a role reading none, a login no role of which reads a context, a
+ * schema shared, a wire node shared.
  *
  * Plants (~/.cache/grizzle-release/LIVE-OPENAPI/plants): openapi-non-program-operation (an operation for each role
  * beside its programs'), openapi-list-without-after (an ordered program's upsert from the set shape's events).
@@ -50,6 +59,8 @@
  * description names no stale answer), bearer-always (the bearer scheme declared for every login),
  * errors-every-kind (every error event admits all twelve kinds, as before), refresh-meets-outcome (the model gives a
  * refresh a ChangeSet's refusing outcome too).
+ * Plants (~/.cache/grizzle-release/OUTPUTSIZE/plants): openapi-body-unshared (each request body written as its operation
+ * built it, every schema in it inline), openapi-wire-unshared (each operation's wire member written whole).
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
@@ -65,6 +76,7 @@ import {
 	Array as Arr,
 	Effect,
 	Formatter,
+	Option,
 	Order,
 	Record as Rec,
 	String as Str
@@ -72,8 +84,10 @@ import {
 import { readings } from "#adapter/live/call-error.ts"
 import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
+import { sha256Base32 } from "#compiler/core/sha256.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
+import { documentWire } from "#compiler/live/document.ts"
 import {
 	type EventDescriptor,
 	events,
@@ -119,14 +133,152 @@ type Feature =
 	| "a role reading a context"
 	| "a role reading none"
 	| "a login no role of which reads a context"
+	| "a schema shared"
+	| "a wire node shared"
 
-/** The member at `path` of a JSON value, none where a step finds no member. */
-const at = (value: unknown, ...path: ReadonlyArray<string>): unknown => {
-	let here: unknown = value
-	for (const step of path) {
-		here = isRecord(here) && Rec.has(here, step) ? here[step] : undefined
+/** The target a JSON value names as a JSON Reference (`{"$ref": target}`, its one member), none for any other value. */
+const referenceOf = (value: unknown): string | undefined => {
+	if (!isRecord(value) || isList(value) || Rec.keys(value).length !== 1) {
+		return undefined
+	}
+	const target = value["$ref"]
+	return typeof target === "string" ? target : undefined
+}
+
+/** The member `step` of a JSON value, an array's by its index, none where it has none. */
+const memberOf = (value: unknown, step: string): unknown =>
+	isRecord(value) && Rec.has(value, step) ? value[step] : undefined
+
+/**
+ * A value read through every JSON Reference it is (RFC 6901 pointers from `document`'s root, `~1` and `~0` escaped), as
+ * a reader of the document follows them: the value at the end of the chain.
+ */
+const readThrough = (document: unknown, value: unknown): unknown => {
+	let here = value
+	for (let target = referenceOf(here); target !== undefined; target = referenceOf(here)) {
+		here = Str.startsWith("#/")(target)
+			? Arr.reduce(Str.split(Str.slice(2)(target), "/"), document, (node: unknown, step) =>
+					memberOf(node, Str.replaceAll("~0", "~")(Str.replaceAll("~1", "/")(step)))
+				)
+			: undefined
 	}
 	return here
+}
+
+/** The member at `path` of a JSON value of `document`, each step read through its references; none where none is. */
+const atIn = (document: unknown, value: unknown, path: ReadonlyArray<string>): unknown =>
+	Arr.reduce(path, readThrough(document, value), (here: unknown, step) =>
+		readThrough(document, memberOf(here, step))
+	)
+
+/** The JSON Schema 2020-12 keywords whose value is one schema. */
+const oneSchemaKeywords = [
+	"additionalProperties",
+	"contains",
+	"contentSchema",
+	"else",
+	"if",
+	"items",
+	"not",
+	"propertyNames",
+	"then",
+	"unevaluatedItems",
+	"unevaluatedProperties"
+] as const
+
+/** The JSON Schema 2020-12 keywords whose value is a list of schemas. */
+const schemaListKeywords = ["allOf", "anyOf", "oneOf", "prefixItems"] as const
+
+/** The JSON Schema 2020-12 keywords whose value names a schema for each of its keys. */
+const schemaMapKeywords = ["$defs", "dependentSchemas", "patternProperties", "properties"] as const
+
+/** Every Schema Object at and under `schema`, each subschema at the position JSON Schema 2020-12 reads one at. */
+const schemasUnder = (schema: unknown): ReadonlyArray<unknown> => {
+	if (!isRecord(schema) || isList(schema)) {
+		return []
+	}
+	return [
+		schema,
+		...Arr.flatMap(oneSchemaKeywords, (k) => schemasUnder(memberOf(schema, k))),
+		...Arr.flatMap(schemaListKeywords, (k) => {
+			const list = memberOf(schema, k)
+			return isList(list) ? Arr.flatMap(list, schemasUnder) : []
+		}),
+		...Arr.flatMap(schemaMapKeywords, (k) => {
+			const named = memberOf(schema, k)
+			return isRecord(named) && !isList(named) ? Arr.flatMap(Rec.values(named), schemasUnder) : []
+		})
+	]
+}
+
+/** The Schema Objects of a media type of a request body or a response: its schema's and its item schema's. */
+const mediaSchemas = (content: unknown): ReadonlyArray<unknown> =>
+	isRecord(content)
+		? Arr.flatMap(Rec.values(content), (media) => [
+				...schemasUnder(memberOf(media, "schema")),
+				...schemasUnder(memberOf(media, "itemSchema"))
+			])
+		: []
+
+/**
+ * Every Schema Object of an OpenAPI document, at every position it stands at: each component and what it holds, and in
+ * each operation each parameter's schema, its request body's and each response's.
+ */
+const documentSchemas = (document: unknown): ReadonlyArray<unknown> => {
+	const components = memberOf(memberOf(document, "components"), "schemas")
+	const paths = memberOf(document, "paths")
+	const operations = isRecord(paths)
+		? Arr.flatMap(Rec.values(paths), (item) => (isRecord(item) ? Rec.values(item) : []))
+		: []
+	return [
+		...(isRecord(components) ? Arr.flatMap(Rec.values(components), schemasUnder) : []),
+		...Arr.flatMap(operations, (operation) => {
+			const parameters = memberOf(operation, "parameters")
+			const responses = memberOf(operation, "responses")
+			return [
+				...(isList(parameters)
+					? Arr.flatMap(parameters, (p) => schemasUnder(memberOf(p, "schema")))
+					: []),
+				...mediaSchemas(memberOf(memberOf(operation, "requestBody"), "content")),
+				...(isRecord(responses)
+					? Arr.flatMap(Rec.values(responses), (r) => mediaSchemas(memberOf(r, "content")))
+					: [])
+			]
+		})
+	]
+}
+
+/** Every record and array at and under a JSON value. */
+const nodesUnder = (value: unknown): ReadonlyArray<unknown> => {
+	if (isList(value)) {
+		return [value, ...Arr.flatMap(value, nodesUnder)]
+	}
+	return isRecord(value) ? [value, ...Arr.flatMap(Rec.values(value), nodesUnder)] : []
+}
+
+/** A JSON value's canonical text. */
+const textOf = (value: unknown): string => {
+	const text = writeCanonicalJson(trusted<Json>(value))
+	if (!text.ok) {
+		throw new Error(`a document's value with a canonical text: ${text.error.message}`)
+	}
+	return text.value
+}
+
+/** The canonical texts of `nodes` that stand at two places or more and are longer than `bound` gives each. */
+const repeatedPast = (
+	nodes: ReadonlyArray<unknown>,
+	bound: (text: string) => number
+): ReadonlyArray<string> => {
+	const counts = new Map<string, number>()
+	for (const node of nodes) {
+		const text = textOf(node)
+		counts.set(text, (counts.get(text) ?? 0) + 1)
+	}
+	return Arr.map(
+		Arr.filter(Arr.fromIterable(counts), ([text, count]) => count > 1 && text.length > bound(text)),
+		([text]) => Str.slice(0, 200)(text)
+	)
 }
 
 /** A JSON value's own keys, none for any other value. */
@@ -261,6 +413,8 @@ const holds = (
 ) =>
 	Effect.gen(function* () {
 		const document = trustedJson<unknown>(text)
+		const at = (value: unknown, ...path: ReadonlyArray<string>): unknown =>
+			atIn(document, value, path)
 		const errors = yield* documentErrors(document)
 		assert.deepEqual(errors, [], `the document validates against OpenAPI 3.2\n${printed()}`)
 		const canonical = writeCanonicalJson(trusted<Json>(document))
@@ -268,6 +422,51 @@ const holds = (
 			canonical.ok && `${canonical.value}\n` === text,
 			`the document's text is canonical\n${printed()}`
 		)
+		const wire = documentWire(document)
+		for (const r of file.roles) {
+			assert.ok(
+				deepEquals<unknown>(wire.roles.get(r.name), r.wire.witness),
+				`the root's x-grizzle-wire holds role ${r.name}'s served witness\n${printed()}`
+			)
+		}
+		const schemaShared = textOf({ $ref: `#/components/schemas/shared.${sha256Base32("")}` }).length
+		assert.deepEqual(
+			repeatedPast(
+				documentSchemas(document),
+				(t) => textOf({ $ref: `#/components/schemas/shared.${sha256Base32(t)}` }).length
+			),
+			[],
+			`no schema longer than its reference (${schemaShared} characters) stands at two places\n${printed()}`
+		)
+		const rootWire = memberOf(document, "x-grizzle-wire")
+		const table = memberOf(rootWire, "shared")
+		const roleWires = memberOf(rootWire, "roles")
+		const pathItems = memberOf(document, "paths")
+		const wireNodes = [
+			...(isList(table) ? Arr.flatMap(table, nodesUnder) : []),
+			...(isRecord(roleWires)
+				? Arr.flatMap(Rec.values(roleWires), (w) => nodesUnder(memberOf(w, "witness")))
+				: []),
+			...(isRecord(pathItems)
+				? Arr.flatMap(Rec.values(pathItems), (item) =>
+						nodesUnder(memberOf(memberOf(memberOf(item, "post"), "x-grizzle-wire"), "member"))
+					)
+				: [])
+		]
+		const wireBound = textOf({
+			$ref: `#/x-grizzle-wire/shared/${isList(table) ? table.length : 0}`
+		}).length
+		assert.deepEqual(
+			repeatedPast(wireNodes, () => wireBound),
+			[],
+			`no wire node longer than a reference into its table (${wireBound} characters) stands at two places\n${printed()}`
+		)
+		if (Arr.some(keysOf(at(document, "components", "schemas")), Str.startsWith("shared."))) {
+			note("a schema shared")
+		}
+		if (isList(table) && table.length > 0) {
+			note("a wire node shared")
+		}
 		const expected = Arr.flatMap(file.roles, (r) =>
 			Arr.map(r.members, (member) => ({
 				role: r,
@@ -344,7 +543,9 @@ const holds = (
 			const parameters = at(operation, "parameters")
 			assert.deepEqual(
 				isList(parameters)
-					? Arr.map(parameters, (p) => (isRecord(p) ? Rec.remove(p, "description") : p))
+					? Arr.map(parameters, (p) =>
+							isRecord(p) ? { ...Rec.remove(p, "description"), schema: at(p, "schema") } : p
+						)
 					: parameters,
 				[
 					{
@@ -400,8 +601,14 @@ const holds = (
 				`${path}: its body's description depends on its input's kind, its parameters' count and its facts' count by op alone\n${printed()}`
 			)
 			assert.ok(
-				deepEquals<unknown>(at(operation, "x-grizzle-wire"), member.wire),
-				`${path}: its x-grizzle-wire, its served wire\n${printed()}`
+				deepEquals<unknown>(
+					Arr.findFirst(wire.operations, ([p]) => p === path).pipe(
+						Option.map(([, w]) => w),
+						Option.getOrUndefined
+					),
+					member.wire
+				),
+				`${path}: its x-grizzle-wire, as the client reads it, its served wire\n${printed()}`
 			)
 			const shape = member.wire.member.shape
 			note(
@@ -541,7 +748,9 @@ layer(NodeServices.layer, { excludeTestServices: true })("a login's OpenAPI docu
 								"a refresh",
 								"a role reading a context",
 								"a role reading none",
-								"a login no role of which reads a context"
+								"a login no role of which reads a context",
+								"a schema shared",
+								"a wire node shared"
 							],
 							{ cases: 60, sense: notesOnly }
 						),
@@ -601,7 +810,12 @@ layer(NodeServices.layer, { excludeTestServices: true })("a login's OpenAPI docu
 						),
 						literal: Formatter.format,
 						coverage: required<Feature>(
-							["a write", "a write with an array member", "a write with a read-back"],
+							[
+								"a write",
+								"a write with an array member",
+								"a write with a read-back",
+								"a schema shared"
+							],
 							{ cases: 60, sense: notesOnly }
 						),
 						kept: [],
