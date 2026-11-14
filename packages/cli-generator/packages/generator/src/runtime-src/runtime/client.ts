@@ -773,8 +773,9 @@ const retryCause = <E>(
 /**
  * The retry policy (design D-AD7, 5 Retries row), an `HttpClient.transform` applied outside the
  * redirect loop, so one attempt is one run of the loop with its hops, and the loop's replay rule
- * is the retry's. An attempt is retried when its method is retried (`wouldRetry`, or any method
- * with `--retry-unsafe`), its outcome is a retried status or `TransportError` reason, and the run's
+ * is the retry's. An attempt is retried when its method is retried (`wouldRetry`, any method with
+ * `--retry-unsafe`, or any call of an operation that `reads` state, sse.ts `readsState`, which a
+ * second call reads anew), its outcome is a retried status or `TransportError` reason, and the run's
  * budget, which `send` shares with the retries of its stream, has one left (`decideRetry`). File
  * and in-memory bodies re-run from the start.
  *
@@ -787,7 +788,7 @@ const retryCause = <E>(
  * `<PREFIX>_TIMEOUT` fails with a `UsageError` before anything is sent.
  */
 export const retryTransform =
-	(scrub: (text: string) => string, budget: RetryBudget) =>
+	(scrub: (text: string) => string, budget: RetryBudget, reads: boolean) =>
 	<E, R>(
 		client: HttpClient.HttpClient.With<E, R>
 	): HttpClient.HttpClient.With<E | UsageError, R | Scope.Scope | Stdio.Stdio> =>
@@ -798,7 +799,9 @@ export const retryTransform =
 					() => false
 				)
 				const retried =
-					unsafe || wouldRetry(request.method, Headers.has(request.headers, "idempotency-key"))
+					unsafe ||
+					reads ||
+					wouldRetry(request.method, Headers.has(request.headers, "idempotency-key"))
 				const label = retryLabel(request, scrub)
 				const caller = yield* Scope.Scope
 

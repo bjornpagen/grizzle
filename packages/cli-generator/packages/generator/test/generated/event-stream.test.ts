@@ -15,13 +15,21 @@
  * printed, the exit code, the calls made and the header each carried, and the `--error-format json` object of a call
  * that ends at the error, whose `data` is the error event's JSON data as the JSON value it is.
  *
+ * A stream cut by its transport, its body ending after the read's `ready` or the write's outcome with no terminal event,
+ * is exhausted over the read and the write, each with and without `--retries`; the oracle is the decided contract: a
+ * cut read is what a retry-safe `unavailable` event says, so under a budget it is called again and read anew (its
+ * reset, its ready, its end), and without one it exits 5 after one call; a cut write, which may have committed, exits
+ * 5 after one call whatever the budget.
+ *
  * Features: a stop at ready, a stream followed to its end, an interrupted stream, data across lines, a comment, a write
- * that splits an event; each failure verdict with and without a budget, on the read and on the write.
+ * that splits an event; each failure verdict with and without a budget, on the read and on the write; a cut read and a
+ * cut write, each with and without a budget.
  *
  * Plants (~/.cache/effect-openapi-cli-generator/plants): sse-stops-before-ready.patch (the stream stops one event before
  * its stop point), event-retry-without-budget.patch (a retry-safe error event retries with no `--retries`),
- * constant-not-sent.patch (a constant parameter is sent empty), and output.ts renderErrorJson printing a failure event's
- * data as the `body` string (local, reverted).
+ * constant-not-sent.patch (a constant parameter is sent empty), output.ts renderErrorJson printing a failure event's
+ * data as the `body` string (local, reverted), and output.ts send treating every cut stream as a read's, and none
+ * (local, reverted: the cut write is called again under a budget; the cut read exits 5).
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
@@ -455,6 +463,24 @@ const errorData = (verdict: string): Schema.Json => ({
 	error: { kind: "transient", retry: verdict, message: "try again" }
 })
 
+/** A cut case: the command whose stream is cut, and the caller's `--retries`. */
+type CutCase = Readonly<{ command: FailureCase["command"]; retries: Option.Option<number> }>
+
+const cutCase: Gen<CutCase> = (source) => ({
+	command: element<CutCase["command"]>(["post-page", "comment"])(source),
+	retries: element([Option.none(), Option.some(1)])(source)
+})
+
+type CutFeature = `a cut ${"read" | "write"} ${"with" | "without"} a budget`
+
+const cutFeature = (cut: CutCase): CutFeature =>
+	`a cut ${cut.command === "post-page" ? "read" : "write"} ${Option.isSome(cut.retries) ? "with" : "without"} a budget`
+
+/** The read's reset, ready and end, and the write's outcome, as the server writes them and the CLI prints them. */
+const resetText = 'event: reset\ndata: {"key":["id"]}\n\n'
+
+const outcomeText = 'event: outcome\ndata: {"outcome":{"kind":"unchanged","reads":[]}}\n\n'
+
 const environment = Layer.mergeAll(siteLayer, serverLayer).pipe(
 	Layer.provideMerge(
 		Layer.mergeAll(NodeChildProcessSpawner.layer, NodeCrypto.layerDigest).pipe(
@@ -666,6 +692,106 @@ layer(environment, { timeout: Duration.minutes(5) })(
 													kind: "StreamEventError",
 													data: errorData(failure.verdict)
 												})
+											}
+								)
+							})
+					)
+				),
+			Duration.toMillis(Duration.minutes(5))
+		)
+
+		it.effect(
+			"calls a read cut by its transport again under --retries, and never a cut write",
+			(ctx) =>
+				searched(
+					ctx,
+					exhaust(
+						{
+							suite: "generated/event-stream-cut",
+							oracle: {
+								kind: "specification",
+								name: "a cut read is a retry-safe unavailable event and a cut write ends the run: the lines printed, the exit code and the calls made"
+							},
+							box: "the read followed past its ready and the write, each cut before its terminal event, with a --retries budget or none",
+							concurrency: 1,
+							generator: cutCase,
+							literal: Formatter.format,
+							coverage: requiredInSpace<CutFeature>([
+								"a cut read with a budget",
+								"a cut read without a budget",
+								"a cut write with a budget",
+								"a cut write without a budget"
+							]),
+							caseHang: Duration.seconds(60)
+						},
+						(cut, c) =>
+							Effect.gen(function* () {
+								const server = yield* Server
+								const read = cut.command === "post-page"
+								yield* server.script(
+									read
+										? [
+												{ writes: [resetText, "event: ready\ndata: {}\n\n"], close: true },
+												{
+													writes: [
+														resetText,
+														"event: ready\ndata: {}\n\n",
+														"event: end\ndata: {}\n\n"
+													],
+													close: true
+												}
+											]
+										: [
+												{ writes: [outcomeText], close: true },
+												{ writes: [outcomeText, "event: end\ndata: {}\n\n"], close: true }
+											]
+								)
+								const run = yield* runCli(
+									[
+										"--base-url",
+										server.origin,
+										...Option.match(cut.retries, {
+											onNone: () => [],
+											onSome: (n) => ["--retries", String(n)]
+										}),
+										"reader",
+										cut.command,
+										"--body",
+										read ? readBody : writeBody,
+										...(read ? ["--follow"] : [])
+									],
+									Option.none()
+								)
+								const reset = yield* lineOf("reset", ["{", '"key"', ":", "[", '"id"', "]", "}"])
+								const ready = yield* lineOf("ready", ["{", "}"])
+								const end = yield* lineOf("end", ["{", "}"])
+								const outcome = yield* lineOf("outcome", [
+									"{",
+									'"outcome"',
+									":",
+									"{",
+									'"kind"',
+									":",
+									'"unchanged"',
+									",",
+									'"reads"',
+									":",
+									"[",
+									"]",
+									"}",
+									"}"
+								])
+								const requests = yield* server.requests
+								c.note(cutFeature(cut))
+								const resumed = read && Option.isSome(cut.retries)
+								deepStrictEqual(
+									{ exitCode: run.exitCode, requests, stdout: run.stdout },
+									resumed
+										? { exitCode: 0, requests: 2, stdout: `${reset}${ready}${reset}${ready}${end}` }
+										: {
+												exitCode: 5,
+												requests: 1,
+												stdout: read ? `${reset}${ready}` : outcome
 											}
 								)
 							})

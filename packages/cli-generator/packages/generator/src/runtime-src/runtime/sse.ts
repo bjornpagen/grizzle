@@ -368,6 +368,20 @@ export interface EventContract {
 export type EventTable = Readonly<Record<string, Readonly<Record<string, EventContract>>>>
 
 /**
+ * Whether an operation's answer is a read of state: some contract of its table names a `ready` event, which ends the
+ * state's first reading. Calling a read again reads its state anew (its reset, its rows and its ready), so a call of a
+ * read takes nothing back, and a read stream cut by its transport is what an `unavailable` error event the contract
+ * marks safe to retry says (design: retries). Any other answer, a write's outcome among them, may have taken effect
+ * before a cut, so it is never called again for one.
+ */
+export const readsState = (table: EventTable | undefined): boolean =>
+	Arr.some(Rec.values(table ?? {}), (byMedia) =>
+		Arr.some(Rec.values(byMedia), (contract) =>
+			Arr.some(Rec.values(contract.events), (row) => row.role === "ready")
+		)
+	)
+
+/**
  * The contract of a stream whose `itemSchema` names no event: every event is an item whose data prints as text, and the
  * stream ends with its body.
  */

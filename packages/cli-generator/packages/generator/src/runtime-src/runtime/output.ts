@@ -83,6 +83,7 @@ import {
 	withUserAgent,
 	wouldRetry
 } from "#runtime/client.ts"
+import type { RetryDecision } from "#runtime/client.ts"
 import { asCliError, printStderr } from "#runtime/input.ts"
 import type { MediaDeclaration } from "#runtime/negotiate.ts"
 import { accept as acceptValue, dispatchResponse } from "#runtime/negotiate.ts"
@@ -112,7 +113,7 @@ import {
 	utf8Bytes
 } from "#runtime/sequential.ts"
 import type { EventContract, EventFailed, EventTable, StopAt } from "#runtime/sse.ts"
-import { eventStream, hasLifecycle, openContract, StopPoint } from "#runtime/sse.ts"
+import { eventStream, hasLifecycle, openContract, readsState, StopPoint } from "#runtime/sse.ts"
 
 /**
  * `--output <path>` writes the response body to a file; `-` writes it to stdout.
@@ -2334,6 +2335,7 @@ export const send =
 			const scrub = (text: string): string => scrubbedAndSanitized(text, scrubbed)
 			const transport = yield* Transport
 			const budget = yield* retryBudget
+			const reads = readsState(meta.events)
 			const client = redirectLoop(
 				attach(security, { credentials, origins }),
 				transport,
@@ -2345,7 +2347,7 @@ export const send =
 					sensitive,
 					new Set(headers.map(({ scheme }) => placeholder(scheme)))
 				)
-			).pipe(retryTransform(scrub, budget), withUserAgent(policy.binName, policy.version))
+			).pipe(retryTransform(scrub, budget, reads), withUserAgent(policy.binName, policy.version))
 			const cap = yield* Ref.make(Option.none<number>())
 			const table = {
 				operation,
@@ -2395,6 +2397,32 @@ export const send =
 				})
 			const label = retryLabel(built, scrub)
 			const maxErrorBytes = yield* MaxErrorBytes
+			/**
+			 * The operation called again after its stream failed, its new stream read as a fresh call's, when `decision`
+			 * says to go again, after its delay; otherwise a stream that fails with `failure`.
+			 */
+			const again = (decision: RetryDecision, failure: SendError) =>
+				decision._tag === "Again"
+					? Stream.unwrap(
+							Effect.gen(function* callAgain() {
+								yield* Effect.sleep(decision.delay)
+								const next = yield* respond
+								if (isBodiless(next)) {
+									return Stream.empty
+								}
+
+								const framed = yield* framedOf(next)
+
+								return retrying(framed.bytes)
+							})
+						)
+					: Stream.fail(failure)
+			/**
+			 * The stream as the contract reads its failures: after an `error` event that says retrying is safe, and after a
+			 * read's stream is cut by its transport (`truncated`: its body ended, or its connection reset, before its
+			 * terminal event or stop point), the operation is called again under the run's budget and its stream read
+			 * anew; a write's cut, which may have committed, ends the run.
+			 */
 			const retrying = <R>(
 				bytes: Stream.Stream<Uint8Array, SendError | EventFailed, R>
 			): Stream.Stream<
@@ -2402,34 +2430,33 @@ export const send =
 				SendError,
 				R | GlobalFlag.Setting.Identifier<"max-error-bytes"> | Scope.Scope | Stdio.Stdio
 			> =>
-				Stream.catchTag(bytes, "EventFailed", (failed) =>
-					Stream.unwrap(
-						Effect.gen(function* retryEvent() {
-							const decision = failed.retrySafe
-								? yield* decideRetry(
-										budget,
-										built,
-										label,
-										`the ${failed.event} event`,
-										Option.map(failed.reconnect, (digits) => Duration.millis(Number(digits)))
-									)
-								: stopRetrying
-							if (decision._tag !== "Again") {
-								return Stream.fail(streamEventError(operation, failed, scrubbed, maxErrorBytes))
-							}
-
-							yield* Effect.sleep(decision.delay)
-							const next = yield* respond
-							if (isBodiless(next)) {
-								return Stream.empty
-							}
-
-							const framed = yield* framedOf(next)
-
-							return retrying(framed.bytes)
-						})
-					)
-				)
+				Stream.catchTags(bytes, {
+					EventFailed: (failed) =>
+						Stream.unwrap(
+							Effect.map(
+								failed.retrySafe
+									? decideRetry(
+											budget,
+											built,
+											label,
+											`the ${failed.event} event`,
+											Option.map(failed.reconnect, (digits) => Duration.millis(Number(digits)))
+										)
+									: Effect.succeed(stopRetrying),
+								(decision) =>
+									again(decision, streamEventError(operation, failed, scrubbed, maxErrorBytes))
+							)
+						),
+					ResponseStreamError: (cut) =>
+						Stream.unwrap(
+							Effect.map(
+								reads && cut.reason === "truncated"
+									? decideRetry(budget, built, label, "the cut stream", Option.none())
+									: Effect.succeed(stopRetrying),
+								(decision) => again(decision, cut)
+							)
+						)
+				})
 
 			yield* recordSent(built)
 			yield* respond.pipe(

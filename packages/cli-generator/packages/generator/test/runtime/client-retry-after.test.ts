@@ -48,7 +48,9 @@ const run = async (answers: readonly Answer[], timeout: number): Promise<Outcome
 	const arrivals: number[] = []
 	const exchange = Effect.gen(function* exchanging() {
 		const budget = yield* Client.retryBudget
-		const client = scripted(answers, arrivals).pipe(Client.retryTransform((text) => text, budget))
+		const client = scripted(answers, arrivals).pipe(
+			Client.retryTransform((text) => text, budget, false)
+		)
 		const record = yield* Ref.make(Option.none<number>())
 		const status = yield* Effect.scoped(
 			client.execute(HttpClientRequest.get(url)).pipe(Effect.map((response) => response.status))
