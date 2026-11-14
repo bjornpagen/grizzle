@@ -11,6 +11,9 @@
 	"globalEnv": ["NODE_ENV"],
 	"globalPassThroughEnv": [
 		"NODE_OPTIONS",
+		"TOOLCHAIN_TEST_WORKERS",
+		"TOOLCHAIN_TSGOLINT_PROCS",
+		"TOOLCHAIN_TS_CHECKERS",
 		"COREPACK_HOME",
 		"TMPDIR",
 		"HTTP_PROXY",
