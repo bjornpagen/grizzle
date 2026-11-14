@@ -7,9 +7,11 @@ import type { AggregateSpec, NodeOf } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType, vectorTypmodOf } from "#compiler/ir/scalar.ts"
 
 import {
+	type ColumnEqualities,
 	type ColumnMap,
 	columnIn,
 	type Env,
+	equalitiesOver,
 	extendEnv,
 	type LowerContext,
 	type NodeLowerer,
@@ -19,7 +21,6 @@ import {
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { aggregateExpr, groupAggregateOverload } from "#compiler/lower/conservative/group/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
-import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { AggregateOverload } from "#compiler/scalar/aggregate.ts"
 import type { Expr, FromItem, OperandSelect, TypeRef } from "#compiler/sql/ast.ts"
 import {
@@ -151,7 +152,10 @@ const certifyConditional = (facts: ShapeFacts, node: NodeOf<"Group">, agg: Aggre
  * group where no binding satisfies p; over real, double precision or money the exact value is taken of the CASE, the
  * argument. The count's literals are integers by value, so sum(cond(p, 1.0, 0)) and typmod literals are counts too.
  *
- * `keys` restricts some of the group keys, each to a value, by key column: `WHERE <key> = <value> … GROUP BY …`.
+ * `restriction` restricts some of the group keys, each equality a key equal to a value: `WHERE <key> = <value> …
+ * GROUP BY …`, one equality per entry, so a key it equates with two values is restricted to both (an attachment that
+ * pairs one key with two parent columns, conservative/context.ts ColumnEqualities), as the conservative lowering
+ * restricts it.
  * Restricting a fold's groups by their keys is restricting its input rows by them, since a group is the input rows of
  * one key (Group(X)[k = v] = Group(X[k = v])), so the restriction stands below the aggregate, where an index on the
  * key reads it. One over the grouped rows stands above it, and PostgreSQL pushes it down only as a restriction of the
@@ -163,7 +167,7 @@ export const keyedGroup = (
 	node: NodeOf<"Group">,
 	cx: LowerContext,
 	env: Env,
-	keys: ReadonlyMap<string, Expr>
+	restriction: ColumnEqualities
 ): OperandSelect => {
 	const at = nodeLabel(node)
 	const input = cx.source(node.input, env)
@@ -211,12 +215,12 @@ export const keyedGroup = (
 		)
 	})
 	const groupBy = present !== undefined ? [present] : node.keys.map((k) => columnIn(bound, k))
-	const restricted = [...keys].map(([k, value]) => {
-		if (!node.keys.includes(k)) {
-			throw defect(`a restriction of ${k}, a key of the fold ${at}`)
+	for (const e of restriction) {
+		if (!node.keys.includes(e.column)) {
+			throw defect(`a restriction of ${e.column}, a key of the fold ${at}`)
 		}
-		return cx.equal(columnType(node.heading, k), columnIn(bound, k), value)
-	})
+	}
+	const restricted = equalitiesOver(cx, node.heading, bound, restriction)
 	return select({
 		...core(
 			targets.length === 0 ? [target(lit.bool(true))] : targets,
@@ -228,7 +232,7 @@ export const keyedGroup = (
 	})
 }
 
-const noRestriction: ReadonlyMap<string, Expr> = new Map()
+const noRestriction: ColumnEqualities = []
 
 /** The fold of a Group node, its groups unrestricted (`keyedGroup`). */
 export const aggregateLowerer =

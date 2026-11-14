@@ -12,6 +12,7 @@ import { sameScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type ColumnMap,
 	columnIn,
+	correlatedColumns,
 	correlationEqualities,
 	type Env,
 	headingTargets,
@@ -326,11 +327,13 @@ const foldedByCorrelation = (
  * A child that folds by every column the Attach correlates (a Group whose keys hold them) is the fold of its parent's
  * keys alone, `LATERAL (SELECT k, sum(…) FROM (<input>) WHERE k = r1.c2 GROUP BY k)` (aggregate/index.ts keyedGroup),
  * the correlation inside the grouping, where it restricts the fold's input rows and an index on the key reads them per
- * parent row. A grouped derived table is never flattened, so a correlation beside it is a join condition PostgreSQL
- * keeps above the aggregate, which then reads every row of the child's relation: a grant's debited total folded every
- * debit of every grant. Wrapping the fold in a derived table that restricts it does not help: PostgreSQL flattens the
- * wrapper (prepjointree.c pull_up_subqueries) and its condition is a join condition again. Any other child is
- * correlated beside it, which PostgreSQL pushes into a child it flattens.
+ * parent row. The restriction is the correlation pair for pair (context.ts correlatedColumns), the conservative
+ * lowering's equalities: a key the Attach pairs with two parent columns is restricted to both. A grouped derived table
+ * is never flattened, so a correlation beside it is a join condition PostgreSQL keeps above the aggregate, which then
+ * reads every row of the child's relation: a grant's debited total folded every debit of every grant. Wrapping the
+ * fold in a derived table that restricts it does not help: PostgreSQL flattens the wrapper (prepjointree.c
+ * pull_up_subqueries) and its condition is a join condition again. Any other child is correlated beside it, which
+ * PostgreSQL pushes into a child it flattens.
  */
 export const pipelinedAttachment = (
 	cx: LowerContext,
@@ -351,13 +354,7 @@ export const pipelinedAttachment = (
 		folded === undefined
 			? cx.sourceAs(child, env, true)
 			: cx.wrapAs(
-					keyedGroup(
-						facts,
-						folded,
-						cx,
-						env,
-						new Map(attach.correlation.map((c) => [c.child, columnIn(parentMap, c.parent)]))
-					),
+					keyedGroup(facts, folded, cx, env, correlatedColumns(attach, parentMap)),
 					child.heading,
 					{ kind: "node", node: child.id },
 					true

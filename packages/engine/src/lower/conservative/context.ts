@@ -926,6 +926,28 @@ export const headingTargets = (heading: Heading, map: ColumnMap): NonEmptyReadon
 	isNonEmpty(heading) ? mapNonEmpty(heading, (c) => target(columnIn(map, c.name))) : unitTargets
 
 /**
+ * Columns each equal to a value, one equality per entry. It is a list, never a map from column to value, as an
+ * attachment's correlation is a list of pairs (ir/rel.ts Attach): a child column the correlation pairs with two parent
+ * columns is equal to both, which holds only for a parent whose two columns agree.
+ */
+export type ColumnEqualities = ReadonlyArray<{ readonly column: string; readonly value: Expr }>
+
+/** An attachment's correlation over its parent's columns read through `parent`: each pair one equality. */
+export const correlatedColumns = (attach: NodeOf<"Attach">, parent: ColumnMap): ColumnEqualities =>
+	attach.correlation.map((c) => ({ column: c.child, value: columnIn(parent, c.parent) }))
+
+/** The equalities over columns of `heading`, each column read through `source`. */
+export const equalitiesOver = (
+	cx: LowerContext,
+	heading: Heading,
+	source: ColumnMap,
+	equalities: ColumnEqualities
+): ReadonlyArray<Expr> =>
+	equalities.map((e) =>
+		cx.equal(columnType(heading, e.column), columnIn(source, e.column), e.value)
+	)
+
+/**
  * The equalities of an attachment's correlation: each child column of heading `child`, read through `source`, equal to
  * the parent column it is correlated with, read through `parent`.
  */
@@ -935,10 +957,7 @@ export const correlationEqualities = (
 	child: Heading,
 	source: ColumnMap,
 	parent: ColumnMap
-): ReadonlyArray<Expr> =>
-	attach.correlation.map((c) =>
-		cx.equal(columnType(child, c.child), columnIn(source, c.child), columnIn(parent, c.parent))
-	)
+): ReadonlyArray<Expr> => equalitiesOver(cx, child, source, correlatedColumns(attach, parent))
 
 /**
  * SELECT DISTINCT over one or more FROM items: the conservative set boundary, restricted by the conjunction of
