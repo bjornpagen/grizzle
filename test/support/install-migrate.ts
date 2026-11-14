@@ -33,6 +33,7 @@ import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
+import { lex, type Token } from "#compiler/sql/lexer.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { AnyLogin, AnyRole } from "#compiler/types/schema/world.ts"
 import { defineConfig } from "#index.ts"
@@ -188,6 +189,58 @@ const shapeKey = (installation: Installation): string =>
 const normalized = (statement: string): string =>
 	pipe(Str.trim(statement), Str.replace(regex(";$"), ""))
 
+/** Whether a token is the word `word`, as PostgreSQL folds an unquoted word. */
+const isWord = (t: Token | undefined, word: string): t is Token =>
+	t?.kind === "word" && t.upper === word
+
+/** Whether a token is the punctuation `text`. */
+const isPunct = (t: Token | undefined, text: string): boolean =>
+	t?.kind === "punct" && t.text === text
+
+/**
+ * The units a statement installs, which runsInstallScript counts: each subcommand of an ALTER TABLE under the table's
+ * head, and any other statement whole. A migration drafts one ALTER TABLE per table and slot (deploy/diff/diff.ts
+ * Differ.alter) where the script holds one per object, and PostgreSQL runs one statement's subcommands pass by pass as
+ * it runs them in statements of their own, so the subcommand is the unit both share. A subcommand ends at a comma
+ * outside every parenthesis and bracket, read by PostgreSQL's scanner (sql/lexer.ts), so no comma of a string, a
+ * quoted identifier or an expression splits one; its text runs from its first token to its last, so the line breaks
+ * between subcommands compare alike. A statement the scanner does not read to its end is one unit, compared whole.
+ */
+const unitsOf = (statement: string): ReadonlyArray<string> => {
+	const { tokens, error } = lex(statement)
+	const [alter, table, name] = tokens
+	if (
+		error !== undefined ||
+		!isWord(alter, "ALTER") ||
+		!isWord(table, "TABLE") ||
+		name === undefined
+	) {
+		return [statement]
+	}
+	let first = 3
+	while (isPunct(tokens[first], ".") && tokens[first + 1] !== undefined) {
+		first += 2
+	}
+	const start = tokens[first]?.start
+	if (start === undefined) {
+		return [statement]
+	}
+	const head = Str.trim(Str.slice(alter.start, start)(statement))
+	const ends: Array<number> = []
+	let depth = 0
+	for (const t of tokens.slice(first)) {
+		if (isPunct(t, "(") || isPunct(t, "[")) {
+			depth++
+		} else if (isPunct(t, ")") || isPunct(t, "]")) {
+			depth--
+		} else if (depth === 0 && isPunct(t, ",")) {
+			ends.push(t.start)
+		}
+	}
+	const bounds = Arr.zip([start, ...Arr.map(ends, (e) => e + 1)], [...ends, statement.length])
+	return Arr.map(bounds, ([from, to]) => `${head} ${Str.trim(Str.slice(from, to)(statement))}`)
+}
+
 /** A statement without its leading comment lines. */
 const body = (statement: string): string =>
 	Str.trim(
@@ -231,14 +284,14 @@ const isPrivilege = (statement: string): boolean => {
 
 /**
  * Whether the migrations, in order, provably install the fresh-install script's catalog, the ledger aside, which the
- * live source's publication publishes too (compile.ts migratedSql): they run every statement of the script exactly
- * once and otherwise only statements that leave no object; each object's grants and revokes, and the default
- * privileges, run in the script's order; and every default privilege runs after every object is created,
- * as in the script. Every other statement creates or alters an object of its own, so its position decides nothing a catalog
- * shows (a statement that needs an earlier one fails the apply instead). Both are read as migrate sends them into
- * `database` (filledSql), each variable filled, and split as migrate splits a file (render/markers.ts splitStatements):
- * a drafted statement may print two, as a grant on the database prints its lock before it (sql/print.ts
- * databasePrivilegeLocked), two on both sides.
+ * live source's publication publishes too (compile.ts migratedSql): they run every unit of the script (unitsOf: a
+ * statement, or a subcommand of an ALTER TABLE) exactly once and otherwise only units that leave no object; each
+ * object's grants and revokes, and the default privileges, run in the script's order; and every default privilege runs
+ * after every object is created, as in the script. Every other unit creates or alters an object of its own, so its
+ * position decides nothing a catalog shows (a unit that needs an earlier one fails the apply instead). Both are read
+ * as migrate sends them into `database` (filledSql), each variable filled, and split as migrate splits a file
+ * (render/markers.ts splitStatements): a drafted statement may print two, as a grant on the database prints its lock
+ * before it (sql/print.ts databasePrivilegeLocked), two on both sides.
  */
 export const runsInstallScript = (
 	folders: ReadonlyArray<FolderSource>,
@@ -246,14 +299,14 @@ export const runsInstallScript = (
 	database: string
 ): boolean => {
 	const schema = installation.names.schema
-	const script = Arr.map(
+	const script = Arr.flatMap(
 		filledSql(
 			{ statements: Arr.flatMap(migratedSql(installation).statements, splitStatements) },
 			database
 		),
-		normalized
+		(s) => unitsOf(normalized(s))
 	)
-	const migration = Arr.map(
+	const migration = Arr.flatMap(
 		filledSql(
 			{
 				statements: Arr.flatMap(folders, (folder) =>
@@ -262,7 +315,7 @@ export const runsInstallScript = (
 			},
 			database
 		),
-		normalized
+		(s) => unitsOf(normalized(s))
 	)
 	const pending = new Map<string, number>()
 	for (const s of script) {
