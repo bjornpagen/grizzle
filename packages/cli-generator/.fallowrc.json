@@ -10,6 +10,8 @@
 		"packages/generator/test/fixtures/grizzle/**",
 		"vendor/**"
 	],
+	// The tsconfigs' @effect/language-service plugin is no package: it is @effect/tsgo's, patched into TypeScript.
+	"ignoreDependencies": ["@effect/language-service"],
 	"rules": {
 		"require-suppression-reason": "error"
 	},

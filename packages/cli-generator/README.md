@@ -41,7 +41,7 @@ cd acme-app && pnpm install && pnpm build
 
 ## Development
 
-Node 26 runs the TypeScript source directly; pnpm 12.16.1 (the `packageManager` pin) installs.
+Node 26 runs the TypeScript source directly; pnpm 12.18.0 (the `packageManager` pin) installs.
 
 ```sh
 git submodule update --init

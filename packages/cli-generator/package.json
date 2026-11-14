@@ -5,7 +5,7 @@
 	"imports": {
 		"#toolchain.config.ts": "./toolchain.config.ts"
 	},
-	"packageManager": "pnpm@12.16.1",
+	"packageManager": "pnpm@12.18.0",
 	"devEngines": {
 		"runtime": {
 			"name": "node",
