@@ -62,8 +62,8 @@ commit gate. The typecheck and lint, `pnpm check`, run by hand before a release.
   from the installation, so a cluster running at the rename is stopped just before it and started again just after.
 - **`pnpm pg:init`** creates the one cluster under `~/.local/var/grizzle/pg<version>/`:
     - a builtin C.UTF-8 cluster on port 5433, localhost only, with TLS 1.3, SCRAM, and only `hostssl` lines for TCP,
-      `max_pred_locks_per_relation = 1024`, where production's `max_pred_locks_per_transaction = 2048` promotes a
-      transaction's tuple locks to its relation's, `wal_level = logical`, and `timezone` and `log_timezone` at UTC
+      `max_pred_locks_per_relation = 1023`, where production's `max_pred_locks_per_transaction = 2048` promotes a
+      transaction's page locks to its relation's, `wal_level = logical`, and `timezone` and `log_timezone` at UTC
       whatever the machine's zone;
     - sized to the machine (`test/support/substrate/shared.ts` `clusterSize`, `scripts/pg/cluster-size.ts`):
       `max_connections` holds a connection lease for each of the network tier's workers, one per core, and

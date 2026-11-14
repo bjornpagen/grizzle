@@ -48,7 +48,7 @@ fi
 check "jit is off by default" "off" \
 	"$(dev "$PG_DEV_ROLE" -At -c "SHOW jit")"
 
-check "max_pred_locks_per_relation is 1024, production's promotion" "1024" \
+check "max_pred_locks_per_relation is 1023, production's promotion" "1023" \
 	"$(dev "$PG_DEV_ROLE" -At -c "SHOW max_pred_locks_per_relation")"
 
 check "wal_level is logical" "logical" \

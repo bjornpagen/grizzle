@@ -60,10 +60,11 @@ password_encryption = 'scram-sha-256'
 track_io_timing = on
 # Every installation with live reads decodes the WAL (logical decoding): migrate refuses one below logical.
 wal_level = logical
-# A transaction's tuple locks promote to its relation's where production's do, under README's recommended
-# max_pred_locks_per_transaction = 2048 and PostgreSQL's default of half that; the table's own size is the machine's
-# (test/support/substrate/shared.ts clusterPredicateLocks), so this is pinned apart from it.
-max_pred_locks_per_relation = 1024
+# A transaction's page locks promote to its relation's where production's do: past 1023, what PostgreSQL's default of -2
+# gives README's recommended max_pred_locks_per_transaction = 2048 (predicate.c MaxPredicateChildLocks, 2048 / 2 - 1).
+# The table's own size is the machine's (test/support/substrate/shared.ts clusterPredicateLocks), so this is pinned
+# apart from it.
+max_pred_locks_per_relation = 1023
 logging_collector = on
 log_directory = '$GRIZZLE_PG_LOG'
 log_filename = 'postgresql-%Y-%m-%d.log'
