@@ -637,14 +637,42 @@ const refined = (draft: Draft, ahead: Ahead, rank: Rank): Draft | undefined => {
 	return undefined
 }
 
-/** A draft's keys (see `planIndexes`): its blocks in order, each block's columns in the request's own order, the keys an
- * ordered request directs in its directions and every other in the first key's, canonical under reversal. */
-const keysOf = (draft: Draft, rank: Rank): NonEmptyReadonlyArray<IndexKey> => {
-	const byRank = mapInput(compareNumbers, rank)
+/**
+ * The order of the columns within one block of a draft, which any order of them serves alike (`placed`, `sameSet`), by
+ * the index's access method: the request's own order (`rank`), but a GiST index's columns of few values after its
+ * columns of many values. GiST splits a page by its first column (gistsplit.c gistSplitByKey: picksplit runs on it, and
+ * a later column only redistributes the entries it ties), and btree_gist's picksplit halves a page in that column's
+ * order, so the halves of a split on a column of few values share its middle value and each keeps every value of the
+ * columns after it, and a probe follows more of them down. Measured on PostgreSQL 19rc2 over the 20,000 rows of
+ * serving-workload's kept case (test/pg/physical/serving.test.ts), whose load writes two closed handles of 3 values and
+ * a numeric and a span of 141, a probe binding every column touches 7 to 10 buffers of a GiST index on (handle, handle,
+ * numeric, span) over twenty builds of the same rows, which differ as gistchoose breaks ties between equally good
+ * subtrees at random, and 4 or 5 over twenty builds of one on (numeric, span, handle, handle), this order. The first
+ * column of many values, which places the entries, stays the first by the request's order, so every request the
+ * block's order served is served still, and none needs to bind a column of few values to keep its scan in one descent.
+ */
+const withinBlock: Readonly<
+	Record<IndexMethod, (rank: Rank, columns: Columns) => Comparator<IndexKey>>
+> = {
+	btree: (rank) => mapInput(compareNumbers, rank),
+	hash: (rank) => mapInput(compareNumbers, rank),
+	hnsw: (rank) => mapInput(compareNumbers, rank),
+	gist: (rank, columns) =>
+		combineAll([
+			mapInput(compareBooleans, (k: IndexKey) => columns.holds(k.column) === "few"),
+			mapInput(compareNumbers, rank)
+		])
+}
+
+/** A draft's keys (see `planIndexes`): its blocks in order, each block's columns in its access method's order
+ * (`withinBlock`), the keys an ordered request directs in its directions and every other in the first key's, canonical
+ * under reversal. */
+const keysOf = (draft: Draft, rank: Rank, columns: Columns): NonEmptyReadonlyArray<IndexKey> => {
+	const order = withinBlock[draft.method](rank, columns)
 	const [leading, ...following] = draft.blocks
 	const keys = extendNonEmpty(
-		sortNonEmpty(leading, byRank),
-		following.flatMap((block) => block.toSorted(byRank))
+		sortNonEmpty(leading, order),
+		following.flatMap((block) => block.toSorted(order))
 	)
 	const directed = draft.directed
 	const first = directed === undefined ? "asc" : directed[0].dir
@@ -1023,7 +1051,7 @@ const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): Planned
 	const targetField = (column: IndexColumn): TargetField =>
 		o.field(column) ??
 		fail("MalformedDescription", label, `a field ${columnText(column)} of ${request.relation}`)
-	const keys = keysOf(draft, rankIn(planned.keys))
+	const keys = keysOf(draft, rankIn(planned.keys), planned.columns)
 	const fields = keys.map((k) => columnText(k.column))
 	const unrepresentable = (fault: KeyFault): never => {
 		throw new Refusal(
