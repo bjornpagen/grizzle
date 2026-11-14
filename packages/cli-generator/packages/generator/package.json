@@ -26,6 +26,7 @@
 	},
 	"scripts": {
 		"typecheck": "node scripts/ratchet.ts typecheck",
+		"typecheck:full": "node scripts/ratchet.ts typecheck -- --incremental false",
 		"superlint": "node scripts/ratchet.ts superlint",
 		"oxlint": "node scripts/ratchet.ts oxlint",
 		"runtime-gate": "node scripts/runtime-gate.ts",

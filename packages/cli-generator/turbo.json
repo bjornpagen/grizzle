@@ -27,7 +27,16 @@
 			"dependsOn": ["^source"]
 		},
 		"typecheck": {
-			"description": "The dev tools' tsconfig bases, which the root tsconfig and every Effect-free package extend, are inputs too.",
+			"description": "Incremental, for pnpm types after every edit and before every commit: each tsconfig keeps its .tsbuildinfo under its own node_modules/.cache. The dev tools' tsconfig bases, which the root tsconfig and every Effect-free package extend, are inputs too.",
+			"dependsOn": ["^source"],
+			"inputs": [
+				"$TURBO_DEFAULT$",
+				"$TURBO_ROOT$/vendor/toolchain/packages/devtools/tsconfig.base.json",
+				"$TURBO_ROOT$/vendor/toolchain/packages/devtools/tsconfig.effect-free.json"
+			]
+		},
+		"typecheck:full": {
+			"description": "The gate's typecheck, run in full (--incremental false), so no stale .tsbuildinfo can pass it. The dev tools' tsconfig bases are inputs too.",
 			"dependsOn": ["^source"],
 			"inputs": [
 				"$TURBO_DEFAULT$",
@@ -65,6 +74,7 @@
 			"dependsOn": ["^source"]
 		},
 		"//#typecheck": {},
+		"//#typecheck:full": {},
 		"//#superlint": {},
 		"//#oxlint": {},
 		"//#format": {},

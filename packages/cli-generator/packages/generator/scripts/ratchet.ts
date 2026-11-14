@@ -23,7 +23,9 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process"
  * larger cleanup, and new code comes in clean. The ledger only falls: `--lower` writes the
  * current counts when no file rose. A tool at zero leaves the ledger and runs as the plain tool; when every tool is
  * at zero this script and its ledger are deleted. A tool that fails to run, or whose own summary disagrees with the
- * findings read from its output, fails the check: a count the ratchet could not read is never a pass.
+ * findings read from its output, fails the check: a count the ratchet could not read is never a pass. Arguments after
+ * `--` go to the tool as they are: the gate runs the typecheck in full with `--incremental false`, where `pnpm types`
+ * runs it incrementally.
  */
 
 /** The tools the ratchet holds, each by the gate task that runs it. */
@@ -209,11 +211,11 @@ const RUNS: Readonly<Record<Tool, Run>> = {
 	}
 }
 
-/** Runs a tool and answers its output and exit code. */
-const runTool = Effect.fn("ratchet.runTool")(function* (tool: Tool) {
+/** Runs a tool, with the arguments passed to it after the ratchet's own, and answers its output and exit code. */
+const runTool = Effect.fn("ratchet.runTool")(function* (tool: Tool, passed: ReadonlyArray<string>) {
 	const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
 	const run = RUNS[tool]
-	const command = ChildProcess.make(run.command, [...run.arguments], {
+	const command = ChildProcess.make(run.command, [...run.arguments, ...passed], {
 		cwd: run.directory,
 		extendEnv: true
 	})
@@ -301,15 +303,18 @@ const linesOfFiles = (output: string, files: ReadonlyArray<string>): ReadonlyArr
 const main = Effect.gen(function* () {
 	const path = yield* Path.Path
 	const argv = yield* Effect.sync(() => process.argv)
-	const tool = yield* Schema.decodeUnknownEffect(Tool)(argv[2]).pipe(
+	const [own, passed] = Arr.span(argv, (argument) => argument !== "--")
+	const tool = yield* Schema.decodeUnknownEffect(Tool)(own[2]).pipe(
 		Effect.mapError(() =>
-			RatchetFailure.make({ detail: `usage: ratchet.ts <${Arr.join(TOOLS, "|")}> [--lower]` })
+			RatchetFailure.make({
+				detail: `usage: ratchet.ts <${Arr.join(TOOLS, "|")}> [--lower] [-- <the tool's arguments>]`
+			})
 		)
 	)
-	const lower = Arr.contains(argv, "--lower")
+	const lower = Arr.contains(own, "--lower")
 	const ledger = yield* readLedger
 	const committed = Option.getOrElse(Record.get(ledger, tool), () => countOf([]))
-	const { output, count } = yield* runTool(tool)
+	const { output, count } = yield* runTool(tool, Arr.drop(passed, 1))
 	const shown = path.relative(ROOT, LEDGER)
 	const rose = risen(committed, count)
 	if (Arr.isReadonlyArrayNonEmpty(rose)) {

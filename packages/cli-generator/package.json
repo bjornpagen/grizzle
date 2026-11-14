@@ -15,7 +15,8 @@
 	},
 	"scripts": {
 		"prepare": "effect-tsgo patch",
-		"check": "turbo run typecheck runtime-gate benchmark superlint oxlint format dead-code architecture dedupe --filter=./packages/* --filter=// --continue=dependencies-successful",
+		"check": "turbo run typecheck:full runtime-gate benchmark superlint oxlint format dead-code architecture dedupe --filter=./packages/* --filter=// --continue=dependencies-successful",
+		"types": "turbo run typecheck --filter=./packages/* --filter=//",
 		"lint": "turbo run superlint oxlint dead-code architecture --filter=./packages/* --filter=//",
 		"test": "turbo run test --filter=./packages/*",
 		"test:grizzle": "pnpm --filter effect-openapi-cli-generator run test:grizzle",
@@ -24,6 +25,7 @@
 		"mutate": "bjornpagen-mutate",
 		"format:write": "oxfmt . && turbo run oxlint --filter=./packages/* --filter=// -- --fix && oxfmt .",
 		"typecheck": "effect-tsgo tsrs",
+		"typecheck:full": "effect-tsgo tsrs --incremental false",
 		"superlint": "superlint",
 		"oxlint": "oxlint oxlint.config.ts",
 		"format": "oxfmt --check .",
