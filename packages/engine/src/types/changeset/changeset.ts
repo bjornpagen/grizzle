@@ -119,13 +119,13 @@ type DeletedCheck<M, F, R> = MemberFit<M, F, R, false>
 /** A member's facts M as arms of F, the row type of R its op takes, then, where Keyed, its literal facts at R's key. */
 type MemberFit<M, F, R, Keyed extends boolean> =
 	M extends Phantom<{ readonly heading: infer H }>
-		? [UnfitArms<H, F, never>] extends [never]
-			? [MistypedFields<M, R>] extends [never]
+		? IsNone<UnfitArms<H, F, never>> extends true
+			? IsNone<MistypedFields<M, R>> extends true
 				? unknown
 				: Refusal<"a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast">
 			: Refusal<"the query's head is not a fact of the relation">
 		: M extends ReadonlyArray<infer E> | Stream.Stream<infer E, unknown, unknown>
-			? [UnfitArms<E, F, never>] extends [never]
+			? IsNone<UnfitArms<E, F, never>> extends true
 				? Keyed extends true
 					? ConflictsAtKey<M, PrimaryKeyOf<R>> extends true
 						? KeyLawRefusal<NameOf<R>, PrimaryKeyOf<R>>
@@ -133,6 +133,14 @@ type MemberFit<M, F, R, Keyed extends boolean> =
 					: unknown
 				: Refusal<"a member fact is not a fact of the relation">
 			: unknown
+
+/**
+ * Whether X is none. A test of a part read from S is written as this alias over the part, never as a tuple of it,
+ * `[Part<S, R>] extends [never]`: a tuple whose element is an alias is a type reference the checker defers, holding the
+ * aliases' arguments, S among them, and it instantiates that reference again, permissively and restrictively, at each
+ * test it resolves, walking every relation and statement of S each time. Here the tuple holds X alone.
+ */
+type IsNone<X> = [X] extends [never] ? true : false
 
 /** A relation's primary key fields; a world relation, keyed by its definition's evidence, states none here. */
 type PrimaryKeyOf<R> = R extends { readonly primaryKey: infer P extends ReadonlyArray<string> }
@@ -317,15 +325,48 @@ type NestedOf<Fa> =
  * nesting supplies. Order is the caller's data only in a sequence, so only a sequence nests: a counted family's owner
  * and its members are their rows, a member's group key naming its owner. A tree's parent, start and end are drawn,
  * so no addition states them. A relation with no drawn field owns no family and is no tree, so its addition is
- * Addition<R>, read off R alone: a schema whose statements are generic still types it.
+ * Addition<R>, read off R alone: a schema whose statements are generic still types it. The addition holds the
+ * sequences its nesting reaches (AdditionThrough), never S: the checker walks a type whole each time it instantiates it
+ * again, as every test of an insert's facts does, and an addition holding S cost a walk of every relation and
+ * statement of S for each relation an insertAll names.
  */
 export type AdditionIn<S, R> = [DrawnFieldOf<R>] extends [never]
 	? Addition<R>
+	: AdditionThrough<R, NestingSequences<S, R>>
+
+/**
+ * The sequences an addition of R in S nests, at every depth: R's own (SequencesOwnedBy), then each member relation's.
+ * Seen holds the relations walked, so a tree, whose member is its own relation, ends the walk.
+ */
+type NestingSequences<S, R, Seen = never> =
+	Visited<R, Seen> extends true
+		? never
+		: [DrawnFieldOf<R>] extends [never]
+			? never
+			: SequencesOwnedBy<S, R> extends infer Fa
+				? Fa | (Fa extends unknown ? NestingSequences<S, MemberRelationOf<Fa>, Seen | R> : never)
+				: never
+
+/**
+ * R's addition read from Fas, every sequence its nesting reaches (NestingSequences): the row its caller writes and, at
+ * each count field of a sequence R owns, its members' additions nested in slot order (AdditionIn).
+ */
+type AdditionThrough<R, Fas> = [DrawnFieldOf<R>] extends [never]
+	? Addition<R>
 	: Addition<R> & {
-			readonly [Fa in SequencesOwnedBy<S, R> as CountOf<Fa>]: ReadonlyArray<
-				OmitEach<AdditionIn<S, MemberRelationOf<Fa>>, NestedOf<Fa>>
+			readonly [Fa in OwnedAmong<Fas, NameOf<R>> as CountOf<Fa>]: ReadonlyArray<
+				OmitEach<AdditionThrough<MemberRelationOf<Fa>, Fas>, NestedOf<Fa>>
 			>
 		}
+
+/** The sequences among Fas whose owner is named Owner, as SequencesOwnedBy reads them: none for a name no literal. */
+type OwnedAmong<Fas, Owner> = string extends Owner
+	? never
+	: Fas extends unknown
+		? OwnerNameOf<Fas> extends Owner
+			? Fas
+			: never
+		: never
 
 /** A sequence's count field, which its owner's addition nests its members at. */
 type CountOf<Fa> = Fa extends { readonly slots: Fin<unknown, infer N extends string> } ? N : never
@@ -503,7 +544,7 @@ type EditOf<S, R, Op extends "put" | "delete"> =
  */
 type MemberOwningSequence<S, R> =
 	IsFamilyMember<S, R> extends true
-		? [Extract<NameOf<R>, OwnerNameOf<SequenceOf<S>>>] extends [never]
+		? IsNone<Extract<NameOf<R>, OwnerNameOf<SequenceOf<S>>>> extends true
 			? unknown
 			: Refusal<"a family's member that owns a sequence is written by inserting its owner with its rows nested">
 		: unknown
@@ -560,7 +601,9 @@ type RowFamily = Ordered<unknown, unknown> | Counted<unknown, unknown>
 /** Whether R is a tree's relation in S. */
 type IsTreeRow<S, R> = [DrawnFieldOf<R>] extends [never]
 	? false
-	: [Extract<NameOf<R>, NameOf<MemberRelationOf<Extract<SequenceOf<S>, AnyTree>>>>] extends [never]
+	: IsNone<
+				Extract<NameOf<R>, NameOf<MemberRelationOf<Extract<SequenceOf<S>, AnyTree>>>>
+		  > extends true
 		? false
 		: true
 
@@ -615,12 +658,12 @@ type RowFamilyOf<S> = Extract<
 >
 
 /** Whether R is the member of an ordered or a counted family of S whose owner is immutable. */
-type IsFixedMember<S, R> = [FixedOwnerOf<S, R>] extends [never] ? false : true
+type IsFixedMember<S, R> = IsNone<FixedOwnerOf<S, R>> extends true ? false : true
 
 /** Whether R owns an ordered or a counted family of S and is immutable. */
 type IsImmutableOwner<S, R> = [DrawnFieldOf<R>] extends [never]
 	? false
-	: [Extract<NameOf<R>, Exclude<OwnerNameOf<RowFamilyOf<S>>, MutableName<S>>>] extends [never]
+	: IsNone<Extract<NameOf<R>, Exclude<OwnerNameOf<RowFamilyOf<S>>, MutableName<S>>>> extends true
 		? false
 		: true
 
@@ -884,26 +927,31 @@ type LevelAt<S, Depth> = DepthOf<S>["length"] extends Depth
 type LevelAddress<S> = S extends AnyFragment ? "fragment" : DepthOf<S>["length"]
 
 /**
- * The level of S at a member's address, the member spelling its relation Spelled: at a depth, the level at that depth
- * (LevelAt); at a fragment's mark, the fragment among S and the fragments S's levels list that holds the relation, one
- * name naming one relation across a schema's levels and the fragments they list.
+ * The level of S at a member's address, the member spelling its relation Spelled: at a depth, the level at that depth,
+ * AtDepth; at a fragment's mark, the fragment among S and the fragments S's levels list that holds the relation, one
+ * name naming one relation across a schema's levels and the fragments they list. AtDepth is LevelAt<S, Address>, read
+ * by its caller once per address: reached through this alias, one instantiation for each spelling, LevelAt's walk down
+ * S's levels ran again for every member.
  */
-type LevelOfMember<S, Address, Spelled> = Address extends "fragment"
+type LevelOfMember<S, Address, Spelled, AtDepth> = Address extends "fragment"
 	? Extract<
 			Extract<S, AnyFragment> | AllFragmentsOf<S>,
 			{ readonly relations: { readonly [N in NameOfSpelled<Spelled>]: unknown } }
 		>
-	: LevelAt<S, Address>
+	: AtDepth
 
 /**
  * The array member of the relations R over S, each spelled as S's record names it, none where R is no relation. Its
- * parts are bound by `infer` first, so the member is no type reference the checker defers, which it would instantiate
- * again at every call that adds a member after it.
+ * parts are bound by `infer` first, each alone, so the member is no type reference the checker defers, which it would
+ * instantiate again at every call that adds a member after it, and the test that binds them holds no tuple of S's
+ * parts (IsNone).
  */
 type MemberOf<Op extends ArrayOp, R, At extends ReadonlyArray<unknown>, S> = [R] extends [never]
 	? never
-	: [NameIn<R, RelationsOf<S>>, LevelAddress<S>] extends [infer Spelled, infer Address]
-		? ArrayMember<Op, Spelled, At, Address>
+	: NameIn<R, RelationsOf<S>> extends infer Spelled
+		? LevelAddress<S> extends infer Address
+			? ArrayMember<Op, Spelled, At, Address>
+			: never
 		: never
 
 /**
@@ -945,18 +993,22 @@ type RecordOf<S, A> =
 		infer At extends ReadonlyArray<unknown>,
 		infer Address
 	>
-		? LevelOfMember<S, Address, Spelled> extends infer L
-			? RelationIn<Spelled, RelationsOf<L>> extends infer R
-				? (
-						Op extends "insert"
-							? AdditionIn<L, R>
-							: Op extends "delete"
-								? DeletedRow<L, R>
-								: Written<R>
-					) extends infer Row
-					? {
-							readonly [O in Op]: { readonly [N in NameOfSpelled<Spelled>]: ArrayFacts<R, Row, At> }
-						}
+		? LevelAt<S, Address> extends infer AtDepth
+			? LevelOfMember<S, Address, Spelled, AtDepth> extends infer L
+				? RelationIn<Spelled, RelationsOf<L>> extends infer R
+					? (
+							Op extends "insert"
+								? AdditionIn<L, R>
+								: Op extends "delete"
+									? DeletedRow<L, R>
+									: Written<R>
+						) extends infer Row
+						? {
+								readonly [O in Op]: {
+									readonly [N in NameOfSpelled<Spelled>]: ArrayFacts<R, Row, At>
+								}
+							}
+						: never
 					: never
 				: never
 			: never
@@ -1165,9 +1217,8 @@ type UnionEdits<D1 extends Strata, L1 extends Stratum, D2 extends Strata, L2 ext
  * tree's relation or a family's owner and no other family's member; none for any other delete, which removes the rows
  * it names alone.
  */
-type DoomedBy<S, R> = [DeletedWrites<S, R>] extends [never]
-	? never
-	: NameOf<R> | DeletedWrites<S, R>
+type DoomedBy<S, R> =
+	IsNone<DeletedWrites<S, R>> extends true ? never : NameOf<R> | DeletedWrites<S, R>
 
 /** Whether a stratum puts one of the relations it removes whole: neither side refuses where it is not known. */
 type PutMeetsDoomed<Put extends string, Doomed extends string> = string extends Put
@@ -1255,7 +1306,7 @@ type FixedOwnerOf<S, R> =
 type IsFamilyMember<S, R> =
 	string extends NameOf<R>
 		? false
-		: [Extract<NameOf<R>, NameOf<MemberRelationOf<RowFamilyOf<S>>>>] extends [never]
+		: IsNone<Extract<NameOf<R>, NameOf<MemberRelationOf<RowFamilyOf<S>>>>> extends true
 			? false
 			: true
 
