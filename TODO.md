@@ -275,8 +275,19 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
 - **One exhaustion split across Vitest files, checked:** an exhaustion's fibers share one thread, so a CPU-bound
   exhaustion uses one core whatever its concurrency.
 - **Text keys past PostgreSQL's B-tree item size:** so pantry drops its "Key text bound" law.
+- **An interrupted write settles before it resolves (inventory-upstream-cherry-picks, 2026-11-14):** an interrupt during
+  a write's statements cancels and drops the connection without waiting for the server (adapter batch.ts:975-988 at
+  qti-cutover-20261114c), so a COMMIT the server already began can land after the caller's read-back. pantry's
+  `--timeout` settlement read a package back as "not written" (pantry 5262fb08 now reads back on a fresh pool). The
+  ask: resolve the interrupt only once the backend can no longer commit, or give the caller a settled outcome.
 
 ### Next
+- **A folder's WAL, not its data, sizes a small instance (push-database-migration-through, 2026-11-14):** edullm's
+  identity 02 ran 5 h in one transaction on a db.t4g.medium (4 GB, 3,000 IOPS gp3); every set-based backfill over node
+  was disk-bound (83% DataFileRead), RDS warned its 200 GiB volume was near full from the WAL, and the instance
+  crash-looped 10:12–12:48Z; 02 rolled back whole. A rehearsal on a full-memory local copy (265 s for `__levels`
+  against 1 h 50 min live) predicted none of it. grizzle's migration guidance should price a folder by the rows its
+  transaction rewrites (WAL) and pages it reads, not by the database's size.
 - **The owner's call: cardinality proofs from a closed relation's facts (493f958e states today's contract):** the engine
   proves a key from a closed relation's contents, any column whose values are distinct across its facts
   (logical/props.ts:1468-1484, ir/keys.ts distinctColumn), and an attachment's cardinality follows from it; the types key a
@@ -481,6 +492,12 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   it, and bench/write/support/writes.ts FamilyLabel and bench/queue/support/queue.ts's `family` case mirror it.
   Deleting write/program/bind.ts legacyFlights, once the refills above move into the one flight, deletes FamilyStep, the
   throw and both bench mirrors; no type split before that.
+- **An owner's put beside its member's put has no served form (REDSWEEP, 2026-11-14):** README says a refill is planned
+  "in the first stratum, beside every edit of a family's members", yet `put(Owner).put(Member)` compiles and generate
+  refuses it as UnservedMember. Repro: a counted family plus `contained(on(Member,"g","c"), on(Owner,"id","v"))`, then
+  that ChangeSet. The owner's put reaches the member's owner-copy reader (kind "owner"), and write/frontend/refill.ts:167
+  flightWay draws only fold, predecessor and last readers, so the stratum is planned on the host, which no served file
+  holds. Same area as the entry above.
 - **Query oracle remainder (CULLQ):** the approved codemod deleting RunOptions' dead "fresh" kind and defaultRunOptions
   (test/support/oracle/runner.ts) and its callers' spreads, after CULLR's runSides primitive (one install, several
   judged sides), which is not on main; pipelining captureRows' describe and capture pair (oracle/install/capture.ts) and
