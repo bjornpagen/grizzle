@@ -9,6 +9,10 @@
  * its writes are column grants, or a role that reads Item through a query entry, so its view decodes the closed id,
  * at least one of them.
  *
+ * - a role declared with a query entry over a tree's relation is refused, `writeUnwritable` at its first such entry with
+ *   `keyHoldsFamily` naming `start`: a tree's relation is keyed by its root fields and its drawn start (fill.ts
+ *   keyOfRelation), which no fact through an entry states (README "Writing through a role"); a role whose entries
+ *   write no tree's relation is declared, and the installation's clerk writes exactly the drawn relations of no tree;
  * - every installed statement keeps the emission discipline (oracle/verify checkedStatements), a decoding query entry's
  *   view included;
  * - every law column, drawn or generated, is its own object of one `ALTER TABLE ... ADD COLUMN` after its table, a drawn
@@ -27,10 +31,13 @@
  * audit (oracle/verify). Every drawn specification is one the fill reference admits, by construction
  * (test/support/families/fill.ts admittedFillSpecGen).
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): family-columns-no-cascade.patch (no foreign key cascades on update).
+ * Plants: ~/.cache/grizzle-release/BR04/plants/family-columns-no-cascade.patch (no foreign key cascades on update);
+ * ~/.cache/grizzle-release/TREEORACLE/plants/family-columns-tree-entry-admitted.patch (a query entry whose key holds a
+ * tree's drawn start admitted).
  *
  * Features: a drawn law column, alone and written by a query entry; a generated field, alone and written by a query
- * entry; a cascading and a deferred foreign key; a decoding view; a relation written whole.
+ * entry; a cascading and a deferred foreign key; a decoding view; a relation written whole; a tree's relation written
+ * through a query entry refused when declared.
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, explore, sketched } from "@grizzle/testing/explore"
@@ -54,8 +61,13 @@ import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf, role } from "#compiler/schema/world.ts"
 import type { SqlStatement, TableConstraint } from "#compiler/sql/ast.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
-import { admittedFillSpecGen, buildFill, type FillSpec } from "#test/support/families/fill.ts"
+import { assert, defined, nonEmpty, succeeded, throwsRefused } from "#test/support/assert.ts"
+import {
+	admittedFillSpecGen,
+	buildFill,
+	type FillSpec,
+	treeOn
+} from "#test/support/families/fill.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checkedStatements } from "#test/support/oracle/verify/index.ts"
 import { owning } from "#test/support/policy.ts"
@@ -93,23 +105,37 @@ const familyCaseGen: Gen<FamilyCase> = (source) => ({
 	viewer: source.draw(boolean)
 })
 
-/** A case resolved: the schema built, its relations, and the relations each role writes. */
+/**
+ * A case resolved: the schema built, its relations, and the relations each role writes: the writer's whole, and the
+ * clerk's through a query entry, each relation drawn so whose key holds no field its family draws. A tree's relation
+ * drawn so is keyed by its root fields and its drawn start (fill.ts keyOfRelation), which no fact through an entry
+ * states, so a clerk declared with its entry is refused.
+ */
 interface Resolved {
 	readonly c: FamilyCase
 	readonly built: ReturnType<typeof buildFill>
 	readonly relations: ReadonlyArray<AnyRelation>
 	readonly whole: ReadonlyArray<string>
 	readonly entries: ReadonlyArray<string>
+	readonly treeEntries: ReadonlyArray<string>
 }
 
 const resolve = (c: FamilyCase): Resolved => {
 	const built = buildFill(c.spec)
 	const relations = Rec.values(built.relations)
-	const writtenAs = (w: Writing) =>
+	const writtenAs = (w: Writing, keyed: (r: number) => boolean) =>
 		Arr.flatMap(relations, (r, i) =>
-			defined(c.writings[i], `${r.name}'s writing`) === w ? [r.name] : []
+			defined(c.writings[i], `${r.name}'s writing`) === w && keyed(i) ? [r.name] : []
 		)
-	return { c, built, relations, whole: writtenAs("whole"), entries: writtenAs("entry") }
+	const tree = (r: number): boolean => treeOn(c.spec, r) !== undefined
+	return {
+		c,
+		built,
+		relations,
+		whole: writtenAs("whole", () => true),
+		entries: writtenAs("entry", (r) => !tree(r)),
+		treeEntries: writtenAs("entry", tree)
+	}
 }
 
 /** Whether the login holds the viewer: drawn, or as its one role when no role writes. */
@@ -119,15 +145,42 @@ const viewedBy = (r: Resolved): boolean =>
 /** The entry name of a relation a query entry writes. */
 const entryName = (relationName: string): string => `${relationName}Entry`
 
+/** A case's schema: its family relations beside Flag and Item. */
+const familiesOf = (r: Resolved) =>
+	schema("Families", [...Rec.values(r.built.relations), Flag, Item], r.built.statements)
+
+/** The relation of the case named `name`. */
+const relationNamed = (r: Resolved, name: string): AnyRelation =>
+	defined(Option.getOrUndefined(Arr.findFirst(r.relations, (x) => x.name === name)), name)
+
+/** The clerk over `Families`: a query entry of every field of each relation of `written`, each in its write list. */
+const clerkOf = (
+	Families: ReturnType<typeof familiesOf>,
+	r: Resolved,
+	written: ReadonlyArray<string>
+) =>
+	role(
+		Families,
+		"clerk",
+		Rec.fromEntries(
+			Arr.map(written, (name) => {
+				const relation = relationNamed(r, name)
+				return [
+					entryName(name),
+					queryOver(Families).rule((rule: RuleValue) => {
+						const vars = varsOver(relation, "written")
+						return rule.match(relation, vars).find(vars)
+					})
+				] as const
+			})
+		),
+		{ write: Arr.map(written, entryName), refresh: [] }
+	)
+
 /** The installation of a case's schema with its login. */
 const installationOf = (r: Resolved): Installation => {
-	const Families = schema(
-		"Families",
-		[...Rec.values(r.built.relations), Flag, Item],
-		r.built.statements
-	)
-	const byName = (name: string): AnyRelation =>
-		defined(Option.getOrUndefined(Arr.findFirst(r.relations, (x) => x.name === name)), name)
+	const Families = familiesOf(r)
+	const byName = (name: string): AnyRelation => relationNamed(r, name)
 	const writer = () =>
 		role(
 			Families,
@@ -135,24 +188,7 @@ const installationOf = (r: Resolved): Installation => {
 			Rec.fromEntries(Arr.map(r.whole, (name) => [name, byName(name)] as const)),
 			{ write: r.whole, refresh: [] }
 		)
-	const clerk = () =>
-		role(
-			Families,
-			"clerk",
-			Rec.fromEntries(
-				Arr.map(r.entries, (name) => {
-					const written = byName(name)
-					return [
-						entryName(name),
-						queryOver(Families).rule((rule: RuleValue) => {
-							const vars = varsOver(written, "written")
-							return rule.match(written, vars).find(vars)
-						})
-					] as const
-				})
-			),
-			{ write: Arr.map(r.entries, entryName), refresh: [] }
-		)
+	const clerk = () => clerkOf(Families, r, r.entries)
 	const viewer = () =>
 		role(
 			Families,
@@ -228,9 +264,48 @@ type FamilyFeature =
 	| "a deferred foreign key"
 	| "a decoding view"
 	| "a relation written whole"
+	| "a tree's relation written through a query entry refused when declared"
+
+/**
+ * A clerk declared with a query entry of every relation the case draws written so, in relation order, is refused
+ * exactly where one writes a tree's relation: at the first such entry, whose relation's key holds its drawn start.
+ * Where none does, the installation's clerk is that clerk.
+ */
+const treeEntryRefused = (r: Resolved, k: Case<FamilyFeature>): void => {
+	const [first] = r.treeEntries
+	if (first === undefined) {
+		return
+	}
+	const Families = familiesOf(r)
+	const drawn = Arr.filter(
+		Arr.map(r.relations, (x) => x.name),
+		(name) => Arr.contains(r.entries, name) || Arr.contains(r.treeEntries, name)
+	)
+	const error = throwsRefused(
+		() => clerkOf(Families, r, drawn),
+		"RoleRefused",
+		`a clerk writing ${first} through a query entry`
+	)
+	assert.deepEqual(
+		error.reason._tag === "RoleRefused"
+			? { role: error.reason.role, rule: error.reason.rule }
+			: undefined,
+		{
+			role: "clerk",
+			rule: {
+				kind: "writeUnwritable",
+				entry: entryName(first),
+				why: { kind: "keyHoldsFamily", field: "start" }
+			}
+		},
+		"the clerk is refused at its first entry over a tree's relation, whose key holds the drawn start"
+	)
+	k.note("a tree's relation written through a query entry refused when declared")
+}
 
 const property = (r: Resolved, k: Case<FamilyFeature>) =>
 	Effect.sync(() => {
+		treeEntryRefused(r, k)
 		const i = installationOf(r)
 		checkedStatements(i.statements, "installation statement")
 		if (viewedBy(r)) {
@@ -377,7 +452,8 @@ describe("a family's columns and references", () => {
 								"a cascading foreign key",
 								"a deferred foreign key",
 								"a decoding view",
-								"a relation written whole"
+								"a relation written whole",
+								"a tree's relation written through a query entry refused when declared"
 							],
 							{ cases: 200, sense: notesOnly }
 						),

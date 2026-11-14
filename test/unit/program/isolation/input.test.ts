@@ -4,17 +4,17 @@
  * function that owns it, and the keys and counted groups the law model holds.
  *
  * Over drawn schemas of families the reference admits (test/support/families/fill.ts: relations keyed by `id`, a tree's
- * by its root field and start, ordered and counted families and trees between them, each relation mutable or not,
+ * by its root fields and start, ordered and counted families and trees between them, each relation mutable or not,
  * admitted by construction: admittedFillSpecGen, with no copy), compiled to their law model, and drawn roles of drawn
  * change members, each function of the sources a recorder:
  *
  * - Relations: exactly one fact for each relation the owned schema states, by its declared name, and triggerLawsOver
  *   asked once for each, its answer the fact's triggerLaws.
  * - Keys: each relation's are, as sets of fields, every key PostgreSQL enforces over its fields alone, by the
- *   specification's names (fill.ts keyOfRelation, groupFieldsOf): its primary key, `id` or a tree's (`d<f>`, `start`);
- *   an ordered family's member slot, its group then `i<f>`; each owner's owner-axis target, its key then `n<f>`, a
- *   tree's own (`d<f>`, `start`, `n<f>`) among them. A counted family's member slot and a tree's are over a law column,
- *   so no key of the relation.
+ *   specification's names (fill.ts keyOfRelation, groupFieldsOf): its primary key, `id` or a tree's (`d<f>`, `d<f>p`,
+ *   `start`); an ordered family's member slot, its group then `i<f>`; each owner's owner-axis target, its key then
+ *   `n<f>`, a tree's own (`d<f>`, `d<f>p`, `start`, `n<f>`) among them. A counted family's member slot and a tree's are
+ *   over a law column, so no key of the relation.
  * - Counted groups: a second implementation over the specification's own names: each relation's are, for each family
  *   it is the member of whose owner is immutable (a tree's owner its own relation), the family's group fields, and none
  *   for any other.
@@ -22,8 +22,9 @@
  *   specification's names, each target's fields without its law columns: an ordered or counted family's member
  *   references its owner's target, its key then `n<f>`, ON UPDATE CASCADE, and its own slot, which its owner's last
  *   member references too, its group and `i<f>` for an ordered family and its group alone for a counted one, whose
- *   index is a law column; a tree's relation references its own target (`d<f>`, `start`, `n<f>`) and twice its own
- *   slot and end past its guarded parent (`d<f>`, `i<f>`, `end`); every reference but an owner axis NO ACTION.
+ *   index is a law column; a tree's relation references its own target (`d<f>`, `d<f>p`, `start`, `n<f>`) and twice
+ *   its own slot and end past its guarded parent (`d<f>`, `d<f>p`, `i<f>`, `end`); every reference but an owner axis
+ *   NO ACTION.
  * - Roles: one fact for each role, in order, its privileges grantedPrivileges' answer for its own input, and its
  *   members memberFacts' answers for its members in order, every variant of each.
  *
@@ -56,7 +57,7 @@ import {
 	groupFieldsOf,
 	keyOfRelation,
 	relationName,
-	rootName
+	rootFieldsOf
 } from "#test/support/families/fill.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -180,8 +181,8 @@ const referencesOracle = (spec: FillSpec): ReadonlyMap<string, ReadonlyArray<str
 				break
 			case "tree":
 				add(family.member, family.member, ownerTarget, "noAction")
-				add(family.member, family.member, [rootName(f), `i${f}`, "end"], "noAction")
-				add(family.member, family.member, [rootName(f), `i${f}`, "end"], "noAction")
+				add(family.member, family.member, [...rootFieldsOf(f), `i${f}`, "end"], "noAction")
+				add(family.member, family.member, [...rootFieldsOf(f), `i${f}`, "end"], "noAction")
 				break
 		}
 	}

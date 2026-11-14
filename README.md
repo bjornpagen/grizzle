@@ -2377,9 +2377,10 @@ type error, and another context, from a caller the types don't reach, is refused
 
 A query entry in `write` is writable when it has one rule, all its columns come straight from one table, every column
 of that table it leaves out, a key column included, is fixed by the query to a constant or a claim, and every other
-match only filters. A count or end the table's family draws is the exception: the entry holds it among its columns,
-or leaves it out unfixed. `myPosts` qualifies: its columns come from `Post`, and the token fixes `author` and `org`.
-A `write` naming any other query entry is `RoleRefused` (`writeUnwritable`), with the reason.
+match only filters. A field the table's family draws (a count, an end, an index, a tree's start) is the exception: the
+entry holds it among its columns, or leaves it out unfixed. `myPosts` qualifies: its columns come from `Post`, and the
+token fixes `author` and `org`. A `write` naming any other query entry is `RoleRefused` (`writeUnwritable`), with the
+reason.
 
 - **An insert fills the fixed columns.** It may leave out the entry's serial columns as an insert into a table may,
   also when every column of the entry is serial: `[{}]` is one new row of the fixed columns. A serial column the query
@@ -2387,9 +2388,10 @@ A `write` naming any other query entry is `RoleRefused` (`writeUnwritable`), wit
   the query could never return (a filter it fails, an absent claim) is the error `outsideWorld`.
 - **A delete of a row outside the entry does nothing**: for this role, that row does not exist.
 - **An entry over a family's owner writes the owner as a write of the table does.** No row states its counts and ends,
-  and a put updates the entry's own columns in place and leaves the family as it is. Its filter may read no count or
-  end, and no key of the table may hold one, else the role is `RoleRefused` (`writeUnwritable`) with `why`
-  `filterReadsFamily` or `keyHoldsFamily`, naming the field.
+  and a put updates the entry's own columns in place and leaves the family as it is. Its filter may read no field its
+  family draws (a count, an end, an index, a tree's start), and no key of the table may hold one, else the role is
+  `RoleRefused` (`writeUnwritable`) with `why` `filterReadsFamily` or `keyHoldsFamily`, naming the field. A tree's
+  table is keyed by its root fields and its drawn start, so no query entry writes it.
 - **A collision with a row outside the entry**, by a put or an insert, on a key over the table or over a side of it,
   is `refused` on that rule. The witness is the key you submitted, in the entry's fields, never the other
   row. An error PostgreSQL still raises there is a typed failure, never an outcome.

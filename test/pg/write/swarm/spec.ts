@@ -24,7 +24,6 @@ import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effec
 import { int8Min } from "#compiler/core/limits.ts"
 import { accumulated, bits, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { type AnyFamily, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
 import {
 	accumulatedField,
 	bitsOf,
@@ -63,6 +62,7 @@ import {
 	keyOfRelation,
 	rootFieldsOf,
 	relationName,
+	rootText,
 	sourcesFor,
 	uuidOfRow
 } from "#test/support/families/fill.ts"
@@ -623,9 +623,6 @@ const sourceField = (source: CopySource): string => {
 			return copyName(source.copy)
 	}
 }
-
-/** A tree root's text field, fill.ts's: at most 16 bytes. */
-const rootText = str.bytes(16, str.regex("^.*$", "su"))
 
 /** The roster a member's set `b` and an or end are over. */
 const Mask = closed("Mask", maskHandles, [])

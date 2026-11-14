@@ -202,6 +202,21 @@ export const groupFieldsOf = (spec: FillSpec, f: number): Arr.NonEmptyReadonlyAr
 		: [...groupRootNames(f), groupName(f)]
 }
 
+/**
+ * Relation `r`'s root text fields, in declared order, by the specification's names: a tree's root (`d<f>`, `d<f>p`) on
+ * its relation, and its owner's root (`o<f>d`, `o<f>dp`) on the member of a family whose owner is a tree's relation.
+ */
+export const rootTextFieldsOf = (spec: FillSpec, r: number): ReadonlyArray<string> =>
+	Arr.flatMap(spec.families, (family, f): ReadonlyArray<string> => {
+		if (family.member !== r) {
+			return []
+		}
+		if (family.kind === "tree") {
+			return rootFieldsOf(f)
+		}
+		return treeOn(spec, family.owner) === undefined ? [] : groupRootNames(f)
+	})
+
 /** The field a source names on its row. */
 const sourceField = (source: CopySource): string => {
 	switch (source.kind) {
@@ -775,8 +790,14 @@ type BuiltRelation = Relation<
 /** The row a selection's predicate reads, as a check over a relation built at run time reads it. */
 type Row = RowScalars<BuiltRelation>
 
+/** The pattern a tree root's text field is declared under, as its pattern law states it. */
+export const rootTextPattern: { readonly source: "^.*$"; readonly flags: "su" } = {
+	source: "^.*$",
+	flags: "su"
+}
+
 /** A tree root's text field, as pantry's package and path are: at most 16 bytes, so every key over it is bounded. */
-const rootText = str.bytes(16, str.regex("^.*$", "su"))
+export const rootText = str.bytes(16, str.regex(rootTextPattern.source, rootTextPattern.flags))
 
 /** The fields of relation `r` of a specification, in declared order. */
 const fieldsOf = (spec: FillSpec, r: number): Record<string, FieldBase> => {

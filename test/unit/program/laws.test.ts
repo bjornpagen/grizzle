@@ -21,11 +21,13 @@
  * raises; and the generated law of every column the script creates. Every law it can report is in lawsOf exactly once,
  * by sameLaw, and lawsOf holds no law it cannot report. The order is held to the case's declarations: lawsOf opens with
  * each ordinary relation's primary key by relation name, as the relation declares it, and closes with the pattern law of
- * every stored text field whose column a planned text domain types, spelled as the case declares it, then the law of
- * every generated field, each by relation name and each relation's fields in declared order; between them every contract's
- * law follows every statement's, by contract name; and the same schema declared in another order of its relations and
- * statements lists the same laws in the same order. Planted in a scratch copy, lawsOf leaving out the primary keys, the
- * pattern laws or the generated laws, listing a law twice, or ordering the pattern laws by declaration each fail it.
+ * every stored text field whose column a planned text domain types, spelled as the case declares it (a core tree's
+ * root texts, on its relation and on the members of a family it owns, among them: fill.ts rootTextFieldsOf), then the
+ * law of every generated field, each by relation name and each relation's fields in declared order; between them every
+ * contract's law follows every statement's, by contract name; and the same schema declared in another order of its
+ * relations and statements lists the same laws in the same order. Planted in a scratch copy, lawsOf leaving out the
+ * primary keys, the pattern laws or the generated laws, listing a law twice, or ordering the pattern laws by declaration
+ * each fail it.
  *
  * lawsByStatement(schema) looks up exactly the laws each statement states. The oracle is the naming door and the
  * installation: each owned statement a statement value is (a mirrors' two containments), owned alone over the schema's
@@ -109,7 +111,7 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, Relation } from "#compiler/types/schema/relation.ts"
 import { buildSwarm, featuresGen, type SwarmSpec, swarmSpecGen } from "#test/pg/write/swarm/spec.ts"
 import { assert, defined, nonEmpty, throwsRefused } from "#test/support/assert.ts"
-import { relationName } from "#test/support/families/fill.ts"
+import { relationName, rootTextFieldsOf, rootTextPattern } from "#test/support/families/fill.ts"
 import {
 	identityText,
 	installationNamesOf,
@@ -1026,23 +1028,36 @@ describe("lawsOf", () => {
 									)
 								)
 							const tableAt = (name: string) => Arr.findFirst(c.tables, (t) => t.name === name)
+							const patternLaw = (
+								relation: string,
+								field: string,
+								pattern: Spelled
+							): ReadonlyArray<PatternLaw> =>
+								Option.isSome(domainAt(relation, field))
+									? [
+											{
+												kind: "pattern",
+												relation,
+												field,
+												patterns: [{ source: pattern.source, flags: pattern.flags }]
+											}
+										]
+									: []
+							const coreAt = (name: string) =>
+								Arr.findFirstIndex(c.core.fill.relations, (_, i) => relationName(i) === name)
 							const patterns = Arr.flatMap(relations, (r) =>
 								Option.match(tableAt(r.name), {
-									onNone: () => [],
+									onNone: () =>
+										Option.match(coreAt(r.name), {
+											onNone: () => [],
+											onSome: (i) =>
+												Arr.flatMap(rootTextFieldsOf(c.core.fill, i), (field) =>
+													patternLaw(r.name, field, rootTextPattern)
+												)
+										}),
 									onSome: (t) =>
-										Arr.flatMap(declaredFields(t), ([field, pattern]): ReadonlyArray<PatternLaw> =>
-											Option.isSome(pattern) && Option.isSome(domainAt(r.name, field))
-												? [
-														{
-															kind: "pattern",
-															relation: r.name,
-															field,
-															patterns: [
-																{ source: pattern.value.source, flags: pattern.value.flags }
-															]
-														}
-													]
-												: []
+										Arr.flatMap(declaredFields(t), ([field, pattern]) =>
+											Option.isSome(pattern) ? patternLaw(r.name, field, pattern.value) : []
 										)
 								})
 							)

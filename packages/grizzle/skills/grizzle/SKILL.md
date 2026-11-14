@@ -719,10 +719,11 @@ The command line's own refusals, by stage:
 - A role's `write` lists a query entry only when the entry is writable (README's Writing through a role); otherwise
   `role(...)` is refused as `RoleRefused`, its rule `writeUnwritable` naming the `entry` and the `why`. An entry over a
   family's owner writes the owner as a write of its table does: grizzle draws the owner's counts and ends, so no row
-  states them, and a put leaves the family as it is. Its filter reads no count or end, and no key of the table holds
-  one, or the `why` is `filterReadsFamily` or `keyHoldsFamily`, naming the field: filter the owner by the fields its
-  caller writes. A family's members are written from an array or a `Stream`, never from a query or through a query
-  entry.
+  states them, and a put leaves the family as it is. Its filter reads no field its family draws (a count, an end, an
+  index, a tree's start), and no key of the table holds one, or the `why` is `filterReadsFamily` or `keyHoldsFamily`,
+  naming the field: filter the owner by the fields its caller writes. A tree's table is keyed by its root fields and
+  its drawn start, so no query entry writes it. A family's members are written from an array or a `Stream`, never from
+  a query or through a query entry.
 - A direct SQL writer logs in as a login's role, runs `SET ROLE` to `roleNameOf(role, connection)` for one of its roles, reads
   the role's views in `schemaNameOf(role)`, and, for a role whose relations read a context, sets the claims in the
   transaction:
