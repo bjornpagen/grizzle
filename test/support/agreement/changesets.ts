@@ -1239,7 +1239,9 @@ const plantedFamilyMember = (d: Drawing, fault: FamilyFault): MemberSpec => {
  * and put where it is mutable; a counted member put, inserted where its owner is mutable and beside an insert of its
  * owner where it is not, and deleted where its owner is mutable; or a tree inserted from its root, or deleted by it. A counted member is
  * an edit of its family, which a ChangeSet writes in one stratum: a sequence of two cases that write one is refused, so
- * only a case that plants no fault (`clean`) writes one, and no planted fault meets that refusal first.
+ * only a case that plants no fault (`clean`) writes one, and no planted fault meets that refusal first. A put of a
+ * mutable owner meets a whole delete of it in its stratum, which the types refuse at the ChangeSet where a planted
+ * fault's refusal may stand elsewhere, so only a clean case puts an owner too: a case carries the one fault it plants.
  */
 const familyMemberOf = (d: Drawing, clean: boolean): MemberSpec => {
 	d.note("family member")
@@ -1267,7 +1269,7 @@ const familyMemberOf = (d: Drawing, clean: boolean): MemberSpec => {
 	const op = d.choose(
 		relation === "Item"
 			? (["insert", "put"] as const)
-			: relation === "Order" || relation === "Pool"
+			: relation === "Order" || relation === "Pool" || !clean
 				? (["insert", "delete"] as const)
 				: (["insert", "delete", "put"] as const)
 	)
@@ -3352,6 +3354,11 @@ const keptCases: ReadonlyArray<KeptCase> = [
 			"family member",
 			"delete"
 		]
+	},
+	{
+		note: "an append to an owner its stratum does not insert, planted beside a put of Bin and a delete of Bin in that stratum: the types refused the put at the ChangeSet, where the engine answered the append first, at the workload, so the case judged two faults (TEST_SEED=1921410611); a case with a planted fault now puts no owner, and its tape draws an insert of Bin there",
+		tape: "0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.3.3.3.d.0.0.0.0.0.d.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.3.0.0.1.0.0.3.2.0.0.3.1.0.0.0",
+		reaches: ["an append to an owner its stratum does not insert", "insertAll", "delete"]
 	}
 ]
 
