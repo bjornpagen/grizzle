@@ -58,7 +58,7 @@ import {
  *   source whole, at that match, naming its source and the key to bind (its primary key), and admitted otherwise;
  * - a second implementation, the host's fold: every admitted fold's answer from the reference evaluator over the
  *   checked IR equals the host's fold over the matched facts, each matched fact tuple once, so equal values on distinct
- *   facts both contribute.
+ *   facts both contribute. A mean is compared to meanDigits places, every other fold exactly (foldText).
  *
  * Plants (~/.cache/grizzle-release/BR04/plants): folds-partial-key-admitted.patch (a match binding part of a key is
  * read as keyed).
@@ -424,13 +424,32 @@ const hostAnswer = (c: FoldCase, b: Built): ReadonlyArray<string> => {
  */
 const meanDigits = 9
 
-/** A reference value as the host's canonical text: an integer's digits, a numeric (a mean) to meanDigits places. */
-const valueText = (value: Value): string =>
-	typeof value === "bigint"
-		? String(value)
-		: value instanceof Decimal
-			? Number(value.toString()).toFixed(meanDigits)
-			: `a value of no fold this box folds: ${typeof value}`
+/**
+ * A reference value as the host's canonical text, exactly: an integer's digits, or a numeric's one text (a sum over
+ * integers is an exact numeric of scale 0, scalar/aggregate.ts widenedSum, so a sum of 1 is "1").
+ */
+const exactText = (value: Value): string =>
+	typeof value === "bigint" || value instanceof Decimal
+		? value.toString()
+		: `a value of no fold this box folds: ${typeof value}`
+
+/** A mean as the host's canonical text: its numeric to meanDigits places. */
+const meanText = (value: Value): string =>
+	value instanceof Decimal
+		? Number(value.toString()).toFixed(meanDigits)
+		: `a mean that is no numeric: ${typeof value}`
+
+/**
+ * How each fold's answer is compared, read by the fold that answered it and never by its value's class: a mean to
+ * meanDigits places, every other fold exactly.
+ */
+const foldText: Readonly<Record<Fn, (value: Value) => string>> = {
+	count: exactText,
+	sum: exactText,
+	mean: meanText,
+	min: exactText,
+	max: exactText
+}
 
 /** The reference evaluator's answer to the checked root, in the host's canonical form. */
 const referenceAnswer = (
@@ -457,14 +476,14 @@ const referenceAnswer = (
 		Arr.map(relation.rows, (row) => {
 			const fold = Option.match(x, {
 				onNone: () => "no x",
-				onSome: (i) => valueText(row[i] ?? Number.NaN)
+				onSome: (i) => foldText[c.fn](row[i] ?? Number.NaN)
 			})
 			const constant = c.constant
-				? `|${Option.match(k, { onNone: () => "no k", onSome: (i) => valueText(row[i] ?? Number.NaN) })}`
+				? `|${Option.match(k, { onNone: () => "no k", onSome: (i) => exactText(row[i] ?? Number.NaN) })}`
 				: ""
 			return b.group === undefined
 				? `${fold}${constant}`
-				: `${Option.match(g, { onNone: () => "no g", onSome: (i) => valueText(row[i] ?? Number.NaN) })}|${fold}${constant}`
+				: `${Option.match(g, { onNone: () => "no g", onSome: (i) => exactText(row[i] ?? Number.NaN) })}|${fold}${constant}`
 		}),
 		Order.String
 	)
