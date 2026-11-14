@@ -21,6 +21,7 @@ import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { allocatingPid } from "#test/support/substrate/names.ts"
 import { connect, ownerCredentials } from "#test/support/substrate/session.ts"
 import { networkWorkers } from "#test/support/substrate/workers.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 import { regex } from "arkregex"
 import { testPoolMax } from "#test/support/limits.ts"
@@ -119,14 +120,37 @@ export const undoInstallEffects = (admin: PgConnection): Effect.Effect<void> =>
 		yield* admin.query("ALTER DEFAULT PRIVILEGES GRANT USAGE ON TYPES TO PUBLIC", [])
 	}).pipe(Effect.ignore)
 
-/** The sessions a substrate holds for its life: its lease's, its shared database's claim, that database's owner and
- * the observer that reads other backends' lock waits (substrate.ts build). */
-const substrateSessions = ["lease", "claim", "owner", "observer"] as const
+/**
+ * The sessions a substrate holds for its life: its lease's, which also holds its shared database's claim
+ * (claimSharedDatabase), that database's owner, and the observer that reads other backends' lock waits (substrate.ts
+ * build).
+ */
+const substrateSessions = ["lease", "owner", "observer"] as const
 /** The connections one test file may hold at once, which one lease covers: a test's full pool (testPoolMax, one
  * session per core) and the sessions its substrate holds. */
 export const connectionsPerLease = testPoolMax + substrateSessions.length
 /** Connections no lease covers: the global setup, the doctor, the sweep, and an operator's psql. */
 const unleasedConnections = 5
+
+/**
+ * The lease slots a cluster of `maxConnections` connections, `superuserReserved` and `reserved` of them reserved,
+ * admits. Each slot costs its lease's connections (connectionsPerLease) and one more, the connection the gate's head
+ * races it with while every slot is held (takeLease), except the slot the head wins, whose race connection is its
+ * lease's own: s × connectionsPerLease + (s − 1) fits the connections no lease covers set aside. takeLease reads the
+ * three settings from the server it leases on, so a cluster with more connections admits more processes.
+ */
+export const leaseSlots = (
+	maxConnections: number,
+	superuserReserved: number,
+	reserved: number
+): number =>
+	Math.max(
+		1,
+		Math.floor(
+			(maxConnections - superuserReserved - reserved - unleasedConnections + 1) /
+				(connectionsPerLease + 1)
+		)
+	)
 
 /**
  * The installations on the local cluster outside the substrate's databases that serve live reads, each its own live
@@ -137,36 +161,46 @@ const standingInstallations = ["gr8des_qti", "the dev database"] as const
 /**
  * The most live sources the local cluster serves at once, which its max_replication_slots and max_wal_senders hold:
  * one leader's slot and walsender per substrate's watched installation, which each substrate holds one of at a time,
- * so one per lease slot a cluster of `maxConnections`, `superuserReserved` and `reserved` connections admits (as
- * takeLease reads them), and one per standing installation. scripts/pg/init.sh sets both settings to it where they fall
- * short, and scripts/pg/doctor.sh checks them against it.
+ * so one per lease slot a cluster of `maxConnections`, `superuserReserved` and `reserved` connections admits
+ * (leaseSlots), and one per standing installation. scripts/pg/init.sh sets both settings to it where they fall short,
+ * and scripts/pg/doctor.sh checks them against it.
  */
 export const liveSlotBound = (
 	maxConnections: number,
 	superuserReserved: number,
 	reserved: number
-): number =>
-	Math.max(
-		1,
-		Math.floor(
-			(maxConnections - superuserReserved - reserved - unleasedConnections) / connectionsPerLease
-		)
-	) + standingInstallations.length
+): number => leaseSlots(maxConnections, superuserReserved, reserved) + standingInstallations.length
 
-const leaseSlotsQuery = `SELECT GREATEST(1, (pg_catalog.current_setting('max_connections')::int4
-	- pg_catalog.current_setting('superuser_reserved_connections')::int4
-	- pg_catalog.current_setting('reserved_connections')::int4 - $1::int4) / $2::int4)`
-
-/** The table of lease slot `slot` in the owner's own database, which the first process to try the slot creates. */
-const slotTable = (slot: number): string => `public.${quoteIdent(`substrate_lease_${slot}`)}`
+/** The three settings leaseSlots reads, from the server a lease is taken on. */
+const slotSettingsQuery = `SELECT pg_catalog.current_setting('max_connections')::int4,
+	pg_catalog.current_setting('superuser_reserved_connections')::int4,
+	pg_catalog.current_setting('reserved_connections')::int4`
 
 /**
- * Creates slot `slot`'s table unless it exists. Two processes creating it at once both find it there: the loser's
- * 42P07 (duplicate_table), or its 23505 on pg_type's unique name, is raised only once the winner committed.
+ * A lease's tables in the owner's own database, each created by the first process that locks it: one per slot, and the
+ * gate a file queues at while every slot is held. The substrate's lease is substrateLease; a test of the lease names
+ * tables of its own, so it never takes one of the cluster's slots.
  */
-const ensureSlot = (lock: PgConnection, slot: number): Effect.Effect<void, SqlError> =>
+export interface LeaseTables {
+	readonly slot: (index: number) => string
+	readonly gate: string
+}
+
+/** The lease tables named after `stem`: `<stem>_<index>` for each slot, and `<stem>_gate`. */
+export const leaseTables = (stem: string): LeaseTables => ({
+	slot: (index) => `public.${quoteIdent(`${stem}_${index}`)}`,
+	gate: `public.${quoteIdent(`${stem}_gate`)}`
+})
+
+const substrateLease = leaseTables("substrate_lease")
+
+/**
+ * Creates `table` unless it exists. Two processes creating it at once both find it there: the loser's 42P07
+ * (duplicate_table), or its 23505 on pg_type's unique name, is raised only once the winner committed.
+ */
+const ensureTable = (lock: PgConnection, table: string): Effect.Effect<void, SqlError> =>
 	Effect.asVoid(
-		lock.query(`CREATE TABLE IF NOT EXISTS ${slotTable(slot)} ()`, []).pipe(
+		lock.query(`CREATE TABLE IF NOT EXISTS ${table} ()`, []).pipe(
 			Effect.catchIf(
 				(error) => {
 					const code = pgErrorFields(error)?.code
@@ -178,14 +212,14 @@ const ensureSlot = (lock: PgConnection, slot: number): Effect.Effect<void, SqlEr
 	)
 
 /**
- * Locks slot `slot`'s table IN EXCLUSIVE MODE in a transaction left open on `lock`: true when it is taken, false when
- * another process holds it (55P03, lock_not_available), the transaction then rolled back.
+ * Locks `table` IN EXCLUSIVE MODE in a transaction left open on `lock`: true when it is taken, false when another
+ * process holds it (55P03, lock_not_available), the transaction then rolled back.
  */
-const tryLeaseSlot = (lock: PgConnection, slot: number): Effect.Effect<boolean, SqlError> =>
+const tryLock = (lock: PgConnection, table: string): Effect.Effect<boolean, SqlError> =>
 	Effect.gen(function* () {
-		yield* ensureSlot(lock, slot)
+		yield* ensureTable(lock, table)
 		yield* lock.query("BEGIN", [])
-		return yield* lock.query(`LOCK TABLE ${slotTable(slot)} IN EXCLUSIVE MODE NOWAIT`, []).pipe(
+		return yield* lock.query(`LOCK TABLE ${table} IN EXCLUSIVE MODE NOWAIT`, []).pipe(
 			Effect.as(true),
 			Effect.catchIf(
 				(error) => pgErrorFields(error)?.code === "55P03",
@@ -195,56 +229,98 @@ const tryLeaseSlot = (lock: PgConnection, slot: number): Effect.Effect<boolean, 
 	})
 
 /**
- * The cluster-wide connection lease. max_connections is the cluster's, not a run's: two runs, a run and an agent's
- * copy of the tree, or a bench beside a run all share it. So every substrate first takes a lease, one of the slots'
- * tables in the owner's own database (slotTable), locked IN EXCLUSIVE MODE by a transaction left open on a connection
- * of the substrate's own until the substrate is released, and a lease covers `connectionsPerLease` connections. The
- * slots are max_connections less the reserved connections and `unleasedConnections`, divided by the lease's width, read
- * from the server each time, so a cluster with more connections admits more processes; scripts/pg/init.sh sizes the
- * cluster to a slot for each of a run's workers (clusterConnections). A process with every slot taken waits in the
- * server for one slot's lock, never on a timer; runs beside each other may start more files than there are leases, and
- * they wait their turn.
- *
- * Takes a slot on `lock`: the first free one, trying the slots from the one after the slot this process's id names
- * around to that slot itself, else waits in the server for that last one. Neither a lease nor its wait holds a snapshot
- * or a transaction id, so neither holds back the cluster's vacuum horizon: LOCK takes no snapshot (PostgreSQL's
- * pquery.c PlannedStmtRequiresSnapshot), and a lock below ACCESS EXCLUSIVE is logged for no standby, so it assigns no
- * transaction id. The wait's one catalog read, the slot's table by its name, is answered from the backend's caches,
- * since the slot's NOWAIT try came just before it; a read past them would take a catalog snapshot and hold the
- * backend's xmin while it waits.
+ * Locks `table` IN EXCLUSIVE MODE in a transaction left open on `lock`, waiting in the server behind every process
+ * queued for it. It tries NOWAIT first, so the wait's one catalog read, the table by its name, is answered from the
+ * backend's caches: a read past them would take a catalog snapshot and hold the backend's xmin while it waits.
  */
-const takeLease = (lock: PgConnection): Effect.Effect<void, SqlError> =>
+const awaitLock = (lock: PgConnection, table: string): Effect.Effect<void, SqlError> =>
 	Effect.gen(function* () {
-		const [row] = yield* lock.queryValues(leaseSlotsQuery, [
-			unleasedConnections,
-			connectionsPerLease
-		])
-		const [slots] = trusted<readonly [slots: number]>(row)
-		const own = process.pid % slots
-		for (let step = 1; step <= slots; step++) {
-			if (yield* tryLeaseSlot(lock, (own + step) % slots)) {
-				return
-			}
+		if (yield* tryLock(lock, table)) {
+			return
 		}
 		yield* lock.query("BEGIN", [])
-		yield* lock.query(`LOCK TABLE ${slotTable(own)} IN EXCLUSIVE MODE`, [])
+		yield* lock.query(`LOCK TABLE ${table} IN EXCLUSIVE MODE`, [])
 	})
 
 /**
- * A substrate's lease, held for the current scope: a slot (takeLease) on a connection of its own, which the scope's
- * close ends, and so frees the slot. A lease covers one substrate's connections (connectionsPerLease), so each
- * substrate a process builds holds one while it lives, and a process holds none once its substrates are released:
- * nothing of the lease outlives them, so a process whose work is done exits. A substrate waiting for a free slot behind
- * other processes waits as long as they hold the slots, inside its layer build, whose hook the network config leaves
- * unbounded for that reason; a run alone never waits on a cluster init.sh sized, which holds a slot for each of its
- * workers (clusterConnections).
+ * Takes one of `slots` slots of `tables` and returns the connection that holds it, open in the current scope, whose
+ * close frees the slot. `open` opens a connection to the owner's own database in the scope it runs in.
+ *
+ * A slot is its table locked IN EXCLUSIVE MODE by a transaction left open. The file takes the first free slot NOWAIT.
+ * With every slot held it queues at the gate, whose lock waiting files take in the order they asked; the gate's holder,
+ * the head, races every slot at once, a connection queued on each, and takes the first to free, so no file waits behind
+ * one long holder while other slots turn over, and a slot that frees while files wait is granted to the head within the
+ * same release. The head closes its other race connections, cancelling their waits, and gives up the gate to the next
+ * file. Nothing waits on a timer.
+ *
+ * Neither a lease nor a wait for one holds a transaction id, and none holds a snapshot unless its backend's catalog
+ * caches were reset between its NOWAIT try and its wait (awaitLock): LOCK takes no snapshot (PostgreSQL's pquery.c
+ * PlannedStmtRequiresSnapshot), and a lock below ACCESS EXCLUSIVE is logged for no standby, so it assigns no transaction
+ * id. So no lease holds back the cluster's vacuum horizon, and none takes part in SSI.
  */
-export const leaseConnections: Effect.Effect<void, SqlError, InitializedCluster | Scope.Scope> =
+export const takeLease = (
+	open: Effect.Effect<PgConnection, SqlError, Scope.Scope>,
+	tables: LeaseTables,
+	slots: number
+): Effect.Effect<PgConnection, SqlError, Scope.Scope> =>
 	Effect.gen(function* () {
-		const cluster = yield* InitializedCluster
-		const lock = yield* devSession(cluster, Option.some("grizzle-substrate lease"))
-		yield* takeLease(lock)
+		const scope = yield* Effect.scope
+		const queued = yield* Scope.fork(scope)
+		const lease = yield* Scope.provide(open, queued)
+		for (let slot = 0; slot < slots; slot++) {
+			if (yield* tryLock(lease, tables.slot(slot))) {
+				return lease
+			}
+		}
+		yield* awaitLock(lease, tables.gate)
+		const racers: Array<Scope.Closeable> = []
+		const won = yield* Effect.raceAllFirst(
+			upTo(slots, (slot) =>
+				Effect.gen(function* () {
+					const racer = yield* Scope.fork(scope)
+					racers.push(racer)
+					const lock = yield* Scope.provide(open, racer)
+					yield* awaitLock(lock, tables.slot(slot))
+					return { racer, lock }
+				})
+			)
+		)
+		yield* Effect.forEach(
+			Arr.filter(racers, (racer) => racer !== won.racer),
+			(racer) => Scope.close(racer, Exit.void),
+			{ discard: true }
+		)
+		yield* Scope.close(queued, Exit.void)
+		return won.lock
 	})
+
+/**
+ * A substrate's lease, held for the current scope: a slot of the cluster's (takeLease over substrateLease, the slots
+ * leaseSlots gives the server's settings), whose connection it returns. The scope's close ends that connection, and so
+ * frees the slot. A lease covers one substrate's connections (connectionsPerLease), so each substrate a process builds
+ * holds one while it lives, and a process holds none once its substrates are released: nothing of the lease outlives
+ * them, so a process whose work is done exits. A substrate waiting for a free slot behind other processes waits as long
+ * as they hold the slots, inside its layer build, whose hook the network config leaves unbounded for that reason; a run
+ * alone never waits on a cluster init.sh sized, which holds a slot for each of its workers (clusterConnections).
+ */
+export const leaseConnections: Effect.Effect<
+	PgConnection,
+	SqlError,
+	InitializedCluster | Scope.Scope
+> = Effect.gen(function* () {
+	const cluster = yield* InitializedCluster
+	const open = devSession(cluster, Option.some("grizzle-substrate lease"))
+	const slots = yield* Effect.scoped(
+		Effect.gen(function* () {
+			const settings = yield* open
+			const [row] = yield* settings.queryValues(slotSettingsQuery, [])
+			const [maxConnections, superuserReserved, reserved] =
+				trusted<readonly [maxConnections: number, superuserReserved: number, reserved: number]>(row)
+			return leaseSlots(maxConnections, superuserReserved, reserved)
+		})
+	)
+	return yield* takeLease(open, substrateLease, slots)
+})
 
 /** PostgreSQL's source of its settings' defaults. */
 const settingDefaults = `${postgresSource}/src/backend/utils/misc/guc_parameters.dat`
@@ -275,13 +351,14 @@ const reservedConnections = published({
 
 /**
  * The local cluster's max_connections, which scripts/pg/init.sh sets and scripts/pg/doctor.sh requires at least: a
- * lease's connections (connectionsPerLease) for each of the run's workers (networkWorkers, one per core), the
- * connections no lease covers (unleasedConnections), and the slots PostgreSQL reserves, at their defaults. takeLease's
- * slots over exactly this many connections are networkWorkers, so a run alone never waits for a lease. The machine's
- * cores are read here, where the bound acts, and enter no Limit.
+ * slot for each of the run's workers (networkWorkers, one per core), each its lease's connections (connectionsPerLease)
+ * and the gate head's race connection but one (leaseSlots), the connections no lease covers (unleasedConnections), and
+ * the slots PostgreSQL reserves, at their defaults. leaseSlots over exactly this many connections is networkWorkers,
+ * so a run alone never waits for a lease. The machine's cores are read here, where the bound acts, and enter no Limit.
  */
 const clusterConnections: number =
-	networkWorkers * connectionsPerLease +
+	networkWorkers * (connectionsPerLease + 1) -
+	1 +
 	unleasedConnections +
 	superuserReservedConnections.value +
 	reservedConnections.value
@@ -467,8 +544,8 @@ export const ensureSharedDatabase = (
  * Vitest runs each file in a process of its own, at most W at once (vitest.network.config.ts maxWorkers, W the
  * machine's cores, networkWorkers, workers.ts), and numbers the workers running them 1 to W in VITEST_POOL_ID; the run's global setup
  * clones `gz_shared_1` to `gz_shared_W` once. So a file uses the database of its worker, `gz_shared_<VITEST_POOL_ID>`.
- * A claim still takes the session-level advisory lock (claimKey, n) on a connection to the owner's own database, held
- * for the file's life, as a safety net: when another claim holds the worker's database (a second substrate in the same
+ * A claim still takes the session-level advisory lock (claimKey, n) on `lock`, the substrate's lease connection to the
+ * owner's own database (leaseConnections), held for the file's life, as a safety net: when another claim holds the worker's database (a second substrate in the same
  * file, or another run on the cluster) it takes the smallest n above W no other claim holds, cloning the database when
  * it does not exist yet. Two runs on one cluster never share a database at once, and a process outside a Vitest worker
  * (a bench) has no worker and claims above W. The claimed database must be clean, as `leftovers` defines it: a dirty
@@ -481,46 +558,47 @@ export const ensureSharedDatabase = (
  * lets it go and tries the next index, and the sweep drops it once no file runs. A fresh clone that is not clean means
  * the template differs from what `leftovers` expects, a defect of this file, not of a test.
  */
-export const claimSharedDatabase: Effect.Effect<
-	SharedClaim,
-	SqlError,
-	Scope.Scope | InitializedCluster
-> = Effect.gen(function* () {
-	const scope = yield* Effect.scope
-	const cluster = yield* InitializedCluster
-	const lock = yield* devSession(cluster, Option.some("grizzle-substrate claim"))
-	const worker = positiveEnv("VITEST_POOL_ID")
-	const above = networkWorkers + 1
-	/** The n-th index a claim tries: the worker's, then every index above W. */
-	const tried = (n: number): number =>
-		Option.match(worker, { onNone: () => above + n, onSome: (w) => (n === 0 ? w : above + n - 1) })
-	for (let n = 0; ; n++) {
-		const index = tried(n)
-		if (n > 0 && Option.contains(worker, index)) {
-			continue
+export const claimSharedDatabase = (
+	lock: PgConnection
+): Effect.Effect<SharedClaim, SqlError, Scope.Scope | InitializedCluster> =>
+	Effect.gen(function* () {
+		const scope = yield* Effect.scope
+		const cluster = yield* InitializedCluster
+		const worker = positiveEnv("VITEST_POOL_ID")
+		const above = networkWorkers + 1
+		/** The n-th index a claim tries: the worker's, then every index above W. */
+		const tried = (n: number): number =>
+			Option.match(worker, {
+				onNone: () => above + n,
+				onSome: (w) => (n === 0 ? w : above + n - 1)
+			})
+		for (let n = 0; ; n++) {
+			const index = tried(n)
+			if (n > 0 && Option.contains(worker, index)) {
+				continue
+			}
+			const [[claimed] = []] = yield* lock.queryValues(claimStatement, [claimKey, index])
+			if (claimed !== true) {
+				continue
+			}
+			const database = sharedDatabase(index)
+			const connection = yield* connectShared(cluster, scope, database)
+			const dirty = yield* leftovers(connection.admin)
+			if (dirty.length === 0) {
+				return { database, admin: connection.admin }
+			}
+			if (connection.origin === "cloned") {
+				return yield* Effect.die(
+					new Error(`a fresh clone of the template is not clean: ${Arr.join(dirty, "; ")}`)
+				)
+			}
+			yield* connection.disconnect
+			yield* lock.queryValues("SELECT pg_catalog.pg_advisory_unlock($1::int4, $2::int4)", [
+				claimKey,
+				index
+			])
 		}
-		const [[claimed] = []] = yield* lock.queryValues(claimStatement, [claimKey, index])
-		if (claimed !== true) {
-			continue
-		}
-		const database = sharedDatabase(index)
-		const connection = yield* connectShared(cluster, scope, database)
-		const dirty = yield* leftovers(connection.admin)
-		if (dirty.length === 0) {
-			return { database, admin: connection.admin }
-		}
-		if (connection.origin === "cloned") {
-			return yield* Effect.die(
-				new Error(`a fresh clone of the template is not clean: ${Arr.join(dirty, "; ")}`)
-			)
-		}
-		yield* connection.disconnect
-		yield* lock.queryValues("SELECT pg_catalog.pg_advisory_unlock($1::int4, $2::int4)", [
-			claimKey,
-			index
-		])
-	}
-})
+	})
 
 /** Whether process `pid` is running on this machine; a process of another user counts as running. */
 const running = (pid: number): boolean => {

@@ -623,8 +623,8 @@ const makeSubstrate: Effect.Effect<
 	Scope.Scope | InitializedCluster | ChildProcessSpawner.ChildProcessSpawner
 > = Effect.gen(function* () {
 	const cluster = yield* InitializedCluster
-	yield* leaseConnections
-	const claim = yield* claimSharedDatabase
+	const lease = yield* leaseConnections
+	const claim = yield* claimSharedDatabase(lease)
 	yield* Effect.addFinalizer(() =>
 		Effect.orDie(
 			Effect.gen(function* () {
