@@ -270,6 +270,18 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
 - **Text keys past PostgreSQL's B-tree item size:** so pantry drops its "Key text bound" law.
 
 ### Next
+- **The lease's gate is not in its formula's slack (LEASEBUDGET, 2026-11-14; main: log only):** leaseSlots
+  (test/support/substrate/shared.ts) sets aside, beyond s slots of connectionsPerLease each, s − 1 race connections and
+  unleasedConnections (5). A file waiting while every slot is held costs more than that. The gate's head races with its
+  queued connection and one racer per slot (takeLease), s + 1, and every other queued file holds its queued connection
+  at the gate. At this machine's sizing (n = 64 cores, connectionsPerLease 68, max_connections 4423, 3
+  superuser-reserved) there are 4420 usable connections: s = 64 slots of 68 is 4352, the head 65 more and the unleased
+  5, so 4422. With every holder at its full width (f31086cc makes 68 the most a file can hold, not what it holds), the
+  cluster is 2 connections short before any second file queues, and each queued file costs one more. A second run of
+  64 files queued behind the first overruns by 65, and the overflow is someone's 53300 (too many clients). In practice
+  holders hold at most 11 backends (CLUSTER's 64-wide run), which leaves 64 × 57 = 3648 spare connections and absorbs
+  any realistic queue, but nothing guarantees it. A K-cluster family does not make it moot: a member is sized for its
+  share of one run's workers, and another run's files queue on the same members the same way.
 - **The repeats left in a login's served file and OpenAPI document (OUTPUTSIZE, 2026-11-14; main: not now):** since
   5e47fdd7 every repeated shape is written once wherever a reference can stand, but some are still written again where
   none can. Measured on qti-pie pantry's author_app (f65ea15e plus 5e47fdd7's change) as the bytes a reference would
