@@ -9,12 +9,13 @@
  *
  * The box: the frozen first version (test/support/migrate/param-domains.ts), installed as grizzle installed it before
  * parameter domains were named by their whole definition, `code`'s domain over Code's text domain and `slug`'s with a
- * CHECK of its own, each named by its pattern's definition alone; then a draft by the current compiler to each target:
+ * CHECK of its own, each named by its pattern's definition alone; then a draft by the current compiler to a target drawn
+ * by which of the two patterns it stores (versionOf), Coded dropped where it no longer stores Code:
  *
- * - the first version again, as pantry's next generate on a new grizzle drafts it: `slug`'s own CHECK becomes a domain
- *   over a text domain created for the parameters, the shape pantry's three domains held at fa30bb28 met by main;
- * - the second version, Coded dropped and Tagged stored: `code`'s text domain loses the stored field under it and stays
- *   for the parameter, and `slug`'s own CHECK becomes a domain over the text domain Tagged's field now stores.
+ * - `slug`'s own CHECK becomes a domain over a text domain: one created for the parameters where the target stores no
+ *   Slug, the shape pantry's three domains held at fa30bb28 met by main, or the one Tagged's field stores;
+ * - `code`'s domain stays over Code's text domain, whose stored field the target keeps or drops, the text domain then
+ *   staying for the parameter alone.
  *
  * Properties, for every case:
  *
@@ -28,8 +29,9 @@
  * Oracle: PostgreSQL, which refuses a domain created under a taken name or dropped while a domain stands over it; the
  * installed-catalog checker against the target snapshot; and a fresh install's catalog.
  *
- * Features: each target; a parameter domain's own CHECK moved over a text domain created for the parameters, and over a
- * stored text domain; a text domain staying for a parameter once its stored field is dropped.
+ * Features: a parameter domain's own CHECK moved over a text domain created for the parameters, and over a stored text
+ * domain; a text domain under a parameter that stays stored, and one staying for the parameter once its stored field is
+ * dropped.
  *
  * Plants (~/.cache/grizzle-release/CONTRACTDOMAIN/plants): param-domain-identity-alone.patch names a parameter's domain
  * by its place and its pattern's definition alone, as the first version was named, so `slug`'s domain keeps its name
@@ -37,7 +39,7 @@
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { type Reached, requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
+import { boolean, type Gen } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
@@ -71,40 +73,35 @@ import {
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
 import {
-	firstVersion,
+	firstStored,
 	frozenFirst,
 	passedOver,
-	secondVersion
+	type Stored,
+	versionOf
 } from "#test/support/migrate/param-domains.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const targets = ["the first version again", "the second version"] as const
-type Target = (typeof targets)[number]
-
 type Feature =
-	| Target
 	| "an own CHECK moved over a text domain created for the parameters"
 	| "an own CHECK moved over a stored text domain"
 	| "a text domain staying for a parameter once its stored field is dropped"
+	| "a text domain under a parameter that stays stored"
 
-/** Each target's schema, and what its draft declares. */
-const targetOf = (t: Target) => {
-	switch (t) {
-		case "the first version again":
-			return { value: firstVersion, declared: { renames: [], drops: [] } satisfies Declarations }
-		case "the second version":
-			return {
-				value: secondVersion,
-				declared: {
-					renames: [],
-					drops: [{ kind: "relation", relation: parsedName("Coded") }]
-				} satisfies Declarations
-			}
-	}
-}
+/** The target drawn: which of the two patterns it stores (Stored), the frozen first version storing Code alone. */
+const caseGen: Gen<Stored> = (source) => ({
+	code: source.draw(boolean),
+	slug: source.draw(boolean)
+})
+
+/** What a draft to a version storing `stored` declares: Coded dropped where the version no longer stores Code. */
+const declaredFor = (stored: Stored): Declarations => ({
+	renames: [],
+	drops:
+		firstStored.code && !stored.code ? [{ kind: "relation", relation: parsedName("Coded") }] : []
+})
 
 /** The installer extension of a version's one program: its parameters' types, nothing else of its workload. */
-const servedParams = (value: typeof firstVersion | typeof secondVersion) =>
+const servedParams = (value: ReturnType<typeof versionOf>) =>
 	paramsOver([{ login: "server", workloads: [workload(value, { passed: passedOver(value) })] }])
 
 /** The domains `objects` create, by name. */
@@ -130,38 +127,36 @@ const bodyOf = (d: CreateDomain) => ({
 	checks: Arr.map(d.constraints, (c) => c.predicate)
 })
 
-const caseGen: Gen<Target> = element(targets)
-
 const required: Arr.NonEmptyReadonlyArray<Reached<Feature>> = [
-	...targets,
 	"an own CHECK moved over a text domain created for the parameters",
 	"an own CHECK moved over a stored text domain",
-	"a text domain staying for a parameter once its stored field is dropped"
+	"a text domain staying for a parameter once its stored field is dropped",
+	"a text domain under a parameter that stays stored"
 ]
 
 layer(Substrate.layer)("parameters' pattern domains across a change of their definition", (it) => {
 	it.effect(
-		"the frozen first version migrates to each target: no domain refused or altered, each changed definition another domain, the catalog a fresh install's",
+		"the frozen first version migrates to every target: no domain refused or altered, each changed definition another domain, the catalog a fresh install's",
 		(ctx) =>
 			searched(
 				ctx,
 				exhaust(
 					{
-						box: "the frozen first version, `code` over Code's text domain and `slug` with its own CHECK, each named by its pattern alone, drafted to itself and to the version dropping Code's field and storing Slug",
+						box: "the frozen first version, `code` over Code's text domain and `slug` with its own CHECK, each named by its pattern alone, drafted to a version storing Code or not and Slug or not",
 						oracle: {
 							kind: "postgresql",
 							name: "PostgreSQL applies the draft; the installed-catalog checker matches the target snapshot; the catalog is a fresh install's"
 						},
 						suite: "pg/migrate/param-domains",
 						generator: caseGen,
-						literal: (t) => t,
+						literal: (t) =>
+							`Code ${t.code ? "stored" : "not stored"}, Slug ${t.slug ? "stored" : "not stored"}`,
 						coverage: requiredInSpace<Feature>(required),
 						caseHang,
 						concurrency: 1
 					},
 					(t, k) =>
 						Effect.gen(function* () {
-							k.note(t)
 							const substrate = yield* Substrate
 							const first = yield* frozenFirst
 							yield* Effect.addFinalizer(() =>
@@ -174,7 +169,8 @@ layer(Substrate.layer)("parameters' pattern domains across a change of their def
 							)
 							const m = yield* openMigrator(substrate, substrate.owner)
 							yield* apply(m, { snapshot: first.snapshot, folders: [first.folder] }, noFurther)
-							const { value, declared } = targetOf(t)
+							const value = versionOf(t)
+							const declared = declaredFor(t)
 							const installation = compile(value, {
 								...asDrafted,
 								extensions: [servedParams(value)]
@@ -245,8 +241,12 @@ layer(Substrate.layer)("parameters' pattern domains across a change of their def
 											: "an own CHECK moved over a text domain created for the parameters"
 									)
 								}
-								if (t === "the second version" && ofParam("code")(name) && !stored) {
-									k.note("a text domain staying for a parameter once its stored field is dropped")
+								if (ofParam("code")(name)) {
+									k.note(
+										stored
+											? "a text domain under a parameter that stays stored"
+											: "a text domain staying for a parameter once its stored field is dropped"
+									)
 								}
 							}
 							const checked = Arr.filter([...after.values()], (d) => d.constraints.length > 0)
@@ -289,7 +289,7 @@ layer(Substrate.layer)("parameters' pattern domains across a change of their def
 								{ snapshot: freshDraft.snapshot, folders: [reviewedSource(freshDraft, kept)] },
 								noFurther
 							)
-							yield* sameCatalog(installation, freshInstallation, t)
+							yield* sameCatalog(installation, freshInstallation, "the target")
 						}).pipe(Effect.scoped)
 				)
 			)

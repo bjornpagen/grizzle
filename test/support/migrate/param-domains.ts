@@ -2,10 +2,10 @@
  * A history whose parameters' pattern domains change definition: the first version, frozen as grizzle installed it
  * before parameter domains were named by their whole definition (param-domains.files.ts), and the version after it.
  *
- * Both versions store Item, read by one program, `passed`, which delivers each item's id beside two declared
- * parameters: `code` of Code and `slug` of Slug. The first stores Coded, whose `code` holds Code, so its installation
- * holds Code's structural text domain; Slug no stored field holds. The second drops Coded and stores Tagged, whose
- * `slug` holds Slug.
+ * Every version stores Item, read by one program, `passed`, which delivers each item's id beside two declared
+ * parameters: `code` of Code and `slug` of Slug (versionOf). A version may store Coded, whose `code` holds Code, and
+ * Tagged, whose `slug` holds Slug. The first stores Coded alone, so its installation holds Code's structural text
+ * domain, and Slug no stored field holds.
  *
  * The first version was drafted by grizzle 6311f975's test kit (compile asDrafted with the program's parameter types,
  * paramsOver; generate from the empty snapshot; writeSnapshot over derivedOf) and is frozen verbatim as a committed
@@ -29,22 +29,34 @@ import { str } from "#compiler/public/text.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { fileText, repoRoot } from "#test/support/files.ts"
 
-/** A pattern the first version's stored field holds, and the second's none. */
+/** A pattern the first version's stored field holds. */
 const Code = str.regex("^[A-Z]{2,6}$")
-/** A pattern no stored field of the first version holds, and the second's does. */
+/** A pattern no stored field of the first version holds. */
 const Slug = str.regex("^[a-z][a-z0-9-]*$")
 
 const Item = relation("Item", { id: uuid, n: pg.int4 }, ["id"])
 const Coded = relation("Coded", { id: uuid, code: Code }, ["id"])
 const Tagged = relation("Tagged", { id: uuid, slug: Slug }, ["id"])
 
-/** The first version: Code stored, Slug passed alone. */
-export const firstVersion = schema("ParamDomains", [Item, Coded], [])
-/** The second version: Coded dropped, Slug stored. */
-export const secondVersion = schema("ParamDomains", [Item, Tagged], [])
+/** Which of the two patterns a version stores: Code in Coded's `code`, Slug in Tagged's `slug`. */
+export interface Stored {
+	readonly code: boolean
+	readonly slug: boolean
+}
 
-/** The program each version serves: every item's id, beside the two parameters. */
-export const passedOver = (s: typeof firstVersion | typeof secondVersion) =>
+/** What the first version stores: Code, and Slug only as a parameter. */
+export const firstStored: Stored = { code: true, slug: false }
+
+/** The version storing `stored`: Item always, Coded where it stores Code, Tagged where it stores Slug. */
+export const versionOf = (stored: Stored) =>
+	schema(
+		"ParamDomains",
+		[Item, ...(stored.code ? [Coded] : []), ...(stored.slug ? [Tagged] : [])],
+		[]
+	)
+
+/** The program every version serves: every item's id, beside the two parameters. */
+export const passedOver = (s: ReturnType<typeof versionOf>) =>
 	query(s).rule((r) => {
 		const { id } = v(Item, "item")
 		return r
