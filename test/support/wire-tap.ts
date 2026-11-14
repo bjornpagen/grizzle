@@ -32,9 +32,12 @@ import { upTo } from "#test/support/up-to.ts"
  * socket is in memory (test/support/memory-tls.ts), whose server end answers grizzle's SSLRequest and terminates its
  * verify-full TLS with the tap's own CA, which the transport names as `ca`. Behind it the tap opens its own verified TLS
  * to the cluster, SSLRequest then verify-full against the cluster's CA, and carries the plaintext between the two. The
- * first connection whose first message is a startup packet is the session the tap records and gates; a connection whose
- * first message is a CancelRequest is counted, and goes to the server as any other; any later session passes straight,
- * recorded in a log of its own (Tap.sessions), so a test reads every session a layer opens, a listening one included.
+ * first connection whose first message is a startup packet is the session the tap records and gates (Tap.gate, for a
+ * tap that carries one session); a connection whose first message is a CancelRequest is counted, and goes to the server
+ * as any other; any later session is recorded in a log of its own (Tap.sessions), so a test reads every session a layer
+ * opens, a listening one included. Where a layer opens several, a test gates a flight's session by the flight
+ * (Tap.flight): the session the next flight of a role runs on, which its first message names, never the order the
+ * sessions connected in.
  *
  * A round trip is a turn of the conversation: the client writes after it has read something since its last write.
  * Writes in a row with no read between them, a pipeline, count once. The tap records each write as it arrives and
@@ -367,6 +370,59 @@ export interface Gate {
 	readonly delivered: (type: string) => number
 }
 
+/**
+ * What a flight's gate does with the server's bytes to the flight's session: lets them all through, `through`, the
+ * flight only read; or holds every byte after the first `count` backend messages, of any type or of the one type given,
+ * `after` (Gate.hold).
+ */
+export type FlightHold =
+	| { readonly kind: "through" }
+	| { readonly kind: "after"; readonly count: number; readonly of: Counted }
+
+/**
+ * The gate on one flight's session (Tap.flight): the session the next flight of a role runs on, named by the flight's
+ * first message, whichever session that is.
+ */
+export interface FlightGate {
+	/**
+	 * Resolves once the flight's session is named and, for a flight held `after` its count, its gate holds with every
+	 * byte it let through at the driver.
+	 */
+	readonly holding: Effect.Effect<void>
+	/** The flight's session's traffic from the flight's first message to now, once the flight has named its session. */
+	readonly window: Effect.Effect<WireWindow>
+	/**
+	 * Hands the flight's session every byte its gate held and every later one as it arrives; a flight that has not named
+	 * its session yet names none.
+	 */
+	readonly release: () => void
+}
+
+/** A frontend message of a flight: a query's or a statement's, never the startup packet, a password or a Terminate. */
+const isFlightMessage = (message: FrontendMessage): boolean =>
+	message.type !== "startup" && message.type !== "p" && message.type !== "X"
+
+/** A session a flight named: its traffic, its gate, and the place of the flight's first write among its events. */
+interface FlightSession {
+	readonly log: ReadonlyArray<WireEvent>
+	readonly gate: MessageGate
+	readonly from: number
+}
+
+/** Where a flight stands: waiting for its first message, named by it, or released before or after. */
+type FlightState =
+	| { readonly kind: "waiting" }
+	| { readonly kind: "named"; readonly session: FlightSession }
+	| { readonly kind: "released" }
+
+/** A flight the tap gates (Tap.flight): its role, its hold, its state, and the naming its gate waits for. */
+interface PendingFlight {
+	readonly role: string
+	readonly hold: FlightHold
+	state: FlightState
+	readonly named: Deferred.Deferred<FlightSession>
+}
+
 class MessageGate implements Carrier, Gate {
 	/** The bytes of a message not yet complete, carried to the next chunk to find where messages end. */
 	#partial: Buffer = Buffer.alloc(0)
@@ -602,8 +658,15 @@ export interface Tap {
 	readonly cancels: () => number
 	/** The CancelRequest connections that have ended: the server read each request and closed it, or it failed. */
 	readonly cancelsEnded: () => number
-	/** The gate on the server's bytes to the session. */
+	/** The gate on the server's bytes to the recorded session, the first: for a tap that carries one session. */
 	readonly gate: Gate
+	/**
+	 * The gate on the session the next flight of `role` runs on, held as `hold` says: the first of the role's sessions,
+	 * none a replication connection, to send a flight's message (isFlightMessage) once the gate is made. The flight names
+	 * its session as it starts, so a test gates the session its call runs on whichever that is: one a pool connected
+	 * after the listener's and the leader's, or a pool's replacement for one it retired. One flight waits at a time.
+	 */
+	readonly flight: (role: string, hold: FlightHold) => FlightGate
 }
 
 export const makeTap = (cluster: BudgetedCluster): Tap => {
@@ -616,6 +679,8 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 	/** What each session's startup packet asked, by its place among the logs, once it came. */
 	const startups: Array<Startup | undefined> = []
 	const gate = new MessageGate()
+	/** The flight waiting for its first message, none when every flight made has named its session or been released. */
+	let waiting: PendingFlight | undefined = undefined
 	let recording = false
 	let cancels = 0
 	let ended = 0
@@ -660,7 +725,13 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 					}
 				})
 			}
-			const carrier: Carrier = recorded ? gate : straight
+			/** This connection's own gate: the recorded session's is the tap's, a later session's its own. */
+			const sessionGate: MessageGate | undefined = cancel
+				? undefined
+				: recorded
+					? gate
+					: new MessageGate()
+			const carrier: Carrier = sessionGate ?? straight
 			let written: Array<FrontendMessage> = []
 			const frontend = framer(true, (type, body) => {
 				if (type === "startup" && at !== undefined) {
@@ -702,6 +773,24 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 					written = []
 					frontend(chunk)
 					log.push({ side: "frontend", messages: written })
+					const startup = at === undefined ? undefined : startups[at]
+					const flight = waiting
+					if (
+						flight !== undefined &&
+						sessionGate !== undefined &&
+						startup !== undefined &&
+						startup.user === flight.role &&
+						!startup.replication &&
+						Arr.some(written, isFlightMessage)
+					) {
+						waiting = undefined
+						const session: FlightSession = { log, gate: sessionGate, from: log.length - 1 }
+						flight.state = { kind: "named", session }
+						if (flight.hold.kind === "after") {
+							sessionGate.hold(flight.hold.count, flight.hold.of)
+						}
+						Deferred.doneUnsafe(flight.named, Exit.succeed(session))
+					}
 				}
 				server.write(chunk)
 			}
@@ -720,7 +809,37 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 		startups: () => [...startups],
 		cancels: () => cancels,
 		cancelsEnded: () => ended,
-		gate
+		gate,
+		flight: (role, hold) => {
+			if (waiting !== undefined) {
+				throw new Error(`a flight of ${waiting.role} still waits for its first message`)
+			}
+			const flight: PendingFlight = {
+				role,
+				hold,
+				state: { kind: "waiting" },
+				named: Deferred.makeUnsafe<FlightSession>()
+			}
+			waiting = flight
+			return {
+				holding: Effect.flatMap(Deferred.await(flight.named), (session) =>
+					hold.kind === "after" ? session.gate.holding : Effect.void
+				),
+				window: Effect.map(Deferred.await(flight.named), (session) =>
+					windowOf(session.log.slice(session.from))
+				),
+				release: () => {
+					const state = flight.state
+					flight.state = { kind: "released" }
+					if (waiting === flight) {
+						waiting = undefined
+					}
+					if (state.kind === "named") {
+						state.session.gate.release()
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -732,7 +851,8 @@ export interface TapOptions {
 	readonly password: Redacted.Redacted
 }
 
-export interface Tapped extends Omit<Tap, "transport"> {
+/** A tapped session: the one session its tap carries, gated by the tap's gate. */
+export interface Tapped extends Omit<Tap, "transport" | "flight"> {
 	readonly session: Session
 }
 

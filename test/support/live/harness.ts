@@ -57,8 +57,9 @@ const factsCommit = (c: LiveCase): ReadonlyArray<LiveCommit> => {
 }
 
 /**
- * Installs `c` as a LiveInstallation, in the scope (see LiveInstallation), its layer's pool bounded by `pool`: a suite
- * that gates the tap's first session runs one session, so every call it gates runs on it.
+ * Installs `c` as a LiveInstallation, in the scope (see LiveInstallation), its layer's pool bounded by `pool`. A suite
+ * gates a call's flight by the session the flight names (test/support/wire-tap.ts Tap.flight), the login's, never by
+ * the order the pooled, listening and leading sessions connected in.
  */
 export const installLive = (
 	c: LiveCase,
