@@ -21,7 +21,8 @@ import type {
  * rewrite certificate and no evidence: no key, no containment, no cardinality claim lets it drop a DISTINCT, a join or
  * a deduplicated input. It is correct by construction rather than fast:
  *
- * - Base, Closed and InputSet are a deduplicated table scan, typed VALUES and the input's arrays;
+ * - Base, Closed and InputSet are a deduplicated table scan, typed VALUES and the input's arrays; a violation probe
+ *   reads a stored relation's table as the keyed set its primary key makes it (base/index.ts readsKeyedTable);
  * - MatchRegion is a join of its occurrences' sources with every binding equality in WHERE, LATERAL where a source
  *   reads the region's variables;
  * - Filter, ProjectSet and SemiJoin/AntiJoin are SELECT DISTINCT with WHERE, the projected expressions, and
