@@ -2384,9 +2384,10 @@ class Differ {
 		}
 	}
 
-	/** An object the target no longer has and no step takes away first (Fate removed), dropped in place: in
-	 * publish.removed (draftRemovals) at its kind's rank, once nothing of the target reads it; a constraint of a table
-	 * that stays in publish.drop, before; and what belongs to a dropped table with no statement of its own.
+	/** An object the target no longer has and no step takes away first (Fate removed), dropped in place by a statement
+	 * of its own, whatever else the migration drops: in publish.removed (draftRemovals) at its kind's rank, once nothing
+	 * of the target reads it, so it goes before what it depends on (dropOrder), a rule trigger before its function and
+	 * its table; a constraint in publish.drop, before.
 	 *
 	 * Extensions and the database's defaults outlive the schema, which another schema may share them with;
 	 * grants are replaced per role in grants().
@@ -2399,18 +2400,14 @@ class Differ {
 	 *
 	 * A stored relation's drop loses its rows, which the migration declares (`--drop`).
 	 *
-	 * A removed table's own constraints go with it; a reference out of it is dropped first, with every other
-	 * removed reference, so no drop of a key it references waits on it: in Validate, before the key, when the
-	 * key it references is a removed one the target's replaces (replacedKey), which the removal order, every
-	 * foreign key before the keys, drafts first.
+	 * A removed reference is dropped with every other removed reference, so no drop of a key it references waits on it:
+	 * in Validate, before the key, when the key it references is a removed one the target's replaces (replacedKey);
+	 * otherwise in publish.drop, which drafts every foreign key before the keys, in the reverse install order.
 	 *
-	 *
-	 * A table's isolation trigger goes with its table, or is dropped on its own where the target guards its table no
-	 * more: every role that writes it is certified READ COMMITTED (physical/ddl/isolation.ts readCommittedRelations). */
+	 * A table's isolation trigger is dropped with its table's other objects, or on its own where the target guards its
+	 * table no more: every role that writes it is certified READ COMMITTED (physical/ddl/isolation.ts
+	 * readCommittedRelations). */
 	remove(o: ManifestObject, order: number): void {
-		const t = objectTable(o)
-		const tableGone =
-			t !== undefined && !this.next.has(tableIdent(t)) && !this.next.has(viewIdent(t))
 		const v = installed(o)
 		const drop = (kind: Dropped, d: Action): void => {
 			this.removal(dropOrder[kind], order, d)
@@ -2446,9 +2443,7 @@ class Differ {
 				)
 				return
 			case "rowSecurity":
-				if (!tableGone) {
-					drop(v.kind, statement(alter(v.table, [{ kind: "disableRowSecurity" }])))
-				}
+				drop(v.kind, statement(alter(v.table, [{ kind: "disableRowSecurity" }])))
 				return
 			case "membership":
 				this.sql("publish.grants", [revokeRoleOf(v.grant)])
@@ -2479,30 +2474,23 @@ class Differ {
 				)
 				return
 			case "lawTrigger":
-				if (!tableGone) {
-					drop(
-						v.kind,
-						statement({
-							kind: "dropTrigger",
-							name: v.create.name,
-							table: v.create.table,
-							ifExists: false
-						})
-					)
-				}
+				drop(
+					v.kind,
+					statement({
+						kind: "dropTrigger",
+						name: v.create.name,
+						table: v.create.table,
+						ifExists: false
+					})
+				)
 				return
 			case "lawColumn":
-				if (!tableGone) {
-					drop(v.kind, statement(alter(v.table, [{ kind: "dropColumn", column: v.column }])))
-				}
+				drop(v.kind, statement(alter(v.table, [{ kind: "dropColumn", column: v.column }])))
 				return
 			case "primaryKey":
 			case "unique":
 			case "check":
 			case "foreignKey": {
-				if (tableGone && v.kind !== "foreignKey") {
-					return
-				}
 				if (v.kind === "foreignKey" && this.referencesReplaced(v.constraint)) {
 					this.sql("validate.attach", [alter(v.table, [{ kind: "dropConstraint", name: v.name }])])
 					return
@@ -2515,18 +2503,13 @@ class Differ {
 			}
 			case "uniqueIndex":
 			case "index": {
-				if (tableGone) {
-					return
-				}
 				const s = v.create
 				const name = objectName(s.table.schema, s.name)
 				drop(v.kind, statement({ kind: "dropIndex", name, concurrently: false, ifExists: false }))
 				return
 			}
 			case "statistics":
-				if (!tableGone) {
-					drop(v.kind, { kind: "dropStatistics", name: v.create.name })
-				}
+				drop(v.kind, { kind: "dropStatistics", name: v.create.name })
 				return
 			case "role":
 				drop(
@@ -2535,17 +2518,15 @@ class Differ {
 				)
 				return
 			case "isolationTrigger":
-				if (!tableGone) {
-					drop(
-						v.kind,
-						statement({
-							kind: "dropTrigger",
-							name: v.create.name,
-							table: v.create.table,
-							ifExists: false
-						})
-					)
-				}
+				drop(
+					v.kind,
+					statement({
+						kind: "dropTrigger",
+						name: v.create.name,
+						table: v.create.table,
+						ifExists: false
+					})
+				)
 				return
 		}
 	}

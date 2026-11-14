@@ -2,33 +2,38 @@
  * Rules over queries through grizzle's migrations, on PostgreSQL 19rc1: a migration that adds a rule over a query, or
  * changes one, runs its violation query over the stored rows and fails exactly where a row breaks it, the rule it
  * installs holds at every COMMIT after, through a declared rename of a table its query reads, and the migrated catalog
- * is a fresh install's of the second version, through a field the rule reads dropped and added again.
+ * is a fresh install's of the second version, through a field the rule reads dropped and added again and a table it
+ * reads dropped.
  *
  * A case draws rows of Fact(id, k, a), S(id, k, b, c) and T(a, b), the first version's rule over J2 = Fact ⋈ S on k
- * (none, or J2's facts whose b is not 0 contained in T), and the second's (those facts, every fact of J2, or the facts
- * of Unpaired contained in T, the facts of J2 whose k no S row shares whose b is a T row's a: a negated join of S and
- * T), the second version renaming Fact to Moved or not, and turning S's b from a field its caller writes into one
- * generated from c or not, which the migration drops and adds again (a rewritten field), so a rule trigger on S whose
- * UPDATE OF lists b stands over a redefined column. Every S row holds c equal to b, so b keeps its value. The rows are
- * stored under the first version, where its rule admits them. The oracle is the rule restated over the rows: the
- * second migration fails, its violation check raising 23000, exactly when the stored rows break its rule; once it
- * applies, the migrated schema holds the catalog a fresh install of the second version holds, both read from
- * PostgreSQL's catalog (test/pg/migrate/support.ts sameCatalog): its triggers, constraints, indexes and columns; and one
- * transaction writing drawn rows of Fact (or Moved), S and T commits exactly when the rows then keep the installed
- * rule, and is otherwise refused at COMMIT with 23503.
+ * (none, or J2's facts whose b is not 0 contained in T), the second's (those facts, every fact of J2, or the facts of
+ * Unpaired contained in T, the facts of J2 whose k no S row shares whose b is a T row's a: a negated join of S and T),
+ * and one change of the second version: none; Fact renamed to Moved, as declared; Fact dropped, as declared, and Moved
+ * added in its place, a new identity holding none of Fact's rows, so a rule trigger on Fact goes with its table; or
+ * S's b turned from a field its caller writes into one generated from c, which the migration drops and adds again (a
+ * rewritten field), so a rule trigger on S whose UPDATE OF lists b stands over a redefined column. Every S row holds
+ * c equal to b, so b keeps its value. The rows are stored under the first version, where its rule admits them. The
+ * oracle is the rule restated over the rows: the second migration fails, its violation check raising 23000, exactly
+ * when the rows it carries break its rule; once it applies, the migrated schema holds the catalog a fresh install of
+ * the second version holds, both read from PostgreSQL's catalog (test/pg/migrate/support.ts sameCatalog): its
+ * triggers, constraints, indexes and columns; and one transaction writing drawn rows of Fact (or Moved), S and T
+ * commits exactly when the rows then keep the installed rule, and is otherwise refused at COMMIT with 23503.
  *
  * Features: an added and a changed rule, each refused over rows that break it and applied over rows that keep it; the
  * same over a negated join; a write the installed rule admits committed and one it breaks refused at COMMIT; a rule
- * over a renamed table refusing such a write; and a rule trigger whose UPDATE OF lists a column the migration drops and
+ * over a renamed table refusing such a write; a rule trigger whose UPDATE OF lists a column the migration drops and
  * adds again, kept under its name and replaced under a new one, each read off PostgreSQL's catalog before and after the
- * migration (S's b at another attnum, and S's triggers over b by name). Plants: ~/.cache/grizzle-release/BR09/plants/
+ * migration (S's b at another attnum, and S's triggers over b by name); and a rule trigger on a table the migration
+ * drops (Fact's, read off the catalog before it). Plants: ~/.cache/grizzle-release/BR09/plants/
  * rule-query-migrate-changed-rule-unchecked.patch, a changed rule's violation check skipped, applies the migration
  * over stored rows that break it; the plant of the negated join, written for the pin-time run, a violation query
  * that reads each negated arm as an anti-join of its first match alone, under which Unpaired derives nothing, so a
- * migration adding its rule applies over stored rows that break it; and ~/.cache/grizzle-release/TRIGDROP/plants/
+ * migration adding its rule applies over stored rows that break it; ~/.cache/grizzle-release/TRIGDROP/plants/
  * redefined-takes-along.patch, the drop of what a column dropped and added again takes left to the column's DROP
  * COLUMN but for foreign keys and law columns, which PostgreSQL refuses under a rule trigger over the column (2BP01),
- * as edullm's QTI identity migration was drafted.
+ * as edullm's QTI identity migration was drafted; and ~/.cache/grizzle-release/TRIGDROP/plants/table-takes-along.patch,
+ * the parts of a dropped table left to its DROP TABLE, so its rule trigger stands when its function is dropped before
+ * the table (2BP01).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -65,9 +70,10 @@ interface Rows {
 	readonly t: ReadonlyArray<readonly [number, number]>
 }
 
-/** What the second version changes beside its rule: nothing, Fact renamed to Moved, or S's b generated from c, which
- * the migration drops and adds again. */
-type Change = "kept" | "renamed" | "redefined"
+/** What the second version changes beside its rule: nothing, Fact renamed to Moved, Fact dropped and Moved added in
+ * its place (a new identity, Fact's rows lost as declared), or S's b generated from c, which the migration drops and
+ * adds again. */
+type Change = "kept" | "renamed" | "dropped" | "redefined"
 
 /** A case: the two versions' rules, the second's change, the rows stored under the first, and the rows a transaction
  * writes once the second applies. */
@@ -90,7 +96,7 @@ const rowsGen: Gen<Rows> = (s) => ({
 const caseGen: Gen<MigrationCase> = (s) => ({
 	first: s.draw(element(["none", "selected"] as const)),
 	second: s.draw(element(["selected", "every", "negated"] as const)),
-	change: s.draw(element(["kept", "renamed", "redefined"] as const)),
+	change: s.draw(element(["kept", "renamed", "dropped", "redefined"] as const)),
 	stored: s.draw(rowsGen),
 	written: s.draw(rowsGen)
 })
@@ -118,7 +124,7 @@ const union = (stored: Rows, written: Rows): Rows => ({
 
 /** The relation Fact's declared name at a version. */
 const factName = (c: MigrationCase, after: boolean): string =>
-	after && c.change === "renamed" ? "Moved" : "Fact"
+	after && (c.change === "renamed" || c.change === "dropped") ? "Moved" : "Fact"
 
 const S = relation("S", { id: pg.integer, k: pg.integer, b: pg.integer, c: pg.integer }, ["id"])
 /** S with b generated from c: the field a migration from S drops and adds again. */
@@ -302,6 +308,7 @@ const versionOf = (name: string, c: MigrationCase, after: boolean) => {
 		case "kept":
 			return factVersion(name, c.second)
 		case "renamed":
+		case "dropped":
 			return movedVersion(name, c.second)
 		case "redefined":
 			return generatedVersion(name, c.second)
@@ -341,13 +348,20 @@ interface STriggers {
 const texts = (rows: ReadonlyArray<ReadonlyArray<unknown>>): ReadonlyArray<string> =>
 	Arr.flatMap(rows, (row) => Arr.filter(row.slice(0, 1), (x) => typeof x === "string"))
 
+/** The names of a table's own triggers, read as the owner from PostgreSQL's catalog. */
+const triggerNamesOf = (owner: RawSession, table: string) =>
+	Effect.map(
+		owner.values(
+			"SELECT t.tgname::pg_catalog.text FROM pg_catalog.pg_trigger AS t WHERE t.tgrelid = $1::pg_catalog.text::pg_catalog.regclass AND NOT t.tgisinternal",
+			[table]
+		),
+		texts
+	).pipe(Effect.orDie)
+
 /** S's triggers (STriggers), read as the owner from PostgreSQL's catalog. */
 const sTriggersOf = (owner: RawSession, table: string) =>
 	Effect.gen(function* () {
-		const names = yield* owner.values(
-			"SELECT t.tgname::pg_catalog.text FROM pg_catalog.pg_trigger AS t WHERE t.tgrelid = $1::pg_catalog.text::pg_catalog.regclass AND NOT t.tgisinternal",
-			[table]
-		)
+		const names = yield* triggerNamesOf(owner, table)
 		const overB = yield* owner.values(
 			"SELECT t.tgname::pg_catalog.text FROM pg_catalog.pg_trigger AS t JOIN pg_catalog.pg_attribute AS a ON a.attrelid = t.tgrelid AND a.attnum = ANY (t.tgattr::pg_catalog.int2[]) WHERE t.tgrelid = $1::pg_catalog.text::pg_catalog.regclass AND NOT t.tgisinternal AND a.attname = 'b'",
 			[table]
@@ -356,7 +370,7 @@ const sTriggersOf = (owner: RawSession, table: string) =>
 			"SELECT a.attnum::pg_catalog.text FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = $1::pg_catalog.text::pg_catalog.regclass AND a.attname = 'b' AND NOT a.attisdropped",
 			[table]
 		)
-		return { names: texts(names), overB: texts(overB), b: Number(Arr.join(texts(b), "")) }
+		return { names, overB: texts(overB), b: Number(Arr.join(texts(b), "")) }
 	}).pipe(Effect.orDie)
 
 type Feature =
@@ -371,6 +385,7 @@ type Feature =
 	| "a rule over a negated join the stored rows keep applied"
 	| "a rule trigger over a redefined column kept under its name"
 	| "a rule trigger over a redefined column replaced under a new name"
+	| "a rule trigger on a dropped table"
 
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
@@ -401,7 +416,8 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 								"a rule over a negated join the stored rows break refused",
 								"a rule over a negated join the stored rows keep applied",
 								"a rule trigger over a redefined column kept under its name",
-								"a rule trigger over a redefined column replaced under a new name"
+								"a rule trigger over a redefined column replaced under a new name",
+								"a rule trigger on a dropped table"
 							],
 							{ cases: 60, sense: notesOnly }
 						),
@@ -415,9 +431,11 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 					(c, n) =>
 						Effect.gen(function* () {
 							const rows = keeps(c.stored, c.first) ? c.stored : noRows
-							const breaks = !keeps(rows, c.second)
+							const carried = c.change === "dropped" ? { ...rows, facts: [] } : rows
+							const breaks = !keeps(carried, c.second)
 							let schemaIdent = ""
 							const triggers: Array<STriggers> = []
+							const factTriggers: Array<string> = []
 							const declared = (version: number): Declarations =>
 								version === 1 && c.change === "renamed"
 									? {
@@ -429,7 +447,12 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 											],
 											drops: []
 										}
-									: noDeclarations
+									: version === 1 && c.change === "dropped"
+										? {
+												renames: [],
+												drops: [{ kind: "relation", relation: parsedName("Fact") }]
+											}
+										: noDeclarations
 							const store = (owner: RawSession) =>
 								Effect.gen(function* () {
 									const statements = [
@@ -473,6 +496,8 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 										Effect.gen(function* () {
 											if (version === 0) {
 												yield* store(owner)
+												const fact = yield* triggerNamesOf(owner, tableOf(schemaIdent, "Fact"))
+												factTriggers.push(...fact)
 											}
 											const read = yield* sTriggersOf(owner, tableOf(schemaIdent, "S"))
 											triggers.push(read)
@@ -518,6 +543,9 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 									n.note("a rule trigger over a redefined column replaced under a new name")
 								}
 							}
+							if (c.change === "dropped" && factTriggers.length > 0) {
+								n.note("a rule trigger on a dropped table")
+							}
 							const fresh = yield* migrated({
 								label: "rule_migrate_fresh",
 								schemaName: { kind: "unique" },
@@ -548,7 +576,7 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 									([a, b]) => `INSERT INTO ${tableOf(schemaIdent, "T")} (a, b) VALUES (${a}, ${b})`
 								)
 							]
-							const lawful = keeps(union(rows, c.written), c.second)
+							const lawful = keeps(union(carried, c.written), c.second)
 							const verdict = yield* attempt(m.owner, written)
 							if (verdict.kind === "committed" && lawful) {
 								n.note("a write the installed rule admits committed")
