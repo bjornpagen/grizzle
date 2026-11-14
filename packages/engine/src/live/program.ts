@@ -350,7 +350,9 @@ type ParamsOfRead<X> = X extends unknown
 
 /**
  * A program's parameter map (query.ts ParamsOf, core/phantom.ts ParamsOfTerm), read off its phantom by key, each
- * program of a union its own; a value indexed by number, an array, read by ParamsOf itself.
+ * program of a union its own; a value indexed by number, an array, read by ParamsOf itself. The phantom is read
+ * through NonNullable, an intersection, never Exclude, a conditional whose operand would be the phantom, which holds the
+ * query's schema; a phantom stated as unknown reads as {} there, which states no parameters either.
  */
 type ProgramParams<P> = P extends unknown
 	? ByKeys<P> extends true
@@ -360,7 +362,7 @@ type ProgramParams<P> = P extends unknown
 		: ParamsOf<P>
 	: never
 type PhantomParams<P> = typeof phantom extends keyof P
-	? BundleParams<Exclude<P[typeof phantom & keyof P], undefined>>
+	? BundleParams<NonNullable<P[typeof phantom & keyof P]>>
 	: unknown
 type BundleParams<B> = B extends unknown
 	? "needs" extends keyof B
