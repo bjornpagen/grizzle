@@ -62,6 +62,7 @@ import {
 	type BtreeEntryBytes,
 	btreeEntry,
 	type DatumBound,
+	datumBound,
 	type EntryColumn,
 	type GistEntryBytes,
 	gistEntry,
@@ -249,12 +250,23 @@ interface BoundedColumn<C extends PlannedColumn> {
 	readonly datum: DatumBound
 }
 
-/** The columns of `columns` whose datum is bounded, in their order. */
+/**
+ * The most bytes a planned column's datum takes in an index the index engine creates, for every installation: its
+ * field's datumBound (schema/representability.ts), as physical/indexes/engine.ts createIndex counts each key
+ * (keyDatums), a set at the most codes a roster numbers, its holes included (bitsBytes); none for text of no bound. A
+ * set is its roster's bit(n), n every code the installation has minted, which the law model does not hold and a later
+ * installation grows, so plannedDatum's count at the roster's handles, the fewest codes it can have, is a bound from
+ * below that only refuses an entry certainly past the limit. A reverse index is chosen to fit (`btreeRun`,
+ * `plannedPeriodReverse`), so its run reads this bound from above: the index engine never refuses the run it picks.
+ */
+const createdDatum = (c: PlannedColumn): DatumBound | undefined => datumBound(plannedField(c).desc)
+
+/** The columns of `columns` whose datum is bounded in an index the engine creates (`createdDatum`), in their order. */
 const boundedColumns = <C extends PlannedColumn>(
 	columns: ReadonlyArray<C>
 ): ReadonlyArray<BoundedColumn<C>> =>
 	columns.flatMap((column) => {
-		const datum = plannedDatum(column)
+		const datum = createdDatum(column)
 		return datum === undefined ? [] : [{ column, datum }]
 	})
 
@@ -357,7 +369,7 @@ const plannedPeriodReverse = (
 	subject: string,
 	loc: SourceLoc
 ): PlannedReverse => {
-	const spanDatum = plannedDatum(span) ?? missing(`the bounded datum of the span of ${subject}`)
+	const spanDatum = createdDatum(span) ?? missing(`the bounded datum of the span of ${subject}`)
 	const spanEntry = { field: plannedText(span), datum: spanDatum }
 	const bounded = boundedColumns(scalars)
 	for (let n = Math.min(bounded.length, indexMaxKeys.value - 1); n >= 0; n--) {

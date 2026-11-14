@@ -4,16 +4,20 @@
  * (test/pg/laws/reverse-probe.test.ts).
  *
  * A case is a source relation's referencing columns, each a fixed-width type, a short or a long bounded text, a text
- * too wide for an entry alone, or a text of no bound, at every position; a target with the columns they meet, each text
- * of a short pattern, since a pattern is no part of a text's type, keyed by them all or by the first alone, so that the
- * containment references a superkey of it through a UNIQUE grizzle plans; whether a declared key covers the bounded
- * columns; and whether the source side is a selection, whose columns are law columns that may be NULL. The rule is
- * restated over index_form_tuple's layout of each run (heaptuple.c fill_val) against nbtree.h's BTMaxItemSize.
+ * too wide for an entry alone, a text of no bound, or a set over a roster of three or twelve handles, at every
+ * position, one of them at least of a type a hash index takes, any but a set; a target with the columns they meet,
+ * each text of a short pattern, since a pattern is no part of a text's type, keyed by them all or by the first alone, so
+ * that the containment references a superkey of it through a UNIQUE grizzle plans; whether a declared key covers the
+ * bounded columns; and whether the source side is a selection, whose columns are law columns that may be NULL. The rule
+ * is restated over index_form_tuple's layout of each run (heaptuple.c fill_val) against nbtree.h's BTMaxItemSize, a set
+ * counted as the index engine counts it in an index it creates, at the most codes a roster numbers: its roster's codes
+ * are the installation's, holes included, and grow.
  */
-import { array, boolean, element, type Gen, weighted } from "@bjornpagen/testing/gen"
-import { Array as Arr, Record as Rec } from "effect"
+import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { Array as Arr, Option, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { uuid } from "#compiler/public/fields.ts"
+import { bits, uuid } from "#compiler/public/fields.ts"
+import { closed } from "#compiler/public/schema.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { relation } from "#compiler/schema/relation.ts"
 import { schema } from "#compiler/schema/schema.ts"
@@ -26,18 +30,37 @@ import {
 import type { RowTerm, rowHelpers } from "#compiler/schema/terms.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import type { AnyRelation } from "#compiler/types/schema/relation.ts"
+import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { defined } from "#test/support/assert.ts"
 
 /** nbtree.h's BTMaxItemSize at the default block, restated. */
 const postgresBtreeMaxItem = 2704
 
-/** A referencing column's type: a fixed-width one, a text of a bounded pattern of so many code points, or free text. */
+/**
+ * A referencing column's type: a fixed-width one, a text of a bounded pattern of so many code points, free text, or a
+ * set over the roster of a few handles or of many.
+ */
 export type ColumnType =
 	| { readonly kind: "uuid" | "bigint" | "integer" | "smallint" | "boolean" }
 	| { readonly kind: "text"; readonly codePoints: number }
 	| { readonly kind: "free" }
+	| { readonly kind: "set"; readonly roster: "few" | "many" }
+
+/** The rosters a set column is drawn over: three handles, and twelve, a set's bit(12) as edullm's ancestry flags. */
+const FewTags = closed("FewTags", ["a", "b", "c"])
+const ManyTags = closed("ManyTags", ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"])
+
+/** The handles of a set column's roster, every one of which its widest value holds. */
+export const setHandles = (roster: "few" | "many"): number =>
+	roster === "few" ? FewTags.handles.length : ManyTags.handles.length
+
+/**
+ * A set's datum as the index engine counts it in an index it creates (schema/representability.ts bitsBytes): its
+ * bit(n) varlena, VARBITTOTALLEN(n) = 4 + 4 + ceil(n / 8), at n = 32768, smallint's non-negative values, the most codes
+ * a roster numbers.
+ */
+const setEngineBytes = 4 + 4 + 32768 / 8
 
 /** The bounded texts drawn: short, long enough that two outgrow an entry, and too wide for an entry alone. */
 const textLengths = [10, 400, 765] as const
@@ -66,6 +89,8 @@ const datumOf = (t: ColumnType): Datum | undefined => {
 			return { bytes: 4 + 4 * t.codePoints, align: 4, fixed: false }
 		case "free":
 			return undefined
+		case "set":
+			return { bytes: setEngineBytes, align: 4, fixed: false }
 	}
 }
 
@@ -97,8 +122,7 @@ export type Expected =
 
 /**
  * The rule restated: the longest leading run of the bounded columns, in order, whose entry fits, its columns NULL-able
- * when the source is a selection; else a hash index on the first column whose type a hash index takes, every drawn
- * type here.
+ * when the source is a selection; else a hash index on the first column whose type a hash index takes, any but a set.
  */
 export const expectedOf = (c: ReverseCase): Expected => {
 	const bounded = Arr.flatMap(c.types, (t, i) => {
@@ -118,8 +142,15 @@ export const expectedOf = (c: ReverseCase): Expected => {
 			return { method: "btree", positions: [first.i, ...Arr.map(rest, (b) => b.i)] }
 		}
 	}
-	return { method: "hash", position: 0 }
+	return { method: "hash", position: hashedPosition(c) }
 }
+
+/** The first column whose type a hash index takes: any but a set, which every case holds (`reverseCaseGen`). */
+const hashedPosition = (c: ReverseCase): number =>
+	defined(
+		Arr.findFirstIndex(c.types, (t) => t.kind !== "set").pipe(Option.getOrUndefined),
+		"a column a hash index takes"
+	)
 
 /**
  * A drawn containment: its referencing columns' types, whether a declared key covers the bounded ones, whether its
@@ -132,7 +163,8 @@ export interface ReverseCase {
 	readonly superkey: boolean
 }
 
-const columnTypeGen: Gen<ColumnType> = weighted<ColumnType>([
+/** A referencing column's type a hash index takes: any but a set. */
+const hashableTypeGen: Gen<ColumnType> = weighted<ColumnType>([
 	[
 		3,
 		element<ColumnType>([
@@ -147,10 +179,24 @@ const columnTypeGen: Gen<ColumnType> = weighted<ColumnType>([
 	[2, element<ColumnType>([{ kind: "free" }])]
 ])
 
+const columnTypeGen: Gen<ColumnType> = weighted<ColumnType>([
+	[7, hashableTypeGen],
+	[
+		2,
+		element<ColumnType>([
+			{ kind: "set", roster: "few" },
+			{ kind: "set", roster: "many" }
+		])
+	]
+])
+
+/** A case's referencing columns: up to three of any type, and one a hash index takes at a drawn position among them. */
 export const reverseCaseGen: Gen<ReverseCase> = (source) => {
-	const [first, ...rest] = source.draw(array(columnTypeGen, { min: 1, max: 4 }))
+	const rest = source.draw(array(columnTypeGen, { min: 0, max: 3 }))
+	const at = source.draw(int(0, rest.length))
+	const anchor = source.draw(hashableTypeGen)
 	return {
-		types: [defined(first, "a referencing column"), ...rest],
+		types: Arr.appendAll(Arr.append(Arr.take(rest, at), anchor), Arr.drop(rest, at)),
 		covered: source.draw(boolean),
 		selected: source.draw(boolean),
 		superkey: source.draw(boolean)
@@ -168,6 +214,10 @@ export const freePositions = (c: ReverseCase): ReadonlyArray<number> =>
 /** The positions of a case's bounded columns. */
 const boundedPositions = (c: ReverseCase): ReadonlyArray<number> =>
 	Arr.filter(indices(c.types.length), (i) => c.types[i]?.kind !== "free")
+
+/** The positions of a case's set columns. */
+export const setPositions = (c: ReverseCase): ReadonlyArray<number> =>
+	Arr.filter(indices(c.types.length), (i) => c.types[i]?.kind === "set")
 
 /**
  * Whether a case declares a key over its source's bounded columns: when drawn so, and the key's own entry fits, which
@@ -196,6 +246,8 @@ export type ReverseFeature =
 	| "covered by a declared key"
 	| "a selected source"
 	| "into a superkey"
+	| "a set referencing column"
+	| "a run cut short by a set"
 
 export const reverseFeatures: Arr.NonEmptyReadonlyArray<ReverseFeature> = [
 	"free text first",
@@ -207,7 +259,9 @@ export const reverseFeatures: Arr.NonEmptyReadonlyArray<ReverseFeature> = [
 	"a hash index",
 	"covered by a declared key",
 	"a selected source",
-	"into a superkey"
+	"into a superkey",
+	"a set referencing column",
+	"a run cut short by a set"
 ]
 
 /** Whether a case's target is keyed by fewer columns than the containment references. */
@@ -239,12 +293,27 @@ const methodFeature = (c: ReverseCase): ReadonlyArray<ReverseFeature> => {
 		: ["a B-tree"]
 }
 
+/** Whether a case's planned run stops before a set its bounded columns hold, the set counted at the engine's bound. */
+const cutBySet = (c: ReverseCase): boolean => {
+	const expected = expectedOf(c)
+	const sets = setPositions(c)
+	return expected.method === "btree"
+		? Arr.some(sets, (i) => i > Arr.lastNonEmpty(expected.positions))
+		: sets.length > 0
+}
+
 /** The situations a case reaches (ReverseFeature). */
 export const featuresOf = (c: ReverseCase): ReadonlyArray<ReverseFeature> => {
 	const covered: ReadonlyArray<ReverseFeature> = declaresKey(c) ? ["covered by a declared key"] : []
 	const selected: ReadonlyArray<ReverseFeature> = c.selected ? ["a selected source"] : []
 	const superkey: ReadonlyArray<ReverseFeature> = intoSuperkey(c) ? ["into a superkey"] : []
-	return [...freeFeature(c), ...methodFeature(c), ...covered, ...selected, ...superkey]
+	const set: ReadonlyArray<ReverseFeature> =
+		setPositions(c).length === 0
+			? []
+			: cutBySet(c)
+				? ["a set referencing column", "a run cut short by a set"]
+				: ["a set referencing column"]
+	return [...freeFeature(c), ...methodFeature(c), ...covered, ...selected, ...superkey, ...set]
 }
 
 const short = regexField("^.{0,10}$", ["su"])
@@ -279,6 +348,8 @@ const descriptorOf = (t: ColumnType, side: "source" | "target"): FieldBase => {
 			return side === "target" ? short : textOf(t.codePoints)
 		case "free":
 			return side === "target" ? short : free
+		case "set":
+			return t.roster === "few" ? bits(FewTags) : bits(ManyTags)
 	}
 }
 
@@ -289,12 +360,19 @@ export const relationsAt = (at: number): { readonly source: string; readonly tar
 })
 
 /**
- * One schema of the cases, each at its position: a source keyed by `id`, with a boolean `live` its selection reads and
- * its referencing columns; a target of the columns they meet, keyed by them all or by the first; the containment of
- * the one, or of its live rows, in the other; and the declared key over the source's bounded columns where the case
- * declares one.
+ * The relations and statements of the cases, each at its position, beside the two rosters a set column is over: a source
+ * keyed by `id`, with a boolean `live` its
+ * selection reads and its referencing columns; a target of the columns they meet, keyed by all of them but its sets or
+ * by the first of those, since a declared key counts a set at the most codes a roster numbers, past any entry;
+ * the containment of the one, or of its live rows, in the other; and the declared key over the source's bounded
+ * columns where the case declares one.
  */
-export const reverseSchema = (cases: ReadonlyArray<ReverseCase>) => {
+export const reverseParts = (
+	cases: ReadonlyArray<ReverseCase>
+): {
+	readonly relations: ReadonlyArray<readonly [string, AnyRelation | AnyClosed]>
+	readonly statements: ReadonlyArray<Statement>
+} => {
 	const parts = Arr.map(cases, (c, at) => {
 		const names = columnNames(c)
 		const typeAt = (i: number): ColumnType => defined(c.types[i], "a column type")
@@ -309,10 +387,11 @@ export const reverseSchema = (cases: ReadonlyArray<ReverseCase>) => {
 			["id"],
 			[]
 		)
+		const keyed = Arr.filter(names, (_, i) => typeAt(i).kind !== "set")
 		const B = relation(
 			target,
 			Rec.fromEntries(Arr.map(names, (n, i) => [n, descriptorOf(typeAt(i), "target")])),
-			c.superkey ? Arr.take(names, 1) : names,
+			c.superkey ? Arr.take(keyed, 1) : keyed,
 			[]
 		)
 		const side = c.selected
@@ -334,10 +413,22 @@ export const reverseSchema = (cases: ReadonlyArray<ReverseCase>) => {
 		]
 		return { relations, statements }
 	})
-	const statements: ReadonlyArray<Statement> = Arr.flatMap(parts, (p) => p.statements)
+	return {
+		relations: [
+			["FewTags", FewTags],
+			["ManyTags", ManyTags],
+			...Arr.flatMap(parts, (p) => p.relations)
+		],
+		statements: Arr.flatMap(parts, (p) => p.statements)
+	}
+}
+
+/** One schema of the cases (`reverseParts`). */
+export const reverseSchema = (cases: ReadonlyArray<ReverseCase>) => {
+	const { relations, statements } = reverseParts(cases)
 	return schema(
 		"Reverse",
-		Rec.values(Rec.fromEntries(Arr.flatMap(parts, (p) => p.relations))),
+		Arr.map(relations, ([, r]) => r),
 		statements,
 		[]
 	)

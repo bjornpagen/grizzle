@@ -17,8 +17,9 @@
  * - **the export**, `WHERE doc = $1 ORDER BY start`: one scan of an index led by (r, start), the tree's primary key
  *   (T1) or the owner axis's target superkey (r, start, children), reading each row once;
  * - **descendants** of a row, `start > n.start AND start < n.end`: a range scan of such an index reading exactly them;
- * - **an ordered family's members**, `WHERE g = $1 ORDER BY at`: a scan of the family key UNIQUE (g, at) reading
- *   exactly its members, whether the planner sorts them after a bitmap scan or reads them in order.
+ * - **an ordered family's members**, `WHERE g = $1 ORDER BY at`: a scan of the family key UNIQUE (g, at), or of its
+ *   successor key UNIQUE (g, ‹p›), each led by the group, reading exactly its members, whether the planner sorts them
+ *   after a bitmap scan or reads them in order.
  *
  * - **Oracles:** EXPLAIN's plan shape (bench/harness/explain.ts), its index named by the installed catalog's role
  *   (installed.ts), never by an allocated name; and each read's rows against the tree's parent links
@@ -46,7 +47,7 @@ import {
 	rowsRead
 } from "#bench/harness/explain.ts"
 import { constraintOf as familyConstraintOf, familySeat } from "#test/pg/fin/family.ts"
-import { type Catalogued, seatOf } from "#test/pg/fin/installed.ts"
+import { type Catalogued, sameRoles, seatOf } from "#test/pg/fin/installed.ts"
 import { nativesOf, nodeBatchParams, nodeBatchSql, RELATIONS, Trees } from "#test/pg/fin/tree.ts"
 import { loadTree, rowsByDepth, type TreeRow } from "#test/pg/substrate/tree.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
@@ -186,6 +187,21 @@ layer(Substrate.layer)(
 								Option.contains(familyConstraintOf(family, c), "key")
 							)
 						).name
+						/** The indexes a family's members are read by: its key (g, at), and its successor key (g, ‹p›),
+						 * which the predecessor axis's reverse probe reads, both led by the group. */
+						const byGroup = [
+							key,
+							...Arr.map(
+								Arr.filter(
+									f.constraints,
+									(c: Catalogued) =>
+										c.kind === "unique" &&
+										c.relation === "Member" &&
+										sameRoles(c.columns, ["g", "‹gen at›"])
+								),
+								(c) => c.name
+							)
+						]
 						const byDepth = rowsByDepth(rows)
 						const starts = new Map(Arr.map(rows, (r) => [r.id, r.start] as const))
 						/** A row's start by its substrate key: the key the keyed tree names it by. */
@@ -271,7 +287,9 @@ layer(Substrate.layer)(
 									assert.ok(
 										only !== undefined &&
 											more.length === 0 &&
-											(read.kind === "a family's members" ? only === key : inOrder.includes(only)),
+											(read.kind === "a family's members"
+												? byGroup.includes(only)
+												: inOrder.includes(only)),
 										`${name} reads its index alone, one in its order: ${Formatter.format(facts.indexes)}`
 									)
 									assert.equal(facts.seqScans, 0, `${name} scans nothing sequentially`)

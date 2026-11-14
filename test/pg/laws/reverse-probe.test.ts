@@ -5,8 +5,8 @@
  * Before a target row is deleted or its key updated, PostgreSQL's RI trigger (ri_triggers.c, RI_FKey_noaction_del)
  * probes the source for a row that still references it, SELECT 1 FROM ONLY <source> x WHERE $1 = <column> AND ... FOR
  * KEY SHARE OF x over the foreign key's referencing columns, a plan it prepares once and reuses. Each case is a
- * containment drawn as test/support/laws/reverse.ts draws them: a free text at every position, a declared key over the
- * bounded columns or none, a selected source or not. A run installs a batch of them as one schema through its first
+ * containment drawn as test/support/laws/reverse.ts draws them: a free text or a set at every position, a declared key
+ * over the bounded columns or none, a selected source or not. A run installs a batch of them as one schema through its first
  * migration. For each case the probe over the foreign key's referencing columns, as pg_constraint lists them, is
  * prepared and its generic plan explained (plan_cache_mode = force_generic_plan) with sequential scans disabled
  * (enable_seqscan = off): the plan scans no relation sequentially, reads the source through an index scan, an index-only
@@ -44,7 +44,8 @@ import {
 	relationsAt,
 	reverseCaseGen,
 	reverseFeatures,
-	reverseSchema
+	reverseSchema,
+	setHandles
 } from "#test/support/laws/reverse.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -84,6 +85,8 @@ const valueOf = (t: ColumnType, wide: string): string => {
 			return "a"
 		case "free":
 			return wide
+		case "set":
+			return Str.repeat(setHandles(t.roster))("1")
 	}
 }
 
