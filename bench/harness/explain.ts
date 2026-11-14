@@ -616,6 +616,30 @@ export function* planNodes<N extends { readonly children: ReadonlyArray<N> }>(
 	}
 }
 
+/**
+ * The rows a plan read and paired: each scan's rows over all of its loops, what it returned and what its filter and its
+ * index recheck removed, a scan of a stored relation's, of a CTE's, of a recursion's worktable or of a function's; and
+ * every pair a join examined and its join filter removed. A sort, a hash, a window or an aggregate reads rows a scan
+ * below it counted, and so does a Subquery Scan, which passes on the rows of the plan beneath it and which the planner
+ * keeps or elides by the plan it picks for that subquery, so whichever of them the planner chooses for a step, the
+ * figure is the same; a scan run again for each row of another, a worktable reread at every step, or a join examining
+ * pairs past its keys is counted every time.
+ */
+export const rowsScannedAndPaired = (plan: PlanNode): number =>
+	Math.round(
+		Iterator.from(planNodes(plan)).reduce(
+			(sum, n) =>
+				sum +
+				(Str.endsWith(" Scan")(n.nodeType) &&
+				n.nodeType !== "Bitmap Index Scan" &&
+				n.nodeType !== "Subquery Scan"
+					? (n.actualRows + n.rowsRemovedByFilter + n.rowsRemovedByIndexRecheck) * n.actualLoops
+					: 0) +
+				n.rowsRemovedByJoinFilter * n.actualLoops,
+			0
+		)
+	)
+
 export const findNodes = (
 	plan: PlanNode,
 	test: string | ((node: PlanNode) => boolean)

@@ -3,7 +3,7 @@
  * to one stored group, the family additions statement drawing each appended member's columns (write/family/scan.ts), at
  * three lengths, L = n, 2n and 4n.
  *
- * Property, for each family: the rows the write's statements read and pair (rowsRead: every scan's rows over all of
+ * Property, for each family: the rows the write's statements read and pair (rowsScannedAndPaired, bench/harness/explain.ts: every scan's rows over all of
  * its loops, and every pair a join examined past its keys) grow by no more from 2n to 4n than twice what they grow by
  * from n to 2n. A cost of a fixed part and a part per member grows by exactly twice as much over the
  * doubled step; a cost with any term above linear, a recursion that rereads the appended members once per member it
@@ -28,8 +28,8 @@ import { requiredInSpace } from "@bjornpagen/testing/features"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { type PlanNode, planNodes } from "#bench/harness/explain.ts"
+import { Array as Arr, Effect, Formatter } from "effect"
+import { rowsScannedAndPaired } from "#bench/harness/explain.ts"
 import {
 	attemptLabel,
 	explainedChange,
@@ -134,27 +134,6 @@ const sketchGen: Gen<Sketch> = (source) => ({
 	n: source.draw(element(shortest))
 })
 
-/**
- * The rows a plan read and paired: each scan's rows over all of its loops, what it returned and what its filter and its
- * index recheck removed, a scan of a stored relation's, of a CTE's or a subquery's rows, of a recursion's worktable or of
- * a function's; and every pair a join examined and its join filter removed. A sort, a hash, a window or an aggregate
- * reads rows a scan below it counted, so whichever of them the planner chooses for a step, the figure is the same; a
- * scan run again for each row of another, a worktable reread at every step, or a join examining pairs past its keys is
- * counted every time.
- */
-const rowsRead = (plan: PlanNode): number =>
-	Math.round(
-		Iterator.from(planNodes(plan)).reduce(
-			(sum, n) =>
-				sum +
-				(Str.endsWith(" Scan")(n.nodeType) && n.nodeType !== "Bitmap Index Scan"
-					? (n.actualRows + n.rowsRemovedByFilter + n.rowsRemovedByIndexRecheck) * n.actualLoops
-					: 0) +
-				n.rowsRemovedByJoinFilter * n.actualLoops,
-			0
-		)
-	)
-
 /** What one length's write cost: the rows its statements read, and the pages they read and the temp they wrote. */
 interface Cost {
 	readonly length: number
@@ -187,7 +166,7 @@ const costOf = (family: Appended, label: string) =>
 					assert.ok(plans.length > 0, `the append of ${length} members runs a statement`)
 					return {
 						length,
-						rows: Arr.reduce(plans, 0, (sum, p) => sum + rowsRead(p.plan)),
+						rows: Arr.reduce(plans, 0, (sum, p) => sum + rowsScannedAndPaired(p.plan)),
 						pages: Arr.reduce(
 							plans,
 							0,
