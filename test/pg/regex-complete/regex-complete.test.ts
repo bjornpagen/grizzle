@@ -3,7 +3,9 @@
  *
  * One schema, installed by the fresh-install compiler under a fresh schema name, carries a slug pattern, a
  * language-equivalent spelling of it, a contract bounding length with Compute.charLength over the wildcard, and a
- * closed relation whose payload is a slug. Against it:
+ * closed relation whose payload is a slug. The slug's pattern bounds its length, as text in any index grizzle installs
+ * must (README, Text in a key): the installation installs the workload of the suites' parameterized queries, whose
+ * lookups of Article and Comment by slug each ask for an index on the slug. Against it:
  *
  * - a parameter is checked against its pattern or contract by PostgreSQL as it binds it, its placeholder cast to its own
  *   pattern domain or its contract's domain, which the installation creates for every pattern a parameter names: the
@@ -113,9 +115,12 @@ import { ownerSession, Substrate, worldSession } from "#test/support/substrate/s
 import { outputRows, paramText } from "#test/support/wire.ts"
 import { oracleWorld } from "#test/support/worlds.ts"
 
-/** The slug, and a spelling of the same language (domain identity is the canonical pattern). */
-const Slug = str.regex("^[a-z][a-z0-9-]*$")
-const SlugAgain = str.regex("^[a-z](?:[a-z0-9]|-)*$")
+/**
+ * The slug, of at most a DNS label's 63 characters (RFC 1035 2.3.4), and a spelling of the same language (domain
+ * identity is the canonical pattern).
+ */
+const Slug = str.regex("^[a-z][a-z0-9-]{0,62}$")
+const SlugAgain = str.regex("^[a-z](?:[a-z0-9]|-){0,62}$")
 const Prose = str.regex("^.*$", "su")
 /** A length bound is a contract predicate; over the wildcard the CHECK holds only the bound. */
 const limit = 5
@@ -552,7 +557,7 @@ interface RefinedWrite {
 type RefinedFeature = `${RefinedPath}: ${"refused" | "admitted"}`
 
 /** The slug's own pattern, as ECMAScript reads it: the oracle the domain's CHECK must agree with. */
-const slugPattern = regex("^[a-z][a-z0-9-]*$")
+const slugPattern = regex("^[a-z][a-z0-9-]{0,62}$")
 
 const slugAdmits = (value: string): boolean => slugPattern.test(value)
 
