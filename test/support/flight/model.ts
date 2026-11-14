@@ -171,6 +171,9 @@ const frames: { readonly [F in FrameName]: Frame } = {
 	rollback: frameOf("rollback", flightPrologue)
 }
 
+/** Whether a frame's transaction can write: its access as the frame begins it, a read's, deferrable or not, read only. */
+export const frameWrites = (name: FrameName): boolean => frames[name].access === "readWrite"
+
 /**
  * How a step of the prologue fails: refused for a reason of no fence's, the fence's refusal (the lock's 55P03 or the
  * guard's 55Z02, a migration running; the guard's 55Z01, another snapshot), FATAL, or the connection lost.

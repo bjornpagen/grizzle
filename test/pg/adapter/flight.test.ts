@@ -4,10 +4,11 @@
  * can be made to answer on demand, run on the scripted session and on a real one, and the two must observe the same.
  *
  * On the server, a statement's rows are an INSERT ... RETURNING of its label, or a SELECT of it inside a read's
- * transaction, which cannot write; a doomed statement inserts a row whose deferred reference has no target, so its
- * transaction's COMMIT, or its own Sync when it runs alone, is refused 23503; a refused one calls a function that raises
- * its SQLSTATE; a held one sleeps until a CancelRequest stops it. BEGIN is always answered and COMMIT's connection
- * kept: a refused BEGIN, a FATAL report and a lost connection are the server's and the network's faults, out of scope.
+ * transaction, deferrable or not, which cannot write (model.ts frameWrites); a doomed statement inserts a row whose
+ * deferred reference has no target, so its transaction's COMMIT, or its own Sync when it runs alone, is refused 23503;
+ * a refused one calls a function that raises its SQLSTATE; a held one sleeps until a CancelRequest stops it. BEGIN is
+ * always answered and COMMIT's connection kept: a refused BEGIN, a FATAL report and a lost connection are the server's
+ * and the network's faults, out of scope.
  *
  * Each case runs uninterrupted when it can complete, and interrupted after every number of answers. The tap's gate
  * holds the server's bytes after the k-th ReadyForQuery, so the call has read exactly k answers; the server is let do
@@ -51,6 +52,7 @@ import {
 	fenceSql,
 	type FlightCase,
 	type FrameName,
+	frameWrites,
 	type InterruptionPoint,
 	interruptionPoint,
 	layoutOf,
@@ -73,10 +75,10 @@ import { backendCount, tappedSession } from "#test/support/wire-tap.ts"
 /** The kinds the server answers on demand. */
 const space: CaseSpace = { failures: ["refused", "doomed", "hold"], serverFaults: false }
 
-/** A read's transaction cannot write, so its doomed statements answer their rows instead. */
+/** A transaction that cannot write, a read's, deferrable or not, answers its doomed statements' rows instead. */
 const expressible = (c: FlightCase): FlightCase => {
 	const call = c.call
-	if (call.frame !== "read") {
+	if (frameWrites(call.frame)) {
 		return c
 	}
 	const reading = (planned: Planned): Planned =>
@@ -84,18 +86,16 @@ const expressible = (c: FlightCase): FlightCase => {
 	return { ...c, call: { ...call, statements: Arr.map(call.statements, reading) } }
 }
 
-/** The labels of the statements whose SQL writes: every one but a read's transaction's. */
-const writing = (c: FlightCase): ReadonlySet<string> =>
-	new Set(
+/** The labels of the statements whose SQL writes: each alone, and each in a transaction that can write. */
+const writing = (c: FlightCase): ReadonlySet<string> => {
+	const framed = frameWrites(c.call.frame) ? c.call.statements : []
+	return new Set(
 		Arr.map(
-			c.call.kind === "framed"
-				? c.call.frame === "read"
-					? []
-					: c.call.statements
-				: [...c.call.alone, ...(c.call.frame === "read" ? [] : c.call.statements)],
+			c.call.kind === "framed" ? framed : [...c.call.alone, ...framed],
 			(planned) => planned.label
 		)
 	)
+}
 
 /** The SQL of each planned statement over the fixture's tables. */
 const sqlOver =
