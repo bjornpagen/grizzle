@@ -210,10 +210,17 @@ const EventName = Schema.String.check(
 )
 
 /**
- * How an event's data prints: `json`, the server's JSON text compacted, for data whose `contentMediaType` is JSON;
- * `text`, a JSON string, for any other.
+ * How JSON event data reads: `json`, one JSON text, printed compacted; or `{ json }`, one JSON text its
+ * `contentSchema` checks before it prints, the schema named by its store key, so the CLI fails on data the schema
+ * refuses rather than printing it.
  */
-const EventData = Schema.Literals(["json", "text"])
+const JsonData = Schema.Union([Schema.Literal("json"), Schema.Struct({ json: Schema.String })])
+
+/** How an event's data reads: `text`, printed as a JSON string, for data whose `contentMediaType` is not JSON; else JSON. */
+export const EventData = Schema.Union([Schema.Literal("text"), JsonData])
+
+/** How the data of an event a contract does not name prints: as text, or as JSON no schema checks. */
+const OtherData = Schema.Literals(["json", "text"])
 
 /**
  * Where a failure event's JSON data says that retrying is safe: the JSON Pointer into the data and the scalar it holds
@@ -232,7 +239,7 @@ export const RetryWhen = Schema.Struct({
  */
 export const StreamEvent = Schema.Union([
 	Schema.Struct({
-		data: Schema.Literal("json"),
+		data: JsonData,
 		name: EventName,
 		retryWhen: RetryWhen,
 		role: Schema.Literal("error")
@@ -256,7 +263,7 @@ export const StreamEvent = Schema.Union([
  */
 const EventOtherwise = Schema.Union([
 	Schema.TaggedStruct("Closed", {}),
-	Schema.TaggedStruct("Open", { data: EventData })
+	Schema.TaggedStruct("Open", { data: OtherData })
 ])
 
 /**

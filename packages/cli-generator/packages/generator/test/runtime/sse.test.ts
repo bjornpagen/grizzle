@@ -12,18 +12,22 @@
  *   Oracle: the contract's specification: each event's line, or its bytes, through the first stop event (a `ready` with
  *   a `next` is none, and only its `next` may follow it); after an `error` event the failure with the verdict its
  *   data's pointer gives; `unexpectedEvent` for an event a closed contract does not name or one other than the `next`
- *   its `ready` named, its bytes written first under the raw output; `truncated` for a stream whose contract names a role and that ends before either.
+ *   its `ready` named, its bytes written first under the raw output; `invalidData` for an event whose row checks its
+ *   data against a schema that refuses it, never printed as a line, its bytes written first under the raw output, as
+ *   they arrive; `truncated` for a stream whose contract names a role and that ends before either.
  *
  * Features: every line end, a CRLF and a character split across chunks, multi-line data, the default type, a comment,
  * an unknown field, a field without a colon, a block with no data, the byte order mark, malformed UTF-8, an id carried
  * on, retry digits with leading zeros, a body cut inside an event, a record over the bound; a stop at ready, a stream
  * followed past ready, an end, failures safe and never, invalid JSON data, a lifecycle cut short, an open stream to its
- * end, raw bytes, an undeclared event type, a ready read past to its next event, and an unexpected event.
+ * end, raw bytes, an undeclared event type, a ready read past to its next event, an unexpected event, and data its
+ * schema admits and refuses.
  *
  * Plants (~/.cache/effect-openapi-cli-generator/plants): sse-joins-across-blank-line.patch (a blank line dispatches
  * the event without clearing its data, so the next event's data joins it), sse-stops-before-ready.patch (the stream
  * stops one event before its stop point); and, applied to src/runtime-src/runtime/sse.ts, seen to fail and reverted, an
- * event outside a closed contract read as a text item, and a `ready` with a `next` taken as the stop point.
+ * event outside a closed contract read as a text item, a `ready` with a `next` taken as the stop point, and `admitted`
+ * answering true for every data (data a schema refuses printed).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -66,6 +70,7 @@ import {
 	type EventOutput,
 	type EventRow,
 	eventStream,
+	type RetryWhen,
 	hasLifecycle,
 	type Parsed,
 	sseParser,
@@ -592,11 +597,15 @@ const parseFeatures = (
 	return Arr.flatMap(features, ([feature, reached]) => (reached ? [feature] : []))
 }
 
-/** A JSON data value as the tokens it is written with, and what its `/error/retry` holds. */
+/**
+ * A JSON data value as the tokens it is written with, what its `/error/retry` holds, and whether the checked rows'
+ * schema (`ErrorData`) admits it.
+ */
 type JsonData = Readonly<{
 	tokens: Arr.NonEmptyReadonlyArray<string>
 	retry: "never" | "none" | "safe"
 	valid: boolean
+	admitted: boolean
 }>
 
 const errorTokens = (verdict: "never" | "safe"): Arr.NonEmptyReadonlyArray<string> => [
@@ -616,17 +625,53 @@ const errorTokens = (verdict: "never" | "safe"): Arr.NonEmptyReadonlyArray<strin
 ]
 
 const jsonData: Gen<JsonData> = element([
-	{ tokens: errorTokens("safe"), retry: "safe", valid: true },
-	{ tokens: errorTokens("never"), retry: "never", valid: true },
+	{ tokens: errorTokens("safe"), retry: "safe", valid: true, admitted: true },
+	{ tokens: errorTokens("never"), retry: "never", valid: true, admitted: true },
 	{
 		tokens: ["{", '"n"', ":", "9007199254740993", ",", '"s"', ":", '"a b"', "}"],
 		retry: "none",
-		valid: true
+		valid: true,
+		admitted: false
 	},
-	{ tokens: ["[", "1.50", ",", "-0e0", "]"], retry: "none", valid: true },
-	{ tokens: ["{", "}"], retry: "none", valid: true },
-	{ tokens: ["{", '"error"', ":"], retry: "none", valid: false }
+	{ tokens: ["[", "1.50", ",", "-0e0", "]"], retry: "none", valid: true, admitted: false },
+	{ tokens: ["{", "}"], retry: "none", valid: true, admitted: false },
+	{ tokens: ["{", '"error"', ":"], retry: "none", valid: false, admitted: false }
 ])
+
+/**
+ * The schema of the checked rows' data: an error of a kind and a retry, both objects closed, which admits the error
+ * data alone (JsonData admitted).
+ */
+const ErrorData = Schema.Struct({
+	error: Schema.Struct({ kind: Schema.String, retry: Schema.String })
+})
+
+/** How a model row's data reads: as the runtime's `EventData`, `checked` standing for JSON checked by `ErrorData`. */
+type ModelData = "json" | "text" | "checked"
+
+/** A contract row as the model draws it: the runtime's `EventRow` with its data a `ModelData`. */
+type ModelRow =
+	| Readonly<{ data: ModelData; role: "end" | "error" | "item" | "ready" }>
+	| Readonly<{ data: ModelData; next: string; role: "ready" }>
+	| Readonly<{ data: "json" | "checked"; retryWhen: RetryWhen; role: "error" }>
+
+/** A model data's runtime form: data checked against `ErrorData`, as the generated api names a domain schema. */
+const runtimeData = (data: ModelData): EventData =>
+	data === "checked" ? { json: ErrorData } : data
+
+/** A model row as the runtime's contract holds it. */
+const runtimeRow = (row: ModelRow): EventRow => {
+	if ("retryWhen" in row) {
+		return {
+			data: row.data === "checked" ? { json: ErrorData } : row.data,
+			retryWhen: row.retryWhen,
+			role: row.role
+		}
+	}
+	return "next" in row
+		? { data: runtimeData(row.data), next: row.next, role: row.role }
+		: { data: runtimeData(row.data), role: row.role }
+}
 
 /** One event of a stream under a contract: its type and data, written with drawn whitespace between JSON tokens. */
 type StreamEvent = Readonly<{
@@ -638,7 +683,7 @@ type StreamEvent = Readonly<{
 
 /** A stream under a contract: the contract's rows, the events, the stop point, the output and the chunk sizes. */
 type ControlCase = Readonly<{
-	rows: ReadonlyArray<readonly [string, EventRow]>
+	rows: ReadonlyArray<readonly [string, ModelRow]>
 	otherwise: EventOtherwise
 	events: ReadonlyArray<StreamEvent>
 	stopAt: StopAt
@@ -660,6 +705,8 @@ type ControlFeature =
 	| "undeclared event type"
 	| "ready read past to its next event"
 	| "unexpected event"
+	| "data its schema admits"
+	| "data its schema refuses"
 
 const declaredTypes: Arr.NonEmptyReadonlyArray<string> = [
 	"reset",
@@ -669,13 +716,13 @@ const declaredTypes: Arr.NonEmptyReadonlyArray<string> = [
 	"error"
 ]
 
-const row: Gen<EventRow> = (source) => {
-	const data = element<EventData>(["json", "text"])(source)
-	const role = element<EventRow["role"]>(["item", "ready", "end", "error"])(source)
+const row: Gen<ModelRow> = (source) => {
+	const data = element<ModelData>(["json", "text", "checked"])(source)
+	const role = element<ModelRow["role"]>(["item", "ready", "end", "error"])(source)
 	if (role === "ready" && boolean(source)) {
 		return { data, next: element(declaredTypes)(source), role }
 	}
-	return role === "error" && data === "json" && boolean(source)
+	return role === "error" && data !== "text" && boolean(source)
 		? { data, retryWhen: { pointer: "/error/retry", equals: "safe" }, role }
 		: { data, role }
 }
@@ -707,25 +754,27 @@ const controlCase: Gen<ControlCase> = (source) => ({
 })
 
 const contractOf = (control: ControlCase): EventContract => ({
-	events: Rec.fromEntries(control.rows),
+	events: Rec.fromEntries(
+		Arr.map(control.rows, ([type, found]) => [type, runtimeRow(found)] as const)
+	),
 	otherwise: control.otherwise
 })
 
 /** An event type's row: the contract's, an item of an open contract, or none under a closed one. */
-const rowOf = (control: ControlCase, type: string): Option.Option<EventRow> =>
-	Option.orElse(Rec.get(contractOf(control).events, type), () =>
+const rowOf = (control: ControlCase, type: string): Option.Option<ModelRow> =>
+	Option.orElse(Rec.get(Rec.fromEntries(control.rows), type), () =>
 		control.otherwise._tag === "Open"
-			? Option.some<EventRow>({ data: control.otherwise.data, role: "item" })
+			? Option.some<ModelRow>({ data: control.otherwise.data, role: "item" })
 			: Option.none()
 	)
 
 /** How an event type's data is written and printed: its row's, text where it has none. */
-const dataOf = (control: ControlCase, type: string): EventData =>
+const dataOf = (control: ControlCase, type: string): ModelData =>
 	Option.match(rowOf(control, type), { onNone: () => "text", onSome: (found) => found.data })
 
 /** An event's data as it is written: its JSON tokens with their gaps, or its text. */
 const writtenData = (control: ControlCase, event: StreamEvent): string =>
-	dataOf(control, event.type) === "json"
+	dataOf(control, event.type) !== "text"
 		? Arr.join(
 				Arr.map(event.json.tokens, (token, index) =>
 					index === 0
@@ -761,7 +810,7 @@ const outcome = (written: string, end: Expected["end"]): Expected => ({ written,
 const expectedLine = (control: ControlCase, event: StreamEvent) =>
 	Effect.gen(function* () {
 		const data =
-			dataOf(control, event.type) === "json"
+			dataOf(control, event.type) !== "text"
 				? Arr.join(event.json.tokens, "")
 				: yield* quoted(event.text)
 		return `{"data":${data},"event":${yield* quoted(event.type)}}\n`
@@ -775,7 +824,7 @@ const expectedOf = (control: ControlCase) =>
 		for (const [index, event] of control.events.entries()) {
 			const found =
 				Option.isSome(expected) && expected.value !== event.type
-					? Option.none<EventRow>()
+					? Option.none<ModelRow>()
 					: rowOf(control, event.type)
 			if (Option.isNone(found)) {
 				return outcome(
@@ -784,8 +833,14 @@ const expectedOf = (control: ControlCase) =>
 				)
 			}
 			const eventRow = found.value
+			if (eventRow.data === "checked" && event.json.valid && !event.json.admitted) {
+				return outcome(
+					control.output === "bytes" ? `${written}${eventText(control, event)}` : written,
+					{ kind: "stream error", reason: "invalidData", itemIndex: index }
+				)
+			}
 			expected = "next" in eventRow ? Option.some(eventRow.next) : Option.none()
-			const invalid = eventRow.data === "json" && !event.json.valid
+			const invalid = eventRow.data !== "text" && !event.json.valid
 			if (control.output === "lines" && invalid) {
 				return outcome(written, {
 					kind: "stream error",
@@ -866,7 +921,7 @@ const controlFeatures = (
 	control: ControlCase,
 	expected: Expected
 ): ReadonlyArray<ControlFeature> => {
-	const roleOf = (type: string): Option.Option<EventRow["role"]> =>
+	const roleOf = (type: string): Option.Option<ModelRow["role"]> =>
 		Option.map(rowOf(control, type), (found) => found.role)
 	const readyPassed = Arr.some(control.events, (event) =>
 		Option.exists(roleOf(event.type), (role) => role === "ready")
@@ -913,6 +968,19 @@ const controlFeatures = (
 		[
 			"unexpected event",
 			expected.end.kind === "stream error" && expected.end.reason === "unexpectedEvent"
+		],
+		[
+			"data its schema admits",
+			Option.exists(
+				Arr.head(control.events),
+				(first) =>
+					first.json.admitted &&
+					Option.exists(rowOf(control, first.type), (found) => found.data === "checked")
+			)
+		],
+		[
+			"data its schema refuses",
+			expected.end.kind === "stream error" && expected.end.reason === "invalidData"
 		]
 	]
 	return Arr.flatMap(features, ([feature, reached]) => (reached ? [feature] : []))
@@ -1007,7 +1075,9 @@ describe("an event stream", () => {
 								"raw bytes",
 								"undeclared event type",
 								"ready read past to its next event",
-								"unexpected event"
+								"unexpected event",
+								"data its schema admits",
+								"data its schema refuses"
 							],
 							{ cases: 2000, sense: notesOnly }
 						),

@@ -8,20 +8,24 @@
  * refused at operation scope, so a lifecycle is never guessed.
  *
  * Generated item schemas: unions of up to four branches, each written inline, behind a `$ref` or through `allOf`, its
- * event named by `const` or a one-member `enum` or not at all, its data JSON, text or undeclared, its `x-stream` absent,
+ * event named by `const` or a one-member `enum` or not at all, its data JSON (with a `contentSchema` or none, the
+ * row then naming that schema by its store key: inline, a bare `$ref` to a component, or a `$ref` beside an asserting
+ * keyword), text or undeclared, its `x-stream` absent,
  * one of its forms (a ready role with a `next` among them), or malformed. Oracle: the reading's specification, applied
- * to the generated branches.
+ * to the generated branches; and every key a row names for its data's schema is one the document's schema store
+ * (normalizeSchemas) holds, so the emitter finds the schema the data is checked against.
  *
  * Features: each placement, each union form, each finding, a contract with a retry rule, JSON data for other events,
  * the open contract, a closed contract, a ready role with its next event, a name repeated with the same row.
  *
  * Plants (~/.cache/effect-openapi-cli-generator/plants): event-stream-role-ignored.patch (a malformed `x-stream` reads
  * as no role); and, applied to src/normalize/event-stream.ts, seen to fail and reverted, a `next` naming no event
- * accepted, and a union whose every branch names its event read as open.
+ * accepted, a union whose every branch names its event read as open, dataOf ignoring a `contentSchema`, and schemas.ts
+ * sitesOf storing only a `contentSchema` that holds no `$ref` (the asserting reference's own key unstored).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
-import { array, constant, element, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
+import { array, constant, element, type Gen, map, oneOf, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
@@ -33,7 +37,8 @@ import { EventContract } from "#model/entities.ts"
 import { childPointer } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
 import { normalizeResponses } from "#normalize/responses.ts"
-import { resolve } from "#resolve/index.ts"
+import { normalizeSchemas } from "#normalize/schemas.ts"
+import { defaultLimits, resolve } from "#resolve/index.ts"
 
 /** How a branch is written: inline in the union, behind a `$ref` to a component, or through an `allOf` member. */
 type Placement = "inline" | "reference" | "composed"
@@ -56,9 +61,41 @@ type Role =
 type Branch = Readonly<{
 	placement: Placement
 	naming: Naming
-	data: "json" | "text" | "none"
+	data: DataForm
 	role: Role
 }>
+
+/**
+ * How a branch's data is declared: JSON, JSON with a `contentSchema` written inline, as a bare `$ref` to the component
+ * `Content`, or as that `$ref` beside an asserting keyword (`maxProperties`), text, or not at all.
+ */
+type DataForm =
+	| "json"
+	| "checked"
+	| "checked by reference"
+	| "checked by asserting reference"
+	| "text"
+	| "none"
+
+/**
+ * A branch's data form: JSON, text and undeclared each three times as often as each checked form, since two checked
+ * branches of one name read alike only through a bare `$ref` (an inline schema and an asserting `$ref` are each their
+ * own site's), and a name repeated alike stays as reachable as the other features.
+ */
+const dataForm: Gen<DataForm> = weighted([
+	[3, constant("json")],
+	[1, constant("checked")],
+	[1, constant("checked by reference")],
+	[1, constant("checked by asserting reference")],
+	[3, constant("text")],
+	[3, constant("none")]
+])
+
+/** Whether a data form declares JSON. */
+const isJsonForm = (form: DataForm): boolean => form !== "text" && form !== "none"
+
+/** The component a referring `contentSchema` names. */
+const contentComponent = "Content"
 
 /** A generated item schema: a union of branches, or one branch standing alone. */
 type ItemSchema = Readonly<{
@@ -84,6 +121,9 @@ type ReadingFeature =
 	| "closed contract"
 	| "ready role with its next event"
 	| "next naming no event"
+	| "data its contentSchema checks"
+	| "data a bare $ref checks"
+	| "data a $ref beside an asserting keyword checks"
 
 const eventName: Gen<string> = element(["ready", "end", "error", "upsert"])
 
@@ -116,7 +156,7 @@ const role: Gen<Role> = oneOf([
 const branch: Gen<Branch> = (source) => ({
 	placement: element<Placement>(["inline", "reference", "composed"])(source),
 	naming: naming(source),
-	data: element<Branch["data"]>(["json", "text", "none"])(source),
+	data: dataForm(source),
 	role: role(source)
 })
 
@@ -146,6 +186,23 @@ const roleValue = (value: Role): Option.Option<Json> => {
 	}
 }
 
+/** The `contentSchema` member a data form writes beside its media type, if any. */
+const contentSchemaOf = (form: DataForm): Readonly<Record<string, Json>> => {
+	const ref = `#/components/schemas/${contentComponent}`
+	switch (form) {
+		case "checked":
+			return { contentSchema: { type: "object" } }
+		case "checked by reference":
+			return { contentSchema: { $ref: ref } }
+		case "checked by asserting reference":
+			return { contentSchema: { $ref: ref, maxProperties: 3 } }
+		case "json":
+		case "text":
+		case "none":
+			return {}
+	}
+}
+
 /** The `properties` a branch declares. */
 const propertiesOf = (written: Branch): Json => ({
 	...(written.naming.kind === "const" ? { event: { const: written.naming.name } } : {}),
@@ -155,7 +212,8 @@ const propertiesOf = (written: Branch): Json => ({
 		: {
 				data: {
 					type: "string",
-					contentMediaType: written.data === "json" ? "application/json" : "text/plain"
+					contentMediaType: written.data === "text" ? "text/plain" : "application/json",
+					...contentSchemaOf(written.data)
 				}
 			})
 })
@@ -212,7 +270,7 @@ const documentOf = (schema: ItemSchema): Json => {
 	return {
 		openapi: "3.2.0",
 		info: { title: "t", version: "1" },
-		components: { schemas: components },
+		components: { schemas: { ...components, [contentComponent]: { type: "object" } } },
 		paths: {
 			"/a": {
 				get: {
@@ -244,26 +302,63 @@ type Expected =
 const nameOf = (written: Branch): Option.Option<string> =>
 	written.naming.kind === "none" ? Option.none() : Option.some(written.naming.name)
 
-const dataOf = (written: Branch): "json" | "text" => (written.data === "json" ? "json" : "text")
+/**
+ * Where branch `index`'s `data` property's `contentSchema` stands, and so its store key (resolve/canonical.ts defsKey,
+ * the pointer of a site in the entry document): in the union where the branch is inline, else in its component.
+ */
+const contentSchemaPointer = (schema: ItemSchema, written: Branch, index: number): string =>
+	childPointer(
+		childPointer(
+			childPointer(
+				written.placement === "inline"
+					? branchPointer(schema, written, index)
+					: `/components/schemas/${componentName(index)}`,
+				"properties"
+			),
+			"data"
+		),
+		"contentSchema"
+	)
+
+/**
+ * How a branch's data reads: text, JSON, or JSON its `contentSchema` checks, named by that schema's store key: the
+ * use site's own (its pointer) for an inline schema and for a `$ref` beside an asserting keyword, the target
+ * component's name for a bare `$ref`.
+ */
+const dataOf = (schema: ItemSchema, written: Branch, index: number): Row["data"] => {
+	switch (written.data) {
+		case "checked":
+		case "checked by asserting reference":
+			return { json: contentSchemaPointer(schema, written, index) }
+		case "checked by reference":
+			return { json: contentComponent }
+		case "json":
+			return "json"
+		case "text":
+		case "none":
+			return "text"
+	}
+}
 
 /** A named branch's row. */
-const rowOf = (written: Branch, name: string): Row => {
+const rowOf = (schema: ItemSchema, written: Branch, index: number, name: string): Row => {
+	const data = dataOf(schema, written, index)
 	switch (written.role.kind) {
 		case "none":
-			return { data: dataOf(written), name, role: "item" }
+			return { data, name, role: "item" }
 		case "role":
-			return { data: dataOf(written), name, role: written.role.role }
+			return { data, name, role: written.role.role }
 		case "retry":
 			return {
-				data: "json",
+				data: data === "text" ? "json" : data,
 				name,
 				retryWhen: { equals: written.role.equals, pointer: "/error/retry" },
 				role: "error"
 			}
 		case "next":
-			return { data: dataOf(written), name, next: written.role.next, role: "ready" }
+			return { data, name, next: written.role.next, role: "ready" }
 		case "malformed":
-			return { data: dataOf(written), name, role: "item" }
+			return { data, name, role: "item" }
 	}
 }
 
@@ -275,7 +370,7 @@ const branchFinding = (written: Branch): Option.Option<string> => {
 	if (written.role.kind !== "none" && written.naming.kind === "none") {
 		return Option.some("MED-18/stream-role-unnamed")
 	}
-	return written.role.kind === "retry" && written.data !== "json"
+	return written.role.kind === "retry" && !isJsonForm(written.data)
 		? Option.some("MED-18/stream-retry-not-json")
 		: Option.none()
 }
@@ -285,7 +380,9 @@ type Row = (typeof EventContract.Encoded)["events"][number]
 
 /** Whether two rows say the same of their event: its data, its role, and its retry rule. */
 const sameRow = (left: Row, right: Row): boolean =>
-	left.data === right.data &&
+	(typeof left.data === "string" || typeof right.data === "string"
+		? left.data === right.data
+		: left.data.json === right.data.json) &&
 	left.role === right.role &&
 	("retryWhen" in left
 		? "retryWhen" in right &&
@@ -311,7 +408,7 @@ const expectedOf = (schema: ItemSchema): Expected => {
 	const named = Arr.flatMap(branchesOf(schema), (written, index) =>
 		Option.match(nameOf(written), {
 			onNone: () => [],
-			onSome: (name) => [{ index, row: rowOf(written, name), written }]
+			onSome: (name) => [{ index, row: rowOf(schema, written, index, name), written }]
 		})
 	)
 	const twice = Arr.findFirst(named, (each, at) =>
@@ -353,7 +450,8 @@ const expectedOf = (schema: ItemSchema): Expected => {
 		return { kind: "contract", contract: Option.some({ events, otherwise: { _tag: "Closed" } }) }
 	}
 	const data =
-		Arr.isReadonlyArrayNonEmpty(unnamed) && Arr.every(unnamed, (written) => written.data === "json")
+		Arr.isReadonlyArrayNonEmpty(unnamed) &&
+		Arr.every(unnamed, (written) => isJsonForm(written.data))
 			? "json"
 			: "text"
 	return {
@@ -367,11 +465,37 @@ const expectedOf = (schema: ItemSchema): Expected => {
 
 const encodeContract = Schema.encodeEffect(EventContract)
 
+/** The document resolved as the generator resolves it. */
+const resolutionOf = (schema: ItemSchema) =>
+	Effect.flatMap(Schema.decodeEffect(DocumentUri)("file:///spec/openapi.json"), (document) =>
+		resolve({ document, line: "3.2", value: documentOf(schema) })
+	)
+
+/**
+ * Every key a contract's rows name for their data's schema that the document's schema store (normalize/schemas.ts
+ * normalizeSchemas) does not hold: none, or the emitter could not find the schema it checks the data against.
+ */
+const unstoredKeys = (schema: ItemSchema, expected: Expected) =>
+	Effect.gen(function* () {
+		const resolution = yield* resolutionOf(schema)
+		const stored = (yield* normalizeSchemas(resolution, defaultLimits)).definitions
+		const named =
+			expected.kind === "contract"
+				? Option.match(expected.contract, {
+						onNone: () => [],
+						onSome: (contract) =>
+							Arr.flatMap(contract.events, (event) =>
+								typeof event.data === "string" ? [] : [event.data.json]
+							)
+					})
+				: []
+		return Arr.filter(named, (key) => !stored.has(key))
+	})
+
 /** The reading the generator made: the contract its alternative carries, or its first refusal. */
 const actualOf = (schema: ItemSchema) =>
 	Effect.gen(function* () {
-		const document = yield* Schema.decodeEffect(DocumentUri)("file:///spec/openapi.json")
-		const resolution = yield* resolve({ document, line: "3.2", value: documentOf(schema) })
+		const resolution = yield* resolutionOf(schema)
 		const normalized = yield* normalizeResponses(resolution, "/paths/~1a/get/responses", {
 			method: "GET",
 			path: "/a"
@@ -404,6 +528,12 @@ const actualOf = (schema: ItemSchema) =>
 
 /** The features a generated item schema reaches, read from its specification. */
 const readingFeatures = (schema: ItemSchema, expected: Expected): ReadonlyArray<ReadingFeature> => {
+	const namedRead = (form: DataForm) =>
+		expected.kind === "contract" &&
+		Arr.some(
+			branchesOf(schema),
+			(written) => written.data === form && written.naming.kind !== "none"
+		)
 	const placed = (placement: Placement) =>
 		Arr.some(branchesOf(schema), (written) => written.placement === placement)
 	const names = Arr.getSomes(Arr.map(branchesOf(schema), nameOf))
@@ -466,7 +596,16 @@ const readingFeatures = (schema: ItemSchema, expected: Expected): ReadonlyArray<
 			expected.kind === "refused" &&
 				expected.code === "MED-18/stream-role-invalid" &&
 				!Arr.some(branchesOf(schema), (written) => written.role.kind === "malformed")
-		]
+		],
+		[
+			"data its contentSchema checks",
+			expected.kind === "contract" &&
+				Option.exists(expected.contract, (contract) =>
+					Arr.some(contract.events, (event) => typeof event.data !== "string")
+				)
+		],
+		["data a bare $ref checks", namedRead("checked by reference")],
+		["data a $ref beside an asserting keyword checks", namedRead("checked by asserting reference")]
 	]
 	return Arr.flatMap(features, ([feature, reached]) => (reached ? [feature] : []))
 }
@@ -503,7 +642,10 @@ describe("an SSE response's event contract", () => {
 								"open contract",
 								"closed contract",
 								"ready role with its next event",
-								"next naming no event"
+								"next naming no event",
+								"data its contentSchema checks",
+								"data a bare $ref checks",
+								"data a $ref beside an asserting keyword checks"
 							],
 							{ cases: 2000, sense: notesOnly }
 						),
@@ -520,6 +662,8 @@ describe("an SSE response's event contract", () => {
 							const actual = yield* actualOf(schema)
 							c.noteAll(readingFeatures(schema, expected))
 							deepStrictEqual(actual, expected)
+							const unstored = yield* unstoredKeys(schema, actual)
+							deepStrictEqual(unstored, [], "every data schema a row names is stored")
 						})
 				)
 			)

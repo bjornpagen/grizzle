@@ -348,6 +348,23 @@ const requestRoots = (api: Api): readonly string[] =>
 		])
 	)
 
+/**
+ * The store keys of the schemas an SSE event's data is checked against (normalize/event-stream.ts dataOf): roots of the
+ * domain module beside the request roots, so each event row can name its schema there.
+ */
+const eventRoots = (api: Api): readonly string[] =>
+	Arr.dedupe(
+		Arr.flatMap(api.operations, (operation) =>
+			Arr.flatMap(operation.responses, (response) =>
+				Arr.flatMap(response.alternatives, (alternative) =>
+					Arr.flatMap(alternative.events?.events ?? [], (event) =>
+						typeof event.data === "string" ? [] : [event.data.json]
+					)
+				)
+			)
+		)
+	)
+
 interface CommandAt {
 	readonly command: PlannedCommand
 	readonly path: readonly string[]
@@ -606,7 +623,7 @@ export const generate = (
 		const schemas = yield* normalizeSchemas(resolution, defaultLimits)
 		const domain = yield* emitDomainSchemas(
 			schemas.validation.definitions,
-			requestRoots(api),
+			[...requestRoots(api), ...eventRoots(api)],
 			plan.domain,
 			defaultLimits
 		)

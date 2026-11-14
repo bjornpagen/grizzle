@@ -4,8 +4,10 @@ import {
 	Effect,
 	Option,
 	Predicate,
+	Result,
 	Record as Rec,
 	Schema,
+	SchemaParser,
 	Stream,
 	String as Str
 } from "effect"
@@ -321,10 +323,14 @@ export const sseParser = (maxRecordBytes: number): SseParser => {
 }
 
 /**
- * How an event's data prints: `json`, the server's JSON text with its insignificant whitespace removed and nothing else
- * changed; `text`, a JSON string.
+ * How JSON event data reads: `json`, the server's JSON text with its insignificant whitespace removed and nothing else
+ * changed; or `{ json }`, such a text checked first against the schema of its `contentSchema` (domain/schemas.ts), so
+ * data the schema refuses ends the stream (`invalidData`) and never prints.
  */
-export type EventData = "json" | "text"
+export type JsonData = "json" | { readonly json: Schema.Top }
+
+/** How an event's data prints: `text`, a JSON string; else as JSON (`JsonData`). */
+export type EventData = "text" | JsonData
 
 /**
  * Where a failure event's JSON data says that retrying is safe: the JSON Pointer (RFC 6901) into the data, and the
@@ -343,7 +349,7 @@ export interface RetryWhen {
 export type EventRow =
 	| { readonly data: EventData; readonly role: "end" | "error" | "item" | "ready" }
 	| { readonly data: EventData; readonly next: string; readonly role: "ready" }
-	| { readonly data: "json"; readonly retryWhen: RetryWhen; readonly role: "error" }
+	| { readonly data: JsonData; readonly retryWhen: RetryWhen; readonly role: "error" }
 
 /**
  * What an event of a type the contract does not name is: a violation of a `Closed` contract, which names every event
@@ -351,7 +357,7 @@ export type EventRow =
  */
 export type EventOtherwise =
 	| { readonly _tag: "Closed" }
-	| { readonly _tag: "Open"; readonly data: EventData }
+	| { readonly _tag: "Open"; readonly data: "json" | "text" }
 
 /**
  * An SSE response's events by type, from the media type's `itemSchema`, and what an event of a type it does not name
@@ -522,7 +528,7 @@ const eventLine = Effect.fnUntraced(function* eventLine(
 	itemIndex: number
 ) {
 	const text =
-		data === "json"
+		data !== "text"
 			? yield* Effect.fromOption(compactJsonText(event.data)).pipe(
 					Effect.mapError(() => ResponseStreamError.make({ itemIndex, reason: "invalidFraming" }))
 				)
@@ -607,6 +613,16 @@ const eventSteps = (
 	}
 
 	const row = found.value
+	if (!admitted(row.data, event.data)) {
+		reading.ended = true
+		const failure: Step = {
+			_tag: "Fail",
+			failure: ResponseStreamError.make({ itemIndex, reason: "invalidData" })
+		}
+
+		return settings.output === "bytes" ? [{ _tag: "Bytes", bytes: received }, failure] : [failure]
+	}
+
 	const last =
 		row.role === "end" || (row.role === "ready" && !("next" in row) && settings.stopAt === "ready")
 	reading.index += 1
@@ -624,7 +640,7 @@ const eventSteps = (
 						data: event.data,
 						event: event.type,
 						itemIndex,
-						json: row.data === "json" ? compactJsonText(event.data) : Option.none(),
+						json: row.data === "text" ? Option.none() : compactJsonText(event.data),
 						reconnect: reading.reconnect,
 						retrySafe: retrySafe(event, row)
 					})
@@ -632,6 +648,23 @@ const eventSteps = (
 			]
 		: [step]
 }
+
+/** The parse options event data is checked under: a member no property of a closed object declares is refused. */
+const closedObjects = { onExcessProperty: "error" } as const
+
+/**
+ * Whether an event's data is what its row admits: any data where no schema checks it; else one JSON text the schema
+ * decodes, every closed object's excess member refused. JSON that is no JSON text is `eventLine`'s to refuse.
+ */
+const admitted = (data: EventData, text: string): boolean =>
+	typeof data === "string" ||
+	Option.match(decodeJson(text), {
+		onNone: () => true,
+		onSome: (value) =>
+			Result.isSuccess(
+				SchemaParser.decodeUnknownResult(Schema.toType(data.json))(value, closedObjects)
+			)
+	})
 
 /**
  * The steps one chunk yields: each event's steps in order until the stream ends, then, under `bytes`, the chunk's

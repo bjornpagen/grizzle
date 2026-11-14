@@ -9,7 +9,7 @@
   "counts": {
     "informational": 9,
     "nonStandard": 0,
-    "notices": 93,
+    "notices": 96,
     "operations": {
       "generated": 5,
       "refused": 0,
@@ -46,6 +46,11 @@
       "row": "SCH-57"
     },
     {
+      "code": "SCH-28/not-asserted",
+      "pointer": "/components/schemas/author.documentScan.reset/properties/data/contentSchema/properties/key/const",
+      "row": "SCH-28"
+    },
+    {
       "code": "SCH-57/not-asserted",
       "pointer": "/components/schemas/author.documentScan.upsert/properties/data/contentSchema",
       "row": "SCH-57"
@@ -71,6 +76,11 @@
       "row": "SCH-57"
     },
     {
+      "code": "SCH-28/not-asserted",
+      "pointer": "/components/schemas/author.packageOf.reset/properties/data/contentSchema/properties/key/const",
+      "row": "SCH-28"
+    },
+    {
       "code": "SCH-57/not-asserted",
       "pointer": "/components/schemas/author.packageOf.upsert/properties/data/contentSchema",
       "row": "SCH-57"
@@ -94,6 +104,11 @@
       "code": "SCH-57/not-asserted",
       "pointer": "/components/schemas/shared.453dpgo5kgqsc3f6phqgvh6bdh3r7l7n6ge6kdtwtqqbo2zwwebq/properties/data/contentSchema",
       "row": "SCH-57"
+    },
+    {
+      "code": "SCH-28/not-asserted",
+      "pointer": "/components/schemas/shared.453dpgo5kgqsc3f6phqgvh6bdh3r7l7n6ge6kdtwtqqbo2zwwebq/properties/data/contentSchema/properties/key/const",
+      "row": "SCH-28"
     },
     {
       "code": "SCH-37/not-asserted",

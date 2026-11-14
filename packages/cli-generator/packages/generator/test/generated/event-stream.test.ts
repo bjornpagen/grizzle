@@ -21,19 +21,34 @@
  * reset, its ready, its end), and without one it exits 5 after one call; a cut write, which may have committed, exits
  * 5 after one call whatever the budget.
  *
+ * Every event's data is checked against its event's `contentSchema` before it prints, so the scripted data is what the
+ * fixture's schemas admit; an exhaustion sends one event of each type a read sends whose data its schema refuses, and
+ * the command must end with exit 5 (`invalidData`) printing nothing of it. The feed's draws aim at a pending feature
+ * (Case.steering).
+ *
  * Features: a stop at ready, a stream followed to its end, an interrupted stream, data across lines, a comment, a write
  * that splits an event; each failure verdict with and without a budget, on the read and on the write; a cut read and a
- * cut write, each with and without a budget.
+ * cut write, each with and without a budget; refused data of each event type.
  *
  * Plants (~/.cache/effect-openapi-cli-generator/plants): sse-stops-before-ready.patch (the stream stops one event before
  * its stop point), event-retry-without-budget.patch (a retry-safe error event retries with no `--retries`),
  * constant-not-sent.patch (a constant parameter is sent empty), output.ts renderErrorJson printing a failure event's
- * data as the `body` string (local, reverted), and output.ts send treating every cut stream as a read's, and none
- * (local, reverted: the cut write is called again under a budget; the cut read exits 5).
+ * data as the `body` string (local, reverted), output.ts send treating every cut stream as a read's, and none
+ * (local, reverted: the cut write is called again under a budget; the cut read exits 5), and api.ts eventDataExpr
+ * naming no schema for checked data (local, reverted: refused data printed).
  */
-import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { type Case as SearchCase, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
-import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	weighted
+} from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
@@ -251,11 +266,12 @@ type Feed = Readonly<{
 }>
 
 /**
- * Event data as grizzle spells it on the wire: a reset's key fields; a row whose uuid, int8, money and bytes are
- * strings, whose code is an enum member, and whose int4 is a number; a removed row's key.
+ * Event data as grizzle spells it on the wire, each as the fixture's `contentSchema` of its event admits it, since the
+ * CLI checks it there: a reset's key fields, none for the key read `postPage`; a row whose uuid, int8, money and bytes
+ * are strings, whose code is an enum member, and whose int4 is a number; a removed row's key, none.
  */
 const tokenSets: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<string>> = [
-	["{", '"key"', ":", "[", '"id"', "]", "}"],
+	["{", '"key"', ":", "[", "]", "}"],
 	[
 		"{",
 		'"row"',
@@ -300,13 +316,19 @@ const tokenSets: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<string>> = 
 		"}",
 		"}"
 	],
-	["{", '"key"', ":", "[", '"6f1c2a4e-0b7d-4c1e-9a3f-2d5e8b7c1a90"', "]", "}"]
+	["{", '"key"', ":", "[", "]", "}"]
 ]
 
-const sentEvent: Gen<SentEvent> = (source) => ({
-	type: element<SentEvent["type"]>(["reset", "upsert", "remove"])(source),
-	tokens: element(tokenSets)(source)
-})
+/** Each item event's data, as the fixture's `contentSchema` of that event admits it. */
+const tokensOf = (type: SentEvent["type"]): Arr.NonEmptyReadonlyArray<string> =>
+	Option.getOrElse(Arr.get(tokenSets, type === "reset" ? 0 : type === "upsert" ? 1 : 2), () =>
+		Arr.headNonEmpty(tokenSets)
+	)
+
+const sentEvent: Gen<SentEvent> = (source) => {
+	const type = element<SentEvent["type"]>(["reset", "upsert", "remove"])(source)
+	return { type, tokens: tokensOf(type) }
+}
 
 const feed: Gen<Feed> = (source) => ({
 	before: array(sentEvent, { min: 0, max: 3 })(source),
@@ -317,6 +339,64 @@ const feed: Gen<Feed> = (source) => ({
 	writes: int(1, 3)(source),
 	follow: boolean(source)
 })
+
+/** A feed made to reach `feature`, every other choice drawn. */
+const feedFor =
+	(feature: FeedFeature): Gen<Feed> =>
+	(source) => {
+		const drawnFeed = feed(source)
+		switch (feature) {
+			case "stopped at ready":
+				return { ...drawnFeed, follow: false }
+			case "followed to its end":
+				return { ...drawnFeed, follow: true, ends: true }
+			case "interrupted while following":
+				return { ...drawnFeed, follow: true, ends: false }
+			case "data across lines":
+				return {
+					...drawnFeed,
+					before: [{ type: "upsert", tokens: tokensOf("upsert") }, ...drawnFeed.before],
+					gaps: ["\n", ...Arr.drop(drawnFeed.gaps, 1)]
+				}
+			case "a comment":
+				return { ...drawnFeed, comments: true }
+			case "a write that splits an event":
+				return { ...drawnFeed, writes: int(2, 3)(source) }
+		}
+	}
+
+const FEED_FEATURES: Arr.NonEmptyReadonlyArray<FeedFeature> = [
+	"stopped at ready",
+	"followed to its end",
+	"interrupted while following",
+	"data across lines",
+	"a comment",
+	"a write that splits an event"
+]
+
+/** A focus, or none, each half the time: none draws any feed. */
+const FEED_FOCUS: Gen<Option.Option<FeedFeature>> = weighted([
+	[1, constant(Option.none())],
+	[1, map(element(FEED_FEATURES), Option.some)]
+])
+
+/** The feed a case sends: while features are pending, one aimed at one of those (Case.steering); otherwise its focus's. */
+const aimedFeed = (focus: Option.Option<FeedFeature>, k: SearchCase<FeedFeature>): Gen<Feed> =>
+	Option.match(
+		Option.orElse(
+			Option.flatMap(k.steering, (pending) =>
+				Option.map(
+					Arr.match(
+						Arr.filter(FEED_FEATURES, (feature) => pending.names(feature)),
+						{ onEmpty: () => Option.none(), onNonEmpty: Option.some }
+					),
+					(pendingFeatures) => k.draw(element(pendingFeatures))
+				)
+			),
+			() => focus
+		),
+		{ onNone: () => feed, onSome: feedFor }
+	)
 
 /** An event's data as written: its tokens with the feed's gaps between them, a gap with a line feed splitting lines. */
 const writtenData = (
@@ -442,15 +522,18 @@ type FailureFeature =
 const failureFeature = (failure: FailureCase): FailureFeature =>
 	`${failure.verdict} ${Option.isSome(failure.retries) ? "with" : "without"} a budget on ${failure.command}`
 
+/** The CallError kind the fixture's error schema pairs with a verdict: `transient` is safe, `stale` never. */
+const kindOf = (verdict: string): string => (verdict === "safe" ? "transient" : "stale")
+
 /** The error event's text for a verdict. */
 const errorText = (verdict: string): string =>
-	`event: error\ndata: {"error":{"kind":"transient","retry":"${verdict}","message":"try again"}}\n\n`
+	`event: error\ndata: {"error":{"kind":"${kindOf(verdict)}","retry":"${verdict}","message":"try again"}}\n\n`
 
 /** The first item each failing call sends before its error: a read's reset, a write's outcome. */
 const firstItem = (command: FailureCase["command"]): readonly [string, string] =>
 	command === "post-page"
-		? ["reset", 'event: reset\ndata: {"key":["id"]}\n\n']
-		: ["outcome", 'event: outcome\ndata: {"outcome":{"kind":"unchanged","reads":[]}}\n\n']
+		? ["reset", 'event: reset\ndata: {"key":[]}\n\n']
+		: ["outcome", 'event: outcome\ndata: {"outcome":{"kind":"unchanged","reads":{}}}\n\n']
 
 const ErrorLine = Schema.fromJsonString(
 	Schema.Struct({
@@ -460,8 +543,32 @@ const ErrorLine = Schema.fromJsonString(
 
 /** The error event's data as a JSON value, which `--error-format json` prints as `data`. */
 const errorData = (verdict: string): Schema.Json => ({
-	error: { kind: "transient", retry: verdict, message: "try again" }
+	error: { kind: kindOf(verdict), retry: verdict, message: "try again" }
 })
+
+/**
+ * An event whose data its `contentSchema` in the fixture refuses, one of each type a read sends: a reset with a member
+ * its closed object does not declare, an upsert without its row's members, a remove of a key of one column, a ready
+ * with a member, and an error whose kind the schema pairs with the other retry. (The reset's `const` key is not one the
+ * CLI asserts, SCH-28, so its fault is the excess member.)
+ */
+type RefusedData = "reset" | "upsert" | "remove" | "ready" | "error"
+
+const refusedText: Readonly<Record<RefusedData, string>> = {
+	reset: 'event: reset\ndata: {"key":[],"fields":["id"]}\n\n',
+	upsert: 'event: upsert\ndata: {"row":{"id":"6f1c2a4e-0b7d-4c1e-9a3f-2d5e8b7c1a90"}}\n\n',
+	remove: 'event: remove\ndata: {"key":[1]}\n\n',
+	ready: 'event: ready\ndata: {"more":true}\n\n',
+	error: 'event: error\ndata: {"error":{"kind":"stale","retry":"safe","message":"m"}}\n\n'
+}
+
+const refusedData: Gen<RefusedData> = element<RefusedData>([
+	"reset",
+	"upsert",
+	"remove",
+	"ready",
+	"error"
+])
 
 /** A cut case: the command whose stream is cut, and the caller's `--retries`. */
 type CutCase = Readonly<{ command: FailureCase["command"]; retries: Option.Option<number> }>
@@ -477,9 +584,9 @@ const cutFeature = (cut: CutCase): CutFeature =>
 	`a cut ${cut.command === "post-page" ? "read" : "write"} ${Option.isSome(cut.retries) ? "with" : "without"} a budget`
 
 /** The read's reset, ready and end, and the write's outcome, as the server writes them and the CLI prints them. */
-const resetText = 'event: reset\ndata: {"key":["id"]}\n\n'
+const resetText = 'event: reset\ndata: {"key":[]}\n\n'
 
-const outcomeText = 'event: outcome\ndata: {"outcome":{"kind":"unchanged","reads":[]}}\n\n'
+const outcomeText = 'event: outcome\ndata: {"outcome":{"kind":"unchanged","reads":{}}}\n\n'
 
 const environment = Layer.mergeAll(siteLayer, serverLayer).pipe(
 	Layer.provideMerge(
@@ -504,19 +611,9 @@ layer(environment, { timeout: Duration.minutes(5) })(
 								kind: "specification",
 								name: "the events' own lines, through the stop point the command's flags name"
 							},
-							draw: drawn(feed),
+							draw: drawn(FEED_FOCUS),
 							literal: Formatter.format,
-							coverage: required<FeedFeature>(
-								[
-									"stopped at ready",
-									"followed to its end",
-									"interrupted while following",
-									"data across lines",
-									"a comment",
-									"a write that splits an event"
-								],
-								{ cases: 16, sense: notesOnly }
-							),
+							coverage: required<FeedFeature>(FEED_FEATURES, { cases: 16, sense: notesOnly }),
 							kept: [],
 							runs: 4,
 							shrink: completeShrink,
@@ -524,8 +621,9 @@ layer(environment, { timeout: Duration.minutes(5) })(
 							steerEvery: 4,
 							caseHang: Duration.seconds(60)
 						},
-						(sent, c) =>
+						(focus, c) =>
 							Effect.gen(function* () {
+								const sent = c.draw(aimedFeed(focus, c))
 								const server = yield* Server
 								yield* server.script([
 									{ writes: writesOf(bodyOf(sent), sent.writes), close: sent.ends }
@@ -612,7 +710,7 @@ layer(environment, { timeout: Duration.minutes(5) })(
 								const item = yield* lineOf(
 									itemType,
 									failure.command === "post-page"
-										? ["{", '"key"', ":", "[", '"id"', "]", "}"]
+										? ["{", '"key"', ":", "[", "]", "}"]
 										: [
 												"{",
 												'"outcome"',
@@ -624,8 +722,8 @@ layer(environment, { timeout: Duration.minutes(5) })(
 												",",
 												'"reads"',
 												":",
-												"[",
-												"]",
+												"{",
+												"}",
 												"}",
 												"}"
 											]
@@ -637,7 +735,7 @@ layer(environment, { timeout: Duration.minutes(5) })(
 									"{",
 									'"kind"',
 									":",
-									'"transient"',
+									`"${kindOf(failure.verdict)}"`,
 									",",
 									'"retry"',
 									":",
@@ -698,6 +796,50 @@ layer(environment, { timeout: Duration.minutes(5) })(
 					)
 				),
 			Duration.toMillis(Duration.minutes(5))
+		)
+
+		it.effect(
+			"ends with exit 5 at an event whose data its contentSchema refuses, printing nothing of it",
+			(ctx) =>
+				searched(
+					ctx,
+					exhaust(
+						{
+							suite: "generated/event-stream-refused-data",
+							oracle: {
+								kind: "specification",
+								name: "the event's contentSchema: data it refuses ends the stream with invalidData, exit 5, and is never printed"
+							},
+							box: "the read sent one event of each type whose data its contentSchema refuses",
+							concurrency: 1,
+							generator: refusedData,
+							literal: Formatter.format,
+							coverage: requiredInSpace<RefusedData>([
+								"reset",
+								"upsert",
+								"remove",
+								"ready",
+								"error"
+							]),
+							caseHang: Duration.seconds(60)
+						},
+						(refused, c) =>
+							Effect.gen(function* () {
+								const server = yield* Server
+								yield* server.script([{ writes: [refusedText[refused]], close: true }])
+								const run = yield* runCli(readArgs(server.origin, false), Option.none())
+								c.note(refused)
+								deepStrictEqual(
+									{
+										exitCode: run.exitCode,
+										stdout: run.stdout,
+										invalidData: Str.includes("invalidData")(run.stderr)
+									},
+									{ exitCode: 5, stdout: "", invalidData: true }
+								)
+							})
+					)
+				)
 		)
 
 		it.effect(
@@ -762,7 +904,7 @@ layer(environment, { timeout: Duration.minutes(5) })(
 									],
 									Option.none()
 								)
-								const reset = yield* lineOf("reset", ["{", '"key"', ":", "[", '"id"', "]", "}"])
+								const reset = yield* lineOf("reset", ["{", '"key"', ":", "[", "]", "}"])
 								const ready = yield* lineOf("ready", ["{", "}"])
 								const end = yield* lineOf("end", ["{", "}"])
 								const outcome = yield* lineOf("outcome", [
@@ -776,8 +918,8 @@ layer(environment, { timeout: Duration.minutes(5) })(
 									",",
 									'"reads"',
 									":",
-									"[",
-									"]",
+									"{",
+									"}",
 									"}",
 									"}"
 								])

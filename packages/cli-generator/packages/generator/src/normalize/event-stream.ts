@@ -1,7 +1,8 @@
 import { Array as Arr, Option, Record as Rec, Result, Schema } from "effect"
-import type { EventContract } from "#model/entities.ts"
+import type { EventContract, EventData } from "#model/entities.ts"
 import { RetryWhen, StreamEvent } from "#model/entities.ts"
 import { childKey, nodeOption, settle } from "#normalize/document-set.ts"
+import { schemaKeyAt } from "#normalize/schemas.ts"
 import { keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
 import type { Resolution } from "#resolve/index.ts"
@@ -33,7 +34,10 @@ const Constant = Schema.Struct({
 	enum: Schema.optionalKey(Schema.Array(Schema.Unknown))
 })
 
-const ContentMedia = Schema.Struct({ contentMediaType: Schema.optionalKey(Schema.String) })
+const ContentMedia = Schema.Struct({
+	contentMediaType: Schema.optionalKey(Schema.String),
+	contentSchema: Schema.optionalKey(Schema.Unknown)
+})
 
 const Annotated = Schema.Struct({ "x-stream": Schema.optionalKey(Schema.Unknown) })
 
@@ -63,12 +67,16 @@ const decodeRole = Schema.decodeUnknownOption(StreamRole, strict)
 
 const decodeName = Schema.decodeUnknownOption(Schema.String)
 
+/** Whether two events' data read alike: both text, both JSON no schema checks, or both JSON one schema checks. */
+const sameData = (left: typeof EventData.Type, right: typeof EventData.Type): boolean =>
+	typeof left === "string" || typeof right === "string" ? left === right : left.json === right.json
+
 /**
  * Whether two rows say the same of their event: its data, its role and its retry rule. A union's derived equivalence
  * cannot be used: a row without a retry rule also matches the member that has one, so the two would compare equal.
  */
 const sameRow = (left: typeof StreamEvent.Type, right: typeof StreamEvent.Type): boolean =>
-	left.data === right.data &&
+	sameData(left.data, right.data) &&
 	left.role === right.role &&
 	("retryWhen" in left
 		? "retryWhen" in right &&
@@ -177,31 +185,48 @@ const constantOf = (node: Option.Option<unknown>): Option.Option<string> =>
 	)
 
 /**
- * How a branch's event data prints: `json` when its `data` property's `contentMediaType` is JSON, else `text`.
+ * How a branch's event data reads: `text` unless its `data` property's `contentMediaType` is JSON; then checked
+ * against its `contentSchema`, named by the store key of its site (schemas.ts schemaKeyAt, which normalize stores as a
+ * root of its own), where it has one, else JSON no schema checks.
  */
-const dataOf = (resolution: Resolution, branch: CanonicalKey): "json" | "text" =>
-	Option.exists(
-		Option.flatMap(
-			Option.flatMap(propertyOf(resolution, branch, "data"), (data) =>
-				Option.flatMap(data.node, decodeContentMedia)
-			),
-			(media) => Option.fromUndefinedOr(media.contentMediaType)
+const dataOf = (resolution: Resolution, branch: CanonicalKey): typeof EventData.Type =>
+	Option.match(
+		Option.flatMap(propertyOf(resolution, branch, "data"), (data) =>
+			Option.map(
+				Option.filter(Option.flatMap(data.node, decodeContentMedia), (media) =>
+					Option.exists(Option.fromUndefinedOr(media.contentMediaType), isJsonFamily)
+				),
+				(media) => ({ at: data.at, schema: media.contentSchema !== undefined })
+			)
 		),
-		isJsonFamily
+		{
+			onNone: (): typeof EventData.Type => "text",
+			onSome: ({ at, schema }): typeof EventData.Type =>
+				schema ? { json: schemaKeyAt(resolution, childKey(at, "contentSchema")) } : "json"
+		}
 	)
-		? "json"
-		: "text"
+
+/** The roles of `x-stream` a branch's data may be text under: every form but a failure with its retry rule. */
+type PlainRole = Exclude<typeof StreamRole.Type, { readonly retryWhen: unknown }>
+
+/** The failure role with its retry rule, which only JSON data carries. */
+type RetryRole = Extract<typeof StreamRole.Type, { readonly retryWhen: unknown }>
+
+/** JSON event data: JSON no schema checks, or JSON its `contentSchema` checks. */
+type JsonData = Exclude<typeof EventData.Type, "text">
 
 /**
- * What one branch says: the event it names, if any, its data, and its `x-stream` role, if any, or the finding that
- * refuses it.
+ * What one branch says: the event it names, if any, its data, and its `x-stream` role: none or a plain role over any
+ * data, or a failure with its retry rule over JSON data, so a retry rule on text data is no reading at all.
  */
-type BranchReading = Readonly<{
-	at: CanonicalKey
-	name: Option.Option<string>
-	data: "json" | "text"
-	role: Option.Option<typeof StreamRole.Type>
-}>
+type BranchReading =
+	| Readonly<{
+			at: CanonicalKey
+			name: Option.Option<string>
+			data: typeof EventData.Type
+			role: Option.Option<PlainRole>
+	  }>
+	| Readonly<{ at: CanonicalKey; name: Option.Option<string>; data: JsonData; retry: RetryRole }>
 
 const readBranch = (
 	resolution: Resolution,
@@ -212,38 +237,55 @@ const readBranch = (
 		(annotated) => Option.fromUndefinedOr(annotated["x-stream"])
 	)
 	const at = childKey(branch, "x-stream")
-	const role = Option.map(annotation, decodeRole)
+	const decoded = Option.map(annotation, decodeRole)
 	const name = constantOf(
 		Option.flatMap(propertyOf(resolution, branch, "event"), (event) => event.node)
 	)
 	const data = dataOf(resolution, branch)
-	if (Option.exists(role, Option.isNone)) {
+	if (Option.exists(decoded, Option.isNone)) {
 		return Result.fail({ at, code: "MED-18/stream-role-invalid" })
 	}
 
-	const read = Option.flatten(role)
+	const read = Option.flatten(decoded)
 	if (Option.isSome(read) && Option.isNone(name)) {
 		return Result.fail({ at, code: "MED-18/stream-role-unnamed" })
 	}
 
-	return Option.exists(read, (found) => "retryWhen" in found) && data !== "json"
+	if (Option.isNone(read) || !("retryWhen" in read.value)) {
+		return Result.succeed({
+			at: branch,
+			name,
+			data,
+			role: Option.filter(read, (role): role is PlainRole => !("retryWhen" in role))
+		})
+	}
+
+	return data === "text"
 		? Result.fail({ at, code: "MED-18/stream-retry-not-json" })
-		: Result.succeed({ at: branch, name, data, role: read })
+		: Result.succeed({ at: branch, name, data, retry: read.value })
 }
 
-/**
- * The contract's row of a named branch.
- */
-const rowOf = (name: string, branch: BranchReading): typeof StreamEvent.Type =>
-	Option.match(branch.role, {
-		onNone: () => ({ data: branch.data, name, role: "item" }),
+/** The contract's row of a branch read under the name `name`. */
+const rowOf = (name: string, reading: BranchReading): typeof StreamEvent.Type => {
+	if ("retry" in reading) {
+		return {
+			data: reading.data,
+			name,
+			retryWhen: reading.retry.retryWhen,
+			role: reading.retry.role
+		}
+	}
+
+	const { data } = reading
+
+	return Option.match(reading.role, {
+		onNone: () => ({ data, name, role: "item" }),
 		onSome: (role) =>
-			"retryWhen" in role
-				? { data: "json", name, retryWhen: role.retryWhen, role: role.role }
-				: "next" in role
-					? { data: branch.data, name, next: role.next, role: role.role }
-					: { data: branch.data, name, role: role.role }
+			"next" in role
+				? { data, name, next: role.next, role: role.role }
+				: { data, name, role: role.role }
 	})
+}
 
 /**
  * Read the event contract of a `text/event-stream` media type's `itemSchema` at `site` (design of the event lifecycle):
@@ -303,7 +345,7 @@ export const readEventContract = (
 	}
 
 	const data =
-		Arr.isReadonlyArrayNonEmpty(unnamed) && Arr.every(unnamed, (branch) => branch.data === "json")
+		Arr.isReadonlyArrayNonEmpty(unnamed) && Arr.every(unnamed, (branch) => branch.data !== "text")
 			? "json"
 			: "text"
 

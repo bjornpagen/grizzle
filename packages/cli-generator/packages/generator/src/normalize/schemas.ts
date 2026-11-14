@@ -33,6 +33,7 @@ import { nodeIn, nodeOption, referenceIn } from "#normalize/document-set.ts"
 import { defsKey, keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
 import type { ReferenceKind, Resolution, ResolveLimits } from "#resolve/index.ts"
+import { isJsonFamily } from "#runtime-src/runtime/sequential.ts"
 
 type Document = typeof DocumentUri.Type
 
@@ -556,9 +557,42 @@ const factsOf = (node: Json): SchemaFacts => {
 }
 
 /**
+ * The `contentSchema` sites inside the schema at `at` whose `contentMediaType` is JSON: each the schema of a JSON text
+ * the schema carries as a string, such as an SSE event's data, which the runtime checks that text against. sitesOf
+ * decides which of them are roots of the store.
+ */
+const jsonContentSites = (
+	budget: Budget,
+	node: Json,
+	at: CanonicalKey
+): ReadonlyArray<CanonicalKey> => {
+	const found: Array<CanonicalKey> = []
+	const start = Result.getOrElse(parsePointerResult(at.pointer), (): readonly string[] => [])
+	forEachSchema(
+		budget,
+		node,
+		copyPositions,
+		(current, path) => {
+			const media = stringMember(current, "contentMediaType")
+			const contentSchema = Record.get(current, "contentSchema")
+			if (media !== undefined && isJsonFamily(media) && Option.exists(contentSchema, isObject)) {
+				found.push({ document: at.document, pointer: formatPointer([...path, "contentSchema"]) })
+			}
+		},
+		start
+	)
+
+	return found
+}
+
+/**
  * The source of every stored key: Schema Object roots under `defsKey` of their use site, in the
- * entry and in the objects references reach in other documents, and schema `$ref` targets in any
- * document under the resolver's key unless the target is not a schema.
+ * entry and in the objects references reach in other documents; schema `$ref` targets in any
+ * document under the resolver's key unless the target is not a schema; and every JSON
+ * `contentSchema` inside a stored schema (`jsonContentSites`) whose key is its own use site's
+ * (`schemaKeyAt`), the key an SSE event's row names its data schema by: an inline one, or a 3.1
+ * or later `$ref` with an asserting sibling. A bare `$ref` is its target's key, which the targets
+ * above already store.
  */
 const sitesOf = (budget: Budget, resolution: Resolution): ReadonlyMap<string, CanonicalKey> => {
 	const entry: Document = resolution.document
@@ -580,6 +614,17 @@ const sitesOf = (budget: Budget, resolution: Resolution): ReadonlyMap<string, Ca
 			kind === "schema" && key !== undefined && structural?.has(target.pointer) !== true
 		if (lifted) {
 			sites.set(key, target)
+		}
+	}
+	for (const at of Arr.fromIterable(sites.values())) {
+		const node = nodeOption(resolution, at)
+		if (Option.isSome(node)) {
+			for (const site of jsonContentSites(budget, node.value, at)) {
+				const key = defsKey(entry, site)
+				if (schemaKeyAt(resolution, site) === key) {
+					sites.set(key, site)
+				}
+			}
 		}
 	}
 

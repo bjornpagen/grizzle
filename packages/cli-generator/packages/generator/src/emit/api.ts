@@ -60,6 +60,7 @@ import { constantOf } from "#names/constant.ts"
 import type { ConstantValue } from "#names/constant.ts"
 import { isPositionalBody } from "#names/flatten.ts"
 import { foldIdentifier } from "#names/fold.ts"
+import type { SafeIdentifierValue } from "#names/fold.ts"
 import type {
 	NamePlan,
 	PlannedCertificate,
@@ -312,13 +313,35 @@ const refusedEntry = (alternatives: readonly MediaAlternative[]): Option.Option<
 			)
 }
 
+/** The domain module's namespace in an api module whose event rows check their data against its schemas. */
+const domainNamespace = I("Domain")
+
+/**
+ * How an event row's data reads, as the runtime's `EventData` holds it: `text` or `json`, or `{ json }` holding the
+ * domain module's schema of its `contentSchema`, which the runtime checks the data against.
+ */
+const eventDataExpr = (
+	data: EventContract["events"][number]["data"],
+	domain: ReadonlyMap<string, SafeIdentifierValue>
+): Effect.Effect<Expr, ApiEmitError> => {
+	if (typeof data === "string") {
+		return Effect.succeed(str(data))
+	}
+
+	const name = domain.get(data.json)
+
+	return name === undefined
+		? Effect.fail(refuse("unresolved-schema", data.json))
+		: Effect.succeed(obj([["json", member(ident(domainNamespace), M(name))]]))
+}
+
 /**
  * One event row of a contract as the runtime's `EventRow` holds it: its data, its retry rule or the one event that
  * follows it when it has one, its role.
  */
-const eventRowExpr = (event: EventContract["events"][number]): Expr =>
+const eventRowExpr = (event: EventContract["events"][number], data: Expr): Expr =>
 	obj([
-		["data", str(event.data)],
+		["data", data],
 		...("retryWhen" in event
 			? ([
 					[
@@ -344,12 +367,26 @@ const eventRowExpr = (event: EventContract["events"][number]): Expr =>
 /**
  * An event contract as the runtime's `EventContract` holds it: its rows by event name, and what other events are.
  */
-const eventContractExpr = (contract: EventContract): Expr =>
+const eventContractExpr = (
+	contract: EventContract,
+	domain: ReadonlyMap<string, SafeIdentifierValue>
+): Effect.Effect<Expr, ApiEmitError> =>
+	Effect.map(
+		Effect.forEach(contract.events, (event) =>
+			Effect.map(
+				eventDataExpr(event.data, domain),
+				(data) => [event.name, eventRowExpr(event, data)] as const
+			)
+		),
+		(rows) => contractExpr(contract, rows)
+	)
+
+const contractExpr = (
+	contract: EventContract,
+	rows: ReadonlyArray<readonly [string, Expr]>
+): Expr =>
 	obj([
-		[
-			"events",
-			obj(Arr.map(contract.events, (event) => [event.name, eventRowExpr(event)] as const))
-		],
+		["events", obj(rows)],
 		[
 			"otherwise",
 			contract.otherwise._tag === "Closed"
@@ -365,22 +402,58 @@ const eventContractExpr = (contract: EventContract): Expr =>
  * The operation's event table (`EventTable`): the contract of each response alternative that carries one, by response
  * key and then media key; empty when none does.
  */
-const eventTableOf = (responses: Operation["responses"]): (readonly [string, Expr])[] =>
-	Arr.flatMap(responses, (response) => {
-		const byMedia = Arr.flatMap(response.alternatives, (alternative) =>
-			alternative.events === undefined
-				? []
-				: [[alternative.mediaType, eventContractExpr(alternative.events)] as const]
-		)
+const eventTableOf = (
+	responses: Operation["responses"],
+	domain: ReadonlyMap<string, SafeIdentifierValue>
+): Effect.Effect<ReadonlyArray<readonly [string, Expr]>, ApiEmitError> =>
+	Effect.map(
+		Effect.forEach(responses, (response) =>
+			Effect.map(
+				Effect.forEach(
+					Arr.flatMap(response.alternatives, (alternative) =>
+						alternative.events === undefined
+							? []
+							: [[alternative.mediaType, alternative.events] as const]
+					),
+					([mediaType, events]) =>
+						Effect.map(
+							eventContractExpr(events, domain),
+							(contract) => [mediaType, contract] as const
+						)
+				),
+				(byMedia): ReadonlyArray<readonly [string, Expr]> =>
+					byMedia.length === 0 ? [] : [[responseKey(response.key), obj(byMedia)]]
+			)
+		),
+		Arr.flatten
+	)
 
-		return byMedia.length === 0 ? [] : [[responseKey(response.key), obj(byMedia)] as const]
-	})
+/** The event contracts an operation's responses carry. */
+const contractsOf = (operation: Operation): ReadonlyArray<EventContract> =>
+	Arr.flatMap(operation.responses, (response) =>
+		Arr.flatMap(response.alternatives, (alternative) =>
+			alternative.events === undefined ? [] : [alternative.events]
+		)
+	)
 
 /**
  * Whether an operation's emitted meta holds an event table.
  */
-const hasEventTable = (operation: Operation): boolean =>
-	eventTableOf(operation.responses).length > 0
+const hasEventTable = (operation: Operation): boolean => contractsOf(operation).length > 0
+
+/** Whether an operation's event table checks some event's data against a domain schema. */
+const checksEventData = (operation: Operation): boolean =>
+	Arr.some(contractsOf(operation), (contract) =>
+		Arr.some(contract.events, (event) => typeof event.data !== "string")
+	)
+
+/** The import of the domain module, as `Domain`, by a module whose event rows check their data. */
+const domainImport: Import = {
+	_tag: "Namespace",
+	from: S("../domain/schemas.ts"),
+	name: domainNamespace,
+	typeOnly: false
+}
 
 const responseKey = (key: ResponseCase["key"]): string => {
 	if (key === "default") {
@@ -1845,6 +1918,7 @@ const requirementOf = (operation: Operation, schemes: ReadonlySet<string>) =>
 interface CommandContext extends ParameterContext {
 	readonly bound: ApiEmitInput["boundOrigins"]
 	readonly document: (uri: string) => string
+	readonly domain: ReadonlyMap<string, SafeIdentifierValue>
 	readonly schemes: ReadonlySet<string>
 }
 
@@ -1861,7 +1935,7 @@ const commandStatements = (
 		const mediaName = yield* identifier(`${name}Media`)
 		const securityName = yield* identifier(`${name}Security`)
 		const eventsName = yield* identifier(`${name}Events`)
-		const eventTable = eventTableOf(operation.responses)
+		const eventTable = yield* eventTableOf(operation.responses, context.domain)
 		const parameters = yield* Effect.forEach(inputKeys(operation), (entry) =>
 			parameterParts(entry, context)
 		)
@@ -2029,9 +2103,15 @@ const moduleFile = (
 		}
 
 		const content = yield* printModule({
-			imports: Arr.some(commands, (command) => hasEventTable(command.operation))
-				? [...groupImports, eventTableImport]
-				: groupImports,
+			imports: [
+				...groupImports,
+				...(Arr.some(commands, (command) => hasEventTable(command.operation))
+					? [eventTableImport]
+					: []),
+				...(Arr.some(commands, (command) => checksEventData(command.operation))
+					? [domainImport]
+					: [])
+			],
 			statements: statements.flat()
 		})
 
@@ -2266,6 +2346,7 @@ export const emitApi = (
 				onSome: (store) => store.$defs
 			}),
 			document: (uri) => documentLabel(api.entry, uri),
+			domain: plan.domain,
 			line: api.line,
 			memo: new Map(),
 			schemes: new Set(
