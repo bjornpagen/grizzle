@@ -1,0 +1,228 @@
+From b2c781d11cda547ce87b4d34191e8e1ad13225e4 Mon Sep 17 00:00:00 2001
+From: Bjorn Pagen <bjorn@REPLACE-ME>
+Date: Wed, 28 Oct 2026 21:25:03 -0500
+Subject: [PATCH v1 1/2] btree_gist: Measure varlena penalty at first differing
+ byte
+
+gbt_var_penalty() prices adding a key to a subtree, when the key
+extends the subtree's bounds without shortening their common prefix,
+by the bytes just past the prefix that gbt_var_node_cp_len() computes.
+For text and bpchar in a multibyte encoding, gbt_var_node_cp_len()
+ended that prefix at a character boundary, so the penalty compared the
+leading bytes of the next characters.  In UTF-8 those are shared by
+whole ranges of characters: all of Latin-1 Supplement begins with C2 or
+C3, and all of the CJK Unified Ideographs with one of E4 to E9.  Adding
+such a key therefore cost about the same in every subtree, gistchoose()
+placed it with no regard to its order, the leaf pages' key ranges
+overlapped, and a point lookup descended into many of them.  A one-row
+lookup among 20000 keys of two ideographs read 14 buffers rather than
+3.
+
+The character alignment is otherwise dead code, since text-string types
+have not truncated internal keys since ef770cbb6.  Remove it, as master
+did in b82d69abf6, together with gbtree_vinfo.eml, which only it used.
+This changes only where new entries go, so existing indexes remain
+valid; new insertions are placed well at once, and an index regains its
+full lookup speed when rebuilt.
+
+This is b82d69abf6 back-patched; only its context differs.
+---
+ contrib/btree_gist/btree_bit.c       |  1 -
+ contrib/btree_gist/btree_bytea.c     |  1 -
+ contrib/btree_gist/btree_numeric.c   |  1 -
+ contrib/btree_gist/btree_text.c      | 21 ++--------------
+ contrib/btree_gist/btree_utils_var.c | 37 +++++-----------------------
+ contrib/btree_gist/btree_utils_var.h |  2 --
+ 6 files changed, 8 insertions(+), 55 deletions(-)
+
+diff --git a/contrib/btree_gist/btree_bit.c b/contrib/btree_gist/btree_bit.c
+index ad1d2013116..07dc6517ae6 100644
+--- a/contrib/btree_gist/btree_bit.c
++++ b/contrib/btree_gist/btree_bit.c
+@@ -109,7 +109,6 @@ gbt_bit_l2n(GBT_VARKEY *leaf, FmgrInfo *flinfo)
+ static const gbtree_vinfo tinfo =
+ {
+ 	gbt_t_bit,
+-	0,
+ 	true,
+ 	gbt_bitgt,
+ 	gbt_bitge,
+diff --git a/contrib/btree_gist/btree_bytea.c b/contrib/btree_gist/btree_bytea.c
+index 50bb24308e9..da8e1e0503a 100644
+--- a/contrib/btree_gist/btree_bytea.c
++++ b/contrib/btree_gist/btree_bytea.c
+@@ -71,7 +71,6 @@ gbt_byteacmp(const void *a, const void *b, Oid collation, FmgrInfo *flinfo)
+ static const gbtree_vinfo tinfo =
+ {
+ 	gbt_t_bytea,
+-	0,
+ 	true,
+ 	gbt_byteagt,
+ 	gbt_byteage,
+diff --git a/contrib/btree_gist/btree_numeric.c b/contrib/btree_gist/btree_numeric.c
+index dba04c3a1b3..f36397a0f0a 100644
+--- a/contrib/btree_gist/btree_numeric.c
++++ b/contrib/btree_gist/btree_numeric.c
+@@ -76,7 +76,6 @@ gbt_numeric_cmp(const void *a, const void *b, Oid collation, FmgrInfo *flinfo)
+ static const gbtree_vinfo tinfo =
+ {
+ 	gbt_t_numeric,
+-	0,
+ 	false,
+ 	gbt_numeric_gt,
+ 	gbt_numeric_ge,
+diff --git a/contrib/btree_gist/btree_text.c b/contrib/btree_gist/btree_text.c
+index 2ac12f1cab2..a0bc3cd7755 100644
+--- a/contrib/btree_gist/btree_text.c
++++ b/contrib/btree_gist/btree_text.c
+@@ -78,10 +78,9 @@ gbt_textcmp(const void *a, const void *b, Oid collation, FmgrInfo *flinfo)
+ 												 PointerGetDatum(b)));
+ }
+ 
+-static gbtree_vinfo tinfo =
++static const gbtree_vinfo tinfo =
+ {
+ 	gbt_t_text,
+-	0,
+ 	false,
+ 	gbt_textgt,
+ 	gbt_textge,
+@@ -148,10 +147,9 @@ gbt_bpcharcmp(const void *a, const void *b, Oid collation, FmgrInfo *flinfo)
+ 												 PointerGetDatum(b)));
+ }
+ 
+-static gbtree_vinfo bptinfo =
++static const gbtree_vinfo bptinfo =
+ {
+ 	gbt_t_bpchar,
+-	0,
+ 	false,
+ 	gbt_bpchargt,
+ 	gbt_bpcharge,
+@@ -172,11 +170,6 @@ gbt_text_compress(PG_FUNCTION_ARGS)
+ {
+ 	GISTENTRY  *entry = (GISTENTRY *) PG_GETARG_POINTER(0);
+ 
+-	if (tinfo.eml == 0)
+-	{
+-		tinfo.eml = pg_database_encoding_max_length();
+-	}
+-
+ 	PG_RETURN_POINTER(gbt_var_compress(entry, &tinfo));
+ }
+ 
+@@ -204,11 +197,6 @@ gbt_text_consistent(PG_FUNCTION_ARGS)
+ 	/* All cases served by this function are exact */
+ 	*recheck = false;
+ 
+-	if (tinfo.eml == 0)
+-	{
+-		tinfo.eml = pg_database_encoding_max_length();
+-	}
+-
+ 	retval = gbt_var_consistent(&r, query, strategy, PG_GET_COLLATION(),
+ 								GIST_LEAF(entry), &tinfo, fcinfo->flinfo);
+ 
+@@ -232,11 +220,6 @@ gbt_bpchar_consistent(PG_FUNCTION_ARGS)
+ 	/* All cases served by this function are exact */
+ 	*recheck = false;
+ 
+-	if (bptinfo.eml == 0)
+-	{
+-		bptinfo.eml = pg_database_encoding_max_length();
+-	}
+-
+ 	retval = gbt_var_consistent(&r, query, strategy, PG_GET_COLLATION(),
+ 								GIST_LEAF(entry), &bptinfo, fcinfo->flinfo);
+ 	PG_RETURN_BOOL(retval);
+diff --git a/contrib/btree_gist/btree_utils_var.c b/contrib/btree_gist/btree_utils_var.c
+index 0b766217529..0e32cb2355d 100644
+--- a/contrib/btree_gist/btree_utils_var.c
++++ b/contrib/btree_gist/btree_utils_var.c
+@@ -8,7 +8,6 @@
+ 
+ #include "btree_gist.h"
+ #include "btree_utils_var.h"
+-#include "mb/pg_wchar.h"
+ #include "utils/rel.h"
+ #include "varatt.h"
+ 
+@@ -116,56 +115,32 @@ gbt_var_leaf2node(GBT_VARKEY *leaf, const gbtree_vinfo *tinfo, FmgrInfo *flinfo)
+ /*
+  * returns the common prefix length of a node key
+  *
+- * If the underlying type is character data, the prefix length may point in
+- * the middle of a multibyte character.
++ * This is not used for any cases where the underlying type is character data
++ * (except in gbt_var_penalty, where it doesn't matter since we're just making
++ * an estimated correction not constructing a truncated string).  If it were,
++ * we'd need to be careful not to truncate in the middle of a multibyte
++ * character.
+  */
+ static int32
+ gbt_var_node_cp_len(const GBT_VARKEY *node, const gbtree_vinfo *tinfo)
+ {
+ 	GBT_VARKEY_R r = gbt_var_key_readable(node);
+ 	int32		i = 0;
+-	int32		l_left_to_match = 0;
+-	int32		l_total = 0;
+ 	int32		t1len = VARSIZE(r.lower) - VARHDRSZ;
+ 	int32		t2len = VARSIZE(r.upper) - VARHDRSZ;
+ 	int32		ml = Min(t1len, t2len);
+ 	char	   *p1 = VARDATA(r.lower);
+ 	char	   *p2 = VARDATA(r.upper);
+-	const char *end1 = p1 + t1len;
+-	const char *end2 = p2 + t2len;
+ 
+ 	if (ml == 0)
+ 		return 0;
+ 
+ 	while (i < ml)
+ 	{
+-		if (tinfo->eml > 1 && l_left_to_match == 0)
+-		{
+-			l_total = pg_mblen_range(p1, end1);
+-			if (l_total != pg_mblen_range(p2, end2))
+-			{
+-				return i;
+-			}
+-			l_left_to_match = l_total;
+-		}
+ 		if (*p1 != *p2)
+-		{
+-			if (tinfo->eml > 1)
+-			{
+-				int32		l_matched_subset = l_total - l_left_to_match;
+-
+-				/* end common prefix at final byte of last matching char */
+-				return i - l_matched_subset;
+-			}
+-			else
+-			{
+-				return i;
+-			}
+-		}
+-
++			return i;
+ 		p1++;
+ 		p2++;
+-		l_left_to_match--;
+ 		i++;
+ 	}
+ 	return ml;					/* lower == upper */
+diff --git a/contrib/btree_gist/btree_utils_var.h b/contrib/btree_gist/btree_utils_var.h
+index f28a5d98ae3..b9df02541a0 100644
+--- a/contrib/btree_gist/btree_utils_var.h
++++ b/contrib/btree_gist/btree_utils_var.h
+@@ -26,8 +26,6 @@ typedef struct
+ 	/* Attribs */
+ 
+ 	enum gbtree_type t;			/* data type */
+-	int32		eml;			/* cached pg_database_encoding_max_length (0:
+-								 * undefined) */
+ 	bool		trnc;			/* truncate (=compress) key */
+ 
+ 	/* Methods */
+-- 
+2.53.0
+

@@ -548,6 +548,9 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   comparison of two texts that read no row (42P22); grizzle folds such constants on the host.
 - upstream/plpgsql-lineno-rescan: PL/pgSQL rescans the source on every location-to-line lookup. The pin carries the
   fix as scripts/pg/patches/19rc2-plpgsql-lineno-binary-search.patch.
+- upstream/btree-gist-multibyte-penalty: btree_gist's fix for multibyte text keys (b82d69abf6) is on master only. The
+  folder holds the owner's unfiled text_utf8 placement test for master, and b82d69abf6 back-patched with that test for
+  REL_19_STABLE. The pin carries the change as scripts/pg/patches/19rc2-btree-gist-multibyte-penalty.patch.
 - upstream/gist-costestimate-column-position: a pgsql-hackers reply to BUG #15408, for PostgreSQL 20.
 - upstream/relcache-planned-check-and-generation: the relcache patch the pin carries.
 - upstream/fallow-unused-class-member-union-property: fallow credits no class member called through a property of a

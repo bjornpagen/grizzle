@@ -1,0 +1,40 @@
+NOTES: btree-gist-multibyte-penalty
+
+Status: drafts, NOT filed. Nothing has been sent to any list or posted anywhere. The owner decides whether to file
+either series, and files it by hand.
+
+1. What this is.
+   - Through PostgreSQL 19, btree_gist prices a UTF8 text key by the leading bytes of the character after its subtree's
+     common prefix, which whole ranges of characters share, so a GiST index led by multibyte text is imprecise (README,
+     "PostgreSQL known issues": 14 buffers for a point lookup where ASCII keys take 3).
+   - Upstream fixed it on master only: b82d69abf6 (Tom Lane, 2026-07-03, "Remove btree_gist's useless logic for
+     encoding-aware truncation"), as dead-code removal, for PostgreSQL 20. REL_19_STABLE (e2b2267d24, 2026-11-13) does
+     not have it and no REL_19 tag includes it, so 19.0 (due 2026-11-19) keeps the imprecise pricing unless it is
+     back-patched first.
+   - Two series of the owner's, made on 2026-10-28, as git format-patch output (authorship and messages as written):
+     - master/v1-0001-...patch: a regression test of the placement, text_utf8. It inserts keys of two CJK ideographs
+       into an existing index and counts with pageinspect the keys that the ranges of three or more leaf pages cover,
+       and checks lookups by multibyte keys; it is skipped outside a UTF8 database. Upstream has no such test. One
+       commit on master 35b349a530 (2026-10-29); it applies to master 70c4a57b64 (2026-11-13).
+     - REL_19_STABLE/v1-0001 and v1-0002: b82d69abf6 back-patched (its code hunks byte for byte, only the context
+       differs) and the same test, for a back-patch request to 19. Two commits on REL_19_STABLE 1ecc3cee78; they apply
+       to REL_19_STABLE e2b2267d24 and to REL_19_RC2.
+
+2. Grizzle carries the change as a pin patch: scripts/pg/patches/19rc2-btree-gist-multibyte-penalty.patch, in
+   PG_PIN_PATCHES since 2026-11-14. Its diff is the REL_19_STABLE series' two commits combined, byte for byte, less
+   git's "diff --git" and "index" lines. This folder is the same change for upstream; the pin patch is unchanged by it.
+
+3. When the owner files it.
+   - Set the author address first. The From: lines read bjorn@REPLACE-ME, a placeholder. In a PostgreSQL checkout of
+     the series' branch:
+         git am <series>/*.patch
+         git rebase --exec 'git commit --amend --reset-author --no-edit' HEAD~<n>
+         git format-patch -<n> -v1
+     The sending address is deliberately not written anywhere in this public repository.
+   - The master test is a pgsql-hackers patch for the 20 cycle. The REL_19_STABLE series asks for b82d69abf6 in 19:
+     before GA it would reach 19.0, after it a minor release.
+   - Neither has a CHECKLIST.txt, EVIDENCE.txt or email draft yet.
+
+4. Where the commits lived: ~/Documents/postgres-upstream, branch btree-gist-multibyte-penalty (a997cef7e1, the master
+   test) and branch btree-gist-multibyte-penalty-19 (b2c781d11c, f9353a03f5). These files are those commits, so that
+   checkout holds nothing more of them.

@@ -1,0 +1,238 @@
+From f9353a03f5d74ab06ba69e9b01753f09c568fcb1 Mon Sep 17 00:00:00 2001
+From: Bjorn Pagen <bjorn@REPLACE-ME>
+Date: Wed, 28 Oct 2026 21:23:09 -0500
+Subject: [PATCH v1 2/2] btree_gist: Add a test for placement of multibyte text
+ keys
+
+gbt_var_penalty() prices adding a key to a subtree, when the key
+extends the subtree's bounds without shortening their common prefix,
+by the bytes just past that prefix.  Until b82d69abf6,
+gbt_var_node_cp_len() ended the prefix at a character boundary in a
+multibyte encoding, so for text the penalty compared the leading bytes
+of the next characters.  In UTF-8 those are shared by whole ranges of
+characters: all of Latin-1 Supplement begins with C2 or C3, and all of
+the CJK Unified Ideographs with one of E4 to E9.  Adding such a key
+therefore cost about the same in every subtree, gistchoose() placed it
+with no regard to its order, the leaf pages' key ranges overlapped, and
+a point lookup descended into many of them.  b82d69abf6 removed the
+character alignment as dead code, which also fixed this.
+
+Add a test to keep it fixed.  It inserts keys of two CJK ideographs
+into an existing index and uses pageinspect to count the keys that the
+ranges of three or more leaf pages cover: with the old prefix
+computation that is most of them, and now it is none.  It also checks
+that lookups by multibyte keys return the right rows.  It needs a UTF8
+database and is skipped otherwise.
+---
+ contrib/btree_gist/Makefile                 |  3 +-
+ contrib/btree_gist/expected/text_utf8.out   | 83 +++++++++++++++++++++
+ contrib/btree_gist/expected/text_utf8_1.out |  8 ++
+ contrib/btree_gist/meson.build              |  1 +
+ contrib/btree_gist/sql/text_utf8.sql        | 61 +++++++++++++++
+ 5 files changed, 155 insertions(+), 1 deletion(-)
+ create mode 100644 contrib/btree_gist/expected/text_utf8.out
+ create mode 100644 contrib/btree_gist/expected/text_utf8_1.out
+ create mode 100644 contrib/btree_gist/sql/text_utf8.sql
+
+diff --git a/contrib/btree_gist/Makefile b/contrib/btree_gist/Makefile
+index fbbbca95598..9a6148c5a72 100644
+--- a/contrib/btree_gist/Makefile
++++ b/contrib/btree_gist/Makefile
+@@ -38,10 +38,11 @@ DATA = btree_gist--1.0--1.1.sql \
+        btree_gist--1.9.sql
+ PGFILEDESC = "btree_gist - B-tree equivalent GiST operator classes"
+ 
++EXTRA_INSTALL = contrib/pageinspect
+ REGRESS = init int2 int4 int8 float4 float8 cash oid timestamp timestamptz \
+         time timetz date interval macaddr macaddr8 inet cidr text varchar char \
+         bytea bit varbit numeric uuid not_equal enum bool partitions \
+-        stratnum without_overlaps
++        stratnum without_overlaps text_utf8
+ 
+ SHLIB_LINK += $(filter -lm, $(LIBS))
+ 
+diff --git a/contrib/btree_gist/expected/text_utf8.out b/contrib/btree_gist/expected/text_utf8.out
+new file mode 100644
+index 00000000000..2a688ab6991
+--- /dev/null
++++ b/contrib/btree_gist/expected/text_utf8.out
+@@ -0,0 +1,83 @@
++/*
++ * This test must be run in a database with UTF-8 encoding,
++ * because other encodings don't support all the characters used.
++ */
++SELECT getdatabaseencoding() <> 'UTF8'
++       AS skip_test \gset
++\if :skip_test
++\quit
++\endif
++CREATE EXTENSION pageinspect;
++-- Keys of two CJK ideographs, whose UTF-8 encodings all begin with the
++-- same byte.  They are inserted one at a time into an existing index, so
++-- that the penalty function places each of them.
++CREATE TEMP TABLE textutf8tmp (a text COLLATE "C");
++CREATE INDEX textutf8idx ON textutf8tmp USING gist (a);
++INSERT INTO textutf8tmp
++  SELECT chr(19968 + g / 100) || chr(19968 + g % 100)
++  FROM generate_series(0, 1999) g;
++SET enable_seqscan = off;
++SELECT count(*) FROM textutf8tmp WHERE a <  '丌丢';
++ count 
++-------
++  1234
++(1 row)
++
++SELECT count(*) FROM textutf8tmp WHERE a <= '丌丢';
++ count 
++-------
++  1235
++(1 row)
++
++SELECT count(*) FROM textutf8tmp WHERE a =  '丌丢';
++ count 
++-------
++     1
++(1 row)
++
++SELECT count(*) FROM textutf8tmp WHERE a >= '丌丢';
++ count 
++-------
++   766
++(1 row)
++
++SELECT count(*) FROM textutf8tmp WHERE a >  '丌丢';
++ count 
++-------
++   765
++(1 row)
++
++-- Every key is found exactly once
++SELECT count(*) FROM generate_series(0, 1999) g
++  WHERE (SELECT count(*) FROM textutf8tmp
++         WHERE a = chr(19968 + g / 100) || chr(19968 + g % 100)) = 1;
++ count 
++-------
++  2000
++(1 row)
++
++RESET enable_seqscan;
++-- The key ranges of the leaf pages should barely overlap, so that a lookup
++-- descends into one or two of them.  Count the keys that three or more
++-- leaf pages' ranges cover.
++WITH leaf AS (
++  SELECT min(t.a) AS lo, max(t.a) AS hi
++  FROM generate_series(0, pg_relation_size('textutf8idx') /
++                          current_setting('block_size')::int - 1) blkno,
++       LATERAL get_raw_page('textutf8idx', blkno) page,
++       LATERAL gist_page_opaque_info(page) o,
++       LATERAL gist_page_items_bytea(page) i
++       JOIN textutf8tmp t ON t.ctid = i.ctid
++  WHERE 'leaf' = ANY (o.flags)
++  GROUP BY blkno
++)
++SELECT count(*) AS keys,
++       count(*) FILTER (WHERE n >= 3) AS keys_in_3_or_more_leaves
++FROM (SELECT count(*) AS n
++      FROM textutf8tmp t JOIN leaf ON t.a BETWEEN leaf.lo AND leaf.hi
++      GROUP BY t.a) s;
++ keys | keys_in_3_or_more_leaves 
++------+--------------------------
++ 2000 |                        0
++(1 row)
++
+diff --git a/contrib/btree_gist/expected/text_utf8_1.out b/contrib/btree_gist/expected/text_utf8_1.out
+new file mode 100644
+index 00000000000..37aead89c0c
+--- /dev/null
++++ b/contrib/btree_gist/expected/text_utf8_1.out
+@@ -0,0 +1,8 @@
++/*
++ * This test must be run in a database with UTF-8 encoding,
++ * because other encodings don't support all the characters used.
++ */
++SELECT getdatabaseencoding() <> 'UTF8'
++       AS skip_test \gset
++\if :skip_test
++\quit
+diff --git a/contrib/btree_gist/meson.build b/contrib/btree_gist/meson.build
+index 2b1a5463289..1727c122a21 100644
+--- a/contrib/btree_gist/meson.build
++++ b/contrib/btree_gist/meson.build
+@@ -93,6 +93,7 @@ tests += {
+       'partitions',
+       'stratnum',
+       'without_overlaps',
++      'text_utf8',
+     ],
+   },
+ }
+diff --git a/contrib/btree_gist/sql/text_utf8.sql b/contrib/btree_gist/sql/text_utf8.sql
+new file mode 100644
+index 00000000000..6826c04c43e
+--- /dev/null
++++ b/contrib/btree_gist/sql/text_utf8.sql
+@@ -0,0 +1,61 @@
++/*
++ * This test must be run in a database with UTF-8 encoding,
++ * because other encodings don't support all the characters used.
++ */
++SELECT getdatabaseencoding() <> 'UTF8'
++       AS skip_test \gset
++\if :skip_test
++\quit
++\endif
++
++CREATE EXTENSION pageinspect;
++
++-- Keys of two CJK ideographs, whose UTF-8 encodings all begin with the
++-- same byte.  They are inserted one at a time into an existing index, so
++-- that the penalty function places each of them.
++CREATE TEMP TABLE textutf8tmp (a text COLLATE "C");
++
++CREATE INDEX textutf8idx ON textutf8tmp USING gist (a);
++
++INSERT INTO textutf8tmp
++  SELECT chr(19968 + g / 100) || chr(19968 + g % 100)
++  FROM generate_series(0, 1999) g;
++
++SET enable_seqscan = off;
++
++SELECT count(*) FROM textutf8tmp WHERE a <  '丌丢';
++
++SELECT count(*) FROM textutf8tmp WHERE a <= '丌丢';
++
++SELECT count(*) FROM textutf8tmp WHERE a =  '丌丢';
++
++SELECT count(*) FROM textutf8tmp WHERE a >= '丌丢';
++
++SELECT count(*) FROM textutf8tmp WHERE a >  '丌丢';
++
++-- Every key is found exactly once
++SELECT count(*) FROM generate_series(0, 1999) g
++  WHERE (SELECT count(*) FROM textutf8tmp
++         WHERE a = chr(19968 + g / 100) || chr(19968 + g % 100)) = 1;
++
++RESET enable_seqscan;
++
++-- The key ranges of the leaf pages should barely overlap, so that a lookup
++-- descends into one or two of them.  Count the keys that three or more
++-- leaf pages' ranges cover.
++WITH leaf AS (
++  SELECT min(t.a) AS lo, max(t.a) AS hi
++  FROM generate_series(0, pg_relation_size('textutf8idx') /
++                          current_setting('block_size')::int - 1) blkno,
++       LATERAL get_raw_page('textutf8idx', blkno) page,
++       LATERAL gist_page_opaque_info(page) o,
++       LATERAL gist_page_items_bytea(page) i
++       JOIN textutf8tmp t ON t.ctid = i.ctid
++  WHERE 'leaf' = ANY (o.flags)
++  GROUP BY blkno
++)
++SELECT count(*) AS keys,
++       count(*) FILTER (WHERE n >= 3) AS keys_in_3_or_more_leaves
++FROM (SELECT count(*) AS n
++      FROM textutf8tmp t JOIN leaf ON t.a BETWEEN leaf.lo AND leaf.hi
++      GROUP BY t.a) s;
+-- 
+2.53.0
+
