@@ -27,6 +27,9 @@
  * Oracle: specification, the insertion over the stated rows: an exact repeat meets its stored fact, a differing one
  * refuses its key, any other is added.
  *
+ * Features: each relation met, added beside met, unchanged with met rows only, and, where its facts have a payload,
+ * refused at a differing key. A witness whose turn aims at a pending one runs a case constructed to reach it.
+ *
  * Plants: ~/.cache/grizzle-release/DELTAMET/plants/met-marker-inverted.patch, the `returned` form's met marker read as
  * inserted, must turn the property red; ~/.cache/grizzle-release/DELTAMET/plants/met-result-every-row.patch, the
  * insert's own rows every verdict row but a refusal's, met rows counted as added, must turn it red; and
@@ -34,7 +37,7 @@
  * differing occupant met where its key's law refuses it, must turn it red.
  */
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -355,20 +358,79 @@ const metGen: Gen<Met> = (source) => {
 	}
 }
 
-type MetFeature =
-	`${Name}: ${"met" | "added beside met" | "refused at a differing key" | "unchanged, met only"}`
+type MetSituation =
+	| "met"
+	| "added beside met"
+	| "refused at a differing key"
+	| "unchanged, met only"
+
+type MetFeature = `${Name}: ${MetSituation}`
+
+/** The situations a relation's cases must reach: a set's facts never differ at their key. */
+const situationsOf = (shape: Shape): Arr.NonEmptyReadonlyArray<MetSituation> => [
+	"met",
+	"added beside met",
+	"unchanged, met only",
+	...(shape === "keyed" || shape === "drawn" ? (["refused at a differing key"] as const) : [])
+]
 
 const metFeatures: Arr.NonEmptyReadonlyArray<MetFeature> = Arr.flatMap(
 	names,
-	(n): Arr.NonEmptyReadonlyArray<MetFeature> => [
-		`${n}: met`,
-		`${n}: added beside met`,
-		`${n}: unchanged, met only`,
-		...(shapes[n].shape === "keyed" || shapes[n].shape === "drawn"
-			? [`${n}: refused at a differing key` as const]
-			: [])
-	]
+	(n): Arr.NonEmptyReadonlyArray<MetFeature> =>
+		Arr.map(situationsOf(shapes[n].shape), (situation): MetFeature => `${n}: ${situation}`)
 )
+
+/**
+ * A case of `relation` constructed to reach `situation`, its values drawn: one stored fact and its repeat; beside the
+ * repeat, for "added beside met", a request at the next key, which no stored fact holds; for "refused at a differing
+ * key", in its place a request at the stored key whose a differs.
+ */
+const reaching =
+	(relation: Name, situation: MetSituation): Gen<Met> =>
+	(source) => {
+		const { shape } = shapes[relation]
+		const stored = asStated(shape, {
+			k: source.draw(int(1, 4)),
+			a: source.draw(int(0, 1)),
+			b: source.draw(int(0, 1))
+		})
+		const repeat: Request = { kind: "repeat", fact: stored }
+		switch (situation) {
+			case "met":
+			case "unchanged, met only":
+				return { relation, stored: [stored], requests: [repeat] }
+			case "added beside met":
+				return {
+					relation,
+					stored: [stored],
+					requests: [repeat, { kind: "free", fact: { ...stored, k: (stored.k % 4) + 1 } }]
+				}
+			case "refused at a differing key":
+				return {
+					relation,
+					stored: [stored],
+					requests: [{ kind: "differing", fact: { ...stored, a: 1 - stored.a } }]
+				}
+		}
+	}
+
+/** Each required situation with the cases constructed to reach it. */
+const aims: ReadonlyArray<readonly [MetFeature, Gen<Met>]> = Arr.flatMap(names, (n) =>
+	Arr.map(
+		situationsOf(shapes[n].shape),
+		(situation) => [`${n}: ${situation}`, reaching(n, situation)] as const
+	)
+)
+
+/**
+ * The case a witness runs: its drawn one, or, where its turn aims at a pending situation (Case.steering), one
+ * constructed to reach it, drawn on the case's own tape, so the cases of one window aim at distinct pending situations.
+ */
+const aimedCase = (drawnCase: Met, k: Case<MetFeature>): Met => {
+	const pending = Option.getOrUndefined(k.steering)
+	const aim = Arr.findFirst(aims, ([situation]) => pending?.aimed(situation) === true)
+	return Option.isNone(aim) ? drawnCase : k.draw(aim.value[1])
+}
 
 /** Rows in one order: by k, then a. */
 const byKey: Order.Order<Row> = Order.combine(
@@ -613,8 +675,9 @@ layer(Substrate.layer)("the rows an insertion met", (it) => {
 							steerEvery: 16,
 							caseHang
 						},
-						(c, k) =>
+						(drawnCase, k) =>
 							Effect.gen(function* () {
+								const c = aimedCase(drawnCase, k)
 								const { shape } = shapes[c.relation]
 								const stated = Arr.filter(columnsOf(c.relation), (col) => col !== "id")
 								const valueOf = (f: Fact, col: string): number =>

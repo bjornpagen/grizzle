@@ -259,8 +259,17 @@ const subjectOf = (value: FixtureSchema, name: string, m: unknown, a: unknown, z
 
 type Subject = ReturnType<typeof subjectOf>
 
-const plain = subjectOf(S, schemaName, M, A, Z)
-const drawnSubject = subjectOf(SD, drawnName, MD, AD, ZD)
+/** The box's two subjects, by whether M's id is drawn. */
+interface Subjects {
+	readonly plain: Subject
+	readonly drawn: Subject
+}
+
+/** The subjects, built once by the property's run. */
+const subjectsOf = (): Subjects => ({
+	plain: subjectOf(S, schemaName, M, A, Z),
+	drawn: subjectOf(SD, drawnName, MD, AD, ZD)
+})
 
 /** The read-back's rule: each source it reads matched by id, its payload under a name of its own. */
 const readBackOf = (s: Sketch, at: Subject, other: unknown) => (d: DeltaValue) =>
@@ -331,8 +340,8 @@ const changeOf = (s: Sketch, at: Subject): ChangeSetValue => {
 }
 
 /** A case's ChangeSet, compiled over reality at SERIALIZABLE. */
-const compiled = (s: Sketch) => {
-	const at = s.drawn ? drawnSubject : plain
+const compiled = (s: Sketch, subjects: Subjects) => {
+	const at = s.drawn ? subjects.drawn : subjects.plain
 	return compileWrite(at.checked, defined(changeSetDesc(changeOf(s, at)), "a ChangeSet"), {
 		names: at.names,
 		reads: at.names,
@@ -437,104 +446,106 @@ describe("a ChangeSet's read-back", () => {
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
-					{
-						suite: "unit/write/readback-placement",
-						generator: sketchGen,
-						literal: Formatter.format,
-						box: "M's id plain or drawn, every first-stratum action of M, the opposite action beside it or not, M again in a second stratum or not, W written in either stratum or not, and a read-back of M's added, removed or both sides with W's added facts, its state or neither",
-						oracle: {
-							kind: "specification",
-							name: "the placement rule as a model over the statements the construction implies"
+				Effect.flatMap(Effect.sync(subjectsOf), (subjects) =>
+					exhaust(
+						{
+							suite: "unit/write/readback-placement",
+							generator: sketchGen,
+							literal: Formatter.format,
+							box: "M's id plain or drawn, every first-stratum action of M, the opposite action beside it or not, M again in a second stratum or not, W written in either stratum or not, and a read-back of M's added, removed or both sides with W's added facts, its state or neither",
+							oracle: {
+								kind: "specification",
+								name: "the placement rule as a model over the statements the construction implies"
+							},
+							coverage: requiredInSpace<Feature>([
+								"rides an insert",
+								"rides a delete",
+								"rides a put's insert half",
+								"rides a put's displacing deletion",
+								"rides one statement of two writes",
+								"rides beside the opposite action of M in its stratum",
+								"rides a generated addition",
+								"refused: a generated addition beside the opposite action of M",
+								"rides after state written beside it, named before it",
+								"rides after state written beside it, named after it",
+								"runs after the writes",
+								"refused: a side two statements make",
+								"refused: two sides apart",
+								"refused: state after"
+							]),
+							caseHang,
+							concurrency: 1
 						},
-						coverage: requiredInSpace<Feature>([
-							"rides an insert",
-							"rides a delete",
-							"rides a put's insert half",
-							"rides a put's displacing deletion",
-							"rides one statement of two writes",
-							"rides beside the opposite action of M in its stratum",
-							"rides a generated addition",
-							"refused: a generated addition beside the opposite action of M",
-							"rides after state written beside it, named before it",
-							"rides after state written beside it, named after it",
-							"runs after the writes",
-							"refused: a side two statements make",
-							"refused: two sides apart",
-							"refused: state after"
-						]),
-						caseHang,
-						concurrency: 1
-					},
-					(sketch, c) =>
-						Effect.sync(() => {
-							const program = compiled(sketch)
-							const verdict = verdictOf(sketch)
-							if (verdict.kind === "refused") {
-								if (program.ok) {
-									return assert.fail("refused, as the model holds a crossing")
+						(sketch, c) =>
+							Effect.sync(() => {
+								const program = compiled(sketch, subjects)
+								const verdict = verdictOf(sketch)
+								if (verdict.kind === "refused") {
+									if (program.ok) {
+										return assert.fail("refused, as the model holds a crossing")
+									}
+									const reason = program.error.reason
+									if (reason._tag !== "ReadBackCrossesStatements") {
+										return assert.fail(`refused as ${reason._tag}, not crossing statements`)
+									}
+									assert.equal(reason.read, "r")
+									assert.ok(
+										holds(verdict.crossings, reason.crossing),
+										`the crossing ${Formatter.format(reason.crossing)} is one of ${Formatter.format(verdict.crossings)}`
+									)
+									c.note(crossingNotes[reason.crossing.kind])
+									if (
+										sketch.drawn &&
+										sketch.beside &&
+										sketch.op !== "put" &&
+										reason.crossing.kind === "sideWrittenTwice"
+									) {
+										c.note("refused: a generated addition beside the opposite action of M")
+									}
+									return
 								}
-								const reason = program.error.reason
-								if (reason._tag !== "ReadBackCrossesStatements") {
-									return assert.fail(`refused as ${reason._tag}, not crossing statements`)
-								}
-								assert.equal(reason.read, "r")
-								assert.ok(
-									holds(verdict.crossings, reason.crossing),
-									`the crossing ${Formatter.format(reason.crossing)} is one of ${Formatter.format(verdict.crossings)}`
+								const artifact = succeeded(program, "the ChangeSet compiles").artifact
+								assert.deepEqual(
+									Arr.filter(artifact.statements, (st) => st.step.kind === "carrier"),
+									[],
+									"no carrier"
 								)
-								c.note(crossingNotes[reason.crossing.kind])
-								if (
-									sketch.drawn &&
-									sketch.beside &&
-									sketch.op !== "put" &&
-									reason.crossing.kind === "sideWrittenTwice"
-								) {
-									c.note("refused: a generated addition beside the opposite action of M")
+								const carried = defined(
+									Option.getOrUndefined(Arr.findFirst(artifact.readBacks, (r) => r.name === "r")),
+									"the read-back"
+								).carried
+								if (verdict.kind === "after") {
+									assert.equal(carried.kind, "sent", "runs after the writes")
+									c.note("runs after the writes")
+									return
 								}
-								return
-							}
-							const artifact = succeeded(program, "the ChangeSet compiles").artifact
-							assert.deepEqual(
-								Arr.filter(artifact.statements, (st) => st.step.kind === "carrier"),
-								[],
-								"no carrier"
-							)
-							const carried = defined(
-								Option.getOrUndefined(Arr.findFirst(artifact.readBacks, (r) => r.name === "r")),
-								"the read-back"
-							).carried
-							if (verdict.kind === "after") {
-								assert.equal(carried.kind, "sent", "runs after the writes")
-								c.note("runs after the writes")
-								return
-							}
-							if (carried.kind !== "riding") {
-								return assert.fail("rides the statement that makes its delta")
-							}
-							assert.deepEqual(
-								ridden(artifact, carried.statement, verdict.relation),
-								{ writes: verdict.writes, maker: verdict.maker },
-								"the statement it rides"
-							)
-							c.note(ridingNotes[verdict.maker])
-							if (verdict.writes.length > 1) {
-								c.note("rides one statement of two writes")
-							}
-							if (sketch.beside) {
-								c.note("rides beside the opposite action of M in its stratum")
-							}
-							if (sketch.drawn && verdict.maker === "insert" && verdict.relation === "M") {
-								c.note("rides a generated addition")
-							}
-							if (sketch.reads === "state" && sketch.written === "first") {
-								c.note(
-									sketch.other === "A"
-										? "rides after state written beside it, named before it"
-										: "rides after state written beside it, named after it"
+								if (carried.kind !== "riding") {
+									return assert.fail("rides the statement that makes its delta")
+								}
+								assert.deepEqual(
+									ridden(artifact, carried.statement, verdict.relation),
+									{ writes: verdict.writes, maker: verdict.maker },
+									"the statement it rides"
 								)
-							}
-						})
+								c.note(ridingNotes[verdict.maker])
+								if (verdict.writes.length > 1) {
+									c.note("rides one statement of two writes")
+								}
+								if (sketch.beside) {
+									c.note("rides beside the opposite action of M in its stratum")
+								}
+								if (sketch.drawn && verdict.maker === "insert" && verdict.relation === "M") {
+									c.note("rides a generated addition")
+								}
+								if (sketch.reads === "state" && sketch.written === "first") {
+									c.note(
+										sketch.other === "A"
+											? "rides after state written beside it, named before it"
+											: "rides after state written beside it, named after it"
+									)
+								}
+							})
+					)
 				)
 			)
 	)

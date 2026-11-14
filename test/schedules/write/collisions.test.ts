@@ -41,7 +41,8 @@
  *   uuid.
  *
  * Oracle: the serial model below, over the stated rows alone. The probe's refusal, both arbiter waits, every 23505
- * witness and both met rows read back are required features, among every other kind of answer.
+ * witness and both met rows read back are required features, among every other kind of answer; a witness whose turn
+ * aims at a pending one that depends on the form runs a case constructed to reach it (`aims`).
  *
  * Plants: ~/.cache/grizzle-release/BR08/plants/collisions-generated-arbiter-last-key.patch, a generated addition
  * arbitrated at the last declared key holding no drawn field (slot) instead of the first, must turn the property red;
@@ -49,7 +50,7 @@
  * occupant whose payload differs, so an exact repeat meets nothing it reads back.
  */
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -229,6 +230,56 @@ const collisionGen: Gen<Collision> = (source) => ({
 	a: source.draw(callGen(1, 2)),
 	b: source.draw(callGen(1, 2))
 })
+
+/**
+ * Cases constructed to reach the situations that depend on a call's form, their requests drawn: B repeating the row A
+ * holds in flight, or the row A committed before it, through the query member; and B stating, at another key, the
+ * slot A holds in flight, alone through an array or the query member, or beside a request at a third key and slot
+ * through an array.
+ */
+const reachingIn =
+	(mode: Mode, form: Form, b: (a: Request) => ReadonlyArray<Request>): Gen<Collision> =>
+	(source) => {
+		const a = source.draw(requestGen)
+		return { mode, form, stored: [], a: [a], b: b(a) }
+	}
+
+/** A request at another key than `a`'s, stating `a`'s slot. */
+const atSlotOf = (a: Request): Request => ({ ...a, child: 3 - a.child })
+
+/** A request at a key and a slot neither `a` nor atSlotOf(a) holds. */
+const besides = (a: Request): Request => ({
+	...a,
+	attempt: 3 - a.attempt,
+	slot: (a.slot % 3) + 1
+})
+
+const aims: ReadonlyArray<readonly [CollisionFeature, Gen<Collision>]> = [
+	["a row in flight met, read back", reachingIn("concurrent", "query", (a) => [a])],
+	["a visible row met, read back", reachingIn("sequential", "query", (a) => [a])],
+	[
+		"a 23505 at slot after waiting, unreported for a query's rows",
+		reachingIn("concurrent", "query", (a) => [atSlotOf(a)])
+	],
+	[
+		"a 23505 at slot after waiting, its stated slot the witness",
+		reachingIn("concurrent", "array", (a) => [atSlotOf(a)])
+	],
+	[
+		"a 23505 at slot after waiting, unreported among several slots",
+		reachingIn("concurrent", "array", (a) => [atSlotOf(a), besides(a)])
+	]
+]
+
+/**
+ * The case a witness runs: its drawn one, or, where its turn aims at a pending situation `aims` constructs (Case.steering),
+ * one constructed to reach it, drawn on the case's own tape.
+ */
+const aimedCase = (drawnCase: Collision, k: Case<CollisionFeature>): Collision => {
+	const pending = Option.getOrUndefined(k.steering)
+	const aim = Arr.findFirst(aims, ([situation]) => pending?.aimed(situation) === true)
+	return Option.isNone(aim) ? drawnCase : k.draw(aim.value[1])
+}
 
 /** The law a refusal names, by the statement that states it. */
 type KeyName = "sitting" | "slot"
@@ -681,8 +732,9 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 						steerEvery: 16,
 						caseHang
 					},
-					(c, k) =>
+					(drawnCase, k) =>
 						Effect.gen(function* () {
+							const c = aimedCase(drawnCase, k)
 							yield* rig.replace(
 								c.stored.length === 0
 									? []
