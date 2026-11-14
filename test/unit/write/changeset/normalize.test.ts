@@ -72,7 +72,9 @@ import { codesOf, compiled, cs, parsedOf } from "#test/unit/write/changeset/fixt
  *
  * Plants (~/.cache/grizzle-release/BR02/plants): normalize-deletions-unnetted, normalize-extra-field-admitted; and
  * (~/.cache/grizzle-release/LIVE-PARSE/plants) normalize-deletions-keyed (two deletions at one key refused by that
- * key).
+ * key); and (~/.cache/grizzle-release/EXECBOUND/plants) slot-groups-at-changeset-index (60cd1c28's bug: a slot group
+ * numbered by its stratum's index among the ChangeSet's strata, empty ones included, not by its position among the
+ * occupied ones), caught on the floor stream by a ChangeSet whose empty first stratum precedes an insert of Gen.
  */
 const Pair = relation("Pair", { k: pg.integer, v: pg.integer, c: pg.integer }, ["k"])
 const Gen = relation("Gen", { id: pg.bigserial, k: pg.integer, w: pg.integer }, ["id"])

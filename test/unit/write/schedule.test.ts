@@ -60,7 +60,9 @@ type FamilyNode = Exclude<AnyFamilyNode, { readonly kind: "additions" | "removal
  * Features: the schedule orders a stratum, no order keeps one, a pure set's deletion after its addition, both put
  * under either name order, a generated insertion beside a deletion; each stratum shape of the generated strata.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): schedule-generated-before-deletion, schedule-phase-free.
+ * Plants (~/.cache/grizzle-release/BR02/plants): schedule-generated-before-deletion, schedule-phase-free; and
+ * (~/.cache/grizzle-release/EXECBOUND/plants) pure-set-delete-held-first (a30d00af's bug: a deletion of a relation whose
+ * facts meet nowhere held before its stratum's puts and inserts, so a put referencing it between them leaves no order).
  */
 
 /** An operation of a stratum's action on C, or an explicit one on P. */
