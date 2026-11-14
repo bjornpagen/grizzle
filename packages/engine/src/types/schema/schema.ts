@@ -595,10 +595,15 @@ type KeyIndexOf<S> = {
  */
 export type DeclaredKeysOfAll<S, N extends string> = HeldByAll<N, KeyIndexOf<S>[N], KeyIndexOf<S>>
 type HeldByAll<N extends string, T, I extends ByName> = T extends unknown
-	? [N] extends [HoldersOf<N, T, I>]
-		? T
-		: never
+	? HeldWhere<N, T, HoldersOf<N, T, I>>
 	: never
+
+/**
+ * T where every name of N is among its holders H, never otherwise. The holders are a parameter of their own: a tuple of
+ * HoldersOf in HeldByAll's body would be a reference the checker defers, holding the key index in its mapper, so
+ * deciding it would instantiate the whole index again.
+ */
+type HeldWhere<N extends string, T, H> = [N] extends [H] ? T : never
 type HoldersOf<N extends string, T, I extends ByName> = N extends unknown
 	? [T] extends [I[N]]
 		? N
