@@ -12,29 +12,31 @@
  * `error`, and an answer ends with `end` after its error or outcome, an instant read's after its ready too.
  */
 import type { TransientTag } from "#compiler/core/errors.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { KeyFields, RowKey } from "#compiler/live/key.ts"
 import type { Refused, Witness } from "#compiler/types/changeset/changeset.ts"
 
 /**
  * What one payload member holds, by the slot that types it: a text; reset's key fields; a row; a key; the key an
- * ordered row follows, null for the first; a write's outcome; a CallError; a refusal's laws and witness; and which
- * concurrent refusal a transient error met (core/errors.ts TransientTag).
+ * ordered row follows, null for the first; a write's outcome; a CallError, of the kinds its answer may end with
+ * (Failure); a refusal's laws and witness; and which concurrent refusal a transient error met (core/errors.ts
+ * TransientTag).
  */
-export interface SlotValues<Row, Outcome> {
+export interface SlotValues<Row, Outcome, Failure = CallError> {
 	readonly text: string
 	readonly fields: KeyFields
 	readonly row: Row
 	readonly key: RowKey
 	readonly after: RowKey | null
 	readonly outcome: Outcome
-	readonly error: CallError
+	readonly error: Failure
 	readonly refused: Refused
 	readonly witness: Witness
 	readonly transientReason: TransientTag
 }
 
 /** The slots a payload member is typed by. */
-export type Slot = keyof SlotValues<unknown, unknown>
+export type Slot = keyof SlotValues<unknown, unknown, unknown>
 
 /** A payload: each member's name, with the slot that types it. */
 export type Payload = { readonly [member: string]: Slot }
@@ -90,25 +92,85 @@ export const callErrors = {
 /** The errors' kinds. */
 export type CallErrorKind = keyof typeof callErrors
 
-/** The members of a payload, each typed by its slot. */
-export type PayloadOf<P extends Payload, Row, Outcome> = {
-	readonly [M in keyof P]: SlotValues<Row, Outcome>[P[M]]
+/** The members of a payload, each typed by its slot, an error as Failure, the kinds its answer may end with. */
+export type PayloadOf<P extends Payload, Row, Outcome, Failure> = {
+	readonly [M in keyof P]: SlotValues<Row, Outcome, Failure>[P[M]]
 }
 
 /** The error of kind K: its kind, the retry the classification gives it, and its payload. */
 export type CallErrorOf<K extends CallErrorKind> = {
 	readonly kind: K
 	readonly retry: (typeof callErrors)[K]["retry"]
-} & PayloadOf<(typeof callErrors)[K]["payload"], never, never>
+} & PayloadOf<(typeof callErrors)[K]["payload"], never, never, never>
+
+/** The errors of the kinds K, each of its own kind (CallErrorOf). */
+export type CallErrorIn<K extends CallErrorKind> = { readonly [k in K]: CallErrorOf<k> }[K]
 
 /** Every failure a call ends with (callErrors). */
-export type CallError = { readonly [K in CallErrorKind]: CallErrorOf<K> }[CallErrorKind]
+export type CallError = CallErrorIn<CallErrorKind>
 
 /** The error of kind `kind` with its payload, its retry the classification's. */
 export const callError = <K extends CallErrorKind>(
 	kind: K,
-	payload: PayloadOf<(typeof callErrors)[K]["payload"], never, never>
+	payload: PayloadOf<(typeof callErrors)[K]["payload"], never, never, never>
 ): CallErrorOf<K> => ({ kind, retry: callErrors[kind].retry, ...payload })
+
+/**
+ * Where a call's failure is met, each with exactly the kinds of CallError it is read as. Each source's reading is a
+ * table keyed by what fails there (adapter live/call-error.ts), which must name each of its kinds and no other, and
+ * each of its producers is typed by its kinds (FailureOf):
+ *
+ * - `door`: the HTTP door, before any member runs: a request line no route serves, a wire header naming no digest or
+ *   another (wireRefusals), an Authorization header holding no bearer token68, no token where the role reads a context,
+ *   a body that is no JSON text or not the member's input;
+ * - `open`: the opening of the Db a served call runs on, through the layer's verify and the role's contexts
+ *   (OpenError);
+ * - `read`: a read's run, its input's parse included (ReadError);
+ * - `watch`: a live read's subscription: its change source's refusal or loss, its layer's release, its token's expiry;
+ * - `apply`: a write's or a refresh's run, its input's parse included (ApplyError);
+ * - `outcome`: a ChangeSet's application that is a refusal: by the laws, or a fact outside the world relation.
+ */
+export const failures = {
+	door: ["route", "input", "tokenRefused", "stale"],
+	open: ["route", "tokenRefused", "failed"],
+	read: ["refused", "input", "transient", "unavailable", "transport", "stale", "failed"],
+	watch: ["unavailable", "stale", "failed", "tokenExpired"],
+	apply: ["input", "transient", "unavailable", "transport", "stale", "commitUnknown", "failed"],
+	outcome: ["refused", "outsideWorld"]
+} as const satisfies { readonly [source: string]: NonEmptyReadonlyArray<CallErrorKind> }
+
+/** The sources a call's failure is met at (failures). */
+export type FailureSource = keyof typeof failures
+
+/** The kinds of CallError the sources S read their failures as. */
+export type FailureKind<S extends FailureSource> = (typeof failures)[S][number]
+
+/** The CallErrors the sources S read their failures as. */
+export type FailureOf<S extends FailureSource> = CallErrorIn<FailureKind<S>>
+
+/**
+ * What a member's answer is, each with the sources of the failures its calls meet (failures): a live read's, its run's
+ * and its subscription's; a read's at its call's instant, its run's alone; a ChangeSet's, its run's and its outcome's;
+ * and a refresh's, its run's alone.
+ */
+export const answers = {
+	live: ["read", "watch"],
+	instant: ["read"],
+	change: ["apply", "outcome"],
+	refresh: ["apply"]
+} as const satisfies { readonly [answer: string]: NonEmptyReadonlyArray<FailureSource> }
+
+/** What a member's answer is (answers). */
+export type Answer = keyof typeof answers
+
+/** The CallErrors a member's calls of the answers A end with. */
+export type AnswerFailure<A extends Answer> = FailureOf<(typeof answers)[A][number]>
+
+/** The sources every call over HTTP meets before its member runs, beside its answer's: its door, then its Db's opening. */
+export const servedSources = [
+	"door",
+	"open"
+] as const satisfies NonEmptyReadonlyArray<FailureSource>
 
 /** The request header a call names the wire it was built for by, its digest (live/member.ts WireDigest). */
 export const wireHeader = "grizzle-wire"
@@ -164,16 +226,34 @@ export const events = {
 /** The shapes of answer: a set read's, an ordered read's, each at an instant alone, a write's. */
 export type Shape = keyof typeof events
 
+/**
+ * The answers of each shape (answers): a set or ordered read's live, one at its call's instant alone its instant one's,
+ * and a write's a ChangeSet's or a refresh's.
+ */
+export interface ShapeAnswers {
+	readonly set: "live"
+	readonly list: "live"
+	readonly instantSet: "instant"
+	readonly instantList: "instant"
+	readonly write: "change" | "refresh"
+}
+
+/** The CallErrors an answer of shape S ends with: its answers' (AnswerFailure). */
+export type ShapeFailure<S extends Shape> = AnswerFailure<ShapeAnswers[S]>
+
 /** The shapes of a read's keyed value: a set's, and an ordered read's list. */
 export type ReadShape = Extract<Shape, "set" | "list">
 
 /** The shapes of a read at its call's instant alone, which no change reaches: a set's and an ordered read's. */
 export type InstantShape = Extract<Shape, "instantSet" | "instantList">
 
-/** The event `name` of shape S over Row and Outcome: its name as `kind`, and its payload's members. */
+/**
+ * The event `name` of shape S over Row and Outcome: its name as `kind`, and its payload's members, an error of the
+ * kinds the shape's answers end with (ShapeFailure).
+ */
 type EventNamed<S extends Shape, Name extends keyof (typeof events)[S], Row, Outcome> = {
 	readonly kind: Name
-} & PayloadOf<EventPayload<S, Name>, Row, Outcome>
+} & PayloadOf<EventPayload<S, Name>, Row, Outcome, ShapeFailure<S>>
 
 type EventPayload<
 	S extends Shape,

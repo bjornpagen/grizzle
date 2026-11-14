@@ -3,6 +3,7 @@
  * errors as data, its keys, its values and the evaluators of them, which the server, the client and the tests share.
  */
 export {
+	type AnswerFailure,
 	type CallError,
 	type CallErrorKind,
 	type CallErrorOf,
@@ -11,6 +12,9 @@ export {
 	type EventDescriptor,
 	type EventOfShape,
 	events,
+	type FailureKind,
+	type FailureOf,
+	type FailureSource,
 	type InstantListEvent,
 	type InstantSetEvent,
 	type InstantShape,
@@ -24,6 +28,7 @@ export {
 	type SetChange,
 	type SetEvent,
 	type Shape,
+	type ShapeFailure,
 	type Slot,
 	type SlotValues,
 	type WriteEvent

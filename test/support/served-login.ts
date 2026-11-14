@@ -16,12 +16,12 @@ import { clockedMember, workload } from "#compiler/program/workload/value.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
 import { context, login, role, wholeEntriesOf } from "#compiler/public/schema.ts"
-import { paged } from "#compiler/public/workload.ts"
+import { paged, refresh } from "#compiler/public/workload.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { type Owned, ownBuilt } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { contextDescOf } from "#compiler/schema/world.ts"
+import { contextDescOf, roleDescOf } from "#compiler/schema/world.ts"
 import type { ServedFile, ServedRoleForm } from "#compiler/served/forms.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
@@ -55,9 +55,11 @@ import type { ProgramCase, Root } from "#test/support/oracle/public/program.ts"
  * - its workload's ChangeSets, each an insert or a delete into one relation it writes or into `Mine`, the facts the
  *   call's;
  * - its workload's reads, some of the case's queries, an ordered one read whole or paged;
- * - and perhaps a clocked read (clockedRead): the schema's first relation's facts at or after `now`, a parameter typed
+ * - perhaps a clocked read (clockedRead): the schema's first relation's facts at or after `now`, a parameter typed
  *   by the checked contract `Instant` over bigint, which the member binds to the database's clock in milliseconds, so
- *   its statement casts the reading to the contract's domain.
+ *   its statement casts the reading to the contract's domain;
+ * - and, where its caller sets it (RoleShape refreshes), a refresh of the law level's materialized view (laws.ts Laws
+ *   view), which it may refresh; loginGen sets it for no role.
  *
  * A login of the live suites (liveLoginGen) holds besides, in its first role, constructed rather than drawn: the query
  * entry, and a read through it, `Mine`'s facts at the key a parameter binds; and a read of the law level's materialized
@@ -134,6 +136,7 @@ export interface RoleShape {
 	readonly reads: ReadonlyArray<ReadShape>
 	readonly worldReads: ReadonlyArray<WorldRead>
 	readonly clocked: boolean
+	readonly refreshes: boolean
 }
 
 /**
@@ -141,6 +144,9 @@ export interface RoleShape {
  * negative, whose domain's CHECK a reading cast to it meets.
  */
 const Instant = contract("Instant", pg.bigint, (m) => m.ge(0n))
+
+/** The name of a role's refresh of the law level's view, by the role's place. */
+const refreshName = (place: number): string => `${roleName(place)}refresh`
 
 /** The name of a role's clocked read, by the role's place. */
 const clockedReadName = (place: number): string => `${roleName(place)}clock`
@@ -236,7 +242,15 @@ const roleGen =
 			...read,
 			paged: read.query.delivery.kind === "ordered" && source.draw(boolean)
 		}))
-		return { writes, entry, changes, reads, worldReads: [], clocked: source.draw(boolean) }
+		return {
+			writes,
+			entry,
+			changes,
+			reads,
+			worldReads: [],
+			clocked: source.draw(boolean),
+			refreshes: false
+		}
 	}
 
 /** The roles of a login over the drawn schema, one or more (see the header). */
@@ -263,6 +277,31 @@ export const liveLoginGen =
 			...source.draw(array(roleGen(drawn, entryGen(drawn)), { min: 0, max: 1 }))
 		]
 	}
+
+/** A value role(...) built, as the library recognizes one. */
+const isRole = (value: unknown): value is ReturnType<typeof role> => roleDescOf(value) !== undefined
+
+/**
+ * A role over `value` that writes `written` and refreshes the law level's materialized view, built as a JavaScript
+ * caller builds one, since the drawn schema's type names no materialized relation.
+ */
+const refreshingRole = (
+	drawn: DrawnSchema,
+	name: string,
+	entries: Readonly<Record<string, EntryValue>>,
+	written: ReadonlyArray<string>
+): ReturnType<typeof role> => {
+	const made: unknown = Reflect.apply(role, undefined, [
+		drawn.laws.schema,
+		name,
+		entries,
+		{ write: written, refresh: [drawn.laws.view.name] }
+	])
+	if (!isRole(made)) {
+		throw new Error(`the role ${name} is no role`)
+	}
+	return made
+}
 
 /** A value context(...) built, as the library recognizes one. */
 const isContext = (value: unknown): value is AnyContext => contextDescOf(value) !== undefined
@@ -314,8 +353,9 @@ const roleOf = (drawn: DrawnSchema, shape: RoleShape, place: number) => {
 		)
 	}
 	const written = Option.isSome(shape.entry) ? [...shape.writes, entryName] : shape.writes
-	const made =
-		written.length === 0
+	const made = shape.refreshes
+		? refreshingRole(drawn, roleName(place), entries, written)
+		: written.length === 0
 			? role(value, roleName(place), entries)
 			: role(value, roleName(place), entries, { write: written })
 	const changes = Arr.map(shape.changes, (change, i) => {
@@ -343,9 +383,12 @@ const roleOf = (drawn: DrawnSchema, shape: RoleShape, place: number) => {
 		)
 	)
 	const clocked = shape.clocked ? [[clockedReadName(place), clockedRead(drawn)] as const] : []
+	const refreshes = shape.refreshes
+		? [[refreshName(place), Reflect.apply(refresh, undefined, [[drawn.laws.view.value]])] as const]
+		: []
 	return {
 		value: made,
-		programs: Rec.fromEntries([...changes, ...reads, ...worldReads, ...clocked])
+		programs: Rec.fromEntries([...changes, ...reads, ...worldReads, ...clocked, ...refreshes])
 	}
 }
 

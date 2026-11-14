@@ -1,15 +1,10 @@
 import { Clock, Deferred, Duration, Effect, Option, Result, type Scope, Stream } from "effect"
 import type { Expiry } from "#adapter/db/claims.ts"
 import type { ServerError } from "#adapter/errors/failures.ts"
+import { watchError } from "#adapter/live/call-error.ts"
 import { addRoutes, removeRoutes, route, type RouteIndex } from "#adapter/live/router.ts"
 import type { ChangeSink, ChangeSource, SourceLoss, SourceRefusal } from "#adapter/live/source.ts"
-import {
-	type CallError,
-	callError,
-	type Keyed,
-	type ReadShape,
-	type ReadState
-} from "#compiler/live/index.ts"
+import type { AnswerFailure, FailureOf, Keyed, ReadShape, ReadState } from "#compiler/live/index.ts"
 import { defect, type RouteKey } from "#compiler/plan/runtime.ts"
 
 /**
@@ -30,7 +25,7 @@ import { defect, type RouteKey } from "#compiler/plan/runtime.ts"
 type SubscriptionState =
 	| { readonly kind: "clean" }
 	| { readonly kind: "marked" }
-	| { readonly kind: "ended"; readonly error: CallError }
+	| { readonly kind: "ended"; readonly error: AnswerFailure<"live"> }
 
 const cleanState: SubscriptionState = { kind: "clean" }
 const markedState: SubscriptionState = { kind: "marked" }
@@ -59,7 +54,7 @@ const markSubscription = (subscription: Subscription): void => {
 }
 
 /** The subscription ended with `error`, unless it already ended. */
-const endSubscription = (subscription: Subscription, error: CallError): void => {
+const endSubscription = (subscription: Subscription, error: AnswerFailure<"live">): void => {
 	if (subscription.state.kind !== "ended") {
 		subscription.state = { kind: "ended", error }
 		wake(subscription)
@@ -90,10 +85,10 @@ interface Generation {
 	state:
 		| { readonly kind: "opening" }
 		| { readonly kind: "open" }
-		| { readonly kind: "lost"; readonly error: CallError }
+		| { readonly kind: "lost"; readonly error: FailureOf<"watch"> }
 	readonly members: Set<Subscription>
 	readonly index: RouteIndex<Subscription>
-	readonly opened: Deferred.Deferred<void, CallError>
+	readonly opened: Deferred.Deferred<void, FailureOf<"watch">>
 	readonly ended: Deferred.Deferred<void>
 }
 
@@ -107,20 +102,19 @@ const reported = (error: ServerError): string =>
  * `stale`, which the process's served files then are; the server's own report keeps its hint, which names the setting
  * a refusal like 53400's asks to raise.
  */
-const sourceError = (reason: SourceRefusal | SourceLoss): CallError => {
+const sourceError = (reason: SourceRefusal | SourceLoss): FailureOf<"watch"> => {
 	switch (reason._tag) {
 		case "ServerError":
-			return callError("unavailable", { message: reported(reason) })
+			return watchError(reason._tag, reported(reason))
 		case "LeaderFailed":
-			return callError("unavailable", {
-				message:
-					reason.reason._tag === "ServerError"
-						? `the installation's live leader in this process failed: ${reported(reason.reason)}`
-						: reason.message
-			})
+			return watchError(
+				reason._tag,
+				reason.reason._tag === "ServerError"
+					? `the installation's live leader in this process failed: ${reported(reason.reason)}`
+					: reason.message
+			)
 		case "UnreadableAnswer":
 		case "SecretUnreadable":
-			return callError("failed", { message: reason.message })
 		case "CredentialError":
 		case "ConnectTimedOut":
 		case "SocketFailed":
@@ -135,21 +129,18 @@ const sourceError = (reason: SourceRefusal | SourceLoss): CallError => {
 		case "SlotAbsent":
 		case "ListenerLost":
 		case "SourceInvalidated":
-			return callError("unavailable", { message: reason.message })
 		case "SourceMigrated":
-			return callError("stale", { message: reason.message })
+			return watchError(reason._tag, reason.message)
 	}
 }
 
 /** The error a source's scope closing ends its reads with: the layer was released. */
-const sourceClosed = (): CallError =>
-	callError("unavailable", {
-		message: "the DbLayer the live read was registered on has been released"
-	})
+const sourceClosed = (): FailureOf<"watch"> =>
+	watchError("SourceClosed", "the DbLayer the live read was registered on has been released")
 
 /** The error a read's token's expiry ends it with. */
-const tokenExpired = (): CallError =>
-	callError("tokenExpired", { message: "the token the Db was opened with expired" })
+const tokenExpired = (): FailureOf<"watch"> =>
+	watchError("TokenExpired", "the token the Db was opened with expired")
 
 /** The generation open: a subscription waiting for it registers. */
 const openGeneration = (generation: Generation): void => {
@@ -163,7 +154,7 @@ const openGeneration = (generation: Generation): void => {
  * The generation lost with `error`, unless it already is: a subscription waiting for it is refused, every member ends,
  * and its source's scope closes.
  */
-const loseGeneration = (generation: Generation, error: CallError): void => {
+const loseGeneration = (generation: Generation, error: FailureOf<"watch">): void => {
 	if (generation.state.kind === "lost") {
 		return
 	}
@@ -184,7 +175,7 @@ export interface LiveAnswer<S extends ReadShape, Row extends object, E> {
 	readonly settle: (events: ReadonlyArray<E>) => ReadState<S, Row>
 	readonly diff: (previous: Keyed<S, Row>, next: Keyed<S, Row>) => ReadonlyArray<E>
 	readonly ready: E
-	readonly error: (error: CallError) => E
+	readonly error: (error: AnswerFailure<"live">) => E
 	readonly end: E
 }
 
@@ -234,10 +225,10 @@ export interface Subscriptions {
 export const unsourced: Subscriptions = {
 	register: (request) =>
 		Effect.sync(() => {
-			const error = callError("failed", {
-				message:
-					"the live source was built over a login whose served file holds no live source: build it over one that serves a read"
-			})
+			const error = watchError(
+				"Unsourced",
+				"the live source was built over a login whose served file holds no live source: build it over one that serves a read"
+			)
 			return {
 				initial: Stream.make(request.answer.error(error)),
 				changes: Stream.make(request.answer.end),
@@ -254,7 +245,7 @@ type Turn<S extends ReadShape, Row extends object, E> =
 			readonly changes: ReadonlyArray<E>
 			readonly value: Keyed<S, Row>
 	  }
-	| { readonly kind: "ended"; readonly error: CallError }
+	| { readonly kind: "ended"; readonly error: AnswerFailure<"live"> }
 
 /**
  * What one run of a live read came to: a turn (Turn), or the same value read again, `unchanged`, with what it read, or a

@@ -2,7 +2,7 @@ import { Array as Arr, Effect, Option, Record as Rec, Redacted, Ref, Stream } fr
 import { HttpClient } from "effect/http"
 import { liveRead, memberCalls, type ServedCalls } from "#adapter/db/handles.ts"
 import { openServed } from "#adapter/db/served.ts"
-import { callErrorOf } from "#adapter/live/call-error.ts"
+import { openCallError } from "#adapter/live/call-error.ts"
 import type { DbLayerOf, ServedLogin } from "#adapter/types/layer.ts"
 import { clientCalls } from "#client/client.ts"
 import { handlerClient } from "#client/handler.ts"
@@ -166,7 +166,7 @@ const misnamed = (member: string, what: string) =>
  * The calls of `role` of the served login `file` in process: each call opens a Db through the login's layer with
  * `token` (test/support/worlds.ts tokenOf), as a request handler opens one, and runs its member's once or watch
  * (adapter/db/handles.ts memberCalls) by its name; a Db that does not open ends the call with its CallError
- * (adapter/live/call-error.ts callErrorOf).
+ * (adapter/live/call-error.ts openCallError).
  */
 const inProcessCalls = (
 	file: ServedLogin<AnyLogin>,
@@ -178,7 +178,7 @@ const inProcessCalls = (
 		const callsOf = (name: string): Effect.Effect<ServedCalls, CallError> =>
 			Effect.provideContext(
 				Effect.mapBoth(openServed(served, { token }), {
-					onFailure: callErrorOf,
+					onFailure: openCallError,
 					onSuccess: (opened) =>
 						memberCalls(
 							opened.ctx,
@@ -432,7 +432,7 @@ const liveRegistrations = (
 				const served = defined(file.roles[role], `the served role ${role}`)
 				const opened = yield* Effect.mapError(
 					Effect.provideContext(openServed(served, { token }), context),
-					callErrorOf
+					openCallError
 				)
 				const member = defined(
 					Option.getOrUndefined(Arr.findFirst(opened.role.members, (m) => m.name === name)),

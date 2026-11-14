@@ -7,7 +7,7 @@ import {
 	ParamRejected,
 	type UnreadableAnswer
 } from "#adapter/errors/failures.ts"
-import { callErrorOf } from "#adapter/live/call-error.ts"
+import { readCallError } from "#adapter/live/call-error.ts"
 import {
 	type FlightFailure,
 	type Frame,
@@ -16,7 +16,7 @@ import {
 	runFramed
 } from "#adapter/wire/batch.ts"
 import {
-	type CallError,
+	type FailureOf,
 	type InstantListEvent,
 	type InstantSetEvent,
 	type KeyFields,
@@ -35,7 +35,7 @@ import type { Row } from "#compiler/plan/common.ts"
  * statement has answered); and ends with `ready` once the read's COMMIT answered. A failure ends it with one `error` in
  * place of `ready`, which voids every upsert before it: the acquisition's refusal, the statement's encoding past a
  * bound, any failure of the flight (wire/batch.ts readFailureIn), and an answer that contradicts the program's proofs
- * (UnreadableAnswer), each classified once (live/call-error.ts callErrorOf). The stream itself never fails.
+ * (UnreadableAnswer), each classified once (live/call-error.ts readCallError). The stream itself never fails.
  *
  * Its session is leased for the flight alone and released as the flight ends, before `ready` is sent; interrupting the
  * stream while the flight runs interrupts the flight (wire/batch.ts: one CancelRequest, the session destroyed), a
@@ -70,13 +70,14 @@ export interface OpenedRead {
 
 /**
  * How one call's events of one read shape are made (live/events.ts events): its reset under its key fields, the upsert
- * of each decoded row in delivery order, made by a closure of the call's own, its ready and its error.
+ * of each decoded row in delivery order, made by a closure of the call's own, its ready and its error, one a read's run
+ * fails with.
  */
 export interface ShapeEvents<E> {
 	readonly reset: (fields: KeyFields) => E
 	readonly upserts: (fields: KeyFields) => (row: DecodedRow) => E
 	readonly ready: E
-	readonly error: (error: CallError) => E
+	readonly error: (error: FailureOf<"read">) => E
 }
 
 /**
@@ -177,7 +178,7 @@ export const readStream = <E>(
 				Queue.offerUnsafe(queue, upsert(call.decode(row)))
 			}).pipe(
 				Effect.as(events.ready),
-				Effect.catch((failure) => Effect.succeed(events.error(callErrorOf(failure))))
+				Effect.catch((failure) => Effect.succeed(events.error(readCallError(failure))))
 			)
 			Queue.offerUnsafe(queue, last)
 			Queue.endUnsafe(queue)

@@ -64,7 +64,7 @@ import {
 import { onceCalls } from "#adapter/db/handles.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { CallInputRefused, type CallInputFault } from "#adapter/errors/failures.ts"
-import { callErrorOf } from "#adapter/live/call-error.ts"
+import { readCallError } from "#adapter/live/call-error.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { type Anchor, keyOf, type RowKey } from "#compiler/live/index.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
@@ -1048,7 +1048,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 												assert.deepEqual(
 													answer,
 													Result.fail(
-														callErrorOf(
+														readCallError(
 															new ReadFailure({
 																reason: new CallInputRefused({ fault: expected.verdict })
 															})

@@ -5,12 +5,12 @@
  */
 import { defect, defined } from "#compiler/core/invariant.ts"
 import type {
-	CallError,
 	ListChange,
 	ListEvent,
 	ReadShape,
 	SetChange,
 	SetEvent,
+	ShapeFailure,
 	WriteEvent
 } from "#compiler/live/events.ts"
 import { type RowKey, sameValue } from "#compiler/live/key.ts"
@@ -25,13 +25,13 @@ export type ReadEvent<S extends ReadShape, Row> = {
 /**
  * A read's state as its events have built it: `opening`, before its reset; `provisional`, the rows decoded so far,
  * which an error voids; `ready`, its value, whole at `ready` and live after it; `failed`, the error that ended it,
- * with no value.
+ * with no value, one a read's answer may end with (live/events.ts ShapeFailure).
  */
 export type ReadState<S extends ReadShape, Row extends object> =
 	| { readonly kind: "opening"; readonly shape: S }
 	| { readonly kind: "provisional"; readonly value: Keyed<S, Row> }
 	| { readonly kind: "ready"; readonly value: Keyed<S, Row> }
-	| { readonly kind: "failed"; readonly error: CallError }
+	| { readonly kind: "failed"; readonly error: ShapeFailure<ReadShape> }
 
 /** The state of a read of shape `shape` before its first event. */
 export const opening = <S extends ReadShape, Row extends object>(shape: S): ReadState<S, Row> => ({
@@ -117,7 +117,7 @@ export const fold = <S extends ReadShape, Row extends object>(
 export type WriteState<Outcome> =
 	| { readonly kind: "opening" }
 	| { readonly kind: "ready"; readonly value: Outcome }
-	| { readonly kind: "failed"; readonly error: CallError }
+	| { readonly kind: "failed"; readonly error: ShapeFailure<"write"> }
 
 /** The state of a write before its first event. */
 export const writeOpening = <Outcome>(): WriteState<Outcome> => ({ kind: "opening" })

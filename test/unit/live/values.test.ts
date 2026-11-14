@@ -35,7 +35,6 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, type Order } from "effect"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
-	type CallError,
 	callError,
 	coalesceList,
 	coalesceSet,
@@ -54,6 +53,7 @@ import {
 	type ReadState,
 	RowKey,
 	type SetChange,
+	type ShapeFailure,
 	sameValue,
 	type WriteEvent,
 	writeOpening
@@ -226,7 +226,7 @@ interface Kit<S extends ReadShape> {
 	readonly shape: S
 	readonly reset: (fields: KeyFields) => ReadEvent<S, Row>
 	readonly ready: ReadEvent<S, Row>
-	readonly failed: (error: CallError) => ReadEvent<S, Row>
+	readonly failed: (error: ShapeFailure<S>) => ReadEvent<S, Row>
 	readonly end: ReadEvent<S, Row>
 	/** The upserts of a first run's rows, in their order. */
 	readonly rows: (fields: KeyFields, specs: ReadonlyArray<Spec>) => ReadonlyArray<ChangeOf<S>>
@@ -672,7 +672,7 @@ describe("the live model's values", () => {
 		| "ready, then live batches"
 		| "an error after ready"
 
-	const cut: CallError = callError("transport", { message: "the exchange broke" })
+	const cut = callError("transport", { message: "the exchange broke" })
 
 	it.effect("fold is a read's lifecycle, and a write's outcome is its value", (ctx) =>
 		searched(

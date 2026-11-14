@@ -1,12 +1,8 @@
 import { Array as Arr, Effect, Option, Result, String as Str } from "effect"
 import { parseToken, type Token } from "#adapter/db/token.ts"
-import {
-	type CallError,
-	callError,
-	trustedJson,
-	wireHeader,
-	wireRefusals
-} from "#compiler/plan/runtime.ts"
+import { doorRefusal } from "#adapter/live/call-error.ts"
+import type { CallErrorOf, FailureOf } from "#compiler/live/index.ts"
+import { trustedJson, wireHeader } from "#compiler/plan/runtime.ts"
 
 /**
  * What the handler reads of a request, each read once at the boundary into what its call takes: the request line it
@@ -32,7 +28,9 @@ const bearerScheme = "bearer "
  * as Db.open's options are), so in process and over HTTP the same tokens are accepted; any other header is a refused
  * token.
  */
-export const bearerToken = (request: Request): Result.Result<Option.Option<Token>, CallError> =>
+export const bearerToken = (
+	request: Request
+): Result.Result<Option.Option<Token>, CallErrorOf<"tokenRefused">> =>
 	Option.match(Option.fromNullishOr(request.headers.get("authorization")), {
 		onNone: () => Result.succeed(Option.none()),
 		onSome: (header) => {
@@ -40,9 +38,10 @@ export const bearerToken = (request: Request): Result.Result<Option.Option<Token
 				Arr.dropWhile(Arr.fromIterable(Str.slice(bearerScheme.length)(header)), (c) => c === " "),
 				""
 			)
-			const refused = callError("tokenRefused", {
-				message: "the Authorization header holds no bearer token68"
-			})
+			const refused = doorRefusal(
+				"TokenUnreadable",
+				"the Authorization header holds no bearer token68"
+			)
 			return Str.toLowerCase(Str.slice(0, bearerScheme.length)(header)) === bearerScheme
 				? Result.mapBoth(parseToken(text), { onFailure: () => refused, onSuccess: Option.some })
 				: Result.fail(refused)
@@ -55,19 +54,20 @@ export const bearerToken = (request: Request): Result.Result<Option.Option<Token
  * request naming none is a refused input, and one naming another form is stale, so a client never decodes an answer
  * by a form the server no longer serves. Both are answered before the Db opens.
  */
-export const wireNamed = (request: Request, digest: string): Result.Result<void, CallError> =>
+export const wireNamed = (
+	request: Request,
+	digest: string
+): Result.Result<void, FailureOf<"door">> =>
 	Option.match(Option.fromNullishOr(request.headers.get(wireHeader)), {
-		onNone: () =>
-			Result.fail(
-				callError(wireRefusals.absent, { message: `the call names no ${wireHeader} digest` })
-			),
+		onNone: () => Result.fail(doorRefusal("WireAbsent", `the call names no ${wireHeader} digest`)),
 		onSome: (named) =>
 			named === digest
 				? Result.void
 				: Result.fail(
-						callError(wireRefusals.other, {
-							message: `the call's ${wireHeader} digest names a form of its program the server no longer serves`
-						})
+						doorRefusal(
+							"WireOther",
+							`the call's ${wireHeader} digest names a form of its program the server no longer serves`
+						)
 					)
 	})
 
@@ -78,15 +78,15 @@ const utf8 = new TextDecoder("utf-8", { fatal: true })
  * A request's body, read whole and parsed as JSON once: a body that cannot be read, is not UTF-8 or is not JSON text
  * is a refused input. Its value is admitted against the member's input by its wire, never here.
  */
-export const bodyJson = (request: Request): Effect.Effect<unknown, CallError> =>
+export const bodyJson = (request: Request): Effect.Effect<unknown, FailureOf<"door">> =>
 	Effect.flatMap(
 		Effect.tryPromise({
 			try: () => request.arrayBuffer(),
-			catch: () => callError("input", { message: "the body could not be read" })
+			catch: () => doorRefusal("BodyUnreadable", "the body could not be read")
 		}),
 		(bytes) =>
 			Effect.try({
 				try: () => trustedJson<unknown>(utf8.decode(bytes)),
-				catch: () => callError("input", { message: "the body is no JSON text in UTF-8" })
+				catch: () => doorRefusal("BodyNoJson", "the body is no JSON text in UTF-8")
 			})
 	)

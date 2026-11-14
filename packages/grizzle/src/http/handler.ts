@@ -6,15 +6,13 @@ import type { Token } from "#adapter/db/token.ts"
 import { readHost, toResult } from "#adapter/engine.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import { settingFaultText, type SettingFault } from "#adapter/errors/failures.ts"
-import { callErrorOf } from "#adapter/live/call-error.ts"
+import { doorRefusal, openCallError } from "#adapter/live/call-error.ts"
 import { type HeldRole, heldRole, type ReadLogin, readServedLogin } from "#adapter/pool/served.ts"
 import type { LoadedMember, LoadedRole } from "#adapter/served/load.ts"
 import type { DbLayerOf, ServedLogin } from "#adapter/types/layer.ts"
-import type { CallErrorOf } from "#compiler/live/index.ts"
+import type { CallErrorOf, FailureOf } from "#compiler/live/index.ts"
 import type { AnyLogin } from "#compiler/plan/common.ts"
 import {
-	type CallError,
-	callError,
 	parseInput,
 	readCaller,
 	slotEncoders,
@@ -197,12 +195,13 @@ const servedRoles = <S>(
 const openingToken = (
 	role: LoadedRole,
 	given: Option.Option<Token>
-): Result.Result<Option.Option<Token>, CallError> =>
+): Result.Result<Option.Option<Token>, FailureOf<"door">> =>
 	Arr.isReadonlyArrayNonEmpty(role.contexts) && Option.isNone(given)
 		? Result.fail(
-				callError("tokenRefused", {
-					message: `role ${role.name} reads a context, and the call gives no bearer token`
-				})
+				doorRefusal(
+					"TokenAbsent",
+					`role ${role.name} reads a context, and the call gives no bearer token`
+				)
 			)
 		: Result.succeed(given)
 
@@ -231,13 +230,14 @@ const framed = (
 }
 
 /** The refusal of a body its member's wire does not parse: the fault, at its path in the body. */
-const inputRefused = (fault: WireFault): CallError =>
-	callError("input", {
-		message: `the body does not parse as the program's input: ${fault.kind} at ${Arr.join(
+const inputRefused = (fault: WireFault): FailureOf<"door"> =>
+	doorRefusal(
+		"InputUnparsed",
+		`the body does not parse as the program's input: ${fault.kind} at ${Arr.join(
 			Arr.map(fault.at, (step) => `${step}`),
 			"."
 		)}`
-	})
+	)
 
 /**
  * One call of `route`: the wire the request names held to its member's (request.ts wireNamed), the request's token, its
@@ -249,13 +249,13 @@ const inputRefused = (fault: WireFault): CallError =>
 const routeCall = (
 	route: ServedRoute,
 	request: Request
-): Effect.Effect<Stream.Stream<SseEvent>, CallError> =>
+): Effect.Effect<Stream.Stream<SseEvent>, FailureOf<"door" | "open">> =>
 	Effect.gen(function* () {
 		yield* Effect.fromResult(wireNamed(request, route.member.loaded.wire.digest))
 		const given = yield* Effect.fromResult(bearerToken(request))
 		const token = yield* Effect.fromResult(openingToken(route.role.held.role, given))
 		const body = yield* bodyJson(request)
-		const ctx = yield* Effect.mapError(servedContext(route.role.held, token), callErrorOf)
+		const ctx = yield* Effect.mapError(servedContext(route.role.held, token), openCallError)
 		const member = route.member
 		const input = yield* Effect.fromResult(
 			Result.mapError(toResult(parseInput(member.loaded.wire.member.input, body)), inputRefused)
@@ -287,7 +287,7 @@ const answerEvents = (
 			Stream.fromIterable(
 				refusedFrames(
 					routeErrorJson,
-					callError("route", { message: `no served program answers ${line}` })
+					doorRefusal("RouteUnserved", `no served program answers ${line}`)
 				)
 			),
 		onSome: (route) =>

@@ -16,7 +16,16 @@ import { transientTags } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { int8Max } from "#compiler/core/limits.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { callErrors, type Shape, type Slot } from "#compiler/live/events.ts"
+import {
+	type Answer,
+	answers,
+	callErrors,
+	failures,
+	servedSources,
+	type Shape,
+	type ShapeAnswers,
+	type Slot
+} from "#compiler/live/events.ts"
 import type { KeyFields } from "#compiler/live/key.ts"
 import { anchored, naturals } from "#compiler/live/pattern.ts"
 import type { Anchor } from "#compiler/live/program.ts"
@@ -589,18 +598,45 @@ const payloadSlot = (slot: Slot, schemas: PayloadSchemas): WireSchema => {
 	return schemas[slot]
 }
 
-/** The JSON Schema of a CallError: one object per kind (live/events.ts callErrors), its retry the classification's. */
-const errorSchema = (schemas: PayloadSchemas): WireSchema => ({
-	oneOf: Object.entries(callErrors).map(([kind, error]) =>
-		closedObject([
-			["kind", { const: kind }],
-			["retry", { const: error.retry }],
-			...Object.entries(error.payload).map(([member, slot]): readonly [string, WireSchema] => [
-				member,
-				payloadSlot(slot, schemas)
+/** The answer of each read shape (live/events.ts ShapeAnswers): a set or ordered read's live, an instant one's its own. */
+const readAnswers: { readonly [S in Exclude<Shape, "write">]: ShapeAnswers[S] } = {
+	set: "live",
+	list: "live",
+	instantSet: "instant",
+	instantList: "instant"
+}
+
+/**
+ * What a member's answer is (live/events.ts answers): a read's by its shape, a write's by its outcome, a ChangeSet's or
+ * a refresh's.
+ */
+const answerOf = <L>(member: MemberShape<L>): Answer =>
+	member.shape === "write" ? member.outcome.kind : readAnswers[member.shape]
+
+/**
+ * The kinds of CallError a member's call over HTTP may end with, in callErrors' order: those of the sources every
+ * served call meets before its member runs and of its answer's (live/events.ts servedSources, answers, failures).
+ */
+const servedKinds = <L>(member: MemberShape<L>): ReadonlySet<string> =>
+	new Set([...servedSources, ...answers[answerOf(member)]].flatMap((source) => failures[source]))
+
+/**
+ * The JSON Schema of a CallError of the kinds `kinds`: one object per kind (live/events.ts callErrors), in their
+ * order, its retry the classification's.
+ */
+const errorSchema = (kinds: ReadonlySet<string>, schemas: PayloadSchemas): WireSchema => ({
+	oneOf: Object.entries(callErrors)
+		.filter(([kind]) => kinds.has(kind))
+		.map(([kind, error]) =>
+			closedObject([
+				["kind", { const: kind }],
+				["retry", { const: error.retry }],
+				...Object.entries(error.payload).map(([member, slot]): readonly [string, WireSchema] => [
+					member,
+					payloadSlot(slot, schemas)
+				])
 			])
-		])
-	)
+		)
 })
 
 /** The JSON Schema no value meets: a slot's of a shape whose events never carry it. */
@@ -608,8 +644,9 @@ const noValue: WireSchema = { not: {} }
 
 /**
  * The JSON Schema of each slot's values for one member (live/events.ts SlotValues): a read's rows, keys and key fields,
- * or a write's outcome, and the slots every answer may carry, its texts, its refusal's laws and witness and its errors.
- * A slot no event of the member's shape carries admits no value.
+ * or a write's outcome, and the slots every answer may carry, its texts, its refusal's laws and witness and its errors,
+ * of exactly the kinds its call over HTTP may end with (servedKinds). A slot no event of the member's shape carries
+ * admits no value.
  */
 export const slotSchemas = <L>(
 	member: MemberShape<L>,
@@ -630,7 +667,7 @@ export const slotSchemas = <L>(
 			after: noValue,
 			outcome: outcomeSchema(member.outcome, leaf)
 		}
-		return { ...schemas, error: errorSchema(schemas) }
+		return { ...schemas, error: errorSchema(servedKinds(member), schemas) }
 	}
 	const key = keySchema(member.key, leaf)
 	const schemas: PayloadSchemas = {
@@ -641,5 +678,5 @@ export const slotSchemas = <L>(
 		after: { anyOf: [key, nullSchema] },
 		outcome: noValue
 	}
-	return { ...schemas, error: errorSchema(schemas) }
+	return { ...schemas, error: errorSchema(servedKinds(member), schemas) }
 }

@@ -13,7 +13,7 @@ import {
 	TransportFailure
 } from "#adapter/errors/execution.ts"
 import type { CallInputRefused } from "#adapter/errors/failures.ts"
-import { callErrorOf } from "#adapter/live/call-error.ts"
+import { applyCallError, readCallError, readings } from "#adapter/live/call-error.ts"
 import { routeKeys } from "#adapter/live/router.ts"
 import type { Live, LiveAnswer } from "#adapter/live/subscriptions.ts"
 import { applyOutcome } from "#adapter/outcomes/index.ts"
@@ -50,10 +50,11 @@ import type {
 import type { ApplyOutcome, ExecutedStatement, StatementPlan } from "#adapter/types/db.ts"
 import { takenRows } from "#adapter/wire/batch.ts"
 import {
-	type CallError,
+	type AnswerFailure,
 	callError,
 	diffList,
 	diffSet,
+	type FailureOf,
 	fold,
 	type InstantListEvent,
 	type InstantSetEvent,
@@ -66,6 +67,7 @@ import {
 	type ReadState,
 	type Refreshed,
 	type SetEvent,
+	type ShapeFailure,
 	type WriteEvent,
 	type WriteOutcome
 } from "#compiler/live/index.ts"
@@ -88,8 +90,8 @@ import type { ServedRefresh, ServedTables } from "#compiler/plan/serve.ts"
  *   is that outcome, or that error, then end. Its facts are its array members' where its ChangeSet holds some, else `{}`.
  * - A refresh member writes too: its outcome is `refreshed`, after its one transaction's COMMIT (refresh/run.ts).
  *
- * Every failure is classified once (live/call-error.ts callErrorOf), so an answer's error event and once's error are
- * one CallError.
+ * Every failure is classified once (live/call-error.ts readCallError, applyCallError), so an answer's error event and
+ * once's error are one CallError, of the kinds its answer ends with (live/events.ts ShapeFailure).
  *
  * A member's calls over JavaScript values, by the shape of its answer, so a call's events and its value are typed by
  * its shape: what a typed handle views (types/db MemberHandle) and what the HTTP handler calls by name. Its `once` half
@@ -120,23 +122,27 @@ export type ServedCalls =
 export type OnceCalls =
 	| {
 			readonly shape: "set"
-			readonly once: (input: unknown) => Effect.Effect<KeyedSet<DecodedRow>, CallError>
+			readonly once: (input: unknown) => Effect.Effect<KeyedSet<DecodedRow>, ShapeFailure<"set">>
 	  }
 	| {
 			readonly shape: "list"
-			readonly once: (input: unknown) => Effect.Effect<KeyedList<DecodedRow>, CallError>
+			readonly once: (input: unknown) => Effect.Effect<KeyedList<DecodedRow>, ShapeFailure<"list">>
 	  }
 	| {
 			readonly shape: "instantSet"
-			readonly once: (input: unknown) => Effect.Effect<KeyedSet<DecodedRow>, CallError>
+			readonly once: (
+				input: unknown
+			) => Effect.Effect<KeyedSet<DecodedRow>, ShapeFailure<ReadShape>>
 	  }
 	| {
 			readonly shape: "instantList"
-			readonly once: (input: unknown) => Effect.Effect<KeyedList<DecodedRow>, CallError>
+			readonly once: (
+				input: unknown
+			) => Effect.Effect<KeyedList<DecodedRow>, ShapeFailure<ReadShape>>
 	  }
 	| {
 			readonly shape: "write"
-			readonly once: (input: unknown) => Effect.Effect<WrittenOutcome, CallError>
+			readonly once: (input: unknown) => Effect.Effect<WrittenOutcome, ShapeFailure<"write">>
 	  }
 
 /** What a write member's once answers: a ChangeSet's outcome over its read-backs, or a refresh's. */
@@ -263,12 +269,17 @@ const parseWindow =
  * folded from before its reset (live/fold.ts), which once settles, and the least change between two of its values, which
  * a live read sends after each re-run (live/subscriptions.ts LiveAnswer).
  */
-interface ShapeAnswer<S extends ReadShape, E>
-	extends ShapeEvents<E>, LiveAnswer<S, DecodedRow, E> {}
+interface ShapeAnswer<S extends ReadShape, E> extends ShapeEvents<E>, LiveAnswer<S, DecodedRow, E> {
+	readonly error: (error: AnswerFailure<"live">) => E
+}
+
+/** A live read's error event, of any of the failures a live read's answer ends with. */
+const liveError = (error: AnswerFailure<"live">) => ({ kind: "error", error }) as const
 
 /** A set read's answer. */
 const setAnswer: ShapeAnswer<"set", SetEvent<DecodedRow>> = {
 	...setEvents,
+	error: liveError,
 	end: { kind: "end" },
 	settle: (events) => fold(opening<"set", DecodedRow>("set"), events),
 	diff: diffSet
@@ -277,6 +288,7 @@ const setAnswer: ShapeAnswer<"set", SetEvent<DecodedRow>> = {
 /** An ordered read's answer. */
 const listAnswer: ShapeAnswer<"list", ListEvent<DecodedRow>> = {
 	...listEvents,
+	error: liveError,
 	end: { kind: "end" },
 	settle: (events) => fold(opening<"list", DecodedRow>("list"), events),
 	diff: diffList
@@ -352,13 +364,13 @@ export const liveRead = (
 	ctx: ServedDbContext,
 	member: LoadedMember,
 	input: unknown
-): Option.Option<Effect.Effect<LiveRead, CallError, Scope.Scope>> => {
+): Option.Option<Effect.Effect<LiveRead, FailureOf<"read">, Scope.Scope>> => {
 	const live = (
 		read: LoadedRead,
 		parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
-	): Effect.Effect<LiveRead, CallError, Scope.Scope> =>
+	): Effect.Effect<LiveRead, FailureOf<"read">, Scope.Scope> =>
 		Effect.flatMap(
-			Effect.mapError(parse(input), callErrorOf),
+			Effect.mapError(parse(input), readCallError),
 			(parsed): Effect.Effect<LiveRead, never, Scope.Scope> => {
 				switch (read.key.kind) {
 					case "set":
@@ -401,11 +413,11 @@ const readCalls = <S extends ReadShape, E>(
 	answer: ShapeAnswer<S, E>,
 	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
 ): {
-	readonly once: (input: unknown) => Effect.Effect<Keyed<S, DecodedRow>, CallError>
+	readonly once: (input: unknown) => Effect.Effect<Keyed<S, DecodedRow>, ShapeFailure<ReadShape>>
 	readonly watch: (input: unknown) => Stream.Stream<E>
 } => {
 	const refused = (failure: ReadError): Stream.Stream<E> =>
-		Stream.make(answer.error(callErrorOf(failure)))
+		Stream.make(answer.error(readCallError(failure)))
 	const live = (parsed: ParsedRead): Stream.Stream<E> =>
 		Stream.unwrap(
 			Effect.map(registered(ctx, read, answer, parsed), (registration) =>
@@ -437,7 +449,7 @@ const callEvents =
 	(input: unknown): Stream.Stream<E> =>
 		Stream.unwrap(
 			Effect.match(parse(input), {
-				onFailure: (failure) => Stream.make(events.error(callErrorOf(failure))),
+				onFailure: (failure) => Stream.make(events.error(readCallError(failure))),
 				onSuccess: (parsed) => readStream(ctx, parsed.call, events)
 			})
 		)
@@ -448,7 +460,7 @@ const readOnce =
 		events: (input: unknown) => Stream.Stream<E>,
 		settle: (events: ReadonlyArray<E>) => ReadState<S, DecodedRow>
 	) =>
-	(input: unknown): Effect.Effect<Keyed<S, DecodedRow>, CallError> =>
+	(input: unknown): Effect.Effect<Keyed<S, DecodedRow>, ShapeFailure<ReadShape>> =>
 		Effect.flatMap(Stream.runCollect(events(input)), (collected) => {
 			const state = settle(collected)
 			switch (state.kind) {
@@ -471,7 +483,7 @@ const instantCalls = <S extends ReadShape, E>(
 	answer: InstantAnswer<S, E>,
 	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
 ): {
-	readonly once: (input: unknown) => Effect.Effect<Keyed<S, DecodedRow>, CallError>
+	readonly once: (input: unknown) => Effect.Effect<Keyed<S, DecodedRow>, ShapeFailure<ReadShape>>
 	readonly answer: (input: unknown) => Stream.Stream<E>
 } => {
 	const events = callEvents(ctx, answer, parse)
@@ -511,7 +523,7 @@ const readMemberCalls = (
  * Effect settled.
  */
 const writeCalls = (
-	write: (input: unknown) => Effect.Effect<WrittenOutcome, CallError>
+	write: (input: unknown) => Effect.Effect<WrittenOutcome, ShapeFailure<"write">>
 ): ServedCalls => ({
 	shape: "write",
 	once: write,
@@ -529,13 +541,13 @@ const writeCalls = (
 /** A refresh member's write: its input read as a refresh's, then its one transaction, `refreshed` after its COMMIT. */
 const refreshWrite =
 	(ctx: ServedDbContext, refresh: ServedRefresh) =>
-	(input: unknown): Effect.Effect<WrittenOutcome, CallError> =>
+	(input: unknown): Effect.Effect<WrittenOutcome, AnswerFailure<"refresh">> =>
 		Effect.mapError(
 			Effect.as(
 				Effect.flatMap(Effect.fromResult(refreshInput(input)), () => runRefresh(ctx, refresh)),
 				refreshed
 			),
-			callErrorOf
+			applyCallError
 		)
 
 /** The host call of a change's input: its parameters, with its facts where its ChangeSet holds array members, else `{}`. */
@@ -595,7 +607,9 @@ const applyChange = (
  * A committed application's outcome, or the refusal it is: accepted, with its counts and read-backs; unchanged, with
  * its read-backs; the laws' rejection, with which laws refused it and the witness; a fact outside the world relation.
  */
-const writtenOf = (outcome: ApplyOutcome<unknown>): Result.Result<WrittenOutcome, CallError> => {
+const writtenOf = (
+	outcome: ApplyOutcome<unknown>
+): Result.Result<WrittenOutcome, FailureOf<"outcome">> => {
 	switch (outcome.kind) {
 		case "accepted":
 			return Result.succeed({ kind: "accepted", counts: outcome.counts, reads: outcome.reads })
@@ -603,7 +617,7 @@ const writtenOf = (outcome: ApplyOutcome<unknown>): Result.Result<WrittenOutcome
 			return Result.succeed({ kind: "unchanged", reads: outcome.reads })
 		case "invariant-rejected":
 			return Result.fail(
-				callError("refused", {
+				callError(readings.outcome[outcome.kind], {
 					message: "the schema's laws refused the write",
 					refused: outcome.refused,
 					witness: outcome.witness
@@ -611,7 +625,7 @@ const writtenOf = (outcome: ApplyOutcome<unknown>): Result.Result<WrittenOutcome
 			)
 		case "outside-world":
 			return Result.fail(
-				callError("outsideWorld", {
+				callError(readings.outcome[outcome.kind], {
 					message: `a fact the write adds lies outside the world relation ${outcome.relation}`,
 					relation: outcome.relation
 				})
@@ -634,9 +648,10 @@ export const changeApplication =
 /** A change member's write: its one application (changeApplication), its outcome or its error. */
 const changeWrite =
 	(ctx: ServedDbContext, change: LoadedChange) =>
-	(input: unknown): Effect.Effect<WrittenOutcome, CallError> =>
-		Effect.flatMap(Effect.mapError(changeApplication(ctx, change)(input), callErrorOf), (outcome) =>
-			Effect.fromResult(writtenOf(outcome))
+	(input: unknown): Effect.Effect<WrittenOutcome, AnswerFailure<"change">> =>
+		Effect.flatMap(
+			Effect.mapError(changeApplication(ctx, change)(input), applyCallError),
+			(outcome) => Effect.fromResult(writtenOf(outcome))
 		)
 
 const refreshed: Refreshed = { kind: "refreshed" }

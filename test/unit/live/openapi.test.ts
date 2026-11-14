@@ -24,23 +24,31 @@
  *   naming no digest and one naming another are answered (live/events.ts wireRefusals).
  * - Bearer exactly where used: the document declares its bearer scheme exactly when some role reads a context, and an
  *   operation's security names it exactly when its role reads one.
+ * - Exact errors: each operation's error event admits exactly the kinds of CallError its call over HTTP may end with:
+ *   those the classification's tables (adapter live/call-error.ts readings) read the failures of the HTTP door and of
+ *   the Db's opening as, and of its answer's sources: a live read's run and subscription, a read's at its call's
+ *   instant run alone, a ChangeSet's run and its refusing outcome, a refresh's run alone.
  *
- * Oracle: the served file the document is read off, its members and their wires, and the event model's own table.
+ * Oracle: the served file the document is read off, its members and their wires, the event model's own table, and the
+ * classification's tables.
  *
- * Features: a set read, a list read, a paged read, an instant read, a write, a write with an array member, a write
- * with a read-back, a role reading a context, a role reading none, a login no role of which reads a context.
+ * Features: a set read, a list read, a paged read, an instant read, a write, a refresh, a write with an array member, a
+ * write with a read-back, a role reading a context, a role reading none, a login no role of which reads a context.
  *
  * Plants (~/.cache/grizzle-release/LIVE-OPENAPI/plants): openapi-non-program-operation (an operation for each role
  * beside its programs'), openapi-list-without-after (an ordered program's upsert from the set shape's events).
  * Plants (~/.cache/grizzle-release/OPENAPI/plants): instant-ready-unmarked (an instant read's ready without `next`),
  * tag-drops-program (a role's description names all its programs but its last), summary-instant-live (an instant
  * read's summary says live), body-drops-facts (a body's description names no facts), wire-header-undescribed (the
- * header's description names no stale answer), bearer-always (the bearer scheme declared for every login).
+ * header's description names no stale answer), bearer-always (the bearer scheme declared for every login),
+ * errors-every-kind (every error event admits all twelve kinds, as before), refresh-meets-outcome (the model gives a
+ * refresh a ChangeSet's refusing outcome too).
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
+import { boolean } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -54,11 +62,17 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
+import { readings } from "#adapter/live/call-error.ts"
 import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
-import { type EventDescriptor, events, wireRefusals } from "#compiler/live/events.ts"
+import {
+	type EventDescriptor,
+	events,
+	type FailureSource,
+	wireRefusals
+} from "#compiler/live/events.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
@@ -78,7 +92,13 @@ import {
 import { factsSketchGen, resolveFacts } from "#test/support/oracle/write/facts.ts"
 import { buildWSchema, resolveSchema, schemaSketchGen } from "#test/support/oracle/write/schema.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
-import { compiledLogin, drawnLogin, drawnSchema, loginGen } from "#test/support/served-login.ts"
+import {
+	compiledLogin,
+	drawnLogin,
+	drawnSchema,
+	loginGen,
+	type RoleShape
+} from "#test/support/served-login.ts"
 
 type Feature =
 	| "a set read"
@@ -86,6 +106,7 @@ type Feature =
 	| "a paged read"
 	| "an instant read"
 	| "a write"
+	| "a refresh"
 	| "a write with an array member"
 	| "a write with a read-back"
 	| "a role reading a context"
@@ -133,6 +154,38 @@ const relationsOf = (member: ServedMember): ReadonlyArray<string> => {
 			return []
 	}
 }
+
+/**
+ * The sources a member's call over HTTP meets its failures at (live/events.ts failures), by its served form: the HTTP
+ * door's and its Db's opening before it runs, then a live read's run and subscription, a read's at its call's instant
+ * run alone, a ChangeSet's run and refusing outcome, a refresh's run alone.
+ */
+const sourcesOf = (member: ServedMember): ReadonlyArray<FailureSource> => {
+	switch (member.kind) {
+		case "read":
+		case "key":
+		case "paged":
+			return ["door", "open", "read", "watch"]
+		case "instant":
+			return ["door", "open", "read"]
+		case "change":
+			return ["door", "open", "apply", "outcome"]
+		case "refresh":
+			return ["door", "open", "apply"]
+	}
+}
+
+/** The kinds the classification's tables read the failures at `sources` as, each once, in code-unit order. */
+const kindsAt = (sources: ReadonlyArray<FailureSource>): Array<string> =>
+	Arr.sort(
+		Arr.dedupe(
+			Arr.flatMap(sources, (source) => {
+				const reading: Readonly<Record<string, string>> = readings[source]
+				return Rec.values(reading)
+			})
+		),
+		Order.String
+	)
 
 /**
  * What a member's summary says it is, as a word each, by its served form (served/forms.ts ServedMemberForm): `live`
@@ -291,6 +344,34 @@ const holds = (
 			if (member.kind === "instant") {
 				note("an instant read")
 			}
+			if (member.kind === "refresh") {
+				note("a refresh")
+			}
+			const errors = at(
+				document,
+				"components",
+				"schemas",
+				`${r.name}.${member.name}.error`,
+				"properties",
+				"data",
+				"contentSchema",
+				"properties",
+				"error",
+				"oneOf"
+			)
+			assert.deepEqual(
+				Arr.sort(
+					isList(errors)
+						? Arr.map(errors, (branch) => {
+								const kind = at(branch, "properties", "kind", "const")
+								return typeof kind === "string" ? kind : Formatter.format(kind)
+							})
+						: [],
+					Order.String
+				),
+				kindsAt(sourcesOf(member)),
+				`${path}: its error event admits exactly the kinds its call may end with\n${printed()}`
+			)
 			const body = at(operation, "requestBody", "content", "application/json", "schema", "required")
 			assert.deepEqual(
 				body,
@@ -383,6 +464,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("a login's OpenAPI docu
 								"a paged read",
 								"an instant read",
 								"a write",
+								"a refresh",
 								"a role reading a context",
 								"a role reading none",
 								"a login no role of which reads a context"
@@ -400,7 +482,11 @@ layer(NodeServices.layer, { excludeTestServices: true })("a login's OpenAPI docu
 						Effect.gen(function* () {
 							const c = notes.draw(resolveCase(sketch))
 							const schema = drawnSchema(c, level)
-							const shapes = notes.draw(loginGen(schema))
+							const [first, ...rest] = notes.draw(loginGen(schema))
+							const shapes: Arr.NonEmptyReadonlyArray<RoleShape> = [
+								{ ...first, refreshes: notes.draw(boolean) },
+								...rest
+							]
 							const printed = () =>
 								`${printCase(c)}\n${Formatter.format(level)}\n${Formatter.format(shapes)}`
 							const compiled = yield* Effect.result(
