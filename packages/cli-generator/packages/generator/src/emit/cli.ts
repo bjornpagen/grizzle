@@ -1871,6 +1871,9 @@ const annotationsOf = (command: PlannedCommand, meta: Expr, context: CommandCont
 
 	return [
 		...(help.description === "" ? [] : [fn("Command.withDescription", str(help.description))]),
+		...(help.summary === "" || help.summary === help.description
+			? []
+			: [fn("Command.withShortDescription", str(help.summary))]),
 		fn(
 			"Command.annotate",
 			path("Describe.Binding"),

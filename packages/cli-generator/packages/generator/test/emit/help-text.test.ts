@@ -1,7 +1,8 @@
 /**
  * Help as a function of the model. A generated operation, with its flags, the declared schemes, the credentials and
  * certificates the names plan gave them and the run's diagnostics, renders to help whose contract is checked fact by
- * fact: the description is the source description, else the summary, sanitized; the sections are REQUEST, VARIANTS
+ * fact: the description is the source description, else the summary, sanitized; the line a command table shows is the
+ * summary, else the description's first sentence, on one line; the sections are REQUEST, VARIANTS
  * when a body alternative is discriminated, AUTH, DEPRECATED when the operation is, RESPONSES, RESPONSE HEADERS when a
  * case declares one, NON-STANDARD when a switch marked a flag and REFUSED when an element or field of this operation was
  * refused, in that order; every section and every note is one line of safe text; path parameters are arguments and
@@ -18,6 +19,7 @@
  * Plants, each applied to src/emit/help.ts or src/model/brands.ts, seen to fail this suite and reverted:
  * - help's description cut one code point short of the cap (a description at the cap);
  * - help's description taken from the summary before the description;
+ * - the table line taken from the description before the summary;
  * - brands.ts's maxProseLength at 1999 (sanitizing prose, and no description reaches the cap);
  * - a scheme's `deprecated` marker left out of AUTH.
  */
@@ -667,6 +669,39 @@ const choicesOf = (operation: Operation, flag: HelpFlag): ReadonlyArray<Choice> 
 	)
 }
 
+/** Whether a code point is white space, as JavaScript's `\\s` reads it. */
+const isSpace = (character: string): boolean => Str.isEmpty(Str.trim(character))
+
+/** Text with every run of LF and TAB one space, read a code point at a time. */
+const folded = (text: string): string =>
+	Arr.reduce(Array.from(text), { text: "", inRun: false }, (state, character) => {
+		const breaking = character === "\n" || character === "\t"
+		const added = breaking ? (state.inRun ? "" : " ") : character
+		return { text: `${state.text}${added}`, inRun: breaking }
+	}).text
+
+/**
+ * The spec's table line, read apart from the code: the summary, or, where there is none, the description's first
+ * line, trimmed, up to and including the first `.`, `!` or `?` that ends the line or has a space after it; then
+ * sanitized and folded onto one line.
+ */
+const tableLineOf = (docs: HelpInput["operation"]["docs"]): string => {
+	const [first] = Str.split("\n")(Str.trim(docs.description ?? ""))
+	const characters = Array.from(first)
+	const end = Arr.findFirstIndex(
+		characters,
+		(character, at) =>
+			Str.includes(character)(".!?") &&
+			(at + 1 === characters.length || isSpace(characters[at + 1] ?? ""))
+	)
+	const sentence = Option.match(end, {
+		onNone: () => first,
+		onSome: (at) => Arr.join(Arr.take(characters, at + 1), "")
+	})
+
+	return folded(sanitizeProse(docs.summary ?? sentence))
+}
+
 const isArgument = (flag: HelpFlag): boolean =>
 	flag.source._tag === "Parameter" && flag.source.parameter.location === "path"
 
@@ -1294,6 +1329,7 @@ describe("emit: help", () => {
 							deepStrictEqual(
 								{
 									description: help.description,
+									summary: help.summary,
 									sections: Arr.map(help.sections, ([name]) => name),
 									arguments: Arr.sort(Record.keys(help.arguments), Order.String),
 									flags: Arr.sort(Record.keys(help.flags), Order.String),
@@ -1303,6 +1339,7 @@ describe("emit: help", () => {
 									description: sanitizeProse(
 										operation.docs.description ?? operation.docs.summary ?? ""
 									),
+									summary: tableLineOf(operation.docs),
 									sections: sectionsOf(input),
 									arguments: Arr.sort(
 										Arr.map(Arr.filter(input.flags, isArgument), (flag) => flag.name),

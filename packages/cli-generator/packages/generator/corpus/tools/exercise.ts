@@ -374,15 +374,74 @@ const childrenOf = (commands: readonly Command[], group: readonly string[]): rea
 		)
 	)
 
-/** The findings of one group's `--help`, the root's among them: it lists every name under it. */
-const exerciseGroup = (built: Built, group: readonly string[]) =>
-	Effect.map(runBin(built, `${Arr.join(group, " ")} --help`, [...group, "--help"]), (help) =>
-		Arr.flatMap(childrenOf(built.commands, group), (child) =>
-			Str.includes(`  ${child}`)(help)
-				? []
-				: [`${built.id}: ${Arr.join(group, " ")} --help does not list ${child}`]
-		)
+/**
+ * The line a command's row in its group's table must show: its operation's summary, the short line OpenAPI's summary
+ * is, else its description's first sentence; none where the operation states neither.
+ */
+const rowTextOf = (value: Json, command: Command): Option.Option<string> => {
+	const operation = Option.filter(nodeOf(value, command.pointer), isObject)
+	const summary = Option.flatMap(operation, (node) => textAt(node, "summary"))
+	const sentence = Option.map(
+		Option.flatMap(operation, (node) => textAt(node, "description")),
+		(description) => {
+			const [first] = Str.split("\n")(Str.trim(description))
+			const characters = Array.from(first)
+			const end = Arr.findFirstIndex(
+				characters,
+				(character, at) =>
+					Str.includes(character)(".!?") &&
+					(at + 1 === characters.length || Str.trim(characters[at + 1] ?? "") === "")
+			)
+
+			return Option.match(end, {
+				onNone: () => first,
+				onSome: (at) => Arr.join(Arr.take(characters, at + 1), "")
+			})
+		}
 	)
+
+	return Option.filter(
+		Option.orElse(summary, () => sentence),
+		Str.isNonEmpty
+	)
+}
+
+/**
+ * The findings of one group's `--help`, the root's among them: it lists every name under it, and each command's row
+ * shows its summary, never its description where a summary is stated (rowTextOf).
+ */
+const exerciseGroup = (built: Built, group: readonly string[]) =>
+	Effect.map(runBin(built, `${Arr.join(group, " ")} --help`, [...group, "--help"]), (help) => {
+		const rows = Str.split("\n")(help)
+		const where = Arr.join(group, " ")
+
+		return Arr.flatMap(childrenOf(built.commands, group), (child) => {
+			const row = Arr.findFirst(rows, (line) => Str.startsWith(`  ${child} `)(`${line} `))
+			const command = Arr.findFirst(
+				built.commands,
+				(entry) =>
+					entry.path.length === group.length + 1 &&
+					Arr.every(group, (word, at) => entry.path[at] === word) &&
+					entry.path[group.length] === child
+			)
+			const expected = Option.flatMap(command, (entry) => rowTextOf(built.value, entry))
+			if (Option.isNone(row)) {
+				return [`${built.id}: ${where} --help does not list ${child}`]
+			}
+
+			const shown = Str.trim(Str.slice(child.length + 2)(row.value))
+
+			return Option.match(expected, {
+				onNone: () => [],
+				onSome: (text) =>
+					shown === text
+						? []
+						: [
+								`${built.id}: ${where} --help shows ${jsonTextOf(Str.slice(0, 80)(shown))} for ${child}, not its summary ${jsonTextOf(text)}`
+							]
+			})
+		})
+	})
 
 /** Every group above a command, the root's empty path among them, once each. */
 const groupsOf = (commands: readonly Command[]): readonly (readonly string[])[] => {

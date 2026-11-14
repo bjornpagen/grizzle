@@ -89,9 +89,15 @@ export interface HelpInput {
  */
 export interface OperationHelp {
 	readonly arguments: Readonly<Record<string, string>>
+	/** The command's own help: the operation's description, else its summary. */
 	readonly description: SafeTextValue
 	readonly flags: Readonly<Record<string, string>>
 	readonly sections: readonly (readonly [string, string])[]
+	/**
+	 * The one line a command table shows for the command, which is what OpenAPI's summary is: the summary, else the
+	 * description's first sentence, else nothing.
+	 */
+	readonly summary: SafeTextValue
 }
 
 type SafeTextValue = typeof SafeText.Type
@@ -105,6 +111,20 @@ const lineBreaks = regex("[\\n\\t]+", "gu")
  * A single-line generated field: sanitized, with LF and TAB runs folded to one space.
  */
 const line = (text: string): string => Str.replaceAll(lineBreaks, " ")(sanitizeProse(text))
+
+/** A sentence's end: a `.`, `!` or `?` with a space or the end of the text after it. */
+const sentenceEnd = regex("[.!?](?=\\s|$)", "u")
+
+/** Prose's first sentence: its first line, through the first sentence end on it, or the whole line where none is. */
+const firstSentence = (text: string): string => {
+	const [first] = Str.split("\n")(Str.trim(text))
+	const end = Option.fromNullishOr(sentenceEnd.exec(first))
+
+	return Option.match(end, {
+		onNone: () => first,
+		onSome: (found) => Str.slice(0, found.index + 1)(first)
+	})
+}
 
 /**
  * Each switch's flag note (design 6.1 Scalar switch, Marking).
@@ -659,6 +679,9 @@ export const operationHelp = (input: HelpInput): OperationHelp => {
 	return {
 		arguments: record(Arr.map(Arr.filter(input.flags, isArgument), noted(operation))),
 		description: sanitizeProse(operation.docs.description ?? operation.docs.summary ?? ""),
+		summary: sanitizeProse(
+			line(operation.docs.summary ?? firstSentence(operation.docs.description ?? ""))
+		),
 		flags: record(
 			Arr.map(
 				Arr.filter(input.flags, (flag) => !isArgument(flag)),

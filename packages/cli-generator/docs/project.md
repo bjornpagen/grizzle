@@ -166,7 +166,7 @@ Label: decided.
 - Body fields flatten to depth 2 as dotted flags such as `--address.city`, which `effect/cli` parses (measured). `--body` and `--body-file` pass the whole body instead. At most one input reads standard input per invocation.
 - Collisions of visible names (flags and their `no-` negations, commands, file segments, credential names) are refused at `operation` scope with an override hint, never renamed. Colliding internal identifiers are renamed deterministically with a notice.
 - Flags and commands are two namespaces. The CLI's own flags (Effect's built-ins, the runtime's flags and their `no-` negations) are reserved against body, parameter and credential flags only. The CLI's own command words (`help`, `version`, `completions`) are reserved against group and command names only. An operation that folds to a runtime flag's name, such as `follow` or `timeout`, is a command like any other.
-- Help descriptions are source prose only: `description`, else `summary`, else `title`. Generated facts go in separate help sections, and flags are listed alphabetically.
+- Help descriptions are source prose only: `description`, else `summary`, else `title`. A command table (a group's list of its commands) shows each command's `summary`, the short line OpenAPI's summary is, else its description's first sentence; the description is the command's own help. Generated facts go in separate help sections, and flags are listed alphabetically.
 - The author config keys overrides by `operationId`, or by JSON Pointer for operations without one. An override that matches nothing is a notice, or a refusal under `--strict`.
 - Vendor extensions are informational.
 
