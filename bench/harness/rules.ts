@@ -200,10 +200,10 @@ const statedGates: { readonly [K in GateId]: Omit<GateEntry, "id"> } = {
 	R30: { title: "Lower the interpolated form to PERCENTILE_CONT", owner: "query", gate: contract },
 	R31: { title: "Lower the count-and-take mode to MODE", owner: "query", gate: contract },
 	R33: {
-		title: "Settle inserts in one DO SELECT statement",
+		title: "Settle inserts in one statement",
 		owner: "write",
 		gate: stated(
-			"an identical insert is settled by one INSERT … ON CONFLICT DO SELECT statement; exact repeats return no row"
+			"an identical insert is settled by one statement, its form by the level the write runs at: at SERIALIZABLE, complete facts into a relation whose every native object is a unique object take one INSERT … ON CONFLICT DO NOTHING arbitrating every object, its met rows classified in the same statement (bdc6fb77, kept by cdf8da2d); at READ COMMITTED, and at either level for a generated addition or into a relation with a native object that is no unique object, ON CONFLICT on the arbiter's key DO SELECT; exact repeats return no row"
 		)
 	},
 	R34: {

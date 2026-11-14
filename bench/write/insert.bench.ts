@@ -35,7 +35,10 @@ import {
 	writePhases
 } from "#bench/write/support/writes.ts"
 import { indices } from "#compiler/core/array.ts"
+import * as Engine from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
+import { compileParsed, parsedChange } from "#compiler/plan/change.ts"
+import { noClock } from "#compiler/plan/common.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query } from "#compiler/public/query.ts"
@@ -46,12 +49,17 @@ import { refusedLaws } from "#test/support/refused.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * R33: settle inserts in one DO SELECT statement, for repeated inserts and conflicts.
+ * R33: settle inserts in one statement, for repeated inserts and conflicts, its form by the level the write runs at.
  *
- * The gate states the protocol's statement forms: "an identical insert is settled by one INSERT … ON CONFLICT DO SELECT
- * statement; exact repeats return no row". This file reads each form off the compiled program's audited AST (the DO
- * SELECT of an immutable or a `mutable` relation, without a locking clause and ordered by the key, and DO NOTHING of a
- * pure set), and runs the protocol with a grizzle writer (a Db opened through its login's served layer, applying
+ * The gate states the protocol's statement forms (bench/harness/rules.ts R33). At SERIALIZABLE, complete facts into a
+ * relation whose every native object is a unique object are settled by one INSERT … ON CONFLICT DO NOTHING arbitrating
+ * every object, its met rows classified in the same statement (write/insert/protocol.ts Arbitration `every`, since
+ * bdc6fb77, kept by cdf8da2d): a complete proposal reads no stored row for a fact it inserts. Every other insert of the
+ * protocol, at READ COMMITTED, a generated addition, or into a relation with a native object that is no unique object,
+ * is ON CONFLICT on its arbiter's key DO SELECT (`returned`). Exact repeats return no row. This file reads each form off
+ * the compiled program's audited AST: the SERIALIZABLE form of an immutable relation ordered by its key, of a `mutable`
+ * one and of a pure set; the DO SELECT of a generated addition at its arbiter key and of the immutable relation's insert
+ * compiled at READ COMMITTED. It runs the protocol with a grizzle writer (a Db opened through its login's served layer, applying
  * ChangeSets as members of its served workload) beside a direct SQL writer that takes on the same role through its
  * login:
  * - an identical insert in flight waits, then after its commit meets 40001, a TransientFailure, and the caller's second
@@ -74,8 +82,14 @@ const Note = defineRelation("Note", { id: pg.bigint, v: pg.integer }, ["id"])
 const Tag = defineRelation("Tag", { id: pg.bigint }, ["id"])
 const Coded = defineRelation("Coded", { id: pg.bigint, code: pg.bigint }, ["id"])
 const Anchor = defineRelation("Anchor", { id: pg.integer }, ["id"])
+/** A relation whose key its sequence draws, and a declared key on `code` that holds no field it draws. */
+const Ticket = defineRelation("Ticket", { id: pg.serial, code: pg.bigint }, ["id"])
 const build = (name: string) =>
-	schema(name, [Item, Note, Tag, Coded, Anchor], [mutable(Note), key(on(Coded, "code"))])
+	schema(
+		name,
+		[Item, Note, Tag, Coded, Anchor, Ticket],
+		[mutable(Note), key(on(Coded, "code")), key(on(Ticket, "code"))]
+	)
 
 interface Options extends Readonly<Record<string, unknown>> {
 	/** Facts per timed batch. */
@@ -156,12 +170,41 @@ const theInsert = (statement: ObservedStatement): Insert => {
 	return only
 }
 
-/** The DO SELECT the insert's ON CONFLICT over its key columns takes, if it takes one. */
-const doSelect = (insert: Insert) => {
+/** Whether the insert's ON CONFLICT is on exactly `columns` DO SELECT. */
+const doSelectOn = (insert: Insert, columns: ReadonlyArray<string>): boolean => {
 	const onConflict = insert.onConflict
-	return onConflict?.kind === "columns" && onConflict.action.kind === "doSelect"
-		? { kind: "doSelect" as const }
-		: { kind: "other" as const }
+	return (
+		onConflict?.kind === "columns" &&
+		onConflict.action.kind === "doSelect" &&
+		onConflict.columns.length === columns.length &&
+		Arr.every(onConflict.columns, (column, i) => column === columns[i])
+	)
+}
+
+/** Whether the insert's ON CONFLICT is DO NOTHING with no target, every unique object arbitrating (OnConflict `every`). */
+const everyDoNothing = (insert: Insert): boolean => insert.onConflict?.kind === "every"
+
+/**
+ * The one INSERT of `changes` compiled for `d`'s role at READ COMMITTED (program/workload/change.ts compileParsed), the
+ * level a role its certificate certifies READ COMMITTED is served at.
+ */
+const readCommittedInsert = (d: OpenedDb, changes: unknown): Insert => {
+	const compiled = Engine.flatMap(parsedChange(d.role.schema, changes), (change) =>
+		Engine.flatMap(
+			d.role.programArtifacts({ kind: "changeSet", changeSet: change.desc }),
+			({ artifacts }) => compileParsed(artifacts, change, new Set(), "readCommitted", noClock)
+		)
+	)
+	if (!compiled.ok) {
+		throw new GateSetupError({ what: `the READ COMMITTED compile: ${compiled.error.message}` })
+	}
+	const [only, ...more] = Arr.flatMap(compiled.value.compiled.artifact.statements, (s) =>
+		insertsOf(s.ast)
+	)
+	if (only === undefined || more.length > 0) {
+		throw new GateSetupError({ what: "a READ COMMITTED insert of one INSERT" })
+	}
+	return only
 }
 
 const kinds = (xs: ReadonlyArray<{ readonly value: ObservedApply["value"] }>) =>
@@ -344,15 +387,26 @@ export default defineGate({
 				ChangeSet.empty(S).insert(Note, [{ id: 9n, v: 1 }])
 			)
 			const tagStatements = yield* statementsOf(ChangeSet.empty(S).insert(Tag, [{ id: 9n }]))
+			const ticketStatements = yield* statementsOf(
+				ChangeSet.empty(S).insert(Ticket, [{ code: 9n }])
+			)
 			const itemStatement = insertStatement(itemStatements, Item.name)
 			const noteStatement = insertStatement(noteStatements, Note.name)
 			const tagStatement = insertStatement(tagStatements, Tag.name)
+			const ticketStatement = theStatement(
+				ticketStatements,
+				"the generated addition's insert of Ticket",
+				(l) =>
+					l.kind === "write" &&
+					l.relation === Ticket.name &&
+					l.result.kind === "insert" &&
+					l.result.serial.kind === "generated"
+			)
 			const itemAst = theInsert(itemStatement)
 			const noteAst = theInsert(noteStatement)
 			const tagAst = theInsert(tagStatement)
-			const itemSelect = doSelect(itemAst)
-			const noteSelect = doSelect(noteAst)
-			const tagConflict = tagAst.onConflict
+			const ticketAst = theInsert(ticketStatement)
+			const itemReadCommitted = readCommittedInsert(db, itemInsert(9n, 1))
 			const tagLabel = tagStatement.label
 
 			/**
@@ -555,25 +609,34 @@ export default defineGate({
 			const r33: VerdictInput = {
 				checks: [
 					mechanism(
-						"an immutable relation's insert is ON CONFLICT on its key DO SELECT, ordered by the key",
-						itemSelect.kind === "doSelect" &&
+						"at SERIALIZABLE an immutable relation's insert of complete facts is one statement whose one INSERT is ON CONFLICT DO NOTHING arbitrating every object, ordered by the key",
+						everyDoNothing(itemAst) &&
 							itemAst.source.kind === "query" &&
 							itemAst.source.query.orderBy.length > 0,
 						itemStatement.sql
 					),
 					mechanism(
-						"a mutable relation's insert is ON CONFLICT on its key DO SELECT",
-						noteSelect.kind === "doSelect",
+						"at SERIALIZABLE a mutable relation's insert of complete facts is ON CONFLICT DO NOTHING arbitrating every object",
+						everyDoNothing(noteAst),
 						noteStatement.sql
 					),
 					mechanism(
-						"a pure set's insert is the pureSet variant: ON CONFLICT on its key DO NOTHING",
+						"at SERIALIZABLE a pure set's insert is the pureSet variant, ON CONFLICT DO NOTHING arbitrating every object",
 						tagLabel.kind === "write" &&
 							tagLabel.result.kind === "insert" &&
 							tagLabel.result.variant === "pureSet" &&
-							tagConflict?.kind === "columns" &&
-							tagConflict.action.kind === "doNothing",
+							everyDoNothing(tagAst),
 						tagStatement.sql
+					),
+					mechanism(
+						"a generated addition is ON CONFLICT on its arbiter key, the declared key that holds no field it draws, DO SELECT",
+						doSelectOn(ticketAst, [fx.columnName("Ticket", "code")]),
+						ticketStatement.sql
+					),
+					mechanism(
+						"at READ COMMITTED an immutable relation's insert is ON CONFLICT on its key DO SELECT",
+						doSelectOn(itemReadCommitted, [fx.columnName("Item", "id")]),
+						Formatter.format(itemReadCommitted.onConflict)
 					),
 					mechanism(
 						"two overlapping additions on a relation whose only unique index is the key never deadlock",
