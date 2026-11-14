@@ -573,7 +573,11 @@ export default defineGate({
 				partsVariant("shared: the representative only", shared, sent[0], [parentPart, childPart]),
 				{ ...handOptions, warmup: 0 }
 			)
-			/** What an expert writes: the parent statement and one child statement over the parent's own predicate. */
+			/**
+			 * What an expert writes: the parent statement and one child statement over the parent's own predicate, its rows
+			 * numbered in the part's order, the parent key then the child's key, as an ordered part of a statement of
+			 * several parts carries its row number after its cells (lower/parts.ts TaggedPart "numbered", since 698880ac).
+			 */
 			const sharedHand = yield* measureVariant(
 				raw,
 				handwritten(
@@ -587,7 +591,8 @@ export default defineGate({
 							sql:
 								`SELECT t.${tc("account")}::text AS id, t.${tc("account")}::text AS account, t.${tc("due")}::text AS due, ` +
 								`t.${tc("id")}::text AS id, t.${tc("kind")}::text AS kind, t.${tc("priority")}::text AS priority, ` +
-								`t.${tc("title")}::text AS title FROM ${T} AS t JOIN ${A} AS a ON a.${ac("id")} = t.${tc("account")} ` +
+								`t.${tc("title")}::text AS title, (pg_catalog.row_number() OVER (ORDER BY t.${tc("account")}, t.${tc("id")}))::text AS n ` +
+								`FROM ${T} AS t JOIN ${A} AS a ON a.${ac("id")} = t.${tc("account")} ` +
 								`WHERE a.${ac("region")} = $1::integer`,
 							params: [String(region)]
 						}
