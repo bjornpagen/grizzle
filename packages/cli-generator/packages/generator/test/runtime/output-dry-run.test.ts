@@ -212,11 +212,11 @@ describe("Output.send --dry-run", () => {
 		expect(result.sent).toBe(0)
 		expect(result.stdout.split("\n")).toEqual([
 			"POST https://api.example.com/v1/items HTTP/1.1",
+			"content-type: application/json",
 			"accept: application/json",
+			"user-agent: example/1.2.3",
 			"authorization: Bearer <redacted:bearerAuth>",
 			"content-length: 12",
-			"content-type: application/json",
-			"user-agent: example/1.2.3",
 			"",
 			'{"name":"a"}',
 			""
@@ -654,7 +654,7 @@ describe("a one-character credential is never recoverable from output (HB1)", ()
 		expect(Exit.isSuccess(result.exit)).toBe(true)
 		expect(result.sent).toBe(0)
 		expect(result.stdout.split("\n").find((line) => line.includes("thoriz"))).toMatch(
-			/rer <redacted:bearerAuth>$/u
+			/tion: <redacted>$/u
 		)
 		expectOpaque(result.stdout)
 		expectOpaque(result.stderr)
