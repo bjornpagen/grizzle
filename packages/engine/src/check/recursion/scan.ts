@@ -130,7 +130,7 @@ class Nested {
 			if (source.kind === "self" && !top) {
 				failRecursion(at, { kind: "nestedSelf", recursion: this.name })
 			}
-			if (source.kind === "query") {
+			if (source.kind === "query" || source.kind === "step") {
 				this.stage(source.query.stage)
 			}
 		}

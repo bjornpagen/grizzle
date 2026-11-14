@@ -34,6 +34,7 @@ const sourceKeys = (source: RelNode): ReadonlyArray<KeySet> => {
 		case "Recursive":
 		case "SelfRef":
 		case "ApproximateNearest":
+		case "Step":
 		case "OrderedResult":
 		case "Attach":
 		case "Forbid":
@@ -87,6 +88,7 @@ const regionUnder = (input: RelNode): RelNode => {
 		case "Recursive":
 		case "SelfRef":
 		case "ApproximateNearest":
+		case "Step":
 		case "OrderedResult":
 		case "Attach":
 		case "Forbid":
@@ -156,6 +158,7 @@ export const keyedFoldInput = (
 		case "Recursive":
 		case "SelfRef":
 		case "ApproximateNearest":
+		case "Step":
 		case "OrderedResult":
 		case "Attach":
 		case "Forbid":

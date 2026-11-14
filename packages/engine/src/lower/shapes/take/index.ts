@@ -361,6 +361,7 @@ const rowsBound = (root: RelNode, facts: ShapeFacts): RowsBound | undefined =>
 			case "Forbid":
 			case "Window":
 			case "OrderedSetAggregate":
+			case "Step":
 				return undefined
 		}
 	}).of(root)
@@ -444,6 +445,7 @@ const restrictionAbove = (
 			case "Forbid":
 			case "Window":
 			case "OrderedSetAggregate":
+			case "Step":
 				return unrestricted
 		}
 	}

@@ -160,6 +160,7 @@ const step = (cx: RewriteCx): void => {
 			case "Forbid":
 			case "Window":
 			case "OrderedSetAggregate":
+			case "Step":
 				return undefined
 		}
 	}

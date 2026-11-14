@@ -220,6 +220,7 @@ export class KeyKernel {
 					]
 				case "Filter":
 				case "Take":
+				case "Step":
 				case "OrderedResult":
 				case "Window":
 					return this.#hidden(n.input)
@@ -508,6 +509,7 @@ export class KeyKernel {
 		switch (n.kind) {
 			case "Filter":
 			case "Take":
+			case "Step":
 			case "OrderedResult":
 				return all(n.input, true)
 			case "Window":

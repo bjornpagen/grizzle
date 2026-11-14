@@ -50,6 +50,7 @@ const kindCertificates = (
 		case "Forbid":
 		case "Window":
 		case "OrderedSetAggregate":
+		case "Step":
 			return []
 	}
 }

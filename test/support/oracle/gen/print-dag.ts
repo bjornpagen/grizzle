@@ -263,6 +263,8 @@ const printBody = (n: RelNode, printer: ExprPrinter): string => {
 			return `ApproximateNearest ${n.source.id} by ${n.score} take ${bigintText(n.take)} sealed`
 		case "OrderedResult":
 			return `OrderedResult ${n.input.id} ${printOrder(n.order)}`
+		case "Step":
+			return `Step ${n.input.id}`
 		case "Attach":
 			return `Attach ${n.parent.id} ${n.name}=${n.child.id} ${n.delivered} on${list(Arr.map(n.correlation, (c) => `${c.parent}=${c.child}`))}${n.order === undefined ? "" : ` ${printOrder(n.order)}`}`
 		case "Forbid":

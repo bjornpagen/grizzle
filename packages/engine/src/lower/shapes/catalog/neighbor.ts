@@ -408,6 +408,7 @@ const boundRows = (cell: Cell): boolean => {
 		case "Forbid":
 		case "Window":
 		case "OrderedSetAggregate":
+		case "Step":
 			return false
 	}
 }
@@ -465,6 +466,7 @@ function* restricts(consumer: Cell, cell: Cell): Generator<Cell, boolean, boolea
 		case "Forbid":
 		case "Window":
 		case "OrderedSetAggregate":
+		case "Step":
 			return false
 	}
 }

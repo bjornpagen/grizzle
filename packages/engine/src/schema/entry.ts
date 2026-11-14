@@ -232,7 +232,7 @@ const bindingVars = (bindings: BindingsDesc, into: Set<string>): void => {
 
 /** The variables of the enclosing rule a source reads: an import's bind map; every other source reads none itself. */
 const sourceVars = (source: SourceDesc, into: Set<string>): void => {
-	if (source.kind === "query") {
+	if (source.kind === "query" || source.kind === "step") {
 		for (const b of Object.values(source.bind)) {
 			if (b.kind !== "relationParam") {
 				exprVars(b, into)
@@ -276,6 +276,7 @@ const contextOf = (source: SourceDesc): ContextDesc | undefined => {
 	switch (source.kind) {
 		case "relation":
 		case "query":
+		case "step":
 		case "param":
 		case "paramOf":
 		case "interior":

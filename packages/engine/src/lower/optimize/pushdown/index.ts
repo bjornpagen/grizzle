@@ -313,6 +313,7 @@ const pushRule: Rule = {
 			case "Forbid":
 			case "Window":
 			case "OrderedSetAggregate":
+			case "Step":
 				return false
 		}
 	}

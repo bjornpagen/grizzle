@@ -354,6 +354,7 @@ const entryOf = (node: RelNode): Entry => {
 		case "Forbid":
 		case "Window":
 		case "OrderedSetAggregate":
+		case "Step":
 			return noEntry
 	}
 }

@@ -793,7 +793,8 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 			})
 		}
 		case "ApproximateNearest":
-		case "OrderedResult": {
+		case "OrderedResult":
+		case "Step": {
 			const input = cx.props(node.kind === "ApproximateNearest" ? node.source : node.input)
 			const s = inheritSame(node, input)
 			const maxCard =

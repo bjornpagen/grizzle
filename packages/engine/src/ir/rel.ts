@@ -41,7 +41,8 @@ export const relKinds = [
 	"Attach",
 	"Forbid",
 	"Window",
-	"OrderedSetAggregate"
+	"OrderedSetAggregate",
+	"Step"
 ] as const
 export type RelKind = (typeof relKinds)[number]
 
@@ -479,6 +480,18 @@ export interface Filter<R extends RefKinds> extends NodeCommon<R> {
 	readonly pred: R["expr"]
 }
 
+/**
+ * A step of a navigation (analysis/theory/query.ts navigate): its input's rows, unchanged, read apart from every other
+ * relation the query reads. A rule trigger's probe is one chain of steps, each reading one relation by the columns the
+ * steps before it bound, which its input reads as outer values, so the steps' order is the chain's and no estimate the
+ * planner makes can reorder them or join two of them at once. Every lowering prints it as a subquery PostgreSQL never
+ * pulls up into the query that reads it (lower/conservative/step), and no rewrite merges it with its reader or its input.
+ */
+export interface Step<R extends RefKinds> extends NodeCommon<R> {
+	readonly kind: "Step"
+	readonly input: R["node"]
+}
+
 export interface ProjectSet<R extends RefKinds> extends NodeCommon<R> {
 	readonly kind: "ProjectSet"
 	readonly input: R["node"]
@@ -708,6 +721,7 @@ export type NodeOver<R extends RefKinds> =
 	| Forbid<R>
 	| Window<R>
 	| OrderedSetAggregate<R>
+	| Step<R>
 
 /** One kind of the family over one form of reference. */
 export type KindOver<K extends RelKind, R extends RefKinds> = Extract<
@@ -969,7 +983,8 @@ export function* mapNode<R extends RefKinds, S extends RefKinds>(
 			const source: S["node"] = yield n.source
 			return { ...n, source, meta: m.meta(n.meta) }
 		}
-		case "OrderedResult": {
+		case "OrderedResult":
+		case "Step": {
 			const input: S["node"] = yield n.input
 			return { ...n, input, meta: m.meta(n.meta) }
 		}
@@ -1024,6 +1039,7 @@ export const edgesOf = <N>(n: NodeOver<EdgeRefs<N>>): ReadonlyArray<N> => {
 		case "OrderedResult":
 		case "Window":
 		case "OrderedSetAggregate":
+		case "Step":
 			return [n.input]
 		case "SemiJoin":
 		case "AntiJoin":
@@ -1065,6 +1081,7 @@ export const exprsOf = <E>(n: NodeOver<ExprRefs<E>>): ReadonlyArray<E> => {
 		case "OrderedResult":
 		case "Attach":
 		case "Forbid":
+		case "Step":
 			return []
 		case "MatchRegion":
 			return [
@@ -1122,6 +1139,7 @@ export const fieldParams = (n: NodeOver<RefKinds>): ReadonlyArray<ParamId> => {
 		case "Forbid":
 		case "Window":
 		case "OrderedSetAggregate":
+		case "Step":
 			return []
 	}
 }
@@ -1166,6 +1184,7 @@ export const scopeExprs = <E>(n: NodeOver<ExprRefs<E>>): ReadonlyArray<E> => {
 		case "Forbid":
 		case "Window":
 		case "OrderedSetAggregate":
+		case "Step":
 			return noScopeExprs
 	}
 }
@@ -1220,6 +1239,7 @@ export const keptRowsOf = <N>(n: NodeOver<EdgeRefs<N>>): KeptRows<N> | undefined
 		case "ApproximateNearest":
 		case "Window":
 		case "OrderedSetAggregate":
+		case "Step":
 			return undefined
 	}
 }

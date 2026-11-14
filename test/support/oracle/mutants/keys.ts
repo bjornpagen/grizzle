@@ -129,6 +129,7 @@ export class KeyAnalysis {
 				return this.keys(node.left)
 			case "Attach":
 				return this.keys(node.parent)
+			case "Step":
 			case "OrderedResult":
 				return this.keys(node.input)
 			case "ProjectSet":

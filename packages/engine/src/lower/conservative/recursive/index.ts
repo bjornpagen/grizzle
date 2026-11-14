@@ -66,6 +66,7 @@ const nonPositive = (node: RelNode): Blocking | undefined => {
 		case "OrderedResult":
 		case "Attach":
 		case "Forbid":
+		case "Step":
 			return undefined
 	}
 }

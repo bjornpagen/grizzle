@@ -182,6 +182,7 @@ const shapeDispatch = (facts: ShapeFacts): NodeDispatch => {
 			case "Forbid":
 			case "Intersect":
 			case "MatchRegion":
+			case "Step":
 			case "OrderedResult":
 			case "OrderedSetAggregate":
 			case "Produce":

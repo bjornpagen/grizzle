@@ -578,6 +578,7 @@ export class Delivery<Own extends PageParamSlot = never> {
 				case "ApproximateNearest":
 				case "Forbid":
 				case "Window":
+				case "Step":
 				case "OrderedSetAggregate":
 					return false
 			}

@@ -66,6 +66,7 @@ export const inlineWorlds = (query: QueryDesc, role: CheckedSchema): QueryDesc =
 				return world === undefined ? s : { kind: "query", query: world.definition, bind: {} }
 			}
 			case "query":
+			case "step":
 				return {
 					...s,
 					query: inQuery(s.query),
