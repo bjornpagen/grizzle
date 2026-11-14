@@ -253,6 +253,12 @@ read against main 5b049abf); a Q label points at its entry above.
     ObjectTitle's title unbounded fails compile with UnrepresentableKey, because the "lom-title" probe wants
     (package, titleValue, start). Lifts the bound on long titles, and with item 11 on an element's string value,
     qti-value, LOM strings and whole IDREFS values (same source).
+15. **A level's snapshot built in-process:** a public `compileSnapshot(login)` on @bjornpagen/grizzle/compile, the
+    snapshot.json value generate would write for the login's base serving the login, so compileServed can compile a
+    level's login offline under its own installation. It must be the one composition generate's draft runs
+    (cli/generate.ts plannedLogins), never a second copy beside test/support/compiled-served.ts compiledSnapshot.
+    Asked by the pantry port's export/scan.test.ts, which compiled ScanProbe under Qti's snapshot and is rightly
+    refused UncoveredRead; compileServedOnce stays unexported (its files are served by onceCalls alone).
 
 ### qti-pie's test-survey asks, for the owner to schedule (2026-11-14)
 From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.md, section 4), logged only.
