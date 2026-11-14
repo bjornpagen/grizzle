@@ -236,7 +236,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										"put of a slot before the last applied as the model states",
 										"a put of the first slot refilled every slot"
 									]),
-									caseHang
+									caseHang,
+									concurrency: 1
 								},
 								(sketch, c) =>
 									Effect.gen(function* () {

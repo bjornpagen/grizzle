@@ -295,7 +295,8 @@ describe("Compute builders", () => {
 						"span width typed",
 						"span width refused"
 					]),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				(sketch: BuilderCase, c) =>
 					Effect.sync(() => {

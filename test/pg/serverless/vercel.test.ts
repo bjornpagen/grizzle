@@ -163,7 +163,8 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 								"region only",
 								"neither"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						([url, region], c) =>
 							Effect.gen(function* () {

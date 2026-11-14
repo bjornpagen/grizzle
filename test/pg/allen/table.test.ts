@@ -82,7 +82,8 @@ layer(Substrate.layer)("the Allen table on PostgreSQL 19", (it) => {
 						kind: "postgresql",
 						name: "each literal cast to the range type in PostgreSQL, against the host canonicalization"
 					},
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				(type, c) =>
 					Effect.gen(function* () {
@@ -136,7 +137,8 @@ $f$`,
 							kind: "postgresql",
 							name: "PostgreSQL's range operators under each mask's formula, against the host classifier's relation"
 						},
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(type, c) =>
 						Effect.gen(function* () {

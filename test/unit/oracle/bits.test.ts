@@ -200,7 +200,8 @@ describe("the reference evaluator's set algebra", () => {
 					]),
 					caseHang,
 					box: "every pair of subsets of a roster of five handles",
-					oracle: { kind: "second-implementation", name: "a Set<number> model of the codes" }
+					oracle: { kind: "second-implementation", name: "a Set<number> model of the codes" },
+					concurrency: 1
 				},
 				agrees
 			)

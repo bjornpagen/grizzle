@@ -74,7 +74,8 @@ describe("Allen masks", () => {
 							generator: int(1, allenMaskMax),
 							literal: Formatter.format,
 							coverage: requiredInSpace<Mask>(["a partial mask", "the full mask"]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(mask, c) =>
 							Effect.sync(() => {

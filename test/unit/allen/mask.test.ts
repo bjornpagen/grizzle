@@ -103,7 +103,8 @@ describe("the named Allen masks", () => {
 							`${n} failed`
 						])
 					),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				([a, b], c) =>
 					Effect.sync(() => {
@@ -214,7 +215,8 @@ describe("every entry point a mask reaches", () => {
 							"no integer",
 							"no number"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(g, c) =>
 						Effect.sync(() => {

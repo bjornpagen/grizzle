@@ -836,7 +836,8 @@ describe("the live model's values", () => {
 						"one key, two deliveries",
 						"two keys"
 					]),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				({ left, right }, c) =>
 					Effect.sync(() => {

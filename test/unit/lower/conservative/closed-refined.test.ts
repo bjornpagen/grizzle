@@ -168,7 +168,8 @@ describe("a Closed source's refined payload", () => {
 							"an out-of-pattern payload refused without a domain",
 							"an empty source delivered uncast"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(c, seen) =>
 						Effect.sync(() => {

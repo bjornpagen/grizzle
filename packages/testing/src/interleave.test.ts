@@ -423,7 +423,8 @@ describe("interleaving", () => {
 						generator: disjointSessions,
 						literal: Formatter.format,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(1)
+						caseHang: Duration.minutes(1),
+						concurrency: 1
 					},
 					(sessions) =>
 						Effect.gen(function* () {
@@ -533,7 +534,8 @@ describe("interleaving", () => {
 							"no cycle",
 							"a chain"
 						]),
-						caseHang: Duration.minutes(1)
+						caseHang: Duration.minutes(1),
+						concurrency: 1
 					},
 					(afters, c) =>
 						Effect.gen(function* () {

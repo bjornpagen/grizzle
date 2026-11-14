@@ -435,7 +435,8 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc2", (it) => {
 								"targets every row refuses a tree",
 								"targets every row commits a non-tree"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(rows, c) => Effect.asVoid(judgeCase(seats, [rows], c))
 					)
@@ -478,7 +479,8 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc2", (it) => {
 								"T5 without end killed",
 								"without T6 killed"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(rows, c) => Effect.asVoid(judgeCase(seats, [rows], c))
 					)
@@ -526,7 +528,8 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc2", (it) => {
 								"P3's counterexample committed without T0",
 								"T5 without end killed"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(rows, c) => Effect.asVoid(judgeCase(seats, [rows], c))
 					)
@@ -565,7 +568,8 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc2", (it) => {
 								"T5 without end killed by a wrong end",
 								"without T6 killed"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(mutation, c) =>
 							Effect.gen(function* () {
@@ -618,7 +622,8 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc2", (it) => {
 								"as written refuses a tree",
 								"targets every row refuses a tree"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(write, c) =>
 							Effect.gen(function* () {

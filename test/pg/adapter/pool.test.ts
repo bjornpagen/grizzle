@@ -171,7 +171,8 @@ const interruptedStatement = Effect.gen(function* () {
 				"lock alone",
 				"lock transaction"
 			]),
-			caseHang
+			caseHang,
+			concurrency: 1
 		},
 		(k, c) =>
 			Effect.gen(function* () {
@@ -284,7 +285,8 @@ const stalledRelease = Effect.gen(function* () {
 			oracle: {
 				kind: "specification",
 				name: "a layer's release awaits nothing, and a statement it cuts fails or delivers its whole answer"
-			}
+			},
+			concurrency: 1
 		},
 		(standing, c) =>
 			Effect.gen(function* () {

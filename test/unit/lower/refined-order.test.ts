@@ -178,7 +178,8 @@ describe("a refined output the delivery casts", () => {
 					oracle: {
 						kind: "specification",
 						name: "an ORDER BY item reads a cast output's cast, and under SELECT DISTINCT one of the outputs (42P10)"
-					}
+					},
+					concurrency: 1
 				},
 				(box, c) =>
 					Effect.sync(() => {

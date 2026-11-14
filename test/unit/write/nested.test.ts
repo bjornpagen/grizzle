@@ -183,7 +183,8 @@ describe("a nested write through the program", () => {
 						coverage: requiredInSpace<Feature>(["an empty family", "a deep tree", "two trees"]),
 						caseHang,
 						box: "one or two owners of up to two lines of quantity 0 or 1, one or two trees of up to four nodes",
-						oracle: { kind: "specification", name: "the nested write's rows (w4-w7 §3.10)" }
+						oracle: { kind: "specification", name: "the nested write's rows (w4-w7 §3.10)" },
+						concurrency: 1
 					},
 					(box, c) =>
 						Effect.gen(function* () {
@@ -370,7 +371,8 @@ describe("a nested write's facts are a set by identity (rule 0, ruling 1)", () =
 						oracle: {
 							kind: "specification",
 							name: "a ChangeSet's facts are a set by identity, two at one key refused by its key law"
-						}
+						},
+						concurrency: 1
 					},
 					(box, c) =>
 						Effect.gen(function* () {
@@ -489,7 +491,8 @@ describe("a nested tree at depth and width", () => {
 						oracle: {
 							kind: "specification",
 							name: "a chain's and a star's pre-order numbering in closed form"
-						}
+						},
+						concurrency: 1
 					},
 					(box, c) =>
 						Effect.gen(function* () {

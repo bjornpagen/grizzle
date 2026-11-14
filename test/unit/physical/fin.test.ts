@@ -360,7 +360,8 @@ describe("a slotted closed relation's planned constants", () => {
 						"a closed id before a slot",
 						"two slots"
 					]),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				planned
 			)

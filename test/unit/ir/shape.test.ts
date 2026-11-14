@@ -565,7 +565,8 @@ describe("shapes", () => {
 						"a union's first alternative",
 						"a tagged case"
 					]),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				([kind, site], c) =>
 					Effect.sync(() => {

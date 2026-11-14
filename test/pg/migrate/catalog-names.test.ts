@@ -241,7 +241,8 @@ layer(Substrate.layer)("objects named like PostgreSQL's own types", (it) => {
 						generator: caseGen,
 						literal: literalOf,
 						coverage: requiredInSpace<Feature>(required),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(c, k) =>
 						Effect.gen(function* () {

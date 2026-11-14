@@ -164,7 +164,8 @@ describe("the schema a query compiles against", () => {
 						generator: (source) => [source.draw(subjects), source.draw(subjects)] as const,
 						literal: Formatter.format,
 						coverage: requiredInSpace<LevelFeature>(["the schema itself", "a level", "no level"]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([built, named], c) =>
 						Effect.sync(() => {
@@ -244,7 +245,8 @@ describe("the artifacts of a schema", () => {
 						"the built value and its description",
 						"the Owned and its description"
 					]),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				([s, [first, second]], c) =>
 					Effect.sync(() => {

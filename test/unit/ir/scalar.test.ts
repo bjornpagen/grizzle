@@ -869,7 +869,8 @@ describe("contract predicates", () => {
 							"an allocation normalized",
 							...Arr.map(broken, ([rule]): PredicateFeature => `broken: ${rule}`)
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(c, n) =>
 						Effect.sync(() => {

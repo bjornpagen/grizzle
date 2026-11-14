@@ -440,7 +440,8 @@ layer(Substrate.layer)(
 										])
 									)
 								),
-								caseHang
+								caseHang,
+								concurrency: 1
 							},
 							(sketch, c) =>
 								Effect.gen(function* () {

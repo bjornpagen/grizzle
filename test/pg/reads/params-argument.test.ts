@@ -216,7 +216,8 @@ layer(Substrate.layer, { excludeTestServices: true })("a program's parameter arg
 									oracle: {
 										kind: "specification",
 										name: "readParams's contract: a record of the program's parameters answers, any other argument is refused factShape naming no parameter, and a key member projects its key's fields"
-									}
+									},
+									concurrency: 1
 								},
 								([call, kind], c) =>
 									Effect.gen(function* () {

@@ -696,7 +696,8 @@ const exhaustUpTo = (
 				literal: ([inst, plan]) =>
 					Formatter.format({ variant: inst.variant.name, scan: plan.scan, steps: plan.steps }),
 				coverage: requiredInSpace<ClaimFeature>(situations),
-				caseHang
+				caseHang,
+				concurrency: 1
 			},
 			([inst, plan], c) =>
 				Effect.sync(() => {

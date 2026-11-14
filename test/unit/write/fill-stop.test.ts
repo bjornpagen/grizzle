@@ -377,7 +377,8 @@ describe("a generated field with no value", () => {
 							"refused: a missing weight no fill reads before one a fill reads",
 							"accepted"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(c, k) =>
 						Effect.gen(function* () {

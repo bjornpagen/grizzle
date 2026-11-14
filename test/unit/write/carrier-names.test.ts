@@ -243,7 +243,8 @@ describe("a write program's carriers", () => {
 						"one layout",
 						"layouts of one carrier position and two declarations"
 					]),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				(drawnLayouts, c) =>
 					Effect.sync(() => {

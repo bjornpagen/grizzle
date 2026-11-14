@@ -237,7 +237,8 @@ describe("a table's attribute numbers", () => {
 							name: "a model of pg_attribute's attribute numbers"
 						},
 						coverage: requiredInSpace<Feature>(FEATURES),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(box, c) => Effect.sync(() => judge(drafts, box, (feature) => c.note(feature)))
 				)

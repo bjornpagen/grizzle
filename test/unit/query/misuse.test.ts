@@ -1156,7 +1156,8 @@ describe("named scopes", () => {
 						literal: (c) =>
 							`${c.first.label}@${c.first.column} ${c.second.label}@${c.second.column} ${Arr.join(c.names, "/")}`,
 						coverage: noCoverage,
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(c) =>
 						Effect.sync(() => {

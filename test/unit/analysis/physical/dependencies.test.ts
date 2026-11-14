@@ -516,7 +516,8 @@ describe("a rule region's dependency table", () => {
 							"an unbound column's constant",
 							"a key's constant fixes the row"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(scan, c) =>
 						Effect.sync(() => {

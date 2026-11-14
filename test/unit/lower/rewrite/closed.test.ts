@@ -269,7 +269,8 @@ describe("R07 over closed constants", () => {
 						oracle: {
 							kind: "specification",
 							name: "membershipOf's rule: every key field a variable bound elsewhere, a literal or a parameter, and no payload read"
-						}
+						},
+						concurrency: 1
 					},
 					(o, c) =>
 						Effect.sync(() => {
@@ -322,7 +323,8 @@ describe("R07 over closed constants", () => {
 						oracle: {
 							kind: "specification",
 							name: "the predicate's meaning on each row, and a declared name only on every fact"
-						}
+						},
+						concurrency: 1
 					},
 					(p, c) =>
 						Effect.sync(() => {
@@ -409,7 +411,8 @@ describe("R07 beside a lateral read", () => {
 						oracle: {
 							kind: "specification",
 							name: "membershipsOf: a key another occurrence binds, and no occurrence whose source a scope expression reads"
-						}
+						},
+						concurrency: 1
 					},
 					({ read, bound }, c) =>
 						Effect.sync(() => {

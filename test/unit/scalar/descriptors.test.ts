@@ -174,7 +174,8 @@ describe("alias identity", () => {
 							"one type, two writings",
 							"two types"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([x, y], c) =>
 						Effect.sync(() => {

@@ -87,7 +87,8 @@ describe("a span key", () => {
 							"a guarded span key with a scalar",
 							"a span key with a scalar over every fact"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(k, c) =>
 						Effect.sync(() => {

@@ -217,7 +217,8 @@ describe("a put's statement", () => {
 							"updateFrom (existingKeys)",
 							"onConflictDoUpdate (enumerated)"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([uniques, form], c) =>
 						Effect.sync(() => {

@@ -729,7 +729,8 @@ layer(Substrate.layer)("endpoint spellings of span relations on PostgreSQL 19", 
 									`${carrier} some facts`
 								])
 							),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(c, k) =>
 							Effect.map(runCase(installed, db, c), (ran) => {

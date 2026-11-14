@@ -607,7 +607,8 @@ describe("a family's natives are §2.1's three axes", () => {
 						oracle: {
 							kind: "specification",
 							name: "w4-w7 §2.1's axis table as a checker, its CHECKs by the reference evaluator"
-						}
+						},
+						concurrency: 1
 					},
 					(s, c) =>
 						Effect.sync(() => {
@@ -655,7 +656,8 @@ describe("a family's natives are §2.1's three axes", () => {
 						]),
 						caseHang,
 						box: "a family of either order and width with its lemma restated on each axis its sides can name",
-						oracle: { kind: "specification", name: "w4-w7 §2.1's merging rule" }
+						oracle: { kind: "specification", name: "w4-w7 §2.1's merging rule" },
+						concurrency: 1
 					},
 					(r, c) =>
 						Effect.sync(() => {
@@ -716,7 +718,8 @@ describe("a family's natives are §2.1's three axes", () => {
 						oracle: {
 							kind: "specification",
 							name: "rows-first §1: each family's drawn columns and axes distinct by identity"
-						}
+						},
+						concurrency: 1
 					},
 					(d, c) =>
 						Effect.sync(() => {

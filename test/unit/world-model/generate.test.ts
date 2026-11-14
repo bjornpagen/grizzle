@@ -596,7 +596,8 @@ describe("the worlds generators", () => {
 						coverage: requiredInSpace<Feature>(
 							Arr.map(everyInvalidKind, (k): Feature => `invalid:${k}`)
 						),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(kind, c) =>
 						Effect.gen(function* () {

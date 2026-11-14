@@ -184,7 +184,8 @@ layer(Published.layer, { excludeTestServices: true })("the published package", (
 								kind: "second-implementation",
 								name: "the same entry point or bin, resolved and run from the repository under the grizzle-source condition"
 							},
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(entry, c) =>
 							Effect.gen(function* () {

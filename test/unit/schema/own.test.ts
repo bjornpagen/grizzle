@@ -880,7 +880,8 @@ describe("statements over a derived relation", () => {
 							coverage: requiredInSpace<`${DerivedStatementKind} ${StatementForm["form"]}`>(
 								Arr.map(statementForms, (l) => `${l.kind} ${l.form}` as const)
 							),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						([law, swapped], c) =>
 							Effect.sync(() => {

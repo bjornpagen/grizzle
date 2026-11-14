@@ -85,7 +85,8 @@ describe("a read's per-execution choice", () => {
 							] as const,
 						literal: Formatter.format,
 						coverage: requiredInSpace<Count>(["at lateralParentMax", "one past lateralParentMax"]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([name, count], c) =>
 						Effect.sync(() => {

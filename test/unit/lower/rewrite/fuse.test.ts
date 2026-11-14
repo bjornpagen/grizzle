@@ -127,7 +127,8 @@ describe("the complete bound tuple survives fusion", () => {
 							"id, account, amount read by a fold",
 							"id, account, amount read by the query"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([bound, reader], c) =>
 						Effect.sync(() => {
@@ -216,7 +217,8 @@ describe("fixed columns in R01 fusion", () => {
 								source.draw(element<Stage>(["filtered", "unfiltered"]))
 							] as const,
 						coverage: requiredInSpace<"fused" | "refused">(["fused", "refused"]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([first, second, stage], c) =>
 						Effect.sync(() => {

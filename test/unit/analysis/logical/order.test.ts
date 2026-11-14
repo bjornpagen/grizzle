@@ -553,7 +553,8 @@ describe("completing an order over a union of different headings", () => {
 								`${w} refused`
 							])
 						),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([keyed, wrapper, userOrder], c) =>
 						Effect.sync(() => {

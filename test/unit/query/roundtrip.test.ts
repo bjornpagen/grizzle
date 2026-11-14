@@ -497,7 +497,8 @@ describe("rebuilding from a Description", () => {
 							] as const,
 						literal: Formatter.format,
 						coverage: noCoverage,
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([from, operation]) =>
 						Effect.sync(() => {

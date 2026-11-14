@@ -360,7 +360,8 @@ describe("riding a family axis (§2.1)", () => {
 							"a carried pred term",
 							"no axis"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(c, k) =>
 						Effect.sync(() => {
@@ -1375,7 +1376,8 @@ describe("resolution and refusals (§3.4, §3.7, rows-first §4)", () => {
 							"named accumulators",
 							...Arr.map(refusals, (r): FamilyFeature => `${r.from} ${r.rule}`)
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(drawnCase, k) =>
 						Effect.sync(() => {

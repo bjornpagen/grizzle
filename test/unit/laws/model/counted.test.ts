@@ -291,7 +291,8 @@ describe("a counted family's natives admit grizzle's plans and refuse every lawl
 						oracle: {
 							kind: "second-implementation",
 							name: "NP's counted planner and the family law, judged by a host model of the natives"
-						}
+						},
+						concurrency: 1
 					},
 					(k, c) =>
 						Effect.sync(() => {

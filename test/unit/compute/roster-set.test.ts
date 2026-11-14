@@ -180,7 +180,8 @@ describe("a set over a roster", () => {
 							"the codec refused",
 							"a set of another roster whose names the field holds"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(c, k) =>
 						Effect.gen(function* () {

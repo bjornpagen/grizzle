@@ -847,7 +847,8 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc2", (it
 							generator: stateGen,
 							literal: Formatter.format,
 							coverage: requiredInSpace(nonEmpty(situations)),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(sketch, c) =>
 							Effect.forEach(
@@ -920,7 +921,8 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc2", (it
 							generator: mutationGen,
 							literal: Formatter.format,
 							coverage: requiredInSpace(nonEmpty(situations)),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(sketch, c) =>
 							Effect.forEach(
@@ -970,7 +972,8 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc2", (it
 								"committed",
 								"committed with a successor sent first"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(sketch, c) =>
 							Effect.gen(function* () {
@@ -1026,7 +1029,8 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc2", (it
 								"counted swap move before delete refused key",
 								"ordered shrink insert before delete refused"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(sketch, c) =>
 							Effect.forEach(
@@ -1090,7 +1094,8 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc2", (it
 								"copy deferred drop owners first committed",
 								"nothing deferred create refused last"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(sketch, c) =>
 							Effect.forEach(

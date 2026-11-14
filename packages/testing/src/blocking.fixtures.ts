@@ -124,7 +124,8 @@ const searchedAsProgram = (planted: Planted, seed: number) =>
 						generator: values,
 						literal: Formatter.format,
 						coverage: noCoverage,
-						caseHang: Duration.millis(planted.hangMillis)
+						caseHang: Duration.millis(planted.hangMillis),
+						concurrency: 1
 					},
 					property(planted)
 				).pipe(

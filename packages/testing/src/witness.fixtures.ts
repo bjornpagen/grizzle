@@ -45,7 +45,8 @@ const exhaustion = (coverage: Exhaustion<number, "a">["coverage"]): Exhaustion<n
 	generator: int(0, 9),
 	literal: Formatter.format,
 	coverage,
-	caseHang: Duration.seconds(1)
+	caseHang: Duration.seconds(1),
+	concurrency: 1
 })
 
 export const accepted = Object.freeze([

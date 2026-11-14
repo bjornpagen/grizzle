@@ -168,7 +168,8 @@ describe("bit strings at a word's edges", () => {
 							"a bit at a word's last position",
 							"a dense string"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					read
 				)
@@ -215,7 +216,8 @@ describe("bit strings at a word's edges", () => {
 						"past one block",
 						"past two blocks"
 					]),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				counted
 			)
@@ -564,7 +566,8 @@ describe("bit strings on the host", () => {
 							"past the end",
 							"a negative int4"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					placement
 				)

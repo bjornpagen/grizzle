@@ -174,7 +174,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("guarded keys at startu
 						generator: keysGen,
 						literal: Formatter.format,
 						coverage: noCoverage,
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(half) =>
 						Effect.gen(function* () {
@@ -266,7 +267,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("the install order", (i
 					generator: relationsGen,
 					literal: Formatter.format,
 					coverage: noCoverage,
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				(r) =>
 					Effect.gen(function* () {

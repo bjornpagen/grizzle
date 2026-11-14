@@ -95,7 +95,8 @@ describe("a relation parameter two members read", () => {
 							"a heading within the other",
 							"a field of another type"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([first, second], c) =>
 						Effect.sync(() => {

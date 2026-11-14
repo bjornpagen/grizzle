@@ -327,7 +327,8 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 								"a field's carriers"
 							)
 						),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([where, t], c) =>
 						Effect.sync(() => {

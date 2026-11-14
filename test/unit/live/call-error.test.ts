@@ -70,7 +70,8 @@ describe("callErrorOf", () => {
 							"another refusal of a read",
 							"another refusal of a write"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					({ sqlstate, program }, c) =>
 						Effect.sync(() => {

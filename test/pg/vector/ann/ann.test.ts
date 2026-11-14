@@ -365,7 +365,8 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 								name: "approximateNearest.indexed reads its key with no DISTINCT, approximateNearest.deduplicated keeps one"
 							},
 							coverage: requiredInSpace<"indexed" | "deduplicated">(["indexed", "deduplicated"]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(name, k) =>
 							Effect.sync(() => {

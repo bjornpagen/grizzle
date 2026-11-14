@@ -128,7 +128,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										),
 										"40001 at COMMIT"
 									]),
-									caseHang
+									caseHang,
+									concurrency: 1
 								},
 								([concurrent, end], c) =>
 									Effect.gen(function* () {

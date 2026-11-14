@@ -889,7 +889,8 @@ describe("normalizeDag", () => {
 						literal: Formatter.format,
 						generator: boolean,
 						coverage: requiredInSpace<"y allocated first">(["y allocated first"]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(yFirst, c) =>
 						Effect.sync(() => {
@@ -970,7 +971,8 @@ describe("normalizeDag", () => {
 							"an advanced supply",
 							"a spelling not in normal form"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([[root, value, zero], advance], c) =>
 						Effect.sync(() => {

@@ -358,7 +358,8 @@ describe("an attachment's parent key set deduplicates exactly where it is unprov
 						),
 						literal: Formatter.format,
 						coverage: requiredInSpace<KeySetFeature>(["a proved key set"]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(name, c) =>
 						Effect.sync(() => {

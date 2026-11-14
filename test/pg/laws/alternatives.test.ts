@@ -110,7 +110,8 @@ layer(Substrate.layer)("alternatives through grizzle's lowering on PostgreSQL 19
 								"refused forward",
 								"refused reverse"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(s, c) =>
 							Effect.gen(function* () {

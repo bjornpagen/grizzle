@@ -393,7 +393,8 @@ describe("the host fold, exhaustively", () => {
 						oracle: {
 							kind: "second-implementation",
 							name: "folded (test/support/families/fold.ts)"
-						}
+						},
+						concurrency: 1
 					},
 					(c, note) =>
 						Effect.sync(() => {

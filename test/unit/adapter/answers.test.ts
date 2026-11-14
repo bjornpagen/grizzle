@@ -201,7 +201,8 @@ describe("an attachment's delivery", () => {
 							"a defect",
 							"a proof that does not license the reader"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					({ reader, proved, n }, c) =>
 						Effect.sync(() => {

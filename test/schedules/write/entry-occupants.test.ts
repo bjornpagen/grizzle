@@ -200,7 +200,8 @@ layer(Substrate.layer)("a query entry's insertion racing a commit at its key", (
 						oracle: {
 							kind: "specification",
 							name: "the serial order W, then A, over the stated seats"
-						}
+						},
+						concurrency: 1
 					},
 					(c, k) =>
 						Effect.gen(function* () {

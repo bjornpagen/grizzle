@@ -138,7 +138,8 @@ layer(Substrate.layer)(
 								oracle: {
 									kind: "postgresql",
 									name: "PostgreSQL's own attribute numbers and its 54011 past MaxHeapAttributeNumber"
-								}
+								},
+								concurrency: 1
 							},
 							(added: number, c: Case<Place>) =>
 								Effect.gen(function* () {

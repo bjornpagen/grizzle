@@ -111,7 +111,8 @@ describe("factoring transition arms into one feedback scan", () => {
 							"b fixed to a parameter",
 							"both"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(arms, c) =>
 						Effect.sync(() => {

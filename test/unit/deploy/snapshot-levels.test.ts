@@ -152,7 +152,8 @@ describe("snapshot.json", () => {
 							name: "the written snapshot reads back as itself, its fingerprint and its levels' laws"
 						},
 						coverage: requiredInSpace<Placement>(["root", "level"]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(c, k) =>
 						Effect.sync(() => {

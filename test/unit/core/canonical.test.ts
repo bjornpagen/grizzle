@@ -847,7 +847,8 @@ describe("a value outside the model", () => {
 								] as const,
 							literal: Formatter.format,
 							coverage: noCoverage,
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						([depth, container, direction]) =>
 							Effect.sync(() => {
@@ -886,7 +887,8 @@ describe("a value outside the model", () => {
 						},
 						literal: Formatter.format,
 						coverage: noCoverage,
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([length, back, container, direction]) =>
 						Effect.sync(() => {

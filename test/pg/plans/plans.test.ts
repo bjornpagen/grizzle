@@ -415,7 +415,8 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 								"Account asc",
 								"Account desc"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(c, k) =>
 							Effect.gen(function* () {
@@ -662,7 +663,8 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 								"count of the key",
 								"count of the values"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(c, k) =>
 							Effect.gen(function* () {

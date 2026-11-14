@@ -243,7 +243,8 @@ describe("a merged family axis holds exactly when every containment merged into 
 						oracle: {
 							kind: "universal",
 							name: "metamorphic: the merged axis against each containment's own meaning"
-						}
+						},
+						concurrency: 1
 					},
 					(m, c) =>
 						Effect.sync(() => {

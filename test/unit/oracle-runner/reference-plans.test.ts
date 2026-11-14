@@ -325,7 +325,8 @@ describe("indexIdentity", () => {
 							kind: "second-implementation",
 							name: "the reference's comparison: two keyed values share a key exactly when it finds them equal, and it never meets a keyed value of another carrier"
 						},
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([type, own, a, b], c) =>
 						Effect.sync(() => {

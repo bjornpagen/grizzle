@@ -355,7 +355,8 @@ describe("a partial operation's refusal", () => {
 							"a guard no Compute test writes",
 							"a named guard, written, admitted"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([kind, pick], c) =>
 						Effect.sync(() => {

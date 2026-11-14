@@ -482,7 +482,8 @@ describe("shrinking", () => {
 										generator,
 										literal: Formatter.format,
 										coverage: noCoverage,
-										caseHang: Duration.minutes(1)
+										caseHang: Duration.minutes(1),
+										concurrency: 1
 									},
 									(items) => Effect.sync(() => assertTrue(!fails(items), "the case holds"))
 								)

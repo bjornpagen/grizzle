@@ -743,7 +743,8 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc2", (it) => {
 								oracle: {
 									kind: "postgresql",
 									name: "the domain accepts exactly the codes the history model holds live"
-								}
+								},
+								concurrency: 1
 							},
 							(c, kase) =>
 								Effect.gen(function* () {
@@ -809,7 +810,8 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc2", (it) => {
 									name: "the host's decode of each stored code, and the history model's names in code order"
 								},
 								coverage: requiredInSpace<RosterFeature>(["holes 0", "holes 1", "holes 2+"]),
-								caseHang
+								caseHang,
+								concurrency: 1
 							},
 							(state, c) =>
 								Effect.gen(function* () {
@@ -1040,7 +1042,8 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc2", (it) => {
 								oracle: {
 									kind: "postgresql",
 									name: "PostgreSQL's EXECUTE check of the function a domain's CHECK and a view call"
-								}
+								},
+								concurrency: 1
 							},
 							(c, kase) =>
 								Effect.gen(function* () {

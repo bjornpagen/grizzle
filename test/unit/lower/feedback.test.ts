@@ -366,7 +366,8 @@ describe("every lowering admits exactly positive linear feedback over a hashable
 						"refused for an unhashable state",
 						"refused for a second scan"
 					]),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				([step, state], c) =>
 					Effect.sync(() => {

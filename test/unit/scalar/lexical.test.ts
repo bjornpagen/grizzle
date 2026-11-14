@@ -162,7 +162,8 @@ describe("lexical forms", () => {
 						oracle: {
 							kind: "specification",
 							name: "the text analysis's admission (text/refinement.ts)"
-						}
+						},
+						concurrency: 1
 					},
 					(t, c) =>
 						Effect.sync(() => {

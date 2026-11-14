@@ -133,7 +133,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 						oracle: {
 							kind: "second-implementation",
 							name: "DbLayer.make's own compilation of the login's programs (served/login.ts loginRoles), and the select list's bound"
-						}
+						},
+						concurrency: 1
 					},
 					(head: Head, c: Case<Width>) =>
 						Effect.gen(function* () {

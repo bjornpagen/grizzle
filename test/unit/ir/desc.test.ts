@@ -1601,7 +1601,8 @@ describe("Descriptions", () => {
 							"an array cycle",
 							"shared"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(n, c) =>
 						Effect.sync(() => {

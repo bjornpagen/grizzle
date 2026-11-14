@@ -296,7 +296,8 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 							name: "the type PostgreSQL stores a column of the spelling as"
 						},
 						coverage: requiredInSpace<"a serial" | "a type">(["a serial", "a type"]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(spelling, c) =>
 						Effect.map(probe(db, [columnSpelling(spelling)]), (stored) => {
@@ -330,7 +331,8 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 								"double precision",
 								"refused above"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(p, c) =>
 							Effect.map(probe(db, [`float(${p})`]), (stored) => {
@@ -426,7 +428,8 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 							"admitted",
 							"refused above"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(n, c) =>
 						Effect.map(probe(db, [`${vectorSchema}.vector(${n})`]), (stored) => {
@@ -473,7 +476,8 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 								"a discrete range named as a limit",
 								"no discrete range"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(carrier, c) =>
 							Effect.gen(function* () {

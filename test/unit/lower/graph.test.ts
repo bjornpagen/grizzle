@@ -573,7 +573,8 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 							"also a root kept",
 							"read by another node kept"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([column, spelling, sharing], c) =>
 						Effect.sync(() => {
@@ -636,7 +637,8 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 							] as const,
 						literal: Formatter.format,
 						coverage: requiredInSpace<`${Conjuncts} moved`>(["one moved", "two moved"]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([part, conjuncts], c) =>
 						Effect.sync(() => {

@@ -108,7 +108,8 @@ describe("a ChangeSet's bound values", () => {
 						oracle: {
 							kind: "specification",
 							name: "bound values are one parameter when equal, and otherwise named in their canonical texts' order"
-						}
+						},
+						concurrency: 1
 					},
 					(box, c) =>
 						Effect.sync(() => {

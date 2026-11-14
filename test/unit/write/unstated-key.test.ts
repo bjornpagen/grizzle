@@ -170,7 +170,8 @@ describe("a write that names rows by a primary key", () => {
 							"delete bound beside a declared key over the index",
 							"delete bound"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(box, c) =>
 						Effect.gen(function* () {

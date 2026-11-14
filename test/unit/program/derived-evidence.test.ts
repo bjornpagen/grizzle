@@ -148,7 +148,8 @@ describe("a query over a derived relation", () => {
 								"RunTotal",
 								"read-back over a view"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						({ view, columns }, c) =>
 							Effect.sync(() => {

@@ -509,7 +509,8 @@ describe("installation size", () => {
 							name: "a size that grows no faster than linearly increments no more over its second equal step than over its first"
 						},
 						coverage: requiredInSpace<Dimension>(dimensions),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(point, c) =>
 						Effect.gen(function* () {

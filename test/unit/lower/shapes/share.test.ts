@@ -53,7 +53,8 @@ describe("the share key", () => {
 						generator: (source) =>
 							[source.draw(params), source.draw(params), source.draw(int(0, 3))] as const,
 						coverage: requiredInSpace<"shared" | "apart">(["shared", "apart"]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([first, second, burned], c) =>
 						Effect.sync(() => {

@@ -320,7 +320,8 @@ layer(Substrate.layer)(
 									name: "each source row's containment as a checker: B holds its id at an x its literal equals as the selection compares them"
 								},
 								coverage: requiredInSpace<Feature>(FEATURES),
-								caseHang
+								caseHang,
+								concurrency: 1
 							},
 							(s, c) =>
 								Effect.gen(function* () {

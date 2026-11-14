@@ -145,7 +145,8 @@ describe("sub-queries carried across a stratum's statements", () => {
 						literal: Formatter.format,
 						generator: int(1, 4),
 						coverage: requiredInSpace<"carried" | "inline">(["carried", "inline"]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(statements, c) =>
 						Effect.sync(() => {
@@ -183,7 +184,8 @@ describe("sub-queries repeated inside one statement", () => {
 					literal: Formatter.format,
 					generator: int(1, 4),
 					coverage: requiredInSpace<"shared" | "inline">(["shared", "inline"]),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				(reads, c) =>
 					Effect.gen(function* () {
@@ -288,7 +290,8 @@ describe("attachment parts fed from an earlier one", () => {
 							return upTo(count, () => source.draw(int(0, 2)))
 						},
 						coverage: requiredInSpace<"fed" | "sent">(["fed", "sent"]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(filters, c) =>
 						Effect.sync(() => {

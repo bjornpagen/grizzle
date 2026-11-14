@@ -161,7 +161,8 @@ layer(Substrate.layer)("row order through grizzle's lowering on PostgreSQL 19rc2
 								"counted descending cut committed",
 								"counted ascending cut committed"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(sketch, c) =>
 							Effect.gen(function* () {

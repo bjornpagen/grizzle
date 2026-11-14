@@ -181,7 +181,8 @@ describe("PostgreSQL's limits", () => {
 								`${kind} past`
 							])
 						),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([kind, offset], c) =>
 						Effect.sync(() => {

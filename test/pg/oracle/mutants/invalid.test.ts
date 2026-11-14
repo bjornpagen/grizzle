@@ -234,7 +234,8 @@ layer(Substrate.layer)("the invalid mutants are killed", (it) => {
 						coverage: requiredInSpace<KilledFeature>(
 							Arr.map(invalid, (m): KilledFeature => `killed ${m.id}`)
 						),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(p, c) =>
 						Effect.gen(function* () {

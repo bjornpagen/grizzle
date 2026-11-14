@@ -20,8 +20,8 @@ import { boolean, element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result as EffectResult } from "effect"
 import * as Result from "#compiler/core/result.ts"
-import { pg } from "#compiler/public/fields.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
+import { pg } from "#compiler/public/fields.ts"
 import { relation, retirementField } from "#compiler/schema/relation.ts"
 import { schema } from "#compiler/schema/schema.ts"
 import {
@@ -100,7 +100,9 @@ const brokenOf = (d: Declared): ReadonlyArray<Broken> => {
 			? ["a containment into a body crosses the group" as const]
 			: []),
 		...(d.mutableRoot ? ["the header is mutable" as const] : []),
-		...(d.keyReadsLifecycle && d.lifecycles > 0 ? ["a key reads the retirement field" as const] : [])
+		...(d.keyReadsLifecycle && d.lifecycles > 0
+			? ["a key reads the retirement field" as const]
+			: [])
 	]
 }
 
@@ -134,7 +136,11 @@ const declared = (d: Declared): unknown => {
 		["root", "step"],
 		[]
 	)
-	const sides = { Step: onBuilder(Step, ["root"]), Claim: onBuilder(Claim, ["root"]), Note: onBuilder(Note, ["root"]) }
+	const sides = {
+		Step: onBuilder(Step, ["root"]),
+		Claim: onBuilder(Claim, ["root"]),
+		Note: onBuilder(Note, ["root"])
+	}
 	const [first, ...rest] = Arr.map(d.bodies, (b) => sides[b])
 	const stepTarget = onBuilder(Step, ["root", "step"])
 	return schema(
@@ -150,9 +156,13 @@ const declared = (d: Declared): unknown => {
 							stepTarget
 						)
 					]),
-			...(d.noteRef && d.stepKeyed ? [containedBuilder(onBuilder(Note, ["root", "step"]), stepTarget)] : []),
+			...(d.noteRef && d.stepKeyed
+				? [containedBuilder(onBuilder(Note, ["root", "step"]), stepTarget)]
+				: []),
 			...(d.mutableRoot ? [mutableBuilder(Root)] : []),
-			...(d.keyReadsLifecycle && d.lifecycles > 0 ? [keyBuilder(onBuilder(Root, ["id", "retired"]))] : [])
+			...(d.keyReadsLifecycle && d.lifecycles > 0
+				? [keyBuilder(onBuilder(Root, ["id", "retired"]))]
+				: [])
 		],
 		[]
 	)
@@ -162,8 +172,7 @@ const declared = (d: Declared): unknown => {
 const owns = (d: Declared): boolean => {
 	const built = EffectResult.try(() => declared(d))
 	return (
-		EffectResult.isSuccess(built) &&
-		Result.flatMap(parseSchemaInput(built.success), ownInput).ok
+		EffectResult.isSuccess(built) && Result.flatMap(parseSchemaInput(built.success), ownInput).ok
 	)
 }
 
@@ -195,7 +204,8 @@ describe("a retirable statement at the schema door", () => {
 							"refused: the header is mutable",
 							"refused: a key reads the retirement field"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(d, c) =>
 						Effect.sync(() => {

@@ -155,7 +155,8 @@ describe("span laws", () => {
 							"one span field",
 							"several span fields"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([spans, uuids], c) =>
 						Effect.sync(() => {
@@ -643,7 +644,8 @@ describe("violation queries mean what their laws say", () => {
 							"a self-managed employee",
 							"lawful"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(managers, c) =>
 						Effect.sync(() => {
@@ -708,7 +710,8 @@ describe("violation queries mean what their laws say", () => {
 							"lawful",
 							"labels"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([names, labels], c) =>
 						Effect.sync(() => {
@@ -1077,7 +1080,8 @@ describe("law identities", () => {
 							"several declarations",
 							"the reverse undeclared"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(declared, c) =>
 						Effect.sync(() => {

@@ -111,7 +111,8 @@ describe("the relations' places", () => {
 								Arr.map(allenRelations, (r): PlaceFeature => `${type} ${r}`)
 							)
 						),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					({ type, pair }, c) =>
 						Effect.sync(() => {
@@ -160,7 +161,8 @@ describe("the endpoint masks", () => {
 						generator: typedPairs,
 						literal: Formatter.format,
 						coverage: requiredInSpace<PredicateFeature>(situations),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					({ pair }, c) =>
 						Effect.sync(() => {

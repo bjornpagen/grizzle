@@ -307,7 +307,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										name: "EXPLAIN of each statement the member sends, sequential, index and index-only scans disabled over unanalyzed relations: no sequential scan of a family table"
 									},
 									coverage: requiredInSpace<Feature>(Arr.map(SHAPES, readByIndex)),
-									caseHang
+									caseHang,
+									concurrency: 1
 								},
 								(s, c) =>
 									Effect.gen(function* () {

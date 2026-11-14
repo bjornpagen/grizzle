@@ -355,7 +355,8 @@ describe("the host's set algebra", () => {
 						]),
 						caseHang,
 						box: "every hole pattern of five codes, every pair of subsets of its live handles",
-						oracle: { kind: "second-implementation", name: "a Set<number> model of the codes" }
+						oracle: { kind: "second-implementation", name: "a Set<number> model of the codes" },
+						concurrency: 1
 					},
 					agrees
 				)
@@ -380,7 +381,8 @@ describe("the host's set algebra", () => {
 						),
 						caseHang,
 						box: "every native operation over two sets",
-						oracle: { kind: "specification", name: "a set meets only a set of its roster" }
+						oracle: { kind: "specification", name: "a set meets only a set of its roster" },
+						concurrency: 1
 					},
 					(op, c) =>
 						Effect.sync(() => {

@@ -340,7 +340,8 @@ describe("attachments: one search per execution, never one per parent", () => {
 							["a search over a source that reads the parent", "refused"],
 							["a search a root reads again", "refused"]
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					({ parent, child, again }, c) =>
 						Effect.sync(() => {
@@ -482,7 +483,8 @@ describe("refusals in the lowering", () => {
 							] as const,
 						literal: Formatter.format,
 						coverage: requiredInSpace<"admitted" | "refused">(["admitted", "refused"]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([purpose, score], c) =>
 						Effect.sync(() => {

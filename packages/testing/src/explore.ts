@@ -14,7 +14,14 @@ import {
 	Schema,
 	String as Str
 } from "effect"
-import { type Branch, firstBranch, nextBranch, sizeOf } from "#enumerate.ts"
+import {
+	type Branch,
+	type Enumerated,
+	enumerated,
+	firstBranch,
+	nextBranch,
+	sizeOf
+} from "#enumerate.ts"
 import { failureText } from "#failure.ts"
 import {
 	type Coverage,
@@ -1709,10 +1716,26 @@ const spaceCounted = (
 			)
 
 /**
+ * One sketch of an exhaustion's space: the branch its cases start at, a case of the generator alone, and how many
+ * decisions the generator draws there. Every decision past them is its property's, so the cases its property's draws
+ * enumerate from the start are its own, and the first branch that changes a decision of the generator's is the next
+ * sketch's start.
+ */
+type Sketch = Readonly<{ start: Branch; decisions: number }>
+
+/** What one sketch's run found: each case that passed, its notes in order, and the first case that did not, if any. */
+type SketchRan<A, F extends string> = Readonly<{
+	passed: ReadonlyArray<ReadonlySet<string>>
+	stopped: Option.Option<Readonly<{ caseRun: CaseRun<A, Tape>; under: Under<F> }>>
+}>
+
+/**
  * An exhaustive check: every case of a generator's space, whatever its size, the whole space or a failure. `literal`
  * prints a case as source, as an exploration's does; `coverage` is what the space must reach, judged on every case of it; `box` names the space in
  * words, the bound a pass proves the property within ("every family of size ≤ 4 under every single mutation"); and
- * `oracle` is what the property is checked against. The report prints both.
+ * `oracle` is what the property is checked against. The report prints both. `concurrency` is how many sketches run at
+ * once, a sketch being one case of the generator alone with every case its property's draws enumerate from it; cases
+ * that share state the property does not isolate run one at a time.
  */
 export type Exhaustion<A, F extends string> = Readonly<{
 	suite: string
@@ -1722,6 +1745,7 @@ export type Exhaustion<A, F extends string> = Readonly<{
 	caseHang: Duration.Input
 	box: Box
 	oracle: Oracle
+	concurrency: number
 }>
 
 /**
@@ -1747,13 +1771,19 @@ export type Exhausted = Readonly<{
  * as the space holds cases: enumeration is lexicographic over decisions and shrinking descends shortlex order, so a
  * later case with fewer decisions may be less than the first failure, and the shrink moves toward it, while a space of
  * one shape needs no candidate. Its replay token runs the shrunk case alone. The space is counted before any property
- * runs (sizeOf), and draws the property makes are enumerated too, so each case's successor depends on it and cases run
- * one at a time. Nothing caps an exhaustion: its test's deadline is its only end, and a count or a run the deadline cuts
- * fails, naming the space, so a space too large to finish is a failure, never a pass over part of it; a suite whose
- * space cannot finish exhausts a smaller space it constructs, or samples it with explore under a budget it names. Each
- * case steers by the requirements no earlier case reached. Every case of the space is a witness, fixed by the generator
- * alone, so every requirement must be reached by one of them, and the verdict is the same on every run seed. Passing is
- * a proof inside the box the generator draws.
+ * runs (sizeOf), and draws the property makes are enumerated too, so a case's successor among them depends on it. The
+ * space is run by sketches (Sketch), in windows of up to `concurrency` sketches at once, each sketch's cases one at a
+ * time; a window's results are taken in enumeration order, every case its deadline cut after the rest (as an
+ * exploration's window settles them), so concurrency changes how fast an exhaustion runs and never what it finds, the
+ * first failing case in enumeration order. Nothing caps an exhaustion: its test's deadline is its only end, and a count
+ * or a run the deadline cuts fails, naming the space, so a space too large to finish is a failure, never a pass over
+ * part of it; a suite whose space cannot finish exhausts a smaller space it constructs, or samples it with explore under
+ * a budget it names. Each case steers by the requirements no earlier case reached: a window's sketches run under those
+ * no case before the window reached, with their own earlier cases', and a sketch whose earlier sketches in the window
+ * reached a requirement, and so would have steered it otherwise, runs again under the right steering in the next
+ * window, which a search meets at most once for each requirement. Every case of the space is a witness, fixed by the
+ * generator alone, so every requirement must be reached by one of them, and the verdict is the same on every run seed.
+ * Passing is a proof inside the box the generator draws.
  */
 export const exhaust = <A, F extends string, E, R>(
 	spec: Exhaustion<A, F>,
@@ -1823,75 +1853,144 @@ export const exhaust = <A, F extends string, E, R>(
 					blockedUnder(under)
 				)
 
-			let branch: Option.Option<Branch> = Option.some(firstBranch)
-			let cases = 0
-			while (Option.isSome(branch)) {
-				const under = steeredBy(situations, [exhaustive.tally()])
-				const caseRun = yield* caseAt(branch.value, under)
-				const where = `case ${cases} of the exhaustive space of ${size} cases`
-				yield* judge<Effect.Effect<void, SearchFailure, Exclude<R, Scope.Scope>>>(caseRun, {
-					passed: () =>
-						Effect.sync(() => {
-							cases += 1
-							exhaustive.add(caseRun.notes)
-						}),
-					misused: () => misusedIn(spec.suite, where),
-					hung: (hung) => {
-						const replayed = replayCaseOf(under.drawn, hung.tape)
-						return Effect.fail(
-							CaseHung.make({
-								suite: spec.suite,
-								replay: Option.some(replayed),
-								message: `${spec.suite}: ${where} ran past ${hang}: counterexample ${spec.literal(caseRun.sketch)}, replay it alone: TEST_REPLAY='${replayTokenOf(spec.suite, replayed)}'`
-							})
+			/** A sketch's cases from its start, through its first case that did not pass or its last. */
+			const sketchRun = (
+				sketch: Sketch,
+				before: Tally<"exhaustive">
+			): Effect.Effect<SketchRan<A, F>, never, Exclude<R, Scope.Scope>> =>
+				Effect.gen(function* () {
+					const own = tallyOf("exhaustive")
+					const passed: Array<ReadonlySet<string>> = []
+					let branch: Option.Option<Branch> = Option.some(sketch.start)
+					while (Option.isSome(branch)) {
+						const under = steeredBy(situations, [before, own.tally()])
+						const caseRun = yield* caseAt(branch.value, under)
+						if (judgedOf(caseRun).kind !== "passed") {
+							return { passed, stopped: Option.some({ caseRun, under }) }
+						}
+						passed.push(caseRun.notes)
+						own.add(caseRun.notes)
+						branch = Option.filter(
+							nextBranch(caseRun.kept),
+							(after) => after.length > sketch.decisions
 						)
-					},
-					cut: (cut) =>
-						deadlineReachedIn(
-							run,
-							spec.suite,
-							where,
-							spec.literal(caseRun.sketch),
-							Option.some(replayCaseOf(under.drawn, cut.tape))
-						),
-					failed: (failed) =>
-						Effect.flatMap(
-							shrinkAttempt(
-								{ tape: failed.tape, failure: { run: caseRun, cause: failed.cause } },
-								(values) =>
-									Effect.map(candidateOf(values, under), (candidate) =>
-										judge(candidate, candidateJudgment(candidate))
-									),
-								boundedShrink(size)
-							),
-							(shrunk) => {
-								const best = shrunk.best.failure.run
-								const replayed = Option.some(replayCaseOf(under.drawn, shrunk.best.tape))
-								return Effect.fail(
-									PropertyFalsified.make({
-										suite: spec.suite,
-										phase: "exhaustive",
-										shrink: shrunk.ended,
-										replay: replayed,
-										message: falsifiedReport(
-											run,
-											spec.suite,
-											where,
-											reportedOf(
-												spec.literal,
-												best,
-												shrunk.best.failure.cause,
-												drawsOf(best, shrunk.best.tape)
-											),
-											shrinkingOf(shrunk),
-											replayed
-										)
-									})
-								)
-							}
-						)
+					}
+					return { passed, stopped: Option.none() }
 				})
-				branch = nextBranch(caseRun.kept)
+
+			/**
+			 * The requirements no case of `tally` reached, which every case steering by it is drawn under. A tally only grows,
+			 * so the requirements it leaves unreached only shrink, and two of one search's are the same exactly when they are
+			 * as many.
+			 */
+			const unreachedBy = (tally: Tally<"exhaustive">): ReadonlyArray<string> =>
+				spec.coverage.kind === "required" ? unreachedOf(spec.coverage.situations, [tally]) : []
+
+			const sketches = recorder()
+			let next: Option.Option<Branch> = Option.some(firstBranch)
+			let rerun: ReadonlyArray<Sketch> = []
+			let cases = 0
+			while (Arr.isReadonlyArrayNonEmpty(rerun) || Option.isSome(next)) {
+				const window: Array<Sketch> = [...rerun]
+				rerun = []
+				while (Option.isSome(next) && (window.length === 0 || window.length < spec.concurrency)) {
+					const step: Enumerated<A> = enumerated(sketches, spec.generator, next.value)
+					window.push({ start: next.value, decisions: step.generated.tape.length })
+					next = step.next
+				}
+				const before = exhaustive.tally()
+				const steeredBefore = unreachedBy(before).length
+				const ran = yield* windowOf(
+					Arr.map(window, (_, index) => index),
+					(index) => sketchRun(Arr.getUnsafe(window, index), before),
+					spec.concurrency
+				)
+				const stops: Array<Readonly<{ caseRun: CaseRun<A, Tape>; under: Under<F> }>> = []
+				for (const [index, sketchRan] of ran.entries()) {
+					if (unreachedBy(exhaustive.tally()).length !== steeredBefore) {
+						rerun = window.slice(index)
+						break
+					}
+					for (const notes of sketchRan.passed) {
+						cases += 1
+						exhaustive.add(notes)
+					}
+					if (Option.isSome(sketchRan.stopped)) {
+						stops.push(sketchRan.stopped.value)
+						if (sketchRan.stopped.value.caseRun.outcome.kind !== "cut") {
+							break
+						}
+					}
+				}
+				const settling = [
+					...Arr.filter(stops, (stop) => stop.caseRun.outcome.kind !== "cut"),
+					...Arr.filter(stops, (stop) => stop.caseRun.outcome.kind === "cut")
+				]
+				for (const { caseRun, under } of settling) {
+					const where = `case ${cases} of the exhaustive space of ${size} cases`
+					yield* judge<Effect.Effect<void, SearchFailure, Exclude<R, Scope.Scope>>>(caseRun, {
+						passed: () =>
+							Effect.sync(() => {
+								cases += 1
+								exhaustive.add(caseRun.notes)
+							}),
+						misused: () => misusedIn(spec.suite, where),
+						hung: (hung) => {
+							const replayed = replayCaseOf(under.drawn, hung.tape)
+							return Effect.fail(
+								CaseHung.make({
+									suite: spec.suite,
+									replay: Option.some(replayed),
+									message: `${spec.suite}: ${where} ran past ${hang}: counterexample ${spec.literal(caseRun.sketch)}, replay it alone: TEST_REPLAY='${replayTokenOf(spec.suite, replayed)}'`
+								})
+							)
+						},
+						cut: (cut) =>
+							deadlineReachedIn(
+								run,
+								spec.suite,
+								where,
+								spec.literal(caseRun.sketch),
+								Option.some(replayCaseOf(under.drawn, cut.tape))
+							),
+						failed: (failed) =>
+							Effect.flatMap(
+								shrinkAttempt(
+									{ tape: failed.tape, failure: { run: caseRun, cause: failed.cause } },
+									(values) =>
+										Effect.map(candidateOf(values, under), (candidate) =>
+											judge(candidate, candidateJudgment(candidate))
+										),
+									boundedShrink(size)
+								),
+								(shrunk) => {
+									const best = shrunk.best.failure.run
+									const replayed = Option.some(replayCaseOf(under.drawn, shrunk.best.tape))
+									return Effect.fail(
+										PropertyFalsified.make({
+											suite: spec.suite,
+											phase: "exhaustive",
+											shrink: shrunk.ended,
+											replay: replayed,
+											message: falsifiedReport(
+												run,
+												spec.suite,
+												where,
+												reportedOf(
+													spec.literal,
+													best,
+													shrunk.best.failure.cause,
+													drawsOf(best, shrunk.best.tape)
+												),
+												shrinkingOf(shrunk),
+												replayed
+											)
+										})
+									)
+								}
+							)
+					})
+				}
 			}
 			switch (spec.coverage.kind) {
 				case "none":

@@ -242,7 +242,11 @@ describe("the closed-id and set codecs", () => {
 						]),
 						caseHang,
 						box: "every hole pattern of five codes, every subset of its live handles, every variant",
-						oracle: { kind: "second-implementation", name: "a naive positional model of the codes" }
+						oracle: {
+							kind: "second-implementation",
+							name: "a naive positional model of the codes"
+						},
+						concurrency: 1
 					},
 					roundTrips
 				)

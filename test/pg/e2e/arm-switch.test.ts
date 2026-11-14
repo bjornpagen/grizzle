@@ -261,7 +261,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										"described automatic accepted",
 										"described manual unchanged",
 										"described missing unchanged"
-									])
+									]),
+									concurrency: 1
 								},
 								(w, c) =>
 									Effect.gen(function* () {

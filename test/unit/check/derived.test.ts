@@ -659,7 +659,8 @@ describe("a generated field's rule and where a closed read stands", () => {
 						oracle: {
 							kind: "specification",
 							name: "the generated-field rule restated over the graph (expectedOfGraph)"
-						}
+						},
+						concurrency: 1
 					},
 					(graph, c) =>
 						Effect.sync(() => {
@@ -695,7 +696,8 @@ describe("a generated field's rule and where a closed read stands", () => {
 						oracle: {
 							kind: "specification",
 							name: "the generated-field rule restated over the items (expectedOfInputs)"
-						}
+						},
+						concurrency: 1
 					},
 					(fields, c) =>
 						Effect.sync(() => {
@@ -721,7 +723,8 @@ describe("a generated field's rule and where a closed read stands", () => {
 						coverage: requiredInSpace<"above" | "at or below">(["above", "at or below"]),
 						caseHang,
 						box: "the reading relation and the closed relations each at the root level or its extension, read by C.at or C.row, bare or under an operation",
-						oracle: { kind: "specification", name: "the level rule (expectedOfLevels)" }
+						oracle: { kind: "specification", name: "the level rule (expectedOfLevels)" },
+						concurrency: 1
 					},
 					(c, k) =>
 						Effect.sync(() => {
@@ -745,7 +748,8 @@ describe("a generated field's rule and where a closed read stands", () => {
 						coverage: requiredInSpace<Position>(positions),
 						caseHang,
 						box: "C.at and C.row at each of the five places a query states a term",
-						oracle: { kind: "specification", name: "a closed read stands in a filter only" }
+						oracle: { kind: "specification", name: "a closed read stands in a filter only" },
+						concurrency: 1
 					},
 					(c, k) =>
 						Effect.sync(() => {

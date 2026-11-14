@@ -297,7 +297,8 @@ describe("the oracle's classes of evaluation", () => {
 					generator: element(nonEmpty(nativeOps, "the registry's nodes")),
 					literal: Formatter.format,
 					coverage: requiredInSpace<"an exact float node">(["an exact float node"]),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				(op, c) =>
 					Effect.sync(() => {

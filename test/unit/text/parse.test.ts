@@ -416,7 +416,8 @@ describe("nesting", () => {
 						depth: source.draw(element([1, 1_000, 100_000]))
 					}),
 					coverage: requiredInSpace<Nesting>(nestings),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				({ nesting, depth }, n) =>
 					Effect.sync(() => {

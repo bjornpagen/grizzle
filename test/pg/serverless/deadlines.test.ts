@@ -107,7 +107,8 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 							coverage: requiredInSpace<DeadlineFeature>(
 								Arr.flatMap(openings, (i) => Arr.map(contexts, (c): DeadlineFeature => `${i} ${c}`))
 							),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						([opening, context], c) =>
 							Effect.gen(function* () {

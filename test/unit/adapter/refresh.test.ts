@@ -617,7 +617,8 @@ describe("plain or CONCURRENTLY", () => {
 							"a negative position",
 							"a position after another word"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(detail, c) =>
 						Effect.sync(() => {

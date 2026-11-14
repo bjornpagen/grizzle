@@ -203,7 +203,8 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 									kind: "specification",
 									name: "the audit's rules, checked on planted modules above"
 								},
-								caseHang
+								caseHang,
+								concurrency: 1
 							},
 							({ file, source }: SourceModule) =>
 								Effect.sync(() => {
@@ -385,7 +386,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
 								kind: "specification",
 								name: "what the entry's load resolved and trapped, in a child Node under the RegExp trap"
 							},
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(entry) =>
 							Effect.sync(() => {

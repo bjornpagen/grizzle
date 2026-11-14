@@ -181,7 +181,8 @@ const exhaustUpTo = (
 			generator,
 			literal: Formatter.format,
 			coverage: requiredInSpace<UniverseFeature>(situations),
-			caseHang
+			caseHang,
+			concurrency: 1
 		},
 		([variant, plan], c) =>
 			Effect.sync(() => {

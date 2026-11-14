@@ -95,7 +95,8 @@ describe("the committed Allen table", () => {
 						"a mask",
 						"the full mask"
 					]),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				(mask, c) =>
 					Effect.sync(() => {
@@ -132,7 +133,8 @@ describe("the generated Allen table", () => {
 							"a negated literal",
 							"the full mask"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(mask, c) =>
 						Effect.sync(() => {
@@ -207,7 +209,8 @@ describe("the generated Allen table", () => {
 						"cost four",
 						"cost above four"
 					]),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				(mask, c) =>
 					Effect.sync(() => {
@@ -355,7 +358,8 @@ describe("the verification universe", () => {
 						generator: items,
 						literal: Formatter.format,
 						coverage: requiredInSpace<UniverseFeature>(situations),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(item, c) =>
 						Effect.sync(() => {
@@ -407,7 +411,8 @@ describe("the verification universe", () => {
 							Arr.map(allenRelations, (r): `${RangeType} ${AllenRelation}` => `${type} ${r}`)
 						)
 					),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				({ type, pair }, c) =>
 					Effect.sync(() => {
@@ -452,7 +457,8 @@ describe("the exhaustive check against the brute-force classifier", () => {
 							`${atom.text} failed`
 						])
 					),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				({ pair }, c) =>
 					Effect.sync(() => {
@@ -491,7 +497,8 @@ describe("the exhaustive check against the brute-force classifier", () => {
 									`${type} a mask` as const
 								])
 							),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([type, mask], c) =>
 						Effect.sync(() => {

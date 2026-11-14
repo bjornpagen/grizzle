@@ -147,7 +147,8 @@ describe("the host fill of a concat fold", () => {
 						"a member stepped over",
 						"a supplementary character joined"
 					]),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				(c, k) =>
 					Effect.sync(() => {

@@ -744,7 +744,8 @@ describe("a rule over a query", () => {
 							"check",
 							"check named as Item's"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(c, k) =>
 						Effect.sync(() => {
@@ -803,7 +804,8 @@ describe("a rule over a query", () => {
 							"into",
 							"out of"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(c, k) =>
 						Effect.sync(() => {
@@ -859,7 +861,8 @@ describe("a rule over a query", () => {
 							"into",
 							"into id"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(c, k) =>
 						Effect.sync(() => {
@@ -908,7 +911,8 @@ describe("a rule over a query", () => {
 							"into read through a semijoin",
 							"out of read through a semijoin"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(c, k) =>
 						Effect.sync(() => {

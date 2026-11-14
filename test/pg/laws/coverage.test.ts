@@ -198,7 +198,8 @@ layer(Substrate.layer)("coverage through grizzle's lowering on PostgreSQL 19rc2"
 								"refused coverage",
 								"refused coverage across a gap"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(sketch, c) =>
 							Effect.gen(function* () {

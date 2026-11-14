@@ -172,7 +172,8 @@ layer(Substrate.layer)(
 									"swap inserts first refused",
 									"a shrink sent count first refused at its count by the bound, 23514, reporting the family's law"
 								]),
-								caseHang
+								caseHang,
+								concurrency: 1
 							},
 							(r, c) =>
 								Effect.gen(function* () {

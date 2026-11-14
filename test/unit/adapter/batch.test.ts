@@ -284,7 +284,8 @@ describe("a flight", () => {
 						generator: smallCases,
 						literal: Formatter.format,
 						coverage: requiredInSpace<FlightFeature>(smallRequired),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(flightCase, k) =>
 						Effect.sync(() => {

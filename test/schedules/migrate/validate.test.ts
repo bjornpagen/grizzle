@@ -874,7 +874,8 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 							"a violation committed before the law",
 							"a violation refused by the law"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(k, c) =>
 						Effect.scoped(

@@ -149,7 +149,8 @@ describe("the family lowering", () => {
 						"violates closure",
 						"a gap above the count"
 					]),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				(box, c) =>
 					Effect.sync(() => {

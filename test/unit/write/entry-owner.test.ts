@@ -88,7 +88,8 @@ describe("a family's owner written through a query entry", () => {
 							name: "the writable-entry rule's family clauses and the entry's written fields (test/support/families/entry-owner.ts)"
 						},
 						coverage: requiredInSpace<Feature>(features),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(c, run) =>
 						Effect.gen(function* () {

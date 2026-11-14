@@ -586,7 +586,8 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 							generator: waiters,
 							literal: Formatter.format,
 							coverage: requiredInSpace<WaiterFeature>(situations),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(w, c) =>
 							Effect.gen(function* () {

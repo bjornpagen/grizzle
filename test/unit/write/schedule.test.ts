@@ -1216,7 +1216,8 @@ describe("a stratum's schedule", () => {
 							"both put, the target named first",
 							"a generated insertion beside its relation's deletion"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(shape, c) =>
 						Effect.sync(() => {

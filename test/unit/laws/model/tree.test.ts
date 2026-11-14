@@ -429,7 +429,8 @@ describe("a tree's natives are §2.2's: the family on three axes, T0 to T6, and 
 					oracle: {
 						kind: "specification",
 						name: "trees.md's T0 to T6 and w4-w7 §2.2's table as a checker"
-					}
+					},
+					concurrency: 1
 				},
 				(s, c) =>
 					Effect.sync(() => {

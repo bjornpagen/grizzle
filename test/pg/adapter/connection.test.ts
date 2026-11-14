@@ -356,7 +356,8 @@ layer(Substrate.layer)("adapter connections", (it) => {
 								"refused override name",
 								"connected through an override"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(config, c) =>
 							Effect.gen(function* () {

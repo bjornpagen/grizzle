@@ -456,7 +456,8 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							"PUBLIC kept by a schema's reset",
 							"PUBLIC revoked by the global reset"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([scope, on], c) =>
 						Effect.scoped(

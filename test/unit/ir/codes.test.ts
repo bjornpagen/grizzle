@@ -320,7 +320,8 @@ describe("the codebook", () => {
 						]),
 						caseHang,
 						box: "two rosters over four names, every history of up to five commands",
-						oracle: { kind: "second-implementation", name: "a naive history model of each roster" }
+						oracle: { kind: "second-implementation", name: "a naive history model of each roster" },
+						concurrency: 1
 					},
 					replay
 				)

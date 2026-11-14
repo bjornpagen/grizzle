@@ -243,7 +243,8 @@ describe("the audit's checks of values, generated", () => {
 						"bigint within",
 						"bigint past"
 					]),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				([[name, type, low, high], end, step], c) =>
 					Effect.sync(() => {
@@ -279,7 +280,8 @@ describe("the audit's checks of values, generated", () => {
 						"scale past",
 						"no scale"
 					]),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				([precision, scale], c) =>
 					Effect.sync(() => {

@@ -447,7 +447,8 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 								"full",
 								"a two-coordinate key"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(c, k) =>
 							Effect.gen(function* () {
@@ -496,7 +497,8 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 							generator: keyLawGen,
 							literal: Formatter.format,
 							coverage: requiredInSpace<KeyLawFeature>(["refused by its key", "packed"]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(c, k) =>
 							Effect.gen(function* () {
@@ -582,7 +584,8 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 								"typed refuses a live tuple outside the set",
 								"bare admits an alias the roster domains refuse"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(c, k) =>
 							Effect.gen(function* () {
@@ -698,7 +701,8 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 								"a lookup through an absent cell refused",
 								"a lookup admitted"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(c, k) =>
 							Effect.gen(function* () {
@@ -785,7 +789,8 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 								"a removed code refused after the swap",
 								"an appended code admitted after the swap"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(c, k) =>
 							Effect.gen(function* () {
@@ -912,7 +917,8 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 								"dropped",
 								...Arr.map(DEPENDENTS, (d): RestrictFeature => `refused naming a missed ${d}`)
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(c, note) =>
 							Effect.gen(function* () {
@@ -991,7 +997,8 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 								kind: "specification",
 								name: "a write after the change is admitted exactly when the new constant holds its code live"
 							},
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(c, k) =>
 							Effect.scoped(

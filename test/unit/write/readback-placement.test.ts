@@ -407,7 +407,8 @@ describe("a ChangeSet's read-back", () => {
 							"refused: two sides apart",
 							"refused: state after"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(sketch, c) =>
 						Effect.sync(() => {

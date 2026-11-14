@@ -844,7 +844,8 @@ layer(Substrate.layer, { excludeTestServices: true })("each operation over NULL"
 							oracle: {
 								kind: "postgresql",
 								name: "the expression written in plain SQL from its meaning alone, evaluated by PostgreSQL, with the model of language.ts agreeing"
-							}
+							},
+							concurrency: 1
 						},
 						(oc, c) => operatorCase(owner, oc, c)
 					)

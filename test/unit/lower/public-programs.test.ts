@@ -327,7 +327,8 @@ describe("the optimized lowering of checked public programs", () => {
 						"an option or bare child over an identity projection's input",
 						"a take over an identity projection's input"
 					]),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				(p, n) =>
 					Effect.sync(() => {

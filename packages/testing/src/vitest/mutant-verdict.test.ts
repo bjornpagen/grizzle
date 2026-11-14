@@ -68,7 +68,8 @@ describe("a mutant's verdict", () => {
 						}),
 						literal: Formatter.format,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(1)
+						caseHang: Duration.minutes(1),
+						concurrency: 1
 					},
 					({ ending, slowStop }) =>
 						Effect.gen(function* () {

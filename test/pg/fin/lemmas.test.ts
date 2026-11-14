@@ -299,7 +299,8 @@ layer(Substrate.layer)("the fin lemmas through grizzle's lowering on PostgreSQL 
 								"counted within dropped killed",
 								"counted covers dropped killed"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(sketch, c) => {
 							const end = c.draw(endGen)

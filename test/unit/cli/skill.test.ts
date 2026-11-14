@@ -42,7 +42,11 @@ layer(NodeServices.layer, { excludeTestServices: true })("the grizzle skill", (i
 						coverage: noCoverage,
 						caseHang,
 						box: "every text of the refusal table: each refusal's problem and fix, each applied-edit phrase and each stage's fix",
-						oracle: { kind: "specification", name: "the shipped skill, which quotes every refusal" }
+						oracle: {
+							kind: "specification",
+							name: "the shipped skill, which quotes every refusal"
+						},
+						concurrency: 1
 					},
 					(text) =>
 						Effect.sync(() => {

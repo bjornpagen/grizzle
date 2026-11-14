@@ -262,7 +262,8 @@ describe("the row-major index", () => {
 							"an empty coordinate",
 							"an aliasing digit"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					bijection
 				)
@@ -341,7 +342,8 @@ describe("a fin coordinate", () => {
 							"several owners with slots",
 							"no owner"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					dense
 				)
@@ -532,7 +534,8 @@ describe("a dependent key space", () => {
 							"an empty space",
 							"an aliasing slot digit"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					theorem
 				)
@@ -625,7 +628,8 @@ describe("a relation's string of cells", () => {
 							"every cell present",
 							"three key coordinates"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					roundTrip
 				)
@@ -936,7 +940,8 @@ describe("a roster's codes", () => {
 							"a trailing hole",
 							"growth past a hole"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					holePattern
 				)
@@ -1292,7 +1297,8 @@ describe("a side", () => {
 							"a key in another order than the terms",
 							"a projection's repeats are one row"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					keying
 				)
@@ -1434,7 +1440,8 @@ describe("a constant's digest", () => {
 							"a cell moved",
 							"two cells swapped"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					addressed
 				)

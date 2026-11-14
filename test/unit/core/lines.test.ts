@@ -65,7 +65,8 @@ describe("the text bound", () => {
 						"V8's longest string",
 						"past V8's longest string"
 					]),
-					caseHang
+					caseHang,
+					concurrency: 1
 				},
 				(length, c) =>
 					Effect.sync(() => {

@@ -300,7 +300,8 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 								"adjacent spans of one key admitted",
 								"overlapping spans of two keys admitted"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(c, k) =>
 							Effect.gen(function* () {
@@ -386,7 +387,8 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 									]
 								)
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(c, k) =>
 							Effect.forEach(
@@ -477,7 +479,8 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 								"deferred respan refused 23503",
 								"a shrink that keeps the source covered committed"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(c, k) =>
 							Effect.forEach(

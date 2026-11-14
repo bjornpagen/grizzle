@@ -349,7 +349,8 @@ describe("exhaust", () => {
 		generator: (source) => [source.draw(int(0, 2)), source.draw(int(0, 1))] as const,
 		literal: Formatter.format,
 		coverage: noCoverage,
-		caseHang: Duration.seconds(10)
+		caseHang: Duration.seconds(10),
+		concurrency: 1
 	}
 
 	it.effect(
@@ -360,21 +361,33 @@ describe("exhaust", () => {
 				explore(
 					outerOf(
 						"exhaustive spaces",
-						"a space of a × b values whose property draws one of c more holds a·b·c cases, each run once; under a deadline already past, a space too large to count and one counted whole both fail as DeadlineReached and run no case",
+						"a space of a × b values whose property draws one of c more holds a·b·c cases, each run once, however many of its sketches run at once; under a deadline already past, a space too large to count and one counted whole both fail as DeadlineReached and run no case",
 						(source) => ({
 							a: source.draw(int(1, 4)),
 							b: source.draw(int(1, 4)),
 							c: source.draw(int(1, 3)),
+							concurrency: source.draw(int(1, 4)),
 							cut: source.draw(boolean)
 						}),
 						required<
-							"a space run whole" | "a space the deadline cuts" | "property draws enumerated"
-						>(["a space run whole", "a space the deadline cuts", "property draws enumerated"], {
-							cases: 40,
-							sense: notesOnly
-						})
+							| "a space run whole"
+							| "a space run whole, sketches at once"
+							| "a space the deadline cuts"
+							| "property draws enumerated"
+						>(
+							[
+								"a space run whole",
+								"a space run whole, sketches at once",
+								"a space the deadline cuts",
+								"property draws enumerated"
+							],
+							{
+								cases: 40,
+								sense: notesOnly
+							}
+						)
 					),
-					({ a, b, c, cut }, k) =>
+					({ a, b, c, concurrency, cut }, k) =>
 						Effect.gen(function* () {
 							const space = a * b * c
 							const seen = new Set<string>()
@@ -384,10 +397,12 @@ describe("exhaust", () => {
 									...pairs,
 									suite: "a drawn space",
 									generator: (source) =>
-										[source.draw(int(0, a - 1)), source.draw(int(0, b - 1))] as const
+										[source.draw(int(0, a - 1)), source.draw(int(0, b - 1))] as const,
+									concurrency
 								},
 								([x, y], inner) =>
-									Effect.sync(() => {
+									Effect.gen(function* () {
+										yield* Effect.yieldNow
 										ran += 1
 										seen.add(`${x} ${y} ${inner.draw(int(0, c - 1))}`)
 									})
@@ -411,7 +426,8 @@ describe("exhaust", () => {
 											generator: int(0, 2 ** 53 - 1),
 											literal: String,
 											coverage: noCoverage,
-											caseHang: pairs.caseHang
+											caseHang: pairs.caseHang,
+											concurrency: 1
 										},
 										() =>
 											Effect.sync(() => {
@@ -426,12 +442,137 @@ describe("exhaust", () => {
 								)
 								return
 							}
-							k.note("a space run whole")
+							k.note(concurrency > 1 ? "a space run whole, sketches at once" : "a space run whole")
 							const exhausted = yield* underFullRun(search)
 							deepStrictEqual(
 								{ cases: exhausted.cases, ran, distinct: seen.size },
 								{ cases: space, ran: space, distinct: space }
 							)
+						})
+				)
+			)
+	)
+})
+
+/**
+ * What the concurrency oracle draws: a space of `values` values, each case drawing one of `draws` more, or of twice as
+ * many while "rare" is pending; "rare" noted by the value `rareAt`; failing on the values `failing` at a draw of at
+ * least `from`, only where its draw was aimed when `aimedOnly`; run one sketch at a time and `concurrency` at once.
+ */
+type AtOnceSketch = Readonly<{
+	values: number
+	draws: number
+	rareAt: number
+	failing: ReadonlyArray<number>
+	from: number
+	aimedOnly: boolean
+	concurrency: number
+}>
+
+const atOnceSketches: Gen<AtOnceSketch> = (source) => {
+	const values = source.draw(int(2, 12))
+	const draws = source.draw(int(1, 3))
+	return {
+		values,
+		draws,
+		rareAt: source.draw(int(0, values - 1)),
+		failing: Arr.dedupe(source.draw(array(int(0, values - 1), { min: 0, max: 3 }))),
+		from: source.draw(int(0, 2 * draws - 1)),
+		aimedOnly: source.draw(boolean),
+		concurrency: source.draw(int(2, 8))
+	}
+}
+
+/** The concurrency oracle's inner exhaustion of a sketch, at `concurrency`: what it found, a pass's count or a failure's
+ * case. */
+const atOnceSearch = (sketch: AtOnceSketch, concurrency: number) =>
+	exhaust(
+		{
+			suite: "at once",
+			oracle: { kind: "specification", name: "a property planted to fail as its sketch says" },
+			box: "every value of the sketch's space, with the draw its property makes",
+			generator: int(0, sketch.values - 1),
+			literal: String,
+			coverage: requiredInSpace<"rare">(["rare"]),
+			caseHang: Duration.minutes(1),
+			concurrency
+		},
+		(value, c: Case<"rare">) =>
+			Effect.gen(function* () {
+				yield* Effect.yieldNow
+				const aimed = Option.exists(c.steering, (pending) => pending.has("rare"))
+				const drew = c.draw(int(0, aimed ? 2 * sketch.draws - 1 : sketch.draws - 1))
+				if (value === sketch.rareAt) {
+					c.note("rare")
+				}
+				if (
+					Arr.contains(sketch.failing, value) &&
+					drew >= sketch.from &&
+					(aimed || !sketch.aimedOnly)
+				) {
+					return yield* Effect.die("falsified")
+				}
+			})
+	).pipe(
+		Effect.map((exhausted) => ({ kind: "passed", cases: exhausted.cases }) as const),
+		Effect.catchTag("PropertyFalsified", (falsified) =>
+			Effect.succeed({ kind: "falsified", replay: falsified.replay } as const)
+		),
+		Effect.provideService(Run, fullRun)
+	)
+
+type AtOnceFeature =
+	| "passed"
+	| "falsified"
+	| "two failing values within one window"
+	| "rare reached within the window before a failing value"
+	| "a failure only an aimed draw meets"
+
+describe("exhaust at once", () => {
+	it.effect(
+		"finds at any concurrency exactly what it finds one sketch at a time: the same count, or the same first failing case under the same steering",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					outerOf(
+						"exhaust at once",
+						"one sketch at a time is the definition: every case runs in enumeration order, steered by every case before it",
+						atOnceSketches,
+						required<AtOnceFeature>(
+							[
+								"passed",
+								"falsified",
+								"two failing values within one window",
+								"rare reached within the window before a failing value",
+								"a failure only an aimed draw meets"
+							],
+							{ cases: 80, sense: notesOnly }
+						)
+					),
+					(sketch, k) =>
+						Effect.gen(function* () {
+							const one = yield* atOnceSearch(sketch, 1)
+							const many = yield* atOnceSearch(sketch, sketch.concurrency)
+							deepStrictEqual(many, one)
+							k.note(one.kind)
+							const failing = Arr.sort(sketch.failing, Order.Number)
+							if (
+								Arr.some(failing, (f, i) => i > 0 && f - (failing[i - 1] ?? f) < sketch.concurrency)
+							) {
+								k.note("two failing values within one window")
+							}
+							if (
+								Arr.some(
+									failing,
+									(f) => f > sketch.rareAt && f - sketch.rareAt < sketch.concurrency
+								)
+							) {
+								k.note("rare reached within the window before a failing value")
+							}
+							if (one.kind === "falsified" && sketch.aimedOnly) {
+								k.note("a failure only an aimed draw meets")
+							}
 						})
 				)
 			)
@@ -617,7 +758,8 @@ describe("the residual", () => {
 							Array.from({ length: source.draw(int(1, 4)) }, () => source.draw(int(1, 4))),
 						literal: Formatter.format,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(1)
+						caseHang: Duration.minutes(1),
+						concurrency: 1
 					},
 					(weights) =>
 						Effect.sync(() => {
@@ -651,7 +793,8 @@ describe("the residual", () => {
 						}),
 						literal: Formatter.format,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(1)
+						caseHang: Duration.minutes(1),
+						concurrency: 1
 					},
 					({ n, weights }) =>
 						Effect.sync(() => {
@@ -1197,11 +1340,13 @@ const failsOn = (failing: Failing, seen: Seen): boolean => {
 }
 
 /** The replay oracle's inner property: it aims its own draw wider while "rare" is pending, so its tape decodes
- * differently under different steering, and fails as its sketch says. */
+ * differently under different steering, and fails as its sketch says. It yields first, so the cases a search runs at
+ * once interleave. */
 const failingProperty =
 	(failing: Failing) =>
 	(value: number, c: Case<"rare">): Effect.Effect<void> =>
 		Effect.gen(function* () {
+			yield* Effect.yieldNow
 			const aimed = Option.exists(c.steering, (pending) => pending.has("rare"))
 			const drew = c.draw(int(0, aimed ? 99 : 9))
 			if (value % 50 === 1) {
@@ -1249,7 +1394,8 @@ const fidelitySearch = (
 							generator: spaceValues,
 							literal: String,
 							coverage: requiredInSpace<"rare">(["rare"]),
-							caseHang: Duration.minutes(1)
+							caseHang: Duration.minutes(1),
+							concurrency: run.concurrency
 						},
 						failingProperty(sketch.failing)
 					)
@@ -1426,7 +1572,8 @@ const syncExhaustion = (kind: SyncProperty, cases: number, seed: number) =>
 			generator: int(0, cases - 1),
 			literal: Formatter.format,
 			coverage: noCoverage,
-			caseHang: Duration.minutes(1)
+			caseHang: Duration.minutes(1),
+			concurrency: 1
 		},
 		syncProperty(kind)
 	).pipe(

@@ -403,7 +403,8 @@ layer(Substrate.layer)("folds through grizzle's lowering on PostgreSQL 19rc2", (
 											: [])
 									])
 								),
-								caseHang
+								caseHang,
+								concurrency: 1
 							},
 							(sketch, c) =>
 								Effect.gen(function* () {
@@ -492,7 +493,8 @@ layer(Substrate.layer)("folds through grizzle's lowering on PostgreSQL 19rc2", (
 								"a root's one state committed",
 								"a root's other states refused"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						(forest, c) =>
 							Effect.gen(function* () {

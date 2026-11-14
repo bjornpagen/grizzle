@@ -1771,7 +1771,8 @@ describe("derived relation keys", () => {
 							"two names",
 							"three names"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(c, k) =>
 						Effect.sync(() => {

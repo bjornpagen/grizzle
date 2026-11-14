@@ -375,7 +375,8 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 							}),
 							literal: Formatter.format,
 							coverage: requiredInSpace<MaskFeature>(maskFeatures),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						({ type, mask }, c) =>
 							Effect.gen(function* () {
@@ -439,7 +440,8 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 									Arr.map(artifacts, (artifact): PointFeature => `${point} ${artifact}`)
 								)
 							),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						({ point, artifact }, c) =>
 							Effect.gen(function* () {

@@ -108,7 +108,8 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 								kind: "specification",
 								name: "README: a connection that can't be had fails a read and a write with unavailable, safe to retry"
 							},
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						([call, unhad], c) =>
 							Effect.scoped(

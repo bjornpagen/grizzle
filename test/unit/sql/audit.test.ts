@@ -738,7 +738,8 @@ describe("a write program's ANALYZE", () => {
 						generator: array(programStepGen, { min: 0, max: 3 }),
 						literal: Formatter.format,
 						coverage: requiredInSpace<ProgramFeature>(["admitted", "refused"]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(program, c) =>
 						Effect.sync(() => {

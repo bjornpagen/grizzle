@@ -86,7 +86,8 @@ describe("a DAG's roots", () => {
 							return { roots, at: source.draw(int(0, roots - 1)) }
 						},
 						coverage: requiredInSpace<RootPosition>(["the query's root", "a later root"]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					({ roots, at }, c) =>
 						Effect.sync(() => {

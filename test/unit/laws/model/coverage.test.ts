@@ -237,7 +237,8 @@ describe("a coverage law lowers to a PERIOD reference into a WITHOUT OVERLAPS ke
 						oracle: {
 							kind: "specification",
 							name: "fin.md §7's coverage lowering and its refusal as a checker"
-						}
+						},
+						concurrency: 1
 					},
 					(s, c) =>
 						Effect.sync(() => {

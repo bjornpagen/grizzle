@@ -103,7 +103,8 @@ describe("the analysis of k joined relations of two keys each", () => {
 					oracle: {
 						kind: "universal",
 						name: "a count that grows no faster than linearly increments no more over its second equal step than over its first"
-					}
+					},
+					concurrency: 1
 				},
 				(half, c) =>
 					Effect.gen(function* () {

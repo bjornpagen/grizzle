@@ -153,7 +153,8 @@ describe("a fold's law", () => {
 							"a wrong step",
 							"a wrong end"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(s, k) =>
 						Effect.sync(() => {
@@ -264,7 +265,8 @@ describe("a fold's law", () => {
 							"max unlawful",
 							"two members of one step value, summed twice"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(s, k) =>
 						Effect.sync(() => {

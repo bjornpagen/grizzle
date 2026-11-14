@@ -268,7 +268,8 @@ describe("arm heads", () => {
 								"rec extra",
 								"both arms broken"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						([baseHead, recHead], c) =>
 							Effect.sync(() => {
@@ -522,7 +523,8 @@ describe("the state heading", () => {
 							"refused unprovedRefinement",
 							"cast by the author"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([d, a, spelled], c) =>
 						Effect.sync(() => {
@@ -843,7 +845,8 @@ describe("the feedback's shape", () => {
 								"refused misplaced self",
 								"several rules refuse"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						([base, extra, m], c) =>
 							Effect.sync(() => {
@@ -978,7 +981,8 @@ describe("r.pack over a recursive arm", () => {
 						generator: boolean,
 						literal: Formatter.format,
 						coverage: requiredInSpace<"packed" | "plain">(["packed", "plain"]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(pack, c) =>
 						Effect.sync(() => {
@@ -1056,7 +1060,8 @@ describe("unbounded computed state", () => {
 							"refused integer current below times two",
 							"refused numeric current below plus one"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([carrier, bound, advance], c) =>
 						Effect.sync(() => {
@@ -1133,7 +1138,8 @@ describe("unbounded computed state", () => {
 							generator: (source) => [source.draw(terms), source.draw(terms)] as const,
 							literal: Formatter.format,
 							coverage: requiredInSpace<"a cycle" | "acyclic">(["a cycle", "acyclic"]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						([aTerm, bTerm], c) =>
 							Effect.sync(() => {
@@ -1280,7 +1286,8 @@ describe("unbounded computed state through a correlated import", () => {
 							"refused a counter beside Echo",
 							"unproved a counter beside Echo"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([[via, x], [at, guarded]], c) =>
 						Effect.sync(() => {

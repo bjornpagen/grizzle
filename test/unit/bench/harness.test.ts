@@ -1092,7 +1092,8 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 								"failed run leaked"
 							]),
 							box: "every run outcome beside every release outcome",
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						([ran, released], c) =>
 							Effect.sync(() => {
@@ -1167,7 +1168,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("the gate catalog", (su
 							kind: "specification",
 							name: "one bench file a gate, in its owner's directory, its sizes alike at both scales"
 						},
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(id, c) =>
 						Effect.sync(() => {

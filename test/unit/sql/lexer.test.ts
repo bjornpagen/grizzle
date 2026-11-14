@@ -934,7 +934,8 @@ describe("lex", () => {
 							"a terminator",
 							"a semicolon inside parentheses"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(text, c) =>
 						Effect.sync(() => {
@@ -968,7 +969,8 @@ describe("lex", () => {
 							"an unclosed construct",
 							"a continued string"
 						]),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(text, c) =>
 						Effect.sync(() => {

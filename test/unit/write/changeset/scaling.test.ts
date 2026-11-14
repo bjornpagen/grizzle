@@ -303,7 +303,8 @@ describe("a ChangeSet builder step reads only what it adds", () => {
 							] as const,
 						literal: Formatter.format,
 						coverage: noCoverage,
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					([name, n]) =>
 						Effect.sync(() => {

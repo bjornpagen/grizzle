@@ -299,7 +299,8 @@ describe("a state machine", () => {
 							generator: program(twoValued, { min: 0, max: 3 }, fullSwarm(COMMANDS)),
 							literal: Formatter.format,
 							coverage: noCoverage,
-							caseHang: Duration.minutes(1)
+							caseHang: Duration.minutes(1),
+							concurrency: 1
 						},
 						(steps) =>
 							Effect.sync(() => {

@@ -144,7 +144,8 @@ describe("generated scalar types", () => {
 								"a type that is its own key type",
 								"a computed numeric"
 							]),
-							caseHang
+							caseHang,
+							concurrency: 1
 						},
 						([t, edge, keep], c) =>
 							Effect.sync(() => {

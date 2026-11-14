@@ -412,7 +412,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("startup work", (it) =>
 						generator: pointGen,
 						literal: Formatter.format,
 						coverage: requiredInSpace<Dimension>(dimensions),
-						caseHang
+						caseHang,
+						concurrency: 1
 					},
 					(point, c) =>
 						Effect.gen(function* () {
