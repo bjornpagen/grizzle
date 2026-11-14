@@ -202,15 +202,15 @@ const actingRole = (state: ModelState, action: Action): Option.Option<EducationR
 /** The outcome of an action an education role performs, as `<role> <kind> <outcome>`; none for any other action. */
 const roleOutcome = (
 	state: ModelState,
-	action: Action,
-	observation: Observation
-): ReadonlyArray<EducationFeature> =>
-	Option.match(actingRole(state, action), {
-		onNone: () => [],
-		onSome: (role): ReadonlyArray<EducationFeature> => [
-			`${role} ${action.kind} ${observation.kind}`
-		]
-	})
+	action: Action
+): ((observation: Observation) => ReadonlyArray<EducationFeature>) => {
+	const role = actingRole(state, action)
+	return (observation) =>
+		Option.match(role, {
+			onNone: () => [],
+			onSome: (r): ReadonlyArray<EducationFeature> => [`${r} ${action.kind} ${observation.kind}`]
+		})
+}
 
 /** A field's value as a list: the value, or nothing when the fact lacks the field. */
 const present = (value: HostValue | undefined): ReadonlyArray<HostValue> =>
@@ -812,7 +812,7 @@ const gradesSeen = (earlier: ReadonlyArray<SeenAction>): ReadonlyArray<HostFact>
 /** Notes what a case reached that the education suites are about, beside the driver's worlds features. */
 const noteSeen = (c: Case<Feature>, seen: SeenAction, earlier: ReadonlyArray<SeenAction>): void => {
 	const { action, observation } = seen
-	c.noteAll(roleOutcome(seen.before, action, observation))
+	c.noteAll(roleOutcome(seen.before, action)(observation))
 	if (
 		action.kind === "apply" &&
 		observation.kind === "applied" &&
@@ -1002,89 +1002,89 @@ const writing: ReadonlyArray<DirectStatement["kind"]> = [
 ]
 
 /** The lead moves an outcome makes, in the state its action ran in. */
-const leadRead = (
-	state: ModelState,
-	action: Action,
-	{ observation }: Allowed
-): ReadonlyArray<LeadFeature> => {
-	if (action.kind === "open-db") {
-		const role = roleOfRef(action.role)
-		return Option.isSome(role) &&
-			observation.kind === "opened" &&
-			Option.exists(openedFacts(state, action), (facts) => worldShows(state, role.value, facts))
-			? [`${role.value} opened onto rows of its world`]
-			: []
-	}
-	if (action.kind === "read") {
-		const actor = actorIn(state, action)
-		return actor.kind === "db" && observation.kind === "rows" && observation.rows.length > 0
-			? [`${actor.role} read rows of its world`]
-			: []
-	}
-	if (action.kind === "apply") {
-		const actor = actorIn(state, action)
-		const changed =
-			actor.kind === "db" && observation.kind === "applied" && observation.outcome === "accepted"
-				? [`${actor.role} changed its world` as const]
+const leadRead =
+	(state: ModelState, action: Action) =>
+	({ observation }: Allowed): ReadonlyArray<LeadFeature> => {
+		if (action.kind === "open-db") {
+			const role = roleOfRef(action.role)
+			return Option.isSome(role) &&
+				observation.kind === "opened" &&
+				Option.exists(openedFacts(state, action), (facts) => worldShows(state, role.value, facts))
+				? [`${role.value} opened onto rows of its world`]
 				: []
-		const added = Arr.some(importedGrades(state, action, observation, ["insert", "put"]), (grade) =>
-			Arr.some(
-				gradeAt(state.reality, grade),
-				({ section, points }) => !rolledUp(state, section, points)
+		}
+		if (action.kind === "read") {
+			const actor = actorIn(state, action)
+			return actor.kind === "db" && observation.kind === "rows" && observation.rows.length > 0
+				? [`${actor.role} read rows of its world`]
+				: []
+		}
+		if (action.kind === "apply") {
+			const actor = actorIn(state, action)
+			const changed =
+				actor.kind === "db" && observation.kind === "applied" && observation.outcome === "accepted"
+					? [`${actor.role} changed its world` as const]
+					: []
+			const added = Arr.some(
+				importedGrades(state, action, observation, ["insert", "put"]),
+				(grade) =>
+					Arr.some(
+						gradeAt(state.reality, grade),
+						({ section, points }) => !rolledUp(state, section, points)
+					)
 			)
-		)
-		const deleted = Arr.some(importedGrades(state, action, observation, ["delete"]), (grade) =>
-			onlyAtItsPoints(state, grade)
-		)
-		return [
-			...changed,
-			...(added ? ["the import added a grade its section's rollup lacks" as const] : []),
-			...(deleted ? ["the import deleted the only grade at its section's points" as const] : [])
-		]
-	}
-	if (action.kind === "refresh") {
-		const actor = actorIn(state, action)
-		return actor.kind === "db" &&
-			actor.role === "district_analyst" &&
-			action.relation === "SectionPoints" &&
-			observation.kind === "ok"
-			? ["the analyst refreshed the rollup"]
-			: []
-	}
-	if (action.kind === "direct-begin") {
-		const { current, claims } = action.start
-		if (current.kind !== "role" || current.role !== "importer" || observation.kind !== "opened") {
+			const deleted = Arr.some(importedGrades(state, action, observation, ["delete"]), (grade) =>
+				onlyAtItsPoints(state, grade)
+			)
+			return [
+				...changed,
+				...(added ? ["the import added a grade its section's rollup lacks" as const] : []),
+				...(deleted ? ["the import deleted the only grade at its section's points" as const] : [])
+			]
+		}
+		if (action.kind === "refresh") {
+			const actor = actorIn(state, action)
+			return actor.kind === "db" &&
+				actor.role === "district_analyst" &&
+				action.relation === "SectionPoints" &&
+				observation.kind === "ok"
+				? ["the analyst refreshed the rollup"]
+				: []
+		}
+		if (action.kind === "direct-begin") {
+			const { current, claims } = action.start
+			if (current.kind !== "role" || current.role !== "importer" || observation.kind !== "opened") {
+				return []
+			}
+			return claims.kind === "set" && claims.setting.kind === "facts"
+				? ["the importer began", "the importer began under hand-set claims"]
+				: ["the importer began"]
+		}
+		if (action.kind !== "direct") {
 			return []
 		}
-		return claims.kind === "set" && claims.setting.kind === "facts"
-			? ["the importer began", "the importer began under hand-set claims"]
-			: ["the importer began"]
-	}
-	if (action.kind !== "direct") {
-		return []
-	}
-	const actor = actorIn(state, action)
-	if (actor.kind !== "direct" || actor.current !== "importer") {
-		return []
-	}
-	const statement = action.statement
-	if (statement.kind === "set-claims") {
-		return statement.setting.kind === "malformed" && observation.kind === "ok"
-			? ["the importer set malformed claims"]
-			: []
-	}
-	if (!Arr.contains(writing, statement.kind)) {
-		return []
-	}
-	switch (actor.claims) {
-		case "facts":
-			return ["the importer wrote under hand-set claims"]
-		case "malformed":
-			return ["the importer wrote under malformed claims"]
-		case "none":
+		const actor = actorIn(state, action)
+		if (actor.kind !== "direct" || actor.current !== "importer") {
 			return []
+		}
+		const statement = action.statement
+		if (statement.kind === "set-claims") {
+			return statement.setting.kind === "malformed" && observation.kind === "ok"
+				? ["the importer set malformed claims"]
+				: []
+		}
+		if (!Arr.contains(writing, statement.kind)) {
+			return []
+		}
+		switch (actor.claims) {
+			case "facts":
+				return ["the importer wrote under hand-set claims"]
+			case "malformed":
+				return ["the importer wrote under malformed claims"]
+			case "none":
+				return []
+		}
 	}
-}
 
 /**
  * Whether an action could make a lead move at all, read of the action alone, so an aimed draw steps the model only on

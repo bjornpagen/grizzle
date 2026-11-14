@@ -14,7 +14,6 @@ import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import { sameValues, valueText } from "#test/support/laws/model.ts"
 import type { RealWorld } from "#test/support/worlds/execute/index.ts"
 import { featuresOf } from "#test/support/worlds/features.ts"
-import { invalidKindsOf } from "#test/support/worlds/generate/classify.ts"
 import { factKey } from "#test/support/worlds/model/host.ts"
 import { invariantsOf } from "#test/support/worlds/model/invariants.ts"
 import { driftOf } from "#test/support/worlds/model/session/catalog.ts"
@@ -553,19 +552,6 @@ const unallowed = (
 	})
 
 /**
- * Every feature the driver notes of an action's outcome in the state it ran in: the invalid kinds its inputs are, and
- * the feature map's features of it. A suite aims its draws at its required features through this reading.
- */
-export const notedOf = (
-	state: ModelState,
-	action: Action,
-	observation: Observation
-): ReadonlyArray<WorldFeature> => [
-	...Arr.map(invalidKindsOf(state, action), (kind): WorldFeature => `invalid:${kind}`),
-	...featuresOf(state, action, observation)
-]
-
-/**
  * Performs one action on the real world and returns the model's branch nature chose: the model allows the action's
  * branches; the real system performs it, judged for leaks against the tokens hidden from whoever acts; a defect (a
  * leak, two artifacts of one read disagreeing) is a mismatch, since no branch can allow one, and of every other answer
@@ -752,6 +738,6 @@ export const runStep = (
 		}
 		const taken = yield* answered(world, state, action, index)
 		const next = yield* checkState(world, taken.next, where)
-		c.noteAll(notedOf(taken.before, action, taken.observation))
+		c.noteAll(featuresOf(taken.before, action)(taken.observation))
 		return { ...taken, next }
 	})

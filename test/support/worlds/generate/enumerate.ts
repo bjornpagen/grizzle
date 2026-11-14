@@ -722,6 +722,36 @@ const factAims = [
 	"fact:filtered-serial-omitted"
 ] as const
 
+/** A fact kind an op can aim at (factAims). */
+type FactAim = (typeof factAims)[number]
+
+/**
+ * The first op of `candidates` the classifier confirms as each fact kind an op can aim at, in the order of factAims,
+ * none for a kind no candidate carries; a delete aims at none. Each candidate is classified once, in order, until every
+ * kind has its op: the classification (opKinds) is the box's dearest read of an op.
+ */
+const firstOfEachAim = (
+	state: ModelState,
+	writer: FactWriter,
+	candidates: ReadonlyArray<EntryOp>
+): ReadonlyArray<EntryOp> => {
+	const first = new Map<FactAim, EntryOp>()
+	for (const op of candidates) {
+		if (first.size === factAims.length) {
+			break
+		}
+		if (op.kind !== "delete") {
+			const kinds = opKinds(state, writer, [op])
+			for (const aim of factAims) {
+				if (!first.has(aim) && kinds.includes(aim)) {
+					first.set(aim, op)
+				}
+			}
+		}
+	}
+	return Arr.flatMap(factAims, (aim) => Arr.fromOption(Option.fromUndefinedOr(first.get(aim))))
+}
+
 /**
  * The box's starts (DirectStart) besides a login's bare one: as the login setting the facts of a context it does not
  * read, which every context is (directClaims' unread facts for the transaction), or malformed claims; and as each of
@@ -812,14 +842,7 @@ const applyActions = (
 			omittingFacts(state.install.base, role, entry, facts),
 			(f): EntryOp => ({ relation: entry, kind: "insert", facts: [f] })
 		)
-		const aimed = Arr.flatMap(factAims, (aim) =>
-			Arr.fromOption(
-				Arr.findFirst(
-					[...live, ...omitting],
-					(op) => op.kind !== "delete" && opKinds(state, writer, [op]).includes(aim)
-				)
-			)
-		)
+		const aimed = firstOfEachAim(state, writer, [...live, ...omitting])
 		const [first] = facts
 		const heading = headingOf(state.install.base, spec)
 		const refused = refusedField(heading)
@@ -2162,9 +2185,8 @@ export const exploreBox = (
 	room: number,
 	situation: (
 		state: ModelState,
-		action: Action,
-		observation: ActionOutcome
-	) => ReadonlyArray<string>
+		action: Action
+	) => (observation: ActionOutcome) => ReadonlyArray<string>
 ): Box => {
 	const classes = new Set<string>()
 	const transitions: Array<BoxTransition> = []
@@ -2180,11 +2202,9 @@ export const exploreBox = (
 			for (const node of frontier) {
 				for (const action of enumerateActions(node.state, scope)) {
 					const branches = step(node.state, action)
+					const read = situation(node.state, action)
 					const traits = new Set(
-						Arr.flatMap(branches, (b) => [
-							outcomeClass(b.observation),
-							...situation(node.state, action, b.observation)
-						])
+						Arr.flatMap(branches, (b) => [outcomeClass(b.observation), ...read(b.observation)])
 					)
 					const key = Arr.join(
 						[

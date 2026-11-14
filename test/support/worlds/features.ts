@@ -42,6 +42,7 @@ import {
 	updatableFields,
 	writtenNamed
 } from "#test/support/worlds/model/session/writes.ts"
+import { step } from "#test/support/worlds/model/step.ts"
 import type {
 	Action,
 	ActionKind,
@@ -2122,7 +2123,9 @@ const writesOf = (
 }
 
 /**
- * The features of one action in the state it ran in, with what was observed:
+ * The features of one action in the state it ran in, read of each outcome the model allows it or the real system
+ * answered (a Defect, a leak or artifacts that disagree, is no outcome: the run fails on it):
+ * - `invalid:`: every invalid input the action draws (generate's invalidKindsOf), first.
  * - `op:`: the action's kind, the membership of what it touched, the claims it ran under, who wrote, and the
  *   observation's kind. Membership is the least visible of the stored facts it read or met (a read: the facts behind
  *   the entry; a write: the stored facts at the keys it submits, or colliding with it at a unique index; a direct
@@ -2133,49 +2136,62 @@ const writesOf = (
  *   on one, a policy (and its filter function) accepting an inside fact, refusing an outside one or hiding a row from a
  *   write, a key probe refusing a hidden key and showing the submitted witness, a function, view, grant, revoke or
  *   membership refusing an attempt, or accepting its holder.
- * - `invalid:`: every invalid input the action draws (generate's invalidKindsOf).
  * - `invariant:`: every invariant the action makes non-vacuous (invariantsOf).
  * - `deletion:` and `connection:`: what a deletion and a pooled connection show (deletionsOf, connectionsOf).
  * - `via:`, `page:`, `attach:`, `reach:`, `read:`, `claim:`, `readback:`, `strata:` and `addition:`: how a Db's read
  *   or write went (pathsOf).
  * - `law:` and `write:`: the law family a refused write met with its path and witness (lawsOf), and the shapes of
  *   relation an accepted write changed (writesOf).
- * A Defect (a leak, artifacts that disagree) is no feature: the run fails on it.
+ * What the action alone decides (its invalid inputs, its actor, what it touched, the claims it ran under, the
+ * invariants it makes non-vacuous) is read once, with the action, whatever outcomes are read of it after: a look-ahead
+ * reads every branch the model allows an action through one reading. The driver notes these features of every action
+ * it performs, and a suite aims its draws at its required features through them.
  */
 export const featuresOf = (
 	state: ModelState,
-	action: Action,
-	observation: Observation
-): ReadonlyArray<WorldFeature> => {
-	if (observation.kind === "leak" || observation.kind === "artifacts-disagree") {
-		return []
-	}
+	action: Action
+): ((outcome: ActionOutcome) => ReadonlyArray<WorldFeature>) => {
 	const actor = actorOf(state, action)
 	const touch = actor.kind === "role" ? touchOf(actor, action) : untouched
 	const membership = actionMembership(
 		actor,
 		actor.kind === "login" ? loginTouch(state, action) : touch
 	)
-	const op: WorldFeature = `op:${action.kind}:${membership}:${claimStateOf(action, actor, touch)}:${writerOf(actor)}:${observation.kind}`
-	return Arr.dedupe([
-		op,
-		...objectsOf(state, action, actor, touch, observation),
-		...Arr.map(invalidKindsOf(state, action), (kind): WorldFeature => `invalid:${kind}`),
-		...Arr.map(
-			invariantsOf(action, actor, membership),
-			(name): WorldFeature => `invariant:${name}`
-		),
-		...deletionsOf(state, action, actor, observation),
-		...connectionsOf(state, action, observation),
-		...pathsOf(state, action, observation),
-		...lawsOf(state, action, actor, observation),
-		...declaredKeysOf(state, action, actor, observation),
-		...writesOf(state, action, actor, observation),
-		...claimRefusalsOf(state, action, observation),
-		...(action.kind === "migrate"
-			? [`migration:${migrationKindOf(state, action.to)}:${observation.kind}` as const]
-			: [])
-	])
+	const claims = claimStateOf(action, actor, touch)
+	const writer = writerOf(actor)
+	const opOf = (observation: ActionOutcome): WorldFeature =>
+		`op:${action.kind}:${membership}:${claims}:${writer}:${observation.kind}`
+	const invalid = Arr.map(invalidKindsOf(state, action), (kind): WorldFeature => `invalid:${kind}`)
+	const invariants = Arr.map(
+		invariantsOf(action, actor, membership),
+		(name): WorldFeature => `invariant:${name}`
+	)
+	return (observation) =>
+		Arr.dedupe([
+			...invalid,
+			opOf(observation),
+			...objectsOf(state, action, actor, touch, observation),
+			...invariants,
+			...deletionsOf(state, action, actor, observation),
+			...connectionsOf(state, action, observation),
+			...pathsOf(state, action, observation),
+			...lawsOf(state, action, actor, observation),
+			...declaredKeysOf(state, action, actor, observation),
+			...writesOf(state, action, actor, observation),
+			...claimRefusalsOf(state, action, observation),
+			...(action.kind === "migrate"
+				? [`migration:${migrationKindOf(state, action.to)}:${observation.kind}` as const]
+				: [])
+		])
+}
+
+/**
+ * Every feature an action reaches from a state, over every branch the model allows it (step), read as the driver
+ * notes an outcome (featuresOf): what an aimed draw's look-ahead reads one step past a move.
+ */
+export const reachOf = (state: ModelState, action: Action): ReadonlyArray<WorldFeature> => {
+	const read = featuresOf(state, action)
+	return Arr.flatMap(step(state, action), (b) => read(b.observation))
 }
 
 /**

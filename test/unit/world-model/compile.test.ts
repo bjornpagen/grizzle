@@ -119,14 +119,12 @@ const leavesOutSerials = (install: InstallSpec, role: RoleSpec): boolean =>
 	Arr.some(writtenOf(install.base, role), (w) => serialHead(install.base, w).classed.length > 0)
 
 /** What an apply notes where the model admits it past its compile: its additions (features.ts additionsOf). */
-const compiledAdditions = (
-	state: ModelState,
-	action: Action,
-	{ observation }: Allowed
-): ReadonlyArray<string> =>
-	action.kind === "apply" && observation.kind !== "compile-refused"
-		? additionsOf(state, action)
-		: []
+const compiledAdditions =
+	(state: ModelState, action: Action) =>
+	({ observation }: Allowed): ReadonlyArray<string> =>
+		action.kind === "apply" && observation.kind !== "compile-refused"
+			? additionsOf(state, action)
+			: []
 
 /** A compile's refusal; none when it compiles. */
 const refusalOf = <A, E>(compiled: Engine.Result<A, E>): E | undefined =>

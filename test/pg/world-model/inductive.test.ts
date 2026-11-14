@@ -20,7 +20,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { caseSubstrates, Substrate } from "#test/support/substrate/substrate.ts"
-import { notedOf, runStep } from "#test/support/worlds/drive/index.ts"
+import { runStep } from "#test/support/worlds/drive/index.ts"
 import {
 	aimsAt,
 	docsAtBoundRealities,
@@ -36,7 +36,7 @@ import {
 	worldWidth
 } from "#test/support/worlds/drive/suite.ts"
 import { realizeRace } from "#test/support/worlds/execute/index.ts"
-import { requiredWorldFeatures } from "#test/support/worlds/features.ts"
+import { featuresOf, requiredWorldFeatures } from "#test/support/worlds/features.ts"
 import { pool } from "#test/support/worlds/generate/domain.ts"
 import { defaultScope, enumerateInstalls } from "#test/support/worlds/generate/enumerate.ts"
 import { type Weights, weightsGen } from "#test/support/worlds/generate/weights.ts"
@@ -601,7 +601,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 									const action = drawAction(
 										c.draw,
 										reached,
-										steeredOnce({ ...ic.weights, aims: aimsAt(situations, notedOf) }, c)
+										steeredOnce({ ...ic.weights, aims: aimsAt(situations, featuresOf) }, c)
 									)
 									yield* runStep(world, reached, action, setup.length + moves.length, c)
 								})

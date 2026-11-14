@@ -558,6 +558,22 @@ export const violatorsOf = (
 		: Arr.map(bad, (f) => ({ relation: witness.relation, values: valuesAt(f, witness.key) }))
 }
 
+/**
+ * The facts of `facts` another of them shares its values at `fields` with, in their order: a key law's violators, as
+ * colliding pairs name them (collide), each fact's key read once.
+ */
+const sharingAKey = (
+	facts: ReadonlyArray<HostFact>,
+	fields: ReadonlyArray<string>
+): ReadonlyArray<HostFact> => {
+	const keyed = Arr.map(facts, (fact) => ({ fact, key: projection(fact, fields) }))
+	const counts = new Map<string, number>()
+	for (const { key } of keyed) {
+		counts.set(key, (counts.get(key) ?? 0) + 1)
+	}
+	return Arr.flatMap(keyed, ({ fact, key }) => ((counts.get(key) ?? 0) > 1 ? [fact] : []))
+}
+
 /** The violation of one law in `state`, or none when it holds. */
 const violationOf = (
 	schema: HostSchema,
@@ -576,10 +592,7 @@ const violationOf = (
 	switch (law.kind) {
 		case "key": {
 			const facts = Arr.filter(factsIn(state, law.relation), (f) => selected(f, law.selection))
-			const bad = Arr.filter(facts, (f, i) =>
-				Arr.some(facts, (g, j) => i !== j && collide(law, f, g))
-			)
-			return of(bad)
+			return of(facts.length < 2 ? [] : sharingAKey(facts, law.fields))
 		}
 		case "spanKey": {
 			const facts = Arr.filter(factsIn(state, law.relation), (f) => selected(f, law.selection))
@@ -929,6 +942,27 @@ export const refusedBy = (all: ReadonlyArray<Violation>): ReadonlyArray<Violatio
 }
 
 /**
+ * What a ChangeSet of one stratum meets of the laws, before whether a commit changes the state is asked: it commits to
+ * `state`, is refused by the laws its final state violates, or is refused when it compiles (Expected).
+ */
+type Judged =
+	| { readonly kind: "commits"; readonly state: HostState }
+	| Extract<Expected, { readonly kind: "invariant-rejected" | "unorderable" }>
+
+/** What a ChangeSet of `ops` meets of the laws from the lawful `state` (expect), its commit's change unread. */
+const judgedOps = (schema: HostSchema, state: HostState, ops: ReadonlyArray<HostOp>): Judged => {
+	const order = stratumOrder(schema, ops)
+	if (cyclic(order)) {
+		return { kind: "unorderable", order }
+	}
+	const next = transition(keyedSchema(schema), state, ops)
+	const refused = refusedBy(violations(schema, next))
+	return Arr.isReadonlyArrayNonEmpty(refused)
+		? { kind: "invariant-rejected", violations: refused }
+		: { kind: "commits", state: next }
+}
+
+/**
  * What a ChangeSet of `ops` must do from the lawful `state`. A stratum whose writes' order (stratumOrder) runs in a
  * cycle is refused when it compiles, before any SQL or host normalization. Every relation's primary key is one of the
  * schema's laws (keyedSchema), so a state holding one fact twice is always that key's violation, never an outcome the
@@ -941,13 +975,21 @@ export const expect = (
 	state: HostState,
 	ops: ReadonlyArray<HostOp>
 ): Expected => {
-	const order = stratumOrder(schema, ops)
-	if (cyclic(order)) {
-		return { kind: "unorderable", order }
-	}
-	const next = transition(keyedSchema(schema), state, ops)
-	const refused = refusedBy(violations(schema, next))
-	return Arr.isReadonlyArrayNonEmpty(refused)
-		? { kind: "invariant-rejected", violations: refused }
-		: { kind: sameState(schema, state, next) ? "no-change" : "accepted", state: next }
+	const judged = judgedOps(schema, state, ops)
+	return judged.kind === "commits"
+		? {
+				kind: sameState(schema, state, judged.state) ? "no-change" : "accepted",
+				state: judged.state
+			}
+		: judged
 }
+
+/**
+ * Whether the laws refuse a ChangeSet of `ops` from the lawful `state`, as expect's invariant-rejected: a reading of the
+ * laws alone, which never compares a commit's state with `state`.
+ */
+export const lawsRefuse = (
+	schema: HostSchema,
+	state: HostState,
+	ops: ReadonlyArray<HostOp>
+): boolean => judgedOps(schema, state, ops).kind === "invariant-rejected"

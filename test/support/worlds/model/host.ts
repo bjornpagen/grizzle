@@ -1014,18 +1014,15 @@ const targetClauses = (
 }
 
 /**
- * README's writable-entry rule over a query entry, clause by clause in its order, the first failing clause the
- * refusal: one rule (several-rules); every head term a bare variable, a context term being the variable its
- * context's match binds, no variable naming two head fields (head-term-not-own-field); exactly one positive
- * occurrence of an ordinary relation T binding every head variable to a field of its own (no-supplier); each head variable binding one field of T (head-term-not-own-field); every field of
- * T outside the head and its primary key fixed (field-not-fixed); every primary-key field in the head or fixed
- * (key-not-determined). Every other match, negation and comparison then only filters.
+ * README's writable-entry rule over a query entry's one rule, clause by clause in its order past the first, the first
+ * failing clause the refusal: every head term a bare variable, a context term being the variable its context's match
+ * binds, no variable naming two head fields (head-term-not-own-field); exactly one positive occurrence of an ordinary
+ * relation T binding every head variable to a field of its own (no-supplier); each head variable binding one field of
+ * T (head-term-not-own-field); every field of T outside the head and its primary key fixed (field-not-fixed); every
+ * primary-key field in the head or fixed (key-not-determined). Every other match, negation and comparison then only
+ * filters.
  */
-const writabilityOf = (base: BaseSpec, rules: Arr.NonEmptyReadonlyArray<Rule>): Writability => {
-	const [rule, ...more] = rules
-	if (more.length > 0) {
-		return readOnly("several-rules")
-	}
+const ruleWritability = (base: BaseSpec, rule: Rule): Writability => {
 	const head = headVariables(rule)
 	if (head === undefined) {
 		return readOnly("head-term-not-own-field")
@@ -1035,6 +1032,34 @@ const writabilityOf = (base: BaseSpec, rules: Arr.NonEmptyReadonlyArray<Rule>): 
 		return readOnly("no-supplier")
 	}
 	return targetClauses(base, head, rule, supplier)
+}
+
+/**
+ * Each one-rule entry's writability (ruleWritability), by the base and the rule it was judged over, each object as it is
+ * held: a base and a rule are immutable, so the rule is judged once however many states, actions and features classify
+ * its entry, and a rule no installation holds any longer takes its judgment with it.
+ */
+const ruleWritabilities = new WeakMap<BaseSpec, WeakMap<Rule, Writability>>()
+
+/**
+ * README's writable-entry rule over a query entry, clause by clause in its order, the first failing clause the
+ * refusal: one rule (several-rules), then that rule's clauses (ruleWritability), judged once per base and rule
+ * (ruleWritabilities).
+ */
+const writabilityOf = (base: BaseSpec, rules: Arr.NonEmptyReadonlyArray<Rule>): Writability => {
+	const [rule, ...more] = rules
+	if (more.length > 0) {
+		return readOnly("several-rules")
+	}
+	const ofBase = ruleWritabilities.get(base) ?? new WeakMap<Rule, Writability>()
+	ruleWritabilities.set(base, ofBase)
+	const known = ofBase.get(rule)
+	if (known !== undefined) {
+		return known
+	}
+	const judged = ruleWritability(base, rule)
+	ofBase.set(rule, judged)
+	return judged
 }
 
 /**

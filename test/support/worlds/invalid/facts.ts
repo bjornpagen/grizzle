@@ -1,6 +1,6 @@
 import { array, boolean, element, type Gen, int, map } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { expect, projection, selected } from "#test/support/laws/model.ts"
+import { lawsRefuse, projection, selected } from "#test/support/laws/model.ts"
 import {
 	fieldsOfSource,
 	inDomain,
@@ -296,10 +296,7 @@ export const opKinds = (
 		draws = drew.next
 		return { relation: j.written.target, kind: j.op.kind, facts: drew.facts }
 	})
-	if (
-		baseOps.length > 0 &&
-		expect(state.host, state.reality, baseOps).kind === "invariant-rejected"
-	) {
+	if (baseOps.length > 0 && lawsRefuse(state.host, state.reality, baseOps)) {
 		kinds.add("fact:law-broken")
 	}
 	return [...kinds]
@@ -343,9 +340,7 @@ export const directFactKinds = (
 		kinds.add("fact:domain-refused")
 	}
 	const facts = [withSerial(state.install.base, relation, fact, nextDraw(state)).fact]
-	if (
-		expect(state.host, view, [{ relation, kind: "insert", facts }]).kind === "invariant-rejected"
-	) {
+	if (lawsRefuse(state.host, view, [{ relation, kind: "insert", facts }])) {
 		kinds.add("fact:law-broken")
 	}
 	return [...kinds]
