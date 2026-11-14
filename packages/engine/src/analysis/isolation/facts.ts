@@ -195,9 +195,11 @@ export interface BodyFacts<Core extends SiteCore> {
 /**
  * One instance of a query CTE: its query walked once for every site that reads it where it arrives alike, at one
  * polarity, counted or not, feeding the same writes (program/isolation/extract.ts), its reads, probes and cores its own
- * (BodyFacts), none of them beneath a probe of a site that reads it, and `rows`, the row sources every row of its query
- * comes through, by its own cores, reads and uses. A probe its query opens outside every core of its own stands in the
- * core of the site that reads it (SiteCore `site`).
+ * (BodyFacts), none of them beneath a probe of a site that reads it; `rows`, the row sources every row of its query
+ * comes through, by its own cores, reads and uses; and `query`, the query CTE it walks, by a number the statement gives
+ * each of its query CTEs. The instances of one query read the same reads, in the same order, each at its own arrival: a read of a
+ * query CTE is one read of the statement, however many sites read the CTE and however they arrive. A probe its query
+ * opens outside every core of its own stands in the core of the site that reads it (SiteCore `site`).
  *
  * At each site that reads it (CteUse), it stands for the reads, probes and cores its walk at that site would find: each
  * of its reads beneath the site's probes and its own, each of its probes chained beneath the site's, and its `site`
@@ -205,6 +207,7 @@ export interface BodyFacts<Core extends SiteCore> {
  */
 export interface CteFacts extends BodyFacts<number | "site"> {
 	readonly rows: ReadonlyArray<RowSource>
+	readonly query: number
 }
 
 /**

@@ -86,12 +86,17 @@
  * relations read at k0's one parameter, where a probe's judgement turns on its row path. It holds the certifier to the
  * expansion of each statement (test/support/expanded.ts), each instance read again at each use, as a second
  * implementation: every read takes the modes its reads take there (readModes), every role the same level with the same
- * reasons, each once, but a write's count of its other unjoined outside reads, which counts each read once, and the same
- * fences. Plants (~/.cache/grizzle-release/CERTPERF/plants), each failing it: certify-reach-first-only (an instance
- * reached from the first reach of the body that uses it alone), certify-site-probe-first-use (a site probe judged in the
- * core of its body's first use), certify-below-ignores-use-probes (a row path through a use beneath other probes than
- * its chain) and certify-reads-own-body-only (no instance's read placed); extract-instance-key-no-polarity and
- * extract-instance-key-no-feeds fail the extractor's search (test/unit/program/isolation/extract.test.ts).
+ * reasons, each once, but a write's count of its other unjoined outside reads, and the same fences. That count is held
+ * apart, with the case's SERIALIZABLE forms dropped so every round reads one installation, to its contract restated over
+ * the expansion (unjoinedOracle): the other outside reads of the statement the write is joined with none of, each read
+ * of the statement once, a query CTE's read once whatever sites and arrivals read it (CteFacts.query). Plants
+ * (~/.cache/grizzle-release/CERTPERF/plants), each failing it: certify-reach-first-only (an instance reached from the
+ * first reach of the body that uses it alone), certify-site-probe-first-use (a site probe judged in the core of its
+ * body's first use), certify-below-ignores-use-probes (a row path through a use beneath other probes than its chain),
+ * certify-reads-own-body-only (no instance's read placed), certify-unjoined-count-by-instance (a CTE's read counted once
+ * per instance) and certify-unjoined-count-each-mode (a read counted once per mode it takes);
+ * extract-instance-key-no-polarity, extract-instance-key-no-feeds, extract-query-per-instance and
+ * extract-query-one-for-all fail the extractor's search (test/unit/program/isolation/extract.test.ts).
  *
  * Features: each condition failed and met, each counterexample shape, each level, each capability added or fact
  * removed, a role lowered in a later round, a role whose lowered form alone reads the absence of what it writes, a held
@@ -3255,7 +3260,7 @@ const sharedStatementGen =
 					false
 				)
 			)
-			return { ...body, rows: s.draw(rowsGen(body.uses.length)) }
+			return { ...body, rows: s.draw(rowsGen(body.uses.length)), query: s.draw(int(0, i)) }
 		})
 		const own = s.draw(
 			bodyGen(
@@ -3545,12 +3550,92 @@ const modeFeatures = (
 	})
 }
 
+/** The text of the reason a write joined with none of some outside reads of its statement gives, before its count. */
+const unjoinedReason = "a row it writes is not joined with the read of "
+
 /** The count a write's reason gives of the other outside reads of its statement it is joined with none of. */
 const unjoinedCount = regex("nor with \\d+ more outside read\\(s\\) there$")
 
+/** A reason as the comparison keys it, whole. */
+const unmaskedKey = (r: IsolationReason): string =>
+	`${r.condition}|${r.member ?? "-"}|${r.statement ?? "-"}|${r.relation ?? "-"}|${r.detail}`
+
+/**
+ * The reasons the writes of role `i`'s members give where they are joined with none of some outside reads of their
+ * statement, as the contract restates them over the statements' expansions (test/support/expanded.ts), among `c`'s roles
+ * at READ COMMITTED alone, so every round reads the same installation: for each write of a member with an outside read
+ * and a write, the outside reads of its statement whose group none of its `from` reads, in their order, the first
+ * named and the others counted each once, a read again at another site or arrival of its query CTE the same read
+ * (CteFacts.query); with how many reads of the expansion (`reads`) and of the statement (`places`) that is, and whether
+ * one read of the statement among them takes two modes (`modes`).
+ */
+const unjoinedOracle = (
+	c: SharedCase,
+	i: number
+): ReadonlyArray<{
+	readonly key: string
+	readonly reads: number
+	readonly places: number
+	readonly modes: boolean
+}> => {
+	const input = sharedInput(c, flatFacts)
+	return Arr.flatMap(Arr.getUnsafe(c.roles, i).members, (statements, m) => {
+		const flats = Arr.map(statements, expanded)
+		const placed = Arr.flatMap(sharedMembers([statements], flatFacts), (member) =>
+			readModes(input, member)
+		)
+		const outsides = Arr.dedupeWith(
+			Arr.filter(placed, (p) => p.outside),
+			(a: (typeof placed)[number], b: (typeof placed)[number]) =>
+				a.statement === b.statement && a.at.read === b.at.read
+		)
+		if (outsides.length === 0 || Arr.every(flats, (f) => f.writes.length === 0)) {
+			return []
+		}
+		return Arr.flatMap(flats, (flat, j) =>
+			Arr.flatMap(flat.writes, (w) => {
+				const groupAt = (at: number): string => groupKey(Arr.getUnsafe(flat.reads, at))
+				const joined = new Set(Arr.map(w.from, groupAt))
+				const unjoined = Arr.filter(
+					outsides,
+					(p) => p.statement === j && !joined.has(groupAt(p.at.read))
+				)
+				const [missed] = unjoined
+				if (missed === undefined) {
+					return []
+				}
+				const st = Arr.getUnsafe(statements, j)
+				const placeOf = (at: number): string => {
+					const origin = Arr.getUnsafe(flat.origins, at)
+					return origin.cte === undefined
+						? `-|${origin.read}`
+						: `${Arr.getUnsafe(st.ctes, origin.cte).query}|${origin.read}`
+				}
+				const places = new Set(Arr.map(unjoined, (p) => placeOf(p.at.read)))
+				const taken = Arr.dedupe(
+					Arr.flatMap(placed, (p) =>
+						p.statement === j && places.has(placeOf(p.at.read))
+							? [`${placeOf(p.at.read)}|${p.mode}`]
+							: []
+					)
+				)
+				return [
+					{
+						key: `pivot|m${m}|${j}|${w.relation}|${unjoinedReason}${Arr.getUnsafe(flat.reads, missed.at.read).relation} in its statement, nor with ${places.size - 1} more outside read(s) there`,
+						reads: unjoined.length,
+						places: places.size,
+						modes: taken.length > places.size
+					}
+				]
+			})
+		)
+	})
+}
+
 /**
  * A reason as the comparison of a statement with its expansion keys it: whole, but the count of the other outside reads
- * a write is joined with none of, which counts each read once, where the expansion counts each read again at each site.
+ * a write is joined with none of, which counts each read of the statement once, where the expansion counts each read
+ * again at each site (unjoinedOracle holds the count to that).
  */
 const reasonKey = (r: IsolationReason): string =>
 	`${r.condition}|${r.member ?? "-"}|${r.statement ?? "-"}|${r.relation ?? "-"}|${Str.replace(
@@ -3571,6 +3656,8 @@ type SharedFeature =
 	| "a read of an instance another reads, taking two modes"
 	| "a probe decided by its row path over an instance's reads"
 	| "a site probe of an instance read at two sites, decided by its row path"
+	| "a write joined with none of a CTE's read at two sites or arrivals"
+	| "a write joined with none of a read taking two modes"
 
 /** The structural situations a statement reaches: what its instances' uses read and where. */
 const sharedFeatures = (st: StatementFacts): ReadonlyArray<SharedFeature> => {
@@ -3868,7 +3955,9 @@ describe("the isolation certifier", () => {
 								"an instance read taking two modes",
 								"a read of an instance another reads, taking two modes",
 								"a probe decided by its row path over an instance's reads",
-								"a site probe of an instance read at two sites, decided by its row path"
+								"a site probe of an instance read at two sites, decided by its row path",
+								"a write joined with none of a CTE's read at two sites or arrivals",
+								"a write joined with none of a read taking two modes"
 							],
 							{ cases: 500, sense: notesOnly }
 						),
@@ -3913,6 +4002,37 @@ describe("the isolation certifier", () => {
 											k.note(feature)
 										}
 									}
+								}
+							}
+							const plain: SharedCase = {
+								...c,
+								roles: Arr.map(c.roles, (r) => ({ ...r, serializable: [] }))
+							}
+							const counted = sharedCertified(plain, (st) => st)
+							if (!counted.ok) {
+								assert.fail("certification lowers every role")
+							}
+							for (const [i, role] of counted.value.roles.entries()) {
+								const expected = unjoinedOracle(plain, i)
+								assert.deepEqual(
+									Arr.sort(
+										Arr.filter(
+											Arr.map(role.level === "serializable" ? role.reasons : [], unmaskedKey),
+											(key) => Str.includes(unjoinedReason)(key)
+										),
+										Order.String
+									),
+									Arr.sort(
+										Arr.map(expected, (u) => u.key),
+										Order.String
+									),
+									`r${i}'s writes joined with none of some outside reads, each read counted once`
+								)
+								if (Arr.some(expected, (u) => u.places < u.reads)) {
+									k.note("a write joined with none of a CTE's read at two sites or arrivals")
+								}
+								if (Arr.some(expected, (u) => u.modes)) {
+									k.note("a write joined with none of a read taking two modes")
 								}
 							}
 							const shared = sharedCertified(c, (st) => st)

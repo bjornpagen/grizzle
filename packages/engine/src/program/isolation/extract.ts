@@ -1239,16 +1239,21 @@ type QueryCte = Extract<CteRef, { readonly kind: "query" }>
  */
 type InstanceKey = readonly [QueryCte, Polarity, boolean, ...ReadonlyArray<number>]
 
-/** An instance of a query CTE: the walk of its query, and the row sources every row of it comes through. */
+/**
+ * An instance of a query CTE: the walk of its query, the row sources every row of it comes through, and the query it
+ * walks, by the number the statement gives each of its query CTEs (Statement.instance).
+ */
 interface Instance {
 	readonly walk: Walk<"site">
 	readonly rows: ReadonlyArray<RowSource>
+	readonly query: number
 }
 
 /**
  * What one statement's walk shares across its bodies: how it reads names back, its parameters' names and its level; the
  * writes and ON CONFLICT arbitrations its DML makes, wherever it stands; and the instances of its query CTEs, in the
- * order their walks finish, each found by its key (InstanceKey), so each is walked once.
+ * order their walks finish, each found by its key (InstanceKey), so each is walked once, and the queries they walk, each
+ * by the query of its CTE, one place in the statement whatever WITH walk defined it.
  */
 class Statement {
 	readonly writes: Array<{ readonly table: ObjectName; readonly op: WriteFact["op"] }> = []
@@ -1258,6 +1263,7 @@ class Statement {
 	readonly paramOf: (n: number) => string | undefined
 	readonly level: Isolation
 	readonly #keyed = new TupleMap<InstanceKey, number>()
+	readonly #queries = new Map<OperandSelect, number>()
 
 	constructor(names: ExtractNames, paramOf: (n: number) => string | undefined, level: Isolation) {
 		this.names = names
@@ -1293,8 +1299,10 @@ class Statement {
 			probes: [],
 			core: "site"
 		})
+		const query = this.#queries.get(cte.query) ?? this.#queries.size
+		this.#queries.set(cte.query, query)
 		const place = this.instances.length
-		this.instances.push({ walk, rows })
+		this.instances.push({ walk, rows, query })
 		this.#keyed.set(key, place)
 		return place
 	}
@@ -1567,7 +1575,8 @@ const statementFacts = (
 			probes: instance.walk.probes,
 			cores: instance.walk.cores,
 			uses: instance.walk.uses,
-			rows: instance.rows
+			rows: instance.rows,
+			query: instance.query
 		}))
 	}
 }

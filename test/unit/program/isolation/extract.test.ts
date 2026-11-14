@@ -57,7 +57,8 @@
  * probes by the writes they gate and their core's row sources, each read marked where it stands beneath other probes
  * than the probe's chain. Each statement's facts are compared through their expansion (test/support/expanded.ts): the
  * extractor walks each query CTE once per arrival, an instance its sources use, and the expansion reads each instance
- * again at each use, which is what the contract above restates.
+ * again at each use, which is what the contract above restates. The instances walk one query for each query CTE a
+ * source reads, and the instances of one query read alike, their modes apart (CteFacts.query).
  *
  * Planted in a scratch copy of the extractor, each of these fails the search: NOT EXISTS read as positive, an
  * aggregate's scan read as positive, a probe of the written relation read as negated, a table no relation names dropped
@@ -1733,6 +1734,8 @@ class Expect {
 		readonly op: "insert" | "update" | "delete"
 	}> = []
 	readonly shapes = new Set<Shape>()
+	/** Every query CTE a source reads, by its path. */
+	readonly ctes = new Set<string>()
 	readonly written: ReadonlySet<string>
 	readonly inserts: ReadonlyMap<string, WritingInsert>
 	readonly level: Isolation
@@ -2060,6 +2063,7 @@ class Expect {
 				}
 				case "cte":
 					this.shapes.add("a CTE read where it is named")
+					this.ctes.add(s.path)
 					for (const r of this.query(s.query, s.path, { ...beneath, scope: [] }, [])) {
 						rows.push(r)
 					}
@@ -2093,6 +2097,7 @@ class Expect {
 					break
 				case "metRows":
 					this.shapes.add("an INSERT's met rows")
+					this.ctes.add(s.path)
 					for (const r of this.query(s.query, s.path, { ...beneath, scope: [] }, [])) {
 						rows.push(r)
 					}
@@ -2690,8 +2695,27 @@ describe("a change member's facts", () => {
 								"one statement's facts per statement"
 							)
 							Arr.forEach(c.statements, (spec, i) => {
-								const got = expanded(Arr.getUnsafe(facts.statements, i))
+								const shared = Arr.getUnsafe(facts.statements, i)
+								const got = expanded(shared)
 								const x = expected(spec, c.level)
+								assert.equal(
+									new Set(Arr.map(shared.ctes, (cte) => cte.query)).size,
+									x.ctes.size,
+									`statement ${i}'s instances walk one query for each query CTE a source reads`
+								)
+								const shapes = new Map<number, string>()
+								for (const cte of shared.ctes) {
+									const shape = Arr.join(
+										Arr.map(cte.reads, (r) => readKey({ ...expectedOf(r), mode: "positive" })),
+										";"
+									)
+									assert.equal(
+										shapes.get(cte.query) ?? shape,
+										shape,
+										`statement ${i}'s instances of one query read alike`
+									)
+									shapes.set(cte.query, shape)
+								}
 								for (const shape of x.shapes) {
 									k.note(shape)
 								}

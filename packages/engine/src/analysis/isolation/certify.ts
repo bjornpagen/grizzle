@@ -504,12 +504,14 @@ const outside = (seal: ReadSeal): boolean =>
 
 /**
  * One read of a member as the conditions read it: its statement's place in the member's flight, its body and its place
- * there (ReadAt), its seal, and one mode it takes where a site reaches it (readsOf): a read takes one PlacedRead per
- * mode it takes.
+ * there (ReadAt), the query CTE its body walks (CteFacts.query, none for the statement's own body), its seal, and one
+ * mode it takes where a site reaches it (readsOf): a read takes one PlacedRead per mode it takes. The reads of the
+ * instances of one query at one place are one read of the statement.
  */
 interface PlacedRead {
 	readonly statement: number
 	readonly at: ReadAt
+	readonly query: number | undefined
 	readonly read: ReadFact
 	readonly seal: ReadSeal
 	readonly mode: ReadFact["mode"]
@@ -1136,14 +1138,15 @@ const readsOf = (installation: Installation, member: MemberFacts): ReadonlyArray
 					r.neutral && read.probes.every((id) => r.probes[id] !== undefined) ? read.base : read.mode
 				)
 			)
-			return [...modes].map((mode) => ({ statement, at, read, seal, mode }))
+			const query = at.cte === undefined ? undefined : s.ctes[at.cte]?.query
+			return [...modes].map((mode) => ({ statement, at, query, read, seal, mode }))
 		})
 	})
 }
 
 /**
- * Each mode each read of `member` takes, by its statement and its body and place there, among the installation's roles
- * each served its READ COMMITTED form (readsOf).
+ * Each mode each read of `member` takes, by its statement and its body and place there, and whether the read is an
+ * outside read, among the installation's roles each served its READ COMMITTED form (readsOf).
  */
 export const readModes = (
 	input: IsolationInput,
@@ -1152,6 +1155,7 @@ export const readModes = (
 	readonly statement: number
 	readonly at: ReadAt
 	readonly mode: ReadFact["mode"]
+	readonly outside: boolean
 }> =>
 	readsOf(
 		installationOf(
@@ -1159,7 +1163,7 @@ export const readModes = (
 			input.roles.map((role) => ({ role, members: role.members }))
 		),
 		member
-	).map((p) => ({ statement: p.statement, at: p.at, mode: p.mode }))
+	).map((p) => ({ statement: p.statement, at: p.at, mode: p.mode, outside: outside(p.seal) }))
 
 /** The text that names one group a read reads: its relation, its fields and what they are bound to. */
 const groupOf = (r: ReadFact): string =>
@@ -1653,12 +1657,16 @@ const byStatement = (
 	return by
 }
 
-/** The first placed read of each read among `placed`, by its body and place, in their order. */
+/**
+ * The first placed read of each read of the statement among `placed`, in their order: a read is its place in the
+ * statement's own body, or its place in the query CTE every instance of which reads it (PlacedRead), whatever modes it
+ * takes.
+ */
 const distinctReads = (placed: ReadonlyArray<PlacedRead>): ReadonlyArray<PlacedRead> => {
 	const seen = new TupleSet<readonly [number | undefined, number]>()
 	return placed.filter((p) => {
-		const known = seen.has([p.at.cte, p.at.read])
-		seen.add([p.at.cte, p.at.read])
+		const known = seen.has([p.query, p.at.read])
+		seen.add([p.query, p.at.read])
 		return !known
 	})
 }
@@ -1667,8 +1675,11 @@ const distinctReads = (placed: ReadonlyArray<PlacedRead>): ReadonlyArray<PlacedR
  * Condition 5b: a member with an outside read and a write reads every outside group sealed and positively, and every
  * row it writes reaches every outside group it reads: joined with each outside read of its statement, and, after a
  * statement that read from outside, with a row its own call wrote; no write comes before a group read only later. Each
- * of its foreign key checks is sealed. One reason per read, mode, check or write that fails; a write joined with none of
- * several outside reads names the first and counts the others, each read once whatever modes it takes.
+ * of its foreign key checks is sealed. One reason per read, mode, check or write that fails. A write joined with none
+ * of its statement's outside reads of some groups gives one reason: "a row it writes is not joined with the read of X
+ * in its statement, nor with N more outside read(s) there", X the relation of the first such read and N the number of
+ * the others, each read counted once (distinctReads): a read of a query CTE is one read, however many sites read the
+ * CTE and however they arrive, and a read taking several modes is one read.
  */
 const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
 	view.members.flatMap((v) => {
