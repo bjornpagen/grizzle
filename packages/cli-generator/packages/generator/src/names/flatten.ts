@@ -495,13 +495,12 @@ const mergeObjects = (
 }
 
 /**
- * The keywords whose shape `classify` reads: a type, members, items, a reference or an applicator,
- * and the encodings that make a string a file. A schema holding none of them (a `pattern`, a
- * `maxLength`, a `required`, an annotation) asserts only on values of whatever shape the rest of
- * its `allOf` gives, so it shapes no flag.
+ * The keywords whose shape `classify` reads: a type, members, items, an applicator, and the
+ * encodings that make a string a file. A schema holding none of them (a `pattern`, a `maxLength`, a
+ * `required`, an annotation), and referring to none that does, asserts only on values of whatever
+ * shape the rest of its `allOf` gives, so it shapes no flag.
  */
 const shapeKeywords: ReadonlySet<string> = new Set([
-	"$ref",
 	"additionalProperties",
 	"allOf",
 	"anyOf",
@@ -515,9 +514,36 @@ const shapeKeywords: ReadonlySet<string> = new Set([
 	"type"
 ])
 
-const shapes = (json: Schema.Json): boolean =>
-	!isObject(json) ||
-	Arr.some(Record.keys<string, Schema.Json>(json), (key) => shapeKeywords.has(key))
+/**
+ * The schemas a node asserts in place: itself, then each target its `$ref` chain reaches in the
+ * body's `$defs`, as far as references are followed anywhere here (`maxDefsRefHops`). A reference
+ * the chain cannot follow ends it, and is left to `classify`, which names it.
+ */
+const inPlace = (ctx: Ctx, json: Schema.Json): readonly Schema.Json[] => {
+	const chain: Schema.Json[] = [json]
+	for (let node = json; chain.length <= maxDefsRefHops;) {
+		const ref = isObject(node) ? node["$ref"] : undefined
+		const key = Predicate.isString(ref) ? defsKeyOf(ref) : undefined
+		const target = key === undefined ? undefined : ctx.defs[key]
+		if (target === undefined) {
+			return Predicate.isString(ref) ? [...chain, true] : chain
+		}
+
+		chain.push(target)
+		node = target
+	}
+
+	return [...chain, true]
+}
+
+/** Whether a node, with the targets its `$ref` chain reaches, shapes a flag (`shapeKeywords`). */
+const shapes = (ctx: Ctx, json: Schema.Json): boolean =>
+	Arr.some(
+		inPlace(ctx, json),
+		(node) =>
+			!isObject(node) ||
+			Arr.some(Record.keys<string, Schema.Json>(node), (key) => shapeKeywords.has(key))
+	)
 
 /**
  * The shape of an `allOf` and the schema beside it: the one scalar kind every shaped member has,
@@ -646,15 +672,17 @@ const classify = (
 				site: below(site, "allOf", String(index))
 			}))
 		]
-		const shaped = Arr.filter(members, (member) => shapes(member.schema))
+		const shaped = Arr.filter(members, (member) => shapes(ctx, member.schema))
 		const required = new Set(
 			Arr.flatMap(members, (member) =>
-				shapes(member.schema)
+				shapes(ctx, member.schema)
 					? []
-					: Option.match(decodeNode(member.schema), {
-							onNone: () => [],
-							onSome: (constraint) => [...requiredOf(constraint)]
-						})
+					: Arr.flatMap(inPlace(ctx, member.schema), (asserted) =>
+							Option.match(decodeNode(asserted), {
+								onNone: () => [],
+								onSome: (constraint) => [...requiredOf(constraint)]
+							})
+						)
 			)
 		)
 
