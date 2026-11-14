@@ -1299,6 +1299,20 @@ const directStatements = (
 					)
 		}),
 		...Arr.flatMap(relations, (r) =>
+			Arr.flatMap(viewOf(r.name), (fact): ReadonlyArray<DirectStatement> => {
+				const field = Arr.headNonEmpty(r.key)
+				const value = fact[field]
+				return value === undefined
+					? []
+					: Arr.map(["select", "update"] as const, (kind): DirectStatement => ({
+							kind: "insert-on-conflict",
+							relation: r.name,
+							fact,
+							onConflict: { kind, where: { kind: "raise-on", field, value } }
+						}))
+			})
+		),
+		...Arr.flatMap(relations, (r) =>
 			Arr.map(viewOf(r.name).slice(0, 1), (fact): DirectStatement => ({
 				kind: "merge-delete",
 				relation: r.name,
