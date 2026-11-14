@@ -16,8 +16,9 @@
  *
  * Oracle: PostgreSQL itself, GROUP BY's equality over the raw spellings, and DISTINCT over the arrays the encoder sends.
  *
- * Plants: codec-uuid-case-kept (a uuid's identity keeps its case, so the host splits what PostgreSQL groups),
- * codec-relation-no-dedup (the normalizer keeps every fact, so the arrays hold one value twice).
+ * Plants: ~/.cache/grizzle-release/REDSWEEP/plants/codec-uuid-case-kept.patch (a uuid's identity keeps its case, so
+ * the host splits what PostgreSQL groups) turns both properties red at the floor's case 0; codec-relation-no-dedup (the
+ * normalizer keeps every fact, so the arrays hold one value twice).
  *
  * Features: "equal facts spelled apart" and "deduplicated".
  */

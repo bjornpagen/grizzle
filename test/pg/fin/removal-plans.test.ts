@@ -28,7 +28,8 @@
  * - a member of each of an owner's two counted families deleted: the recount's keyset of its two families' groups.
  *
  * Plant (~/.cache/grizzle-release/DENTRIAGE/plants/removals-or-exists.patch): removals.ts before the keysets, every site
- * an OR of EXISTS over its stored table: caught.
+ * an OR of EXISTS over its stored table: caught. Plant (~/.cache/grizzle-release/REDSWEEP/plants/
+ * removals-merged-or-exists.patch): the edited and refilled members' site alone so: caught at that shape.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

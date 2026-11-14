@@ -12,8 +12,10 @@
  * Oracle: the specification of the policy (its settings, stored and shown as stated) and of a filtered search under a
  * strict-order iterative scan, which fills its request whenever the eligible facts allow.
  *
- * Plants: vector-policy-dropped (the policy's iterative scan is "off", HNSW's default, which underfills a filtered
- * request).
+ * Plants, each red at the floor stream (~/.cache/grizzle-release/REDSWEEP/plants): vector-policy-dropped.patch (the
+ * policy's iterative scan is "off", HNSW's default, which underfills a filtered request), and
+ * vector-policy-int8-read-as-number.patch (an int8 cell read as a number, so a candidate's revision is no eligible
+ * fact's).
  *
  * Features: each account the read is served for.
  */

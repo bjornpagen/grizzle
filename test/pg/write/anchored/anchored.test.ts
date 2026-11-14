@@ -53,8 +53,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * parameter of no keys and one of several, and while one is pending a steered case is constructed to reach it (`aims`):
  * its shape, or the relation parameter's member with no keys or two to four.
  *
- * Plant: ~/.cache/grizzle-release/BR08/plants/anchored-delete-never-anchored.patch, an exact deletion never anchored on
- * its relation's occurrence, must turn the property red.
+ * Plant: ~/.cache/grizzle-release/REDSWEEP/plants/anchored-delete-never-anchored.patch, an exact deletion never anchored
+ * on its relation's occurrence, turns the property red at the floor's case 0.
  */
 type Shape =
 	| "the claim's deletion of the Wanted items its pick names"
