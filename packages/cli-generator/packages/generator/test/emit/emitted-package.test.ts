@@ -15,6 +15,9 @@
  * apiKey in a header, a query and a cookie, OAuth 2, OpenID Connect and mutual TLS. They also reach a child group and a
  * group whose name folds to a binding a command module holds (`Command`, `Effect`, `Groups`, `Arr`, `Client`).
  *
+ * The compiler is the oracle, so it is checked to refuse: a package with a command whose root services layer has its
+ * `BaseUrl.layer` entry cut fails tsc, which names `Servers`, the service the commands require and nothing provides.
+ *
  * Plants, each applied to src/emit and seen to fail this suite and reverted:
  * - cli.ts's isArrayParameter without its content check, so an optional array parameter written by content reached its
  *   builder as the flag's Option (the kept case).
@@ -23,7 +26,7 @@ import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { drawn, explore } from "@superstarter/testing/explore"
 import type { Kept } from "@superstarter/testing/explore"
-import { required } from "@superstarter/testing/features"
+import { noCoverage, required } from "@superstarter/testing/features"
 import type { Gen } from "@superstarter/testing/gen"
 import { notesOnly } from "@superstarter/testing/sense"
 import { searched } from "@superstarter/testing/vitest"
@@ -166,6 +169,13 @@ const ROOT_API: ReadonlyArray<string> = ["root", "security", "servers"]
 
 /** What starts a run eagerly, which the entry modules never hold: a top-level await, or argv read past Stdio. */
 const EAGER: ReadonlyArray<string> = ["await", "process.argv"]
+
+/** The root services layer's `BaseUrl.layer` entry, which provides the `Servers` service every operation command
+ * requires. */
+const baseUrlLayer = regex('BaseUrl\\.layer\\(servers, "[A-Z0-9_]+"\\),\\s*', "u")
+
+/** What tsc reports when a run still requires `Servers` where the entry needs every service provided. */
+const UNPROVIDED_SERVERS = "Type 'Servers' is not assignable to type 'never'"
 
 const dynamicImport = regex('import\\("\\./([a-z0-9-]+)\\.ts"\\)', "gu")
 
@@ -379,6 +389,23 @@ const unshipped = (dir: string) =>
 	})
 
 const decoder = new TextDecoder()
+
+/** What a package's own typecheck reports: nothing when it passes, else tsc's output, or the failure itself when tsc
+ * never ran. */
+const typecheckReport = (generated: Parameters<typeof typecheckPackage>[0]) =>
+	Effect.map(Effect.exit(typecheckPackage(generated)), (checked) =>
+		Exit.match(checked, {
+			onSuccess: () => "",
+			onFailure: (cause) =>
+				Option.match(Cause.findErrorOption(cause), {
+					onNone: () => Formatter.format(cause),
+					onSome: (failed) =>
+						failed._tag === "BuildStepFailed"
+							? decoder.decode(failed.stdout)
+							: Formatter.format(failed)
+				})
+		})
+	)
 
 /**
  * Whether the root command module is lazy: it imports no command module statically; every command module is loaded
@@ -602,19 +629,8 @@ layer(harnessLayer, { excludeTestServices: true })("emit: generated packages", (
 								const kept = yield* unformatted(generated.dir)
 								const shipped = yield* unshipped(generated.dir)
 								const lazyRoot = lazyRootFindings(modules)
-								const checked = yield* Effect.exit(typecheckPackage(generated))
 								const got = {
-									typecheck: Exit.match(checked, {
-										onSuccess: () => "",
-										onFailure: (cause) =>
-											Option.match(Cause.findErrorOption(cause), {
-												onNone: () => Formatter.format(cause),
-												onSome: (failed) =>
-													failed._tag === "BuildStepFailed"
-														? decoder.decode(failed.stdout)
-														: Formatter.format(failed)
-											})
-									}),
+									typecheck: yield* typecheckReport(generated),
 									unformatted: kept,
 									unshipped: shipped,
 									lazyRoot
@@ -626,6 +642,54 @@ layer(harnessLayer, { excludeTestServices: true })("emit: generated packages", (
 									lazyRoot: []
 								}
 								deepStrictEqual(got, want)
+							})
+						)
+				)
+			),
+		Duration.toMillis(Duration.minutes(5))
+	)
+
+	it.effect(
+		"a package whose root services layer drops the Servers service its commands require is refused by tsc, which names it",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "dropped service",
+						draw: drawn(caseGen),
+						literal: Formatter.format,
+						coverage: noCoverage,
+						kept: [],
+						runs: 8,
+						shrink: { kind: "bounded", candidates: 20 },
+						concurrency: 1,
+						steerEvery: 4,
+						caseHang: Duration.minutes(2)
+					},
+					(drawnCase, k) =>
+						Effect.scoped(
+							Effect.gen(function* () {
+								const fs = yield* FileSystem.FileSystem
+								const path = yield* Path.Path
+								const generated = yield* generateFixture({
+									spec: { path: "openapi.json", text: textOf(documentOf(drawnCase.document)) },
+									config: { path: "author-config.json", text: textOf(configOf(drawnCase.config)) },
+									authorFiles: []
+								})
+								yield* k.assume(Arr.isReadonlyArrayNonEmpty(generated.result.report.commandNames))
+								const rootPath = path.join(generated.dir, "src", "cli", "root.ts")
+								const root = yield* fs.readFileString(rootPath)
+								const dropped = Str.replace(baseUrlLayer, "")(root)
+								yield* fs.writeFileString(rootPath, dropped)
+								const report = yield* typecheckReport(generated)
+								deepStrictEqual(
+									{
+										dropped: dropped !== root,
+										unprovided: Str.includes(UNPROVIDED_SERVERS)(report)
+									},
+									{ dropped: true, unprovided: true }
+								)
 							})
 						)
 				)
