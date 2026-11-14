@@ -343,6 +343,7 @@ type Shape =
 	| "monotoneRetired"
 	| "monotoneProbed"
 	| "newlyFenced"
+	| "newlyFencedRead"
 
 /** A drawn installation, which may be one of the counterexamples or a fixed shape, and an extension of it. */
 interface Case {
@@ -880,77 +881,91 @@ const triggeredGen: Gen<Case> = (s) => {
 }
 
 /**
- * The exemption of the monotonicity property (newlyFenced; the module's header), built: L0's r0 inserts A beside
- * reading D's absence and inserts D; L0's r1 inserts B, which references A; L1's r2 inserts C, which references B,
- * joined with a read of B. Before the extension r1 runs SERIALIZABLE. The extension adds a role of L0 that deletes A,
- * so L0 both deletes and inserts A and fences it, r1's check of A becomes a fenced check, and r1 certifies READ
- * COMMITTED, the relaxation the exemption allows. The relations A to D are placed by a drawn permutation. It is
- * TEST_SEED=3958976376's rotating case 421, shrunk (8acf7cdf), which the drawn stream reached about once in 30 seeds.
+ * The monotonicity property's exemption (newlyFenced; the module's header) and its bound, built. L0's r0 inserts A
+ * beside reading D's absence and inserts D; L1's r2 inserts C, which references B, joined with a read of B. L0's r1
+ * inserts B, and reads A one of two ways. The extension adds a role of L0 that deletes A, so L0 both deletes and
+ * inserts A and fences it. Before the extension r1 runs SERIALIZABLE.
+ *
+ * - `check` (the newlyFenced shape): B references A, so r1 reads A by its insert's foreign key check. That check
+ *   becomes a fenced check, and r1 certifies READ COMMITTED, the relaxation the exemption allows. This is
+ *   TEST_SEED=3958976376's rotating case 421, shrunk (8acf7cdf), which the drawn stream reached about once in 30
+ *   seeds.
+ * - `plain` (the newlyFencedRead shape): B references nothing; r1 reads A at its key in a member of its own, which
+ *   writes nothing, so the read, unsealed once A is deleted, meets no condition of r1's own, and inserts B in another.
+ *   A fence covers a fenced check alone, so r1 relies on no fence (Fence.for leaves it out) and keeps 5c's reason
+ *   against r0: it stays SERIALIZABLE. A 5c that spared any read of a fenced relation would relax it, unsoundly.
+ *
+ * The relations A to D are placed by a drawn permutation.
  */
-const newlyFencedGen: Gen<Case> = (s) => {
-	const [a = 0, b = 1, c = 2, d = 3] = s.draw(shuffled([0, 1, 2, 3], { min: 4, max: 4 }))
-	const read = (relation: number, mode: ReadSketch["mode"]): ReadSketch => ({
-		relation,
-		mode,
-		own: false,
-		group: 0,
-		binding: 0,
-		split: false,
-		rows: "one",
-		probes: []
-	})
-	const statement = (
-		writes: ReadonlyArray<WriteSketch>,
-		reads: ReadonlyArray<ReadSketch>
-	): StatementSketch => ({ writes, reads, probes: [], cores: [] })
-	const references = (i: number): ReadonlyArray<ReferenceSketch> =>
-		i === b
-			? [{ relation: a, key: 0, onUpdate: "noAction" }]
-			: i === c
-				? [{ relation: b, key: 0, onUpdate: "noAction" }]
-				: []
-	return {
-		sketch: {
-			relations: Arr.makeBy(RELATIONS, (i) => ({ ...clean([0]), references: references(i) })),
-			roles: [
-				{
+const newlyFencedGen =
+	(how: "check" | "plain"): Gen<Case> =>
+	(s) => {
+		const [a = 0, b = 1, c = 2, d = 3] = s.draw(shuffled([0, 1, 2, 3], { min: 4, max: 4 }))
+		const read = (relation: number, mode: ReadSketch["mode"]): ReadSketch => ({
+			relation,
+			mode,
+			own: false,
+			group: 0,
+			binding: 0,
+			split: false,
+			rows: "one",
+			probes: []
+		})
+		const statement = (
+			writes: ReadonlyArray<WriteSketch>,
+			reads: ReadonlyArray<ReadSketch>
+		): StatementSketch => ({ writes, reads, probes: [], cores: [] })
+		const references = (i: number): ReadonlyArray<ReferenceSketch> =>
+			i === b && how === "check"
+				? [{ relation: a, key: 0, onUpdate: "noAction" }]
+				: i === c
+					? [{ relation: b, key: 0, onUpdate: "noAction" }]
+					: []
+		return {
+			sketch: {
+				relations: Arr.makeBy(RELATIONS, (i) => ({ ...clean([0]), references: references(i) })),
+				roles: [
+					{
+						login: 0,
+						serializable: [],
+						privileges: [
+							{ relation: a, privilege: "INSERT" },
+							{ relation: d, privilege: "INSERT" }
+						],
+						members: [
+							[statement([insertOf(a, [])], [read(d, "negated")])],
+							[statement([insertOf(d, [])], [])]
+						]
+					},
+					{
+						login: 0,
+						serializable: [],
+						privileges: [{ relation: b, privilege: "INSERT" }],
+						members:
+							how === "check"
+								? [[statement([insertOf(b, [])], [])]]
+								: [[statement([], [read(a, "positive")])], [statement([insertOf(b, [])], [])]]
+					},
+					{
+						login: 1,
+						serializable: [],
+						privileges: [{ relation: c, privilege: "INSERT" }],
+						members: [[statement([insertOf(c, [0])], [read(b, "positive")])]]
+					}
+				]
+			},
+			shape: how === "check" ? "newlyFenced" : "newlyFencedRead",
+			extension: {
+				kind: "role",
+				role: {
 					login: 0,
 					serializable: [],
-					privileges: [
-						{ relation: a, privilege: "INSERT" },
-						{ relation: d, privilege: "INSERT" }
-					],
-					members: [
-						[statement([insertOf(a, [])], [read(d, "negated")])],
-						[statement([insertOf(d, [])], [])]
-					]
-				},
-				{
-					login: 0,
-					serializable: [],
-					privileges: [{ relation: b, privilege: "INSERT" }],
-					members: [[statement([insertOf(b, [])], [])]]
-				},
-				{
-					login: 1,
-					serializable: [],
-					privileges: [{ relation: c, privilege: "INSERT" }],
-					members: [[statement([insertOf(c, [0])], [read(b, "positive")])]]
+					privileges: [],
+					members: [[statement([{ relation: a, op: "delete", from: [] }], [])]]
 				}
-			]
-		},
-		shape: "newlyFenced",
-		extension: {
-			kind: "role",
-			role: {
-				login: 0,
-				serializable: [],
-				privileges: [],
-				members: [[statement([{ relation: a, op: "delete", from: [] }], [])]]
 			}
 		}
 	}
-}
 
 /**
  * W's m1 inserts A(k) where B(k) is absent and its m2 inserts B(k), so W runs SERIALIZABLE by absence; C reads A at its
@@ -2087,7 +2102,7 @@ const droppedReference: Case = {
 
 const shapeSketch = (
 	s: Source,
-	shape: Exclude<Shape, "triggered" | "droppedReference" | "newlyFenced">
+	shape: Exclude<Shape, "triggered" | "droppedReference" | "newlyFenced" | "newlyFencedRead">
 ): Sketch => {
 	switch (shape) {
 		case "copiers":
@@ -2263,8 +2278,8 @@ const shapeCaseGen =
 		if (shape === "triggered") {
 			return s.draw(triggeredGen)
 		}
-		if (shape === "newlyFenced") {
-			return s.draw(newlyFencedGen)
+		if (shape === "newlyFenced" || shape === "newlyFencedRead") {
+			return s.draw(newlyFencedGen(shape === "newlyFenced" ? "check" : "plain"))
 		}
 		const sketch = shapeSketch(s, shape)
 		return { sketch, shape, extension: s.draw(extensionGen(sketch)) }
@@ -2638,6 +2653,33 @@ const newlyFenced = (c: Case, lowered: ReadonlySet<number>): ReadonlySet<string>
 }
 
 /** The certificates after a case's extension: a dropped fact leaves its relation out of the facts. */
+/**
+ * The roles of `c` that read, by a statement's own read, a relation its extension makes a login fence that did not
+ * fence it before (the oracle's fencers before the extension, at the round the case settled, and after it, at the
+ * extended sketch's): a fence covers a fenced check alone, so such a reader relying on no fence keeps every reason 5c
+ * gives it, and the monotonicity property holds it SERIALIZABLE (the module's header).
+ */
+const plainReadersOfNewFences = (c: Case, lowered: ReadonlySet<number>): ReadonlySet<string> => {
+	const sketch = extended(c.sketch, c.extension)
+	const before = oracleRound(c.sketch, lowered)
+	const after = oracleRound(sketch, oracle(sketch).lowered)
+	const fresh = new Set(
+		Arr.filter(
+			Arr.makeBy(RELATIONS, (x) => x),
+			(x) => Arr.some(after.fencers(x), (login) => !before.fencers(x).includes(login))
+		)
+	)
+	return new Set(
+		Arr.flatMap(c.sketch.roles, (role, i) =>
+			Arr.some(role.members, (statements) =>
+				Arr.some(statements, (st) => Arr.some(st.reads, (r) => fresh.has(r.relation)))
+			)
+				? [`r${i}`]
+				: []
+		)
+	)
+}
+
 const afterOf = (c: Case): ReadonlyArray<RoleIsolation> => {
 	const sketch = extended(c.sketch, c.extension)
 	const relations = inputOf(sketch).relations
@@ -3301,6 +3343,7 @@ type IsolationFeature =
 	| "a check of a relation one login deletes and inserts"
 	| "a fence a READ COMMITTED role relies on"
 	| "a reader relaxed by a fence its extension makes"
+	| "a plain reader of a relation its extension newly fences, kept SERIALIZABLE"
 	| "a check of the rows that reference a changed one"
 	| "a retirement"
 	| "an update carried by a cascading foreign key"
@@ -3384,7 +3427,8 @@ const shapes: ReadonlyArray<Exclude<Shape, "drawn">> = [
 	"monotonePresent",
 	"monotoneRetired",
 	"monotoneProbed",
-	"newlyFenced"
+	"newlyFenced",
+	"newlyFencedRead"
 ]
 
 /**
@@ -3393,6 +3437,7 @@ const shapes: ReadonlyArray<Exclude<Shape, "drawn">> = [
  */
 const shapeAims: ReadonlyArray<readonly [IsolationFeature, Exclude<Shape, "drawn">]> = [
 	["a reader relaxed by a fence its extension makes", "newlyFenced"],
+	["a plain reader of a relation its extension newly fences, kept SERIALIZABLE", "newlyFencedRead"],
 	...Arr.map(shapes, (shape) => [`the ${shape}`, shape] as const)
 ]
 
@@ -3488,6 +3533,7 @@ const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "monotoneWriter":
 		case "monotoneCure":
 		case "newlyFenced":
+		case "newlyFencedRead":
 			return []
 	}
 }
@@ -4147,6 +4193,7 @@ describe("the isolation certifier", () => {
 								"a check of a relation one login deletes and inserts",
 								"a fence a READ COMMITTED role relies on",
 								"a reader relaxed by a fence its extension makes",
+								"a plain reader of a relation its extension newly fences, kept SERIALIZABLE",
 								"a check of the rows that reference a changed one",
 								"a retirement",
 								"an update carried by a cascading foreign key",
@@ -4347,6 +4394,7 @@ describe("the isolation certifier", () => {
 							}
 							const after = levelsOf(afterOf(c))
 							const fenced = newlyFenced(c, expected.lowered)
+							const plainReaders = plainReadersOfNewFences(c, expected.lowered)
 							for (const [i, level] of levelsOf(verdicts).entries()) {
 								if (level === "serializable" && !first && !fenced.has(`r${i}`)) {
 									assert.equal(
@@ -4361,6 +4409,16 @@ describe("the isolation certifier", () => {
 									Arr.getUnsafe(after, i) === "readCommitted"
 								) {
 									k.note("a reader relaxed by a fence its extension makes")
+								}
+								if (
+									level === "serializable" &&
+									!fenced.has(`r${i}`) &&
+									plainReaders.has(`r${i}`) &&
+									Arr.getUnsafe(after, i) === "serializable"
+								) {
+									k.note(
+										"a plain reader of a relation its extension newly fences, kept SERIALIZABLE"
+									)
 								}
 							}
 							const e = c.extension
