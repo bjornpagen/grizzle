@@ -33,6 +33,7 @@ import {
 	type WireOptions,
 	type WriteEvent,
 	type WriteState,
+	wireHeader,
 	wireText,
 	writeOpening
 } from "#compiler/plan/client.ts"
@@ -233,7 +234,7 @@ const exchange = (
 	})
 	const request = HttpClientRequest.post(member.route, {
 		accept: "text/event-stream",
-		headers: { "grizzle-wire": member.digest, ...bearer },
+		headers: { [wireHeader]: member.digest, ...bearer },
 		body: HttpBody.text(wireText(encodeInput(member.wire.input, input)), "application/json")
 	})
 	return request.pipe(

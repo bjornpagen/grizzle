@@ -17,7 +17,8 @@ export {
 	type ReadShape,
 	type Retry,
 	type Shape,
-	type WriteEvent
+	type WriteEvent,
+	wireHeader
 } from "#compiler/live/events.ts"
 export {
 	fold,

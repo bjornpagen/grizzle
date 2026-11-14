@@ -14,15 +14,28 @@
  *   its wire's digest, and its `x-grizzle-wire` its served wire.
  * - Events by shape: each operation's stream is the events of its member's shape (live/events.ts events), one component
  *   each, discriminated by `event`; a list's upsert carries `after`, a set's does not, and a write's answer is its
- *   outcome; a paged member's body takes its window.
+ *   outcome; a paged member's body takes its window. An instant read's `ready` says in its `x-stream` that `end`
+ *   follows it, and no other's does.
+ * - Described: one tag per role, in the login's order, whose description names every program of the role, the relations
+ *   its writes and refreshes name, and every context it reads, and says its calls need a bearer token exactly where it
+ *   reads one; each operation's summary says what its program is (live or at its call's instant, ordered, paged by
+ *   window, a write or a refresh), naming the relations it writes or refreshes; its body's description names every
+ *   parameter and every relation its facts are given for; and its `grizzle-wire` header's description names what a call
+ *   naming no digest and one naming another are answered (live/events.ts wireRefusals).
+ * - Bearer exactly where used: the document declares its bearer scheme exactly when some role reads a context, and an
+ *   operation's security names it exactly when its role reads one.
  *
  * Oracle: the served file the document is read off, its members and their wires, and the event model's own table.
  *
- * Features: a set read, a list read, a paged read, a write, a write with an array member, a write with a read-back, a
- * role reading a context, a role reading none.
+ * Features: a set read, a list read, a paged read, an instant read, a write, a write with an array member, a write
+ * with a read-back, a role reading a context, a role reading none, a login no role of which reads a context.
  *
  * Plants (~/.cache/grizzle-release/LIVE-OPENAPI/plants): openapi-non-program-operation (an operation for each role
  * beside its programs'), openapi-list-without-after (an ordered program's upsert from the set shape's events).
+ * Plants (~/.cache/grizzle-release/OPENAPI/plants): instant-ready-unmarked (an instant read's ready without `next`),
+ * tag-drops-program (a role's description names all its programs but its last), summary-instant-live (an instant
+ * read's summary says live), body-drops-facts (a body's description names no facts), wire-header-undescribed (the
+ * header's description names no stale answer), bearer-always (the bearer scheme declared for every login).
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
@@ -31,16 +44,25 @@ import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Result as Answered, Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
+import { regex } from "arkregex"
+import {
+	Result as Answered,
+	Array as Arr,
+	Effect,
+	Formatter,
+	Order,
+	Record as Rec,
+	String as Str
+} from "effect"
 import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
-import { type EventDescriptor, events } from "#compiler/live/events.ts"
+import { type EventDescriptor, events, wireRefusals } from "#compiler/live/events.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
-import type { ServedFile } from "#compiler/served/forms.ts"
+import type { ServedFile, ServedMember } from "#compiler/served/forms.ts"
 import { assert, deepEquals } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { documentErrors } from "#test/support/openapi/validator.ts"
@@ -62,11 +84,13 @@ type Feature =
 	| "a set read"
 	| "a list read"
 	| "a paged read"
+	| "an instant read"
 	| "a write"
 	| "a write with an array member"
 	| "a write with a read-back"
 	| "a role reading a context"
 	| "a role reading none"
+	| "a login no role of which reads a context"
 
 /** The member at `path` of a JSON value, none where a step finds no member. */
 const at = (value: unknown, ...path: ReadonlyArray<string>): unknown => {
@@ -79,6 +103,53 @@ const at = (value: unknown, ...path: ReadonlyArray<string>): unknown => {
 
 /** A JSON value's own keys, none for any other value. */
 const keysOf = (value: unknown): ReadonlyArray<string> => (isRecord(value) ? Rec.keys(value) : [])
+
+/** A run of characters no declared name holds: what separates two words of a description. */
+const nonWord = regex("[^A-Za-z0-9_]+")
+
+/** The words of a JSON value that is a text, each a run of ASCII letters, digits and underscores, as a declared name is. */
+const wordsOf = (value: unknown): ReadonlySet<string> =>
+	new Set(typeof value === "string" ? Str.split(value, nonWord) : [])
+
+/** Whether a text names every one of `names` as a word. */
+const namesAll = (value: unknown, names: ReadonlyArray<string>): boolean => {
+	const words = wordsOf(value)
+	return Arr.every(names, (name) => words.has(name))
+}
+
+/** The relations a member's wire says it writes or refreshes: a ChangeSet's outcome's, a refresh's targets'. */
+const relationsOf = (member: ServedMember): ReadonlyArray<string> => {
+	switch (member.kind) {
+		case "change": {
+			const wire = member.wire.member
+			return wire.shape === "write" && wire.outcome.kind === "change" ? wire.outcome.relations : []
+		}
+		case "refresh":
+			return Arr.map(member.refresh.targets, (target) => target.relation)
+		case "read":
+		case "key":
+		case "paged":
+		case "instant":
+			return []
+	}
+}
+
+/**
+ * What a member's summary says it is, as a word each, by its served form (served/forms.ts ServedMemberForm): `live`
+ * exactly for a read a call watches, `instant` for one at its call's instant, `ordered` for a read of a list, `paged`
+ * for a paged one, `write` for a ChangeSet's and `refresh` for a refresh's.
+ */
+const kindWords = (member: ServedMember): ReadonlyArray<readonly [string, boolean]> => {
+	const shape = member.wire.member.shape
+	return [
+		["live", member.kind === "read" || member.kind === "key" || member.kind === "paged"],
+		["instant", member.kind === "instant"],
+		["ordered", shape === "list" || shape === "instantList"],
+		["paged", member.kind === "paged"],
+		["write", member.kind === "change"],
+		["refresh", member.kind === "refresh"]
+	]
+}
 
 /**
  * The document of a login's served file, written as generate writes it (`text`), held to every property of the header.
@@ -106,6 +177,40 @@ const holds = (
 			}))
 		)
 		const paths = at(document, "paths")
+		const contextual = Arr.some(file.roles, (r) => r.contexts.length > 0)
+		if (!contextual) {
+			note("a login no role of which reads a context")
+		}
+		assert.deepEqual(
+			keysOf(at(document, "components", "securitySchemes")),
+			contextual ? ["bearer"] : [],
+			`the bearer scheme is declared exactly when some role reads a context\n${printed()}`
+		)
+		const tags = at(document, "tags")
+		assert.deepEqual(
+			isList(tags) ? Arr.map(tags, (tag) => at(tag, "name")) : [],
+			Arr.map(file.roles, (r) => r.name),
+			`one tag per role, in the login's order\n${printed()}`
+		)
+		for (const [r, tag] of Arr.zip(file.roles, isList(tags) ? tags : [])) {
+			const description = at(tag, "description")
+			const named = [
+				...Arr.map(r.members, (member) => member.name),
+				...Arr.flatMap(r.members, relationsOf),
+				...Arr.map(r.contexts, (context) => context.name)
+			]
+			assert.ok(
+				namesAll(description, named),
+				`role ${r.name}'s description names its programs, the relations they write and refresh and its contexts: ${Formatter.format(description)}\n${printed()}`
+			)
+			assert.ok(
+				typeof description === "string" &&
+					Str.includes(r.contexts.length === 0 ? "need no bearer token" : "need a bearer token")(
+						description
+					),
+				`role ${r.name}'s description says its calls need a bearer token exactly when it reads a context: ${Formatter.format(description)}`
+			)
+		}
 		assert.deepEqual(
 			Arr.sort(keysOf(paths), Order.String),
 			Arr.sort(
@@ -125,7 +230,15 @@ const holds = (
 			)
 			assert.deepEqual(at(operation, "tags"), [r.name], `${path}: its tags, its role alone`)
 			assert.deepEqual(
-				at(operation, "parameters"),
+				at(operation, "security"),
+				r.contexts.length === 0 ? [] : [{ bearer: [] }],
+				`${path}: it names the bearer scheme exactly when its role reads a context`
+			)
+			const parameters = at(operation, "parameters")
+			assert.deepEqual(
+				isList(parameters)
+					? Arr.map(parameters, (p) => (isRecord(p) ? Rec.remove(p, "description") : p))
+					: parameters,
 				[
 					{
 						in: "header",
@@ -137,13 +250,46 @@ const holds = (
 				`${path}: its grizzle-wire header, its digest's one value`
 			)
 			assert.ok(
+				namesAll(at(parameters, "0", "description"), [wireRefusals.absent, wireRefusals.other]),
+				`${path}: its grizzle-wire header's description names what a call naming no digest and another one are answered`
+			)
+			const summary = at(operation, "summary")
+			for (const [word, holds] of kindWords(member)) {
+				assert.equal(
+					wordsOf(summary).has(word),
+					holds,
+					`${path}: its summary ${holds ? "says" : "does not say"} ${word}: ${Formatter.format(summary)}`
+				)
+			}
+			assert.ok(
+				namesAll(summary, relationsOf(member)),
+				`${path}: its summary names the relations it writes or refreshes: ${Formatter.format(summary)}`
+			)
+			const input = member.wire.member.input
+			assert.ok(
+				namesAll(at(operation, "requestBody", "description"), [
+					...Arr.map(input.params, (p) => p.name),
+					...(input.kind === "call" ? Arr.map(input.facts, (f) => f.relation) : [])
+				]),
+				`${path}: its body's description names its parameters and the relations of its facts\n${printed()}`
+			)
+			assert.ok(
 				deepEquals<unknown>(at(operation, "x-grizzle-wire"), member.wire),
 				`${path}: its x-grizzle-wire, its served wire\n${printed()}`
 			)
 			const shape = member.wire.member.shape
-			note(shape === "set" ? "a set read" : shape === "list" ? "a list read" : "a write")
+			note(
+				shape === "set" || shape === "instantSet"
+					? "a set read"
+					: shape === "list" || shape === "instantList"
+						? "a list read"
+						: "a write"
+			)
 			if (member.kind === "paged") {
 				note("a paged read")
+			}
+			if (member.kind === "instant") {
+				note("an instant read")
 			}
 			const body = at(operation, "requestBody", "content", "application/json", "schema", "required")
 			assert.deepEqual(
@@ -171,12 +317,20 @@ const holds = (
 					name,
 					`${path}: the event ${name}`
 				)
+				if (name === "ready") {
+					assert.deepEqual(
+						at(component, "x-stream"),
+						member.kind === "instant" ? { role: "ready", next: "end" } : { role: "ready" },
+						`${path}: its ready says end follows it exactly for an instant read\n${printed()}`
+					)
+				}
 				const data = at(component, "properties", "data", "contentSchema", "required")
 				if (name === "upsert") {
+					const ordered = shape === "list" || shape === "instantList"
 					assert.deepEqual(
 						data,
-						shape === "list" ? ["row", "after"] : ["row"],
-						`${path}: a ${shape}'s upsert ${shape === "list" ? "carries" : "carries no"} after\n${printed()}`
+						ordered ? ["row", "after"] : ["row"],
+						`${path}: a ${shape}'s upsert ${ordered ? "carries" : "carries no"} after\n${printed()}`
 					)
 				}
 			}
@@ -227,9 +381,11 @@ layer(NodeServices.layer, { excludeTestServices: true })("a login's OpenAPI docu
 								"a set read",
 								"a list read",
 								"a paged read",
+								"an instant read",
 								"a write",
 								"a role reading a context",
-								"a role reading none"
+								"a role reading none",
+								"a login no role of which reads a context"
 							],
 							{ cases: 60, sense: notesOnly }
 						),

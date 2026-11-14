@@ -110,21 +110,37 @@ export const callError = <K extends CallErrorKind>(
 	payload: PayloadOf<(typeof callErrors)[K]["payload"], never, never>
 ): CallErrorOf<K> => ({ kind, retry: callErrors[kind].retry, ...payload })
 
+/** The request header a call names the wire it was built for by, its digest (live/member.ts WireDigest). */
+export const wireHeader = "grizzle-wire"
+
+/**
+ * What a call's wire header is refused as, before its Db opens: naming no digest, `input`; naming another form of its
+ * member than the one served, `stale`, so a client never decodes an answer by a form the server no longer serves.
+ */
+export const wireRefusals = { absent: "input", other: "stale" } as const satisfies {
+	readonly [refusal: string]: CallErrorKind
+}
+
 /**
  * What an event is to its stream: an `item` of the answer; `ready`, the read's value is whole; `error`, the answer
  * failed; `end`, nothing follows.
  */
 export type Role = "item" | "ready" | "error" | "end"
 
-/** An event's descriptor: its role, and the members its payload holds. */
+/**
+ * An event's descriptor: its role, the members its payload holds, and the event that follows it where one event alone
+ * may: an instant read's `ready` is followed by its `end` (`next`), since no change reaches it.
+ */
 export interface EventDescriptor {
 	readonly role: Role
 	readonly payload: Payload
+	readonly next?: "end"
 }
 
 const reset = { role: "item", payload: { key: "fields" } } as const
 const remove = { role: "item", payload: { key: "key" } } as const
 const ready = { role: "ready", payload: {} } as const
+const instantReady = { role: "ready", payload: {}, next: "end" } as const
 const error = { role: "error", payload: { error: "error" } } as const
 const end = { role: "end", payload: {} } as const
 
@@ -138,8 +154,8 @@ const listUpsert = { role: "item", payload: { row: "row", after: "after" } } as 
 export const events = {
 	set: { reset, upsert: setUpsert, remove, ready, error, end },
 	list: { reset, upsert: listUpsert, remove, ready, error, end },
-	instantSet: { reset, upsert: setUpsert, ready, error, end },
-	instantList: { reset, upsert: listUpsert, ready, error, end },
+	instantSet: { reset, upsert: setUpsert, ready: instantReady, error, end },
+	instantList: { reset, upsert: listUpsert, ready: instantReady, error, end },
 	write: { outcome: { role: "item", payload: { outcome: "outcome" } }, error, end }
 } as const satisfies {
 	readonly [shape: string]: { readonly [name: string]: EventDescriptor }

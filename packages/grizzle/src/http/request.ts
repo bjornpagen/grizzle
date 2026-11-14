@@ -1,6 +1,12 @@
 import { Array as Arr, Effect, Option, Result, String as Str } from "effect"
 import { parseToken, type Token } from "#adapter/db/token.ts"
-import { type CallError, callError, trustedJson } from "#compiler/plan/runtime.ts"
+import {
+	type CallError,
+	callError,
+	trustedJson,
+	wireHeader,
+	wireRefusals
+} from "#compiler/plan/runtime.ts"
 
 /**
  * What the handler reads of a request, each read once at the boundary into what its call takes: the request line it
@@ -50,16 +56,17 @@ export const bearerToken = (request: Request): Result.Result<Option.Option<Token
  * by a form the server no longer serves. Both are answered before the Db opens.
  */
 export const wireNamed = (request: Request, digest: string): Result.Result<void, CallError> =>
-	Option.match(Option.fromNullishOr(request.headers.get("grizzle-wire")), {
+	Option.match(Option.fromNullishOr(request.headers.get(wireHeader)), {
 		onNone: () =>
-			Result.fail(callError("input", { message: "the call names no grizzle-wire digest" })),
+			Result.fail(
+				callError(wireRefusals.absent, { message: `the call names no ${wireHeader} digest` })
+			),
 		onSome: (named) =>
 			named === digest
 				? Result.void
 				: Result.fail(
-						callError("stale", {
-							message:
-								"the call's grizzle-wire digest names a form of its program the server no longer serves"
+						callError(wireRefusals.other, {
+							message: `the call's ${wireHeader} digest names a form of its program the server no longer serves`
 						})
 					)
 	})
