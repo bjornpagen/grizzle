@@ -1,4 +1,5 @@
 import { Array as Arr, Equal, Option, Order, String as Str } from "effect"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type {
 	Catalog,
 	CatalogGrant,
@@ -10,7 +11,7 @@ import type {
  * What a function of the installation is, by the object that installs it, which decides how it is installed and who
  * may execute it: a world's function (a writable query entry's filter function, key probe or unique probe), a serial
  * field's advance function, moving the identity sequence of `table`, the refusal function, the snapshot guard, the
- * isolation guard, a rule over a query's trigger function, or a constant: a roster's names constant, which the roster domain `domain`'s CHECK reads; a
+ * isolation guard, a rule over a query's trigger function, a retirable unit's hold or retirement, or a constant: a roster's names constant, which the roster domain `domain`'s CHECK reads; a
  * roster's live-codes constant, derived from the names constant `names` and read by the bits domain `domain`'s CHECK;
  * or a closed relation's or a side's constant, named by its content's digest.
  */
@@ -21,6 +22,8 @@ export type InstalledFunction =
 	| { readonly kind: "snapshotGuard" }
 	| { readonly kind: "isolationGuard" }
 	| { readonly kind: "rule" }
+	| { readonly kind: "hold" }
+	| { readonly kind: "retire" }
 	| { readonly kind: "names"; readonly domain: string }
 	| { readonly kind: "live"; readonly domain: string }
 	| {
@@ -30,6 +33,16 @@ export type InstalledFunction =
 			readonly declared: boolean
 			readonly tables: ReadonlyArray<string>
 	  }
+
+/** The two functions each retirable unit installs, by the declared names of their headers: its hold and its retirement
+ * (physical/ddl/retire.ts addUnitFunctions), each named by its identity. */
+export const unitFunctions = (
+	headers: ReadonlyArray<string>
+): ReadonlyArray<readonly [string, InstalledFunction]> =>
+	Arr.flatMap(headers, (header) => [
+		[identifierOf(identity.hold(header)), { kind: "hold" }] as const,
+		[identifierOf(identity.retire(header)), { kind: "retire" }] as const
+	])
 
 /**
  * What a trigger of the installation is: the isolation guard a guarded table carries, or a rule over a query's deferred
@@ -644,10 +657,10 @@ const advanceProblems = (
 
 /**
  * A SECURITY DEFINER function grizzle installs, owned by the owner, its search_path fixed: a world's function is STABLE
- * and executable by one role; every other is VOLATILE, and is an advance
- * function, the refusal function (EXECUTE to world roles alone), the snapshot guard (EXECUTE to every login and no
- * role), or the isolation guard or a law function (EXECUTE to no one). A function the installation does not include is foreign, and
- * judged as one that grants EXECUTE to no one.
+ * and executable by one role; every other is VOLATILE, and is an advance function, the refusal function or a retirable
+ * unit's hold (EXECUTE to world roles alone), the snapshot guard (EXECUTE to every login and no role), or the isolation
+ * guard, a law function or a unit's retirement (EXECUTE to no one). A function the installation does not include is
+ * foreign, and judged as one that grants EXECUTE to no one.
  */
 const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 	const object: CatalogObject = { kind: "function", name: f.name }
@@ -702,6 +715,7 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 		case "advance":
 			return [...definer, ...advanceProblems(j, f, expected.table, executors)]
 		case "refusal":
+		case "hold":
 			return [...definer, ...grantProblems(j, held, allowed.function, allowed.none)]
 		case "snapshotGuard":
 			return [
@@ -711,6 +725,7 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 			]
 		case "isolationGuard":
 		case "rule":
+		case "retire":
 			return [...definer, ...grantProblems(j, held, allowed.none, allowed.none)]
 		case "names":
 		case "live":

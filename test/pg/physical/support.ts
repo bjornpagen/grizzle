@@ -274,6 +274,8 @@ export const worldsGrants = (
 				case "world":
 				case "isolationGuard":
 				case "rule":
+				case "hold":
+				case "retire":
 				case "closedConstant":
 					return []
 			}

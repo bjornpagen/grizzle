@@ -5,10 +5,11 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { type RelationDesc, type SchemaDesc, serialDraw } from "#compiler/ir/desc.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import type {
-	ErasureExpectation,
-	InstalledFunction,
-	InstalledTrigger
+import {
+	type ErasureExpectation,
+	type InstalledFunction,
+	type InstalledTrigger,
+	unitFunctions
 } from "#test/support/catalog/verify.ts"
 import { wholeDigits } from "#test/support/closed/bit-text.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
@@ -17,6 +18,8 @@ interface Declared {
 	readonly relations: ReadonlyArray<RelationDesc>
 	/** The relations a mutable(R) statement names. */
 	readonly mutable: ReadonlySet<string>
+	/** The headers a retirable statement names, each unit's once. */
+	readonly headers: ReadonlyArray<string>
 }
 
 /**
@@ -40,14 +43,20 @@ const descOf = (schema: unknown): SchemaDesc => {
 /** Every level of the declaration, an extended schema's base included. */
 const levels = (desc: SchemaDesc): Declared => {
 	const base: Declared =
-		desc.extends === undefined ? { relations: [], mutable: new Set() } : levels(desc.extends)
+		desc.extends === undefined
+			? { relations: [], mutable: new Set(), headers: [] }
+			: levels(desc.extends)
 	const known = new Set(Arr.map(desc.relations, (r) => r.name))
 	return {
 		relations: [...Arr.filter(base.relations, (r) => !known.has(r.name)), ...desc.relations],
 		mutable: new Set([
 			...base.mutable,
 			...Arr.flatMap(desc.statements, (s) => (s.kind === "mutable" ? [s.relation] : []))
-		])
+		]),
+		headers: [
+			...base.headers,
+			...Arr.flatMap(desc.statements, (s) => (s.kind === "retirable" ? [s.header.relation] : []))
+		]
 	}
 }
 
@@ -67,14 +76,15 @@ const levels = (desc: SchemaDesc): Declared => {
  *   installation numbers by declared position, so the constant holds the declared handles in order and no hole; a
  *   roster a set field is typed over also installs its live-codes constant, named by the same digest, and its bits
  *   domain at its size, the handles' count;
- * - a closed relation installs constants named by their content's digest (`closedConstants`).
+ * - a closed relation installs constants named by their content's digest (`closedConstants`);
+ * - a retirable unit installs its hold and its retirement, named by their identities for its header.
  *
- * The authored tables, the mutable ones among them, the derived relations' views, the serial fields' advance functions
- * and the rosters' constants a schema declares, beside the singletons; no law function, law trigger, world or
+ * The authored tables, the mutable ones among them, the derived relations' views, the serial fields' advance functions,
+ * the rosters' constants and the retirable units' functions a schema declares, beside the singletons; no law function, law trigger, world or
  * membership: the schema's declaration alone, installed with no login, as a first installation.
  */
 export const declaredErasure = (schema: unknown): ErasureExpectation => {
-	const { relations, mutable } = levels(descOf(schema))
+	const { relations, mutable, headers } = levels(descOf(schema))
 	const tables = (keep: (r: RelationDesc) => boolean): ReadonlySet<string> =>
 		new Set(
 			Arr.map(Arr.filter(relations, keep), (r) => identifierOf(identity.table(parsedName(r.name))))
@@ -94,6 +104,7 @@ export const declaredErasure = (schema: unknown): ErasureExpectation => {
 			[identifierOf(identity.refusal()), { kind: "refusal" }],
 			[identifierOf(identity.isolationGuard()), { kind: "isolationGuard" }],
 			[identifierOf(identity.snapshotGuard()), { kind: "snapshotGuard" }],
+			...unitFunctions(headers),
 			...Arr.flatMap(relations, (r): ReadonlyArray<readonly [string, InstalledFunction]> => {
 				if (r.kind !== "closed") {
 					return []

@@ -23,6 +23,7 @@ import {
 	type ErasureProblem,
 	type InstalledFunction,
 	type InstalledTrigger,
+	unitFunctions,
 	verifyErasure
 } from "#test/support/catalog/verify.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
@@ -324,6 +325,11 @@ export const installedScope = (
 				...functionsOf("lawFunction", { kind: "rule" }),
 				...functionsOf("snapshotGuard", { kind: "snapshotGuard" }),
 				...functionsOf("worldFunction", { kind: "world" }),
+				...unitFunctions(
+					Arr.flatMap(installation.owned.statements, (st) =>
+						st.kind === "retirable" ? [st.header.relation] : []
+					)
+				),
 				...constantsOf(installation, snapshot),
 				...Arr.flatMap(Rec.toEntries(snapshot.theory.relations), ([name, r]) =>
 					r.kind === "relation"
