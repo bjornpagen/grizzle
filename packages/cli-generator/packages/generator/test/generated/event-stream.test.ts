@@ -21,7 +21,7 @@
  * its stop point), event-retry-without-budget.patch (a retry-safe error event retries with no `--retries`),
  * constant-not-sent.patch (a constant parameter is sent empty).
  */
-import { NodeChildProcessSpawner, NodeHttpServer } from "@effect/platform-node"
+import { NodeChildProcessSpawner, NodeCrypto, NodeHttpServer } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { drawn, exhaust, explore } from "@superstarter/testing/explore"
@@ -48,7 +48,7 @@ import {
 } from "effect"
 import { Headers, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
-import { generateFixture } from "#test/support/generated-cli.ts"
+import { generateFixture } from "#test/support/cli-package.ts"
 
 /** The generated package: its directory and its built entry. */
 class Site extends Context.Service<
@@ -64,14 +64,16 @@ const siteLayer = Layer.effect(Site)(
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const path = yield* Path.Path
-		const work = yield* fs.makeTempDirectoryScoped({ prefix: "event-stream-config-" })
-		const configPath = path.join(work, "author-config.json")
-		yield* fs.writeFileString(
-			configPath,
-			'{"binName":"site","envPrefix":"SITE","package":{"name":"site-cli","version":"0.1.0"}}\n'
-		)
 		const specPath = path.resolve(import.meta.dirname, "../fixtures/specs/event-stream.json")
-		const generated = yield* generateFixture({ configPath, specPath })
+		const spec = yield* fs.readFileString(specPath)
+		const generated = yield* generateFixture({
+			spec: { path: "event-stream.json", text: spec },
+			config: {
+				path: "author-config.json",
+				text: '{"binName":"site","envPrefix":"SITE","package":{"name":"site-cli","version":"0.1.0"}}\n'
+			},
+			authorFiles: []
+		})
 		const installed = path.resolve(import.meta.dirname, "../../../../node_modules")
 		yield* fs.symlink(installed, path.join(generated.dir, "node_modules"))
 		const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
@@ -88,7 +90,6 @@ const siteLayer = Layer.effect(Site)(
 		if (built !== 0) {
 			return yield* Effect.die(`the generated package does not build: tsc exited ${built}`)
 		}
-		const spec = yield* fs.readFileString(specPath)
 		const declared = yield* Schema.decodeEffect(WireDigests)(spec)
 		return {
 			bin: path.join(generated.dir, "dist", "src", "bin.js"),
@@ -447,7 +448,9 @@ const ErrorLine = Schema.fromJsonString(
 
 const environment = Layer.mergeAll(siteLayer, serverLayer).pipe(
 	Layer.provideMerge(
-		NodeChildProcessSpawner.layer.pipe(Layer.provideMerge(NodeHttpServer.layerTest))
+		Layer.mergeAll(NodeChildProcessSpawner.layer, NodeCrypto.layerDigest).pipe(
+			Layer.provideMerge(NodeHttpServer.layerTest)
+		)
 	)
 )
 

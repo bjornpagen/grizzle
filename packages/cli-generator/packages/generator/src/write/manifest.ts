@@ -13,13 +13,13 @@ export const manifestFileName = ".openapi-cli-manifest.json"
  * `duplicate-path` or `unprintable` (a value `printJson` cannot take). `subject` names the path
  * involved, or the manifest file when no path is.
  */
-export class ManifestError extends Schema.TaggedError<
-	ManifestError,
-	{ readonly brand: unique symbol }
->()("ManifestError", {
-	reason: Schema.Literals(["duplicate-path", "malformed", "unprintable"]),
-	subject: Schema.String
-}) {}
+class ManifestError extends Schema.TaggedError<ManifestError, { readonly brand: unique symbol }>()(
+	"ManifestError",
+	{
+		reason: Schema.Literals(["duplicate-path", "malformed", "unprintable"]),
+		subject: Schema.String
+	}
+) {}
 
 const ManifestEntrySchema = Schema.Struct({
 	path: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),

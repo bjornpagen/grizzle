@@ -1,9 +1,0 @@
-{
-  "allowInsecure": true,
-  "binName": "fmt",
-  "envPrefix": "FMT",
-  "package": {
-    "name": "fmt-witness-cli",
-    "version": "0.1.0"
-  }
-}

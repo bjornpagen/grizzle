@@ -159,10 +159,9 @@ export class AuthorConfig extends Schema.Class<AuthorConfig>("AuthorConfig")({
  * The author config was refused; every diagnostic is a `document`-scope refusal, sorted by pointer.
  */
 // oxlint-disable-next-line unicorn/throw-new-error -- Schema.TaggedError<Self>()(tag, fields) declares a class; nothing is thrown
-export class AuthorConfigRefused extends Schema.TaggedError<AuthorConfigRefused>()(
-	"AuthorConfigRefused",
-	{ diagnostics: Schema.Array(Diagnostic) }
-) {}
+class AuthorConfigRefused extends Schema.TaggedError<AuthorConfigRefused>()("AuthorConfigRefused", {
+	diagnostics: Schema.Array(Diagnostic)
+}) {}
 
 /**
  * Where the config was read from and, when known, the folded `info.title` that a missing `binName`

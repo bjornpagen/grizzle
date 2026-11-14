@@ -609,24 +609,6 @@ const storeFrom = (
 	)
 
 /**
- * Builds the schema store (design 2.2, 3.5): each Schema Object root (components and inline use
- * sites in parameters, headers, media types and encodings) and each schema `$ref` target, converted
- * with `JsonSchema.fromSchemaOpenApi3_0` or `_3_1` into one set of draft 2020-12 definitions. Keys
- * follow `defsKey` (design 2.2 key rule): a component uses its name and any other schema its
- * canonical pointer, so an inline parameter or request schema is stored under `defsKey(entry, use
- * site)`. Every `$ref` names `#/$defs/<key>`. A `$ref` target that is the document root or another
- * OpenAPI object is not stored; the validation copy refuses the reference.
- */
-export const storeSchemas = (
-	resolution: Resolution,
-	limits: SchemaLimits
-): Effect.Effect<StoredSchemas, SchemaBudgetExceeded | SchemaImportDefect> => {
-	const budget = budgetOf(limits)
-
-	return storeFrom(budget, resolution, sitesOf(budget, resolution))
-}
-
-/**
  * Keywords beside a `$ref` that assert nothing: annotations, extensions and location keywords.
  */
 const nonAsserting: ReadonlySet<string> = new Set([
@@ -1461,7 +1443,7 @@ const importCopy = Effect.fnUntraced(function* importCopy(
  * Effect's importer runs, and each node it still rejects becomes `{}` under the code of its D-AD12
  * class. The copy is the stored document minus `edits` (X10); it is recomputed, never edited.
  */
-export const validationCopy = Effect.fnUntraced(function* validationCopy(
+const validationCopy = Effect.fnUntraced(function* validationCopy(
 	line: SpecLine,
 	definitions: ReadonlyMap<string, Json>,
 	limits: SchemaLimits

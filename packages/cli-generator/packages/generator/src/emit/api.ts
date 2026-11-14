@@ -384,7 +384,7 @@ const responseKey = (key: ResponseCase["key"]): string => {
  * The label written for a document URI that does not parse, so the raw text never reaches generated
  * source.
  */
-export const documentPlaceholder = "<unparsed-document>"
+const documentPlaceholder = "<unparsed-document>"
 
 // A document's label, with no credentials, query or fragment (C8). A document on the entry's
 // origin is labelled by its path relative to the entry's directory, so no host path is emitted;
@@ -791,7 +791,7 @@ export interface FormPart {
  * whose rule declares a header, folded to camel case and renamed by numeric suffix past `fields`
  * and each other. Keys never depend on flag spelling.
  */
-export const keyedPartKeys = (operation: Operation): ReadonlyMap<string, string> => {
+const keyedPartKeys = (operation: Operation): ReadonlyMap<string, string> => {
 	const taken = new Set(["fields"])
 	const keys = new Map<string, string>()
 	for (const alternative of operation.body?.alternatives ?? []) {

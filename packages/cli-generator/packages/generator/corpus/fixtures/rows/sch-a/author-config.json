@@ -1,9 +1,0 @@
-{
-  "allowInsecure": true,
-  "binName": "scha",
-  "envPrefix": "SCHA",
-  "package": {
-    "name": "sch-a-witness-cli",
-    "version": "0.1.0"
-  }
-}

@@ -128,7 +128,7 @@ export interface Resolution {
 /**
  * The document set cannot be resolved; the model is not built (design 2.4).
  */
-export class ResolveRefusal extends Schema.TaggedError<
+class ResolveRefusal extends Schema.TaggedError<
 	ResolveRefusal,
 	{ readonly brand: unique symbol }
 >()("ResolveRefusal", {
@@ -1721,11 +1721,3 @@ export const implicitComponent = (
 export const allOfReferrers = (
 	resolution: Resolution
 ): ReadonlyMap<string, readonly CanonicalKey[]> => resolution.allOfReferrers
-
-/**
- * The operation with `operationId` in the entry document, for Link Objects (design 3.3).
- */
-export const operationById = (
-	resolution: Resolution,
-	operationId: string
-): Option.Option<CanonicalKey> => Option.fromUndefinedOr(resolution.operationIds.get(operationId))

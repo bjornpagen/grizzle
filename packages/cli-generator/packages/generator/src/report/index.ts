@@ -29,7 +29,7 @@ export const CommandName = Schema.Struct({
  * One element the author config made non-standard (design 8.1 `nonStandard`, 6.1): the choice and
  * the config key that made it, the element's use site, and the row it departs from.
  */
-export const NonStandardEntry = Schema.Struct({
+const NonStandardEntry = Schema.Struct({
 	choice: Schema.Literals(["deepObjectBrackets", "deepObjectScalars"]),
 	configKey: Schema.Literals(["nonStandard.deepObjectBrackets", "nonStandard.deepObjectScalars"]),
 	document: DocumentUri,
@@ -45,7 +45,7 @@ type NonStandardEntryValue = typeof NonStandardEntry.Type
  * command and coverage counts it and its subtree as accounted for. `operationId` is absent for an
  * operation keyed by pointer.
  */
-export const SkippedOperation = Schema.Struct({
+const SkippedOperation = Schema.Struct({
 	document: DocumentUri,
 	operationId: Schema.optionalKey(Schema.String),
 	pointer: JsonPointer,

@@ -1,9 +1,0 @@
-{
-  "allowInsecure": true,
-  "binName": "doc",
-  "envPrefix": "DOC",
-  "package": {
-    "name": "doc-witness-cli",
-    "version": "0.1.0"
-  }
-}

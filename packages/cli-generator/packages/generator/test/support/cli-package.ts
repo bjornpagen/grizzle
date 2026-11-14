@@ -13,7 +13,8 @@ import {
 	Record as Rec,
 	Ref,
 	Schema,
-	Stream
+	Stream,
+	String as Str
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { generate, type GenerateResult } from "#generate.ts"
@@ -207,6 +208,17 @@ export type TerminalInvocation = Readonly<{
 }>
 
 /**
+ * A command line as the POSIX shell reads it back word for word: each word in single quotes, a quote inside one closed,
+ * escaped and reopened. util-linux script(1) takes the command it runs as one `--command` string, which the shell
+ * splits, and `--return` makes its exit status the command's.
+ */
+const shellCommand = (words: ReadonlyArray<string>): string =>
+	Arr.join(
+		Arr.map(words, (word) => `'${Str.replaceAll("'", "'\\''")(word)}'`),
+		" "
+	)
+
+/**
  * Runs a built bin under the hardened flags on a pseudo-terminal that script(1) opens, as an operator at a terminal runs
  * it: its stdin, stdout and stderr are the terminal, which a prompt needs. Once the terminal shows its first bytes, the
  * operator types `typed` and a carriage return; the run then reads the terminal until the bin exits. What the terminal
@@ -220,7 +232,13 @@ export const runBinOnTerminal = Effect.fn("cliPackage.terminal")(function* (
 	const handle = yield* spawner.spawn(
 		ChildProcess.make(
 			"/usr/bin/script",
-			["-q", "/dev/null", process.execPath, ...HARDENED_FLAGS, built.bin, ...invocation.args],
+			[
+				"--quiet",
+				"--return",
+				"--command",
+				shellCommand([process.execPath, ...HARDENED_FLAGS, built.bin, ...invocation.args]),
+				"/dev/null"
+			],
 			{ cwd: built.dir, env: invocation.env, extendEnv: false, killSignal: "SIGKILL" }
 		)
 	)

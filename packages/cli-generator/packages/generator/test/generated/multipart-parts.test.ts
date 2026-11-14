@@ -243,10 +243,10 @@ const invocationOf = (r: Run, file: string): Invocation => {
 			return {
 				operation: "uploads",
 				args: Arr.appendAll(
-					["--title", r.title],
+					[`--title=${r.title}`],
 					Option.match(r.file, {
 						onNone: () => [],
-						onSome: (sent) => ["--file", file, "--file-content-type", sent.type]
+						onSome: (sent) => ["--file", file, `--file-content-type=${sent.type}`]
 					})
 				),
 				file: Option.match(r.file, {
@@ -258,15 +258,15 @@ const invocationOf = (r: Run, file: string): Invocation => {
 			return {
 				operation: "docs",
 				args: Arr.appendAll(
-					["--title", r.title],
+					[`--title=${r.title}`],
 					Option.match(r.file, {
 						onNone: () => [],
 						onSome: (sent) =>
 							Arr.flatten([
-								["--file", file, "--file-x-checksum", sent.checksum],
+								["--file", file, `--file-x-checksum=${sent.checksum}`],
 								Option.match(sent.trace, {
 									onNone: () => [],
-									onSome: (trace) => ["--file-x-trace", trace]
+									onSome: (trace) => [`--file-x-trace=${trace}`]
 								})
 							])
 					})

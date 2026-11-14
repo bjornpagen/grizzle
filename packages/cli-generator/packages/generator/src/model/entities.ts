@@ -18,7 +18,7 @@ import { SpecLine } from "#model/spec-section.ts"
 /**
  * The text of an inventory row id: an uppercase prefix that may hold digits, a hyphen, a number.
  */
-export const rowIdPattern = /^[A-Z][A-Z0-9]*-[0-9]+$/u
+const rowIdPattern = /^[A-Z][A-Z0-9]*-[0-9]+$/u
 
 /**
  * An inventory row id such as `PRM-27`.
@@ -36,7 +36,7 @@ export const Origin = Schema.Struct({ document: DocumentUri, pointer: JsonPointe
 /**
  * Help text for an element; every field is optional.
  */
-export const Docs = Schema.Struct({
+const Docs = Schema.Struct({
 	description: Schema.optionalKey(SafeText),
 	summary: Schema.optionalKey(SafeText)
 })
@@ -44,7 +44,7 @@ export const Docs = Schema.Struct({
 /**
  * A reference into the one `SchemaStore` by its `$defs` key.
  */
-export const SchemaRef = Schema.Struct({ key: Schema.NonEmptyString })
+const SchemaRef = Schema.Struct({ key: Schema.NonEmptyString })
 
 const rows = Schema.Array(RowId)
 
@@ -181,7 +181,7 @@ export class EncodingRule extends Schema.Class<EncodingRule>("EncodingRule")({
  * One branch of a discriminated body: its composition `index`, the entry component it names when
  * its `$ref` chain ends at one, and the discriminator values that select it, in mapping order.
  */
-export const DiscriminatorBranch = Schema.Struct({
+const DiscriminatorBranch = Schema.Struct({
 	component: Schema.optionalKey(Schema.NonEmptyString),
 	index: Schema.Int,
 	labels: Schema.Array(Schema.String)
@@ -378,7 +378,7 @@ const OAuthFlow = Schema.Struct({
 /**
  * The flows of an `oauth2` scheme by flow kind, recorded for help only.
  */
-export const OAuthFlows = Schema.Struct({
+const OAuthFlows = Schema.Struct({
 	authorizationCode: Schema.optionalKey(OAuthFlow),
 	clientCredentials: Schema.optionalKey(OAuthFlow),
 	deviceAuthorization: Schema.optionalKey(OAuthFlow),
@@ -446,7 +446,7 @@ export class SecurityPolicy extends Schema.Class<SecurityPolicy>("SecurityPolicy
 /**
  * The one schema store: a JSON document of `$defs`.
  */
-export class SchemaStore extends Schema.Class<SchemaStore>("SchemaStore")({
+class SchemaStore extends Schema.Class<SchemaStore>("SchemaStore")({
 	document: JsonLiteral,
 	origin: Origin,
 	rows

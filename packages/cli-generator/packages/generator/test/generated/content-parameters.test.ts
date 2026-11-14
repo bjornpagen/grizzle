@@ -175,10 +175,13 @@ const argsOf = (r: Run): ReadonlyArray<string> => {
 	switch (r.kind) {
 		case "values":
 			return Arr.flatten([
-				["--coordinates", jsonTextOf(r.coordinates)],
-				Option.match(r.tags, { onNone: () => [], onSome: (tags) => ["--tags", jsonTextOf(tags)] }),
-				Option.match(r.trace, { onNone: () => [], onSome: (trace) => ["--x-trace", trace] }),
-				Option.match(r.cookie, { onNone: () => [], onSome: (cookie) => ["--c", cookie] })
+				[`--coordinates=${jsonTextOf(r.coordinates)}`],
+				Option.match(r.tags, {
+					onNone: () => [],
+					onSome: (tags) => [`--tags=${jsonTextOf(tags)}`]
+				}),
+				Option.match(r.trace, { onNone: () => [], onSome: (trace) => [`--x-trace=${trace}`] }),
+				Option.match(r.cookie, { onNone: () => [], onSome: (cookie) => [`--c=${cookie}`] })
 			])
 		case "fault":
 			return r.fault === "the required parameter missing" ? [] : ["--coordinates", "{not json"]

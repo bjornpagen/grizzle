@@ -250,9 +250,9 @@ const send: Gen<Send> = (source) => {
 /** The arguments for a message's fields: its text, each tag and each id as its own flag. */
 const fieldArgs = (given: MessageFields): ReadonlyArray<string> =>
 	Arr.flatten([
-		Option.match(given.content, { onNone: () => [], onSome: (value) => ["--content", value] }),
-		Arr.flatMap(given.tags, (tag) => ["--tags", tag]),
-		Arr.flatMap(given.ids, (id) => ["--ids", id])
+		Option.match(given.content, { onNone: () => [], onSome: (value) => [`--content=${value}`] }),
+		Arr.map(given.tags, (tag) => `--tags=${tag}`),
+		Arr.map(given.ids, (id) => `--ids=${id}`)
 	])
 
 /** The file a multipart run sends, by its name. */
@@ -289,13 +289,13 @@ const invocationOf = (s: Send, file: string): Invocation => {
 				operation: "messages",
 				args: Arr.flatten([
 					["c1", "--content-type", "multipart/form-data"],
-					Option.match(s.content, { onNone: () => [], onSome: (value) => ["--content", value] }),
+					Option.match(s.content, { onNone: () => [], onSome: (value) => [`--content=${value}`] }),
 					["--file", file]
 				]),
 				stdin: none
 			}
 		case "upload by default":
-			return { operation: "uploads", args: ["--purpose", s.purpose], stdin: none }
+			return { operation: "uploads", args: [`--purpose=${s.purpose}`], stdin: none }
 		case "events as NDJSON":
 			return {
 				operation: "events",
