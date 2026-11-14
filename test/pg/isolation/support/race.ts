@@ -584,7 +584,7 @@ const factorial = (n: number): bigint =>
  * (schedules/interleave.ts), so no order of beginnings is pruned, and the count is what the exploration runs before
  * sleep sets prune any commuting statements.
  */
-export const ordersOf = (txns: ReadonlyArray<RaceTxn<never>>): bigint =>
+const ordersOf = (txns: ReadonlyArray<RaceTxn<never>>): bigint =>
 	Arr.reduce(txns, factorial(raceMoves(txns)), (orders, t) => orders / factorial(movesOf(t)))
 
 /** Every stored table's rows as text: its name and each row's JSON, one row each. */

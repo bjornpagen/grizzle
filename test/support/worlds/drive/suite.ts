@@ -1626,7 +1626,7 @@ export const leadOf = (
 }
 
 /** What a suite sees of one action its program performed: the state it ran in, its answer and the state after it. */
-export interface Seen {
+export interface SeenAction {
 	readonly index: number
 	readonly before: ModelState
 	readonly action: Action
@@ -1636,8 +1636,8 @@ export interface Seen {
 
 /** One performed action as a suite's rule judges it: what the suite saw of it, and of every action before it. */
 export interface Checked {
-	readonly seen: Seen
-	readonly earlier: ReadonlyArray<Seen>
+	readonly seen: SeenAction
+	readonly earlier: ReadonlyArray<SeenAction>
 }
 
 /**
@@ -1655,7 +1655,7 @@ export const noCheck: StepCheck = () => undefined
  */
 interface Progress {
 	readonly state: ModelState
-	readonly seen: ReadonlyArray<Seen>
+	readonly seen: ReadonlyArray<SeenAction>
 	readonly reached: ReadonlySet<string>
 }
 
@@ -1688,7 +1688,7 @@ export const driveProgram = <F extends string>(
 							steered(led ?? pc.weights, pending, at.reached)
 						)
 						const stepped = yield* runStep(staged.world, at.state, action, index, c)
-						const seen: Seen = {
+						const seen: SeenAction = {
 							index,
 							before: stepped.before,
 							action,

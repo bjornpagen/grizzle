@@ -267,11 +267,11 @@ export const answers = {
 	refresh: ["apply"]
 } as const satisfies { readonly [answer: string]: NonEmptyReadonlyArray<FailureSource> }
 
-/** What a member's answer is (answers). */
-export type Answer = keyof typeof answers
+/** The kind of a member's answer (answers). */
+export type AnswerKind = keyof typeof answers
 
 /** The CallErrors a member's calls of the answers A end with. */
-export type AnswerFailure<A extends Answer> = FailureOf<(typeof answers)[A][number]>
+export type AnswerFailure<A extends AnswerKind> = FailureOf<(typeof answers)[A][number]>
 
 /** The sources every call over HTTP meets before its member runs, beside its answer's: its door, then its Db's opening. */
 export const servedSources = [

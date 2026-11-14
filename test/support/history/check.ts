@@ -101,7 +101,7 @@ interface Explanation {
  * not one, tagged as the interleaving judgment tags it: no serial order of its operations explains them
  * (NoSerialOrder), or the committed state, an abort or an unorderable refusal is unexplained (Refused).
  */
-export type Verdict =
+type Verdict =
 	| {
 			readonly ok: true
 			readonly committed: Explanation

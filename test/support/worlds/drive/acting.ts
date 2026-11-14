@@ -2,7 +2,7 @@ import { Array as Arr, Option, Record as Rec } from "effect"
 import { assert } from "#test/support/assert.ts"
 import { valueText } from "#test/support/laws/model.ts"
 import { submittedTexts } from "#test/support/worlds/drive/index.ts"
-import type { Checked, Seen, StepCheck } from "#test/support/worlds/drive/suite.ts"
+import type { Checked, SeenAction, StepCheck } from "#test/support/worlds/drive/suite.ts"
 import { loginOf, roleOf, sessionAt } from "#test/support/worlds/model/session/state.ts"
 import type {
 	Action,
@@ -102,8 +102,8 @@ const submittedBy = ({ seen, earlier }: Checked): ReadonlySet<string> => {
 		onSome: (id): ReadonlyArray<string> =>
 			sessionAt(seen.before, id)?.kind === "direct"
 				? Arr.flatMap(
-						Arr.filter(earlier, (e: Seen) => Option.contains(sessionOf(e.action), id)),
-						(e: Seen) => submittedTexts(e.action)
+						Arr.filter(earlier, (e: SeenAction) => Option.contains(sessionOf(e.action), id)),
+						(e: SeenAction) => submittedTexts(e.action)
 					)
 				: []
 	})

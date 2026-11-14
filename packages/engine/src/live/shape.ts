@@ -19,7 +19,7 @@ import { int8Max } from "#compiler/core/limits.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { sqlstateBody } from "#compiler/core/sqlstate.ts"
 import {
-	type Answer,
+	type AnswerKind,
 	answers,
 	callErrors,
 	credentialReasons,
@@ -685,7 +685,7 @@ const readAnswers: { readonly [S in Exclude<Shape, "write">]: ShapeAnswers[S] } 
  * What a member's answer is (live/events.ts answers): a read's by its shape, a write's by its outcome, a ChangeSet's or
  * a refresh's.
  */
-const answerOf = <L>(member: MemberShape<L>): Answer =>
+const answerOf = <L>(member: MemberShape<L>): AnswerKind =>
 	member.shape === "write" ? member.outcome.kind : readAnswers[member.shape]
 
 /**

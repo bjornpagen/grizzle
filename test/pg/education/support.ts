@@ -33,7 +33,7 @@ import {
 	noteNaming,
 	type ProgramCase,
 	programCaseGen,
-	type Seen,
+	type SeenAction,
 	type StepCheck,
 	stage,
 	whilePending
@@ -168,7 +168,7 @@ const actorIn = (state: ModelState, action: Action): Actor =>
 		onSome: (session) => actorAt(state, session)
 	})
 
-const actorOf = (seen: Seen): Actor => actorIn(seen.before, seen.action)
+const actorOf = (seen: SeenAction): Actor => actorIn(seen.before, seen.action)
 
 /** The education role a role reference names, when it names one. */
 const roleOfRef = (ref: RoleRef): Option.Option<EducationRole> => {
@@ -526,7 +526,7 @@ const dbReads = (
 
 /** The read a prepared statement of a direct session names, as the session last prepared it before this action. */
 const preparedRead = (
-	earlier: ReadonlyArray<Seen>,
+	earlier: ReadonlyArray<SeenAction>,
 	session: number,
 	name: string
 ): Option.Option<PreparedRead> =>
@@ -547,7 +547,7 @@ const preparedRead = (
  * writer's reads of a role's view, of a table, of a prepared read under the claims it holds when executed, and of the
  * facts ON CONFLICT DO SELECT answers.
  */
-const readsOf = (seen: Seen, earlier: ReadonlyArray<Seen>): ReadonlyArray<Read> => {
+const readsOf = (seen: SeenAction, earlier: ReadonlyArray<SeenAction>): ReadonlyArray<Read> => {
 	const { action, observation } = seen
 	const actor = actorOf(seen)
 	if (action.kind === "apply" && observation.kind === "applied" && actor.kind === "db") {
@@ -677,7 +677,7 @@ interface Write {
 	readonly changes: ReadonlyArray<Change>
 }
 
-const writesOf = (seen: Seen): ReadonlyArray<Write> => {
+const writesOf = (seen: SeenAction): ReadonlyArray<Write> => {
 	const { action, observation } = seen
 	const actor = actorOf(seen)
 	if (action.kind === "apply" && observation.kind === "applied" && actor.kind === "db") {
@@ -797,7 +797,7 @@ const rollupCheck: StepCheck = ({ seen }) => {
 }
 
 /** The grades of every state of the program before this action, as their section and points. */
-const gradesSeen = (earlier: ReadonlyArray<Seen>): ReadonlyArray<HostFact> =>
+const gradesSeen = (earlier: ReadonlyArray<SeenAction>): ReadonlyArray<HostFact> =>
 	Arr.flatMap(earlier, (s) =>
 		Arr.flatMap(factsIn(s.before.reality, "Grade"), (grade) =>
 			Arr.flatMap(present(grade["points"]), (points) =>
@@ -810,7 +810,7 @@ const gradesSeen = (earlier: ReadonlyArray<Seen>): ReadonlyArray<HostFact> =>
 	)
 
 /** Notes what a case reached that the education suites are about, beside the driver's worlds features. */
-const noteSeen = (c: Case<Feature>, seen: Seen, earlier: ReadonlyArray<Seen>): void => {
+const noteSeen = (c: Case<Feature>, seen: SeenAction, earlier: ReadonlyArray<SeenAction>): void => {
 	const { action, observation } = seen
 	c.noteAll(roleOutcome(seen.before, action, observation))
 	if (

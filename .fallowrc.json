@@ -16,6 +16,8 @@
 		"scripts/pg/live-slot-bound.ts",
 		"scripts/gen/allen/main.ts",
 		"scripts/pg/cluster-size.ts",
+		"scripts/pg/lease-tables.ts",
+		"scripts/pg/port-free.ts",
 		"scripts/dev/toolchain-imports.ts"
 	],
 	"ignorePatterns": [
