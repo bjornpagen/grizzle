@@ -53,17 +53,18 @@
  * of a block alone, which adds the facts it held out, and never by an unwind or an inserted block, so its search
  * requires the first refusal only.
  *
- * Planted, ~/.cache/grizzle-release/LAWQUERY/plants/: violation-stale-view.patch, the whole check reading a
- * materialized derived relation a definition reads through its view, fails the equivalence search on viewed; and
+ * Planted, each a patch of analysis/theory/query.ts, each red in the floor stream of the searches it names, so on every
+ * seed. Under ~/.cache/grizzle-release/LAWQUERY/plants/: violation-stale-view.patch, the whole check reading a
+ * materialized derived relation a definition reads through its view, fails viewed's install in both its searches; and
  * old-probe-filters-old.patch, a delete's probe reading its touched relation filtered to OLD's key rather than OLD's
- * values in its place, which finds nothing once the row is gone, fails it by a break the triggers accept.
- *
- * Planted in a scratch copy, each fails its search (patches under ~/.cache/grizzle-release/RULESEED/plants/):
- * rule-seed-only-outer, every probe meeting the side its facts meet whole, a union PostgreSQL builds before any term
- * meets it, which the locality search fails; rule-seed-drops-chain-reach, a delete probe that reads every other match
- * of its arm as it stands, so a transaction that deletes a link and its children at once leaves no probe that reaches
- * the key, which the equivalence search fails; and rule-seed-arm-split-drops-arm, a probe whose negation of the target
- * reads its first arm alone, which the equivalence search fails.
+ * values in its place, which finds nothing once the row is gone, fails every shape's equivalence search by a break the
+ * triggers accept. Under ~/.cache/grizzle-release/RULESEED/plants/: rule-seed-only-outer.patch, readAs reading a side
+ * as one union of its arms, so every probe meets the side its facts meet whole, a union PostgreSQL builds before any
+ * term meets it, fails every shape's locality search; rule-seed-drops-chain-reach.patch, a relaxation that keeps every
+ * other match of the arm, so a delete probe reads them as they stand and a transaction that deletes a link and its
+ * children leaves no probe that reaches the key, fails titles', viewed's and deep's equivalence searches by a break the
+ * triggers accept; and rule-seed-arm-split-drops-arm.patch, lacks reading the target's first arm alone, so a probe's
+ * negation of the target misses a key a later arm holds, fails them by refusing a lawful state.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Case as Search } from "@grizzle/testing/explore"
