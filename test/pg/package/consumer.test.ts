@@ -11,10 +11,21 @@
  *
  * Plants (~/.cache/grizzle-release/BR11/plants): package-role-misnamed (the runtime entry's served(file, name) serves
  * each role under a name the file does not hold).
+ *
+ * The local cluster's commands through a submodule consumer's own install (test/unit/dev/consumer.ts
+ * submoduleConsumer), in every layout of that install: the consumer's link to grizzle-pg runs init and doctor on a
+ * cluster of the case's own, on a free port, and its link to grizzle runs generate and migrate into that cluster; the
+ * checkout never holds a node_modules of its own, and grizzle's source finds the project's effect, the one package
+ * whose Redacted carries the configuration's password, so a second copy fails the migrate. Box: the layouts.
+ *
+ * Plants (~/.cache/grizzle-release/SOURCEEXPORT/plants): pg-helper-needs-own-install (a helper importing test
+ * support, which only the repository's own install resolves) turns it red at init; checkout-own-effect (a second
+ * effect at the checkout's root, as an install inside the submodule leaves) red in the isolated layout, and
+ * hoisted-checkout-own-effect red at the hoisted layout's migrate, with "Unable to get redacted value".
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, type Gen, int } from "@bjornpagen/testing/gen"
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
@@ -26,6 +37,7 @@ import {
 	FileSystem,
 	Formatter,
 	Layer,
+	Option,
 	Path,
 	Redacted,
 	String as Str
@@ -36,16 +48,28 @@ import { pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
+import { clusterVariable, type LocalCluster, selectCluster } from "#pg/local-cluster.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { pgPin } from "#test/support/env.ts"
 import { installGenerated } from "#test/support/install-migrate.ts"
 import { caseHang, testConnectTimeout, testIdleTimeout } from "#test/support/limits.ts"
+import { hardenedNode } from "#test/support/process.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
-import { consumerProject, exitedCleanly, runChild } from "#test/unit/dev/consumer.ts"
+import {
+	consumerProject,
+	exitedCleanly,
+	freePort,
+	type Layout,
+	layouts,
+	packageFrom,
+	runChild,
+	type SubmoduleConsumer,
+	submoduleConsumer
+} from "#test/unit/dev/consumer.ts"
 
 const Note = relation("Note", { id: uuid, n: pg.integer }, ["id"])
 
@@ -229,7 +253,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 									const read = yield* Effect.scoped(
 										Effect.andThen(
 											installed.cluster.budget.within(consumerConnections),
-											runChild(process.execPath, [program, config], consumer.project)
+											runChild(process.execPath, [program, config], consumer.project, {})
 										)
 									)
 									assert.equal(read.exitCode, exitedCleanly, `the consumer: ${read.stderr}`)
@@ -241,6 +265,135 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 						)
 					)
 				})
+		)
+	}
+)
+
+/** The command line of a workspace member's bin, as pnpm links it under the directory a layout puts it in. */
+const grizzlePg = (consumer: SubmoduleConsumer): string =>
+	`${consumer.modules}/node_modules/@bjornpagen/grizzle-pg/bin/grizzle-pg.sh`
+
+/** The grizzle command line's entry point, through the consumer's link to grizzle. */
+const grizzleCli = (consumer: SubmoduleConsumer): string =>
+	`${consumer.modules}/node_modules/@bjornpagen/grizzle/src/cli/main.ts`
+
+/**
+ * The consumer's configuration: one relation, migrated into the owner's own database of the case's cluster, through
+ * its TLS and the owner's password, which the configuration wraps in the project's Redacted, so grizzle reads it
+ * only when its effect is the project's.
+ */
+const consumerConfig = (cluster: LocalCluster): string => `import { readFileSync } from "node:fs"
+import net from "node:net"
+import { Effect, Redacted } from "effect"
+import pgDriver from "pg"
+import { defineConfig, pg, relation, schema, uuid } from "@bjornpagen/grizzle"
+
+const Note = relation("Note", { id: uuid, n: pg.integer }, ["id"])
+const Consumer = schema("Consumer", [Note], [])
+
+export default defineConfig({
+	schemas: [Consumer],
+	logins: [],
+	migrations: "migrations",
+	connection: () => ({
+		driver: pgDriver,
+		transport: {
+			kind: "sslRequest",
+			host: "localhost",
+			port: ${cluster.port},
+			open: () => new net.Socket(),
+			ca: readFileSync(${jsonText(`${cluster.tls}/ca.crt`)}, "utf8"),
+			servername: "localhost"
+		},
+		database: ${jsonText(pgPin.devRole)},
+		role: ${jsonText(pgPin.devRole)},
+		password: Effect.succeed(Redacted.make(readFileSync(${jsonText(cluster.passwordFile)}, "utf8").trim())),
+		connectTimeoutMs: ${testConnectTimeout.value}
+	})
+})
+`
+
+layer(NodeServices.layer)(
+	"the local cluster's commands through a submodule consumer's install",
+	(it) => {
+		it.effect(
+			"a consumer's own install runs grizzle-pg init and doctor and a migrate, its checkout holding no node_modules and effect one package",
+			(ctx) =>
+				searched(
+					ctx,
+					exhaust(
+						{
+							suite: "package/local-cluster",
+							generator: element(nonEmpty(layouts, "the layouts of a consumer's install")),
+							literal: Formatter.format,
+							coverage: requiredInSpace<Layout>(
+								nonEmpty(layouts, "the layouts of a consumer's install")
+							),
+							box: "every layout of a consumer's install (test/unit/dev/consumer.ts dependencyHome)",
+							oracle: {
+								kind: "specification",
+								name: "each command exits cleanly, the checkout holds no node_modules, and grizzle's source finds the project's effect"
+							},
+							caseHang,
+							concurrency: 1
+						},
+						(layout, c) =>
+							Effect.scoped(
+								Effect.gen(function* () {
+									c.note(layout)
+									const fs = yield* FileSystem.FileSystem
+									const path = yield* Path.Path
+									const consumer = yield* submoduleConsumer(layout)
+									const port = yield* freePort
+									const env = { [clusterVariable]: `${port}` }
+									const cluster = yield* Effect.orDie(selectCluster(env))
+									const command = (args: ReadonlyArray<string>) =>
+										runChild(grizzlePg(consumer), args, consumer.project, env)
+									yield* Effect.addFinalizer(() =>
+										Effect.asVoid(Effect.orDie(command(["destroy"])))
+									)
+									for (const step of ["init", "doctor"]) {
+										const ran = yield* command([step])
+										assert.equal(
+											ran.exitCode,
+											exitedCleanly,
+											`grizzle-pg ${step}: ${ran.stdout}${ran.stderr}`
+										)
+									}
+									yield* fs.writeFileString(
+										path.join(consumer.project, "grizzle.config.ts"),
+										consumerConfig(cluster)
+									)
+									for (const step of ["generate", "migrate"]) {
+										const ran = yield* runChild(
+											process.execPath,
+											[...hardenedNode, grizzleCli(consumer), step, "grizzle.config.ts"],
+											consumer.project,
+											{}
+										)
+										assert.equal(
+											ran.exitCode,
+											exitedCleanly,
+											`grizzle ${step}: ${ran.stdout}${ran.stderr}`
+										)
+									}
+									const ownModules = yield* fs.exists(path.join(consumer.checkout, "node_modules"))
+									assert.equal(ownModules, false, "the checkout holds a node_modules of its own")
+									const projects = yield* packageFrom(consumer.project, "effect")
+									assert.ok(Option.isSome(projects), "the project finds no effect")
+									const grizzles = yield* packageFrom(
+										path.join(consumer.checkout, "packages", "grizzle", "src"),
+										"effect"
+									)
+									assert.deepEqual(
+										grizzles,
+										projects,
+										"grizzle's source finds another effect than the project's"
+									)
+								})
+							)
+					)
+				)
 		)
 	}
 )

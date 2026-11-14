@@ -188,6 +188,8 @@
 							"scripts/dev/profile/compile.ts",
 							"scripts/dev/profile/read.ts",
 							"scripts/gen/allen/main.ts",
+							"packages/pg/src/foreign-postmasters.ts",
+							"packages/pg/src/pin-verdict.ts",
 							"test/pg/cli/config.child.ts",
 							"test/support/pg-global-setup.ts",
 							"test/types/batch/global-setup.ts"
@@ -210,6 +212,7 @@
 					{
 						"include": [
 							"test/support/memory-tls.ts",
+							"test/unit/dev/consumer.ts",
 							"test/support/wire-tap.ts",
 							"test/unit/adapter/bind.test.ts",
 							"test/unit/adapter/flight-bound.test.ts",

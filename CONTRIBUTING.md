@@ -84,7 +84,7 @@ commit gate. The typecheck and lint, `pnpm check`, run by hand before a release.
       `max_pred_locks_per_relation = 1023`, where production's `max_pred_locks_per_transaction = 2048` promotes a
       transaction's page locks to its relation's, `wal_level = logical`, and `timezone` and `log_timezone` at UTC
       whatever the machine's zone;
-    - sized to the machine (`test/support/substrate/shared.ts` `clusterSize`, `scripts/pg/cluster-size.ts`):
+    - sized to the machine (`packages/pg/src/size.ts` `clusterSize`, `packages/pg/src/cluster-size.ts`):
       `max_connections` holds a connection lease for each of the network tier's workers, one per core, and
       `shared_buffers` each worker's database, no more, since PostgreSQL scans every shared buffer at each commit that
       drops a relation, and `max_pred_locks_per_transaction` a worker's predicate locks for each worker, spread over
@@ -100,6 +100,11 @@ commit gate. The typecheck and lint, `pnpm check`, run by hand before a release.
   extensions, locale, money formatting, `ON CONFLICT DO SELECT`, verify-full TLS with a wrong CA, a wrong host name
   and plaintext all refused, and the owner's SET on `deadlock_timeout`. `--quick` runs the checks
   that need no scratch database, and every database test run starts with it.
+- **`packages/pg`** (`@bjornpagen/grizzle-pg`) is the TypeScript these scripts run (scripts/pg/lib.sh `pg_node`) and the
+  formulas they and the tests share (the cluster a port names, its size, its connection lease), a workspace member so a
+  consumer's install, never one inside its submodule, gives it its dependencies; its `grizzle-pg` bin runs the
+  scripts. test/pg/package/consumer.test.ts runs init, doctor and a migrate through a consumer's links in each install
+  layout.
 - **`pnpm pg <command>`** runs `scripts/pg/ctl.sh`:
     - `start`, `stop` and `status`;
     - `psql`, verify-full as `grizzle_dev`;
@@ -174,7 +179,7 @@ Everyone commits and pushes straight to `main`. There are no branches, no integr
 
 Vitest runs each test file in a process of its own, never through Vite's module runner: Node runs the files as it runs
 the code, by type stripping. `pnpm test` runs as many files at once as the cores allow; `pnpm test:network` runs one
-per core too (`test/support/substrate/workers.ts`), on a cluster `pnpm pg:init` sized to a connection lease for each. Vitest's own process,
+per core too (`packages/pg/src/workers.ts`), on a cluster `pnpm pg:init` sized to a connection lease for each. Vitest's own process,
 every test process and every child a file spawns run under the hardened flags, which the test scripts put in
 `NODE_OPTIONS` (`test/support/process.ts` `hardenedNode`, `vendor/toolchain/packages/testing/src/vitest/config.ts` `HARDENED_FLAGS`):
 `--disable-proto=delete`, `--disable-sigusr1`, `--throw-deprecation`, `--pending-deprecation`, `--force-context-aware`,

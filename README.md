@@ -1290,6 +1290,8 @@ Import it as `@bjornpagen/grizzle`, `@bjornpagen/grizzle/runtime`, `@bjornpagen/
 
 The agent guide is `vendor/grizzle/packages/grizzle/skills/grizzle/SKILL.md`: copy it to where your agent reads skills, and again after upgrading grizzle.
 
+To run grizzle's local PostgreSQL, the pinned build and a cluster of it ([Development](#development)), add `vendor/grizzle/packages/pg` to the workspace too, with the toolchain's `packages/testing` it takes `@bjornpagen/testing` from, and `@bjornpagen/grizzle-pg` (`workspace:*`) to your package's devDependencies. Its dependencies come from your install, so never run `pnpm install` inside `vendor/grizzle`: that gives grizzle a second copy of `effect`, and a `Redacted` made by one copy is unreadable by the other ("Unable to get redacted value"). Then `pnpm exec grizzle-pg build`, `pnpm exec grizzle-pg init` and `pnpm exec grizzle-pg doctor`, and `pnpm exec grizzle-pg <start|stop|status|psql|env|destroy>`; `GRIZZLE_PG_CLUSTER=<port>` names a cluster of your own beside the default one.
+
 In full:
 
 - **Peer dependencies.** `effect` 4.1.2 or a later 4.x, and `pg` (node-postgres) 8.23.1 or a later 8.x: install one copy of each beside grizzle. grizzle imports no driver: you pass the `pg` you import as each connection's `driver`, and a `pg` without pipeline mode, which every call's one round trip needs, is a type error there. `@types/pg`, where TypeScript reads `pg`'s types, is an optional peer.
@@ -4159,7 +4161,8 @@ Every generated suite draws from one seed, `TEST_SEED`, which a run prints first
     - `skills/grizzle/`: the agent guide.
 - `test/`: the unit, pg, schedules and types tiers, and their support in `test/support/`.
 - `bench/`: performance gates.
-- `scripts/pg/`: the pinned PostgreSQL's source, build, cluster, doctor and patches.
+- `scripts/pg/`: the pinned PostgreSQL's source, build, cluster, doctor and patches, whose commands the `grizzle-pg` bin runs.
+- `packages/pg/`: `@bjornpagen/grizzle-pg`, the TypeScript those commands run and the formulas they and the tests share: the cluster a port names, its size and its connection lease.
 - `scripts/dev/`: the mutation tester and the profiler.
 - `vendor/toolchain/`: the [toolchain](https://github.com/bjornpagen/toolchain), a git submodule pinned by commit, whose packages join the workspace: `@bjornpagen/devtools`, the lint tooling (superlint, the oxlint preset and plugin), which `toolchain.config.ts` configures, and `@bjornpagen/testing`, the testing library every test runs on, with `pnpm fuzz`'s script.
 

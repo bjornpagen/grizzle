@@ -84,7 +84,8 @@ layer(Consumer.layer, { excludeTestServices: true })(
 							"-p",
 							path.join(project, "tsconfig.json")
 						],
-						project
+						project,
+						{}
 					)
 					assert.equal(
 						checked.exitCode,
