@@ -19,7 +19,7 @@ export default defineTestConfig({
 	],
 	guided: ["packages/testing/src/sense.test.ts"],
 	setup: ["test/types/batch/global-setup.ts"],
-	conditions: ["grizzle-source"],
+	conditions: [],
 	timeouts: {
 		test: { kind: "bounded", millis: testTimeout.value },
 		hook: { kind: "bounded", millis: testTimeout.value }

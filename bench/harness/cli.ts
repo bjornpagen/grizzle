@@ -2,7 +2,6 @@ import { Array as Arr, Data, Effect, Option, Path, type PlatformError, String as
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { repoRoot } from "#bench/cold/identity.ts"
 import { defaultGateDirectories } from "#bench/harness/runner.ts"
-import { sourceCondition } from "#test/support/process.ts"
 
 export type BenchCommand =
 	| {
@@ -187,7 +186,7 @@ export const runSuite = Effect.fn("runSuite")(function* (
 ): Effect.fn.Return<number, PlatformError.PlatformError, ChildProcessSpawner.ChildProcessSpawner> {
 	const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
 	return yield* spawner.exitCode(
-		ChildProcess.make(process.execPath, [sourceCondition, suiteEntries[suite], ...args], {
+		ChildProcess.make(process.execPath, [suiteEntries[suite], ...args], {
 			cwd: repoRoot,
 			stdin: "inherit",
 			stdout: "inherit",

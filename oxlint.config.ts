@@ -118,7 +118,6 @@ const ASSERTIONS_MESSAGE =
 export default defineConfig(
 	lintConfig({
 		ignorePatterns: [
-			"packages/*/dist/**",
 			"packages/*/types/**",
 			"packages/devtools/src/*/fixtures/**",
 			"test/types/**/.*-??????/**"

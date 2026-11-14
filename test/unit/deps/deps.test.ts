@@ -51,7 +51,7 @@ import { trustedJson } from "#compiler/core/trusted.ts"
 import { assert, defined, like, matchers, nonEmpty } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { hardenedNode, run, runOptions, sourceCondition } from "#test/support/process.ts"
+import { hardenedNode, run, runOptions } from "#test/support/process.ts"
 import {
 	auditSource,
 	entriesOf,
@@ -276,13 +276,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
 		Effect.gen(function* () {
 			const result = yield* run(
 				process.execPath,
-				[
-					sourceCondition,
-					...hardenedNode,
-					`${root}test/unit/deps/runtime-probe.ts`,
-					root,
-					...modules
-				],
+				[...hardenedNode, `${root}test/unit/deps/runtime-probe.ts`, root, ...modules],
 				{ ...runOptions, cwd: root }
 			)
 			assert.equal(result.status, 0, `runtime probe failed:\n${result.stderr}`)

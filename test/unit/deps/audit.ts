@@ -291,46 +291,22 @@ export const packageOf = (specifier: string): string => {
 	return Str.startsWith("@")(specifier) ? `${parts[0]}/${parts[1]}` : head
 }
 
-/**
- * The fields of package.json the entry points come from, a file the repository holds: an export is a path, or its
- * declarations' and its code's paths.
- */
+/** The fields of package.json the entry points come from, a file the repository holds: each names a source module. */
 export type PackageJson = {
-	readonly exports: Readonly<
-		Record<string, string | { readonly types: string; readonly default: string }>
-	>
+	readonly exports: Readonly<Record<string, string>>
 	readonly bin?: Readonly<Record<string, string>>
-}
-
-/** The source of a published module: dist/<module>.js is built from src/<module>.ts alone (scripts/build.ts). */
-const sourceOf = (entry: string, path: string): string => {
-	if (!Str.startsWith("./dist/")(path) || !Str.endsWith(".js")(path)) {
-		throw new Error(`${entry} is not ./dist/*.js: ${path}`)
-	}
-	return `./src/${Str.slice("./dist/".length, -".js".length)(path)}.ts`
 }
 
 /** The workspace packages, by their directory under packages/: the engine and the shell. */
 export const packageDirectories: ReadonlyArray<string> = ["engine", "grizzle"]
 
 /**
- * One package's entry points, from its package.json: every export's and bin's code is a module of its dist/, and the
- * audit reads its source under its src/, the TypeScript Node runs in development, as a path from the repository root.
- * The "./package.json" export is not code. The engine's "./internal/<module>.ts" exports are exactly the modules the
- * shell imports, each an entry.
+ * One package's entry points, from its package.json: every export and bin names a module of its src/, the TypeScript
+ * Node runs, as a path from the repository root. The "./package.json" export is not code. The engine's
+ * "./internal/<module>.ts" exports are exactly the modules the shell imports, each an entry.
  */
-export const entriesOf = (directory: string, pkg: PackageJson): ReadonlyArray<string> => {
-	const within = (path: string): string => `packages/${directory}/${Str.slice("./".length)(path)}`
-	const targets: Array<string> = []
-	for (const [subpath, target] of Rec.toEntries(pkg.exports)) {
-		if (subpath !== "./package.json") {
-			targets.push(
-				within(sourceOf(`export ${subpath}`, typeof target === "string" ? target : target.default))
-			)
-		}
-	}
-	for (const path of Rec.values(pkg.bin ?? {})) {
-		targets.push(within(sourceOf("bin", path)))
-	}
-	return targets
-}
+export const entriesOf = (directory: string, pkg: PackageJson): ReadonlyArray<string> =>
+	Arr.map(
+		[...Rec.values(Rec.remove(pkg.exports, "./package.json")), ...Rec.values(pkg.bin ?? {})],
+		(path) => `packages/${directory}/${Str.slice("./".length)(path)}`
+	)

@@ -21,16 +21,6 @@ export interface RunOptions {
 export const runOptions: RunOptions = { cwd: repoRoot, env: {} }
 
 /**
- * The condition under which the package's own name, `@bjornpagen/grizzle`, resolves to packages/grizzle/src/index.ts (package.json's
- * "grizzle-source" export, first in "."), never to the dist/ the repository does not build. Every Node process the
- * repository runs on its own code carries it: Vitest's own process, whose global setups load the source (package.json's
- * test scripts), every test process (the Vitest configs' conditions), the bin under test, the benchmark children and
- * the mutation tester's runs. A consumer of the published package never does, so it resolves dist/
- * (test/unit/dev/package.test.ts); for that reason it is never put in NODE_OPTIONS, which every child inherits.
- */
-export const sourceCondition = "--conditions=grizzle-source"
-
-/**
  * The hardened Node every process of the repository's own code runs under: no `Object.prototype.__proto__` accessor
  * (prototype pollution has no path) and no inspector opened on SIGUSR1; a deprecated Node API, a pending deprecation
  * included, throws instead of warning; only context-aware native addons load; no module resolves from the global

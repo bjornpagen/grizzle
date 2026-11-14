@@ -24,7 +24,6 @@ import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { defined } from "#test/support/assert.ts"
 import { testTimeout } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
-import { sourceCondition } from "#test/support/process.ts"
 import { scopedTempDir } from "#test/support/temp.ts"
 import { type CompilerStalled, compiled, type Ran } from "#test/types/batch/compiler.ts"
 import {
@@ -680,18 +679,13 @@ const buildBatchOn = (spelled: string, groups: ReadonlyArray<Group>, seed: numbe
 						 * The compiler's strictness alone: no Effect language service, as in the engine's project, so a
 						 * program checks the types its fixtures state, and their Effect diagnostics stay the typecheck gate's,
 						 * under tsconfig.json's per-file overrides. No truncation, so a Refusal<"…"> deep in a long type is
-						 * never elided from a diagnostic. The package's own name resolves to src, as in tsconfig.json
-						 * (package.json's grizzle-source export).
+						 * never elided from a diagnostic. The package's own name resolves to src, as its package.json exports.
 						 */
 						const tsconfig = jsonText({
-							extends: Arr.map(
-								["packages/devtools/tsconfig.base.json", "tsconfig.base.json"],
-								(base) => path.relative(batch, path.join(root, base))
-							),
+							extends: path.relative(batch, path.join(root, "tsconfig.base.json")),
 							compilerOptions: {
 								noEmit: true,
 								noErrorTruncation: true,
-								customConditions: ["grizzle-source"],
 								plugins: []
 							},
 							files: Arr.map([...held.keys()], (file) => path.relative(batch, file))
@@ -786,7 +780,7 @@ export const buildInto = (groups: ReadonlyArray<Group>, seed: number, dir: strin
 const builderRan = (request: BuildRequest, builder: string) =>
 	Effect.scoped(
 		Effect.gen(function* () {
-			const handle = yield* ChildProcess.make(process.execPath, [sourceCondition, builder], {
+			const handle = yield* ChildProcess.make(process.execPath, [builder], {
 				cwd: yield* repoRoot,
 				stdin: { stream: Stream.make(new TextEncoder().encode(jsonText(request))), endOnDone: true }
 			})

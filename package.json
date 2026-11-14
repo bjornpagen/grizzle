@@ -20,7 +20,6 @@
 		"#index.ts": "./packages/grizzle/src/index.ts"
 	},
 	"scripts": {
-		"build": "node --conditions=grizzle-source scripts/build.ts",
 		"prepare": "effect-tsgo patch",
 		"check": "turbo run typecheck superlint oxlint fixtures:superlint fixtures:oxlint format dead-code architecture dedupe --continue=dependencies-successful",
 		"typecheck": "effect-tsgo tsrs -b",
@@ -31,12 +30,12 @@
 		"dead-code": "fallow dead-code",
 		"architecture": "fallow architecture",
 		"dedupe": "pnpm dedupe --check",
-		"test": "NODE_OPTIONS=\"$NODE_OPTIONS --disable-proto=delete --disable-sigusr1 --throw-deprecation --pending-deprecation --force-context-aware --no-global-search-paths --unhandled-rejections=strict\" node --conditions=grizzle-source node_modules/vitest/vitest.mjs run",
-		"test:network": "NODE_OPTIONS=\"$NODE_OPTIONS --disable-proto=delete --disable-sigusr1 --throw-deprecation --pending-deprecation --force-context-aware --no-global-search-paths --unhandled-rejections=strict\" node --conditions=grizzle-source node_modules/vitest/vitest.mjs run --config vitest.network.config.ts",
+		"test": "NODE_OPTIONS=\"$NODE_OPTIONS --disable-proto=delete --disable-sigusr1 --throw-deprecation --pending-deprecation --force-context-aware --no-global-search-paths --unhandled-rejections=strict\" node node_modules/vitest/vitest.mjs run",
+		"test:network": "NODE_OPTIONS=\"$NODE_OPTIONS --disable-proto=delete --disable-sigusr1 --throw-deprecation --pending-deprecation --force-context-aware --no-global-search-paths --unhandled-rejections=strict\" node node_modules/vitest/vitest.mjs run --config vitest.network.config.ts",
 		"fuzz": "node packages/testing/scripts/fuzz.ts",
-		"mutate": "node --conditions=grizzle-source scripts/dev/mutate/main.ts",
-		"bench": "node --conditions=grizzle-source bench/main.ts",
-		"bench:full": "node --conditions=grizzle-source bench/main.ts full",
+		"mutate": "node scripts/dev/mutate/main.ts",
+		"bench": "node bench/main.ts",
+		"bench:full": "node bench/main.ts full",
 		"pg:build": "scripts/pg/build.sh",
 		"pg:init": "scripts/pg/init.sh",
 		"pg:doctor": "scripts/pg/doctor.sh",
@@ -568,7 +567,7 @@
 					"files": [
 						"test/unit/dev/package.test.ts"
 					],
-					"reason": "The published-package gate: the README's and SKILL.md's mirrored programs, the one sanctioned example code, typecheck against the declarations the build emits alone, so those declarations are self-contained and never any; its other case exhausts the published entry points and bins against the source."
+					"reason": "The submodule-consumer gate: the README's and SKILL.md's mirrored programs, the one sanctioned example code, typecheck as a consumer's against the package's source reached through its exports, so the source checks under a consumer's tsconfig and no type the README states is any."
 				},
 				{
 					"files": [

@@ -17,20 +17,17 @@
 			"dependsOn": ["^source"]
 		},
 		"typecheck": {
-			"description": "tsrs -b builds the package's project and the projects it references, so it runs after theirs, and its declarations are its outputs; the shared tsconfig base is an input too.",
+			"description": "tsrs -b builds the package's project and the projects it references, so it runs after theirs, and its declarations are its outputs.",
 			"dependsOn": ["^typecheck"],
-			"inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/packages/devtools/tsconfig.base.json"],
 			"outputs": ["types/**"]
 		},
 		"@grizzle/devtools#typecheck": {
 			"description": "The dev tools and the testing library check with --noEmit: no declarations to cache.",
 			"dependsOn": ["^typecheck"],
-			"inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/packages/devtools/tsconfig.base.json"],
 			"outputs": []
 		},
 		"@grizzle/testing#typecheck": {
 			"dependsOn": ["^typecheck"],
-			"inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/packages/devtools/tsconfig.base.json"],
 			"outputs": []
 		},
 		"superlint": {
@@ -39,8 +36,7 @@
 			"inputs": [
 				"$TURBO_DEFAULT$",
 				"$TURBO_ROOT$/package.json",
-				"$TURBO_ROOT$/packages/devtools/src/**",
-				"$TURBO_ROOT$/packages/devtools/tsconfig.base.json"
+				"$TURBO_ROOT$/packages/devtools/src/**"
 			]
 		},
 		"oxlint": {

@@ -1,7 +1,7 @@
 /**
- * The published package against the dev cluster: a consumer's program, run by Node from a project whose node_modules
- * holds the built packages (test/unit/dev/published.ts), serves its login's committed served file with the runtime
- * entry's served(file, name), builds the login's DbLayer of it and the cluster's connection, opens a Db of the role with
+ * The package as a submodule consumer takes it, against the dev cluster: a consumer's program, run by plain Node from a
+ * project whose node_modules links the package's source as a pnpm workspace does (test/unit/dev/consumer.ts), serves
+ * its login's committed served file with the runtime entry's served(file, name), builds the login's DbLayer of it and the cluster's connection, opens a Db of the role with
  * Db.open, and reads every note once through its workload's member. The schema is installed through its first
  * migration under an allocated name (test/support/install-migrate.ts); the login's served file is compiled over that
  * installation's snapshot by the one compile generate commits (test/support/served-db.ts servedJson) and written as
@@ -47,7 +47,7 @@ import { servedJson } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { fullWorld, loginLayer } from "#test/support/worlds.ts"
-import { exitedCleanly, publishedProject, runChild } from "#test/unit/dev/published.ts"
+import { consumerProject, exitedCleanly, runChild } from "#test/unit/dev/consumer.ts"
 
 const Note = relation("Note", { id: uuid, n: pg.integer }, ["id"])
 
@@ -61,7 +61,7 @@ const notesOf = (base: ReturnType<typeof declared>) =>
 	})
 
 /**
- * The consumer, as an application writes it against the published package: the login's served file, served under the
+ * The consumer, as an application writes it against the package: the login's served file, served under the
  * login's name, the full role's Db of it (test/support/worlds.ts fullWorld), and one read of every note through the
  * workload's member. It loads the runtime entry alone, so no schema module and none of the compiler runs.
  */
@@ -113,15 +113,15 @@ const noteId = (i: number): Uuid => `00000000-0000-4000-8000-${Str.padStart(12, 
 type ConsumerFeature = "one note" | "several notes" | "a read after an earlier write"
 
 layer(Layer.merge(Substrate.layer, NodeServices.layer))(
-	"the published package on the dev cluster",
+	"the package as a submodule consumer takes it, on the dev cluster",
 	(it) => {
 		it.effect(
-			"opens a role of a login with the built package's Db.open and reads exactly every note written so far",
+			"opens a role of a login with the linked package's Db.open and reads exactly every note written so far",
 			(ctx) =>
 				Effect.gen(function* () {
 					const fs = yield* FileSystem.FileSystem
 					const path = yield* Path.Path
-					const published = yield* publishedProject
+					const consumer = yield* consumerProject
 					const Consumer = declared("Consumer")
 					const world = fullWorld(Consumer, { notes: notesOf(Consumer) })
 					const installed = yield* installMigrated(Consumer, {
@@ -133,14 +133,14 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 					const App = declared(installed.declared)
 					const own = fullWorld(App, { notes: notesOf(App) })
 					const file = yield* servedJson(installed, own.server, own.server.workload)
-					const served = path.join(published.project, "server.json")
+					const served = path.join(consumer.project, "server.json")
 					yield* fs.writeFileString(
 						served,
 						succeeded(servedText(servedFile(file)), "the login's served file's text")
 					)
-					const program = path.join(published.project, "consumer.mjs")
+					const program = path.join(consumer.project, "consumer.mjs")
 					yield* fs.writeFileString(program, consumerProgram)
-					const config = path.join(published.project, "config.json")
+					const config = path.join(consumer.project, "config.json")
 					yield* fs.writeFileString(
 						config,
 						jsonText({
@@ -164,7 +164,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 								literal: Formatter.format,
 								oracle: {
 									kind: "specification",
-									name: "the notes the cases wrote, each read once by the built package"
+									name: "the notes the cases wrote, each read once by the linked package"
 								},
 								coverage: required<ConsumerFeature>(
 									["one note", "several notes", "a read after an earlier write"],
@@ -195,7 +195,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 									const read = yield* runChild(
 										process.execPath,
 										[program, config],
-										published.project
+										consumer.project
 									)
 									assert.equal(read.exitCode, exitedCleanly, `the consumer: ${read.stderr}`)
 									unorderedEqual(

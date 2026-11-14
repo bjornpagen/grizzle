@@ -9,6 +9,22 @@
 		"allowImportingTsExtensions": true,
 		"resolveJsonModule": true,
 		"skipLibCheck": true,
-		"noEmit": true
+		"noEmit": true,
+		"strict": true,
+		"exactOptionalPropertyTypes": true,
+		"noUncheckedIndexedAccess": true,
+		"noImplicitOverride": true,
+		"noImplicitReturns": true,
+		"noPropertyAccessFromIndexSignature": true,
+		"noUncheckedSideEffectImports": true,
+		"erasableSyntaxOnly": true,
+		"verbatimModuleSyntax": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noFallthroughCasesInSwitch": true,
+		"allowUnreachableCode": false,
+		"allowUnusedLabels": false,
+		"isolatedModules": true,
+		"incremental": false
 	}
 }

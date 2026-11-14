@@ -21,7 +21,7 @@ import { ChildProcess } from "effect/process"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { exitedCleanly } from "#test/unit/dev/published.ts"
+import { exitedCleanly } from "#test/unit/dev/consumer.ts"
 
 /** The child's case (exit-child.ts ExitCase). */
 interface ExitCase {
@@ -48,7 +48,6 @@ const leaked = Object.freeze([
 
 /** The test flags a child runs under, as the network tests' own process does (package.json test:network). */
 const flags = Object.freeze([
-	"--conditions=grizzle-source",
 	"--disable-proto=delete",
 	"--disable-sigusr1",
 	"--throw-deprecation",

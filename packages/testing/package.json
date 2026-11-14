@@ -52,10 +52,23 @@
 		"@effect/platform-node": "catalog:",
 		"@effect/vitest": "catalog:",
 		"arkregex": "catalog:",
-		"effect": "catalog:",
-		"oxlint": "catalog:",
-		"typescript": "catalog:",
-		"vite": "catalog:",
-		"vitest": "catalog:"
+		"effect": "catalog:"
+	},
+	"peerDependencies": {
+		"oxlint": "^1.91.0",
+		"typescript": "^7.1.0-beta",
+		"vite": "^8.3.5",
+		"vitest": "^5.1.0"
+	},
+	"peerDependenciesMeta": {
+		"oxlint": {
+			"optional": true
+		},
+		"typescript": {
+			"optional": true
+		},
+		"vite": {
+			"optional": true
+		}
 	}
 }

@@ -19,7 +19,6 @@
 	},
 	"ignorePatterns": [
 		"pnpm-lock.yaml",
-		"dist/**",
 		"*.md",
 		"packages/devtools/src/*/fixtures/**",
 		"test/types/**/.*-??????/**",

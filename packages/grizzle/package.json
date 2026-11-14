@@ -1,33 +1,7 @@
 {
 	"name": "@bjornpagen/grizzle",
-	"version": "1.0.0-beta.1",
+	"private": true,
 	"description": "Declare your tables, rules, permissions and queries in TypeScript, and get PostgreSQL 19 constraints, row-level security, indexes, reviewed SQL migrations and exactly typed queries",
-	"keywords": [
-		"postgresql",
-		"postgres",
-		"typescript",
-		"effect",
-		"database",
-		"sql",
-		"schema",
-		"migrations",
-		"query",
-		"type-safe",
-		"constraints",
-		"row-level-security",
-		"rls",
-		"permissions",
-		"serializable"
-	],
-	"homepage": "https://github.com/bjornpagen/grizzle#readme",
-	"bugs": {
-		"url": "https://github.com/bjornpagen/grizzle/issues"
-	},
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/bjornpagen/grizzle.git",
-		"directory": "packages/grizzle"
-	},
 	"license": "0BSD",
 	"author": "Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>",
 	"type": "module",
@@ -40,34 +14,16 @@
 		"#compiler/*": "@bjornpagen/grizzle-engine/internal/*"
 	},
 	"exports": {
-		".": {
-			"grizzle-source": "./src/index.ts",
-			"types": "./dist/index.d.ts",
-			"default": "./dist/index.js"
-		},
-		"./runtime": {
-			"grizzle-source": "./src/runtime.ts",
-			"types": "./dist/runtime.d.ts",
-			"default": "./dist/runtime.js"
-		},
-		"./compile": {
-			"grizzle-source": "./src/compile.ts",
-			"types": "./dist/compile.d.ts",
-			"default": "./dist/compile.js"
-		},
+		".": "./src/index.ts",
+		"./runtime": "./src/runtime.ts",
+		"./compile": "./src/compile.ts",
 		"./package.json": "./package.json"
 	},
 	"bin": {
-		"grizzle": "./dist/cli/main.js"
+		"grizzle": "./src/cli/main.ts"
 	},
-	"files": [
-		"dist",
-		"src",
-		"skills"
-	],
 	"sideEffects": false,
 	"scripts": {
-		"prepack": "node --conditions=grizzle-source ../../scripts/build.ts",
 		"typecheck": "effect-tsgo tsrs -b",
 		"superlint": "superlint",
 		"oxlint": "oxlint"
@@ -90,9 +46,5 @@
 		"@types/pg": {
 			"optional": true
 		}
-	},
-	"publishConfig": {
-		"access": "public",
-		"tag": "beta"
 	}
 }

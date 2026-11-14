@@ -98,13 +98,10 @@ const measuredProgram = (dir: string, size: number, source: (entries: PreludeAt)
 			yield* fs.writeFileString(
 				path.join(programDir, "tsconfig.json"),
 				jsonText({
-					extends: Arr.map(["packages/devtools/tsconfig.base.json", "tsconfig.base.json"], (base) =>
-						path.relative(programDir, path.join(root, base))
-					),
+					extends: path.relative(programDir, path.join(root, "tsconfig.base.json")),
 					compilerOptions: {
 						noEmit: true,
 						noErrorTruncation: true,
-						customConditions: ["grizzle-source"],
 						plugins: []
 					},
 					files: ["index.ts"]

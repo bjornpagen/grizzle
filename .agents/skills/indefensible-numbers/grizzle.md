@@ -230,7 +230,7 @@ a typed error that says the call may succeed when run again, and never of a COMM
 Run `pnpm superlint` on the files you touched, then list every mint and every retired tag:
 
 ```sh
-rg -n --glob '*.ts' --glob '!**/node_modules/**' --glob '!packages/*/dist/**' --glob '!packages/*/types/**' \
+rg -n --glob '*.ts' --glob '!**/node_modules/**' --glob '!packages/*/types/**' \
   '@limitKind|\b(published|measured|derived)\(' .
 ```
 
