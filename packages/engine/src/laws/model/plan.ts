@@ -213,7 +213,7 @@ const plannedText = (c: PlannedColumn): string =>
  * INDEX_MAX_KEYS columns, over a text of no byte bound, or over an entry that can outgrow the limit, it is
  * UnrepresentableKey, `subject` naming the index and the law that plans it, since PostgreSQL would refuse the write
  * whose entry outgrows it (54000). A field is NOT NULL; a law column may hold NULL, which gives the entry its null
- * bitmap. A planned Unique and ReverseIndex hold this entry, so none is planned past it.
+ * bitmap. A planned Unique and a foreign key's reverse index hold this entry, so none is planned past it.
  */
 const plannedEntry = (
 	columns: NonEmptyReadonlyArray<PlannedColumn>,
@@ -507,6 +507,8 @@ export type NativePlan =
 			 * former's and every containment that rides it); undefined for a foreign key of one law, the law that plans it.
 			 */
 			readonly laws: NonEmptyReadonlyArray<LawId> | undefined
+			/** The index its reverse probe reads on its referencing side, which every foreign key carries (`Reversed`). */
+			readonly reverse: PlannedReverse
 	  }
 	| { readonly kind: "LawColumn"; readonly column: LawColumnPlan }
 	| {
@@ -528,8 +530,35 @@ export type NativePlan =
 			readonly target: RelationInfo
 			readonly targetColumns: NonEmptyReadonlyArray<PlannedColumn>
 			readonly targetSpan: PlannedColumn
+			/** The GiST index its reverse probe reads on its referencing side (`Reversed`). */
+			readonly reverse: PlannedReverse
 	  }
-	| ({ readonly kind: "ReverseIndex"; readonly relation: RelationInfo } & PlannedReverse)
+
+/**
+ * A foreign key, plain or PERIOD, with the index its reverse probe reads on its referencing side, which it carries: no
+ * foreign key is planned without one. Before a referenced row is deleted or its key updated, PostgreSQL's RI trigger
+ * (ri_triggers.c, RI_FKey_noaction_del) probes the referencing relation for a row that still references it, `SELECT 1
+ * FROM ONLY <relation> x WHERE $1 = <column> AND ... FOR KEY SHARE OF x`, once per referenced row; with no index the
+ * referencing columns lead, each probe reads every row a shorter prefix selects, the whole relation or a family's every
+ * member, so a statement deleting n rows reads n times as many. The law model installs the index wherever its slice
+ * writes the referencing relation (`reverseIndexOf`); the index engine serves the probe by it (physical/indexes/engine.ts
+ * reverseRequests): by an index whose leading columns are the referencing ones, or by a unique one all of whose columns
+ * are among them, such as the key a family states of each member's one successor, or else creates the index.
+ */
+export type Reversed = Extract<NativePlan, { readonly kind: "ForeignKey" | "PeriodForeignKey" }>
+
+/** A foreign key's reverse index as the native the law model installs on its referencing relation (`reverseIndexOf`). */
+export type ReverseIndexPlan = {
+	readonly kind: "ReverseIndex"
+	readonly relation: RelationInfo
+} & PlannedReverse
+
+/** The reverse index a foreign key carries, as the native the law model installs on its referencing relation. */
+export const reverseIndexOf = (fk: Reversed): ReverseIndexPlan => ({
+	kind: "ReverseIndex",
+	relation: fk.relation,
+	...fk.reverse
+})
 
 /**
  * The index of a reverse probe as planned (ir/law.ts ReverseIndexOn), with the proof of its entry: a B-tree's or a
@@ -2004,12 +2033,8 @@ export class Recognizer {
 				targetColumns: reference.targetColumns,
 				onUpdate: "noAction",
 				deferral,
-				laws: undefined
-			},
-			{
-				kind: "ReverseIndex",
-				relation: fromRel,
-				...plannedReverse(
+				laws: undefined,
+				reverse: plannedReverse(
 					sourceColumns,
 					`the index of ${fromRel.name} over the columns ${containment} references from`,
 					loc
@@ -2147,12 +2172,8 @@ export class Recognizer {
 				span: sourceSpan,
 				target: toRel,
 				targetColumns: targetScalars,
-				targetSpan
-			},
-			{
-				kind: "ReverseIndex",
-				relation: fromRel,
-				...plannedPeriodReverse(
+				targetSpan,
+				reverse: plannedPeriodReverse(
 					sourceScalars,
 					sourceSpan,
 					`the index of ${fromRel.name} over the columns the coverage of ${sideText(from)} in ${sideText(to)} references from`,
@@ -2197,6 +2218,9 @@ export class Recognizer {
 	 *   per side is exact: MATCH SIMPLE and UNIQUE NULLS DISTINCT both pass over a row with any null column;
 	 * - its key, `UNIQUE (g…, i)` over its planned group, and its bound `CHECK (i < ‹n›)`, with `‹i› >= 0` beside it for
 	 *   a counted index, which as a law column has no natural domain to keep it there;
+	 * - its successor key, `UNIQUE (g…, ‹p›)`: each member is the predecessor of at most one, as its key implies, ‹p›
+	 *   being the index's pred, NULL at slot 0. It states that law, and its index serves the predecessor axis's reverse
+	 *   probe, which binds its every column;
 	 * - its three axes (`#axis`), each carrying its pairs: the former's (a tree's interval copies, a fold's
 	 *   accumulators) and every containment's that rides it;
 	 * - every base pin of a carried copy, the copy's first law's: `i > 0 OR f = s` on a predecessor copy and `n > 0 OR
@@ -2395,15 +2419,11 @@ class FamilyPlanner {
 			selection: { conjuncts: [] }
 		})
 		const familyKeyColumns = appendNonEmpty(group, index)
+		const successorKey = appendNonEmpty(group, pred)
 		const ownerTargets = appendNonEmpty(ownerKey, fieldColumn(f.count))
 		const carried = {
 			owner: this.#carried("owner", f.axes.owner, extendNonEmpty(group, [copy]), ownerTargets),
-			predecessor: this.#carried(
-				"predecessor",
-				f.axes.predecessor,
-				appendNonEmpty(group, pred),
-				familyKeyColumns
-			),
+			predecessor: this.#carried("predecessor", f.axes.predecessor, successorKey, familyKeyColumns),
 			last: this.#carried("last", f.axes.last, appendNonEmpty(ownerKey, lastPred), familyKeyColumns)
 		}
 		const ownerTargetColumns = extendNonEmpty(
@@ -2438,7 +2458,7 @@ class FamilyPlanner {
 			predecessor: this.#axis(
 				"predecessor",
 				carried.predecessor,
-				{ relation: member, base: appendNonEmpty(group, pred) },
+				{ relation: member, base: successorKey },
 				{ relation: member, base: familyKeyColumns },
 				"noAction",
 				index.kind === "field" && !this.#recognizer.refillDeferred("predecessor", f)
@@ -2485,6 +2505,16 @@ class FamilyPlanner {
 				entry: plannedEntry(
 					familyKeyColumns,
 					`the UNIQUE of ${member.name} that ${familyText(this.#shape())} numbers its members by`,
+					this.#loc
+				)
+			},
+			{
+				kind: "Unique",
+				relation: member,
+				columns: successorKey,
+				entry: plannedEntry(
+					successorKey,
+					`the UNIQUE of ${member.name} that holds each member of ${familyText(this.#shape())} the predecessor of at most one`,
 					this.#loc
 				)
 			},
@@ -2667,7 +2697,10 @@ class FamilyPlanner {
 	 * One axis's foreign key, its law columns and the UNIQUE over its target columns, which the foreign key references:
 	 * a key like any declared one, so INDEX_MAX_KEYS bounds its columns and its B-tree entry must be representable for
 	 * every value they admit (`plannedEntry`), or the axis is UnrepresentableKey, naming the fold whose accumulator it
-	 * carries; PostgreSQL would refuse the write that outgrows it (54000).
+	 * carries; PostgreSQL would refuse the write that outgrows it (54000). The foreign key carries the index of its
+	 * reverse probe over its referencing columns (`Reversed`), as every foreign key does: deleting a family's members
+	 * probes the predecessor axis once per member, and a tree's nodes the owner axis, each probe reading every member of
+	 * the family or node of the tree without it.
 	 */
 	#axis(
 		kind: AxisKind,
@@ -2723,7 +2756,12 @@ class FamilyPlanner {
 				targetColumns,
 				onUpdate,
 				deferral,
-				laws: [own, ...laws]
+				laws: [own, ...laws],
+				reverse: plannedReverse(
+					columns,
+					`the index of ${source.relation.name} over the columns the ${kind} axis of ${familyText(this.#shape())} references from`,
+					this.#loc
+				)
 			},
 			natives: [
 				...lawColumns(columns),

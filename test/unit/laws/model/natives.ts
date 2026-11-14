@@ -134,6 +134,15 @@ const columnSet = (
 		", "
 	)
 
+/** The reverse indexes of a relation, each over its columns as a set, sorted. */
+export const reverseSets = (model: LawModel, relation: string): ReadonlyArray<string> =>
+	Arr.sort(
+		Arr.map(onRelation(model, "ReverseIndex", relation), (r) =>
+			columnSet(model, r.relation, r.columns)
+		),
+		Order.String
+	)
+
 /** Every UNIQUE and PRIMARY KEY of a relation, each as its sorted column set. */
 export const keySets = (model: LawModel, relation: string): ReadonlyArray<string> =>
 	Arr.sort(

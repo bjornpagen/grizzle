@@ -128,10 +128,10 @@ const reasonOf = (r: IndexRequest): PhysicalReason =>
 	r.role === "lawMaintenance" ? { kind: "law", law: r.justification.law } : { kind: "access" }
 
 /**
- * The reverse lookup of every containment the law model lowered to a referencing-side index: one request per law the
- * index serves, over the columns and by the method the law model planned it (ir/law.ts ReverseIndexOn), each a field
- * or a law column by its arm. The law model leaves a constant law column out of them: one value in every row narrows no
- * lookup.
+ * The reverse lookup of every foreign key the law model installs, each of which carries its referencing-side index
+ * (laws/model/plan.ts Reversed): one request per law the index serves, over the columns and by the method the law model
+ * planned it (ir/law.ts ReverseIndexOn), each a field or a law column by its arm. The law model leaves a constant law
+ * column out of them: one value in every row narrows no lookup.
  */
 export const reverseRequests = (b: InstallBuilder): ReadonlyArray<IndexRequest> =>
 	b.natives.flatMap(({ object: n }) => {
@@ -707,8 +707,9 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * indexes.
  *
  * Requests come from two sources. Law maintenance is generated here from the law model: a reverse foreign-key lookup
- * for every containment PostgreSQL does not index on the referencing side (the ReverseIndex natives, over fields and
- * law columns alike, each by its arm); workload access paths arrive from the
+ * for every foreign key, plain or PERIOD, a family's axes among them, which PostgreSQL does not index on the
+ * referencing side (the ReverseIndex natives, over fields and law columns alike, each by its arm); workload access
+ * paths arrive from the
  * workload compiler through an installer extension's contribution (`workloadExtension`). A law-maintenance request is
  * always served, because a per-key check without one is a table scan.
  *

@@ -56,6 +56,7 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { assertReferencesServed } from "#test/support/laws/referencing.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
 import {
@@ -74,6 +75,7 @@ import {
 	loweringOf,
 	modelOf,
 	onRelation,
+	reverseSets,
 	ridingLaws
 } from "#test/unit/laws/model/natives.ts"
 import { owner } from "#test/unit/physical/fixtures.ts"
@@ -207,7 +209,7 @@ const sortText = (xs: ReadonlyArray<string>): ReadonlyArray<string> => Arr.sort(
 /** §2.1's three foreign keys for a shape, each as its contract reads it. */
 const expectedForeignKeys = (s: Shape): ReadonlyArray<ForeignKeyShape> => {
 	const i = s.order === "ordered" ? "at" : "‹index›"
-	const p = s.order === "ordered" ? "‹generated at›" : "‹generated n›"
+	const p = predOf(s)
 	const groupPairs = Arr.map(Arr.zip(group(s), keys(s)), ([g, k]) => ({ g, k }))
 	const fk = (
 		from: string,
@@ -258,7 +260,11 @@ const expectedForeignKeys = (s: Shape): ReadonlyArray<ForeignKeyShape> => {
 
 const setText = (xs: ReadonlyArray<string>): string => Arr.join(sortText(xs), ", ")
 
-/** §2.1's keys for a shape: the primary keys, the family key, and one superkey per distinct carried set. */
+/** The generated pred of a shape's index, ‹p›: of `at` when ordered, of the count's ‹i› when counted. */
+const predOf = (s: Shape): string => (s.order === "ordered" ? "‹generated at›" : "‹generated n›")
+
+/** §2.1's keys for a shape: the primary keys, the family key, its successor key (g…, ‹p›), each member the predecessor
+ * of at most one, and one superkey per distinct carried set. */
 const expectedKeys = (s: Shape) => {
 	const i = s.order === "ordered" ? "at" : "‹index›"
 	const familyKey = [...group(s), i]
@@ -267,6 +273,7 @@ const expectedKeys = (s: Shape) => {
 			...new Set([
 				"id",
 				setText(familyKey),
+				setText([...group(s), predOf(s)]),
 				setText([...familyKey, ...Arr.map(named("pred", s.predecessor), (c) => c.to)]),
 				setText([...familyKey, ...Arr.map(named("last", s.last), (c) => c.to)])
 			])
@@ -384,17 +391,38 @@ const checkCopies = (model: LawModel, s: Shape): void => {
 	}
 }
 
+/** Each axis's reverse index for a shape, over its referencing columns as a set: the owner axis's and the
+ * predecessor's on the member, the last axis's on the owner. */
+const expectedReverse = (s: Shape) => ({
+	Member: sortText([
+		setText([...group(s), "‹copy›", ...Arr.map(named("owner", s.owner), (c) => c.from)]),
+		setText([...group(s), predOf(s), ...Arr.map(named("pred", s.predecessor), (c) => c.from)])
+	]),
+	Owner: [setText([...keys(s), "‹generated n›", ...Arr.map(named("last", s.last), (c) => c.from)])]
+})
+
 const checkShape = (s: Shape): void => {
-	const model = modelOf(schemaOf(s))
+	const desc = schemaOf(s)
+	const model = modelOf(desc)
 	assertWellFormed(model)
+	const owned = owning(desc)
+	assertReferencesServed(
+		succeeded(compileInstallation(owned, installOptions(owned, owner))).statements
+	)
 	assert.deepEqual(foreignKeyShapes(model), expectedForeignKeys(s))
 	const expected = expectedKeys(s)
 	assert.deepEqual(keySets(model, "Member"), expected.Member)
 	assert.deepEqual(keySets(model, "Owner"), expected.Owner)
+	const reverse = expectedReverse(s)
 	assert.deepEqual(
-		[...onRelation(model, "ReverseIndex", "Member"), ...onRelation(model, "ReverseIndex", "Owner")],
-		[],
-		"an axis is indexed by its target's key prefix, and needs no reverse index"
+		reverseSets(model, "Member"),
+		reverse.Member,
+		"each axis on the member carries its reverse index"
+	)
+	assert.deepEqual(
+		reverseSets(model, "Owner"),
+		reverse.Owner,
+		"the last axis carries its reverse index"
 	)
 	checkBound(model, s)
 	checkPreds(model, s)

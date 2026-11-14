@@ -45,6 +45,7 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { assertReferencesServed } from "#test/support/laws/referencing.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
 import {
@@ -152,9 +153,9 @@ const checkShape = (s: Shape): void => {
 	const model = modelOf(schemaOf(s))
 	assertWellFormed(model)
 	const owned = owning(schemaOf(s))
-	assertColumnsBeforeConstraints(
-		succeeded(compileInstallation(owned, installOptions(owned, owner))).statements
-	)
+	const statements = succeeded(compileInstallation(owned, installOptions(owned, owner))).statements
+	assertColumnsBeforeConstraints(statements)
+	assertReferencesServed(statements)
 	const natives = nativesOf(model)
 	const periods = Arr.filter(
 		natives,

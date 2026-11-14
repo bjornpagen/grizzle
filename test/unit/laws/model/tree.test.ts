@@ -42,8 +42,9 @@ import { searched } from "@bjornpagen/testing/vitest"
  */ import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import type { LawModel } from "#compiler/laws/model/model.ts"
+import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredStatementDesc,
 	contained,
@@ -57,7 +58,9 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { assertReferencesServed } from "#test/support/laws/referencing.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { owning } from "#test/support/policy.ts"
 import {
 	accepts,
 	assertWellFormed,
@@ -74,8 +77,10 @@ import {
 	keySets,
 	modelOf,
 	onRelation,
+	reverseSets,
 	ridingLaws
 } from "#test/unit/laws/model/natives.ts"
+import { owner } from "#test/unit/physical/fixtures.ts"
 
 type Copy = "caller" | "accumulated"
 interface Shape {
@@ -266,10 +271,13 @@ const expectedForeignKeys = (s: Shape): ReadonlyArray<ForeignKeyShape> =>
 		foreignKeyOrder
 	)
 
+/** The primary key, the family key, its successor key (doc, ‹parent₀›, ‹p›), each node the predecessor of at most one
+ * sibling, and the superkeys the axes reference. */
 const expectedKeys = (s: Shape): ReadonlyArray<string> =>
 	sortText([
 		setText(["doc", "start"]),
 		setText(["doc", parent0, "at"]),
+		setText(["doc", parent0, "‹generated at›"]),
 		setText(["doc", "start", "children", ...Arr.map(copiesOf(s), (c) => c.to)]),
 		setText(["doc", parent0, "at", "end", ...(s.fold ? ["‹after 0.0›"] : [])])
 	])
@@ -397,15 +405,29 @@ const checkCopies = (model: LawModel, s: Shape): void => {
 	}
 }
 
+/** Each axis's reverse index, over its referencing columns as a set: the owner axis's from the plain parent, the
+ * predecessor's and the last's. */
+const expectedReverse = (s: Shape): ReadonlyArray<string> =>
+	sortText([
+		setText(["doc", "parent", "‹copy›", ...Arr.map(copiesOf(s), (c) => c.from)]),
+		setText(["doc", parent0, "‹generated at›", "start", ...(s.fold ? ["‹before 0.0›"] : [])]),
+		setText(["doc", "start", "‹generated children›", "end", ...(s.fold ? ["size"] : [])])
+	])
+
 const checkShape = (s: Shape): void => {
-	const model = modelOf(schemaOf(s))
+	const desc = schemaOf(s)
+	const model = modelOf(desc)
 	assertWellFormed(model)
+	const owned = owning(desc)
+	assertReferencesServed(
+		succeeded(compileInstallation(owned, installOptions(owned, owner))).statements
+	)
 	assert.deepEqual(foreignKeyShapes(model), expectedForeignKeys(s))
 	assert.deepEqual(keySets(model, "Node"), expectedKeys(s))
 	assert.deepEqual(
-		onRelation(model, "ReverseIndex", "Node"),
-		[],
-		"a tree's axes need no reverse index"
+		reverseSets(model, "Node"),
+		expectedReverse(s),
+		"each axis carries its reverse index"
 	)
 	checkConditions(model)
 	checkCopies(model, s)

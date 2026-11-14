@@ -109,6 +109,8 @@ import {
 	Recognizer,
 	type ReferenceChoice,
 	referenceChoice,
+	type ReverseIndexPlan,
+	reverseIndexOf,
 	type RuleDischarge,
 	type TargetKey
 } from "#compiler/laws/model/plan.ts"
@@ -816,13 +818,14 @@ const immediateOf = (plans: ReadonlyArray<LawPlan>, deferred: Deferral): Readonl
 
 /** A plan's native object as the specializer materializes it: a declared row check with its predicate lowered into the
  * extension DAG over its relation's row (`ColumnLowering`), a generated CHECK with its predicate lowered there
- * (`#lowerCheck`), a law column with its value lowered there, a ClosedCheck with its guard lowered, every other as its
- * plan states it. */
+ * (`#lowerCheck`), a law column with its value lowered there, a ClosedCheck with its guard lowered, a foreign key's
+ * reverse index as the foreign key carries it (plan.ts Reversed), every other as its plan states it. */
 type PlacedNative =
 	| Exclude<
 			NativePlan,
 			{ readonly kind: "TableCheck" | "GeneratedCheck" | "LawColumn" | "ClosedCheck" }
 	  >
+	| ReverseIndexPlan
 	| (Omit<Extract<NativePlan, { readonly kind: "TableCheck" }>, "predicate"> & {
 			readonly predicate: ScalarExpr
 	  })
@@ -902,7 +905,6 @@ const nativeExprs = (n: NativePlan): ReadonlyArray<ExprDesc> => {
 		case "ForeignKey":
 		case "WithoutOverlaps":
 		case "PeriodForeignKey":
-		case "ReverseIndex":
 			return []
 	}
 }
@@ -1233,13 +1235,21 @@ class Specializer {
 				case "ForeignKey":
 				case "WithoutOverlaps":
 				case "PeriodForeignKey":
-				case "ReverseIndex":
 					return n
 			}
 		}
+		/** A held native as placed, and a foreign key's reverse index beside it where the slice writes its relation
+		 * (`#held`). */
+		const placedOf = (n: NativePlan, plan: LawPlan): ReadonlyArray<PlacedNative> => {
+			const own = place(n, plan)
+			return (n.kind === "ForeignKey" || n.kind === "PeriodForeignKey") &&
+				this.writes.has(n.relation.name)
+				? [own, reverseIndexOf(n)]
+				: [own]
+		}
 		const placed = plans.map((plan) => ({
 			plan,
-			natives: plan.natives.filter(held).map((n) => place(n, plan))
+			natives: plan.natives.filter(held).flatMap((n) => placedOf(n, plan))
 		}))
 		/** A schema with no generated CHECK and no law column adds nothing to the DAG. */
 		const merged =
@@ -1370,8 +1380,8 @@ class Specializer {
 	 * rows meets; each contract's domain, which the installed names type a contract's values by; and each selection key,
 	 * a law column of a field term under a selection a UNIQUE holds, with the UNIQUEs that hold one, which a query's
 	 * probe reads (physical/ddl/names.ts selectionKeysOf). Any other native of a relation the slice does not write, a
-	 * key, a CHECK, another law column or a reverse index, only a write of that relation can break or read, so the model
-	 * holds none of it.
+	 * key, a CHECK, another law column or a foreign key's reverse index (`run`), only a write of that relation can break
+	 * or read, so the model holds none of it.
 	 */
 	#held(plans: ReadonlyArray<LawPlan>): (n: NativePlan) => boolean {
 		const writes = this.writes
@@ -1411,7 +1421,6 @@ class Specializer {
 				case "TableCheck":
 				case "GeneratedCheck":
 				case "WithoutOverlaps":
-				case "ReverseIndex":
 					return writes.has(n.relation.name)
 			}
 		}
