@@ -157,6 +157,7 @@ const namesOf = (node: TableNode): ReadonlyArray<NodeId> => {
 		case "Group":
 		case "Produce":
 		case "ApproximateNearest":
+		case "Step":
 		case "OrderedResult":
 		case "Attach":
 		case "Forbid":
@@ -1161,6 +1162,9 @@ class Checker {
 				}
 				return
 			}
+			case "Step":
+				this.requireHeading(node, this.headingOf(node.input), "its input")
+				return
 			case "OrderedResult": {
 				this.requireHeading(node, this.headingOf(node.input), "its input")
 				const ordered = Arr.map(node.order.keys, (k) => k.column)
@@ -2081,6 +2085,7 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 		commonStated,
 		{}
 	),
+	Step: S.structStated({ ...common, input: nodeIdShape }, commonStated, {}),
 	Attach: S.tagged("delivered", {
 		option: unorderedAttach,
 		one: unorderedAttach,

@@ -249,6 +249,7 @@ const wholeMatches = (matches: RuleDesc["matches"]): boolean =>
 				)
 			}
 			case "query":
+			case "step":
 				return Arr.every(["a", "b"], (f) => bound.includes(f))
 			case "context":
 			case "delta":

@@ -318,6 +318,7 @@ const evaluatedOver = (
 		case "InputSet":
 		case "Intersect":
 		case "MatchRegion":
+		case "Step":
 		case "OrderedResult":
 		case "Recursive":
 		case "SelfRef":
@@ -609,6 +610,7 @@ const typedFirstColumn = (dag: DagTable, n: TableNode): boolean => {
 		case "Forbid":
 		case "Intersect":
 		case "MatchRegion":
+		case "Step":
 		case "OrderedResult":
 		case "ProjectSet":
 		case "Recursive":
@@ -1387,6 +1389,7 @@ const orders: ReadonlyArray<DagCorruption> = [
 					case "SelfRef":
 					case "SemiJoin":
 					case "Union":
+					case "Step":
 						return []
 				}
 			})

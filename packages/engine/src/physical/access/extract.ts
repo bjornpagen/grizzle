@@ -685,6 +685,8 @@ class Extractor {
 				return this.visit(n.input, restrict(pushed, n.keys))
 			case "Forbid":
 				return this.visit(n.violation, nothing)
+			case "Step":
+				return this.visit(n.input, pushed)
 			case "Closed":
 			case "Context":
 			case "InputSet":
@@ -1075,6 +1077,8 @@ class Extractor {
 			case "Intersect":
 			case "Difference":
 				return this.resolve(n.left, requests, pushed)
+			case "Step":
+				return this.resolve(n.input, requests, pushed)
 			case "Closed":
 			case "Context":
 			case "InputSet":

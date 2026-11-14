@@ -93,6 +93,7 @@ const correlationSteps = (
 		case "SelfRef":
 		case "Window":
 		case "OrderedSetAggregate":
+		case "Step":
 			return []
 	}
 }
@@ -200,6 +201,7 @@ const pipelinedReason = (node: RelNode, top: boolean): string | undefined => {
 		case "Forbid":
 		case "Window":
 		case "OrderedSetAggregate":
+		case "Step":
 			return undefined
 	}
 }

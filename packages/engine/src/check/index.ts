@@ -10,7 +10,7 @@ import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { InferredQuery, MemberDesc, QueryDesc, ReadBackDesc } from "#compiler/ir/desc.ts"
+import type { InferredQuery, MemberDesc, ReadBackDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { admittedReads } from "#compiler/scalar/compute/lower.ts"
 import { queryPatternReads } from "#compiler/schema/walk.ts"
@@ -130,7 +130,7 @@ export const checkReadBack = (
 export interface DescribedMember {
 	readonly op: MemberDesc["op"]
 	readonly relation: MemberRelation
-	readonly query: QueryDesc
+	readonly query: InferredQuery
 	readonly loc: SourceLoc
 }
 
@@ -138,7 +138,7 @@ export interface DescribedMember {
 const memberQuery = (
 	checked: SchemaReading,
 	member: DescribedMember,
-	q: QueryDesc,
+	q: InferredQuery,
 	options: Omit<CheckOptions, "read">
 ): AdmittedQuery => {
 	const { relation, op, loc } = member

@@ -204,6 +204,7 @@ const observingEdges = (
 			case "MatchRegion":
 			case "Filter":
 			case "ProjectSet":
+			case "Step":
 			case "OrderedResult":
 			case "Produce":
 			case "SemiJoin":

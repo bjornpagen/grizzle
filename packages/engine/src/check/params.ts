@@ -7,7 +7,6 @@ import {
 	type BindingsDesc,
 	type BindTermDesc,
 	type ExprDesc,
-	type FieldDesc,
 	type HeadTermDesc,
 	type InferredFieldDesc,
 	type Inferred,
@@ -17,6 +16,7 @@ import {
 	mapQueryParams,
 	type ParamSpelling,
 	type ParamsAs,
+	type ParamTyping,
 	type QueryDesc,
 	type QueryStageDesc,
 	type RecursiveDesc,
@@ -169,13 +169,6 @@ export class ParamCell {
 export const boundParam = (name: string): ParamCell => new ParamCell(name, untyped)
 
 /**
- * What a resolved scalar parameter reference states of its type: the field descriptor the Description declares, or,
- * for a parameter the checker itself writes (recursion/factor.ts), a channel, which its import's bind map binds to a
- * column whose type it has.
- */
-export type ParamTyping = FieldDesc | { readonly kind: "channel" }
-
-/**
  * A description's references once the checker resolves them: each parameter reference carries its cell, and a typed
  * literal states an inferred field's descriptor, as a Description grizzle writes itself may (ir/desc.ts Inferred).
  */
@@ -243,7 +236,7 @@ export const resolveQuery = (
 	q: QueryDesc<Located, Inferred>
 ): { readonly query: ResolvedQuery; readonly params: ParamTable } => {
 	const own = new Map<string, ParamCell>()
-	const query = mapQueryParams<{ readonly cell: ParamCell }, InferredFieldDesc>(q, {
+	const query = mapQueryParams<{ readonly cell: ParamCell }, InferredFieldDesc, ParamTyping>(q, {
 		param: (name) => ({ cell: cellIn(own, name, () => new ParamCell(name, untyped)) }),
 		imported: importedNamespace
 	})

@@ -111,7 +111,7 @@ const bindingsOf = (rule: ResolvedRule, self: number): Bindings => {
 		state.set(x, [...(state.get(x) ?? []), column])
 	}
 	const imports: ReadonlyArray<Import> = rule.matches.flatMap((m, i) =>
-		i !== self && m.source.kind === "query"
+		i !== self && (m.source.kind === "query" || m.source.kind === "step")
 			? [
 					{
 						bind: entries(m.source.bind).flatMap(([, e]) =>
@@ -123,7 +123,9 @@ const bindingsOf = (rule: ResolvedRule, self: number): Bindings => {
 			: []
 	)
 	let data: ReadonlySet<string> = new Set(
-		rule.matches.flatMap((m, i) => (i !== self && m.source.kind !== "query" ? boundVars(m) : []))
+		rule.matches.flatMap((m, i) =>
+			i !== self && m.source.kind !== "query" && m.source.kind !== "step" ? boundVars(m) : []
+		)
 	)
 	for (;;) {
 		const derived = derivedReads(imports, state, data)

@@ -31,6 +31,7 @@ import { projectSetLowering } from "#compiler/lower/conservative/project-set/ind
 import { recursiveLowering } from "#compiler/lower/conservative/recursive/index.ts"
 import { selfRefLowering } from "#compiler/lower/conservative/self-ref/index.ts"
 import { semiJoinLowering } from "#compiler/lower/conservative/semi-join/index.ts"
+import { stepLowering } from "#compiler/lower/conservative/step/index.ts"
 import { takeLowering } from "#compiler/lower/conservative/take/index.ts"
 import { unionLowering } from "#compiler/lower/conservative/union/index.ts"
 import { approximateNearestLowering } from "#compiler/lower/conservative/vector/index.ts"
@@ -70,7 +71,8 @@ export const conservativeLowerers: Lowerers<RelKind> = {
 	...attachLowering,
 	...forbidLowering,
 	...windowLowering,
-	...orderedSetAggregateLowering
+	...orderedSetAggregateLowering,
+	...stepLowering
 }
 
 /**

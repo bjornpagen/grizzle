@@ -81,7 +81,7 @@ const substBindings = (b: ResolvedBindings, s: Subst): ResolvedBindings => {
 
 /** An imported query's bind map is read in the importing rule's scope; the query itself is its own scope. */
 const substSource = (src: ResolvedSource, s: Subst): ResolvedSource =>
-	src.kind === "query"
+	src.kind === "query" || src.kind === "step"
 		? {
 				...src,
 				bind: Object.fromEntries(

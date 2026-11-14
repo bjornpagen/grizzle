@@ -120,6 +120,15 @@ const exprLeaves = <P extends object, T, D extends InferredFieldDesc>(
 	}
 }
 
+/** The leaves one expression reads in its own scope (`exprLeaves`). */
+export const leavesOf = <P extends object, T, D extends InferredFieldDesc>(
+	e: ExprDesc<Located, ParamsAs<P, T, D>>
+): Leaves<P, T> => {
+	const into = emptyLeaves<P, T>()
+	exprLeaves(e, into)
+	return into
+}
+
 const bindingLeaves = <P extends object, T, D extends InferredFieldDesc>(
 	bindings: BindingsDesc<Located, ParamsAs<P, T, D>>,
 	into: Leaves<P, T>
@@ -134,7 +143,7 @@ const sourceLeaves = <P extends object, T, D extends InferredFieldDesc>(
 	s: SourceDesc<Located, ParamsAs<P, T, D>>,
 	into: Leaves<P, T>
 ): void => {
-	if (s.kind === "query") {
+	if (s.kind === "query" || s.kind === "step") {
 		for (const [, b] of entries(s.bind)) {
 			if (b.kind === "relationParam") {
 				into.params.push(b)

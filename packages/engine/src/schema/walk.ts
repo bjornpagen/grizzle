@@ -122,7 +122,8 @@ class Collector {
 			case "relation":
 				this.relations.add(s.name)
 				return
-			case "query": {
+			case "query":
+			case "step": {
 				/**
 				 * An import's bound parameters are the binding's, not the importer's: only what the binding
 				 * expressions use, and any input the binding leaves open (every one, for the empty binding), is an input
@@ -352,7 +353,7 @@ const ruleApproximates = (rule: RuleDesc): boolean =>
 	rule.attach.some((a) => stageApproximates(a.child.stage))
 
 const sourceApproximates = (source: SourceDesc): boolean =>
-	source.kind === "query" ? stageApproximates(source.query.stage) : false
+	source.kind === "query" || source.kind === "step" ? stageApproximates(source.query.stage) : false
 
 /** Whether a query's own heading carries an attachment: an attach stage on its stage chain, or an arm that attaches. */
 const stageAttaches = (stage: QueryStageDesc): boolean => {

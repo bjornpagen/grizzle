@@ -198,6 +198,7 @@ const need = (
 		case "Forbid":
 		case "Window":
 		case "OrderedSetAggregate":
+		case "Step":
 			return all(input)
 	}
 }

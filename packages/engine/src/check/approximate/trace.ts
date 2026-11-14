@@ -69,6 +69,8 @@ const sourceShape = (kind: RelKind): string => {
 			return "a query with attachments"
 		case "OrderedResult":
 			return "an ordered delivery"
+		case "Step":
+			return "a navigation step of a rule's probe"
 		case "Base":
 		case "Closed":
 		case "Context":
@@ -158,6 +160,7 @@ const toRegion = (
 			case "Forbid":
 			case "Window":
 			case "OrderedSetAggregate":
+			case "Step":
 				return Result.err(
 					`${prefix}: the ranked vector ${name} read from a relation the scoring rule matches; it comes from ${sourceShape(node.kind)}`
 				)

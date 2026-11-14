@@ -134,6 +134,7 @@ class Structure {
 	): void {
 		switch (s.kind) {
 			case "query":
+			case "step":
 				this.query(s.query, { recursiveStep: false, attachment: false })
 				for (const [param, e] of entries(s.bind)) {
 					if (e.kind !== "relationParam") {

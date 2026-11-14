@@ -183,6 +183,7 @@ const reads = (node: RelNode, r: Restriction): ReadonlyArray<readonly [RelNode, 
 			return node.occurrences.map((o) => [o.source, occurrenceReads(o, r)] as const)
 		case "Filter":
 		case "OrderedResult":
+		case "Step":
 			return [[node.input, onHeading(r, node.input.heading)]]
 		case "Forbid":
 			return [[node.violation, onHeading(r, node.violation.heading)]]

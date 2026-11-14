@@ -144,6 +144,7 @@ const consumerEdges = (node: RelNode, env: ClassifyEnv): ReadonlyArray<ConsumerE
 		case "ProjectSet":
 		case "OrderedResult":
 		case "Produce":
+		case "Step":
 			return [pass(node.input, "input")]
 		case "SemiJoin":
 		case "AntiJoin":

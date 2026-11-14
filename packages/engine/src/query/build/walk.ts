@@ -40,8 +40,9 @@ const spellSource = (source: OpenSource, s: Spellings): SourceDesc => {
 		case "interior":
 			return { kind: "interior", id: s.interior(source.id) }
 		case "query":
+		case "step":
 			return {
-				kind: "query",
+				kind: source.kind,
 				query: source.query,
 				bind: Object.fromEntries(
 					Object.entries(source.bind).map(([k, b]) => [

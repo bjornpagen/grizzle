@@ -69,6 +69,7 @@ const climbsOf = (node: RelNode): ReadonlyArray<readonly [RelNode, Climb]> => {
 		case "MatchRegion":
 			return Arr.map(node.occurrences, (o) => occurrenceClimb(node, o))
 		case "Filter":
+		case "Step":
 		case "OrderedResult":
 			return [climb(node.input, same)]
 		case "Forbid":

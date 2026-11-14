@@ -903,15 +903,15 @@ export class Checker {
 	}
 
 	/**
-	 * A scalar parameter's declared type (lower.ts Lowering.param). A channel the checker writes declares none: its import
-	 * binds it to a column, which every use of it reads.
+	 * A scalar parameter's declared type (lower.ts Lowering.param). A channel (ir/desc.ts Channel) declares none: its
+	 * import binds it to a column, which every use of it reads, and a channel bound to anything else is refused here.
 	 */
 	paramType(param: ParamExpr, loc: SourceLoc): ScalarType {
 		if (param.type.kind === "channel") {
 			return fail(
 				"MalformedDescription",
 				loc,
-				`parameter ${param.cell.name} bound to a column: a channel of a factored recursion is read as its column`
+				`parameter ${param.cell.name} bound to a column: a channel is read as the column its import binds it to`
 			)
 		}
 		return this.fieldType(param.type, loc)
@@ -1680,6 +1680,10 @@ export class Checker {
 			}
 			case "query":
 				return this.#importSource(src, loc, bind)
+			case "step": {
+				const input = this.#importSource(src, loc, bind)
+				return this.node({ kind: "Step", input, heading: input.heading }, loc)
+			}
 			case "param":
 			case "paramOf":
 				return this.#paramSource(src, scope, loc)
@@ -1808,7 +1812,7 @@ export class Checker {
 	}
 
 	#importSource(
-		src: Extract<ResolvedSource, { readonly kind: "query" }>,
+		src: Extract<ResolvedSource, { readonly kind: "query" | "step" }>,
 		loc: SourceLoc,
 		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
 	): RelNode {
@@ -2220,6 +2224,8 @@ const sourceLabel = (src: ResolvedSource): string => {
 			return src.name
 		case "query":
 			return "the matched query"
+		case "step":
+			return "a navigation step"
 		case "param":
 		case "paramOf":
 			return `relation parameter ${src.cell.name}`
@@ -2544,7 +2550,7 @@ class RuleCheck {
 	#matches(): void {
 		const pending = this.rule.matches.map((match, index) => ({ match, index }))
 		const waiting = (m: ResolvedMatch): ReadonlyArray<string> => {
-			if (m.source.kind !== "query") {
+			if (m.source.kind !== "query" && m.source.kind !== "step") {
 				return []
 			}
 			return entries(m.source.bind).flatMap(([, e]) =>
@@ -3092,7 +3098,7 @@ class RuleCheck {
 		const late: Array<LateNegation> = []
 		for (const [index, absent] of negations) {
 			const readsRegion =
-				absent.source.kind === "query" &&
+				(absent.source.kind === "query" || absent.source.kind === "step") &&
 				entries(absent.source.bind).some(
 					([, term]) =>
 						term.kind === "var" ||
@@ -3692,6 +3698,7 @@ class RuleCheck {
 			case "Forbid":
 			case "Window":
 			case "OrderedSetAggregate":
+			case "Step":
 				return [heading]
 		}
 	}

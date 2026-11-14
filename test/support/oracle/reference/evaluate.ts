@@ -1159,6 +1159,7 @@ export class Reference {
 				const parent = this.eval(node.parent, scope)
 				return projectAll(parent.heading, node.heading, parent.rows, node.id)
 			}
+			case "Step":
 			case "OrderedResult":
 				return this.eval(node.input, scope).rows
 			case "ApproximateNearest": {

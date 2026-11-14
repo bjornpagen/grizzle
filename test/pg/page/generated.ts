@@ -317,6 +317,7 @@ const rowsBounds = (
 			case "Filter":
 			case "ProjectSet":
 			case "Window":
+			case "Step":
 			case "OrderedResult":
 				return rows(n.input)
 			case "SemiJoin":

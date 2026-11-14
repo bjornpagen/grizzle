@@ -1694,7 +1694,8 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 		}
 		case "ApproximateNearest":
 		case "OrderedResult":
-		case "Window": {
+		case "Window":
+		case "Step": {
 			const input = reading.kind === "ApproximateNearest" ? reading.source : reading.input
 			const deps: Array<Dependency> = [...carried(input, sameName, rowsKeep)]
 			if (reading.kind === "ApproximateNearest" && reading.take === 1n) {
