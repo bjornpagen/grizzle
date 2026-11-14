@@ -548,17 +548,39 @@ const roleOf = (spec: InstallSpec, made: BuiltBase, r: RoleSpec) =>
 		return value
 	})
 
-/** Every value of an installation, built through the public builders under the declared schema name `name`. */
-export const buildInstall = (
+/**
+ * An installation's base and its roles, built through the public builders under the declared schema name `name`, no
+ * role in a login yet: a role is in exactly one login, so the logins are built by whoever states what they serve.
+ */
+export interface BuiltWorlds {
+	readonly made: BuiltBase & { readonly laws: ReadonlyArray<Statement> }
+	readonly roles: Readonly<Record<string, BuiltRole>>
+}
+
+/** The base and roles of an installation (BuiltWorlds). */
+export const buildWorlds = (
 	spec: InstallSpec,
 	name: string
-): Effect.Effect<Built, RealizeRefused> =>
+): Effect.Effect<BuiltWorlds, RealizeRefused> =>
 	Effect.gen(function* () {
 		const made = yield* buildBase(spec.base, name)
 		const roles: Record<string, BuiltRole> = {}
 		for (const r of spec.roles) {
 			roles[r.name] = yield* roleOf(spec, made, r)
 		}
+		return { made, roles }
+	})
+
+/**
+ * Every value of an installation, built through the public builders under the declared schema name `name`: its base and
+ * roles (buildWorlds), and its logins, each serving no workload.
+ */
+export const buildInstall = (
+	spec: InstallSpec,
+	name: string
+): Effect.Effect<Built, RealizeRefused> =>
+	Effect.gen(function* () {
+		const { made, roles } = yield* buildWorlds(spec, name)
 		const logins: Record<string, BuiltLogin> = {}
 		for (const l of spec.logins) {
 			const members = yield* Effect.forEach(l.roles, (r) => found(roles, r, "role"))

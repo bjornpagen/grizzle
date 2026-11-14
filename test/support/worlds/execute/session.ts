@@ -304,7 +304,7 @@ const relationRead = (
 const itself = (value: unknown): unknown => value
 
 /** The program reading a role relation whole, or the builder's refusal of it. */
-const readProgramOf = (
+export const readProgramOf = (
 	session: WritingRole,
 	relation: string
 ): Effect.Effect<QueryValue, RealizeRefused> =>
@@ -342,10 +342,11 @@ const attachedRead = (
 }
 
 /**
- * The field a recursive read's row states for a domain it chains (generate/reads.ts reachable): a uuid, a text of its
- * pattern, or the integer type of an integer or a serial; none for another, which no recursive read is drawn over.
+ * The field a value of a domain is carried by where a read states one, a recursive read's row for a domain it chains
+ * (generate/reads.ts reachable) or a parameter a read fixes a field to: a uuid, a text of its pattern, or the integer
+ * type of an integer or a serial; none for another, which no recursive read is drawn over.
  */
-const rowField = (domain: FieldDomain): Option.Option<unknown> => {
+export const rowField = (domain: FieldDomain): Option.Option<unknown> => {
 	const integer = (bits: 16 | 32 | 64): unknown =>
 		bits === 16 ? pg.smallint : bits === 32 ? pg.integer : pg.bigint
 	switch (domain.kind) {
