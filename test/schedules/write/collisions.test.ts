@@ -42,7 +42,8 @@
  *
  * Oracle: the serial model below, over the stated rows alone. The probe's refusal, both arbiter waits, every 23505
  * witness and both met rows read back are required features, among every other kind of answer; a witness whose turn
- * aims at a pending one that depends on the form runs a case constructed to reach it (`aims`).
+ * aims at a pending one that depends on the form or on two of B's requests runs a case constructed to reach it
+ * (`aims`).
  *
  * Plants: ~/.cache/grizzle-release/BR08/plants/collisions-generated-arbiter-last-key.patch, a generated addition
  * arbitrated at the last declared key holding no drawn field (slot) instead of the first, must turn the property red;
@@ -232,9 +233,10 @@ const collisionGen: Gen<Collision> = (source) => ({
 })
 
 /**
- * Cases constructed to reach the situations that depend on a call's form, their requests drawn: B repeating the row A
- * holds in flight, or the row A committed before it, through the query member; and B stating, at another key, the
- * slot A holds in flight, alone through an array or the query member, or beside a request at a third key and slot
+ * Cases constructed to reach the situations that depend on a call's form or on two of B's requests, their requests
+ * drawn: B repeating the row A holds in flight, or the row A committed before it, through the query member, and the
+ * first beside a request at another key and slot, which B inserts once it has waited; and B stating, at another key,
+ * the slot A holds in flight, alone through an array or the query member, or beside a request at a third key and slot
  * through an array.
  */
 const reachingIn =
@@ -257,6 +259,10 @@ const besides = (a: Request): Request => ({
 const aims: ReadonlyArray<readonly [CollisionFeature, Gen<Collision>]> = [
 	["a row in flight met, read back", reachingIn("concurrent", "query", (a) => [a])],
 	["a visible row met, read back", reachingIn("sequential", "query", (a) => [a])],
+	[
+		"an insert after waiting for a row in flight",
+		reachingIn("concurrent", "query", (a) => [a, besides(a)])
+	],
 	[
 		"a 23505 at slot after waiting, unreported for a query's rows",
 		reachingIn("concurrent", "query", (a) => [atSlotOf(a)])
