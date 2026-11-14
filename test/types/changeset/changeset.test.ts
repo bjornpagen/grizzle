@@ -28,7 +28,13 @@ import { checked } from "#test/types/batch/batch.ts"
  * its role's write list does not name. Plant (~/.cache/grizzle-release/ONCETYPES/plants): once-facts-unchecked.patch
  * checks a served call's facts against their declared record alone (live/program.ts InputCheck), as the once/watch
  * cutover did, so a call naming a relation or an op its member holds no array of, a fact with a field its relation
- * lacks, or two literal facts at one key with different values, is admitted.
+ * lacks, or two literal facts at one key with different values, is admitted. Plants
+ * (~/.cache/grizzle-release/TYPEREGRESS/plants): b-call-skips-conflict.patch judges an application's call by its
+ * ChangeSet's verdict alone, not by callVerdictOf, so a call whose facts, gathered across a union's operands, hold two
+ * literal facts at one key with different values is expected admitted (TEST_SEED=1678781499); no-claims-unknown.patch
+ * has a fact whose key no literal types claim unknown (types/schema/relation.ts NoClaims), which collapses its array's
+ * claims, so a key conflict beside such a fact is admitted, the floor's witness of "a key conflict beside a fact no
+ * literal keys" refused by the engine.
  */
 const required: Situations<ChangeSetNote> = [
 	"admitted",

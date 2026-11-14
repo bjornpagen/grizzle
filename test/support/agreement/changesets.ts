@@ -158,6 +158,12 @@ interface FieldInfo {
 }
 
 const uuids: Arr.NonEmptyReadonlyArray<Lit> = [uuidLit(1), uuidLit(2)]
+
+/**
+ * A uuid no single literal types: a call of `uuidOf`, which the program declares returning Uuid, so its type is the
+ * field's whole host type, while the engine reads the third uuid, a key no other drawn value holds.
+ */
+const wideUuid: Lit = { text: "uuidOf(3)", value: uuidLit(3).value }
 const cents: Arr.NonEmptyReadonlyArray<Lit> = [
 	{ text: "Cents(5n)", value: Cents(5n) },
 	{ text: "Cents(0n)", value: Cents(0n) }
@@ -293,6 +299,12 @@ const outsideShapes = [
 type OutsideShape = (typeof outsideShapes)[number]
 
 /**
+ * What a key law's conflict stands beside, beyond its two facts: a fact of the relation whose key no single literal
+ * types (wideUuid), which claims nothing, so the conflict is judged among the facts whose keys are literals.
+ */
+const conflictShapes = ["a key conflict beside a fact no literal keys"] as const
+
+/**
  * Where a stratum's put of a mutable ordered owner and its insert with its members nested meet: at one key, two rows
  * at that key, since the put leaves the owner's sequence as it is and the insert states it (README Families), which
  * the engine refuses on the key before any SQL; or at different keys, each written.
@@ -352,7 +364,8 @@ const changeSetFaults = [
 ] as const
 type ChangeSetFault = (typeof changeSetFaults)[number]
 
-const changeSetFeatures = [
+/** The features a case's swarm weighs: its faults and constructs. */
+const swarmedFeatures = [
 	...changeSetFaults,
 	"insert",
 	"delete",
@@ -389,6 +402,13 @@ const changeSetFeatures = [
 	"a partial write list",
 	...outsideShapes
 ] as const
+
+/**
+ * Every feature a case may reach: the swarm's (swarmedFeatures), then the shapes of a fault that a case reaches only
+ * where it is aimed at them or a plain choice of the fault's own draws them (conflictShapes), which no swarm weighs, so
+ * a kept case's tape draws the same swarm whatever shapes a fault gains.
+ */
+const changeSetFeatures = [...swarmedFeatures, ...conflictShapes] as const
 type ChangeSetFeature = (typeof changeSetFeatures)[number]
 
 /** The Refusals the ChangeSet facade, its compilation and its binding name, by the engine's reason (claimOf). */
@@ -966,7 +986,20 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined, clean: boolean)
 				? ([n, Arr.getUnsafe(payload.value.values, 1)] as const)
 				: ([n, l] as const)
 		)
-		return { kind: "array", op, relation, facts: [first, second] }
+		const uuidKeys = Arr.filter(fieldsOf[relation], (f) => f.key && f.values === uuids)
+		const beside =
+			Arr.isReadonlyArrayNonEmpty(uuidKeys) &&
+			(d.aimed("a key conflict beside a fact no literal keys") || d.from([0, 1]) === 1)
+				? [
+						Arr.map(first, ([n, l]) =>
+							Arr.some(uuidKeys, (f) => f.name === n) ? ([n, wideUuid] as const) : ([n, l] as const)
+						)
+					]
+				: []
+		if (Arr.isReadonlyArrayNonEmpty(beside)) {
+			d.note("a key conflict beside a fact no literal keys")
+		}
+		return { kind: "array", op, relation, facts: [first, second, ...beside] }
 	}
 	const planted = fault !== undefined && Arr.contains(factFaults, fault) ? fault : undefined
 	const kind =
@@ -1799,11 +1832,15 @@ class Rendering {
 		| "Flag"
 		| RoleName
 		| "plain"
+		| "uuidOf"
 	>()
 
 	lit(l: Lit): string {
 		if (l === plainString) {
 			this.uses.add("plain")
+		}
+		if (l === wideUuid) {
+			this.uses.add("uuidOf")
 		}
 		if (Str.startsWith("Cents(")(l.text)) {
 			this.uses.add("Cents")
@@ -2671,6 +2708,8 @@ interface ChangeSetCase {
 	/** The facts its application's call passes: each array member's own, under its op and relation's name. */
 	readonly facts: string
 	readonly verdict: Verdict
+	/** The verdict on its application's call, which passes `facts` (callVerdictOf). */
+	readonly called: Verdict
 	/** Its ChangeSet's served calls, admitted with array members of distinct relations (servedOf). */
 	readonly served: ReadonlyArray<ServedCall>
 	readonly uses: ReadonlySet<string>
@@ -2871,6 +2910,32 @@ const factsText = (
 }
 
 /**
+ * The verdict on a call that passes a case's array facts as built (factsText over its groups), the one rule a served
+ * call and the case's application call are both judged by: where the ChangeSet is admitted and two facts of one
+ * relation an insert or a put passes share a literal key with different literal values (literalConflict), refused at
+ * the call by the key law, as the types refuse the call and the engine refuses its binding; the ChangeSet's verdict
+ * otherwise.
+ */
+const callVerdictOf = (groups: ReadonlyArray<OpGroup>, verdict: Verdict): Verdict =>
+	verdict.kind === "admitted" &&
+	Arr.some(
+		groups,
+		(g) =>
+			g.op !== "delete" &&
+			Arr.some(g.relations, ([relation, parts]) => literalConflict(relation, parts))
+	)
+		? {
+				kind: "refused",
+				at: "call",
+				claim: {
+					kind: "refusal",
+					refusal:
+						"two facts of one relation share a key with different values; a key names one fact"
+				}
+			}
+		: verdict
+
+/**
  * The served calls of an admitted ChangeSet whose array members are of distinct ops and relations, as a served workload
  * holds one (two of one op and relation are refused at generate), one of each variant (servedVariants). The facts a call
  * passes are its parts' own, under each op each relation's under its name, every array written as an array; the
@@ -2904,27 +2969,9 @@ const servedOf = (
 		params,
 		verdict: { kind: "admitted", admitted }
 	}
-	const conflict = Arr.findFirst(
-		groups,
-		(g) =>
-			g.op !== "delete" &&
-			Arr.some(g.relations, ([relation, parts]) => literalConflict(relation, parts))
-	)
-	if (Option.isSome(conflict)) {
-		return [
-			{
-				...asBuilt,
-				verdict: {
-					kind: "refused",
-					at: "call",
-					claim: {
-						kind: "refusal",
-						refusal:
-							"two facts of one relation share a key with different values; a key names one fact"
-					}
-				}
-			}
-		]
+	const called = callVerdictOf(groups, asBuilt.verdict)
+	if (called.kind === "refused") {
+		return [{ ...asBuilt, verdict: called }]
 	}
 	const kept = Arr.tailNonEmpty(groups)
 	const leftOut: ServedCall = {
@@ -3084,7 +3131,7 @@ const settled = (drawnCase: Drawn): Drawn => {
 const drawnGen =
 	(aim: ReadonlySet<ChangeSetFeature>): Gen<Drawn> =>
 	(source) => {
-		const d = new Drawing(source, source.draw(swarm(changeSetFeatures)), aim)
+		const d = new Drawing(source, source.draw(swarm(swarmedFeatures)), aim)
 		return settled({ spec: caseOver(d), reached: d.reached })
 	}
 
@@ -3098,6 +3145,7 @@ const caseOf = ({ spec, reached }: Drawn): ChangeSetCase => {
 		rendering.uses.add(spec.apply.role)
 	}
 	const verdict = verdictOf(spec)
+	const called = callVerdictOf(groups, verdict)
 	const served = verdict.kind === "admitted" ? servedOf(spec, verdict.admitted, rendering) : []
 	const notes = new Set<ChangeSetNote>(reached)
 	for (const call of served) {
@@ -3124,7 +3172,7 @@ const caseOf = ({ spec, reached }: Drawn): ChangeSetCase => {
 	for (const pairing of ownerPairingsOf(spec.change)) {
 		notes.add(pairing)
 	}
-	return { spec, change, args, facts, verdict, served, uses: rendering.uses, notes }
+	return { spec, change, args, facts, verdict, called, served, uses: rendering.uses, notes }
 }
 
 /**
@@ -3162,12 +3210,16 @@ export const changeSetRequired: ReadonlyArray<Reached<ChangeSetNote>> = [
 	...Arr.map(
 		Arr.filter(
 			changeSetFeatures,
-			(f) => !Arr.contains(changeSetFaults, f) && !Arr.contains(outsideShapes, f)
+			(f) =>
+				!Arr.contains(changeSetFaults, f) &&
+				!Arr.contains(outsideShapes, f) &&
+				!Arr.contains(conflictShapes, f)
 		),
 		(f) => [f, "admitted"] as const
 	),
 	...Arr.map(changeSetFaults, (f) => [f, "refused"] as const),
 	...Arr.map(outsideShapes, (shape) => ["a fact value outside its field", shape] as const),
+	...Arr.map(conflictShapes, (shape) => ["two facts sharing a key", shape] as const),
 	...Arr.flatMap(["two facts sharing a key", "a derived relation written"] as const, (f) =>
 		Arr.map(["insert", "delete", "put"] as const, (op) => [f, op] as const)
 	),
@@ -3429,7 +3481,7 @@ const blockOf = (c: ChangeSetCase, i: number): string => {
 		return Arr.join([...change, ...assertions, ...served, ...member, ""], "\n")
 	}
 	const channels =
-		v.kind === "admitted"
+		c.called.kind === "admitted"
 			? [
 					`export type E${i} = [Expect<Equals<Effect.Error<ReturnType<typeof b${i}>>, CallError>>, Expect<Equals<Effect.Success<ReturnType<typeof b${i}>>, WriteOutcome<${readsText}>>>, Expect<Equals<Effect.Services<ReturnType<typeof b${i}>>, never>>]`
 				]
@@ -3442,7 +3494,7 @@ const blockOf = (c: ChangeSetCase, i: number): string => {
 			...member,
 			...(apply.args.kind === "variable" ? [`export const w${i} = ${c.args} as const`] : []),
 			`export const b${i} = (h: WorkloadHandles<typeof ${apply.role}, { readonly m: typeof c${i} }>["m"]) =>`,
-			...directiveOf(v, "call"),
+			...directiveOf(c.called, "call"),
 			`\th.once({ params: ${passed}, facts: ${c.facts} })`,
 			...channels,
 			""
@@ -3509,6 +3561,7 @@ export const changeSetModules = (
 			"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
 			"type Expect<T extends true> = T",
 			...(uses.has("plain") ? ["declare const plain: string"] : []),
+			...(uses.has("uuidOf") ? ["declare const uuidOf: (n: number) => Uuid"] : []),
 			"export const widen = <R>(_relation: R, facts: ReadonlyArray<Written<R>>): ReadonlyArray<Written<R>> => facts",
 			"type SchemaOf<C> = C extends Phantom<{ readonly schema: Invariant<infer S> }> ? S : never",
 			'export type Hosts = [CalendarDate, Decimal, Money, Uuid, Infer<typeof Cents>, typeof pg, BitsOf<typeof Flag>, Rostered<"Kind">, RegexInfer<"", "u">]',
