@@ -25,6 +25,13 @@ post-beta swarm's fixes for the next release.
   in one statement, which needs the generated class to meet the complete class's rows of the same call at its arbiter
   and at every other key without seeing them in its snapshot (a query member leaving the serial fields out compiles
   now), or a crossing of its own naming the two classes.
+- **No worlds race reads back an entry insert of a relation with serial fields (READBACK, 2026-11-14):** an array of
+  such a relation is two insertions, so its delta read-back is refused (ReadBackCrossesStatements), and the worlds
+  executor (test/support/worlds/execute/session.ts stratumOf) states every op as an array member. The query form, an
+  insert from a query over a relation parameter that leaves the serial fields out, is one statement, but through a
+  query entry its insert is prechecked, so its member is carried in a temporary table, and a race's ad hoc served
+  program runs under an installation that granted the role no TEMPORARY. filter-write's ann therefore reads nothing
+  back (42d4e5b4). Not built.
 - **Member and shared sub-query carriers stay per call (CARRIER, 2026-11-11):** a stratum realized statement by
   statement still carries, in a temporary table created on every call, a described member two of its statements read
   (an immutable put's displacing deletion and insert half, an insert and its sequence advance, a deletion's D EXCEPT A)
