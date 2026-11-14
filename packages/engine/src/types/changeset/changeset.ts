@@ -48,6 +48,7 @@ import type {
 	SerialFieldsOf
 } from "#compiler/types/schema/relation.ts"
 import type {
+	AllFragmentsOf,
 	AnyFragment,
 	AnySchema,
 	IsLevelOf,
@@ -824,15 +825,16 @@ type PositionOf<Before extends ReadonlyArray<unknown>> = { readonly [K in keyof 
 /**
  * An array member of a ChangeSet held by name, as a schema holds its statements: the op that adds it, the relations it
  * writes, each spelled by its name where its level's record holds it under its literal name and as itself otherwise
- * (NameIn), its stratum's position At, and the level whose relations and additions it reads by its depth, the number of
- * levels below it (DepthOf). No row and no relation the record holds rides in it, so a ChangeSet's members are names the
- * checker never instantiates again, and a builder's call adds one in constant cost; ArraysOf reads each back as the
- * relation and the row its op takes. A ChangeSet carries its members contravariantly, and each member its parts, so a
- * ChangeSet of more members, and of members known more exactly, is the narrower type, as one of known strata is
- * narrower than one whose strata are not known.
+ * (NameIn), its stratum's position At, and the level whose relations and additions it reads by its address
+ * (LevelAddress): a schema's or a role's depth, the number of levels below it, or a fragment's mark, the fragment among
+ * the levels that holds the relation it spells. No row and no relation the record holds rides in it, so a ChangeSet's
+ * members are names the checker never instantiates again, and a builder's call adds one in constant cost; ArraysOf
+ * reads each back as the relation and the row its op takes. A ChangeSet carries its members contravariantly, and each
+ * member its parts, so a ChangeSet of more members, and of members known more exactly, is the narrower type, as one of
+ * known strata is narrower than one whose strata are not known.
  */
-interface ArrayMember<in Op, in Spelled, in At, in Depth> {
-	readonly member: (op: Op, spelled: Spelled, at: At, depth: Depth) => void
+interface ArrayMember<in Op, in Spelled, in At, in Address> {
+	readonly member: (op: Op, spelled: Spelled, at: At, address: Address) => void
 }
 
 /**
@@ -855,14 +857,33 @@ type LevelAt<S, Depth> = DepthOf<S>["length"] extends Depth
 		: never
 
 /**
+ * Where a ChangeSet over S finds its member's level among the levels of any ChangeSet it joins: a schema's or a role's
+ * depth (DepthOf), its place in the chain of levels every schema above it extends; a fragment's mark, since a fragment
+ * is a level of every schema that lists it, at whatever depth lists it, and of no chain (LevelOfMember).
+ */
+type LevelAddress<S> = S extends AnyFragment ? "fragment" : DepthOf<S>["length"]
+
+/**
+ * The level of S at a member's address, the member spelling its relation Spelled: at a depth, the level at that depth
+ * (LevelAt); at a fragment's mark, the fragment among S and the fragments S's levels list that holds the relation, one
+ * name naming one relation across a schema's levels and the fragments they list.
+ */
+type LevelOfMember<S, Address, Spelled> = Address extends "fragment"
+	? Extract<
+			Extract<S, AnyFragment> | AllFragmentsOf<S>,
+			{ readonly relations: { readonly [N in NameOfSpelled<Spelled>]: unknown } }
+		>
+	: LevelAt<S, Address>
+
+/**
  * The array member of the relations R over S, each spelled as S's record names it, none where R is no relation. Its
  * parts are bound by `infer` first, so the member is no type reference the checker defers, which it would instantiate
  * again at every call that adds a member after it.
  */
 type MemberOf<Op extends ArrayOp, R, At extends ReadonlyArray<unknown>, S> = [R] extends [never]
 	? never
-	: [NameIn<R, RelationsOf<S>>, DepthOf<S>["length"]] extends [infer Spelled, infer Depth]
-		? ArrayMember<Op, Spelled, At, Depth>
+	: [NameIn<R, RelationsOf<S>>, LevelAddress<S>] extends [infer Spelled, infer Address]
+		? ArrayMember<Op, Spelled, At, Address>
 		: never
 
 /**
@@ -884,10 +905,10 @@ type Shifted<A, Before extends ReadonlyArray<unknown>> =
 		infer Op,
 		infer Spelled,
 		infer At extends ReadonlyArray<unknown>,
-		infer Depth
+		infer Address
 	>
 		? readonly [...PositionOf<Before>, ...At] extends infer Later
-			? ArrayMember<Op, Spelled, Later, Depth>
+			? ArrayMember<Op, Spelled, Later, Address>
 			: never
 		: never
 
@@ -902,9 +923,9 @@ type RecordOf<S, A> =
 		infer Op extends ArrayOp,
 		infer Spelled,
 		infer At extends ReadonlyArray<unknown>,
-		infer Depth
+		infer Address
 	>
-		? LevelAt<S, Depth> extends infer L
+		? LevelOfMember<S, Address, Spelled> extends infer L
 			? RelationIn<Spelled, RelationsOf<L>> extends infer R
 				? (
 						Op extends "insert"

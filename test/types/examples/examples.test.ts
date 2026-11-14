@@ -5,7 +5,9 @@
  * directive names, and nothing else does.
  *
  * Plant (~/.cache/grizzle-release/BR14/plants): evidence-get-one-only.patch refuses db.get of a query proved at most
- * one row, which the README's postPage is.
+ * one row, which the README's postPage is. Plant (~/.cache/grizzle-release/ONCETYPES/plants):
+ * fragment-member-by-depth.patch addresses a fragment ChangeSet's array member by depth, as a schema's, so in the
+ * README's feeJob, a union over Shop, JobDone's facts read as no relation's and finishWithFee is refused.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

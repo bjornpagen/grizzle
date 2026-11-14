@@ -1079,6 +1079,19 @@ export const ShopApp = login(Shop, "shop", [JobWorker], {
 })
 
 /**
+ * "join their ChangeSets by `ChangeSet.union`": feeJob served takes the fragment's facts beside the application's, each
+ * relation's rows under its own name, JobDone's as the fragment writes them.
+ */
+export const finishWithFee = (
+	db: Db<typeof JobWorker, { readonly feeJob: typeof feeJob }>,
+	job: Uuid
+) =>
+	db.workload.feeJob.once({
+		params: {},
+		facts: { insert: { JobDone: [{ job, ok: true }], Fee: [{ id: job, job }] } }
+	})
+
+/**
  * README: "Migrations", the block of grizzle.config.ts. Its imports of net, CredentialError, defineConfig, Config,
  * Effect, pgDriver, Blog, caPem, EtlJob and Web are this file's.
  */
