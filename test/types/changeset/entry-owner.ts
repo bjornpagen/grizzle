@@ -15,9 +15,11 @@ import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/su
 /**
  * The entry-owner program: every case of the entry-owner box (test/support/families/entry-owner.ts) whose role is
  * declared, its role's entry over Store written with the typed builders, and its write through the entry, as a ChangeSet
- * the types check. The oracle is the box's, which the engine meets (test/unit/write/entry-owner.test.ts): a write is
- * refused exactly when its fact states the count, which no fact of the entry states, and its line then stands under the
- * directive the type-test batch disarms; every other write typechecks.
+ * the types check. The oracle is the box's fact rule, which the engine meets at bind
+ * (test/unit/write/entry-owner.test.ts): a write is refused exactly when its fact states the count, which no fact of
+ * the entry states, and its line then stands under the directive the type-test batch disarms; every other write
+ * typechecks. The engine also refuses every delete through the entry when it compiles, a whole delete of Store through
+ * a query entry, which the types leave to it.
  */
 
 /** The declared cases: those whose entry's filter reads no family field, which the role builder refuses. */
