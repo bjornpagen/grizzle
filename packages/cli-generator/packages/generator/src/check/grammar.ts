@@ -358,9 +358,10 @@ interface Answer {
 const settled = (found: boolean): Answer => ({ found, low: Number.POSITIVE_INFINITY })
 
 /**
- * Whether the schema at `place` requires `name`: directly, through allOf, or in every
- * oneOf/anyOf branch. References are followed; a schema already on the path counts as no.
- * A no that leaned on such a schema is kept only once that schema is settled.
+ * Whether the schema at `place` requires `name`: directly, through its own `$ref` or allOf, or in
+ * every oneOf/anyOf branch. References are followed, a schema that is only a `$ref` (a component
+ * aliasing another) among them, since its target's assertions are its own; a schema already on the
+ * path counts as no. A no that leaned on such a schema is kept only once that schema is settled.
  */
 const requiresAt = (
 	resolution: Resolution,
@@ -404,6 +405,14 @@ const requiresAt = (
 			)
 		)
 	const within = (member: Place): Answer => requiresAt(resolution, search, member, name, depth + 1)
+	const referenced = Option.toArray(
+		Option.filter(
+			stringMember(place.node, "$ref") === undefined
+				? Option.none()
+				: locate(resolution, { document: place.document, pointer: place.pointer }, place.node),
+			(target) => target.document !== place.document || target.pointer !== place.pointer
+		)
+	)
 	const answer = ((): Answer => {
 		if (Arr.contains(listOf(Record.get(place.node, "required")), name)) {
 			return settled(true)
@@ -411,7 +420,7 @@ const requiresAt = (
 
 		let low = Number.POSITIVE_INFINITY
 
-		for (const member of members("allOf")) {
+		for (const member of [...referenced, ...members("allOf")]) {
 			const inner = within(member)
 
 			if (inner.found) {
