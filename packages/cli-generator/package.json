@@ -15,7 +15,7 @@
 	},
 	"scripts": {
 		"prepare": "effect-tsgo patch",
-		"check": "turbo run typecheck runtime-gate superlint oxlint fixtures:superlint fixtures:style fixtures:oxlint fixtures:react-compiler format dead-code architecture dedupe",
+		"check": "turbo run typecheck runtime-gate superlint oxlint fixtures:superlint fixtures:style fixtures:oxlint fixtures:react-compiler format dead-code architecture dedupe --continue=dependencies-successful",
 		"lint": "turbo run superlint oxlint dead-code architecture",
 		"test": "turbo run test",
 		"corpus": "turbo run corpus",
