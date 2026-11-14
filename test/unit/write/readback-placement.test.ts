@@ -9,14 +9,17 @@
  * beside a delete), and with or without a second stratum inserting M's facts again from a query over a relation
  * parameter; another relation W, A or Z, written by an insert in the first stratum, in the second, or not at all; and
  * one read-back of one rule joining by id M's added facts, its removed facts, or both, with W's added facts, W's
- * state, or neither. Every other member is an array a call gives, so no member is carried. Exhausted.
+ * state, or neither. M's id is a plain integer, or a serial its sequence draws: then every insertion of M is a
+ * generated addition, a query over a relation parameter of payloads alone, and M's deletions and puts are arrays of
+ * whole facts. Every other member is an array a call gives, so no member is carried. Exhausted.
  *
  * Oracle: the rule as a model over the statements the construction implies. M's first-stratum action is one statement,
  * an insert's or a delete's, or a put's two, its displacing deletion making removed facts and its insert half added
  * ones; an action beside it is one more; a second stratum's insert is one more. A stratum of one-statement writes of
  * two relations is one statement. A side is made whole by a statement exactly where that statement is its only maker
- * and no maker of the opposite side is of another stratum, since no fact is both added and removed by the writes of
- * one stratum (README, "A row one stratum both adds and deletes stays"); a read-back rides where every side it names, of a
+ * and no maker of the opposite side is of another stratum or a generated addition, nor is the maker one: no fact is
+ * both added and removed by the writes of one stratum (README, "A row one stratum both adds and deletes stays") but a
+ * generated addition's, whose drawn id a lagging sequence may repeat; a read-back rides where every side it names, of a
  * side some statement makes, is made whole by one statement and W, which the read-back reads as state, is written
  * before it: W written at that statement (one statement of both writes) or in a later stratum is state after it, and W
  * written beside M in a stratum of several statements is ordered first. The model's crossings are every side not made
@@ -24,8 +27,9 @@
  * exactly where there is one. A read-back naming no side any statement makes runs after the writes.
  *
  * Features: riding an insert, a delete, a put's insert half, a put's displacing deletion and one statement of two
- * writes; riding beside the opposite action of M in its stratum; riding after W's state written beside M, by name
- * before M and after it; running after the writes; and each crossing refused.
+ * writes; riding beside the opposite action of M in its stratum; riding a generated addition; a generated addition
+ * beside the opposite action of M refused; riding after W's state written beside M, by name before M and after it;
+ * running after the writes; and each crossing refused.
  *
  * Plants (~/.cache/grizzle-release/CARRIER/plants): placement-relation-writers (a delta's writers counted by relation,
  * as before, so a put's sides never ride), placement-no-netting (a side's one maker taken whole whatever nets against
@@ -33,7 +37,9 @@
  * (the statement a read-back rides left out of the writes after it), placement-strata-settled (the writes of later
  * strata left out), placement-sides-together (a read-back of two sides placed at the first's statement); and
  * ~/.cache/grizzle-release/READBACK/plants/placement-stratum-cancels.patch (an addition and a removal of one stratum
- * taken to cancel, so a read-back beside the opposite action of its relation is refused).
+ * taken to cancel, so a read-back beside the opposite action of its relation is refused) and
+ * ~/.cache/grizzle-release/READBACK/plants/placement-drawn-whole.patch (a generated addition taken never to cancel
+ * with its stratum's removals, so its read-back beside a deletion rides).
  */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
@@ -58,7 +64,7 @@ import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking, owning } from "#test/support/policy.ts"
@@ -68,6 +74,12 @@ const A = relation("A", { id: pg.int4, v: pg.int4 }, ["id"])
 const Z = relation("Z", { id: pg.int4, v: pg.int4 }, ["id"])
 const schemaName = "readback_placement"
 const S = schema(schemaName, [M, A, Z], [])
+/** M with an id its sequence draws, in a schema of its own beside copies of A and Z. */
+const MD = relation("M", { id: pg.serial, v: pg.int4 }, ["id"])
+const AD = relation("A", { id: pg.int4, v: pg.int4 }, ["id"])
+const ZD = relation("Z", { id: pg.int4, v: pg.int4 }, ["id"])
+const drawnName = "readback_placement_drawn"
+const SD = schema(drawnName, [MD, AD, ZD], [])
 
 type Op = "insert" | "delete" | "put"
 type Side = NamedSide["side"]
@@ -75,6 +87,7 @@ type Side = NamedSide["side"]
 /** A case: M's first-stratum action, the opposite action beside it, a second stratum's insert of M; W, where it is
  * written; and what the read-back reads beside M's sides. */
 interface Sketch {
+	readonly drawn: boolean
 	readonly op: Op
 	readonly beside: boolean
 	readonly again: boolean
@@ -85,6 +98,7 @@ interface Sketch {
 }
 
 const sketchGen: Gen<Sketch> = (source) => ({
+	drawn: source.draw(boolean),
 	op: source.draw(element(["insert", "delete", "put"] as const)),
 	beside: source.draw(boolean),
 	again: source.draw(boolean),
@@ -98,14 +112,15 @@ const sketchGen: Gen<Sketch> = (source) => ({
  * a deletion's or a put's displacing deletion's. */
 type Maker = "insert" | "put" | "delete" | "displaced"
 
-/** A write the construction implies: the relation and side it makes, its stratum, the statement it is part of, and its
- * kind. */
+/** A write the construction implies: the relation and side it makes, its stratum, the statement it is part of, its
+ * kind, and whether it is a generated addition. */
 interface Write {
 	readonly relation: string
 	readonly side: Side
 	readonly stratum: 1 | 2
 	readonly statement: string
 	readonly maker: Maker
+	readonly drawn: boolean
 }
 
 /** The writes a case implies, each in the statement the realization puts it in. */
@@ -121,7 +136,8 @@ const writesOf = (s: Sketch): ReadonlyArray<Write> => {
 		side,
 		stratum,
 		statement: at(stratum, own),
-		maker
+		maker,
+		drawn: s.drawn && relation === "M" && maker === "insert"
 	})
 	const first: ReadonlyArray<Write> =
 		s.op === "insert"
@@ -172,7 +188,7 @@ const verdictOf = (s: Sketch): Verdict => {
 		}
 		const netting = Arr.filter(
 			makers(n.relation, n.side === "added" ? "removed" : "added"),
-			(w) => w.stratum !== maker.stratum
+			(w) => w.stratum !== maker.stratum || w.drawn || maker.drawn
 		)
 		return Arr.isReadonlyArrayEmpty(netting) ? maker : undefined
 	}
@@ -221,78 +237,112 @@ const verdictOf = (s: Sketch): Verdict => {
 	}
 }
 
+/** What a box's ChangeSets are built and compiled over: a schema, its M and the relations W may be, and its names and
+ * artifacts. */
+const subjectOf = (value: FixtureSchema, name: string, m: unknown, a: unknown, z: unknown) => {
+	const owned = owning(value)
+	return {
+		schema: value,
+		m,
+		a,
+		z,
+		checked: checking(value),
+		names: succeeded(
+			compileInstallation(owned, {
+				...installOptions(owned, "owner"),
+				levels: [identity.schema(parsedSchemaName(name))]
+			})
+		).names,
+		artifacts: succeeded(testArtifacts(value, testCompile))
+	}
+}
+
+type Subject = ReturnType<typeof subjectOf>
+
+const plain = subjectOf(S, schemaName, M, A, Z)
+const drawnSubject = subjectOf(SD, drawnName, MD, AD, ZD)
+
 /** The read-back's rule: each source it reads matched by id, its payload under a name of its own. */
-const readBackOf = (s: Sketch, other: unknown) => (d: DeltaValue) =>
-	queryOver(S).rule((r: RuleValue): FinishedValue => {
-		const id = defined(varsOver(M, "key")["id"], "the id variable")
+const readBackOf = (s: Sketch, at: Subject, other: unknown) => (d: DeltaValue) =>
+	queryOver(at.schema).rule((r: RuleValue): FinishedValue => {
+		const id = defined(varsOver(at.m, "key")["id"], "the id variable")
 		const sources = Arr.map(
 			[
-				...(s.sides === "removed" ? [] : [["added", d.added(M)] as const]),
-				...(s.sides === "added" ? [] : [["removed", d.removed(M)] as const]),
+				...(s.sides === "removed" ? [] : [["added", d.added(at.m)] as const]),
+				...(s.sides === "added" ? [] : [["removed", d.removed(at.m)] as const]),
 				...(s.reads === "delta" ? [["other", d.added(other)] as const] : []),
 				...(s.reads === "state" ? [["state", other] as const] : [])
 			],
 			([name, from]) => ({
 				name,
 				from,
-				payload: defined(varsOver(M, name)["v"], "a payload variable")
+				payload: defined(varsOver(at.m, name)["v"], "a payload variable")
 			})
 		)
 		const matched = Arr.reduce(sources, r, (rule, x) => rule.match(x.from, { id, v: x.payload }))
 		return matched.find({ id, ...Rec.fromEntries(Arr.map(sources, (x) => [x.name, x.payload])) })
 	})
 
-/** A case's ChangeSet, built through the untyped core since its members are drawn. */
-const changeOf = (s: Sketch): ChangeSetValue => {
-	const other = s.other === "A" ? A : Z
+/** A generated addition of the drawn M: a query over the relation parameter `name` of payloads alone. */
+const generatedOf = (at: Subject, name: string) =>
+	queryOver(at.schema).rule((r: RuleValue): FinishedValue => {
+		const v = defined(varsOver(at.m, name)["v"], "the payload")
+		return r.match(r.relation(name, { v: MD.fields.v }), { v }).find({ v })
+	})
+
+/** A case's ChangeSet, built through the untyped core since its members are drawn: M's insertions arrays and a query of
+ * whole facts, or, M's id drawn, each a generated addition. */
+const changeOf = (s: Sketch, at: Subject): ChangeSetValue => {
+	const other = s.other === "A" ? at.a : at.z
+	const insertM = (value: ChangeSetValue, name: string): ChangeSetValue =>
+		s.drawn ? value.insert(at.m, generatedOf(at, name)) : value.insert(at.m, [])
 	const firstOf = (value: ChangeSetValue): ChangeSetValue => {
-		const own = value[s.op](M, [])
-		const beside = s.beside ? (s.op === "delete" ? own.insert(M, []) : own.delete(M, [])) : own
+		const own = s.op === "insert" ? insertM(value, "given") : value[s.op](at.m, [])
+		const beside = s.beside
+			? s.op === "delete"
+				? insertM(own, "beside")
+				: own.delete(at.m, [])
+			: own
 		return s.written === "first" ? beside.insert(other, []) : beside
 	}
-	const first = firstOf(changeSetOver.empty(S))
+	const first = firstOf(changeSetOver.empty(at.schema))
 	const againOf = (value: ChangeSetValue): ChangeSetValue =>
-		s.again
-			? value.insert(
-					M,
-					queryOver(S).rule((r: RuleValue): FinishedValue => {
-						const vars = varsOver(M, "more")
-						const all = {
-							id: defined(vars["id"], "the id variable"),
-							v: defined(vars["v"], "the payload")
-						}
-						return r.match(r.relation("more", M), all).find(all)
-					})
-				)
-			: value
-	const second = againOf(changeSetOver.empty(S))
+		!s.again
+			? value
+			: s.drawn
+				? value.insert(at.m, generatedOf(at, "more"))
+				: value.insert(
+						at.m,
+						queryOver(at.schema).rule((r: RuleValue): FinishedValue => {
+							const vars = varsOver(at.m, "more")
+							const all = {
+								id: defined(vars["id"], "the id variable"),
+								v: defined(vars["v"], "the payload")
+							}
+							return r.match(r.relation("more", at.m), all).find(all)
+						})
+					)
+	const second = againOf(changeSetOver.empty(at.schema))
 	const both =
 		s.again || s.written === "second"
 			? changeSetOver.sequence(first, s.written === "second" ? second.insert(other, []) : second)
 			: first
-	return both.read("r", readBackOf(s, other))
+	return both.read("r", readBackOf(s, at, other))
 }
 
-const owned = owning(S)
-const names = succeeded(
-	compileInstallation(owned, {
-		...installOptions(owned, "owner"),
-		levels: [identity.schema(parsedSchemaName(schemaName))]
-	})
-).names
-const artifacts = succeeded(testArtifacts(S, testCompile))
-
 /** A case's ChangeSet, compiled over reality at SERIALIZABLE. */
-const compiled = (s: Sketch) =>
-	compileWrite(checking(S), defined(changeSetDesc(changeOf(s)), "a ChangeSet"), {
-		names,
-		reads: names,
+const compiled = (s: Sketch) => {
+	const at = s.drawn ? drawnSubject : plain
+	return compileWrite(at.checked, defined(changeSetDesc(changeOf(s, at)), "a ChangeSet"), {
+		names: at.names,
+		reads: at.names,
 		claims: { kind: "every" },
 		world: { kind: "reality" },
-		laws: artifacts.laws,
-		derived: artifacts.derived,
+		laws: at.artifacts.laws,
+		derived: at.artifacts.derived,
 		level: "serializable"
 	})
+}
 
 /** The kind of write a statement's result says made its delta. */
 const makerOf = (result: WriteStepResult): Maker | undefined => {
@@ -359,6 +409,8 @@ type Feature =
 	| "rides a put's displacing deletion"
 	| "rides one statement of two writes"
 	| "rides beside the opposite action of M in its stratum"
+	| "rides a generated addition"
+	| "refused: a generated addition beside the opposite action of M"
 	| "rides after state written beside it, named before it"
 	| "rides after state written beside it, named after it"
 	| "runs after the writes"
@@ -390,7 +442,7 @@ describe("a ChangeSet's read-back", () => {
 						suite: "unit/write/readback-placement",
 						generator: sketchGen,
 						literal: Formatter.format,
-						box: "every first-stratum action of M, the opposite action beside it or not, M again in a second stratum or not, W written in either stratum or not, and a read-back of M's added, removed or both sides with W's added facts, its state or neither",
+						box: "M's id plain or drawn, every first-stratum action of M, the opposite action beside it or not, M again in a second stratum or not, W written in either stratum or not, and a read-back of M's added, removed or both sides with W's added facts, its state or neither",
 						oracle: {
 							kind: "specification",
 							name: "the placement rule as a model over the statements the construction implies"
@@ -402,6 +454,8 @@ describe("a ChangeSet's read-back", () => {
 							"rides a put's displacing deletion",
 							"rides one statement of two writes",
 							"rides beside the opposite action of M in its stratum",
+							"rides a generated addition",
+							"refused: a generated addition beside the opposite action of M",
 							"rides after state written beside it, named before it",
 							"rides after state written beside it, named after it",
 							"runs after the writes",
@@ -430,6 +484,14 @@ describe("a ChangeSet's read-back", () => {
 									`the crossing ${Formatter.format(reason.crossing)} is one of ${Formatter.format(verdict.crossings)}`
 								)
 								c.note(crossingNotes[reason.crossing.kind])
+								if (
+									sketch.drawn &&
+									sketch.beside &&
+									sketch.op !== "put" &&
+									reason.crossing.kind === "sideWrittenTwice"
+								) {
+									c.note("refused: a generated addition beside the opposite action of M")
+								}
 								return
 							}
 							const artifact = succeeded(program, "the ChangeSet compiles").artifact
@@ -461,6 +523,9 @@ describe("a ChangeSet's read-back", () => {
 							}
 							if (sketch.beside) {
 								c.note("rides beside the opposite action of M in its stratum")
+							}
+							if (sketch.drawn && verdict.maker === "insert" && verdict.relation === "M") {
+								c.note("rides a generated addition")
 							}
 							if (sketch.reads === "state" && sketch.written === "first") {
 								c.note(

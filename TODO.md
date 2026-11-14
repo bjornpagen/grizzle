@@ -12,11 +12,12 @@ post-beta swarm's fixes for the next release.
   one statement that makes its delta, whose rows exist nowhere else, and no delta carrier is left, so
   ReadBackCrossesStatements refuses three crossings: a side two statements make, or a statement of another stratum
   nets (one relation in two strata, an ownerPut's UPDATE and insert half, an array or Stream inserted into a relation
-  with serial fields, whose complete and generated classes are a statement each; the writes of one stratum never net,
-  READBACK 2026-11-14, so an insert and a delete of one relation in one stratum, each read back, compile: the shape
-  of edullm's publish of PublishedTest); two sides two statements make (a put's added and removed read in one read-back); and a relation it reads
-  as state written at or after the delta's statement (another part of a one-statement stratum, a write an immediate
-  key holds after it, a later stratum). Follow-ups, each on a downstream's ask: (1) state written in the riding
+  with serial fields, whose complete and generated classes are a statement each; an insert of complete facts and a
+  delete of one relation in one stratum never net, READBACK 2026-11-14, so each read back compiles, the shape of
+  edullm's publish of PublishedTest, while a generated addition still nets with its stratum's removals, its drawn
+  values possibly a lagging sequence's repeat of a deleted fact's); two sides two statements make (a put's added and
+  removed read in one read-back); and a relation it reads as state written at or after the delta's statement (another
+  part of a one-statement stratum, a write an immediate key holds after it, a later stratum). Follow-ups, each on a downstream's ask: (1) state written in the riding
   statement itself, read as that statement's snapshot less the keys it changed plus its added rows, which needs the
   isolation extractor to push key equalities into UNION ALL arms; (2) a mutable put read back on both sides as one ON
   CONFLICT DO UPDATE with RETURNING old; (3) an ownerPut's added side in one statement, its UPDATE and insert half

@@ -784,21 +784,30 @@ const stepSides = (step: PlanStep): ReadonlyArray<SideWrite> => {
 	}
 }
 
+/** Whether `write` is a generated addition, whose drawn serial values a sequence lagging behind the stored ones (a
+ * direct writer's explicit values) may repeat, so the fact it adds may be one its own stratum removes. */
+const drawsSerials = (write: SideWrite): boolean =>
+	write.kind === "write" && write.write.op === "insert" && write.write.serial.kind === "generated"
+
 /**
  * Whether the rows of `other`, which makes the side `side` nets against (`nettedAgainst`), may cancel rows of `side` that
  * `maker` makes (runtime/write/net.ts). A met fact is no met one where any addition of the write made it, one of its own
  * stratum too: an insertion's generated class meets a fact its complete class added. An addition and a removal cancel
- * only across strata, or where a family statement makes either: no write of a stratum removes a fact another of its
- * writes adds (README "A row one stratum both adds and deletes stays"), since an exact deletion excepts the stratum's
- * complete additions (`exceptsOf`, the host netting two enumerated sides) and removes only a stored fact, a put's
- * displacing deletion removes only an occupant other than the fact the put names at its key (write/delete/exact.ts
- * buildDisplacingDelete), and an addition makes present only a fact its stratum did not hold.
+ * across strata, and in one stratum only where a family statement makes either or either is a generated addition
+ * (`drawsSerials`), whose drawn fact may be one the stratum deletes, which the stratum's change nets (net.ts
+ * stratumChange). No other write of a stratum removes a fact another of its writes adds (README "A row one stratum both
+ * adds and deletes stays"): an exact deletion excepts the stratum's complete additions (`exceptsOf`, the host netting
+ * two enumerated sides) and removes only a stored fact, a put's displacing deletion removes only an occupant other than
+ * the fact the put names at its key (write/delete/exact.ts buildDisplacingDelete), and a complete addition makes present
+ * only a fact its stratum did not hold.
  */
 const cancels = (side: DeltaSide, maker: SideWrite, other: SideWrite): boolean =>
 	side === "met" ||
 	maker.kind === "family" ||
 	other.kind === "family" ||
-	maker.stratum !== other.stratum
+	maker.stratum !== other.stratum ||
+	drawsSerials(maker) ||
+	drawsSerials(other)
 
 /** Where a read-back's named side is made whole: the position of the one statement that makes it, or the crossing
  * that leaves it made by no one statement. */
@@ -818,8 +827,8 @@ type Completion =
  *
  * - every side it names is made whole by S: S is the only statement that makes that side of the relation, and no
  *   other statement that makes the side it nets against (`nettedAgainst`) may cancel S's rows (`cancels`): an addition
- *   and a removal made by writes of one stratum never do; so S's rows of the side are the netted delta
- *   (runtime/write/net.ts);
+ *   and a removal made by writes of one stratum never do, but for a family statement's and a generated addition's; so
+ *   S's rows of the side are the netted delta (runtime/write/net.ts);
  * - no statement at or after S writes a stored relation it reads as state, directly, through a role's view, or through
  *   a cascading foreign key, S's own writes included: S's snapshot is from before S's own writes, and the state after S
  *   is the state after the last stratum only where no later statement changes it.

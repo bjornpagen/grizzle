@@ -2715,14 +2715,14 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   statement at or after it writes a table the read-back reads. A stratum runs the writes of tables whose deltas a
   read-back reads after its others where its foreign keys allow. A delta of a table no statement writes is empty,
   and a read-back that reads no other runs after the change. Any other read-back is refused when the ChangeSet
-  compiles (`ReadBackCrossesStatements`), as its `crossing` says: a side two statements make, or one a statement of
-  another stratum nets (one table written in two strata; an array or a `Stream` inserted into a table with serial
-  columns, whose rows that state them and rows that leave them out are inserted by a statement each; the writes of one
-  stratum never net, since a row one stratum both adds and deletes stays, so a delete and an insert of one table there
-  each make their side whole): write the table in one action of one stratum, from a query whose rows leave out its
-  serial columns where it has any, or read it back by its key; two sides two statements make: read each in a read-back
-  of its own; a table the read-back reads, written at or
-  after the statement making its delta: read `delta.added` of that table in its place, or write it in an earlier
+  compiles (`ReadBackCrossesStatements`), as its `crossing` says: a side two statements make, or one another statement
+  nets (one table written in two strata; an array or a `Stream` inserted into a table with serial columns, whose rows
+  that state them and rows that leave them out are inserted by a statement each; a delete and an insert of one table
+  in one stratum each make their side whole, since a row one stratum both adds and deletes stays, unless the insert
+  leaves serial columns out, whose drawn values may repeat a deleted row's): write the table in one action of one
+  stratum, from a query whose rows leave out its serial columns where it has any, or read it back by its key; two
+  sides two statements make: read each in a read-back of its own; a table the read-back reads, written at or after
+  the statement making its delta: read `delta.added` of that table in its place, or write it in an earlier
   stratum with `ChangeSet.sequence`.
 - **Strata.** Every write in a stratum reads the state before it, so build order means nothing.
   `ChangeSet.union(a, b)` merges two ChangeSets stratum by stratum; `ChangeSet.sequence(a, b)` runs `b`'s strata after

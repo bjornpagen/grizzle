@@ -668,8 +668,9 @@ export interface NamedSide {
  * - `sideWrittenTwice`: the side is made by two statements, or netted against facts a statement of another stratum makes
  *   the other side of, so no statement's rows are the whole delta: one relation written in two strata, or an array or
  *   Stream inserted into a relation with serial fields, whose rows that state them and rows that leave them out are
- *   inserted by a statement each; an addition and a removal made in one stratum never net, since a row one stratum both
- *   adds and deletes stays;
+ *   inserted by a statement each; an addition and a removal made in one stratum net only where the addition leaves
+ *   serial fields out, whose drawn values may repeat a removed fact's, since a row one stratum both adds and deletes
+ *   stays;
  * - `sidesApart`: `first` and `second` are made whole by two different statements;
  * - `stateAfter`: the read-back reads `state`, which a statement at or after the one making `delta` writes, so that
  *   statement still sees `state` as it was before the change.
