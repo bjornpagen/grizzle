@@ -7,6 +7,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
+import { served as servedLogin } from "#adapter/public/layer.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
@@ -17,7 +18,6 @@ import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { type AnyLogin, login, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { role } from "#compiler/schema/world.ts"
-import { servedFile } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import {
@@ -53,12 +53,17 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
  * - Names: every reason any certificate gives names a relation of Work, never a table, a function or a statement the
  *   names grizzle installs leave unresolved (`?schema.name`, `?function:...`, `?statement:...`), so every object a
  *   compiled write of a whole entry reaches is one the certifier reads facts of.
- * - Levels: each role's level in its served file is its certificate's, and so is its level in the installation.
+ * - Levels: each role's level as its served login reads it, the isolation of its role token (served(...).roles[r]
+ *   isolation, the public reading an application and a test of it take, never the file's encoding), is its
+ *   certificate's, and so is its level in the installation; each served login's tokens are exactly its roles.
  * - A role with no change member is SERIALIZABLE.
  * - Guards: every relation a READ COMMITTED role holds INSERT on has no guard trigger in the installation
  *   (physical/ddl/isolation.ts readCommittedRelations), so none of its writes is refused below SERIALIZABLE: a role
  *   writing a relation a SERIALIZABLE role writes too is SERIALIZABLE. Kept: an inserter of Tag beside a direct
  *   inserter of Tag, which certified READ COMMITTED while Tag kept its guard.
+ *
+ * Plants (~/.cache/grizzle-release/DENAPI/plants): isolation-serializable.patch (served gives every role token
+ * `serializable`), isolation-first-role.patch (served gives every role token its login's first role's level).
  */
 
 type Mode = "insert" | "write"
@@ -267,6 +272,13 @@ layer(NodeServices.layer, { excludeTestServices: true })("a role's isolation lev
 							const served = draft.served
 							assert.ok(served.kind === "logins", "a schema with a login plans its logins")
 							const entries = yield* servedFiles(compiled, draft.snapshotFiles, served)
+							const servedLogins = new Map(
+								Arr.map(
+									entries,
+									(e) =>
+										[e.login, servedLogin<AnyLogin>(trustedJson<unknown>(e.text), e.login)] as const
+								)
+							)
 							const installation = draft.installation
 							const guarded = new Set(
 								Arr.flatMap(installation.manifest.objects, (o) =>
@@ -293,22 +305,17 @@ layer(NodeServices.layer, { excludeTestServices: true })("a role's isolation lev
 								} else {
 									notes.note("a role certified SERIALIZABLE for its own statements")
 								}
-								const entry = defined(
-									Arr.findFirst(entries, (e) => e.login === certified.login).pipe(
-										Option.getOrUndefined
-									),
-									`the served file of login ${certified.login}`
-								)
-								const servedRole = Option.getOrUndefined(
-									Arr.findFirst(
-										servedFile(trustedJson<unknown>(entry.text)).roles,
-										(r) => r.name === certified.role
-									)
-								)
+								const servedRoles = defined(
+									servedLogins.get(certified.login),
+									`the served login ${certified.login}`
+								).roles
 								assert.equal(
-									defined(servedRole, `the served role ${certified.role}`).isolation,
+									defined(
+										Rec.get(servedRoles, certified.role).pipe(Option.getOrUndefined),
+										`the served role ${certified.role}`
+									).isolation,
 									certified.certificate.level,
-									`role ${certified.role}: its served file records its certificate's level`
+									`role ${certified.role}: its served login reads its certificate's level`
 								)
 								const installed = Option.getOrUndefined(
 									Arr.findFirst(
@@ -351,6 +358,16 @@ layer(NodeServices.layer, { excludeTestServices: true })("a role's isolation lev
 								}
 							}
 							const logins: ReadonlyArray<AnyLogin> = [app, ...psql]
+							for (const l of logins) {
+								assert.deepEqual(
+									Arr.sort(
+										Rec.keys(defined(servedLogins.get(l.name), `the served login ${l.name}`).roles),
+										Str.Order
+									),
+									Arr.sort(Rec.keys(l.roles), Str.Order),
+									`login ${l.name}: its served login holds a token for each of its roles`
+								)
+							}
 							assert.deepEqual(
 								Arr.sort(
 									Arr.map(served.certification, (r) => `${r.login}.${r.role}`),
