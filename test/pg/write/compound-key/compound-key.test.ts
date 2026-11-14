@@ -77,25 +77,29 @@ import { fullWorld } from "#test/support/worlds.ts"
  * - The catalog: Parent's primary key and its declared key are unique indexes over exactly their fields in their
  *   declared order, and the containment is one foreign key from Child to Parent pairing its fields in its declared
  *   order (README "Keys and containment").
- * - The set model of each write (README "Writes"): an insert adds the rows no stored row repeats and is refused on a
- *   key where two rows share it and differ, a put leaves the row at each primary key the one given, a delete removes
- *   the rows at the keys it names, every declared key holds after each, and every Child row's key is a Parent's at
- *   commit. A refused write names only laws its rows break; a key's refusal is witnessed by a row the write states
- *   that breaks it, at the broken key's fields or at the row's primary key (README.md:2853-2856 says both "the key of
- *   one row that breaks the rule" and "witnessed by the key you submitted"), and a containment's is `unreported` (README
- *   "Errors and outcomes", Witness: "unreported for a foreign key").
+ * - The set model of each write (README "Writes"): an insert adds the rows no stored row repeats and a put leaves the
+ *   row at each primary key the one given, each refused on a key where two rows it adds share it and differ; a delete
+ *   removes the stored rows equal to a row it names, so a row unlike the stored one at its key changes nothing and two
+ *   rows it names at one key are no refusal (README.md:2695-2697, "a deletion names its row exactly"); every declared
+ *   key holds after each, and every Child row's key is a Parent's at commit. A refused write names only laws its rows
+ *   break; a key's refusal is witnessed by a row the write states that breaks it, at the broken key's fields or at the
+ *   row's primary key (README.md:2853-2856 says both "the key of one row that breaks the rule" and "witnessed by the key
+ *   you submitted"), and a containment's is `unreported` (README "Errors and outcomes", Witness: "unreported for a
+ *   foreign key").
  * - PostgreSQL's plans: every read by the primary key, by the declared key and of a Child joined to its Parent,
  *   EXPLAINed as the runtime sent it over relations left unanalyzed with sequential and index scans disabled
  *   (test/support/plans.ts sentProblems), reads each restricted relation through an index the installation planned;
  *   and each returns the model's rows.
  *
  * Features: each arity of the primary key with its texts in declared order and out of it, a key refused past the item
- * limit, a key at the limit accepted, a containment out of the key's order, and a write of each op refused on each
- * law.
+ * limit, a key at the limit accepted, a containment out of the key's order, a write of each op refused on each law,
+ * and a delete at a key at the limit of a row unlike the stored one there, alone or beside it.
  *
  * Plants: ~/.cache/grizzle-release/KEYSTRESS/plants/compound-key-unique-reordered.patch, a key's UNIQUE planned over
  * its fields in sorted order, and compound-key-oversized-internal.patch, the B-tree entry bound never refusing, so the
- * widest write meets 54000 as an ExecutionFailure; each must turn the property red.
+ * widest write meets 54000 as an ExecutionFailure; ~/.cache/grizzle-release/LONGKEY/plants/
+ * compound-key-delete-at-key.patch, a delete matching stored rows at the primary key alone; each must turn the property
+ * red.
  */
 
 const TEXTS = ["t0", "t1", "t2"] as const
@@ -179,6 +183,8 @@ type Situation =
 	| "a containment out of the key's order"
 	| `${OpLabel} refused on ${"the primary key" | "the declared key" | "the containment"}`
 	| "a write of the widest values accepted"
+	| "a delete of a row unlike the stored one at its key, which keeps it"
+	| "a delete of two rows at one key, which is no refusal"
 	| "a refused key whose widest entry PostgreSQL refuses too"
 	| "a refused key whose widest entry PostgreSQL holds"
 
@@ -196,7 +202,9 @@ const situations: Arr.NonEmptyReadonlyArray<Situation> = [
 	"an insert refused on the containment",
 	"a put refused on the declared key",
 	"a delete refused on the containment",
-	"a write of the widest values accepted"
+	"a write of the widest values accepted",
+	"a delete of a row unlike the stored one at its key, which keeps it",
+	"a delete of two rows at one key, which is no refusal"
 ]
 
 /** A byte-bounded text of at most `w` bytes. */
@@ -272,9 +280,15 @@ const widthGen: Gen<number> = weighted([
 type Edge = "drawn" | "at the limit" | "past the limit"
 
 /** What a witness aims a shape at: its primary key's arity and whether its texts stand in order, or its edge. */
-type Aim =
+type ShapeAim =
 	| { readonly kind: "key"; readonly arity: 1 | 2 | 3 | 4; readonly inOrder: boolean }
 	| { readonly kind: "edge"; readonly edge: Exclude<Edge, "drawn"> }
+
+/**
+ * What a witness aims a case at: its shape, or a delete of a row unlike the widest row at its key, one of whose texts is
+ * at the item limit, once the widest row alone is inserted: the unlike row alone, or (`beside`) beside the widest row.
+ */
+type Aim = ShapeAim | { readonly kind: "delete"; readonly beside: boolean }
 
 /** Every permutation of `xs`, drawn. */
 const all = <A>(xs: ReadonlyArray<A>): Gen<ReadonlyArray<A>> =>
@@ -302,7 +316,7 @@ const aimedKey =
  * of the key's texts sized to the widest bound grizzle's layout admits beside the rest, or one byte past it.
  */
 const shapeWith =
-	(aim: Option.Option<Aim>): Gen<Shape> =>
+	(aim: Option.Option<ShapeAim>): Gen<Shape> =>
 	(source) => {
 		const drawnKey = (): Arr.NonEmptyReadonlyArray<KeyField> => {
 			const texts = source.draw(subset(TEXTS, { min: 1, max: 3 }))
@@ -390,23 +404,43 @@ const childGen =
 		return { id, t0: p.t0, t1: p.t1, t2: p.t2, n: p.n }
 	}
 
-/** A case: its shape, its salt, and up to four ChangeSets, the first inserting the widest row beside drawn ones. */
+/**
+ * A case: its shape, its salt, and up to four ChangeSets, the first inserting the widest row beside drawn ones; or,
+ * aimed at a delete, inserting the widest row alone, then the aimed delete of a row unlike it in `payload` alone, then
+ * the drawn ones.
+ */
 const caseWith =
 	(aim: Option.Option<Aim>): Gen<KeyCase> =>
 	(source) => {
-		const shape = source.draw(shapeWith(aim))
+		const deleting = Option.flatMap(aim, (a) =>
+			a.kind === "delete" ? Option.some(a.beside) : Option.none()
+		)
+		const shape = source.draw(
+			shapeWith(
+				Option.map(aim, (a): ShapeAim =>
+					a.kind === "delete" ? { kind: "edge", edge: "at the limit" } : a
+				)
+			)
+		)
 		const salt = source.draw(int(0, 0xffff))
-		const pool = nonEmpty([
-			widest(shape, salt),
-			...source.draw(array(parentGen(shape, salt), { min: 1, max: 4 }))
-		])
-		const writes: Array<Write> = [
-			{
-				op: "insert",
-				parents: [widest(shape, salt), ...source.draw(array(element(pool), { min: 0, max: 2 }))],
-				children: source.draw(array(childGen(pool, 1), { min: 0, max: 1 }))
+		const wide = widest(shape, salt)
+		const pool = nonEmpty([wide, ...source.draw(array(parentGen(shape, salt), { min: 1, max: 4 }))])
+		const writes: Array<Write> = Option.match(deleting, {
+			onNone: (): Array<Write> => [
+				{
+					op: "insert",
+					parents: [wide, ...source.draw(array(element(pool), { min: 0, max: 2 }))],
+					children: source.draw(array(childGen(pool, 1), { min: 0, max: 1 }))
+				}
+			],
+			onSome: (beside): Array<Write> => {
+				const unlike: ParentRow = { ...wide, payload: source.draw(int(1, 2)) }
+				return [
+					{ op: "insert", parents: [wide], children: [] },
+					{ op: "delete", parents: beside ? [unlike, wide] : [unlike] }
+				]
 			}
-		]
+		})
 		for (let left = source.draw(int(0, 3)); left > 0; left -= 1) {
 			const op = source.draw(element(["insert", "put", "delete"] as const))
 			const parents = nonEmpty(source.draw(array(element(pool), { min: 1, max: 3 })))
@@ -450,7 +484,12 @@ const aims: ReadonlyArray<readonly [Situation, Aim]> = [
 		{ kind: "key", arity: 4, inOrder: false }
 	],
 	["a key refused past the item limit", { kind: "edge", edge: "past the limit" }],
-	["a key at the item limit accepted", { kind: "edge", edge: "at the limit" }]
+	["a key at the item limit accepted", { kind: "edge", edge: "at the limit" }],
+	[
+		"a delete of a row unlike the stored one at its key, which keeps it",
+		{ kind: "delete", beside: false }
+	],
+	["a delete of two rows at one key, which is no refusal", { kind: "delete", beside: true }]
 ]
 
 /** The case a witness runs: its drawn one, or, while an aimed situation is pending, a case aimed at one of them. */
@@ -528,9 +567,10 @@ const verdictOf = (
 		["the declared key", s.unique]
 	]
 	const stated = once(w.parents)
+	const added = w.op === "delete" ? [] : stated
 	const statedChildren = w.op === "insert" ? once(w.children) : []
 	const clashed = [
-		...clashes(stated, stated, parentKeys),
+		...clashes(added, added, parentKeys),
 		...clashes(statedChildren, statedChildren, [["the child key", ["id"]]])
 	]
 	const next = (): {
@@ -553,7 +593,7 @@ const verdictOf = (
 				}
 			case "delete":
 				return {
-					parents: Arr.filter(parents, (p) => !Arr.some(stated, (x) => agreeAt(p, x, s.key))),
+					parents: Arr.filter(parents, (p) => !Arr.some(stated, (x) => deepEquals(p, x))),
 					children
 				}
 		}
@@ -953,6 +993,22 @@ layer(Substrate.layer, { excludeTestServices: true })("compound text keys", (it)
 										}
 										if (i === 0 && Arr.some(verdict.parents, (p) => deepEquals(p, widestRow))) {
 											c.note("a write of the widest values accepted")
+										}
+										if (
+											w.op === "delete" &&
+											Arr.some(verdict.parents, (p) =>
+												Arr.some(w.parents, (x) => agreeAt(p, x, s.key) && !deepEquals(p, x))
+											)
+										) {
+											c.note("a delete of a row unlike the stored one at its key, which keeps it")
+										}
+										if (
+											w.op === "delete" &&
+											Arr.some(w.parents, (x) =>
+												Arr.some(w.parents, (y) => agreeAt(x, y, s.key) && !deepEquals(x, y))
+											)
+										) {
+											c.note("a delete of two rows at one key, which is no refusal")
 										}
 										parents = verdict.parents
 										children = verdict.children
