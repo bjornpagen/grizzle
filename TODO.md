@@ -277,6 +277,14 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
 - **Text keys past PostgreSQL's B-tree item size:** so pantry drops its "Key text bound" law.
 
 ### Next
+- **The owner's call: cardinality proofs from a closed relation's facts (493f958e states today's contract):** the engine
+  proves a key from a closed relation's contents, any column whose values are distinct across its facts
+  (logical/props.ts:1468-1484, ir/keys.ts distinctColumn), and an attachment's cardinality follows from it; the types key a
+  closed relation by its declared key alone and carry none of its facts (a contract value like Cents(1n) is not in its
+  type). The attachment agreement therefore lets the types be stricter than the engine exactly where a proof reads closed
+  facts. Two ways to make them equal: cardinality proofs use declared keys only (the engine admits less, the types match
+  exactly), or closed relations carry their rows' literal types (the types prove more, but contract-typed columns stay
+  out). Neither is needed by a downstream program today.
 - **`migrated` issues no decoder credential (WORLDSCOVER, 2026-11-14; main: log only):** since 1d895f02 an installation
   test/support/installed.ts `migrated` installs holds the live source its logins' reads need, the plan's live plan
   (test/support/compile.ts deployedWorkloadOver). But it builds its Installed with no served files (installedOf
