@@ -2420,23 +2420,25 @@ class FamilyPlanner {
 		})
 		const familyKeyColumns = appendNonEmpty(group, index)
 		const successorKey = appendNonEmpty(group, pred)
+		const lastBase = appendNonEmpty(ownerKey, lastPred)
 		const ownerTargets = appendNonEmpty(ownerKey, fieldColumn(f.count))
 		const carried = {
 			owner: this.#carried("owner", f.axes.owner, extendNonEmpty(group, [copy]), ownerTargets),
 			predecessor: this.#carried("predecessor", f.axes.predecessor, successorKey, familyKeyColumns),
-			last: this.#carried("last", f.axes.last, appendNonEmpty(ownerKey, lastPred), familyKeyColumns)
+			last: this.#carried("last", f.axes.last, lastBase, familyKeyColumns)
 		}
 		const ownerTargetColumns = extendNonEmpty(
 			ownerTargets,
 			carried.owner.map((p) => p.to)
 		)
+		const memberGroup = mapNonEmpty(f.group, (g) => fieldColumn(g.member))
 		const axes: FamilyPlan["axes"] = {
 			owner:
 				tree === undefined
 					? this.#axis(
 							"owner",
 							carried.owner,
-							{ relation: member, base: extendNonEmpty(group, [copy]) },
+							{ relation: member, base: extendNonEmpty(group, [copy]), keyed: memberGroup },
 							{ relation: owner, base: ownerTargets },
 							"cascade",
 							this.#recognizer.refillDeferred("owner", f) ||
@@ -2447,10 +2449,7 @@ class FamilyPlanner {
 					: this.#axis(
 							"owner",
 							carried.owner,
-							{
-								relation: member,
-								base: [...mapNonEmpty(f.group, (g) => fieldColumn(g.member)), copy]
-							},
+							{ relation: member, base: appendNonEmpty(memberGroup, copy), keyed: memberGroup },
 							{ relation: owner, base: ownerTargets },
 							"noAction",
 							this.#recognizer.refillDeferred("owner", f) ? "deferred" : "immediate"
@@ -2458,7 +2457,7 @@ class FamilyPlanner {
 			predecessor: this.#axis(
 				"predecessor",
 				carried.predecessor,
-				{ relation: member, base: successorKey },
+				{ relation: member, base: successorKey, keyed: successorKey },
 				{ relation: member, base: familyKeyColumns },
 				"noAction",
 				index.kind === "field" && !this.#recognizer.refillDeferred("predecessor", f)
@@ -2468,7 +2467,7 @@ class FamilyPlanner {
 			last: this.#axis(
 				"last",
 				carried.last,
-				{ relation: owner, base: appendNonEmpty(ownerKey, lastPred) },
+				{ relation: owner, base: lastBase, keyed: lastBase },
 				{ relation: member, base: familyKeyColumns },
 				"noAction",
 				"deferred"
@@ -2698,9 +2697,11 @@ class FamilyPlanner {
 	 * a key like any declared one, so INDEX_MAX_KEYS bounds its columns and its B-tree entry must be representable for
 	 * every value they admit (`plannedEntry`), or the axis is UnrepresentableKey, naming the fold whose accumulator it
 	 * carries; PostgreSQL would refuse the write that outgrows it (54000). The foreign key carries the index of its
-	 * reverse probe over its referencing columns (`Reversed`), as every foreign key does: deleting a family's members
-	 * probes the predecessor axis once per member, and a tree's nodes the owner axis, each probe reading every member of
-	 * the family or node of the tree without it.
+	 * reverse probe (`Reversed`), as every foreign key does, over its base's columns that pair with its target's key
+	 * (`keyed`): the rows equal there reference one target row, and every column it carries beyond them is a copy of that
+	 * row's, equal on all of them, so an index over the copies too would narrow nothing and could outgrow a B-tree entry.
+	 * Deleting a family's members probes the predecessor axis once per member, and a tree's nodes the owner axis, each
+	 * probe reading every member of the family, or node of the tree, without that index.
 	 */
 	#axis(
 		kind: AxisKind,
@@ -2708,6 +2709,11 @@ class FamilyPlanner {
 		source: {
 			readonly relation: RelationInfo
 			readonly base: NonEmptyReadonlyArray<PlannedColumn>
+			/**
+			 * The columns of its base that pair with a key of its target, the owner's primary key or the family key, so
+			 * that the rows equal at them are exactly the rows that reference one target row: its reverse probe's index.
+			 */
+			readonly keyed: NonEmptyReadonlyArray<PlannedColumn>
 		},
 		target: {
 			readonly relation: RelationInfo
@@ -2758,8 +2764,8 @@ class FamilyPlanner {
 				deferral,
 				laws: [own, ...laws],
 				reverse: plannedReverse(
-					columns,
-					`the index of ${source.relation.name} over the columns the ${kind} axis of ${familyText(this.#shape())} references from`,
+					source.keyed,
+					`the index of ${source.relation.name} over the columns the ${kind} axis of ${familyText(this.#shape())} references its target's key from`,
 					this.#loc
 				)
 			},

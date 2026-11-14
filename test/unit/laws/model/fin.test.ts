@@ -391,14 +391,12 @@ const checkCopies = (model: LawModel, s: Shape): void => {
 	}
 }
 
-/** Each axis's reverse index for a shape, over its referencing columns as a set: the owner axis's and the
- * predecessor's on the member, the last axis's on the owner. */
+/** Each axis's reverse index for a shape, over its referencing columns that pair with its target's key, as a set: the
+ * owner axis's (g…) and the predecessor's (g…, ‹p›) on the member, the last axis's (k…, ‹pn›) on the owner; never
+ * over a copy an axis carries, which every row referencing one target row holds alike. */
 const expectedReverse = (s: Shape) => ({
-	Member: sortText([
-		setText([...group(s), "‹copy›", ...Arr.map(named("owner", s.owner), (c) => c.from)]),
-		setText([...group(s), predOf(s), ...Arr.map(named("pred", s.predecessor), (c) => c.from)])
-	]),
-	Owner: [setText([...keys(s), "‹generated n›", ...Arr.map(named("last", s.last), (c) => c.from)])]
+	Member: sortText([setText(group(s)), setText([...group(s), predOf(s)])]),
+	Owner: [setText([...keys(s), "‹generated n›"])]
 })
 
 const checkShape = (s: Shape): void => {

@@ -405,13 +405,14 @@ const checkCopies = (model: LawModel, s: Shape): void => {
 	}
 }
 
-/** Each axis's reverse index, over its referencing columns as a set: the owner axis's from the plain parent, the
- * predecessor's and the last's. */
-const expectedReverse = (s: Shape): ReadonlyArray<string> =>
+/** Each axis's reverse index, over its referencing columns that pair with its target's key, as a set: the owner
+ * axis's (doc, parent) from the plain parent, the predecessor's (doc, ‹parent₀›, ‹p›) and the last's (doc, start,
+ * ‹pn›); never over a copy an axis carries. */
+const expectedReverse = (): ReadonlyArray<string> =>
 	sortText([
-		setText(["doc", "parent", "‹copy›", ...Arr.map(copiesOf(s), (c) => c.from)]),
-		setText(["doc", parent0, "‹generated at›", "start", ...(s.fold ? ["‹before 0.0›"] : [])]),
-		setText(["doc", "start", "‹generated children›", "end", ...(s.fold ? ["size"] : [])])
+		setText(["doc", "parent"]),
+		setText(["doc", parent0, "‹generated at›"]),
+		setText(["doc", "start", "‹generated children›"])
 	])
 
 const checkShape = (s: Shape): void => {
@@ -426,7 +427,7 @@ const checkShape = (s: Shape): void => {
 	assert.deepEqual(keySets(model, "Node"), expectedKeys(s))
 	assert.deepEqual(
 		reverseSets(model, "Node"),
-		expectedReverse(s),
+		expectedReverse(),
 		"each axis carries its reverse index"
 	)
 	checkConditions(model)
