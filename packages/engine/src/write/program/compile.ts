@@ -646,7 +646,8 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 									),
 									layout: layoutOf(name),
 									sources,
-									families: familiesOf(relation)
+									families: familiesOf(relation),
+									owns: all.filter((f) => f.owner.name === name && !isSequence(f))
 								}
 							]
 						}

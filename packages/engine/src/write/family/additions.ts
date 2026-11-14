@@ -212,6 +212,40 @@ export interface AppendedMember {
 		readonly family: Family
 		readonly drawn: ReadonlyArray<FillColumn>
 	}>
+	/** The counted families it owns, in the law model's order, whose counts and ends its rows hold (`ownedColumns`). */
+	readonly owns: ReadonlyArray<Family>
+}
+
+/**
+ * A count or an end of one of a member relation's own counted families, as its row holds it: the owner's field, the
+ * family, and the column of the family's members that holds the same value, every member's copy ‹n› of the count, and
+ * the last member's column the family's last axis carries into the end.
+ */
+interface OwnedColumn {
+	readonly field: LawField
+	readonly family: Family
+	readonly held: NativeColumn
+}
+
+/** Each count and end of `member`'s own counted families (`OwnedColumn`), by its field's key, the first family that holds
+ * it in the law model's order. */
+const ownedColumns = (member: AppendedMember): ReadonlyMap<ColumnKey, OwnedColumn> => {
+	const owned = new Map<ColumnKey, OwnedColumn>()
+	const claim = (field: LawField, family: Family, held: NativeColumn): void => {
+		const key = fieldKey(field.name)
+		if (!owned.has(key)) {
+			owned.set(key, { field, family, held })
+		}
+	}
+	for (const family of member.owns) {
+		claim(family.count, family, { kind: "law", column: family.copy })
+		for (const p of family.axes.last) {
+			if (p.from.kind === "field" && p.from.field.writing.kind === "accumulated") {
+				claim(p.from.field, family, p.to)
+			}
+		}
+	}
+	return owned
 }
 
 /** Whether `family` draws the appended rows of `source`: every family draws its slots', a counted one its nested rows'. */
@@ -463,6 +497,13 @@ const withDrawn = (
  * A member relation's appended rows of one source (`RowSource`): its insert slot's facts no stored row repeats exactly,
  * every field its fact carries equal (rule 0 makes such an insert no change), and its put slot's facts at no key a row
  * stores; or its nested rows no stored row repeats exactly, each with every column of its sent layout.
+ *
+ * A slot's rows hold every count and end of the member's own counted families (`ownedColumns`): an insert's row is a
+ * fresh owner, by its key law, and holds them as its slot carries them, drawn from the stratum's appends to it
+ * (write/program/bind.ts freshOwners), or at their starts. A put's row may be a stored one the stratum moves to another
+ * group, which the removals deleted (write/family/removals.ts) and its families' members still name, so it holds each
+ * as its group's members hold it, every member's copy of the count and the last member's column an end is carried
+ * from, and as an insert's row does where its group holds no member.
  */
 const appendedOf = (
 	w: WriteContext,
@@ -475,9 +516,9 @@ const appendedOf = (
 	arbitrated: boolean
 ): Shaped => {
 	const name = member.relation.name
-	/** The arm of `facts`' rows no stored row repeats at `compared`, each of the appended CTE's columns, read by the
-	 * probe of the member at those columns (probe.ts storedAt); every one of them where the member's insert is
-	 * arbitrated (`memberArbitrated`), which meets each stored repeat at its key. */
+	/** The arm of `facts`' rows no stored row repeats at `compared`, each of the appended CTE's columns, `value` read as
+	 * `a`, read by the probe of the member at those columns (probe.ts storedAt); every one of them where the member's
+	 * insert is arbitrated (`memberArbitrated`), which meets each stored repeat at its key. */
 	const unstored = (
 		facts: Shaped,
 		compared: NonEmptyReadonlyArray<{
@@ -485,7 +526,8 @@ const appendedOf = (
 			readonly column: NativeColumn
 			readonly type: ScalarType
 		}>,
-		appended: Shaped
+		appended: Shaped,
+		value: (a: string, key: ColumnKey) => Expr
 	): SetArm => {
 		const a = supply.relation(internal("appended fact"))
 		const repeated = (): Expr =>
@@ -500,9 +542,7 @@ const appendedOf = (
 			})
 		return provedCore(
 			"input",
-			[...appended.columns.keys()].map((k) =>
-				targetAs(col(a, columnAt(facts, k)), columnAt(appended, k))
-			),
+			[...appended.columns.keys()].map((k) => targetAs(value(a, k), columnAt(appended, k))),
 			[cteRefAs(facts.name, a)],
 			arbitrated ? undefined : not(repeated())
 		)
@@ -520,7 +560,10 @@ const appendedOf = (
 	}
 	switch (source.kind) {
 		case "slots": {
-			const keys = source.slots[0].slot.heading.map((c) => fieldKey(c.name))
+			const owned = ownedColumns(member)
+			const keys = [
+				...new Set([...source.slots[0].slot.heading.map((c) => fieldKey(c.name)), ...owned.keys()])
+			]
 			const appended = shapedCte(supply, "appended member", keys)
 			const arms = mapNonEmpty(source.slots, ({ as, slot }) => {
 				const compared =
@@ -531,7 +574,44 @@ const appendedOf = (
 				if (first === undefined) {
 					throw defect(`the fields of ${name}'s slot, which holds its key`)
 				}
-				return unstored(slots(name, slot), [first, ...rest], appended)
+				const facts = slots(name, slot)
+				/** A count or end of the row's own counted family as an insert's row holds it: its slot's, or its start. */
+				const fresh = (a: string, c: OwnedColumn): Expr =>
+					facts.columns.has(fieldKey(c.field.name))
+						? col(a, columnAt(facts, fieldKey(c.field.name)))
+						: defined(startOf(w.names, c.field), `the start of ${name}'s ${c.field.name}`)
+				/** A count or end of the row's own counted family as its group's members hold it, read by the probe of the
+				 * group's last member at the row's key; none where the group holds no member. */
+				const held = (a: string, c: OwnedColumn): Expr => {
+					const of = c.family.member.name
+					const column = installed(w, of, c.held)
+					const last = probeGroup(
+						w,
+						supply,
+						of,
+						"last",
+						mapNonEmpty(c.family.group, (g) =>
+							bound(w, of, g.member, col(a, columnAt(facts, fieldKey(g.owner.name))))
+						),
+						[installed(w, of, c.family.index)],
+						{ read: [column], filter: () => [] }
+					)
+					return written(
+						w,
+						{
+							kind: "subquery",
+							query: simpleSelect([target(last.at(column))], [last.source], undefined)
+						},
+						c.field.type
+					)
+				}
+				return unstored(facts, [first, ...rest], appended, (a, k) => {
+					const c = owned.get(k)
+					if (c === undefined) {
+						return col(a, columnAt(facts, k))
+					}
+					return as === "puts" ? firstNonNull([held(a, c), fresh(a, c)]) : fresh(a, c)
+				})
 			})
 			ctes.push(
 				cte(appended.name, [...appended.columns.values()], select(unionAll("disjoint", arms)))
@@ -557,7 +637,7 @@ const appendedOf = (
 				cte(
 					appended.name,
 					[...appended.columns.values()],
-					select(unstored(sent, [first, ...rest], appended))
+					select(unstored(sent, [first, ...rest], appended, (a, k) => col(a, columnAt(sent, k))))
 				)
 			)
 			return appended

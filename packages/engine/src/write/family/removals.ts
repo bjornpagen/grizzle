@@ -7,7 +7,9 @@
  * For each member relation the stratum edits by puts and deletes, its stored rows at their facts' keys are:
  *
  * - removed: a delete's, and a put's that names another group in some family of the relation, which the additions
- *   insert again in its new groups: it leaves every family it is a member of;
+ *   insert again in its new groups: it leaves every family it is a member of, and keeps every counted family it owns,
+ *   whose members still name it and whose counts and ends the additions read from them (write/family/additions.ts
+ *   appendedOf);
  * - updated in place: any other put's, its caller fields the put's; its families' values are drawn again from its slot
  *   where the put changes a field one of their values reads.
  *

@@ -2363,9 +2363,47 @@ export const ownerPutGen =
 		)
 
 /**
+ * Every move a follow-up over the ordered family `family` may make of a member that owns a row, its relation mutable,
+ * to the end of another owner's group, in the instance's order: its member and that owner, by id.
+ */
+const ownerMoves = (
+	spec: FillSpec,
+	rows: ReadonlyArray<InstanceRow>,
+	family: number
+): ReadonlyArray<{ readonly id: number; readonly row: number }> => {
+	const owner = familyAt(spec, family).owner
+	return Arr.flatMap(rows, (m) => {
+		const from = membershipIn(m, family)?.owner
+		return from !== undefined &&
+			relationAt(spec, m.relation).mutable &&
+			Arr.some(rows, (x) => Arr.some(x.memberOf, (k) => k.owner === m.id))
+			? Arr.flatMap(rows, (o) =>
+					o.relation === owner && o.id !== from ? [{ id: m.id, row: o.id }] : []
+				)
+			: []
+	})
+}
+
+/** The follow-up that moves `move.id` to the end of `move.row`'s group of the ordered family `family`, and does no more. */
+const moveFollowUp = (
+	spec: FillSpec,
+	family: number,
+	move: { readonly id: number; readonly row: number }
+): FollowUp => ({
+	owner: familyAt(spec, family).owner,
+	row: move.row,
+	put: Option.none(),
+	inserted: [],
+	removed: Option.none(),
+	appended: Option.none(),
+	moved: Option.some({ id: move.id, family })
+})
+
+/**
  * A follow-up aimed at a re-placed owner, over the ordered family `family`, drawing nothing: the deletion of a group's
  * first member that owns no row where a later member owns one, which re-places it; else, the member relation mutable,
- * the move of a member that owns a row to the end of another owner's group; none where the instance holds neither.
+ * the move of a member that owns a row to the end of another owner's group (`ownerMoves`, the first); none where the
+ * instance holds neither.
  */
 export const replacingGen =
 	(
@@ -2404,27 +2442,27 @@ export const replacingGen =
 				moved: Option.none()
 			})
 		}
-		const mover = Arr.findFirst(
-			rows,
-			(x) =>
-				relationAt(spec, x.relation).mutable &&
-				membershipIn(x, family) !== undefined &&
-				ownsRows(x.id)
+		return Option.map(Arr.head(ownerMoves(spec, rows, family)), (move) =>
+			moveFollowUp(spec, family, move)
 		)
-		return Option.flatMap(mover, (m) =>
-			Option.map(
-				Arr.findFirst(owners, (o) => o.id !== membershipIn(m, family)?.owner),
-				(o): FollowUp => ({
-					owner,
-					row: o.id,
-					put: Option.none(),
-					inserted: [],
-					removed: Option.none(),
-					appended: Option.none(),
-					moved: Option.some({ id: m.id, family })
-				})
-			)
-		)
+	}
+
+/**
+ * A follow-up aimed at a moved owner, over the ordered family `family`: a move of a member that owns a row, its relation
+ * mutable, to the end of another owner's group, drawn among every such move (`ownerMoves`); none where the instance
+ * holds none.
+ */
+export const movingGen =
+	(
+		spec: FillSpec,
+		rows: ReadonlyArray<InstanceRow>,
+		family: number
+	): Gen<Option.Option<FollowUp>> =>
+	(source) => {
+		const moves = ownerMoves(spec, rows, family)
+		return Arr.isReadonlyArrayNonEmpty(moves)
+			? Option.some(moveFollowUp(spec, family, source.draw(element(moves))))
+			: Option.none()
 	}
 
 /**

@@ -27,6 +27,7 @@ import {
 	insertedRelations,
 	instanceFacts,
 	instanceGen,
+	movingGen,
 	mutableOrDrawn,
 	type Planted,
 	plantedGen,
@@ -98,6 +99,7 @@ type ClusterSituation =
 	| "a follow-up that refills a fold stepping a copy"
 	| "a follow-up that re-places an owner of counted members"
 	| "a follow-up that re-places an immutable owner of counted members"
+	| "a follow-up that moves an owner of counted members to another owner's group"
 
 const situations: Arr.NonEmptyReadonlyArray<ClusterSituation> = [
 	"a tree owning an ordered family",
@@ -119,7 +121,8 @@ const situations: Arr.NonEmptyReadonlyArray<ClusterSituation> = [
 	"a follow-up that refills a value it leaves stale",
 	"a follow-up that refills a fold stepping a copy",
 	"a follow-up that re-places an owner of counted members",
-	"a follow-up that re-places an immutable owner of counted members"
+	"a follow-up that re-places an immutable owner of counted members",
+	"a follow-up that moves an owner of counted members to another owner's group"
 ]
 
 /** A call's facts: under each op of a change member's array members, the rows of each, under its relation's name. */
@@ -259,9 +262,9 @@ const plantedCase = (planted: Planted): Gen<ClusterCase> =>
  * The situations a drawn specification reaches only now and then, each with the cases a witness draws to reach it while
  * it is pending: a planted shape beside a drawn one (fill.ts `plantedGen`, admitted by the reference as planted); or,
  * where a follow-up must change what the planted relations hold, the shape alone with a follow-up aimed at it: a put of
- * the owner whose copy a fold steps (fill.ts `ownerPutGen`), or a deletion or a move re-placing an ordered member that
- * owns a counted member (`replacingGen`) over the instance of every count at its most (`fullInstance`), whose last
- * member of each group owns every counted member.
+ * the owner whose copy a fold steps (fill.ts `ownerPutGen`), a deletion or a move re-placing an ordered member that
+ * owns a counted member (`replacingGen`), or a move of such a member to another owner's group (`movingGen`), over the
+ * instance of every count at its most (`fullInstance`), whose last member of each group owns every counted member.
  */
 const aims: ReadonlyArray<readonly [ClusterSituation, Gen<ClusterCase>]> = [
 	["a tree owning an ordered family", plantedCase("tree with an ordered family")],
@@ -300,6 +303,14 @@ const aims: ReadonlyArray<readonly [ClusterSituation, Gen<ClusterCase>]> = [
 			plantedGen("re-placed immutable owner"),
 			(spec) => constant(fullInstance(spec)),
 			(spec, rows) => replacingGen(spec, rows, 0)
+		)
+	],
+	[
+		"a follow-up that moves an owner of counted members to another owner's group",
+		caseOver(
+			plantedGen("re-placed owner"),
+			(spec) => constant(fullInstance(spec)),
+			(spec, rows) => movingGen(spec, rows, 0)
 		)
 	]
 ]
@@ -954,6 +965,15 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 								}
 								if (Arr.some(replacedOwners, (x) => !relationAt(spec, x.relation).mutable)) {
 									c.note("a follow-up that re-places an immutable owner of counted members")
+								}
+								if (
+									Option.exists(f.moved, (moved) =>
+										Arr.some(rows, (y) => Arr.some(y.memberOf, (m) => m.owner === moved.id))
+									)
+								) {
+									c.note(
+										"a follow-up that moves an owner of counted members to another owner's group"
+									)
 								}
 								if (
 									Option.isSome(f.put) &&

@@ -43,6 +43,7 @@ import {
 	familyNamed,
 	type InstanceRow,
 	membershipIn,
+	movingGen,
 	writesVerdict
 } from "#test/support/families/fill.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
@@ -90,7 +91,10 @@ import { fullWorld } from "#test/support/worlds.ts"
  * Plant: ~/.cache/grizzle-release/BR08/plants/swarm-nested-signature-without-own-texts.patch, a nested fact's signature
  * without its own texts, must turn the property red. Plant: ~/.cache/grizzle-release/FILLORDER/plants/
  * swarm-owner-slot-every-drawn.patch, an owner's slot carrying every drawn and accumulated column at its start, its copies
- * as a member among them, fails the kept case of TEST_SEED=881675980.
+ * as a member among them, fails the kept case of TEST_SEED=881675980. Plant: ~/.cache/grizzle-release/FAMILYMOVE/plants/
+ * swarm-moved-member-count-redrawn.patch, a moved member inserted again with its own counted family's count and ends as
+ * its put's slot carries them, an empty family's, fails the floor's case 4 and, with that case's follow-ups left out, the
+ * case aimed at "a member owning a family moved between owners" (`ownerMoved`; TEST_SEED=3402740402, steered case 8).
  */
 
 /** What the search reached: shapes written, refusals justified, and the downstream defects' shapes. */
@@ -114,6 +118,7 @@ type Situation =
 	| "an owner's column changed beside an append to its family"
 	| "an ordered member deleted"
 	| "a member moved to another owner"
+	| "a member owning a family moved between owners"
 	| "a query's insert accepted"
 	| "a put from a query accepted"
 	| "a put from a query refused for a value it leaves stale"
@@ -151,6 +156,7 @@ const situations: Arr.NonEmptyReadonlyArray<Situation> = [
 	"an owner's column changed beside an append to its family",
 	"an ordered member deleted",
 	"a member moved to another owner",
+	"a member owning a family moved between owners",
 	"a query's insert accepted",
 	"a put from a query accepted",
 	"a put from a query refused for a value it leaves stale",
@@ -343,6 +349,11 @@ const stepShapes = (
 					: []),
 				...(Option.isSome(f.removed) ? (["an ordered member deleted"] as const) : []),
 				...(Option.isSome(f.moved) ? (["a member moved to another owner"] as const) : []),
+				...(Option.exists(f.moved, (moved) =>
+					Arr.some(state.rows, (y) => Arr.some(y.memberOf, (m) => m.owner === moved.id))
+				)
+					? (["a member owning a family moved between owners"] as const)
+					: []),
 				...(step.query === undefined ? [] : (["a query's insert accepted"] as const))
 			]
 		}
@@ -460,6 +471,88 @@ const copiedCount = coreOf(
 	[{ family: 0, axis: "owner", source: { kind: "caller" } }],
 	[{ family: 0, copy: 0 }]
 )
+
+/** A mutable owner R0 of an ordered family of R1, itself the owner of a counted family of R2 folded by count: a member
+ * owning a family, which a follow-up moves to another owner's group. */
+const memberOwning = coreOf(
+	[true, true, true],
+	[
+		{ kind: "ordered", owner: 0, member: 1, fold: "none" },
+		{ kind: "counted", owner: 1, member: 2, fold: "count" }
+	],
+	[],
+	[]
+)
+
+/**
+ * A case over `memberOwning` whose first insert is an instance of two or three R0 rows, each with up to two R1 members
+ * nested and the first with one at least, and one to four R2 members, each of a drawn R1 row; then a follow-up that
+ * moves an R1 member owning R2 members to the end of another R0 row's group (fill.ts movingGen), that row's `v` put or
+ * not. So the instance holds such a move by construction.
+ */
+const ownerMoved: Gen<SwarmCase> = (source) => {
+	const spec = bare(memberOwning)
+	const rows: Array<InstanceRow> = []
+	const v = () => BigInt(source.draw(int(-2, 3)))
+	const owners = source.draw(int(2, 3))
+	for (let o = 0; o < owners; o += 1) {
+		const owner = rows.length + 1
+		rows.push({ relation: 0, id: owner, v: v(), memberOf: [] })
+		const members = source.draw(int(o === 0 ? 1 : 0, 2))
+		for (let slot = 0; slot < members; slot += 1) {
+			rows.push({
+				relation: 1,
+				id: rows.length + 1,
+				v: v(),
+				memberOf: [{ family: 0, owner, slot }]
+			})
+		}
+	}
+	const r1 = Arr.filter(rows, (r) => r.relation === 1)
+	if (!Arr.isReadonlyArrayNonEmpty(r1)) {
+		return assert.fail("the first R0 row holds an R1 member by construction")
+	}
+	const counted = source.draw(int(1, 4))
+	for (let i = 0; i < counted; i += 1) {
+		rows.push({
+			relation: 2,
+			id: rows.length + 1,
+			v: v(),
+			memberOf: [{ family: 1, owner: source.draw(element(r1)).id, slot: 0 }]
+		})
+	}
+	const moved = defined(
+		Option.getOrUndefined(source.draw(movingGen(spec.fill, rows, 0))),
+		"a move of an R1 member owning R2 members, which the instance holds by construction"
+	)
+	const target = defined(
+		Option.getOrUndefined(Arr.findFirst(rows, (r) => r.id === moved.row)),
+		"the R0 row a member moves to"
+	)
+	return {
+		spec,
+		steps: [
+			{
+				kind: "insert",
+				rows,
+				plain: [],
+				conflict: undefined,
+				orphan: undefined,
+				shape: { split: source.draw(boolean), repeat: false }
+			},
+			{
+				kind: "follow",
+				followUp: {
+					...moved,
+					put: source.draw(boolean) ? Option.some(target.v + 1n) : Option.none()
+				},
+				plain: [],
+				query: undefined,
+				shape: { split: source.draw(boolean), repeat: false }
+			}
+		]
+	}
+}
 
 /**
  * Pantry's importWrite shape: R0 owns a counted family of R1, whose rows R2 names whole (an immediate foreign key into
@@ -740,23 +833,8 @@ const aims: ReadonlyArray<readonly [Situation, Gen<SwarmCase>]> = [
 		)
 	],
 	["an owner of several families written", over(bare(twoFamilies), [])],
-	[
-		"a member owning a family written",
-		over(
-			bare(
-				coreOf(
-					[true, true, true],
-					[
-						{ kind: "ordered", owner: 0, member: 1, fold: "none" },
-						{ kind: "counted", owner: 1, member: 2, fold: "count" }
-					],
-					[],
-					[]
-				)
-			),
-			["follow-ups"]
-		)
-	],
+	["a member owning a family written", over(bare(memberOwning), ["follow-ups"])],
+	["a member owning a family moved between owners", ownerMoved],
 	[
 		"every fact stated twice written once",
 		over(bare(twoFamilies), ["repeated fact", "follow-ups"])

@@ -1763,8 +1763,10 @@ const compile = (
 					!(op === "insert" && nests(relation.name))
 				) {
 					/** A member relation that owns counted families carries their counts and ends in its insert and put slots,
-					 * as an owner's own slot does: the rows its additions append are inserted with them, as the stratum's
-					 * appends to them draw them (write/program/bind.ts freshOwners). */
+					 * as an owner's own slot does: the stratum's appends to a group with no member yet draw them (write/program/
+					 * bind.ts freshOwners), which an inserted row holds; a put's row, which may be a stored one the stratum
+					 * moves, holds them as its groups' members do, and these only where a group holds none
+					 * (write/family/additions.ts appendedOf). */
 					const heading = op === "delete" ? classes.complete : [...classes.complete, ...owned]
 					const act: SingleAct =
 						op === "insert"
