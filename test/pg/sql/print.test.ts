@@ -74,7 +74,7 @@ import {
 } from "#compiler/sql/build.ts"
 import * as C from "#compiler/sql/catalog.ts"
 import { emitCatalog } from "#compiler/sql/emit.ts"
-import { printExpr, printStatement, quoteIdent } from "#compiler/sql/print.ts"
+import { printCommands, printExpr, quoteIdent } from "#compiler/sql/print.ts"
 import {
 	aggregateCaseGen,
 	type Evaluated,
@@ -91,18 +91,29 @@ import { testTypeSchema } from "#test/support/sql.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import { freshSchema, roleSession, Substrate } from "#test/support/substrate/substrate.ts"
 
-const sql = (statement: SqlStatement): string => {
+/** `statement`'s commands as a driver sends them, one message each (sql/print.ts printCommands), each audited. */
+const commands = (statement: SqlStatement): ReadonlyArray<string> => {
 	assert.deepEqual(auditStatementViolations(statement), [])
-	const text = printStatement(statement)
-	assert.deepEqual(auditTextViolations(text), [])
-	return text
+	return Arr.map(printCommands(statement), (text) => {
+		assert.deepEqual(auditTextViolations(text), [])
+		return text
+	})
+}
+
+/** The text of a statement of one command, as a driver sends it; a statement of several is the test's defect. */
+const sql = (statement: SqlStatement): string => {
+	const [only, ...more] = commands(statement)
+	assert.equal(more.length, 0, `${statement.kind} is one command`)
+	return defined(only, "a statement's first command")
 }
 
 const run = (statements: ReadonlyArray<SqlStatement>) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		for (const statement of statements) {
-			yield* admin.query(sql(statement), [])
+			for (const command of commands(statement)) {
+				yield* admin.query(command, [])
+			}
 		}
 	})
 

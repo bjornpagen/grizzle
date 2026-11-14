@@ -5,8 +5,9 @@
  * Every installation's first migration runs the database-default blocks (databaseDefaults,
  * each as sql/print.ts prints it), each an ALTER DATABASE ... SET of the database's one pg_db_role_setting row. Two
  * transactions that update that row at once fail the later with XX000 (tuple concurrently updated), as installations
- * into one shared worker database did; so each block first takes a transaction-scoped advisory lock, and a second
- * installation's block waits for the first to commit, then sets the default again.
+ * into one shared worker database did; so each block is the database lock's command, a transaction-scoped advisory
+ * lock, and its own (sql/print.ts databaseWide), and a second installation waits at the lock for the first to commit,
+ * then sets the default again.
  *
  * Over every interleaving of two installations' transactions, each running the blocks and committing as the
  * database's owner (`every`): both commit; in an interleaving where both ran their blocks before either
@@ -25,7 +26,7 @@
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { databaseDefaults } from "#compiler/physical/ddl/isolation.ts"
-import { printStatement } from "#compiler/sql/print.ts"
+import { printCommands } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
 import {
@@ -47,10 +48,16 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const installations = ["first", "second"] as const
 
-/** The blocks each installation runs, every one a write of the database's settings row. */
+/**
+ * The steps each installation runs: each block's commands as a driver sends them, one message each (sql/print.ts
+ * printCommands), the database lock's and the block's own, every one footprinted on the database's settings row, so no
+ * step of one installation commutes with another's.
+ */
 const blocks = Object.freeze(
-	Arr.map(databaseDefaults, (d) =>
-		interleaveStep(printStatement(d), relationsFootprint(["pg_db_role_setting"]))
+	Arr.flatMap(databaseDefaults, (d) =>
+		Arr.map(printCommands(d), (command) =>
+			interleaveStep(command, relationsFootprint(["pg_db_role_setting"]))
+		)
 	)
 )
 
