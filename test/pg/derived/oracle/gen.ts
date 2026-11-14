@@ -134,8 +134,11 @@ const literal: ReadonlySet<Kind> = new Set([
 	"f8"
 ])
 
-/** The native result kinds: a contract contributes its base type to sum and mean. */
-const sumKind = (k: Kind): Kind => (k === "int4" ? "int8" : k === "f8" ? "f8" : "num")
+/**
+ * The native result kinds: a contract contributes its base type to sum and mean. The sum of an integer of any width
+ * is an exact numeric (README: "the r.sum of an integer is an exact Decimal"), so only a float's sum is a float.
+ */
+const sumKind = (k: Kind): Kind => (k === "f8" ? "f8" : "num")
 const meanKind = (k: Kind): Kind => (k === "f8" ? "f8" : "num")
 
 const Color = closed("Color", ["red", "green", "blue"], [])
@@ -761,7 +764,7 @@ const runRule = (
 		const flag = Arr.findFirst(vars, (x) => x.kind === "bool")
 		if (sketch.cond && Option.isSome(flag) && !countOnly) {
 			head["p"] = r.sum(computeCore.cond(flag.value.term, computeCore.literal(pg.integer, 1), 0))
-			columns.push({ name: "p", kind: "int8" })
+			columns.push({ name: "p", kind: sumKind("int4") })
 			aggregates.push("sum(cond)")
 		}
 		if (sketch.count || aggregates.length === 0) {
