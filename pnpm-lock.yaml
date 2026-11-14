@@ -258,13 +258,13 @@ importers:
         specifier: 'catalog:'
         version: 3.1161.0
       '@bjornpagen/devtools':
-        specifier: workspace:*
+        specifier: link:vendor/toolchain/packages/devtools
         version: link:vendor/toolchain/packages/devtools
       '@bjornpagen/grizzle':
-        specifier: workspace:*
+        specifier: link:packages/grizzle
         version: link:packages/grizzle
       '@bjornpagen/testing':
-        specifier: workspace:*
+        specifier: link:vendor/toolchain/packages/testing
         version: link:vendor/toolchain/packages/testing
       '@clerk/backend':
         specifier: 'catalog:'

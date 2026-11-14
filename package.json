@@ -54,9 +54,9 @@
 	},
 	"devDependencies": {
 		"@aws-sdk/rds-signer": "catalog:",
-		"@bjornpagen/devtools": "workspace:*",
-		"@bjornpagen/grizzle": "workspace:*",
-		"@bjornpagen/testing": "workspace:*",
+		"@bjornpagen/devtools": "link:vendor/toolchain/packages/devtools",
+		"@bjornpagen/grizzle": "link:packages/grizzle",
+		"@bjornpagen/testing": "link:vendor/toolchain/packages/testing",
 		"@clerk/backend": "catalog:",
 		"@effect/tsgo": "catalog:",
 		"@effect/vitest": "catalog:",
