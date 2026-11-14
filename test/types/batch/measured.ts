@@ -174,13 +174,20 @@ const measuredProgram = (dir: string, size: number, source: (entries: PreludeAt)
 		})
 	)
 
-/** The program at each of the steps' sizes, checked one after another: each check uses the cores tsgo takes. */
+/**
+ * The program at each of the steps' sizes, every size checked at once: each check is a process of its own with one
+ * checker, whose counts its own program alone decides, so checking them at once moves no count.
+ */
 export const measuredSizes = (
 	dir: string,
 	at: EqualSteps,
 	source: (size: number, entries: PreludeAt) => string
 ) =>
-	Effect.forEach(at.sizes, (size) => measuredProgram(dir, size, (entries) => source(size, entries)))
+	Effect.forEach(
+		at.sizes,
+		(size) => measuredProgram(dir, size, (entries) => source(size, entries)),
+		{ concurrency: at.sizes.length }
+	)
 
 /** A program typechecks with no diagnostic: no error of its own and no line about anything else. */
 export const assertClean = (m: Measured, what: string): void => {

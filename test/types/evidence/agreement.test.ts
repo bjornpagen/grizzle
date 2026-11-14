@@ -116,15 +116,6 @@ const faultsRequired: Situations<AgreementNote | FaultNote> = [
 ]
 
 layer(NodeServices.layer, { excludeTestServices: true })("the type/engine agreement", (it) => {
-	it.effect(
-		`over drawn queries in two orders, faulted ones and the admission cells, the types accept a query, its records and its parameters exactly as the engine does, its keys, and every constant exactly where the engine admits it`,
-		() =>
-			Effect.gen(function* () {
-				const { expected, actual } = yield* checked("evidence/agreement")
-				assert.deepEqual(actual, expected)
-			})
-	)
-
 	it(`over drawn queries, the engine's verdict is the same with each rule's filters in the other order`, () => {
 		assert.deepEqual(reorderedVerdicts(typeRun().seed), [], "verdicts the filters' order moves")
 	})
@@ -154,4 +145,13 @@ layer(NodeServices.layer, { excludeTestServices: true })("the type/engine agreem
 			"faults no floor witness reached"
 		)
 	})
+
+	it.effect(
+		`over drawn queries in two orders, faulted ones and the admission cells, the types accept a query, its records and its parameters exactly as the engine does, its keys, and every constant exactly where the engine admits it`,
+		() =>
+			Effect.gen(function* () {
+				const { expected, actual } = yield* checked("evidence/agreement")
+				assert.deepEqual(actual, expected)
+			})
+	)
 })
