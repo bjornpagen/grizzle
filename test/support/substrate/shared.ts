@@ -1,4 +1,5 @@
-import { Array as Arr, Config, Effect, Exit, Option, Scope } from "effect"
+import { Array as Arr, Config, Effect, Exit, Option, Scope, String as Str } from "effect"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import {
 	blockSize,
 	derived,
@@ -637,6 +638,15 @@ const dropDatabase = (admin: PgConnection, name: string): Effect.Effect<void, Sq
 const ended = (pid: number): boolean => pid === process.pid || !running(pid)
 
 /**
+ * The decoder login an installation at its stems would have whose root schema is the allocation a role of `role`'s
+ * names lead: `<allocation>__<name>`'s allocation, its live source's stem (core/identity.ts identity.liveSource),
+ * `__live_<digest>`, which carries no allocation, so the sweep derives it from the allocation rather than reading it
+ * back. A role under a prefix starts with its own allocation, so its decoder is swept by that.
+ */
+const decoderOfAllocation = (role: string): string =>
+	identifierOf(identity.liveSource(Arr.headNonEmpty(Str.split("__")(role))))
+
+/**
  * The sweep's lock: a session-level advisory lock in the owner's own database, which each sweep holds on its session
  * from its first read to its end.
  */
@@ -644,7 +654,8 @@ const sweepKey = 1735289962
 
 /**
  * Drops what ended test processes left on the cluster: their gz_t_ and gz_doctor_ databases, their `<schema>__<access>`
- * roles, and every unclaimed shared database that is not clean. A run in progress is never touched: its processes are
+ * roles and each one's allocation's decoder login (decoderOfAllocation), and every unclaimed shared database that is not
+ * clean. A run in progress is never touched: its processes are
  * running, and its shared databases are claimed. It is the one place a database is dropped, and its callers call it
  * only when no test file of their own runs: the network run's global setup, before any file starts, and its teardown,
  * once every file has ended (pg-global-setup.ts), both in Vitest's own process, whose test files each ran in a process
@@ -701,13 +712,15 @@ export const sweep = (
 					Number(index)
 				])
 			}
-			const roles = yield* admin.queryValues(
+			const rows = yield* admin.queryValues(
 				"SELECT rolname::text FROM pg_catalog.pg_roles WHERE strpos(rolname::text, '__') > 0 ORDER BY 1",
 				[]
 			)
-			for (const [value] of roles) {
-				const role = String(value)
-				if (Option.exists(allocatingPid(role), ended)) {
+			const roles = Arr.map(rows, ([value]) => String(value))
+			const dead = Arr.filter(roles, (role) => Option.exists(allocatingPid(role), ended))
+			const deadDecoders = new Set(Arr.map(dead, decoderOfAllocation))
+			for (const role of roles) {
+				if (deadDecoders.has(role) || Option.exists(allocatingPid(role), ended)) {
 					yield* Effect.ignore(dropRole(admin, role))
 				}
 			}

@@ -75,6 +75,18 @@ export const asideName = (temporaries: TemporaryCensus, name: string): string =>
 	return named.value
 }
 
+/**
+ * The name the naming door sets the cluster role `role` aside under (identity.roleAside), as the migration's census
+ * admits it: one any role prefix the installation may have leads within PostgreSQL's longest identifier.
+ */
+export const roleAsideName = (temporaries: TemporaryCensus, role: string): string => {
+	const named = temporaries.admit(identity.roleAside(role))
+	if (!named.ok) {
+		throw new Refusal(named.error)
+	}
+	return named.value
+}
+
 /** A key: a constraint with an index of its own, which takes the constraint's name: a primary key, a candidate key or
  * a span key's exclusion constraint. */
 const isKey = (c: TableConstraint): boolean =>

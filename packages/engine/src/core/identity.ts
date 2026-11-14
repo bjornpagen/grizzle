@@ -68,10 +68,13 @@ export const maxIdentifierBytes: Limit = derived({
 const hashedLead = "__"
 /** The separator of a hashed name's stem and its digest. */
 const digestSeparator = "_"
-/** The first segment of the stem of a name a migration sets an object aside under (identity.aside). */
+/** The first segment of the stem of a name a migration sets an object or a role aside under (identity.aside,
+ * identity.roleAside). */
 const asideSegment = "aside"
 /** The first segment of the stem of an installation's live source's name (identity.liveSource). */
 const liveSegment = "live"
+/** The separator of a role prefix and the name of the role it leads, `<prefix>__<name>` (roleInSpace). */
+const roleSeparator = "__"
 
 /**
  * The width of a hashed name's digest, in base32 characters of five bits each: a format constant of the naming door,
@@ -99,6 +102,34 @@ const stemBudget: Limit = derived({
 	derivation:
 		"maxIdentifierBytes - |__| - |_| - digestChars: the stem takes what the lead, the separator and the digest leave of the longest identifier",
 	compute: ([max]) => max.value - hashedLead.length - digestSeparator.length - digestChars
+})
+
+/**
+ * The bytes an installation's role prefix may take: what the longest identifier leaves of `<prefix>__<name>` once the
+ * longest hashed name the naming door mints for a cluster role has its bytes: the installation's decoder login's,
+ * `__live_<digest>` (identity.liveSource), or a role's set aside while logins are renamed, `__aside_<digest>`
+ * (identity.roleAside). Their stems are their lead words alone and their digests are of the whole identity, which
+ * tells one installation's or one role's from another's, so their length is the same whatever the names they are of,
+ * and the budget a constant. So every prefix within it leads the installation's decoder login and every
+ * role set aside within maxIdentifierBytes, whatever the installation's names: a prefix too long for them is refused
+ * where it is parsed (parseRolePrefix), before any connection or statement, never by a migration's statement. A
+ * login's or a role's own name, which its declared names lengthen, is held to maxIdentifierBytes with the prefix where
+ * the role is named (roleInSpace).
+ */
+const rolePrefixBytes: Limit = derived({
+	owner: "grizzle's naming door",
+	unit: "bytes",
+	scope: "an installation's role prefix",
+	from: [maxIdentifierBytes],
+	derivation:
+		"maxIdentifierBytes - |__| - (|__| + max(|live|, |aside|) + |_| + digestChars): the prefix, its separator from the role's name and the longest hashed role name, __aside_<digest>, share the longest identifier",
+	compute: ([max]) =>
+		max.value -
+		roleSeparator.length -
+		(hashedLead.length +
+			Math.max(liveSegment.length, asideSegment.length) +
+			digestSeparator.length +
+			digestChars)
 })
 
 /** One part of an identity: a text, a list of parts, or a nested identity. */
@@ -298,7 +329,7 @@ const rolePrefixOf = nominal<string, RolePrefix>()
 /**
  * Why a text is no role prefix: not a string; empty; a character outside lowercase ASCII letters, digits and `_`; a
  * digit first; a `__`, the separator a prefix must not forge; `pg_` first, which PostgreSQL reserves for its own roles;
- * or longer than maxIdentifierBytes, past which no role it leads fits.
+ * or longer than rolePrefixBytes, past which the decoder login or a role set aside would not fit under it.
  */
 export type RolePrefixFault =
 	| { readonly kind: "notText" }
@@ -325,7 +356,7 @@ export const rolePrefixFaultText = (fault: RolePrefixFault): string => {
 		case "reserved":
 			return "a first segment other than pg_, which PostgreSQL reserves for its own roles"
 		case "length":
-			return `at most ${fault.limit} bytes, not ${fault.bytes}`
+			return `at most ${fault.limit} bytes, not ${fault.bytes}, so the installation's decoder login and a role set aside fit under it within PostgreSQL's ${maxIdentifierBytes.value}`
 	}
 }
 
@@ -336,8 +367,8 @@ const isPrefixUnit = (code: number): boolean =>
 /**
  * The rule a role prefix keeps, used verbatim, never converted: a lowercase PostgreSQL identifier segment,
  * `[a-z_][a-z0-9_]*`, holding no `__`, so `<prefix>__<stem>` parts at its first `__` past the prefix, not starting with
- * `pg_`, and within maxIdentifierBytes. Each role it leads is held to maxIdentifierBytes with its stem
- * (roleInSpace). The prefix, as given, or the fault it breaks the rule by.
+ * `pg_`, and within rolePrefixBytes, so the hashed role names fit under it. Each role it leads is held to
+ * maxIdentifierBytes with its name (roleInSpace). The prefix, as given, or the fault it breaks the rule by.
  */
 export const parseRolePrefix = (prefix: string): Result.Result<RolePrefix, RolePrefixFault> => {
 	if (prefix === "") {
@@ -360,8 +391,8 @@ export const parseRolePrefix = (prefix: string): Result.Result<RolePrefix, RoleP
 		return Result.err({ kind: "reserved" })
 	}
 	const bytes = utf8Length(prefix)
-	return bytes > maxIdentifierBytes.value
-		? Result.err({ kind: "length", bytes, limit: maxIdentifierBytes.value })
+	return bytes > rolePrefixBytes.value
+		? Result.err({ kind: "length", bytes, limit: rolePrefixBytes.value })
 		: Result.ok(rolePrefixOf(prefix))
 }
 
@@ -405,7 +436,7 @@ export interface InstalledRoleTooLong {
  * The PostgreSQL role the installation of role space `space` installs for the role the naming door names `name`, in
  * any of its forms (RoleNameForm), or its refusal past maxIdentifierBytes: the one place a cluster role's name is
  * made from a minted one. A minted name fits by its minting (fitted, the hashed form's budget), so only a prefix
- * lengthens it.
+ * lengthens it; a hashed role name never past it, since a prefix is within rolePrefixBytes.
  */
 export const roleInSpace = (
 	space: RoleSpace,
@@ -414,7 +445,7 @@ export const roleInSpace = (
 	if (space.kind === "stems") {
 		return Result.ok(name)
 	}
-	const role = `${space.prefix}__${name}`
+	const role = `${space.prefix}${roleSeparator}${name}`
 	return utf8Length(role) > maxIdentifierBytes.value
 		? Result.err({ role, limit: maxIdentifierBytes.value })
 		: Result.ok(role)
@@ -426,16 +457,12 @@ const isConversion = (text: string): boolean => parsedName(text).ok && conversio
 /**
  * The forms a drafted statement names a role of the installation in, each the identifier the naming door mints: a
  * login's or role's stem, `<schema>__<name>`, two conversions joined by their one `__` (identity.login, identity.role);
- * the name a migration sets a role aside under while it renames logins (identity.aside), hashed,
- * `__aside_<segments>_<digest>`, its segments the stem's conversion cut to the stem budget; or the installation's live
- * source's, its decoder login's (identity.liveSource), hashed, `__live_<segments>_<digest>`, its segments the root
- * level's.
+ * the name a migration sets a role aside under while it renames logins (identity.roleAside), hashed, `__aside_<digest>`;
+ * or the installation's live source's, its decoder login's (identity.liveSource), hashed, `__live_<digest>`. A hashed
+ * role name's stem is its lead word alone (rolePrefixBytes), so its form is read by its lead and its digest, with no
+ * segment of any name to read back.
  */
 export type RoleNameForm = "stem" | "aside" | "liveSource"
-
-/** Whether `text` is one segment of a conversion: lowercase ASCII letters and digits. */
-const isSegment = (text: string): boolean =>
-	text !== "" && Array.from(text).every((ch) => isLower(ch) || isDigit(ch))
 
 /** Whether `text` is a hashed name's digest: digestChars characters of lowercase base32. */
 const isDigest = (text: string): boolean =>
@@ -448,15 +475,11 @@ export const roleNameForm = (name: string): RoleNameForm | undefined => {
 		return "stem"
 	}
 	const digestAt = name.length - digestChars
-	const [lead, ...segments] = name
-		.slice(hashedLead.length, digestAt - digestSeparator.length)
-		.split(digestSeparator)
+	const lead = name.slice(hashedLead.length, digestAt - digestSeparator.length)
 	if (
 		!name.startsWith(hashedLead) ||
-		utf8Length(name) > maxIdentifierBytes.value ||
 		name.slice(digestAt - digestSeparator.length, digestAt) !== digestSeparator ||
-		!isDigest(name.slice(digestAt)) ||
-		!segments.every(isSegment)
+		!isDigest(name.slice(digestAt))
 	) {
 		return undefined
 	}
@@ -735,7 +758,7 @@ export const censused = (census: Census, identifier: string): Censused | undefin
 
 /** The kinds of identity only a migration mints: the temporary names a holder is set aside under, and an index is built
  * under before it is swapped in. */
-export type TemporaryKind = Extract<IdentityKind, "aside" | "swap">
+export type TemporaryKind = Extract<IdentityKind, "aside" | "roleAside" | "swap">
 
 /**
  * A hashed name that stands while a migration runs: one the previous installation or the target installs, by its
@@ -1390,17 +1413,12 @@ export const identity = Object.freeze({
 	 * The live change source of the installation whose root level's PostgreSQL schema is `root`: one name for its
 	 * publication, which PostgreSQL scopes to the database, and for its replication slot and decoder login, each cluster
 	 * wide under the installation's role space (roleInSpace); the publication's name is also the fan-out channel and the
-	 * prefix of the logical messages the installation announces. Hashed by the root's identifier, since `__live_` and a
-	 * schema's longest conversion pass maxIdentifierBytes.
+	 * prefix of the logical messages the installation announces. Hashed by the root's identifier, `__live_<digest>`, its
+	 * stem the lead word alone, so its length is one whatever the root's (rolePrefixBytes) and every role prefix within
+	 * rolePrefixBytes leads it within maxIdentifierBytes.
 	 */
 	liveSource: (root: string): Identity<"liveSource"> =>
-		mint(
-			"liveSource",
-			[root],
-			[liveSegment, ...nameSegments(root)],
-			`live source of ${root}`,
-			hashed
-		),
+		mint("liveSource", [root], [liveSegment], `live source of ${root}`, hashed),
 	/** The table of a schema's live secret, which only the installation's decoder login reads. */
 	liveSecret: (): Identity<"liveSecret"> =>
 		mint("liveSecret", [], ["live", "secret"], "the live secret", readable("__live_secret")),
@@ -1440,6 +1458,14 @@ export const identity = Object.freeze({
 	/** The name a migration sets a held object aside under. */
 	aside: (of: string): Identity<"aside"> =>
 		mint("aside", [of], [asideSegment, ...nameSegments(of)], `${of} set aside`, hashed),
+	/**
+	 * The name a migration sets the cluster role `role` aside under while it renames logins (deploy/diff/declared.ts
+	 * loginRenamed), `__aside_<digest>`: its stem the lead word alone, so its length is one whatever the role's
+	 * (rolePrefixBytes) and every role prefix within rolePrefixBytes leads it within maxIdentifierBytes. An object's
+	 * aside name (identity.aside) takes no prefix, so it keeps its readable stem.
+	 */
+	roleAside: (role: string): Identity<"roleAside"> =>
+		mint("roleAside", [role], [asideSegment], `the role ${role} set aside`, hashed),
 	/** The name an index is built under before it is swapped in for `of`. */
 	swap: (of: string): Identity<"swap"> =>
 		mint("swap", [of], ["next", ...nameSegments(of)], `the next ${of}`, hashed),

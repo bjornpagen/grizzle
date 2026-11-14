@@ -124,6 +124,7 @@ type InstallFeature =
 /** Each temporary kind's constructor: the names a migration sets an object aside and swaps an index under. */
 const temporaryOf: { readonly [K in TemporaryKind]: (of: string) => Identity<K> } = {
 	aside: identity.aside,
+	roleAside: identity.roleAside,
 	swap: identity.swap
 }
 
@@ -436,7 +437,7 @@ describe("the naming door", () => {
 								steps: source.draw(
 									array(
 										(step) => ({
-											kind: step.draw(element<TemporaryKind>(["aside", "swap"])),
+											kind: step.draw(element<TemporaryKind>(["aside", "roleAside", "swap"])),
 											of: step.draw(int(0, 0xffff)),
 											again: step.draw(boolean)
 										}),

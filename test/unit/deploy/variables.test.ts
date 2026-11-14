@@ -19,11 +19,12 @@
  * - The variables are DBNAME and a role's names: a statement naming the variable `:"<name>"` under the drawn role space
  *   is filled exactly when the name is DBNAME, a stem (two conversions joined by `__`: lowercase ASCII words, a letter
  *   first, joined by single underscores), the name a migration sets a role aside under while it renames logins
- *   (`__aside`, its stem's words, `_` and ten characters of lowercase base32, at most 63 bytes) or the installation's
- *   live source's, its decoder login's (`__live`, its root's words, `_` and ten characters of lowercase base32, at most
- *   63 bytes); a role's name is filled as `"<p>__<name>"` under a prefix p, and refused as roleTooLong past 63 bytes;
- *   any other name is refused as unknownVariable. A drawn aside name is the naming door's own for a drawn stem
- *   (identity.aside), and a drawn live source's name its own for a drawn root (identity.liveSource).
+ *   (`__aside_` and ten characters of lowercase base32) or the installation's live source's, its decoder login's
+ *   (`__live_` and ten characters of lowercase base32); a role's name is filled as `"<p>__<name>"` under a prefix p, and
+ *   refused as roleTooLong past 63 bytes; any other name, an object's aside name among them, is refused as
+ *   unknownVariable. A drawn role's aside name is the naming door's own for a drawn stem (identity.roleAside), a drawn
+ *   object's its own for a drawn name (identity.aside), and a drawn live source's name its own for a drawn root
+ *   (identity.liveSource).
  *
  * Features: a prefix and none, a capitalized schema spelling, an unknown variable, a stem variable, an aside variable,
  * a live source variable.
@@ -107,9 +108,12 @@ const variableGen =
 			case "stem":
 				return `${source.draw(wordGen)}__${source.draw(wordGen)}`
 			case "aside":
-				return identity.aside(
+				return identity.roleAside(
 					`${source.draw(wordGen)}__${Arr.join(source.draw(array(wordGen, { min: 1, max: 14 })), "_")}`
 				).identifier
+			case "objectAside":
+				return identity.aside(Arr.join(source.draw(array(wordGen, { min: 1, max: 14 })), "_"))
+					.identifier
 			case "live":
 				return identity.liveSource(Arr.join(source.draw(array(wordGen, { min: 1, max: 14 })), "_"))
 					.identifier
@@ -130,15 +134,19 @@ const draftingGen: Gen<Drafting> = (source) => ({
 	prefix: Option.map(source.draw(option(wordsGen)), Str.toLowerCase),
 	database: source.draw(string(codePoint(0x61, 0x7a), { min: 1, max: 12 })),
 	variable: source.draw(
-		variableGen(source.draw(element<VariableKind>(["stem", "aside", "live", "database", "drawn"])))
+		variableGen(
+			source.draw(
+				element<VariableKind>(["stem", "aside", "objectAside", "live", "database", "drawn"])
+			)
+		)
 	)
 })
 
 /**
- * How a case's variable is drawn: a stem's shape, a stem's aside name, a root's live source name, DBNAME's letters, or
- * any characters.
+ * How a case's variable is drawn: a stem's shape, a role's aside name, an object's aside name, a root's live source
+ * name, DBNAME's letters, or any characters.
  */
-type VariableKind = "stem" | "aside" | "live" | "database" | "drawn"
+type VariableKind = "stem" | "aside" | "objectAside" | "live" | "database" | "drawn"
 
 type DraftFeature =
 	| "a prefix"
@@ -152,17 +160,17 @@ type DraftFeature =
 /** One lowercase conversion: a letter, then letters and digits, in words joined by single underscores. */
 const conversion = regex("^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 
-/** A name a migration sets a role aside under, by the specification: `__aside`, words, `_` and a ten-character digest. */
-const asideName = regex("^__aside(?:_[a-z0-9]+)*_[a-z2-7]{10}$")
+/** A name a migration sets a role aside under, by the specification: `__aside_` and a ten-character digest. */
+const asideName = regex("^__aside_[a-z2-7]{10}$")
 
-/** Whether a variable's name is an aside name by the specification, within PostgreSQL's 63 bytes. */
-const isAside = (name: string): boolean => asideName.test(name) && name.length <= 63
+/** Whether a variable's name is a role's aside name by the specification. */
+const isAside = (name: string): boolean => asideName.test(name)
 
-/** A live source's name, by the specification: `__live`, words, `_` and a ten-character digest. */
-const liveName = regex("^__live(?:_[a-z0-9]+)*_[a-z2-7]{10}$")
+/** A live source's name, by the specification: `__live_` and a ten-character digest. */
+const liveName = regex("^__live_[a-z2-7]{10}$")
 
-/** Whether a variable's name is a live source's name by the specification, within PostgreSQL's 63 bytes. */
-const isLive = (name: string): boolean => liveName.test(name) && name.length <= 63
+/** Whether a variable's name is a live source's name by the specification. */
+const isLive = (name: string): boolean => liveName.test(name)
 
 /** The feature a role variable's name notes: the form the specification reads it in. */
 const roleFeature = (name: string): DraftFeature =>

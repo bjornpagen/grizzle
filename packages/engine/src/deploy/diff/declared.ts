@@ -14,6 +14,7 @@ import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import {
 	type Aside,
 	asideName,
+	roleAsideName,
 	asideStatements,
 	type Owned,
 	partRenames,
@@ -1593,7 +1594,7 @@ const withRoles = (s: SqlStatement, roles: ReadonlyMap<string, string>): SqlStat
  * The declared login renames carried out, and the previous snapshot under them.
  *
  * Each renamed login's role, and each role of the previous snapshot whose name a renamed login's role takes (a login
- * dropped, as declared, or a role the target no longer holds), is first renamed aside (identity.aside), so any order of
+ * dropped, as declared, or a role the target no longer holds), is first renamed aside (identity.roleAside), so any order of
  * renames, a swap or a chain included, is free of the names it moves into; then each renamed login's role is renamed
  * from its aside name to the target's. ALTER ROLE ... RENAME TO keeps the role's OID, and PostgreSQL holds a role's
  * password, its memberships, the privileges granted to it and its comment by OID, so all of them stay with it. The
@@ -1634,7 +1635,7 @@ const loginRenamed = (
 	})
 	const asides = new Map(
 		[...moves.map((m) => m.role), ...holders].map(
-			(role) => [role, asideName(temporaries, role)] as const
+			(role) => [role, roleAsideName(temporaries, role)] as const
 		)
 	)
 	const asideOf = (role: string): string => {

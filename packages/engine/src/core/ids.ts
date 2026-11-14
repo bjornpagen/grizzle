@@ -87,6 +87,7 @@ export type IdentityKind =
 	| "refusal"
 	| "snapshotGuard"
 	| "aside"
+	| "roleAside"
 	| "swap"
 	| "carrier"
 	| "liveSource"

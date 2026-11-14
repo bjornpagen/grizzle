@@ -11,9 +11,10 @@
  * (test/support/substrate/names.ts uniqueSchemaName), so a role a dead run leaves is the sweep's.
  *
  * Properties, each against its oracle:
- * - Disjoint: `grizzle roles` of each installation is exactly roleNameOf of the login and its roles under its
- *   connection (oracle: the stem each value carries under core/identity.ts roleInSpace, which is the naming door's
- *   for no prefix), and the two lists share no name.
+ * - Disjoint: `grizzle roles` of each installation is exactly every role it creates as roleNameOf names it under its
+ *   connection, read off the values and never a hand list: the served login's, each role of the login's, and the
+ *   decoder login its served file names (oracle: the stem each value carries under core/identity.ts roleInSpace, which
+ *   is the naming door's for no prefix); each fits PostgreSQL's 63 bytes, and the two lists share no name.
  * - Its own database only: each installation's writer inserts a customer through its layer, over its database under
  *   its prefix, and its reader reads it back; the other installation reads no such customer; a layer of one
  *   installation's login over the other's database is refused.
@@ -47,6 +48,7 @@ import {
 	Layer,
 	Option,
 	Order,
+	Record as Rec,
 	String as Str
 } from "effect"
 import { Db } from "#adapter/public/db.ts"
@@ -146,18 +148,6 @@ const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 				database: secondDatabase,
 				rolePrefix: s.second === "prefixed" ? Option.some(uniqueSchemaName("rb", 0)) : Option.none()
 			}
-			const worlds = [shop.server, shop.reader, shop.writer] as const
-			const expected = (i: Installation): ReadonlyArray<string> =>
-				Arr.sort(
-					Arr.map(worlds, (w) => roleNameOf(w, named(i))),
-					Order.String
-				)
-			for (const role of [...expected(first), ...expected(second)]) {
-				assert.ok(
-					utf8Length(role) <= maxIdentifierBytes.value,
-					`${role} fits PostgreSQL's identifier: the allocations are short enough`
-				)
-			}
 			const dir = yield* workspace("rolespace")
 			const configFor = (i: Installation) =>
 				defineConfig({
@@ -174,6 +164,22 @@ const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 			for (const command of ["generate", "check"]) {
 				const ran = yield* run(first, command)
 				assert.equal(ran.code, 0, `grizzle ${command}: ${ran.stderr}`)
+			}
+			const served = yield* servedAt(`${dir}/migrations/${schema}`, shop.server)
+			const expected = (i: Installation): ReadonlyArray<string> =>
+				Arr.sort(
+					[
+						roleNameOf(served, named(i)),
+						...Arr.map(Rec.values(shop.server.roles), (r) => roleNameOf(r.role, named(i))),
+						roleNameOf(served.decoder, named(i))
+					],
+					Order.String
+				)
+			for (const role of [...expected(first), ...expected(second)]) {
+				assert.ok(
+					utf8Length(role) <= maxIdentifierBytes.value,
+					`${role} fits PostgreSQL's identifier: the allocations are short enough`
+				)
 			}
 			for (const i of [first, second]) {
 				const migrated = yield* run(i, "migrate")
@@ -198,7 +204,6 @@ const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 				[],
 				"the two installations share no role"
 			)
-			const served = yield* servedAt(`${dir}/migrations/${schema}`, shop.server)
 			const scope = yield* Effect.scope
 			const decoderOf = yield* decodersIn(substrate, scope)
 			const layerOver = (i: Installation, over: string) =>

@@ -3174,8 +3174,10 @@ deploy.
   database's, a role's or a session's, changes what a migration or a query means.
 - **Two installations on one cluster.** PostgreSQL roles are the cluster's, every database's, while an installation is
   one database's: two installations of one schema on one cluster need roles of their own. Give each connection its
-  `rolePrefix`, used verbatim (a lowercase PostgreSQL identifier segment, `[a-z_][a-z0-9_]*`, with no `__` and not
-  starting with `pg_`; anything else is refused at stage `config`), beside its `database`, in `grizzle.config.ts` and in
+  `rolePrefix`, used verbatim (a lowercase PostgreSQL identifier segment, `[a-z_][a-z0-9_]*`, with no `__`, not
+  starting with `pg_`, and at most 43 bytes, so the installation's decoder login, `__live_<digest>`, and a login's role
+  set aside while logins are renamed, `__aside_<digest>`, fit under it in PostgreSQL's 63; anything else is refused at
+  stage `config`), beside its `database`, in `grizzle.config.ts` and in
   `DbLayer.make` alike. Every login's and role's PostgreSQL role is then `<rolePrefix>__<stem>`: `a__keys__dashboard`
   in one installation, `b__keys__dashboard` in the other, `keys__dashboard` in one without a prefix, the names never
   meeting. One committed `generate` output installs into all of them: the drafted SQL names each role by its variable,

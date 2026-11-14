@@ -9,11 +9,13 @@
  *   ended by one, and a drawn stem, two conversions joined by `__`, that fit 63 bytes together, the prefix parses to
  *   itself and the installed role is exactly `prefix + "__" + stem`.
  * - Refused: a drawn text over lowercase and uppercase letters, digits, `_`, `-` and a space, of zero to 70
- *   characters, perhaps led by `pg_`, parses exactly when the specification admits it: `[a-z_][a-z0-9_]*`, no `__`,
- *   not led by `pg_`, at most 63 bytes; every other text is refused.
+ *   characters, perhaps led by `pg_`, or a run of `q` exactly at the budget or one byte past it, parses exactly when
+ *   the specification admits it: `[a-z_][a-z0-9_]*`, no `__`, not led by `pg_`, and short enough that the longest
+ *   hashed role name, `__aside_` and a ten-character digest, fits under it in 63 bytes (`<prefix>__<name>`), so at most
+ *   63 - 2 - 18 = 43 bytes; every other text is refused.
  *
  * Features: a digit inside a word, a leading underscore, a trailing underscore; refused for a character, a leading
- * digit, a `__`, `pg_`, emptiness and length.
+ * digit, a `__`, `pg_`, emptiness and length; a prefix at the budget, and one byte past it.
  *
  * Plants (~/.cache/grizzle-release/ROLESPACE/plants): role-prefix-converted.patch (the prefix converted as a declared
  * name, `gr8des` installing as `gr_8_des`).
@@ -34,12 +36,18 @@ import { caseHang } from "#test/support/limits.ts"
 /** A lowercase PostgreSQL identifier segment: the characters a prefix is written in. */
 const identifierSegment = regex("^[a-z_][a-z0-9_]*$")
 
+/**
+ * The most bytes a role prefix takes by the specification: the longest hashed role name the naming door mints,
+ * `__aside_` and a ten-character digest, fits after it and `__` in PostgreSQL's 63.
+ */
+const prefixBudget = 63 - "__".length - "__aside_".length - 10
+
 /** Whether `text` is a role prefix by the specification. */
 const specified = (text: string): boolean =>
 	identifierSegment.test(text) &&
 	!Str.includes("__")(text) &&
 	!Str.startsWith("pg_")(text) &&
-	utf8Length(text) <= maxIdentifierBytes.value
+	utf8Length(text) <= prefixBudget
 
 interface Valid {
 	readonly prefix: string
@@ -98,9 +106,17 @@ type RefusedFeature =
 	| "pg_ first"
 	| "empty"
 	| "too long"
+	| "a prefix at the budget"
+	| "a prefix one byte past the budget"
 
-/** A text a connection might give as a prefix: drawn characters, perhaps led by `pg_`, perhaps past 63 bytes. */
+/**
+ * A text a connection might give as a prefix: drawn characters, perhaps led by `pg_`, perhaps past 63 bytes; or a run
+ * of `q` at the budget or one byte past it, which a draw of characters all but never spells.
+ */
 const textGen: Gen<string> = (source) => {
+	if (source.draw(int(0, 4)) === 0) {
+		return Str.repeat(prefixBudget + source.draw(int(0, 1)))("q")
+	}
 	const body = source.draw(
 		string(element(["a", "q", "z", "B", "Q", "0", "9", "_", "-", " "]), {
 			min: 0,
@@ -111,8 +127,13 @@ const textGen: Gen<string> = (source) => {
 }
 
 const refusedNotes = (text: string): ReadonlyArray<RefusedFeature> => {
+	const atBudget = regex("^q+$").test(text) && utf8Length(text) === prefixBudget
+	const pastBudget = regex("^q+$").test(text) && utf8Length(text) === prefixBudget + 1
 	if (specified(text)) {
-		return ["a prefix"]
+		return ["a prefix", ...(atBudget ? (["a prefix at the budget"] as const) : [])]
+	}
+	if (pastBudget) {
+		return ["too long", "a prefix one byte past the budget"]
 	}
 	return [
 		...(text === "" ? (["empty"] as const) : []),
@@ -120,7 +141,7 @@ const refusedNotes = (text: string): ReadonlyArray<RefusedFeature> => {
 		...(regex("^[0-9]").test(text) ? (["a leading digit"] as const) : []),
 		...(Str.includes("__")(text) ? (["a double underscore"] as const) : []),
 		...(Str.startsWith("pg_")(text) ? (["pg_ first"] as const) : []),
-		...(utf8Length(text) > maxIdentifierBytes.value ? (["too long"] as const) : [])
+		...(utf8Length(text) > prefixBudget ? (["too long"] as const) : [])
 	]
 }
 
@@ -167,7 +188,7 @@ describe("the role prefix, used verbatim", () => {
 			)
 	)
 	it.effect(
-		"parses a drawn text as a prefix exactly when it is a lowercase identifier segment with no __, not led by pg_, within 63 bytes, and refuses every other",
+		"parses a drawn text as a prefix exactly when it is a lowercase identifier segment with no __, not led by pg_, within the 43 bytes the longest hashed role name leaves, and refuses every other",
 		(ctx) =>
 			searched(
 				ctx,
@@ -178,7 +199,7 @@ describe("the role prefix, used verbatim", () => {
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
-							name: "[a-z_][a-z0-9_]*, no __, not led by pg_, at most 63 bytes"
+							name: "[a-z_][a-z0-9_]*, no __, not led by pg_, at most 63 - 2 - |__aside_<digest>| bytes"
 						},
 						coverage: required<RefusedFeature>(
 							[
@@ -188,7 +209,9 @@ describe("the role prefix, used verbatim", () => {
 								"a double underscore",
 								"pg_ first",
 								"empty",
-								"too long"
+								"too long",
+								"a prefix at the budget",
+								"a prefix one byte past the budget"
 							],
 							{ cases: 32, sense: notesOnly }
 						),

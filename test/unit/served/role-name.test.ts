@@ -2,7 +2,9 @@
  * The one roleNameOf: a login's, a role's, a served login's and its decoder login's PostgreSQL role under an
  * installation's role space, with no database.
  *
- * A case draws a schema's declared name (its letter segments lowercase, capitalized or in capitals), a login and one or
+ * A case draws a schema's declared name (its letter segments lowercase, capitalized or in capitals, or a name in the
+ * test substrate's allocation grammar, `gz_<label>_<pid>_<n>_<ten digits>`, perhaps padded to a drawn length, as the
+ * network suites' installations are named), a login and one or
  * two roles over one relation (names of lowercase words or camel case, every conversion apart), whether the login's
  * workload holds a read of the relation, and two role spaces: each none or a role prefix (lowercase words and digit
  * runs joined by single underscores, as `gr8des_qti_pin` is written), the two apart. The login is compiled as `grizzle
@@ -21,18 +23,25 @@
  *   names each by the one roleNameOf, and the authoring and the served login name the same role; each served role's
  *   stem under the space is roleNameOf of its authoring role, the role a served layer takes on.
  * - Disjoint: the two spaces' roles share no name, the decoder's among them.
- * - Bound: a prefix whose longest role passes 63 bytes is refused (RoleNameTooLong), and one that fills 63 exactly is
- *   not; the decoder login's alike.
+ * - Bound: a prefix is at most the budget the longest hashed role name leaves, 63 - 2 - |__aside_<digest>| = 43 bytes,
+ *   and one past it is refused where it is parsed (MalformedDescription); within it, a prefix whose longest role passes
+ *   63 bytes is refused (RoleNameTooLong), and one that fills 63 exactly is not.
+ * - The decoder fits: under a prefix at the budget, the longest any installation admits, the decoder login's role is
+ *   named, whatever the schema's name, an allocation's included, and so is every role set aside while logins are
+ *   renamed (identity.roleAside of the login's and each role's stem, as migrate fills it, core/identity.ts roleInSpace):
+ *   so every prefix that fits the ordinary roles fits them too.
  *
  * Features: a prefix and none, two prefixes, a capitalized spelling, a camel-case name, a prefix at the limit and one
- * byte past, a login that reads and one that reads nothing, a decoder's prefix at the limit and one byte past.
+ * byte past, a prefix past the budget, a login that reads and one that reads nothing, an allocator's schema name, a
+ * decoder under a prefix at the budget.
  *
  * Plants (~/.cache/grizzle-release/ROLESPACE/plants): stem-not-the-door.patch (login(...) computes its stem from the
  * declared names as written, not their conversions), runtime-ignores-prefix.patch, role-prefix-converted.patch (the
  * prefix converted as a declared name, `gr8des` installing as `gr_8_des`). Plants (~/.cache/grizzle-release/DENAPI/
  * plants): decoder-unprefixed.patch (roleNameOf names a decoder login by its stem whatever the prefix),
  * decoder-never.patch (served names no decoder for a login that reads), decoder-login-stem.patch (a decoder login
- * carries its served login's stem, not the live source's).
+ * carries its served login's stem, not the live source's), decoder-unbounded.patch (the live source's stem carries the
+ * root's segments again), role-aside-unbounded.patch (a role's aside name carries its stem's segments again).
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -40,6 +49,7 @@ import { required } from "@grizzle/testing/features"
 import { array, boolean, codePoint, element, type Gen, option, string } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
+import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { served } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
@@ -120,6 +130,20 @@ const nameGen: Gen<string> = (source) => {
 	return Option.match(tail, { onNone: () => head, onSome: (t) => `${head}${Str.capitalize(t)}` })
 }
 
+/**
+ * A schema name in the test substrate's allocation grammar (test/support/substrate/names.ts uniqueSchemaName):
+ * `gz_<label>_<pid>_<n>_<ten digits>`, its parts drawn, perhaps padded with `_` and `s`s to a drawn length
+ * (uniqueSchemaNameOfLength), short enough that a login of a short name fits beside it.
+ */
+const allocatedGen: Gen<string> = (source) => {
+	const digits = (min: number, max: number) => string(codePoint(0x30, 0x39), { min, max })
+	const allocated = `gz_${source.draw(string(codePoint(0x61, 0x7a), { min: 1, max: 8 }))}_${source.draw(
+		digits(1, 7)
+	)}_${source.draw(digits(1, 2))}_${source.draw(digits(10, 10))}`
+	const padding = source.draw(option(string(element(["s"]), { min: 1, max: 12 })))
+	return Option.match(padding, { onNone: () => allocated, onSome: (s) => `${allocated}_${s}` })
+}
+
 /** A role space as drawn: none, or a prefix. */
 type Drawn = Option.Option<string>
 
@@ -152,7 +176,7 @@ const namesGen: Gen<Names> = (source) => {
 			? Option.none<string>()
 			: secondSpace
 	return {
-		schema: source.draw(wordsGen),
+		schema: source.draw(boolean) ? source.draw(allocatedGen) : source.draw(wordsGen),
 		login: loginName,
 		roles: Arr.isReadonlyArrayNonEmpty(roles) ? roles : [`${loginName}x`],
 		reads: source.draw(boolean),
@@ -171,10 +195,17 @@ type NameFeature =
 	| "a camel-case name"
 	| "a prefix at the limit"
 	| "a prefix one byte past"
+	| "a prefix past the budget"
 	| "a login that reads"
 	| "a login that reads nothing"
-	| "a decoder's prefix at the limit"
-	| "a decoder's prefix one byte past"
+	| "an allocator's schema name"
+	| "a decoder under a prefix at the budget"
+
+/**
+ * The most bytes a role prefix takes, by the specification: what the longest hashed role name the naming door mints,
+ * `__aside_` and a ten-character digest, leaves of PostgreSQL's 63 after `__`.
+ */
+const prefixBudget = 63 - "__".length - "__aside_".length - 10
 
 /** The installation a drawn space names. */
 const installationOf = (space: Drawn): RoleInstallation =>
@@ -194,22 +225,30 @@ const connectionOf = <L>(
 ): { readonly user: string } => ({ user: roleNameOf(named, installation) })
 
 /**
- * The bound of a role space at the 63-byte limit for the roles of `stems`, each named by `name` under a prefix: one of
- * `q`s that fills the longest exactly, or one byte past it where `past`, each stem named, or refused (RoleNameTooLong)
- * past the limit; none where no prefix leaves the longest room.
+ * The bound of a role space for the roles of `stems`, each named by `name` under a prefix of `q`s: the longest the
+ * prefix may be, the budget or what 63 bytes leave the longest role, whichever is less, or one byte past it where
+ * `past`. Past the budget, every name is refused as the prefix's (MalformedDescription); within it, each stem is named,
+ * or refused (RoleNameTooLong) past 63 bytes. None where no prefix leaves the longest room.
  */
 const boundOf = (
 	stems: ReadonlyArray<readonly [string, (installation: RoleInstallation) => string]>,
 	past: boolean
-): Option.Option<"at" | "past"> => {
+): Option.Option<"at" | "past" | "budget"> => {
 	const longest = Arr.reduce(stems, 0, (most, [s]) => Math.max(most, utf8Length(s)))
-	const room = maxIdentifierBytes.value - 2 - longest + (past ? 1 : 0)
+	const room = Math.min(prefixBudget, maxIdentifierBytes.value - 2 - longest)
 	if (room < 1) {
 		return Option.none()
 	}
-	const prefix = Str.repeat(room)("q")
+	const length = room + (past ? 1 : 0)
+	const prefix = Str.repeat(length)("q")
+	if (length > prefixBudget) {
+		for (const [stem, name] of stems) {
+			throwsRefused(() => name({ rolePrefix: prefix }), "MalformedDescription", `${stem}'s prefix`)
+		}
+		return Option.some("budget")
+	}
 	for (const [stem, name] of stems) {
-		const bytes = room + 2 + utf8Length(stem)
+		const bytes = length + 2 + utf8Length(stem)
 		if (bytes > maxIdentifierBytes.value) {
 			throwsRefused(() => name({ rolePrefix: prefix }), "RoleNameTooLong", `${stem} past the limit`)
 		} else {
@@ -217,6 +256,13 @@ const boundOf = (
 		}
 	}
 	return Option.some(past ? "past" : "at")
+}
+
+/** The feature a bound reached notes. */
+const boundNotes: { readonly [B in "at" | "past" | "budget"]: NameFeature } = {
+	at: "a prefix at the limit",
+	past: "a prefix one byte past",
+	budget: "a prefix past the budget"
 }
 
 const nameCase = (n: Names, c: Case<NameFeature>) =>
@@ -264,6 +310,16 @@ const nameCase = (n: Names, c: Case<NameFeature>) =>
 		)
 		const namesUnder = (space: Drawn): ReadonlyArray<string> => {
 			const at = installationOf(space)
+			const fitting = (stem: string): boolean =>
+				utf8Length(specified(space, stem)) <= maxIdentifierBytes.value
+			if (!Arr.every([loginStem, ...roleStems], fitting)) {
+				throwsRefused(
+					() => Arr.map([desk, ...roles], (w) => roleNameOf(w, at)),
+					"RoleNameTooLong",
+					"a role past 63 bytes under the space"
+				)
+				return decoder.kind === "none" ? [] : [roleNameOf(decoder, at)]
+			}
 			const loginRole = roleNameOf(desk, at)
 			assert.equal(
 				loginRole,
@@ -300,7 +356,7 @@ const nameCase = (n: Names, c: Case<NameFeature>) =>
 			assert.equal(
 				decoderRole,
 				specified(space, decoderStem),
-				"the decoder login's role is the door's live source under the space"
+				"the decoder login's role is the door's live source under the space, which fits wherever the ordinary roles do"
 			)
 			assert.equal(
 				connectionOf(decoder, at).user,
@@ -326,19 +382,30 @@ const nameCase = (n: Names, c: Case<NameFeature>) =>
 		)
 		const bound = boundOf(worlds, n.bound)
 		if (Option.isSome(bound)) {
-			c.note(bound.value === "past" ? "a prefix one byte past" : "a prefix at the limit")
+			c.note(boundNotes[bound.value])
+		}
+		if (regex("^gz_").test(n.schema)) {
+			c.note("an allocator's schema name")
+		}
+		const atBudget = Str.repeat(prefixBudget)("q")
+		const budgetSpace = roleSpaceOf(atBudget)
+		assert.ok(budgetSpace.ok, "a prefix at the budget is a prefix")
+		for (const stem of [loginStem, ...roleStems]) {
+			const aside = identifierOf(identity.roleAside(stem))
+			assert.ok(
+				roleInSpace(budgetSpace.value, aside).ok,
+				`${stem} set aside, ${aside}, fits under a prefix at the budget`
+			)
 		}
 		if (decoder.kind === "none") {
 			return
 		}
-		const decoderBound = boundOf([[decoderStem, (at) => roleNameOf(decoder, at)]], n.bound)
-		if (Option.isSome(decoderBound)) {
-			c.note(
-				decoderBound.value === "past"
-					? "a decoder's prefix one byte past"
-					: "a decoder's prefix at the limit"
-			)
-		}
+		assert.equal(
+			utf8Length(roleNameOf(decoder, { rolePrefix: atBudget })),
+			prefixBudget + 2 + utf8Length(decoderStem),
+			"the decoder login's role fits under a prefix at the budget, whatever the schema's name"
+		)
+		c.note("a decoder under a prefix at the budget")
 	})
 
 describe("the one roleNameOf", () => {
@@ -364,10 +431,11 @@ describe("the one roleNameOf", () => {
 								"a camel-case name",
 								"a prefix at the limit",
 								"a prefix one byte past",
+								"a prefix past the budget",
 								"a login that reads",
 								"a login that reads nothing",
-								"a decoder's prefix at the limit",
-								"a decoder's prefix one byte past"
+								"an allocator's schema name",
+								"a decoder under a prefix at the budget"
 							],
 							{ cases: 32, sense: notesOnly }
 						),

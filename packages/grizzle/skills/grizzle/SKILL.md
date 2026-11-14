@@ -678,7 +678,8 @@ The command line's own refusals, by stage:
   `schemaNameOf(schema)`. Take every one from there, never spell or rebuild one: each is the name the installation
   creates, and each throws CompileError for a name the installation refuses. A role is its stem, which `generate`
   commits, under the connection's `rolePrefix` (`{}` for none): two installations of one schema share a cluster, each
-  in its own database under its own prefix, from one committed output. Drafted SQL names each role as psql's variable
+  in its own database under its own prefix, from one committed output. A prefix is at most 43 bytes, so the decoder
+  login, `__live_<digest>`, and a role set aside while logins are renamed, `__aside_<digest>`, fit under it. Drafted SQL names each role as psql's variable
   `:"<stem>"` and the current database as `:"DBNAME"`, which `migrate` fills; write a role the same way in a data step. The migration that adds a login creates its role; the operator
   gives it a password, or, for an RDS IAM login, `GRANT rds_iam TO <role> WITH INHERIT TRUE, SET FALSE`, and the IAM
   signer's user name is `roleNameOf(login, connection)`. grizzle never sets either. The migration that gives the
