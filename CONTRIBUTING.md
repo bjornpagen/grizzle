@@ -62,12 +62,14 @@ commit gate. The typecheck and lint, `pnpm check`, run by hand before a release.
   from the installation, so a cluster running at the rename is stopped just before it and started again just after.
 - **`pnpm pg:init`** creates the one cluster under `~/.local/var/grizzle/pg<version>/`:
     - a builtin C.UTF-8 cluster on port 5433, localhost only, with TLS 1.3, SCRAM, and only `hostssl` lines for TCP,
-      `max_pred_locks_per_transaction = 2048`, room for the predicate locks of many SERIALIZABLE transactions at once,
-      `wal_level = logical`, and `timezone` and `log_timezone` at UTC whatever the machine's zone;
+      `max_pred_locks_per_relation = 1024`, where production's `max_pred_locks_per_transaction = 2048` promotes a
+      transaction's tuple locks to its relation's, `wal_level = logical`, and `timezone` and `log_timezone` at UTC
+      whatever the machine's zone;
     - sized to the machine (`test/support/substrate/shared.ts` `clusterSize`, `scripts/pg/cluster-size.ts`):
       `max_connections` holds a connection lease for each of the network tier's workers, one per core, and
       `shared_buffers` each worker's database, no more, since PostgreSQL scans every shared buffer at each commit that
-      drops a relation;
+      drops a relation, and `max_pred_locks_per_transaction` a worker's predicate locks for each worker, spread over
+      the connections, since every index drop and every read of `pg_locks` scans the whole predicate-lock table;
     - a local CA and server certificate, plus an unrelated CA for the refusal tests;
     - the role `grizzle_dev` (the migration identity and owner, not a superuser, with CREATEROLE to create the logins
       and world roles a migration declares, and REPLICATION), with SET on `deadlock_timeout`;
@@ -75,7 +77,7 @@ commit gate. The typecheck and lint, `pnpm check`, run by hand before a release.
       runs `deadlock_timeout = 10ms`, `default_transaction_isolation = serializable` and `synchronous_commit = off` as its
       own defaults (`test/support/pg.ts` `testDatabaseSettings`).
 - **`pnpm pg:doctor`** is the go/no-go check: version and build, the machine's sizing, `jit` off,
-  `max_pred_locks_per_transaction`, `wal_level`,
+  `max_pred_locks_per_relation`, `wal_level`,
   extensions, locale, money formatting, `ON CONFLICT DO SELECT`, verify-full TLS with a wrong CA, a wrong host name
   and plaintext all refused, and the owner's SET on `deadlock_timeout`. `--quick` runs the checks
   that need no scratch database, and every database test run starts with it.

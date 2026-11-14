@@ -340,12 +340,54 @@ const workerBufferBlocks: Limit = derived({
 export const clusterSharedBuffers: number = networkWorkers * workerBufferBlocks.value
 
 /**
+ * The predicate locks one network worker's file holds at once, measured: the most any one test database held while
+ * every worker ran a file.
+ */
+const workerPredicateLocks: Limit = measured({
+	value: 2038,
+	owner: "grizzle's network test tier",
+	unit: "predicate locks",
+	scope:
+		"the SIRead locks one network worker's file holds at once, every transaction of its database's together, as pg_locks lists them",
+	evidence:
+		"`SELECT max(n), sum(n), count(*) FROM (SELECT database, count(*) AS n FROM pg_catalog.pg_locks WHERE mode = 'SIReadLock' GROUP BY 1) AS x` as the bootstrap superuser, every 3 s, during a full `pnpm -s test:network`",
+	observed: "ten readings on 2026-11-14 between 01:28 and 01:29 UTC",
+	environment:
+		"cassowary, Ubuntu 26.04 on arm64 in AWS, the local PostgreSQL 19rc2 cluster sized by clusterSize with max_pred_locks_per_transaction 2048, grizzle 993326b3; a second full network run and other lanes' files on the cluster at once",
+	workload:
+		"a full network run at one file per core, every worker's file in its own database, beside another run's files",
+	result:
+		"at most 2,038 locks in one database, 7,812 in all over 57 databases at once; no 53200 (out of shared memory)",
+	decision:
+		"the largest one database held. No headroom added: the table holds this many for every worker at once (clusterPredicateLocks), and the measured total over every database is a seventeenth of that",
+	revalidate:
+		"a 53200 in a network run; a test tier whose transactions read more rows SERIALIZABLE; a change of max_pred_locks_per_relation or max_pred_locks_per_page; a PostgreSQL repin"
+})
+
+/**
+ * The local cluster's max_pred_locks_per_transaction, which scripts/pg/init.sh sets and scripts/pg/doctor.sh requires
+ * at least. PostgreSQL's predicate-lock table holds it for every connection the cluster admits, and every index drop
+ * and table rewrite under a SERIALIZABLE transaction anywhere on the cluster scans that whole table holding every
+ * predicate-lock partition (REL_19_RC2 predicate.c DropAllPredicateLocksFromTable), as every read of pg_locks does
+ * (GetPredicateLockStatusData). So the table is sized to what the run holds, a worker's locks (workerPredicateLocks)
+ * for each worker, spread over the connections, never to a number of locks for each connection. On a throwaway cluster
+ * on cassowary on 2026-11-14, a CREATE INDEX and DROP INDEX beside an open SERIALIZABLE transaction took 1.6 ms at 100
+ * connections and 2048 locks each, 12.0 ms at the machine's sized connections and 2048, and 2.1 ms there at 64; a read
+ * of pg_locks 0.9, 22.9 and 2.1 ms. A transaction's locks promote to its page's and relation's as production's do,
+ * whatever this is: init.sh pins max_pred_locks_per_relation.
+ */
+export const clusterPredicateLocks: number = Math.ceil(
+	(networkWorkers * workerPredicateLocks.value) / clusterConnections
+)
+
+/**
  * The settings that size the local cluster to the machine, by name, each in its own unit: scripts/pg/cluster-size.ts
  * prints them, scripts/pg/init.sh writes them, and scripts/pg/doctor.sh requires each at least.
  */
 export const clusterSize: ReadonlyArray<readonly [setting: string, value: number]> = [
 	["max_connections", clusterConnections],
-	["shared_buffers", clusterSharedBuffers]
+	["shared_buffers", clusterSharedBuffers],
+	["max_pred_locks_per_transaction", clusterPredicateLocks]
 ]
 
 export interface SharedClaim {
