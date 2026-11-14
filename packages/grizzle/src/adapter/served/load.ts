@@ -1,6 +1,6 @@
 import * as Arr from "effect/Array"
 import * as Result from "effect/Result"
-import { loadedEntry, type WriteEntry } from "#adapter/apply/compile.ts"
+import type { WriteEntry, WriteEntryParts } from "#adapter/apply/compile.ts"
 import { readBacks } from "#adapter/apply/readback.ts"
 import type { BoundReads, HostCall } from "#adapter/apply/run.ts"
 import { contextOver, type TypedContext } from "#adapter/db/claims.ts"
@@ -31,6 +31,7 @@ import {
 	codeNames,
 	loadWrite,
 	memberFactsOf,
+	nominal,
 	recordsReader,
 	rosterCodebook,
 	ServedPatterns,
@@ -271,6 +272,15 @@ const loadPage = (
 			}
 		}
 	})
+
+/**
+ * A served file's program as its entry, branded as an installed plan's (apply/compile.ts WriteEntry): generate compiled
+ * it under ParamSource `planned`, and a served compile under the snapshot's `recorded` parameter types
+ * (served/compile.ts compileServed takes InstalledArtifacts), so the file a layer loads is the proof (loadChange). It
+ * mints in the runtime the layer loads, so the runtime reaches no compile module for it.
+ */
+export const loadedEntry = (parts: WriteEntryParts): WriteEntry =>
+	nominal<WriteEntryParts, WriteEntry>()(parts)
 
 /** A ChangeSet compiled for one set of its fill contexts, loaded: its entry, read by its role's `witness`, its write
  * prepared against the file's closed relations. */

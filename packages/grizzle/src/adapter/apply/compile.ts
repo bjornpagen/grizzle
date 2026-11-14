@@ -41,8 +41,8 @@ export interface WriteEntry {
 	 * Type only, with no runtime form: the program was compiled under a plan an installation stands behind
 	 * (program/schema.ts InstalledSource, ParamSource `planned` or `recorded`), so every type its statements cast a
 	 * parameter to is one that installation installs, and no `unserved` compile reaches a run (apply/run.ts runWrite).
-	 * Two doors mint it: installedEntry, over a ChangeSet compiled over InstalledArtifacts, and loadedEntry, over a served
-	 * file's program.
+	 * Two doors mint it: installedEntry, over a ChangeSet compiled over InstalledArtifacts, and served/load.ts
+	 * loadedEntry, over a served file's program, in the runtime the layer loads.
 	 */
 	readonly [installedBrand]: true
 }
@@ -59,14 +59,6 @@ export const installedEntry = <E extends WriteEntryParts>(
 	compiled: ChangeEntry<InstalledSource>,
 	build: (compiled: ChangeEntry<InstalledSource>) => E
 ): E & WriteEntry => nominal<E, E & WriteEntry>()(build(compiled))
-
-/**
- * A served file's program as its entry, branded as an installed plan's: generate compiled it under ParamSource
- * `planned`, and a served compile under the snapshot's `recorded` parameter types (served/compile.ts compileServed
- * takes InstalledArtifacts), so the file a layer loads is the proof (served/load.ts loadChange).
- */
-export const loadedEntry = (parts: WriteEntryParts): WriteEntry =>
-	nominal<WriteEntryParts, WriteEntry>()(parts)
 
 /**
  * A ChangeSet compiled for a role: its program entry, the program as it compiled, which a served file holds
