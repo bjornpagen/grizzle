@@ -61,8 +61,10 @@ const reader = (c: Case): ReadonlyArray<RaceSession> =>
  * a member of the same tenant, deletes the document, through his Doc entry or as a direct writer who sets his role and
  * claims by hand. Notes need their document (a containment), so serially either the note lands and the deletion is
  * refused by that law, or the deletion lands and the note is outside ann's world; a third member may read MyNote
- * meanwhile. ann's write reads MyNote back, as of the state it committed. Every order of the moves is explored, with
- * reduction.
+ * meanwhile. ann's write reads nothing back: Note's `no` is serial, so an array of MyNote is two insertions, of the
+ * notes that state it and of those that leave it out, whose delta no one statement makes, and a read-back of it is
+ * refused when the ChangeSet compiles (README "Where a read-back runs"; model/session/apply.ts sideCrosses), which would
+ * leave ann's note out of the race. Every order of the moves is explored, with reduction.
  *
  * Plants (main's test phase): worlds-isolation-row-security-off.patch.
  */
@@ -134,7 +136,7 @@ const race = (c: Case): WorldRace => {
 								}
 							]
 						],
-						reads: ["MyNote"]
+						reads: []
 					})
 				]
 			},
