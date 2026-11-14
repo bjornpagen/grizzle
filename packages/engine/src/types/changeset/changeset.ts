@@ -983,6 +983,30 @@ export type RepeatedArrays<A> = {
 }[keyof A]
 
 /**
+ * The relations a ChangeSet X's array members hold by one op in two strata, RepeatedArrays of its array members (ArraysOf)
+ * read from their positions alone: whether two members meet is their op, their relation's name and their position, never
+ * their rows, so a workload's check of its ChangeSets (types/db/workload.ts ArraysOnce) builds no member's row.
+ */
+export type RepeatedArraysOf<X> =
+	X extends Phantom<{
+		readonly schema: Invariant<infer _S>
+		readonly arrays: (members: infer A) => void
+	}>
+		? RepeatedArrays<UnionToIntersection<PositionOfMember<A>>>
+		: never
+
+/** An array member's position under its op and its relation's name, as its record in ArraysOf holds it (RecordOf). */
+type PositionOfMember<A> =
+	A extends ArrayMember<
+		infer Op extends ArrayOp,
+		infer Spelled,
+		infer At extends ReadonlyArray<unknown>,
+		infer _Address
+	>
+		? { readonly [O in Op]: { readonly [N in NameOfSpelled<Spelled>]: { readonly at: At } } }
+		: never
+
+/**
  * A ChangeSet's array members by op, then relation name (ArrayFacts), read back from the members it holds by name: the
  * records of its members (RecordOf), met, and unknown for a program that holds none.
  */

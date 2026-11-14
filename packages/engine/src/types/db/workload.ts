@@ -3,10 +3,9 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Phantom } from "#compiler/core/phantom.ts"
 import type {
 	AnyChangeSet,
-	ArraysOf,
 	ChangeSetAt,
 	PlannedStrata,
-	RepeatedArrays
+	RepeatedArraysOf
 } from "#compiler/types/changeset/changeset.ts"
 import type { MembersTyped, Refusal } from "#compiler/types/core/phantom.ts"
 import type { AnyMaterialized } from "#compiler/types/derived/derived.ts"
@@ -171,10 +170,11 @@ type ProgramContexts<X> =
 
 /**
  * A ChangeSet program's array members, which a served call's facts key by op and relation (FactsCheck): none two of one
- * op and one relation in two strata (RepeatedArrays), as generate refuses them (UnservedMember `repeated`).
+ * op and one relation in two strata (RepeatedArraysOf, read from the members' positions, never their rows), as generate
+ * refuses them (UnservedMember `repeated`).
  */
 type ArraysOnce<X> = X extends AnyChangeSet
-	? [RepeatedArrays<ArraysOf<X>>] extends [never]
+	? [RepeatedArraysOf<X>] extends [never]
 		? unknown
 		: Refusal<"a served ChangeSet's facts hold one array for each op and relation: merge the strata's array members of this op and relation into one">
 	: unknown
