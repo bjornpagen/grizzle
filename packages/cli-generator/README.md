@@ -46,12 +46,13 @@ Node 26 runs the TypeScript source directly; pnpm 12.16.1 (the `packageManager` 
 ```sh
 git submodule update --init
 pnpm install
+pnpm types
 pnpm check
 pnpm test
 pnpm test:grizzle
 pnpm format:write
 ```
 
-The workspace holds the generator (`packages/generator`), superstarter's JSON door (`packages/json`), and the shared toolchain's dev tools and testing library, a git submodule at `vendor/toolchain`. `vendor/grizzle` is grizzle at the commit the end-to-end suites pin, a git submodule outside the workspace: `pnpm test:grizzle` installs its packages and runs a driver inside it against a local PostgreSQL cluster of grizzle's. `GRIZZLE_PG_CLUSTER=<port>` names a private one, so no other suite's load reaches it: create it with `GRIZZLE_PG_CLUSTER=<port> pnpm pg:init` in `vendor/grizzle`, run `GRIZZLE_PG_CLUSTER=<port> pnpm test:grizzle`, and remove it with `GRIZZLE_PG_CLUSTER=<port> pnpm pg destroy`. `pnpm check` is the gate lefthook runs before every commit and push: `effect-tsgo tsrs` with every Effect diagnostic at error, superlint, oxlint with the dev tools' preset, oxfmt, fallow's dead-code and architecture checks, and `pnpm dedupe --check`.
+The workspace holds the generator (`packages/generator`), superstarter's JSON door (`packages/json`), and the shared toolchain's dev tools and testing library, a git submodule at `vendor/toolchain`. `vendor/grizzle` is grizzle at the commit the end-to-end suites pin, a git submodule outside the workspace: `pnpm test:grizzle` installs its packages and runs a driver inside it against a local PostgreSQL cluster of grizzle's. `GRIZZLE_PG_CLUSTER=<port>` names a private one, so no other suite's load reaches it: create it with `GRIZZLE_PG_CLUSTER=<port> pnpm pg:init` in `vendor/grizzle`, run `GRIZZLE_PG_CLUSTER=<port> pnpm test:grizzle`, and remove it with `GRIZZLE_PG_CLUSTER=<port> pnpm pg destroy`. `pnpm types` is the incremental typecheck to run after every edit; lefthook runs it, with oxfmt over the staged files, before every commit. `pnpm check` is the gate lefthook runs before every push: `effect-tsgo tsrs` in full with every Effect diagnostic at error, superlint, oxlint with the dev tools' preset, oxfmt, fallow's dead-code and architecture checks, `pnpm dedupe --check`, the runtime gate and the benchmark.
 
 Read [AGENTS.md](AGENTS.md) before contributing.

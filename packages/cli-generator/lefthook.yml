@@ -1,15 +1,20 @@
 # The hooks run only the pinned lefthook: without this, the generated script searches a dozen
 # places for a lefthook binary and lets the commit through when it finds none.
 lefthook: pnpm exec lefthook
-# One check-only gate: the hooks never format or stage files, they only refuse. A merge or rebase
-# skips pre-commit, so the push runs the gate again over every commit it carries.
+# The hooks only refuse: they never format or stage files. A commit checks the format of the files
+# it stages (as they are in the working tree) and runs `pnpm types`, the incremental typecheck; a
+# merge or rebase skips it. A push runs `pnpm check`, the full gate, once, over the working tree as
+# it stands when the push starts, not over each commit the push carries.
 pre-commit:
+  parallel: true
   skip:
     - merge
     - rebase
   jobs:
-    - name: check
-      run: pnpm check
+    - name: format
+      run: pnpm exec oxfmt --check --no-error-on-unmatched-pattern {staged_files}
+    - name: types
+      run: pnpm types
 pre-push:
   jobs:
     - name: check
