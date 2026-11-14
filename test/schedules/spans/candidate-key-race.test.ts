@@ -64,6 +64,7 @@ import {
 	runSerialRace,
 	type SerialRaceFailed
 } from "#test/support/schedules/serial.ts"
+import { beginSerializableAction } from "#test/support/schedules/types.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -283,6 +284,7 @@ const runRace = (
 				: [
 						{
 							kind: "direct",
+							begin: beginSerializableAction,
 							session: "blocker",
 							statements: [{ sql: insert(race.blocker.fact), footprint: everyRelation }],
 							end: race.blocker.end
@@ -317,6 +319,7 @@ const runRace = (
 					apply,
 					{
 						kind: "direct",
+						begin: beginSerializableAction,
 						session: "direct",
 						statements: [{ sql: insert(race.direct), footprint: everyRelation }],
 						end: "commit"

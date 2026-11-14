@@ -49,6 +49,8 @@ const describeAction = (action: DirectAction): string => {
 			return compact(action.sql)
 		case "Begin":
 			return "BEGIN ISOLATION LEVEL SERIALIZABLE"
+		case "BeginAs":
+			return compact(action.sql)
 		case "BeginBelow":
 			return `BEGIN ISOLATION LEVEL ${Str.toUpperCase(action.level)} (planted, to be refused)`
 		case "Commit":

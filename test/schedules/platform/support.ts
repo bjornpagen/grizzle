@@ -98,6 +98,7 @@ import { untilAnswered } from "#test/support/transient.ts"
 
 import { regex } from "arkregex"
 import { openServed } from "#adapter/db/served.ts"
+import { beginSerializableAction } from "#test/support/schedules/types.ts"
 /**
  * The platform's concurrency races: the application's writes of the usage-billing platform, raced by grizzle writers
  * and direct psql writers over one installation, every transaction SERIALIZABLE, every run of the one concurrency
@@ -1233,6 +1234,7 @@ const txnsOf = (
 		}
 		return {
 			kind: "direct",
+			begin: beginSerializableAction,
 			session: p.session,
 			steps: [
 				...Arr.map(Arr.zip(p.write.direct, directSql(i.names, p.write.direct)), ([s, text]) =>

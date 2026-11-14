@@ -65,7 +65,7 @@ import { openActors, textOfValue } from "#test/support/schedules/actors.ts"
 import {
 	everyRelation,
 	exploreEnv,
-	relationsFootprint,
+	runawayInterleavings,
 	type Strategy
 } from "#test/support/schedules/interleave.ts"
 import {
@@ -103,8 +103,8 @@ export type Certifier =
 
 /**
  * A shape installed: the installation, its names, the level generate certifies each role at, each role's ChangeSets and
- * reads as its served file loads them, the level each role's served writes begin at, the installation's, and a read's
- * BEGIN, immediate and deferrable, as the served file states them.
+ * reads as its served file loads them, the level each role's served writes begin at, the installation's, and the BEGIN
+ * of a write at each level and of a read, immediate and deferrable, as the served file states them.
  */
 export interface InstalledShape {
 	readonly installed: Installed
@@ -115,6 +115,7 @@ export interface InstalledShape {
 	readonly reads: ReadonlyMap<string, ReadonlyMap<string, LoadedRead>>
 	readonly levels: ReadonlyMap<string, Isolation>
 	readonly readBegins: LoadedLogin["session"]["begin"]["read"]
+	readonly writeBegins: LoadedLogin["session"]["begin"]["write"]
 }
 
 /**
@@ -232,6 +233,7 @@ const servedOf = (loaded: LoadedLogin) => ({
 		])
 	),
 	readBegins: loaded.session.begin.read,
+	writeBegins: loaded.session.begin.write,
 	changes: new Map(
 		Arr.map(loaded.roles, (r) => [
 			r.name,
@@ -486,16 +488,6 @@ const levelOf = (s: InstalledShape, role: string): Isolation =>
 	defined(s.levels.get(role), `the served level of role ${role}`)
 
 /**
- * A transaction's first statement, stating its level: SET TRANSACTION reads and writes no relation and takes no
- * snapshot, so it commutes with every other session's move, and a schedule may open a session with it and hold it
- * there.
- */
-const setLevel = (level: Isolation): RaceStatement => ({
-	sql: `SET TRANSACTION ISOLATION LEVEL ${level === "readCommitted" ? "READ COMMITTED" : "SERIALIZABLE"}`,
-	footprint: relationsFootprint([])
-})
-
-/**
  * The lock a change call's served write takes before its snapshot (runtime/write/flight.ts WriteExclusion), none where
  * its login fences nothing it writes. The call's session is its role's, which holds DELETE on every relation it fences,
  * a privilege that permits the lock as the login's MAINTAIN does.
@@ -509,10 +501,10 @@ const exclusionOf = (s: InstalledShape, call: ChangeCall): ReadonlyArray<RaceSta
 }
 
 /**
- * A change call's direct transaction: its first statement setting the level its role's served file records, then the
- * lock its served write takes before its snapshot, as a Db's prologue sends it before the statement that takes the
- * snapshot, then the call's statements, the served file's, compiled for that level (program/workload/change.ts
- * RoleChanges `level`).
+ * A change call's direct transaction: begun as its served write begins, its BEGIN stating the level its role's served
+ * file records (schedules/types.ts DirectAction BeginAs), then the lock its served write takes before its snapshot, as a
+ * Db's prologue sends it before the statement that takes the snapshot, then the call's statements, the served file's,
+ * compiled for that level (program/workload/change.ts RoleChanges `level`).
  */
 const changeTxnOf = (
 	s: InstalledShape,
@@ -520,28 +512,15 @@ const changeTxnOf = (
 ): Effect.Effect<RaceTxn<never>, InputFailure> =>
 	Effect.map(callStatements(s, call), (statements) => {
 		const sent = Arr.map(statements, (sql): RaceStatement => ({ sql, footprint: everyRelation }))
+		const [first, ...rest] = [...exclusionOf(s, call), ...sent]
 		return {
 			kind: "direct",
 			session: call.session,
-			statements: [setLevel(levelOf(s, call.role)), ...exclusionOf(s, call), ...sent],
+			begin: { _tag: "BeginAs", sql: s.writeBegins[levelOf(s, call.role)] },
+			statements: [defined(first, "a call's statement"), ...rest],
 			end: "commit"
 		}
 	})
-
-/**
- * A read's transaction modes as its served BEGIN states them (served/forms.ts ServedSession), stated by SET TRANSACTION
- * as a direct transaction's first statement, which reads and writes no relation and takes no snapshot: SERIALIZABLE
- * READ ONLY, DEFERRABLE for a deferrable member's.
- */
-const setReadModes = (s: InstalledShape, read: LoadedRead): Effect.Effect<RaceStatement> => {
-	const begin = read.deferrable ? s.readBegins.deferrable : s.readBegins.immediate
-	return Str.startsWith("BEGIN ")(begin)
-		? Effect.succeed({
-				sql: `SET TRANSACTION ${Str.slice(6)(begin)}`,
-				footprint: relationsFootprint([])
-			})
-		: Effect.die(new Error(`a read's BEGIN that begins with no BEGIN: ${begin}`))
-}
 
 /**
  * The one statement a read call sends, its parameters inlined: its program's statement over the call's parameters, as
@@ -558,19 +537,23 @@ const readStatement = (read: LoadedRead, call: ReadCall): Effect.Effect<string> 
 		})
 	)
 
-/** A read call's direct transaction: its modes (setReadModes), then its one statement (readStatement). */
+/** A read call's direct transaction: begun as its served BEGIN states its modes, SERIALIZABLE READ ONLY, DEFERRABLE
+ * for a deferrable member's (schedules/types.ts DirectAction BeginAs), then its one statement (readStatement). */
 const readTxnOf = (s: InstalledShape, call: ReadCall): Effect.Effect<RaceTxn<never>> =>
 	Effect.gen(function* () {
 		const read = defined(
 			s.reads.get(call.role)?.get(call.member),
 			`read ${call.member} of role ${call.role}`
 		)
-		const modes = yield* setReadModes(s, read)
 		const sql = yield* readStatement(read, call)
 		return {
 			kind: "direct",
 			session: call.session,
-			statements: [modes, { sql, footprint: everyRelation }],
+			begin: {
+				_tag: "BeginAs",
+				sql: read.deferrable ? s.readBegins.deferrable : s.readBegins.immediate
+			},
+			statements: [{ sql, footprint: everyRelation }],
 			end: "commit"
 		}
 	})
@@ -579,9 +562,30 @@ const readTxnOf = (s: InstalledShape, call: ReadCall): Effect.Effect<RaceTxn<nev
 const txnOf = (s: InstalledShape, call: RaceCall): Effect.Effect<RaceTxn<never>, InputFailure> =>
 	call.kind === "change" ? changeTxnOf(s, call) : readTxnOf(s, call)
 
+/** How many moves one transaction makes when it runs to its COMMIT: a direct one's statements, its BEGIN joining its
+ * first, and its COMMIT; a grizzle call one. */
+const movesOf = (t: RaceTxn<never>): number => (t.kind === "direct" ? t.statements.length + 1 : 1)
+
 /** How many moves a race's transactions make when each runs to its COMMIT: PCT's k. */
 export const raceMoves = (txns: ReadonlyArray<RaceTxn<never>>): number =>
-	Arr.reduce(txns, 0, (sum, t) => sum + (t.kind === "direct" ? t.statements.length + 1 : 1))
+	Arr.reduce(txns, 0, (sum, t) => sum + movesOf(t))
+
+/** n!, 1 for n of 0. */
+const factorial = (n: number): bigint =>
+	Arr.reduce(
+		Array.from({ length: n }, (_, i) => BigInt(i + 1)),
+		1n,
+		(p, k) => p * k
+	)
+
+/**
+ * How many orders of a race's moves an every-order exploration may run: (Σ m)! / Π m!, each transaction's moves m
+ * (movesOf) kept in its own order. A direct transaction's first move carries the whole transaction's footprint
+ * (schedules/interleave.ts), so no order of beginnings is pruned, and the count is what the exploration runs before
+ * sleep sets prune any commuting statements.
+ */
+export const ordersOf = (txns: ReadonlyArray<RaceTxn<never>>): bigint =>
+	Arr.reduce(txns, factorial(raceMoves(txns)), (orders, t) => orders / factorial(movesOf(t)))
 
 /** Every stored table's rows as text: its name and each row's JSON, one row each. */
 export const stateSql = (names: Names): string =>
@@ -626,6 +630,21 @@ export const runIsolationRace = (
 		const direct = yield* openActors(substrate, specs)
 		const [first, ...rest] = yield* Effect.forEach(race.calls, (call) => txnOf(s, call))
 		const txns: Arr.NonEmptyReadonlyArray<RaceTxn<never>> = [defined(first, "a call"), ...rest]
+		const chosen = strategy(txns)
+		const orders = ordersOf(txns)
+		if (chosen.kind === "every" && orders > BigInt(runawayInterleavings)) {
+			return yield* Effect.die(
+				new Error(
+					`the race ${Arr.join(
+						Arr.map(race.calls, (c) => `${c.session}:${c.role}.${c.member}`),
+						" "
+					)} has ${orders} orders of its moves (${Arr.join(
+						Arr.map(txns, (t) => String(movesOf(t))),
+						", "
+					)}), past the ${runawayInterleavings} an every-order race may run: its suite splits or shrinks it`
+				)
+			)
+		}
 		yield* runSerialRace(
 			env,
 			{ direct, grizzle: {} },
@@ -644,7 +663,7 @@ export const runIsolationRace = (
 					Arr.map(rows, (row) => Arr.map(row, textOfValue))
 				)
 			},
-			strategy(txns),
+			chosen,
 			noteRun
 		)
 	})

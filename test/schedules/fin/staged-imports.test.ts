@@ -53,6 +53,7 @@ import {
 	type Txn
 } from "#test/support/schedules/interleave.ts"
 import { openRig } from "#test/support/schedules/rig.ts"
+import { beginSerializableAction } from "#test/support/schedules/types.ts"
 import { textBound } from "#test/support/staged.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -207,6 +208,7 @@ const explored = Effect.gen(function* () {
 	const txns: ReadonlyArray<Txn> = [
 		{
 			kind: "direct",
+			begin: beginSerializableAction,
 			session: "gate",
 			steps: [
 				interleaveStep(

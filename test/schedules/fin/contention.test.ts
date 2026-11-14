@@ -57,6 +57,7 @@ import {
 } from "#test/support/schedules/interleave.ts"
 import { describeStepOutcome } from "#test/support/schedules/match.ts"
 import { openRig } from "#test/support/schedules/rig.ts"
+import { beginSerializableAction } from "#test/support/schedules/types.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const Owner = relation("Owner", { id: pg.int4, n: drawn(natural) }, ["id"])
@@ -137,6 +138,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					const txns: ReadonlyArray<Txn> = [
 						{
 							kind: "direct",
+							begin: beginSerializableAction,
 							session: "direct",
 							steps: Arr.map(
 								[

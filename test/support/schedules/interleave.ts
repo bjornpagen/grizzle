@@ -21,7 +21,12 @@ import {
 	textOfValue
 } from "#test/support/schedules/actors.ts"
 import { describeStepOutcome } from "#test/support/schedules/match.ts"
-import type { DirectAction, ScheduleOutcome, StepOutcome } from "#test/support/schedules/types.ts"
+import type {
+	DirectAction,
+	DirectBegin,
+	ScheduleOutcome,
+	StepOutcome
+} from "#test/support/schedules/types.ts"
 import { type LockWait, lockWaitOf } from "#test/support/substrate/barrier.ts"
 import { connect } from "#test/support/substrate/session.ts"
 import type { SubstrateShape, TextRows } from "#test/support/substrate/substrate.ts"
@@ -126,6 +131,7 @@ export type Txn =
 	| {
 			readonly kind: "direct"
 			readonly session: string
+			readonly begin: DirectBegin
 			readonly steps: ReadonlyArray<SqlStep>
 			readonly end: "commit" | "rollback"
 			readonly after: string | undefined
@@ -592,10 +598,7 @@ const movesOfTxn = (
 			const whole = union(Arr.map(t.steps, (x) => x.footprint))
 			const statements = Arr.map(t.steps, (s, i): Move => ({
 				label: s.label,
-				run: performAll(actor, [
-					...(i === 0 ? [{ _tag: "Begin" } as const] : []),
-					{ _tag: "Sql", sql: s.sql }
-				]),
+				run: performAll(actor, [...(i === 0 ? [t.begin] : []), { _tag: "Sql", sql: s.sql }]),
 				backend: ownBackend(owned, t.session),
 				blocked: "wait",
 				footprint: i === 0 ? whole : s.footprint,
@@ -605,7 +608,7 @@ const movesOfTxn = (
 			const end: Move = {
 				label: Str.toUpperCase(t.end),
 				run: performAll(actor, [
-					...(t.steps.length === 0 ? [{ _tag: "Begin" } as const] : []),
+					...(t.steps.length === 0 ? [t.begin] : []),
 					t.end === "commit" ? { _tag: "Commit" } : { _tag: "Rollback" }
 				]),
 				backend: ownBackend(owned, t.session),

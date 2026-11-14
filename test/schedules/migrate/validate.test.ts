@@ -122,7 +122,12 @@ import {
 	meets,
 	misses
 } from "#test/support/schedules/match.ts"
-import type { Expectation, ScheduleOutcome, StepOutcome } from "#test/support/schedules/types.ts"
+import {
+	beginSerializableAction,
+	type Expectation,
+	type ScheduleOutcome,
+	type StepOutcome
+} from "#test/support/schedules/types.ts"
 import { reportedOwnerOf } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -908,6 +913,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 								const txns: ReadonlyArray<Txn> = [
 									...Arr.map(["w1", "w2"] as const, (w): Txn => ({
 										kind: "direct",
+										begin: beginSerializableAction,
 										session: w,
 										steps: [interleaveStep(insertOf(w), everyRelation)],
 										end: "commit",

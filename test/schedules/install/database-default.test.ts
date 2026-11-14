@@ -42,6 +42,7 @@ import {
 	type Txn
 } from "#test/support/schedules/interleave.ts"
 import { describeStepOutcome } from "#test/support/schedules/match.ts"
+import { beginSerializableAction } from "#test/support/schedules/types.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const installations = ["first", "second"] as const
@@ -55,6 +56,7 @@ const blocks = Object.freeze(
 
 const txns: ReadonlyArray<Txn> = Arr.map(installations, (session): Txn => ({
 	kind: "direct",
+	begin: beginSerializableAction,
 	session,
 	steps: blocks,
 	end: "commit",

@@ -49,6 +49,7 @@ import {
 	type SerialRaceFailed,
 	type SessionEnd
 } from "#test/support/schedules/serial.ts"
+import { beginSerializableAction } from "#test/support/schedules/types.ts"
 import { servedFixture } from "#test/support/served-db.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate, type TextRows } from "#test/support/substrate/substrate.ts"
@@ -558,6 +559,7 @@ const runDerivedRace = (
 				: [
 						{
 							kind: "direct",
+							begin: beginSerializableAction,
 							session: "holder",
 							statements: [
 								{
@@ -597,6 +599,7 @@ const runDerivedRace = (
 				: [
 						{
 							kind: "direct",
+							begin: beginSerializableAction,
 							session: "writer",
 							statements: Arr.append(
 								race.writer.reads
@@ -611,6 +614,7 @@ const runDerivedRace = (
 			? [
 					{
 						kind: "direct",
+						begin: beginSerializableAction,
 						session: "reader",
 						statements: [{ sql: sql.readerRead, footprint: relationsFootprint(derivedNames) }],
 						end: "commit"

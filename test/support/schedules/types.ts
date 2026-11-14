@@ -3,15 +3,29 @@ import type { BelowSerializable } from "#test/support/substrate/session.ts"
 import type { TextRows } from "#test/support/substrate/substrate.ts"
 
 /**
- * What a direct session does in one step. Every transaction begins SERIALIZABLE; BeginBelow is a planted writer below
- * it, whose writes grizzle refuses.
+ * What a direct session does in one step. A transaction begins SERIALIZABLE (Begin), with the modes its own BEGIN
+ * states (BeginAs), or below SERIALIZABLE as a planted writer whose writes grizzle refuses (BeginBelow).
+ *
+ * BeginAs is the BEGIN a Db sends from its served file (served/forms.ts ServedSession `begin`, printed as sql/print.ts
+ * prints beginRead and beginWrite): one statement that states the transaction's isolation level and, for a read, READ
+ * ONLY and DEFERRABLE, never a BEGIN followed by a SET TRANSACTION, which no client sends. A direct transaction's first
+ * move is its BEGIN together with its first statement (schedules/interleave.ts), which is faithful in real time too:
+ * PostgreSQL takes a transaction's snapshot at its first statement, not at its BEGIN, so a transaction that commits
+ * between the two is visible to it, and its span begins with that statement.
  */
 export type DirectAction =
 	| { readonly _tag: "Sql"; readonly sql: string }
 	| { readonly _tag: "Begin" }
+	| { readonly _tag: "BeginAs"; readonly sql: string }
 	| { readonly _tag: "BeginBelow"; readonly level: BelowSerializable }
 	| { readonly _tag: "Commit" }
 	| { readonly _tag: "Rollback" }
+
+/** How a direct transaction begins: SERIALIZABLE, or with the modes its BEGIN states (DirectAction). */
+export type DirectBegin = Extract<DirectAction, { readonly _tag: "Begin" | "BeginAs" }>
+
+/** A transaction's BEGIN ISOLATION LEVEL SERIALIZABLE. */
+export const beginSerializableAction: DirectBegin = { _tag: "Begin" }
 
 /**
  * What a direct step, an observer check or an explorer move did. A defect or interruption is not an outcome: it ends

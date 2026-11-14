@@ -37,6 +37,7 @@ import {
 	type Txn,
 	type TxnResult
 } from "#test/support/schedules/interleave.ts"
+import { beginSerializableAction } from "#test/support/schedules/types.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -180,6 +181,7 @@ const txnsOf = (
 				return {
 					session: t.session,
 					kind: "direct",
+					begin: beginSerializableAction,
 					steps: [
 						...Arr.map(writeSteps(env, t.ops), (w) =>
 							interleaveStep(w.sql, reach(env.host, [w.relation]))

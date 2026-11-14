@@ -164,7 +164,7 @@ import {
 	type Strategy,
 	type Txn
 } from "#test/support/schedules/interleave.ts"
-import { type StepOutcome } from "#test/support/schedules/types.ts"
+import { beginSerializableAction, type StepOutcome } from "#test/support/schedules/types.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate, type TextRows } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -1316,6 +1316,7 @@ const runRace = (
 					if (session.kind === "direct") {
 						txns.push({
 							kind: "direct",
+							begin: beginSerializableAction,
 							session: session.actor,
 							steps: Arr.map(session.statements, (st) =>
 								interleaveStep(sql.statement(st), reaches([statementRelation(st)]))
@@ -1871,6 +1872,7 @@ const runInserters = (
 				? [
 						{
 							kind: "direct" as const,
+							begin: beginSerializableAction,
 							session: "gate",
 							steps: [
 								interleaveStep(`LOCK TABLE ${o.names.table(Gate)} IN SHARE MODE`, reaches(["Gate"]))
@@ -2305,6 +2307,7 @@ const runClaimers = (
 				? [
 						{
 							kind: "direct" as const,
+							begin: beginSerializableAction,
 							session: "gate",
 							steps: [
 								interleaveStep(`LOCK TABLE ${o.names.table(Gate)} IN SHARE MODE`, reaches(["Gate"]))

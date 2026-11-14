@@ -131,6 +131,8 @@ const directActor = <E>(parts: ActorParts<E>): DirectActor => ({
 				)
 			case "Begin":
 				return settle(Effect.as(parts.begin, done))
+			case "BeginAs":
+				return settle(Effect.as(parts.sql(action.sql), done))
 			case "BeginBelow":
 				return settle(Effect.as(parts.beginBelow(action.level), done))
 			case "Commit":

@@ -34,7 +34,7 @@ import {
 	type Txn
 } from "#test/support/schedules/interleave.ts"
 import { describeStepOutcome } from "#test/support/schedules/match.ts"
-import type { DirectAction, StepOutcome } from "#test/support/schedules/types.ts"
+import type { DirectAction, DirectBegin, StepOutcome } from "#test/support/schedules/types.ts"
 import type { TextRows } from "#test/support/substrate/substrate.ts"
 
 /** One statement of a direct transaction, and what it reaches. */
@@ -44,14 +44,15 @@ export interface RaceStatement {
 }
 
 /**
- * One transaction of a race: a direct session's statements, ended by its COMMIT or its ROLLBACK as written; or one
- * call of a grizzle session, which its caller calls again after each transient refusal until it answers, as an
- * application does.
+ * One transaction of a race: a direct session's statements after its BEGIN, ended by its COMMIT or its ROLLBACK as
+ * written; or one call of a grizzle session, which its caller calls again after each transient refusal until it
+ * answers, as an application does.
  */
 export type RaceTxn<A> =
 	| {
 			readonly kind: "direct"
 			readonly session: string
+			readonly begin: DirectBegin
 			readonly statements: Arr.NonEmptyReadonlyArray<RaceStatement>
 			readonly end: "commit" | "rollback"
 	  }
@@ -330,7 +331,7 @@ export const runSerialRace = <A, E>(
 		): Effect.Effect<Shown<A>> =>
 			Effect.gen(function* () {
 				for (;;) {
-					const begun = yield* perform(t.session, { _tag: "Begin" })
+					const begun = yield* perform(t.session, t.begin)
 					if (begun._tag !== "Ok") {
 						return yield* Effect.die(
 							new Error(`${t.session} could not begin alone: ${describeStepOutcome(begun)}`)
@@ -483,6 +484,7 @@ export const runSerialRace = <A, E>(
 				return {
 					kind: "direct",
 					session: t.session,
+					begin: t.begin,
 					steps: Arr.map(t.statements, (s) => interleaveStep(s.sql, s.footprint)),
 					end: t.end,
 					after: undefined
