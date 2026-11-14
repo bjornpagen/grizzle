@@ -19,8 +19,11 @@
  * The oracle is a second implementation: the worlds model's compile rules against grizzle's compile of the write the
  * executor serves.
  *
- * Plant: ~/.cache/grizzle-release/BR07/plants/compile-single-stratum-admitted.patch (the model admitting a
- * single-stratum write past its compile where grizzle refuses it) turns the property red.
+ * Plants: ~/.cache/grizzle-release/BR07/plants/compile-single-stratum-admitted.patch (the model admitting a
+ * single-stratum write past its compile where grizzle refuses it) turns the property red, and so does
+ * ~/.cache/grizzle-release/READBACK/plants/world-model-no-crossing.patch (the model admitting a read-back whose delta
+ * no one statement makes, model/session/apply.ts sideCrosses), caught in the steered phase: an insertion of the
+ * every-serial Visit read back, two statements' by its serial classes.
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"

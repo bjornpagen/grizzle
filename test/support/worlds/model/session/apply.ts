@@ -697,13 +697,86 @@ export const readBackClasses = (
 const without = (a: ReadonlyArray<HostFact>, b: ReadonlyArray<HostFact>): ReadonlyArray<HostFact> =>
 	Arr.filter(a, (f) => !Arr.some(b, (g) => sameValues(f, g)))
 
+/** A statement of a ChangeSet that makes one side of its target's delta: its stratum, and whether it is the generated
+ * class's insertion, whose drawn serial values a lagging sequence may repeat. */
+interface SideMaker {
+	readonly side: "added" | "removed"
+	readonly stratum: number
+	readonly generated: boolean
+}
+
+/**
+ * The statements of a ChangeSet's array members that make a side of `target`'s delta, as grizzle realizes them where
+ * both sides of the delta are read back (write/schedule/plan.ts opsOf, write/put/choose.ts): an insertion one statement,
+ * or two where its head carries a serial field a fact may leave out (serialHead), the complete class's and the
+ * generated class's; a deletion one; a put the DELETE-then-insert pair, since a read-back of its removed side rules out
+ * the forms that return no old version, its displacing deletion none where every field of the target is a key field
+ * (a pure set). One op of one entry in one stratum is one action, whatever facts it is applied with.
+ */
+const sideMakers = (
+	base: BaseSpec,
+	role: RoleSpec,
+	strata: ReadonlyArray<ReadonlyArray<EntryOp>>,
+	target: string
+): ReadonlyArray<SideMaker> => {
+	const spec = relationSpecOf(base, target)
+	const pureSet =
+		spec !== undefined && Arr.every(spec.fields, (f) => Arr.contains(spec.key, f.name))
+	return Arr.flatMap(strata, (ops, stratum) =>
+		Arr.flatMap(
+			Arr.dedupeWith(ops, (x, y) => x.relation === y.relation && x.kind === y.kind),
+			(op: EntryOp): ReadonlyArray<SideMaker> => {
+				const w = writtenNamed(base, role, op.relation)
+				if (w === undefined || w.target !== target) {
+					return []
+				}
+				const of = (side: SideMaker["side"], generated: boolean): SideMaker => ({
+					side,
+					stratum,
+					generated
+				})
+				switch (op.kind) {
+					case "insert":
+						return serialHead(base, w).classed.length > 0
+							? [of("added", false), of("added", true)]
+							: [of("added", false)]
+					case "delete":
+						return [of("removed", false)]
+					case "put":
+						return pureSet ? [of("added", false)] : [of("removed", false), of("added", false)]
+				}
+			}
+		)
+	)
+}
+
+/**
+ * Whether a read-back of one side of `target`'s delta crosses statements (README "Where a read-back runs",
+ * ReadBackCrossesStatements): the side is made by more than one statement, or its one maker's rows may be cancelled by
+ * a statement making the other side, one of another stratum, or of its own where either is a generated addition.
+ */
+const sideCrosses = (makers: ReadonlyArray<SideMaker>, side: SideMaker["side"]): boolean => {
+	const own = Arr.filter(makers, (m) => m.side === side)
+	const [maker, ...others] = own
+	return (
+		maker !== undefined &&
+		(others.length > 0 ||
+			Arr.some(
+				makers,
+				(o) => o.side !== side && (o.stratum !== maker.stratum || o.generated || maker.generated)
+			))
+	)
+}
+
 /**
  * Whether grizzle refuses a ChangeSet of these strata and read-backs through a role when it compiles into a served
  * member (README "Writing through a role", "Writes", "db.workload"): a relation outside the role's write list, a stratum
  * that writes a query entry and also a relation its filter reads, two strata that write one relation by one op, whose
- * array members a call's facts cannot tell apart, or a read-back of a relation the role does not hold or whose delta the
- * change does not determine. A ChangeSet's facts are a call's values outside its Description, so no fact, generated or
- * complete, and no relation's serial fields, is a reason to refuse it there.
+ * array members a call's facts cannot tell apart, a read-back of a relation the role does not hold or whose delta the
+ * change does not determine, or one of the added or removed side of a written target's delta that no one statement
+ * makes whole (sideCrosses): the executor reads both sides of every read relation's delta. A ChangeSet's facts are a
+ * call's values outside its Description, so no fact, generated or complete, is a reason to refuse it there; a
+ * relation's serial fields make its insertion two statements whatever facts it is applied with.
  */
 export const compileRefused = (
 	base: BaseSpec,
@@ -741,7 +814,20 @@ export const compileRefused = (
 		!disjoint ||
 		!once ||
 		Arr.some(reads, (r) => roleEntryOf(role, r) === undefined) ||
-		Arr.some(reads, (relation) => deltaOf(base, role, relation, written).kind === "undetermined")
+		Arr.some(reads, (relation) => {
+			const delta = deltaOf(base, role, relation, written)
+			switch (delta.kind) {
+				case "undetermined":
+					return true
+				case "untouched":
+					return false
+				case "written":
+				case "beside": {
+					const makers = sideMakers(base, role, strata, delta.target)
+					return sideCrosses(makers, "added") || sideCrosses(makers, "removed")
+				}
+			}
+		})
 	)
 }
 
