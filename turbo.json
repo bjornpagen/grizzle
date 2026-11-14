@@ -18,18 +18,28 @@
 			"dependsOn": ["^source"]
 		},
 		"typecheck": {
-			"description": "tsrs -b builds the package's project and the projects it references, so it runs after theirs. Its outputs are types/: the declarations and the build info they were built from (tsconfig tsBuildInfoFile), so a cache hit restores both together and the next build compares the sources against the declarations on disk.",
+			"description": "pnpm types: each project checked incrementally, from the build info its last build left. tsrs -b builds the package's project and the projects it references, so it runs after theirs. Its outputs are types/: the declarations and the build info they were built from (tsconfig tsBuildInfoFile), so a cache hit restores both together and the next build compares the sources against the declarations on disk.",
 			"dependsOn": ["^typecheck"],
 			"outputs": ["types/**"]
 		},
+		"typecheck:full": {
+			"description": "pnpm check's typecheck: each project checked from nothing, never from build info, since an incremental build can keep a diagnostic or a declaration a clean one would not (microsoft/TypeScript#64386, #64591). A package's removes its types/ and builds its own project alone (tsrs -p), against the declarations its references' full builds wrote, so it runs after theirs and writes nothing of theirs.",
+			"dependsOn": ["^typecheck:full"],
+			"outputs": ["types/**"]
+		},
 		"@bjornpagen/grizzle-pg#typecheck": {
-			"description": "The local cluster's package checks with --noEmit: no declarations to cache.",
-			"dependsOn": ["^typecheck"],
+			"description": "The local cluster's package checks with --noEmit against the engine's declarations; its output is its build info alone. The testing library it imports compiles in its program, so its source hash is an input, never its typecheck: the toolchain's packages are its own gate's.",
+			"dependsOn": ["^source", "@bjornpagen/grizzle-engine#typecheck"],
+			"outputs": ["types/**"]
+		},
+		"@bjornpagen/grizzle-pg#typecheck:full": {
+			"description": "Not incremental: no build info is read or written, so there is no output.",
+			"dependsOn": ["^source", "@bjornpagen/grizzle-engine#typecheck:full"],
 			"outputs": []
 		},
 		"superlint": {
-			"description": "The toolchain's rules (vendor/toolchain) are inputs too; toolchain.config.ts, its options, is a global dependency. It reads the declarations its dependencies' typechecks emit through their project references, so it runs after those typechecks, never while they rewrite them.",
-			"dependsOn": ["^source", "^typecheck"],
+			"description": "The toolchain's rules (vendor/toolchain) are inputs too; toolchain.config.ts, its options, is a global dependency. It reads the declarations its dependencies' full typechecks emit through their project references, so it runs after those typechecks, never while they rewrite them.",
+			"dependsOn": ["^source", "^typecheck:full"],
 			"inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/vendor/toolchain/packages/devtools/src/**"]
 		},
 		"oxlint": {
@@ -42,13 +52,26 @@
 			]
 		},
 		"//#typecheck": {
-			"description": "The tooling project (test, bench, scripts) builds after both packages' projects, which tsrs -b then finds up to date. A root task's inputs are the whole repository; the root checks but format read no Markdown, so theirs leave it out.",
+			"description": "The tooling project (test, bench, scripts) builds after both packages' projects, which tsrs -b then finds up to date; its build info is tsconfig.tsbuildinfo, beside its tsconfig. A root task's inputs are the whole repository, the packages and the toolchain included; the root checks but format read no Markdown, so theirs leave it out.",
 			"dependsOn": ["@bjornpagen/grizzle-engine#typecheck", "@bjornpagen/grizzle#typecheck"],
-			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
+			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"],
+			"outputs": ["tsconfig.tsbuildinfo"]
+		},
+		"//#typecheck:full": {
+			"description": "The tooling project checked alone and from nothing (tsrs -p --incremental false), against the declarations both packages' full builds wrote. It writes nothing.",
+			"dependsOn": [
+				"@bjornpagen/grizzle-engine#typecheck:full",
+				"@bjornpagen/grizzle#typecheck:full"
+			],
+			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"],
+			"outputs": []
 		},
 		"//#superlint": {
-			"description": "The tooling program follows its project references into both packages' emitted declarations, so it runs after the typechecks that write them.",
-			"dependsOn": ["@bjornpagen/grizzle-engine#typecheck", "@bjornpagen/grizzle#typecheck"],
+			"description": "The tooling program follows its project references into both packages' emitted declarations, so it runs after the full typechecks that write them.",
+			"dependsOn": [
+				"@bjornpagen/grizzle-engine#typecheck:full",
+				"@bjornpagen/grizzle#typecheck:full"
+			],
 			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
 		},
 		"//#oxlint": {

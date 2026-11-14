@@ -30,6 +30,7 @@
 	"sideEffects": false,
 	"scripts": {
 		"typecheck": "effect-tsgo tsrs -b",
+		"typecheck:full": "rm -rf types && effect-tsgo tsrs -p tsconfig.json",
 		"superlint": "superlint",
 		"oxlint": "oxlint"
 	},

@@ -20,6 +20,7 @@
 	},
 	"scripts": {
 		"typecheck": "effect-tsgo tsrs --noEmit -p tsconfig.json",
+		"typecheck:full": "effect-tsgo tsrs --noEmit -p tsconfig.json --incremental false",
 		"superlint": "superlint",
 		"oxlint": "oxlint"
 	},
