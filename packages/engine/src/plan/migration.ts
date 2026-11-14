@@ -53,7 +53,8 @@ export {
 	type ServedWorkloadPlan,
 	servedWorkload,
 	servesRead,
-	type WorkloadFootprints
+	type WorkloadFootprints,
+	type WorkloadPlanRefused
 } from "#compiler/program/workload/compile.ts"
 export type { Footprint, Routes } from "#compiler/logical/routes.ts"
 export { servedRosters } from "#compiler/program/served.ts"

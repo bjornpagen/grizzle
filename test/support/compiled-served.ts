@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import { compileServed } from "#adapter/public/compile.ts"
-import { atRole, type ServedRefusal } from "#adapter/served/compile.ts"
+import { atRole, planRefusal, type ServedRefusal } from "#adapter/served/compile.ts"
 import { artifactsOver, type BuiltLogin, builtLogin, ownLoginOver } from "#adapter/served/login.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
@@ -55,7 +55,7 @@ export const compiledSnapshot = (
 					options
 				)
 			),
-			atLogin
+			(refused) => planRefusal({ login, owned: ownedLogin }, refused)
 		)
 		const artifacts = yield* Effect.mapError(
 			fromEngine(artifactsOver(basis, { kind: "planned", types: workload.params })),

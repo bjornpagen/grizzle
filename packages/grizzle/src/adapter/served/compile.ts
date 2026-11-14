@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Array as Arr, Effect, Option } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import {
 	artifactsUnder,
@@ -10,7 +10,12 @@ import {
 } from "#adapter/served/login.ts"
 import { type ReadsServed, servedFileOf, type UncoveredProgram } from "#adapter/served/project.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
-import type { ChangeRefused, RoleChanges } from "#compiler/plan/change.ts"
+import {
+	type ChangeRefused,
+	loginRole,
+	programsOn,
+	type RoleChanges
+} from "#compiler/plan/change.ts"
 import {
 	type CompileError,
 	defect,
@@ -25,7 +30,8 @@ import {
 	openApiText,
 	type ProgramFootprints,
 	servedText,
-	type UnservedMember
+	type UnservedMember,
+	type WorkloadPlanRefused
 } from "#compiler/plan/migration.ts"
 import {
 	everySlice,
@@ -79,6 +85,32 @@ const atLogin = (error: CompileError | UnservedMember): ServedRefusal => ({
 	place: { kind: "login" },
 	error
 })
+
+/**
+ * Where a login's compile places its workload plan's refusal (program/workload/compile.ts WorkloadPlanRefused): one
+ * program's at the program, on the first role of the login, in its order, that its workload runs on (programsOn), where
+ * that role's own compile of its workload would refuse it; the plan's own, and a program of a workload no role of the
+ * login runs, at the login.
+ */
+export const planRefusal = (login: ServedInput, refused: WorkloadPlanRefused): ServedRefusal => {
+	if (refused.kind === "plan") {
+		return atLogin(refused.error)
+	}
+	return Option.match(
+		Arr.findFirst(login.login.roles, ({ value }) => {
+			const role = loginRole(value, login.owned)
+			const running = role.ok ? programsOn(role.value.input, [refused.workload]) : role
+			return running.ok && running.value.length > 0
+		}),
+		{
+			onNone: () => atLogin(refused.error),
+			onSome: (runs) => ({
+				place: { kind: "program", role: runs.name, program: refused.program },
+				error: refused.error
+			})
+		}
+	)
+}
 
 /** A refusal of the login's compile, at the role and the program it names (adapter/served/login.ts). */
 export const atRole = (refused: ChangeRefused): ServedRefusal => ({
@@ -245,7 +277,7 @@ export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 				roles: []
 			})
 		),
-		atLogin
+		(refused) => planRefusal(login, refused)
 	)
 	const footprints = planned.footprints.get(name)
 	if (footprints === undefined) {

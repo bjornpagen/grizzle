@@ -330,7 +330,7 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 				options
 			)
 		),
-		refusedAt("workload")
+		(refused) => refusedAt("workload")(refused.error)
 	)
 	const derived = derivedFacts(basis.owned, basis.closed, basis.model)
 	const params: ParamSource = { kind: "planned", types: workload.params }

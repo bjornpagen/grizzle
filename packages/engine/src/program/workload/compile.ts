@@ -383,6 +383,24 @@ const workloadInput = (
 	)
 }
 
+/**
+ * Why a workload plan refused: one program of a workload, the checker's or its plan's refusal of it, with the workload
+ * value it is a member of and its name there, which a login's compile places at the program on a role the workload runs
+ * on (adapter/served/compile.ts planRefusal); or the plan itself (a value no workload(...) built, a workload's reads, a
+ * role's write filter), its CompileError alone.
+ */
+export type WorkloadPlanRefused =
+	| {
+			readonly kind: "program"
+			readonly workload: unknown
+			readonly program: string
+			readonly error: CompileError
+	  }
+	| { readonly kind: "plan"; readonly error: CompileError }
+
+/** The plan's own refusal, of no one program. */
+const planRefused = (error: CompileError): WorkloadPlanRefused => ({ kind: "plan", error })
+
 /** The name of the schema a workload plans: its schema's, or a role's base's. */
 const baseName = (schema: SchemaInput): string =>
 	schema.kind === "role" ? schema.desc.base.name : schema.desc.name
@@ -402,13 +420,14 @@ const baseName = (schema: SchemaInput): string =>
  * index serves. A query's footprint is read from the same IR (logical/routes.ts footprintOf): a program over a role
  * reads that role's world relations' definitions, and one over a level runs on full roles alone (roles.ts programsOn),
  * whose relations are the base's, whole, so it reads the base's relations on every role it runs on. A program the
- * checker refuses is refused with its CompileError, at its path in the workload.
+ * checker refuses is refused with its CompileError, at its path in the workload, naming the program and its workload
+ * (WorkloadPlanRefused).
  */
 const loginPlans = (
 	workloads: ReadonlyArray<unknown>,
 	schema: SchemaInput,
 	artifacts: SchemaArtifacts
-): Result.Result<ReadonlyArray<readonly [string, ProgramPlan]>, CompileError> => {
+): Result.Result<ReadonlyArray<readonly [string, ProgramPlan]>, WorkloadPlanRefused> => {
 	const programs: Array<readonly [string, ProgramPlan]> = []
 	for (const input of workloads) {
 		const planned = workloadPlans(input, schema, artifacts)
@@ -425,19 +444,25 @@ const workloadPlans = (
 	input: unknown,
 	schema: SchemaInput,
 	artifacts: SchemaArtifacts
-): Result.Result<ReadonlyArray<readonly [string, ProgramPlan]>, CompileError> => {
+): Result.Result<ReadonlyArray<readonly [string, ProgramPlan]>, WorkloadPlanRefused> => {
 	const workload = workloadInput(input, schema)
 	if (!workload.ok) {
-		return workload
+		return Result.err(planRefused(workload.error))
 	}
 	const reads = workloadReads(workload.value.schema, artifacts)
 	if (!reads.ok) {
-		return reads
+		return Result.err(planRefused(reads.error))
 	}
 	const programs: Array<readonly [string, ProgramPlan]> = []
 	for (const [name, program] of Object.entries(workload.value.desc.programs)) {
-		const planned = Result.mapError(programPlan(program, reads.value), (e) =>
-			within(e, ["programs", name])
+		const planned = Result.mapError(
+			programPlan(program, reads.value),
+			(e): WorkloadPlanRefused => ({
+				kind: "program",
+				workload: input,
+				program: name,
+				error: within(e, ["programs", name])
+			})
 		)
 		if (!planned.ok) {
 			return planned
@@ -521,7 +546,8 @@ const livePlanOf = (footprints: WorkloadFootprints): LivePlan => {
  * on the relation's materialized view wherever it installs the view.
  *
  * The workload installs nothing and gates no execution: a program the checker refuses is refused here with its
- * CompileError, so a broken workload never drafts a migration.
+ * CompileError, naming the program and its workload (WorkloadPlanRefused), so a broken workload never drafts a
+ * migration.
  *
  * Beside the programs, the plan holds every installed role's write filters (schema/entry.ts EntryFilter): a policy and
  * each write's precheck evaluate a query entry's filter at every write of it, so its probes into other relations are
@@ -534,7 +560,7 @@ export const compileWorkload = (
 	logins: ReadonlyArray<LoginWorkloads>,
 	schema: SchemaInput,
 	options: WorkloadOptions
-): Result.Result<WorkloadPlan, CompileError> => {
+): Result.Result<WorkloadPlan, WorkloadPlanRefused> => {
 	const { artifacts } = options
 	const access: Record<string, Readonly<Record<string, ProgramAccess>>> = {}
 	const footprints = new Map<string, ReadonlyMap<string, Footprint>>()
@@ -565,7 +591,7 @@ export const compileWorkload = (
 	for (const role of options.roles.toSorted((a, b) => compareText(a.name, b.name))) {
 		const filters = filterAccess(role, artifacts)
 		if (!filters.ok) {
-			return filters
+			return Result.err(planRefused(filters.error))
 		}
 		appendAll(planned, filters.value)
 	}

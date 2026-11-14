@@ -385,7 +385,7 @@ export const compileInputWorkload = (
 	naming: TestNaming
 ): Result.Result<WorkloadPlan, CompileError> =>
 	Result.flatMap(inputArtifacts(input, naming), (artifacts) =>
-		compileWorkload(logins, input, { artifacts, roles: [] })
+		Result.mapError(compileWorkload(logins, input, { artifacts, roles: [] }), (r) => r.error)
 	)
 
 /**
@@ -403,7 +403,7 @@ const workloadExtensionOver = (
 	const planOver = (owned: Owned, roles: ReadonlyArray<OwnedRole>) =>
 		Result.flatMap(parseSchemaInput(owned.desc), (input) =>
 			Result.flatMap(inputArtifacts(input, testCompile), (artifacts) =>
-				compileWorkload(logins, input, { artifacts, roles })
+				Result.mapError(compileWorkload(logins, input, { artifacts, roles }), (r) => r.error)
 			)
 		)
 	return {
