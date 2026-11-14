@@ -204,7 +204,7 @@ const queryRead = (
 	reads: WorkloadReads
 ): Result.Result<AnalyzedQuery, CompileError> =>
 	analyzedQuery(
-		reads.world.kind === "role" ? inlineWorlds(query, reads.world.role) : query,
+		reads.world.kind === "role" ? inlineWorlds(query, reads.world.checked) : query,
 		reads.artifacts.derived.schema,
 		"rows",
 		"query"

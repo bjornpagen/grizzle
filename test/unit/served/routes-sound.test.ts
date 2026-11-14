@@ -19,14 +19,18 @@
  *
  * A read through a query entry is held to the same property, constructed in every case: a role whose query entry
  * `Seen` holds each fact of one of the case's relations that holds facts, and its read of `Seen`'s facts whose drawn
- * field is a parameter, bound to that field of one of the relation's facts. Its routes are its plan's, which reads the
- * entry's definition inlined (program/workload/compile.ts workloadQueryRead), and its answer the reference's over
- * that same inlined IR (reference/evaluate.ts Reference, deliver.ts expectedStatements), the case's facts with and
- * without each fact: every fact whose removal changes the answer is one the routes reach.
+ * field is a parameter, bound to that field of one of the relation's facts, or of their count, a fold whose match binds
+ * the relation's primary key and the drawn field alone, the key `Seen`'s analysis proves, which the role admits
+ * (FoldOverProjection names no key bound) and so its plan must. Its routes are its plan's, which reads the entry's
+ * definition inlined (program/workload/compile.ts workloadQueryRead), and its answer the reference's over that same
+ * inlined IR (reference/evaluate.ts Reference, deliver.ts expectedStatements), the case's facts with and without each
+ * fact: every fact whose removal changes the answer is one the routes reach.
  *
  * Plants (~/.cache/grizzle-release/LIVE-ROUTES/plants): route-narrowed.patch routes a table its program reads table-wide
  * by its first column under the program's first parameter; route-through-take.patch lets a take pass what its consumers
- * read to its input, so a filter above a take routes the rows it ranks.
+ * read to its input, so a filter above a take routes the rows it ranks. And
+ * ~/.cache/grizzle-release/LOWERFIX/plants/inline-worlds-unbound.patch inlines a world match under its own bindings
+ * alone, so the plan refuses the count through Seen that the role admits.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -35,7 +39,7 @@ import { element } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Result as Answered, Array as Arr, Effect, Formatter, Option } from "effect"
+import { Result as Answered, Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Footprint } from "#compiler/logical/routes.ts"
 import { workloadQueryRead } from "#compiler/program/workload/compile.ts"
@@ -78,6 +82,10 @@ type Feature =
 type WorldFeature =
 	| "a fact a read through a query entry changes by"
 	| "a fact a read through a query entry does not change by"
+	| "a fold through a query entry bound by its key"
+
+/** What a read through `Seen` delivers: its facts, or their count, folded over a match that binds `Seen`'s key alone. */
+type SeenRead = "facts" | "count"
 
 type QueryRead = Extract<ProgramRead, { readonly kind: "query" }>
 
@@ -203,7 +211,7 @@ const seenParam = "seen"
  * holds each of its facts, and the read of `Seen`'s facts whose field `field` is the parameter `seen`, the read's one
  * program of a workload over the role.
  */
-const seenWorkload = (c: ProgramCase, stored: Stored, field: ProgramField) => {
+const seenWorkload = (c: ProgramCase, stored: Stored, field: ProgramField, shape: SeenRead) => {
 	const built = buildSchema(c.schema)
 	const read = built.relation(stored)
 	const taken = new Set(Arr.map(c.schema.relations, (r) => r.name))
@@ -216,12 +224,13 @@ const seenWorkload = (c: ProgramCase, stored: Stored, field: ProgramField) => {
 	})
 	const seer = role(built.schema, "seer", { ...wholeEntriesOf(built.schema), [seenName]: seen })
 	const entry = defined(seer.relations[seenName], `the role's entry ${seenName}`)
+	const keyed = new Set([...Arr.map(stored.primaryKey, (f) => f.name), field.name])
 	const program = queryOver(seer).rule((r: RuleValue) => {
 		const fact = varsOver(entry, "fact")
-		return r
-			.match(entry, fact)
+		const matched = r
+			.match(entry, shape === "facts" ? fact : Rec.filter(fact, (_, name) => keyed.has(name)))
 			.where(r.eq(fact[field.name], r.param(seenParam, read.fields[field.name])))
-			.find(fact)
+		return shape === "facts" ? matched.find(fact) : matched.find({ facts: r.count() })
 	})
 	return { built, w: workload(seer, { [programName]: program }) }
 }
@@ -252,15 +261,19 @@ const worldSound = (
 	stored: Stored,
 	field: ProgramField,
 	bound: TypedLiteral,
+	shape: SeenRead,
 	note: (feature: WorldFeature) => void
 ): void => {
 	const printed = () =>
 		`${printCase(c)}\nthrough Seen over ${stored.name}, ${field.name} = ${Formatter.format(bound)}`
-	const { built, w } = seenWorkload(c, stored, field)
+	const { built, w } = seenWorkload(c, stored, field, shape)
 	const plan = succeeded(
 		compileTestWorkload([{ login: loginName, workloads: [w] }], built.schema, testCompile),
 		"the entry read's workload plan"
 	)
+	if (shape === "count") {
+		note("a fold through a query entry bound by its key")
+	}
 	const footprint = defined(
 		plan.footprints.get(loginName)?.get(programName),
 		"the footprint of the entry read"
@@ -366,7 +379,8 @@ describe("a read's routes", () => {
 					coverage: required<WorldFeature>(
 						[
 							"a fact a read through a query entry changes by",
-							"a fact a read through a query entry does not change by"
+							"a fact a read through a query entry does not change by",
+							"a fold through a query entry bound by its key"
 						],
 						{ cases: 60, sense: notesOnly }
 					),
@@ -394,8 +408,9 @@ describe("a read's routes", () => {
 							return
 						}
 						const bound = notes.draw(element(facts))[at.i]
+						const shape = notes.draw(element<SeenRead>(["facts", "count"]))
 						if (bound !== undefined) {
-							worldSound(c, stored, at.field, bound.literal, notes.note)
+							worldSound(c, stored, at.field, bound.literal, shape, notes.note)
 						}
 					})
 			)

@@ -1,3 +1,4 @@
+import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import {
 	type AttachDesc,
@@ -13,7 +14,12 @@ import {
 	type SourceDesc,
 	type VarDesc
 } from "#compiler/ir/desc.ts"
-import type { OwnedRole } from "#compiler/schema/own.ts"
+
+/** A world relation as inlineWorlds reads it: its definition, and the fields of its heading. */
+interface InlinedWorld {
+	readonly definition: QueryDesc
+	readonly fields: ReadonlyArray<string>
+}
 
 /**
  * A program over a role, read over the role's base for planning.
@@ -26,19 +32,38 @@ import type { OwnedRole } from "#compiler/schema/own.ts"
  * over a role plans exactly the indexes its views' definitions need, and a world relation's own name, which may be a
  * base relation's, never reaches an index. A variable a world relation's field named is a fresh one over the base.
  *
- * `query`, over `role`, with every match of a world relation importing its definition.
+ * A match of a world relation reads the view by its whole heading (check/checker.ts source), keyed by the keys the
+ * view's analysis proves, while a matched query is keyed by its heading alone (check/checker.ts #sourceKeys). So the
+ * import binds every field of the heading: each field the match leaves unbound to a variable of its own, spelled
+ * `__world<n>.<field>` for the rule's n-th match, which no scope a caller names spells (core/identity.ts
+ * parseNameCharacters). A fold the role admits binds a key of the view, which determines every other field, so it reads
+ * the same facts, each once, through the import; one that binds none is refused (FoldOverProjection) by the program's
+ * own check over the role (program/compile.ts compileQuery). A negated match binds only what it constrains, and
+ * imports the definition under its bindings.
+ *
+ * `query`, over `role`, the role's checked schema, with every match of a world relation importing its definition.
  */
-export const inlineWorlds = (query: QueryDesc, role: OwnedRole): QueryDesc => {
-	const worlds = new Map<string, QueryDesc>(
-		Object.values(role.relations).flatMap((e) =>
-			e.kind === "world" ? [[e.name, e.query] as const] : []
+export const inlineWorlds = (query: QueryDesc, role: CheckedSchema): QueryDesc => {
+	const worlds = new Map<string, InlinedWorld>(
+		role.entries.flatMap((e) =>
+			e.kind === "world"
+				? [
+						[
+							e.name,
+							{
+								definition: e.entry.query,
+								fields: e.analysis.read.heading.map((c) => c.name)
+							}
+						] as const
+					]
+				: []
 		)
 	)
 	const source = (s: SourceDesc): SourceDesc => {
 		switch (s.kind) {
 			case "relation": {
-				const definition = worlds.get(s.name)
-				return definition === undefined ? s : { kind: "query", query: definition, bind: {} }
+				const world = worlds.get(s.name)
+				return world === undefined ? s : { kind: "query", query: world.definition, bind: {} }
 			}
 			case "query":
 				return {
@@ -143,22 +168,49 @@ export const inlineWorlds = (query: QueryDesc, role: OwnedRole): QueryDesc => {
 	}
 	const variable = (v: VarDesc): VarDesc =>
 		v.origin !== undefined && worlds.has(v.origin.relation) ? { ...v, origin: undefined } : v
-	const match = (m: MatchDesc): MatchDesc => ({
-		...m,
-		source: source(m.source),
-		bindings: bindings(m.bindings)
-	})
+	/** A match of the rule at `place`, with the variables it adds for the fields of a world relation it leaves unbound. */
+	const match = (
+		m: MatchDesc,
+		place: number
+	): { readonly match: MatchDesc; readonly vars: ReadonlyArray<VarDesc> } => {
+		const world = m.source.kind === "relation" ? worlds.get(m.source.name) : undefined
+		if (world === undefined) {
+			return {
+				match: { ...m, source: source(m.source), bindings: bindings(m.bindings) },
+				vars: []
+			}
+		}
+		const fresh = world.fields.flatMap((field) =>
+			Object.hasOwn(m.bindings, field)
+				? []
+				: [{ field, v: { id: `__world${place}.${field}`, origin: undefined, loc: m.loc } }]
+		)
+		return {
+			match: {
+				...m,
+				source: { kind: "query", query: world.definition, bind: {} },
+				bindings: {
+					...bindings(m.bindings),
+					...Object.fromEntries(fresh.map(({ field, v }) => [field, { kind: "var", var: v.id }]))
+				}
+			},
+			vars: fresh.map(({ v }) => v)
+		}
+	}
 	const interior = (i: InteriorDesc): InteriorDesc => ({ ...i, arms: mapNonEmpty(i.arms, rule) })
 	const attach = (a: AttachDesc): AttachDesc => ({ ...a, child: inQuery(a.child) })
-	const rule = (r: RuleDesc): RuleDesc => ({
-		...r,
-		vars: r.vars.map(variable),
-		matches: r.matches.map(match),
-		where: r.where.map(expr),
-		head: Object.fromEntries(Object.entries(r.head).map(([field, t]) => [field, head(t)])),
-		interiors: r.interiors.map(interior),
-		attach: r.attach.map(attach)
-	})
+	const rule = (r: RuleDesc): RuleDesc => {
+		const matched = r.matches.map(match)
+		return {
+			...r,
+			vars: [...r.vars.map(variable), ...matched.flatMap((m) => m.vars)],
+			matches: matched.map((m) => m.match),
+			where: r.where.map(expr),
+			head: Object.fromEntries(Object.entries(r.head).map(([field, t]) => [field, head(t)])),
+			interiors: r.interiors.map(interior),
+			attach: r.attach.map(attach)
+		}
+	}
 	const stage = (s: QueryStageDesc): QueryStageDesc => {
 		switch (s.kind) {
 			case "rules":
