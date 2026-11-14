@@ -660,7 +660,8 @@ const distinctReads = (
  * value holds the brand and the decoder. Each member is implemented under its contextual signature:
  * its result is the value of the state it makes, whose phantoms are the ones the signature names (each builder below
  * takes them from its contextual result type), and whose decoder is this one, or for read this one merged with the new
- * read-back's. */
+ * read-back's. insert, insertAll, delete and put are functions over the ChangeSet they are called on (types/changeset
+ * ChangeSet), so they read its state and decoder from `this`, and a call on anything else is refused (stateOf). */
 const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum, A>(
 	over: BuiltOver,
 	strata: ReadonlyArray<ReadonlyArray<MemberState>>,
@@ -688,10 +689,18 @@ const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stra
 		...builtMark,
 		schema: over.value,
 		reads: decoder,
-		insert: (relation, facts) => addMember(state, decoder, "insert", relation, facts),
-		insertAll: (rows) => addInserts(state, decoder, rows),
-		delete: (relation, facts) => addMember(state, decoder, "delete", relation, facts),
-		put: (relation, facts) => addMember(state, decoder, "put", relation, facts),
+		insert(relation, facts) {
+			return addMember(stateOf(this, "ChangeSet.insert"), this.reads, "insert", relation, facts)
+		},
+		insertAll(rows) {
+			return addInserts(stateOf(this, "ChangeSet.insertAll"), this.reads, rows)
+		},
+		delete(relation, facts) {
+			return addMember(stateOf(this, "ChangeSet.delete"), this.reads, "delete", relation, facts)
+		},
+		put(relation, facts) {
+			return addMember(stateOf(this, "ChangeSet.put"), this.reads, "put", relation, facts)
+		},
 		read: (name, readBack) => addRead(state, decoder, name, readBack),
 		bind: (params) => bindParams(state, decoder, params)
 	}

@@ -700,6 +700,16 @@ export type ChangeSetAt<L> = L extends unknown ? ChangeSetOver<L> : never
  * read-backs, each under its name the rows its query's immediate decoder delivers (schema/record.ts record of named
  * attachments). read adds one, and union and sequence merge their arguments' (core/decoder.ts merge), so Reads is the
  * type of the records that decoder assembles (ReadsOf).
+ *
+ * insert, insertAll, delete and put are functions over the ChangeSet they are called on, `this: ChangeSet<S, Params,
+ * Writes, Reads, Cx, Done, Last, Arrays>`, declared once at the top level (ChangeSetInsert, ChangeSetInsertAll,
+ * ChangeSetDelete, ChangeSetPut), as Rule's members are (types/query/rule.ts). The checker instantiates a method of a
+ * generic interface in two steps, the interface's type arguments, then the call's own, and the second walks every
+ * type the first put in: the schema, every relation and statement of it, at every type of the signature that holds
+ * S, so a chain of n inserts over a schema of n relations cost n². A function that reads its ChangeSet from `this`
+ * maps S to the schema without walking it. A member is called on its ChangeSet, as a method is, and on one ChangeSet
+ * type, not a union of several. read and bind stay methods: each is called once on a ChangeSet, and a read on a
+ * choice between two ChangeSets is one call.
  */
 export interface ChangeSet<
 	S,
@@ -729,51 +739,13 @@ export interface ChangeSet<
 	 * member relation is written too. A counted family's member is a row of its own relation, inserted directly, its
 	 * group key naming its owner; grizzle draws every count, index, interval, copy and accumulator.
 	 */
-	insert<R extends AnyRelation | AnyWorld, const M extends Member<S, unknown>>(
-		relation: R &
-			WritableCheck<S, R> &
-			NotSequenceMember<S, R> &
-			EditsOnce<Done, EditsWith<Last, S, R>>,
-		facts: M & MemberCheck<M, AdditionIn<S, R>, R>
-	): ChangeSet<
-		S,
-		JointParams<Params, ParamsOf<M>>,
-		Writes | NameOf<R> | NestedWrites<S, R>,
-		Reads,
-		Cx | ContextsOf<M>,
-		Done,
-		Stratum<
-			Last["inserts"] | NameOf<R> | NestedWrites<S, R>,
-			Last["needs"] | FixedOwnerOf<S, R>,
-			EditsWith<Last, S, R>,
-			Last["puts"],
-			Last["doomed"]
-		>,
-		Arrays | ArrayAdded<"insert", R, M, S, Done>
-	>
+	readonly insert: ChangeSetInsert
 	/**
 	 * Adds the members of each relation the record names by its key, as one insert of each would: the members at each
 	 * key are what insert takes for that relation, checked as insert checks them and refused at their key. Inserts within
 	 * one stratum are one set, so the record's order is no part of the ChangeSet.
 	 */
-	insertAll<const Rows extends { readonly [K in keyof Rows]: Member<S, unknown> }>(
-		rows: Rows & { readonly [K in keyof Rows]: InsertAt<S, Rows, K, Done, Last> }
-	): ChangeSet<
-		S,
-		JointParams<Params, InsertedParams<Rows>>,
-		Writes | InsertedWrites<S, Rows>,
-		Reads,
-		Cx | ContextsOf<Rows[keyof Rows]>,
-		Done,
-		Stratum<
-			Last["inserts"] | InsertedWrites<S, Rows>,
-			Last["needs"] | InsertedNeeds<S, Rows>,
-			InsertedEdits<Last, S, Rows>,
-			Last["puts"],
-			Last["doomed"]
-		>,
-		Arrays | InsertedArrays<S, Rows, Done>
-	>
+	readonly insertAll: ChangeSetInsertAll
 	/**
 	 * Removes each member fact, stated as its caller writes it (Written<R>): the fields PostgreSQL and grizzle write are
 	 * no part of a fact's identity a caller states, so an insert and a delete of one fact state one row. A tree's delete
@@ -783,29 +755,7 @@ export interface ChangeSet<
 	 * facts are judged at no key (DeletedCheck): two at one key name at most the one stored. Its stratum puts none of
 	 * the rows such a delete removes whole (PutBesideDoomed).
 	 */
-	delete<R extends AnyRelation | AnyWorld, const M extends Member<S, unknown>>(
-		relation: R &
-			WritableCheck<S, R> &
-			EditCheck<S, R, "delete"> &
-			EditsOnce<Done, EditsWith<Last, S, R>> &
-			PutBesideDoomed<Last["puts"], DoomedBy<S, R>>,
-		facts: M & DeletedCheck<M, DeletedRow<S, R>, R>
-	): ChangeSet<
-		S,
-		JointParams<Params, ParamsOf<M>>,
-		Writes | NameOf<R> | DeletedWrites<S, R>,
-		Reads,
-		Cx | ContextsOf<M>,
-		Done,
-		Stratum<
-			Last["inserts"],
-			Last["needs"],
-			EditsWith<Last, S, R>,
-			Last["puts"],
-			Last["doomed"] | DoomedBy<S, R>
-		>,
-		Arrays | ArrayAdded<"delete", R, M, S, Done>
-	>
+	readonly delete: ChangeSetDelete
 	/**
 	 * After the change, R's fact at each member's key is that member, with the fields its caller does not write as
 	 * PostgreSQL and grizzle write them. For every relation it is the row its caller writes (Written<R>): an owner's put
@@ -814,29 +764,7 @@ export interface ChangeSet<
 	 * writes, and an immutable family owner are no put's (EditCheck), nor a row its stratum deletes whole
 	 * (PutBesideDoomed).
 	 */
-	put<R extends AnyRelation | AnyWorld, const M extends Member<S, unknown>>(
-		relation: R &
-			WritableCheck<S, R> &
-			EditCheck<S, R, "put"> &
-			EditsOnce<Done, EditsWith<Last, S, R>> &
-			PutBesideDoomed<NameOf<R>, Last["doomed"]>,
-		facts: M & MemberCheck<M, Written<R>, R>
-	): ChangeSet<
-		S,
-		JointParams<Params, ParamsOf<M>>,
-		Writes | NameOf<R>,
-		Reads,
-		Cx | ContextsOf<M>,
-		Done,
-		Stratum<
-			Last["inserts"],
-			Last["needs"],
-			EditsWith<Last, S, R>,
-			Last["puts"] | NameOf<R>,
-			Last["doomed"]
-		>,
-		Arrays | ArrayAdded<"put", R, M, S, Done>
-	>
+	readonly put: ChangeSetPut
 	/**
 	 * A query over the post-change state and the change's own delta, delivered in the outcome under `name`. It runs
 	 * before COMMIT, so its rows are typed by immediate-constraint evidence only: they are the records its immediate
@@ -859,6 +787,147 @@ export interface ChangeSet<
 		params: ParamArg<Params> & Arg & OnlyParams<Arg, Params>
 	): ChangeSet<S, unknown, Writes, Reads, Cx, Done, Last, Arrays>
 }
+
+/** ChangeSet.insert over the ChangeSet it is called on (ChangeSet). */
+type ChangeSetInsert = <
+	S,
+	Params,
+	Writes extends string,
+	Reads,
+	Cx,
+	Done extends Strata,
+	Last extends Stratum,
+	Arrays,
+	R extends AnyRelation | AnyWorld,
+	const M extends Member<S, unknown>
+>(
+	this: ChangeSet<S, Params, Writes, Reads, Cx, Done, Last, Arrays>,
+	relation: R &
+		WritableCheck<S, R> &
+		NotSequenceMember<S, R> &
+		EditsOnce<Done, EditsWith<Last, S, R>>,
+	facts: M & MemberCheck<M, AdditionIn<S, R>, R>
+) => ChangeSet<
+	S,
+	JointParams<Params, ParamsOf<M>>,
+	Writes | NameOf<R> | NestedWrites<S, R>,
+	Reads,
+	Cx | ContextsOf<M>,
+	Done,
+	Stratum<
+		Last["inserts"] | NameOf<R> | NestedWrites<S, R>,
+		Last["needs"] | FixedOwnerOf<S, R>,
+		EditsWith<Last, S, R>,
+		Last["puts"],
+		Last["doomed"]
+	>,
+	Arrays | ArrayAdded<"insert", R, M, S, Done>
+>
+
+/** ChangeSet.insertAll over the ChangeSet it is called on (ChangeSet). */
+type ChangeSetInsertAll = <
+	S,
+	Params,
+	Writes extends string,
+	Reads,
+	Cx,
+	Done extends Strata,
+	Last extends Stratum,
+	Arrays,
+	const Rows extends { readonly [K in keyof Rows]: Member<S, unknown> }
+>(
+	this: ChangeSet<S, Params, Writes, Reads, Cx, Done, Last, Arrays>,
+	rows: Rows & { readonly [K in keyof Rows]: InsertAt<S, Rows, K, Done, Last> }
+) => ChangeSet<
+	S,
+	JointParams<Params, InsertedParams<Rows>>,
+	Writes | InsertedWrites<S, Rows>,
+	Reads,
+	Cx | ContextsOf<Rows[keyof Rows]>,
+	Done,
+	Stratum<
+		Last["inserts"] | InsertedWrites<S, Rows>,
+		Last["needs"] | InsertedNeeds<S, Rows>,
+		InsertedEdits<Last, S, Rows>,
+		Last["puts"],
+		Last["doomed"]
+	>,
+	Arrays | InsertedArrays<S, Rows, Done>
+>
+
+/** ChangeSet.delete over the ChangeSet it is called on (ChangeSet). */
+type ChangeSetDelete = <
+	S,
+	Params,
+	Writes extends string,
+	Reads,
+	Cx,
+	Done extends Strata,
+	Last extends Stratum,
+	Arrays,
+	R extends AnyRelation | AnyWorld,
+	const M extends Member<S, unknown>
+>(
+	this: ChangeSet<S, Params, Writes, Reads, Cx, Done, Last, Arrays>,
+	relation: R &
+		WritableCheck<S, R> &
+		EditCheck<S, R, "delete"> &
+		EditsOnce<Done, EditsWith<Last, S, R>> &
+		PutBesideDoomed<Last["puts"], DoomedBy<S, R>>,
+	facts: M & DeletedCheck<M, DeletedRow<S, R>, R>
+) => ChangeSet<
+	S,
+	JointParams<Params, ParamsOf<M>>,
+	Writes | NameOf<R> | DeletedWrites<S, R>,
+	Reads,
+	Cx | ContextsOf<M>,
+	Done,
+	Stratum<
+		Last["inserts"],
+		Last["needs"],
+		EditsWith<Last, S, R>,
+		Last["puts"],
+		Last["doomed"] | DoomedBy<S, R>
+	>,
+	Arrays | ArrayAdded<"delete", R, M, S, Done>
+>
+
+/** ChangeSet.put over the ChangeSet it is called on (ChangeSet). */
+type ChangeSetPut = <
+	S,
+	Params,
+	Writes extends string,
+	Reads,
+	Cx,
+	Done extends Strata,
+	Last extends Stratum,
+	Arrays,
+	R extends AnyRelation | AnyWorld,
+	const M extends Member<S, unknown>
+>(
+	this: ChangeSet<S, Params, Writes, Reads, Cx, Done, Last, Arrays>,
+	relation: R &
+		WritableCheck<S, R> &
+		EditCheck<S, R, "put"> &
+		EditsOnce<Done, EditsWith<Last, S, R>> &
+		PutBesideDoomed<NameOf<R>, Last["doomed"]>,
+	facts: M & MemberCheck<M, Written<R>, R>
+) => ChangeSet<
+	S,
+	JointParams<Params, ParamsOf<M>>,
+	Writes | NameOf<R>,
+	Reads,
+	Cx | ContextsOf<M>,
+	Done,
+	Stratum<
+		Last["inserts"],
+		Last["needs"],
+		EditsWith<Last, S, R>,
+		Last["puts"] | NameOf<R>,
+		Last["doomed"]
+	>,
+	Arrays | ArrayAdded<"put", R, M, S, Done>
+>
 
 /**
  * The parameters two parts of a program need together: one map of them, and unknown where neither names one, as an
