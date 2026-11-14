@@ -1,13 +1,4 @@
-import {
-	boolean,
-	constant,
-	element,
-	type Gen,
-	int,
-	map,
-	oneOf,
-	shuffled
-} from "@bjornpagen/testing/gen"
+import { constant, element, type Gen, int, map, oneOf, shuffled } from "@bjornpagen/testing/gen"
 import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { directions } from "#compiler/core/order.ts"
@@ -173,13 +164,18 @@ export const reaches = (heading: ReadonlyArray<FieldSpec>): ReadonlyArray<ReadVi
 		)
 	)
 
+/** A key's values with one of its fields, `field`, left out: a get by part of the key. */
+export const keyWithout = (key: HostFact, field: string): HostFact =>
+	Rec.fromEntries(Arr.filter(Rec.toEntries(key), ([name]) => name !== field))
+
 /**
  * How a Db reads a role relation, under validity weights: live, a program executed, compiled, paged in pages of one to
  * three rows under an order of its fields, from the first page or the last, `get` by the key of one of its rows (by a
- * pool key when it has none), with another of the role's relations attached by two fields of one domain, or every pair
+ * pool key when it has none) or by that key with one of its fields left out, a read of every row agreeing at the rest
+ * (model/step.ts readCall), with another of the role's relations attached by two fields of one domain, or every pair
  * two of its fields of one domain chain; stale, `get` by a key no row of it holds (a fact outside the world, or none at
- * all); wild, `get` by a key missing a field or holding a value its field refuses, or pages of no row, of a fraction,
- * or of a negative count.
+ * all); wild, `get` by a key holding a value its field refuses, or pages of no row, of a fraction, or of a negative
+ * count.
  */
 export const viaArms = (
 	state: ModelState,
@@ -210,14 +206,25 @@ export const viaArms = (
 	const [firstHeading, ...moreHeading] = heading
 	const paged: ReadonlyArray<Gen<ReadVia>> =
 		firstHeading === undefined ? [] : [pageGen([firstHeading, ...moreHeading])]
+	const [firstField, ...moreFields] = key
+	const partKeyed: ReadonlyArray<Gen<ReadVia>> =
+		firstField === undefined
+			? []
+			: [
+					(source: Source): ReadVia => {
+						const k = source.draw(keyed)
+						const left = source.draw(element([firstField, ...moreFields]))
+						return { kind: "get", key: keyWithout(k, left.name) }
+					}
+				]
 	const live: Gen<ReadVia> = oneOf([
 		constant<ReadVia>({ kind: "execute" }),
 		constant<ReadVia>({ kind: "compile" }),
 		map(keyed, (k): ReadVia => ({ kind: "get", key: k })),
+		...partKeyed,
 		...paged,
 		...chained
 	])
-	const [firstField, ...moreFields] = key
 	const [firstAbsent, ...moreAbsent] =
 		key.length === 0
 			? []
@@ -265,9 +272,7 @@ export const viaArms = (
 								firstRow === undefined ? poolKey(source.draw(poolOffset)) : keyOfFact(firstRow, key)
 							return {
 								kind: "get",
-								key: source.draw(boolean)
-									? Rec.fromEntries(Arr.filter(Rec.toEntries(k), ([name]) => name !== f.name))
-									: { ...k, [f.name]: typeof k[f.name] === "string" ? 7 : "seven" }
+								key: { ...k, [f.name]: typeof k[f.name] === "string" ? 7 : "seven" }
 							}
 						}
 					}
@@ -277,8 +282,9 @@ export const viaArms = (
 }
 
 /**
- * The invalid kinds of a read's path: a page size no page has, a key of another shape, a key no row holds; an
- * attachment and a recursive read carry none.
+ * The invalid kinds of a read's path: a page size no page has, a get naming a field outside the relation's heading or
+ * holding a value outside its field's domain, a get by a whole key no row holds; an attachment, a recursive read and a
+ * get by part of a key carry none, since such a get is a read of every row agreeing at the fields it names.
  */
 export const viaKinds = (
 	state: ModelState,
@@ -300,19 +306,18 @@ export const viaKinds = (
 			if (spec === undefined) {
 				return []
 			}
-			const key = entryKey(state.install.base, spec)
-			const shaped =
-				Rec.keys(via.key).length === key.length &&
-				Arr.every(key, (f) => {
-					const v = via.key[f.name]
-					return v !== undefined && inDomain(f.domain, v)
-				})
-			if (!shaped) {
+			const heading = headingOf(state.install.base, spec)
+			const typed = Arr.every(Rec.toEntries(via.key), ([field, v]) =>
+				Arr.some(heading, (f) => f.name === field && inDomain(f.domain, v))
+			)
+			if (!typed) {
 				return ["handle:wild-js-value"]
 			}
-			return keyHeld(rowsOf(state, role, relation, facts), key, via.key)
-				? []
-				: ["fact:deleted-reference"]
+			const key = entryKey(state.install.base, spec)
+			return Arr.every(key, (f) => Rec.has(via.key, f.name)) &&
+				!keyHeld(rowsOf(state, role, relation, facts), key, via.key)
+				? ["fact:deleted-reference"]
+				: []
 		}
 	}
 }

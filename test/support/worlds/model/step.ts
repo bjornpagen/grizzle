@@ -39,7 +39,6 @@ import {
 	startStatements
 } from "#test/support/worlds/model/session/direct.ts"
 import { ofDomainType } from "#test/support/worlds/model/session/domains.ts"
-import { entryKeyed } from "#test/support/worlds/model/session/keys.ts"
 import { driftBranches, migrateBranches } from "#test/support/worlds/model/session/migrate.ts"
 import { openBranches, wildOpenBranches } from "#test/support/worlds/model/session/open.ts"
 import {
@@ -323,14 +322,18 @@ const entryFieldDomain = (
 export const isPageSize = (size: number): boolean => Number.isSafeInteger(size) && size >= 1
 
 /**
- * A read through a Db's role relation (README "Reading"): `execute`, `compile` and every page together deliver
- * its rows under the Db's facts; `get` the row at a key the relation proves, or none; an attachment each row with the
- * attached relation's rows whose field equals its own (model/reads.ts attachedRows); a recursive read every pair its
- * rows chain (reachedPairs). Refused on the host when it compiles: a relation the role does not hold, a get by a field
- * set within which none of its keys lies (session/keys.ts) or by a key holding a value of another type than its
- * field's, which the builder refuses as a literal of that field, a page ordered by a field its relation's heading
- * lacks, and an attachment or a recursive read naming a field its relation's heading lacks. A page of a compiled member
- * whose size is no window's size (isPageSize) is refused at its call's input, before the encoder sends anything.
+ * A read through a Db's role relation (README "Reading": a Db runs its login's served workload, every call a member):
+ * `execute`, `compile` and every page together deliver its rows under the Db's facts; `get` every row that agrees with
+ * it at each field it names, a read of the relation with those fields fixed to its values (execute/session.ts readVia,
+ * relationRead), the one row at a key, or none, where the fields hold a key, and any rows where they do not, since
+ * grizzle serves no lookup by a field set a caller picks: a key member reads by a stored relation's primary key or a
+ * declared Key alone (program/workload/value.ts workloadProgram, query/build/key.ts keyTarget; README "`once(input)`");
+ * an attachment each row with the attached relation's rows whose field equals its own (model/reads.ts attachedRows); a
+ * recursive read every pair its rows chain (reachedPairs). Refused on the host when it compiles: a relation the role does
+ * not hold, a get naming a field its relation's heading lacks or holding a value of another type than its field's,
+ * which the builder refuses as a literal of that field, a page ordered by a field its relation's heading lacks, and an
+ * attachment or a recursive read naming a field its relation's heading lacks. A page of a compiled member whose size is
+ * no window's size (isPageSize) is refused at its call's input, before the encoder sends anything.
  */
 const readCall = (
 	state: ModelState,
@@ -381,13 +384,11 @@ const readCall = (
 			if (entry === undefined) {
 				return refused
 			}
-			const mistyped = Arr.some(Rec.toEntries(via.key), ([field, value]) => {
+			const typed = Arr.every(Rec.toEntries(via.key), ([field, value]) => {
 				const domain = entryFieldDomain(state.install.base, entry, field)
-				return domain !== undefined && !ofDomainType(domain, value)
+				return heading.includes(field) && (domain === undefined || ofDomainType(domain, value))
 			})
-			return !mistyped && entryKeyed(state.install.base, entry, Rec.keys(via.key))
-				? delivers((rows) => Arr.filter(rows, (r) => atKey(r, via.key)))
-				: refused
+			return typed ? delivers((rows) => Arr.filter(rows, (r) => atKey(r, via.key))) : refused
 		}
 	}
 }

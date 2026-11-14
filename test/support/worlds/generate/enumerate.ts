@@ -33,7 +33,7 @@ import {
 	namesOffered,
 	type SessionKind
 } from "#test/support/worlds/generate/offered.ts"
-import { attachments, entryKey, reaches } from "#test/support/worlds/generate/reads.ts"
+import { attachments, entryKey, keyWithout, reaches } from "#test/support/worlds/generate/reads.ts"
 import { actionKinds } from "#test/support/worlds/generate/weights.ts"
 import { enumeratePerturbations, worldFunctionsOf } from "#test/support/worlds/invalid/catalog.ts"
 import { refusedClaimSettings } from "#test/support/worlds/invalid/claims.ts"
@@ -526,7 +526,8 @@ const firstEntryName = (state: ModelState): string =>
 
 /**
  * The reads of the box at a session: each relation of its role executed, then on its first relation every other path
- * once (compiled, `get` by a row's key, by a key no row holds and by a key of another shape, a page of no row), another
+ * once (compiled, `get` by a row's key, by that key with its last field left out, by a key no row holds and by a key of
+ * another shape, a page of no row), another
  * role's relation, and each relation's page of one row from the first page and from the last, first attachment and
  * first recursive read; a session that is no Db reads the installation's first relation.
  */
@@ -610,10 +611,14 @@ const readActions = (state: ModelState, session: number): ReadonlyArray<Action> 
 			(via): Action => ({ kind: "read", session, relation, via })
 		)
 	})
+	const lastKey = Arr.last(key)
 	const vias: ReadonlyArray<ReadVia> = [
 		{ kind: "compile" },
 		...pageOf(spec === undefined ? [] : headingOf(state.install.base, spec), 0, "first"),
 		...(row === undefined ? [] : [{ kind: "get" as const, key: keyOf(row) }]),
+		...(row === undefined || Option.isNone(lastKey)
+			? []
+			: [{ kind: "get" as const, key: keyWithout(keyOf(row), lastKey.value.name) }]),
 		...offKey
 	]
 	return [
