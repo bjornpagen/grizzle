@@ -18,6 +18,10 @@
  *   by doubling, plus 2 MiB, two chunks of the largest size, for the chunk in fill and the shared trigger data: a queue
  *   that grew per row by more than an event, or kept immediate checks' events past their statement, exceeds it.
  *
+ * Each write begins on the empty tables it writes, which it clears itself, so a case that failed part-way, leaving
+ * what it committed, never decides the next: a shrink's candidate fails as the case it shrinks does, not on the rows
+ * that case left (a duplicate owner key, 23505, at the long family's first INSERT).
+ *
  * Plant: ~/.cache/grizzle-release/BR08/plants/fin-scale-owner-axis-no-cascade.patch, the owner axis installed with no
  * action, refuses the long family's count update and must turn the property red.
  */
@@ -154,6 +158,7 @@ layer(Substrate.layer)(
 									})
 									const n = scale.long
 									const counted = scale.shape === "counted"
+									yield* cleared(seat, ["Owner", "Member"])
 									const write = yield* measured([
 										`INSERT INTO ${owner} (${c("Owner", "id")}, ${c("Owner", "n")}) VALUES (0, ${n})`,
 										`INSERT INTO ${member} (${memberCols}) SELECT a, 0, a, ${n} FROM pg_catalog.generate_series(${n - 1}, 0, -1) AS a`
@@ -220,7 +225,7 @@ layer(Substrate.layer)(
 										`the deferred queue of ${importEvents} checks`
 									)
 									yield* lawful
-									yield* cleared(seat, ["Owner", "Member"])
+									yield* cleared(trees, RELATIONS)
 									const tree = loadTree(scale.tree, scale.fanout)
 									const loaded = yield* measureTransaction(trees.session, {
 										readOnly: false,
@@ -242,7 +247,6 @@ layer(Substrate.layer)(
 										queueBytes(loaded) <= queueBound(treeEvents),
 										`the tree's deferred queue of ${treeEvents} checks`
 									)
-									yield* cleared(trees, RELATIONS)
 								})
 						)
 					})
