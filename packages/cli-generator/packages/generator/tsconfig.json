@@ -2,5 +2,5 @@
 	"$schema": "../../node_modules/@effect/tsgo/schema.json",
 	"extends": "../../tsconfig.json",
 	"include": ["**/*"],
-	"exclude": ["node_modules", "test/fixtures/golden"]
+	"exclude": ["node_modules", "test/fixtures/golden", "test/fixtures/grizzle"]
 }

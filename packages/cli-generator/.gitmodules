@@ -1,3 +1,6 @@
 [submodule "vendor/toolchain"]
 	path = vendor/toolchain
 	url = https://github.com/bjornpagen/toolchain.git
+[submodule "vendor/grizzle"]
+	path = vendor/grizzle
+	url = https://github.com/bjornpagen/grizzle.git

@@ -18,6 +18,7 @@
 		"check": "turbo run typecheck runtime-gate benchmark superlint oxlint format dead-code architecture dedupe --filter=./packages/* --filter=// --continue=dependencies-successful",
 		"lint": "turbo run superlint oxlint dead-code architecture --filter=./packages/* --filter=//",
 		"test": "turbo run test --filter=./packages/*",
+		"test:grizzle": "pnpm --filter effect-openapi-cli-generator run test:grizzle",
 		"corpus": "turbo run corpus --filter=./packages/*",
 		"fuzz": "node vendor/toolchain/packages/testing/scripts/fuzz.ts",
 		"mutate": "bjornpagen-mutate",

@@ -5,7 +5,11 @@
 		"packages/generator/scripts/*.ts",
 		"packages/generator/corpus/tools/*.ts"
 	],
-	"ignorePatterns": ["packages/generator/test/fixtures/golden/**", "vendor/**"],
+	"ignorePatterns": [
+		"packages/generator/test/fixtures/golden/**",
+		"packages/generator/test/fixtures/grizzle/**",
+		"vendor/**"
+	],
 	"rules": {
 		"require-suppression-reason": "error"
 	},
@@ -13,7 +17,11 @@
 		"zones": [
 			{
 				"name": "generator-suites",
-				"patterns": ["packages/generator/test/**", "packages/generator/vitest.config.ts"]
+				"patterns": [
+					"packages/generator/test/**",
+					"packages/generator/vitest.config.ts",
+					"packages/generator/vitest.grizzle.config.ts"
+				]
 			},
 			{
 				"name": "corpus",
