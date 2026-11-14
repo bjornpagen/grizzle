@@ -406,6 +406,15 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   database, so a one-run cluster may want PostgreSQL's own defaults instead (a peer's hand-made 5442 had
   max_connections 100 and ran pantry's migrate in 1 min 35 s, against over 30 min on shared 5433).
 - **`bench:full` on a quiet machine.**
+- **Test-speed re-measures for a quiet window (TESTSPEED, 2026-11-14):** each was measured only under load averages of
+  60 to 440 on 64 cores, which swung one file fourfold. test/pg/text/differential.test.ts's at-limit search, one at a
+  time against windowCasesAtOnce(1, 4) at once, alone on a private cluster, interleaved: 26.4 s and 107.1 s one at a
+  time, 52.7 s and 71.6 s at once (load 69 to 156), so no direction; size its window from its own measurement if at
+  once is slower when the machine is quiet. The type batch's disarmed program at tsgo's default 4 checkers against
+  64 since f2cb066d split schema/agreement (127.6 s and 121.0 s at 4, 254.0 s at 64 under load 308): take
+  availableParallelism() only if it wins quiet. test/pg/substrate/tree.test.ts's states box: its worker's one thread
+  is 86% busy at 9 seat sets, 44% of it in native writev (verify-full TLS and one write per statement), so its cases
+  at once gain little until a transaction's statements go as one pipelined write.
 - **Test layout:** tests move into packages/*/test, with their mutate and fallow paths and the docs.
 - **The fill kernel's rows have one handle, their `id` (RESTATED, 2026-11-12):** test/support/families/fill.ts follows a
   row across a stored instance and its restatement by its `id` field (writtenRows' byId map, every memberOf owner,
