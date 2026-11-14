@@ -337,7 +337,7 @@ const servedOver = (
 const realizeWith = (
 	installSpec: InstallSpec,
 	ambient: AmbientSession,
-	poolSize: Option.Option<1 | 2>
+	poolSize: Option.Option<number>
 ) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
@@ -359,6 +359,11 @@ const realizeWith = (
 		/** The verify calls of every login layer since the realization began. */
 		const verified = { calls: 0 }
 		const scope = yield* Effect.scope
+		/** Every login layer's pool, the stranger's among them: `poolSize` connections, or the cluster pool's. */
+		const pool = Option.match(poolSize, {
+			onNone: () => clusterPool,
+			onSome: (size) => ({ ...clusterPool, max: size })
+		})
 		/** The installation's decoder login's credential, issued once, the first time a layer's file holds a live source. */
 		const decoderOf = yield* decodersIn(substrate, scope)
 
@@ -393,10 +398,7 @@ const realizeWith = (
 					served: file,
 					layer: servedSourcedLayer(decoderOf, {
 						...clusterConnection(substrate.cluster, substrate.database, credentials.password),
-						pool: Option.match(poolSize, {
-							onNone: () => clusterPool,
-							onSome: (size) => ({ ...clusterPool, max: size })
-						}),
+						pool,
 						login: file,
 						...(loginVerifies(spec, login) ? { verify } : {})
 					})
@@ -511,7 +513,7 @@ const realizeWith = (
 				Layer.build(
 					servedSourcedLayer(decoderOf, {
 						...clusterConnection(substrate.cluster, substrate.database, Redacted.make("")),
-						pool: clusterPool,
+						pool,
 						login: strangerServed
 					})
 				),
@@ -1674,12 +1676,13 @@ export const realize = (
 	realizeWith(installSpec, ambient, Option.none())
 
 /**
- * Realizes an installation under the ambient session `ambient` whose every login's pool holds `poolSize` connections,
- * for schedules that race sessions.
+ * Realizes an installation under the ambient session `ambient` whose every login's pool, the stranger's among them,
+ * holds `poolSize` connections at most: one for a program that runs one action at a time (drive/suite.ts
+ * programTests), whose open leases one (openedDb), and two for a schedule that races two sessions' calls.
  */
 export const realizeRace = (
 	installSpec: InstallSpec,
 	ambient: AmbientSession,
-	poolSize: 1 | 2
+	poolSize: number
 ): Effect.Effect<RacingWorld, RealizeRefused | SqlError, Scope.Scope | Substrate> =>
 	realizeWith(installSpec, ambient, Option.some(poolSize))

@@ -19,7 +19,12 @@ import { type AmbientSession, ambientFeatures, ambientSessionGen } from "#test/s
 import { isImmediate, relationOf, sameValue, valueText } from "#test/support/laws/model.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import type { Substrate } from "#test/support/substrate/substrate.ts"
+import {
+	type CaseSubstrate,
+	caseSubstrateSessions,
+	caseSubstrates,
+	Substrate
+} from "#test/support/substrate/substrate.ts"
 import {
 	checkStart,
 	type ModelMismatch,
@@ -27,7 +32,7 @@ import {
 	notedOf,
 	runStep
 } from "#test/support/worlds/drive/index.ts"
-import { type RealWorld, realize } from "#test/support/worlds/execute/index.ts"
+import { type RealWorld, realizeRace } from "#test/support/worlds/execute/index.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
 import type { RealizeRefused } from "#test/support/worlds/execute/refused.ts"
 import {
@@ -1159,12 +1164,6 @@ export const programCaseGen =
 		lead
 	})
 
-/** How a suite realizes a case's installation under its ambient session: fresh, or on a pool of a size it names. */
-export type Realize = (
-	install: InstallSpec,
-	ambient: AmbientSession
-) => Effect.Effect<RealWorld, RealizeRefused | SqlError, Scope.Scope | Substrate>
-
 /** A world brought to a case's start: the real world and the model's state of it. */
 export interface Staged {
 	readonly world: RealWorld
@@ -1659,6 +1658,10 @@ interface Progress {
 	readonly reached: ReadonlySet<string>
 }
 
+/** A program case's lead draws (Lead), under what its case's steering leaves pending (Pending). */
+const programLead = (pc: ProgramCase, pending: Pending): ReadonlyArray<Weights> =>
+	pc.lead(pc.weights, pc.install, { led: pc.led, pending })
+
 /**
  * Runs a case's program on its staged world: its lead's draws, each under its own weights, then `pc.steps` actions
  * under the case's; each drawn from the case's tape in the state the model is in after the one before (drawAction),
@@ -1674,7 +1677,7 @@ export const driveProgram = <F extends string>(
 ): Effect.Effect<ModelState, ModelMismatch> =>
 	Effect.suspend(() => {
 		const pending = pendingOf(c.steering, required)
-		const lead = pc.lead(pc.weights, pc.install, { led: pc.led, pending })
+		const lead = programLead(pc, pending)
 		return Effect.map(
 			Effect.reduce(
 				indices(lead.length + pc.steps),
@@ -1717,15 +1720,14 @@ export const driveProgram = <F extends string>(
 export const unnoted: Noting = { noteAll: () => undefined }
 
 /**
- * A suite of generated programs: its label, the name of its test, the installations it draws, how it realizes them,
- * the action kinds it draws, the longest program and the count of cases, the features its population must reach, and
- * its own rule over each action.
+ * A suite of generated programs: its label, the name of its test, the installations it draws, the action kinds it
+ * draws, the longest program and the count of cases, the features its population must reach, and its own rule over
+ * each action. Each case realizes its installation afresh, every login's pool of one connection (serialPool).
  */
 export interface ProgramSuite {
 	readonly suite: string
 	readonly name: string
 	readonly installs: Gen<InstallSpec>
-	readonly realize: Realize
 	readonly focus: Focus
 	readonly steps: number
 	readonly cases: number
@@ -1768,9 +1770,6 @@ export const docsInstalls: Gen<InstallSpec> = oneOf([
 	generatedDocsInstalls
 ])
 
-/** A fresh realization of each case's installation, on the executor's default pools. */
-export const fresh: Realize = realize
-
 /** The conversions of the names the documents bases declare: a dictionary name converting to none was drawn. */
 const docsConversions: ReadonlySet<string> = ownConversions(docsBases)
 
@@ -1798,8 +1797,75 @@ export const noteNaming = (pc: ProgramCase, c: Case<WorldFeature>): void => {
 /** The most shrink candidates a failing program tries: every case installs a schema of its own. */
 const programShrink = 200
 
+/**
+ * A program suite's steering window: its cases steer by what no case before their window of this many reached, and an
+ * exploration runs no more than a window at once, its cases at once held further to the widths the file's test pool
+ * admits (caseSubstrates).
+ */
+const programSteerEvery = 16
+
 /** How many cases a program suite's steered phase may run, as a multiple of its cases. */
 const programSteered = 4
+
+/**
+ * The connections of a login's pool a program holds at once: it runs one action at a time, and its open of a Db leases
+ * one connection at once (execute/index.ts openedDb), so every login's pool, the stranger's among them, holds one.
+ */
+export const serialPool = 1
+
+/**
+ * What a world's case may come to hold: the Db opens it may perform, each of which may lease a pool of its own (a Db
+ * opened under a snapshot other than the current one is laid over a layer of its own), and a direct writer for each
+ * transaction it may begin directly.
+ */
+export interface WorldDemand {
+	readonly opens: number
+	readonly directs: number
+}
+
+/**
+ * The connections a world's case holds at once at most, the width of its substrate (caseSubstrates), with every pool of
+ * `poolSize`: the substrate's own sessions (caseSubstrateSessions); one connection opened and closed in turn, a
+ * superuser's, an installation's or a migration's session, or a cancel's, since the driver runs one action at a time and
+ * each closes before the action ends; a pool for each open it may perform, which holds its connections from the open on
+ * (execute/index.ts openedDb); and its direct writers. A migration, a tamper or a drift holds nothing past its action.
+ */
+export const worldWidth = (poolSize: number, demand: WorldDemand): number =>
+	caseSubstrateSessions + 1 + poolSize * demand.opens + demand.directs
+
+/**
+ * The connections a program's case holds at once at most (worldWidth), its pools serial (serialPool): each of its
+ * actions, `lead`'s draws and its own steps, is an open where some of their weights draw one or a wild input, which
+ * may open a Db at its site (WildSite), or else a direct begin where they draw one, each holding one connection more at
+ * most.
+ */
+const programWidth = (pc: ProgramCase, lead: ReadonlyArray<Weights>): number => {
+	const actions = lead.length + pc.steps
+	const draws = (kind: ActionKind): boolean =>
+		Arr.some([pc.weights, ...lead], (w) => Arr.contains(w.kinds, kind))
+	const opens = draws("open-db") || draws("wild") ? actions : 0
+	return worldWidth(serialPool, {
+		opens,
+		directs: draws("direct-begin") ? actions - opens : 0
+	})
+}
+
+/**
+ * A program case's installation realized afresh in a substrate of its own (caseSubstrates), a database no case beside
+ * it uses, every login's pool serial (serialPool), within the connections its program holds at once at most
+ * (programWidth, its lead read under what the case's steering leaves pending of `required`).
+ */
+export const realizedProgram = <F extends string>(
+	substrates: CaseSubstrate,
+	pc: ProgramCase,
+	c: Case<F | WorldFeature>,
+	required: ReadonlyArray<Reached<F | WorldFeature>>
+): Effect.Effect<RealWorld, RealizeRefused | SqlError, Scope.Scope> =>
+	Effect.flatMap(
+		substrates(programWidth(pc, programLead(pc, pendingOf(c.steering, required)))),
+		(substrate) =>
+			Effect.provideService(realizeRace(pc.install, pc.ambient, serialPool), Substrate, substrate)
+	)
 
 /**
  * Registers a program suite's test: each case realizes its installation, stages its reality and runs its program under
@@ -1807,40 +1873,47 @@ const programSteered = 4
  * programs, through their leads and aims, at the required features no case has reached yet, and stops once every one
  * is reached; the rotating stream's programs aim at nothing. Every case installs a schema of its own, so a failure
  * shrinks through at most programShrink candidates.
+ *
+ * A case realizes its world in a substrate of its own (caseSubstrates), a database no case beside it uses, its pools of
+ * one connection each (serialPool), within the connections it holds at once at most (programWidth), so the cases of a
+ * window run at once, as many as the file's test pool admits by their widths: a program's database-wide changes (a
+ * tamper of the database's settings or privileges) never meet a case beside it.
  */
 export const programTests = (it: Vitest.MethodsNonLive<Substrate>, spec: ProgramSuite): void => {
 	it.effect(spec.name, (ctx) =>
 		searched(
 			ctx,
-			explore(
-				{
-					oracle: {
-						kind: "second-implementation",
-						name: "the worlds model (test/support/worlds/model), stepped beside every action: its allowed observations, its stored relations and every open session's probe"
+			Effect.flatMap(caseSubstrates, (substrates) =>
+				explore(
+					{
+						oracle: {
+							kind: "second-implementation",
+							name: "the worlds model (test/support/worlds/model), stepped beside every action: its allowed observations, its stored relations and every open session's probe"
+						},
+						suite: spec.suite,
+						draw: drawn(programCaseGen(spec.installs, worldDraws(spec), spec.steps)),
+						literal: Formatter.format,
+						coverage: required<WorldFeature>(spec.required, {
+							cases: programSteered * spec.cases,
+							sense: notesOnly
+						}),
+						kept: [],
+						runs: spec.cases,
+						shrink: { kind: "bounded", candidates: programShrink },
+						concurrency: programSteerEvery,
+						steerEvery: programSteerEvery,
+						caseHang
 					},
-					suite: spec.suite,
-					draw: drawn(programCaseGen(spec.installs, worldDraws(spec), spec.steps)),
-					literal: Formatter.format,
-					coverage: required<WorldFeature>(spec.required, {
-						cases: programSteered * spec.cases,
-						sense: notesOnly
-					}),
-					kept: [],
-					runs: spec.cases,
-					shrink: { kind: "bounded", candidates: programShrink },
-					concurrency: 1,
-					steerEvery: 16,
-					caseHang
-				},
-				(pc, c) =>
-					Effect.scoped(
-						Effect.gen(function* () {
-							const world = yield* spec.realize(pc.install, pc.ambient)
-							noteNaming(pc, c)
-							const staged = yield* stage(world, pc.install, c.draw, spec.realities)
-							yield* driveProgram(staged, pc, c, spec.required, spec.check)
-						})
-					)
+					(pc, c) =>
+						Effect.scoped(
+							Effect.gen(function* () {
+								const world = yield* realizedProgram(substrates, pc, c, spec.required)
+								noteNaming(pc, c)
+								const staged = yield* stage(world, pc.install, c.draw, spec.realities)
+								yield* driveProgram(staged, pc, c, spec.required, spec.check)
+							})
+						)
+				)
 			)
 		)
 	)

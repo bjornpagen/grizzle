@@ -8,10 +8,8 @@ import {
 	type Focus,
 	invalidFeatures,
 	noCheck,
-	programTests,
-	type Realize
+	programTests
 } from "#test/support/worlds/drive/suite.ts"
-import { realizeRace } from "#test/support/worlds/execute/index.ts"
 import type { WorldFeature } from "#test/support/worlds/model/types.ts"
 
 /**
@@ -40,8 +38,6 @@ const pooled: Focus = [
 	"migrate"
 ]
 
-const onePool: Realize = (install, ambient) => realizeRace(install, ambient, 1)
-
 /**
  * What a pooled connection shows after each way a transaction ends. While the read of a Db a migration moved past is
  * pending, the suite's lead opens a Db, migrates past it and reads through it (callPastAMigration): a program's own
@@ -65,7 +61,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 			suite: "pg/world-model/pool",
 			name: "claims and role never cross requests on a pooled connection, however a transaction ends",
 			installs: docsInstalls,
-			realize: onePool,
 			focus: pooled,
 			steps: 10,
 			cases: 40,

@@ -15,7 +15,7 @@ import {
 } from "#test/support/fixtures/education/index.ts"
 import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import { sameValue } from "#test/support/laws/model.ts"
-import type { Substrate } from "#test/support/substrate/substrate.ts"
+import { caseSubstrates, type Substrate } from "#test/support/substrate/substrate.ts"
 import {
 	reachingPastRefused,
 	sessionOf,
@@ -31,7 +31,7 @@ import {
 	type Focus,
 	type Lead,
 	noteNaming,
-	type ProgramCase,
+	realizedProgram,
 	programCaseGen,
 	type SeenAction,
 	type StepCheck,
@@ -1340,18 +1340,18 @@ type EducationSuite = Realization & {
 	readonly properties: Arr.NonEmptyReadonlyArray<Property>
 }
 
-/** A case's own realization of the installation, under the ambient session it drew, which the case notes. */
-const realizedUnder = (pc: ProgramCase, c: Case<Feature>) =>
-	Effect.tap(realize(pc.install, pc.ambient), () =>
-		Effect.sync(() => {
-			noteNaming(pc, c)
-		})
-	)
+/**
+ * An education suite's steering window: its cases steer by what no case before their window reached, and a suite whose
+ * cases each realize their own world runs a window at once, held further to the widths the file's test pool admits
+ * (caseSubstrates). A suite realized once runs its cases one at a time: each resets the one world they share.
+ */
+const educationSteerEvery = 16
 
 /**
  * Registers an education suite's test. Each case stages a drawn reality on the installation, then runs its program,
  * every action drawn from the model's state, performed on the real system and the model side by side, and held to the
- * suite's properties. The steered phase climbs toward the required features.
+ * suite's properties. The steered phase climbs toward the required features. A case that realizes its own world does
+ * so in a substrate of its own (drive/suite.ts realizedProgram).
  */
 const register = (it: Vitest.MethodsNonLive<Substrate>, spec: EducationSuite): void => {
 	it.effect(spec.name, (ctx) =>
@@ -1365,6 +1365,7 @@ const register = (it: Vitest.MethodsNonLive<Substrate>, spec: EducationSuite): v
 				spec.realization === "once"
 					? yield* Effect.asSome(realize(educationInstall, ordinarySession))
 					: Option.none()
+			const substrates = yield* caseSubstrates
 			return yield* searched(
 				ctx,
 				explore(
@@ -1386,14 +1387,20 @@ const register = (it: Vitest.MethodsNonLive<Substrate>, spec: EducationSuite): v
 						kept: [],
 						runs: spec.cases,
 						shrink: { kind: "bounded", candidates: 200 },
-						concurrency: 1,
-						steerEvery: 16,
+						concurrency: Option.isSome(once) ? 1 : educationSteerEvery,
+						steerEvery: educationSteerEvery,
 						caseHang
 					},
 					(pc, c) =>
 						Effect.scoped(
 							Effect.gen(function* () {
-								const world = Option.isSome(once) ? once.value : yield* realizedUnder(pc, c)
+								const world = Option.isSome(once)
+									? once.value
+									: yield* Effect.tap(realizedProgram(substrates, pc, c, spec.required), () =>
+											Effect.sync(() => {
+												noteNaming(pc, c)
+											})
+										)
 								const staged = yield* stage(world, pc.install, c.draw, drawnRealities)
 								const checks = Arr.map(spec.properties, checkOf)
 								yield* driveProgram(staged, pc, c, spec.required, ({ seen, earlier }) => {

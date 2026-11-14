@@ -19,7 +19,7 @@ import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { caseSubstrates, Substrate } from "#test/support/substrate/substrate.ts"
 import { notedOf, runStep } from "#test/support/worlds/drive/index.ts"
 import {
 	aimsAt,
@@ -31,9 +31,11 @@ import {
 	moveAction,
 	stage,
 	steeredOnce,
-	unnoted
+	unnoted,
+	type WorldDemand,
+	worldWidth
 } from "#test/support/worlds/drive/suite.ts"
-import { realize, realizeRace } from "#test/support/worlds/execute/index.ts"
+import { realizeRace } from "#test/support/worlds/execute/index.ts"
 import { requiredWorldFeatures } from "#test/support/worlds/features.ts"
 import { pool } from "#test/support/worlds/generate/domain.ts"
 import { defaultScope, enumerateInstalls } from "#test/support/worlds/generate/enumerate.ts"
@@ -153,10 +155,10 @@ interface StatePlan {
 }
 
 /**
- * The pool each login's DbLayer gets: the executor's default, over which the Dbs' reads spread, or one connection, which
- * every Db of a login shares, whatever its role.
+ * The pool each login's DbLayer gets: one connection for each Db the state opens, over which the Dbs' reads spread, or
+ * one connection, which every Db of a login shares, whatever its role.
  */
-type Pool = "default" | "one connection"
+type Pool = "a connection per Db" | "one connection"
 
 /**
  * An inductive case: the installation, its pool, the state's plan and the weights of its one action. The property draws
@@ -383,11 +385,35 @@ const caseGen: Gen<InductiveCase> = (source) => {
 	const install = source.draw(installsGen)
 	return {
 		install,
-		pool: source.draw(element<Pool>(["default", "one connection"])),
+		pool: source.draw(element<Pool>(["a connection per Db", "one connection"])),
 		plan: source.draw(planGen(install)),
 		weights: source.draw(weightsGen)
 	}
 }
+
+/** The connections each login's pool of a case holds at most (Pool): one per Db its state opens, or one. */
+const poolSizeOf = (ic: InductiveCase): number =>
+	ic.pool === "one connection" ? 1 : Math.max(1, ic.plan.dbs.length)
+
+/**
+ * What an inductive case may come to hold (WorldDemand): the Db opens and direct begins its setup performs; those its
+ * lead's moves may (inductiveLeads): two moves at most, the first an open or a direct begin, the second a call through
+ * a Db or a statement, either of which opens a Db when none is open (withOpener); and its one action, an open where its
+ * weights draw one or a wild input, which may open a Db at its site (WildSite), or a direct begin where they draw one.
+ */
+const demandOf = (ic: InductiveCase, setup: ReadonlyArray<Action>): WorldDemand => {
+	const performed = (kind: Action["kind"]): number =>
+		Arr.filter(setup, (a) => a.kind === kind).length
+	const drawn = (kind: Action["kind"]): number => (Arr.contains(ic.weights.kinds, kind) ? 1 : 0)
+	const led = ic.plan.after.kind === "led" ? 1 : 0
+	return {
+		opens: performed("open-db") + 2 * led + Math.max(drawn("open-db"), drawn("wild")),
+		directs: performed("direct-begin") + led + drawn("direct-begin")
+	}
+}
+
+/** The steering window: the cases of a window steer by what no case before it reached, and run at once. */
+const steerEvery = 16
 
 /**
  * The actions that bring a staged world to a plan's state: each Db opened with its token, its reads performed (its
@@ -512,70 +538,75 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 		it.effect(name, (ctx) =>
 			searched(
 				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "second-implementation",
-							name: "the worlds model (test/support/worlds/model) over a drawn state: the one action's allowed observations, the stored relations, every open session's probe and every invariant"
+				Effect.flatMap(caseSubstrates, (substrates) =>
+					explore(
+						{
+							oracle: {
+								kind: "second-implementation",
+								name: "the worlds model (test/support/worlds/model) over a drawn state: the one action's allowed observations, the stored relations, every open session's probe and every invariant"
+							},
+							suite: "pg/world-model/inductive",
+							draw: drawn(caseGen),
+							literal: Formatter.format,
+							coverage: required<WorldFeature>(situations, {
+								cases: steeredFactor * cases,
+								sense: notesOnly
+							}),
+							kept: [],
+							runs: cases,
+							shrink: { kind: "bounded", candidates: shrinkCandidates },
+							concurrency: steerEvery,
+							steerEvery,
+							caseHang
 						},
-						suite: "pg/world-model/inductive",
-						draw: drawn(caseGen),
-						literal: Formatter.format,
-						coverage: required<WorldFeature>(situations, {
-							cases: steeredFactor * cases,
-							sense: notesOnly
-						}),
-						kept: [],
-						runs: cases,
-						shrink: { kind: "bounded", candidates: shrinkCandidates },
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
-					},
-					(ic, c) =>
-						Effect.scoped(
-							Effect.gen(function* () {
-								const world =
-									ic.pool === "default"
-										? yield* realize(ic.install, ordinarySession)
-										: yield* realizeRace(ic.install, ordinarySession, 1)
-								const staged = yield* stage(world, ic.install, c.draw, docsAtBoundRealities)
-								const setup = setupOf(ic.plan)
-								const planned = yield* Effect.reduce(
-									setup,
-									(): ModelState => staged.start,
-									(state, action, index) =>
-										Effect.map(
-											runStep(world, state, action, index, unnoted),
-											(stepped) => stepped.next
-										)
-								)
-								reachedPlan(planned, ic.plan)
-								const moves: ReadonlyArray<LeadMove> =
-									ic.plan.after.kind === "led" ? leadOf(situations, ic.weights, planned, c) : []
-								const reached = yield* Effect.reduce(
-									moves,
-									(): ModelState => planned,
-									(state, move, index) =>
-										Effect.map(
-											runStep(
-												world,
-												state,
-												moveAction(c.draw, state, move),
-												setup.length + index,
-												unnoted
-											),
-											(stepped) => stepped.next
-										)
-								)
-								const action = drawAction(
-									c.draw,
-									reached,
-									steeredOnce({ ...ic.weights, aims: aimsAt(situations, notedOf) }, c)
-								)
-								yield* runStep(world, reached, action, setup.length + moves.length, c)
-							})
-						)
+						(ic, c) =>
+							Effect.scoped(
+								Effect.gen(function* () {
+									const setup = setupOf(ic.plan)
+									const poolSize = poolSizeOf(ic)
+									const substrate = yield* substrates(worldWidth(poolSize, demandOf(ic, setup)))
+									const world = yield* Effect.provideService(
+										realizeRace(ic.install, ordinarySession, poolSize),
+										Substrate,
+										substrate
+									)
+									const staged = yield* stage(world, ic.install, c.draw, docsAtBoundRealities)
+									const planned = yield* Effect.reduce(
+										setup,
+										(): ModelState => staged.start,
+										(state, action, index) =>
+											Effect.map(
+												runStep(world, state, action, index, unnoted),
+												(stepped) => stepped.next
+											)
+									)
+									reachedPlan(planned, ic.plan)
+									const moves: ReadonlyArray<LeadMove> =
+										ic.plan.after.kind === "led" ? leadOf(situations, ic.weights, planned, c) : []
+									const reached = yield* Effect.reduce(
+										moves,
+										(): ModelState => planned,
+										(state, move, index) =>
+											Effect.map(
+												runStep(
+													world,
+													state,
+													moveAction(c.draw, state, move),
+													setup.length + index,
+													unnoted
+												),
+												(stepped) => stepped.next
+											)
+									)
+									const action = drawAction(
+										c.draw,
+										reached,
+										steeredOnce({ ...ic.weights, aims: aimsAt(situations, notedOf) }, c)
+									)
+									yield* runStep(world, reached, action, setup.length + moves.length, c)
+								})
+							)
+					)
 				)
 			)
 		)

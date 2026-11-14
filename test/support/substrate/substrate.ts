@@ -1,18 +1,34 @@
 import { NodeChildProcessSpawner, NodeFileSystem, NodePath } from "@effect/platform-node"
-import { Array as Arr, Context, Effect, Layer, Option, Redacted, Ref, type Scope } from "effect"
+import {
+	Array as Arr,
+	Context,
+	Effect,
+	Layer,
+	Option,
+	Redacted,
+	Ref,
+	type Scope,
+	Semaphore
+} from "effect"
 import { ChildProcessSpawner } from "effect/process"
 import { Client } from "pg"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { advisoryKey } from "#compiler/sql/catalog.ts"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
+import { testPoolMax } from "#pg/lease.ts"
 import { InitializedCluster } from "#test/support/cluster.ts"
 import { adminUrl, pgPin } from "#test/support/env.ts"
 import { awaitRoleQuiet, type ClientBackend, endBackend } from "#test/support/kernel/sanitize.ts"
 import { testExitWait } from "#test/support/limits.ts"
 import { freshDatabase, type PgConnection, type SqlError, sqlErrorOf } from "#test/support/pg.ts"
 import { awaitBlockedBy, awaitLockWait, type LockWait } from "#test/support/substrate/barrier.ts"
-import type { BudgetedCluster, LeaseBudget } from "#test/support/substrate/budget.ts"
+import {
+	type BudgetedCluster,
+	budgeted,
+	type LeaseBudget,
+	LeaseBudgetExhausted
+} from "#test/support/substrate/budget.ts"
 import type { PsqlProcessError } from "#test/support/substrate/errors.ts"
 import {
 	defaultSchemaLabel,
@@ -754,3 +770,61 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 		Layer.provide(Layer.mergeAll(nodeSpawner, InitializedCluster.layer))
 	)
 }
+
+/** The sessions a case's substrate holds for its life (caseSubstrates): its admin's and its observer's (build). */
+const caseSessions = ["admin", "observer"] as const
+
+/** How many sessions a case's substrate holds for its life, which its width counts. */
+export const caseSubstrateSessions: number = caseSessions.length
+
+/**
+ * A case's substrate of `width` connections (caseSubstrates): what the case realizes runs in it, in its database and
+ * within its budget, for the case's scope.
+ */
+export type CaseSubstrate = (width: number) => Effect.Effect<SubstrateShape, SqlError, Scope.Scope>
+
+/**
+ * Substrates for the cases of a search to run at once, each case realizing state a case beside it must not meet: a
+ * database's own settings and privileges among it, which a schema of its own does not keep apart. A case's substrate
+ * holds, for the case's scope:
+ * - `width` of the file's budget's permits, as a budget of its own (LeaseBudget within), which every connection its
+ *   substrate and what it realizes open draws from, its admin's and observer's among them, so `width` counts both;
+ * - a database no case beside it uses: one an earlier case ran in, whose scope has closed, or else a fresh clone of the
+ *   template (pg.ts freshDatabase), which the case's own budget creates. The file clones as many as its cases ran at
+ *   once at most, each handed from case to case, as the file's one database is between cases run one at a time.
+ * A case first waits for its width among the test pool's permits (testPoolMax), which the file's lease grants beyond
+ * its substrate's own sessions (packages/pg/src/lease.ts leaseGrant), so the cases at once never ask the file's budget
+ * past what it holds free. A width past the whole test pool could never be admitted, and dies with
+ * LeaseBudgetExhausted, the suite's defect.
+ */
+export const caseSubstrates: Effect.Effect<CaseSubstrate, never, Substrate | Scope.Scope> =
+	Effect.gen(function* () {
+		const file = yield* Substrate
+		const spawning = yield* Layer.build(nodeSpawner)
+		const admission = yield* Semaphore.make(testPoolMax)
+		const free = yield* Ref.make<ReadonlyArray<string>>([])
+		const database = (cluster: BudgetedCluster) =>
+			Effect.acquireRelease(
+				Effect.flatMap(
+					Ref.modify(free, (names) => [Arr.head(names), Arr.drop(names, 1)] as const),
+					Option.match({ onNone: () => freshDatabase(cluster), onSome: Effect.succeed })
+				),
+				(name) => Ref.update(free, (names) => [name, ...names])
+			)
+		return (width) =>
+			Effect.gen(function* () {
+				if (width > testPoolMax) {
+					return yield* Effect.die(new LeaseBudgetExhausted({ width: testPoolMax }))
+				}
+				yield* Effect.acquireRelease(admission.take(width), () => admission.release(width))
+				const budget = yield* file.cluster.budget.within(width)
+				const cluster = budgeted(file.cluster, budget)
+				const name = yield* database(cluster)
+				const admin = yield* connect(cluster, {
+					database: name,
+					credentials: ownerCredentials(cluster),
+					label: "admin"
+				})
+				return yield* Effect.provideContext(build(cluster, name, admin, file.held), spawning)
+			})
+	})
