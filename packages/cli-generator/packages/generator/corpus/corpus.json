@@ -96,24 +96,23 @@
 			"tier": "ci"
 		},
 		{
-			"bytes": 36844145,
+			"bytes": 36842308,
 			"format": "json",
 			"id": "qti-pie-author-app",
 			"license": "MIT",
-			"sha256": "ec5b14a3f3c93f737a9472c60c47c454d93c7814507f3d833ee208c5f880e1b3",
+			"sha256": "1400f77ea3e9a3b2f45f9c067e1164dc761a039aac52feab1c5f643c6abb8e78",
 			"source": {
 				"kind": "committed",
 				"path": "corpus/specs/qti-pie-author-app.json",
 				"producedBy": {
 					"changes": [
-						"vendor/grizzle is checked out at the tool's commit, where the input pins d0690eb0c00ed50e5bbf716519797f868766e70c",
-						"packages/pantry/src/qti/base.ts and src/qti/schema.ts pass their relations to schema() and schema.extend() as lists, Object.values(qtiRelations) and Object.values(queryRelations), since the tool's schema() takes a list where the input's took a record"
+						"vendor/grizzle is checked out at the tool's commit, where the input's tree pins d0690eb0c00ed50e5bbf716519797f868766e70c"
 					],
 					"command": "pnpm grizzle generate grizzle.config.ts",
 					"directory": "packages/pantry",
-					"input": "bjornpagen/qti-pie@d51d07e76af26255c5eaca6534206691d2368d2c",
+					"input": "bjornpagen/qti-pie@3a9924a4da51b6177bad896da5d05ec1db3bc1e9",
 					"output": "packages/pantry/migrations/qti/openapi/author_app.json",
-					"tool": "bjornpagen/grizzle@35071f5974ea95cef1887bafcd64de2008d10e46"
+					"tool": "bjornpagen/grizzle@dc1464b034822e7fd60e7a4335e432732b535291"
 				}
 			},
 			"tier": "ci"

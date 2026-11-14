@@ -11270,7 +11270,7 @@
   "spec": {
     "id": "qti-pie-author-app",
     "openapi": "3.2.0",
-    "sha256": "ec5b14a3f3c93f737a9472c60c47c454d93c7814507f3d833ee208c5f880e1b3"
+    "sha256": "1400f77ea3e9a3b2f45f9c067e1164dc761a039aac52feab1c5f643c6abb8e78"
   },
   "twinEquality": {
     "checked": false,
