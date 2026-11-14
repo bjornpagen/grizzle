@@ -48,7 +48,18 @@
  * only once the role runs SERIALIZABLE, so it never judges the role. Adding a capability (a privilege, a read, a
  * statement, a member, a member of a SERIALIZABLE form, a role, an insert with no insert, a trigger-held law, a foreign
  * key, a race over a relation's first key) never makes a SERIALIZABLE role READ COMMITTED, nor does removing a relation's fact, but for the first change
- * member of a role with none, which the members condition alone held. Every counterexample comes out SERIALIZABLE.
+ * member of a role with none, which the members condition alone held, and a reader relying on a fence of a relation by
+ * a login that did not fence it before (newlyFenced). Such a fence changes the login's writes, each of which then locks
+ * the relation IN EXCLUSIVE MODE before its snapshot, so the reader's check is sound beside them; and the calls served
+ * before the extension never run beside those served after it. The fence is installed (the login's MAINTAIN grant on
+ * the relation, physical/ddl/roles.ts, and the extension's role or grants beside it), so the installation's snapshot,
+ * and the fingerprint every served file names, change, and a migration stands between the two: each transaction of a
+ * migration takes the ledger's ACCESS EXCLUSIVE lock first, waiting for every Db transaction in flight
+ * (adapter/migrate/apply.ts), and every Db transaction takes the ledger's ACCESS SHARE lock NOWAIT, refused while a
+ * migration holds or waits for it (55P03), then calls the snapshot guard with its served file's fingerprint, refused
+ * where a folder is part-way (55Z02) or the latest complete target is another snapshot (55Z01), before its first
+ * statement takes a snapshot (adapter/wire/batch.ts Prologue, physical/ddl/ledger.ts snapshotGuardDdl). So no call of
+ * the unfenced writers runs once a call of the relaxed reader can. Every counterexample comes out SERIALIZABLE.
  *
  * Planted in a scratch copy, each of these fails the search: condition 2's SERIALIZABLE readers left out; the fixpoint
  * run once; a pivot's write before a group read only later let through; a pivot's write after an outside read joined
@@ -2523,6 +2534,31 @@ const givesFirstMember = (sketch: Sketch, e: Extension): boolean => {
 }
 
 /** The certificates after a case's extension: a dropped fact leaves its relation out of the facts. */
+/**
+ * The roles certification leaves READ COMMITTED once `c`'s extension is applied that rely on a fence of a relation by a
+ * login that did not fence it before (Fence; `lowered`, the roles the case's certification lowered): an extension that
+ * makes a login newly fence a relation may relax such a reader (the module's header).
+ */
+const newlyFenced = (c: Case, lowered: ReadonlySet<number>): ReadonlySet<string> => {
+	const sketch = extended(c.sketch, c.extension)
+	const before = oracleRound(c.sketch, lowered)
+	const certified = certifiedOf(sketch, inputOf(sketch).relations)
+	const fences = certified.ok ? certified.value.fences : []
+	return new Set(
+		Arr.flatMap(fences, (f) => {
+			const relation = Arr.findFirstIndex(
+				c.sketch.relations,
+				(_, r) => relationName(r) === f.relation
+			)
+			const was = Option.match(relation, {
+				onNone: () => false,
+				onSome: (r) => Arr.some(before.fencers(r), (login) => `L${login}` === f.login)
+			})
+			return was ? [] : Arr.map(f.for, (r) => r.role)
+		})
+	)
+}
+
 const afterOf = (c: Case): ReadonlyArray<RoleIsolation> => {
 	const sketch = extended(c.sketch, c.extension)
 	const relations = inputOf(sketch).relations
@@ -3185,6 +3221,7 @@ type IsolationFeature =
 	| "a held foreign key check beside a READ COMMITTED role"
 	| "a check of a relation one login deletes and inserts"
 	| "a fence a READ COMMITTED role relies on"
+	| "a reader relaxed by a fence its extension makes"
 	| "a check of the rows that reference a changed one"
 	| "a retirement"
 	| "an update carried by a cascading foreign key"
@@ -4218,13 +4255,21 @@ describe("the isolation certifier", () => {
 								k.note("a first change member given to a role with none")
 							}
 							const after = levelsOf(afterOf(c))
+							const fenced = newlyFenced(c, expected.lowered)
 							for (const [i, level] of levelsOf(verdicts).entries()) {
-								if (level === "serializable" && !first) {
+								if (level === "serializable" && !first && !fenced.has(`r${i}`)) {
 									assert.equal(
 										Arr.getUnsafe(after, i),
 										"serializable",
 										`r${i} stays SERIALIZABLE once ${c.extension.kind} is applied`
 									)
+								}
+								if (
+									level === "serializable" &&
+									fenced.has(`r${i}`) &&
+									Arr.getUnsafe(after, i) === "readCommitted"
+								) {
+									k.note("a reader relaxed by a fence its extension makes")
 								}
 							}
 							const e = c.extension
