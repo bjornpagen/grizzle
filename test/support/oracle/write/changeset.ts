@@ -26,6 +26,7 @@ import {
 } from "#test/support/oracle/addwins.ts"
 import { elementAt, recordEntryOf } from "#test/support/oracle/pick.ts"
 import {
+	castValue,
 	isNumericKind,
 	type NumericKind,
 	printValue,
@@ -194,6 +195,16 @@ export interface WChangeSet {
 	readonly binding: WBinding
 }
 
+/** Whether a ChangeSet's described member reads a numeric field of another typmod into its own (HeadTerm cast). */
+export const castsTypmod = (c: WChangeSet): boolean =>
+	Arr.some(c.strata, (members) =>
+		Arr.some(
+			members,
+			(m) =>
+				m.source.kind === "project" && Arr.some(Rec.values(m.source.head), (t) => t.kind === "cast")
+		)
+	)
+
 /** Whether a fact of `relation` omits its serial fields: a generated addition. */
 export const isGenerated = (relation: WRelation, fact: Fact): boolean => {
 	const serial = serialColumns(relation)
@@ -312,8 +323,6 @@ interface ReadSketch {
  * - "relation parameters": an insert and a deletion of the keyed relation, each a relation parameter's facts;
  * - "typmod cast": an insert into the rounded relation of a precise fact, its numeric(12, 4) read into numeric(5, 2)
  *   by Compute.cast under Compute.within of numeric(5, 2)'s range (HeadTerm cast) and rounded by the cast;
- * - "coerced repeat": an insert of a stored rounded fact spelled as a decimal that rounds to its value at its typmod,
- *   which changes nothing;
  * - "anchored deletion": a deletion of the keyed facts whose b a parameter names, described over the keyed relation
  *   itself, so the DELETE's target plays the member's match (write/delete/anchor.ts);
  * - "single statement": an insert into the parent relation of the keyed facts whose b a parameter names beside the
@@ -351,7 +360,6 @@ export const plantedArms = [
 	"lagging referenced",
 	"relation parameters",
 	"typmod cast",
-	"coerced repeat",
 	"anchored deletion",
 	"single statement",
 	"single statement refused",
@@ -485,8 +493,6 @@ const planted = {
 	toastBefore: elementAt(typeInfo.memo.values, 3, "the unbounded text's values"),
 	toastAfter: elementAt(typeInfo.memo.values, 4, "the unbounded text's values"),
 	preciseValue: elementAt(typeInfo["numeric(12, 4)"].values, 2, "the numeric(12, 4) values"),
-	roundedValue: elementAt(typeInfo["numeric(5, 2)"].values, 1, "the numeric(5, 2) values"),
-	roundsToIt: Decimal.of("1.495"),
 	firstSerial: elementAt(typeInfo.serial.values, 0, "the serial values"),
 	secondSerial: elementAt(typeInfo.serial.values, 1, "the serial values")
 } as const
@@ -591,8 +597,6 @@ const plantedFactsOf = (
 		}
 		case "typmod cast":
 			return [[p.precise, [{ a: armKey, b: planted.preciseValue }]]]
-		case "coerced repeat":
-			return [[p.rounded, [{ a: armKey, b: planted.roundedValue }]]]
 		case "anchored deletion":
 			return [
 				[
@@ -691,7 +695,9 @@ const headValue = (t: HeadTerm, fact: Fact, params: ParamMap): unknown => {
 			if (!(value instanceof Decimal)) {
 				throw new TypeError(`a numeric value that is no Decimal: ${String(value)}`)
 			}
-			return value.compare(low) >= 0 && value.compare(high) <= 0 ? value : castOtherwise(t.into)
+			return value.compare(low) >= 0 && value.compare(high) <= 0
+				? castValue(t.into, value)
+				: castOtherwise(t.into)
 		}
 		case "param":
 			return params[t.param]
@@ -923,12 +929,6 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm, stored: WFacts)
 				],
 				[],
 				{ p0: armKey }
-			)
-		case "coerced repeat":
-			return changeSet(
-				[enumerated("insert", p.rounded, [{ a: armKey, b: planted.roundsToIt }])],
-				[],
-				{}
 			)
 		case "anchored deletion":
 			return changeSet([anchored], [], { p0: armKey })

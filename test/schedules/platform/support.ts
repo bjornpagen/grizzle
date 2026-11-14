@@ -292,7 +292,7 @@ export const stated = (apply: Program["apply"], ops: ReadonlyArray<PlatformOp>):
 
 /** One write of the application, as a grizzle writer and as a direct writer make it. */
 export interface Write {
-	/** The program kind, for features and reports: "usage", "caps merge", "refund", ... */
+	/** The program kind, for features and reports: "usage", "caps given", "refund", ... */
 	readonly kind: string
 	readonly label: string
 	readonly grizzle: GrizzleWrite

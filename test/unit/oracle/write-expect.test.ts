@@ -14,7 +14,10 @@
  *   classifies the server's check violation by the domain it names: the law of each column the domain types in the
  *   refused relation, `every` where one and `some` where several;
  * - a parameter passed outside its field refused by PostgreSQL as it binds it, ExecutionFailure with reason
- *   ParamRejected naming the parameter.
+ *   ParamRejected naming the parameter;
+ * - an applied outcome where a described member reads a numeric of another typmod into its field, the value its fact
+ *   holds the cast's, rounded to the field's scale (domain.ts castValue), never the source's, which the exact parse of
+ *   a fact (scalar/values/identity.ts parseValue) refuses at the field's typmod.
  * Every mutant fails:
  * - a refusal by a law of the group that no acceptable refusal names;
  * - a witness naming another law than the outcome;
@@ -28,8 +31,10 @@
  * The oracle is the specification: the faithful realization the expectation states passes the judge, and each mutant,
  * a planted fault of a realization, fails it. Features: every faithful outcome and every mutant above.
  *
- * Plant: ~/.cache/grizzle-release/BR07/plants/write-expect-keyless-accepted.patch (the judge accepting a keyless witness
- * of a keyed law) turns the property red.
+ * Plants: ~/.cache/grizzle-release/BR07/plants/write-expect-keyless-accepted.patch (the judge accepting a keyless
+ * witness of a keyed law) turns the property red; so does ~/.cache/grizzle-release/WHOLEDEL/plants/
+ * write-expect-cast-unrounded.patch (the oracle's cast giving the source's value unrounded, as it did before the exact
+ * parse, which the planted "typmod cast" arm reaches while the cast's situation is pending).
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -50,7 +55,11 @@ import { codebookFor, firstCodes, schemaInputOf } from "#test/support/compile.ts
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { planRealInstall } from "#test/support/oracle/install/real.ts"
-import { changeSetSketchGen, resolveChangeSet } from "#test/support/oracle/write/changeset.ts"
+import {
+	castsTypmod,
+	changeSetSketchGen,
+	resolveChangeSet
+} from "#test/support/oracle/write/changeset.ts"
 import { typeInfo } from "#test/support/oracle/write/domain.ts"
 import { expectChangeSet, type Violations } from "#test/support/oracle/write/expect.ts"
 import { factsSketchGen, keyOf, resolveFacts } from "#test/support/oracle/write/facts.ts"
@@ -186,7 +195,8 @@ const situations = [
 	"mutant: a domain's violation unclassified",
 	"faithful refusal at bind",
 	"mutant: applied where refused at bind",
-	"mutant: a parameter's refusal unclassified"
+	"mutant: a parameter's refusal unclassified",
+	"applied: a typmod cast"
 ] as const
 
 type WriteExpectFeature = (typeof situations)[number]
@@ -199,18 +209,31 @@ const domainSituations: ReadonlyArray<WriteExpectFeature> = [
 ]
 
 /**
- * The planted group a witness judges in place of its drawn case, aimed at what no witness reached yet (Case.steering):
- * while a domain refusal's situation is pending, in half its cases by a draw of its own, the schema's planted group,
- * whose "wider member" arm reads a stored wide text past the narrow domain into it (changeset.ts plantedChangeSet), the
- * refusal a drawn ChangeSet reads from a stored value too rarely; none for a schema without it, and for a rotating or
- * kept case, which runs as drawn.
+ * The planted arm a witness judges in place of its drawn case, aimed at what no witness reached yet (Case.steering),
+ * in half its cases by a draw of its own, on the schema's planted group: while a domain refusal's situation is pending,
+ * the "wider member" arm, which reads a stored wide text past the narrow domain into it (changeset.ts
+ * plantedChangeSet); while the typmod cast's is, the "typmod cast" arm, which reads a precise numeric into a rounded
+ * one. A drawn ChangeSet reaches either too rarely. None for a schema without the planted group, and for a rotating
+ * or kept case, which runs as drawn.
  */
-const widerAimed = (schema: WSchema, n: Case<WriteExpectFeature>): Option.Option<WGroup> =>
-	Option.filter(
+const plantedAimed = (
+	schema: WSchema,
+	n: Case<WriteExpectFeature>
+): Option.Option<{ readonly group: WGroup; readonly arm: "wider member" | "typmod cast" }> =>
+	Option.flatMap(
 		Arr.findFirst(schema.groups, (g) => g.role === "planted"),
-		() =>
-			Option.exists(n.steering, (pending) => Arr.some(domainSituations, (s) => pending.has(s))) &&
-			n.draw(boolean)
+		(group) =>
+			Option.flatMap(n.steering, (pending) => {
+				const arm = Arr.some(domainSituations, (s) => pending.has(s))
+					? Option.some("wider member" as const)
+					: pending.has("applied: a typmod cast")
+						? Option.some("typmod cast" as const)
+						: Option.none()
+				return Option.filter(
+					Option.map(arm, (a) => ({ group, arm: a })),
+					() => n.draw(boolean)
+				)
+			})
 	)
 
 describe("the write oracle's judgement", () => {
@@ -250,7 +273,7 @@ describe("the write oracle's judgement", () => {
 							return
 						}
 						const laws = writeLawNames(schema)
-						const { group, facts, c } = Option.match(widerAimed(schema, n), {
+						const { group, facts, c } = Option.match(plantedAimed(schema, n), {
 							onNone: () => {
 								const drawnGroup = pickFrom([first, ...rest], groupPick)
 								const drawnFacts = resolveFacts(drawnGroup, factsSketch)
@@ -260,9 +283,9 @@ describe("the write oracle's judgement", () => {
 									c: n.draw(resolveChangeSet(drawnGroup, drawnFacts, changesSketch))
 								}
 							},
-							onSome: (planted) => {
-								const wider = plantedCase(planted, "wider member", factsSketch)
-								return { group: wider.group, facts: wider.facts, c: wider.changes }
+							onSome: ({ group: planted, arm }) => {
+								const aimed = plantedCase(planted, arm, factsSketch)
+								return { group: aimed.group, facts: aimed.facts, c: aimed.changes }
 							}
 						})
 						const expected = expectChangeSet({ group, laws }, facts, c, {})
@@ -282,6 +305,9 @@ describe("the write oracle's judgement", () => {
 						const [anyLaw] = groupLaws(group, laws)
 						switch (expected.kind) {
 							case "applied":
+								if (castsTypmod(c)) {
+									n.note("applied: a typmod cast")
+								}
 								if (anyLaw !== undefined) {
 									mutant("mutant: refused where applied", refused(anyLaw, unreported))
 								}

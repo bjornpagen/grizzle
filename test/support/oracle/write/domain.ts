@@ -43,8 +43,8 @@ export type SerialKind = "bigserial" | "serial"
  * A ChangeSet input states a numeric value exactly at its column's typmod: one of more fractional digits is refused by
  * the parse before any SQL (scalar/values/identity.ts parseValue), and another display scale is the same Decimal. The
  * three typmods' values round onto each other's (1.4951 and 1.5000 are both 1.50 at scale 2, and 2 at scale 0), so a
- * described member that reads one typmod into another collapses distinct values into one after PostgreSQL's cast,
- * which valueIdentity models by normalizing to the column's typmod before comparing.
+ * described member that reads one typmod into another collapses distinct values into one by PostgreSQL's cast, which
+ * castValue models: the value a fact of the member holds is the cast's, at its field's typmod.
  */
 export type TypeKind =
 	| "int4"
@@ -93,6 +93,19 @@ const numericTypmods: Readonly<Record<NumericKind, NumericTypmod>> = {
 const numericKinds: ReadonlySet<TypeKind> = new Set(Rec.keys(numericTypmods))
 
 export const isNumericKind = (kind: TypeKind): kind is NumericKind => numericKinds.has(kind)
+
+/**
+ * The value Compute.cast gives a Decimal read into a numeric kind: PostgreSQL's coercion to the kind's numeric(p, s),
+ * rounded half away from zero to its scale (scalar/values/decimal.ts normalizeNumeric). A cast reads only values
+ * within the kind's range (typmodRange), so a value the coercion refuses is a defect of its caller.
+ */
+export const castValue = (kind: NumericKind, value: Decimal): Decimal => {
+	const cast = normalizeNumeric(value, numericTypmods[kind])
+	if (!cast.ok) {
+		throw new RangeError(`a ${kind} cast of ${value.toString()} past its range (${cast.error})`)
+	}
+	return cast.value
+}
 
 /**
  * The least and greatest values a numeric kind's numeric(p, s) holds: every one of its p - s integer and s fraction
