@@ -1479,22 +1479,15 @@ export const runCase = (
 		}
 		/**
 		 * A generated addition drawing the key of a stored fact its stratum deletes, its sequence lagging behind the stored
-		 * values, with the relation's delta read back both ways: the fact identical, which the change neither adds nor
-		 * removes, or differing in a field, one removal and one addition (runtime/write/net.ts stratumChange). Such a draw
-		 * is the realization's (addwins.ts), so it is read from the expectation under the realization's draws.
+		 * values: the fact identical, which the change neither adds nor removes, or differing in a field, one removal and
+		 * one addition (runtime/write/net.ts stratumChange), as the counts the case judges show. Its delta read back is
+		 * refused when it compiles (write/schedule/plan.ts drawsSerials: a generated addition and a deletion of its stratum
+		 * may cancel) and left out (settledReads). Such a draw is the realization's (addwins.ts), so it is read from the
+		 * expectation under the realization's draws.
 		 */
 		const [first] = realized
 		if (first?.kind === "applied") {
-			const readBothWays = Arr.filter([...first.draws], ([relation]) => {
-				const sources = new Set(
-					Arr.map(
-						Arr.filter(c.reads, (r) => r.relation === relation),
-						(r) => r.source
-					)
-				)
-				return sources.has("added") && sources.has("removed")
-			})
-			for (const [relation, d] of readBothWays) {
+			for (const [relation, d] of first.draws) {
 				const r = relationIn(group, relation)
 				const initial = entryOf(first.initial.relations, relation, "the initial state's relations")
 				const final = entryOf(

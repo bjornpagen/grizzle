@@ -269,10 +269,13 @@ interface ReadSketch {
 /**
  * The fixed ChangeSets a planted case writes on the planted group (schema.ts Planted), each over facts planted beside
  * the drawn ones (plantedFacts) and realizing one outcome:
- * - "parent present": the change adds three parent facts and a child fact naming each, and reads the added child facts
- *   attaching, stated "one", their parents, each present;
- * - "parent absent": the stored facts hold a parent fact and a child fact naming it, which the change deletes, and it
- *   reads the removed child facts attaching their parents, each gone;
+ * - "parent present": the change adds three parent facts and, in a later stratum, a child fact naming each, and reads
+ *   the added child facts attaching, stated "one", their parents, each present; the parents are written in a stratum
+ *   before the children's statement, which the read-back rides, since one statement writing both would read the parents
+ *   as they were before it, which the compile refuses (write/schedule/plan.ts placeReadBacks, `stateAfter`);
+ * - "parent absent": the stored facts hold a parent fact and a child fact naming it, which the change deletes, the
+ *   parent in a stratum before the child, under the deferred containment, and it reads the removed child facts
+ *   attaching their parents, each gone, for the same reason;
  * - "parent violated": the change adds a child fact naming no parent fact, which breaks the deferred containment at
  *   COMMIT, and reads the added child facts attaching their parents;
  * - "projected key taken": the stored facts hold a flagged fact selected at b, and the change adds a second selected
@@ -301,10 +304,12 @@ interface ReadSketch {
  *   stored fact holding its first value, so the realization draws that value, collides, and draws again;
  * - "lagging identical": the same lagging sequence, setval(seq, k, false) at the stored key k, and one stratum that
  *   deletes the stored fact at k beside a generated addition of its other fields, which draws k after the deletion:
- *   the fact the stratum removes and adds back is identical, so delta.added and delta.removed, both read back, hold
- *   neither (runtime/write/net.ts stratumChange, a set difference);
- * - "lagging differing": the same, the generated addition's other field differing, so the read-backs hold one
- *   removal and one addition;
+ *   the fact the stratum removes and adds back is identical, so the change's counts hold neither (runtime/write/net.ts
+ *   stratumChange, a set difference); its read-backs of delta.added and delta.removed are refused when it compiles,
+ *   since a generated addition and a deletion of its stratum may cancel (write/schedule/plan.ts drawsSerials), and the
+ *   harness leaves them out (harness.ts settledReads);
+ * - "lagging differing": the same, the generated addition's other field differing, so the counts hold one removal and
+ *   one addition;
  * - "lagging repeat": a generated addition into the numbered relation, whose identity column lies outside its key, of a
  *   stored fact's key, its sequence lagging at that fact's identity value: equal to the stored fact at every field it
  *   states, met at its arbiter, the declared key that holds no field it draws (write/insert/unique.ts
@@ -730,17 +735,23 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm, stored: WFacts)
 			parent: { kind: "one", containment: p.containment }
 		}
 	]
-	const changeSet = (
-		members: ReadonlyArray<WMember>,
+	/** A ChangeSet of strata in ChangeSet.sequence order, reading `reads` back. */
+	const sequenced = (
+		strata: Arr.NonEmptyReadonlyArray<ReadonlyArray<WMember>>,
 		reads: ReadonlyArray<WRead>,
 		params: ParamMap
 	): WChangeSet => ({
 		group: group.index,
-		strata: [members],
+		strata,
 		reads,
 		params,
 		binding: "passed"
 	})
+	const changeSet = (
+		members: ReadonlyArray<WMember>,
+		reads: ReadonlyArray<WRead>,
+		params: ParamMap
+	): WChangeSet => sequenced([members], reads, params)
 	/**
 	 * A put of the relation parameter rp0 on the mutable relation beside the deletion of its facts whose b is p1 and whose
 	 * key rp0 does not hold: one MERGE.
@@ -801,27 +812,31 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm, stored: WFacts)
 	)
 	switch (arm) {
 		case "parent present":
-			return changeSet(
+			return sequenced(
 				[
-					enumerated(
-						"insert",
-						p.parent,
-						Arr.map([armKey, otherKey, thirdKey], (a) => ({ a, b: 0 }))
-					),
-					enumerated(
-						"insert",
-						p.child,
-						Arr.map([armKey, otherKey, thirdKey], (a) => ({ a, b: a }))
-					)
+					[
+						enumerated(
+							"insert",
+							p.parent,
+							Arr.map([armKey, otherKey, thirdKey], (a) => ({ a, b: 0 }))
+						)
+					],
+					[
+						enumerated(
+							"insert",
+							p.child,
+							Arr.map([armKey, otherKey, thirdKey], (a) => ({ a, b: a }))
+						)
+					]
 				],
 				attached("added"),
 				{}
 			)
 		case "parent absent":
-			return changeSet(
+			return sequenced(
 				[
-					enumerated("delete", p.child, [{ a: armKey, b: armKey }]),
-					enumerated("delete", p.parent, [{ a: armKey, b: 0 }])
+					[enumerated("delete", p.parent, [{ a: armKey, b: 0 }])],
+					[enumerated("delete", p.child, [{ a: armKey, b: armKey }])]
 				],
 				attached("removed"),
 				{}
