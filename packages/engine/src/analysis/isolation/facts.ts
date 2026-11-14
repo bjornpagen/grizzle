@@ -3,25 +3,42 @@
  * those who own it (each role's grant plan, the law model's discharge of each relation's laws, each compiled change
  * member's statements), so the certifier reads no compiled artifact and a search can draw the facts themselves.
  */
+import type { Witness } from "#compiler/analysis/theory/query.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 
 /**
  * One relation of the installation: the laws the installation's law model still discharges by deferred constraint
- * triggers that read it (laws/model/model.ts triggerLawsOver), none where every law over it is native (a key, a CHECK, a
- * domain or a foreign key); its declared keys, its primary key and each UNIQUE, by their fields; its counted groups,
+ * triggers that read it (laws/model/model.ts triggerLawsOver), each with its witnesses (TriggerLaw), none where every
+ * law over it is native (a key, a CHECK, a domain or a foreign key); its declared keys, its primary key and each UNIQUE, by their fields; its counted groups,
  * each by its key's fields: the members, under one value of the key, of a family whose immutable owner holds their
  * count (a counted, ordered or fin family), a set the count law fixes once the owner is written; every foreign key it
- * holds, native or a rule lowered to one, immediate or deferred; and what an insertion into it meets at its primary key
- * (InsertsFact).
+ * holds, native or a rule lowered to one, immediate or deferred; what an insertion into it meets at its primary key
+ * (InsertsFact); and whether it is a retirable unit's header or body (`retirable`), whose retirement function
+ * (physical/ddl/retire.ts), which no role holds, deletes its bodies' rows and sets its header's retirement field beside
+ * every role's write.
  */
 export interface RelationFacts {
-	readonly triggerLaws: ReadonlyArray<LawId>
+	readonly triggerLaws: ReadonlyArray<TriggerLaw>
 	readonly keys: ReadonlyArray<ReadonlyArray<string>>
 	readonly countedGroups: ReadonlyArray<ReadonlyArray<string>>
 	readonly references: ReadonlyArray<Reference>
 	readonly inserts: InsertsFact
+	readonly retirable: boolean
+}
+
+/**
+ * A rule over a query its deferred constraint triggers hold (laws/model/model.ts RuleTrigger): its law, and every shape
+ * its violation takes, by the stored and closed relations each reads, one row of a match each (`rows`), rows present
+ * beyond those (`present`) and rows absent (`absent`), as analysis/theory/query.ts witnesses reads them from the
+ * rule's arms, the same arms its triggers' probes are built from. A write that makes a row of a relation present fires
+ * the rule's trigger where the relation stands among a witness's `rows` or `present`, and one that makes a row absent
+ * where it stands among its `absent`; no other write does.
+ */
+export interface TriggerLaw {
+	readonly law: LawId
+	readonly witnesses: NonEmptyReadonlyArray<Witness>
 }
 
 /**

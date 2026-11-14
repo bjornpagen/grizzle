@@ -42,8 +42,7 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
-import type { MemberFacts, StatementFacts } from "#compiler/analysis/isolation/facts.ts"
-import type { LawId } from "#compiler/core/ids.ts"
+import type { MemberFacts, StatementFacts, TriggerLaw } from "#compiler/analysis/isolation/facts.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
@@ -93,7 +92,7 @@ type Feature =
 
 /** What the recorders were handed and answered: each relation's laws, each role's privileges, each member's facts. */
 interface Recorded {
-	readonly laws: Map<string, ReadonlyArray<LawId>>
+	readonly laws: Map<string, ReadonlyArray<TriggerLaw>>
 	readonly asked: Array<string>
 	readonly privileges: Map<number, ReadonlyMap<string, ReadonlySet<TablePrivilege>>>
 	readonly facts: Map<string, NonEmptyReadonlyArray<MemberFacts>>
@@ -229,7 +228,10 @@ const run = (c: Case, note: (feature: Feature) => void) =>
 			triggerLawsOver: (given: LawModel, relation: string) => {
 				assert.equal(given, model, "triggerLawsOver is asked over the installation's model")
 				recorded.asked.push(relation)
-				const laws = lawIds.slice(0, recorded.asked.length % (lawIds.length + 1))
+				const laws = Arr.map(
+					lawIds.slice(0, recorded.asked.length % (lawIds.length + 1)),
+					(law): TriggerLaw => ({ law, witnesses: [{ rows: [relation], present: [], absent: [] }] })
+				)
 				recorded.laws.set(relation, laws)
 				return laws
 			},

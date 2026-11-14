@@ -2,7 +2,13 @@ import { refuse, refuseNamed } from "#compiler/analysis/theory/build.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	extendNonEmpty,
+	flatMapNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import type {
 	FieldDesc,
@@ -1709,4 +1715,66 @@ export const touches = (rule: QueryRule, relation: string): Touches | undefined 
 		return olds === undefined ? undefined : { kind: "olds", olds }
 	}
 	return olds === undefined ? { kind: "news", news } : { kind: "both", news, olds }
+}
+
+/**
+ * One shape a rule's violation takes, by the stored and closed relations it reads, each occurrence once, in arm order:
+ *
+ * - `rows`: one row of each, present: the matches of one arm of the breaking side, or of a key, the matches of each of
+ *   the two arms its pair of facts comes through, an arm paired with itself listing its matches twice;
+ * - `present`: rows it needs present beyond those, any number of each: the matches of every negated arm of a
+ *   containment's target, each blocking a target tuple the source's fact would meet;
+ * - `absent`: rows it needs absent: the matches of the negated arms of its breaking arms and of every arm of a
+ *   containment's target.
+ *
+ * Every violation of the rule is a violation through one of its witnesses. A write that makes a row present can break
+ * the rule exactly where its relation stands among some witness's `rows` or `present`, and one that makes a row absent
+ * where it stands among some witness's `absent`, as Touches names them (`touches`).
+ */
+export interface Witness {
+	readonly rows: NonEmptyReadonlyArray<string>
+	readonly present: ReadonlyArray<string>
+	readonly absent: ReadonlyArray<string>
+}
+
+/** The relations of matches, in order, each occurrence once. */
+const matched = (matches: NonEmptyReadonlyArray<ArmMatch>): NonEmptyReadonlyArray<string> =>
+	mapNonEmpty(matches, (m) => m.relation)
+
+/** The relations an arm's negated arms match, in order, each occurrence once. */
+const negatedOf = (arm: LiveArm): ReadonlyArray<string> =>
+	negatedMatches(arm).map((m) => m.relation)
+
+/**
+ * The witnesses of a rule (Witness): one per arm of a check's side and of a containment's source, each beside every arm
+ * of the target, and one per pair of arms of a key's side, each arm with itself and with every arm after it.
+ */
+export const witnesses = (rule: QueryRule): NonEmptyReadonlyArray<Witness> => {
+	switch (rule.kind) {
+		case "check":
+			return mapNonEmpty(rule.side.arms, (arm) => ({
+				rows: matched(arm.matches),
+				present: [],
+				absent: negatedOf(arm)
+			}))
+		case "contained": {
+			const present = rule.to.arms.flatMap(negatedOf)
+			const target = rule.to.arms.flatMap((a) => matched(a.matches))
+			return mapNonEmpty(rule.from.arms, (arm) => ({
+				rows: matched(arm.matches),
+				present,
+				absent: [...negatedOf(arm), ...target]
+			}))
+		}
+		case "key": {
+			const arms = rule.side.arms
+			return flatMapNonEmpty(arms, (arm, i) =>
+				mapNonEmpty([arm, ...arms.slice(i + 1)], (other) => ({
+					rows: extendNonEmpty(matched(arm.matches), matched(other.matches)),
+					present: [],
+					absent: [...negatedOf(arm), ...negatedOf(other)]
+				}))
+			)
+		}
+	}
 }

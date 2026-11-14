@@ -272,7 +272,8 @@ const drawnFacts = (d: DrawnInstallation): IsolationInput => ({
 						keys: [["k"]],
 						countedGroups: [],
 						references: [],
-						inserts: { kind: "repeatable" }
+						inserts: { kind: "repeatable" },
+						retirable: false
 					}
 				] as const
 		)

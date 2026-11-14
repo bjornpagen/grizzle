@@ -61,7 +61,10 @@ import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
  * containment, 23505 for a key and 23514 for a check, naming the rule's trigger as its constraint and the table it
  * fired on, with no DETAIL, since the writer may not see the rows. The function is SECURITY DEFINER under
  * closedSearchPath, every name it reads schema-qualified, and EXECUTE on it is revoked from PUBLIC at once. Every
- * writer is SERIALIZABLE (isolation.ts), so PostgreSQL's SSI orders each probe's reads against a concurrent write.
+ * writer of a guarded table is SERIALIZABLE (isolation.ts), so PostgreSQL's SSI orders each probe's reads against a
+ * concurrent write there. A READ COMMITTED role writes a table the rule reads only where certification proves the rule
+ * monotone in its writes (analysis/isolation/certify.ts `laws`): its probe reads at COMMIT, at a snapshot of each
+ * statement's own, and a write it misses can only withdraw a violation, never add one.
  *
  * Each probe's access paths (physical/access/extract.ts) are law-maintenance index requests of the rule, so a probe
  * reads by index wherever the planner can, and its cost follows the write.

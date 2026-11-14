@@ -61,7 +61,7 @@ import { type Names, namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { openActors, textOfValue } from "#test/support/schedules/actors.ts"
+import { type ActorSpec, openActors, textOfValue } from "#test/support/schedules/actors.ts"
 import {
 	everyRelation,
 	exploreEnv,
@@ -75,6 +75,7 @@ import {
 	runSerialRace,
 	type SerialRaceFailed
 } from "#test/support/schedules/serial.ts"
+import { beginSerializableAction } from "#test/support/schedules/types.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -128,9 +129,10 @@ export type CallInput =
 
 /**
  * A call a race makes in a session of its own: a ChangeSet member of a role with its input, which the oracle binds and
- * sends statement by statement as the served write's one flight states them; or a read member of a role with its
+ * sends statement by statement as the served write's one flight states them; a read member of a role with its
  * parameters, whose one statement the oracle sends in the read's own transaction, DEFERRABLE where its member is
- * deferrable(...).
+ * deferrable(...); or a transaction of the installation's owner, its statements as written, at the database's default
+ * level, as an operator runs what no role holds, a retirable unit's retirement function among them.
  */
 export type RaceCall =
 	| {
@@ -146,6 +148,11 @@ export type RaceCall =
 			readonly role: string
 			readonly member: string
 			readonly params: ParamMap
+	  }
+	| {
+			readonly kind: "owner"
+			readonly session: string
+			readonly statements: (s: InstalledShape) => Arr.NonEmptyReadonlyArray<string>
 	  }
 
 /** A race's ChangeSet call (RaceCall). */
@@ -558,9 +565,33 @@ const readTxnOf = (s: InstalledShape, call: ReadCall): Effect.Effect<RaceTxn<nev
 		}
 	})
 
-/** A call's direct transaction (changeTxnOf, readTxnOf). */
-const txnOf = (s: InstalledShape, call: RaceCall): Effect.Effect<RaceTxn<never>, InputFailure> =>
-	call.kind === "change" ? changeTxnOf(s, call) : readTxnOf(s, call)
+/** An owner's call's direct transaction: BEGIN ISOLATION LEVEL SERIALIZABLE, a direct writer's level, its statements
+ * as written, then COMMIT. */
+const ownerTxnOf = (
+	s: InstalledShape,
+	call: Extract<RaceCall, { readonly kind: "owner" }>
+): RaceTxn<never> => ({
+	kind: "direct",
+	session: call.session,
+	begin: beginSerializableAction,
+	statements: Arr.map(call.statements(s), (sql): RaceStatement => ({
+		sql,
+		footprint: everyRelation
+	})),
+	end: "commit"
+})
+
+/** A call's direct transaction (changeTxnOf, readTxnOf, ownerTxnOf). */
+const txnOf = (s: InstalledShape, call: RaceCall): Effect.Effect<RaceTxn<never>, InputFailure> => {
+	switch (call.kind) {
+		case "change":
+			return changeTxnOf(s, call)
+		case "read":
+			return readTxnOf(s, call)
+		case "owner":
+			return Effect.succeed(ownerTxnOf(s, call))
+	}
+}
 
 /** How many moves one transaction makes when it runs to its COMMIT: a direct one's statements, its BEGIN joining its
  * first, and its COMMIT; a grizzle call one. */
@@ -586,6 +617,10 @@ const factorial = (n: number): bigint =>
  */
 const ordersOf = (txns: ReadonlyArray<RaceTxn<never>>): bigint =>
 	Arr.reduce(txns, factorial(raceMoves(txns)), (orders, t) => orders / factorial(movesOf(t)))
+
+/** A call as a race's name spells it: its session, then its role's member or the owner. */
+const callName = (c: RaceCall): string =>
+	c.kind === "owner" ? `${c.session}:owner` : `${c.session}:${c.role}.${c.member}`
 
 /** Every stored table's rows as text: its name and each row's JSON, one row each. */
 export const stateSql = (names: Names): string =>
@@ -622,9 +657,12 @@ export const runIsolationRace = (
 		const substrate = yield* Substrate
 		const env = yield* exploreEnv(substrate)
 		const specs = Rec.fromEntries(
-			Arr.map(race.calls, (call) => {
+			Arr.map(race.calls, (call): readonly [string, ActorSpec] => {
+				if (call.kind === "owner") {
+					return [call.session, { kind: "raw", as: s.installed.ambientOwner.credentials }]
+				}
 				const role = defined(s.shape.roles[call.role], `role ${call.role} of the shape`)
-				return [call.session, { kind: "psql" as const, as: s.installed.world(role) }] as const
+				return [call.session, { kind: "psql", as: s.installed.world(role) }]
 			})
 		)
 		const direct = yield* openActors(substrate, specs)
@@ -635,10 +673,7 @@ export const runIsolationRace = (
 		if (chosen.kind === "every" && orders > BigInt(runawayInterleavings)) {
 			return yield* Effect.die(
 				new Error(
-					`the race ${Arr.join(
-						Arr.map(race.calls, (c) => `${c.session}:${c.role}.${c.member}`),
-						" "
-					)} has ${orders} orders of its moves (${Arr.join(
+					`the race ${Arr.join(Arr.map(race.calls, callName), " ")} has ${orders} orders of its moves (${Arr.join(
 						Arr.map(txns, (t) => String(movesOf(t))),
 						", "
 					)}), past the ${runawayInterleavings} an every-order race may run: its suite splits or shrinks it`
@@ -649,10 +684,7 @@ export const runIsolationRace = (
 			env,
 			{ direct, grizzle: {} },
 			{
-				name: Arr.join(
-					Arr.map(race.calls, (c) => `${c.session}:${c.role}.${c.member}`),
-					" "
-				),
+				name: Arr.join(Arr.map(race.calls, callName), " "),
 				txns,
 				reset: Effect.provideService(
 					replaceMigrated(s.installed, race.initial),

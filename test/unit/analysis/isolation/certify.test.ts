@@ -1,6 +1,8 @@
 /**
  * The isolation certifier (analysis/isolation/certify.ts) over drawn installations: two logins' roles over four
- * relations, each relation with trigger-held laws or not, declared keys, its first raced or not, counted groups and
+ * relations, each relation with rules over queries stated at it or not, each by its witnesses (analysis/theory/query.ts
+ * Witness: one or two rows of matches, absences, rarely presences beyond them, over any relations), a retirable unit's
+ * or not, declared keys, its first raced or not, counted groups and
  * foreign keys (immediate or deferred alike, an update cascading or not), each role's privileges, and its change members'
  * statements, each reading relations, positively, negated, counted or as grizzle's key arbitration, its own rows or not,
  * by a group whose fields are bound to one value or to one per own row, k0 and k1 to one parameter or each to its own,
@@ -27,7 +29,11 @@
  * it: no co-writer's guard and no pivot's write of what another reads (physical/ddl/retire.ts, the hold).
  *
  * The oracle restates every condition over the drawn facts, apart from the certifier's code, in rounds from none
- * lowered: each judged role's own conditions over its READ COMMITTED members, its foreign key checks among its reads,
+ * lowered: each judged role's own conditions over its READ COMMITTED members, a rule over a query it writes a relation
+ * of failing condition 2 where its write breaks a witness (makes a row present where the witness reads it as a row or a
+ * presence, absent where as an absence; an update and a retirement both, a retirable unit's relation absent and
+ * present by its retirement) that holds other than exactly one occurrence any write can make true, a row, and every
+ * relation of every witness its writes break an outside read of it for 5c; its foreign key checks among its reads,
  * a referencing check sealed where it binds a whole declared key of a relation no role updates (an insert-only one's,
  * a held one's and a fenced one's alike, fenced where one login's roles both delete and insert it), a fenced write's
  * check of the rows that reference a row it deletes no site of conditions 2 and 3, and a writer whose login fences a
@@ -98,12 +104,21 @@
  * extract-instance-key-no-polarity, extract-instance-key-no-feeds, extract-query-per-instance and
  * extract-query-one-for-all fail the extractor's search (test/unit/program/isolation/extract.test.ts).
  *
+ * DENSEATS's repro and its five neighbours (monotoneOf): a role that inserts R and E under a rule whose witness reads
+ * one row of R and E's absence runs READ COMMITTED (the monotone writer); a deleter of E, a self-join of R, E read
+ * present, E a retirable unit's body, or a SERIALIZABLE inserter of E that may miss a write each leave it SERIALIZABLE.
+ * Plants (~/.cache/grizzle-release/MONOTONE/plants), each failing the search: monotone-polarity-flipped (a write's
+ * presence and absence swapped wherever a witness is read), monotone-occurrences-deduped (a witness's rows counted by
+ * relation, so a self-join's two rows count once), monotone-retire-without-delete (a retirement making rows present
+ * alone) and monotone-probe-5c-dropped (the relations a role's probes read left out of its outside reads).
+ *
  * Features: each condition failed and met, each counterexample shape, each level, each capability added or fact
  * removed, a role lowered in a later round, a role whose lowered form alone reads the absence of what it writes, a held
- * check beside a READ COMMITTED role, a check of a relation one login deletes and inserts, and a fence a READ COMMITTED
- * role relies on (the required situations of the search).
+ * check beside a READ COMMITTED role, a check of a relation one login deletes and inserts, a fence a READ COMMITTED
+ * role relies on, a READ COMMITTED role whose write fires a monotone rule's probe, and one whose writes of a rule's
+ * relations only withdraw its violations (the required situations of the search).
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case as Explored, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, element, type Gen, int, shuffled, subset, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -203,14 +218,31 @@ interface ReferenceSketch {
 	readonly onUpdate: "cascade" | "noAction"
 }
 
-/** A relation: its trigger-held laws, its declared keys among KEYS, its counted groups and foreign keys, and whether
- * its first key is raced (InsertsFact `race`), which only a relation with a key is. */
+/**
+ * One shape of a rule over a query's violation (analysis/theory/query.ts Witness), by relation: one row of each of
+ * `rows`, present, rows of `present` present beyond those, and rows of `absent` absent.
+ */
+interface WitnessSketch {
+	readonly rows: Arr.NonEmptyReadonlyArray<number>
+	readonly present: ReadonlyArray<number>
+	readonly absent: ReadonlyArray<number>
+}
+
+/** A rule over a query its triggers hold, by its witnesses. */
+type LawSketch = Arr.NonEmptyReadonlyArray<WitnessSketch>
+
+/**
+ * A relation: the rules over queries stated at it, each a fact of every relation its witnesses read and of it (the law
+ * model's triggerLawsOver), its declared keys among KEYS, its counted groups and foreign keys, whether its first key is
+ * raced (InsertsFact `race`), which only a relation with a key is, and whether it is a retirable unit's header or body.
+ */
 interface RelationSketch {
-	readonly triggerLaws: boolean
+	readonly triggerLaws: ReadonlyArray<LawSketch>
 	readonly keys: ReadonlyArray<number>
 	readonly race: boolean
 	readonly counted: ReadonlyArray<number>
 	readonly references: ReadonlyArray<ReferenceSketch>
+	readonly retirable: boolean
 }
 
 interface Sketch {
@@ -235,7 +267,7 @@ type Extension =
 	  }
 	| { readonly kind: "role"; readonly role: RoleSketch }
 	| { readonly kind: "insert"; readonly role: number; readonly relation: number }
-	| { readonly kind: "triggerLaw"; readonly relation: number }
+	| { readonly kind: "triggerLaw"; readonly relation: number; readonly law: LawSketch }
 	| { readonly kind: "reference"; readonly relation: number; readonly reference: ReferenceSketch }
 	| { readonly kind: "dropFact"; readonly relation: number }
 	| { readonly kind: "race"; readonly relation: number }
@@ -290,6 +322,13 @@ type Shape =
 	| "unfencedPivot"
 	| "fencedDeleter"
 	| "updatedDeleter"
+	| "monotoneWriter"
+	| "monotoneCure"
+	| "monotoneDeleted"
+	| "monotoneSelfJoin"
+	| "monotonePresent"
+	| "monotoneRetired"
+	| "monotoneProbed"
 
 /** A drawn installation, which may be one of the counterexamples or a fixed shape, and an extension of it. */
 interface Case {
@@ -501,9 +540,9 @@ const relationSketchGen: Gen<RelationSketch> = (s) => {
 	)
 	return {
 		triggerLaws: s.draw(
-			weighted<boolean>([
-				[1, () => true],
-				[5, () => false]
+			weighted<ReadonlyArray<LawSketch>>([
+				[1, (t) => [t.draw(lawGen)]],
+				[4, () => []]
 			])
 		),
 		keys,
@@ -527,9 +566,36 @@ const relationSketchGen: Gen<RelationSketch> = (s) => {
 				[3, () => []],
 				[1, (t) => [t.draw(referenceGen)]]
 			])
+		),
+		retirable: s.draw(
+			weighted<boolean>([
+				[1, () => true],
+				[7, () => false]
+			])
 		)
 	}
 }
+
+/** Some relations, none to `max`, each drawn on its own. */
+const relationsGen = (max: number): Gen<ReadonlyArray<number>> =>
+	array(relationGen, { min: 0, max })
+
+/** A witness: one or two rows of matches, an absence of none to two relations, rarely a presence beyond them. */
+const witnessGen: Gen<WitnessSketch> = (s) => ({
+	rows: [s.draw(relationGen), ...s.draw(relationsGen(1))],
+	present: s.draw(
+		weighted<ReadonlyArray<number>>([
+			[4, () => []],
+			[1, (t) => [t.draw(relationGen)]]
+		])
+	),
+	absent: s.draw(relationsGen(2))
+})
+
+const lawGen: Gen<LawSketch> = (s) => [
+	s.draw(witnessGen),
+	...s.draw(array(witnessGen, { min: 0, max: 1 }))
+]
 
 const sketchGen: Gen<Sketch> = (s) => ({
 	relations: Arr.makeBy(RELATIONS, () => s.draw(relationSketchGen)),
@@ -537,12 +603,19 @@ const sketchGen: Gen<Sketch> = (s) => ({
 })
 
 const clean = (keys: ReadonlyArray<number>): RelationSketch => ({
-	triggerLaws: false,
+	triggerLaws: [],
 	keys,
 	race: false,
 	counted: [],
-	references: []
+	references: [],
+	retirable: false
 })
+
+/** A rule over a query whose one witness reads two rows of `relation`, a self-join: any insert of it breaks the rule
+ * through two occurrences it can make true. */
+const selfJoined = (relation: number): LawSketch => [
+	{ rows: [relation, relation], present: [], absent: [] }
+]
 
 const insertOf = (relation: number, from: ReadonlyArray<number>): WriteSketch => ({
 	relation,
@@ -686,11 +759,9 @@ const sealsGen: Gen<Sketch> = (s) => {
 	const [a = 0, b = 1, c = 2] = s.draw(shuffled([0, 1, 2, 3], { min: 3, max: 3 }))
 	return {
 		relations: Arr.makeBy(RELATIONS, (i) => ({
-			triggerLaws: false,
-			keys: i === b || i === a ? [2] : [],
-			race: false,
+			...clean(i === b || i === a ? [2] : []),
 			counted: i === c ? [0] : [],
-			references: i === a ? [{ relation: b, key: 2, onUpdate: "noAction" }] : []
+			references: i === a ? [{ relation: b, key: 2, onUpdate: "noAction" as const }] : []
 		})),
 		roles: [
 			{
@@ -771,17 +842,14 @@ const pivotWriterGen: Gen<Sketch> = (s) => {
 	}
 }
 
-/** A role that only inserts into a relation a trigger-held law reads, and that relation's fact dropped. */
+/** A role that only inserts into a relation a self-joined trigger-held law reads, and that relation's fact dropped. */
 const triggeredGen: Gen<Case> = (s) => {
 	const x = s.draw(relationGen)
 	return {
 		sketch: {
 			relations: Arr.makeBy(RELATIONS, (i) => ({
-				triggerLaws: i === x,
-				keys: [],
-				race: false,
-				counted: [],
-				references: []
+				...clean([]),
+				triggerLaws: i === x ? [selfJoined(x)] : []
 			})),
 			roles: [
 				{
@@ -1482,7 +1550,7 @@ const servedOf = (kind: "cause" | "update" | "absence" | "own"): Sketch => {
  * lowered form or r2's reads.
  */
 const loweredOf = (other: boolean): Sketch => ({
-	relations: [clean([0]), clean([0]), { ...clean([0]), triggerLaws: true }, clean([0])],
+	relations: [clean([0]), clean([0]), { ...clean([0]), triggerLaws: [selfJoined(2)] }, clean([0])],
 	roles: [
 		{
 			login: 0,
@@ -1809,7 +1877,7 @@ const extensionGen =
 				],
 				[1, (t) => ({ kind: "role", role: t.draw(roleGen) })],
 				[1, (t) => ({ kind: "insert", role, relation: t.draw(relationGen) })],
-				[1, (t) => ({ kind: "triggerLaw", relation: t.draw(relationGen) })],
+				[1, (t) => ({ kind: "triggerLaw", relation: t.draw(relationGen), law: t.draw(lawGen) })],
 				[
 					1,
 					(t) => ({
@@ -1823,6 +1891,102 @@ const extensionGen =
 			])
 		)
 	}
+
+type MonotoneShape = Extract<
+	Shape,
+	| "monotoneWriter"
+	| "monotoneCure"
+	| "monotoneDeleted"
+	| "monotoneSelfJoin"
+	| "monotonePresent"
+	| "monotoneRetired"
+	| "monotoneProbed"
+>
+
+/** DENSEATS's repro and its neighbours (monotoneOf), drawn as one arm of the shapes. */
+const monotoneShapes: Arr.NonEmptyReadonlyArray<MonotoneShape> = [
+	"monotoneWriter",
+	"monotoneCure",
+	"monotoneDeleted",
+	"monotoneSelfJoin",
+	"monotonePresent",
+	"monotoneRetired",
+	"monotoneProbed"
+]
+
+/**
+ * DENSEATS's repro over R0 (R), R1 (E) and R2, which no role writes (a closed relation's place): the rule over a query
+ * whose one witness reads one row of R and of R2 and the absence of E (`Live = R where not E`, `check(Live, n <
+ * C.at(...))`), which r0 breaks by inserting R. As the writer, r0 inserts R and E and runs READ COMMITTED: its insert of
+ * E only withdraws violations; as the cure, it inserts E alone, which fires no probe, and runs READ COMMITTED too. Each
+ * other shape adds one more occurrence some write can make true, and r0 runs
+ * SERIALIZABLE by laws: r1 deletes E (the deleted), the witness reads two rows of R (the self-join), r0 inserts E where
+ * the witness reads its rows present (the present), or E is a retirable unit's body, which its retirement deletes (the
+ * retired). In the probed, r0 inserts R alone, and r1, SERIALIZABLE by its UPDATE of R3, inserts E, a relation r0's
+ * probe reads, which a trigger-held law reads, so it may miss another call's write: 5c holds r0 SERIALIZABLE
+ * (NEGATION's case 3 through the probe).
+ */
+const monotoneOf = (shape: MonotoneShape): Sketch => {
+	const law: LawSketch =
+		shape === "monotoneSelfJoin"
+			? [{ rows: [0, 0], present: [], absent: [1] }]
+			: shape === "monotonePresent"
+				? [{ rows: [0, 2], present: [1], absent: [] }]
+				: [{ rows: [0, 2], present: [], absent: [1] }]
+	const inserts = shape === "monotoneProbed" ? [0] : shape === "monotoneCure" ? [1] : [0, 1]
+	const writer: RoleSketch = {
+		login: 0,
+		serializable: [],
+		privileges: Arr.flatMap(inserts, (relation) => [
+			{ relation, privilege: "SELECT" as const },
+			{ relation, privilege: "INSERT" as const }
+		]),
+		members: Arr.map(inserts, (relation) => [
+			{ writes: [insertOf(relation, [])], reads: [], probes: [], cores: [] }
+		])
+	}
+	const other: ReadonlyArray<RoleSketch> =
+		shape === "monotoneDeleted"
+			? [
+					{
+						login: 1,
+						serializable: [],
+						privileges: [{ relation: 1, privilege: "DELETE" }],
+						members: [
+							[
+								{
+									writes: [{ relation: 1, op: "delete", from: [] }],
+									reads: [],
+									probes: [],
+									cores: []
+								}
+							]
+						]
+					}
+				]
+			: shape === "monotoneProbed"
+				? [
+						{
+							login: 1,
+							serializable: [],
+							privileges: [
+								{ relation: 1, privilege: "INSERT" },
+								{ relation: 3, privilege: "UPDATE" }
+							],
+							members: [[{ writes: [insertOf(1, [])], reads: [], probes: [], cores: [] }]]
+						}
+					]
+				: []
+	return {
+		relations: [
+			{ ...clean([0]), triggerLaws: [law] },
+			{ ...clean([0]), retirable: shape === "monotoneRetired" },
+			clean([0]),
+			clean([0])
+		],
+		roles: [writer, ...other]
+	}
+}
 
 /**
  * The deferred copy with Copy's fact dropped: its foreign key into Parent is then unknown, so r0's write of it may
@@ -1931,6 +2095,14 @@ const shapeSketch = (
 			return deleterOf(s, "fenced")
 		case "updatedDeleter":
 			return deleterOf(s, "updated")
+		case "monotoneWriter":
+		case "monotoneCure":
+		case "monotoneDeleted":
+		case "monotoneSelfJoin":
+		case "monotonePresent":
+		case "monotoneRetired":
+		case "monotoneProbed":
+			return monotoneOf(shape)
 		case "drawn":
 			return s.draw(sketchGen)
 	}
@@ -1987,18 +2159,39 @@ const caseGen: Gen<Case> = (s) => {
 			[1, () => "fencedPublisher"],
 			[1, () => "unfencedPivot"],
 			[1, () => "fencedDeleter"],
-			[1, () => "updatedDeleter"]
+			[1, () => "updatedDeleter"],
+			[1, (t) => t.draw(element(monotoneShapes))]
 		])
 	)
-	if (shape === "droppedReference") {
-		return droppedReference
-	}
-	if (shape === "triggered") {
-		return s.draw(triggeredGen)
-	}
-	const sketch = shapeSketch(s, shape)
-	return { sketch, shape, extension: s.draw(extensionGen(sketch)) }
+	return s.draw(shapeCaseGen(shape))
 }
+
+/** A case of `shape`, drawn as caseGen draws one. */
+const shapeCaseGen =
+	(shape: Shape): Gen<Case> =>
+	(s) => {
+		if (shape === "droppedReference") {
+			return droppedReference
+		}
+		if (shape === "triggered") {
+			return s.draw(triggeredGen)
+		}
+		const sketch = shapeSketch(s, shape)
+		return { sketch, shape, extension: s.draw(extensionGen(sketch)) }
+	}
+
+/**
+ * The case a witness judges: its drawn one, or, where its turn aims at a fixed shape no witness reached yet
+ * (Explored.steering), a case of that shape drawn from its own tape, so every shape is reached however many arms the
+ * shapes' draw holds. A rotating or kept case runs as drawn.
+ */
+const aimedCase = (drawnCase: Case, k: Explored<IsolationFeature>): Case =>
+	Option.match(
+		Option.flatMap(k.steering, (pending) =>
+			Arr.findFirst(shapes, (shape) => pending.aimed(`the ${shape}`))
+		),
+		{ onNone: () => drawnCase, onSome: (shape) => k.draw(shapeCaseGen(shape)) }
+	)
 
 const relationName = (i: number): string => `R${i}`
 
@@ -2023,7 +2216,28 @@ const baseOf = (r: ReadSketch): ReadSketch["mode"] => {
 	return "positive"
 }
 const keyOf = (i: number): Arr.NonEmptyReadonlyArray<string> => Arr.getUnsafe(KEYS, i)
-const lawId = (i: number) => wild.lawId(`law_${i}`)
+const lawId = (home: number, at: number) => wild.lawId(`law_${home}_${at}`)
+
+/** Whether a law's witnesses read the relation. */
+const mentions = (law: LawSketch, relation: number): boolean =>
+	Arr.some(
+		law,
+		(w) => w.rows.includes(relation) || w.present.includes(relation) || w.absent.includes(relation)
+	)
+
+/**
+ * The laws over a relation, each by the relation it is stated at and its place there: those stated at it and those
+ * whose witnesses read it, as the law model's triggerLawsOver gives them.
+ */
+const lawsOver = (
+	relations: ReadonlyArray<RelationSketch>,
+	relation: number
+): ReadonlyArray<{ readonly home: number; readonly at: number; readonly law: LawSketch }> =>
+	Arr.flatMap(relations, (r, home) =>
+		Arr.flatMap(r.triggerLaws, (law, at) =>
+			home === relation || mentions(law, relation) ? [{ home, at, law }] : []
+		)
+	)
 
 /** What a read binds `field` to: `$p<binding>`, or k1, where it is split, the other parameter. */
 const byOf = (r: ReadSketch, field: string): string =>
@@ -2085,7 +2299,14 @@ const relationsOf = (relations: ReadonlyArray<RelationSketch>): IsolationInput["
 		Arr.map(relations, (r, i) => [
 			relationName(i),
 			{
-				triggerLaws: r.triggerLaws ? [lawId(i)] : [],
+				triggerLaws: Arr.map(lawsOver(relations, i), ({ home, at, law }) => ({
+					law: lawId(home, at),
+					witnesses: Arr.map(law, (w) => ({
+						rows: Arr.map(w.rows, relationName),
+						present: Arr.map(w.present, relationName),
+						absent: Arr.map(w.absent, relationName)
+					}))
+				})),
 				keys: Arr.map(r.keys, keyOf),
 				countedGroups: Arr.map(r.counted, keyOf),
 				references: Arr.map(r.references, (ref) => ({
@@ -2093,7 +2314,8 @@ const relationsOf = (relations: ReadonlyArray<RelationSketch>): IsolationInput["
 					fields: keyOf(ref.key),
 					onUpdate: ref.onUpdate
 				})),
-				inserts: insertsOf(r)
+				inserts: insertsOf(r),
+				retirable: r.retirable
 			}
 		])
 	)
@@ -2264,7 +2486,10 @@ const extended = (sketch: Sketch, e: Extension): Sketch => {
 				]
 			}))
 		case "triggerLaw":
-			return withRelation(sketch, e.relation, (r) => ({ ...r, triggerLaws: true }))
+			return withRelation(sketch, e.relation, (r) => ({
+				...r,
+				triggerLaws: [...r.triggerLaws, e.law]
+			}))
 		case "reference":
 			return withRelation(sketch, e.relation, (r) => ({
 				...r,
@@ -2391,6 +2616,53 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 				updatedOf(i).has(relation)
 		)
 	const updates = (relation: number) => Arr.some(roles, (_, i) => updatedOf(i).has(relation))
+	/** Whether role i's writes, by a privilege, a member or a cascade, make a row of the relation present, or absent:
+	 * an insert present, a delete absent, an update and a retirement both. */
+	const roleMakes = (i: number, relation: number, made: "present" | "absent") =>
+		Arr.some(
+			Arr.getUnsafe(roles, i).privileges,
+			(p) =>
+				p.relation === relation &&
+				(p.privilege === "UPDATE" || p.privilege === (made === "present" ? "INSERT" : "DELETE"))
+		) ||
+		Arr.some(
+			writesOf(i),
+			(w) =>
+				w.relation === relation &&
+				(w.op === "update" ||
+					w.op === "retire" ||
+					w.op === (made === "present" ? "insert" : "delete"))
+		) ||
+		updatedOf(i).has(relation)
+	/** Whether some role's write, or the relation's retirement as a retirable unit's, makes a row of it present, or
+	 * absent. */
+	const makes = (relation: number, made: "present" | "absent") =>
+		Arr.getUnsafe(relations, relation).retirable ||
+		Arr.some(roles, (_, i) => roleMakes(i, relation, made))
+	/** Whether role i's write of the relation breaks the witness: it makes a row present where the relation is among its
+	 * rows or presences, or absent where it is among its absences. */
+	const breaks = (i: number, w: WitnessSketch, relation: number) =>
+		(roleMakes(i, relation, "present") &&
+			(w.rows.includes(relation) || w.present.includes(relation))) ||
+		(roleMakes(i, relation, "absent") && w.absent.includes(relation))
+	/** Whether exactly one occurrence of the witness is one some write can make true, and that one is one of its rows. */
+	const monotone = (w: WitnessSketch) => {
+		const rows = Arr.filter(w.rows, (x) => makes(x, "present")).length
+		const others =
+			Arr.filter(w.present, (x) => makes(x, "present")).length +
+			Arr.filter(w.absent, (x) => makes(x, "absent")).length
+		return rows === 1 && others === 0
+	}
+	/** The witnesses role i's writes break, with the relation each write breaks it at. */
+	const brokenBy = (i: number) =>
+		Arr.flatMap([...writtenSet(i)], (relation) =>
+			Arr.flatMap(lawsOver(relations, relation), ({ law }) =>
+				Arr.flatMap(law, (w) => (breaks(i, w, relation) ? [{ relation, w }] : []))
+			)
+		)
+	/** The relations the probes of role i's writes read: every relation of every witness they break. */
+	const probedBy = (i: number): ReadonlySet<number> =>
+		new Set(Arr.flatMap(brokenBy(i), ({ w }) => [...w.rows, ...w.present, ...w.absent]))
 	/** Whether some role of `login` holds a privilege on the relation, or serves a member, that writes it by `op`. */
 	const loginWrites = (login: number, relation: number, op: "insert" | "delete") =>
 		Arr.some(
@@ -2630,12 +2902,15 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 	/** Whether a check's seal is a held or a fenced one's, of a relation no role updates (a point's never meets a fence). */
 	const locked = (c: OracleCheck) =>
 		c.seal === "fenced" || (c.seal === "sealed" && changes(c.relation))
-	/** The relations a role reads from outside by held or fenced checks alone, none by a statement or another check. */
-	const lockedOnly = (role: RoleSketch): ReadonlySet<number> => {
+	/** The relations role i reads from outside by held or fenced checks alone, none by a statement, a probe of its writes
+	 * or another check. */
+	const lockedOnly = (i: number): ReadonlySet<number> => {
+		const role = Arr.getUnsafe(roles, i)
 		const checks = Arr.flatMap(role.members, (statements) =>
 			Arr.filter(checksOf(statements), (c) => isOutside(c.seal))
 		)
 		const others = new Set([
+			...probedBy(i),
 			...Arr.flatMap(role.members, (statements) =>
 				Arr.flatMap(placedOf(statements), (placed) =>
 					Arr.flatMap(placed, (p) => (isOutside(p.seal) ? [p.read.relation] : []))
@@ -2657,15 +2932,17 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 	/** The logins that fence the relation, each once. */
 	const fencers = (relation: number): ReadonlyArray<number> =>
 		Arr.filter([...new Set(Arr.map(roles, (r) => r.login))], (login) => fences(login, relation))
-	const outsideReads = (role: RoleSketch): ReadonlySet<number> =>
-		new Set(
-			Arr.flatMap(role.members, (statements) => [
+	/** The relations role i reads from outside: by a statement, a check, or a probe of its writes. */
+	const outsideReads = (i: number): ReadonlySet<number> =>
+		new Set([
+			...Arr.flatMap(Arr.getUnsafe(roles, i).members, (statements) => [
 				...Arr.flatMap(placedOf(statements), (placed) =>
 					Arr.flatMap(placed, (p) => (isOutside(p.seal) ? [p.read.relation] : []))
 				),
 				...Arr.flatMap(checksOf(statements), (c) => (isOutside(c.seal) ? [c.relation] : []))
-			])
-		)
+			]),
+			...probedBy(i)
+		])
 	const own = (i: number): ReadonlySet<IsolationCondition> => {
 		const role = Arr.getUnsafe(roles, i)
 		const failed = new Set<IsolationCondition>()
@@ -2678,10 +2955,8 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 		) {
 			failed.add("privileges")
 		}
-		for (const relation of writtenSet(i)) {
-			if (Arr.getUnsafe(relations, relation).triggerLaws) {
-				failed.add("laws")
-			}
+		if (Arr.some(brokenBy(i), ({ w }) => !monotone(w))) {
+			failed.add("laws")
 		}
 		for (const relation of guardedSet(i)) {
 			if (
@@ -2751,8 +3026,8 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 	}
 	const given = (judges: ReadonlySet<number>, i: number): ReadonlySet<IsolationCondition> => {
 		const written = writtenSet(i)
-		const reads = outsideReads(Arr.getUnsafe(roles, i))
-		const lockedReads = lockedOnly(Arr.getUnsafe(roles, i))
+		const reads = outsideReads(i)
+		const lockedReads = lockedOnly(i)
 		const out = new Set<IsolationCondition>()
 		for (const o of Arr.filter([...judges], (x) => x !== i)) {
 			const login = Arr.getUnsafe(roles, o).login
@@ -2780,14 +3055,24 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 						(c) => isOutside(c.seal) && (c.side === "referenced" || c.seal === "unsealed")
 					)
 				) ||
-				Arr.some([...writtenSet(o)], (x) => Arr.getUnsafe(relations, x).triggerLaws)
+				Arr.some([...writtenSet(o)], (x) => lawsOver(relations, x).length > 0)
 			if ((shared && pivot) || Arr.some([...guardedSet(o)], (x) => written.has(x))) {
 				out.add("writers")
 			}
 		}
 		return out
 	}
-	return { own, given, absent, written: writtenSet, replaced, lockedChecks, fencers }
+	return {
+		own,
+		given,
+		absent,
+		written: writtenSet,
+		replaced,
+		lockedChecks,
+		fencers,
+		brokenBy,
+		monotone
+	}
 }
 
 /** One role's level and conditions as the oracle finds them. */
@@ -2908,6 +3193,8 @@ type IsolationFeature =
 	| "a dropped fact a SERIALIZABLE role's level rests on alone"
 	| "a role whose lowered form alone reads the absence of what it writes"
 	| "a role lowered in a later round"
+	| "a READ COMMITTED role whose write fires a monotone rule's probe"
+	| "a READ COMMITTED role whose writes of a rule's relations only withdraw its violations"
 
 const conditions: ReadonlyArray<IsolationCondition> = [
 	"members",
@@ -2973,7 +3260,14 @@ const shapes: ReadonlyArray<Exclude<Shape, "drawn">> = [
 	"fencedPublisher",
 	"unfencedPivot",
 	"fencedDeleter",
-	"updatedDeleter"
+	"updatedDeleter",
+	"monotoneWriter",
+	"monotoneCure",
+	"monotoneDeleted",
+	"monotoneSelfJoin",
+	"monotonePresent",
+	"monotoneRetired",
+	"monotoneProbed"
 ]
 
 const levelsOf = (verdicts: ReadonlyArray<RoleIsolation>) =>
@@ -3045,6 +3339,11 @@ const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "updatedCheck":
 		case "unfencedPivot":
 		case "updatedDeleter":
+		case "monotoneDeleted":
+		case "monotoneSelfJoin":
+		case "monotonePresent":
+		case "monotoneRetired":
+		case "monotoneProbed":
 			return [0]
 		case "drawn":
 		case "seals":
@@ -3060,14 +3359,20 @@ const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "fencedCheck":
 		case "fencedPublisher":
 		case "fencedDeleter":
+		case "monotoneWriter":
+		case "monotoneCure":
 			return []
 	}
 }
 
-/** The roles a shape the certifier must prove runs READ COMMITTED: a key-matched read of a race's winner, and a
- * repeatable insertion's probed key. */
+/** The roles a shape the certifier must prove runs READ COMMITTED: a key-matched read of a race's winner, a repeatable
+ * insertion's probed key, the monotone writer and the cure. */
 const certifiedRoles = (shape: Shape): ReadonlyArray<number> =>
-	shape === "keyMatched" || shape === "repeatableOtherKey" ? [0, 1] : []
+	shape === "keyMatched" || shape === "repeatableOtherKey"
+		? [0, 1]
+		: shape === "monotoneWriter" || shape === "monotoneCure"
+			? [0]
+			: []
 
 /** The query CTE instances a drawn statement holds, at most. */
 const INSTANCES = 3
@@ -3721,7 +4026,9 @@ describe("the isolation certifier", () => {
 								"a fact dropped beside a READ COMMITTED role",
 								"a dropped fact a SERIALIZABLE role's level rests on alone",
 								"a role whose lowered form alone reads the absence of what it writes",
-								"a role lowered in a later round"
+								"a role lowered in a later round",
+								"a READ COMMITTED role whose write fires a monotone rule's probe",
+								"a READ COMMITTED role whose writes of a rule's relations only withdraw its violations"
 							],
 							{ cases: 500, sense: notesOnly }
 						),
@@ -3732,8 +4039,9 @@ describe("the isolation certifier", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(c, k) =>
+					(drawnCase, k) =>
 						Effect.sync(() => {
+							const c = aimedCase(drawnCase, k)
 							const input = inputOf(c.sketch)
 							const verdicts = verdictsOf(c.sketch, input.relations)
 							const expected = oracle(c.sketch)
@@ -3792,6 +4100,18 @@ describe("the isolation certifier", () => {
 									}
 								} else {
 									k.note("a role certified READ COMMITTED")
+									const round = oracleRound(c.sketch, expected.lowered)
+									if (round.brokenBy(i).length > 0) {
+										k.note("a READ COMMITTED role whose write fires a monotone rule's probe")
+									} else if (
+										Arr.some([...round.written(i)], (x) =>
+											Arr.some(lawsOver(c.sketch.relations, x), ({ law }) => mentions(law, x))
+										)
+									) {
+										k.note(
+											"a READ COMMITTED role whose writes of a rule's relations only withdraw its violations"
+										)
+									}
 									const role = Arr.getUnsafe(c.sketch.roles, i)
 									for (const statements of role.members) {
 										for (const st of statements) {
@@ -3913,7 +4233,7 @@ describe("the isolation certifier", () => {
 									k.note("a fact dropped beside a READ COMMITTED role")
 								}
 								const lifted = oracle(
-									withRelation(c.sketch, e.relation, (r) => ({ ...r, triggerLaws: false }))
+									withRelation(c.sketch, e.relation, (r) => ({ ...r, triggerLaws: [] }))
 								).verdicts
 								if (
 									Arr.some(

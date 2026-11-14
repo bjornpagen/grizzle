@@ -3541,7 +3541,8 @@ of a call's input it refuses: `envelope`, no record of exactly `params` and `fac
   every role that holds INSERT, UPDATE or DELETE on it is certified to run its writes READ COMMITTED and holds only
   INSERT and SELECT there. The installation creates no guard trigger for it, so a write below SERIALIZABLE is admitted
   there: a direct writer meets the grants of the role it writes as, which insert and read and nothing else, and the
-  table's laws, each a constraint PostgreSQL checks at every level. Every other table keeps its guard, and a table no
+  table's laws, each a constraint PostgreSQL checks at every level or a rule over a query no other write can help
+  break ([READ COMMITTED writes](#read-committed-writes)). Every other table keeps its guard, and a table no
   role writes keeps it too. A migration that changes whether a table qualifies drops or creates its guard. A role
   that writes only by direct SQL has no ChangeSet to prove, so it is SERIALIZABLE, and a grant of INSERT, UPDATE or
   DELETE to it keeps that table's guard and makes every role writing the table SERIALIZABLE too.
@@ -3586,9 +3587,16 @@ statement's. The role is certified READ COMMITTED when all of these hold, and st
 - **It has a ChangeSet.** A role that writes only by direct SQL has nothing to prove.
 - **It only inserts.** It states `insert`, not `write`, so it holds INSERT and SELECT alone, and every relation it
   writes is one no role updates or deletes: by a grant, by a ChangeSet, or by an `ON UPDATE CASCADE` into it.
-- **Its relations' laws are native.** Every law over a relation it writes is one PostgreSQL checks at every level (a
-  key, a CHECK, a domain, a foreign key), none a rule over a query, which a trigger checks. No SERIALIZABLE role's
-  ChangeSet reads such a relation.
+- **Its relations' laws hold at READ COMMITTED.** Every law over a relation it writes is one PostgreSQL checks at every
+  level (a key, a CHECK, a domain, a foreign key), or a rule over a query that its writes can break only through the
+  one row each inserts. A trigger checks such a rule at COMMIT, and generate reads each way the rule can be broken (a
+  rule of a side's query, a key's two facts) that its write reaches: that way must read exactly one row some write can
+  add or take away, a match of the row its write inserts, and beside it only rows no write adds (of a relation no role
+  inserts or updates, or a closed relation) and the absence of rows no write takes away (of a relation no role
+  deletes or updates, and no retirable unit's). A write the trigger misses can then only take a violation away, so it
+  refuses more, never less: `Live = Hold where not Freed` checked against a closed count, written by a role that
+  inserts both, is one; a key over `Live`, a join of two relations roles insert, or a negation of a relation a role
+  deletes is none. No SERIALIZABLE role's ChangeSet reads a relation it writes.
 - **Nothing reads the absence or a count of what it writes.** No ChangeSet of any role asks whether a row of it is
   missing (a negation, a `NOT EXISTS`) or how many there are (a count, an aggregate). grizzle's own checks inside a
   write (a duplicate within the call, a refusal of a conflicting row) don't count when every row they look at comes
@@ -3606,7 +3614,8 @@ statement's. The role is certified READ COMMITTED when all of these hold, and st
   up to the insert read other calls' rows.
 - **No SERIALIZABLE role writes what it writes.** The table's guard would refuse every one of its writes.
 - **No SERIALIZABLE writer of what it reads can miss another call's write.** Every role that runs SERIALIZABLE and
-  writes a relation the role reads (by a statement or a foreign key check) reads no row another call can write, makes
+  writes a relation the role reads (by a statement, a foreign key check, or the trigger of a rule over a query its
+  write fires) reads no row another call can write, makes
   no foreign key check but one that finds an immutable row (of a relation every role only inserts into, by a whole
   declared key, or of a relation no role writes), and writes no relation a rule over a query reads, unless the role
   reads the relation by foreign key checks alone and the writer's login fences it (below).
@@ -3626,7 +3635,7 @@ A SERIALIZABLE role lists each condition it failed, with how many places fail it
 | `facts`      | a relation it touches that the installation states no fact of, or a table or function its statements name that no relation is         |
 | `members`    | no ChangeSet in its workload                                                                                                             |
 | `privileges` | it states `write`, or some role updates or deletes a relation it writes                                                                 |
-| `laws`       | a rule over a query over a relation it writes, or a SERIALIZABLE ChangeSet reading such a relation                                       |
+| `laws`       | a rule over a query its write can break through more than the one row it inserts, or a SERIALIZABLE ChangeSet reading what it writes   |
 | `absence`    | a ChangeSet that reads whether rows of a relation it writes are missing, or counts them, or a check of grizzle's own over rows no whole immutable group of its statement brings |
 | `snapshot`   | a read of other calls' rows beside another one in a later statement, or beside a foreign key check                                      |
 | `pivot`      | a read of other calls' rows that is no whole immutable group, a row it writes not joined with such a read, or a foreign key check of a row that can change |
@@ -3661,7 +3670,8 @@ the parameter in one, and run `grizzle generate`.
 
 **Direct SQL.** A direct writer, psql included, writes at SERIALIZABLE, and the guard refuses anything below it with
 25000, except on a table whose every writer is certified READ COMMITTED. There it may write at any level, as the role it
-writes as: it can only insert and read, and every law of the table is a constraint PostgreSQL checks at every level. A
+writes as: it can only insert and read, and every law of the table holds at every level, a constraint PostgreSQL
+checks, or a rule over a query no other write can help break. A
 direct transaction of a login that fences a relation (generate's report names it) that writes the relation begins with
 `LOCK TABLE ... IN EXCLUSIVE MODE` on it, before any other statement, as the fenced ChangeSets do.
 

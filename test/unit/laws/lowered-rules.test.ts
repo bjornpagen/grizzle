@@ -510,7 +510,7 @@ const assertTriggerLaws = (c: LoweringCase, desc: SchemaDesc, law: LawId, kept: 
 	)
 	for (const relation of ["S", "R0", "R1"]) {
 		assert.deepEqual(
-			triggerLawsOver(model, relation),
+			Arr.map(triggerLawsOver(model, relation), (t) => t.law),
 			kept && readBy(c).includes(relation) ? [law] : [],
 			`the trigger laws over ${relation}`
 		)

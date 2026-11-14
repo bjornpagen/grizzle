@@ -1,4 +1,5 @@
 import { readBySlice } from "#compiler/analysis/closure.ts"
+import type { TriggerLaw } from "#compiler/analysis/isolation/facts.ts"
 import { type CheckedSchema, checkedSchema } from "#compiler/analysis/schema.ts"
 import { ViolationBuilder } from "#compiler/analysis/theory/build.ts"
 import { lawDescription } from "#compiler/analysis/theory/description.ts"
@@ -8,7 +9,12 @@ import type {
 	ResolvedTerm,
 	TheoryLaw
 } from "#compiler/analysis/theory/laws.ts"
-import { type QueryRule, type Touches, touches } from "#compiler/analysis/theory/query.ts"
+import {
+	type QueryRule,
+	type Touches,
+	touches,
+	witnesses
+} from "#compiler/analysis/theory/query.ts"
 import {
 	buildTheory,
 	type EvidencedTheory,
@@ -2092,12 +2098,13 @@ const dischargedLaws = (
  * of `relation` or a read of it by a trigger can involve. Empty exactly when every law over `relation` is native, a key,
  * a CHECK, a domain or a foreign key, a lowered rule's among them, and no remaining trigger reads it. A model holds the
  * rules its slice's writes can fire (`compileLaws`), so a reader that asks about every writer, the isolation
- * certifier's, asks the installation's model, whose slice writes every ordinary relation.
+ * certifier's, asks the installation's model, whose slice writes every ordinary relation. Each law comes with its rule's
+ * witnesses (analysis/theory/query.ts witnesses), what the certifier judges a READ COMMITTED writer of it by.
  */
-export const triggerLawsOver = (model: LawModel, relation: string): ReadonlyArray<LawId> =>
+export const triggerLawsOver = (model: LawModel, relation: string): ReadonlyArray<TriggerLaw> =>
 	model.rules.flatMap((r) =>
 		r.law.reads.includes(relation) || r.tables.some((t) => t.relation.name === relation)
-			? [r.law.id]
+			? [{ law: r.law.id, witnesses: witnesses(r.rule) }]
 			: []
 	)
 

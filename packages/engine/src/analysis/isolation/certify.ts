@@ -12,8 +12,10 @@ import {
 	type RowSource,
 	type SiteCore,
 	type StatementFacts,
+	type TriggerLaw,
 	type WriteFact
 } from "#compiler/analysis/isolation/facts.ts"
+import type { Witness } from "#compiler/analysis/theory/query.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -36,9 +38,13 @@ import { TupleSet } from "#compiler/core/tuple-map.ts"
  *   SELECT finds beyond the snapshot never combines with the snapshot's reads into a write no serial order makes only
  *   while no occupant a probe saw can be deleted and replaced (write/insert/protocol.ts storedAbsent and the probe and
  *   ON CONFLICT DO SELECT arms of buildInsert; write/insert/unique.ts RelationUniques, its arbiter and probes);
- * - `laws`: every law over a relation it writes is native, and no change member of a role that runs SERIALIZABLE reads
- *   such a relation, by a statement or a foreign key check, but a fenced write's check of the rows that reference a
- *   row it deletes (fencedSite);
+ * - `laws`: every law over a relation it writes is native or monotone in its write of it (lawReasons): of each witness
+ *   of a rule over a query (facts.ts TriggerLaw) the write breaks, making a row of the relation present where it stands
+ *   among the witness's `rows` or `present`, or absent where it stands among its `absent`, exactly one occurrence is one
+ *   some role's write can make true (Writers.makes), a row present or absent as it stands, and that one stands among
+ *   its `rows`, a match of its breaking arm; and no change member of a role that runs SERIALIZABLE reads a relation it
+ *   writes, by a statement or a foreign key check, but a fenced write's check of the rows that reference a row it
+ *   deletes (fencedSite);
  * - `absence`: no change member of any role reads the absence or a count of a relation it writes, by a statement or by
  *   the check of a foreign key that references a row the member updates or deletes, a fenced write's again excepted;
  * - `snapshot`: in each of its members, an outside read that is no sealed group (ReadSeal) shares its statement with
@@ -50,8 +56,9 @@ import { TupleSet } from "#compiler/core/tuple-map.ts"
  *   call wrote; no write comes before a group the member reads only later. A group it misses makes it write nothing;
  *   a group it reads again is the same rows or none, since a sealed group is immutable and never extended. Each of its
  *   foreign key checks is sealed: a sealed check finds its row, immutable or held (ReadSeal), or refuses the call whole;
- * - `writers`: no role that runs SERIALIZABLE and writes a relation the role reads from outside, by a statement or a
- *   foreign key check, can miss another call's write (pivotCauseOf), so none is the pivot of a cycle through it: no
+ * - `writers`: no role that runs SERIALIZABLE and writes a relation the role reads from outside, by a statement, a
+ *   foreign key check or a probe of a rule over a query its own write fires (RoleView.probed), can miss another call's
+ *   write (pivotCauseOf), so none is the pivot of a cycle through it: no
  *   statement of it reads from outside, none of its foreign key checks is unsealed or reads the rows that reference a
  *   row it changes, and it writes no relation a trigger-held law reads. A sealed check of its own, of an insert-only
  *   relation at a whole declared key or of one no role writes, finds an immutable row or refuses its call, which at
@@ -88,6 +95,24 @@ import { TupleSet } from "#compiler/core/tuple-map.ts"
  * these, an RC member's outside reads behave as one snapshot, its writes commit at once, every write-write conflict is
  * a native unique check decided in commit order, and no transaction, RC or SERIALIZABLE, can be the pivot of a
  * dangerous structure (Fekete et al., Making Snapshot Isolation Serializable, 2005).
+ *
+ * A rule over a query is checked at COMMIT by its triggers' probes (physical/ddl/rules.ts), each of a READ COMMITTED
+ * call at a snapshot of its own: the latest commits and the call's own rows. Where every witness a write breaks is
+ * monotone, as `laws` states it:
+ *
+ * 1. The rule holds in every committed state, whatever level wrote it. In commit order, a state that first breaks it
+ *    through a witness was made so by the call that made the witness's one settable occurrence true, a row it wrote.
+ *    Every other occurrence can only be made false, so it held at every earlier state and at that call's probe, which
+ *    read its own row and refused it. A witness with more settable occurrences is broken by SERIALIZABLE writers
+ *    alone, whose probes each read the others' occurrences, so SSI orders them; a READ COMMITTED write of its relations
+ *    there only makes its occurrences false.
+ * 2. A probe that passes at its snapshot passes at every later state: a write it missed is another row of the settable
+ *    occurrence, in no witness through its own row, or one that only makes an occurrence false. So a READ COMMITTED
+ *    call behaves as run at its COMMIT, in commit order, and a refused one as run at its probe's snapshot, unless a
+ *    write its probe missed must come before it in every order: one whose writer missed another call's write that
+ *    committed before the call began (NEGATION's case 3), which `writers` excludes over the relations its probes read.
+ * 3. A SERIALIZABLE probe reads a relation a READ COMMITTED role writes only where it stands as an occurrence no role
+ *    can make true, so a write of it SSI never sees could only have made the probe pass.
  */
 export type IsolationCondition =
 	| "facts"
@@ -240,14 +265,34 @@ const updatedBy = (served: Served): ReadonlySet<string> =>
 	])
 
 /** The set `by` holds at `key`, made empty on first use. */
-const setAt = (by: Map<string, Set<string>>, key: string): Set<string> => {
+const setAt = <V>(by: Map<string, Set<V>>, key: string): Set<V> => {
 	const held = by.get(key)
 	if (held !== undefined) {
 		return held
 	}
-	const made = new Set<string>()
+	const made = new Set<V>()
 	by.set(key, made)
 	return made
+}
+
+/**
+ * What a write can make of a row of the relation it writes, as a rule over a query reads it: `present`, a row there
+ * that was not, and `absent`, a row gone that was there.
+ */
+type Made = "present" | "absent"
+
+/** What a write makes: an insert a row present, a delete one absent, and an update both, as a retirement does, which
+ * deletes a unit's bodies' rows and sets its header's retirement field (physical/ddl/retire.ts). */
+const madeBy = (op: WriteFact["op"]): ReadonlyArray<Made> => {
+	switch (op) {
+		case "insert":
+			return ["present"]
+		case "delete":
+			return ["absent"]
+		case "update":
+		case "retire":
+			return ["present", "absent"]
+	}
 }
 
 /** The write a privilege permits, none for SELECT. */
@@ -283,6 +328,7 @@ class Writers {
 	readonly #updated = new Set<string>()
 	readonly #deleters = new Map<string, Set<string>>()
 	readonly #replacers = new Map<string, Set<string>>()
+	readonly #made = new Map<string, Set<Made>>()
 
 	constructor(relations: ReadonlyMap<string, RelationFacts>, roles: ReadonlyArray<Served>) {
 		const deleted = new Map<string, Set<string>>()
@@ -311,6 +357,13 @@ class Writers {
 				this.#note(relation, "update", login)
 			}
 		}
+		for (const [relation, facts] of relations) {
+			if (facts.retirable) {
+				for (const m of madeBy("retire")) {
+					setAt(this.#made, relation).add(m)
+				}
+			}
+		}
 		for (const [login, deletes] of deleted) {
 			const inserts = setAt(inserted, login)
 			for (const relation of deletes) {
@@ -323,9 +376,13 @@ class Writers {
 	}
 
 	/** One write of `relation` by a role of `login`. A retirement writes it but neither updates, deletes nor inserts a
-	 * row of it: its relation's calls read each group they hold insert-only (facts.ts WriteFact `retire`). */
+	 * row of it: its relation's calls read each group they hold insert-only (facts.ts WriteFact `retire`). It makes rows
+	 * present and absent all the same (madeBy), as the triggers it fires read them. */
 	#note(relation: string, op: WriteFact["op"], login: LoginWrites): void {
 		this.#written.add(relation)
+		for (const m of madeBy(op)) {
+			setAt(this.#made, relation).add(m)
+		}
 		switch (op) {
 			case "retire":
 				return
@@ -346,6 +403,12 @@ class Writers {
 	/** Whether no role writes the relation. */
 	unwritten(relation: string): boolean {
 		return !this.#written.has(relation)
+	}
+
+	/** Whether some role's write, or a retirable unit's retirement (RelationFacts.retirable), can make a row of the relation
+	 * present, or absent (Made). */
+	makes(relation: string, made: Made): boolean {
+		return this.#made.get(relation)?.has(made) ?? false
 	}
 
 	/** Whether no role updates or deletes the relation: a row of it, once committed, stays as it is. */
@@ -1341,7 +1404,8 @@ interface ReadSite {
 
 /**
  * One role as the conditions read it, built once: its members' views, the relations it writes, those of them its
- * login fences (Writers.fences), those it reads from outside, by a statement or a check, sealed or not, those of them
+ * login fences (Writers.fences), what its writes make of them, those its writes' probes read, those it reads from
+ * outside, by a statement, a check or a probe, sealed or not, those of them
  * it reads from outside by held or fenced checks alone (lockedSeal), and every relation it reads with the sites it reads
  * it at, but the checks of the rows that reference a row its member deletes where its login fences the deleted
  * relation (fencedSite).
@@ -1358,6 +1422,14 @@ interface RoleView {
 	 */
 	readonly guarded: ReadonlySet<string>
 	readonly fences: ReadonlySet<string>
+	/** What its writes make of each relation it writes (Made), by a privilege, a member or a cascade. */
+	readonly made: ReadonlyMap<string, ReadonlySet<Made>>
+	/**
+	 * The relations the probes of its writes read: every relation of every witness of a rule over a query (TriggerLaw)
+	 * that a write of it breaks (breaksAt), read at COMMIT at a snapshot of each probe's own. Each is an outside read of
+	 * it, by no lock (`locked`).
+	 */
+	readonly probed: ReadonlySet<string>
 	readonly outside: ReadonlySet<string>
 	readonly locked: ReadonlySet<string>
 	readonly sites: ReadonlyMap<string, ReadonlyArray<ReadSite>>
@@ -1421,6 +1493,82 @@ const pivotCauseOf = (
 	return held === undefined ? undefined : `a law over ${held}, which it writes, is held by triggers`
 }
 
+/** What a role's writes make of each relation it writes (Made): its privileges', its members' and its cascades'. */
+const madeOf = (at: Installation, served: Served): ReadonlyMap<string, ReadonlySet<Made>> => {
+	const out = new Map<string, Set<Made>>()
+	const note = (relation: string, op: WriteFact["op"]): void => {
+		for (const m of madeBy(op)) {
+			setAt(out, relation).add(m)
+		}
+	}
+	for (const [relation, privileges] of served.role.privileges) {
+		for (const p of privileges) {
+			const op = permitted(p)
+			if (op !== undefined) {
+				note(relation, op)
+			}
+		}
+	}
+	for (const member of served.members) {
+		for (const s of member.statements) {
+			for (const w of s.writes) {
+				note(w.relation, w.op)
+			}
+		}
+	}
+	for (const relation of cascaded(at.relations, updatedBy(served))) {
+		note(relation, "update")
+	}
+	return out
+}
+
+/**
+ * Whether a write of `relation` that makes `made` of its rows breaks witness `w`, firing the probe that reads it: it
+ * makes a row present where the relation stands among the witness's `rows` or `present`, or absent where it stands
+ * among its `absent`.
+ */
+const breaksAt = (made: ReadonlySet<Made>, w: Witness, relation: string): boolean =>
+	(made.has("present") && (w.rows.includes(relation) || w.present.includes(relation))) ||
+	(made.has("absent") && w.absent.includes(relation))
+
+/** The occurrences of a witness some role's write can make true, each by where it stands and its relation. */
+const settable = (
+	writers: Writers,
+	w: Witness
+): ReadonlyArray<{ readonly at: "rows" | "present" | "absent"; readonly relation: string }> => [
+	...w.rows.flatMap((relation) =>
+		writers.makes(relation, "present") ? [{ at: "rows" as const, relation }] : []
+	),
+	...w.present.flatMap((relation) =>
+		writers.makes(relation, "present") ? [{ at: "present" as const, relation }] : []
+	),
+	...w.absent.flatMap((relation) =>
+		writers.makes(relation, "absent") ? [{ at: "absent" as const, relation }] : []
+	)
+]
+
+/**
+ * Whether a witness is monotone: exactly one of its occurrences is one some role's write can make true, and it stands
+ * among its `rows`, one row of a match of its breaking arm. A probe of the write that makes it true reads every other
+ * occurrence as one no write makes true.
+ */
+const monotone = (writers: Writers, w: Witness): boolean => {
+	const [one, ...more] = settable(writers, w)
+	return one !== undefined && more.length === 0 && one.at === "rows"
+}
+
+/** The rules over queries over `relation` a write of it that makes `made` breaks a witness of (breaksAt), each with the
+ * witnesses it breaks. */
+const broken = (
+	at: Installation,
+	relation: string,
+	made: ReadonlySet<Made>
+): ReadonlyArray<{ readonly law: TriggerLaw; readonly witnesses: ReadonlyArray<Witness> }> =>
+	(at.relations.get(relation)?.triggerLaws ?? []).flatMap((law) => {
+		const ws = law.witnesses.filter((w) => breaksAt(made, w, relation))
+		return ws.length === 0 ? [] : [{ law, witnesses: ws }]
+	})
+
 /** A role's view over every member it may be served (Served), each member read once into its view. */
 const roleView = (at: Installation, served: Served): RoleView => {
 	const members = served.members.map((m) => memberView(at, m))
@@ -1441,7 +1589,18 @@ const roleView = (at: Installation, served: Served): RoleView => {
 		}
 	}
 	const written = writtenBy(at, served, "counted")
-	const read = new Set(members.flatMap((v) => v.outsides.map((p) => p.read.relation)))
+	const made = madeOf(at, served)
+	const probed = new Set(
+		[...made].flatMap(([relation, m]) =>
+			broken(at, relation, m).flatMap((b) =>
+				b.witnesses.flatMap((w) => [...w.rows, ...w.present, ...w.absent])
+			)
+		)
+	)
+	const read = new Set([
+		...members.flatMap((v) => v.outsides.map((p) => p.read.relation)),
+		...probed
+	])
 	const checked = members.flatMap((v) => v.checks.filter((c) => outside(c.seal)))
 	const unlocked = new Set(checked.flatMap((c) => (lockedSeal(c.seal) ? [] : [c.relation])))
 	return {
@@ -1450,6 +1609,8 @@ const roleView = (at: Installation, served: Served): RoleView => {
 		written,
 		guarded: writtenBy(at, served, "apart"),
 		fences: new Set([...written].filter((r) => at.writers.fences(served.role.login, r))),
+		made,
+		probed,
 		cause: pivotCauseOf(at, members, written),
 		outside: new Set([...read, ...checked.map((c) => c.relation)]),
 		locked: new Set(
@@ -1473,13 +1634,14 @@ const reason = (
 	detail
 })
 
-/** Every relation the role touches, by a privilege, a write, a check or a read of other than its own call's rows, that
- * the installation states no fact of. */
+/** Every relation the role touches, by a privilege, a write, a check, a probe of its writes or a read of other than its
+ * own call's rows, that the installation states no fact of. */
 const factReasons = (at: Installation, view: RoleView): ReadonlyArray<IsolationReason> =>
 	[
 		...new Set([
 			...view.role.privileges.keys(),
 			...view.written,
+			...view.probed,
 			...view.members.flatMap((v) => [
 				...v.reads.flatMap((p) => (p.read.own ? [] : [p.read.relation])),
 				...v.checks.map((c) => c.relation)
@@ -1528,16 +1690,25 @@ const privilegeReasons = (
 	)
 ]
 
-/** Condition 2's own half: no law over a relation the role writes is held by a deferred trigger. */
-const lawReasons = (
-	at: Installation,
-	written: ReadonlySet<string>
-): ReadonlyArray<IsolationReason> =>
-	[...written].flatMap((relation): ReadonlyArray<IsolationReason> => {
-		const laws = at.relations.get(relation)?.triggerLaws ?? []
+/**
+ * Condition 2's own half: every law over a relation the role writes that a deferred trigger holds is monotone in its
+ * write there: each witness its write of the relation breaks is monotone (`monotone`). One reason per relation whose
+ * write breaks one that is not, naming every such law.
+ */
+const lawReasons = (at: Installation, view: RoleView): ReadonlyArray<IsolationReason> =>
+	[...view.made].flatMap(([relation, made]): ReadonlyArray<IsolationReason> => {
+		const laws = broken(at, relation, made).flatMap((b) =>
+			b.witnesses.every((w) => monotone(at.writers, w)) ? [] : [b.law.law]
+		)
 		return laws.length === 0
 			? []
-			: [reason("laws", { relation }, `laws ${laws.join(", ")} over it are held by triggers`)]
+			: [
+					reason(
+						"laws",
+						{ relation },
+						`laws ${laws.join(", ")} over it are held by triggers, and its write of it can make a violation true that reads another row some role's write can make present or absent, or reads its row other than as one row of a match`
+					)
+				]
 	})
 
 /** A site some role's member reads a relation's absence or count at, for condition 3, with how. */
@@ -1777,7 +1948,7 @@ const ownReasons = (
 	...factReasons(at, view),
 	...memberReasons(view.role),
 	...privilegeReasons(at, view.role, view.written),
-	...lawReasons(at, view.written),
+	...lawReasons(at, view),
 	...absenceReasons(view, absent),
 	...snapshotReasons(view),
 	...pivotReasons(view)
