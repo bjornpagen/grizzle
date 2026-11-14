@@ -524,7 +524,7 @@ read against main 5b049abf); a Q label points at its entry above.
 - upstream/gist-costestimate-column-position: a pgsql-hackers reply to BUG #15408, for PostgreSQL 20.
 - upstream/relcache-planned-check-and-generation: the relcache patch the pin carries.
 - upstream/fallow-unused-class-member-union-property: fallow credits no class member called through a property of a
-  union-typed value, so .fallowrc.json keeps use and useRelation. File at fallow-rs/fallow, then drop the entries once
+  union-typed value, so .fallowrc.json keeps use and relationUse. File at fallow-rs/fallow, then drop the entries once
   repro.sh reports Cell.never alone.
 - upstream/arkregex-zero-width-space-marker: ArkRegex reads a literal U+200B in a pattern as its own error or anchor
   marker, so grizzle's scan writes it as NUL and the host type writes it back (types/fields/source.ts, regex.ts). File

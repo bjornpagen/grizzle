@@ -27,7 +27,7 @@ import {
 	emptyUse,
 	structuralRegex,
 	type TextColumnUse,
-	useColumns,
+	columnDomains,
 	usedNodes
 } from "#compiler/physical/ddl/domains.ts"
 import { lowerDefinition } from "#compiler/physical/derived/definition.ts"
@@ -146,7 +146,7 @@ const viewObjects = (
 		from: [{ kind: "PUBLIC" }]
 	}
 	const use = emptyUse()
-	useColumns(b, a.heading, use)
+	columnDomains(b, a.heading, use)
 	const viewObject = b.add(
 		{
 			kind: "materializedView",

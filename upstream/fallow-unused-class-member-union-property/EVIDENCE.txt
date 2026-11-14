@@ -27,13 +27,13 @@ Environment, for every section: macOS 27.0.1 on arm64 (10 cores); Node 26.13.0; 
      references (1 guarded fix), 0 unresolved findings, 0 abstained findings
 
 2. grizzle itself, at fallow 3.38.1, in a scratch copy of HEAD.
-   - With "use" and "useRelation" deleted from usedClassMembers, `pnpm -s dead-code` reports exactly:
+   - With "use" and "relationUse" deleted from usedClassMembers, `pnpm -s dead-code` reports exactly:
        ● Unused class members (2)
          packages/engine/src/check/params.ts (2)
            :77 ParamCell.use
-           :113 ParamCell.useRelation
+           :113 ParamCell.relationUse
        ✗ 2 class members (4.32s)
-   - Every call is `resolved.cell.use(...)` or `resolved.cell.useRelation(...)`. Here resolved is the BindValue that
+   - Every call is `resolved.cell.use(...)` or `resolved.cell.relationUse(...)`. Here resolved is the BindValue that
      the Checker's resolveParam, or its private #resolveParam, returns, narrowed to its "param" arm
      (check/checker.ts).
    - `fallow dead-code --type-aware` on the same copy credits both ("2 candidates, 2 confirmed uses"). It takes about

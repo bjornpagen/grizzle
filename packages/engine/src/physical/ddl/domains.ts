@@ -79,7 +79,7 @@ export const emptyUse = (): TypeUse => ({ domains: new Map(), vector: false })
 
 /** The domains a column of type `t` names, down a contract's base chain and a span's endpoint: a contract's, a text
  * refinement's, a closed id's roster domain and a set's bits domain. */
-const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
+const typeDomains = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 	const contract = contractOf(t)
 	if (contract !== undefined) {
 		const name = b.names.contractDomain(contract.name)
@@ -88,7 +88,7 @@ const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 			identity: b.names.contractNamed(contract.name),
 			node: b.typeNamed(name)
 		})
-		useType(b, contract.base, use)
+		typeDomains(b, contract.base, use)
 		return
 	}
 	if (t.carrier === "code") {
@@ -109,7 +109,7 @@ const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 	}
 	const span = spanOf(t)
 	if (span !== undefined) {
-		useType(b, span.endpoint, use)
+		typeDomains(b, span.endpoint, use)
 	}
 	if (t.carrier === "vector") {
 		use.vector = true
@@ -125,13 +125,13 @@ const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 }
 
 /** The types of every column of `heading`. */
-export const useColumns = (
+export const columnDomains = (
 	b: InstallBuilder,
 	heading: ReadonlyArray<HeadingColumn>,
 	use: TypeUse
 ): void => {
 	for (const c of heading) {
-		useType(b, c.type, use)
+		typeDomains(b, c.type, use)
 	}
 }
 

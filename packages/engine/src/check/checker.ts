@@ -1853,7 +1853,7 @@ export class Checker {
 				`relation parameter ${src.cell.name} bound to the importer's relation parameter`
 			)
 		}
-		const param = resolved.cell.useRelation(heading, loc)
+		const param = resolved.cell.relationUse(heading, loc)
 		return this.node({ kind: "InputSet", input: { kind: "declared", param }, heading }, loc)
 	}
 

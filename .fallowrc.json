@@ -1115,7 +1115,7 @@
 		{ "file": "packages/engine/src/write/family/order.ts", "exports": ["Plan"] },
 		{ "file": "packages/engine/src/runtime/write/outcome.ts", "exports": ["keyWitness"] }
 	],
-	// use and useRelation: fallow credits no member called through a property of a union-typed value, and the checker
+	// use and relationUse: fallow credits no member called through a property of a union-typed value, and the checker
 	// calls ParamCell's on the cell of a BindValue (check/checker.ts). The report and when these entries go are in
 	// upstream/fallow-unused-class-member-union-property. release: fallow does not type a for-of binding, and
 	// SessionPool.release calls SessionStatements.release on each open session it iterates in adapter/wire/session.ts
@@ -1135,7 +1135,7 @@
 		{ "implements": "RiddenFamily", "members": ["folds", "fold", "axes"] },
 		"discriminantSpine",
 		"use",
-		"useRelation",
+		"relationUse",
 		"freshVar",
 		"freshOccurrence",
 		"freshScope",
