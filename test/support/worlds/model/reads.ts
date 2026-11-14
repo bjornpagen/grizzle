@@ -21,7 +21,7 @@ import type {
  */
 
 /** The domain of a role relation's field: its base field's for a whole entry, its head field's for a query entry. */
-export const entryFieldDomain = (
+const entryFieldDomain = (
 	base: BaseSpec,
 	entry: EntrySpec,
 	field: string

@@ -2,6 +2,7 @@ import type { Situations } from "@bjornpagen/testing/features"
 import { Array as Arr, Option, Record } from "effect"
 import { isSpan, sameValue } from "#test/support/laws/model.ts"
 import { invalidKindsOf } from "#test/support/worlds/generate/classify.ts"
+import { inDomain } from "#test/support/worlds/generate/domain.ts"
 import { headingOf } from "#test/support/worlds/generate/entries.ts"
 import { entryKey } from "#test/support/worlds/generate/reads.ts"
 import { invalidKinds } from "#test/support/worlds/invalid/kinds.ts"
@@ -18,6 +19,7 @@ import {
 import { reachedPairs, steppedPairs } from "#test/support/worlds/model/reads.ts"
 import { compileRefused, readBackClasses } from "#test/support/worlds/model/session/apply.ts"
 import { handSetFaults, onConflictSets } from "#test/support/worlds/model/session/direct.ts"
+import { entryKeyed } from "#test/support/worlds/model/session/keys.ts"
 import { reorderedRoster } from "#test/support/worlds/model/session/migrate.ts"
 import {
 	dbSessionAt,
@@ -1653,7 +1655,45 @@ const readBacksOf = (
 	})
 
 /**
- * How a Db's read and write went: the read path a read took and what it showed (readsOf); how a ChangeSet's writes
+ * What a get's input is, as the harness reads its own draw, whatever the model allows it: fields within which no key of
+ * its relation lies (model/session/keys.ts entryKeyed), a read of every row agreeing at them, since grizzle serves no
+ * lookup by a field set a caller picks; and a value outside its field's domain, or a field outside the heading, by the
+ * harness's own check of what it draws (generate/domain.ts inDomain). Each its own feature, so a class of the box
+ * (generate/enumerate.ts exploreBox) holds such a get apart from a get by a key of its rows and checks it, wherever the
+ * model's one judgment of a get (model/reads.ts getCompiles) puts its outcome.
+ */
+const getShapeOf = (
+	state: ModelState,
+	action: Extract<Action, { readonly kind: "read" }>
+): ReadonlyArray<WorldFeature> => {
+	const via = action.via
+	if (via.kind !== "get") {
+		return []
+	}
+	return Option.match(dbRoleAt(state, action.session), {
+		onNone: () => [],
+		onSome: (role): ReadonlyArray<WorldFeature> => {
+			const base = state.install.base
+			const entry = roleEntryOf(role, action.relation)
+			if (entry === undefined) {
+				return []
+			}
+			const heading = headingOf(base, entry)
+			const outside = Arr.some(
+				Record.toEntries(via.key),
+				([field, value]) => !Arr.some(heading, (f) => f.name === field && inDomain(f.domain, value))
+			)
+			return [
+				...(entryKeyed(base, entry, Record.keys(via.key)) ? [] : ["get:no-key" as const]),
+				...(outside ? ["get:outside-domain" as const] : [])
+			]
+		}
+	})
+}
+
+/**
+ * How a Db's read and write went: the read path a read took, a get by no key apart (getShapeOf), and what it showed
+ * (readsOf); how a ChangeSet's writes
  * were stratified (one write, a union of several in one stratum, a sequence of strata, or a stratum refused because a
  * query entry's membership would depend on the order of its writes); and how each read-back stood to the change
  * (readBacksOf).
@@ -1665,7 +1705,11 @@ const pathsOf = (
 ): ReadonlyArray<WorldFeature> => {
 	switch (action.kind) {
 		case "read":
-			return [`via:${action.via.kind}`, ...readsOf(state, action, observation)]
+			return [
+				`via:${action.via.kind}`,
+				...getShapeOf(state, action),
+				...readsOf(state, action, observation)
+			]
 		case "apply": {
 			const strata: WorldFeature =
 				observation.kind === "compile-refused" &&

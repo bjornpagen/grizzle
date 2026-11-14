@@ -1127,6 +1127,8 @@ export type WorldFeature =
 	| `invariant:${InvariantName}`
 	| `deletion:${"base-gone" | "world-gone" | "derived-kept" | "derived-refreshed"}`
 	| `via:${ReadVia["kind"]}`
+	| "get:no-key"
+	| "get:outside-domain"
 	| `page:${PageKey}:${PageFrom}`
 	| "attach:nested"
 	| "reach:chained"
