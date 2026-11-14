@@ -228,7 +228,7 @@ docs/
   project.md                     # this file
   printer.md                     # the deterministic printer's short spec
 package.json  pnpm-lock.yaml  pnpm-workspace.yaml  tsconfig.json  turbo.json  lefthook.yml
-oxlint.config.ts  toolchain.config.ts  .oxfmtrc.json  .fallowrc.json
+oxlint.config.ts  oxlint.ast.config.ts  toolchain.config.ts  .oxfmtrc.json  .fallowrc.json
 vendor/
   toolchain/                     # the shared dev tools and testing library, a git submodule
 packages/
