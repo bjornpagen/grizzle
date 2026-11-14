@@ -70,23 +70,25 @@
  * count fold over each node's children whose selection reads both copies, which the backfill draws only after the
  * copies (backfill.ts ordered); and pantry's Instance's shape, the tree's own count `children` also carried along a
  * second family's owner axis (a family over Node by each node's `anchor`, the first node of its count in pre-order,
- * from the anchor's `sites`), which the backfill draws as the tree's count alone (backfill.ts familyCells). One to
- * three documents' trees, each drawn by its parents, are written directly with
- * every drawn value the old form's laws fix; the keyed tree is drafted from the frozen snapshot, `--drop`ping the old
- * id and document, reviewed with the data step that fills each node's new root from its document's uuid, and applied.
- * Each document mapped to its own root keeps every slot, count, interval and fold value, each parent the old parent's
- * start, and holds every copy and turns fold value the keyed tree's laws fix over the same facts, which a fresh install
- * holds (families/tree.ts numbered, the direct pre-order numbering, and turnsOf over it), at a fresh install's catalog, every table rewritten
- * at most once, nothing left to generate; two documents mapped onto one root, a named case of its own weight, are
+ * from the anchor's `sites`), which the backfill draws as the tree's count alone (backfill.ts familyCells); and
+ * pantry's Node `was`, each member's copy of the kind of the sibling before it along the tree's predecessor axis, the
+ * base at slot 0 and on the root, which no predecessor meets (backfill.ts copyUpdate). One to three documents' trees,
+ * each drawn by its parents, are written directly with every drawn value the old form's laws fix; the keyed tree is
+ * drafted from the frozen snapshot, `--drop`ping the old id and document, reviewed with the data step that fills each
+ * node's new root from its document's uuid, and applied. Each document mapped to its own root keeps every slot,
+ * count, interval and fold value, each parent the old parent's start, and holds every copy and turns fold value the
+ * keyed tree's laws fix over the same facts, which a fresh install holds (families/tree.ts numbered, the direct
+ * pre-order numbering, and turnsOf over it), at a fresh install's catalog, every table rewritten at most once, nothing
+ * left to generate; two documents mapped onto one root, a named case of its own weight, are
  * refused at migrate by a law of the keyed tree, its primary key's, its family's or its fold's, read from the compiled
  * installation. The parent drawn anew is read off each root's intervals sorted (backfill.ts parentUpdate), so every
  * statement of the draft's backfill is judged on its SQL AST to read no row once per row of another, neither a
  * subquery reading a row outside it nor a LATERAL source (test/support/migrate/probes.ts). Its features: the old tree
  * keyed, a tree of three levels or more, several old trees each its own root, the refused merge, a fold over the copies
  * selecting a member, a node whose parent's kind is not its grandparent's, a tree's count carried along the anchor
- * family's owner axis from another node, and the shapes whose depths and levels the parent's backfill numbers: a
- * single-node tree, a chain four levels deep, three siblings or more under one parent, and one level under two parents,
- * each aimed at by a steered case that constructs it.
+ * family's owner axis from another node, a copy from the sibling before along the predecessor axis, and the shapes
+ * whose depths and levels the parent's backfill numbers: a single-node tree, a chain four levels deep, three siblings
+ * or more under one parent, and one level under two parents, each aimed at by a steered case that constructs it.
  *
  * Plants (~/.cache/grizzle-release/MIGSTRESS/plants): cutover-fk-keeps-old-key (a re-pointed foreign key keeps the
  * referenced table's old key), cutover-backfill-skips-rows (the family backfill skips a row of each group),
@@ -162,6 +164,7 @@ import {
 	monoids,
 	onBuilder,
 	orderedBuilder,
+	predBuilder,
 	treeBuilder
 } from "#compiler/schema/statements.ts"
 import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
@@ -1981,7 +1984,8 @@ const keyedTreeOf = () => {
 			turns: accumulated(natural, 0n),
 			anchor: natural,
 			sites: natural,
-			uses: drawnField(natural)
+			uses: drawnField(natural),
+			was: accumulated(pg.integer, 0)
 		},
 		["package", "path", "start"],
 		[]
@@ -2013,6 +2017,16 @@ const keyedTreeOf = () => {
 			),
 			onBuilder(Node, ["package", "path", "start", "turns"])
 		),
+		containedBuilder(
+			onBuilder(
+				select(Node, (n) => n.gt(n.start, 0n)),
+				["package", "path", "parent", predBuilder("at"), "was"]
+			),
+			onBuilder(
+				select(Node, (n) => n.gt(n.start, 0n)),
+				["package", "path", "parent", "at", "kind"]
+			)
+		),
 		countedBuilder(onBuilder(Node, ["package", "path", "anchor"]), finBuilder(Node, "uses")),
 		containedBuilder(
 			onBuilder(Node, ["package", "path", "anchor", "children"]),
@@ -2041,7 +2055,8 @@ const keyedFields = [
 	"turns",
 	"anchor",
 	"sites",
-	"uses"
+	"uses",
+	"was"
 ] as const
 
 /**
@@ -2090,6 +2105,18 @@ const anchorsOf = (rows: ReadonlyArray<KeyedRow>) => {
 	}
 }
 
+/** A row's copy of the kind of the sibling before it along the tree's predecessor axis: a member past slot 0 holds
+ * its predecessor's kind, and a member at slot 0 and the root, which is no member, hold the base, 0. */
+const wasOf = (rows: ReadonlyArray<KeyedRow>, row: KeyedRow): number =>
+	row.start > 0 && row.at > 0
+		? defined(
+				Option.getOrUndefined(
+					Arr.findFirst(rows, (r) => r.start > 0 && r.parent === row.parent && r.at === row.at - 1)
+				),
+				`the sibling before the node at ${row.start}`
+			).kind
+		: 0
+
 /** The model's rows of the keyed tree: each old row under its document's new root, its parent the old parent's start,
  * every slot, count, interval, kind and count fold value as the old tree held it, its copies and turns fold as the
  * direct numbering states them (turnsOf), and its anchor, its sites (its own count) and its uses (anchorsOf). */
@@ -2120,7 +2147,8 @@ const keyedRows = (c: TreeCase): ReadonlyArray<ReadonlyArray<string>> =>
 					turns.end(row),
 					anchors.anchor(row),
 					row.children,
-					anchors.uses(row)
+					anchors.uses(row),
+					wasOf(rows, row)
 				],
 				String
 			)
@@ -2186,6 +2214,7 @@ type TreeFeature =
 	| "two old trees mapped onto one root, refused"
 	| "a fold over copies along the parent, one hop and two, selecting a member"
 	| "a tree's count carried along another family's owner axis from another node"
+	| "a copy from the sibling before, along the tree's predecessor axis"
 	| TreeShape
 
 /** What the tree property must reach. */
@@ -2196,6 +2225,7 @@ const treeFeatures: Arr.NonEmptyReadonlyArray<TreeFeature> = [
 	"two old trees mapped onto one root, refused",
 	"a fold over copies along the parent, one hop and two, selecting a member",
 	"a tree's count carried along another family's owner axis from another node",
+	"a copy from the sibling before, along the tree's predecessor axis",
 	...treeShapes
 ]
 
@@ -2342,6 +2372,9 @@ const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
 				for (const shape of shapesOf(doc.parents)) {
 					note(shape)
 				}
+			}
+			if (Arr.some(c.documents, (doc, d) => Arr.some(oldRows(d, doc), (row) => row.at > 0))) {
+				note("a copy from the sibling before, along the tree's predecessor axis")
 			}
 			const again = succeeded(
 				generate({
