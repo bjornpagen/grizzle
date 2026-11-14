@@ -105,17 +105,6 @@ export const carrierColumns = (carrier: WriteCarrier): ReadonlyArray<string> =>
 	carrier.heading.map((c) => c.column)
 
 /**
- * A carrier's row as a comparison of facts or a RETURNING target reads it: the unit row of a carrier of no column,
- * whose every row is the unit relation's one fact, read through the unit marker; or its columns, at least one.
- */
-export type CarrierRow =
-	| { readonly kind: "unit" }
-	| { readonly kind: "columns"; readonly columns: NonEmptyReadonlyArray<CarrierColumn> }
-
-export const carrierRow = (carrier: WriteCarrier): CarrierRow =>
-	isNonEmpty(carrier.heading) ? { kind: "columns", columns: carrier.heading } : { kind: "unit" }
-
-/**
  * The PostgreSQL type a carrier column of a value of `t` is declared with, as a stored column of its type is: a
  * contract's domain, a refinement's `__text_` domain, a roster's domain, or the builtin with its typmod
  * (lower/conservative/context.ts typeRef), `at` naming the carrier where a type is refused.

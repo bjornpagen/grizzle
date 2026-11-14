@@ -5,8 +5,8 @@ import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty
 import { rowEq } from "#compiler/ir/compare.ts"
 import type { TermDesc } from "#compiler/ir/desc.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
+import { fieldColumnType } from "#compiler/ir/physical.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
-import { columnType } from "#compiler/physical/ddl/names.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
 import type { OwnedStatement } from "#compiler/schema/own.ts"
 import type {
@@ -155,7 +155,7 @@ const keyColumn = (at: number): string => `c${at + 1}`
 /** One function parameter per key field, the array of that field's values, in key order: `$1` the first. */
 const keyParams = (b: InstallBuilder, unit: UnitPlan): ReadonlyArray<FunctionParam> =>
 	unit.key.map((field, at) => {
-		const array = arrayOf(columnType(b.names, field.type).type)
+		const array = arrayOf(fieldColumnType(b.names, field.type).type)
 		if (array === undefined) {
 			throw defect(`a retirable key field ${unit.header}.${field.name} of a type with an array`)
 		}

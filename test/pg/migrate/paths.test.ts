@@ -101,7 +101,7 @@ import {
 	identitiesPast,
 	noFurther,
 	openMigrator,
-	rowsOf,
+	storedRowsOf,
 	sameCatalog,
 	type Traced
 } from "#test/pg/migrate/support.ts"
@@ -277,10 +277,16 @@ const property = (p: RenamedPath, notes: Case<Feature>) =>
 						filledSql(planOf(p.path.b, f, owner).drafted, substrate.database)
 					)
 					yield* load(f, p.path.b, model.expected)
-					return yield* rowsOf(m, planOf(p.path.b, f, owner), p.path.b, f, model.numbered)
+					return yield* storedRowsOf(m, planOf(p.path.b, f, owner), p.path.b, f, model.numbered)
 				})
 			)
-			const migratedRows = yield* rowsOf(m, planOf(p.path.b, x, owner), p.path.b, x, model.numbered)
+			const migratedRows = yield* storedRowsOf(
+				m,
+				planOf(p.path.b, x, owner),
+				p.path.b,
+				x,
+				model.numbered
+			)
 			yield* same(
 				migratedRows,
 				freshRows,

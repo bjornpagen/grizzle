@@ -1,7 +1,6 @@
 import { topoOrder } from "#compiler/ir/dag.ts"
-import type { PhysicalNames } from "#compiler/ir/physical.ts"
+import { fieldColumnType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import type { RootedDag } from "#compiler/ir/rel.ts"
-import { columnType } from "#compiler/physical/ddl/names.ts"
 import type {
 	Cte,
 	Expr,
@@ -20,7 +19,7 @@ const columnKey = (table: ObjectName, column: string): string =>
 
 /**
  * The PostgreSQL type of every installed column a definition's DAG reads: each column of an ordinary relation's table,
- * and of a lower derived relation's materialized view, at its field's column type (ddl/names.ts columnType). A table
+ * and of a lower derived relation's materialized view, at its field's column type (ir/physical.ts fieldColumnType). A table
  * column is created at that type, and a materialized view's column is closed to it by its own definition
  * (definition.ts withColumnTypes).
  */
@@ -32,7 +31,10 @@ const installedColumns = (dag: RootedDag, names: PhysicalNames): ReadonlyMap<str
 		}
 		const table = names.relation(node.relation)
 		for (const c of node.heading) {
-			out.set(columnKey(table, names.column(node.relation, c.name)), columnType(names, c.type).type)
+			out.set(
+				columnKey(table, names.column(node.relation, c.name)),
+				fieldColumnType(names, c.type).type
+			)
 		}
 	}
 	return out

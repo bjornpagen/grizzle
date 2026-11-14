@@ -424,7 +424,7 @@ interface Attached {
  * after the records of the attachment statements under it, whose layouts its own holds; an attachment's parent key is
  * read by its columns' codecs under the installation's codes `codes`.
  *
- * An attachment's child is one statement, so it has one layout and its Rows are heading group 0 (rowsOf): the
+ * An attachment's child is one statement, so it has one layout and its Rows are heading group 0 (recordRowsOf): the
  * lowering refuses to deliver an attached heterogeneous union per heading group (lower/conservative/deliver.ts), and
  * a fused child is one column.
  */
@@ -596,7 +596,7 @@ const repeats = (rows: AssembledRows, identity: RowIdentity): boolean =>
  */
 const repeated = (): UnreadableAnswer => new UnreadableAnswer({ index: 0, fate: "committed" })
 
-/** An attachment statement's Rows under a statement's rows, by their parent key (rowsOf). */
+/** An attachment statement's Rows under a statement's rows, by their parent key (recordRowsOf). */
 interface Grouped {
 	readonly child: ChildPlan
 	readonly groups: TupleMap<ReadonlyArray<string>, Array<Row>>
@@ -645,7 +645,7 @@ const rowOf = (
  * never a row delivered twice. A child statement's rows lead with their parent key, so its rows are distinct exactly
  * when each parent's children are.
  */
-export const rowsOf = (
+export const recordRowsOf = (
 	record: StatementRecord,
 	sent: SentRuns,
 	rows: AssembledRows,
@@ -657,7 +657,7 @@ export const rowsOf = (
 	}
 	const grouped: Array<Grouped> = []
 	for (const child of plan.children) {
-		const childRows = rowsOf(child.record, sent, runOf(child.record, sent), 0)
+		const childRows = recordRowsOf(child.record, sent, runOf(child.record, sent), 0)
 		if (Result.isFailure(childRows)) {
 			return childRows
 		}
@@ -688,7 +688,7 @@ export const rowsOf = (
  * The reading of the rows of a statement whose every row is a whole Row as it arrives, one at a time: a statement of
  * whole delivery and no attachment statement under it, whose fused attachments travel inside each row. `next(cells)`
  * is the Row of `cells` as heading group `group`, or UnreadableAnswer for a row that repeats one before it (seenRows)
- * or whose fused children repeat; it reads rows in arrival order, so the Rows are rowsOf's, one by one.
+ * or whose fused children repeat; it reads rows in arrival order, so the Rows are recordRowsOf's, one by one.
  */
 export interface RowReading {
 	readonly next: (cells: ReadonlyArray<Cell>) => Result.Result<Row, UnreadableAnswer>

@@ -94,7 +94,7 @@ import {
 	factSetOf,
 	noFurther,
 	openMigrator,
-	rowsOf,
+	storedRowsOf,
 	sameCatalog
 } from "#test/pg/migrate/support.ts"
 import { assert, defined, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
@@ -1179,8 +1179,8 @@ const step = (h: History, before: Model, after: Model, note: (f: Feature) => voi
 				return assert.fail(loaded.error.message)
 			}
 			yield* transaction(substrate.admin, loaded.value)
-			const migratedRows = yield* rowsOf(m, plan, v, h.schema, model.numbered)
-			const freshRows = yield* rowsOf(m, freshPlan, v, fresh, model.numbered)
+			const migratedRows = yield* storedRowsOf(m, plan, v, h.schema, model.numbered)
+			const freshRows = yield* storedRowsOf(m, freshPlan, v, fresh, model.numbered)
 			assert.deepEqual(
 				migratedRows,
 				freshRows,

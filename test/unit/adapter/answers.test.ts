@@ -40,7 +40,7 @@ import { contained, on, relation, schema } from "#compiler/public/schema.ts"
  *   UnlawfulDelivery, its fields the attachment, the law it breaks and the children the row held, never the first of
  *   several. Oracle: the specification of the deliveries, enumerated in a box of every
  *   delivery, every proof that licenses it and every count of children up to three.
- * - A statement's rows (reader/execution.ts rowsOf): every statement grizzle delivers, an attachment's included, is a
+ * - A statement's rows (reader/execution.ts recordRowsOf): every statement grizzle delivers, an attachment's included, is a
  *   set, so its answer holding one row twice, under the column types' equality (1.5 and 1.50 alike), is
  *   UnreadableAnswer at that statement, and an answer that is a set is stitched exactly. Oracle: a model of the delivered
  *   set, the generated rows themselves, which are distinct by construction until the case plants a repeat.

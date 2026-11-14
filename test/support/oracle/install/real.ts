@@ -12,6 +12,7 @@ import {
 	type SchemaDesc as EngineSchemaDesc,
 	serialDraw
 } from "#compiler/ir/desc.ts"
+import { fieldColumnType, domainBase } from "#compiler/ir/physical.ts"
 import {
 	baseOf,
 	type ContractInfo,
@@ -21,7 +22,6 @@ import {
 	spanOf
 } from "#compiler/ir/scalar.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { columnType, domainBase } from "#compiler/physical/ddl/names.ts"
 import {
 	compileInstallation,
 	type Installation,
@@ -249,10 +249,10 @@ const build = (input: FixtureSchema, options: RealPlanOptions): RealInstallPlan 
 	/**
 	 * A column's type, or with `domain` a contract domain's base, which the installer types one level down: an inner
 	 * contract's domain or the unrefined base type, never a refined text's `__text_` domain, since the outer domain's
-	 * own CHECK carries the pattern (physical/ddl/names.ts domainBase).
+	 * own CHECK carries the pattern (ir/physical.ts domainBase).
 	 */
 	const typeOf = (t: ScalarType, domain: boolean): ColumnType => {
-		const c = domain ? domainBase(names, t) : columnType(names, t)
+		const c = domain ? domainBase(names, t) : fieldColumnType(names, t)
 		const contract = contractOf(t)
 		return {
 			sql: c.type,
@@ -582,7 +582,7 @@ const installRealPlan = (
  * - the DDL is the real install script, in its install order, every statement audited (physical/install);
  * - tables, columns, roster domains, contract domains, sequences and roles are named by the installation's own
  *   InstallNames, and each roster's names constant as the oracle predicts it (names.ts rosterNamesIdentity);
- * - a column's type is the one the real installer gives it (physical/ddl/names.ts columnType): a contract's domain, a
+ * - a column's type is the one the real installer gives it (ir/physical.ts fieldColumnType): a contract's domain, a
  *   refined text's structural `__text_` domain, a roster's domain, a set's bits domain, or the native type;
  * - the load order respects every immediate foreign key; a deferred one is checked at COMMIT and places
  *   no constraint on it;

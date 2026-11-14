@@ -176,9 +176,9 @@ export interface Closure {
 	readonly fields: readonly [ProgramField, ProgramField]
 }
 
-export type Derived = Imported | Interior | RelationSource | Closure
+export type DerivedSource = Imported | Interior | RelationSource | Closure
 
-export type Source = Stored | CaseRoster | Derived
+export type Source = Stored | CaseRoster | DerivedSource
 
 export const sourceFields = (source: Source): Arr.NonEmptyReadonlyArray<ProgramField> => {
 	switch (source.kind) {

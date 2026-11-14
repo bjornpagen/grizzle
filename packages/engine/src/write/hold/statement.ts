@@ -1,7 +1,7 @@
 import { defect } from "#compiler/core/invariant.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { LawField } from "#compiler/ir/law.ts"
-import { columnType } from "#compiler/physical/ddl/names.ts"
+import { fieldColumnType } from "#compiler/ir/physical.ts"
 import type { Expr, SetOperand, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	arrayOf,
@@ -51,7 +51,7 @@ const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
 export const buildHold = (w: WriteContext, held: HeldUnit): WriteStatement<HoldResult> => {
 	const { unit } = held
 	const at = `hold of ${unit.header}`
-	const element = (key: LawField): TypeRef => columnType(w.names, key.type).type
+	const element = (key: LawField): TypeRef => fieldColumnType(w.names, key.type).type
 	return buildStatement(w, ownBuild, (supply) => {
 		const arm = (stated: StatedGroups): SetOperand => {
 			if (stated.kind === "params") {

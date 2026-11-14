@@ -14,7 +14,7 @@ import {
 	type ReadChoice,
 	type RunStatement,
 	readBinding,
-	rowsOf,
+	recordRowsOf,
 	runOf,
 	rowReading,
 	runStatement,
@@ -390,7 +390,7 @@ const groupRows = (
 	group: HeadingGroup,
 	sent: SentRuns
 ): Result.Result<ReadonlyArray<Row>, UnreadableAnswer> =>
-	rowsOf(group.record, sent, runOf(group.record, sent), group.group)
+	recordRowsOf(group.record, sent, runOf(group.record, sent), group.group)
 
 /**
  * The Rows of the heading groups of `order` merged on it, each with its group, the first `limit` of them when it is a
@@ -416,7 +416,7 @@ const emitKeyed = <T>(keyed: ReadonlyArray<Keyed<HeadingGroup>>, emit: Emit<T>):
 
 /**
  * Each kept Row is keyed by its own group's reading of the union's order, and emitted with its group. Every group's
- * Rows are read first, so a group whose answer repeats a row refuses the whole delivery (execution.ts rowsOf).
+ * Rows are read first, so a group whose answer repeats a row refuses the whole delivery (execution.ts recordRowsOf).
  */
 const merged = <T>(
 	merge: MergePlan,

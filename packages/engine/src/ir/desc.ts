@@ -12,6 +12,7 @@ import {
 	omitSourceLocs,
 	toJson
 } from "#compiler/core/canonical.ts"
+import { clockUnits } from "#compiler/core/clock.ts"
 import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -38,7 +39,7 @@ import {
 	vectorMaxDimensions,
 	vectorTag
 } from "#compiler/ir/carriers.ts"
-import { type ClockBinding, clockUnits } from "#compiler/ir/clock.ts"
+import type { ClockBinding } from "#compiler/ir/clock.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import { decimalTag, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import { type Fact, factNames, factsSorted } from "#compiler/ir/proof.ts"

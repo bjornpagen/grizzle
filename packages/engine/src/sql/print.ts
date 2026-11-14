@@ -1,4 +1,5 @@
 import { Refusal } from "#compiler/core/canonical.ts"
+import type { ClockUnit } from "#compiler/core/clock.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import {
@@ -12,7 +13,6 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
-import type { ClockUnit } from "#compiler/ir/clock.ts"
 import {
 	type AlterDomainAction,
 	type AlterRoleAction,

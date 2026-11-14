@@ -15,10 +15,10 @@ import * as Result from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
+import { fieldColumnType } from "#compiler/ir/physical.ts"
 import { baseOf, type Patterns, textInfoOf } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
-import { columnType } from "#compiler/physical/ddl/names.ts"
 import { uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, derived, login, relation, role, schema } from "#compiler/public/schema.ts"
@@ -533,7 +533,7 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 								for (const col of analysis.heading) {
 									k.note(`column ${col.desc.kind}`)
 									const column = installed.names.column("D", col.name)
-									const expected = printType(columnType(installed.names, col.type).type)
+									const expected = printType(fieldColumnType(installed.names, col.type).type)
 									const attribute = yield* owner.values(
 										`SELECT (a.atttypid = '${Str.replaceAll("'", "''")(expected)}'::regtype)::text, a.atttypmod::text, a.attcollation::regcollation::text FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = '${view}'::regclass AND a.attname = '${column}'`,
 										[]

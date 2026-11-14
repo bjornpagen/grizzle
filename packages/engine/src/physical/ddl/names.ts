@@ -1,6 +1,6 @@
 import { nominal } from "#compiler/core/brand.ts"
-import { catchCompileError, Refusal } from "#compiler/core/canonical.ts"
-import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { catchCompileError } from "#compiler/core/canonical.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import type { DomainDigest } from "#compiler/core/fingerprint.ts"
 import {
 	type DeclaredName,
@@ -13,36 +13,17 @@ import {
 	roleIdentity
 } from "#compiler/core/identity.ts"
 import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { DomainCheck } from "#compiler/ir/law.ts"
-import {
-	baseTypeRef,
-	type PhysicalNames,
-	qualifiedType,
-	type SelectionKey
-} from "#compiler/ir/physical.ts"
-import {
-	baseOf,
-	contractOf,
-	patternsText,
-	type RegexRef,
-	type ScalarType
-} from "#compiler/ir/scalar.ts"
+import { missing, type PhysicalNames, type SelectionKey } from "#compiler/ir/physical.ts"
+import type { RegexRef, ScalarType } from "#compiler/ir/scalar.ts"
 import type { NamedNative } from "#compiler/laws/model/model.ts"
 import type { Owned, OwnedEntry, OwnedLogin, OwnedRole } from "#compiler/schema/own.ts"
-import type { Collation, FunctionName, ObjectName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
-import { cUtf8Collation } from "#compiler/sql/build.ts"
+import type { FunctionName, ObjectName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
 import type { ClosedConstant } from "#compiler/sql/constants.ts"
 import { type OutsideProbe, probeIdentity } from "#compiler/write/insert/unique.ts"
-
-/** A name the owned schema cannot supply is a defect of the caller's input, refused as MalformedDescription.
- * A function declaration, so that control flow knows a call never returns. */
-export function missing(capability: string): never {
-	throw new Refusal(malformedDescription(SourceLoc("physical names", []), capability))
-}
 
 const typeSchema = nominal<string, TypeSchema>()
 
@@ -520,71 +501,4 @@ export const installNames = (input: NamesInput): InstallNames => {
 		relationNamed: (relation) => installedOf(owned, relation).named
 	}
 	return names
-}
-
-/** The column type of a scalar, with the fixed collation when the type is builtin text. */
-export interface ColumnType {
-	readonly type: TypeRef
-	/** The fixed collation of builtin text; undefined for every other type. */
-	readonly collation: Collation | undefined
-}
-
-/** The type a column or a cast of this scalar names: the contract's domain, the text refinement's domain, or the base. */
-export const columnType = (names: PhysicalNames, t: ScalarType): ColumnType => {
-	const contract = contractOf(t)
-	if (contract !== undefined) {
-		return { type: qualifiedType(names.contractDomain(contract.name)), collation: undefined }
-	}
-	if (t.carrier === "text" && t.text.regex !== "wildcard") {
-		const domain = names.textDomain(t.text.regex)
-		if (domain === undefined) {
-			missing(`physical: no structural text domain for ${patternsText(t.text.regex.patterns)}`)
-		}
-		return { type: qualifiedType(domain), collation: undefined }
-	}
-	return collated(refinedBase(names, t))
-}
-
-/**
- * The type a value of `t` is stored and cast as once its contract and text refinement are set aside: a closed id's
- * roster domain, its codes' range proof, or the base type.
- */
-const refinedBase = (names: PhysicalNames, t: ScalarType): TypeRef => {
-	const b = baseOf(t)
-	return b.carrier === "code"
-		? qualifiedType(names.rosterDomain(b.roster.closed))
-		: baseTypeRef(names, t)
-}
-
-/** A column type of `type`, with the fixed collation when it is builtin text. */
-const collated = (type: TypeRef): ColumnType => ({
-	type,
-	collation: type.kind === "builtin" && type.name === "text" ? cUtf8Collation : undefined
-})
-
-/**
- * The type of a column a law adds (a constant tag, a partial term, a family's drawn column): its held field's type's
- * base, the fixed collation for text, and never a contract's, a pattern's or a roster's domain.
- *
- * - A fold's hidden accumulator holds the fold's running value, filled in its carrier (runtime/write/fill.ts), which the
- *   plane's contract need not admit between members: a sum under an upper bound can pass the bound and come back under
- *   it, so the contract's domain would refuse a state whose laws hold.
- * - Every other law column holds a value of its field's type, or NULL outside its selection: a field's own, which its
- *   column's domain checked; the law model's literal of the type; pred of a natural, x - 1 where x > 0; or a natural
- *   the host draws, a count copy, an index or a parent start. A domain would only judge again, on every row, what
- *   the law model proves.
- *
- * A set's base is its bits domain, which admits NULL as every domain does (sql/print.ts).
- */
-export const lawColumnType = (names: PhysicalNames, t: ScalarType): ColumnType =>
-	collated(baseTypeRef(names, t))
-
-/** A contract domain's base: an inner contract's domain, a closed id's roster domain, or the unrefined base type,
- * `text` collated for a refined text base, whose pattern the outer domain's own CHECK carries. */
-export const domainBase = (names: PhysicalNames, base: ScalarType): ColumnType => {
-	const contract = contractOf(base)
-	if (contract !== undefined) {
-		return { type: qualifiedType(names.contractDomain(contract.name)), collation: undefined }
-	}
-	return collated(refinedBase(names, base))
 }

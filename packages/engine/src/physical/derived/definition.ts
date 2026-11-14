@@ -5,7 +5,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
-import type { PhysicalNames } from "#compiler/ir/physical.ts"
+import { fieldColumnType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import type { Heading, RootedDag } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
@@ -17,7 +17,6 @@ import {
 import { queryEvidence } from "#compiler/logical/annotate.ts"
 import { lowerOptimized, optimizedInput } from "#compiler/lower/optimize/pipeline.ts"
 import { structuralRegex } from "#compiler/physical/ddl/domains.ts"
-import { columnType } from "#compiler/physical/ddl/names.ts"
 import { deliveredTypes } from "#compiler/physical/derived/delivered.ts"
 import type {
 	Collation,
@@ -73,7 +72,7 @@ const closingOf = (
 	type: ScalarType,
 	delivered: TypeRef | undefined
 ): Closing => {
-	const column = columnType(names, type)
+	const column = fieldColumnType(names, type)
 	const retyped =
 		contractOf(type) !== undefined || baseOf(type).carrier === "code"
 			? delivered === undefined || !sameTypeRef(delivered, column.type)
@@ -225,7 +224,7 @@ export const derivedReading = (
  * parameter and attaches nothing.
  *
  * A view column takes the type, typmod and collation of its defining expression, and the inferred descriptor is what
- * the view must hold, column by column, in the catalog: its column type (ddl/names.ts columnType), which is also what
+ * the view must hold, column by column, in the catalog: its column type (ir/physical.ts fieldColumnType), which is also what
  * the installer grants USAGE by. The inferred type is the type the lowering emits, with five exceptions this module
  * closes in the outermost SELECT:
  *

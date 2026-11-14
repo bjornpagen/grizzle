@@ -1,6 +1,6 @@
+import type { ClockUnit } from "#compiler/core/clock.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Phantom } from "#compiler/core/phantom.ts"
-import type { ClockUnit } from "#compiler/ir/clock.ts"
 import type {
 	AnyChangeSet,
 	ArraysOf,

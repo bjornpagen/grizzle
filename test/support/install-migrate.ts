@@ -768,7 +768,7 @@ export interface Generated {
  * generate` serves over it, and the renames and drops its migration declares (`--rename`, `--drop`; noDeclarations for
  * none).
  */
-export interface GeneratedVersion {
+interface GeneratedVersion {
 	readonly schema: AnySchema
 	readonly logins: ReadonlyArray<AnyLogin>
 	readonly declarations: Declarations
@@ -779,7 +779,7 @@ export interface GeneratedVersion {
  * turn and gives it at the last, serving the files generate wrote for that version: a test serves its first version,
  * runs `migrate` when its case says, a watch open across it, and serves the last.
  */
-export interface GeneratedHistory {
+interface GeneratedHistory {
 	readonly first: Generated
 	readonly migrate: Effect.Effect<
 		Generated,
@@ -925,7 +925,7 @@ const generatedAt = (
  * keeps its password, so a layer served at an earlier version still logs in, and only a login it adds gets one. Every
  * version a test is given holds the installed-catalog posture.
  */
-export const installGeneratedThrough = (
+const installGeneratedThrough = (
 	versions: Arr.NonEmptyReadonlyArray<(name: string) => GeneratedVersion>,
 	options: { readonly label: string; readonly ambient: AmbientSession }
 ): Effect.Effect<GeneratedHistory, CompileError | SqlError, Substrate | Scope.Scope> =>

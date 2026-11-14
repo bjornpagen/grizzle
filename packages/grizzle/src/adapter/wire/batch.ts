@@ -296,7 +296,7 @@ export const asReadFailure = (failure: FlightFailure): ReadError => {
  * by a deadlock (deadlockRefusal): once its snapshot is safe its transaction takes no part in SSI, so every other
  * refusal is the server's.
  */
-export const asDeferrableReadFailure = (failure: FlightFailure): DeferrableReadError => {
+const asDeferrableReadFailure = (failure: FlightFailure): DeferrableReadError => {
 	switch (failure._tag) {
 		case "StaleSnapshot":
 			return failure

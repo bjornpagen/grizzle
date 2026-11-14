@@ -17,7 +17,7 @@ import {
 	spanLiteralText,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
-import { baseTypeRef, type PhysicalNames } from "#compiler/ir/physical.ts"
+import { baseTypeRef, fieldColumnType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import {
 	baseOf,
 	type Roster,
@@ -29,7 +29,6 @@ import { moneyText } from "#compiler/lower/conservative/expr/index.ts"
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
-import { columnType } from "#compiler/physical/ddl/names.ts"
 import { closedLeaf, type ClosedRows } from "#compiler/runtime/write/fill.ts"
 import {
 	type EvalLeaves,
@@ -281,9 +280,9 @@ const persistent = (
 		case "cast":
 			return isDateParse(expr.cast)
 				? dateOfText(lower(expr.args[0]), datePartSlices)
-				: cast(lower(expr.args[0]), columnType(names, expr.type).type)
+				: cast(lower(expr.args[0]), fieldColumnType(names, expr.type).type)
 		case "domainCast":
-			return cast(lower(expr.args[0]), columnType(names, expr.type).type)
+			return cast(lower(expr.args[0]), fieldColumnType(names, expr.type).type)
 		case "cond": {
 			const [when, result, otherwise] = expr.args
 			return {

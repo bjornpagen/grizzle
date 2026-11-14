@@ -1,9 +1,10 @@
+import { type ClockUnit, isClockUnit } from "#compiler/core/clock.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { deepFreeze, hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
-import { type ClockBinding, type ClockUnit, isClockUnit, noClock } from "#compiler/ir/clock.ts"
+import { type ClockBinding, noClock } from "#compiler/ir/clock.ts"
 import { declaredNameAt, type ProgramDesc, type WorkloadDesc } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import {

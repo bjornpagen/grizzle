@@ -20,7 +20,7 @@ import {
 	inputCount,
 	partRuns,
 	readBinding,
-	rowsOf,
+	recordRowsOf,
 	runOf,
 	type SentRuns
 } from "#adapter/reader/execution.ts"
@@ -214,7 +214,7 @@ const outOfOrder = (
  * The delivered rows of a window of `size` whose statement answered `sent`, in presentation order (see the header, 3).
  * The candidates are a strictly increasing sequence under the fetch order: a candidate that repeats or precedes the one
  * before it is UnreadableAnswer at its statement, as is a statement's answer that repeats a row (reader/execution.ts
- * rowsOf).
+ * recordRowsOf).
  */
 const windowEdges = (
 	program: RunProgram,
@@ -233,7 +233,7 @@ const windowEdges = (
 		const placed: Array<{ readonly at: number; readonly edge: DeliveredEdge }> = []
 		for (const [group, rows] of statements.entries()) {
 			const mine = candidates.flatMap((c, at) => (c.statement === rows ? [{ c, at }] : []))
-			const read = rowsOf(
+			const read = recordRowsOf(
 				rows.record,
 				sent,
 				Arr.map(mine, ({ c }) => c.cells),

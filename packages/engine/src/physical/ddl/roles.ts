@@ -45,7 +45,7 @@ import type {
 	RelationInfo,
 	TheoryRelation
 } from "#compiler/ir/law.ts"
-import { baseTypeRef } from "#compiler/ir/physical.ts"
+import { baseTypeRef, missing } from "#compiler/ir/physical.ts"
 import type { DeployPhase } from "#compiler/ir/products.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -66,7 +66,7 @@ import {
 	usedNodes
 } from "#compiler/physical/ddl/domains.ts"
 import { snapshotGuardFunction } from "#compiler/physical/ddl/ledger.ts"
-import { levelIn, missing, type NamedRole, roleView } from "#compiler/physical/ddl/names.ts"
+import { levelIn, type NamedRole, roleView } from "#compiler/physical/ddl/names.ts"
 import type { UnitFunction, UnitFunctions } from "#compiler/physical/ddl/retire.ts"
 import {
 	derivedReading,

@@ -187,7 +187,7 @@ export const servedEntryOf = Effect.fn("servedEntryOf")(function* (compiled: Com
  * The served file of a login's compile, its reads called by `once` alone (entryOf): one whose members a test serves
  * through adapter/db/handles.ts onceCalls, never a DbLayer, so its reads need no live source and it holds none.
  */
-export const onceEntryOf = Effect.fn("onceEntryOf")(function* (compiled: CompiledServed) {
+const onceEntryOf = Effect.fn("onceEntryOf")(function* (compiled: CompiledServed) {
 	return yield* entryOf(compiled, "once")
 })
 

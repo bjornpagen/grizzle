@@ -105,7 +105,7 @@ const stemBudget: Limit = derived({
 export type Part = string | ReadonlyArray<Part> | Identity<IdentityKind>
 
 /** How a kind spells its identifier: readable, or hashed (`__<stem>_<digest>`). */
-export type Form = "readable" | "hashed"
+type Form = "readable" | "hashed"
 
 /** An identity, minted by its kind's constructor below: the parts that define it, its canonical encoding, its stem's
  * segments and the stem they join to, display, the form its kind renders in, and its identifier. */

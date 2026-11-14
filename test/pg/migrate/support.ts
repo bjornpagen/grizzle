@@ -724,7 +724,7 @@ export const factSetOf = (v: Version, facts: ValueFacts): FactSet => {
 
 /** The rows of a version's relations, by relation, each a multiset in a canonical order, a numbered field's values
  * apart from them, by field (`rowsSql`), as PostgreSQL reads them. */
-export const rowsOf = (
+export const storedRowsOf = (
 	session: MigrationSession,
 	plan: RealInstallPlan,
 	v: Version,

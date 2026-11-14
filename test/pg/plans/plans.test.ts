@@ -79,7 +79,7 @@ import {
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
 	compileTemplate,
-	type Declared,
+	type TemplateDeclarations,
 	declaredOf,
 	installationSql,
 	paramTexts,
@@ -274,7 +274,7 @@ const compiled = (q: unknown, schema: string): OracleTemplate => {
 }
 
 /** What paramTexts normalizes the relation inputs of `template`, compiled from `q` as `compiled` compiles it, under. */
-const declared = (q: unknown, template: OracleTemplate): Declared =>
+const declared = (q: unknown, template: OracleTemplate): TemplateDeclarations =>
 	declaredOf(template, q, undefined, testCompile)
 
 const only = <A>(xs: ReadonlyArray<A>, what: string): A => {

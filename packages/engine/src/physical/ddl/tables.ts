@@ -28,6 +28,7 @@ import {
 	spanKeySet,
 	type TableRelation
 } from "#compiler/ir/law.ts"
+import { type ColumnType, fieldColumnType, lawColumnType } from "#compiler/ir/physical.ts"
 import { baseOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import type { NamedPrimaryKey } from "#compiler/laws/model/model.ts"
 import { addDateRanges, dateRanges } from "#compiler/physical/date/storage.ts"
@@ -35,7 +36,6 @@ import { closedMembership, planSides } from "#compiler/physical/ddl/constants.ts
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
 import { lowerPersistent, persistentClosed } from "#compiler/physical/ddl/expr.ts"
 import { addIsolationTrigger } from "#compiler/physical/ddl/isolation.ts"
-import { type ColumnType, columnType, lawColumnType } from "#compiler/physical/ddl/names.ts"
 import {
 	enforcement,
 	lawReasons,
@@ -138,7 +138,7 @@ const plannedTables = (b: InstallBuilder): ReadonlyArray<PlannedTable> =>
 			const name = r.name
 			const after: Array<Node<"setup">> = [b.levelNode(name)]
 			const columns = mapNonEmpty(r.fields, (c): ColumnDef => {
-				const { type, collation } = columnType(b.names, c.type)
+				const { type, collation } = fieldColumnType(b.names, c.type)
 				appendAll(after, typeNodes(b, c.type))
 				return {
 					name: b.names.column(name, c.name),
@@ -162,7 +162,7 @@ const plannedTables = (b: InstallBuilder): ReadonlyArray<PlannedTable> =>
 /** The domain of the installed schema a column of type `t` is typed by, which the column's object is created after;
  * none for any other type. */
 const typeNodes = (b: InstallBuilder, t: ScalarType): ReadonlyArray<Node<"setup">> =>
-	typeNodeOf(b, columnType(b.names, t))
+	typeNodeOf(b, fieldColumnType(b.names, t))
 
 /** The domain of the installed schema a column type names; none for any other type. */
 const typeNodeOf = (b: InstallBuilder, t: ColumnType): ReadonlyArray<Node<"setup">> => {

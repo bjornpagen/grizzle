@@ -69,7 +69,7 @@ import {
 	type ComputedTerm,
 	type Connective,
 	type Delivery,
-	type Derived,
+	type DerivedSource,
 	endpointType,
 	storedFactValues,
 	type ProgramFact,
@@ -2378,7 +2378,7 @@ const resolveInterior = (scope: ReadScope, sketch: InteriorSketch): Interior | u
  */
 type Offer =
 	| { readonly kind: "import"; readonly offer: ImportOffer }
-	| { readonly kind: "built"; readonly source: Derived }
+	| { readonly kind: "built"; readonly source: DerivedSource }
 
 /**
  * The variables the rule bound in earlier matches that an imported parameter bound at `field` may be bound to: those of

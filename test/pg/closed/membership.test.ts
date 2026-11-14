@@ -62,7 +62,7 @@ import {
 } from "#test/support/closed/generate.ts"
 import {
 	compileTemplate,
-	type Declared,
+	type TemplateDeclarations,
 	installationSql,
 	installedCodes,
 	paramTexts,
@@ -294,7 +294,7 @@ const itemsInsert = (names: PhysicalNames, c: MembershipCase, codes: Codebook): 
 const deliveredIds = (
 	spec: StatementSpec,
 	params: Readonly<Record<string, unknown>>,
-	declared: Declared
+	declared: TemplateDeclarations
 ) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate

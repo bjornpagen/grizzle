@@ -261,7 +261,7 @@ export const writesMet = (relation: WrittenRelation, serial: SerialClass, of: In
  * which refuses the write; and a put's insert half's a concurrent commit at the key after its deletion,
  * PutTargetConflict, raced or not, since a put asserts its row.
  */
-export const occupantVerdict = (insert: {
+const occupantVerdict = (insert: {
 	readonly relation: WrittenRelation
 	readonly of: InsertOf
 }): "conflict" | "met" =>

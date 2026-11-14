@@ -489,6 +489,7 @@ const evaluate = (e: Expr, value: HostValue, constants: Constants, schema: strin
 		case "plVar":
 		case "regclass":
 		case "user":
+		case "clock":
 			break
 	}
 	throw new Error(`a ${e.kind} term, which no roster or set domain's CHECK holds`)

@@ -7,7 +7,7 @@ import type {
 	WorkloadConstructor
 } from "#compiler/types/db/workload.ts"
 
-export type { ClockUnit } from "#compiler/ir/clock.ts"
+export type { ClockUnit } from "#compiler/core/clock.ts"
 export type { Clocked, Deferrable, Paged, Refresh, Workload } from "#compiler/types/db/workload.ts"
 
 /**

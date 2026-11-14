@@ -123,7 +123,7 @@ export const groupName = (f: number): string => `o${f}`
 /** Family `f`'s member's fields naming its owner's root, where its owner is a tree's relation keyed by its root and start. */
 const groupRootNames = (f: number): readonly [string, string] => [`o${f}d`, `o${f}dp`]
 export const indexName = (f: number): string => `i${f}`
-export const rootName = (f: number): string => `d${f}`
+const rootName = (f: number): string => `d${f}`
 /** Tree `f`'s second root field, beside `d<f>`: a tree is keyed by (d<f>, d<f>p, start), pantry's (package, path, start). */
 const rootPathName = (f: number): string => `d${f}p`
 

@@ -237,24 +237,35 @@ const generatedVersion = (name: string, rule: Rule) => {
 		case "none":
 			return schema.extend(Base, `${name}_1`, [J2, Unpaired], [])
 		case "every":
-			return schema.extend(Base, `${name}_1`, [J2, Unpaired], [
-				contained(on(J2, "a", "b"), on(T, "a", "b"))
-			])
+			return schema.extend(
+				Base,
+				`${name}_1`,
+				[J2, Unpaired],
+				[contained(on(J2, "a", "b"), on(T, "a", "b"))]
+			)
 		case "selected":
-			return schema.extend(Base, `${name}_1`, [J2, Unpaired], [
-				contained(
-					on(
-						select(J2, (j) => j.ne(j.b, 0)),
-						"a",
-						"b"
-					),
-					on(T, "a", "b")
-				)
-			])
+			return schema.extend(
+				Base,
+				`${name}_1`,
+				[J2, Unpaired],
+				[
+					contained(
+						on(
+							select(J2, (j) => j.ne(j.b, 0)),
+							"a",
+							"b"
+						),
+						on(T, "a", "b")
+					)
+				]
+			)
 		case "negated":
-			return schema.extend(Base, `${name}_1`, [J2, Unpaired], [
-				contained(on(Unpaired, "a", "b"), on(T, "a", "b"))
-			])
+			return schema.extend(
+				Base,
+				`${name}_1`,
+				[J2, Unpaired],
+				[contained(on(Unpaired, "a", "b"), on(T, "a", "b"))]
+			)
 	}
 }
 

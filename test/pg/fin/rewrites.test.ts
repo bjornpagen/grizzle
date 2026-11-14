@@ -33,7 +33,7 @@ import { constraintOf, Disagreed, familySeat, judgedFamily } from "#test/pg/fin/
 import { endedBy, type EndFeature, endGen, refusedAtCommitBy } from "#test/pg/fin/installed.ts"
 import { deepEquals, nonEmpty } from "#test/support/assert.ts"
 import { run, settledOf, type MutationStatement } from "#test/support/families/mutate.ts"
-import { type Families, rowsOf, storedOf } from "#test/support/families/theorem.ts"
+import { type Families, familyRowsFrom, storedOf } from "#test/support/families/theorem.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -114,7 +114,7 @@ const statementsOf = (
 		: []
 	const counts: ReadonlyArray<MutationStatement> =
 		r.members.length === count ? [] : [{ kind: "count", owner: 0, count }]
-	const rows = rowsOf(0, r.suffix, r.at, count)
+	const rows = familyRowsFrom(0, r.suffix, r.at, count)
 	const inserts: ReadonlyArray<MutationStatement> = Arr.isReadonlyArrayNonEmpty(rows)
 		? [{ kind: "insert", rows }]
 		: []

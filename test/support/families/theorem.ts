@@ -66,7 +66,7 @@ export interface Stored {
 }
 
 /** The rows of a family at consecutive slots from `from`, each copying `copy`. */
-export const rowsOf = (
+export const familyRowsFrom = (
 	group: number,
 	members: ReadonlyArray<number>,
 	from: number,
@@ -77,7 +77,7 @@ export const rowsOf = (
 /** What PostgreSQL holds once the families are written: each member at its position, every copy its owner's count. */
 export const storedOf = (families: Families): Stored => ({
 	owners: new Map(Arr.map(families, (f) => [f.owner, f.members.length] as const)),
-	rows: Arr.flatMap(families, (f) => rowsOf(f.owner, f.members, 0, f.members.length))
+	rows: Arr.flatMap(families, (f) => familyRowsFrom(f.owner, f.members, 0, f.members.length))
 })
 
 /**

@@ -1,7 +1,7 @@
+import type { ClockUnit } from "#compiler/core/clock.ts"
 import type { IndexMethod } from "#compiler/core/identity.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { ClockUnit } from "#compiler/ir/clock.ts"
 import type { CarrierName, NameMap } from "#compiler/sql/naming.ts"
 
 /** A schema object's name, always schema-qualified: every object grizzle installs or names lives in a named schema. */

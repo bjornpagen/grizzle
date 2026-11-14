@@ -33,16 +33,20 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const Root = relation("Root", { id: pg.int4, retired: retirement }, ["id"])
 const Step = relation("Step", { root: pg.int4, step: pg.int4 }, ["root", "step"])
-const Claim = relation(
-	"Claim",
-	{ root: pg.int4, step: pg.int4, attempt: pg.int4 },
-	["root", "step", "attempt"]
-)
-
-const Units = schema("retire_life", [Root, Step, Claim], [
-	retirable(Root, [on(Step, "root"), on(Claim, "root")]),
-	contained(on(Claim, "root", "step"), on(Step, "root", "step"))
+const Claim = relation("Claim", { root: pg.int4, step: pg.int4, attempt: pg.int4 }, [
+	"root",
+	"step",
+	"attempt"
 ])
+
+const Units = schema(
+	"retire_life",
+	[Root, Step, Claim],
+	[
+		retirable(Root, [on(Step, "root"), on(Claim, "root")]),
+		contained(on(Claim, "root", "step"), on(Step, "root", "step"))
+	]
+)
 
 const RELATIONS = ["Root", "Step", "Claim"] as const
 
@@ -52,7 +56,12 @@ class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string
 type Op =
 	| { readonly kind: "header"; readonly group: number }
 	| { readonly kind: "step"; readonly group: number; readonly step: number }
-	| { readonly kind: "claim"; readonly group: number; readonly step: number; readonly attempt: number }
+	| {
+			readonly kind: "claim"
+			readonly group: number
+			readonly step: number
+			readonly attempt: number
+	  }
 	| { readonly kind: "hold" | "retire"; readonly groups: Arr.NonEmptyReadonlyArray<number> }
 
 const bits = [0, 1] as const
@@ -188,12 +197,18 @@ const predict = (m: Model, op: Op): Predicted => {
 				kind: "committed",
 				next: {
 					headers: new Map(
-						Arr.map([...m.headers], ([g, h]) => [g, Arr.contains(retiring, g) ? "retired" : h] as const)
+						Arr.map(
+							[...m.headers],
+							([g, h]) => [g, Arr.contains(retiring, g) ? "retired" : h] as const
+						)
 					),
 					steps: new Set(Arr.filter([...m.steps], (k) => !inRetired(k))),
 					claims: new Set(Arr.filter([...m.claims], (k) => !inRetired(k)))
 				},
-				feature: retiring.length > 0 ? "a retirement of an open group" : "a retirement that changes nothing"
+				feature:
+					retiring.length > 0
+						? "a retirement of an open group"
+						: "a retirement that changes nothing"
 			}
 		}
 	}

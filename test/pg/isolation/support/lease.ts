@@ -34,7 +34,7 @@ import { workload } from "#compiler/public/workload.ts"
  *   of another call's row after its write; an `auditor` copies the Claims at both keys. Forced READ COMMITTED, the Log
  *   misses a Claim the auditor saw before the claim committed.
  */
-export const Instant = contract("Instant", pg.bigint)
+const Instant = contract("Instant", pg.bigint)
 
 const Step = relation("Step", { id: uuid }, ["id"])
 const Due = relation("Due", { step: uuid, at: Instant }, ["step"])

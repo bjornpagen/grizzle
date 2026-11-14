@@ -84,7 +84,7 @@ import { paramTextForm } from "#test/support/arrays.ts"
 import { assert, unorderedEqual } from "#test/support/assert.ts"
 import {
 	compileTemplate,
-	type Declared,
+	type TemplateDeclarations,
 	installationSql,
 	installedCodes,
 	paramTexts,
@@ -287,7 +287,7 @@ const compiled = (q: unknown, schemaIdent: string): OracleTemplate =>
 	ok(compiling(q, schemaIdent), "compile")
 
 /** What paramTexts normalizes a template's relation inputs under: its declared parameters and Content's codes. */
-const declared = (template: OracleTemplate): Declared => ({
+const declared = (template: OracleTemplate): TemplateDeclarations => ({
 	params: template.params,
 	codes: contentCodes
 })

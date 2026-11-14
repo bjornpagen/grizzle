@@ -58,7 +58,7 @@ import {
 	type Families,
 	type Family,
 	type FamilyRow,
-	rowsOf,
+	familyRowsFrom,
 	type Shape,
 	type Stored,
 	storedOf,
@@ -407,7 +407,7 @@ const insertsOf =
 		copy: number
 	): Gen<ReadonlyArray<MutationStatement>> =>
 	(source) => {
-		const rows = rowsOf(owner, members, from, copy)
+		const rows = familyRowsFrom(owner, members, from, copy)
 		const sent = source.draw(shuffled(rows, { min: rows.length, max: rows.length }))
 		return Arr.isReadonlyArrayNonEmpty(sent) ? [{ kind: "insert", rows: sent }] : []
 	}

@@ -1,10 +1,9 @@
 import { Array as Arr, Data, Effect, Option, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import type { PhysicalNames } from "#compiler/ir/physical.ts"
+import { fieldColumnType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import type { FusedStatement, StatementParts } from "#compiler/lower/shapes/index.ts"
-import { columnType } from "#compiler/physical/ddl/names.ts"
 import { statementOutput, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import type { TypeRef } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
@@ -31,7 +30,7 @@ const withNullPlaceholders = (text: string): string => {
 const quoted = (s: string): string => `'${Str.replaceAll("'", "''")(s)}'`
 
 /**
- * The type a delivered column of `t` is claimed as: the DDL's type of a column of it (columnType), or, for a text
+ * The type a delivered column of `t` is claimed as: the DDL's type of a column of it (fieldColumnType), or, for a text
  * refinement outside any contract whose domain the installation does not name, its base, text.
  */
 const claimedType = (names: PhysicalNames, t: ScalarType): TypeRef =>
@@ -40,7 +39,7 @@ const claimedType = (names: PhysicalNames, t: ScalarType): TypeRef =>
 	t.text.regex !== "wildcard" &&
 	names.textDomain(t.text.regex) === undefined
 		? types.text
-		: columnType(names, t).type
+		: fieldColumnType(names, t).type
 
 /**
  * A delivered statement the type oracle judges, and where its problems are located: the relation it delivers, its
@@ -117,7 +116,7 @@ interface Probe {
  * - each statement's text, every placeholder replaced by NULL (each placeholder carries its cast, so the cast still
  *   types it), becomes a temporary view, and pg_attribute states each output column's type, domains and enums
  *   included, read once for every view;
- * - the IR's type of the column is printed as the DDL types a column of it (physical/ddl/names.ts columnType) and
+ * - the IR's type of the column is printed as the DDL types a column of it (ir/physical.ts fieldColumnType) and
  *   resolved by PostgreSQL's own ::regtype; a text refinement the installation names no domain for, a pattern no stored
  *   column carries (a literal's, or a closed read's query-local payload's), is typed by its base, text, as the lowering
  *   types it (lower/conservative/context.ts physicalTypeOf), since no column could be typed by it.

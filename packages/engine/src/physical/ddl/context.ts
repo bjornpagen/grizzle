@@ -14,13 +14,14 @@ import { tableMaxColumns } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { headNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
+import { missing } from "#compiler/ir/physical.ts"
 import type { DeployPhase, PhysicalReason } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { LawModel, NamedNative } from "#compiler/laws/model/model.ts"
 import { addIsolation } from "#compiler/physical/ddl/isolation.ts"
 import { snapshotGuardDdl } from "#compiler/physical/ddl/ledger.ts"
-import { type InstallNames, missing } from "#compiler/physical/ddl/names.ts"
+import type { InstallNames } from "#compiler/physical/ddl/names.ts"
 import {
 	type Before,
 	enforcement,
@@ -618,7 +619,7 @@ export class InstallBuilder {
 	}
 
 	/** The table of the stored relation `relation`. A name the owned schema holds no stored relation of is refused as
-	 * MalformedDescription (physical/ddl/names.ts). */
+	 * MalformedDescription (ir/physical.ts missing). */
 	table(relation: string): Node<"structure"> {
 		const table = this.#tables.get(relation)
 		if (table === undefined) {

@@ -280,7 +280,7 @@ const reservedConnections = published({
  * slots over exactly this many connections are networkWorkers, so a run alone never waits for a lease. The machine's
  * cores are read here, where the bound acts, and enter no Limit.
  */
-export const clusterConnections: number =
+const clusterConnections: number =
 	networkWorkers * connectionsPerLease +
 	unleasedConnections +
 	superuserReservedConnections.value +
@@ -337,7 +337,7 @@ const workerBufferBlocks: Limit = derived({
  * memory, the documentation's starting point for a dedicated server. The machine's cores are read here and enter no
  * Limit.
  */
-export const clusterSharedBuffers: number = networkWorkers * workerBufferBlocks.value
+const clusterSharedBuffers: number = networkWorkers * workerBufferBlocks.value
 
 /**
  * The predicate locks one network worker's file holds at once, measured: the most any one test database held while

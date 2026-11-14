@@ -471,7 +471,7 @@ export const lowerAligned = (
  * What a statement's relation placeholders are normalized under (paramTexts): the declared parameters of the template or
  * write program it belongs to, and the codes that template was compiled under.
  */
-export interface Declared {
+export interface TemplateDeclarations {
 	readonly params: ReadonlyArray<ParamDecl>
 	readonly codes: Codebook
 }
@@ -485,7 +485,7 @@ export const declaredOf = (
 	query: unknown,
 	schema: FixtureSchema | undefined,
 	naming: TestNaming
-): Declared => {
+): TemplateDeclarations => {
 	const named = schema === undefined ? Result.ok(undefined) : parseSchemaInput(schema)
 	const codes = Result.flatMap(named, (parsed) =>
 		Result.flatMap(queryInput(query), (input) =>
@@ -504,7 +504,7 @@ export const declaredOf = (
  * The declarations of a statement whose template declares no relation parameter, only scalar ones: paramTexts then
  * refuses a relation placeholder loudly, never encoding it under a guessed heading or codebook.
  */
-export const scalarsOnly: Declared = { params: [], codes: emptyCodebook }
+export const scalarsOnly: TemplateDeclarations = { params: [], codes: emptyCodebook }
 
 /** Whether a value is iterated by the runtime iteration protocol: an object with an iterator method. */
 const isIterable = (value: unknown): value is Iterable<unknown> =>
@@ -523,7 +523,7 @@ const isIterable = (value: unknown): value is Iterable<unknown> =>
 export const paramValues = (
 	spec: Pick<StatementSpec, "paramSlots">,
 	params: Readonly<Record<string, unknown>>,
-	declared: Declared
+	declared: TemplateDeclarations
 ): ReadonlyArray<string | Param> => {
 	const normalized = new Map<ParamId, NormalizedRelation>()
 	/** The relation parameter `param`'s input, normalized the first time a placeholder asks for it. */
@@ -589,7 +589,7 @@ export const paramValues = (
 export const paramTexts = (
 	spec: Pick<StatementSpec, "paramSlots">,
 	params: Readonly<Record<string, unknown>>,
-	declared: Declared
+	declared: TemplateDeclarations
 ): ReadonlyArray<string> =>
 	Arr.map(paramValues(spec, params, declared), (param) =>
 		typeof param === "string" ? param : textOfParam(param)

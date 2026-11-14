@@ -1,3 +1,4 @@
+import type { ClockUnit } from "#compiler/core/clock.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import type { IndexMethod } from "#compiler/core/identity.ts"
 import type {
@@ -13,7 +14,7 @@ import type { Direction } from "#compiler/core/order.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { Param, ParamBinary, ParamText } from "#compiler/core/wire.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
-import type { ClockUnit, Int8Type } from "#compiler/ir/clock.ts"
+import type { Int8Type } from "#compiler/ir/clock.ts"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { IndexOpclass, LawIndexRequest, NormalizedLaw } from "#compiler/ir/law.ts"
