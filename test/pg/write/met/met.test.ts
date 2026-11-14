@@ -8,8 +8,11 @@
  * certifies it READ COMMITTED (the case requires it): each insert is the `returned` form, ON CONFLICT DO SELECT, met
  * rows returned by the arbiter. The role `ser` inserts the four `…ser` relations, which the role `direct` deletes, so
  * it runs SERIALIZABLE: K and P are the `every` form, complete facts met under the transaction snapshot, and D and E the
- * `returned` form with each met row read again under it. Each relation's member inserts an array of its rows and reads
- * back delta.added and delta.met of it, every field.
+ * `returned` form with each met row read again under it. Each relation's member inserts its rows and reads back
+ * delta.added and delta.met of it, every field: K's and P's an array of them, and D's and E's a query over the call's
+ * relation parameter `rows`, whose head leaves the id out, so every row is a generated addition. An array of D's or E's
+ * rows would be two insertions, one of the rows that state the id and one of those that leave it out, so its added and
+ * met sides would be two statements' and the read-back refused (README "Where a read-back runs").
  *
  * Each case stores up to three facts of one relation and inserts one to three requests into it, each a copy of a
  * stored fact (an exact repeat), a fact at a stored key with another payload, or a fact at a free key, at distinct keys.
@@ -146,7 +149,14 @@ const metSchema = (name: string) => {
 							})
 						),
 					Drc: ChangeSet.empty(rc)
-						.insert(rc.relations.Drc, [])
+						.insert(
+							rc.relations.Drc,
+							query(rc).rule((r) => {
+								const rows = r.relation("rows", { k: Drc.fields.k, a: Drc.fields.a })
+								const { k, a } = v(rows, "row")
+								return r.match(rows, { k, a }).find({ k, a })
+							})
+						)
 						.read("added", (d) =>
 							query(rc).rule((r) => {
 								const { id, k, a } = v(d.added(rc.relations.Drc), "row")
@@ -160,7 +170,14 @@ const metSchema = (name: string) => {
 							})
 						),
 					Erc: ChangeSet.empty(rc)
-						.insert(rc.relations.Erc, [])
+						.insert(
+							rc.relations.Erc,
+							query(rc).rule((r) => {
+								const rows = r.relation("rows", { k: Erc.fields.k })
+								const { k } = v(rows, "row")
+								return r.match(rows, { k }).find({ k })
+							})
+						)
 						.read("added", (d) =>
 							query(rc).rule((r) => {
 								const { id, k } = v(d.added(rc.relations.Erc), "row")
@@ -204,7 +221,14 @@ const metSchema = (name: string) => {
 							})
 						),
 					Dser: ChangeSet.empty(ser)
-						.insert(ser.relations.Dser, [])
+						.insert(
+							ser.relations.Dser,
+							query(ser).rule((r) => {
+								const rows = r.relation("rows", { k: Dser.fields.k, a: Dser.fields.a })
+								const { k, a } = v(rows, "row")
+								return r.match(rows, { k, a }).find({ k, a })
+							})
+						)
 						.read("added", (d) =>
 							query(ser).rule((r) => {
 								const { id, k, a } = v(d.added(ser.relations.Dser), "row")
@@ -218,7 +242,14 @@ const metSchema = (name: string) => {
 							})
 						),
 					Eser: ChangeSet.empty(ser)
-						.insert(ser.relations.Eser, [])
+						.insert(
+							ser.relations.Eser,
+							query(ser).rule((r) => {
+								const rows = r.relation("rows", { k: Eser.fields.k })
+								const { k } = v(rows, "row")
+								return r.match(rows, { k }).find({ k })
+							})
+						)
 						.read("added", (d) =>
 							query(ser).rule((r) => {
 								const { id, k } = v(d.added(ser.relations.Eser), "row")
@@ -523,18 +554,13 @@ layer(Substrate.layer)("the rows an insertion met", (it) => {
 							case "Drc":
 								return answerOf(
 									n,
-									rc.db.workload.Drc.once({ params: {}, facts: { insert: { Drc: set } } }).pipe(
-										answered
-									),
+									rc.db.workload.Drc.once({ params: { rows: set }, facts: {} }).pipe(answered),
 									drawnRow
 								)
 							case "Erc":
 								return answerOf(
 									n,
-									rc.db.workload.Erc.once({
-										params: {},
-										facts: { insert: { Erc: drawnSet } }
-									}).pipe(answered),
+									rc.db.workload.Erc.once({ params: { rows: drawnSet }, facts: {} }).pipe(answered),
 									drawnSetRow
 								)
 							case "Kser":
@@ -557,18 +583,15 @@ layer(Substrate.layer)("the rows an insertion met", (it) => {
 							case "Dser":
 								return answerOf(
 									n,
-									ser.db.workload.Dser.once({ params: {}, facts: { insert: { Dser: set } } }).pipe(
-										answered
-									),
+									ser.db.workload.Dser.once({ params: { rows: set }, facts: {} }).pipe(answered),
 									drawnRow
 								)
 							case "Eser":
 								return answerOf(
 									n,
-									ser.db.workload.Eser.once({
-										params: {},
-										facts: { insert: { Eser: drawnSet } }
-									}).pipe(answered),
+									ser.db.workload.Eser.once({ params: { rows: drawnSet }, facts: {} }).pipe(
+										answered
+									),
 									drawnSetRow
 								)
 						}

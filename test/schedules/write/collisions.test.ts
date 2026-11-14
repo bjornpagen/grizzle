@@ -6,9 +6,14 @@
  * attempt) and by slot. A generated addition leaves `id` out, so its arbiter is (child, test, attempt), the first
  * declared key that holds no drawn field, and slot is a unique object besides it. The role `learner` holds Sitting and
  * Gate by its insert list alone, and its workload is `start`, an insertion of sittings, and `held`, an insertion of
- * sittings and then, in a later stratum, of a Gate row. The schema and its logins are installed and served as `grizzle
- * generate` drafts them (schedules/rig.ts openRig): `learner` runs at the level generate certifies, which the case
- * requires to be READ COMMITTED, read off each writer's served Db.
+ * sittings and then, in a later stratum, of a Gate row, each in two forms, drawn per case: the sittings an array of the
+ * call's facts, or a query over the call's relation parameter `sittings`, whose head leaves the id out, as edullm's
+ * Start inserts its sitting, reading back the sittings it added and the stored sittings it met (`startRead`,
+ * `heldRead`). An array's read-back would be refused: an array of Sitting is two insertions, of the rows that state the
+ * id and of those that leave it out, so its added and met sides are two statements' (README "Where a read-back runs").
+ * The schema and its logins are installed and served as `grizzle generate` drafts them (schedules/rig.ts openRig):
+ * `learner` runs at the level generate certifies, which the case requires to be READ COMMITTED, read off each
+ * writer's served Db.
  *
  * Two writers A and B, two Dbs of `learner` over DbLayers of their own, run one call each over a stored state. In
  * `concurrent`, the schema's owner holds Gate in SHARE mode, which writes nothing, while A runs `held`: A's sittings
@@ -22,21 +27,21 @@
  *   pg_locks until B's call ends, so a wait the model does not predict, and one it predicts that never comes, fails
  *   the case where it happens.
  * - Each call answers what the serial order A, then B, answers:
- *   - an exact repeat at the arbiter key, a row equal at every field the addition states, is no change, and the call
- *     reads that stored row back whole through delta.met, its id the one the database drew for it, a row in flight it
- *     waited for included, on the first try;
+ *   - an exact repeat at the arbiter key, a row equal at every field the addition states, is no change, and a query
+ *     member's call reads that stored row back whole through delta.met, its id the one the database drew for it, a row
+ *     in flight it waited for included, on the first try;
  *   - a differing row at the arbiter key refuses the key (child, test, attempt), its witness that key;
  *   - a row at slot with the arbiter key free refuses slot: by the probe, its witness the requested slot, where the
  *     statement's snapshot sees the occupant; otherwise by PostgreSQL's 23505 after the wait, a typed refusal on slot's
- *     law, never an abort or a defect, its witness the stated slot where the call states one distinct slot value, and
- *     `unreported` where it states several;
- *   - every other request is inserted, and a call that inserts any row is accepted with that count, reading back
- *     through delta.added exactly the rows it made.
+ *     law, never an abort or a defect, its witness the stated slot where an array states one distinct slot value, and
+ *     `unreported` where it states several or the rows are a query's, which the host does not hold;
+ *   - every other request is inserted, and a call that inserts any row is accepted with that count, a query member's
+ *     reading back through delta.added exactly the rows it made.
  * - The table ends as the serial order leaves it: one row per key, each stored row with its id, every id a version 7
  *   uuid.
  *
- * Oracle: the serial model below, over the stated rows alone. The probe's refusal, both arbiter waits and both 23505
- * witnesses are required features, among every other kind of answer.
+ * Oracle: the serial model below, over the stated rows alone. The probe's refusal, both arbiter waits, every 23505
+ * witness and both met rows read back are required features, among every other kind of answer.
  *
  * Plants: ~/.cache/grizzle-release/BR08/plants/collisions-generated-arbiter-last-key.patch, a generated addition
  * arbitrated at the last declared key holding no drawn field (slot) instead of the first, must turn the property red;
@@ -87,12 +92,26 @@ const statedFields = ["child", "test", "attempt", "note", "slot"] as const
 const sittingKey = key(on(Sitting, "child", "test", "attempt"))
 const slotKey = key(on(Sitting, "slot"))
 
-/** The schema, the role `learner`, which inserts Sitting and Gate and nothing else, and its two logins. Each call reads
- * back the sittings it added and the stored sittings it met, every field of each. */
+/** The schema, the role `learner`, which inserts Sitting and Gate and nothing else, and its two logins. A call of a
+ * query member reads back the sittings it added and the stored sittings it met, every field of each. */
 const collisions = (name: string) => {
 	const base = schema(name, [Sitting, Gate], [sittingKey, slotKey])
 	const learner = role(base, "learner", { Sitting, Gate }, { insert: ["Sitting", "Gate"] })
 	const direct = role(base, "direct", { Sitting, Gate })
+	/** The sittings a call states as its relation parameter `sittings`, every field but the drawn id. */
+	const given = query(base).rule((r) => {
+		const rows = r.relation("sittings", {
+			child: Sitting.fields.child,
+			test: Sitting.fields.test,
+			attempt: Sitting.fields.attempt,
+			note: Sitting.fields.note,
+			slot: Sitting.fields.slot
+		})
+		const { child, test, attempt, note, slot } = v(rows, "given")
+		return r
+			.match(rows, { child, test, attempt, note, slot })
+			.find({ child, test, attempt, note, slot })
+	})
 	const sittingsOf = (side: DeltaSource<typeof Sitting>) =>
 		query(base).rule((r) => {
 			const { id, child, test, attempt, note, slot } = v(side, "sitting")
@@ -107,12 +126,17 @@ const collisions = (name: string) => {
 		server: login(base, "server", [learner], {
 			workload: [
 				workload(learner, {
-					start: ChangeSet.empty(base)
-						.insert(Sitting, [])
-						.read("added", (d) => sittingsOf(d.added(Sitting)))
-						.read("met", (d) => sittingsOf(d.met(Sitting))),
+					start: ChangeSet.empty(base).insert(Sitting, []),
 					held: ChangeSet.sequence(
 						ChangeSet.empty(base).insert(Sitting, []),
+						ChangeSet.empty(base).insert(Gate, [])
+					),
+					startRead: ChangeSet.empty(base)
+						.insert(Sitting, given)
+						.read("added", (d) => sittingsOf(d.added(Sitting)))
+						.read("met", (d) => sittingsOf(d.met(Sitting))),
+					heldRead: ChangeSet.sequence(
+						ChangeSet.empty(base).insert(Sitting, given),
 						ChangeSet.empty(base).insert(Gate, [])
 					)
 						.read("added", (d) => sittingsOf(d.added(Sitting)))
@@ -135,8 +159,13 @@ interface Request {
 
 type Mode = "concurrent" | "sequential"
 
+/** How both calls state their sittings: an array of the call's facts, or a query member's relation parameter, read
+ * back. */
+type Form = "array" | "query"
+
 interface Collision {
 	readonly mode: Mode
+	readonly form: Form
 	readonly stored: ReadonlyArray<Request>
 	readonly a: ReadonlyArray<Request>
 	readonly b: ReadonlyArray<Request>
@@ -147,7 +176,10 @@ type CollisionFeature =
 	| "a differing row at the arbiter key in flight, refused after waiting"
 	| "a 23505 at slot after waiting, its stated slot the witness"
 	| "a 23505 at slot after waiting, unreported among several slots"
+	| "a 23505 at slot after waiting, unreported for a query's rows"
 	| "an exact repeat of a visible row"
+	| "a row in flight met, read back"
+	| "a visible row met, read back"
 	| "a differing row at a visible arbiter key"
 	| "a visible occupant at slot, refused by the probe"
 	| "an insert after waiting for a row in flight"
@@ -192,6 +224,7 @@ const callGen =
 
 const collisionGen: Gen<Collision> = (source) => ({
 	mode: source.draw(element(["concurrent", "sequential"] as const)),
+	form: source.draw(element(["array", "query"] as const)),
 	stored: source.draw(callGen(0, 2)),
 	a: source.draw(callGen(1, 2)),
 	b: source.draw(callGen(1, 2))
@@ -241,13 +274,16 @@ const holds = (rows: ReadonlyArray<Request>, r: Request): boolean =>
 	Arr.some(rows, (s) => s.slot === r.slot)
 
 /**
- * One call's answer as the serial order gives it, `visible` the rows its statement's snapshot sees and `flight` the
- * rows another call holds uncommitted, which commit before the call's statement ends: a visible occupant at slot of a
- * request whose arbiter key its snapshot sees free gates the statement, which then waits on nothing; otherwise a
- * request meets a row in flight at its arbiter key, or at slot with its key free everywhere, and waits. After the
- * wait, a 23505 at slot ends the statement; otherwise a differing row at the arbiter key refuses the key.
+ * One call's answer as the serial order gives it, the call's rows stated in `form`, `visible` the rows its statement's
+ * snapshot sees and `flight` the rows another call holds uncommitted, which commit before the call's statement ends: a
+ * visible occupant at slot of a request whose arbiter key its snapshot sees free gates the statement, which then waits
+ * on nothing; otherwise a request meets a row in flight at its arbiter key, or at slot with its key free everywhere,
+ * and waits. After the wait, a 23505 at slot ends the statement, witnessed by the one slot an array states, the host
+ * holding no query's rows (runtime/write/witness.ts uniqueJudgement); otherwise a differing row at the arbiter key
+ * refuses the key.
  */
 const judge = (
+	form: Form,
 	call: ReadonlyArray<Request>,
 	visible: ReadonlyArray<Request>,
 	flight: ReadonlyArray<Request>
@@ -273,18 +309,21 @@ const judge = (
 	if (Arr.some(call, (r) => free(r) && holds(flight, r))) {
 		const slots = Arr.dedupe(Arr.map(call, (r) => r.slot))
 		const [only, ...others] = slots
+		const stated = form === "array" && others.length === 0
 		return {
 			expected: {
 				kind: "refused",
 				law: "slot",
-				witnesses: [others.length === 0 ? slotWitnessOf(only) : { kind: "unreported" }],
+				witnesses: [stated ? slotWitnessOf(only) : { kind: "unreported" }],
 				path: "unique"
 			},
 			waits,
 			features: [
-				others.length === 0
-					? "a 23505 at slot after waiting, its stated slot the witness"
-					: "a 23505 at slot after waiting, unreported among several slots"
+				form === "query"
+					? "a 23505 at slot after waiting, unreported for a query's rows"
+					: stated
+						? "a 23505 at slot after waiting, its stated slot the witness"
+						: "a 23505 at slot after waiting, unreported among several slots"
 			]
 		}
 	}
@@ -314,16 +353,21 @@ const judge = (
 		}
 	}
 	const inserted = Arr.filter(call, free)
+	const met = Arr.filter(call, (r) => !free(r))
 	return {
-		expected: { kind: "inserted", rows: inserted, met: Arr.filter(call, (r) => !free(r)) },
+		expected: { kind: "inserted", rows: inserted, met },
 		waits,
 		features: [
-			...Arr.map(
-				Arr.filter(call, (r) => !free(r)),
-				(r): CollisionFeature =>
-					inFlight(r)
-						? "an exact repeat of a row in flight, after waiting"
-						: "an exact repeat of a visible row"
+			...Arr.flatMap(met, (r: Request): ReadonlyArray<CollisionFeature> =>
+				inFlight(r)
+					? [
+							"an exact repeat of a row in flight, after waiting",
+							...(form === "query" ? (["a row in flight met, read back"] as const) : [])
+						]
+					: [
+							"an exact repeat of a visible row",
+							...(form === "query" ? (["a visible row met, read back"] as const) : [])
+						]
 			),
 			...(inserted.length === 0
 				? []
@@ -340,28 +384,29 @@ const judge = (
 const startOf = (note: number): Request => ({ child: 1, test: 7, attempt: 1, note, slot: 1 })
 
 /**
- * A double Start, pinned: two calls of `learner` start one sitting at (child, test, attempt), each leaving its id to
- * the database's uuidv7(). Concurrent, the later waits at the arbiter for the earlier and is no change where it states
- * the same sitting, or refused on the key where it states another; in order, the later meets the committed sitting.
+ * A double Start, pinned: two calls of `learner` start one sitting at (child, test, attempt) through the query member,
+ * as edullm's Start does, each leaving its id to the database's uuidv7(). Concurrent, the later waits at the arbiter
+ * for the earlier and is no change where it states the same sitting, reading the earlier's row back as met, or refused
+ * on the key where it states another; in order, the later meets the committed sitting and reads it back.
  */
 const doubleStarts: ReadonlyArray<Kept<Collision, CollisionFeature>> = [
 	{
 		note: "a double Start of one sitting: the later waits for the earlier's in-flight row and is no change, never a 40001",
-		sketch: { mode: "concurrent", stored: [], a: [startOf(0)], b: [startOf(0)] },
+		sketch: { mode: "concurrent", form: "query", stored: [], a: [startOf(0)], b: [startOf(0)] },
 		draws: "",
-		reaches: ["an exact repeat of a row in flight, after waiting"]
+		reaches: ["an exact repeat of a row in flight, after waiting", "a row in flight met, read back"]
 	},
 	{
 		note: "a double Start that states another sitting at the same key: the later waits and is refused on the key",
-		sketch: { mode: "concurrent", stored: [], a: [startOf(0)], b: [startOf(1)] },
+		sketch: { mode: "concurrent", form: "query", stored: [], a: [startOf(0)], b: [startOf(1)] },
 		draws: "",
 		reaches: ["a differing row at the arbiter key in flight, refused after waiting"]
 	},
 	{
 		note: "a double Start in order: the later meets the committed sitting and is no change",
-		sketch: { mode: "sequential", stored: [], a: [startOf(0)], b: [startOf(0)] },
+		sketch: { mode: "sequential", form: "query", stored: [], a: [startOf(0)], b: [startOf(0)] },
 		draws: "",
-		reaches: ["an exact repeat of a visible row"]
+		reaches: ["an exact repeat of a visible row", "a visible row met, read back"]
 	}
 ]
 
@@ -381,8 +426,26 @@ interface SittingReads {
 	readonly met: ReadonlyArray<SittingRow>
 }
 
-/** What a call answered: its outcome, or the failure it met. */
-type Ran = Result.Result<WriteAnswer<WriteOutcome<SittingReads>>, CallError>
+/** What a call answered: its outcome, with the sittings a query member's call read back and none for an array's, or
+ * the failure it met. */
+type Ran = Result.Result<WriteAnswer<WriteOutcome<Option.Option<SittingReads>>>, CallError>
+
+/** A call's answer with what it read back as `reads` makes it of the member's own read-backs. */
+const readingAs =
+	<R>(reads: (own: R) => Option.Option<SittingReads>) =>
+	(
+		answer: WriteAnswer<WriteOutcome<R>>
+	): WriteAnswer<WriteOutcome<Option.Option<SittingReads>>> => {
+		switch (answer.kind) {
+			case "accepted":
+				return { kind: "accepted", counts: answer.counts, reads: reads(answer.reads) }
+			case "unchanged":
+				return { kind: "unchanged", reads: reads(answer.reads) }
+			case "refused":
+			case "outsideWorld":
+				return answer
+		}
+	}
 
 /** A sitting as a plain record, in key order among others: a read-back's row and a state row alike. */
 const plainSittings = (rows: ReadonlyArray<SittingRow>): ReadonlyArray<SittingRow> =>
@@ -496,8 +559,11 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 								)
 							)
 						const reads = ran.success.reads
-						const added = plainSittings(reads.added)
-						const met = plainSittings(reads.met)
+						if (Option.isNone(reads)) {
+							return undefined
+						}
+						const added = plainSittings(reads.value.added)
+						const met = plainSittings(reads.value.met)
 						return deepEquals(added, at(expected.rows)) && deepEquals(met, at(expected.met))
 							? undefined
 							: `${label} reads back as added the rows it made, ${Formatter.format(at(expected.rows))}, and as met the stored rows it repeats, ${Formatter.format(at(expected.met))}: added ${Formatter.format(added)}, met ${Formatter.format(met)}`
@@ -535,20 +601,51 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 					})
 
 				const rowsOf = (rows: ReadonlyArray<Request>) => Arr.map(rows, (r) => ({ ...r }))
-				const held = (rows: ReadonlyArray<Request>) =>
+				const unread = readingAs((): Option.Option<SittingReads> => Option.none())
+				const read = readingAs((reads: SittingReads) => Option.some(reads))
+				const held = (form: Form, rows: ReadonlyArray<Request>): Effect.Effect<Ran> =>
 					Effect.result(
-						answered(
-							a.db.workload.held.once({
-								params: {},
-								facts: { insert: { Sitting: rowsOf(rows), Gate: [{ n: 0 }] } }
-							})
-						)
+						form === "array"
+							? Effect.map(
+									answered(
+										a.db.workload.held.once({
+											params: {},
+											facts: { insert: { Sitting: rowsOf(rows), Gate: [{ n: 0 }] } }
+										})
+									),
+									unread
+								)
+							: Effect.map(
+									answered(
+										a.db.workload.heldRead.once({
+											params: { sittings: rowsOf(rows) },
+											facts: { insert: { Gate: [{ n: 0 }] } }
+										})
+									),
+									read
+								)
 					)
-				const start = (rows: ReadonlyArray<Request>) =>
+				const start = (form: Form, rows: ReadonlyArray<Request>): Effect.Effect<Ran> =>
 					Effect.result(
-						answered(
-							b.db.workload.start.once({ params: {}, facts: { insert: { Sitting: rowsOf(rows) } } })
-						)
+						form === "array"
+							? Effect.map(
+									answered(
+										b.db.workload.start.once({
+											params: {},
+											facts: { insert: { Sitting: rowsOf(rows) } }
+										})
+									),
+									unread
+								)
+							: Effect.map(
+									answered(
+										b.db.workload.startRead.once({
+											params: { sittings: rowsOf(rows) },
+											facts: {}
+										})
+									),
+									read
+								)
 					)
 
 				return yield* explore(
@@ -566,7 +663,10 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 								"a differing row at the arbiter key in flight, refused after waiting",
 								"a 23505 at slot after waiting, its stated slot the witness",
 								"a 23505 at slot after waiting, unreported among several slots",
+								"a 23505 at slot after waiting, unreported for a query's rows",
 								"an exact repeat of a visible row",
+								"a row in flight met, read back",
+								"a visible row met, read back",
 								"a differing row at a visible arbiter key",
 								"a visible occupant at slot, refused by the probe",
 								"an insert after waiting for a row in flight",
@@ -600,7 +700,7 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 										]
 							)
 							const before = yield* state
-							const first = judge(c.a, c.stored, [])
+							const first = judge(c.form, c.a, c.stored, [])
 							/** The sittings A's call makes, as the model has it. */
 							const madeByA = first.expected.kind === "inserted" ? first.expected.rows : []
 							const afterA = [...c.stored, ...madeByA]
@@ -609,15 +709,17 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 								yield* holder.perform({ _tag: "Begin" })
 								yield* holder.perform({ _tag: "Sql", sql: `LOCK TABLE ${gate} IN SHARE MODE` })
 							}
-							const fiberA = yield* Effect.forkChild(held(c.a), { startImmediately: true })
+							const fiberA = yield* Effect.forkChild(held(c.form, c.a), { startImmediately: true })
 							/** In `concurrent`, A reaches Gate holding its sittings, or ends before it, which departs. */
 							const atGate = together
 								? yield* waitedOrEnded(fiberA, a.actor.pid, holderPid)
 								: "ended"
 							const ranA = atGate === "ended" ? yield* Fiber.join(fiberA) : undefined
 							const holding = together && atGate === "waited"
-							const second = holding ? judge(c.b, c.stored, madeByA) : judge(c.b, afterA, [])
-							const fiberB = yield* Effect.forkChild(start(c.b), { startImmediately: true })
+							const second = holding
+								? judge(c.form, c.b, c.stored, madeByA)
+								: judge(c.form, c.b, afterA, [])
+							const fiberB = yield* Effect.forkChild(start(c.form, c.b), { startImmediately: true })
 							const observed = holding
 								? yield* waitedOrEnded(fiberB, b.actor.pid, a.actor.pid)
 								: "ended"

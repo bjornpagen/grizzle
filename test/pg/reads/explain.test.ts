@@ -424,14 +424,16 @@ const stratumGen: Gen<ReadonlyArray<ShopOp>> = (source) =>
 	Arr.map(source.draw(shuffled(opSlots, { min: 1, max: 3 })), (slot) => source.draw(opAt(slot)))
 
 /**
- * A drawn ChangeSet: one or two strata of operations, and what it reads back: nothing, both sides of Seat's delta, or
+ * A drawn ChangeSet: one or two strata of operations, and what it reads back: nothing, both sides of Item's delta, or
  * Item's added facts joined with Stock. Every stratum writes Seat, Item and Stock, so a delta of one is made by one
  * statement only where there is one stratum, and a ChangeSet of two reads nothing back (write/schedule/plan.ts
- * placeReadBacks refuses a delta two statements make).
+ * placeReadBacks refuses a delta two statements make). Nothing reads Seat's delta back: the first stratum's array of
+ * Seat is two insertions, of the rows that state its serial `no` and of those that leave it out, so its added side is
+ * two statements' in every ChangeSet.
  */
 interface ChangeCase {
 	readonly strata: ReadonlyArray<ReadonlyArray<ShopOp>>
-	readonly readBack: "none" | "seats" | "items joined"
+	readonly readBack: "none" | "items" | "items joined"
 }
 
 const changeCaseGen: Gen<ChangeCase> = (source) => {
@@ -440,7 +442,7 @@ const changeCaseGen: Gen<ChangeCase> = (source) => {
 		strata,
 		readBack:
 			strata.length === 1
-				? source.draw(element(["none", "seats", "items joined"] as const))
+				? source.draw(element(["none", "items", "items joined"] as const))
 				: "none"
 	}
 }
@@ -813,19 +815,19 @@ layer(Substrate.layer)("workload explain", (it) => {
 																		.find({ id, label, qty })
 																})
 															)
-														: sequenced.read("seats", (d) =>
+														: sequenced.read("items", (d) =>
 																query(o.schema)
 																	.rule((r) => {
-																		const { no, label } = v(Seat, "seat")
+																		const { id, label, qty } = v(Item, "item")
 																		return r
-																			.match(d.added(Seat), { no, label })
-																			.find({ side: "added", no, label })
+																			.match(d.added(Item), { id, label, qty })
+																			.find({ side: "added", id, label, qty })
 																	})
 																	.rule((r) => {
-																		const { no, label } = v(Seat, "seat")
+																		const { id, label, qty } = v(Item, "item")
 																		return r
-																			.match(d.removed(Seat), { no, label })
-																			.find({ side: "removed", no, label })
+																			.match(d.removed(Item), { id, label, qty })
+																			.find({ side: "removed", id, label, qty })
 																	})
 															)
 											const facts = {
