@@ -18,11 +18,10 @@
  *   PRECEDING AND CURRENT ROW, never RANGE, which would merge peers; each before its predecessor's after, the identity
  *   at the first slot (lag); and the owner's end its last member's after, the identity for an empty group (the
  *   placeholder default).
- * - **Trees:** each row's sibling index by its key, its count and its parent's count, and its pre-order interval, by
- *   the one recursive step a migration holds: the closure of the parent relation, (r…, parent) into (r…, start), from
- *   which each row's subtree size, and its start as the sum over its ancestors of one plus the sizes of their earlier
- *   siblings. A tree whose index the migration keeps keeps its caller's sibling order: every column drawn anew reads
- *   the stored index, and only the columns the migration adds are written. The stored start and end are its rows'
+ * - **Trees:** each row's sibling index by its key, its count, the rows naming it their parent, and its parent's
+ *   count, each a window over the tree's rows, no closure of the parent relation: nothing drawn reads a row's ancestors
+ *   past its parent. A tree whose index the migration keeps keeps its caller's sibling order: every column drawn anew
+ *   reads the stored index, and only the columns the migration adds are written. The stored start and end are its rows'
  *   pre-order, kept as its index is (deploy/diff/declared.ts sameSequence): a parent drawn anew is drawn from them first,
  *   each row's parent the start of the row of its root value whose interval holds its own most tightly, read off one
  *   sorted stream of the intervals' bounds (parentDerivation), and a migration that draws a tree's start or end anew on a
@@ -48,8 +47,9 @@
  * none is a probe run once per row, which before any index of the table exists (structure.backfill runs before them)
  * would read the whole table for each of its rows.
  *
- * Window functions and the one recursive CTE are admitted here: a migration is reviewed text, and grizzle's limits on
- * them are limits on its run-time queries.
+ * Window functions are admitted here: a migration is reviewed text, and grizzle's limits on them are limits on its
+ * run-time queries. No derivation recurs: each is sorts and windows over its table's rows, so its cost is its rows'
+ * sort, whatever the depth of a tree or the length of a family.
  */
 import { Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
@@ -81,7 +81,6 @@ import type { Installation } from "#compiler/physical/install/compile.ts"
 import type {
 	Cte,
 	Expr,
-	FromItem,
 	FromSource,
 	JoinStep,
 	ObjectName,
@@ -102,7 +101,6 @@ import {
 	call,
 	cast,
 	col,
-	core,
 	countStar,
 	cte,
 	cteRefAs,
@@ -115,7 +113,6 @@ import {
 	or,
 	provedCore,
 	select,
-	setOperation,
 	tableCol,
 	targetAs,
 	types,
@@ -444,19 +441,9 @@ const memberKey = (
 	return columns
 }
 
-/** Whether the rows `left` and `right` hold one member key, each column at its operators. */
-const sameKey = (key: NonEmptyReadonlyArray<KeyColumn>, left: string, right: string): Expr =>
-	and(
-		mapNonEmpty(key, (k) => compareAt("=", k.operators, col(left, k.column), col(right, k.column)))
-	)
-
 /** A member key's columns met by the same columns of a drawing's rows (Match). */
 const keyMatch = (key: NonEmptyReadonlyArray<KeyColumn>): NonEmptyReadonlyArray<Match> =>
 	mapNonEmpty(key, (k) => ({ target: k.column, source: k.column, operators: k.operators }))
-
-/** The type of a family's group field at `k`, its owner's side, which its member's side shares. */
-const groupType = (family: Family, k: number): ScalarType =>
-	defined(family.group[k], "a group field").owner.type
 
 /** A fold of a family by its place among the family's folds, which names its columns in the backfill's layers. */
 interface FoldAt {
@@ -752,50 +739,28 @@ const ownerDerivation = (
 	}
 }
 
-/** A core grouped by `groupBy`. */
-const grouped = (
-	targets: ReadonlyArray<Target>,
-	from: ReadonlyArray<FromItem>,
-	groupBy: ReadonlyArray<Expr>
-): Select => select({ ...provedCore("grouped", targets, from, undefined), groupBy })
-
-/** The names the tree's backfill gives what it computes, none a field's (no declared name starts with an underscore). */
-const ancestorName = (k: number): string => `__a_${k}`
-const descendantName = (k: number): string => `__d_${k}`
-const closureName = "__closure"
-const sizedName = "__sized"
-const rankedName = "__ranked"
-const steppedName = "__stepped"
-const startedName = "__started"
-const foldedName = "__folded"
-
 /**
- * A tree's derivation: each row's drawn columns over its rows, under one WITH RECURSIVE.
+ * A tree's derivation: each row's drawn columns over its rows, each a window over them, never a closure of the parent
+ * relation. A tree's intervals are never drawn over stored rows (a migration that draws them is refused, backfillOf), so
+ * nothing a tree's backfill draws reads a row's ancestors past its parent: its count reads its children, its index and
+ * its copy of the count its siblings, and each fold its siblings in slot order.
  *
- * - `__closure`: every (ancestor-or-self, descendant) pair, the one recursive step: each row with itself, then each
- *   pair extended by a child of its descendant, the root, which is its own parent, never its own child; UNION, so the
- *   closure is a set and ends however the stored parents point.
- * - `__sized`: each row's subtree size, and its children, the rows whose parent it is but itself.
- * - `__ranked`: each row's sibling index, its stored one where the migration keeps the index, the caller's order, else
- *   row_number() by its key among the rows of its parent, the root alone at 0; and its siblings' count, its parent's
- *   count.
- * - `__stepped`: each row's step, one plus the sizes of its earlier siblings, 0 for the root.
- * - `__started`: each row's start, the sum of the steps of its ancestors and itself: its pre-order index.
+ * - `w`: each row twice, as itself (`__child` 0) at its own key and, but a root, as a child (`__child` 1) at its
+ *   parent's, and over each key `__children`, the children met there.
+ * - `r`, each row as itself: its sibling index, its stored one where the migration keeps the index, the caller's
+ *   order, else row_number() by its key among the rows of its parent, the root alone at 0; and its copy of the count,
+ *   its siblings' count, a root's its own count, as the root pin reads it.
+ * - each fold over the tree, over each row's siblings in slot order, the root alone at slot 0 (planeLayers): the root's
+ *   before the identity, as its first-slot pin holds it, and its after its own step's, the one state NP's fold suite
+ *   admits a root (test/pg/fin/fold.test.ts).
  *
- * - `__folded`: each fold over the tree, over each row's siblings in slot order, which is their order by start, the
- *   root alone at slot 0 (planeLayers): the root's before the identity, as its first-slot pin holds it, and its after
- *   its own step's, the one state NP's fold suite admits a root (test/pg/fin/fold.test.ts).
- *
- * Its end is its start plus its size, and its copy of the count its siblings' count (each root's own count, as the root
- * pin reads it). A row the closure reaches from no root, under stored parents that make no tree, is drawn anyway, and
- * VALIDATE refuses it by the tree's laws. Each fold's
- * end is a row's last child's after (treeEndDerivation). It sets the columns `added` holds alone, none where it holds none
- * of them.
+ * A row under stored parents that make no tree is drawn anyway, and VALIDATE refuses it by the tree's laws. Each fold's
+ * end is a row's last child's after (treeEndDerivation). It sets the columns `added` holds alone, none where it holds
+ * none of them.
  */
 const treeDerivation = (
 	input: BackfillInput,
 	family: Family,
-	shape: TreeShape,
 	table: ObjectName,
 	added: ReadonlySet<string>
 ): Derivation | undefined => {
@@ -808,350 +773,154 @@ const treeDerivation = (
 	const folds: ReadonlyArray<FoldAt> = family.folds.flatMap((fold, f) =>
 		planesAdded(fold, added) ? [{ fold, f }] : []
 	)
-	const self = (alias: string): FromSource => ({ kind: "table", table, alias })
-	const rootOf = (alias: string): Expr =>
-		and(
-			mapNonEmpty(family.group, (g) =>
-				typedEq(
-					g.owner.type,
-					col(alias, g.member.column),
-					col(alias, g.owner.column),
-					installation.names
-				)
-			)
-		)
-	const none = lit.int(0n, types.bigint)
-	const one = lit.int(1n, types.bigint)
-	const ancestors = owner.map((_, k) => ancestorName(k))
-	const descendants = owner.map((_, k) => descendantName(k))
-	const closure = cte(
-		closureName,
-		[...ancestors, ...descendants],
-		select(
-			setOperation("UNION", [
-				core(
-					[
-						...owner.map((c, k) => targetAs(col("t", c), ancestorName(k))),
-						...owner.map((c, k) => targetAs(col("t", c), descendantName(k)))
-					],
-					[self("t")],
-					undefined
-				),
-				core(
-					[
-						...owner.map((_, k) => targetAs(col("c", ancestorName(k)), ancestorName(k))),
-						...owner.map((c, k) => targetAs(col("t", c), descendantName(k)))
-					],
-					[
-						join(
-							cteRefAs(closureName, "c"),
-							self("t"),
-							and([
-								...mapNonEmpty(parent, (p, k) =>
-									typedEq(
-										groupType(family, k),
-										col("t", p),
-										col("c", descendantName(k)),
-										installation.names
-									)
-								),
-								not(rootOf("t"))
-							])
-						)
-					],
-					undefined
-				)
-			])
+	const drawIndex = holds(added, family.index)
+	const index = columnOf(family.index)
+	const isRoot = and(
+		mapNonEmpty(family.group, (g) =>
+			typedEq(g.owner.type, col("t", g.member.column), col("t", g.owner.column), installation.names)
 		)
 	)
-	const sized = cte(
-		sizedName,
-		[],
-		grouped(
+	const int = (value: bigint): Expr => lit.int(value, types.integer)
+	const steps = stepColumns(installation, member, folds)
+	const carried = dedupeNonEmpty([...key, ...owner, ...parent, ...(drawIndex ? [] : [index])])
+	const at = (k: number): string => `__k_${k}`
+	/** One arm of `w`'s rows: each row of the table, met at `meets`, `__child` its role. */
+	const arm = (
+		meets: NonEmptyReadonlyArray<string>,
+		child: bigint,
+		where: Expr | undefined
+	): SetCore =>
+		provedCore(
+			"keyed",
 			[
-				...owner.map((_, k) => targetAs(col("c", ancestorName(k)), ancestorName(k))),
-				targetAs(countStar(), "__size"),
-				targetAs(
-					{
-						...countStar(),
-						filter: and([
-							...mapNonEmpty(parent, (p, k) =>
-								typedEq(
-									groupType(family, k),
-									col("t", p),
-									col("c", ancestorName(k)),
-									installation.names
-								)
-							),
-							not(rootOf("t"))
-						])
-					},
-					"__children"
-				)
+				...carried.map((c) => targetAs(col("t", c), c)),
+				targetAs(isRoot, "__root"),
+				...meets.map((c, k) => targetAs(col("t", c), at(k))),
+				targetAs(int(child), "__child"),
+				...steps.map((c) => targetAs(c.expr, c.name))
 			],
-			[
-				join(
-					cteRefAs(closureName, "c"),
-					self("t"),
-					and(
-						mapNonEmpty(owner, (c, k) =>
-							typedEq(
-								groupType(family, k),
-								col("t", c),
-								col("c", descendantName(k)),
-								installation.names
-							)
-						)
-					)
-				)
-			],
-			owner.map((_, k) => col("c", ancestorName(k)))
+			[{ kind: "table", table, alias: "t" }],
+			where
 		)
-	)
-	const carried = [...new Set([...key, ...owner, ...parent])]
-	const siblings = [...parent.map((p) => col("t", p)), rootOf("t")]
-	const ranked = cte(
-		rankedName,
+	const roles = derived(
+		select(unionAll("disjoint", [arm(owner, 0n, undefined), arm(parent, 1n, not(isRoot))])),
+		"e",
 		[],
+		false
+	)
+	const passed = [...carried, "__root", "__child", ...steps.map((c) => c.name)]
+	const met = derived(
 		select(
 			provedCore(
 				"keyed",
 				[
-					...carried.map((c) => targetAs(col("t", c), c)),
-					targetAs(rootOf("t"), "__root"),
-					targetAs(col("s", "__size"), "__size"),
-					targetAs(col("s", "__children"), "__children"),
+					...passed.map((c) => targetAs(col("e", c), c)),
 					targetAs(
-						holds(added, family.index)
-							? {
-									kind: "case",
-									operand: undefined,
-									whens: [{ when: rootOf("t"), result: none }],
-									else: binary(
-										"-",
-										over(
-											"row_number",
-											[],
-											window(
-												siblings,
-												key.map((k) => col("t", k)),
-												false
-											)
-										),
-										one
-									)
-								}
-							: col("t", columnOf(family.index)),
-						"__at"
-					),
-					targetAs({ ...countStar(), over: window(siblings, [], false) }, "__siblings"),
-					...stepColumns(installation, member, folds).map((c) => targetAs(c.expr, c.name))
-				],
-				[
-					join(
-						self("t"),
-						cteRefAs(sizedName, "s"),
-						and(
-							mapNonEmpty(owner, (c, k) =>
-								typedEq(
-									groupType(family, k),
-									col("t", c),
-									col("s", ancestorName(k)),
-									installation.names
-								)
+						over(
+							"sum",
+							[col("e", "__child")],
+							window(
+								owner.map((_, k) => col("e", at(k))),
+								[],
+								false
 							)
-						)
+						),
+						"__children"
 					)
 				],
+				[roles],
 				undefined
 			)
-		)
+		),
+		"w",
+		[],
+		false
 	)
-	const steps = folds.map(({ f }) => stepName(f))
-	const rankedColumns = [
-		...carried,
-		"__root",
-		"__size",
-		"__children",
-		"__at",
-		"__siblings",
-		...steps
-	]
-	/** Each fold over the tree, its family each row's siblings in slot order, the root alone at slot 0: the layers over
-	 * the ranked rows that accumulate it (planeLayers). */
-	const foldCarried: NonEmptyReadonlyArray<string> = [
-		...key,
-		...parent.filter((p) => !key.includes(p)),
-		"__root",
-		"__at",
-		...steps
-	]
-	const folded = isNonEmpty(folds)
-		? [
-				cte(
-					foldedName,
-					[],
-					select(
-						layered(
-							cteRefAs(rankedName, "r"),
-							foldCarried,
-							planeLayers(
-								installation,
-								folds,
-								[...parent.map((p) => tableCol(p)), tableCol("__root")],
-								[tableCol("__at")]
+	const siblings = [...parent.map((p) => col("w", p)), col("w", "__root")]
+	const ranked: Core = provedCore(
+		"keyed",
+		[
+			...carried.map((c) => targetAs(col("w", c), c)),
+			targetAs(col("w", "__root"), "__root"),
+			targetAs(col("w", "__children"), "__children"),
+			targetAs(
+				drawIndex
+					? {
+							kind: "case",
+							operand: undefined,
+							whens: [{ when: col("w", "__root"), result: lit.int(0n, types.bigint) }],
+							else: binary(
+								"-",
+								over(
+									"row_number",
+									[],
+									window(
+										siblings,
+										key.map((k) => col("w", k)),
+										false
+									)
+								),
+								lit.int(1n, types.bigint)
 							)
-						)
-					)
-				)
-			]
-		: []
+						}
+					: col("w", index),
+				"__at"
+			),
+			targetAs(
+				{
+					kind: "case",
+					operand: undefined,
+					whens: [{ when: col("w", "__root"), result: col("w", "__children") }],
+					else: { ...countStar(), over: window(siblings, [], false) }
+				},
+				"__n"
+			),
+			...steps.map((c) => targetAs(col("w", c.name), c.name))
+		],
+		[met],
+		eq(col("w", "__child"), int(0n))
+	)
 	const planes = folds.flatMap(({ fold, f }) =>
 		fold.planes.flatMap((plane, p) => [
 			{ column: columnOf(plane.before), name: beforeName(f, p) },
 			{ column: columnOf(plane.after), name: afterName(f, p) }
 		])
 	)
-	const stepped = cte(
-		steppedName,
-		[],
-		select(
-			provedCore(
-				"keyed",
-				[
-					...rankedColumns.map((c) => targetAs(col("r", c), c)),
-					targetAs(
-						{
-							kind: "case",
-							operand: undefined,
-							whens: [{ when: col("r", "__root"), result: none }],
-							else: binary(
-								"+",
-								one,
-								binary(
-									"-",
-									over(
-										"sum",
-										[col("r", "__size")],
-										window(
-											[...parent.map((p) => col("r", p)), col("r", "__root")],
-											[col("r", "__at")],
-											true
-										)
-									),
-									col("r", "__size")
-								)
-							)
-						},
-						"__step"
-					)
-				],
-				[cteRefAs(rankedName, "r")],
-				undefined
-			)
-		)
-	)
-	const started = cte(
-		startedName,
-		[],
-		grouped(
-			[
-				...owner.map((_, k) => targetAs(col("c", descendantName(k)), descendantName(k))),
-				targetAs(call("sum", [col("st", "__step")]), "__start")
-			],
-			[
-				join(
-					cteRefAs(closureName, "c"),
-					cteRefAs(steppedName, "st"),
-					and(
-						mapNonEmpty(owner, (c, k) =>
-							typedEq(
-								groupType(family, k),
-								col("st", c),
-								col("c", ancestorName(k)),
-								installation.names
-							)
-						)
-					)
-				)
-			],
-			owner.map((_, k) => col("c", descendantName(k)))
-		)
-	)
-	const drawn: Core = provedCore(
-		"keyed",
-		[
-			...key.map((k) => targetAs(col("st", k), k)),
-			targetAs(col("st", "__at"), "__at"),
-			targetAs(col("st", "__children"), "__children"),
-			targetAs(
-				{
-					kind: "case",
-					operand: undefined,
-					whens: [{ when: col("st", "__root"), result: col("st", "__children") }],
-					else: col("st", "__siblings")
-				},
-				"__n"
-			),
-			targetAs(cast(col("s", "__start"), types.bigint), "__start"),
-			targetAs(cast(binary("+", col("s", "__start"), col("st", "__size")), types.bigint), "__end"),
-			...planes.map(({ name }) => targetAs(col("f", name), name))
-		],
-		[
-			{
-				kind: "joins",
-				first: cteRefAs(steppedName, "st"),
-				steps: [
-					{
-						kind: "on",
-						source: cteRefAs(startedName, "s"),
-						on: and(
-							mapNonEmpty(owner, (c, k) =>
-								typedEq(
-									groupType(family, k),
-									col("s", descendantName(k)),
-									col("st", c),
-									installation.names
-								)
-							)
-						)
-					},
-					...(isNonEmpty(folds)
-						? [
-								{
-									kind: "on" as const,
-									source: cteRefAs(foldedName, "f"),
-									on: sameKey(keyed, "f", "st")
-								}
-							]
-						: [])
-				]
-			}
-		],
-		undefined
-	)
 	const set = [
-		{ column: columnOf(family.index), value: "__at" },
+		{ column: index, value: "__at" },
 		{ column: family.count.column, value: "__children" },
 		{ column: family.copy, value: "__n" },
-		{ column: shape.start.column, value: "__start" },
-		{ column: shape.end.column, value: "__end" },
 		...planes.map(({ column, name }) => ({ column, value: name }))
 	].filter((a) => added.has(a.column))
 	if (!isNonEmpty(set)) {
 		return undefined
 	}
+	const rankedColumns: NonEmptyReadonlyArray<string> = [
+		...carried,
+		"__root",
+		"__children",
+		"__at",
+		"__n",
+		...steps.map((c) => c.name)
+	]
 	return {
 		table,
-		with: { recursive: true, ctes: [closure, sized, ranked, stepped, started, ...folded] },
-		core: drawn,
+		with: undefined,
+		core: isNonEmpty(folds)
+			? layered(
+					derived(select(ranked), "r", [], false),
+					rankedColumns,
+					planeLayers(
+						installation,
+						folds,
+						[...parent.map((p) => tableCol(p)), tableCol("__root")],
+						[tableCol("__at")]
+					)
+				)
+			: ranked,
 		match: keyMatch(keyed),
 		set,
-		reads: cellsOf(table, [
-			...carried,
-			...(holds(added, family.index) ? [] : [columnOf(family.index)]),
-			...foldReads(installation, member, folds)
-		])
+		reads: cellsOf(table, [...carried, ...foldReads(installation, member, folds)])
 	}
 }
 
@@ -2028,7 +1797,6 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 				columnOf(family.index),
 				family.count.column,
 				family.copy,
-				shape.end.column,
 				...family.folds.flatMap((fold) =>
 					fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after), p.end.column])
 				)
@@ -2046,7 +1814,7 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 			if (!columns.some((c) => onMember.has(c))) {
 				continue
 			}
-			plan(family, treeDerivation(input, family, shape, memberTable, onMember))
+			plan(family, treeDerivation(input, family, memberTable, onMember))
 			plan(family, treeEndDerivation(input.installation.names, family, memberTable, onMember))
 			continue
 		}

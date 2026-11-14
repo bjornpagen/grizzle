@@ -84,8 +84,8 @@
  * raises under that law's identity (backfill.ts keyChecks): the derivations meet rows at that key, and over its
  * duplicates every join of them would multiply the rows. The parent drawn anew is read off each root's intervals sorted
  * (backfill.ts parentDerivation), so every statement of the draft's backfill is judged on its SQL AST to read no row once
- * per row of another, neither a subquery reading a row outside it nor a LATERAL source, and each table is written by one
- * UPDATE (test/support/migrate/probes.ts). Its features: the old tree
+ * per row of another, neither a subquery reading a row outside it nor a LATERAL source, to recur nowhere, and each table
+ * is written by one UPDATE (test/support/migrate/probes.ts). Its features: the old tree
  * keyed, a tree of three levels or more, several old trees each its own root, the refused merge, a fold over the copies
  * selecting a member, a node whose parent's kind is not its grandparent's, a tree's count carried along the anchor
  * family's owner axis from another node, a copy from the sibling before along the predecessor axis, and the shapes
@@ -103,7 +103,8 @@
  * draws also drafted as another family's copy, which the backfill's order refuses as one column of two statements);
  * (~/.cache/grizzle-release/BACKFILLPROBE/plants) parent-correlated-probe (the parent drawn by a correlated max(start)
  * over the tree's rows, one probe per row) and parent-depth-off-by-one (a row's level counting the rows that end at its
- * start as still holding it).
+ * start as still holding it); (~/.cache/grizzle-release/TREECOST/plants) tree-closure-restored (the tree drawn over the
+ * closure of its parents, under a WITH RECURSIVE).
  *
  * The file builds Substrate.isolatedLayer: the rewrite observer's event trigger is the database's.
  */
@@ -154,7 +155,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { findMarkers, splitStatements } from "#compiler/plan/migration.ts"
 import { accumulated, drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
-import { type AnyRelation, type Statement, schema, select } from "#compiler/public/schema.ts"
+import { type AnyRelation, type Statement, schema } from "#compiler/public/schema.ts"
 import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { generatedField, generatedRelation, relation } from "#compiler/schema/relation.ts"
@@ -165,11 +166,9 @@ import {
 	foldBuilder,
 	monoids,
 	onBuilder,
-	orderedBuilder,
-	predBuilder,
-	treeBuilder
+	orderedBuilder
 } from "#compiler/schema/statements.ts"
-import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import {
@@ -184,10 +183,30 @@ import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { writeOnce } from "#test/support/calls.ts"
 import { filledSql } from "#test/support/compile.ts"
-import { type KeyedRow, numbered, treeOfParents } from "#test/support/families/tree.ts"
+import type { KeyedRow } from "#test/support/families/tree.ts"
 import { type Installed, installedOf, loginCredentials } from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import {
+	anchorsOf,
+	column,
+	int8Literal,
+	keyedFields,
+	keyedTreeOf,
+	type OldDocument,
+	oldInsert,
+	oldRows,
+	packageOf,
+	pathOf,
+	q,
+	textLiteral,
+	type TreeCase,
+	treeDataStep,
+	treePlaceholder,
+	uuidLiteral,
+	valuesOf,
+	withDataStep
+} from "#test/support/migrate/keyed-tree.ts"
 import {
 	asDrafted,
 	compile,
@@ -198,8 +217,13 @@ import {
 	noDeclarations,
 	type Previous
 } from "#test/support/migrate/kit.ts"
-import { type OldFormTree, oldFormTree } from "#test/support/migrate/old-form-tree.ts"
-import { missingKeyChecks, perRowReads, rewrittenTables } from "#test/support/migrate/probes.ts"
+import { oldFormTree } from "#test/support/migrate/old-form-tree.ts"
+import {
+	missingKeyChecks,
+	perRowReads,
+	recursions,
+	rewrittenTables
+} from "#test/support/migrate/probes.ts"
 import { type Placeholder, readsBack, review } from "#test/support/migrate/review.ts"
 import { type RewriteObserver, rewriteObserver } from "#test/support/migrate/rewrites.ts"
 import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
@@ -1184,8 +1208,6 @@ interface History {
 	steps: number
 }
 
-const q = quoteIdent
-const column = (field: string): string => q(identifierOf(identity.column(parsedName(field))))
 const tableOf = (h: History, r: number): string =>
 	`${q(h.schema)}.${q(identifierOf(identity.table(parsedName(relName(r)))))}`
 
@@ -1244,11 +1266,6 @@ const placeholdersOf = (h: History, m: Model): ReadonlyMap<string, string> => {
 const placeholderKey = (p: Placeholder): string =>
 	`${printObjectName(p.table)}\u0000${p.column.name}`
 
-/** Typed SQL literals of a uuid, a text and a bigint, as the drafts name their types. */
-const uuidLiteral = (value: string): string => `${quoteString(value)}::"pg_catalog"."uuid"`
-const textLiteral = (value: string): string => `${quoteString(value)}::"pg_catalog"."text"`
-const int8Literal = (value: string): string => `${value}::"pg_catalog"."int8"`
-
 /** The literals of a fact's key of `r` in world `w`, in key field order. */
 const keyLiterals = (w: World, r: number, serial: number): ReadonlyArray<string> => {
 	const values = keyValues(w, r, serial)
@@ -1261,13 +1278,6 @@ const keyLiterals = (w: World, r: number, serial: number): ReadonlyArray<string>
 			return Arr.map(values, (v, i) => (i === 2 ? int8Literal(v) : textLiteral(v)))
 	}
 }
-
-/** VALUES of rows, each its literals. */
-const valuesOf = (rows: Arr.NonEmptyReadonlyArray<ReadonlyArray<string>>): string =>
-	`(VALUES ${Arr.join(
-		Arr.map(rows, (row) => `(${Arr.join(row, ", ")})`),
-		", "
-	)})`
 
 /**
  * The reviewer's data step of a version, from the model's mapping, over the facts stored when it runs: each re-keyed
@@ -1327,40 +1337,6 @@ const dataStepOf = (h: History, m: Model): ReadonlyArray<string> => {
 		]
 	})
 	return [...own, ...pointing, ...filled]
-}
-
-/** The statement the draft makes every data step follow (the slot structure.immediate), as it spells it. */
-const immediate = "SET CONSTRAINTS ALL IMMEDIATE;"
-
-/**
- * A drafted folder with the data step where the placeholder marker says it goes: right after the draft's own
- * `SET CONSTRAINTS ALL IMMEDIATE;`, which follows every table's alteration and every new column's DROP DEFAULT and comes
- * before every set-aside column's fill, the backfill and the constraints that read what the data step writes. A data
- * step the draft gives no such place to is a failure of the property.
- */
-const withDataStep = (g: GenerateResult, step: ReadonlyArray<string>): GenerateResult => {
-	if (step.length === 0) {
-		return g
-	}
-	const at = (text: string): Option.Option<number> =>
-		Arr.findFirstIndex(Str.split(text, "\n"), (l) => Str.trim(l) === immediate)
-	assert.ok(
-		Arr.some(g.folder.files, (f) => Option.isSome(at(f.text))),
-		`the draft ${g.folder.name} drafts no ${immediate} for its data step to follow`
-	)
-	const files = Arr.map(g.folder.files, (f) =>
-		Option.match(at(f.text), {
-			onNone: () => f,
-			onSome: (end) => {
-				const lines = Str.split(f.text, "\n")
-				return {
-					...f,
-					text: Arr.join([...lines.slice(0, end + 1), "", ...step, ...lines.slice(end + 1)], "\n")
-				}
-			}
-		})
-	)
-	return { ...g, folder: { ...g.folder, files } }
 }
 
 /** What `grizzle check` finds in a reviewed folder's files: an undecided loss, a marker left, a statement that controls
@@ -1756,24 +1732,6 @@ const history = (c: Cutover, note: (f: Feature) => void) =>
 		})
 	)
 
-/** One old document's tree: its parents as the testing library draws them and each node's kind. */
-interface OldDocument {
-	readonly parents: ReadonlyArray<number>
-	readonly kinds: ReadonlyArray<number>
-}
-
-/**
- * A tree case: the old-form forest, one tree per document, and the new root each document maps onto, which the data step
- * fills: each document its own, or two documents onto one, which no keyed tree holds.
- */
-interface TreeCase {
-	readonly documents: Arr.NonEmptyReadonlyArray<OldDocument>
-	readonly roots: Arr.NonEmptyReadonlyArray<number>
-}
-
-/** The widths of the keyed tree's root texts, `package` and `path`. */
-const rootWidth = 40
-
 const oldDocumentGen: Gen<OldDocument> = (source) => {
 	const parents = source.draw(parentsGen({ min: 1, max: 6 }))
 	return { parents, kinds: Arr.map(indices(parents.length + 1), () => source.draw(int(0, 3))) }
@@ -1888,183 +1846,6 @@ const steeredTreeGen =
 /** Whether a case maps two documents onto one new root. */
 const mergesTrees = (c: TreeCase): boolean => new Set(c.roots).size < c.roots.length
 
-/** A document's old tree in pre-order (families/tree.ts numbered), under its document's index as its root value. */
-const oldRows = (d: number, doc: OldDocument): ReadonlyArray<KeyedRow> =>
-	numbered([{ root: [String(d)], tree: treeOfParents(doc.parents, doc.kinds) }])
-
-/** The uuid of an old document, and of the node at `start` in it. */
-const documentId = (d: number): string => uuidOf(3, d + 1)
-const nodeId = (d: number, start: number): string => uuidOf(2, d * 1000 + start + 1)
-
-/** A new root's package and path, each its texts. */
-const packageOf = (root: number): string => `package-${root}`
-const pathOf = (root: number): string => `path/${root}.xml`
-
-/**
- * The old tree's rows as a direct writer inserts them at SERIALIZABLE, every drawn value stated as the old form's laws
- * fix it: a root its own parent at slot 0, ‹n› the parent's count (a root's own), ‹ps› the parent's start (a root's,
- * 0), the parent's kind (a root's own), and the count fold over each node's children: `before` its slot, `after` one
- * more, `total` its count.
- */
-const oldInsert = (tree: OldFormTree, c: TreeCase): string => {
-	const fields = [
-		"id",
-		"doc",
-		"parent",
-		"at",
-		"children",
-		"start",
-		"end",
-		"kind",
-		"parentKind",
-		"before",
-		"after",
-		"total"
-	]
-	const rows = Arr.flatMap(c.documents, (doc, d) =>
-		Arr.map(oldRows(d, doc), (row) =>
-			Arr.join(
-				[
-					uuidLiteral(nodeId(d, row.start)),
-					uuidLiteral(documentId(d)),
-					uuidLiteral(nodeId(d, row.parent)),
-					int8Literal(String(row.at)),
-					int8Literal(String(row.children)),
-					int8Literal(String(row.start)),
-					int8Literal(String(row.end)),
-					`${row.kind}::"pg_catalog"."int4"`,
-					`${row.parentKind}::"pg_catalog"."int4"`,
-					int8Literal(String(row.at)),
-					int8Literal(String(row.at + 1)),
-					int8Literal(String(row.children)),
-					int8Literal(String(row.copy)),
-					int8Literal(String(row.parent))
-				],
-				", "
-			)
-		)
-	)
-	return `INSERT INTO ${q(tree.snapshot.schema)}.${q(tree.columns.table)} (${Arr.join(
-		[...Arr.map(fields, column), q(tree.columns.copy), q(tree.columns.parentStart)],
-		", "
-	)}) VALUES ${Arr.join(
-		Arr.map(rows, (row) => `(${row})`),
-		", "
-	)}`
-}
-
-/**
- * The keyed tree the old one becomes: rooted at (package, path), keyed by them and its start, its count fold kept, and
- * pantry's Node's shape over its parent copies (edullm's identity migration): its parent's kind copied along the parent
- * axis, as the old tree copied it, now under the keyed tree's law, so the migration draws it anew, and its grandparent's
- * kind, the parent's own copy, both the root's own; and a count fold over each node's children whose selection reads
- * both copies, the children whose parent's kind is not their grandparent's (`turns`, its planes named), which the
- * migration draws after the copies it reads. And pantry's Instance's shape (tests.ts, `children` held to its
- * TestDocument's `sites`): a second family over Node, counted by the node each names as its `anchor` (`uses`), whose
- * owner axis carries the tree's own count, `children`, from the anchor's `sites`, so one migration draws `children` as
- * the tree's count beside that family's axis.
- */
-const keyedTreeOf = () => {
-	const Node = relation(
-		"Node",
-		{
-			package: textField(rootWidth),
-			path: textField(rootWidth),
-			parent: drawnField(natural),
-			at: drawnField(natural),
-			children: drawnField(natural),
-			start: drawnField(natural),
-			end: drawnField(natural),
-			kind: pg.integer,
-			parentKind: accumulated(pg.integer, 0),
-			parentParentKind: accumulated(pg.integer, 0),
-			before: accumulated(natural, 0n),
-			after: accumulated(natural, 0n),
-			total: accumulated(natural, 0n),
-			turnsBefore: accumulated(natural, 0n),
-			turnsAfter: accumulated(natural, 0n),
-			turns: accumulated(natural, 0n),
-			anchor: natural,
-			sites: natural,
-			uses: drawnField(natural),
-			was: accumulated(pg.integer, 0)
-		},
-		["package", "path", "start"],
-		[]
-	)
-	const nodes = treeBuilder(onBuilder(Node, ["parent", "at"]), finBuilder(Node, "children"), {
-		root: ["package", "path"]
-	})
-	return schema(
-		"OldTree",
-		[Node],
-		[
-			nodes,
-			foldBuilder(
-				nodes,
-				monoids.count,
-				onBuilder(Node, ["package", "path", "parent", "before", "after"]),
-				onBuilder(Node, ["package", "path", "start", "total"])
-			),
-			containedBuilder(
-				onBuilder(
-					select(Node, (n) => n.gt(n.start, 0n)),
-					["package", "path", "parent", "parentKind", "parentParentKind"]
-				),
-				onBuilder(Node, ["package", "path", "start", "kind", "parentKind"])
-			),
-			foldBuilder(
-				nodes,
-				monoids.count,
-				onBuilder(
-					select(Node, (n) => n.and(n.gt(n.start, 0n), n.ne(n.parentKind, n.parentParentKind))),
-					["package", "path", "parent", "turnsBefore", "turnsAfter"]
-				),
-				onBuilder(Node, ["package", "path", "start", "turns"])
-			),
-			containedBuilder(
-				onBuilder(
-					select(Node, (n) => n.gt(n.start, 0n)),
-					["package", "path", "parent", predBuilder("at"), "was"]
-				),
-				onBuilder(
-					select(Node, (n) => n.gt(n.start, 0n)),
-					["package", "path", "parent", "at", "kind"]
-				)
-			),
-			countedBuilder(onBuilder(Node, ["package", "path", "anchor"]), finBuilder(Node, "uses")),
-			containedBuilder(
-				onBuilder(Node, ["package", "path", "anchor", "children"]),
-				onBuilder(Node, ["package", "path", "start", "sites"])
-			)
-		]
-	)
-}
-
-/** The keyed tree's visible fields, in the order the model states them. */
-const keyedFields = [
-	"package",
-	"path",
-	"start",
-	"parent",
-	"at",
-	"children",
-	"end",
-	"kind",
-	"parentKind",
-	"parentParentKind",
-	"before",
-	"after",
-	"total",
-	"turnsBefore",
-	"turnsAfter",
-	"turns",
-	"anchor",
-	"sites",
-	"uses",
-	"was"
-] as const
-
 /**
  * The copies and the turns fold of one document's rows, read off the direct pre-order numbering alone: each row's
  * grandparent's kind its parent's own parentKind (a root's own), whether the turns fold selects it (a member whose
@@ -2092,22 +1873,6 @@ const turnsOf = (rows: ReadonlyArray<KeyedRow>) => {
 		after: (row: KeyedRow): number => selectedThrough(row, true),
 		end: (row: KeyedRow): number =>
 			Arr.filter(rows, (r) => r.start > 0 && r.parent === row.start && selected(r)).length
-	}
-}
-
-/**
- * The anchor family of one document's rows: each row's anchor, the start of the first row in pre-order whose count is
- * its own, so its `sites` (each row's own count) is the row's count, and each row's `uses`, the rows anchored at it.
- */
-const anchorsOf = (rows: ReadonlyArray<KeyedRow>) => {
-	const anchor = (row: KeyedRow): number =>
-		defined(
-			Option.getOrUndefined(Arr.findFirst(rows, (r) => r.children === row.children)),
-			`a row of ${row.children} children`
-		).start
-	return {
-		anchor,
-		uses: (row: KeyedRow): number => Arr.filter(rows, (r) => anchor(r) === row.start).length
 	}
 }
 
@@ -2168,16 +1933,6 @@ const turnsSelect = (c: TreeCase): boolean =>
 		return Arr.some(rows, turnsOf(rows).selected)
 	})
 
-/** The value each placeholder of the keyed tree's new caller fields takes until the data step writes it: the empty text
- * of a root text, 0 of the naturals `anchor` and `sites`. */
-const treePlaceholder = (p: Placeholder): string =>
-	Arr.some(
-		["anchor", "sites"],
-		(f) => p.column.name === identifierOf(identity.column(parsedName(f)))
-	)
-		? "0"
-		: "''"
-
 /** Whether a case's anchor family carries some node's count from another node's `sites`. */
 const anchorsElsewhere = (c: TreeCase): boolean =>
 	Arr.some(c.documents, (doc, d) => {
@@ -2185,33 +1940,6 @@ const anchorsElsewhere = (c: TreeCase): boolean =>
 		const { anchor } = anchorsOf(rows)
 		return Arr.some(rows, (row) => anchor(row) !== row.start)
 	})
-
-/** The data step of the tree's migration: each node's new root from its old document's uuid, by the case's map, and
- * each node's anchor and sites from its old id (anchorsOf). */
-const treeDataStep = (tree: OldFormTree, c: TreeCase): ReadonlyArray<string> => {
-	const table = `${q(tree.snapshot.schema)}.${q(tree.columns.table)}`
-	const rows = Arr.map(c.documents, (_, d) => {
-		const root = nth(c.roots, d, "a document's new root")
-		return [uuidLiteral(documentId(d)), textLiteral(packageOf(root)), textLiteral(pathOf(root))]
-	})
-	const nodes = Arr.flatMap(c.documents, (doc, d) => {
-		const old = oldRows(d, doc)
-		const { anchor } = anchorsOf(old)
-		return Arr.map(old, (row) => [
-			uuidLiteral(nodeId(d, row.start)),
-			int8Literal(String(anchor(row))),
-			int8Literal(String(row.children))
-		])
-	})
-	return [
-		`UPDATE ${table} AS "t" SET ${column("package")} = "m"."k0", ${column("path")} = "m"."k1" FROM ${valuesOf(
-			nonEmpty(rows, "the documents' roots")
-		)} AS "m" ("old", "k0", "k1") WHERE "t".${column("doc")} = "m"."old";`,
-		`UPDATE ${table} AS "t" SET ${column("anchor")} = "m"."a", ${column("sites")} = "m"."s" FROM ${valuesOf(
-			nonEmpty(nodes, "the documents' nodes")
-		)} AS "m" ("old", "a", "s") WHERE "t".${column("id")} = "m"."old";`
-	]
-}
 
 type TreeFeature =
 	| "an old-form tree keyed by its root and start"
@@ -2293,6 +2021,7 @@ const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
 				[],
 				"the keyed tree's backfill reads no row once per row"
 			)
+			assert.deepEqual(recursions(g.plan.steps), [], "the keyed tree's backfill recurs nowhere")
 			assert.deepEqual(
 				missingKeyChecks(installation, tree.snapshot.theory, g.plan.steps),
 				[],

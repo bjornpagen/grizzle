@@ -3,7 +3,7 @@ import type { Step } from "#compiler/deploy/diff/plan.ts"
 import type { SnapshotTheory } from "#compiler/deploy/snapshot/types.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import type { Expr, FromSource, SqlStatement, Update } from "#compiler/sql/ast.ts"
+import type { Expr, FromSource, SqlStatement, Update, With } from "#compiler/sql/ast.ts"
 import { identityHooks, transformExpr, transformStatement } from "#compiler/sql/transform.ts"
 
 /**
@@ -25,6 +25,43 @@ export const perRowReads = (steps: ReadonlyArray<Step>): ReadonlyArray<string> =
 			? statementReads(step.draft.statement)
 			: []
 	)
+
+/**
+ * The recursions of a migration's backfill, the oracle of "a backfill's cost is a sort of its rows": no statement of
+ * structure.backfill holds a WITH RECURSIVE, at its top or in any query inside it. A recursive CTE's step joins its
+ * worktable to the rows it reads again at every step, so a recursion over a tree runs once per level of its depth, or
+ * builds the closure of its parents, n²/2 pairs over a chain of n. Each is named by its statement's table and the CTEs
+ * of the WITH.
+ */
+export const recursions = (steps: ReadonlyArray<Step>): ReadonlyArray<string> =>
+	Arr.flatMap(steps, (step) => {
+		if (step.slot !== "structure.backfill" || step.draft.kind !== "statement") {
+			return []
+		}
+		const statement = step.draft.statement
+		const found: Array<string> = []
+		const recursive = (w: With | undefined): void => {
+			if (w?.recursive === true) {
+				found.push(
+					`a WITH RECURSIVE of ${Arr.join(
+						Arr.map(w.ctes, (c) => c.name),
+						", "
+					)}`
+				)
+			}
+		}
+		if (statement.kind === "update") {
+			recursive(statement.with)
+		}
+		transformStatement(statement, {
+			...identityHooks,
+			select: (select) => {
+				recursive(select.with)
+				return select
+			}
+		})
+		return found
+	})
 
 /** Each per-row read of one statement, by what it is. */
 const statementReads = (statement: SqlStatement): ReadonlyArray<string> => {
@@ -129,37 +166,25 @@ export const rewrittenTables = (steps: ReadonlyArray<Step>): ReadonlyArray<strin
 const nativeColumn = (c: NativeColumn): string => (c.kind === "field" ? c.field.column : c.column)
 
 /** A table's key as the oracle states it: the table, its columns, and the law that holds it unique. */
-interface StatedKey {
+export interface StatedKey {
 	readonly law: string
 	readonly table: string
 	readonly columns: ReadonlyArray<string>
 }
 
 /**
- * The key checks a migration's backfill owes and does not run first, the oracle of "a backfill computes over unique
- * keys or not at all": for each family whose columns an UPDATE of structure.backfill sets, each key its rows are met at,
- * its member's primary key, its owner's, and its slot key (its group and its index), whose law the previous snapshot
- * does not record and none of whose columns the backfill sets, so no constraint holds it while the backfill runs and
- * the stored rows already hold it; owed is a violation check of that law in structure.backfill ahead of its first
- * UPDATE. Each is named by its law and table.
+ * The key checks a migration's backfill owes, the oracle of "a backfill computes over unique keys or not at all": for
+ * each family whose columns an UPDATE of structure.backfill sets, each key its rows are met at, its member's primary
+ * key, its owner's, and its slot key (its group and its index), whose law the previous snapshot does not record and none
+ * of whose columns the backfill sets, so no constraint holds it while the backfill runs and the stored rows already hold
+ * it. Each is stated by its law, its table and its columns.
  */
-export const missingKeyChecks = (
+export const owedKeyChecks = (
 	installation: Installation,
 	previous: SnapshotTheory,
 	steps: ReadonlyArray<Step>
-): ReadonlyArray<string> => {
+): ReadonlyArray<StatedKey> => {
 	const backfill = Arr.filter(steps, (s) => s.slot === "structure.backfill")
-	const firstUpdate = Arr.findFirstIndex(
-		backfill,
-		(s) => s.draft.kind === "statement" && s.draft.statement.kind === "update"
-	)
-	const before = Option.match(firstUpdate, {
-		onNone: () => [],
-		onSome: (at) => backfill.slice(0, at)
-	})
-	const checked = new Set(
-		Arr.flatMap(before, (s) => (s.draft.kind === "violation" ? [String(s.draft.law)] : []))
-	)
 	const updates = Arr.flatMap(backfill, (s): ReadonlyArray<Update> =>
 		s.draft.kind === "statement" && s.draft.statement.kind === "update" ? [s.draft.statement] : []
 	)
@@ -217,15 +242,40 @@ export const missingKeyChecks = (
 				columns: [...Arr.map(family.group, (g) => g.member.column), nativeColumn(family.index)]
 			}
 		]
-		return Arr.flatMap(keys, (key) =>
-			previous.laws[key.law] !== undefined ||
-			Arr.some(key.columns, (c) => set.has(`${key.table}.${c}`)) ||
-			checked.has(key.law)
-				? []
-				: [
-						`${key.law} on ${key.table} (${Arr.join(key.columns, ", ")}), no check ahead of the backfill`
-					]
+		return Arr.filter(
+			keys,
+			(key) =>
+				previous.laws[key.law] === undefined &&
+				!Arr.some(key.columns, (c) => set.has(`${key.table}.${c}`))
 		)
 	})
-	return Arr.dedupe(owed)
+	return Arr.dedupeWith(owed, (a, b) => a.law === b.law && a.table === b.table)
+}
+
+/** The key checks a migration's backfill owes (owedKeyChecks) and does not run first: owed is a violation check of the
+ * key's law in structure.backfill ahead of its first UPDATE. Each is named by its law, its table and its columns. */
+export const missingKeyChecks = (
+	installation: Installation,
+	previous: SnapshotTheory,
+	steps: ReadonlyArray<Step>
+): ReadonlyArray<string> => {
+	const backfill = Arr.filter(steps, (s) => s.slot === "structure.backfill")
+	const firstUpdate = Arr.findFirstIndex(
+		backfill,
+		(s) => s.draft.kind === "statement" && s.draft.statement.kind === "update"
+	)
+	const before = Option.match(firstUpdate, {
+		onNone: () => [],
+		onSome: (at) => backfill.slice(0, at)
+	})
+	const checked = new Set(
+		Arr.flatMap(before, (s) => (s.draft.kind === "violation" ? [String(s.draft.law)] : []))
+	)
+	return Arr.flatMap(owedKeyChecks(installation, previous, steps), (key) =>
+		checked.has(key.law)
+			? []
+			: [
+					`${key.law} on ${key.table} (${Arr.join(key.columns, ", ")}), no check ahead of the backfill`
+				]
+	)
 }

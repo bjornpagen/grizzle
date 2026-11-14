@@ -29,13 +29,22 @@
  *   swapped with another field, renamed along a chain or dropped, its column standing until the migration's removals:
  *   every fate migrates and draws every value the reference states over the stored lines in that key's order.
  *
+ * - **The keyed tree:** pantry's Node drafted from the old-form tree's frozen snapshot (test/support/migrate/keyed-tree.ts),
+ *   whose derivations meet Node's rows at its new primary key: the backfill owes that key's check, and runs it ahead of
+ *   every UPDATE (test/support/migrate/probes.ts owedKeyChecks, missingKeyChecks). Its rows are
+ *   test/pg/migrate/cutover.test.ts's to judge, and its cost test/pg/migrate/backfill-cost.test.ts's.
+ * - **Every draft's backfill** reads no row once per row, recurs nowhere, and writes each table by one UPDATE
+ *   (test/support/migrate/probes.ts perRowReads, recursions, rewrittenTables).
+ *
  * - **The judge:** the catalog model of PostgreSQL (test/support/migrate/interpret.ts) runs the drafted migration
  *   statement by statement over the stored rows, and its catalog afterwards must be the target's installed from
  *   nothing; NP's reference fold (test/support/families/fold.ts) of each owner's members in key order and a naive left
  *   fold of each owner's pieces state every drawn value.
  *
- * Plant (~/.cache/grizzle-release/BR06/plants): backfill-counts-from-one (a family's counts and indices drawn from one,
- * not zero).
+ * Plants: (~/.cache/grizzle-release/BR06/plants) backfill-counts-from-one (a family's counts and indices drawn from
+ * one, not zero); (~/.cache/grizzle-release/BACKFILLPROBE/plants) backfill-key-checks-dropped (no key check pushed);
+ * (~/.cache/grizzle-release/TREECOST/plants) tree-closure-restored (the tree's derivation by the closure of its
+ * parents, as before 2026-11-14).
  */
 import { drawn as generated, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -86,6 +95,7 @@ import {
 	load,
 	type State
 } from "#test/support/migrate/interpret.ts"
+import { keyedTreeOf } from "#test/support/migrate/keyed-tree.ts"
 import {
 	asDrafted,
 	compile,
@@ -96,7 +106,14 @@ import {
 	generate,
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
-import { missingKeyChecks, perRowReads, rewrittenTables } from "#test/support/migrate/probes.ts"
+import { oldFormTree } from "#test/support/migrate/old-form-tree.ts"
+import {
+	missingKeyChecks,
+	owedKeyChecks,
+	perRowReads,
+	recursions,
+	rewrittenTables
+} from "#test/support/migrate/probes.ts"
 import { plainPlan } from "#test/support/migrate/review.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -725,6 +742,7 @@ const assertBackfillOrder = (m: Migration, columns: ReadonlyArray<string>): void
 		"no constraint is added before the backfill"
 	)
 	assert.deepEqual(perRowReads(steps), [], "no backfill statement reads a row once per row")
+	assert.deepEqual(recursions(steps), [], "no backfill statement recurs")
 	assert.deepEqual(
 		missingKeyChecks(m.second, m.firstDraft.snapshot.theory, steps),
 		[],
@@ -1411,6 +1429,39 @@ const keyOrderSlots = (
 		Arr.flatMap(owners, (owner) => Arr.map(ownedBy(stored, owner), (m, at) => `${m.key}@${at}`)),
 		Order.String
 	)
+/**
+ * The keyed tree drafted from the old-form tree's frozen snapshot (test/support/migrate/old-form-tree.ts), as edullm's
+ * identity migration drafts it: its parent drawn anew from the kept intervals, its copies and folds drawn after it, its
+ * old id and document dropped. Its derivations meet Node's rows at Node's new primary key, (package, path, start), whose
+ * law the old snapshot does not record and none of whose columns the backfill draws: the one draft of the box that owes
+ * a key check.
+ */
+const keyedTree = (() => {
+	const tree = oldFormTree()
+	const installation = compile(keyedTreeOf(), asDrafted)
+	return Object.freeze({
+		previous: tree.snapshot.theory,
+		installation,
+		draft: succeeded(
+			generate({
+				previous: fromSnapshot(tree.snapshot),
+				installation,
+				name: "keyed",
+				timestamp: draftedAt(1),
+				workload: noWorkload,
+				declared: {
+					renames: [],
+					drops: [
+						{ kind: "field", relation: parsedName("Node"), field: parsedName("id") },
+						{ kind: "field", relation: parsedName("Node"), field: parsedName("doc") }
+					]
+				}
+			}),
+			"the keyed tree drafts from the old-form tree"
+		)
+	})
+})()
+
 type Backfill =
 	| {
 			readonly kind: "fold"
@@ -1449,6 +1500,7 @@ type Backfill =
 			readonly owners: number
 			readonly stored: ReadonlyArray<Stored>
 	  }
+	| { readonly kind: "keyed tree" }
 
 /** The owners' ids: 0 to `count - 1`, at least one. */
 const ownersOf = (count: number): ReadonlyArray<number> => upTo(count, (i) => i)
@@ -1559,7 +1611,8 @@ const backfillGen: Gen<Backfill> = weighted<Backfill>([
 				stored: source.draw(membersGen(owners))
 			}
 		}
-	]
+	],
+	[1, () => ({ kind: "keyed tree" })]
 ])
 
 type BackfillFeature =
@@ -1579,6 +1632,7 @@ type BackfillFeature =
 	| KindChange
 	| `end moved: ${EndMove}`
 	| `stored key ${StoredKeyFate}`
+	| "a keyed tree owing a key check"
 
 const notesOf = (b: Backfill): ReadonlyArray<BackfillFeature> => {
 	const unsorted = (keys: ReadonlyArray<number>) =>
@@ -1632,6 +1686,8 @@ const notesOf = (b: Backfill): ReadonlyArray<BackfillFeature> => {
 			return [`end moved: ${b.move}`, ...members(b.owners, b.stored)]
 		case "stored key":
 			return [`stored key ${b.fate}`, ...members(b.owners, b.stored)]
+		case "keyed tree":
+			return ["a keyed tree owing a key check"]
 	}
 }
 
@@ -1712,6 +1768,27 @@ const judgeBackfill = (b: Backfill): void => {
 			return judgeReshapedFold(endMoved[b.move], b.owners, b.stored)
 		case "stored key":
 			return judgeStoredKey(b.fate, b.owners, b.stored)
+		case "keyed tree": {
+			const steps = keyedTree.draft.plan.steps
+			assert.notDeepEqual(
+				owedKeyChecks(keyedTree.installation, keyedTree.previous, steps),
+				[],
+				"the keyed tree's backfill owes a check of the key its derivations meet Node's rows at"
+			)
+			assert.deepEqual(
+				missingKeyChecks(keyedTree.installation, keyedTree.previous, steps),
+				[],
+				"the keyed tree's backfill checks every key its derivations rely on before any of them runs"
+			)
+			assert.deepEqual(perRowReads(steps), [], "no backfill statement reads a row once per row")
+			assert.deepEqual(recursions(steps), [], "no backfill statement recurs")
+			assert.deepEqual(
+				rewrittenTables(steps),
+				[],
+				"the backfill writes each table's rows by one UPDATE"
+			)
+			return
+		}
 		case "kind changed": {
 			const k = kindChanged[b.change]
 			const owners = ownersOf(b.owners)
@@ -1929,7 +2006,8 @@ describe("backfilling a family added to stored rows, generated", () => {
 								...Arr.map(renamings, (r) => `renamed: ${r}` as const),
 								...kindChanges,
 								...Arr.map(endMoves, (m) => `end moved: ${m}` as const),
-								...Arr.map(storedKeyFates, (f) => `stored key ${f}` as const)
+								...Arr.map(storedKeyFates, (f) => `stored key ${f}` as const),
+								"a keyed tree owing a key check"
 							],
 							{ cases: 300, sense: notesOnly }
 						),
