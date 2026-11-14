@@ -20,7 +20,7 @@ import { requiredInSpace } from "@bjornpagen/testing/features"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Data, Effect, Formatter, Option, Pool } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import {
@@ -35,7 +35,7 @@ import {
 } from "#test/pg/substrate/temporal.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
-import { caseHang } from "#test/support/limits.ts"
+import { caseHang, casesAtOnce } from "#test/support/limits.ts"
 import {
 	type Attempted,
 	attempt,
@@ -96,6 +96,12 @@ const seatOf = (deferral: "immediate" | "deferred") =>
 	})
 
 const clear = (seat: Seat) => clearRows(seat.session, seat.tables)
+
+/**
+ * A seat of each deferral, for a case that judges both: the cases an exhaustion runs at once each hold a pair of their
+ * own (casesAtOnce of its two sessions), so none shares a table or a session.
+ */
+const seatPair = Effect.all([seatOf("immediate"), seatOf("deferred")])
 
 /** What the model says of a transaction: it commits, or is refused at a moment with a SQLSTATE. */
 type Verdict =
@@ -281,8 +287,7 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const seat = yield* seatOf("immediate")
-					const target = qualified(seat.schema, "target")
+					const seats = yield* Pool.make({ acquire: seatOf("immediate"), size: casesAtOnce(1) })
 					return yield* exhaust(
 						{
 							box: "every sequence of at most three target rows over keys 0 and 1, each span one of the six non-empty intervals over points 0 to 3, the empty one or NULL",
@@ -301,10 +306,12 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 								"overlapping spans of two keys admitted"
 							]),
 							caseHang,
-							concurrency: 1
+							concurrency: casesAtOnce(1)
 						},
 						(c, k) =>
 							Effect.gen(function* () {
+								const seat = yield* Pool.get(seats)
+								const target = qualified(seat.schema, "target")
 								const real = yield* attempt(
 									seat.session,
 									Arr.isReadonlyArrayNonEmpty(c.rows) ? [insertSql(target, c.rows, 0)] : []
@@ -363,7 +370,7 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const seats = [yield* seatOf("immediate"), yield* seatOf("deferred")]
+					const pairs = yield* Pool.make({ acquire: seatPair, size: casesAtOnce(2) })
 					return yield* exhaust(
 						{
 							box: "every two sets of pairwise disjoint target spans of the box, with a NULL target row beside them or none, and every source row",
@@ -388,63 +395,71 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 								)
 							]),
 							caseHang,
-							concurrency: 1
+							concurrency: casesAtOnce(2)
 						},
 						(c, k) =>
-							Effect.forEach(
-								seats,
-								(seat) =>
-									Effect.gen(function* () {
-										const targets = targetsOf(c)
-										const targetInsert = Arr.isReadonlyArrayNonEmpty(targets)
-											? [insertSql(qualified(seat.schema, "target"), targets, 0)]
-											: []
-										const sourceInsert = insertSql(qualified(seat.schema, "source"), [c.source], 0)
-										/** The deferred FK is sent its source first, as a cascade-fed target's rows arrive after it. */
-										const statements =
-											seat.deferral === "deferred"
-												? [sourceInsert, ...targetInsert]
-												: [...targetInsert, sourceInsert]
-										const real = yield* attempt(seat.session, statements)
-										const ok = covered(targets, c.source)
-										const model: Verdict = ok
-											? { kind: "committed" }
-											: {
-													kind: "refused",
-													moment:
-														seat.deferral === "deferred"
-															? { kind: "commit" }
-															: { kind: "statement", index: targetInsert.length },
-													code: "23503"
-												}
-										yield* judge(real, model, `${seat.deferral}: ${Formatter.format(c)}`)
-										const d = seat.deferral
-										if (c.source.span.kind === "null") {
-											k.note(`${d} skipped a NULL source span`)
-										} else if (isEmpty(c.source.span)) {
-											k.note(`${d} refused an empty source span`)
-										} else if (!ok) {
-											k.note(`${d} refused across a gap`)
-										} else {
-											const { lo, hi } = c.source.span
-											const one = Arr.some(
-												targets,
-												(t) =>
-													t.k === c.source.k &&
-													t.span.kind === "span" &&
-													t.span.lo <= lo &&
-													hi <= t.span.hi
+							Effect.flatMap(Pool.get(pairs), (seats) =>
+								Effect.forEach(
+									seats,
+									(seat) =>
+										Effect.gen(function* () {
+											const targets = targetsOf(c)
+											const targetInsert = Arr.isReadonlyArrayNonEmpty(targets)
+												? [insertSql(qualified(seat.schema, "target"), targets, 0)]
+												: []
+											const sourceInsert = insertSql(
+												qualified(seat.schema, "source"),
+												[c.source],
+												0
 											)
-											k.note(one ? `${d} covered by one span` : `${d} covered by a union of spans`)
-											if (d === "deferred") {
-												k.note("deferred committed a source sent before its targets")
+											/** The deferred FK is sent its source first, as a cascade-fed target's rows arrive after it. */
+											const statements =
+												seat.deferral === "deferred"
+													? [sourceInsert, ...targetInsert]
+													: [...targetInsert, sourceInsert]
+											const real = yield* attempt(seat.session, statements)
+											const ok = covered(targets, c.source)
+											const model: Verdict = ok
+												? { kind: "committed" }
+												: {
+														kind: "refused",
+														moment:
+															seat.deferral === "deferred"
+																? { kind: "commit" }
+																: { kind: "statement", index: targetInsert.length },
+														code: "23503"
+													}
+											yield* judge(real, model, `${seat.deferral}: ${Formatter.format(c)}`)
+											const d = seat.deferral
+											if (c.source.span.kind === "null") {
+												k.note(`${d} skipped a NULL source span`)
+											} else if (isEmpty(c.source.span)) {
+												k.note(`${d} refused an empty source span`)
+											} else if (!ok) {
+												k.note(`${d} refused across a gap`)
+											} else {
+												const { lo, hi } = c.source.span
+												const one = Arr.some(
+													targets,
+													(t) =>
+														t.k === c.source.k &&
+														t.span.kind === "span" &&
+														t.span.lo <= lo &&
+														hi <= t.span.hi
+												)
+												k.note(
+													one ? `${d} covered by one span` : `${d} covered by a union of spans`
+												)
+												if (d === "deferred") {
+													k.note("deferred committed a source sent before its targets")
+												}
 											}
-										}
-										if (real.kind === "committed") {
-											yield* clear(seat)
-										}
-									}),
-								{ concurrency: "unbounded", discard: true }
+											if (real.kind === "committed") {
+												yield* clear(seat)
+											}
+										}),
+									{ concurrency: "unbounded", discard: true }
+								)
 							)
 					)
 				})
@@ -457,7 +472,7 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const seats = [yield* seatOf("immediate"), yield* seatOf("deferred")]
+					const pairs = yield* Pool.make({ acquire: seatPair, size: casesAtOnce(2) })
 					return yield* exhaust(
 						{
 							box: "every change of one target row of every covering state of the box",
@@ -480,66 +495,68 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 								"a shrink that keeps the source covered committed"
 							]),
 							caseHang,
-							concurrency: 1
+							concurrency: casesAtOnce(2)
 						},
 						(c, k) =>
-							Effect.forEach(
-								seats,
-								(seat) =>
-									Effect.gen(function* () {
-										const target = qualified(seat.schema, "target")
-										const rows = Arr.map(c.targets, (span): Row => ({ k: 0, span }))
-										const setup = yield* attempt(seat.session, [
-											insertSql(target, rows, 0),
-											insertSql(qualified(seat.schema, "source"), [{ k: 0, span: c.source }], 0)
-										])
-										assert.equal(setup.kind, "committed", "a covering state is admitted")
-										const change = c.change
-										const after: ReadonlyArray<Row> =
-											change.kind === "delete"
-												? Arr.filter(rows, (_, i) => i !== change.at)
-												: Arr.map(rows, (row, i) =>
-														i === change.at ? { k: 0, span: change.span } : row
-													)
-										const changed =
-											change.kind === "delete"
-												? `DELETE FROM ${target} WHERE id = ${change.at}`
-												: change.span.kind === "null"
-													? `UPDATE ${target} SET phi = false WHERE id = ${change.at}`
-													: `UPDATE ${target} SET lo = ${change.span.lo}, hi = ${change.span.hi}, phi = true WHERE id = ${change.at}`
-										const real = yield* attempt(seat.session, [changed])
-										/** The changed row is checked against the others first, then the source against what is left. */
-										const keyCode =
-											change.kind === "respan"
-												? keyRefusal([
-														...Arr.filter(rows, (_, i) => i !== change.at),
-														{ k: 0, span: change.span }
-													])
-												: Option.none()
-										const model: Verdict = Option.isSome(keyCode)
-											? {
-													kind: "refused",
-													moment: { kind: "statement", index: 0 },
-													code: keyCode.value
-												}
-											: covered(after, { k: 0, span: c.source })
-												? { kind: "committed" }
-												: {
+							Effect.flatMap(Pool.get(pairs), (seats) =>
+								Effect.forEach(
+									seats,
+									(seat) =>
+										Effect.gen(function* () {
+											const target = qualified(seat.schema, "target")
+											const rows = Arr.map(c.targets, (span): Row => ({ k: 0, span }))
+											const setup = yield* attempt(seat.session, [
+												insertSql(target, rows, 0),
+												insertSql(qualified(seat.schema, "source"), [{ k: 0, span: c.source }], 0)
+											])
+											assert.equal(setup.kind, "committed", "a covering state is admitted")
+											const change = c.change
+											const after: ReadonlyArray<Row> =
+												change.kind === "delete"
+													? Arr.filter(rows, (_, i) => i !== change.at)
+													: Arr.map(rows, (row, i) =>
+															i === change.at ? { k: 0, span: change.span } : row
+														)
+											const changed =
+												change.kind === "delete"
+													? `DELETE FROM ${target} WHERE id = ${change.at}`
+													: change.span.kind === "null"
+														? `UPDATE ${target} SET phi = false WHERE id = ${change.at}`
+														: `UPDATE ${target} SET lo = ${change.span.lo}, hi = ${change.span.hi}, phi = true WHERE id = ${change.at}`
+											const real = yield* attempt(seat.session, [changed])
+											/** The changed row is checked against the others first, then the source against what is left. */
+											const keyCode =
+												change.kind === "respan"
+													? keyRefusal([
+															...Arr.filter(rows, (_, i) => i !== change.at),
+															{ k: 0, span: change.span }
+														])
+													: Option.none()
+											const model: Verdict = Option.isSome(keyCode)
+												? {
 														kind: "refused",
-														moment:
-															seat.deferral === "deferred"
-																? { kind: "commit" }
-																: { kind: "statement", index: 0 },
-														code: "23503"
+														moment: { kind: "statement", index: 0 },
+														code: keyCode.value
 													}
-										yield* judge(real, model, `${seat.deferral}: ${Formatter.format(c)}`)
-										k.note(changeFeature(seat.deferral, c.change.kind, model))
-										if (model.kind === "committed" && shrinks(c)) {
-											k.note("a shrink that keeps the source covered committed")
-										}
-										yield* clear(seat)
-									}),
-								{ concurrency: "unbounded", discard: true }
+												: covered(after, { k: 0, span: c.source })
+													? { kind: "committed" }
+													: {
+															kind: "refused",
+															moment:
+																seat.deferral === "deferred"
+																	? { kind: "commit" }
+																	: { kind: "statement", index: 0 },
+															code: "23503"
+														}
+											yield* judge(real, model, `${seat.deferral}: ${Formatter.format(c)}`)
+											k.note(changeFeature(seat.deferral, c.change.kind, model))
+											if (model.kind === "committed" && shrinks(c)) {
+												k.note("a shrink that keeps the source covered committed")
+											}
+											yield* clear(seat)
+										}),
+									{ concurrency: "unbounded", discard: true }
+								)
 							)
 					)
 				})

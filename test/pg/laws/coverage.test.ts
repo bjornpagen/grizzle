@@ -32,7 +32,7 @@ import { requiredInSpace } from "@bjornpagen/testing/features"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Data, Effect, Formatter, Option, Pool } from "effect"
 import { pg, span } from "#compiler/public/fields.ts"
 import {
 	contained,
@@ -43,7 +43,14 @@ import {
 	select,
 	type Statement
 } from "#compiler/public/schema.ts"
-import { type Catalogued, cleared, type Seat, seatOf } from "#test/pg/fin/installed.ts"
+import {
+	type Catalogued,
+	cleared,
+	type Seat,
+	seatOf,
+	seatPool,
+	seatsAtOnce
+} from "#test/pg/fin/installed.ts"
 import { covered, isEmpty, keyRefusal, type Row, SPANS } from "#test/pg/substrate/temporal.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
@@ -191,8 +198,7 @@ layer(Substrate.layer)("coverage through grizzle's lowering on PostgreSQL 19rc2"
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const seat = yield* seatOf(Coverage, RELATIONS, "coverage")
-					const laws = namesOf(seat.installed)
+					const seats = yield* seatPool(seatOf(Coverage, RELATIONS, "coverage"))
 					return yield* exhaust(
 						{
 							suite: "fin/coverage",
@@ -212,10 +218,12 @@ layer(Substrate.layer)("coverage through grizzle's lowering on PostgreSQL 19rc2"
 								"refused coverage across a gap"
 							]),
 							caseHang,
-							concurrency: 1
+							concurrency: seatsAtOnce
 						},
 						(sketch, c) =>
 							Effect.gen(function* () {
+								const seat = yield* Pool.get(seats)
+								const laws = namesOf(seat.installed)
 								const model = modelOf(sketch)
 								const statements = [
 									...(Arr.isReadonlyArrayNonEmpty(sketch.targets)

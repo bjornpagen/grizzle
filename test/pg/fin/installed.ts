@@ -12,7 +12,7 @@
  * catalog states them, and the law the installation's constraint map says it reports.
  */
 import { constant, type Gen, type Weight, weighted } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Option, type Scope, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Pool, type Scope, Semaphore, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
@@ -21,6 +21,7 @@ import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
 import { type Installed, installMigrated } from "#test/support/install-migrate.ts"
+import { casesAtOnce, testIdleTimeout } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import {
 	type Attempted,
@@ -180,6 +181,30 @@ export const seatOf = (
 		})
 		return yield* seatOfInstalled(installed, relations, label)
 	})
+
+/**
+ * The seats a search's cases run on at once, `acquire` making each (seatOf, familySeat): a case holds one for its run
+ * (Pool.get), so no two cases at once share a table or a session, and finds it empty, as a committed case clears its
+ * rows and a refused one is rolled back. As many as fit in a test's pool, a seat holding its owner session alone once
+ * made (casesAtOnce); each made when a case first finds none free, one at a time, as the file's one seat was: two
+ * installations migrating at once into one database fail, one of them with XX000 (tuple concurrently updated) in its
+ * publish step; and none dropped while its test runs (testIdleTimeout), so a search runs as many cases at once as it
+ * asks of the pool (seatsAtOnce).
+ */
+export const seatPool = <A, E, R>(
+	acquire: Effect.Effect<A, E, R>
+): Effect.Effect<Pool.Pool<A, E>, never, R | Scope.Scope> =>
+	Effect.flatMap(Semaphore.make(1), (installing) =>
+		Pool.makeWithTTL({
+			acquire: installing.withPermit(acquire),
+			min: 0,
+			max: seatsAtOnce,
+			timeToLive: testIdleTimeout.value
+		})
+	)
+
+/** How many cases of a search over a seat pool run at once: one on each seat it may hold (seatPool). */
+export const seatsAtOnce: number = casesAtOnce(1)
 
 /**
  * The seat of an installation already made: its owner session, and the catalog of every PostgreSQL schema `relations`
