@@ -248,6 +248,7 @@
 		"bench",
 		"scripts/gen",
 		"scripts/dev",
+		"scripts/pg",
 		"scripts/build.ts",
 		"oxlint.config.ts",
 		"vitest.config.ts",

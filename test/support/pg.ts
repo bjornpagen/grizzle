@@ -728,12 +728,15 @@ const codeOf = (error: SqlError): string | undefined =>
  * - a low deadlock_timeout, so the concurrency driver's wait for each blocked step's deadlock check is short
  *   (test/support/schedules/interleave.ts). It is superuser-only; the owner holds SET on it (scripts/pg/init.sh);
  * - SERIALIZABLE as every transaction's default, the only level at which grizzle admits a write, so a plain client's
- *   seeding and resets are admitted.
+ *   seeding and resets are admitted;
+ * - no wait at commit for the WAL to reach the disk: a test database outlives no crash of its cluster, which a commit's
+ *   flush would guard against, and a commit is visible to every other session before its flush either way.
  * substrate/shared.ts `leftovers` treats exactly these, and nothing else, as a test database's own settings.
  */
 export const testDatabaseSettings: ReadonlyArray<readonly [name: string, value: string]> = [
 	["deadlock_timeout", "10ms"],
-	["default_transaction_isolation", "serializable"]
+	["default_transaction_isolation", "serializable"],
+	["synchronous_commit", "off"]
 ]
 
 /** Gives database `name` the test database settings, on `admin`. */

@@ -6,6 +6,9 @@
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 require_build
+# The settings that size the cluster to this machine (lib.sh cluster_size), as postgresql.conf lines, read before an
+# existing cluster is deleted.
+sized="$(cluster_size | sed 's/ / = /')"
 
 if [[ -d "$GRIZZLE_PG_DATA" ]]; then
 	if [[ "${1:-}" != "--force" ]]; then
@@ -62,6 +65,13 @@ max_pred_locks_per_transaction = 2048
 logging_collector = on
 log_directory = '$GRIZZLE_PG_LOG'
 log_filename = 'postgresql-%Y-%m-%d.log'
+# The machine's time zone never reaches the cluster, which initdb would take it from: grizzle's logins pin no TimeZone,
+# and its answers are the same under any (the ambient suites, test/support/ambient.ts).
+timezone = 'UTC'
+log_timezone = 'UTC'
+# A connection lease for each of the network tier's workers, one per core, and each worker's database in shared buffers
+# (test/support/substrate/shared.ts clusterSize).
+$sized
 EOF
 
 cat > "$GRIZZLE_PG_DATA/pg_hba.conf" <<EOF

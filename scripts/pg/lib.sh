@@ -15,6 +15,12 @@ require_build() {
 	fi
 }
 
+# The settings that size the cluster to this machine, one "<setting> <value>" line each, the value in the setting's own
+# unit: test/support/substrate/shared.ts clusterSize, the one formula, which init.sh writes and doctor.sh requires.
+cluster_size() {
+	(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && node --conditions=grizzle-source scripts/pg/cluster-size.ts)
+}
+
 admin_psql() {
 	"$(pg_bin psql)" -X -q -v ON_ERROR_STOP=1 -h "$GRIZZLE_PG_SOCKET" -p "$PG_PORT" -U postgres "$@"
 }

@@ -31,6 +31,20 @@ check "server version is $PG_PIN_VERSION" "$PG_PIN_VERSION" \
 check "built with lz4" "lz4" "$(dev "$PG_DEV_ROLE" -At -c "SET default_toast_compression = lz4" -c "SHOW default_toast_compression")"
 check "built with zstd" "zstd" "$(admin_psql -d postgres -At -c "SET wal_compression = zstd" -c "SHOW wal_compression" 2>&1)"
 
+# Each setting init.sh sizes to this machine holds at least what lib.sh cluster_size gives it, in the setting's own unit.
+if sized="$(cluster_size)"; then
+	while read -r setting value; do
+		held="$(admin_psql -d postgres -At -c "SELECT setting FROM pg_catalog.pg_settings WHERE name = '$setting'")"
+		if ((held >= value)); then
+			pass "$setting holds $value, sized to this machine"
+		else
+			fail "$setting holds $value, sized to this machine" "it is $held: scripts/pg/init.sh sizes a cluster"
+		fi
+	done <<<"$sized"
+else
+	fail "the cluster's size for this machine" "scripts/pg/lib.sh cluster_size failed"
+fi
+
 check "jit is off by default" "off" \
 	"$(dev "$PG_DEV_ROLE" -At -c "SHOW jit")"
 

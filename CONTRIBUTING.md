@@ -64,15 +64,21 @@ commit gate. The typecheck and lint, `pnpm check`, run by hand before a release.
   in its place only once it is complete, so a failed build leaves the previous installation as it was. The cluster runs
   from the installation, so a cluster running at the rename is stopped just before it and started again just after.
 - **`pnpm pg:init`** creates the one cluster under `~/.local/var/grizzle/pg<version>/`:
-    - a builtin C.UTF-8 cluster on port 5433, localhost only, with TLS 1.3, SCRAM, and only `hostssl` lines for TCP, and
-      `max_pred_locks_per_transaction = 2048`, room for the predicate locks of many SERIALIZABLE transactions at once;
+    - a builtin C.UTF-8 cluster on port 5433, localhost only, with TLS 1.3, SCRAM, and only `hostssl` lines for TCP,
+      `max_pred_locks_per_transaction = 2048`, room for the predicate locks of many SERIALIZABLE transactions at once,
+      `wal_level = logical`, and `timezone` and `log_timezone` at UTC whatever the machine's zone;
+    - sized to the machine (`test/support/substrate/shared.ts` `clusterSize`, `scripts/pg/cluster-size.ts`):
+      `max_connections` holds a connection lease for each of the network tier's workers, one per core, and
+      `shared_buffers` each worker's database, no more, since PostgreSQL scans every shared buffer at each commit that
+      drops a relation;
     - a local CA and server certificate, plus an unrelated CA for the refusal tests;
     - the role `grizzle_dev` (the migration identity and owner, not a superuser, with CREATEROLE to create the logins
-      and world roles a migration declares), with SET on `deadlock_timeout`;
+      and world roles a migration declares, and REPLICATION), with SET on `deadlock_timeout`;
     - `grizzle_template`, from which every test database is cloned and which accepts no connections. A test database
-      runs `deadlock_timeout = 10ms` and `default_transaction_isolation = serializable` as its own defaults
-      (`test/support/pg.ts` `testDatabaseSettings`).
-- **`pnpm pg:doctor`** is the go/no-go check: version and build, `jit` off, `max_pred_locks_per_transaction`,
+      runs `deadlock_timeout = 10ms`, `default_transaction_isolation = serializable` and `synchronous_commit = off` as its
+      own defaults (`test/support/pg.ts` `testDatabaseSettings`).
+- **`pnpm pg:doctor`** is the go/no-go check: version and build, the machine's sizing, `jit` off,
+  `max_pred_locks_per_transaction`, `wal_level`,
   extensions, locale, money formatting, `ON CONFLICT DO SELECT`, verify-full TLS with a wrong CA, a wrong host name
   and plaintext all refused, and the owner's SET on `deadlock_timeout`. `--quick` runs the checks
   that need no scratch database, and every database test run starts with it.
@@ -118,8 +124,8 @@ Everyone commits and pushes straight to `main`. There are no branches, no integr
 | `pnpm bench`                     | The performance gates in `bench/`, separate from `pnpm check`. `pnpm bench:full` runs them at full scale, for a quiet machine, and writes the gate listing to `bench/results/GATES.md`. `pnpm bench cold` measures cold starts, `pnpm bench dfa` the text analysis's subset construction under its two limits, `pnpm bench bytes` a 256 MiB bytes value's delivered read at each candidate chunk length, and `pnpm bench compile` a generated large schema's builders, generate, check, migrate's work before it connects and DbLayer.make, at a scale and at twice it (`--quick` for a small one), both with no database.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 Vitest runs each test file in a process of its own, never through Vite's module runner: Node runs the files as it runs
-the code, by type stripping. `pnpm test` runs as many files at once as the cores allow; `pnpm test:network` runs six
-(`test/support/substrate/workers.ts`), under what PostgreSQL's default `max_connections` admits. Vitest's own process,
+the code, by type stripping. `pnpm test` runs as many files at once as the cores allow; `pnpm test:network` runs one
+per core too (`test/support/substrate/workers.ts`), on a cluster `pnpm pg:init` sized to a connection lease for each. Vitest's own process,
 every test process and every child a file spawns run under the hardened flags, which the test scripts put in
 `NODE_OPTIONS` (`test/support/process.ts` `hardenedNode`, `packages/testing/src/vitest/config.ts` `HARDENED_FLAGS`):
 `--disable-proto=delete`, `--disable-sigusr1`, `--throw-deprecation`, `--pending-deprecation`, `--force-context-aware`,
@@ -458,8 +464,9 @@ text match. A type batch's population judges its requirements on `floorPopulatio
   session of the login that has taken on its role (`worldSession`, `worldPsql`). A schedule's direct actors take on
   their role through a login of their own, so a grizzle writer's actor is the one backend of its login.
 - **The connection lease:** every process that opens test connections first takes one of the cluster's leases
-  (`test/support/substrate/shared.ts`), advisory-lock slots sized from `max_connections`, each covering a test's pool,
-  one connection per core, and the three sessions its substrate holds. Any number of runs, copies of the tree and
+  (`test/support/substrate/shared.ts`), slots sized from `max_connections`, each a table locked by a transaction left
+  open, covering a test's pool, one connection per core, and the four sessions its substrate holds. Neither a lease
+  nor a wait for one holds a snapshot or a transaction id. Any number of runs, copies of the tree and
   benches share one cluster; a process with no free slot waits in the server. That wait is queueing, not a hang: a
   file the runner starts beyond the free slots waits its turn, its hook bounded only by the test timeout
   (`testTimeout`, `test/support/limits.ts`), and each case's own hang guard is what stops a case that hangs.

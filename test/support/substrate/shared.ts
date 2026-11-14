@@ -1,4 +1,12 @@
 import { Array as Arr, Config, Effect, Exit, Option, Scope } from "effect"
+import {
+	blockSize,
+	derived,
+	type Limit,
+	measured,
+	postgresSource,
+	published
+} from "#compiler/core/limits.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { InitializedCluster, type InitializedClusterShape } from "#test/support/cluster.ts"
@@ -111,19 +119,11 @@ export const undoInstallEffects = (admin: PgConnection): Effect.Effect<void> =>
 		yield* admin.query("ALTER DEFAULT PRIVILEGES GRANT USAGE ON TYPES TO PUBLIC", [])
 	}).pipe(Effect.ignore)
 
-/**
- * The cluster-wide connection lease. max_connections is the cluster's, not a run's: two runs, a run and an agent's
- * copy of the tree, or a bench beside a run all share it. So every substrate first takes a lease, one of `leaseSlots`
- * session-level advisory locks (leaseKey, i) in the owner's own database, held on a connection of its own until the
- * substrate is released, and a lease covers `connectionsPerLease` connections: a test's full pool (testPoolMax) and
- * the sessions the substrate holds. The slots are max_connections less the
- * reserved connections and `unleasedConnections`, divided by the lease's width, read from the server each time, so a
- * cluster with more connections admits more processes. A process with every slot taken waits on a slot's lock in the server, never on a
- * timer; runs beside each other may start more files than there are leases, and they wait their turn.
- */
-const leaseKey = 1735289961
-/** The sessions a substrate holds: its lease's, its shared database's claim and that database's owner. */
-const substrateSessions = ["lease", "claim", "owner"] as const
+/** The sessions a substrate holds for its life: its lease's, its shared database's claim, that database's owner and
+ * the observer that reads other backends' lock waits (substrate.ts build). */
+const substrateSessions = ["lease", "claim", "owner", "observer"] as const
+/** The connections one test file may hold at once, which one lease covers: a test's full pool (testPoolMax, one
+ * session per core) and the sessions its substrate holds. */
 export const connectionsPerLease = testPoolMax + substrateSessions.length
 /** Connections no lease covers: the global setup, the doctor, the sweep, and an operator's psql. */
 const unleasedConnections = 5
@@ -157,7 +157,62 @@ const leaseSlotsQuery = `SELECT GREATEST(1, (pg_catalog.current_setting('max_con
 	- pg_catalog.current_setting('superuser_reserved_connections')::int4
 	- pg_catalog.current_setting('reserved_connections')::int4 - $1::int4) / $2::int4)`
 
-/** Takes a slot on `lock`: the first free one, else waits in the server for the slot this process's id names. */
+/** The table of lease slot `slot` in the owner's own database, which the first process to try the slot creates. */
+const slotTable = (slot: number): string => `public.${quoteIdent(`substrate_lease_${slot}`)}`
+
+/**
+ * Creates slot `slot`'s table unless it exists. Two processes creating it at once both find it there: the loser's
+ * 42P07 (duplicate_table), or its 23505 on pg_type's unique name, is raised only once the winner committed.
+ */
+const ensureSlot = (lock: PgConnection, slot: number): Effect.Effect<void, SqlError> =>
+	Effect.asVoid(
+		lock.query(`CREATE TABLE IF NOT EXISTS ${slotTable(slot)} ()`, []).pipe(
+			Effect.catchIf(
+				(error) => {
+					const code = pgErrorFields(error)?.code
+					return code === "42P07" || code === "23505"
+				},
+				() => Effect.void
+			)
+		)
+	)
+
+/**
+ * Locks slot `slot`'s table IN EXCLUSIVE MODE in a transaction left open on `lock`: true when it is taken, false when
+ * another process holds it (55P03, lock_not_available), the transaction then rolled back.
+ */
+const tryLeaseSlot = (lock: PgConnection, slot: number): Effect.Effect<boolean, SqlError> =>
+	Effect.gen(function* () {
+		yield* ensureSlot(lock, slot)
+		yield* lock.query("BEGIN", [])
+		return yield* lock.query(`LOCK TABLE ${slotTable(slot)} IN EXCLUSIVE MODE NOWAIT`, []).pipe(
+			Effect.as(true),
+			Effect.catchIf(
+				(error) => pgErrorFields(error)?.code === "55P03",
+				() => Effect.as(lock.query("ROLLBACK", []), false)
+			)
+		)
+	})
+
+/**
+ * The cluster-wide connection lease. max_connections is the cluster's, not a run's: two runs, a run and an agent's
+ * copy of the tree, or a bench beside a run all share it. So every substrate first takes a lease, one of the slots'
+ * tables in the owner's own database (slotTable), locked IN EXCLUSIVE MODE by a transaction left open on a connection
+ * of the substrate's own until the substrate is released, and a lease covers `connectionsPerLease` connections. The
+ * slots are max_connections less the reserved connections and `unleasedConnections`, divided by the lease's width, read
+ * from the server each time, so a cluster with more connections admits more processes; scripts/pg/init.sh sizes the
+ * cluster to a slot for each of a run's workers (clusterConnections). A process with every slot taken waits in the
+ * server for one slot's lock, never on a timer; runs beside each other may start more files than there are leases, and
+ * they wait their turn.
+ *
+ * Takes a slot on `lock`: the first free one, trying the slots from the one after the slot this process's id names
+ * around to that slot itself, else waits in the server for that last one. Neither a lease nor its wait holds a snapshot
+ * or a transaction id, so neither holds back the cluster's vacuum horizon: LOCK takes no snapshot (PostgreSQL's
+ * pquery.c PlannedStmtRequiresSnapshot), and a lock below ACCESS EXCLUSIVE is logged for no standby, so it assigns no
+ * transaction id. The wait's one catalog read, the slot's table by its name, is answered from the backend's caches,
+ * since the slot's NOWAIT try came just before it; a read past them would take a catalog snapshot and hold the
+ * backend's xmin while it waits.
+ */
 const takeLease = (lock: PgConnection): Effect.Effect<void, SqlError> =>
 	Effect.gen(function* () {
 		const [row] = yield* lock.queryValues(leaseSlotsQuery, [
@@ -165,16 +220,14 @@ const takeLease = (lock: PgConnection): Effect.Effect<void, SqlError> =>
 			connectionsPerLease
 		])
 		const [slots] = trusted<readonly [slots: number]>(row)
-		for (let slot = 0; slot < slots; slot++) {
-			const [[taken] = []] = yield* lock.queryValues(claimStatement, [leaseKey, slot])
-			if (taken === true) {
+		const own = process.pid % slots
+		for (let step = 1; step <= slots; step++) {
+			if (yield* tryLeaseSlot(lock, (own + step) % slots)) {
 				return
 			}
 		}
-		yield* lock.queryValues("SELECT pg_catalog.pg_advisory_lock($1::int4, $2::int4)", [
-			leaseKey,
-			process.pid % slots
-		])
+		yield* lock.query("BEGIN", [])
+		yield* lock.query(`LOCK TABLE ${slotTable(own)} IN EXCLUSIVE MODE`, [])
 	})
 
 /**
@@ -183,8 +236,8 @@ const takeLease = (lock: PgConnection): Effect.Effect<void, SqlError> =>
  * substrate a process builds holds one while it lives, and a process holds none once its substrates are released:
  * nothing of the lease outlives them, so a process whose work is done exits. A substrate waiting for a free slot behind
  * other processes waits as long as they hold the slots, inside its layer build, whose hook the network config leaves
- * unbounded for that reason; a run alone never waits, since it runs fewer files at once than there are slots
- * (workers.ts).
+ * unbounded for that reason; a run alone never waits on a cluster init.sh sized, which holds a slot for each of its
+ * workers (clusterConnections).
  */
 export const leaseConnections: Effect.Effect<void, SqlError, InitializedCluster | Scope.Scope> =
 	Effect.gen(function* () {
@@ -192,6 +245,108 @@ export const leaseConnections: Effect.Effect<void, SqlError, InitializedCluster 
 		const lock = yield* devSession(cluster, Option.some("grizzle-substrate lease"))
 		yield* takeLease(lock)
 	})
+
+/** PostgreSQL's source of its settings' defaults. */
+const settingDefaults = `${postgresSource}/src/backend/utils/misc/guc_parameters.dat`
+
+/** The connections PostgreSQL keeps for superusers alone, at its default, which scripts/pg/init.sh leaves as it is. */
+const superuserReservedConnections = published({
+	value: 3,
+	owner: "PostgreSQL 19rc2",
+	unit: "connections",
+	scope: "the local cluster's superuser_reserved_connections, out of its max_connections",
+	constraint: "configurable default",
+	source: `${settingDefaults}#L2941`,
+	quote: "boot_val => '3',",
+	verified: "2026-11-14"
+})
+
+/** The connections PostgreSQL keeps for pg_use_reserved_connections, at its default, which init.sh leaves as it is. */
+const reservedConnections = published({
+	value: 0,
+	owner: "PostgreSQL 19rc2",
+	unit: "connections",
+	scope: "the local cluster's reserved_connections, out of its max_connections",
+	constraint: "configurable default",
+	source: `${settingDefaults}#L2552`,
+	quote: "boot_val => '0',",
+	verified: "2026-11-14"
+})
+
+/**
+ * The local cluster's max_connections, which scripts/pg/init.sh sets and scripts/pg/doctor.sh requires at least: a
+ * lease's connections (connectionsPerLease) for each of the run's workers (networkWorkers, one per core), the
+ * connections no lease covers (unleasedConnections), and the slots PostgreSQL reserves, at their defaults. takeLease's
+ * slots over exactly this many connections are networkWorkers, so a run alone never waits for a lease. The machine's
+ * cores are read here, where the bound acts, and enter no Limit.
+ */
+export const clusterConnections: number =
+	networkWorkers * connectionsPerLease +
+	unleasedConnections +
+	superuserReservedConnections.value +
+	reservedConnections.value
+
+/**
+ * The largest database a network worker's files work in, measured: each worker's shared database, which file after
+ * file reuses, as autovacuum leaves its catalogs between their schemas.
+ */
+const workerDatabaseBytes: Limit = measured({
+	value: 38_916_935,
+	owner: "grizzle's network test tier",
+	unit: "bytes",
+	scope:
+		"one network worker's database: its shared database (gz_shared_<n>), or a file's own clone of the template, as pg_database_size reports it",
+	evidence:
+		"pg_database_size of every gz_ database on the local cluster: `SELECT datname, pg_database_size(oid) FROM pg_catalog.pg_database WHERE datname LIKE 'gz\\_%'`, as the bootstrap superuser (scripts/pg/ctl.sh admin)",
+	observed: "one reading on 2026-11-14 at 00:44 UTC",
+	environment:
+		"cassowary, Ubuntu 26.04 on arm64 in AWS, the local PostgreSQL 19rc2 cluster (scripts/pg/pin.env), grizzle 1623175d",
+	workload:
+		"every network run on the cluster since its 19rc2 init on 2026-11-13, each worker's files reusing its shared database, six workers then",
+	result:
+		"gz_shared_1 to gz_shared_6: 32,981,519, 21,525,319, 22,524,743, 28,169,031, 35,558,215 and 38,916,935 bytes; the template is 7.7 MB, so a file's own clone starts smaller than any",
+	decision:
+		"the largest, gz_shared_6: a worker runs one file at a time, and a file works in one database, so this bounds the pages one worker's file reads. No headroom added: a database past it is unmeasured",
+	revalidate:
+		"a shared database that grows past it; a PostgreSQL repin; a test tier whose files install larger schemas or keep more rows; another machine"
+})
+
+/**
+ * The pages one network worker's database holds, in PostgreSQL's blocks: its largest database, rounded up to whole
+ * blocks.
+ */
+const workerBufferBlocks: Limit = derived({
+	owner: "grizzle's network test tier (scripts/pg/init.sh)",
+	unit: "blocks",
+	scope:
+		"the shared buffers one network worker's database fills, out of the local cluster's shared_buffers",
+	from: [workerDatabaseBytes, blockSize],
+	derivation:
+		"a worker runs one file at a time, and a file works in one database, so the largest such database, in blocks rounded up, holds every page one worker's file reads",
+	compute: ([database, block]) => Math.ceil(database.value / block.value)
+})
+
+/**
+ * The local cluster's shared_buffers in blocks, which scripts/pg/init.sh sets and scripts/pg/doctor.sh requires at
+ * least: one worker's database (workerBufferBlocks) for each of the run's workers (networkWorkers, one per core), every
+ * page a run reads held at once. Not more: outside recovery PostgreSQL scans every shared buffer at each commit that
+ * drops or truncates a relation (REL_19_RC2 bufmgr.c DropRelationsAllBuffers, whose cached-size path
+ * smgrnblocks_cached takes only in recovery, smgr.c#L854), and a test drops its schemas in every release. On a
+ * throwaway cluster on cassowary on 2026-11-14, one client's CREATE SCHEMA, three tables and DROP SCHEMA CASCADE took
+ * 5.3 ms at 128 MB of shared buffers, 9.4 ms at 4 GB, 19.1 ms at 16 GB and 74.9 ms at a quarter of the machine's
+ * memory, the documentation's starting point for a dedicated server. The machine's cores are read here and enter no
+ * Limit.
+ */
+export const clusterSharedBuffers: number = networkWorkers * workerBufferBlocks.value
+
+/**
+ * The settings that size the local cluster to the machine, by name, each in its own unit: scripts/pg/cluster-size.ts
+ * prints them, scripts/pg/init.sh writes them, and scripts/pg/doctor.sh requires each at least.
+ */
+export const clusterSize: ReadonlyArray<readonly [setting: string, value: number]> = [
+	["max_connections", clusterConnections],
+	["shared_buffers", clusterSharedBuffers]
+]
 
 export interface SharedClaim {
 	readonly database: string
@@ -262,13 +417,13 @@ export const ensureSharedDatabase = (
  * The shared test databases, and the sweep that removes what crashed runs left on the cluster.
  *
  * Cloning the template copies about 300 files and dropping the clone unlinks them, so test files do not clone a
- * database each. The cluster keeps a few long-lived databases, `gz_shared_1`, `gz_shared_2`, ..., each cloned from the
- * template once and reused by file after file, across runs (Tests and gates).
+ * database each. The cluster keeps a long-lived database per worker, `gz_shared_1`, `gz_shared_2`, ..., each cloned from
+ * the template once and reused by file after file, across runs (Tests and gates).
  * Files stay apart through unique schema and role names (names.ts), whose finalizers drop them. A file that needs a
  * pristine database of its own builds Substrate.isolatedLayer instead.
  *
- * Vitest runs each file in a process of its own, at most W at once (vitest.network.config.ts maxWorkers, W the constant
- * networkWorkers, workers.ts), and numbers the workers running them 1 to W in VITEST_POOL_ID; the run's global setup
+ * Vitest runs each file in a process of its own, at most W at once (vitest.network.config.ts maxWorkers, W the
+ * machine's cores, networkWorkers, workers.ts), and numbers the workers running them 1 to W in VITEST_POOL_ID; the run's global setup
  * clones `gz_shared_1` to `gz_shared_W` once. So a file uses the database of its worker, `gz_shared_<VITEST_POOL_ID>`.
  * A claim still takes the session-level advisory lock (claimKey, n) on a connection to the owner's own database, held
  * for the file's life, as a safety net: when another claim holds the worker's database (a second substrate in the same

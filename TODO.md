@@ -363,18 +363,6 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   referencing additions, which precede the deletion. Fix: the deletion excepts the stratum's drawn facts too (the
   generated insert's RETURNING into the stratum's carrier), so a deletion of a relation whose facts meet nowhere orders
   nothing against any addition. Unreachable today: no served file holds a delete or a put.
-- **The substrate's lease waiters hold a snapshot while blocked (SSIDIAG, 2026-11-11):** takeLease waits in
-  `SELECT pg_advisory_lock` (test/support/substrate/shared.ts:148-151), pinning the cluster's vacuum horizon for up to
-  115 s under load (read committed: vacuum's horizon, not SSI's). The fix is a hard cutover to a snapshot-free
-  LOCK-based lease (a table per slot locked IN EXCLUSIVE MODE by an open transaction, NOWAIT first; holder and waiter
-  show backend_xmin and backend_xid NULL; ACCESS EXCLUSIVE would assign an xid), done when no lane runs an old tree.
-  Parked: ~/.cache/grizzle-release/SSIDIAG/SSIDIAG-04.parked.patch.
-- **The connection lease has one slot on cassowary (PGLINUX, 2026-11-12):** testPoolMax is availableParallelism(), 64
-  there (test/support/limits.ts:107), so connectionsPerLease is 67 (test/support/substrate/shared.ts:127), and
-  leaseSlotsQuery (shared.ts:131-133) gives (100 - 3 - 0 - 5) / 67 = 1 slot on PostgreSQL's default max_connections,
-  against 7 on the 10-core VM (read on the cluster). Every network test file on the machine, every lane's, takes that
-  one slot in turn: nothing fails, but runs go one file at a time, and workers.ts:8-10 ("seven", "a run alone never
-  waits") no longer holds. The fix is the owner's policy: max_connections in scripts/pg/init.sh, or the pool's bound.
 - **The type tier's stall guard reads whole seconds of CPU on Linux (PGLINUX, 2026-11-12):**
   test/types/batch/compiler.ts:165 reads a tree's CPU time with `ps -A -o pid=,ppid=,time=`, which procps-ng 4.0.4
   prints as hh:mm:ss with no fraction, where macOS printed hundredths. The guard's own property draws windows of 1000
