@@ -8,7 +8,9 @@
  * root as an ordered read, delivered as a list), installed and served as `grizzle generate` drafts it, its parameters'
  * domains and its live source among its objects (test/support/install-migrate.ts installGenerated); its facts are
  * stored by a direct SQL writer of the role at SERIALIZABLE, each value in its drawn spelling, and the login is served
- * from the file generate wrote, over its DbLayer and its live source.
+ * from the file generate wrote, over its DbLayer and its live source, which is made to stand before the first read, as
+ * a fresh installation's caller does: an HTTP once is its watch's first value, refused until the leader makes the slot
+ * (test/support/live/standing.ts standingOn).
  *
  * Properties, for every query read with its drawn parameters:
  *
@@ -48,6 +50,7 @@ import { installGenerated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { liveSurfaces } from "#test/support/live/calls.ts"
+import { standingOn } from "#test/support/live/standing.ts"
 import type { LiveValue } from "#test/support/live/system.ts"
 import { printKeyed, sameKeyed } from "#test/support/live/values.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
@@ -222,6 +225,12 @@ layer(Substrate.layer)("a generated program", (it) => {
 							})
 							yield* Effect.gen(function* () {
 								const surfaces = yield* liveSurfaces(file, "app", tokenOf({}))
+								for (const { read, place } of Arr.take(reads, 1)) {
+									yield* standingOn(surfaces.inProcess, readMember(place), {
+										params: paramsOf(read),
+										facts: {}
+									})
+								}
 								for (const { read, place } of reads) {
 									const label = `read ${place}`
 									const input = { params: paramsOf(read), facts: {} }

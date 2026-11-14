@@ -9,7 +9,9 @@
  * handler through the client and its fold), and a history of commits, each a grizzle call of one write member or a
  * SERIALIZABLE transaction of a direct SQL writer of several writes. It is installed as generate drafts it, its live
  * source among its objects (test/support/live/harness.ts), and every commit runs after the last one returned, while
- * the subscriptions run beside it.
+ * the subscriptions run beside it. Its live source is made to stand first, as a fresh installation's caller does: the
+ * first subscription's watch is called again while it is refused for a slot the leader has not made yet
+ * (test/support/live/standing.ts standingOn).
  *
  * Property: after each commit, every subscription reaches a `ready` whose value is the fresh read's after that commit
  * (live/keyed.ts values compared by their decoded rows, test/support/live/values.ts), and every `ready` it ever sends
@@ -37,6 +39,7 @@ import { Array as Arr, Effect, Formatter } from "effect"
 import { caseHang } from "#test/support/limits.ts"
 import { commitLive, inputOf, worldSurfaces } from "#test/support/live/calls.ts"
 import { installLive } from "#test/support/live/harness.ts"
+import { standingOn } from "#test/support/live/standing.ts"
 import {
 	Inexact,
 	type LiveValue,
@@ -124,6 +127,9 @@ layer(Substrate.layer)("a live subscription", (it) => {
 							)
 							yield* Effect.gen(function* () {
 								const surfaces = yield* worldSurfaces(live)
+								for (const s of Arr.take(c.subscriptions, 1)) {
+									yield* standingOn(surfaces.inProcess, readMember(s.read), inputOf(s))
+								}
 								const states = statesOf(c)
 								const freshAt = () =>
 									Effect.forEach(c.subscriptions, (s) =>

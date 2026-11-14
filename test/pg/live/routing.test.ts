@@ -3,7 +3,9 @@
  * however many of its changes reached it, and no other.
  *
  * Each case draws a live world (test/support/live/world.ts) and installs it as generate drafts it, its live source
- * among its objects (test/support/live/harness.ts). Every subscription is registered in process on watch's own path
+ * among its objects (test/support/live/harness.ts), its live source made to stand first by the probe's watch, called
+ * again while it is refused for a slot the leader has not made yet (test/support/live/standing.ts standingOn). Every
+ * subscription is registered in process on watch's own path
  * (adapter/db/handles.ts liveRead) and read to its first `ready`, and then re-runs only when the suite turns it (the
  * registration's turn: a clean subscription runs nothing, a marked one re-runs exactly once), so what a commit's
  * notifications did to each is its state, read without a race. A fence settles what came before the first commit: every
@@ -55,6 +57,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { commitLive, inputOf, worldRegistrations, worldSurfaces } from "#test/support/live/calls.ts"
 import { commitDirectly, fenceStatement } from "#test/support/live/direct.ts"
 import { installLive, type LiveInstallation } from "#test/support/live/harness.ts"
+import { standingOn } from "#test/support/live/standing.ts"
 import {
 	expectedRoutes,
 	groupOf,
@@ -246,6 +249,7 @@ layer(Substrate.layer)("a commit's notifications", (it) => {
 							yield* Effect.gen(function* () {
 								const surfaces = yield* worldSurfaces(live)
 								const register = yield* worldRegistrations(live)
+								yield* standingOn(surfaces.inProcess, probeMember, { params: {}, facts: {} })
 								const probe = yield* register(probeMember, { params: {}, facts: {} })
 								/** Each subscription registered and read once, with the Binds its first read sent. */
 								const registered = yield* Effect.forEach(c.subscriptions, (s: LiveSubscription) =>

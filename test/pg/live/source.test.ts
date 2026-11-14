@@ -9,7 +9,7 @@
  * table's replica identity, the publication, the decoder login), opens a temporary pgoutput slot as the decoder login,
  * opens the source as its listener and its leader do, under the installation's own roles: as the decoder login, each
  * statement they send on an ordinary session, as the served file holds it, where the secret's read answers a key, the
- * slot check answers true of the decoder's own slot, and the LISTEN, the advisory lock, the visibility read and the
+ * slot check answers the WAL position the decoder's own slot stands at, and the LISTEN, the advisory lock, the visibility read and the
  * fan-out run; as the login, the secret's read refused (42501), since a login that held the key could seal a payload
  * every listener takes for its leader's. Then it runs the history, each commit a grizzle call of one write member or a
  * SERIALIZABLE transaction of a direct SQL writer, then one direct writer's transaction it rolls back, and reads every
@@ -42,7 +42,7 @@ import { Array as Arr, Data, Effect, Formatter, Option, Result, String as Str } 
 import { transactionReader } from "#adapter/live/changes.ts"
 import { decodeMessage } from "#adapter/live/pgoutput.ts"
 import { admittedIdentifier, identifierOf, identity } from "#compiler/core/identity.ts"
-import type { LiveTable } from "#compiler/live/notify.ts"
+import { type LiveTable, parseWalPosition } from "#compiler/live/notify.ts"
 import {
 	type Notification,
 	notificationText,
@@ -93,6 +93,10 @@ class Unopened extends Data.TaggedError("Unopened")<{ readonly report: string }>
 /** The served live source of an installation that holds one. */
 type OpenSource = Extract<ServedLive, { readonly kind: "source" }>
 
+/** Whether a cell the slot check answered is a WAL position's text: a slot that stands has one, its absence none. */
+const isWalPosition = (cell: unknown): boolean =>
+	typeof cell === "string" && parseWalPosition(cell).ok
+
 /** `sent`, the statement `what` of the opening, its refusal reported by the statement and the server's answer. */
 const opening = <A>(what: string, sent: Effect.Effect<A, SqlError>): Effect.Effect<A, Unopened> =>
 	Effect.mapError(sent, (e) => new Unopened({ report: `${what}: ${Formatter.format(e.reason)}` }))
@@ -100,7 +104,8 @@ const opening = <A>(what: string, sent: Effect.Effect<A, SqlError>): Effect.Effe
 /**
  * The source opened as its listener and its leader open it, by each statement they send on an ordinary session of the
  * decoder login, `decoder`, as `served` holds it: the secret's read, which answers one key; the LISTEN; the slot
- * check, which answers true of `slot`, a slot the decoder login holds; the advisory lock; and the visibility read and
+ * check, which answers of `slot`, a slot the decoder login holds, the WAL position it stands at and the server's
+ * (live/notify.ts parseWalPosition), one row; the advisory lock; and the visibility read and
  * the fan-out, of no transaction and no payload, whose functions PostgreSQL checks EXECUTE on as it plans them.
  */
 const opens = (
@@ -118,8 +123,8 @@ const opens = (
 		}
 		yield* opening("the LISTEN", decoder.query(served.listen.sql, []))
 		const checked = yield* opening("the slot check", decoder.values(served.check.sql, [slot]))
-		const [answer, ...others] = Arr.flatten(checked)
-		if (answer !== true || others.length > 0) {
+		const [at, now, ...others] = Arr.flatten(checked)
+		if (!isWalPosition(at) || !isWalPosition(now) || others.length > 0) {
 			return yield* new Unopened({
 				report: `the slot check of ${slot} answered ${Formatter.format(checked)}`
 			})
