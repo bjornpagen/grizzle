@@ -19,15 +19,17 @@
  * - The variables are DBNAME and a role's names: a statement naming the variable `:"<name>"` under the drawn role space
  *   is filled exactly when the name is DBNAME, a stem (two conversions joined by `__`: lowercase ASCII words, a letter
  *   first, joined by single underscores), the name a migration sets a role aside under while it renames logins
- *   (`__aside_` and ten characters of lowercase base32) or the installation's live source's, its decoder login's
- *   (`__live_` and ten characters of lowercase base32); a role's name is filled as `"<p>__<name>"` under a prefix p, and
- *   refused as roleTooLong past 63 bytes; any other name, an object's aside name among them, is refused as
- *   unknownVariable. A drawn role's aside name is the naming door's own for a drawn stem (identity.roleAside), a drawn
- *   object's its own for a drawn name (identity.aside), and a drawn live source's name its own for a drawn root
- *   (identity.liveSource).
+ *   (`__aside_`, then any segments of lowercase ASCII letters and digits each followed by `_`, then ten characters of
+ *   lowercase base32) or the installation's live source's, its decoder login's (`__live_`, the same), within 63 bytes:
+ *   a committed folder an earlier grizzle drafted spells segments there (`__live_<segments>_<digest>` before e1c1fc23),
+ *   and migrate reads every committed folder. A role's name is filled as `"<p>__<name>"` under a prefix p, and refused
+ *   as roleTooLong past 63 bytes; any other name is refused as unknownVariable. A drawn role's aside name is the naming
+ *   door's own for a drawn stem (identity.roleAside), a drawn object's its own for a drawn name (identity.aside), a
+ *   drawn live source's name its own for a drawn root (identity.liveSource), and an earlier one the naming door's own
+ *   with drawn segments spelled before its digest.
  *
  * Features: a prefix and none, a capitalized schema spelling, an unknown variable, a stem variable, an aside variable,
- * a live source variable.
+ * a live source variable, a variable in an earlier form.
  *
  * Plants (~/.cache/grizzle-release/ROLESPACE/plants): create-role-printed-plain.patch (a CREATE ROLE prints its role by
  * its stem), prefix-applied-twice.patch (a role variable filled with the prefix twice), database-variable-misfilled.patch
@@ -100,6 +102,15 @@ interface Drafting {
 /** A word of lowercase letters. */
 const wordGen: Gen<string> = string(codePoint(0x61, 0x7a), { min: 1, max: 5 })
 
+/** A segment an earlier hashed name spelled: lowercase letters and digits. */
+const segmentGen: Gen<string> = string(
+	element(["a", "b", "c", "x", "y", "z", "0", "1", "8", "9"]),
+	{
+		min: 1,
+		max: 6
+	}
+)
+
 /** A variable's name as `kind` draws it. */
 const variableGen =
 	(kind: VariableKind): Gen<string> =>
@@ -117,6 +128,11 @@ const variableGen =
 			case "live":
 				return identity.liveSource(Arr.join(source.draw(array(wordGen, { min: 1, max: 14 })), "_"))
 					.identifier
+			case "earlier": {
+				const now = identity.liveSource(source.draw(wordGen)).identifier
+				const segments = Arr.join(source.draw(array(segmentGen, { min: 1, max: 8 })), "_")
+				return `${Str.slice(0, -10)(now)}${segments}_${Str.slice(-10)(now)}`
+			}
 			case "database":
 				return "DBNAME"
 			case "drawn":
@@ -136,7 +152,15 @@ const draftingGen: Gen<Drafting> = (source) => ({
 	variable: source.draw(
 		variableGen(
 			source.draw(
-				element<VariableKind>(["stem", "aside", "objectAside", "live", "database", "drawn"])
+				element<VariableKind>([
+					"stem",
+					"aside",
+					"objectAside",
+					"live",
+					"earlier",
+					"database",
+					"drawn"
+				])
 			)
 		)
 	)
@@ -144,9 +168,10 @@ const draftingGen: Gen<Drafting> = (source) => ({
 
 /**
  * How a case's variable is drawn: a stem's shape, a role's aside name, an object's aside name, a root's live source
- * name, DBNAME's letters, or any characters.
+ * name, a live source name an earlier grizzle spelled with segments before its digest, DBNAME's letters, or any
+ * characters.
  */
-type VariableKind = "stem" | "aside" | "objectAside" | "live" | "database" | "drawn"
+type VariableKind = "stem" | "aside" | "objectAside" | "live" | "earlier" | "database" | "drawn"
 
 type DraftFeature =
 	| "a prefix"
@@ -156,25 +181,40 @@ type DraftFeature =
 	| "a stem variable"
 	| "an aside variable"
 	| "a live source variable"
+	| "a variable in an earlier form"
 
 /** One lowercase conversion: a letter, then letters and digits, in words joined by single underscores. */
 const conversion = regex("^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 
-/** A name a migration sets a role aside under, by the specification: `__aside_` and a ten-character digest. */
-const asideName = regex("^__aside_[a-z2-7]{10}$")
+/**
+ * A name a migration sets a role aside under, by the specification: `__aside_`, any segments of lowercase letters and
+ * digits each followed by `_`, and a ten-character digest.
+ */
+const asideName = regex("^__aside_(?:[a-z0-9]+_)*[a-z2-7]{10}$")
 
-/** Whether a variable's name is a role's aside name by the specification. */
-const isAside = (name: string): boolean => asideName.test(name)
+/** Whether a variable's name is a role's aside name by the specification, within 63 bytes. */
+const isAside = (name: string): boolean => asideName.test(name) && name.length <= 63
 
-/** A live source's name, by the specification: `__live_` and a ten-character digest. */
-const liveName = regex("^__live_[a-z2-7]{10}$")
+/** A live source's name, by the specification: `__live_`, any segments, and a ten-character digest. */
+const liveName = regex("^__live_(?:[a-z0-9]+_)*[a-z2-7]{10}$")
 
-/** Whether a variable's name is a live source's name by the specification. */
-const isLive = (name: string): boolean => liveName.test(name)
+/** Whether a variable's name is a live source's name by the specification, within 63 bytes. */
+const isLive = (name: string): boolean => liveName.test(name) && name.length <= 63
 
-/** The feature a role variable's name notes: the form the specification reads it in. */
-const roleFeature = (name: string): DraftFeature =>
-	isStem(name) ? "a stem variable" : isAside(name) ? "an aside variable" : "a live source variable"
+/** A hashed role name that spells segments before its digest, as an earlier grizzle's did. */
+const earlierName = regex("^__[a-z]+_[a-z0-9_]+_[a-z2-7]{10}$")
+
+/** Whether a hashed role name spells segments before its digest. */
+const isEarlier = (name: string): boolean => earlierName.test(name)
+
+/** The features a role variable's name notes: the form the specification reads it in, and an earlier spelling. */
+const roleFeatures = (name: string): ReadonlyArray<DraftFeature> =>
+	isStem(name)
+		? ["a stem variable"]
+		: [
+				isAside(name) ? "an aside variable" : "a live source variable",
+				...(isEarlier(name) ? (["a variable in an earlier form"] as const) : [])
+			]
 
 /** Whether a variable's name is a stem by the specification: two conversions joined by `__`. */
 const isStem = (name: string): boolean =>
@@ -300,7 +340,7 @@ const draftCase = (d: Drafting, c: Case<DraftFeature>) =>
 			})
 			const role = space.kind === "prefixed" ? `${space.prefix}__${d.variable}` : d.variable
 			if (isStem(d.variable) || isAside(d.variable) || isLive(d.variable)) {
-				c.note(roleFeature(d.variable))
+				c.noteAll(roleFeatures(d.variable))
 				assert.deepEqual(
 					probe,
 					role.length <= 63
@@ -348,7 +388,8 @@ layer(NodeServices.layer)("the variables of a drafted migration", (it) => {
 								"an unknown variable",
 								"a stem variable",
 								"an aside variable",
-								"a live source variable"
+								"a live source variable",
+								"a variable in an earlier form"
 							],
 							{ cases: 16, sense: notesOnly }
 						),

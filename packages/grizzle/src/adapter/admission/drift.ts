@@ -63,6 +63,7 @@ import {
 	type TypeSchema
 } from "#compiler/plan/common.ts"
 import {
+	decoderLoginOf,
 	filledText,
 	type InstallationNames,
 	type InstalledRoleTooLong,
@@ -1088,8 +1089,9 @@ export const driftFlight = (
 			s.kind === "createExtension" ? [s] : []
 		)
 		const roles: Array<RoleExpectation> = []
+		const decoder = decoderLoginOf(snapshot.manifest.objects)
 		for (const stem of manifestRoles(statements)) {
-			const expected = roleExpectation(statements, schema, stem)
+			const expected = roleExpectation(statements, schema, stem, decoder)
 			const installed = installedExpectation(expected, installation.roles)
 			if (!installed.ok) {
 				return yield* Result.fail(roleTooLong(expected.login ? "login" : "role", installed.error))

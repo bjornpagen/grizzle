@@ -1527,6 +1527,8 @@ A login whose workloads serve a read requires its installation's live source, `L
 
 grizzle sets no `max_slot_wal_keep_size`, since how much WAL the slot may hold while no leader runs is the operator's policy, and a slot the server invalidates fails closed: the next leader fans out `:invalidated` with the WAL position it read, which ends every live read registered over a slot that stood at or before that position, and none over the slot it then makes.
 
+The decoder login, the publication and the slot are named by the name grizzle derives for the installation's live source, and the snapshot records it. A newer grizzle may derive another one (e1c1fc23 shortened `__live_<segments>_<digest>` to `__live_<digest>`): the next `grizzle generate` then drafts the decoder login's rename in place (`ALTER ROLE ... RENAME TO`, which keeps its password and its replication right) and replaces the publication, dropping the slot of the old name. Stop the old version's leaders before you migrate: PostgreSQL refuses to drop a slot a leader streams from, and the migration fails closed until they stop. `grizzle roles` and `grizzle uninstall` read the decoder login from the grants its migrations made, whatever name derived it.
+
 grizzle states no number of its own, and there is no isolation level, statement timeout or retry policy to set. A call waits for a session as long as you let it: the wait has no deadline, and interrupting the Effect, your own timeout among the ways, ends it, leaving nothing behind. Closing the layer's scope destroys every connection of its pool at once, awaiting nothing from the network.
 
 ### The route handler

@@ -15,6 +15,7 @@ import { manifestRoles, roleExpectation } from "#compiler/deploy/admission/roles
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { planFiles } from "#compiler/deploy/phases/files.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { decoderLoginOf } from "#compiler/deploy/snapshot/objects.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -268,7 +269,12 @@ const drafted = (
 		const statements = succeeded(manifestStatements(draft.snapshot))
 		for (const installed of manifestRoles(statements)) {
 			const held = Arr.filter(
-				roleExpectation(statements, installation.names.schema, installed).privileges,
+				roleExpectation(
+					statements,
+					installation.names.schema,
+					installed,
+					decoderLoginOf(draft.snapshot.manifest.objects)
+				).privileges,
 				(p) => p.family === "database"
 			)
 			assert.deepEqual(

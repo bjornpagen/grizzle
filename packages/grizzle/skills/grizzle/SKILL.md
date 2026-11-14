@@ -689,7 +689,11 @@ The command line's own refusals, by stage:
   signer's user name is `roleNameOf(login, connection)`. grizzle never sets either. The migration that gives the
   installation its live source, once a login serves a read, creates its decoder login, which a reading login's served
   file names, `roleNameOf(served.decoder, connection)`; the operator gives it a password too, the one
-  `LiveSource.layer` takes. Never find it by scanning `pg_roles`. A login holds only USAGE on the
+  `LiveSource.layer` takes. Never find it by scanning `pg_roles`. After a grizzle upgrade that derives the decoder
+  login's name otherwise (e1c1fc23 shortened `__live_<segments>_<digest>` to `__live_<digest>`), the next draft renames
+  it in place, `ALTER ROLE :"<old>" RENAME TO :"<new>"`, its password and replication right kept, and replaces the
+  publication and its slot: keep those statements, stop the old version's live leaders before `migrate`, and read the
+  role again from `roleNameOf(served.decoder, connection)`. A login holds only USAGE on the
   schema, SELECT on the ledger and EXECUTE on the snapshot guard, the lock and the check every transaction takes;
   everything else it does as one of its roles, one per transaction. The drift check takes a membership beyond the
   login's roles as no drift only with SET FALSE and no ADMIN, and only while the login's effective privileges on the

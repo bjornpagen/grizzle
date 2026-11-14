@@ -59,10 +59,10 @@ import {
 	attributeGrantColumn,
 	decoderRole,
 	grantReplicationRight,
-	holdsLiveSource,
 	membershipGrantColumn,
 	type ReplicationGrants,
 	replicationHeldQuery,
+	type SurveyedDecoder,
 	walLevelColumn
 } from "#adapter/migrate/live.ts"
 import { type ApplyPlan, planApply, runFiles } from "#adapter/migrate/plan.ts"
@@ -93,7 +93,7 @@ import {
 	sqlstateClass,
 	sqlstates
 } from "#compiler/plan/common.ts"
-import type { FolderLaws, InstallationNames, RoleSpace } from "#compiler/plan/migration.ts"
+import type { FolderLaws, InstallationNames } from "#compiler/plan/migration.ts"
 import { textParam } from "#compiler/plan/read.ts"
 import type { DeploySnapshot, LedgerStatements } from "#compiler/plan/serve.ts"
 
@@ -329,15 +329,20 @@ interface Planned {
 	readonly plan: ApplyPlan
 	/** Whether the ledger existed when the apply read it, under its apply lock. */
 	readonly ledger: LedgerTable
-	/** The decoder login of the schema's live source under the session's role space, and whether it held its right. */
-	readonly decoder: { readonly role: string; readonly held: boolean }
+	/** The decoder login of the schema's live source, as the survey read it. */
+	readonly decoder: SurveyedDecoder
 }
 
-/** A schema's input, checked before anything is read: its parsed target, its ledger statements and its apply lock. */
+/**
+ * A schema's input, checked before anything is read: its parsed target, its ledger statements, its apply lock, and its
+ * live source's decoder login under the installation's role space, by the name its snapshot gives it (live.ts
+ * decoderRole), none where it installs none.
+ */
 interface Checked {
 	readonly parsed: ParsedTarget
 	readonly statements: LedgerStatements
 	readonly lock: ApplyLock
+	readonly decoder: string | undefined
 }
 
 const checkTarget = (
@@ -348,39 +353,45 @@ const checkTarget = (
 		Result.map(statementsFor(parsed.schema), (statements) => ({
 			parsed,
 			statements,
-			lock: applyLock(parsed.schema)
+			lock: applyLock(parsed.schema),
+			decoder: decoderRole(parsed.snapshot, installation.roles)
 		}))
 	)
 
 /**
  * The survey step's reads of one schema, apart and in the order it sends them (see the header): its owner, its apply
- * lock, and its ledger's two reads (ledger.ts ledgerReads). Each read's answer is at its position in this list,
- * counted from the schema's first answer.
+ * lock, its ledger's two reads (ledger.ts ledgerReads), and, last and only where its snapshot installs a live source,
+ * whether its decoder login holds the replication right. Each read's answer is at its position in this list, counted
+ * from the schema's first answer.
  */
 const schemaReadOrder = ["owner", "lock", "ledgerExists", "ledgerRows", "decoder"] as const
 type SchemaRead = (typeof schemaReadOrder)[number]
 
-/** The statements of a schema's survey reads, in schemaReadOrder. */
-const schemaReads = (checked: Checked, roles: RoleSpace): ReadonlyArray<BatchStatement> => {
+/** The statements of a schema's survey reads, in schemaReadOrder, its decoder login's where it has one. */
+const schemaReads = (checked: Checked): ReadonlyArray<BatchStatement> => {
 	const schema = checked.parsed.schema
 	const [ledgerExists, ledgerRows] = ledgerReads(schema, checked.statements)
-	const reads: { readonly [R in SchemaRead]: BatchStatement } = {
-		owner: oneShotStatement(schemaOwner.sql, [textParam(schema)]),
-		lock: oneShotStatement(checked.lock.take.sql, []),
+	const decoder = checked.decoder
+	return [
+		oneShotStatement(schemaOwner.sql, [textParam(schema)]),
+		oneShotStatement(checked.lock.take.sql, []),
 		ledgerExists,
 		ledgerRows,
-		decoder: oneShotStatement(replicationHeldQuery.sql, [
-			textParam(decoderRole(checked.parsed.snapshot, roles))
-		])
-	}
-	return Arr.map(schemaReadOrder, (read) => reads[read])
+		...(decoder === undefined
+			? []
+			: [oneShotStatement(replicationHeldQuery.sql, [textParam(decoder)])])
+	]
 }
 
 /**
- * Where a schema's answers start in the survey step: behind the session's role, then the schemas before it, each
- * answering schemaReadOrder's reads.
+ * Each schema with where its answers start in the survey step: behind the session's role, then the reads of the
+ * schemas before it.
  */
-const answersFrom = (index: number): number => 1 + index * schemaReadOrder.length
+const placed = (checked: ReadonlyArray<Checked>): ReadonlyArray<readonly [Checked, number]> =>
+	Arr.zip(
+		checked,
+		Arr.scan(checked, 1, (at, c) => at + schemaReads(c).length)
+	)
 
 /** The answer of a schema's read `read`, its answers starting at `at`. */
 const readAnswer = (
@@ -396,14 +407,15 @@ const lockTaken = (lock: ApplyLock, answer: ApartAnswer): boolean => {
 }
 
 /**
- * The step that releases the apply locks the survey step took, `answers`, of the schemas `checked`; none when it took
- * none.
+ * The step that releases the apply locks the survey step took, `answers`, of the schemas `schemas`, each placed where
+ * its answers start (placed); none when it took none.
  */
-const releaseOf = (checked: ReadonlyArray<Checked>, answers: ReadonlyArray<ApartAnswer>) =>
-	Arr.flatMap(checked, (c, i) =>
-		lockTaken(c.lock, readAnswer(answers, answersFrom(i), "lock"))
-			? [oneShotStatement(c.lock.release, [])]
-			: []
+const releaseOf = (
+	schemas: ReadonlyArray<readonly [Checked, number]>,
+	answers: ReadonlyArray<ApartAnswer>
+) =>
+	Arr.flatMap(schemas, ([c, at]) =>
+		lockTaken(c.lock, readAnswer(answers, at, "lock")) ? [oneShotStatement(c.lock.release, [])] : []
 	)
 
 /** One schema's checks from its answers in the survey step, from `at` on: owner, lock, ledger and plan. */
@@ -411,8 +423,7 @@ const planSchema = (
 	checked: Checked,
 	answers: ReadonlyArray<ApartAnswer>,
 	at: number,
-	user: string,
-	roles: RoleSpace
+	user: string
 ): Result.Result<Planned, MigrateError> =>
 	Result.gen(function* () {
 		const { parsed, statements, lock } = checked
@@ -440,16 +451,24 @@ const planSchema = (
 			stopped
 		)
 		const plan = yield* planApply(parsed, read.state)
-		const held = yield* Result.mapError(
-			apartRow(replicationHeldQuery, readAnswer(answers, at, "decoder")),
-			(failure) => stopped(new RoleUnread({ failure }))
-		)
+		const role = checked.decoder
+		const decoder: SurveyedDecoder =
+			role === undefined
+				? { kind: "none" }
+				: {
+						kind: "login",
+						role,
+						held: yield* Result.mapError(
+							apartRow(replicationHeldQuery, readAnswer(answers, at, "decoder")),
+							(failure) => stopped(new RoleUnread({ failure }))
+						)
+					}
 		return {
 			snapshot: parsed.snapshot,
 			statements,
 			plan,
 			ledger: read.table,
-			decoder: { role: decoderRole(parsed.snapshot, roles), held }
+			decoder
 		}
 	})
 
@@ -467,17 +486,18 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 	MigrateError,
 	Scope.Scope
 > {
+	const schemas = placed(checked)
 	const answers = yield* Effect.mapError(
 		Effect.uninterruptibleMask((restore) =>
 			Effect.tap(
 				restore(
 					session.apart([
 						oneShotStatement(sessionRead.sql, []),
-						...Arr.flatMap(checked, (c) => schemaReads(c, session.installation.roles))
+						...Arr.flatMap(checked, schemaReads)
 					])
 				),
 				(read) => {
-					const release = releaseOf(checked, read)
+					const release = releaseOf(schemas, read)
 					return Arr.isReadonlyArrayNonEmpty(release)
 						? Effect.addFinalizer(() => Effect.ignore(session.apart(release)))
 						: Effect.void
@@ -497,17 +517,15 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 			new StackTooShallow({ observed: stackDepth, required: stackDepthRequired })
 		)
 	}
-	const [sourced] = Arr.filter(checked, (c) => holdsLiveSource(c.parsed.snapshot))
+	const [sourced] = Arr.filter(checked, (c) => c.decoder !== undefined)
 	if (sourced !== undefined && walLevel !== "logical") {
 		return yield* stopped(
 			new WalLevelNotLogical({ schema: sourced.parsed.schema, level: walLevel })
 		)
 	}
 	const planned: Array<Planned> = []
-	for (const [i, c] of checked.entries()) {
-		const schemaPlan = yield* Effect.fromResult(
-			planSchema(c, answers, answersFrom(i), user, session.installation.roles)
-		)
+	for (const [c, at] of schemas) {
+		const schemaPlan = yield* Effect.fromResult(planSchema(c, answers, at, user))
 		planned.push(schemaPlan)
 	}
 	return { planned, grants }
@@ -851,7 +869,7 @@ export const applyOnSession = Effect.fn("applyOnSession")(function* (
 		reports.push(report)
 	}
 	for (const p of planned) {
-		yield* grantReplicationRight(session, p.snapshot, p.decoder.role, p.decoder.held, grants)
+		yield* grantReplicationRight(session, p.snapshot.schema, p.decoder, grants)
 	}
 	for (const p of planned) {
 		yield* checkDrift(session, p.snapshot, p.statements)

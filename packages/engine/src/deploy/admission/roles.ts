@@ -1,10 +1,4 @@
-import {
-	identifierOf,
-	identity,
-	type InstalledRoleTooLong,
-	roleInSpace,
-	type RoleSpace
-} from "#compiler/core/identity.ts"
+import { type InstalledRoleTooLong, roleInSpace, type RoleSpace } from "#compiler/core/identity.ts"
 import { combine, compareStrings, mapInput } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { ManifestStatement } from "#compiler/deploy/admission/manifest.ts"
@@ -115,8 +109,8 @@ export interface RoleExpectation {
 	/** Whether it may log in: a login, or a theory role. */
 	readonly login: boolean
 	/**
-	 * Whether it holds the replication right: the installation's decoder login (core/identity.ts identity.liveSource of
-	 * its root), which reads its live source's slot, and no other role.
+	 * Whether it holds the replication right: the installation's decoder login, by the name its snapshot gives it
+	 * (deploy/snapshot/objects.ts decoderLoginOf), which reads its live source's slot, and no other role.
 	 */
 	readonly replication: boolean
 	/** Its own defaults, by parameter. */
@@ -261,11 +255,14 @@ const admitsEveryRow = (p: CreatePolicy): boolean =>
 /** The expectation of `role` in the installed schema `schema`, from the manifest's statements in order: a grant to the
  * role adds its privileges, a revoke from it removes them, a membership granted to it is one of its memberships, a
  * policy naming it one of its policies, and a stored default of the role one of its settings. The manifest grants
- * PUBLIC nothing, so no grant to PUBLIC adds to a role's. */
+ * PUBLIC nothing, so no grant to PUBLIC adds to a role's. The replication right is the decoder login's, `decoder`, the
+ * name the snapshot's decoder object gives it (deploy/snapshot/objects.ts decoderLoginOf), none where it installs no
+ * live source. */
 export const roleExpectation = (
 	statements: ReadonlyArray<ManifestStatement>,
 	schema: string,
-	role: string
+	role: string,
+	decoder: string | undefined
 ): RoleExpectation => {
 	const schemas = judgedSchemas(statements, schema)
 	const otherSchemas = new Set(
@@ -303,7 +300,7 @@ export const roleExpectation = (
 		role,
 		/** A role the manifest does not create logs in nowhere. */
 		login: logins.at(-1) === true,
-		replication: logins.length > 0 && role === identifierOf(identity.liveSource(schema)),
+		replication: logins.length > 0 && role === decoder,
 		settings: new Map(
 			statements.flatMap((s) =>
 				s.kind === "alterRole" && s.name === role

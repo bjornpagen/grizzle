@@ -25,6 +25,7 @@ import {
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
 import { drawnWriting, fieldWriting } from "#compiler/deploy/snapshot/build.ts"
 import {
+	decoderLoginOf,
 	installed,
 	type ManifestObject,
 	nameKey,
@@ -218,7 +219,9 @@ const loginIn = (
  * only renames its filler (restatedWritings). Law columns and fillers are restated under the previous snapshot's names
  * (previousNames), so the migration keeps their values and draws nothing again. A renamed handle keeps its code: the
  * codes were drafted under the rename (ir/codes.ts draftCodebook), so nothing more is drafted for it. A renamed login's
- * role is renamed in place the same way, through its aside name (loginRenamed).
+ * role is renamed in place the same way, through its aside name (loginRenamed), and so is the decoder login where the
+ * name the naming door mints for it changed since the previous snapshot was drafted (decoderRenamed), which no
+ * declaration names.
  */
 export const applyDeclarations = (
 	previous: DeploySnapshot,
@@ -541,14 +544,16 @@ export const applyDeclarations = (
 	)
 	const writings = restatedWritings(parts.previous, target, installation, names)
 	const roles = loginRenamed(writings, target, logins, temporaries)
+	const decoder = decoderRenamed(roles.previous, target)
 	return {
 		statements: [
 			...relations.statements,
 			...columns.statements,
 			...parts.statements,
-			...roles.statements
+			...roles.statements,
+			...decoder.statements
 		],
-		previous: roles.previous
+		previous: decoder.previous
 	}
 }
 
@@ -1663,16 +1668,6 @@ const loginRenamed = (
 		...holders.map((h) => [h, asideOf(h)] as const),
 		...moves.map((m) => [m.role, m.into] as const)
 	])
-	const ident = (id: string): string => {
-		const parsed = parseIdent(id)
-		if (parsed.kind !== "role" && parsed.kind !== "privileges" && parsed.kind !== "membership") {
-			return id
-		}
-		const to = roles.get(parsed.name)
-		return to === undefined ? id : namedIdent(parsed.kind, to)
-	}
-	const renamedIn = (list: ReadonlyArray<SqlStatement>): ReadonlyArray<SqlStatement> =>
-		list.map((s) => withRoles(s, roles))
 	const loginTo = new Map(moves.map((m) => [m.from, m] as const))
 	/** A record by login name, each renamed login's under the target's name, one whose role a rename takes left out. */
 	const byLogin = <V>(
@@ -1693,20 +1688,79 @@ const loginRenamed = (
 		statements,
 		previous: {
 			...previous,
-			manifest: {
-				...previous.manifest,
-				objects: previous.manifest.objects.map((o): ManifestObject => ({
-					...o,
-					ident: ident(o.ident),
-					ddl: renamedIn(o.ddl)
-				})),
-				edges: previous.manifest.edges.map((e) => ({ from: ident(e.from), to: ident(e.to) })),
-				roleDefaults: renamedIn(previous.manifest.roleDefaults),
-				publicRevokes: renamedIn(previous.manifest.publicRevokes),
-				comments: renamedIn(previous.manifest.comments)
-			},
+			manifest: manifestUnderRoles(previous.manifest, roles),
 			logins: byLogin(previous.logins, (_, role) => ({ role })),
 			workload: byLogin(previous.workload, (programs) => programs)
+		}
+	}
+}
+
+/**
+ * `manifest` with each role `roles` maps named under its new name: in every object's identity and statements, every
+ * edge, the role defaults, the PUBLIC revokes and the comments.
+ */
+const manifestUnderRoles = (
+	manifest: DeploySnapshot["manifest"],
+	roles: ReadonlyMap<string, string>
+): DeploySnapshot["manifest"] => {
+	const ident = (id: string): string => {
+		const parsed = parseIdent(id)
+		if (parsed.kind !== "role" && parsed.kind !== "privileges" && parsed.kind !== "membership") {
+			return id
+		}
+		const to = roles.get(parsed.name)
+		return to === undefined ? id : namedIdent(parsed.kind, to)
+	}
+	const renamedIn = (list: ReadonlyArray<SqlStatement>): ReadonlyArray<SqlStatement> =>
+		list.map((s) => withRoles(s, roles))
+	return {
+		...manifest,
+		objects: manifest.objects.map((o): ManifestObject => ({
+			...o,
+			ident: ident(o.ident),
+			ddl: renamedIn(o.ddl)
+		})),
+		edges: manifest.edges.map((e) => ({ from: ident(e.from), to: ident(e.to) })),
+		roleDefaults: renamedIn(manifest.roleDefaults),
+		publicRevokes: renamedIn(manifest.publicRevokes),
+		comments: renamedIn(manifest.comments)
+	}
+}
+
+/**
+ * The installation's decoder login carried across a change of the name the naming door mints for it, and the previous
+ * snapshot under it.
+ *
+ * Both snapshots of a migration are of one installation, of one root, so the decoder login each installs is one
+ * login, its live source's (core/identity.ts identity.liveSource of the root), and each names it as the grizzle that
+ * drafted it minted it (deploy/snapshot/objects.ts decoderLoginOf). Where the previous snapshot names it otherwise
+ * than the target, as one an earlier grizzle drafted does (`__live_<segments>_<digest>` before e1c1fc23,
+ * `__live_<digest>` since), it is renamed in place to the target's name, ALTER ROLE ... RENAME TO, as a renamed
+ * login's role is (loginRenamed): it keeps its OID, and with it its password, the privileges granted to it, its
+ * REPLICATION attribute or its membership in rds_replication. No other role of the previous snapshot holds a hashed
+ * live source name, so the target's is free and nothing is set aside.
+ *
+ * The previous snapshot then names the decoder login under the target's name (manifestUnderRoles), so the diff reads
+ * it, and its privileges, as standing, and drafts nothing more for either. Its publication is named apart from it and
+ * the diff replaces it: it drops the previous one, with the replication slot a leader made for it, named after the
+ * decoder login's previous name (physical/ddl/live.ts dropLiveSlot), and creates the target's, whose slot the next
+ * leader makes under the new name. A leader streaming from the previous slot holds it, so the migration fails closed
+ * until it stops, as any removal of a live source does.
+ */
+const decoderRenamed = (
+	previous: DeploySnapshot,
+	target: SnapshotContent
+): { readonly statements: ReadonlyArray<SqlStatement>; readonly previous: DeploySnapshot } => {
+	const from = decoderLoginOf(previous.manifest.objects)
+	const to = decoderLoginOf(target.manifest.objects)
+	if (from === undefined || to === undefined || from === to) {
+		return { statements: [], previous }
+	}
+	return {
+		statements: [{ kind: "rename", object: "ROLE", name: from, to }],
+		previous: {
+			...previous,
+			manifest: manifestUnderRoles(previous.manifest, new Map([[from, to]]))
 		}
 	}
 }

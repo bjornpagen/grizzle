@@ -5,7 +5,7 @@ import { oneShotStatement } from "#adapter/wire/batch.ts"
 import type { CatalogQuery } from "#adapter/wire/statement.ts"
 import { C } from "#compiler/plan/catalog.ts"
 import { emitCatalog } from "#compiler/plan/common.ts"
-import { identifierOf, identity, roleInSpace, type RoleSpace } from "#compiler/plan/migration.ts"
+import { decoderLoginOf, roleInSpace, type RoleSpace } from "#compiler/plan/migration.ts"
 import type { DeploySnapshot } from "#compiler/plan/serve.ts"
 
 /**
@@ -14,18 +14,31 @@ import type { DeploySnapshot } from "#compiler/plan/serve.ts"
  * runs (walLevelColumn, read by the survey), and its decoder login holds the replication right once its files commit
  * (grantReplicationRight), which no drafted file can give: the REPLICATION attribute and Amazon RDS's rds_replication
  * are two grants, and which one the migration identity may give only the server knows. The survey reads both, so a
- * migration of an installation whose decoder holds its right sends nothing more.
+ * migration of an installation whose decoder holds its right sends nothing more. The decoder login is the one the
+ * snapshot's folders create, by the name the snapshot gives it (decoderLoginOf), whichever grizzle drafted them,
+ * never the name the naming door mints now.
  */
 
-/** Whether `snapshot` installs a live source: its manifest holds a decoder login. */
-export const holdsLiveSource = (snapshot: DeploySnapshot): boolean =>
-	Arr.some(snapshot.manifest.objects, (o) => o.kind === "decoder")
-
-/** The decoder login of `snapshot`'s live source under the role space `roles`, or the name past the longest one. */
-export const decoderRole = (snapshot: DeploySnapshot, roles: RoleSpace): string => {
-	const named = roleInSpace(roles, identifierOf(identity.liveSource(snapshot.schema)))
+/**
+ * The decoder login of `snapshot`'s live source, by the name the snapshot gives it (decoderLoginOf), under the role
+ * space `roles`, or the name past the longest one; none where it installs no live source.
+ */
+export const decoderRole = (snapshot: DeploySnapshot, roles: RoleSpace): string | undefined => {
+	const decoder = decoderLoginOf(snapshot.manifest.objects)
+	if (decoder === undefined) {
+		return undefined
+	}
+	const named = roleInSpace(roles, decoder)
 	return named.ok ? named.value : named.error.role
 }
+
+/**
+ * A schema's decoder login as the survey read it: none where its snapshot installs no live source; else its role
+ * (decoderRole) and whether it held the replication right.
+ */
+export type SurveyedDecoder =
+	| { readonly kind: "none" }
+	| { readonly kind: "login"; readonly role: string; readonly held: boolean }
 
 /** The server's wal_level, as the survey reads it beside the session's role. */
 export const walLevelColumn: C.CatalogExpr = C.call("current_setting", [C.text("wal_level")])
@@ -123,22 +136,23 @@ export interface ReplicationGrants {
 }
 
 /**
- * Gives the decoder login `role` of `snapshot`'s live source its replication right, once its files committed, where the
- * survey found it holding none (`held`): the REPLICATION attribute where the migration identity may give it, else a
- * membership in rds_replication where it may grant that, in one DO block (sql/catalog.ts replicationRightBlock);
- * refused naming both statements where it may give neither, or where the server refuses the block.
+ * Gives the decoder login `decoder` of the schema `schema`'s live source its replication right, once its files
+ * committed, where the survey found it holding none: the REPLICATION attribute where the migration identity may give
+ * it, else a membership in rds_replication where it may grant that, in one DO block (sql/catalog.ts
+ * replicationRightBlock); refused naming both statements where it may give neither, or where the server refuses the
+ * block. Nothing for a schema whose snapshot installs no live source.
  */
 export const grantReplicationRight = Effect.fn("grantReplicationRight")(function* (
 	session: MigrationSession,
-	snapshot: DeploySnapshot,
-	role: string,
-	held: boolean,
+	schema: string,
+	decoder: SurveyedDecoder,
 	grants: ReplicationGrants
 ): Effect.fn.Return<void, MigrateError> {
-	if (held || !holdsLiveSource(snapshot)) {
+	if (decoder.kind === "none" || decoder.held) {
 		return
 	}
-	const refused = stopped(new DecoderUnreplicated({ schema: snapshot.schema, role }))
+	const role = decoder.role
+	const refused = stopped(new DecoderUnreplicated({ schema, role }))
 	if (!grants.attribute && !grants.membership) {
 		return yield* refused
 	}

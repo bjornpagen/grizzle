@@ -217,6 +217,21 @@ const addedConstraint = (
 		: undefined
 }
 
+/**
+ * The decoder login `objects` create, by the name their decoder's CREATE ROLE gives it: the installation's live
+ * source's (core/identity.ts identity.liveSource) as the grizzle that drafted the snapshot named it, which every reader
+ * of an installed decoder login takes from its snapshot, never from what the naming door mints now; none where they
+ * install no live source. Objects holding two are a malformed snapshot: an installation has one live source.
+ */
+export const decoderLoginOf = (objects: ReadonlyArray<ManifestObject>): string | undefined => {
+	const [decoder, second] = objects.filter((o) => o.kind === "decoder")
+	if (second !== undefined) {
+		return refuse(second.ident, "no second decoder login: an installation has one live source")
+	}
+	const v = decoder === undefined ? undefined : installed(decoder)
+	return v?.kind === "decoder" ? v.create.name : undefined
+}
+
 /** The view of one object: its kind's statement, read from its DDL. */
 export const installed = (o: ManifestObject): Installed => {
 	const s = o.ddl[0]
