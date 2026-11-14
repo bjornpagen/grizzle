@@ -74,9 +74,14 @@ const compilerOptions = {
 
 const decodeJson = Schema.decodeUnknownEffect(JsonLiteral)
 
+/**
+ * The build's compiler options: JavaScript into `dist/`, and no declaration files. A generated
+ * package is a command, not a library: its manifest exports nothing and its `imports` read types
+ * from `src/`, so a declaration file would have no reader, and printing one serializes every
+ * inferred schema type, which TypeScript refuses (TS7056) for a large enough request schema.
+ */
 const buildOptions = {
 	allowImportingTsExtensions: false,
-	declaration: true,
 	noEmit: false,
 	outDir: "dist",
 	rewriteRelativeImportExtensions: true,
