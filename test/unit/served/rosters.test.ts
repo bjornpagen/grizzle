@@ -14,7 +14,8 @@
  *   to (servedFile), holds every roster's codes, and the codebook built from them is the one built from the codes
  *   written, codec for codec, as the runtime reads them (test/support/served.ts runtimeDifference).
  * - Fail closed: the file with one roster's live codes all turned to holes does not read back: a roster holds a live
- *   handle, so a load of one that holds none is a defect, never a roster of no handle.
+ *   handle, so the reader refuses one that holds none as a malformed served file at that roster (MalformedArtifact),
+ *   never a roster of no handle.
  *
  * The oracle is the codes themselves: identity, and the codebook rosterCodebook builds from them.
  *
@@ -37,15 +38,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Result as Answered,
-	Array as Arr,
-	Effect,
-	Formatter,
-	Order,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Order, Record as Rec, String as Str } from "effect"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import { handleMaxBytes } from "#compiler/core/limits.ts"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
@@ -53,7 +46,7 @@ import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { rosterCodebook } from "#compiler/ir/codes.ts"
 import type { ServedFile } from "#compiler/served/forms.ts"
 import { rosterCodesOf, rosterWire, servedFile, servedText } from "#compiler/served/json.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { artifactRefusal, assert, defined, failed, succeeded } from "#test/support/assert.ts"
 import { dictionaryNameGen } from "#test/support/kernel/dict.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -129,11 +122,12 @@ const featuresOf = (codes: RosterCodes): ReadonlyArray<Feature> => {
 	]
 }
 
-/** A served file holding `rosters` and no member besides. */
-const fileOf = (rosters: ReadonlyArray<readonly [DeclaredName, RosterCodes]>): ServedFile => ({
-	...servedFile({ types: [], rosters: {} }),
-	rosters: new Map(rosters)
-})
+/**
+ * A served file holding `rosters` and no member besides: the writer walks a file's members as values of any shape, so
+ * rosters alone are a file it writes.
+ */
+const fileOf = (rosters: ReadonlyArray<readonly [DeclaredName, RosterCodes]>): ServedFile =>
+	trusted<ServedFile>({ rosters: new Map(rosters) })
 
 /** The JSON value of a served file's text, the roster `turned`'s live codes all turned to holes. */
 const holesOnly = (text: string, turned: DeclaredName): unknown => {
@@ -165,7 +159,7 @@ const roundTrip = (
 		}
 	}
 	const text = succeeded(servedText(fileOf(rosters)), "the file's text")
-	const back = servedFile(trustedJson<unknown>(text))
+	const back = succeeded(servedFile(trustedJson<unknown>(text)), "the file read back")
 	const written = rosterCodebook(rosters)
 	const read = rosterCodebook(back.rosters)
 	assert.deepEqual(
@@ -184,10 +178,16 @@ const roundTrip = (
 			undefined,
 			`roster ${name}'s codec reads back otherwise at ${differs}\n${printed}`
 		)
-		const turned = Answered.try(() => servedFile(holesOnly(text, name)))
-		assert.ok(
-			Answered.isFailure(turned),
-			`the file with roster ${name}'s live codes turned to holes does not read back\n${printed}`
+		const turned = artifactRefusal(
+			failed(
+				servedFile(holesOnly(text, name)),
+				`the file with roster ${name}'s live codes turned to holes does not read back\n${printed}`
+			)
+		)
+		assert.deepEqual(
+			[turned.artifact, turned.at],
+			["served", ["rosters", name]],
+			`the reader refuses the served file at roster ${name}\n${printed}`
 		)
 	}
 	if (rosters.length > 1) {

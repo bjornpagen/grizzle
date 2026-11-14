@@ -562,7 +562,7 @@ export const compiledLogin = (
 		const compiled = yield* snapshotCompiled({ login: built, owned }, snapshot)
 		const entry = yield* servedEntryOf(compiled)
 		const json = trustedJson<unknown>(entry.text)
-		return { compiled, entry, json, back: servedFile(json) }
+		return { compiled, entry, json, back: succeeded(servedFile(json), "the login's served file") }
 	})
 
 /** Each served role of a compiled login beside its compiled role, by the role's name. */

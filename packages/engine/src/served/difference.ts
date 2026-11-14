@@ -1,4 +1,5 @@
 import { catchSignal, compareText, taggedValueOf } from "#compiler/core/canonical.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import type { ServedFile } from "#compiler/served/forms.ts"
@@ -52,13 +53,14 @@ const isObject = (value: unknown): value is Readonly<Record<string, unknown>> =>
 
 /**
  * A served file's text read through the one reader of its JSON form (served/json.ts servedFile), every value JSON
- * cannot hold rebuilt; undefined for text that is no JSON record, or that no served file's reader reads. The committed
- * text is anyone's to have edited, so whatever it holds is read as values of any shape.
+ * cannot hold rebuilt; undefined for text that is no JSON, or that the reader refuses. The committed text is anyone's to
+ * have edited, so whatever it holds is read as values of any shape.
  */
 const revived = (text: string): Readonly<Record<string, unknown>> | undefined => {
 	const read = catchSignal(Error, (): ServedFile | undefined => {
 		const json: unknown = JSON.parse(text)
-		return isObject(json) ? servedFile(json) : undefined
+		const file = servedFile(json)
+		return file.ok ? file.value : undefined
 	})
 	return read.ok ? read.value : undefined
 }
@@ -180,7 +182,11 @@ export const servedDifference = (ours: string, committed: string): ServedParting
 	if (theirs === undefined) {
 		return { kind: "unread" }
 	}
-	const own: Readonly<Record<string, unknown>> = servedFile(trustedJson<unknown>(ours))
+	const ownRead = servedFile(trustedJson<unknown>(ours))
+	if (!ownRead.ok) {
+		throw defect(`the compile's own served file reads back: ${ownRead.error.message}`)
+	}
+	const own: Readonly<Record<string, unknown>> = ownRead.value
 	const keys = [...new Set([...Object.keys(own), ...Object.keys(theirs)])].toSorted(compareText)
 	for (const key of keys) {
 		const found =

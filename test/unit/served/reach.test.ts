@@ -81,9 +81,13 @@ type Feature =
 	| "a write through a query entry reading a context"
 	| "a clocked member with a contract-typed param"
 
-/** Whether the JSON value of a served file loads as a layer loads it: no defect, no refusal. */
+/** Whether the JSON value of a served file reads and loads as a layer loads it: no defect, no refusal. */
 const loads = (json: unknown, login: string): boolean => {
-	const read = Answered.try(() => loadServed(servedFile(json), login))
+	const file = servedFile(json)
+	if (!file.ok) {
+		return false
+	}
+	const read = Answered.try(() => loadServed(file.value, login))
 	return Answered.isSuccess(read) && Answered.isSuccess(read.success)
 }
 

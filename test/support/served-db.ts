@@ -25,7 +25,7 @@ import type { ServedMember, ServedRoleForm, ServedVariants } from "#compiler/ser
 import { servedFile, servedText } from "#compiler/served/json.ts"
 import type { UnservedMember } from "#compiler/served/unserved.ts"
 import type { AnyWorkload } from "#compiler/types/db/workload.ts"
-import { defined } from "#test/support/assert.ts"
+import { defined, succeeded } from "#test/support/assert.ts"
 import { conservativeChange } from "#test/support/conservative.ts"
 import type { Generated, Installed } from "#test/support/install-migrate.ts"
 import { type SourcedLayer, sourcedDbLayer } from "#test/support/live-layer.ts"
@@ -78,7 +78,7 @@ export const conservativeServedJson = (
 ): Effect.Effect<unknown, ServedRefusal | CompileError | UnservedMember | RoleSetupError> =>
 	Effect.gen(function* () {
 		const json = yield* servedJson(installed, login, workloads)
-		const file = servedFile(json)
+		const file = yield* fromEngine(servedFile(json))
 		const roles: Array<ServedRoleForm> = []
 		for (const form of file.roles) {
 			const reached = defined(
@@ -320,7 +320,9 @@ const servedOn = (snapshot: unknown, role: AnyLoginRole, ctx: ServedDbContext): 
 			const json = yield* Effect.suspend(() =>
 				compileServedOnce(login, snapshot, [workload(role.role, programs)])
 			)
-			const loaded = yield* Effect.fromResult(loadServed(servedFile(json), login.name))
+			const loaded = yield* Effect.fromResult(
+				loadServed(succeeded(servedFile(json), "the once file of the login"), login.name)
+			)
 			return {
 				members: new Map(
 					Arr.map(

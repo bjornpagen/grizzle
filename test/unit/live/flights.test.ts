@@ -122,7 +122,9 @@ const server = login(Reports, "server", [app], {
 })
 
 /** The fixture's login, loaded from its served file as a layer loads it. */
-const loaded = succeeded(loadServed(servedFile(compiledServedFile(server)), "server"))
+const loaded = succeeded(
+	loadServed(succeeded(servedFile(compiledServedFile(server)), "the served file"), "server")
+)
 const loadedApp = defined(loaded.roles[0], "the role app")
 
 type Member = "sittings" | "ordered" | "rebuild" | "weight"

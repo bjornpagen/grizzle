@@ -119,7 +119,11 @@ const main = Effect.gen(function* () {
 		const { loadServed } = yield* Effect.promise(() => import("#adapter/served/load.ts"))
 		const { servedFile } = yield* Effect.promise(() => import("#compiler/served/json.ts"))
 		t = performance.now()
-		const loaded = loadServed(servedFile(file), "server")
+		const read = servedFile(file)
+		if (!read.ok) {
+			throw new Error(`the served file does not read: ${read.error.message}`)
+		}
+		const loaded = loadServed(read.value, "server")
 		phases["loadServedMs"] = since(t)
 		if (Result.isFailure(loaded)) {
 			throw new Error(`the served file does not load: ${String(loaded.failure)}`)

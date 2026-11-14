@@ -149,7 +149,10 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 					const served = path.join(consumer.project, "server.json")
 					yield* fs.writeFileString(
 						served,
-						succeeded(servedText(servedFile(file)), "the login's served file's text")
+						succeeded(
+							servedText(succeeded(servedFile(file), "the login's served file")),
+							"the login's served file's text"
+						)
 					)
 					const program = path.join(consumer.project, "consumer.mjs")
 					yield* fs.writeFileString(program, consumerProgram)

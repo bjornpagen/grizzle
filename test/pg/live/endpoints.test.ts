@@ -40,7 +40,7 @@ import { prepared } from "#compiler/core/prepared.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import type { ServedLive } from "#compiler/served/forms.ts"
 import { servedFile } from "#compiler/served/json.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { inputOf, worldSurfaces } from "#test/support/live/calls.ts"
 import { installLive, liveLogin } from "#test/support/live/harness.ts"
@@ -291,7 +291,7 @@ layer(Substrate.layer)("every HTTP route", (it) => {
 									facts: { insert: { [familyRelations.member]: [{ id: 1, shelf: 1 }] } }
 								})
 							}).pipe(withLayer(live.layer))
-							const source = servedFile(live.json).live
+							const source = succeeded(servedFile(live.json), "the served file").live
 							if (source.kind !== "source") {
 								return assert.fail("a world whose reads read its relations installs a live source")
 							}

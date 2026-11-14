@@ -223,7 +223,8 @@ const drafted = (
 		assert.ok(served.kind === "logins", "a schema with a login plans its logins")
 		const entries = yield* servedFiles(compiled, draft.snapshotFiles, served)
 		const creates = Arr.flatMap(entries, (entry) => {
-			const roles = Arr.map(servedFile(trustedJson<unknown>(entry.text)).roles, (r) => ({
+			const file = succeeded(servedFile(trustedJson<unknown>(entry.text)), "the served file")
+			const roles = Arr.map(file.roles, (r) => ({
 				key: `${entry.login}.${r.name}`,
 				carrier: Arr.some(textsIn(r.members), Str.startsWith("CREATE TEMPORARY TABLE "))
 			}))

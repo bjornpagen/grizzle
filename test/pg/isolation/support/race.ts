@@ -281,7 +281,8 @@ export const installShape = (
 				generated.served.get(shape.login.name),
 				`the served file of login ${shape.login.name}`
 			)
-			const loaded = yield* Effect.fromResult(loadServed(servedFile(json), shape.login.name))
+			const file = yield* fromEngine(servedFile(json))
+			const loaded = yield* Effect.fromResult(loadServed(file, shape.login.name))
 			const served = servedOf(loaded)
 			return {
 				installed: generated.installed,
@@ -345,9 +346,8 @@ export const installShape = (
 			Option.getOrUndefined(Arr.findFirst(entries, (e) => e.login === shape.login.name)),
 			`the served file of login ${shape.login.name}`
 		)
-		const login = yield* Effect.fromResult(
-			loadServed(servedFile(trustedJson<unknown>(entry.text)), shape.login.name)
-		)
+		const file = yield* fromEngine(servedFile(trustedJson<unknown>(entry.text)))
+		const login = yield* Effect.fromResult(loadServed(file, shape.login.name))
 		return {
 			installed,
 			names: namesOf(installed),

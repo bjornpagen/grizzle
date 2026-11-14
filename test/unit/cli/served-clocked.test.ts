@@ -30,7 +30,7 @@ import type { ServedFile } from "#compiler/served/forms.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -264,7 +264,7 @@ const compiled = (c: Case, clocked: boolean) =>
 				Arr.map(served.certification, (i) => [i.role, certified(i.certificate)] as const)
 			),
 			text: entry.text,
-			file: servedFile(trustedJson<unknown>(entry.text)),
+			file: succeeded(servedFile(trustedJson<unknown>(entry.text)), "the served file"),
 			live: new Set(
 				draft.snapshot.live.kind === "reads"
 					? Arr.map(draft.snapshot.live.tables, (t) => t.relation)

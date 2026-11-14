@@ -4,6 +4,7 @@ import {
 	catchRefusal,
 	compareText,
 	floatSpecialOf,
+	isCanonicalInteger,
 	type Json,
 	type Outside,
 	type Path,
@@ -11,13 +12,13 @@ import {
 	type TaggedValue,
 	writeCanonicalJson
 } from "#compiler/core/canonical.ts"
-import { type CompileError, unsupported } from "#compiler/core/errors.ts"
+import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
 import type { RosterDigest } from "#compiler/core/fingerprint.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { isList } from "#compiler/core/record.ts"
+import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type Parts, type SharingFormat, shareRepeated } from "#compiler/core/share.ts"
 import { trusted } from "#compiler/core/trusted.ts"
@@ -77,6 +78,10 @@ const mapKey = "~map"
 const setKey = "~set"
 const listKey = "~a"
 const revivedKey = "~"
+
+/** The members of a served file's JSON form a load reads first, by name: its rosters' codes and its table. */
+const rostersKey = "rosters"
+const sharedKey = "shared"
 
 /** The tags of the canonical values a served form holds, by what the file spells them under. */
 const tags = {
@@ -530,8 +535,8 @@ export const servedText = (file: ServedFile): Result.Result<string, CompileError
 			const [root] = written.roots
 			return {
 				...membersRecord(defined(root, "a served file's members")),
-				rosters: wire,
-				shared: written.table.map((entry) => entry.node)
+				[rostersKey]: wire,
+				[sharedKey]: written.table.map((entry) => entry.node)
 			}
 		}),
 		(json) => Result.map(writeCanonicalJson(json), (text) => `${text}\n`)
@@ -547,17 +552,36 @@ interface FileRosters {
 }
 
 /**
- * The file's rosters (RostersWire) read once, each name trusted as the compile wrote it; a roster holds a live handle,
- * since its codes are a declaration's.
+ * A served file read back that is not the form `what` states, which `grizzle generate` writes: refused at `at` inside
+ * the file, its rosters, the table entry a form was read in, or none for a form read in its members. A function
+ * declaration, so that control flow knows a call never returns.
  */
-const fileRosters = (wire: RostersWire): FileRosters => {
+function unread(at: Path, what: string): never {
+	throw new Refusal(malformedArtifact("served", at, what))
+}
+
+/** A RosterWire's slot: a live code's handle, or a hole. */
+const isRosterSlot = (slot: unknown): slot is string | false =>
+	typeof slot === "string" || slot === false
+
+/**
+ * The file's rosters (RostersWire) read once, each name trusted as the compile wrote it, refused where `wire` is no
+ * record of rosters' codes, or a roster holds no live handle: its codes are a declaration's, which holds one.
+ */
+const fileRosters = (wire: unknown): FileRosters => {
+	if (!isPlainRecord(wire)) {
+		return unread([rostersKey], "the file's rosters, each roster's codes under its declared name")
+	}
 	const codes = new Map<DeclaredName, RosterCodes>()
 	const handles = new Map<DeclaredName, NonEmptyReadonlyArray<string>>()
 	for (const [roster, slots] of Object.entries(wire)) {
+		if (!isList(slots) || !slots.every(isRosterSlot)) {
+			return unread([rostersKey, roster], "a roster's codes, each a handle or a hole (false)")
+		}
 		const name = trusted<DeclaredName>(roster)
 		const live = slots.filter((slot) => slot !== false)
 		if (!isNonEmpty(live)) {
-			throw defect(`roster ${name} holds a live handle`)
+			return unread([rostersKey, roster], "a roster's codes holding a live handle")
 		}
 		codes.set(name, rosterCodesOf(slots))
 		handles.set(name, live)
@@ -567,25 +591,29 @@ const fileRosters = (wire: RostersWire): FileRosters => {
 
 /**
  * A roster by its canonical payload, its declared name and its handles' digest, each trusted as the compile wrote it,
- * over its live handles the file's rosters hold.
+ * over its live handles the file's rosters hold; refused, read `within`, where the file holds no codes of it.
  */
 const rosterOf = (
 	handles: ReadonlyMap<DeclaredName, NonEmptyReadonlyArray<string>>,
-	payload: string
+	payload: string,
+	within: Path
 ): Roster => {
 	const at = payload.lastIndexOf(":")
 	const name = trusted<DeclaredName>(payload.slice(0, at))
-	return new Roster(
-		name,
-		defined(handles.get(name), `the served file holds the codes of its roster ${name}`),
-		trusted<RosterDigest>(payload.slice(at + 1))
-	)
+	const live = handles.get(name)
+	if (live === undefined) {
+		return unread(within, `a roster the file's rosters hold the codes of, not ${payload}`)
+	}
+	return new Roster(name, live, trusted<RosterDigest>(payload.slice(at + 1)))
 }
 
 /**
  * One walk of a served file's JSON form back into its forms (see the header): only the paths its records and arrays
  * list to revived values, each value beside them the file's own, read as it is; each shared node read from `shared`,
- * every reference to one entry the same object, and its rosters over the live handles the file holds for them.
+ * every reference to one entry the same object, and its rosters over the live handles the file holds for them. A form
+ * on those paths the writer never writes is refused (unread) at `within`, the table entry or the members it is read in:
+ * a tag no reader revives, a payload no value of its tag is, a reference to no entry read before it, a Map entry that
+ * is no pair.
  */
 class ServedReader {
 	readonly #shared: ReadonlyArray<unknown>
@@ -599,9 +627,9 @@ class ServedReader {
 		this.#handles = handles
 	}
 
-	value(json: unknown): unknown {
+	value(json: unknown, within: Path): unknown {
 		if (typeof json === "string") {
-			return json.startsWith("~") ? this.#tagged(json) : json
+			return json.startsWith("~") ? this.#tagged(json, within) : json
 		}
 		if (typeof json !== "object" || json === null || isList(json)) {
 			return json
@@ -611,14 +639,16 @@ class ServedReader {
 		if (isList(entries)) {
 			const map = new Map<unknown, unknown>()
 			for (const entry of entries) {
-				const [k, v] = trusted<readonly [unknown, unknown]>(entry)
-				map.set(this.value(k), this.value(v))
+				if (!isList(entry) || entry.length !== 2) {
+					return unread(within, "a Map's entry, a pair of its key and its value")
+				}
+				map.set(this.value(entry[0], within), this.value(entry[1], within))
 			}
 			return map
 		}
 		const members = record[setKey]
 		if (isList(members)) {
-			return new Set(members.map((member) => this.value(member)))
+			return new Set(members.map((member) => this.value(member, within)))
 		}
 		const at = record[revivedKey]
 		if (!isList(at)) {
@@ -628,7 +658,7 @@ class ServedReader {
 		if (isList(items)) {
 			const out = [...items]
 			for (const i of trusted<ReadonlyArray<number>>(at)) {
-				out[i] = this.value(items[i])
+				out[i] = this.value(items[i], within)
 			}
 			return out
 		}
@@ -639,90 +669,107 @@ class ServedReader {
 			}
 		}
 		for (const key of trusted<ReadonlyArray<string>>(at)) {
-			out[key] = this.value(record[key])
+			out[key] = this.value(record[key], within)
 		}
 		return out
 	}
 
-	#tagged(text: string): unknown {
+	#tagged(text: string, within: Path): unknown {
 		if (text.startsWith("~~")) {
 			return text.slice(1)
 		}
 		const colon = text.indexOf(":")
 		const tag = text.slice(1, colon)
-		if (!isServedTag(tag)) {
-			throw defect(`a served tag grizzle writes, not ${tag}`)
+		if (colon < 0 || !isServedTag(tag)) {
+			return unread(within, `a revived value under a tag the writer writes, not ${text}`)
 		}
-		return this.#revive(tag, text.slice(colon + 1))
+		return this.#revive(tag, text.slice(colon + 1), within)
 	}
 
-	/** The value a served scalar of `tag` and `payload` revives to, the one form the writer wrote under that tag. */
-	#revive(tag: ServedTag, payload: string): unknown {
+	/**
+	 * The value a served scalar of `tag` and `payload` revives to, the one form the writer wrote under that tag; refused,
+	 * read `within`, where `payload` is no value of `tag`.
+	 */
+	#revive(tag: ServedTag, payload: string, within: Path): unknown {
 		switch (tag) {
 			case tags.bigint:
-				return BigInt(payload)
+				return isCanonicalInteger(payload)
+					? BigInt(payload)
+					: unread(within, `a bigint's digits, not ~${tag}:${payload}`)
 			case tags.float:
-				return defined(floatSpecialOf(payload), `a served float named by a word: ${payload}`)
+				return (
+					floatSpecialOf(payload) ??
+					unread(within, `a float named by a word, not ~${tag}:${payload}`)
+				)
 			case tags.shared:
-				return defined(
-					this.#shared[Number(payload)],
-					`the served table holds entry ${payload} before any entry referencing it`
+				return (
+					(String(Number(payload)) === payload ? this.#shared[Number(payload)] : undefined) ??
+					unread(
+						within,
+						`a reference to an entry of the file's table read before it, one of ${this.#shared.length}, not ~${tag}:${payload}`
+					)
 				)
 			case tags.roster:
-				return rosterOf(this.#handles, payload)
+				return rosterOf(this.#handles, payload, within)
 			case tags.rangeOp: {
 				const at = payload.lastIndexOf(":")
-				return defined(
-					rangeOpNamed(payload.slice(0, at), payload.slice(at + 1)),
-					`a served range overload's code and carrier name one: ${payload}`
+				return (
+					rangeOpNamed(payload.slice(0, at), payload.slice(at + 1)) ??
+					unread(within, `a range overload's code and carrier, not ~${tag}:${payload}`)
 				)
 			}
 			case tags.decimal:
-				return revivedOf(Decimal.fromCanonical(payload), `a served decimal: ${payload}`)
+				return revivedOf(Decimal.fromCanonical(payload), within, `~${tag}:${payload}`)
 			case tags.money:
-				return Money.of(BigInt(payload))
+				return revivedOf(Money.fromCanonical(payload), within, `~${tag}:${payload}`)
 			case tags.vector:
-				return revivedOf(Vector.fromCanonical(payload), `a served vector: ${payload}`)
+				return revivedOf(Vector.fromCanonical(payload), within, `~${tag}:${payload}`)
 			case tags.decimalText:
-				return defined(DecimalText.parse(payload), `a served decimal text: ${payload}`)
+				return (
+					DecimalText.parse(payload) ?? unread(within, `a decimal text, not ~${tag}:${payload}`)
+				)
 			case tags.moneyText:
-				return defined(MoneyText.parse(payload), `a served money text: ${payload}`)
+				return MoneyText.parse(payload) ?? unread(within, `a money text, not ~${tag}:${payload}`)
 			case tags.vectorText:
-				return defined(VectorText.parse(payload), `a served vector text: ${payload}`)
+				return VectorText.parse(payload) ?? unread(within, `a vector text, not ~${tag}:${payload}`)
 		}
 	}
 }
 
-/** The value a served payload's reviver restores, which revives every payload the writer wrote. */
-const revivedOf = <A>(result: Result.Result<A, CompileError>, what: string): A => {
-	if (!result.ok) {
-		throw defect(`${what} is the one text of its value: ${result.error.message}`)
-	}
-	return result.value
-}
-
-/**
- * The JSON form of a served file, as an import of it or JSON.parse yields it: its members, its rosters and its table.
- */
-interface ServedJson {
-	readonly shared: ReadonlyArray<unknown>
-	readonly rosters: RostersWire
-	readonly [member: string]: unknown
-}
+/** The value a served payload's reviver restores, refused, read `within`, where `text` is no value's one text. */
+const revivedOf = <A, E>(result: Result.Result<A, E>, within: Path, text: string): A =>
+	result.ok ? result.value : unread(within, `the one text of a value, not ${text}`)
 
 /**
  * The served file a served file's JSON value holds (what an import of the file, or JSON.parse of its text, yields),
  * trusted as the file `grizzle generate` wrote and `grizzle check` holds equal to the compile: its rosters first, read
  * once (fileRosters), then its table, each entry over those before it, then its members, each walked only along the
- * paths it lists to revived values, every other value the JSON value's own.
+ * paths it lists to revived values, every other value the JSON value's own. A value whose frame or revived forms are
+ * none the writer writes is refused as MalformedArtifact, never read in part: one that is no record, holds no table
+ * (`shared`, a list, which a file of grizzle's earlier format holds none of) or no rosters' codes, or a form on a path
+ * to a revived value that ServedReader refuses. The members' forms beside them are the file's own, trusted.
  */
-export const servedFile = (json: unknown): ServedFile => {
-	const { shared, rosters, ...members } = trusted<ServedJson>(json)
-	const { codes, handles } = fileRosters(rosters)
-	const table: Array<unknown> = []
-	const reader = new ServedReader(table, handles)
-	for (const entry of shared) {
-		table.push(reader.value(entry))
+export const servedFile = (json: unknown): Result.Result<ServedFile, CompileError> => {
+	if (!isPlainRecord(json)) {
+		return Result.err(malformedArtifact("served", [], "a served file's JSON form, a record"))
 	}
-	return trusted<ServedFile>({ ...trusted<object>(reader.value(members)), rosters: codes })
+	const { [sharedKey]: shared, [rostersKey]: rosters, ...members } = json
+	if (!isList(shared)) {
+		return Result.err(
+			malformedArtifact(
+				"served",
+				[sharedKey],
+				"the file's table of shared shapes, a list, which grizzle generate writes in every served file: run grizzle generate"
+			)
+		)
+	}
+	return catchRefusal(() => {
+		const { codes, handles } = fileRosters(rosters)
+		const table: Array<unknown> = []
+		const reader = new ServedReader(table, handles)
+		for (const [at, entry] of shared.entries()) {
+			table.push(reader.value(entry, [sharedKey, at]))
+		}
+		return trusted<ServedFile>({ ...trusted<object>(reader.value(members, [])), rosters: codes })
+	})
 }

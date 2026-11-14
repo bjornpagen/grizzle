@@ -1,5 +1,6 @@
 import { Array as Arr, Effect, Option, Predicate, Record as Rec, type Ref, Result } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
+import { fromEngine } from "#adapter/engine.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { compileServedOnce, type ServedRefusal } from "#adapter/public/compile.ts"
 import type { DecodedRow } from "#adapter/reader/stream.ts"
@@ -122,9 +123,9 @@ const servedFileOf = (
 			(refused) => refused.refusal
 		),
 		(served) =>
-			Effect.map(
+			Effect.flatMap(
 				Effect.suspend(() => compileServedOnce(session.reached.login, session.snapshot, [served])),
-				servedFile
+				(json) => fromEngine(servedFile(json))
 			)
 	)
 

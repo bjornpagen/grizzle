@@ -4,9 +4,9 @@
  * a served write whose expressions read one, a CHECK's upper(span) among them, is judged on the host as the compile
  * judges it only where the file's reader answers that instance (served/json.ts `~op:`).
  *
- * Over every overload, each code over each span carrier, a box of 17 × 3: the JSON value an import of a served file
- * holding it yields, read by servedFile, holds that very instance; written again by servedText and read back, it is the
- * same instance once more.
+ * Over every overload, each code over each span carrier, a box of 17 × 3: a served file holding it, written by
+ * servedText, spells it `~op:<code>:<carrier>`; the JSON value an import of that file yields, read by servedFile, holds
+ * that very instance; and the file read back writes as the same text again.
  */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
@@ -15,9 +15,10 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
+import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { type RangeOpCode, rangeOp, rangeOpCodes } from "#compiler/ir/expr.ts"
 import { type SpanCarrier, spanCarriers } from "#compiler/ir/scalar.ts"
+import type { ServedFile } from "#compiler/served/forms.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -28,6 +29,13 @@ type Feature = `over ${SpanCarrier}`
 
 const overloadGen: Gen<Overload> = (source) =>
 	[source.draw(element(rangeOpCodes)), source.draw(element(spanCarriers))] as const
+
+/**
+ * A served file holding `op` as its member `probe` and nothing besides, no roster among them: the writer walks a file's
+ * members as values of any shape, so one member is a file it writes.
+ */
+const fileHolding = (op: unknown): ServedFile =>
+	trusted<ServedFile>({ rosters: new Map(), probe: op })
 
 /** The member `probe` of a served file read back, as the file's value holds it. */
 const probeOf = (file: object): unknown => (isRecord(file) ? file["probe"] : undefined)
@@ -56,18 +64,14 @@ describe("a range overload in a served file", () => {
 						Effect.sync(() => {
 							const op = rangeOp(code, carrier)
 							const tag = `~op:${code}:${carrier}`
-							const read = servedFile({
-								types: [],
-								rosters: {},
-								probe: tag,
-								"~": ["probe"]
-							})
-							assert.ok(probeOf(read) === op, `${tag} reads back as the overload's one instance`)
-							const text = succeeded(servedText(read))
+							const text = succeeded(servedText(fileHolding(op)), "the file's text")
 							assert.ok(Str.includes(`"${tag}"`)(text), `the overload writes as ${tag}`)
-							assert.ok(
-								probeOf(servedFile(trustedJson<unknown>(text))) === op,
-								`${tag} written and read again is the overload's one instance`
+							const read = succeeded(servedFile(trustedJson<unknown>(text)), "the file read back")
+							assert.ok(probeOf(read) === op, `${tag} reads back as the overload's one instance`)
+							assert.equal(
+								succeeded(servedText(read), "the file read back, written again"),
+								text,
+								`the file holding ${tag}, read back, writes as itself again`
 							)
 							c.note(`over ${carrier}`)
 						})

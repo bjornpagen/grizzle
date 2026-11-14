@@ -1162,7 +1162,8 @@ export type Revivers = {
 /** No extension tag: a text that holds one is refused. */
 export const noRevivers: Revivers = {}
 
-const isCanonicalInteger = (text: string): boolean => {
+/** Whether `text` is an integer's one decimal text, as bigint's toString writes it: no leading zero, and no `-0`. */
+export const isCanonicalInteger = (text: string): boolean => {
 	const digits = text.startsWith("-") ? text.slice(1) : text
 	if (digits.length === 0) {
 		return false

@@ -30,7 +30,7 @@ import { servedFile } from "#compiler/served/json.ts"
 import type { DeltaSource } from "#compiler/types/changeset/changeset.ts"
 import type { ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
-import { defined } from "#test/support/assert.ts"
+import { defined, succeeded } from "#test/support/assert.ts"
 import { type Names, namesOf } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { openRig, type Rig } from "#test/support/schedules/rig.ts"
@@ -310,7 +310,10 @@ export const servedChanges = (
 		)
 		const entry = yield* servedEntryOf(compiled)
 		const loaded = yield* Effect.fromResult(
-			loadServed(servedFile(trustedJson<unknown>(entry.text)), entry.login)
+			loadServed(
+				succeeded(servedFile(trustedJson<unknown>(entry.text)), "the served file"),
+				entry.login
+			)
 		)
 		return {
 			changes: changesOf(roleNamed(loaded.roles, (r) => r.name, role).members),

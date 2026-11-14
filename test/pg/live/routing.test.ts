@@ -50,7 +50,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { formOf, RowKey } from "#compiler/live/index.ts"
 import { servedFile } from "#compiler/served/json.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { commitLive, inputOf, worldRegistrations, worldSurfaces } from "#test/support/live/calls.ts"
 import { commitDirectly, fenceStatement } from "#test/support/live/direct.ts"
@@ -126,7 +126,7 @@ const countOf = (seen: ReadonlyArray<string>, signature: ReadonlyArray<string>):
 
 /** The served footprint each read records, against the routes its program states (world.ts expectedRoutes). */
 const footprintsHold = (live: LiveInstallation): void => {
-	const file = servedFile(live.json)
+	const file = succeeded(servedFile(live.json), "the served file")
 	const app = defined(
 		Option.getOrUndefined(Arr.findFirst(file.roles, (r) => r.name === "app")),
 		"the served role app"
@@ -254,7 +254,7 @@ layer(Substrate.layer)("a commit's notifications", (it) => {
 										const before = marksOf(live.tap.sessions())
 										const registration = yield* register(readMember(s.read), inputOf(s))
 										const sent = bindsSince(live.tap.sessions(), before)
-										const prologue = servedFile(live.json).prologue
+										const prologue = succeeded(servedFile(live.json), "the served file").prologue
 										const signature = Arr.filter(
 											sent,
 											(b) =>
@@ -268,7 +268,7 @@ layer(Substrate.layer)("a commit's notifications", (it) => {
 										return { s, registration, signature }
 									})
 								)
-								const source = servedFile(live.json).live
+								const source = succeeded(servedFile(live.json), "the served file").live
 								if (source.kind !== "source") {
 									return assert.fail(
 										"a world whose reads read its relations installs a live source"

@@ -177,7 +177,7 @@ const at = (second: number) =>
  * as a layer reads it (served/json.ts servedFile), its role's member under the member's name.
  */
 const refreshedIn = (text: string): ReadonlyArray<string> => {
-	const file = servedFile(trustedJson<unknown>(text))
+	const file = succeeded(servedFile(trustedJson<unknown>(text)), "the served file")
 	const own = defined(
 		Option.getOrUndefined(Arr.findFirst(file.roles, (r) => r.name === roleName)),
 		`the served file's role ${roleName}`

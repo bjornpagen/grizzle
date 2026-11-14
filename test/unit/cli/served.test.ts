@@ -198,7 +198,8 @@ const editedText = (
 	programs: ReadonlyArray<Program>,
 	plant: Extract<Plant, { readonly kind: "edited" }>
 ): string => {
-	const edited = Arr.reduce(plant.programs, servedFile(trustedJson<unknown>(text)), (file, i) =>
+	const read = succeeded(servedFile(trustedJson<unknown>(text)), "the served file")
+	const edited = Arr.reduce(plant.programs, read, (file, i) =>
 		trusted<ServedFile>(
 			editedAt(file, defined(programs[i], `program ${i}`).sql, (sql) => {
 				const place = plant.at % (sql.length + 1)
@@ -482,7 +483,10 @@ layer(NodeServices.layer, { excludeTestServices: true })("served files", (it) =>
 					const file = `${base}/${schemaDir}/${servedPath(login)}`
 					const text = yield* fs.readFileString(file)
 					const json = trustedJson<unknown>(text)
-					const programs = nonEmpty(programsOf(servedFile(json)), "the served programs")
+					const programs = nonEmpty(
+						programsOf(succeeded(servedFile(json), "the served file")),
+						"the served programs"
+					)
 					const paths = nonEmpty(memberPaths(json, []), "the served file's member paths")
 					const listed = yield* fs.readDirectory(`${base}/${schemaDir}`)
 					const entries = Arr.sort(listed, Order.String)

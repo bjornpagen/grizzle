@@ -48,9 +48,10 @@ import type { ParamValue } from "#compiler/types/core/phantom.ts"
  * decoders, merges and classifier, is rebuilt from it at load, under the codebook of its own rosters, by the
  * constructors the compile path runs it through too.
  *
- * The file is canonical JSON (served/json.ts), so `grizzle check` compares bytes: each ScalarType once in its types
- * table, every occurrence its index; its rosters' codes in their own form (served/json.ts RosterWire), each roster's
- * handles in code order, a hole `false`; and each Roster by its declared name, rebuilt over the file's own codes.
+ * The file is canonical JSON (served/json.ts), so `grizzle check` compares bytes: each repeated shape once in its
+ * table, every other place it stands a reference to its entry; its rosters' codes in their own form (served/json.ts
+ * RosterWire), each roster's handles in code order, a hole `false`; and each Roster by its declared name, rebuilt over
+ * the file's own codes.
  */
 export type ServedFile = {
 	/** The login's declared name, which names its file. */

@@ -35,7 +35,7 @@ import type { LivePlan } from "#compiler/live/notify.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -191,19 +191,21 @@ const liveIsTheUnion = (
 			return
 		}
 		const footprints = Arr.flatMap(entries.success, (entry) =>
-			Arr.flatMap(servedFile(trustedJson<unknown>(entry.text)).roles, (role) =>
-				Arr.flatMap(role.members, (member) => {
-					switch (member.kind) {
-						case "read":
-						case "paged":
-						case "key":
-							return member.read.live.kind === "routed" ? [member.read.live.footprint] : []
-						case "instant":
-						case "change":
-						case "refresh":
-							return []
-					}
-				})
+			Arr.flatMap(
+				succeeded(servedFile(trustedJson<unknown>(entry.text)), "the served file").roles,
+				(role) =>
+					Arr.flatMap(role.members, (member) => {
+						switch (member.kind) {
+							case "read":
+							case "paged":
+							case "key":
+								return member.read.live.kind === "routed" ? [member.read.live.footprint] : []
+							case "instant":
+							case "change":
+							case "refresh":
+								return []
+						}
+					})
 			)
 		)
 		const union = unionOf(footprints, installedOf(snapshot), note)

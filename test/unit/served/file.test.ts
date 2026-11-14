@@ -36,7 +36,7 @@ import { servedFile, servedText } from "#compiler/served/json.ts"
 import type { UnservedMember } from "#compiler/served/unserved.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { offlineConnection } from "#test/pg/cli/support.ts"
-import { assert } from "#test/support/assert.ts"
+import { artifactRefusal, assert, failed } from "#test/support/assert.ts"
 import { documentDimensions, Search, scoredDocuments } from "#test/support/fixtures/api/search.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
@@ -94,9 +94,13 @@ import { testVerify } from "#test/support/worlds.ts"
  * - Each shape once: no record, array, Map or Set the file's JSON value holds as a value stands at two places (its
  *   members but its rosters, the codebook's own form a load reads first, and its table's entries; within each, a
  *   record's members but its `~` marker, a revived array's items, a Map's keys and values, a Set's members) unless its
- *   canonical text is no longer than a reference to the table's next entry (`"~s:<n>"`).
+ *   canonical text is no longer than a reference to the table's next entry (`"~s:<n>"`). And the table is read whole
+ *   or not at all: the file without its table, as grizzle's earlier format is, is refused as a malformed served file
+ *   at `shared` (MalformedArtifact), and with its table cut short of its last entry, which only its members reference,
+ *   is refused so too, never read with a reference standing for nothing.
  * - Plant: one member of the file's JSON value, drawn among all of them, left out; the file read back differs from the
- *   one written, or reading it is a defect: a member the encoder drops is never one the decoder makes up.
+ *   one written, or the reader refuses it: a member the encoder drops is never one the decoder makes up, and no form
+ *   the reader cannot read throws.
  * - A host's read: the file's bytes, written to disk, read back and parsed, as an application reads its committed file;
  *   served (adapter/served/served.ts served), which names the file's roles, its login's role read (roleNameOf), and the
  *   layer over it built with no database (DbLayer.make), which loads it (served/load.ts loadServed).
@@ -111,11 +115,15 @@ import { testVerify } from "#test/support/worlds.ts"
  * The oracle is the file the compile served, compared as the runtime reads it.
  *
  * Plants (~/.cache/grizzle-release/OUTPUTSIZE/plants): served-roles-unshared (the file's roles written as the writer
- * wrote them, outside the table), served-maps-unshared (no Map ever an entry of the table).
+ * wrote them, outside the table), served-maps-unshared (no Map ever an entry of the table), served-table-unchecked
+ * (the reader iterates `shared` without reading it as a list), served-reference-unchecked (a reference read as
+ * whatever the table holds at its index, an entry not read yet included).
  */
 
 type Feature =
 	| "a shape shared"
+	| "a file without its table refused"
+	| "a table cut short refused"
 	| "a read"
 	| "a paged read"
 	| "an attachment"
@@ -128,6 +136,8 @@ type Feature =
 
 type ChangeFeature =
 	| "a shape shared"
+	| "a file without its table refused"
+	| "a table cut short refused"
 	| "a served write"
 	| "an array member"
 	| "a query member"
@@ -226,10 +236,30 @@ const repeatedShapes = (json: unknown): ReadonlyArray<string> => {
 	)
 }
 
-/** The file `json` reads back as, or none where reading it throws: a file missing a member its reader needs. */
+/** The file `json` reads back as, or none where the reader refuses it: a file missing a member its reader needs. */
 const readsBack = (json: unknown): ServedFile | undefined => {
-	const read = Answered.try(() => servedFile(json))
-	return Answered.isSuccess(read) ? read.success : undefined
+	const read = servedFile(json)
+	return read.ok ? read.value : undefined
+}
+
+/**
+ * The reader's refusal of `json`, a served file's JSON value it must not read (see the header), as a malformed served
+ * file: where in the file it refused.
+ */
+const unreadAt = (
+	json: unknown,
+	what: string,
+	printed: () => string
+): ReadonlyArray<string | number> => {
+	const refusal = artifactRefusal(
+		failed(servedFile(json), `${what} does not read back\n${printed()}`)
+	)
+	assert.equal(
+		refusal.artifact,
+		"served",
+		`${what} is refused as a malformed served file\n${printed()}`
+	)
+	return refusal.at
 }
 
 /** Whether a served value holds a Map at some depth: a value a load rebuilds, not one it reads as it is. */
@@ -328,7 +358,7 @@ const readsBackWhole = (file: ServedFile, pick: number, printed: () => string) =
 	Effect.gen(function* () {
 		const text = ok(servedText(file), "the served file's text", printed)
 		const json = trustedJson<unknown>(text)
-		const back = servedFile(json)
+		const back = ok(servedFile(json), "the served file read back", printed)
 		const differs = runtimeDifference(file, back)
 		assert.equal(differs, undefined, `the file reads back otherwise at ${differs}\n${printed()}`)
 		assert.deepEqual(
@@ -337,6 +367,19 @@ const readsBackWhole = (file: ServedFile, pick: number, printed: () => string) =
 			`no shape longer than a reference into the file's table stands at two places\n${printed()}`
 		)
 		const table = isRecord(json) ? json["shared"] : undefined
+		assert.deepEqual(
+			unreadAt(without(json, ["shared"]), "the file without its table", printed),
+			["shared"],
+			`the file without its table is refused at its table\n${printed()}`
+		)
+		const cut = isList(table) && table.length > 0
+		if (cut) {
+			unreadAt(
+				without(json, ["shared", table.length - 1]),
+				"the file with its table cut short",
+				printed
+			)
+		}
 		const paths = memberPaths(json, [])
 		const dropped = paths[pick % paths.length]
 		if (dropped !== undefined) {
@@ -351,7 +394,7 @@ const readsBackWhole = (file: ServedFile, pick: number, printed: () => string) =
 			back,
 			dropped: dropped !== undefined,
 			stale: staleNamed(back, text, pick, printed),
-			shared: isList(table) && table.length > 0
+			shared: cut
 		}
 	})
 
@@ -425,8 +468,10 @@ const loginTrip = (
 			note("a roster with a hole")
 		}
 		const reached = yield* readsBackWhole(file, pick, printed)
+		note("a file without its table refused")
 		if (reached.shared) {
 			note("a shape shared")
+			note("a table cut short refused")
 		}
 		if (reached.dropped) {
 			note("a dropped member that does not read back")
@@ -493,8 +538,10 @@ const changeTrip = (
 			note("more than one stratum")
 		}
 		const reached = yield* readsBackWhole(file, pick, printed)
+		note("a file without its table refused")
 		if (reached.shared) {
 			note("a shape shared")
+			note("a table cut short refused")
 		}
 		if (reached.dropped) {
 			note("a dropped member that does not read back")
@@ -604,6 +651,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("a served file", (it) =
 						coverage: required<Feature>(
 							[
 								"a shape shared",
+								"a file without its table refused",
+								"a table cut short refused",
 								"a read",
 								"a paged read",
 								"an attachment",
@@ -657,6 +706,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("a served file", (it) =
 						coverage: required<ChangeFeature>(
 							[
 								"a shape shared",
+								"a file without its table refused",
+								"a table cut short refused",
 								"a served write",
 								"an array member",
 								"a query member",
