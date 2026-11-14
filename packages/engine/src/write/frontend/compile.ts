@@ -113,9 +113,11 @@ import {
 	type RemovalEdit,
 	type Schedule,
 	scheduleStratum,
+	type UnitOrder,
 	updateChanges
 } from "#compiler/write/frontend/schedule.ts"
 import { payloadOf, primaryKeyShape } from "#compiler/write/frontend/targets.ts"
+import { storedReads } from "#compiler/write/hold/stated.ts"
 import { type RelationInput, relationInput } from "#compiler/write/insert/input.ts"
 import { isCarried, isSerialField, keyFirst } from "#compiler/write/insert/statement.ts"
 import { type RelationUniques, relationUniques } from "#compiler/write/insert/unique.ts"
@@ -2624,7 +2626,27 @@ const compile = (
 	 * the statement that makes it (write/schedule/plan.ts placeReadBacks), which sees only the state earlier statements
 	 * wrote: where the stratum's order runs a delta's relation before a relation the same read-back reads as state, the
 	 * stratum is ordered again with that delta's relation after every action no key orders before it
-	 * (schedule.ts canonicalActionOrder), and any other stratum keeps its order. */
+	 * (schedule.ts canonicalActionOrder), and any other stratum keeps its order. A retirable header's insertion runs
+	 * before every statement of its stratum that touches its unit, where the keys allow (schedule.ts UnitOrder). */
+	const retirables: ReadonlyArray<UnitOrder> = checked.owned.statements.flatMap(
+		(s): ReadonlyArray<UnitOrder> => {
+			if (s.kind !== "retirable") {
+				return []
+			}
+			const bodies = new Set(s.bodies.map((b) => b.relation))
+			return [
+				{
+					header: s.header.relation,
+					bodies,
+					reads: (action) =>
+						action.source.kind === "described" &&
+						action.source.node.meta.reads.some((r) =>
+							storedReads(checked.world, r).some((stored) => bodies.has(stored))
+						)
+				}
+			]
+		}
+	)
 	const strata = placedByStratum.map(({ stratum, built, outside }): WriteStratum => {
 		const scheduleOf = (last: ReadonlySet<string>) =>
 			scheduleStratum(
@@ -2635,7 +2657,8 @@ const compile = (
 				familyNodesOf(stratum),
 				pairs,
 				references,
-				refillOf(stratum)?.order ?? { precedes: [], edges: [] }
+				refillOf(stratum)?.order ?? { precedes: [], edges: [] },
+				retirables
 			)
 		const natural = scheduleOf(new Set())
 		const order: ReadonlyArray<string> =

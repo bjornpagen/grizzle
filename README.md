@@ -2309,8 +2309,10 @@ export const Flows = schema(
   is refused when it compiles (`MalformedDescription`). The header is immutable, no family's, tree's or alternatives
   statement's relation, and no role's `write` list names it (`RoleRefused`, `writeRetirableHeader`).
 - **The fence.** The statement states, for each body, that its group is one of the header's open groups: a foreign key
-  from a constant column of the body into the header's key and retirement field. No writer, direct ones included, ever
-  writes a row into a group that is not open: such a write is refused with 23503.
+  from the body's group into the header's open groups, over columns grizzle generates, whichever adds less to the
+  schema: a constant column on each body, referencing the header's key and retirement field, or one column on the
+  header, its key while its group is open. No writer, direct ones included, ever writes a row into a group that is not
+  open: such a write is refused with 23503.
 - **Its functions.** The unit installs two functions in its header's schema, which no role holds yet. Its hold, given
   the groups of a call, locks their open headers until the transaction ends and refuses a group whose header is absent
   or retired, `refused` on the first body's fence with the group as witness. Its retirement, given groups, waits for
@@ -2318,9 +2320,8 @@ export const Flows = schema(
   retirement field, in one transaction: a reader sees a group whole or wholly retired, and a retired group stays
   retired.
 - **Adopting a unit** on a table that holds rows: the migration adds the header's retirement field with its default,
-  false, and adds each body's constant column, a stored generated column, which rewrites the body's table once; every
-  body row must have its header, or the migration's foreign key refuses it (23503), and a data step must insert the
-  missing headers first.
+  false, and the fence's generated columns, stored, each rewriting its table once; every body row must have its header,
+  or the migration's foreign key refuses it (23503), and a data step must insert the missing headers first.
 
 ## Permissions
 

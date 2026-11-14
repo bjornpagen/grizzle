@@ -1151,7 +1151,7 @@ class StatementAuditor {
 			)
 		}
 		this.at("query", () => {
-			this.dml(body, ctes, false)
+			this.dml(body, ctes, false, plVars)
 		})
 	}
 
@@ -1602,13 +1602,14 @@ class StatementAuditor {
 		alias: string,
 		items: ReadonlyArray<FromItem>,
 		at: string,
-		ctes: CteScope | undefined
+		ctes: CteScope | undefined,
+		plVars: ReadonlySet<string> | undefined
 	): Scope {
 		this.defineRelation(alias, "alias")
 		const from = new Scope(undefined)
 		this.at(at, () => {
 			for (const [i, item] of items.entries()) {
-				this.at(i, () => this.fromItem(item, from, undefined, ctes, undefined))
+				this.at(i, () => this.fromItem(item, from, undefined, ctes, plVars))
 			}
 		})
 		const scope = new Scope(undefined)
@@ -1636,29 +1637,35 @@ class StatementAuditor {
 		})
 	}
 
-	/** `topLevel`: the statement's own output, whose RETURNING may carry public names. */
-	dml(statement: CteBody, ctes: CteScope | undefined, topLevel: boolean): void {
+	/** `topLevel`: the statement's own output, whose RETURNING may carry public names; `plVars`, the PL/pgSQL variables
+	 * in scope, where the statement is a PL/pgSQL function's (PlStatement modify), or undefined. */
+	dml(
+		statement: CteBody,
+		ctes: CteScope | undefined,
+		topLevel: boolean,
+		plVars: ReadonlySet<string> | undefined
+	): void {
 		switch (statement.kind) {
 			case "select":
 				this.select(statement, {
 					scope: undefined,
 					ctes,
-					plVars: undefined,
+					plVars,
 					outermost: topLevel,
 					topLevel
 				})
 				return
 			case "insert":
-				this.insert(statement, ctes, topLevel)
+				this.insert(statement, ctes, topLevel, plVars)
 				return
 			case "update":
-				this.update(statement, ctes, topLevel)
+				this.update(statement, ctes, topLevel, plVars)
 				return
 			case "delete":
-				this.delete(statement, ctes, topLevel)
+				this.delete(statement, ctes, topLevel, plVars)
 				return
 			case "merge":
-				this.merge(statement, ctes, topLevel)
+				this.merge(statement, ctes, topLevel, plVars)
 				return
 		}
 	}
@@ -1674,11 +1681,16 @@ class StatementAuditor {
 		})
 	}
 
-	insert(insert: Insert, outer: CteScope | undefined, topLevel: boolean): void {
+	insert(
+		insert: Insert,
+		outer: CteScope | undefined,
+		topLevel: boolean,
+		plVars: ReadonlySet<string> | undefined
+	): void {
 		const ctes =
 			insert.with === undefined
 				? outer
-				: this.with(insert.with.ctes, insert.with.recursive, outer, undefined, undefined, topLevel)
+				: this.with(insert.with.ctes, insert.with.recursive, outer, undefined, plVars, topLevel)
 		this.tableName(insert.table, "table")
 		this.at("columns", () => {
 			this.baseColumns(insert.columns, "INSERT column")
@@ -1696,7 +1708,7 @@ class StatementAuditor {
 					this.select(source.query, {
 						scope: undefined,
 						ctes,
-						plVars: undefined,
+						plVars,
 						outermost: false,
 						topLevel: false
 					})
@@ -1705,7 +1717,7 @@ class StatementAuditor {
 				this.valuesRows(
 					source.rows,
 					insert.columns.length,
-					context("query", undefined, ctes, undefined)
+					context("query", undefined, ctes, plVars)
 				)
 			}
 		})
@@ -1727,7 +1739,7 @@ class StatementAuditor {
 				this.at("columns", () => {
 					this.baseColumns(conflict.columns, "arbiter column")
 				})
-				const ctx: ExprContext = { ...context("query", scope, ctes, undefined), excluded: true }
+				const ctx: ExprContext = { ...context("query", scope, ctes, plVars), excluded: true }
 				const action = conflict.action
 				if (action.kind === "doUpdate") {
 					this.assignments(action.set, ctx)
@@ -1740,7 +1752,7 @@ class StatementAuditor {
 				}
 			})
 		}
-		this.returning(insert.returning, context("query", scope, ctes, undefined), topLevel)
+		this.returning(insert.returning, context("query", scope, ctes, plVars), topLevel)
 	}
 
 	assignments(
@@ -1760,14 +1772,19 @@ class StatementAuditor {
 		})
 	}
 
-	update(update: Update, outer: CteScope | undefined, topLevel: boolean): void {
+	update(
+		update: Update,
+		outer: CteScope | undefined,
+		topLevel: boolean,
+		plVars: ReadonlySet<string> | undefined
+	): void {
 		const ctes =
 			update.with === undefined
 				? outer
-				: this.with(update.with.ctes, update.with.recursive, outer, undefined, undefined, topLevel)
+				: this.with(update.with.ctes, update.with.recursive, outer, undefined, plVars, topLevel)
 		this.objectName(update.table, "table", "table")
-		const scope = this.writeScope(update.alias, update.from, "from", ctes)
-		const ctx = context("query", scope, ctes, undefined)
+		const scope = this.writeScope(update.alias, update.from, "from", ctes, plVars)
+		const ctx = context("query", scope, ctes, plVars)
 		this.assignments(update.set, ctx)
 		if (update.where !== undefined) {
 			const where = update.where
@@ -1779,14 +1796,19 @@ class StatementAuditor {
 	}
 
 	/** new.* is NULL for a deleted row; the target alias already is the old row. */
-	delete(del: Delete, outer: CteScope | undefined, topLevel: boolean): void {
+	delete(
+		del: Delete,
+		outer: CteScope | undefined,
+		topLevel: boolean,
+		plVars: ReadonlySet<string> | undefined
+	): void {
 		const ctes =
 			del.with === undefined
 				? outer
-				: this.with(del.with.ctes, del.with.recursive, outer, undefined, undefined, topLevel)
+				: this.with(del.with.ctes, del.with.recursive, outer, undefined, plVars, topLevel)
 		this.tableName(del.table, "table")
-		const scope = this.writeScope(del.alias, del.using, "using", ctes)
-		const ctx = context("query", scope, ctes, undefined)
+		const scope = this.writeScope(del.alias, del.using, "using", ctes, plVars)
+		const ctx = context("query", scope, ctes, plVars)
 		if (del.where !== undefined) {
 			const where = del.where
 			this.at("where", () => {
@@ -1797,15 +1819,20 @@ class StatementAuditor {
 	}
 
 	/** The source never sees the target (see writeScope). */
-	merge(merge: Merge, outer: CteScope | undefined, topLevel: boolean): void {
+	merge(
+		merge: Merge,
+		outer: CteScope | undefined,
+		topLevel: boolean,
+		plVars: ReadonlySet<string> | undefined
+	): void {
 		const ctes =
 			merge.with === undefined
 				? outer
-				: this.with(merge.with.ctes, merge.with.recursive, outer, undefined, undefined, topLevel)
+				: this.with(merge.with.ctes, merge.with.recursive, outer, undefined, plVars, topLevel)
 		this.objectName(merge.table, "table", "table")
 		this.defineRelation(merge.alias, "alias")
 		const source = new Scope(undefined)
-		this.at("using", () => this.fromItem(merge.using, source, undefined, ctes, undefined))
+		this.at("using", () => this.fromItem(merge.using, source, undefined, ctes, plVars))
 		const target = new Scope(undefined)
 		target.relations.set(merge.alias, { columns: undefined })
 		const scope = new Scope(undefined)
@@ -1813,7 +1840,7 @@ class StatementAuditor {
 		for (const [name, relation] of source.relations) {
 			scope.relations.set(name, relation)
 		}
-		const ctx = context("query", scope, ctes, undefined)
+		const ctx = context("query", scope, ctes, plVars)
 		/**
 		 * A WHEN NOT MATCHED row has no target row and a WHEN NOT MATCHED BY SOURCE row no source row, so PostgreSQL
 		 * lets their condition and action name only the side that exists.
@@ -1821,7 +1848,7 @@ class StatementAuditor {
 		const whenCtx = (match: MergeWhen["match"]): ExprContext =>
 			match === "MATCHED"
 				? ctx
-				: context("query", match === "NOT MATCHED" ? source : target, ctes, undefined)
+				: context("query", match === "NOT MATCHED" ? source : target, ctes, plVars)
 		this.at("on", () => {
 			this.expr(merge.on, ctx)
 		})
@@ -1876,7 +1903,7 @@ class StatementAuditor {
 		this.returning(
 			merge.returning,
 			{
-				...context("query", sourceless ? target : scope, ctes, undefined),
+				...context("query", sourceless ? target : scope, ctes, plVars),
 				returningSides: sides,
 				mergeAction: true
 			},
@@ -2222,7 +2249,9 @@ class StatementAuditor {
 				return
 			case "modify":
 				this.at("statement", () => {
-					this.dml(statement.statement, undefined, true)
+					this.embedded(() => {
+						this.dml(statement.statement, undefined, true, vars)
+					})
 				})
 				return
 			case "whenAbsent":
@@ -2294,7 +2323,7 @@ class StatementAuditor {
 			case "update":
 			case "delete":
 			case "merge":
-				this.dml(statement, undefined, true)
+				this.dml(statement, undefined, true, undefined)
 				return
 			case "beginRead":
 			case "beginWrite":

@@ -1,3 +1,4 @@
+import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type UnheldWhy } from "#compiler/core/errors.ts"
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
@@ -19,6 +20,20 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import { familyNodeRelations } from "#compiler/write/frontend/schedule.ts"
 import type { RelationInput } from "#compiler/write/insert/input.ts"
+
+/** The stored relations reading `relation` in `world` reads: in a role's program, a world relation's definition's (its
+ * view's), a relation it holds whole itself; in reality's, the relation itself, a derived relation's view changing
+ * only at its refresh. */
+export const storedReads = (
+	world: CheckedSchema["world"],
+	relation: string
+): ReadonlyArray<string> => {
+	if (world.kind === "reality") {
+		return [relation]
+	}
+	const held = world.role.relations[relation]
+	return held === undefined || held.kind === "whole" ? [relation] : held.reads
+}
 
 /**
  * A retirable unit as a write holds it (schema/own.ts, the retirable statement): its header, its key's fields in key

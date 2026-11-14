@@ -1252,7 +1252,8 @@ describe("a stratum's schedule", () => {
 										toColumns: ["field:id"]
 									}
 								],
-								noRefills
+								noRefills,
+								[]
 							)
 							if (schedule.kind === "ordered") {
 								const order = Arr.map(schedule.actions, ({ scheduled }) => scheduled)
@@ -1401,7 +1402,8 @@ describe("a stratum's schedule", () => {
 								stratum.family,
 								stratum.pairs,
 								stratum.references,
-								stratum.refills
+								stratum.refills,
+								[]
 							)
 							if (schedule.kind === "cycle") {
 								assert.ok(

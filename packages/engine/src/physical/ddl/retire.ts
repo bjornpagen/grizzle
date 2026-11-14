@@ -40,7 +40,6 @@ import {
 	not,
 	notExists,
 	operandSelect,
-	param,
 	qualifiedCall,
 	select,
 	table,
@@ -103,21 +102,23 @@ const termNames = (terms: NonEmptyReadonlyArray<TermDesc>): NonEmptyReadonlyArra
 	})
 
 /**
- * The law of `body`'s fence: the foreign key the law model installs for the containment of its group in the header's
- * open groups, the one from `body` into `header` that references the retirement field.
+ * The law of `body`'s fence: the containment of its group in the header's open groups, the one law from `body` into
+ * `header` a retirable statement states (analysis/theory/laws.ts), whichever reference the law model's foreign key for
+ * it takes (laws/model/plan.ts referenceChoice): the header's retirement field beside its key, or a column of the
+ * header's open keys.
  */
-const fenceLaw = (b: InstallBuilder, body: string, header: string, lifecycle: LawField): LawId => {
-	for (const { object } of b.natives) {
-		if (
-			object.kind === "ForeignKey" &&
-			object.relation.name === body &&
-			object.target.name === header &&
-			object.targetColumns.some((c) => c.kind === "field" && c.field.name === lifecycle.name)
-		) {
-			return object.lawIds[0]
-		}
+const fenceLaw = (b: InstallBuilder, body: string, header: string): LawId => {
+	const fence = b.model.theory.laws.find(
+		(law) =>
+			law.source.kind === "retirable" &&
+			law.detail.kind === "containment" &&
+			law.detail.from.relation === body &&
+			law.detail.to.relation === header
+	)
+	if (fence === undefined) {
+		throw defect(`the theory states the fence of ${body} into the open groups of ${header}`)
 	}
-	throw defect(`the law model installs the fence of ${body} into the open groups of ${header}`)
+	return fence.id
 }
 
 /** Every unit of the installation, by its retirable statement, in the order ownership lists them. */
@@ -144,7 +145,7 @@ const unitPlans = (b: InstallBuilder): ReadonlyArray<UnitPlan> =>
 				key: fieldsNamed(header, termNames(s.header.terms)),
 				lifecycle,
 				bodies,
-				fence: { law: fenceLaw(b, first.relation, s.header.relation, lifecycle), body: first }
+				fence: { law: fenceLaw(b, first.relation, s.header.relation), body: first }
 			}
 		]
 	})
@@ -152,7 +153,7 @@ const unitPlans = (b: InstallBuilder): ReadonlyArray<UnitPlan> =>
 /** The column every one of a unit's group keys travels as: `c<n>`, by the key field's position. */
 const keyColumn = (at: number): string => `c${at + 1}`
 
-/** One function parameter per key field, the array of that field's values, in key order: `$1` the first. */
+/** One function parameter per key field, the array of that field's values, in key order: `keys_1` the first. */
 const keyParams = (b: InstallBuilder, unit: UnitPlan): ReadonlyArray<FunctionParam> =>
 	unit.key.map((field, at) => {
 		const array = arrayOf(fieldColumnType(b.names, field.type).type)
@@ -162,27 +163,28 @@ const keyParams = (b: InstallBuilder, unit: UnitPlan): ReadonlyArray<FunctionPar
 		return { name: `keys_${at + 1}`, type: array }
 	})
 
+/** A function's argument as its body reads it, by name. */
+const argument = (p: FunctionParam): Expr => ({ kind: "plVar", name: p.name })
+
 /**
- * The distinct groups a call states, `(SELECT DISTINCT u.c1, … FROM unnest($1, …) AS u(c1, …)) AS <alias>(c1, …)`:
- * the function's key arrays read in lockstep, each group once.
+ * The distinct groups a call states, `(SELECT DISTINCT <unnest>.c1, … FROM unnest(keys_1, …) AS <unnest>(c1, …)) AS
+ * <alias>(c1, …)`: the function's key arrays read in lockstep, each group once.
  */
 const statedGroups = (
 	unit: UnitPlan,
 	params: ReadonlyArray<FunctionParam>,
-	alias: string
+	alias: string,
+	unnested: string
 ): FromSource => {
 	const columns = unit.key.map((_, at) => keyColumn(at))
 	const unnest: FromItem = {
 		kind: "function",
-		call: call(
-			"unnest",
-			params.map((p, at) => param(at + 1, p.type))
-		),
-		alias: "u",
+		call: call("unnest", params.map(argument)),
+		alias: unnested,
 		columns,
 		lateral: false
 	}
-	const [first, ...rest] = columns.map((c) => targetAs(col("u", c), c))
+	const [first, ...rest] = columns.map((c) => targetAs(col(unnested, c), c))
 	if (first === undefined) {
 		throw defect(`a retirable header ${unit.header} keyed by one field at least`)
 	}
@@ -218,8 +220,8 @@ const open = (unit: UnitPlan, header: string): Expr => not(col(header, unit.life
 
 /**
  * The open headers of the groups a call states, in key order, locked until the transaction ends at `strength`:
- * `PERFORM 1 FROM <header> AS h JOIN <groups> AS g ON <h at g> WHERE NOT h.<retired> ORDER BY h.<key> FOR <strength>
- * OF h`.
+ * `PERFORM 1 FROM <header> AS r1 JOIN <groups> AS r2 ON <r1 at r2> WHERE NOT r1.<retired> ORDER BY r1.<key> FOR
+ * <strength> OF r1`, the groups' unnest r3.
  */
 const lockOpen = (
 	b: InstallBuilder,
@@ -232,24 +234,26 @@ const lockOpen = (
 			[target(lit.int(1, types.integer))],
 			[
 				join(
-					table(unit.table.schema, unit.table.name, "h"),
-					statedGroups(unit, params, "g"),
-					atGroup(b, unit, "h", "g")
+					table(unit.table.schema, unit.table.name, "r1"),
+					statedGroups(unit, params, "r2", "r3"),
+					atGroup(b, unit, "r1", "r2")
 				)
 			],
-			open(unit, "h")
+			open(unit, "r1")
 		),
-		orderBy: unit.key.map((f) => asc(col("h", f.column))),
+		orderBy: unit.key.map((f) => asc(col("r1", f.column))),
 		limit: undefined,
 		offset: undefined
 	}
-	return { kind: "lockRows", query, strength, of: "h" }
+	return { kind: "lockRows", query, strength, of: "r1" }
 }
 
 /**
  * The hold's refusal of a group the call states that is not open, its header absent or retired: the first in key
  * order, refused on the fence of the unit's first body at that group, the law every body's write into it would break,
- * `k["<body>",["<group field>",…],["<value>",…]]`, the refused group's values at the body's group fields.
+ * `k["<body>",["<group field>",…],["<value>",…]]`, the refused group's values at the body's group fields: `PERFORM
+ * <refusal> FROM <groups> AS r1 WHERE NOT EXISTS (SELECT 1 FROM <header> AS r3 WHERE <r3 at r1> AND NOT
+ * r3.<retired>) ORDER BY r1.c1, … LIMIT 1`, the groups' unnest r2.
  */
 const refuseClosed = (
 	b: InstallBuilder,
@@ -261,13 +265,17 @@ const refuseClosed = (
 		kind: "law",
 		law,
 		relation: body.relation,
-		key: body.group.map((f, at) => ({ field: f.name, expr: col("g", keyColumn(at)), type: f.type }))
+		key: body.group.map((f, at) => ({
+			field: f.name,
+			expr: col("r1", keyColumn(at)),
+			type: f.type
+		}))
 	})
 	const openAt = operandSelect(
 		core(
 			[target(lit.int(1, types.integer))],
-			[table(unit.table.schema, unit.table.name, "h")],
-			and([atGroup(b, unit, "h", "g"), open(unit, "h")])
+			[table(unit.table.schema, unit.table.name, "r3")],
+			and([atGroup(b, unit, "r3", "r1"), open(unit, "r3")])
 		)
 	)
 	return {
@@ -283,10 +291,10 @@ const refuseClosed = (
 						])
 					)
 				],
-				[statedGroups(unit, params, "g")],
+				[statedGroups(unit, params, "r1", "r2")],
 				notExists(openAt)
 			),
-			orderBy: unit.key.map((_, at) => asc(col("g", keyColumn(at)))),
+			orderBy: unit.key.map((_, at) => asc(col("r1", keyColumn(at)))),
 			limit: lit.int(1, types.bigint),
 			offset: undefined
 		}
@@ -297,10 +305,12 @@ const refuseClosed = (
  * The retirement of the groups the locked headers head, one statement: every body's rows in them deleted, then each
  * header's retirement field set, so the fence's NO ACTION check, at the statement's end, finds no row of the group:
  *
- *   WITH "r"(c1, …) AS (SELECT h.<key> FROM <header> AS h JOIN <groups> AS g ON <h at g> WHERE NOT h.<retired>),
- *        "d1" AS (DELETE FROM <body 1> AS b USING "r" AS r WHERE <b at r>), …
- *   UPDATE <header> AS h SET <retired> = true FROM "r" AS r WHERE <h at r>
+ *   WITH r1(c1, …) AS MATERIALIZED (SELECT r2.<key> FROM <header> AS r2 JOIN <groups> AS r3 ON <r2 at r3>
+ *          WHERE NOT r2.<retired>),
+ *        r5 AS (DELETE FROM <body 1> AS r6 USING r1 AS r7 WHERE <r6 at r7> RETURNING 1 AS c1), …
+ *   UPDATE <header> AS r<n> SET <retired> = true FROM r1 AS r<n + 1> WHERE <r<n> at r<n + 1>>
  *
+ * the groups' unnest r4, and each body's CTE, its row and its locked groups the next three aliases, in body order.
  * It runs after the lock, under a snapshot of its own, so it reads every row of the groups any call that held them
  * committed, and the groups no call holds now.
  */
@@ -309,44 +319,47 @@ const retireLocked = (
 	unit: UnitPlan,
 	params: ReadonlyArray<FunctionParam>
 ): PlStatement => {
+	const alias = (n: number): string => `r${n}`
 	const locked: Cte = {
-		name: "r",
+		name: alias(1),
 		columns: unit.key.map((_, at) => keyColumn(at)),
 		materialized: "MATERIALIZED",
 		query: operandSelect(
 			core(
-				unit.key.map((f, at) => targetAs(col("h", f.column), keyColumn(at))),
+				unit.key.map((f, at) => targetAs(col(alias(2), f.column), keyColumn(at))),
 				[
 					join(
-						table(unit.table.schema, unit.table.name, "h"),
-						statedGroups(unit, params, "g"),
-						atGroup(b, unit, "h", "g")
+						table(unit.table.schema, unit.table.name, alias(2)),
+						statedGroups(unit, params, alias(3), alias(4)),
+						atGroup(b, unit, alias(2), alias(3))
 					)
 				],
-				open(unit, "h")
+				open(unit, alias(2))
 			)
 		)
 	}
 	const deletes = unit.bodies.map((body, at): Cte => {
+		const [name, row, groups] = [alias(5 + 3 * at), alias(6 + 3 * at), alias(7 + 3 * at)]
 		const removal: Delete = {
 			kind: "delete",
 			with: undefined,
 			table: body.table,
-			alias: "b",
-			using: [cteRefAs("r", "r")],
-			where: bodyAtGroup(b, body, "b", "r"),
-			returning: []
+			alias: row,
+			using: [cteRefAs(locked.name, groups)],
+			where: bodyAtGroup(b, body, row, groups),
+			returning: [targetAs(lit.int(1, types.integer), keyColumn(0))]
 		}
-		return { name: `d${at + 1}`, columns: [], materialized: undefined, query: removal }
+		return { name, columns: [], materialized: undefined, query: removal }
 	})
+	const [header, groups] = [alias(5 + 3 * deletes.length), alias(6 + 3 * deletes.length)]
 	const statement: Update = {
 		kind: "update",
 		with: { recursive: false, ctes: [locked, ...deletes] },
 		table: unit.table,
-		alias: "h",
+		alias: header,
 		set: [{ column: unit.lifecycle.column, value: lit.bool(true) }],
-		from: [cteRefAs("r", "r")],
-		where: atGroup(b, unit, "h", "r"),
+		from: [cteRefAs(locked.name, groups)],
+		where: atGroup(b, unit, header, groups),
 		returning: []
 	}
 	return { kind: "modify", statement }

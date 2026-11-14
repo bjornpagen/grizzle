@@ -11,21 +11,28 @@
  * `root` to the parameter `g`, to a variable a conjunct pins to `g`, or to Other's id; Other inserted from a query that
  * matches Step with `root` bound to `g`, pinned to `g`, joined to Other's id, or left out; Seen inserted from a query that
  * matches Root binding its retirement field, at `g` or at Other's id, or not binding it; and a read-back of Step at `g`,
- * of Step joined to Other, of Step's added delta, or none.
+ * of Step joined to Other, of Step's added delta (where at most one member writes Step: a delta two statements make is
+ * no read-back's, ReadBackCrossesStatements), or none.
  *
  * Oracle: the rule restated over the drawing. Each member and read-back touches the unit or not, and states the groups
  * it touches or not: an array of a body states them; a query states them where `root`, Root's `id` for its retirement
  * field, is bound to `g` or pinned to it; a delta reads nothing stored; Root and Other written touch nothing. The
  * ChangeSet is refused exactly where some touch is unstated, naming one of them (its relation and why); otherwise it
  * holds exactly where something touches the unit, in one statement whose placeholders are each body array's member slot
- * and `g` where a parameter states a group, before every statement that names Step's or Claim's table, after Root's
- * insert where it inserts Root, and no member slot of a body any other statement reads is missing from it.
+ * and `g` where a parameter states a group, before every statement that names Step's or Claim's table, and no member
+ * slot of a body any other statement reads is missing from it. Where it inserts Root, Root's insert precedes the hold,
+ * so the group it creates is open when the hold locks it (write/frontend/schedule.ts UnitOrder); but where a member
+ * reads Root's retirement field, that read sees the stratum's starting state, so it runs before Root's insert, and the
+ * hold, before it, precedes Root's insert too.
  *
  * Features: refused unbound, refused written, refused for a retirement read; held by a body array, by `g`, by a pinned
- * variable, for a retirement read, for a read-back; held after Root's insert; nothing held.
+ * variable, for a retirement read, for a read-back; held after Root's insert; held before Root's insert, for a
+ * retirement read; nothing held.
  *
- * Plants (~/.cache/grizzle-release/RETIRE2/plants): hold-omitted (no hold placed) and hold-after (the hold placed after
- * the first statement that touches the unit).
+ * Plants: ~/.cache/grizzle-release/RETIRE2/plants: hold-omitted (no hold placed) and hold-after (the hold placed after
+ * the first statement that touches the unit); ~/.cache/grizzle-release/TREEORACLE/plants: hold-header-unordered (no
+ * edge from a header's insertion to the statements touching its unit) and fence-by-target-column (the fence's law found
+ * by a foreign key referencing the retirement field, which a unit of two bodies installs none of).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -118,17 +125,30 @@ const memberGen: Gen<Member> = (source) => {
 	}
 }
 
+/** Whether a member writes Step: a delta of Step two of a stratum's statements make is no read-back's to read
+ * (ReadBackCrossesStatements), so the read-back of Step's added delta is drawn only beside one such member at most. */
+const writesStep = (m: Member): boolean =>
+	m.kind === "written" || (m.kind === "body" && m.relation === "Step")
+
+const anyReadBack = ["param", "joined", "delta", "none"] as const
+const stateReadBack = ["param", "joined", "none"] as const
+
 const drawnGen: Gen<Drawn> = (source) => {
 	const [first, ...rest] = source.draw(array(memberGen, { min: 1, max: 3 }))
+	const members: Arr.NonEmptyReadonlyArray<Member> = [defined(first, "a member"), ...rest]
 	return {
-		members: [defined(first, "a member"), ...rest],
-		readBack: source.draw(element(["param", "joined", "delta", "none"] as const))
+		members,
+		readBack: source.draw(
+			Arr.filter(members, writesStep).length > 1 ? element(stateReadBack) : element(anyReadBack)
+		)
 	}
 }
 
-/** The variable of `field` of `relation`, under the scope `name`. */
-const varOf = (relation: unknown, name: string, field: string) =>
-	defined(varsOver(relation, name)[field], `the variable ${name}.${field}`)
+/** The variables of `relation` under one scope `name`, a rule's one scope of that name: each field's, by its name. */
+const scopeOf = (relation: unknown, name: string) => {
+	const vars = varsOver(relation, name)
+	return (field: string) => defined(vars[field], `the variable ${name}.${field}`)
+}
 
 /** A rule over the units' schema, built through the untyped core since its matches are drawn. */
 const ruleOver = (rule: (r: RuleValue) => FinishedValue) => queryOver(Units).rule(rule)
@@ -136,8 +156,9 @@ const ruleOver = (rule: (r: RuleValue) => FinishedValue) => queryOver(Units).rul
 /** Step inserted from Other's rows, its `root` bound as `bind` says. */
 const writtenQuery = (bind: Exclude<Bind, "unbound">) =>
 	ruleOver((r) => {
-		const id = varOf(Other, "other", "id")
-		const value = varOf(Other, "other", "v")
+		const other = scopeOf(Other, "other")
+		const id = other("id")
+		const value = other("v")
 		const matched = r.match(Other, { id, v: value })
 		switch (bind) {
 			case "param":
@@ -152,8 +173,9 @@ const writtenQuery = (bind: Exclude<Bind, "unbound">) =>
 /** Other inserted from Step's rows, Step's `root` bound as `bind` says. */
 const readQuery = (bind: Bind) =>
 	ruleOver((r) => {
-		const root = varOf(Step, "step", "root")
-		const step = varOf(Step, "step", "step")
+		const stepOf = scopeOf(Step, "step")
+		const root = stepOf("root")
+		const step = stepOf("step")
 		switch (bind) {
 			case "param":
 				return r.match(Step, { root: r.param("g", pg.integer), step }).find({ id: step, v: step })
@@ -163,7 +185,7 @@ const readQuery = (bind: Bind) =>
 					.where(r.eq(root, r.param("g", pg.integer)))
 					.find({ id: step, v: step })
 			case "joined": {
-				const id = varOf(Other, "other", "id")
+				const id = scopeOf(Other, "other")("id")
 				return r
 					.match(Other, { id, v: step })
 					.match(Step, { root: id, step })
@@ -177,15 +199,16 @@ const readQuery = (bind: Bind) =>
 /** Seen inserted from Root's rows, its retirement field bound or not, its key as `bind` says. */
 const retirementQuery = (bind: "param" | "joined" | "none") =>
 	ruleOver((r) => {
-		const id = varOf(Root, "root", "id")
-		const retired = varOf(Root, "root", "retired")
+		const rootOf = scopeOf(Root, "root")
+		const id = rootOf("id")
+		const retired = rootOf("retired")
 		switch (bind) {
 			case "param":
 				return r
 					.match(Root, { id: r.param("g", pg.integer), retired })
 					.find({ id: r.param("g", pg.integer), open: retired })
 			case "joined": {
-				const value = varOf(Other, "other", "v")
+				const value = scopeOf(Other, "other")("v")
 				return r
 					.match(Other, { id, v: value })
 					.match(Root, { id, retired })
@@ -199,13 +222,14 @@ const retirementQuery = (bind: "param" | "joined" | "none") =>
 /** The read-back of `drawn`, none where it draws none. */
 const readBackQuery = (readBack: Exclude<ReadBack, "none">) => (d: DeltaValue) =>
 	ruleOver((r) => {
-		const root = varOf(Step, "step", "root")
-		const step = varOf(Step, "step", "step")
+		const stepOf = scopeOf(Step, "step")
+		const root = stepOf("root")
+		const step = stepOf("step")
 		switch (readBack) {
 			case "param":
 				return r.match(Step, { root: r.param("g", pg.integer), step }).find({ step })
 			case "joined": {
-				const id = varOf(Other, "other", "id")
+				const id = scopeOf(Other, "other")("id")
 				return r.match(Other, { id, v: step }).match(Step, { root: id, step }).find({ step })
 			}
 			case "delta":
@@ -267,8 +291,14 @@ interface Model {
 	readonly touches: boolean
 	readonly byParam: boolean
 	readonly slots: ReadonlySet<"Step" | "Claim">
-	readonly header: boolean
+	readonly header: HeaderPlace
 }
+
+/**
+ * Where Root's insert stands against the hold: none inserted; before the hold; or after it, where a member reads Root's
+ * retirement field, a read of the stratum's starting state that runs before Root's insert and after the hold.
+ */
+type HeaderPlace = "none" | "beforeHold" | "afterHold"
 
 const modelOf = (d: Drawn): Model => {
 	const unstated: Array<Unstated> = []
@@ -312,7 +342,11 @@ const modelOf = (d: Drawn): Model => {
 		touches,
 		byParam,
 		slots,
-		header: Arr.some(d.members, (m) => m.kind === "header")
+		header: !Arr.some(d.members, (m) => m.kind === "header")
+			? "none"
+			: Arr.some(d.members, (m) => m.kind === "retirement" && m.bind !== "none")
+				? "afterHold"
+				: "beforeHold"
 	}
 }
 
@@ -364,6 +398,7 @@ type HoldFeature =
 	| "held for a retirement read"
 	| "held for a read-back"
 	| "held after Root's insert"
+	| "held before Root's insert, for a retirement read"
 	| "nothing held"
 
 describe("a write over a retirable unit", () => {
@@ -388,6 +423,7 @@ describe("a write over a retirable unit", () => {
 								"held for a retirement read",
 								"held for a read-back",
 								"held after Root's insert",
+								"held before Root's insert, for a retirement read",
 								"nothing held"
 							],
 							{ cases: 400, sense: notesOnly }
@@ -457,19 +493,25 @@ describe("a write over a retirable unit", () => {
 									`the hold at ${hold.index} precedes statement ${s.index}, which names a body's table`
 								)
 							}
-							if (model.header) {
+							if (model.header !== "none") {
 								const root = tableOf("Root")
 								const inserted = Arr.filter(
 									statements,
 									(s) => s.step.kind === "write" && s.step.relation === "Root"
 								)
+								assert.ok(Arr.isReadonlyArrayNonEmpty(inserted), `Root's insert (${root})`)
 								for (const s of inserted) {
-									assert.ok(
+									assert.equal(
 										s.index < hold.index,
-										`Root's insert at ${s.index} precedes the hold at ${hold.index} (${root})`
+										model.header === "beforeHold",
+										`Root's insert at ${s.index} ${model.header === "beforeHold" ? "precedes" : "follows"} the hold at ${hold.index} (${root})`
 									)
 								}
-								c.note("held after Root's insert")
+								c.note(
+									model.header === "beforeHold"
+										? "held after Root's insert"
+										: "held before Root's insert, for a retirement read"
+								)
 							}
 							const slots = hold.spec.paramSlots
 							const params = Arr.dedupe(

@@ -31,7 +31,7 @@ import {
 	familyNodeRelations
 } from "#compiler/write/frontend/schedule.ts"
 import { payloadOf, primaryKeyShape } from "#compiler/write/frontend/targets.ts"
-import type { HeldUnit } from "#compiler/write/hold/stated.ts"
+import { type HeldUnit, storedReads } from "#compiler/write/hold/stated.ts"
 import {
 	type InputProof,
 	keyUniqueByEvidence,
@@ -683,18 +683,6 @@ const withCascades = (
 	return out
 }
 
-/** The stored relations reading `relation` reads: in a role's program, a world relation's definition's (its view's), a
- * relation it holds whole itself; in reality's, the relation itself, a derived relation's view changing only at its
- * refresh. */
-const storedReads = (frontend: WriteFrontend, relation: string): ReadonlyArray<string> => {
-	const world = frontend.schema.world
-	if (world.kind === "reality") {
-		return [relation]
-	}
-	const held = world.role.relations[relation]
-	return held === undefined || held.kind === "whole" ? [relation] : held.reads
-}
-
 /** A statement that runs once and returns its writes' rows, which a read-back may ride: a lone write, or a single
  * statement. */
 type Rideable = Extract<PlanStep, { readonly kind: "write" | "single" }>
@@ -909,7 +897,7 @@ const placeReadBacks = (
 		}
 		const later = withCascades(writes.slice(position).flat(), frontend)
 		const state = read.node.meta.reads.find((r) =>
-			storedReads(frontend, r).some((s) => later.has(s))
+			storedReads(frontend.schema.world, r).some((s) => later.has(s))
 		)
 		return state === undefined
 			? { kind: "rides", step }
@@ -962,7 +950,9 @@ const placeReadBacks = (
  * holds for its retirement field touches it, and is held before it reads it. */
 const touchesUnit = (frontend: WriteFrontend, step: PlanStep, held: HeldUnit): boolean => {
 	const reads = (node: RelNode): boolean =>
-		node.meta.reads.some((r) => storedReads(frontend, r).some((s) => held.observed.has(s)))
+		node.meta.reads.some((r) =>
+			storedReads(frontend.schema.world, r).some((s) => held.observed.has(s))
+		)
 	const body = (relation: string): boolean => held.unit.bodies.has(relation)
 	const input = (i: WriteInput): boolean => i.kind === "described" && reads(i.node)
 	const write = (w: PlannedWrite): boolean =>
