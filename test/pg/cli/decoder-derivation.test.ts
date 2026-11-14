@@ -23,7 +23,10 @@
  *   read of the reader through today's served file, its live source logging in as the decoder login with the password
  *   it was given before the migration, reads the customer written before, then streams one written after it.
  * - Drift: `grizzle drift` passes.
- * - Uninstall: `grizzle uninstall` leaves no role under the prefix, no slot in the database and no publication.
+ * - Uninstall: `grizzle uninstall` leaves no role under the prefix, no slot in the database and no publication. It
+ *   runs once the live read's layer has closed and the leader's walsender has let its slot go, as an operator stops
+ *   the leaders first: PostgreSQL refuses to drop a slot a walsender holds (55006), and a walsender outlives its
+ *   client's close by however long the server takes to see it.
  *
  * Oracles: the naming door's own names for today's served values (roleNameOf), PostgreSQL's catalogs, the decoder
  * login's OID before the migration, and the customers the case wrote.
@@ -36,6 +39,7 @@
  * door names now, not the one the snapshot names).
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { awaitFact } from "@bjornpagen/testing/fact"
 import { required } from "@bjornpagen/testing/features"
 import { array, boolean, element, type Gen, string } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -81,7 +85,6 @@ import {
 } from "#test/pg/cli/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { answered, oneOf } from "#test/support/calls.ts"
-import { awaitRoleQuiet } from "#test/support/kernel/sanitize.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { type DecoderCredential, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { standing } from "#test/support/live/standing.ts"
@@ -411,7 +414,15 @@ const earlierCase = (e: Earlier, c: Case<EarlierFeature>) =>
 					)
 				})
 			).pipe(withLayer(layerOf(served, keptPassword)))
-			yield* awaitRoleQuiet(substrate.admin, decoderNow)
+			yield* awaitFact(
+				Effect.map(
+					owner.queryValues(
+						"SELECT slot_name::text FROM pg_catalog.pg_replication_slots WHERE database = current_database() AND active_pid IS NOT NULL",
+						[]
+					),
+					(active) => (active.length === 0 ? Option.some(undefined) : Option.none())
+				)
+			)
 			const uninstalled = yield* run(next.config, "uninstall")
 			assert.equal(uninstalled.code, 0, `grizzle uninstall: ${uninstalled.stderr}`)
 			const leftUnder = yield* substrate.admin.queryValues(

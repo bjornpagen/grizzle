@@ -14,7 +14,9 @@
  * - row security is disabled on a table a role writes under it;
  * - a role's policy is widened to PUBLIC;
  * - a function a world reads changes its volatility;
- * - a role or the login is granted a table privilege, of PostgreSQL's, the snapshot does not grant;
+ * - a role or the login is granted a table privilege, of PostgreSQL's, it holds neither on the table nor on any of its
+ *   columns, so revoking it again restores the catalog exactly (a REVOKE on a table revokes that privilege on every
+ *   column too);
  * - a role or the login stores a setting;
  * - a role or the login gains an attribute the snapshot denies it, of PostgreSQL's role attributes the test's
  *   administrator may set;
@@ -33,7 +35,10 @@
  * Features: every operator planted, nothing planted, and several at once.
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): workflow-drift-unchecked.patch; (~/.cache/grizzle-release/GZTEMP/plants):
- * temporary-drift-blind.patch (the drift check never reports a login's or role's missing TEMPORARY on the database).
+ * temporary-drift-blind.patch (the drift check never reports a login's or role's missing TEMPORARY on the database);
+ * (~/.cache/grizzle-release/DENAPI/plants): drift-undo-takes-column-grants.patch (a planted table privilege picked
+ * among those the role holds on no table alone, as before), under which a SELECT the editor holds on Note's columns is
+ * planted on the table and its undo takes the column grants away, so the next case finds drift it never planted.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -271,8 +276,13 @@ const changeOf = (kind: Planted, [first, second, third]: Picks, n: Names) =>
 			case "a privilege granted": {
 				const role = pickFrom(roles, first)
 				const name = pickFrom(n.tables, second)
+				/**
+				 * The privileges the role holds on the table, whole or on any of its columns: a REVOKE on the table revokes
+				 * the role's privilege of that type on every column too, so the undo of a privilege the role holds on a
+				 * column would take that column's grant away with the plant.
+				 */
 				const acl = yield* admin.queryValues(
-					"SELECT a.privilege_type::text FROM pg_catalog.pg_class AS c, aclexplode(c.relacl) AS a WHERE c.oid = $1::regclass AND a.grantee = $2::regrole",
+					"SELECT a.privilege_type::text FROM pg_catalog.pg_class AS c, aclexplode(c.relacl) AS a WHERE c.oid = $1::regclass AND a.grantee = $2::regrole UNION SELECT a.privilege_type::text FROM pg_catalog.pg_attribute AS t, aclexplode(t.attacl) AS a WHERE t.attrelid = $1::regclass AND t.attnum > 0 AND NOT t.attisdropped AND a.grantee = $2::regrole",
 					[table(name), quoteIdent(role)]
 				)
 				const held = textRows(acl)
