@@ -66,7 +66,7 @@ import {
 
 import { publishingLedger } from "#compiler/deploy/ledger/ledger.ts"
 import { resolveVariables } from "#compiler/deploy/render/variables.ts"
-import { noLive } from "#compiler/live/notify.ts"
+import { type LivePlan, noLive } from "#compiler/live/notify.ts"
 import {
 	compileWorkload,
 	type LoginWorkloads,
@@ -393,11 +393,13 @@ export const compileInputWorkload = (
  * logins, as an installer extension compiled when the installation runs it: against the schema installed
  * (InstallBuilder.owned), as `grizzle generate` compiles a workload against the schema it installs, so a harness that
  * installs a subject under its allocated level names installs the workload of that schema (workloadExtension holds a
- * workload to the fingerprint it was compiled against).
+ * workload to the fingerprint it was compiled against). `live` is the live plan whose footprint tables the
+ * installation's live source publishes (physical/install/extension.ts InstallExtension.live).
  */
 const workloadExtensionOver = (
 	logins: ReadonlyArray<LoginWorkloads>,
-	rolesOf: (installing: ReadonlyArray<OwnedLogin>) => ReadonlyArray<OwnedRole>
+	rolesOf: (installing: ReadonlyArray<OwnedLogin>) => ReadonlyArray<OwnedRole>,
+	live: LivePlan
 ): InstallExtension => {
 	/** The workload's plan against the installed schema `owned`, beside the write filters of `roles`. */
 	const planOver = (owned: Owned, roles: ReadonlyArray<OwnedRole>) =>
@@ -416,14 +418,17 @@ const workloadExtensionOver = (
 		certifies: noCertificates,
 		carriers: noCarriers,
 		holds: noHolds,
-		live: noLive,
+		live,
 		fences: noFences
 	}
 }
 
-/** The workload of `logins` alone (compileTestWorkload), compiled against the schema the installation installs. */
+/**
+ * The workload of `logins` alone (compileTestWorkload), compiled against the schema the installation installs. It
+ * states no live plan, so an installation of it alone holds no live source and serves no watch.
+ */
 export const workloadOver = (logins: ReadonlyArray<LoginWorkloads>): InstallExtension =>
-	workloadExtensionOver(logins, () => [])
+	workloadExtensionOver(logins, () => [], noLive)
 
 /**
  * The types the programs of `logins`' workloads cast their parameters to, and nothing else of their workload: an
@@ -433,16 +438,22 @@ export const workloadOver = (logins: ReadonlyArray<LoginWorkloads>): InstallExte
  * workload's.
  */
 export const paramsOver = (logins: ReadonlyArray<LoginWorkloads>): InstallExtension => ({
-	...workloadExtensionOver(logins, () => []),
+	...workloadExtensionOver(logins, () => [], noLive),
 	contribute: () => Result.ok(noContribution)
 })
 
 /**
  * The workload of `logins` beside every installed login's write filters, as `grizzle generate` plans a deployment's,
- * compiled against the schema the installation installs.
+ * compiled against the schema the installation installs, with its plan's live plan `live` (program/workload/compile.ts
+ * WorkloadPlan `live`), so the installation publishes every table its logins' reads route by and the snapshot's live
+ * source serves the watched file of each login, as generate's served workload extension states it
+ * (physical/access/extension.ts servedWorkloadExtension).
  */
-export const deployedWorkloadOver = (logins: ReadonlyArray<LoginWorkloads>): InstallExtension =>
-	workloadExtensionOver(logins, (installing) => Arr.flatMap(installing, (l) => l.roles))
+export const deployedWorkloadOver = (
+	logins: ReadonlyArray<LoginWorkloads>,
+	live: LivePlan
+): InstallExtension =>
+	workloadExtensionOver(logins, (installing) => Arr.flatMap(installing, (l) => l.roles), live)
 
 /**
  * A generated query, which no checker handed over, admitted as the optimized lowering takes it (check/index.ts

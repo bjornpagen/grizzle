@@ -178,7 +178,9 @@ const noValue =
 /**
  * What a version's logins' workloads add, planned as `grizzle generate` plans them with their roles' write filters
  * (cli/generate.ts draftInput): the installer extension of the plan, compiled against the schema the installation
- * installs (compile.ts deployedWorkloadOver), and the draft's workload. A version without a login plans nothing.
+ * installs (compile.ts deployedWorkloadOver), with the plan's live plan, and the draft's workload, with the same live
+ * plan, so the installation publishes what its logins' served files read and the snapshot's live source serves them.
+ * A version without a login plans nothing.
  */
 export const workloadOf = (
 	version: AnyVersion
@@ -203,7 +205,8 @@ export const workloadOf = (
 	return {
 		extensions: [
 			deployedWorkloadOver(
-				Arr.map(version.logins, (l) => ({ login: l.name, workloads: l.workload }))
+				Arr.map(version.logins, (l) => ({ login: l.name, workloads: l.workload })),
+				plan.live
 			)
 		],
 		draft: { access: plan.access, accessPaths: plan.requests, live: plan.live }
