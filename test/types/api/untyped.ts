@@ -11,7 +11,7 @@ import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/su
  * leak that left a schema's insert types without its families' nestings.
  *
  * The oracle: a call is refused exactly when a list or record it captures holds a member typed `any` (MembersTyped,
- * through UnderOwnNames and StatementsWithin for a schema's), at the first argument that holds one, since a call
+ * through DeclaredOnce and StatementsWithin for a schema's), at the first argument that holds one, since a call
  * reports the first argument its parameter refuses. Every call it admits keeps its types: a schema's insert types nest
  * each family's members at their owner's count field.
  */
@@ -66,9 +66,9 @@ const spelledOf = (captured: Captured, typing: MemberTyping): string => {
 	return captured.holder === "list" ? `[${members}]` : `{ ${members} }`
 }
 
-const schemaRelations = record(1, "Parent", "Kid")
+const schemaRelations = list(1, "Parent", "Kid")
 const schemaStatements = list(2, "nesting")
-const levelRelations = record(2, "Bag", "Item")
+const levelRelations = list(2, "Bag", "Item")
 const levelStatements = list(3, "bagging")
 const roleEntries = record(2, "Parent", "Labels")
 const roleWrites = list(3, '"Parent"')
