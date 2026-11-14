@@ -24,7 +24,7 @@
 		"#toolchain.config.ts": "./toolchain.config.ts"
 	},
 	"scripts": {
-		"prepare": "effect-tsgo patch",
+		"prepare": "effect-tsgo patch && lefthook install",
 		"types": "turbo run typecheck --filter=./packages/* --filter=//",
 		"check": "turbo run typecheck:full superlint oxlint format dead-code architecture dedupe --filter=./packages/* --filter=// --continue=dependencies-successful",
 		"typecheck": "effect-tsgo tsrs -b",
@@ -67,6 +67,7 @@
 		"@types/pg": "catalog:",
 		"@vercel/functions": "catalog:",
 		"fallow": "catalog:",
+		"lefthook": "catalog:",
 		"oxfmt": "catalog:",
 		"oxlint": "catalog:",
 		"oxlint-tsgolint": "catalog:",

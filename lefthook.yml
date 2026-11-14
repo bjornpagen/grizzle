@@ -1,0 +1,26 @@
+# The hooks run only the pinned lefthook: without this, the generated script searches a dozen places for a lefthook
+# binary and lets the commit through when it finds none. `pnpm install` installs the hooks (the root's prepare).
+lefthook: pnpm exec lefthook
+# Check-only: the hooks never format or stage a file, they only refuse. A commit names its files by pathspec, and git
+# holds .git/index.lock while pre-commit runs, so pre-commit stays within seconds: oxfmt's check of the files the
+# commit holds and the incremental typecheck, pnpm types. A merge or rebase skips pre-commit, so the push typechecks
+# what it brought. The full gate, pnpm check, is no push's hook yet: it takes minutes cold (6.5 under the machine's
+# load, root superlint most of it, root oxlint 2), its root tasks re-run on any change to the repository, and main
+# takes a commit about every two minutes, so a push that waited for it would rarely find main where it left it.
+pre-commit:
+  skip:
+    - merge
+    - rebase
+  parallel: true
+  jobs:
+    - name: format
+      run: pnpm exec oxfmt --check --no-error-on-unmatched-pattern {staged_files}
+      exclude:
+        - "vendor/**"
+        - "upstream/**"
+    - name: types
+      run: pnpm -s types --output-logs=errors-only
+pre-push:
+  jobs:
+    - name: types
+      run: pnpm -s types --output-logs=errors-only

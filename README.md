@@ -4142,13 +4142,14 @@ Everything runs natively on Linux, with no Docker. There is no build step: Node 
 
 ```sh
 git submodule update --init       # the toolchain, vendor/toolchain: the dev tools and the testing library
-pnpm install
+pnpm install                      # and the git hooks, lefthook.yml
 pnpm pg:build                     # build the pinned PostgreSQL 19rc2 from source, with its patches and pgvector
 pnpm pg:init                      # create the local cluster on port 5433: TLS and SCRAM only
 pnpm pg:doctor                    # the go/no-go check of the cluster
 pnpm test                         # the unit and types tiers, which need no network
 pnpm test:network                 # the pg and schedules tiers, against the local cluster
 pnpm test <file>                  # some files
+pnpm types                        # after every edit: the incremental typecheck, which the hooks run too
 pnpm check                        # before a release (turbo, cached): typecheck, superlint, oxlint, format, fallow, dedupe
 ```
 
