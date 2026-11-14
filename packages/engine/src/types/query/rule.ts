@@ -434,6 +434,142 @@ type StoredOnlyFieldsIn<C> = {
 type MinMaxSql = NumericSql | "boolean" | "text" | "code"
 
 /**
+ * How one rule's type relates to another's, its members being functions over the rule they are called on (Rule): its
+ * schema invariantly, its parameters covariantly and the contexts it reads contravariantly, as a query's. Its sole-match
+ * state and facts are what find reads, never a reason one rule is not another, so a rule a filter narrowed is still the
+ * rule it was (a fold over filters keeps one accumulator): they stand where every pair of them is never (`reads`).
+ */
+interface RulePhantom<S, Params, Sole, Facts, Cx> {
+	readonly schema: Invariant<S>
+	readonly params: Params
+	readonly readsContexts: (read: Cx) => void
+	readonly reads?: Extract<readonly [Sole, Facts], never>
+}
+
+/** Rule.match: a match of a source of the rule's schema, the rule it is called on (Rule). */
+type RuleMatch = <
+	S,
+	Params,
+	Sole,
+	Facts,
+	Cx,
+	R extends Matchable,
+	K,
+	RN,
+	C,
+	PK,
+	BT,
+	const B extends Partial<
+		Bindings<ShownHeading<R, OrdinaryKind<K, BT>, C>, ShownCarriers<R, OrdinaryKind<K, BT>, C>>
+	>
+>(
+	this: Rule<S, Params, Sole, Facts, Cx>,
+	source: R & SourceShows<K, RN, C, PK, BT> & ShownMatch<S, R, OrdinaryKind<K, BT>, RN>,
+	bindings: B &
+		NoExcess<B, ShownHeading<R, OrdinaryKind<K, BT>, C>> &
+		DeadConstants<
+			B,
+			ShownHeading<R, OrdinaryKind<K, BT>, C>,
+			ShownCarriers<R, OrdinaryKind<K, BT>, C>
+		>
+) => Rule<
+	S,
+	Params & ShownSourceParams<R, OrdinaryKind<K, BT>> & BindingParams<B>,
+	[Sole] extends ["no match"]
+		? SoleMatch<ShownSource<R, OrdinaryKind<K, BT>, RN, C, PK>, B>
+		: "joined",
+	AfterMatch<Facts, SoleMatch<ShownSource<R, OrdinaryKind<K, BT>, RN, C, PK>, B>>,
+	Cx | ShownSourceContexts<R, OrdinaryKind<K, BT>>
+>
+
+/** Rule.where: filters of the rule it is called on (Rule). */
+type RuleWhere = <S, Params, Sole, Facts, Cx, const Ps extends ReadonlyArray<Predicate<never>>>(
+	this: Rule<S, Params, Sole, Facts, Cx>,
+	...predicates: Ps
+) => Rule<
+	S,
+	Params & PredicateParams<Ps>,
+	Ps extends readonly [] ? Sole : "joined",
+	AfterWhere<Facts, Ps>,
+	Cx | PredicateContexts<Ps>
+>
+
+/** Rule.find: the head of the rule it is called on (Rule). */
+type RuleFind = <S, Params, Sole, Facts, Cx, const H extends Readonly<Record<string, unknown>>>(
+	this: Rule<S, Params, Sole, Facts, Cx>,
+	head: H & {
+		readonly [K in keyof H]: HeadTerm &
+			FoldKeyed<S, OccurrencesOf<Facts>, H[K]> &
+			ProducerAlone<H, H[K]>
+	}
+) => FinishedHead<S, Params, Sole, Facts, Cx, HeadTerms<H>>
+
+/** Rule.interior: a stage over the schema of the rule it is called on (Rule). */
+type RuleInterior = <
+	S,
+	Params,
+	Sole,
+	Facts,
+	Cx,
+	Head,
+	Ev extends Evidence,
+	P2,
+	IHead,
+	Hc extends Carriers,
+	Cx2
+>(
+	this: Rule<S, Params, Sole, Facts, Cx>,
+	rule: (r: Rule<S>) => Finished<Head, Ev, P2, S, IHead, Hc, Cx2>
+) => BoundSource<S, Head, P2, Hc, Cx2, Ev, never>
+
+/** Rule.relation: a relation parameter of the rule it is called on (Rule), over a relation of its schema or a heading. */
+type RuleRelation = <
+	S,
+	Params,
+	Sole,
+	Facts,
+	Cx,
+	const Name extends string,
+	C extends Record<string, FieldBase>,
+	N extends string
+>(
+	this: Rule<S, Params, Sole, Facts, Cx>,
+	name: Name,
+	heading: ParamHeading<C, N> & ParamFields<C> & ParamRelationOf<S, N, C>
+) => ParamSource<Name, C>
+
+/** Rule.not: a relational negation over a source of the schema of the rule it is called on (Rule). */
+type RuleNot = <
+	S,
+	Params,
+	Sole,
+	Facts,
+	Cx,
+	R extends Matchable,
+	K,
+	RN,
+	C,
+	PK,
+	BT,
+	const B extends Partial<
+		Bindings<ShownHeading<R, OrdinaryKind<K, BT>, C>, ShownCarriers<R, OrdinaryKind<K, BT>, C>>
+	>
+>(
+	this: Rule<S, Params, Sole, Facts, Cx>,
+	relation: R & SourceShows<K, RN, C, PK, BT> & ShownMatch<S, R, OrdinaryKind<K, BT>, RN>,
+	bindings: B &
+		NoExcess<B, ShownHeading<R, OrdinaryKind<K, BT>, C>> &
+		DeadConstants<
+			B,
+			ShownHeading<R, OrdinaryKind<K, BT>, C>,
+			ShownCarriers<R, OrdinaryKind<K, BT>, C>
+		>
+) => Predicate<ShownSourceParams<R, OrdinaryKind<K, BT>> & BindingParams<B>> &
+	Shaped<Negation> &
+	ReadsContexts<ShownSourceContexts<R, OrdinaryKind<K, BT>>> &
+	Negating<true>
+
+/**
  * The rule builder a query arm receives. Every method threads its parameter map: a rule's parameters are the
  * intersection of what its matches, predicates and head use, so they are inferred from their uses. The sole-match
  * state and the rule's facts feed the evidence approximation of ../evidence/evidence.ts. The runtime rule is the builder
@@ -441,62 +577,30 @@ type MinMaxSql = NumericSql | "boolean" | "text" | "code"
  *
  * Sole is the rule's only match while it has no other clause (SoleMatch), NoMatch before any, Joined after more; Facts
  * is what find reads of every match and filter (RuleFacts), from which the head's keys follow (HeadKeys).
+ *
+ * Each member that reads the rule's own type arguments is a function over the rule it is called on, `this: Rule<S,
+ * Params, Sole, Facts, Cx>`, declared once at the top level (RuleMatch, RuleWhere, RuleFind, RuleInterior,
+ * RuleRelation, RuleNot), and the rule's phantom says how one rule's type relates to another's (RulePhantom). The
+ * checker instantiates a method of a generic interface in two steps, the interface's type arguments, then the call's
+ * own, and the second walks every type the first put in: the schema, every relation of it and each relation's field
+ * record, an object-literal type the checker takes for one that may hold a type variable, once per call and per
+ * inference pass, so every call of a rule over a schema of n relations cost n. A function that reads its rule from
+ * `this` holds only its own type parameters, so a call maps S to the schema without walking it, and the member is one
+ * type in every rule. A member is called on its rule, as a method is.
  */
 export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, Cx = never> {
-	match<
-		R extends Matchable,
-		K,
-		RN,
-		C,
-		PK,
-		BT,
-		const B extends Partial<
-			Bindings<ShownHeading<R, OrdinaryKind<K, BT>, C>, ShownCarriers<R, OrdinaryKind<K, BT>, C>>
-		>
-	>(
-		source: R & SourceShows<K, RN, C, PK, BT> & ShownMatch<S, R, OrdinaryKind<K, BT>, RN>,
-		bindings: B &
-			NoExcess<B, ShownHeading<R, OrdinaryKind<K, BT>, C>> &
-			DeadConstants<
-				B,
-				ShownHeading<R, OrdinaryKind<K, BT>, C>,
-				ShownCarriers<R, OrdinaryKind<K, BT>, C>
-			>
-	): Rule<
-		S,
-		Params & ShownSourceParams<R, OrdinaryKind<K, BT>> & BindingParams<B>,
-		[Sole] extends ["no match"]
-			? SoleMatch<ShownSource<R, OrdinaryKind<K, BT>, RN, C, PK>, B>
-			: "joined",
-		AfterMatch<Facts, SoleMatch<ShownSource<R, OrdinaryKind<K, BT>, RN, C, PK>, B>>,
-		Cx | ShownSourceContexts<R, OrdinaryKind<K, BT>>
-	>
-	where<const Ps extends ReadonlyArray<Predicate<never>>>(
-		...predicates: Ps
-	): Rule<
-		S,
-		Params & PredicateParams<Ps>,
-		Ps extends readonly [] ? Sole : "joined",
-		AfterWhere<Facts, Ps>,
-		Cx | PredicateContexts<Ps>
-	>
+	readonly [phantom]?: RulePhantom<S, Params, Sole, Facts, Cx> | undefined
+	readonly match: RuleMatch
+	readonly where: RuleWhere
 	/**
 	 * Each entry is checked where it stands (HeadTerm), never through H's constraint: an entry no head holds is refused
 	 * at its key, an aggregate over a rule whose matches bind no key of their sources too (FoldKeyed), a span producer
 	 * beside an aggregate or another producer too (ProducerAlone), and the query keeps the head as written, so nothing
 	 * built on it refuses again.
 	 */
-	find<const H extends Readonly<Record<string, unknown>>>(
-		head: H & {
-			readonly [K in keyof H]: HeadTerm &
-				FoldKeyed<S, OccurrencesOf<Facts>, H[K]> &
-				ProducerAlone<H, H[K]>
-		}
-	): FinishedHead<S, Params, Sole, Facts, Cx, HeadTerms<H>>
+	readonly find: RuleFind
 	/** A stage over the rule's own schema, so it carries S like the query it is part of. */
-	interior<Head, Ev extends Evidence, P2, IHead, Hc extends Carriers, Cx2>(
-		rule: (r: Rule<S>) => Finished<Head, Ev, P2, S, IHead, Hc, Cx2>
-	): BoundSource<S, Head, P2, Hc, Cx2, Ev, never>
+	readonly interior: RuleInterior
 
 	/**
 	 * A scalar parameter of the descriptor's type and facts, which the caller binds by name; a term, first included. No
@@ -510,10 +614,7 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	 * A relation-valued parameter over a heading of fields, or over a relation of the rule's schema, whose heading it
 	 * takes; the Description names the relation, which the schema resolves.
 	 */
-	relation<const Name extends string, C extends Record<string, FieldBase>, N extends string>(
-		name: Name,
-		heading: ParamHeading<C, N> & ParamFields<C> & ParamRelationOf<S, N, C>
-	): ParamSource<Name, C>
+	readonly relation: RuleRelation
 
 	/**
 	 * An equality between a variable and a value fixed per binding fixes the variable, and one between two variables
@@ -579,29 +680,7 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	 * Relational negation only. It reads a relation, no computation over its operands, so its origin is unknown, and it
 	 * stands only as a rule's filter, alone or in a conjunction that does (Negating).
 	 */
-	not<
-		R extends Matchable,
-		K,
-		RN,
-		C,
-		PK,
-		BT,
-		const B extends Partial<
-			Bindings<ShownHeading<R, OrdinaryKind<K, BT>, C>, ShownCarriers<R, OrdinaryKind<K, BT>, C>>
-		>
-	>(
-		relation: R & SourceShows<K, RN, C, PK, BT> & ShownMatch<S, R, OrdinaryKind<K, BT>, RN>,
-		bindings: B &
-			NoExcess<B, ShownHeading<R, OrdinaryKind<K, BT>, C>> &
-			DeadConstants<
-				B,
-				ShownHeading<R, OrdinaryKind<K, BT>, C>,
-				ShownCarriers<R, OrdinaryKind<K, BT>, C>
-			>
-	): Predicate<ShownSourceParams<R, OrdinaryKind<K, BT>> & BindingParams<B>> &
-		Shaped<Negation> &
-		ReadsContexts<ShownSourceContexts<R, OrdinaryKind<K, BT>>> &
-		Negating<true>
+	readonly not: RuleNot
 
 	/**
 	 * The second span may be a parameter of the first span's type: a window is a span parameter.

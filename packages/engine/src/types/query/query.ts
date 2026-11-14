@@ -93,44 +93,59 @@ export type QueryConstructor = <S extends AnySchema | AnyFragment | AnyRole>(
 	schema: S
 ) => QueryBuilder<S>
 
+/**
+ * The builder's members are each a function over the builder it is called on, `this`, declared once beside it, as
+ * Rule's are (rule.ts Rule): the checker would otherwise walk the schema, every relation of it and each relation's
+ * field record, once per call and per inference pass. Its phantom holds S invariant, as its methods held it before.
+ */
 export interface QueryBuilder<S> {
+	readonly [phantom]?: { readonly schema: Invariant<S> } | undefined
 	/** A query of one arm: its heading, read-back heading and decoders the arm's, attached or not. */
-	rule<Head, Ev extends Evidence, P, IHead, Hc extends Carriers, Cx>(
-		rule: (r: Rule<S>) => Finished<Head, Ev, P, S, IHead, Hc, Cx>
-	): Query<S, Head, Ev, Simplify<P>, IHead, Hc, Cx, readonly [ArmOf<Head, Hc>]>
-	recursive<
-		const Row extends Record<string, FieldBase>,
-		const Base extends ReadonlyArray<FinishedArm>,
-		const Rec extends ReadonlyArray<FinishedArm>
-	>(
-		/**
-		 * The definition's facts are records of its row, decoded by the row's descriptors; every arm's head delivers the
-		 * row (ArmDelivers), checked at the arm once its head is inferred; and each arm list holds an arm (SomeArm).
-		 */
-		name: string,
-		spec: {
-			readonly row: Row
-			readonly base: {
-				readonly [I in keyof Base]: (r: Rule<S>) => Base[I] & NoInfer<ArmDelivers<Base[I], Row>>
-			} & NoInfer<SomeArm<Base, Rec>>
-			readonly rec: {
-				readonly [I in keyof Rec]: (
-					r: Rule<S>,
-					self: SelfSource<Row>
-				) => Rec[I] & NoInfer<ArmDelivers<Rec[I], Row>>
-			} & NoInfer<SomeArm<Rec, Base>>
-		}
-	): Query<
-		S,
-		FactOfFields<Row>,
-		Evidence.Unknown,
-		Simplify<ArmParams<Base[number]> & ArmParams<Rec[number]>>,
-		FactOfFields<Row>,
-		Row,
-		ContextsOf<Base[number]> | ContextsOf<Rec[number]>,
-		readonly [UnionArm<Row, never, "recursive", false>]
-	>
+	readonly rule: BuilderRule
+	readonly recursive: BuilderRecursive
 }
+
+/** QueryBuilder.rule over the builder it is called on. */
+type BuilderRule = <S, Head, Ev extends Evidence, P, IHead, Hc extends Carriers, Cx>(
+	this: QueryBuilder<S>,
+	rule: (r: Rule<S>) => Finished<Head, Ev, P, S, IHead, Hc, Cx>
+) => Query<S, Head, Ev, Simplify<P>, IHead, Hc, Cx, readonly [ArmOf<Head, Hc>]>
+
+/**
+ * QueryBuilder.recursive over the builder it is called on. The definition's facts are records of its row, decoded by
+ * the row's descriptors; every arm's head delivers the row (ArmDelivers), checked at the arm once its head is inferred;
+ * and each arm list holds an arm (SomeArm).
+ */
+type BuilderRecursive = <
+	S,
+	const Row extends Record<string, FieldBase>,
+	const Base extends ReadonlyArray<FinishedArm>,
+	const Rec extends ReadonlyArray<FinishedArm>
+>(
+	this: QueryBuilder<S>,
+	name: string,
+	spec: {
+		readonly row: Row
+		readonly base: {
+			readonly [I in keyof Base]: (r: Rule<S>) => Base[I] & NoInfer<ArmDelivers<Base[I], Row>>
+		} & NoInfer<SomeArm<Base, Rec>>
+		readonly rec: {
+			readonly [I in keyof Rec]: (
+				r: Rule<S>,
+				self: SelfSource<Row>
+			) => Rec[I] & NoInfer<ArmDelivers<Rec[I], Row>>
+		} & NoInfer<SomeArm<Rec, Base>>
+	}
+) => Query<
+	S,
+	FactOfFields<Row>,
+	Evidence.Unknown,
+	Simplify<ArmParams<Base[number]> & ArmParams<Rec[number]>>,
+	FactOfFields<Row>,
+	Row,
+	ContextsOf<Base[number]> | ContextsOf<Rec[number]>,
+	readonly [UnionArm<Row, never, "recursive", false>]
+>
 
 /**
  * The refusal of an empty arm list of a recursion, none for a list of arms: the fixed point starts from its base arms
