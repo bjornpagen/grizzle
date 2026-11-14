@@ -9,8 +9,8 @@
 	"devEngines": {
 		"runtime": {
 			"name": "node",
-			"version": "26.13.1",
-			"onFail": "download"
+			"version": ">=26",
+			"onFail": "error"
 		}
 	},
 	"scripts": {
