@@ -23,7 +23,7 @@
  *   builder as the flag's Option (the kept case).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
-import type { Kept } from "@bjornpagen/testing/explore"
+import type { Case, Kept } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"
 import type { Gen } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -94,6 +94,66 @@ const COMMANDED: OperationSketch = {
 	security: Option.none(),
 	aliases: []
 }
+
+/** The scheme an aimed case adds for "an apiKey cookie scheme": a key the client sends as the `session` cookie. */
+const COOKIE_KEY: SchemeSketch = {
+	name: "cookieKey",
+	deprecated: false,
+	kind: { type: "apiKey", in: "cookie", name: "session" }
+}
+
+/** An operation of the cookie key alone: COMMANDED's GET at a path of its own, requiring COOKIE_KEY. */
+const COOKIE_KEYED: OperationSketch = {
+	...COMMANDED,
+	segments: ["cookie-keyed"],
+	security: Option.some([[[COOKIE_KEY.name, []]]])
+}
+
+/**
+ * An operation the generator refuses: a required body whose one alternative is an event stream, the refusal
+ * openapi-gen.ts draws on purpose, so the operation goes with an operation-scope refusal.
+ */
+const REFUSED: OperationSketch = {
+	...COMMANDED,
+	method: "post",
+	segments: ["refused-stream"],
+	body: Option.some({
+		required: true,
+		description: Option.none(),
+		alternatives: [{ kind: "event-stream" }]
+	})
+}
+
+/** The case with `operations` and `schemes` added to its document; its config, which names neither, still fits. */
+const withAdded =
+	(operations: ReadonlyArray<OperationSketch>, schemes: ReadonlyArray<SchemeSketch>) =>
+	(drawnCase: PackageCase): PackageCase => ({
+		config: drawnCase.config,
+		document: {
+			...drawnCase.document,
+			schemes: [...drawnCase.document.schemes, ...schemes],
+			operations: [...drawnCase.document.operations, ...operations]
+		}
+	})
+
+/**
+ * What a steered case adds to reach a situation the plain draw reaches too rarely for the steered budget: an operation
+ * of an apiKey cookie scheme, or one the generator refuses. The drawn case keeps everything else, so a steered case
+ * still reaches what its plain draw reached.
+ */
+const AIMED: ReadonlyArray<readonly [Feature, (drawnCase: PackageCase) => PackageCase]> = [
+	["an apiKey cookie scheme", withAdded([COOKIE_KEYED], [COOKIE_KEY])],
+	["an operation refused", withAdded([REFUSED], [])]
+]
+
+/** The case a run generates: the drawn one, with what AIMED adds where the case is steered at its situation. */
+const aimedCase = (drawnCase: PackageCase, k: Case<Feature>): PackageCase =>
+	Option.match(
+		Option.flatMap(k.steering, (pending) =>
+			Arr.findFirst(AIMED, ([feature]) => pending.aimed(feature))
+		),
+		{ onNone: () => drawnCase, onSome: ([, add]) => add(drawnCase) }
+	)
 
 /** A package case whose package has a command, so its root services layer provides Servers: a generated document
  * with COMMANDED among its operations, and an author config that fits it. */
@@ -639,9 +699,10 @@ layer(harnessLayer, { excludeTestServices: true })("emit: generated packages", (
 						steerEvery: 4,
 						caseHang: Duration.minutes(2)
 					},
-					(drawnCase, k) =>
+					(plainCase, k) =>
 						Effect.scoped(
 							Effect.gen(function* () {
+								const drawnCase = aimedCase(plainCase, k)
 								const generated = yield* generateFixture({
 									spec: { path: "openapi.json", text: textOf(documentOf(drawnCase.document)) },
 									config: { path: "author-config.json", text: textOf(configOf(drawnCase.config)) },
