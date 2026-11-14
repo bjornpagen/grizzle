@@ -26,7 +26,9 @@
  *
  * Plants (~/.cache/grizzle-release/LIVE-PARSE/plants): param-domain-uncast (a parameter's placeholder cast to its base,
  * so no domain checks it), refinement-are-swapped.patch (a refinement's domain CHECK matching its pattern against the value,
- * operands swapped).
+ * operands swapped). ~/.cache/grizzle-release/TEXTBOUND/plants/param-domain-uncast.patch is the first of these again
+ * (lower/conservative/context.ts scalarParam casting to the base type): the pattern parameter, numeric contract and
+ * attachment and union suites fail on a refused value that runs.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

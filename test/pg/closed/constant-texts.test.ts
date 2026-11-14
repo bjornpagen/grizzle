@@ -30,7 +30,10 @@
  *
  * The planted bug, the lowering's constant folding turned off (~/.cache/grizzle-release/BR09/plants/
  * constant-texts-folding-off.patch), fails the installation of the first case whose generation expression compares
- * constant texts, with 42P22.
+ * constant texts, with 42P22. Two more (~/.cache/grizzle-release/TEXTBOUND/plants) fail the kept case:
+ * concat-bound-one-code-point-wide.patch, a concatenation of literals bounded four bytes past its operands' (scalar/compute/
+ * lower.ts concat), installs the schema the case expects refused, and generated-refusal-dies.patch, the install harness
+ * turning generate's refusal into a defect (test/support/install-migrate.ts generatedDraft), dies on it.
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
