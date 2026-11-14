@@ -19,6 +19,13 @@
  *   as it ran, its CallError B's, an `input` refusal's kind and retry alone, since the HTTP door words a fault its own
  *   way; or, for `input` alone, the CLI exits 2 and prints nothing, having refused the body before sending it.
  *
+ * A case may follow a read first (`--follow`: a set read by its floor or name, a key, or a page from either end), over
+ * stored items whose int8 lies inside the type's ends: once the CLI has printed its `ready`, a put through the CLI
+ * stores an item the read sees (at the greatest or least int8 for a floor or a page, of the read's name, or the key's
+ * own item changed), and the same put runs on B. The followed CLI must then print the change, upserts and removes
+ * only, and `ready` again; interrupted, it exits 130, and the rows its events leave are B's once of the read after the
+ * put.
+ *
  * The CLI asserts no `pattern` (SCH-37), so a value grizzle's spelling refuses (an int8, a decimal, a refined text) or
  * a float4 no binary32 number is reaches the server, and is the `input` it answers there.
  *
@@ -31,7 +38,8 @@
  * Plants, each applied to the generator, seen to fail this suite on a private cluster, and reverted: sse.ts eventSteps
  * writing no `upsert` after a stream's first (rows lost); sse.ts eventSteps ending the stream at its first `upsert`
  * (no `ready`); flatten.ts oneValue taking every closed object with members for the one value `{}` (a read's params
- * sent as `{}`, its flags gone).
+ * sent as `{}`, its flags gone); sse.ts eventSteps stopping at `ready` under `--follow` too (a followed read's change
+ * never printed).
  */
 import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -39,11 +47,13 @@ import { constant, element, type Gen, int, shuffled, weighted } from "@bjornpage
 import { exact, ordered, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
+import { HARDENED_FLAGS } from "@bjornpagen/testing/vitest/config"
 import { layer } from "@effect/vitest"
 import { fail } from "@effect/vitest/utils"
 import { jsonTextOf } from "@superstarter/json"
 import {
 	Array as Arr,
+	type Cause,
 	Console,
 	Context,
 	Duration,
@@ -51,10 +61,13 @@ import {
 	Formatter,
 	Layer,
 	Option,
+	Queue,
 	Record as Rec,
 	Schema,
+	Stream,
 	String as Str
 } from "effect"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import {
 	buildPackage,
 	type BuiltPackage,
@@ -109,9 +122,23 @@ const programs: Arr.NonEmptyReadonlyArray<Program> = [
 /** How the CLI is given a call's body: by its field flags, or whole by `--body`. */
 type By = "fields" | "body"
 
-/** A case: the items stored in both twins, then the calls, in order. */
+/** A read the CLI may follow past its `ready`: a set read by a floor or a name, a key, or a page from either end. */
+type LiveRead =
+	| Readonly<{ program: "atLeast"; floor: string }>
+	| Readonly<{ program: "named"; name: string }>
+	| Readonly<{ program: "item"; id: number }>
+	| Readonly<{ program: "ranked"; anchor: Readonly<{ kind: "start" | "end" }>; size: number }>
+
+/**
+ * A followed read: the read the CLI follows past its `ready` (`--follow`), and the item a put stores once the read is
+ * ready, which the read sees, so the change must reach the followed CLI.
+ */
+type Follow = Readonly<{ read: LiveRead; by: By; write: Item; writeBy: By }>
+
+/** A case: the items stored in both twins, perhaps a followed read first, then the calls, in order. */
 type Case = Readonly<{
 	stored: ReadonlyArray<Item>
+	follow: Option.Option<Follow>
 	calls: ReadonlyArray<Readonly<{ call: Call; by: By }>>
 }>
 
@@ -161,6 +188,27 @@ const badAmounts: Arr.NonEmptyReadonlyArray<string> = ["1.005", "12345678901"]
 const badNames: Arr.NonEmptyReadonlyArray<string> = ["ZZ", "", "abcdefghi"]
 /** A float4 value no binary32 number is. */
 const badRatio = 0.1
+
+/** The int8 type's ends, which a followed read's put takes so its item sorts first or last. */
+const greatest = "9223372036854775807"
+const least = "-9223372036854775808"
+
+/** int8 spellings strictly between the type's ends: what a followed read's stored items hold. */
+const innerBigs: Arr.NonEmptyReadonlyArray<string> = [
+	"0",
+	"5",
+	"-3",
+	"1700000000000",
+	"9007199254740993"
+]
+
+/** An item of id `id` whose every value its field admits, its int8 one of `among`. */
+const storableWithin =
+	(id: number, among: Arr.NonEmptyReadonlyArray<string>): Gen<Item> =>
+	(source) => ({
+		...source.draw(storableItem(id)),
+		big: source.draw(element(among))
+	})
 
 /** An item of id `id` whose every value its field admits. */
 const storableItem =
@@ -251,17 +299,92 @@ const callGen =
 		}
 	}
 
-const caseGen: Gen<Case> = (source) => {
-	const ids = source.draw(shuffled(storedIds, { min: 0, max: 5 }))
-	const stored = Arr.map(ids, (id) => source.draw(storableItem(id)))
-	const count = source.draw(int(1, 4))
-	return {
-		stored,
-		calls: Array.from({ length: count }, () => ({
+/** The id no stored item takes, which a followed read's put gives a new item. */
+const freshId = 7
+
+/**
+ * A followed read over `stored`, whose items hold no int8 at the type's ends, and the put its change comes from, made
+ * so the read sees it: a new item at the greatest int8 for a floor and a page from the start (it sorts first), at the
+ * least for a page from the end (it sorts last), of the read's name for a name, and the key's own item changed, or new
+ * where none is stored, for a key.
+ */
+const followGen =
+	(stored: ReadonlyArray<Item>): Gen<Follow> =>
+	(source) => {
+		const by = source.draw(element<By>(["fields", "body"]))
+		const writeBy = source.draw(element<By>(["fields", "body"]))
+		const fresh = source.draw(storableItem(freshId))
+		const read = source.draw(element(["atLeast", "named", "item", "ranked"] as const))
+		switch (read) {
+			case "atLeast":
+				return {
+					read: { program: read, floor: source.draw(element(bigs)) },
+					by,
+					write: { ...fresh, big: greatest },
+					writeBy
+				}
+			case "named": {
+				const name = source.draw(element(names))
+				return { read: { program: read, name }, by, write: { ...fresh, name }, writeBy }
+			}
+			case "item": {
+				const id = source.draw(element(storedIds))
+				const write = Option.match(
+					Arr.findFirst(stored, (item) => item.id === id),
+					{
+						onNone: () => source.draw(storableItem(id)),
+						onSome: (item) => ({ ...item, flag: !item.flag })
+					}
+				)
+				return { read: { program: read, id }, by, write, writeBy }
+			}
+			case "ranked": {
+				const kind = source.draw(element(["start", "end"] as const))
+				return {
+					read: { program: read, anchor: { kind }, size: source.draw(int(1, 4)) },
+					by,
+					write: { ...fresh, big: kind === "start" ? greatest : least },
+					writeBy
+				}
+			}
+		}
+	}
+
+/** The calls after a case's followed read: one to four, each drawn over `stored`. */
+const callsGen =
+	(stored: ReadonlyArray<Item>, min: number): Gen<Case["calls"]> =>
+	(source) =>
+		Array.from({ length: source.draw(int(min, 4)) }, () => ({
 			call: source.draw(callGen(stored)),
 			by: source.draw(element<By>(["fields", "body"]))
 		}))
+
+/** A case with a followed read first: items whose int8 lies inside the type's ends, the read, then calls. */
+const followedCase: Gen<Case> = (source) => {
+	const ids = source.draw(shuffled(storedIds, { min: 0, max: 5 }))
+	const stored = Arr.map(ids, (id) => source.draw(storableWithin(id, innerBigs)))
+	return {
+		stored,
+		follow: Option.some(source.draw(followGen(stored))),
+		calls: source.draw(callsGen(stored, 0))
 	}
+}
+
+/** Any case: a followed read first one time in four, else one to four calls over any stored items. */
+const caseGen: Gen<Case> = (source) => {
+	if (
+		source.draw(
+			weighted([
+				[1, constant(true)],
+				[3, constant(false)]
+			])
+		)
+	) {
+		return source.draw(followedCase)
+	}
+	const ids = source.draw(shuffled(storedIds, { min: 0, max: 5 }))
+	const stored = Arr.map(ids, (id) => source.draw(storableItem(id)))
+	return { stored, follow: Option.none(), calls: source.draw(callsGen(stored, 1)) }
 }
 
 /** A case made to reach `feature`: the stored items and the one call that reach it, then any calls, every other choice drawn. */
@@ -273,6 +396,7 @@ const caseFor =
 		const stored = Arr.map(ids, (id) => source.draw(storableItem(id)))
 		const aimedAt = (items: ReadonlyArray<Item>, call: Call, callBy: By): Case => ({
 			stored: items,
+			follow: Option.none(),
 			calls: [
 				{ call, by: callBy },
 				...Array.from({ length: source.draw(int(0, 2)) }, () => ({
@@ -358,6 +482,8 @@ const caseFor =
 					},
 					by
 				)
+			case "a live change reaching a followed read":
+				return source.draw(followedCase)
 			case "a call the server said to make again, made again":
 				return source.draw(caseGen)
 		}
@@ -380,7 +506,8 @@ const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = [
 	"a write a law refuses",
 	"an input the server refuses",
 	"an input the CLI refuses",
-	"an int8 past 2^53"
+	"an int8 past 2^53",
+	"a live change reaching a followed read"
 ]
 
 /** A focus, or none, each half the time: none draws any case. */
@@ -445,6 +572,10 @@ const fieldArgs = (call: Call): ReadonlyArray<string> => {
 	}
 }
 
+/** A call's arguments after its command: its field flags, or its whole body as `--body`. */
+const argsOf = (call: Call, by: By): ReadonlyArray<string> =>
+	by === "fields" ? fieldArgs(call) : [`--body=${jsonTextOf(bodyOf(call))}`]
+
 /** The author config: the login's names, A's origin bound, plain HTTP allowed for the loopback server. */
 const configOf = (url: string): string =>
 	jsonTextOf({
@@ -487,6 +618,12 @@ const isErrorData = Schema.is(ErrorData)
 const OutcomeKind = Schema.Struct({ kind: Schema.String })
 const RowFields = Schema.Record(Schema.String, Schema.Json)
 
+/** Each event line of a run's stdout, decoded; a line that is no event fails the case. */
+const printedOf = (stdout: string) =>
+	Effect.forEach(Arr.filter(Str.split("\n")(stdout), Str.isNonEmpty), (line) =>
+		Schema.decodeEffect(Printed)(line)
+	)
+
 /** What one CLI run left: its exit code, each event it printed, and its stderr. */
 type Ran = Readonly<{ exitCode: number; printed: ReadonlyArray<Printed>; stderr: string }>
 
@@ -520,6 +657,7 @@ type Feature =
 	| "an input the server refuses"
 	| "an input the CLI refuses"
 	| "an int8 past 2^53"
+	| "a live change reaching a followed read"
 	| "a call the server said to make again, made again"
 
 /** The events' names, in order. */
@@ -539,35 +677,74 @@ const keyOf = (fields: ReadonlyArray<string>, row: Schema.Json) =>
 		Arr.map(fields, (field): Schema.Json => Option.getOrElse(Rec.get(record, field), () => null))
 	)
 
+const RemoveData = Schema.Struct({ key: Schema.Json })
+
 /**
- * The ordered read's rows as its upserts place them: each upsert's row removed where its key stood, then put after the
- * row its `after` key names, first for null; none where an `after` names no row the read holds.
+ * The rows a read's events leave, in order: each upsert's row taken out where its key stood, then put after the row
+ * its `after` key names, first for null, where the read is ordered, and last where it is a set; each remove's key taken
+ * out. None where an `after` names no row the read holds.
  */
-const placed = (fields: ReadonlyArray<string>, upserts: ReadonlyArray<typeof UpsertData.Type>) =>
+const folded = (
+	fields: ReadonlyArray<string>,
+	printed: ReadonlyArray<Printed>,
+	isOrdered: boolean
+) =>
 	Effect.gen(function* () {
 		let rows: ReadonlyArray<Readonly<{ key: Schema.Json; row: Schema.Json }>> = []
-		for (const upsert of upserts) {
-			const key = yield* keyOf(fields, upsert.row)
-			const after = Option.getOrElse(Option.fromUndefinedOr(upsert.after), () => null)
-			const kept = Arr.filter(rows, (entry) => Option.isSome(exact(entry.key, key)))
-			const at =
-				after === null
-					? Option.some(0)
-					: Option.map(
-							Arr.findFirstIndex(kept, (entry) => Option.isNone(exact(entry.key, after))),
-							(index) => index + 1
-						)
-			if (Option.isNone(at)) {
-				return Option.none<ReadonlyArray<Schema.Json>>()
+		for (const line of printed) {
+			if (line.event === "remove") {
+				const { key } = yield* Schema.decodeUnknownEffect(RemoveData)(line.data)
+				rows = Arr.filter(rows, (entry) => Option.isSome(exact(entry.key, key)))
 			}
-			const inserted = Arr.insertAt(kept, at.value, { key, row: upsert.row })
-			if (Option.isNone(inserted)) {
-				return Option.none<ReadonlyArray<Schema.Json>>()
+			if (line.event === "upsert") {
+				const upsert = yield* Schema.decodeUnknownEffect(UpsertData)(line.data)
+				const key = yield* keyOf(fields, upsert.row)
+				const after = Option.getOrElse(Option.fromUndefinedOr(upsert.after), () => null)
+				const kept = Arr.filter(rows, (entry) => Option.isSome(exact(entry.key, key)))
+				const at = !isOrdered
+					? Option.some(kept.length)
+					: after === null
+						? Option.some(0)
+						: Option.map(
+								Arr.findFirstIndex(kept, (entry) => Option.isNone(exact(entry.key, after))),
+								(index) => index + 1
+							)
+				const inserted = Option.flatMap(at, (index) =>
+					Arr.insertAt(kept, index, { key, row: upsert.row })
+				)
+				if (Option.isNone(inserted)) {
+					return Option.none<ReadonlyArray<Schema.Json>>()
+				}
+				rows = inserted.value
 			}
-			rows = inserted.value
 		}
 		return Option.some(Arr.map(rows, (entry) => entry.row))
 	})
+
+/** The key fields a read's `reset` names, none where it printed no reset first. */
+const resetFields = (printed: ReadonlyArray<Printed>) =>
+	Option.match(Arr.head(printed), {
+		onNone: () => Effect.succeed<ReadonlyArray<string>>([]),
+		onSome: (line) =>
+			line.event === "reset"
+				? Effect.map(Schema.decodeUnknownEffect(ResetData)(line.data), (data) => data.key)
+				: Effect.succeed<ReadonlyArray<string>>([])
+	})
+
+/** The rows `printed` leaves compared with `rows`: as a list where the read is ordered, as a set otherwise. */
+const sameRows = (
+	fields: ReadonlyArray<string>,
+	printed: ReadonlyArray<Printed>,
+	rows: ReadonlyArray<Schema.Json>,
+	isOrdered: boolean
+) =>
+	Effect.map(folded(fields, printed, isOrdered), (left) =>
+		Option.match(left, {
+			onNone: () => differ("an upsert follows a key no row it read holds"),
+			onSome: (list) =>
+				isOrdered ? ordered(exact)(list, rows) : set(structuralHash, exact)(list, rows)
+		})
+	)
 
 /** Whether an int8 spelling lies past 2^53 either way, where a JavaScript number holds no integer exactly. */
 const past53 = (big: string): boolean => {
@@ -602,13 +779,7 @@ const judged = (call: Call, ran: Ran, answer: Answer) =>
 						reached
 					}
 				}
-				const [reset] = ran.printed
-				const fields =
-					reset === undefined ? [] : (yield* Schema.decodeUnknownEffect(ResetData)(reset.data)).key
-				const upserts = yield* Effect.forEach(
-					Arr.filter(ran.printed, (line) => line.event === "upsert"),
-					(line) => Schema.decodeUnknownEffect(UpsertData)(line.data)
-				)
+				const fields = yield* resetFields(ran.printed)
 				const bigsSeen = yield* Effect.forEach(answer.rows, (row) =>
 					Schema.decodeUnknownEffect(BigOf)(row)
 				)
@@ -624,14 +795,7 @@ const judged = (call: Call, ran: Ran, answer: Answer) =>
 									? "an ordered read from its end"
 									: "an ordered read from a key"
 						)
-						const rows = yield* placed(fields, upserts)
-						return {
-							difference: Option.match(rows, {
-								onNone: () => differ("an upsert follows a key no row it read holds"),
-								onSome: (list) => ordered(exact)(list, answer.rows)
-							}),
-							reached
-						}
+						return { difference: yield* sameRows(fields, ran.printed, answer.rows, true), reached }
 					}
 					case "item":
 						reached.push("a key")
@@ -647,13 +811,7 @@ const judged = (call: Call, ran: Ran, answer: Answer) =>
 					case "clear":
 						return { difference: differ("a write answered rows"), reached }
 				}
-				return {
-					difference: set(structuralHash, exact)(
-						Arr.map(upserts, (upsert) => upsert.row),
-						answer.rows
-					),
-					reached
-				}
+				return { difference: yield* sameRows(fields, ran.printed, answer.rows, false), reached }
 			}
 			case "outcome": {
 				if (
@@ -807,68 +965,184 @@ layer(fixture, { excludeTestServices: true })("a generated CLI against a grizzle
 					(focus, notes) =>
 						Effect.gen(function* () {
 							const c = notes.draw(aimed(focus, notes))
+							/** The CLI's run of `call`, by `by`, made again while it ends at an error safe to make again. */
+							const cliRun = (call: Call, by: By) =>
+								Effect.repeat(
+									Effect.gen(function* () {
+										const finished = yield* during(
+											`the CLI's ${call.program} by ${by}`,
+											runBin(built, {
+												args: [...commands[call.program], "--base-url", url, ...argsOf(call, by)],
+												env: {},
+												stdin: new Uint8Array(0)
+											})
+										)
+										const printed = yield* printedOf(decoder.decode(finished.stdout))
+										const ran: Ran = {
+											exitCode: finished.exitCode,
+											printed,
+											stderr: decoder.decode(finished.stderr)
+										}
+										return ran
+									}),
+									{
+										while: (answered) => {
+											const again = saysAgain(answered)
+											if (again) {
+												notes.note("a call the server said to make again, made again")
+											}
+											return again
+										}
+									}
+								)
+							/** B's once of `call`, asked again while it answers an error safe to make again. */
+							const onceOf = (call: Call) =>
+								Effect.repeat(
+									during(
+										`grizzle's once of ${call.program}`,
+										Effect.flatMap(
+											driver.ask({ op: "once", program: call.program, body: bodyOf(call) }),
+											Schema.decodeUnknownEffect(Answer)
+										)
+									),
+									{
+										while: (answered) =>
+											answered.kind === "error" && answered.error.retry === "safe"
+									}
+								)
+							/** A failed case naming the call, what the CLI printed and what B answered. */
+							const differs = (
+								what: string,
+								difference: string,
+								printed: ReadonlyArray<Printed>,
+								stderr: string,
+								answer: Answer
+							) =>
+								fail(
+									`${what}: ${difference}\nthe CLI printed:\n${Arr.join(
+										Arr.map(printed, (line) => jsonTextOf(line)),
+										"\n"
+									)}\nits stderr:\n${stderr}\ngrizzle's once answered:\n${jsonTextOf(answer)}`
+								)
 							yield* during(
 								"storing the case's items",
 								driver.ask({ op: "store", stored: c.stored })
 							)
-							for (const { call, by } of c.calls) {
-								notes.note(by === "fields" ? "field flags" : "a whole body")
-								const body = bodyOf(call)
-								const args = by === "fields" ? fieldArgs(call) : [`--body=${jsonTextOf(body)}`]
-								const cli = Effect.gen(function* () {
-									const finished = yield* during(
-										`the CLI's ${call.program} by ${by}`,
-										runBin(built, {
-											args: [...commands[call.program], "--base-url", url, ...args],
-											env: {},
-											stdin: new Uint8Array(0)
-										})
-									)
-									const lines = Arr.filter(
-										Str.split("\n")(decoder.decode(finished.stdout)),
-										Str.isNonEmpty
-									)
-									const printed = yield* Effect.forEach(lines, (line) =>
-										Schema.decodeEffect(Printed)(line)
-									)
-									const ran: Ran = {
-										exitCode: finished.exitCode,
-										printed,
-										stderr: decoder.decode(finished.stderr)
-									}
-									return ran
-								})
-								const once = during(
-									`grizzle's once of ${call.program}`,
-									Effect.flatMap(
-										driver.ask({ op: "once", program: call.program, body }),
-										Schema.decodeUnknownEffect(Answer)
+							if (Option.isSome(c.follow)) {
+								const follow = c.follow.value
+								const write: Call = { program: "put", items: [follow.write] }
+								const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+								const handle = yield* spawner.spawn(
+									ChildProcess.make(
+										process.execPath,
+										[
+											...HARDENED_FLAGS,
+											built.bin,
+											...commands[follow.read.program],
+											"--base-url",
+											url,
+											"--follow",
+											...argsOf(follow.read, follow.by)
+										],
+										{ cwd: built.dir, env: {}, extendEnv: false }
 									)
 								)
-								const ran = yield* Effect.repeat(cli, {
-									while: (answered) => {
-										const again = saysAgain(answered)
-										if (again) {
-											notes.note("a call the server said to make again, made again")
+								const lines = yield* Queue.unbounded<string, Cause.Done>()
+								yield* Effect.forkScoped(
+									Stream.runForEach(Stream.splitLines(Stream.decodeText(handle.stdout)), (line) =>
+										Queue.offer(lines, line)
+									).pipe(Effect.ensuring(Queue.end(lines)))
+								)
+								const seen: Array<Printed> = []
+								/** The followed CLI's events through its next `ready`, false where its stream ended first. */
+								const throughReady = during(
+									`the CLI following ${follow.read.program} by ${follow.by}`,
+									Effect.gen(function* () {
+										for (;;) {
+											const line = yield* Effect.option(Queue.take(lines))
+											if (Option.isNone(line)) {
+												return false
+											}
+											const printed = yield* Schema.decodeEffect(Printed)(line.value)
+											seen.push(printed)
+											if (printed.event === "ready") {
+												return true
+											}
 										}
-										return again
-									}
-								})
-								const answer = yield* Effect.repeat(once, {
-									while: (answered) => answered.kind === "error" && answered.error.retry === "safe"
-								})
+									})
+								)
+								const readyFirst = yield* throughReady
+								const before = seen.length
+								const written = yield* cliRun(write, follow.writeBy)
+								const writtenOnce = yield* onceOf(write)
+								if (written.exitCode !== 0 || writtenOnce.kind !== "outcome") {
+									return differs(
+										`put by ${follow.writeBy}, made while ${follow.read.program} was followed`,
+										"the put a followed read sees did not store its item",
+										written.printed,
+										written.stderr,
+										writtenOnce
+									)
+								}
+								const readyAgain = readyFirst && (yield* throughReady)
+								if (readyAgain) {
+									yield* Effect.ignore(handle.kill({ killSignal: "SIGINT" }))
+								}
+								const exitCode = yield* during(
+									"the followed CLI's exit once interrupted",
+									handle.exitCode
+								)
+								const answer = yield* onceOf(follow.read)
+								const live = Arr.map(Arr.drop(seen, before), (line) => line.event)
+								const fields = yield* resetFields(seen)
+								const difference =
+									!readyAgain || answer.kind !== "rows"
+										? differ("the followed stream ended before the put's change reached it")
+										: Arr.isReadonlyArrayEmpty(live) ||
+											  !Arr.every(
+													Arr.dropRight(live, 1),
+													(event) => event === "upsert" || event === "remove"
+											  )
+											? differ(`the put's change arrived as ${Formatter.format(live)}`)
+											: exitCode !== 130
+												? differ(`the followed CLI exited ${exitCode} when interrupted, not 130`)
+												: yield* sameRows(
+														fields,
+														seen,
+														answer.rows,
+														follow.read.program === "ranked"
+													)
+								if (Option.isSome(difference)) {
+									return differs(
+										`${follow.read.program} followed by ${follow.by}`,
+										difference.value,
+										seen,
+										"",
+										answer
+									)
+								}
+								notes.noteAll([
+									"a live change reaching a followed read",
+									follow.by === "fields" ? "field flags" : "a whole body"
+								])
+							}
+							for (const { call, by } of c.calls) {
+								notes.note(by === "fields" ? "field flags" : "a whole body")
+								const ran = yield* cliRun(call, by)
+								const answer = yield* onceOf(call)
 								const verdict = yield* judged(call, ran, answer)
 								notes.noteAll(verdict.reached)
 								if (Option.isSome(verdict.difference)) {
-									return fail(
-										`${call.program} by ${by}: ${verdict.difference.value}\nthe CLI printed:\n${Arr.join(
-											Arr.map(ran.printed, (line) => jsonTextOf(line)),
-											"\n"
-										)}\nits stderr:\n${ran.stderr}\ngrizzle's once answered:\n${jsonTextOf(answer)}`
+									return differs(
+										`${call.program} by ${by}`,
+										verdict.difference.value,
+										ran.printed,
+										ran.stderr,
+										answer
 									)
 								}
 							}
-						})
+						}).pipe(Effect.scoped)
 				)
 			})
 		)
