@@ -9,7 +9,9 @@
  *   keys keep those rules, a level is one above the derived relations it reads, and queries over a relation see its
  *   keys. Oracle: the rules as a checker (keyRules). Plant: derived-one-fact-last-column (a definition of one fact is
  *   keyed by its last representable column). Features: the whole heading, at most one fact, a level over a derived
- *   relation.
+ *   relation, and a negation over a level whose conditional count is numeric (sum(cond(flag, 1, 0)), an exact numeric
+ *   the generator must type as one, or it binds that count to a bigint field: test/pg/derived/oracle/gen.ts aggregated).
+ *   Plant: derived-cond-count-int8 (the conditional count typed int8).
  * - Join keys: over generated joins of relations keyed by primary and candidate keys, each matched once, their heads
  *   in a drawn order, every key the view indexes is a minimal set of head columns whose closure, under each relation's
  *   keys bound whole, holds the head, and the keys the view states, each key's factors chosen among its alternatives,
@@ -77,7 +79,12 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { materializedDerived as runtimeDerived } from "#compiler/schema/relation.ts"
 import { schema as runtimeSchema } from "#compiler/schema/schema.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { buildSchema, caseSketchGen } from "#test/pg/derived/oracle/gen.ts"
+import {
+	buildSchema,
+	type CaseSketch,
+	caseSketchGen,
+	condNegationSketchGen
+} from "#test/pg/derived/oracle/gen.ts"
 import {
 	assert,
 	deepEquals,
@@ -97,6 +104,18 @@ type KeyFeature =
 	| "the whole heading"
 	| "at most one fact"
 	| "a level over a derived relation"
+	| "a negation over a level whose conditional count is numeric"
+
+/**
+ * The case a witness checks: its drawn one, or, while a negation over a level whose conditional count is numeric is
+ * pending, a planted one (condNegationSketchGen), which the drawn population reaches about once a stream.
+ */
+const aimedSketch = (drawnSketch: CaseSketch, c: Case<KeyFeature>): CaseSketch =>
+	Option.exists(c.steering, (pending) =>
+		pending.has("a negation over a level whose conditional count is numeric")
+	)
+		? c.draw(condNegationSketchGen)
+		: drawnSketch
 
 /** The rules every derived relation's keys keep (see the header). */
 const keyRules = (r: {
@@ -1442,7 +1461,12 @@ describe("derived relation keys", () => {
 						draw: drawn(caseSketchGen),
 						literal: Formatter.format,
 						coverage: required<KeyFeature>(
-							["the whole heading", "at most one fact", "a level over a derived relation"],
+							[
+								"the whole heading",
+								"at most one fact",
+								"a level over a derived relation",
+								"a negation over a level whose conditional count is numeric"
+							],
 							{ cases: 100, sense: notesOnly }
 						),
 						kept: [],
@@ -1454,9 +1478,11 @@ describe("derived relation keys", () => {
 					},
 					(sketch, c) =>
 						Effect.sync(() => {
-							const analysis = succeeded(
-								Result.map(checkedIn(buildSchema(sketch, { name: "Gen" }).value), derivedAnalysis)
-							)
+							const built = buildSchema(aimedSketch(sketch, c), { name: "Gen" })
+							if (Arr.some(built.derived, (d) => d.negationOverCond)) {
+								c.note("a negation over a level whose conditional count is numeric")
+							}
+							const analysis = succeeded(Result.map(checkedIn(built.value), derivedAnalysis))
 							for (const r of analysis.order) {
 								const name = r.name
 								keyRules(r)

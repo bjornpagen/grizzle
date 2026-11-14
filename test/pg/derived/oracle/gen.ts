@@ -141,6 +141,38 @@ const literal: ReadonlySet<Kind> = new Set([
 const sumKind = (k: Kind): Kind => (k === "f8" ? "f8" : "num")
 const meanKind = (k: Kind): Kind => (k === "f8" ? "f8" : "num")
 
+/** An aggregate a definition's head computes, by what it reads: a count, a conditional count, or sum, mean, min or max
+ * over a variable of a kind it takes. */
+type Aggregate =
+	| { readonly fn: "count" }
+	| { readonly fn: "cond" }
+	| { readonly fn: "sum" | "mean"; readonly of: SummedKind }
+	| { readonly fn: "min" | "max"; readonly of: ExtremalKind }
+
+/**
+ * An aggregate's key and the kind of the column it computes, both read off the one aggregate, so no column's kind
+ * strays from what computes it: a count is a bigint; a sum, its argument's sum kind (sumKind), the conditional count a
+ * sum over an integer; a mean, its argument's mean kind; min and max, their argument's kind.
+ */
+const aggregated = (a: Aggregate): { readonly key: AggregateKey; readonly kind: Kind } => {
+	switch (a.fn) {
+		case "count":
+			return { key: "count", kind: "int8" }
+		case "cond":
+			return { key: "sum(cond)", kind: sumKind("int4") }
+		case "sum":
+			return { key: `sum(${a.of})`, kind: sumKind(a.of) }
+		case "mean":
+			return { key: `mean(${a.of})`, kind: meanKind(a.of) }
+		case "min":
+		case "max":
+			return { key: `${a.fn}(${a.of})`, kind: a.of }
+	}
+}
+
+/** The column a definition's conditional count is, `sum(cond(flag, 1, 0))`. */
+const condColumn = "p"
+
 const Color = closed("Color", ["red", "green", "blue"], [])
 const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
 const Word = str.regex("^[a-z]{0,4}$")
@@ -448,6 +480,51 @@ const plantedNumSketchGen: Gen<CaseSketch> = map(drawnCaseSketchGen, (s) => ({
 	]
 }))
 
+/**
+ * A negation beside a conditional count, which the drawn population reaches about once a stream: R0(f0 bigint key,
+ * f1 boolean); L1a = R0 ungrouped with its conditional count of f1, `p`, an exact numeric, and its count `n`, a bigint;
+ * L2a = L1a's two columns, each a variable of its own, less the facts of R0 at its count (its sources: R0, the roster,
+ * L1a). The negation's field, R0.f0, is a bigint, which only `n` may bind: a generator that typed `p` a bigint too
+ * would bind it first.
+ */
+export const condNegationSketchGen: Gen<CaseSketch> = map(drawnCaseSketchGen, (s) => ({
+	...s,
+	relations: [
+		{ fields: [{ kind: baseKinds.indexOf("int8") }, { kind: baseKinds.indexOf("bool") }], key: 0 }
+	],
+	levels: [
+		{
+			naming: 0,
+			definitions: [
+				{
+					...aggregateOver(0, [], []),
+					rule: { ...aggregateOver(0, [], []).rule, count: true, cond: true }
+				}
+			]
+		},
+		{
+			naming: 0,
+			definitions: [
+				{
+					form: 0,
+					k: 1,
+					desc: false,
+					rule: {
+						matches: [{ source: 2, binds: [fresh, fresh] }],
+						preds: [],
+						not: 0,
+						head: [],
+						aggregate: false,
+						aggs: [],
+						count: false,
+						cond: false
+					}
+				}
+			]
+		}
+	]
+}))
+
 /** One case in sixteen is planted: about 15 per stream of 250, each reaching all four keys. */
 export const caseSketchGen: Gen<CaseSketch> = weighted([
 	[15, drawnCaseSketchGen],
@@ -569,6 +646,8 @@ export interface GenDerived extends GenSource {
 	readonly form: "rule" | "union" | "take"
 	readonly aggregates: ReadonlyArray<AggregateKey>
 	readonly negation: boolean
+	/** Whether a rule of its definition negates beside a variable a source's conditional count binds (BuiltRule). */
+	readonly negationOverCond: boolean
 	readonly reads: ReadonlyArray<string>
 }
 
@@ -619,6 +698,9 @@ interface BuiltRule {
 	readonly columns: ReadonlyArray<GenColumn>
 	readonly aggregates: ReadonlyArray<AggregateKey>
 	readonly negation: boolean
+	/** Whether the rule negates beside a variable a source's conditional count binds, a numeric that no negated field
+	 * of another kind takes. */
+	readonly negationOverCond: boolean
 	readonly reads: ReadonlyArray<string>
 }
 
@@ -643,6 +725,7 @@ const runRule = (
 	const bound = (whole: boolean) => {
 		const vars: Array<Variable> = []
 		const reads = new Set<string>()
+		let cond = false
 		let rule = r
 		for (const [mi, m] of sketch.matches.entries()) {
 			const source = pick(sources, m.source)
@@ -662,6 +745,7 @@ const runRule = (
 				}
 				const same = Arr.filter(vars, (x) => x.kind === c.kind)
 				const shared = b.how === 1 ? same[b.share] : undefined
+				cond = cond || c.name === condColumn
 				if (shared !== undefined) {
 					bindings[c.name] = shared.term
 				} else {
@@ -671,12 +755,13 @@ const runRule = (
 			}
 			if (Rec.keys(bindings).length === 0) {
 				const c = pick(source.columns, 0)
+				cond = cond || c.name === condColumn
 				bindings[c.name] = minted[c.name]
 				vars.push({ kind: c.kind, term: minted[c.name] })
 			}
 			rule = rule.match(source.value, bindings)
 		}
-		return { vars, reads, rule }
+		return { vars, reads, rule, cond }
 	}
 	/** Whether the rule folds: drawn so, or a plain rule with no variable a head may find, which counts instead. */
 	const folds = (vars: ReadonlyArray<Variable>): boolean =>
@@ -726,11 +811,18 @@ const runRule = (
 	}
 	const head: Record<string, unknown> = {}
 	const columns: Array<GenColumn> = []
+	const aggregates: Array<AggregateKey> = []
+	/** An aggregate column of the head: its term, and its kind and key, both its aggregate's (`aggregated`). */
+	const add = (name: string, term: unknown, a: Aggregate): void => {
+		const { key, kind } = aggregated(a)
+		head[name] = term
+		columns.push({ name, kind })
+		aggregates.push(key)
+	}
 	for (const [i, x] of chosen.entries()) {
 		head[`c${i}`] = x.term
 		columns.push({ name: `c${i}`, kind: x.kind })
 	}
-	const aggregates: Array<AggregateKey> = []
 	/** A plain head with nothing to find falls back to a count alone: an aggregate column of a union or a take would be
 	 * part of its whole-heading key, and a few computed numerics there outgrow its B-tree entry (UnrepresentableKey). */
 	const countOnly = plain && headable.length === 0
@@ -738,39 +830,35 @@ const runRule = (
 		for (const [i, a] of (countOnly ? [] : sketch.aggs).entries()) {
 			const fn = pick(["sum", "mean", "min", "max"] as const, a.fn)
 			if (fn === "sum" || fn === "mean") {
-				const takes = Arr.flatMap(vars, (x) =>
-					isSummed(x.kind) ? [{ term: x.term, kind: x.kind }] : []
+				const takes = Arr.flatMap(vars, (x): ReadonlyArray<{ term: unknown; of: SummedKind }> =>
+					isSummed(x.kind) ? [{ term: x.term, of: x.kind }] : []
 				)
 				const x = takes[a.variable % Math.max(takes.length, 1)]
 				if (x === undefined) {
 					continue
 				}
-				head[`a${i}`] = r[fn](x.term)
-				columns.push({ name: `a${i}`, kind: fn === "sum" ? sumKind(x.kind) : meanKind(x.kind) })
-				aggregates.push(`${fn}(${x.kind})`)
+				add(`a${i}`, r[fn](x.term), { fn, of: x.of })
 				continue
 			}
-			const takes = Arr.flatMap(vars, (x) =>
-				isExtremal(x.kind) ? [{ term: x.term, kind: x.kind }] : []
+			const takes = Arr.flatMap(vars, (x): ReadonlyArray<{ term: unknown; of: ExtremalKind }> =>
+				isExtremal(x.kind) ? [{ term: x.term, of: x.kind }] : []
 			)
 			const x = takes[a.variable % Math.max(takes.length, 1)]
 			if (x === undefined) {
 				continue
 			}
-			head[`a${i}`] = r[fn](x.term)
-			columns.push({ name: `a${i}`, kind: x.kind })
-			aggregates.push(`${fn}(${x.kind})`)
+			add(`a${i}`, r[fn](x.term), { fn, of: x.of })
 		}
 		const flag = Arr.findFirst(vars, (x) => x.kind === "bool")
 		if (sketch.cond && Option.isSome(flag) && !countOnly) {
-			head["p"] = r.sum(computeCore.cond(flag.value.term, computeCore.literal(pg.integer, 1), 0))
-			columns.push({ name: "p", kind: sumKind("int4") })
-			aggregates.push("sum(cond)")
+			add(
+				condColumn,
+				r.sum(computeCore.cond(flag.value.term, computeCore.literal(pg.integer, 1), 0)),
+				{ fn: "cond" }
+			)
 		}
 		if (sketch.count || aggregates.length === 0) {
-			head["n"] = r.count()
-			columns.push({ name: "n", kind: "int8" })
-			aggregates.push("count")
+			add("n", r.count(), { fn: "count" })
 		}
 	}
 	return {
@@ -778,6 +866,7 @@ const runRule = (
 		columns,
 		aggregates,
 		negation,
+		negationOverCond: negation && matched.cond,
 		reads: Arr.sort([...reads], Order.String)
 	}
 }
@@ -793,6 +882,7 @@ const buildDefinition = (
 	readonly form: GenDerived["form"]
 	readonly aggregates: ReadonlyArray<AggregateKey>
 	readonly negation: boolean
+	readonly negationOverCond: boolean
 	readonly reads: ReadonlyArray<string>
 } => {
 	/** The arms the rule callbacks built, in order. */
@@ -823,6 +913,7 @@ const buildDefinition = (
 		form,
 		aggregates: built.aggregates,
 		negation: built.negation || second?.negation === true,
+		negationOverCond: built.negationOverCond || second?.negationOverCond === true,
 		reads: Arr.sort([...reads], Order.String)
 	}
 }
@@ -876,6 +967,7 @@ export const buildSchema = (sketch: CaseSketch, options: BuildOptions): GenSchem
 				form: built.form,
 				aggregates: built.aggregates,
 				negation: built.negation,
+				negationOverCond: built.negationOverCond,
 				reads: built.reads
 			}
 		})
