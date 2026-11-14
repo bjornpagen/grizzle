@@ -7,7 +7,10 @@
  * `returned` form of write/insert/protocol.ts, ON CONFLICT (k) DO SELECT, whose fetch of the occupant takes no SIRead
  * lock, so at SERIALIZABLE each met row is read again at its key under the transaction's snapshot. Mark(k) is a pure
  * set. The role `writer` inserts both, and its workload is `meet`, an insertion of Held and of Mark in one stratum that
- * reads back the Held rows it added and the stored ones it met. The role `direct` deletes Held, so generate serves
+ * reads back the Held rows it added and the stored ones it met, Held's from a query over the call's relation parameter
+ * `held`, whose head leaves the id out, so its rows are one generated addition's and its read-backs ride that
+ * statement (an array of Held is two insertions, of the rows that state the id and of those that leave it out, whose
+ * read-back the compile refuses: README "Where a read-back runs"). The role `direct` deletes Held, so generate serves
  * `writer` SERIALIZABLE (the case requires it). The stored state is m = Held(k 1, a 0) and o = Held(k 2, a 0).
  *
  * One schedule per case: D, a direct SQL session of `direct`, begins SERIALIZABLE and reads whether Mark holds a key;
@@ -73,7 +76,14 @@ const skew = (name: string) => {
 			workload: [
 				workload(writer, {
 					meet: ChangeSet.empty(base)
-						.insert(Held, [])
+						.insert(
+							Held,
+							query(base).rule((r) => {
+								const held = r.relation("held", { k: Held.fields.k, a: Held.fields.a })
+								const { k, a } = v(held, "given")
+								return r.match(held, { k, a }).find({ k, a })
+							})
+						)
 						.insert(Mark, [])
 						.read("added", (d) => heldOf(d.added(Held)))
 						.read("met", (d) => heldOf(d.met(Held)))
@@ -154,7 +164,7 @@ layer(Substrate.layer)("a SERIALIZABLE insertion's met row", (it) => {
 					(context) => openServed(rig.served.roles.writer, {}).pipe(Effect.provideContext(context)),
 					(db) =>
 						answered(
-							db.workload.meet.once({ params: {}, facts: { insert: { Held: [], Mark: [] } } })
+							db.workload.meet.once({ params: { held: [] }, facts: { insert: { Mark: [] } } })
 						)
 				)
 				assert.equal(
@@ -215,10 +225,8 @@ layer(Substrate.layer)("a SERIALIZABLE insertion's met row", (it) => {
 							const ran = yield* Effect.result(
 								answered(
 									l.db.workload.meet.once({
-										params: {},
-										facts: {
-											insert: { Held: [{ k: c.repeats ? 1 : 3, a: 0 }], Mark: [{ k: markKey }] }
-										}
+										params: { held: [{ k: c.repeats ? 1 : 3, a: 0 }] },
+										facts: { insert: { Mark: [{ k: markKey }] } }
 									})
 								)
 							)
