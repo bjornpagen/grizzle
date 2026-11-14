@@ -1036,18 +1036,15 @@ class Walk<Top extends Arrival> {
 		)
 		const keying = [...conditions.map((expr) => ({ expr, scope: here.scope })), ...pushed]
 		const rows = sources.flatMap((s) => {
-			switch (s.join) {
-				case "inner":
-					return this.#source(s.source, here, keying, c.scope)
-				case "left":
-					this.#source(
-						s.source,
-						here,
-						conjunctsOf(s.on).map((expr) => ({ expr, scope: here.scope })),
-						c.scope
-					)
-					return []
-			}
+			const read = this.#source(
+				s.source,
+				here,
+				s.join === "inner"
+					? keying
+					: conjunctsOf(s.on).map((expr) => ({ expr, scope: here.scope })),
+				c.scope
+			)
+			return s.join === "inner" ? read : []
 		})
 		this.cores[core] = parts.groups || !aggregates ? rows : []
 		for (const e of [...conditions, ...outerConditions, ...conjunctsOf(parts.having)]) {
