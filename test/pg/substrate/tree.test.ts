@@ -43,7 +43,7 @@ import { requiredInSpace } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Data, Effect, Formatter, Option, Pool } from "effect"
+import { Array as Arr, Data, Effect, Exit, Formatter, Option, Pool } from "effect"
 import {
 	type TreeBreach,
 	breachOf,
@@ -162,8 +162,8 @@ const seatsOf = <L extends string>(lowerings: ReadonlyArray<readonly [L, Lowerin
 /**
  * A pool of seat sets for `lowerings`, as many as their sessions fit in a test's pool (casesAtOnce), each installing
  * every lowering in fresh schemas with sessions of its own (seatsOf): a case holds one set for its run, so the cases an
- * exhaustion runs at once never share a table or a session, and each finds its set's tables empty, a committed case
- * clearing its rows.
+ * exhaustion runs at once never share a table or a session, and each finds its set's tables empty, a case clearing
+ * what it committed however it ends (judged).
  */
 const seatPoolOf = <L extends string>(lowerings: ReadonlyArray<readonly [L, Lowering]>) =>
 	Pool.make({ acquire: seatsOf(lowerings), size: casesAtOnce(lowerings.length) })
@@ -206,9 +206,21 @@ interface Judged {
 /**
  * One transaction of `statements`, each an INSERT, on a seat with no rows, judged against the model: the same verdict,
  * a refusal at the same moment with the SQLSTATE of a constraint the model allows there, and a committed state that
- * reads back as written. A committed case clears its rows.
+ * reads back as written. It leaves its seat with no rows however it ends: a committed case clears its rows once it has
+ * read them, and a case that ends with no verdict, its model disagreeing or a failing sibling seat interrupting it, may
+ * have committed rows it never read, so it clears its seat. The next case on the seat, a shrink candidate among them,
+ * never meets them (a duplicate key, 23505 on node_identity, in place of the failure being shrunk).
  */
 const judged = <L extends string>(
+	seat: Seat<L>,
+	statements: ReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>
+): Effect.Effect<Judged, SqlError | TransactionRolledBack | Disagreed> =>
+	Effect.onExit(verdictOf(seat, statements), (exit) =>
+		Exit.isSuccess(exit) ? Effect.void : clearRows(seat.session, seat.tables)
+	)
+
+/** judged's verdict, its committed rows cleared once read (see judged). */
+const verdictOf = <L extends string>(
 	seat: Seat<L>,
 	statements: ReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>
 ): Effect.Effect<Judged, SqlError | TransactionRolledBack | Disagreed> =>
