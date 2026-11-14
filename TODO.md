@@ -298,11 +298,6 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   ledger records a begun row before a no-transaction file's first statement (or the folder row records which ordinals
   the started draft ran outside a transaction), and decideFolder refuses a redraft over any begun-but-unfinished file.
   No downstream is exposed today: QTI resumes at 02, a transactional file.
-- **Turbo hashes grizzle's own sources into every task:** the root package.json devDepends on @bjornpagen/grizzle
-  (workspace:*), and since the toolchain switch (541d5b06) on vendor/toolchain's @bjornpagen/devtools and
-  @bjornpagen/testing, so turbo counts their sources in the global hash (globalCacheInputs.hashOfInternalDependencies):
-  a one-line edit in packages/grizzle, or any toolchain bump, reruns every check task (13 since the switch). Move test,
-  bench and scripts into a workspace package of their own, so the root depends only on the tooling.
 - **A family member's put that moves a key is witnessed by PostgreSQL alone (WITNESS, 2026-11-11):** every insert now
   probes each unique object it does not arbitrate in its own statement, a family's additions and a planner's row insert
   included (write/family/statements.ts candidateGate), so a stated row meeting one is refused with its key. A family's
