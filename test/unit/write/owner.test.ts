@@ -47,8 +47,9 @@ import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  * (test/pg/write/swarm/families.test.ts) runs.
  *
  * A deletion of ledgers, from a query or stated, removes each ledger with its entries whole (README "Families", a group
- * is deleted whole through its owner), so a stratum that also puts an entry is refused when it compiles
- * (UnsupportedOperation, at the entry's put); beside an entry's insert or removal it compiles.
+ * is deleted whole through its owner), so a stratum that also puts an entry is refused when it compiles, at the
+ * entry's put, by the named Refusal "a stratum puts no row its deletes remove whole" (core/refusals.ts, since
+ * ee93f32d); beside an entry's insert or removal it compiles.
  *
  * The oracle is those two rules over generated ChangeSets of one or two strata over a ledger whose entries sum to its
  * total. A ChangeSet writes an entry in one stratum at most, so no ChangeSet breaks both.
@@ -297,14 +298,18 @@ describe("an owner of counted families read from a query", () => {
 									defined(descOf(value).strata[whole.value.at], "the refused stratum").members,
 									(m) => m.op === "put" && m.relation === "Entry"
 								)
+								const named = refused(
+									compile(value),
+									"Refused",
+									"a put of an entry beside a whole delete of its ledgers"
+								)
+								assert.equal(
+									named.reason._tag === "Refused" ? named.reason.refusal : undefined,
+									"a stratum puts no row its deletes remove whole: a delete of a tree or of a family's owner removes every row nested under it, so put in another stratum (ChangeSet.sequence), or insert the rows again whole",
+									"the refusal is the whole delete's named Refusal"
+								)
 								assert.deepEqual(
-									refusalLoc(
-										refused(
-											compile(value),
-											"UnsupportedOperation",
-											"a put of an entry beside a whole delete of its ledgers"
-										)
-									),
+									refusalLoc(named),
 									defined(Option.getOrUndefined(put), "the entry's put").loc,
 									"the refusal is at the entry's put"
 								)
