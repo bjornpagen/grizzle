@@ -1,4 +1,4 @@
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { constant, element, type Gen, increasing, int, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -50,7 +50,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * parameter of no keys to several, the claim's kind, resource, slot, seat and instants; PostgreSQL plans the deletion
  * for those values, as a custom plan does. The property is the plan's contract, not its text: exactly one node reads
  * Wanted, and an index condition bounds it, whatever the values. Each shape is a required feature, as are a relation
- * parameter of no keys and one of several.
+ * parameter of no keys and one of several, and while one is pending a steered case is constructed to reach it (`aims`):
+ * its shape, or the relation parameter's member with no keys or two to four.
  *
  * Plant: ~/.cache/grizzle-release/BR08/plants/anchored-delete-never-anchored.patch, an exact deletion never anchored on
  * its relation's occurrence, must turn the property red.
@@ -84,36 +85,69 @@ interface Anchored {
 
 const itemGen = int(1, 2 * items)
 
-const anchoredGen: Gen<Anchored> = (source) => {
-	const shape = source.draw(
-		element([
-			"the claim's deletion of the Wanted items its pick names",
-			"a deletion of the Wanted items a relation parameter names",
-			"a deletion of the Wanted item a parameter selects"
-		] as const)
-	)
-	const keys = source.draw(
-		weighted<ReadonlyArray<number>>([
-			[1, constant([])],
-			[2, increasing(1, 2 * items, { min: 1, max: 4 })]
-		])
-	)
-	return {
-		shape,
-		params: {
-			kind: source.draw(element(QueueKind.handles)),
-			slot: Slot(source.draw(int(0, 3))),
-			now: Instant(BigInt(source.draw(int(0, 3)))),
+const SHAPES: Arr.NonEmptyReadonlyArray<Shape> = [
+	"the claim's deletion of the Wanted items its pick names",
+	"a deletion of the Wanted items a relation parameter names",
+	"a deletion of the Wanted item a parameter selects"
+]
 
-			resource: source.draw(element(Resource.handles)),
-			fromSeat: SeatNo(source.draw(int(0, 3))),
-			expires: Instant(BigInt(source.draw(int(0, 3))))
-		},
-		keys,
-		from: source.draw(itemGen),
-		key: source.draw(itemGen)
+/** The member a relation parameter's keys reach the deletion through. */
+const named: Shape = "a deletion of the Wanted items a relation parameter names"
+
+/** A relation parameter of no keys, and one of several. */
+const noKeys = constant<ReadonlyArray<number>>([])
+const severalKeys = increasing(1, 2 * items, { min: 2, max: 4 })
+
+/** A relation parameter's keys: none, or one to four items. */
+const keysGen = weighted<ReadonlyArray<number>>([
+	[1, noKeys],
+	[2, increasing(1, 2 * items, { min: 1, max: 4 })]
+])
+
+/** A case of a shape `shapes` draws and a relation parameter `keysOf` draws, every other parameter drawn. */
+const anchoredOf =
+	(shapes: Gen<Shape>, keysOf: Gen<ReadonlyArray<number>>): Gen<Anchored> =>
+	(source) => {
+		const shape = source.draw(shapes)
+		const keys = source.draw(keysOf)
+		return {
+			shape,
+			params: {
+				kind: source.draw(element(QueueKind.handles)),
+				slot: Slot(source.draw(int(0, 3))),
+				now: Instant(BigInt(source.draw(int(0, 3)))),
+
+				resource: source.draw(element(Resource.handles)),
+				fromSeat: SeatNo(source.draw(int(0, 3))),
+				expires: Instant(BigInt(source.draw(int(0, 3))))
+			},
+			keys,
+			from: source.draw(itemGen),
+			key: source.draw(itemGen)
+		}
 	}
-}
+
+const anchoredGen: Gen<Anchored> = anchoredOf(element(SHAPES), keysGen)
+
+/** The feature each shape's case reaches. */
+const readByIndex = (shape: Shape): AnchoredFeature =>
+	`${shape}: Wanted read once, by an index condition`
+
+/** The case each required feature is aimed at while it is pending (Case.steering), constructed to reach it. */
+const aims: Arr.NonEmptyReadonlyArray<readonly [AnchoredFeature, Gen<Anchored>]> = [
+	["a relation parameter of no keys", anchoredOf(constant(named), noKeys)],
+	["a relation parameter of several keys", anchoredOf(constant(named), severalKeys)],
+	...Arr.map(SHAPES, (shape) => [readByIndex(shape), anchoredOf(constant(shape), keysGen)] as const)
+]
+
+/** The case a witness runs: its drawn one, or, while a feature is pending, the one aimed at its turn's feature. */
+const aimedCase = (drawnCase: Anchored, c: Case<AnchoredFeature>): Anchored =>
+	Option.match(
+		Option.flatMap(c.steering, (pending) =>
+			Arr.findFirst(aims, ([feature]) => pending.aimed(feature))
+		),
+		{ onNone: () => drawnCase, onSome: ([, reaching]) => c.draw(reaching) }
+	)
 
 /** Every node of a plan that reads `relation`'s rows: not the DELETE itself, nor a bitmap index scan, which only yields
  * row locations to its heap scan. */
@@ -241,13 +275,7 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 							name: "PostgreSQL's plan of the deletion for the drawn values: one node reads Wanted, bounded by an index condition"
 						},
 						coverage: required<AnchoredFeature>(
-							[
-								"the claim's deletion of the Wanted items its pick names: Wanted read once, by an index condition",
-								"a deletion of the Wanted items a relation parameter names: Wanted read once, by an index condition",
-								"a deletion of the Wanted item a parameter selects: Wanted read once, by an index condition",
-								"a relation parameter of no keys",
-								"a relation parameter of several keys"
-							],
+							Arr.map(aims, ([feature]) => feature),
 							{ cases: 48, sense: notesOnly }
 						),
 						kept: [],
@@ -257,8 +285,9 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 						steerEvery: 8,
 						caseHang
 					},
-					({ shape, keys, from, key, params }, c) =>
+					(drawnCase, c) =>
 						Effect.gen(function* () {
+							const { shape, keys, from, key, params } = aimedCase(drawnCase, c)
 							const numbered = [from, key, ...keys]
 							const digestRows = yield* s.admin.queryValues(
 								`SELECT ${digestOf("n")} FROM pg_catalog.unnest(ARRAY[${Arr.join(Arr.map(numbered, String), ", ")}]::integer[]) WITH ORDINALITY AS u (n, at) ORDER BY at`,
@@ -328,8 +357,8 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 								[],
 								`${shape}: these nodes read Wanted unbounded`
 							)
-							c.note(`${shape}: Wanted read once, by an index condition`)
-							if (shape === "a deletion of the Wanted items a relation parameter names") {
+							c.note(readByIndex(shape))
+							if (shape === named) {
 								if (keys.length > 1) {
 									c.note("a relation parameter of several keys")
 								}
