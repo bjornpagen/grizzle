@@ -244,7 +244,9 @@ const headName = (scope: 0 | 1, field: Field): string =>
 
 /**
  * The proofs a child is drawn toward, so the floor reaches each: a containment from a parent's field into the child's
- * key, into an ordinary relation, a closed one or a composite key; a reflexive count over the parent's own relation;
+ * key, into an ordinary relation, a closed one or a composite key; a closed child bound by a field its facts tell apart
+ * and its declaration does not key (PlanBudget by its budget), at most one per parent by the facts alone; a reflexive
+ * count over the parent's own relation;
  * a child keyed by the parent, which is at most one per parent; an arm of the alternatives law over Task; a child of
  * Account keyed by a derived parent's account (./deliver-tally.ts), which no containment reaches, so its key proves at
  * most one owner per tally and never exactly one; or a free child. Each draws the parent's head the proof reads and the child the proof makes, then perturbs it: a filter, an
@@ -253,6 +255,7 @@ const headName = (scope: 0 | 1, field: Field): string =>
 const intents = [
 	"containment",
 	"closed",
+	"facts",
 	"composite",
 	"reflexive",
 	"keyed",
@@ -269,6 +272,7 @@ type Intent = (typeof intents)[number]
 const intentGen: Gen<Intent> = weighted<Intent>([
 	[2, constant("containment")],
 	[2, constant("closed")],
+	[2, constant("facts")],
 	[3, constant("composite")],
 	[2, constant("reflexive")],
 	[1, constant("keyed")],
@@ -286,7 +290,15 @@ interface Plan {
 }
 
 /** The intents whose plans are fixed: each one's plans, drawn among. */
-const fixedIntents = ["containment", "closed", "derived", "composite", "keyed", "arm"] as const
+const fixedIntents = [
+	"containment",
+	"closed",
+	"facts",
+	"derived",
+	"composite",
+	"keyed",
+	"arm"
+] as const
 type FixedIntent = (typeof fixedIntents)[number]
 
 const fixedPlans: { readonly [I in FixedIntent]: Arr.NonEmptyReadonlyArray<Plan> } = {
@@ -295,6 +307,15 @@ const fixedPlans: { readonly [I in FixedIntent]: Arr.NonEmptyReadonlyArray<Plan>
 		{ parent: "TaskNote", heads: ["task"], child: "Task", bound: [["id", "task"]] }
 	],
 	closed: [{ parent: "Account", heads: ["plan"], child: "PlanBudget", bound: [["plan", "plan"]] }],
+	facts: [
+		{
+			parent: "AutomaticTask",
+			heads: ["budget"],
+			child: "PlanBudget",
+			bound: [["budget", "budget"]]
+		},
+		{ parent: "PlanBudget", heads: ["budget"], child: "PlanBudget", bound: [["budget", "budget"]] }
+	],
 	derived: [
 		{ parent: "AccountTally", heads: ["account"], child: "Account", bound: [["id", "account"]] }
 	],
@@ -342,6 +363,7 @@ const planOf = (source: Source, intent: Intent): Plan => {
 	switch (intent) {
 		case "containment":
 		case "closed":
+		case "facts":
 		case "derived":
 		case "composite":
 		case "keyed":
@@ -954,9 +976,14 @@ interface AttachAdmitted {
 	readonly immediate: string
 }
 
-type AttachVerdict =
+/**
+ * The verdict on an attachment: admitted with its records, or refused at each argument; and whether a closed relation's
+ * facts decide it, the engine proving the child, or the nested child, more than the types state (declaredDelivery).
+ */
+type AttachVerdict = (
 	| { readonly kind: "admitted"; readonly admitted: AttachAdmitted }
 	| { readonly kind: "refused"; readonly refused: Arr.NonEmptyReadonlyArray<AttachRefused> }
+) & { readonly factsDecide: boolean }
 
 /** A heading group's records, as ./heading.ts writes them, of the one rule `arm` builds. */
 const ruleRecord = (
@@ -1143,6 +1170,59 @@ const claimRefusal = (spec: Attachment, proved: Delivery): Refused | undefined =
 	}
 }
 
+/**
+ * The facts of each closed relation a child may be, as the schema holds them: the engine reads a closed relation's
+ * facts as evidence (logical/props.ts Closed), the types its declared key alone (types/schema/schema.ts KeysOf).
+ */
+const closedFacts: { readonly [R in Rel]?: ReadonlyArray<Readonly<Record<string, unknown>>> } = {
+	PlanBudget: Deliver.relations.PlanBudget.rows
+}
+
+/** A fact's value as one text, so two values are one exactly when their texts are. */
+const valueText = (value: unknown): string =>
+	typeof value === "bigint" ? `${value}n` : `${typeof value}:${String(value)}`
+
+/**
+ * The keys a closed relation's facts make that its declaration does not: each field whose values are distinct across
+ * its facts, and that is not its declared key alone. None for a relation with no facts in the schema.
+ */
+const factKeysOf = (rel: Rel): ReadonlyArray<string> => {
+	const facts = closedFacts[rel]
+	if (facts === undefined) {
+		return []
+	}
+	const declared = keyOf[rel]
+	return Arr.flatMap(fieldsOf[rel], (f) => {
+		const values = Arr.map(facts, (fact) => valueText(fact[f.name]))
+		return new Set(values).size === values.length &&
+			!(declared.length === 1 && declared[0] === f.name)
+			? [f.name]
+			: []
+	})
+}
+
+/**
+ * The delivery the types state of an attachment, its child keyed by its declared keys alone, beside the delivery the
+ * engine proves from every key its evidence holds (`proved`): the same, but where the engine's one child per parent
+ * rests on a key a closed relation's facts make (factKeysOf). That is a child of one rule, of its own fields, not taken
+ * once, whose fields bound to the parent or to a literal hold such a key and not its declared key: the types, keyed by
+ * the declaration, prove no row of it at most one per parent, and state it an array.
+ */
+const declaredDelivery = (attachment: Attachment, proved: Delivery): Delivery => {
+	const child = attachment.child
+	const fixed = Arr.flatMap(child.bindings, ([field, term]) =>
+		term.kind === "parent" || term.kind === "literal" ? [field] : []
+	)
+	const restsOnFacts =
+		proved !== "array" &&
+		child.arms === "one" &&
+		child.head.kind === "own" &&
+		child.shape !== "first" &&
+		!Arr.every(keyOf[child.rel], (k) => Arr.contains(fixed, k)) &&
+		Arr.some(factKeysOf(child.rel), (k) => Arr.contains(fixed, k))
+	return restsOnFacts ? "array" : proved
+}
+
 const attachVerdict = (spec: AttachSpec): AttachVerdict => {
 	const failed = (what: string): never => {
 		throw new Error(
@@ -1157,7 +1237,7 @@ const attachVerdict = (spec: AttachSpec): AttachVerdict => {
 		const refused = engineRefusal(spec, template.error.reason)
 		return refused === undefined
 			? failed(messageOf(template.error))
-			: { kind: "refused", refused: [refused] }
+			: { kind: "refused", refused: [refused], factsDecide: false }
 	}
 	const nodes = topoOrder(template.value.analyzed)
 	const node = attachNode(nodes, spec.name)
@@ -1169,12 +1249,14 @@ const attachVerdict = (spec: AttachSpec): AttachVerdict => {
 		[{ attachment: spec, node }, "child"],
 		...(nested === undefined ? [] : [[nested, "nested"] as const])
 	]
-	const refused = Arr.flatMap(analyzed, ([a, at]): ReadonlyArray<AttachRefused> => {
-		const claimed = claimRefusal(a.attachment, a.node.delivered)
+	const typed = Arr.map(analyzed, ([a]) => declaredDelivery(a.attachment, a.node.delivered))
+	const factsDecide = Arr.some(analyzed, ([a], k) => typed[k] !== a.node.delivered)
+	const refused = Arr.flatMap(analyzed, ([a, at], k): ReadonlyArray<AttachRefused> => {
+		const claimed = claimRefusal(a.attachment, defined(typed[k], "the types' delivery"))
 		return claimed === undefined ? [] : [namedAt(at, claimed)]
 	})
 	if (Arr.isReadonlyArrayNonEmpty(refused)) {
-		return { kind: "refused", refused }
+		return { kind: "refused", refused, factsDecide }
 	}
 	for (const [a] of analyzed) {
 		if (!licenses(a.node.delivered, deliveryOf(a.attachment.stated))) {
@@ -1187,7 +1269,8 @@ const attachVerdict = (spec: AttachSpec): AttachVerdict => {
 			proved: node.delivered,
 			nested: nested?.node.delivered,
 			...recordsOf(spec, node, nested)
-		}
+		},
+		factsDecide
 	}
 }
 
@@ -1252,6 +1335,7 @@ export type AttachNote =
 	| "a nested attachment admitted"
 	| "a nested attachment refused"
 	| "a foreign child refused"
+	| "a closed relation's facts decide the delivery"
 
 interface AttachCase {
 	readonly spec: AttachSpec
@@ -1311,6 +1395,9 @@ const attachCaseGen: Gen<AttachCase> = (source) => {
 	}
 	if (spec.parent.rel === "AccountTally") {
 		notes.add("a derived parent")
+	}
+	if (verdict.factsDecide) {
+		notes.add("a closed relation's facts decide the delivery")
 	}
 	return { spec, verdict, notes }
 }
