@@ -1071,6 +1071,13 @@ interface BodyOptions {
 	readonly schema: Schema.Top
 }
 
+/**
+ * The parse options every body is checked under: a member no property of a closed object declares is an excess
+ * property, and refused (SCH-13). The domain module writes a closed object (`additionalProperties: false`) as a plain
+ * Struct and an open one as a Struct with a JSON rest, so this one option decides the closure; no default strips it.
+ */
+const closedObjects = { onExcessProperty: "error" } as const
+
 /** What JSON a node of the schema expects where a value of another type stands, by the JSON Schema `type` it names. */
 const expectedType = (ast: SchemaAST.AST): string => {
 	switch (ast._tag) {
@@ -1195,8 +1202,10 @@ const mergeSources = (
 		const settled = (merged: Merged) => ({ merged, parse })
 		const assert = (text: string) =>
 			Effect.flatMap(guarded(decodePlain)(text), (value) =>
-				Effect.mapError(Schema.decodeUnknownEffect(Schema.toType(options.schema))(value), (error) =>
-					usage(flag, `the request body does not match its schema${whereRefused(error.issue)}`)
+				Effect.mapError(
+					Schema.decodeUnknownEffect(Schema.toType(options.schema), closedObjects)(value),
+					(error) =>
+						usage(flag, `the request body does not match its schema${whereRefused(error.issue)}`)
 				)
 			)
 

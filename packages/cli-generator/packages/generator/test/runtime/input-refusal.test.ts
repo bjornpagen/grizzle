@@ -4,17 +4,20 @@
  * at <RFC 6901 pointer>: <expectation>`.
  *
  * The schema is one object of every JSON type, a nested object whose one member's name holds both characters a pointer
- * escapes, and an array. A property draws a valid body, then plants exactly one fault at a drawn place: a required
- * member left out, or a value of another JSON type, aimed while a feature is pending at one that is (Case.steering).
- * The oracle is the plant: the message names the planted place's pointer, and `(required)` for a member left out or
- * the JSON type the schema expects there, and quotes no planted value.
+ * escapes, and an array; both objects are closed, as the domain module writes `additionalProperties: false`, a plain
+ * Struct the body is checked against with every excess property refused. A property draws a valid body, then plants
+ * exactly one fault: a required member left out, a value of another JSON type, or a member no property declares, aimed
+ * while a feature is pending at one that is (Case.steering). The oracle is the plant: the message names the planted
+ * place's pointer, and `(required)`, the JSON type the schema expects there, or `(additionalProperties)`, and quotes no
+ * planted value.
  *
  * Plants, each applied to src/runtime-src/runtime/input.ts, seen to fail this suite and reverted: whereRefused naming
- * the path's tokens unescaped; the leaf hook's MissingKey worded without `(required)`.
+ * the path's tokens unescaped; the leaf hook's MissingKey worded without `(required)`; structuredBody's check without
+ * `closedObjects`, so an excess member passes.
  */
 import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
-import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { NodeFileSystem } from "@effect/platform-node"
@@ -97,10 +100,17 @@ const types: Arr.NonEmptyReadonlyArray<JsonType> = [
 	"an object"
 ]
 
-/** One fault: a required member left out, or a value of another JSON type than the place's. */
+/**
+ * One fault: a required member left out, a value of another JSON type than the place's, or a member no property of
+ * the closed object at `within` declares.
+ */
 type Fault =
 	| Readonly<{ kind: "missing"; place: Place }>
 	| Readonly<{ kind: "type"; place: Place; given: JsonType }>
+	| Readonly<{ kind: "extra"; within: "top" | "nested" }>
+
+/** The member name an extra fault plants, and its value, which no message may quote. */
+const extraName = "planted"
 
 /** A fault at `place`: a member left out where `missing` and the place is a member, else a value of another type. */
 const faultAt =
@@ -117,19 +127,37 @@ const faultAt =
 		}
 	}
 
-/** Any fault: a drawn place, left out or of another type. */
+/** An extra member, in the top object or the nested one. */
+const extraGen: Gen<Fault> = (source) => ({
+	kind: "extra",
+	within: source.draw(element(["top", "nested"] as const))
+})
+
+/**
+ * Any fault: an extra member one time in four, there being two objects for it against eight places for the others,
+ * else a drawn place left out or of another type.
+ */
 const faultGen: Gen<Fault> = (source) =>
-	source.draw(faultAt(source.draw(element(places)), source.draw(element([true, false]))))
+	source.draw(
+		weighted<"extra" | "place">([
+			[1, constant("extra")],
+			[3, constant("place")]
+		])
+	) === "extra"
+		? source.draw(extraGen)
+		: source.draw(faultAt(source.draw(element(places)), source.draw(element([true, false]))))
 
 type RefusalFeature =
 	| "a member left out"
 	| "a value of another type"
+	| "a member no property declares"
 	| "a nested place"
 	| "an escaped name"
 
 const FEATURES: Arr.NonEmptyReadonlyArray<RefusalFeature> = [
 	"a member left out",
 	"a value of another type",
+	"a member no property declares",
 	"a nested place",
 	"an escaped name"
 ]
@@ -143,6 +171,8 @@ const faultFor =
 				return source.draw(faultAt(source.draw(element(places)), true))
 			case "a value of another type":
 				return source.draw(faultAt(source.draw(element(places)), false))
+			case "a member no property declares":
+				return source.draw(extraGen)
 			case "a nested place":
 				return source.draw(
 					faultAt(
@@ -172,11 +202,24 @@ const aimed = (k: SearchCase<RefusalFeature>): Gen<Fault> =>
 
 /** What `place` holds in a body: the planted value, `valid`, or nothing where the fault leaves it out. */
 const holding = (fault: Fault, place: Place, valid: Schema.Json): Option.Option<Schema.Json> => {
-	if (fault.place !== place) {
-		return Option.some(valid)
+	switch (fault.kind) {
+		case "extra":
+			return Option.some(valid)
+		case "missing":
+			return fault.place === place ? Option.none() : Option.some(valid)
+		case "type":
+			return Option.some(fault.place === place ? valueOf[fault.given] : valid)
 	}
-	return fault.kind === "missing" ? Option.none() : Option.some(valueOf[fault.given])
 }
+
+/** The extra member an object holds where the fault plants one `within` it, else none. */
+const extra = (
+	fault: Fault,
+	within: "top" | "nested"
+): ReadonlyArray<readonly [string, Option.Option<Schema.Json>]> =>
+	fault.kind === "extra" && fault.within === within
+		? [[extraName, Option.some("planted-secret")]]
+		: []
 
 /** An object of the members `entries` holds, each left out where it holds nothing. */
 const objectOf = (
@@ -205,7 +248,15 @@ const bodyOf = (fault: Fault, items: number): Schema.Json =>
 				...Array.from({ length: items - 1 }, () => "x")
 			])
 		],
-		["nested", holding(fault, "nested", objectOf([[odd, holding(fault, "nested member", "n")]]))]
+		[
+			"nested",
+			holding(
+				fault,
+				"nested",
+				objectOf([[odd, holding(fault, "nested member", "n")], ...extra(fault, "nested")])
+			)
+		],
+		...extra(fault, "top")
 	])
 
 const stdin = Layer.succeed(
@@ -244,8 +295,26 @@ layer(Layer.mergeAll(NodeFileSystem.layer, stdin, Input.stdinClaimLayer))(
 					(items, notes) =>
 						Effect.gen(function* () {
 							const fault = notes.draw(aimed(notes))
-							const { path, type } = placed[fault.place]
-							notes.note(fault.kind === "missing" ? "a member left out" : "a value of another type")
+							const { path, expectation } =
+								fault.kind === "extra"
+									? {
+											path: fault.within === "top" ? [extraName] : ["nested", extraName],
+											expectation: "a member the schema does not admit (additionalProperties)"
+										}
+									: {
+											path: placed[fault.place].path,
+											expectation:
+												fault.kind === "missing"
+													? "a required member is missing (required)"
+													: `expected ${placed[fault.place].type}`
+										}
+							notes.note(
+								fault.kind === "extra"
+									? "a member no property declares"
+									: fault.kind === "missing"
+										? "a member left out"
+										: "a value of another type"
+							)
 							if (path.length > 1) {
 								notes.note("a nested place")
 							}
@@ -263,10 +332,6 @@ layer(Layer.mergeAll(NodeFileSystem.layer, stdin, Input.stdinClaimLayer))(
 								})
 							)
 							const pointer = `/${Arr.join(Arr.map(path, JsonPointer.escapeToken), "/")}`
-							const expectation =
-								fault.kind === "missing"
-									? "a required member is missing (required)"
-									: `expected ${type}`
 							deepStrictEqual(
 								{
 									message: refused.message,

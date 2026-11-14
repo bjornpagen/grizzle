@@ -1692,7 +1692,8 @@ export const assertFormData =
 			}
 
 			const checked = SchemaParser.decodeResult(Schema.toType(options.schema))(value, {
-				errors: "all"
+				errors: "all",
+				onExcessProperty: "error"
 			})
 			if (Result.isSuccess(checked)) {
 				return fields

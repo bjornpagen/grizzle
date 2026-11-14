@@ -1844,35 +1844,6 @@ const mapSchema = (node: Json, visit: (node: JsonNode) => JsonNode): Json => {
 }
 
 /**
- * `additionalProperties: false` beside declared properties closes an object, but Effect's importer
- * reads it as a struct whose decoder strips an undeclared key under the default parse options the
- * runtime checks with. The same closure as a `propertyNames` naming the declared properties
- * imports as an open struct checked by `Schema.isPropertyNames`, which rejects the key (SCH-13).
- * An existing `propertyNames` stays beside the names in an `allOf`. A closed object with no
- * declared property already imports as a record of `Never`; beside `patternProperties` the
- * validation copy has opened the object (SCH-15).
- */
-const closedNode = (node: JsonNode): JsonNode => {
-	const { additionalProperties, patternProperties, properties, propertyNames: existing } = node
-	const names =
-		properties !== undefined && isNode(properties) ? Record.keys<string, Json>(properties) : []
-	if (additionalProperties !== false || names.length === 0 || patternProperties !== undefined) {
-		return node
-	}
-
-	const declared: Json = { enum: names }
-	const propertyNames = existing === undefined ? declared : { allOf: [existing, declared] }
-
-	return Record.fromEntries([
-		...Arr.filter(
-			Record.toEntries(node),
-			([key]) => key !== "additionalProperties" && key !== "propertyNames"
-		),
-		["propertyNames", propertyNames] as const
-	])
-}
-
-/**
  * The node with every `#/$defs/<key>` reference renamed to `#/$defs/<identifier>`; none when a
  * reference names a key outside the copy (the importer would have failed on it).
  */
@@ -1963,11 +1934,14 @@ const emptyModule = "export {};\n"
 
 /**
  * Emits `domain/schemas.ts` (design 3.5, 3.6, units EM-2, S1): the code-generation copy of
- * `roots` (examples and defaults removed, properties sorted, every closed object's declared names
- * as its `propertyNames`) imported through
+ * `roots` (examples and defaults removed, properties sorted) imported through
  * `SchemaRepresentation.fromJsonSchemaMultiDocument` and printed from `toCodeDocument`, one
  * `export const` per definition after the names it reads, and one `export type` before each
  * definition a `Schema.Codec<T>` annotation of `Schema.suspend` names (every recursive one).
+ *
+ * A closed object (`additionalProperties: false`) imports as a plain Struct and an open one as a Struct with a JSON
+ * rest, so the runtime's one parse option (input.ts `closedObjects`, an excess property refused) decides the closure,
+ * which no default parse strips (SCH-13).
  *
  * `identifiers` is the names plan's map (`domainIdentifiers`). The copy is rekeyed to it, with its
  * references, before import, so every export and its `identifier` annotation carry the folded
@@ -1986,10 +1960,7 @@ export const emitDomainSchemas = (
 			return { content: emptyModule, path: modulePath }
 		}
 
-		const closed = new Map(
-			Arr.map(Arr.fromIterable(copy), ([key, node]) => [key, mapSchema(node, closedNode)] as const)
-		)
-		const rekeyed = yield* rekeyedCopy(closed, identifiers)
+		const rekeyed = yield* rekeyedCopy(copy, identifiers)
 		const multi = yield* multiDocumentOf(rekeyed)
 		const code = yield* importCode(multi, new Set(rekeyed.keys()))
 		if (code.artifacts.length > 0) {
