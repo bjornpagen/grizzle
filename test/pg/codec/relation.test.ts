@@ -2,8 +2,12 @@
  * Relation inputs against PostgreSQL.
  *
  * - Host fact equality is PostgreSQL's: on explored batches of generated cases over small domains that collide (numeric
- *   display scale, NaN, signed zero, numeric(5,2) rounding, the float8-to-real cast, uuid case, composed and decomposed
- *   text), the host's fact identity partitions every case exactly as GROUP BY, which is DISTINCT's equality, does.
+ *   display scale, NaN, signed zero, uuid case, composed and decomposed text), the host's fact identity partitions every
+ *   case exactly as GROUP BY, which is DISTINCT's equality, does. Each field's domain is values its type holds as they
+ *   are, which the input boundary admits (scalar/values/identity.ts parseValue): a numeric(5,2) value is constructed
+ *   from hundredths at the typmod's scale, and a real is a binary32 value, a double rounded by Math.fround. A value
+ *   PostgreSQL's coercion would round is refused at the boundary (numericScale, realInexact), never grouped, and is
+ *   test/pg/values/numeric.test.ts's to hold against PostgreSQL.
  * - The arrays encoder deduplicates, so PostgreSQL receives a set, which it reads back from the arrays in the
  *   select-list form the lowering prints (sql/print.ts printArrays).
  *
@@ -51,7 +55,9 @@ import { codecOf } from "#test/unit/codec/support.ts"
 const uuidA = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
 /** The cases' scalar types, each the registry's. */
 const uuid = scalarOf({ kind: "uuid" }, {})
-const numeric52 = scalarOf({ kind: "numeric", precision: 5, scale: 2 }, {})
+/** The scale of numeric(5,2), the field m's type, at which its values are constructed. */
+const scale52 = 2
+const numeric52 = scalarOf({ kind: "numeric", precision: 5, scale: scale52 }, {})
 const range4 = scalarOf(
 	{ kind: "span", endpoint: { kind: "pg", type: "integer" }, width: undefined },
 	{}
@@ -80,12 +86,17 @@ const factGen = (source: Source) => ({
 		)
 	),
 	m: source.draw(
-		map(element(["1.231", "1.232", "1.23", "1.235", "1.24", "-1.235", "0", "0.001"]), (s) =>
-			Decimal.of(s)
+		map(element([-123n, 0n, 1n, 120n, 123n, 124n, 99_999n]), (hundredths) =>
+			succeeded(
+				Decimal.fromParts(hundredths < 0n, hundredths < 0n ? -hundredths : hundredths, scale52),
+				"a numeric(5,2) value"
+			)
 		)
 	),
 	d: source.draw(element([0, -0, Number.NaN, 1, 0.1, Number.POSITIVE_INFINITY])),
-	f: source.draw(element([1, 1 + 2 ** -24, 1 + 2 ** -23, 0.1, Math.fround(0.1), -0, Number.NaN])),
+	f: source.draw(
+		map(element([1, 1 + 2 ** -24, 1 + 2 ** -23, 0.1, 0, -0, Number.NaN]), Math.fround)
+	),
 	u: source.draw(element([uuidA, Str.toUpperCase(uuidA), uuidB])),
 	t: source.draw(element(["é", "é", "E", "e", "𝔘", ""])),
 	s: source.draw(
