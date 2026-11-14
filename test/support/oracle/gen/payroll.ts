@@ -527,6 +527,11 @@ export const paramSketchGen: Gen<ParamSketch> = (source) => ({
 	absent: source.draw(boolean)
 })
 
+/**
+ * The bounds a name range is drawn from (employeesByPrefix's `lo` and `hi`), each a LegalName, the type the program
+ * declares them by (fixtures/api/payroll.ts): a call's parameter is a value of its declared type, which PostgreSQL
+ * checks as it binds it, so a bound outside it is no call the differential compares.
+ */
 const nameBounds: ReadonlyArray<string> = [
 	"A",
 	"Ada",
@@ -536,8 +541,7 @@ const nameBounds: ReadonlyArray<string> = [
 	"É",
 	"a",
 	"Z",
-	"\u{10FFFF}",
-	""
+	"\u{10FFFF}"
 ]
 
 const idsOf = (facts: PayrollFacts, relation: string, field: string): ReadonlyArray<string> =>
