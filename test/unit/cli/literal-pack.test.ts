@@ -44,12 +44,10 @@ import { type CheckFinding, check } from "#cli/check.ts"
 import { headNonEmpty } from "#compiler/core/nonempty.ts"
 import { metaFileName } from "#compiler/deploy/render/folder.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
-import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import type { PackFault } from "#compiler/physical/ddl/literal.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { closedId } from "#compiler/public/fields.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
-import { servedDirectory } from "#compiler/served/forms.ts"
 import type { PackConstant } from "#compiler/sql/ast.ts"
 import { printObjectName, printStatement } from "#compiler/sql/print.ts"
 import { defineConfig } from "#index.ts"
@@ -63,6 +61,7 @@ import {
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { textOfHex } from "#test/support/closed/bit-text.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { migrationFolders } from "#test/support/migrate/kit.ts"
 import { owning } from "#test/support/policy.ts"
 
 const Row = closed("Row", ["r0", "r1", "r2"])
@@ -259,11 +258,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 									const schemaDir = `migrations/${headNonEmpty(owned.levels).installation.identifier}`
 									const entries = yield* fs.readDirectory(`${ws}/${schemaDir}`)
 									const folder = `${schemaDir}/${defined(
-										Arr.filter(
-											entries,
-											(n) =>
-												n !== snapshotFileName && n !== manifestFileName && n !== servedDirectory
-										)[0],
+										migrationFolders(entries)[0],
 										"the drafted folder"
 									)}`
 									const named = yield* fs.readDirectory(`${ws}/${folder}`)

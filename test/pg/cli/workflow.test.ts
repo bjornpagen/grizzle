@@ -72,7 +72,6 @@ import {
 	Formatter,
 	Layer,
 	Option,
-	Order,
 	type PlatformError,
 	pipe,
 	Redacted,
@@ -93,7 +92,6 @@ import { findMarkers, placeholderMarker } from "#compiler/deploy/render/markers.
 import type { CallError } from "#compiler/live/index.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
-import { servedDirectory } from "#compiler/served/forms.ts"
 import { placeholderToken, quoteIdent } from "#compiler/sql/print.ts"
 import { shopV1, shopV2 } from "#test/pg/cli/fixture.ts"
 import {
@@ -114,6 +112,7 @@ import { oneOf } from "#test/support/calls.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { type DecoderCredential, decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
+import { migrationFolders } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
@@ -242,17 +241,7 @@ const foldersOnDisk = (r: Workspace) =>
 			return []
 		}
 		const entries = yield* fs.readDirectory(schemaDir(r))
-		return Arr.sort(
-			Arr.filter(
-				entries,
-				(n) =>
-					n !== "snapshot.json" &&
-					n !== "manifest.json" &&
-					n !== servedDirectory &&
-					!Str.startsWith(".")(n)
-			),
-			Order.String
-		)
+		return migrationFolders(entries)
 	})
 
 /** The text of a file of the workspace. */

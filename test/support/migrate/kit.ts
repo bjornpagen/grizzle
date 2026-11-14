@@ -1,5 +1,13 @@
-import { Array as Arr, DateTime, Formatter, Result as EffectResult } from "effect"
+import {
+	Array as Arr,
+	DateTime,
+	Formatter,
+	Order,
+	Result as EffectResult,
+	String as Str
+} from "effect"
 import { formatTimestamp } from "#cli/clock.ts"
+import { loginFileKinds, loginFiles } from "#cli/files.ts"
 import { rosterRenames } from "#cli/renames.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -27,6 +35,7 @@ import type { Roster } from "#compiler/ir/scalar.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
+import { manifestFileName, snapshotFileName } from "#compiler/plan/serve.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
@@ -154,6 +163,24 @@ export const fromEmptyBeside = (abandoned: NonEmptyReadonlyArray<AbandonedSchema
 	abandoned
 })
 export const fromSnapshot = (snapshot: DeploySnapshot): Previous => ({ kind: "snapshot", snapshot })
+
+/** The entries of a schema's migrations directory that are no migration folder: the snapshot's two files and the
+ * directory of each kind of file generate writes per login (cli/files.ts loginFiles), by the names the CLI writes them
+ * under. */
+const besideFolders: ReadonlySet<string> = new Set([
+	snapshotFileName,
+	manifestFileName,
+	...Arr.map(loginFileKinds, (kind) => loginFiles[kind].directory)
+])
+
+/** The migration folders among a schema directory's `entries`, in name order, which is drafting order: every entry
+ * but the snapshot's files, the login files' directories (`besideFolders`) and a hidden one, which no generator
+ * writes. */
+export const migrationFolders = (entries: ReadonlyArray<string>): Array<string> =>
+	Arr.sort(
+		Arr.filter(entries, (n) => !besideFolders.has(n) && !Str.startsWith(".")(n)),
+		Order.String
+	)
 
 /** A migration name a test gives, parsed as `--name` is (folder.ts parseMigrationName): one it refuses is a defect of
  * the test. */

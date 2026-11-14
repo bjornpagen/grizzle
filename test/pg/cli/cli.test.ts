@@ -41,7 +41,6 @@ import {
 	Formatter,
 	Layer,
 	Option,
-	Order,
 	pipe,
 	Redacted,
 	String as Str
@@ -55,7 +54,6 @@ import { migrationConnection } from "#cli/connection.ts"
 import { migrate } from "#cli/migrate.ts"
 import type { LedgerState } from "#compiler/deploy/ledger/ledger.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
-import { servedDirectory } from "#compiler/served/forms.ts"
 import { ledger, shopV1 } from "#test/pg/cli/fixture.ts"
 import {
 	bin,
@@ -76,6 +74,7 @@ import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { answered, oneOf as oneRowOf } from "#test/support/calls.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { migrationFolders } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -141,17 +140,7 @@ const foldersOf = (dir: string, schema: string) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const entries = yield* fs.readDirectory(`${dir}/migrations/${schema}`)
-		return Arr.sort(
-			Arr.filter(
-				entries,
-				(n) =>
-					n !== "snapshot.json" &&
-					n !== "manifest.json" &&
-					n !== servedDirectory &&
-					!Str.startsWith(".")(n)
-			),
-			Order.String
-		)
+		return migrationFolders(entries)
 	})
 
 /** The ledger of a schema, as grizzle migrate reads it. */

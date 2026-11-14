@@ -48,7 +48,6 @@ import type { refusalText } from "#cli/refusals.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { metaFileName, writeMeta } from "#compiler/deploy/render/folder.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
-import { servedDirectory } from "#compiler/served/forms.ts"
 import { defineConfig } from "#index.ts"
 import {
 	cli,
@@ -63,6 +62,7 @@ import {
 import { assert, containsEqual, defined, succeeded } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { migrationFolders } from "#test/support/migrate/kit.ts"
 
 /** The clock the in-process command lines of this file read. */
 const nextNow = cliClock()
@@ -323,13 +323,7 @@ const tamper = (c: Case, dir: string, other: string) =>
 		const fs = yield* FileSystem.FileSystem
 		const schema = `${dir}/${schemaDir}`
 		const entries = yield* fs.readDirectory(schema)
-		const folders = Arr.sort(
-			Arr.filter(
-				entries,
-				(n) => n !== snapshotFileName && n !== manifestFileName && n !== servedDirectory
-			),
-			Order.String
-		)
+		const folders = migrationFolders(entries)
 		const newest = folderAt(Arr.last(folders))
 		const oldest = folderAt(Arr.head(folders))
 		const folder = c.newest ? newest : oldest

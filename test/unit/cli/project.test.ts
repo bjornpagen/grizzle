@@ -65,7 +65,6 @@ import { closed, login, type Relation, relation, role, schema } from "#compiler/
 import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
-import { servedDirectory } from "#compiler/served/forms.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { defineConfig } from "#index.ts"
@@ -81,7 +80,7 @@ import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { draftCodes, parsedMigrationName } from "#test/support/migrate/kit.ts"
+import { draftCodes, migrationFolders, parsedMigrationName } from "#test/support/migrate/kit.ts"
 import { owning } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -744,9 +743,9 @@ const findingsOf = (s: SchemaState): ReadonlyArray<FindingKind> => {
 		: neededOf(s).length > 0
 			? ["undeclaredDrop"]
 			: committed === undefined
-				? ["ungenerated", "servedMissing"]
+				? ["ungenerated", "servedMissing", "documentMissing"]
 				: !sameSpec(committed, s.current)
-					? ["ungenerated", "servedStale"]
+					? ["ungenerated", "servedStale", "documentStale"]
 					: []
 	return [...files, ...draft]
 }
@@ -863,6 +862,8 @@ const checkedKinds = [
 	"ungenerated",
 	"servedMissing",
 	"servedStale",
+	"documentMissing",
+	"documentStale",
 	"strayEntry"
 ] as const satisfies ReadonlyArray<FindingKind>
 
@@ -921,6 +922,8 @@ const projectFeatures = [
 	"check finds ungenerated",
 	"check finds servedMissing",
 	"check finds servedStale",
+	"check finds documentMissing",
+	"check finds documentStale",
 	"check finds strayEntry"
 ] as const satisfies ReadonlyArray<ProjectFeature>
 
@@ -1036,17 +1039,7 @@ const foldersOnDisk = (r: Workspace, s: SchemaState) =>
 			return []
 		}
 		const entries = yield* fs.readDirectory(dir)
-		return Arr.sort(
-			Arr.filter(
-				entries,
-				(n) =>
-					n !== snapshotFileName &&
-					n !== manifestFileName &&
-					n !== servedDirectory &&
-					!Str.startsWith(".")(n)
-			),
-			Order.String
-		)
+		return migrationFolders(entries)
 	})
 
 /** The texts of a schema's snapshot files, none where it holds none: generate writes snapshot.json and manifest.json
