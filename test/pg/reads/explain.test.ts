@@ -31,8 +31,9 @@
  * - every Plan holds exactly its public fields, its estimates finite, and an ExecutedPlan its actuals beside them;
  * - drawn notes over Work, or a ChangeSet over a schema no role of the Db holds, are refused as a model of the host's
  *   refusals says: a ChangeSet over no level of the role's schema where its workload is built, MalformedDescription, a
- *   same-key pair host normalization refuses ReadError{encode}, each found before a session is leased, and any other
- *   is explained, executing nothing. No number of facts is refused: a statement's Bind message past
+ *   same-key pair host normalization refuses ReadFailure{encode, InputRejected} witnessed by the key it states twice,
+ *   as the call's apply answers invariant-rejected (adapter/errors/failures.ts InputRejected), each found before a
+ *   session is leased, and any other is explained, executing nothing. No number of facts is refused: a statement's Bind message past
  *   PostgreSQL's message limit is the one resource refusal, a unit test's (test/unit/adapter/bind.test.ts), since a
  *   gibibyte of parameters is no case to send.
  *
@@ -1007,7 +1008,27 @@ layer(Substrate.layer)("workload explain", (it) => {
 													const refusal = explained.failure
 													assertInstanceOf(refusal, ReadFailure)
 													assert.equal(refusal.stage, expected)
-													assert.equal(refusal.reason._tag, "LawRejected")
+													assertVariant(
+														refusal.reason,
+														"_tag",
+														"InputRejected",
+														"host normalization's same-key refusal"
+													)
+													const witness = refusal.reason.witness
+													assertVariant(witness, "kind", "key", "the key the call states twice")
+													assert.equal(witness.relation, "TaskNote")
+													assert.ok(
+														Arr.some(c.notes, (a) =>
+															Arr.some(
+																c.notes,
+																(b) =>
+																	a.task === b.task &&
+																	a.text !== b.text &&
+																	witness.values["task"] === tasks[a.task]
+															)
+														),
+														`the witness ${Formatter.format(witness)} names a task stated with two notes`
+													)
 													assert.equal(leases.count, leased, "no session leased")
 													break
 												}
