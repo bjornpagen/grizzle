@@ -482,6 +482,46 @@ const refusalOf = (c: RefusalCase): RefusalFeature =>
 /** A box, the owner of an ordered family of parts whose bodies are bytes, as pantry's import nests its entries. */
 const Box = relation("Box", { id: uuid, parts: drawnField(natural) }, ["id"])
 const Part = relation("Part", { box: uuid, at: drawnField(natural), body: bytes }, ["box", "at"])
+/**
+ * A later stratum's members, each a query member over a relation parameter of the call, since a call's facts name one
+ * array member per op and relation: the first stratum's.
+ */
+const seatsFrom = query(Shop).rule((r) => {
+	const rows = r.relation("seats", { label: Seat.fields.label })
+	const { label } = v(Seat, "seat")
+	return r.match(rows, { label }).find({ label })
+})
+const itemsFrom = query(Shop).rule((r) => {
+	const rows = r.relation("items", {
+		id: Item.fields.id,
+		label: Item.fields.label,
+		qty: Item.fields.qty
+	})
+	const { id, label, qty } = v(Item, "item")
+	return r.match(rows, { id, label, qty }).find({ id, label, qty })
+})
+const stockFrom = (name: "puts" | "deletes") =>
+	query(Shop).rule((r) => {
+		const rows = r.relation(name, {
+			id: Stock.fields.id,
+			label: Stock.fields.label,
+			qty: Stock.fields.qty
+		})
+		const { id, label, qty } = v(Stock, "stock")
+		return r.match(rows, { id, label, qty }).find({ id, label, qty })
+	})
+
+/**
+ * A drawn ChangeSet's later stratum, which the installation's login serves, so it installs the pattern domain of each
+ * relation parameter's label (seats, items, puts, deletes): the only types a drawn ChangeSet, served under the
+ * installation's snapshot, may cast a parameter to.
+ */
+const laterStratum = ChangeSet.empty(Shop)
+	.insert(Seat, seatsFrom)
+	.insert(Item, itemsFrom)
+	.put(Stock, stockFrom("puts"))
+	.delete(Stock, stockFrom("deletes"))
+
 const Boxes = schema("Boxes", [Box, Part], [ordered(on(Part, "box", "at"), fin(Box, "parts"))])
 
 /** A pool whose sessions hold the message bound `limit`, as a server whose bound is below the protocol's does. */
@@ -659,7 +699,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const o = yield* installed(Shop, {}, { label: "real", programs: {} })
+					const o = yield* installed(Shop, {}, { label: "real", programs: { later: laterStratum } })
 					const sequence = o.installed.installation.names.sequence("Seat", "no")
 					const lastValue = () =>
 						s.admin.queryValues(
@@ -673,34 +713,6 @@ layer(Substrate.layer)("workload explain", (it) => {
 							tableState(o.installed, Item),
 							lastValue()
 						])
-					/**
-					 * A later stratum's members, each a query member over a relation parameter of the call, since a
-					 * call's facts name one array member per op and relation: the first stratum's.
-					 */
-					const seatsFrom = query(o.schema).rule((r) => {
-						const rows = r.relation("seats", { label: Seat.fields.label })
-						const { label } = v(Seat, "seat")
-						return r.match(rows, { label }).find({ label })
-					})
-					const itemsFrom = query(o.schema).rule((r) => {
-						const rows = r.relation("items", {
-							id: Item.fields.id,
-							label: Item.fields.label,
-							qty: Item.fields.qty
-						})
-						const { id, label, qty } = v(Item, "item")
-						return r.match(rows, { id, label, qty }).find({ id, label, qty })
-					})
-					const stockFrom = (name: "puts" | "deletes") =>
-						query(o.schema).rule((r) => {
-							const rows = r.relation(name, {
-								id: Stock.fields.id,
-								label: Stock.fields.label,
-								qty: Stock.fields.qty
-							})
-							const { id, label, qty } = v(Stock, "stock")
-							return r.match(rows, { id, label, qty }).find({ id, label, qty })
-						})
 					const indexes = yield* catalogIndexes
 					const tableOf = (relation: string) => o.installed.installation.names.relation(relation)
 					/** The relations every drawn ChangeSet writes and reads back. */
@@ -783,7 +795,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 											const [first, second] = strata
 											const written = defined(first, "a first stratum")
 											/** The first stratum's array members, each a call's facts. */
-											const firstStratum = ChangeSet.empty(o.schema)
+											const firstStratum = ChangeSet.empty(Shop)
 												.insert(Seat, [])
 												.insert(Item, [])
 												.put(Stock, [])
@@ -791,14 +803,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 											const sequenced =
 												second === undefined
 													? firstStratum
-													: ChangeSet.sequence(
-															firstStratum,
-															ChangeSet.empty(o.schema)
-																.insert(Seat, seatsFrom)
-																.insert(Item, itemsFrom)
-																.put(Stock, stockFrom("puts"))
-																.delete(Stock, stockFrom("deletes"))
-														)
+													: ChangeSet.sequence(firstStratum, laterStratum)
 											if (second !== undefined) {
 												notes.note("two strata")
 											}
@@ -807,7 +812,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 													? sequenced
 													: c.readBack === "items joined"
 														? sequenced.read("items", (d) =>
-																query(o.schema).rule((r) => {
+																query(Shop).rule((r) => {
 																	const { id, label, qty } = v(Stock, "stock")
 																	return r
 																		.match(d.added(Item), { id })
@@ -816,7 +821,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 																})
 															)
 														: sequenced.read("items", (d) =>
-																query(o.schema)
+																query(Shop)
 																	.rule((r) => {
 																		const { id, label, qty } = v(Item, "item")
 																		return r
