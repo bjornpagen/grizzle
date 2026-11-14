@@ -4,7 +4,7 @@
 	"concurrency": "100%",
 	"globalDependencies": [
 		"pnpm-workspace.yaml",
-		"pnpm-lock.yaml",
+		"**/*.tgz",
 		"tsconfig.json",
 		"tsconfig.base.json",
 		"oxlint.config.ts"
@@ -47,17 +47,36 @@
 		"fixtures:superlint": {},
 		"fixtures:oxlint": {},
 		"//#typecheck": {
-			"description": "The tooling project (test, bench, scripts) builds after both packages' projects, which tsrs -b then finds up to date. A root task's inputs are the whole repository.",
-			"dependsOn": ["@bjornpagen/grizzle-engine#typecheck", "@bjornpagen/grizzle#typecheck"]
+			"description": "The tooling project (test, bench, scripts) builds after both packages' projects, which tsrs -b then finds up to date. A root task's inputs are the whole repository; the root checks but format read no Markdown, so theirs leave it out.",
+			"dependsOn": ["@bjornpagen/grizzle-engine#typecheck", "@bjornpagen/grizzle#typecheck"],
+			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
 		},
 		"//#superlint": {
 			"description": "The tooling program follows its project references into both packages' emitted declarations, so it runs after the typechecks that write them.",
-			"dependsOn": ["@bjornpagen/grizzle-engine#typecheck", "@bjornpagen/grizzle#typecheck"]
+			"dependsOn": ["@bjornpagen/grizzle-engine#typecheck", "@bjornpagen/grizzle#typecheck"],
+			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
 		},
-		"//#oxlint": {},
+		"//#oxlint": {
+			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
+		},
 		"//#format": {},
-		"//#dead-code": {},
-		"//#architecture": {},
-		"//#dedupe": {}
+		"//#dead-code": {
+			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
+		},
+		"//#architecture": {
+			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
+		},
+		"//#dedupe": {
+			"description": "pnpm dedupe --check reads the manifests, the lockfile and what they install, never source.",
+			"inputs": [
+				"**/package.json",
+				"**/*.tgz",
+				"pnpm-lock.yaml",
+				"pnpm-workspace.yaml",
+				".npmrc",
+				"patches/**",
+				"!**/node_modules/**"
+			]
+		}
 	}
 }
