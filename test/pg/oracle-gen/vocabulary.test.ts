@@ -2,9 +2,10 @@
  * The generators' claims about PostgreSQL 19, checked on PostgreSQL 19.
  *
  * - Every aggregate the generators emit exists over the argument its lowering passes it with the result type ops.ts
- *   states, a money sum over its amounts as numeric, and every aggregate they leave out of a type exists in neither
- *   PostgreSQL's schema nor the vector extension's, each looked up qualified, unless the language states why it leaves
- *   it out (declinedAggregates).
+ *   states, a money sum over its amounts as numeric and a smallint's or an integer's sum over its values as bigint
+ *   (an exact numeric, README: "the r.sum of an integer is an exact Decimal"), and every aggregate they leave out of
+ *   a type exists in neither PostgreSQL's schema nor the vector extension's, each looked up qualified, unless the
+ *   language states why it leaves it out (declinedAggregates).
  * - The value domains' classes are PostgreSQL's equality classes: two literals are equal under PostgreSQL's `=`
  *   exactly when they share a class (NaN = NaN, -0 = 0, 1.0 = 1.00).
  * - Generated facts satisfy the declared laws natively: an explored population of schemas installs with PRIMARY KEY,
@@ -14,7 +15,9 @@
  * declared constraints over every fact loaded.
  *
  * Plants: compute-aggregate-count-int4 (count(*) types as integer), oracle-gen-float-text-negative-zero (a float's
- * text keeps -0 apart from 0, so the value classes and the facts' keys split what PostgreSQL equates).
+ * text keeps -0 apart from 0, so the value classes and the facts' keys split what PostgreSQL equates), and
+ * ~/.cache/grizzle-release/TREEORACLE/plants/sum-integer-declared-numeric-native.patch (sum over integer typed numeric
+ * but lowered natively, whose result PostgreSQL types bigint).
  *
  * Features: an aggregate typed as PostgreSQL types it and one declined and defined, and facts loaded.
  */
@@ -179,13 +182,26 @@ const aggregateSql = (fn: GenAggregate, arg: string, schema: string): string =>
 		: `${schema}.${fn === "boolAnd" ? "bool_and" : fn === "boolOr" ? "bool_or" : fn}(${arg})`
 
 /**
- * The argument the conservative lowering passes an aggregate over `x`: a money sum's is each amount's exact numeric value,
- * since the checker keeps the total exact money (ops.ts aggregateLowering), which PostgreSQL's sum(money) does not; any
- * other aggregate reads `x` as it is.
+ * The argument the conservative lowering passes an aggregate over `x`, by its lowering (ops.ts aggregateLowering,
+ * lower/conservative/group aggregateExpr): a widened sum's, over smallint or integer, is each value as bigint, whose sum
+ * PostgreSQL accumulates and types as numeric; a scale-free mean's is each value through trim_scale; a money sum's is
+ * each amount's exact numeric value, since the checker keeps the total exact money, which PostgreSQL's sum(money) does
+ * not; any other aggregate reads `x` as it is, a float's exact sum and mean rounding back to the float the native call
+ * returns.
  */
 const argumentSql = (fn: GenAggregate, t: ScalarType, x: string): string => {
 	const lowering = aggregateLowering(fn, t)
-	return lowering.kind === "exactSum" && lowering.exact === "money" ? `${x}::numeric` : x
+	switch (lowering.kind) {
+		case "widened":
+			return `${x}::bigint`
+		case "scaleFree":
+			return `pg_catalog.trim_scale(${x})`
+		case "exactSum":
+			return lowering.exact === "money" ? `${x}::numeric` : x
+		case "native":
+		case "exactMean":
+			return x
+	}
 }
 
 /** What an aggregate over a generated type reached: typed where the generators emit it, else defined only where declined. */
