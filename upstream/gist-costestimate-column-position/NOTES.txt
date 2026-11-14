@@ -37,8 +37,8 @@ owner files it by hand.
    - The sending address is deliberately not written anywhere in this public repository.
    - The email says "Before anyone writes a patch for 20". If you mean to write it yourself, say so in that sentence;
      an author in hand raises the odds of a reply.
-   - Mind the cycle. 19 is between RC1 and RC2 (2026-11-12). Hackers can discuss this now. A patch would go to
-     PG20-4 (open until 2026-12-31) or a later commitfest.
+   - Mind the cycle. 19 is between RC2 (2026-11-12) and GA (due 2026-11-19). Hackers can discuss this now. A patch
+     would go to PG20-4 (open until 2026-12-31) or a later commitfest.
    - Re-measure if master moves before filing.
      - Run repro.sql against master in a throwaway cluster, as in EVIDENCE.txt 1.
      - The costs and buffers must match EVIDENCE.txt 2, apart from the ANALYZE-sample variation it records in 2h.

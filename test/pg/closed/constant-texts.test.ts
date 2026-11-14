@@ -1,6 +1,6 @@
 /**
  * A comparison of texts that read no row field is a constant, and a schema holding one installs and judges each row by
- * its value, on PostgreSQL 19rc1, in a generated field, a row check and a selection alike.
+ * its value, on PostgreSQL 19rc2, in a generated field, a row check and a selection alike.
  *
  * PostgreSQL pre-evaluates a function of constants while it checks a generation expression's immutability, before it
  * assigns the expression's collations, so a collatable comparison of constants there fails with 42P22

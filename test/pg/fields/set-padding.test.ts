@@ -1,5 +1,5 @@
 /**
- * The set algebra over a drafted bits domain keeps every padding bit 0, on PostgreSQL 19rc1. A set over a roster of n
+ * The set algebra over a drafted bits domain keeps every padding bit 0, on PostgreSQL 19rc2. A set over a roster of n
  * codes is bit(m), m the codes rounded up to whole hex digits, and its domain's CHECK holds every bit past the last
  * code at 0; so every set grizzle computes must leave those bits clear, or the CHECK refuses the write with 23514.
  *

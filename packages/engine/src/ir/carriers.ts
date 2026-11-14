@@ -74,7 +74,7 @@ const exactDigits = (bound: bigint): number => {
 
 /** The integer digits of a smallint, |x| < 10^int2Digits. */
 const int2Digits: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "decimal digits",
 	scope: "the integer digits of every smallint value",
 	from: [int2Min, int2Max],
@@ -84,7 +84,7 @@ const int2Digits: Limit = derived({
 
 /** The integer digits of an integer, |x| < 10^int4Digits. */
 export const int4Digits: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "decimal digits",
 	scope: "the integer digits of every integer value",
 	from: [int4Min, int4Max],
@@ -97,7 +97,7 @@ export const int4Digits: Limit = derived({
  * count of rows, which PostgreSQL counts in a bigint.
  */
 export const int8Digits: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "decimal digits",
 	scope: "the integer digits of every bigint value, money count and row count",
 	from: [int8Min, int8Max],
@@ -107,7 +107,7 @@ export const int8Digits: Limit = derived({
 
 /** The most decimal digits every integer of which is a bigint: an exact integer that many digits long travels as one. */
 export const int8ExactDigits: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "decimal digits",
 	scope: "the exact integers SQL computes in bigint rather than numeric",
 	from: [int8Min, int8Max],
@@ -138,7 +138,7 @@ export const integerDigits: { readonly [C in "int2" | "int4" | "int8"]: Limit } 
  */
 export const moneyFractionDigits: Limit = published({
 	value: 2,
-	owner: "PostgreSQL 19rc1 cash.c, lc_monetary C.UTF-8",
+	owner: "PostgreSQL 19rc2 cash.c, lc_monetary C.UTF-8",
 	unit: "decimal digits",
 	scope:
 		"the fraction digits of every money value, its input, its output and its casts to and from numeric",
@@ -146,12 +146,12 @@ export const moneyFractionDigits: Limit = published({
 	source: `${postgresSource}/src/backend/utils/adt/cash.c#L210-L221`,
 	quote:
 		"frac_digits will be CHAR_MAX in some locales, notably C. [...] fpoint = lconvert->frac_digits; if (fpoint < 0 || fpoint > 10) fpoint = 2;",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /** The integer digits of a money amount, |amount| < 10^moneyDigits: a bigint count of minor units, less its fraction. */
 export const moneyDigits: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "decimal digits",
 	scope: "the integer digits of every money amount",
 	from: [int8Digits, moneyFractionDigits],
@@ -291,7 +291,7 @@ const numericC = `${postgresSource}/src/backend/utils/adt/numeric.c`
 
 /** FLT_DIG: the significant digits a real keeps cast to numeric. */
 export const binary32DecimalDigits: Limit = derived({
-	owner: "PostgreSQL 19rc1 float4_numeric over C's FLT_DIG",
+	owner: "PostgreSQL 19rc2 float4_numeric over C's FLT_DIG",
 	unit: "decimal digits",
 	scope: "the significant digits of a real cast to numeric",
 	from: [binary32Precision],
@@ -301,7 +301,7 @@ export const binary32DecimalDigits: Limit = derived({
 
 /** DBL_DIG: the significant digits a double precision keeps cast to numeric. */
 export const binary64DecimalDigits: Limit = derived({
-	owner: "PostgreSQL 19rc1 float8_numeric over C's DBL_DIG",
+	owner: "PostgreSQL 19rc2 float8_numeric over C's DBL_DIG",
 	unit: "decimal digits",
 	scope: "the significant digits of a double precision cast to numeric",
 	from: [binary64Precision],

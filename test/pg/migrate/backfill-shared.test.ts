@@ -1,6 +1,6 @@
 /**
  * Two families over one member table, added to stored rows: the migration's backfill draws both families' columns of
- * the member table in one UPDATE, so each member row takes one new version, not one per family, on PostgreSQL 19rc1.
+ * the member table in one UPDATE, so each member row takes one new version, not one per family, on PostgreSQL 19rc2.
  *
  * A case draws one to three owners of each family, Owner by g and Other by h, and up to six members, each in one group
  * of each, keyed apart and written in a drawn order. The second version counts Member under Owner and again under

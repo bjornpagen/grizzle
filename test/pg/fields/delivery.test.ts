@@ -1,5 +1,5 @@
 /**
- * A statement's delivery against PostgreSQL 19rc1 at chunk boundaries (lower/delivery.ts deliveredRows): rows of two
+ * A statement's delivery against PostgreSQL 19rc2 at chunk boundaries (lower/delivery.ts deliveredRows): rows of two
  * bytes columns and a text column, each value at a length about a boundary of a small chunk length, stored by db.apply
  * and read back by the delivered form of a read of their table, ordered and limited or not, under that chunk length.
  * PostgreSQL's answer reads strictly as the delivery the statement states (test/support/kernel/strict.ts

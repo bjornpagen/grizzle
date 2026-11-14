@@ -1,5 +1,5 @@
 /**
- * A tree keyed by its root fields then its drawn start, on PostgreSQL 19rc1, written whole through grizzle's own write
+ * A tree keyed by its root fields then its drawn start, on PostgreSQL 19rc2, written whole through grizzle's own write
  * and read back: three relations of root arity 1, 2 and 3 over text, integer and uuid root fields, each folded by the
  * sum of its children's kinds and each row copying its parent's kind down the parent axis.
  *

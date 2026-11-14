@@ -1,5 +1,5 @@
 /**
- * Edits of stored bytes values on PostgreSQL 19rc1, which the host knows only by their SHA-256 digests: a write returns
+ * Edits of stored bytes values on PostgreSQL 19rc2, which the host knows only by their SHA-256 digests: a write returns
  * a bytes column's digest (write/insert/statement.ts returnedColumn), the outcome nets its rows by it, and a member's
  * facts are one fact exactly when every field, a bytes field's digest among them, is equal (scalar/values/identity.ts).
  * A case stores a few rows twice over, in Blob and in Held, and a staged value for some of them in Stage. One ChangeSet

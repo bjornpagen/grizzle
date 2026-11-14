@@ -315,7 +315,7 @@ const installedLevels = Effect.gen(function* () {
 })
 
 layer(Substrate.layer, { excludeTestServices: true })(
-	"levels of one installation on PostgreSQL 19rc1",
+	"levels of one installation on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
 			"install each level's tables in its own schema, the containment across them over one domain, and grant each role exactly the tables it writes",

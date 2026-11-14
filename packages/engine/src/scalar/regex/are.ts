@@ -3,11 +3,11 @@ import { folded, type LiveNode, type RegexNode } from "#compiler/scalar/regex/ir
 
 /**
  * ARE's fixed-width character-entry escapes, each a prefix and its exact count of hexadecimal digits: `\u` and four for
- * a code point up to U+FFFF, `\U` and eight for any other. PostgreSQL 19rc1's table of Regular Expression
+ * a code point up to U+FFFF, `\U` and eight for any other. PostgreSQL 19rc2's table of Regular Expression
  * Character-Entry Escapes states both widths: "\uwxyz (where wxyz is exactly four hexadecimal digits)" and "\Ustuvwxyz
  * (where stuvwxyz is exactly eight hexadecimal digits)"
- * (https://github.com/postgres/postgres/blob/REL_19_RC1/doc/src/sgml/func/func-matching.sgml#L1616-L1628, verified
- * 2026-11-05).
+ * (https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/func/func-matching.sgml#L1616-L1628, verified
+ * 2026-11-14).
  *
  * @formatConstant the hexadecimal digits of ARE's \u and \U character-entry escapes
  */

@@ -942,7 +942,7 @@ export const directSql = (
 	 * A put: the written fields at each key in place, and a fact no row holds the key of inserted with its families
 	 * empty, each fact an UPDATE and an INSERT of one statement, which both read its starting state. Only a fact at no
 	 * stored key is proposed to the INSERT: a stored owner's proposed row would carry its families empty, and PostgreSQL
-	 * judges a proposed row by every CHECK before ON CONFLICT meets its key (19rc1 nodeModifyTable.c ExecInsert), so a
+	 * judges a proposed row by every CHECK before ON CONFLICT meets its key (19rc2 nodeModifyTable.c ExecInsert), so a
 	 * check over an end, an invoice's lines summing to its amount, would refuse it. Each literal takes its column's type
 	 * where it is assigned or compared, an INSERT's SELECT list included.
 	 */

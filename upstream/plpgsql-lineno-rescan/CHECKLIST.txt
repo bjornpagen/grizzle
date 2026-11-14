@@ -20,8 +20,8 @@ A. GATES BEFORE REPORTING
       None found to duplicate.
   [x] Mind the release cycle.
       https://wiki.postgresql.org/wiki/Submitting_a_Patch
-      19 is between RC1 and RC2. This is a master patch for the 20 cycle: the email goes to hackers with a commitfest
-      entry, and asks for no backpatch.
+      19 is between RC2 (2026-11-12) and GA (due 2026-11-19). This is a master patch for the 20 cycle: the email goes
+      to hackers with a commitfest entry, and asks for no backpatch.
 
 B. REPORT CONTENT
   [x] A self-contained reproduction runnable in psql without ~/.psqlrc: repro.sql, run with psql -X. It builds its

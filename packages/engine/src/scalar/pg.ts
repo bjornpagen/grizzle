@@ -70,7 +70,7 @@ const floatP = `${postgresSource}/doc/src/sgml/datatype.sgml#L905-L910`
 
 /** The greatest binary precision float(p) maps to real: real's own, binary32's. */
 const floatRealPrecision: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bits",
 	scope: "the binary precision p of float(p) that selects real",
 	from: [binary32Precision],
@@ -80,7 +80,7 @@ const floatRealPrecision: Limit = derived({
 
 /** The greatest binary precision float(p) admits: double precision's own, binary64's. */
 const floatDoublePrecision: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bits",
 	scope: "the binary precision p of float(p) that selects double precision",
 	from: [binary64Precision],

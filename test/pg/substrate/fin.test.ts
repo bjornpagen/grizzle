@@ -1,5 +1,5 @@
 /**
- * The fin lemmas of fin.md §5.2, proved against PostgreSQL 19rc1 inside a stated box: the lowering's DDL written by hand
+ * The fin lemmas of fin.md §5.2, proved against PostgreSQL 19rc2 inside a stated box: the lowering's DDL written by hand
  * (test/pg/substrate/fin.ts), every state and every single mutation the box holds sent to PostgreSQL, and PostgreSQL's
  * verdict judged by two oracles.
  *
@@ -815,7 +815,7 @@ const written = <L extends string>(
 				)
 	)
 
-layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it) => {
+layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc2", (it) => {
 	it.effect(
 		"accept exactly the states of the box where the lowered direction's lemma holds, and refuse every other with a constraint the model allows",
 		(ctx) =>

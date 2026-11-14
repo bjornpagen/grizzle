@@ -1,5 +1,5 @@
 /**
- * The downstream shapes of rules over queries on PostgreSQL 19rc1, kept beside the search of rule-query.test.ts: each
+ * The downstream shapes of rules over queries on PostgreSQL 19rc2, kept beside the search of rule-query.test.ts: each
  * exhausted over a box of states, every state written whole by a served ChangeSet of grizzle's into empty tables.
  *
  * - **A join as a rule's side**, a typed href: ResourceHref ⋈ ResourceTyped on node is TypedHref, a live derived
@@ -434,7 +434,7 @@ type Feature =
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
 layer(Substrate.layer, { excludeTestServices: true })(
-	"downstream's rules over queries on PostgreSQL 19rc1",
+	"downstream's rules over queries on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
 			"accept exactly the states of each downstream shape that keep its rules, refusing the rest naming a rule they break",

@@ -1,5 +1,5 @@
 /**
- * fin.md §6's capacity table through grizzle's lowering, on PostgreSQL 19rc1: every use of the deleted `capacity` is
+ * fin.md §6's capacity table through grizzle's lowering, on PostgreSQL 19rc2: every use of the deleted `capacity` is
  * a native law, and a state the old capacity refused is refused natively, by PostgreSQL, with the SQLSTATE of the
  * native its row names, reporting that row's law.
  *
@@ -390,7 +390,7 @@ const refusalOf = (sketch: Sketch): Option.Option<Refusal> => {
 type CapacityFeature = `${Row} ${"committed" | "refused natively"}`
 
 layer(Substrate.layer)(
-	"fin.md §6's capacity table through grizzle's lowering on PostgreSQL 19rc1",
+	"fin.md §6's capacity table through grizzle's lowering on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
 			"commit each row's states its law admits and refuse every other natively, with the row's SQLSTATE and law",

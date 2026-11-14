@@ -15,7 +15,7 @@ export interface Retried<A> {
  * A grizzle write as an application calls it: again after each TransientFailure, until a call answers.
  *
  * grizzle makes one attempt per call (the round-trip suite, test/pg/adapter/round-trips.test.ts, holds every public
- * call to one round trip). Every refusal is a concurrent transaction's (PostgreSQL 19rc1's
+ * call to one round trip). Every refusal is a concurrent transaction's (PostgreSQL 19rc2's
  * src/backend/storage/lmgr/README-SSI: "no transaction is canceled until one of the other transactions in the set of
  * conflicts which could generate an anomaly has successfully committed"), and no count of them is PostgreSQL's: while
  * one commits, every attempt that reads its writes is refused until the commit is visible to a new snapshot, however

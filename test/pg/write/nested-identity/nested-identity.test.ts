@@ -23,7 +23,7 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
  * A nested write whose texts sum past the longest string V8 holds (core/limits.ts maxStringLength) is accepted by
- * PostgreSQL and reads back as written, on PostgreSQL 19rc1: its identities are structural (write/family/nesting.ts
+ * PostgreSQL and reads back as written, on PostgreSQL 19rc2: its identities are structural (write/family/nesting.ts
  * NestedSet), so the host never joins its rows' texts into one, where it once died with `RangeError: Invalid string
  * length` before any SQL.
  *

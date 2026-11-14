@@ -124,38 +124,38 @@ const numericH = `${postgresSource}/src/include/utils/numeric.h`
 /** The greatest precision a numeric typmod declares. */
 export const numericMaxPrecision: Limit = published({
 	value: 1000,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "decimal digits",
 	scope:
 		"the precision p of numeric(p, s): a field's, a cast's, a parameter's or a typed literal's",
 	constraint: "compile-time constant",
 	source: `${numericH}#L35`,
 	quote: "#define NUMERIC_MAX_PRECISION\t\t1000",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /** The least scale a numeric typmod declares: a negative scale rounds to a power of ten. */
 export const numericMinScale: Limit = published({
 	value: -1000,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "decimal digits",
 	scope: "the scale s of numeric(p, s)",
 	constraint: "compile-time constant",
 	source: `${numericH}#L37`,
 	quote: "#define NUMERIC_MIN_SCALE\t\t\t(-1000)",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /** The greatest scale a numeric typmod declares. */
 export const numericMaxScale: Limit = published({
 	value: 1000,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "decimal digits",
 	scope: "the scale s of numeric(p, s)",
 	constraint: "compile-time constant",
 	source: `${numericH}#L38`,
 	quote: "#define NUMERIC_MAX_SCALE\t\t\t1000",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 const datatypeSgml = `${postgresSource}/doc/src/sgml/datatype.sgml`
@@ -166,13 +166,13 @@ const datatypeSgml = `${postgresSource}/doc/src/sgml/datatype.sgml`
  */
 export const numericMaxIntegerDigits: Limit = published({
 	value: 131072,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "decimal digits",
 	scope: "the integer digits of every numeric value, a computed one's bound included",
 	constraint: "compile-time constant",
 	source: `${datatypeSgml}#L399`,
 	quote: "up to 131072 digits before the decimal point; up to 16383 digits after the decimal point",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /**
@@ -181,13 +181,13 @@ export const numericMaxIntegerDigits: Limit = published({
  */
 export const numericMaxFractionDigits: Limit = published({
 	value: 16383,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "decimal digits",
 	scope: "the fraction digits of every numeric value, a computed one's bound included",
 	constraint: "compile-time constant",
 	source: `${datatypeSgml}#L399`,
 	quote: "up to 131072 digits before the decimal point; up to 16383 digits after the decimal point",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /**
@@ -195,7 +195,7 @@ export const numericMaxFractionDigits: Limit = published({
  * NUMERIC_MAX_DISPLAY_SCALE: select_div_scale and its kin take a result scale no larger.
  */
 export const numericMaxDisplayScale: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "decimal digits",
 	scope: "the result scale of numeric division, avg, sqrt and power",
 	from: [numericMaxPrecision],
@@ -209,18 +209,18 @@ export const numericMaxDisplayScale: Limit = derived({
  */
 export const numericMinSigDigits: Limit = published({
 	value: 16,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "decimal digits",
 	scope: "the significant digits select_div_scale and its kin choose a result scale for",
 	constraint: "compile-time constant",
 	source: `${numericH}#L53`,
 	quote: "#define NUMERIC_MIN_SIG_DIGITS\t\t16",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /** The internal limit on a calculation's result scale, NUMERIC_MAX_RESULT_SCALE. */
 export const numericMaxResultScale: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "decimal digits",
 	scope: "the scale of an intermediate numeric result, which exp_var's input bound is three times",
 	from: [numericMaxPrecision],

@@ -10,8 +10,8 @@ A. GATES BEFORE REPORTING
       The owner searches "SxactHasSummaryConflictOut", "conflict out to old pivot" and "summarized" "false positive"
       before sending.
   [ ] Don't duplicate a discussion: the commitfest search needs a login; the owner repeats it before filing.
-  [x] Mind the release cycle: 19 is between RC1 and RC2. This is a master patch; whether it is a bug fix to
-      back-patch is the list's call, and the email asks.
+  [x] Mind the release cycle: 19 is between RC2 (2026-11-12) and GA (due 2026-11-19). This is a master patch;
+      whether it is a bug fix to back-patch is the list's call, and the email asks.
 
 B. REPORT CONTENT
   [x] A self-contained reproduction: the isolation spec serializable-summarized-conflict-out, which needs no special

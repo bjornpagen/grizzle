@@ -1,5 +1,5 @@
 /**
- * A nested write whose rows are past one Bind message (write/program/staged.ts), on PostgreSQL 19rc1: its rows travel
+ * A nested write whose rows are past one Bind message (write/program/staged.ts), on PostgreSQL 19rc2: its rows travel
  * through transaction carriers filled chunk by chunk in the call's one flight, and the statement that writes them runs
  * once over every row, so the write is the write its statement sends inline.
  *

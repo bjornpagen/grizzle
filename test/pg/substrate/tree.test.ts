@@ -1,5 +1,5 @@
 /**
- * trees.md's theorem, proved against PostgreSQL 19rc1 inside stated boxes: the tree relation's DDL written by hand
+ * trees.md's theorem, proved against PostgreSQL 19rc2 inside stated boxes: the tree relation's DDL written by hand
  * (test/pg/substrate/tree.ts), every state, mutation and write a box holds sent to PostgreSQL as a transaction of its
  * own, and PostgreSQL's verdict judged by two oracles.
  *
@@ -394,7 +394,7 @@ const THEOREM_ORACLE: Oracle = {
 	name: "trees.md §2's theorem as a checker, per root value: one tree rooted at its self-parented row, every row reached through its own value's rows, its slots gapless, its copies its parent's, and [start, end) a naive depth-first walk's pre-order intervals; beside it, the model of each constraint's moment (tree.ts predicted)"
 }
 
-layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc1", (it) => {
+layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc2", (it) => {
 	it.effect(
 		"commit exactly the forests of trees among every state of at most two rows, every field over its range and one past it",
 		(ctx) =>

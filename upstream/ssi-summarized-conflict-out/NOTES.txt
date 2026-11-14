@@ -6,7 +6,7 @@ What it is
   transaction alone in its database meets it once other databases load the cluster.
 
   heapam's HeapCheckForSerializableConflictOut passes the creator of every RECENTLY_DEAD or DELETE_IN_PROGRESS version
-  the scan cannot see (heapam.c 9476-9481), which is often a transaction whose writes the snapshot already holds: the
+  the scan cannot see (heapam.c 9504-9509), which is often a transaction whose writes the snapshot already holds: the
   version is invisible because its deleter committed first. The ordinary path drops such a creator at XidIsConcurrent
   (predicate.c 4068). The summarized path (3984-4015) consults pg_serial with no concurrency test, and sets
   SXACT_FLAG_SUMMARY_CONFLICT_OUT (4011) or raises "with conflict out to old committed transaction" / "conflict out to
@@ -19,8 +19,9 @@ What it is
   finished transactions that no active one has passed. One transaction anywhere in the cluster holding an xid pins
   every snapshot's xmin, so under overlapping SERIALIZABLE load SxactGlobalXmin never advances (1840-1852, 3572),
   nothing is freed (3641-3647), and each new SERIALIZABLE transaction summarizes the oldest finished one (1735-1745,
-  1432). The same pin keeps every version deleted meanwhile RECENTLY_DEAD for the readers (heapam.c 9468). Present
-  on 19rc1 and on master (checked 2026-11-10).
+  1432). The same pin keeps every version deleted meanwhile RECENTLY_DEAD for the readers (heapam.c 9496). Present
+  on 19rc1 and on master (checked 2026-11-10), and on 19rc2, whose predicate.c and HeapCheckForSerializableConflictOut
+  are 19rc1's byte for byte (checked 2026-11-14). The line numbers here are 19rc2's.
 
 How grizzle met it
   pg/fin/fold-ends, a lone writer in its own database, failed one apply in the full run at f6f1afbf (TEST_SEED
@@ -32,13 +33,15 @@ How grizzle met it
   the same path.
 
 What grizzle does
-  The pin carries the fix as scripts/pg/patches/19rc1-ssi-conflict-out-concurrency.patch from the RC2 repin on, by the
-  patch-upstream doctrine: no grizzle representation keeps a SERIALIZABLE role that updates or deletes from scanning
-  dead versions, and READ COMMITTED certification, where SSI takes no part, covers insert-only roles alone. With the
-  fix, a SERIALIZABLE transaction with no concurrent transaction in its own database meets no SSI 40001, whatever runs
-  in the other databases: every reason code (predicate.c 3931-4691) then needs a concurrent transaction in its
-  database. The lone-writer judges (test/support/oracle/write/run.ts, pg/fin/fold-ends) are then exact, and the worlds
-  model's admitted lone-session 40001 is cut.
+  The pin does not carry the fix: scripts/pg/pin.env at the RC2 repin (ffc83f27) carries only the relcache patch, since
+  local behaviour must match stock PostgreSQL on RDS (the owner, 2026-11-11; TODO.md). No grizzle representation keeps
+  a SERIALIZABLE role that updates or deletes from scanning dead versions, and READ COMMITTED certification, where SSI
+  takes no part, covers insert-only roles alone, so the fix is PostgreSQL's to make. Until a release grizzle pins
+  carries it, a SERIALIZABLE transaction alone in its database can meet this 40001 under the cluster's load, and the
+  worlds model admits a lone session's 40001 (test/support/schedules/worlds.ts). With the fix, such a transaction meets
+  no SSI 40001, whatever runs in the other databases: every reason code (predicate.c 3931-4691) then needs a concurrent
+  transaction in its database, the lone-writer judges (test/support/oracle/write/run.ts, pg/fin/fold-ends) are exact,
+  and the worlds model's admitted lone-session 40001 can be cut (TODO.md, FOLDENDS-02).
 
 The fix proposed
   v1-0001-Decide-a-serializable-conflict-out-by-the-snapshot-first.patch: in CheckForSerializableConflictOut, return
@@ -46,13 +49,13 @@ The fix proposed
   duplicate test. A creator whose writes are all in the snapshot is no rw-antidependency, so every cancellation the
   test now skips lacked its premise. For such an xid SSI without summarization already returns with nothing set
   (4068); the fix makes the summarized and the flagged cases do the same, and leaves every concurrent xid's path as it
-  was. heapam already drops xids below TransactionXmin unconditionally (9483, 9524); the fix closes the band between
+  was. heapam already drops xids below TransactionXmin unconditionally (9511, 9552); the fix closes the band between
   the snapshot's xmin and xmax. It adds the isolation spec serializable-summarized-conflict-out, which fails on stock
   and passes with the fix (EVIDENCE.txt).
 
   NEGATION read it adversarially (2026-11-10) and found it sound: XidIsConcurrent false means the xid finished before
   the transaction snapshot; a LIVE invisible version's creator and a visible version's updater are never in the scan
-  snapshot, which is the transaction snapshot or a later one (ri_triggers.c 1828, 2067, 2699), so they stay
+  snapshot, which is the transaction snapshot or a later one (ri_triggers.c 1837, 2076, 2716), so they stay
   concurrent; a RECENTLY_DEAD invisible version's creator is non-concurrent only when the scan saw its delete; xip holds
   top-level xids and heapam passes SubTransGetTopmostTransaction; prepared transactions are in xip while prepared.
 

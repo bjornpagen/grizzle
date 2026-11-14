@@ -149,8 +149,8 @@ export const lateralParentMax = measured({
 		"a PostgreSQL repin or a planner setting change; a change to either form's SQL (lower/shapes/take); a different machine or cluster configuration; a run at a parent count between 256 and 1024; a workload whose groups differ from the Lab fixture's"
 })
 
-/** The PostgreSQL release every published PostgreSQL limit is read from, REL_19_RC1's tree. */
-export const postgresSource = "https://github.com/postgres/postgres/blob/REL_19_RC1"
+/** The PostgreSQL release every published PostgreSQL limit is read from, REL_19_RC2's tree. */
+export const postgresSource = "https://github.com/postgres/postgres/blob/REL_19_RC2"
 
 /**
  * PostgreSQL's explicit repetition limit: a pattern whose `{m}`, `{m,}` or `{m,n}` states a bound above it is refused
@@ -183,13 +183,13 @@ export const typeUnionLimit = measured({
 
 export const regexMaxRepeat = published({
 	value: 255,
-	owner: "PostgreSQL 19rc1's regex compiler",
+	owner: "PostgreSQL 19rc2's regex compiler",
 	unit: "repetitions",
 	scope: "each bound of a counted repetition in one str.regex pattern",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/include/regex/regguts.h#L95`,
 	quote: "#define _POSIX2_RE_DUP_MAX\t255",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 const regguts = `${postgresSource}/src/include/regex/regguts.h`
@@ -200,13 +200,13 @@ const regguts = `${postgresSource}/src/include/regex/regguts.h`
  */
 const regexMaxColor = published({
 	value: 32_767,
-	owner: "PostgreSQL 19rc1's regex compiler",
+	owner: "PostgreSQL 19rc2's regex compiler",
 	unit: "colors",
 	scope: "the greatest color number of one regex's color map",
 	constraint: "compile-time constant",
 	source: `${regguts}#L165`,
 	quote: "#define MAX_COLOR\t32767\t\t/* max color (must fit in 'color' datatype) */",
-	verified: "2026-11-07"
+	verified: "2026-11-14"
 })
 
 /**
@@ -215,11 +215,11 @@ const regexMaxColor = published({
  * domain or match is compiled, since PostgreSQL refuses it as "too many colors" at the first value it checks.
  */
 export const regexMaxColors = derived({
-	owner: "PostgreSQL 19rc1's regex compiler",
+	owner: "PostgreSQL 19rc2's regex compiler",
 	unit: "colors",
 	scope: "one str.regex or Compute.matches pattern's colors",
 	from: [regexMaxColor],
-	derivation: `colors are numbered from 0 to MAX_COLOR, and newcolor refuses another: "if (cm->max == MAX_COLOR)" (${postgresSource}/src/backend/regex/regc_color.c#L212, verified 2026-11-07). While one set is parsed, newsub opens a subcolor for each color the set splits, "sco = newcolor(cm);\t\t/* must create subcolor */" (regc_color.c#L401), and okcolors frees the parents the set emptied only once the set is done, so the colors live at once are at most twice the pattern's; the four pseudocolors specialcolors allocates after the last set, "nfa->bos[0] = pseudocolor(nfa->cm);" (regc_nfa.c#L1560), come when no subcolor is open, so twice the colors binds first`,
+	derivation: `colors are numbered from 0 to MAX_COLOR, and newcolor refuses another: "if (cm->max == MAX_COLOR)" (${postgresSource}/src/backend/regex/regc_color.c#L212, verified 2026-11-14). While one set is parsed, newsub opens a subcolor for each color the set splits, "sco = newcolor(cm);\t\t/* must create subcolor */" (regc_color.c#L401), and okcolors frees the parents the set emptied only once the set is done, so the colors live at once are at most twice the pattern's; the four pseudocolors specialcolors allocates after the last set, "nfa->bos[0] = pseudocolor(nfa->cm);" (regc_nfa.c#L1560), come when no subcolor is open, so twice the colors binds first`,
 	compute: ([max]) => (max.value + 1) / 2
 })
 
@@ -230,84 +230,84 @@ export const regexMaxColors = derived({
  */
 const regexSpaceStates = published({
 	value: 500_000,
-	owner: "PostgreSQL 19rc1's regex compiler",
+	owner: "PostgreSQL 19rc2's regex compiler",
 	unit: "NFA states",
 	scope: "the states REG_MAX_COMPILE_SPACE is the space of, for one regex's compilation",
 	constraint: "compile-time constant",
 	source: `${regguts}#L463-L466`,
 	quote: "(500000 * (sizeof(struct state) + 4 * sizeof(struct arc)))",
-	verified: "2026-11-07"
+	verified: "2026-11-14"
 })
 
 /** REG_MAX_COMPILE_SPACE's arcs for each of its states. */
 const regexSpaceArcsPerState = published({
 	value: 4,
-	owner: "PostgreSQL 19rc1's regex compiler",
+	owner: "PostgreSQL 19rc2's regex compiler",
 	unit: "NFA arcs per state",
 	scope: "the arcs REG_MAX_COMPILE_SPACE is the space of, for each of its states",
 	constraint: "compile-time constant",
 	source: `${regguts}#L463-L466`,
 	quote: "(500000 * (sizeof(struct state) + 4 * sizeof(struct arc)))",
-	verified: "2026-11-07"
+	verified: "2026-11-14"
 })
 
 /** The states of an NFA's first state batch, FIRSTSBSIZE, the fewest any of its batches holds. */
 const regexFirstStateBatch = published({
 	value: 32,
-	owner: "PostgreSQL 19rc1's regex compiler",
+	owner: "PostgreSQL 19rc2's regex compiler",
 	unit: "NFA states",
 	scope: "the first state batch of one NFA, each later batch doubling it",
 	constraint: "compile-time constant",
 	source: `${regguts}#L353`,
 	quote: "#define  FIRSTSBSIZE\t32",
-	verified: "2026-11-07"
+	verified: "2026-11-14"
 })
 
 /** The states of an NFA's largest state batch, MAXSBSIZE. */
 const regexMaxStateBatch = published({
 	value: 1_024,
-	owner: "PostgreSQL 19rc1's regex compiler",
+	owner: "PostgreSQL 19rc2's regex compiler",
 	unit: "NFA states",
 	scope: "one state batch of one NFA",
 	constraint: "compile-time constant",
 	source: `${regguts}#L354`,
 	quote: "#define  MAXSBSIZE\t\t1024",
-	verified: "2026-11-07"
+	verified: "2026-11-14"
 })
 
 /** The arcs of an NFA's first arc batch, FIRSTABSIZE, the fewest any of its batches holds. */
 const regexFirstArcBatch = published({
 	value: 64,
-	owner: "PostgreSQL 19rc1's regex compiler",
+	owner: "PostgreSQL 19rc2's regex compiler",
 	unit: "NFA arcs",
 	scope: "the first arc batch of one NFA, each later batch doubling it",
 	constraint: "compile-time constant",
 	source: `${regguts}#L327`,
 	quote: "#define  FIRSTABSIZE\t64",
-	verified: "2026-11-07"
+	verified: "2026-11-14"
 })
 
 /** The arcs of an NFA's largest arc batch, MAXABSIZE. */
 const regexMaxArcBatch = published({
 	value: 1_024,
-	owner: "PostgreSQL 19rc1's regex compiler",
+	owner: "PostgreSQL 19rc2's regex compiler",
 	unit: "NFA arcs",
 	scope: "one arc batch of one NFA",
 	constraint: "compile-time constant",
 	source: `${regguts}#L328`,
 	quote: "#define  MAXABSIZE\t\t1024",
-	verified: "2026-11-07"
+	verified: "2026-11-14"
 })
 
 /** Why a share of the compile space stays inside it, whichever of the two kinds of batch it counts. */
-const batchShare = `a batch is allocated only when every slot of the NFA's batches is live, so the two NFAs PostgreSQL holds at once (regcomp.c nfanode copies the whole raw NFA, "nfa = newnfa(v, v->cm, v->nfa);" at #L2371, while the raw one lives) hold at most their live entries and one batch each beyond them; a batch's header, its chain link and its count, is no larger than one entry, and a batch holds at least its first batch's entries, so the headers cost at most one entry for each of those; newstate and allocarc refuse a new batch only once "nfa->v->spaceused >= REG_MAX_COMPILE_SPACE" (${postgresSource}/src/backend/regex/regc_nfa.c#L165, #L389), so the states within their share and the arcs within theirs keep the space below it, verified 2026-11-07`
+const batchShare = `a batch is allocated only when every slot of the NFA's batches is live, so the two NFAs PostgreSQL holds at once (regcomp.c nfanode copies the whole raw NFA, "nfa = newnfa(v, v->cm, v->nfa);" at #L2371, while the raw one lives) hold at most their live entries and one batch each beyond them; a batch's header, its chain link and its count, is no larger than one entry, and a batch holds at least its first batch's entries, so the headers cost at most one entry for each of those; newstate and allocarc refuse a new batch only once "nfa->v->spaceused >= REG_MAX_COMPILE_SPACE" (${postgresSource}/src/backend/regex/regc_nfa.c#L165, #L389), so the states within their share and the arcs within theirs keep the space below it, verified 2026-11-14`
 
 /**
  * The most states a pattern's NFAs may hold at once (scalar/regex/space.ts pastCompileSpace): twice the raw NFA
  * PostgreSQL's parser builds from its ARE. A pattern of more is refused as ResourceBound (regexCompileSpace, states).
  */
 export const regexMaxHeldStates = derived({
-	owner: "PostgreSQL 19rc1's regex compiler",
+	owner: "PostgreSQL 19rc2's regex compiler",
 	unit: "NFA states",
 	scope: "the states of one pattern's NFAs that PostgreSQL holds at once while compiling it",
 	from: [regexSpaceStates, regexFirstStateBatch, regexMaxStateBatch],
@@ -322,7 +322,7 @@ export const regexMaxHeldStates = derived({
  * refused as ResourceBound (regexCompileSpace, arcs).
  */
 export const regexMaxHeldArcs = derived({
-	owner: "PostgreSQL 19rc1's regex compiler",
+	owner: "PostgreSQL 19rc2's regex compiler",
 	unit: "NFA arcs",
 	scope: "the arcs of one pattern's NFAs that PostgreSQL holds at once while compiling it",
 	from: [regexSpaceStates, regexSpaceArcsPerState, regexFirstArcBatch, regexMaxArcBatch],
@@ -340,14 +340,14 @@ export const regexMaxHeldArcs = derived({
  */
 export const maxStackDepth = published({
 	value: 2_048,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "kilobytes",
 	scope:
 		"max_stack_depth, as pg_settings reports it, of the server grizzle's patterns are compiled on",
 	constraint: "configurable default",
 	source: `${postgresSource}/doc/src/sgml/config.sgml#L2328`,
 	quote: "The default setting is two megabytes (<literal>2MB</literal>)",
-	verified: "2026-11-07"
+	verified: "2026-11-14"
 })
 /**
  * What the depth and anchor measures share of their evidence: one bisection per shape against the pinned PostgreSQL,
@@ -528,13 +528,13 @@ export const maxStringLength = published({
  */
 export const tableMaxColumns = published({
 	value: 1_600,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "columns",
 	scope: "one table, view or materialized view, its dropped columns included",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/include/access/htup_details.h#L48`,
 	quote: "#define MaxHeapAttributeNumber\t1600",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /**
@@ -544,25 +544,25 @@ export const tableMaxColumns = published({
  */
 export const selectMaxEntries = published({
 	value: 1_664,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "entries",
 	scope: "one target list of one query level",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/include/access/htup_details.h#L34`,
 	quote: "#define MaxTupleAttributeNumber 1664",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /** PostgreSQL's MaxAllocSize, the largest chunk its allocator hands out, which bounds the messages a backend reads. */
 export const maxAllocSize = published({
 	value: 0x3fff_ffff,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "one allocation of a backend",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/include/utils/memutils.h#L40`,
 	quote: "#define MaxAllocSize\t((Size) 0x3fffffff)",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /**
@@ -571,26 +571,26 @@ export const maxAllocSize = published({
  */
 const utf8EncodingMaxBytes = published({
 	value: 4,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "one character of a UTF-8 database, the maxmblen pg_wchar_table holds for PG_UTF8",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/common/wchar.c#L1872`,
 	quote:
 		"[PG_UTF8] = {pg_utf2wchar_with_len, pg_wchar2utf_with_len, pg_utf_mblen, pg_utf_dsplen, pg_utf8_verifychar, pg_utf8_verifystr, 4},",
-	verified: "2026-11-06"
+	verified: "2026-11-14"
 })
 
 /** A varlena's header, VARHDRSZ, which translate's result allocation counts beside its characters. */
 const varlenaHeaderBytes = published({
 	value: 4,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "the header of one variable-length datum, uncompressed and in line: a text among them",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/include/c.h#L787`,
 	quote: "#define VARHDRSZ\t\t((int32) sizeof(int32))",
-	verified: "2026-11-06"
+	verified: "2026-11-14"
 })
 
 /**
@@ -600,11 +600,11 @@ const varlenaHeaderBytes = published({
  * before any SQL.
  */
 export const bytesMaxLength: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "one bytes value, one bytea, as bytearecv reads it from a binary parameter",
 	from: [maxAllocSize, varlenaHeaderBytes],
-	derivation: `bytearecv allocates "result = (bytea *) palloc(nbytes + VARHDRSZ);" for a value of nbytes bytes (${postgresSource}/src/backend/utils/adt/bytea.c#L365, verified 2026-11-07), and "#define AllocSizeIsValid(size) ((Size) (size) <= MaxAllocSize)" (${postgresSource}/src/include/utils/memutils.h#L42), so nbytes is at most MaxAllocSize - VARHDRSZ`,
+	derivation: `bytearecv allocates "result = (bytea *) palloc(nbytes + VARHDRSZ);" for a value of nbytes bytes (${postgresSource}/src/backend/utils/adt/bytea.c#L365, verified 2026-11-14), and "#define AllocSizeIsValid(size) ((Size) (size) <= MaxAllocSize)" (${postgresSource}/src/include/utils/memutils.h#L42), so nbytes is at most MaxAllocSize - VARHDRSZ`,
 	compute: ([alloc, header]) => alloc.value - header.value
 })
 
@@ -641,11 +641,11 @@ export const bytesChunkLength = measured({
  * check or generated column that translates a longer text fails its write.
  */
 export const translateMaxBytes = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "the operand of one translate(text, text, text) call",
 	from: [maxAllocSize, utf8EncodingMaxBytes, varlenaHeaderBytes],
-	derivation: `translate refuses "if (unlikely(pg_mul_s32_overflow(pg_database_encoding_max_length(), m, &bytelen)) || unlikely(pg_add_s32_overflow(bytelen, VARHDRSZ, &bytelen)) || unlikely(!AllocSizeIsValid(bytelen)))" over its operand's m bytes (${postgresSource}/src/backend/utils/adt/oracle_compat.c#L854-L864, verified 2026-11-06), and "#define AllocSizeIsValid(size) ((Size) (size) <= MaxAllocSize)" (${postgresSource}/src/include/utils/memutils.h#L42), so m is at most (MaxAllocSize - VARHDRSZ) / maxmblen, rounded down`,
+	derivation: `translate refuses "if (unlikely(pg_mul_s32_overflow(pg_database_encoding_max_length(), m, &bytelen)) || unlikely(pg_add_s32_overflow(bytelen, VARHDRSZ, &bytelen)) || unlikely(!AllocSizeIsValid(bytelen)))" over its operand's m bytes (${postgresSource}/src/backend/utils/adt/oracle_compat.c#L854-L864, verified 2026-11-14), and "#define AllocSizeIsValid(size) ((Size) (size) <= MaxAllocSize)" (${postgresSource}/src/include/utils/memutils.h#L42), so m is at most (MaxAllocSize - VARHDRSZ) / maxmblen, rounded down`,
 	compute: ([alloc, width, header]) => Math.floor((alloc.value - header.value) / width.value)
 })
 
@@ -655,14 +655,14 @@ export const translateMaxBytes = derived({
  */
 const pgWcharBytes = published({
 	value: 4,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope:
 		"one pg_wchar, an unsigned int of the platform's C ABI, 32 bits on every platform PostgreSQL builds on",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/include/mb/pg_wchar.h#L28`,
 	quote: "typedef unsigned int pg_wchar;",
-	verified: "2026-11-06"
+	verified: "2026-11-14"
 })
 
 /**
@@ -672,11 +672,11 @@ const pgWcharBytes = published({
  * check or generated column that matches a longer text fails its write.
  */
 export const regexTextMaxBytes = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "the subject text of one match by ~",
 	from: [maxAllocSize, pgWcharBytes],
-	derivation: `RE_execute allocates "data = palloc_array(pg_wchar, dat_len + 1);" over its subject's dat_len bytes for ~ (${postgresSource}/src/backend/utils/adt/regexp.c#L332, verified 2026-11-06), and palloc refuses a size past MaxAllocSize, so the length plus one is at most MaxAllocSize / sizeof(pg_wchar), rounded down`,
+	derivation: `RE_execute allocates "data = palloc_array(pg_wchar, dat_len + 1);" over its subject's dat_len bytes for ~ (${postgresSource}/src/backend/utils/adt/regexp.c#L332, verified 2026-11-14), and palloc refuses a size past MaxAllocSize, so the length plus one is at most MaxAllocSize / sizeof(pg_wchar), rounded down`,
 	compute: ([alloc, wide]) => Math.floor(alloc.value / wide.value) - 1
 })
 
@@ -690,30 +690,30 @@ export const regexTextMaxBytes = derived({
  * refused on the host as InputTooLarge before its flight is sent (the shell's wire/batch.ts).
  */
 export const messageMaxBytes = derived({
-	owner: "PostgreSQL 19rc1's frontend/backend protocol",
+	owner: "PostgreSQL 19rc2's frontend/backend protocol",
 	unit: "bytes",
 	scope: "one message from client to server, as its Int32 length counts it, itself included",
 	from: [maxAllocSize],
-	derivation: `a protocol constant, PQ_LARGE_MESSAGE_LIMIT, which libpq.h defines as one less than MaxAllocSize: "#define PQ_LARGE_MESSAGE_LIMIT\t(MaxAllocSize - 1)" (${postgresSource}/src/include/libpq/libpq.h#L34, verified 2026-11-05)`,
+	derivation: `a protocol constant, PQ_LARGE_MESSAGE_LIMIT, which libpq.h defines as one less than MaxAllocSize: "#define PQ_LARGE_MESSAGE_LIMIT\t(MaxAllocSize - 1)" (${postgresSource}/src/include/libpq/libpq.h#L34, verified 2026-11-14)`,
 	compute: ([alloc]) => alloc.value - 1
 })
 
 /**
  * The most placeholders one statement binds: a Bind message counts its parameter values in an unsigned 16-bit field,
  * `numParams = pq_getmsgint(input_message, 2);`
- * (https://github.com/postgres/postgres/blob/REL_19_RC1/src/backend/tcop/postgres.c#L1734), and the count must be the
+ * (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/tcop/postgres.c#L1734), and the count must be the
  * statement's highest `$n` ("bind message supplies %d parameters, but prepared statement \"%s\" requires %d"), so a
  * statement of more is refused as ResourceBound (statementParams) when it is printed.
  */
 export const statementMaxParams = published({
 	value: 2 ** 16 - 1,
-	owner: "PostgreSQL 19rc1's frontend/backend protocol",
+	owner: "PostgreSQL 19rc2's frontend/backend protocol",
 	unit: "placeholders",
 	scope: "one statement",
 	constraint: "protocol constant",
 	source: `${postgresSource}/doc/src/sgml/limits.sgml#L115-L116`,
 	quote: "<entry>query parameters</entry> <entry>65,535</entry>",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 const datatypeSgml = `${postgresSource}/doc/src/sgml/datatype.sgml`
@@ -721,37 +721,37 @@ const datatypeSgml = `${postgresSource}/doc/src/sgml/datatype.sgml`
 /** The least smallint. */
 export const int2Min = published({
 	value: -32768,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "a smallint value",
 	scope: "every smallint value: a column, a parameter, a literal, an endpoint",
 	constraint: "compile-time constant",
 	source: `${datatypeSgml}#L374`,
 	quote: "<entry>-32768 to +32767</entry>",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /** The greatest smallint. */
 export const int2Max = published({
 	value: 32767,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "a smallint value",
 	scope: "every smallint value: a column, a parameter, a literal, an endpoint",
 	constraint: "compile-time constant",
 	source: `${datatypeSgml}#L374`,
 	quote: "<entry>-32768 to +32767</entry>",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /** The least integer. */
 export const int4Min = published({
 	value: -2147483648,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "an integer value",
 	scope: "every integer value: a column, a parameter, a literal, an endpoint, a span width",
 	constraint: "compile-time constant",
 	source: `${datatypeSgml}#L380`,
 	quote: "<entry>-2147483648 to +2147483647</entry>",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /**
@@ -760,37 +760,37 @@ export const int4Min = published({
  */
 export const int4Max = published({
 	value: 2147483647,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "an integer value",
 	scope: "every integer value: a column, a parameter, a literal, an endpoint, a span width",
 	constraint: "compile-time constant",
 	source: `${datatypeSgml}#L380`,
 	quote: "<entry>-2147483648 to +2147483647</entry>",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /** The least bigint, and money's least count of minor units. */
 export const int8Min = published({
 	value: -9223372036854775808n,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "a bigint value",
 	scope: "every bigint value and every money count of minor units, a row count included",
 	constraint: "compile-time constant",
 	source: `${datatypeSgml}#L386`,
 	quote: "<entry>-9223372036854775808 to +9223372036854775807</entry>",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /** The greatest bigint, and money's greatest count of minor units. */
 export const int8Max = published({
 	value: 9223372036854775807n,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "a bigint value",
 	scope: "every bigint value and every money count of minor units, a row count included",
 	constraint: "compile-time constant",
 	source: `${datatypeSgml}#L386`,
 	quote: "<entry>-9223372036854775808 to +9223372036854775807</entry>",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /** The Node release every published Node and OpenSSL limit is read from, v26.13.0's tree. */
@@ -907,13 +907,13 @@ export const flightMaxBytes = derived({
 /** BITS_PER_BYTE, the bits PostgreSQL counts in one byte of a datum. */
 export const bitsPerByte = published({
 	value: 8,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bits",
 	scope: "one byte of a datum, as a bit string's length and a type's width count it",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/include/pg_config_manual.h#L111`,
 	quote: "#define BITS_PER_BYTE\t\t8",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /**
@@ -923,7 +923,7 @@ export const bitsPerByte = published({
  * index a closed relation's constant is read at, where a negative one would borrow from the digit above it.
  */
 export const rosterMaxCodes = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "codes",
 	scope:
 		"the codes of one roster, its live handles' and its holes, each the smallint a closed-id column stores",
@@ -938,13 +938,13 @@ const pgTypeDat = `${postgresSource}/src/include/catalog/pg_type.dat`
 const typlen = (type: string, value: number, line: number, quote: string): Limit =>
 	published({
 		value,
-		owner: "PostgreSQL 19rc1",
+		owner: "PostgreSQL 19rc2",
 		unit: "bytes",
 		scope: `one ${type} datum, in a heap tuple and in an index entry`,
 		constraint: "compile-time constant",
 		source: `${pgTypeDat}#L${line}`,
 		quote,
-		verified: "2026-11-05"
+		verified: "2026-11-14"
 	})
 
 /**
@@ -973,11 +973,11 @@ export const typlens = {
  * It is a whole number of bytes, so a constant within it is within it padded to whole hex digits too.
  */
 export const constantMaxBits = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bits",
 	scope: "one bit varying value: a closed side's constant, as its function returns it",
 	from: [int4Max, bitsPerByte],
-	derivation: `varbit.h's VARBITMAXLEN, "#define VARBITMAXLEN\t\t(INT_MAX - BITS_PER_BYTE + 1)" (${postgresSource}/src/include/utils/varbit.h#L83, verified 2026-11-05), INT_MAX being the greatest integer`,
+	derivation: `varbit.h's VARBITMAXLEN, "#define VARBITMAXLEN\t\t(INT_MAX - BITS_PER_BYTE + 1)" (${postgresSource}/src/include/utils/varbit.h#L83, verified 2026-11-14), INT_MAX being the greatest integer`,
 	compute: ([intMax, bits]) => intMax.value - bits.value + 1
 })
 
@@ -988,12 +988,12 @@ export const constantMaxBits = derived({
  * is "integer out of range". A payload space of more codes is refused when its constant is planned.
  */
 export const cellMaxCodes = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "codes",
 	scope:
 		"the payload space of one closed relation or side: the codes 1 + c its cells hold, each read as an integer",
 	from: [int4Max],
-	derivation: `bittoint4 reads a cell's bits as uint32 and returns it as int32, refusing more than 32 bits: "if (VARBITLEN(arg) > sizeof(result) * BITS_PER_BYTE)" and "PG_RETURN_INT32(result)" (${postgresSource}/src/backend/utils/adt/varbit.c#L1593, verified 2026-11-05); the greatest cell, 1 + (codes - 1), is at most the greatest integer`,
+	derivation: `bittoint4 reads a cell's bits as uint32 and returns it as int32, refusing more than 32 bits: "if (VARBITLEN(arg) > sizeof(result) * BITS_PER_BYTE)" and "PG_RETURN_INT32(result)" (${postgresSource}/src/backend/utils/adt/varbit.c#L1593, verified 2026-11-14); the greatest cell, 1 + (codes - 1), is at most the greatest integer`,
 	compute: ([max]) => max.value
 })
 
@@ -1003,13 +1003,13 @@ export const cellMaxCodes = derived({
  */
 export const namedatalen = published({
 	value: 64,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "a name value, its terminating zero included: an identifier, a roster's handle",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/include/pg_config_manual.h#L39`,
 	quote: "#define NAMEDATALEN 64",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /**
@@ -1018,18 +1018,18 @@ export const namedatalen = published({
  * decode clipped, and two that share their first NAMEDATALEN - 1 bytes would decode alike.
  */
 export const handleMaxBytes = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "one roster handle in UTF-8, as its roster's names constant holds it in a name",
 	from: [namedatalen],
-	derivation: `NAMEDATALEN less its terminating zero, as namein clips a name: "len = pg_mbcliplen(s, len, NAMEDATALEN - 1);" (${postgresSource}/src/backend/utils/adt/name.c, verified 2026-11-05)`,
+	derivation: `NAMEDATALEN less its terminating zero, as namein clips a name: "len = pg_mbcliplen(s, len, NAMEDATALEN - 1);" (${postgresSource}/src/backend/utils/adt/name.c, verified 2026-11-14)`,
 	compute: ([n]) => n.value - 1
 })
 
 /** The pinned build's block size, BLCKSZ: the page a heap tuple must fit, and every index entry a share of. */
 export const blockSize = published({
 	value: 8192,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope:
 		"one page of a table or of a B-tree or GiST index of the pinned build, which scripts/pg/build.sh configures by default",
@@ -1037,7 +1037,7 @@ export const blockSize = published({
 	source: `${postgresSource}/meson_options.txt#L5-L8`,
 	quote:
 		"option('blocksize', type: 'combo', choices: ['1', '2', '4', '8', '16', '32'], value: '8', description: 'Relation block size, in kilobytes')",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /**
@@ -1046,7 +1046,7 @@ export const blockSize = published({
  */
 export const maxAlign = published({
 	value: 8,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope:
 		"the alignment of a heap or index tuple, its header, its attributes and its line pointer's share of a page",
@@ -1054,7 +1054,7 @@ export const maxAlign = published({
 	source: `${postgresSource}/meson.build#L1877-L1878`,
 	quote:
 		"we intentionally do not consider any types wider than 64 bits, as allowing MAXIMUM_ALIGNOF to exceed 8 would be too much of a penalty for disk and memory space",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 const storageSgml = `${postgresSource}/doc/src/sgml/storage.sgml`
@@ -1062,26 +1062,26 @@ const storageSgml = `${postgresSource}/doc/src/sgml/storage.sgml`
 /** A page's header, PageHeaderData: the bytes every page of a table or an index begins with. */
 export const pageHeaderBytes = published({
 	value: 24,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "the header of every page",
 	constraint: "compile-time constant",
 	source: `${storageSgml}#L763`,
 	quote: "24 bytes long. Contains general information about the page",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /** One line pointer, ItemIdData: the bytes every item a page holds, a heap tuple or an index entry, takes beside it. */
 export const itemIdBytes = published({
 	value: 4,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "the line pointer of every item on a page",
 	constraint: "compile-time constant",
 	source: `${storageSgml}#L769-L770`,
 	quote:
 		"Array of item identifiers pointing to the actual items. Each entry is an (offset,length) pair. 4 bytes per item.",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /**
@@ -1090,14 +1090,14 @@ export const itemIdBytes = published({
  */
 export const heapTupleHeaderBytes = published({
 	value: 23,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope:
 		"the fixed header of every heap tuple, before its null bitmap: one row of a stored relation's table",
 	constraint: "compile-time constant",
 	source: `${storageSgml}#L955-L956`,
 	quote: "There is a fixed-size header (occupying 23 bytes on most machines)",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /**
@@ -1106,14 +1106,14 @@ export const heapTupleHeaderBytes = published({
  */
 export const toastPointerBytes = published({
 	value: 18,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "the in-line pointer of one variable-length value stored out of line",
 	constraint: "compile-time constant",
 	source: `${storageSgml}#L436-L437`,
 	quote:
 		"the total size of an on-disk TOAST pointer datum is therefore 18 bytes regardless of the actual size of the represented value",
-	verified: "2026-11-05"
+	verified: "2026-11-14"
 })
 
 /** `n` rounded up to a multiple of the alignment `a`, as PostgreSQL's TYPEALIGN rounds a size. */
@@ -1125,12 +1125,12 @@ export const alignUp = (n: number, a: number): number => Math.ceil(n / a) * a
  * so a row whose fixed-width columns, its generated cells and selected terms among them, can pass it cannot be stored.
  */
 export const heapTupleMaxBytes = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope:
 		"one heap tuple, its header and alignment padding included: one row of a stored relation's table",
 	from: [blockSize, maxAlign, pageHeaderBytes, itemIdBytes],
-	derivation: `htup_details.h's MaxHeapTupleSize, "#define MaxHeapTupleSize  (BLCKSZ - MAXALIGN(SizeOfPageHeaderData + sizeof(ItemIdData)))" (${postgresSource}/src/include/access/htup_details.h#L601, verified 2026-11-05): a page less its header and the one line pointer that points at the tuple, rounded up to the greatest alignment, since a heap page has no special space`,
+	derivation: `htup_details.h's MaxHeapTupleSize, "#define MaxHeapTupleSize  (BLCKSZ - MAXALIGN(SizeOfPageHeaderData + sizeof(ItemIdData)))" (${postgresSource}/src/include/access/htup_details.h#L755, verified 2026-11-14): a page less its header and the one line pointer that points at the tuple, rounded up to the greatest alignment, since a heap page has no special space`,
 	compute: ([block, align, header, itemId]) =>
 		block.value - alignUp(header.value + itemId.value, align.value)
 })

@@ -3,7 +3,7 @@ import { Array as Arr, Option, String as Str } from "effect"
 import type { Lexeme, Lexemes, Opener } from "#compiler/sql/lexer.ts"
 
 /**
- * PostgreSQL's scanner, src/backend/parser/scan.l of 19rc1, transcribed rule by rule as the reference the lexer
+ * PostgreSQL's scanner, src/backend/parser/scan.l of 19rc2, transcribed rule by rule as the reference the lexer
  * (sql/lexer.ts) is held to. Each state's rules are scan.l's patterns, written as regular expressions: at an offset
  * every rule is tried, the longest match wins and a tie goes to the rule scan.l states first, as flex decides, and each
  * rule's action is scan.l's, its yyless included. Nothing here is the lexer's: no rule, no scan, no character class.
@@ -19,7 +19,7 @@ import type { Lexeme, Lexemes, Opener } from "#compiler/sql/lexer.ts"
  * ends the scan, its state named as the opener. An escape's value is never read, so a literal PostgreSQL refuses for
  * what an escape denotes is read as written.
  *
- * Where a statement ends is psql's, src/fe_utils/psqlscan.l of 19rc1, transcribed as its rules and its state are: its
+ * Where a statement ends is psql's, src/fe_utils/psqlscan.l of 19rc2, transcribed as its rules and its state are: its
  * "(", ")" and ";" rules, ahead of self, count the parentheses and end a statement at a semicolon outside every
  * parenthesis and every BEGIN block, read as the lexer's terminator; its {identifier} rule, and no other, tracks the
  * identifier (psqlscan_track_identifier), recording the statement's first eight in init_idents and counting BEGIN, CASE

@@ -1,5 +1,5 @@
 /**
- * The fin lemmas through grizzle's own lowering, per direction, on PostgreSQL 19rc1 (fin.md §5.2, §11): an ordered and
+ * The fin lemmas through grizzle's own lowering, per direction, on PostgreSQL 19rc2 (fin.md §5.2, §11): an ordered and
  * a counted family declared with grizzle's formers and installed by their first migration, written by a direct SQL
  * writer, the owner, and judged by the families model (test/support/families), PostgreSQL the judge of the law.
  *
@@ -263,7 +263,7 @@ const ORACLE: Oracle = {
 	name: "the families theorem (test/support/families/theorem.ts) as a checker, beside the families model of each transaction (mutate.ts) judging each installed constraint at its moment"
 }
 
-layer(Substrate.layer)("the fin lemmas through grizzle's lowering on PostgreSQL 19rc1", (it) => {
+layer(Substrate.layer)("the fin lemmas through grizzle's lowering on PostgreSQL 19rc2", (it) => {
 	it.effect(
 		"commit exactly the states of the box the families theorem holds of, and kill each direction's drop",
 		(ctx) =>

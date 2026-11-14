@@ -1,5 +1,5 @@
 /**
- * Coverage's lowering (fin.md §7, "Tested on 19rc1, not assumed") against PostgreSQL 19rc1: a span target keyed
+ * Coverage's lowering (fin.md §7, "Tested on 19rc1, not assumed") against PostgreSQL 19rc2: a span target keyed
  * `UNIQUE (k, r WITHOUT OVERLAPS)` and a source whose `FOREIGN KEY (k, PERIOD r)` requires the union of its key's
  * target spans to cover each of its own, both spans STORED generated columns `CASE WHEN φ THEN int4range(lo, hi) END`,
  * so a row outside φ projects NULL.
@@ -274,7 +274,7 @@ const shrinks = (c: ChangeCase): boolean => {
 	})
 }
 
-layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL 19rc1", (it) => {
+layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL 19rc2", (it) => {
 	it.effect(
 		"refuse in a WITHOUT OVERLAPS key exactly the rows that overlap an earlier row of their key or hold an empty span, never comparing a NULL span",
 		(ctx) =>

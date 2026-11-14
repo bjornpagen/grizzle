@@ -1,5 +1,5 @@
 /**
- * Shared domains on PostgreSQL 19rc1: a contract's domain is named by the digest of its physical definition,
+ * Shared domains on PostgreSQL 19rc2: a contract's domain is named by the digest of its physical definition,
  * so two contracts of one definition share one domain and two of different definitions never do, and each column the
  * shared domain types still enforces its contract, its violation refused with 23514 on that domain.
  *
@@ -95,7 +95,7 @@ type DomainFeature =
 
 const same = (p: Pair): boolean => p.a.base === p.b.base && p.a.least === p.b.least
 
-layer(Substrate.layer)("shared domains on PostgreSQL 19rc1", (it) => {
+layer(Substrate.layer)("shared domains on PostgreSQL 19rc2", (it) => {
 	it.effect(
 		"type two contracts' columns by one domain exactly when their definitions are equal, each column enforcing its contract",
 		(ctx) =>

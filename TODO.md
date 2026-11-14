@@ -226,10 +226,11 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   already guarantees one value per spelling, and it must add one spelling per value (float specials, -0, numeric
   trailing zeros, date and span forms). Think it through and fix it once live works; the oracle is byte equality with
   today's encode over every carrier.
-- **PostgreSQL:** repin to 19rc2 when it is released on 2026-11-12 (pin.env, rebuild, re-init, delete the 19rc1
-  build; RC2 includes the recursive-UNION hash_mem fix, so that patch goes; confirm DROP DATABASE … WITH (FORCE)
-  beside parallel autovacuum and the RI fast path with a cast). Repin to 19 GA on 2026-11-19; the relcache patch is
-  rebased and kept until a release includes it. Tell qti-pie first: its database lives in the cluster.
+- **PostgreSQL:** repin to 19 GA on 2026-11-19 (pin.env, rebuild, re-init, delete the 19rc2 build); the relcache
+  patch is rebased and kept until a release includes it. Tell qti-pie first: its database lives in the cluster. When
+  the patch next changes, restate its header's "Its output matches stock 19rc1's except for that last line" from a run
+  on the stock release it is rebased onto: the RC2 rebase left that RC1 observation as it was, since any edit changes
+  the patch's SHA-256 in pin.env and so rebuilds every build.
 - **`bench:full` on a quiet machine.**
 - **Test layout:** tests move into packages/*/test, with their mutate and fallow paths and the docs.
 - **The fill kernel's rows have one handle, their `id` (RESTATED, 2026-11-12):** test/support/families/fill.ts follows a

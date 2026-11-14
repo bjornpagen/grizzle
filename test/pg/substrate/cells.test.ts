@@ -1,5 +1,5 @@
 /**
- * The law of erasure's templates (fin.md §17), proved against PostgreSQL 19rc1: the migration's pack, the table CHECK a
+ * The law of erasure's templates (fin.md §17), proved against PostgreSQL 19rc2: the migration's pack, the table CHECK a
  * closed law is, over its digit columns, the roster domains that keep each digit in range, function application with absence as
  * NULL, a domain re-pointed at a new constant and VALIDATEd, the RESTRICT drop of the old constant, and every write
  * after a domain's constraint changes judged by the new one, in a session that checked it before. Every template is the
@@ -420,7 +420,7 @@ type CachedCheckFeature =
 	| "admitted"
 	| "refused"
 
-layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on PostgreSQL 19rc1", (it) => {
+layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on PostgreSQL 19rc2", (it) => {
 	it.effect(
 		"pack every closed relation of the box into the string the host encoder writes, bit for bit",
 		(ctx) =>

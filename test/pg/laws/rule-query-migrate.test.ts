@@ -1,5 +1,5 @@
 /**
- * Rules over queries through grizzle's migrations, on PostgreSQL 19rc1: a migration that adds a rule over a query, or
+ * Rules over queries through grizzle's migrations, on PostgreSQL 19rc2: a migration that adds a rule over a query, or
  * changes one, runs its violation query over the stored rows and fails exactly where a row breaks it, the rule it
  * installs holds at every COMMIT after, through a declared rename of a table its query reads, and the migrated catalog
  * is a fresh install's of the second version, through a field the rule reads dropped and added again and a table it
@@ -389,7 +389,7 @@ type Feature =
 
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
-layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc1", (it) => {
+layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc2", (it) => {
 	it.effect(
 		"fail a migration adding or changing a rule over a query exactly where the stored rows break it, leave a fresh install's catalog where it applies, and hold the rule it installs at every COMMIT after",
 		(ctx) =>

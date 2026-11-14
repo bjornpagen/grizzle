@@ -1,5 +1,5 @@
 /**
- * Roster migrations on PostgreSQL 19rc1, run as programs of a commands machine against a model of the roster's history.
+ * Roster migrations on PostgreSQL 19rc2, run as programs of a commands machine against a model of the roster's history.
  *
  * The model is A8's roster machine (test/support/closed/generate.ts rosterMachine: grow, remove, re-add, and a reorder
  * it refuses), a list of code slots replayed command by command that shares no code with the engine's codebook,
@@ -1095,7 +1095,7 @@ const real = (
 	"closed rows": (p, before) => closedRowsStep(sys, p, before, note)
 })
 
-layer(Substrate.layer)("roster migrations on PostgreSQL 19rc1", (it) => {
+layer(Substrate.layer)("roster migrations on PostgreSQL 19rc2", (it) => {
 	it.effect(
 		"every migration of a roster's history leaves the installation the model's, and VALIDATE and the closed-only law refuse exactly what the model refuses",
 		(ctx) =>

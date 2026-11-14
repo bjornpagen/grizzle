@@ -33,7 +33,7 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
  * A text column's array parameter, which travels as a binary text[] of its values' UTF-8 bytes (codec/bytea.ts
- * textArray), on PostgreSQL 19rc1: every text a write's insert, put and delete slots carry, and every text a read's
+ * textArray), on PostgreSQL 19rc2: every text a write's insert, put and delete slots carry, and every text a read's
  * relation parameter carries, reaches PostgreSQL as the very text the host holds, as the literal array it replaced
  * delivered it.
  *

@@ -15,7 +15,7 @@
  *   references and its counted family's owner, at one of two reads: PostgreSQL's own foreign key check (ri_triggers.c
  *   ri_FastPathCheck under the transaction snapshot), and the owner INSERT's probe at its key, which proposes only
  *   Invoices no stored row holds (write/insert/statement.ts Proposal `unstored`), since PostgreSQL judges a proposed
- *   row by every CHECK before an arbiter meets its key (19rc1 nodeModifyTable.c ExecInsert). Each lock is a page, or
+ *   row by every CHECK before an arbiter meets its key (19rc2 nodeModifyTable.c ExecInsert). Each lock is a page, or
  *   the whole index where it holds no entry yet (nbtsearch.c _bt_first locks an empty index whole). A race of Docs
  *   alone, which neither read reaches, holds no SIRead lock. A met row's classification that read the stored rows of
  *   the facts its INSERT inserted would lock more.

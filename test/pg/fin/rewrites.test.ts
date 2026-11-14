@@ -1,5 +1,5 @@
 /**
- * Ordered rewrites through grizzle's lowering, on PostgreSQL 19rc1 (fin.md §4.5, §11, "Ordered rewrites" and "The
+ * Ordered rewrites through grizzle's lowering, on PostgreSQL 19rc2 (fin.md §4.5, §11, "Ordered rewrites" and "The
  * shrink order"): a member's removal, an insertion at a slot, a swap and an append are each a rewrite of the family's
  * suffix, sent as the planner sends it, deletes, then the owner's one count update, then inserts, and each commits to
  * the families it states. Sent in the wrong order, a shrink is refused: its count update lowers the count while rows
@@ -140,7 +140,7 @@ type RewriteFeature =
 	| "a shrink sent count first refused at its count by the bound, 23514, reporting the family's law"
 
 layer(Substrate.layer)(
-	"ordered rewrites and the shrink order through grizzle's lowering on PostgreSQL 19rc1",
+	"ordered rewrites and the shrink order through grizzle's lowering on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
 			"commit every suffix rewrite sent deletes, count, inserts, and refuse a shrink whose count comes first at that count by the bound",

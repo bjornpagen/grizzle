@@ -1,6 +1,6 @@
 /**
  * A ChangeSet editing a counted family's members in one stratum and nesting an ordered family's members under new owners
- * in another, or in the same one, on PostgreSQL 19rc1: each stratum plans its own family edits only
+ * in another, or in the same one, on PostgreSQL 19rc2: each stratum plans its own family edits only
  * (write/program/bind.ts planned), from the one read before the ChangeSet's writes, so every edit takes effect once, in
  * its stratum, whichever stratum comes first.
  *
@@ -172,7 +172,7 @@ type Feature =
 const sameMember = (a: MemberFact, b: MemberFact): boolean => a.m === b.m
 
 layer(Substrate.layer, { excludeTestServices: true })(
-	"family edits and a nested insert in two strata, on PostgreSQL 19rc1",
+	"family edits and a nested insert in two strata, on PostgreSQL 19rc2",
 	(it) => {
 		it.effect("take effect once each, in their own stratum, whichever comes first", (ctx) =>
 			searched(

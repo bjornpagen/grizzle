@@ -1,5 +1,5 @@
 /**
- * A set compared with a set value in a row check, on PostgreSQL 19rc1: `Compute.disjoint` and `Compute.subset` take a
+ * A set compared with a set value in a row check, on PostgreSQL 19rc2: `Compute.disjoint` and `Compute.subset` take a
  * set value of the first operand's roster (Bits.of) as their second operand, a literal that takes the set's type, so its
  * bits are its handles' codes, and the installed CHECK holds a row exactly when the set algebra over its handles does.
  *

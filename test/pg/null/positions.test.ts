@@ -1,5 +1,5 @@
 /**
- * NULL is a value of grizzle's scalar language wherever it arises, on PostgreSQL 19rc1: a differential search over
+ * NULL is a value of grizzle's scalar language wherever it arises, on PostgreSQL 19rc2: a differential search over
  * drawn expressions placed in every position a rule or a query reads one.
  *
  * Each case draws a world of closed relations over two rosters, some keys held by no row (language.ts World), rows of

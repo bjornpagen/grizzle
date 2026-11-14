@@ -95,7 +95,7 @@ export const testExitWait: Limit = derived({
 		"one pg_terminate_backend a test's support code calls on the local cluster to wait for a terminated backend to exit",
 	from: [testTimeout],
 	derivation:
-		"a termination begins inside its test, so a wait as long as the test's own never ends before the test's deadline, and the value fits the C int pg_terminate_backend reads its timeout into (REL_19_RC1 src/backend/storage/ipc/signalfuncs.c: \"int timeout; /* milliseconds */\")",
+		"a termination begins inside its test, so a wait as long as the test's own never ends before the test's deadline, and the value fits the C int pg_terminate_backend reads its timeout into (REL_19_RC2 src/backend/storage/ipc/signalfuncs.c: \"int timeout; /* milliseconds */\")",
 	compute: ([test]) => test.value
 })
 

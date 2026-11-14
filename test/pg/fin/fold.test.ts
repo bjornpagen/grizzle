@@ -1,5 +1,5 @@
 /**
- * Folds through grizzle's lowering, on PostgreSQL 19rc1 (fin.md §4.3, §11 "Identities", w4-w7 §2.3): one family per
+ * Folds through grizzle's lowering, on PostgreSQL 19rc2 (fin.md §4.3, §11 "Identities", w4-w7 §2.3): one family per
  * (monoid, carrier) folded by grizzle's `fold` (folds.ts), every family of at most four members over a five-value
  * domain written by a direct SQL writer, the owner, with the accumulators the reference fold computes and with each
  * single junk accumulator, and PostgreSQL's verdict judged three ways.
@@ -337,7 +337,7 @@ const pinlessSql = (seat: Seat, checks: ReadonlyArray<Catalogued>): ReadonlyArra
 		`ALTER TABLE ${seat.table("Member")} ADD CONSTRAINT ${quoteIdent(c.name)} CHECK ((${seat.column("Member", "after")} = ${seat.column("Member", "before")}::int8 + ${seat.column("Member", "x")}::int8) IS TRUE)`
 	])
 
-layer(Substrate.layer)("folds through grizzle's lowering on PostgreSQL 19rc1", (it) => {
+layer(Substrate.layer)("folds through grizzle's lowering on PostgreSQL 19rc2", (it) => {
 	for (const spec of FOLD_SPECS) {
 		it.effect(
 			`commit the reference fold of every family of at most four members over five values, and refuse every single junk accumulator by the native that owns its axis: ${spec.label}`,

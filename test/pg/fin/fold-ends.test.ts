@@ -72,7 +72,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 /**
- * Every fold's end and running values after every write grizzle's apply makes of a family, on PostgreSQL 19rc1: what
+ * Every fold's end and running values after every write grizzle's apply makes of a family, on PostgreSQL 19rc2: what
  * PostgreSQL holds after each write, applied as a served member with its call's facts, is exactly what the host model
  * of the README's family semantics states (test/support/families/ends.ts), and every lawful write is accepted.
  *
@@ -1130,7 +1130,7 @@ const judgedSituations: Arr.NonEmptyReadonlyArray<JudgedSituation> = nonEmpty(
 )
 
 layer(Substrate.layer, { excludeTestServices: true })(
-	"every fold's end through grizzle's apply on PostgreSQL 19rc1",
+	"every fold's end through grizzle's apply on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
 			"stores exactly the README's fold of every member's step, every end and running value, after every write of every family kind",

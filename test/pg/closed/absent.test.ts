@@ -1,5 +1,5 @@
 /**
- * A closed read at an absent key is judged by the rule that reads it, never refused by a cast, on PostgreSQL 19rc1.
+ * A closed read at an absent key is judged by the rule that reads it, never refused by a cast, on PostgreSQL 19rc2.
  *
  * The documented contract: `C.at` at a key its closed relation holds no row at reads NULL, `C.row` of a prefix the
  * relation completes nowhere reads the empty set and of a NULL prefix NULL, `C.has` of a key no row holds is false and

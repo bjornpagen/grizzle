@@ -1,5 +1,5 @@
 /**
- * Adding a counted family with a fold to populated relations, on PostgreSQL 19rc1 (rows-first §6): A4's backfill data
+ * Adding a counted family with a fold to populated relations, on PostgreSQL 19rc2 (rows-first §6): A4's backfill data
  * step draws every member's hidden index, ‹i› = row_number() OVER (PARTITION BY g ORDER BY its key) − 1, its copy of the
  * count, and each fold plane's before and after as running sums in ‹i› order, and the owner's count and end; VALIDATE
  * then proves every native over the backfilled rows.
@@ -1561,7 +1561,7 @@ const rekeyed = (r: Rekey) =>
 		}
 	})
 
-layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 19rc1", (it) => {
+layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 19rc2", (it) => {
 	it.effect(
 		"draw every hidden index, copy, accumulator, count and end of populated families in key order, each owner's tag along the owner axis, and VALIDATE every native",
 		(ctx) =>

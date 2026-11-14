@@ -1,5 +1,5 @@
 /**
- * Compute.sha256 on PostgreSQL 19rc1, against the host.
+ * Compute.sha256 on PostgreSQL 19rc2, against the host.
  *
  * 1. The digest over drawn bytes, the empty value, one byte, every byte value, values about a SHA-256 block's 64 bytes,
  *    where its padding takes one block or two, short values and a long one of a few MiB, each as a check and a query

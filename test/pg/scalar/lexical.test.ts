@@ -1,5 +1,5 @@
 /**
- * The parse on PostgreSQL 19rc1: for every candidate text (test/support/lexical.ts), the host and the database agree on
+ * The parse on PostgreSQL 19rc2: for every candidate text (test/support/lexical.ts), the host and the database agree on
  * whether the text is a member of its target's lexical form and on the value it names.
  *
  * - **Membership:** PostgreSQL's verdict on the form's ARE, the translation the text analysis gives str.regex domains

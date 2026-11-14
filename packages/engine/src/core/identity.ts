@@ -55,12 +55,12 @@ import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
  * one name.
  */
 export const maxIdentifierBytes: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "one identifier: an object's, a column's, a role's or a temporary table's name",
 	from: [namedatalen],
 	derivation:
-		'NAMEDATALEN less its terminating zero: "The system uses no more than NAMEDATALEN-1 bytes of an identifier; longer names can be written in commands, but they will be truncated." (https://github.com/postgres/postgres/blob/REL_19_RC1/doc/src/sgml/syntax.sgml#L133-L135)',
+		'NAMEDATALEN less its terminating zero: "The system uses no more than NAMEDATALEN-1 bytes of an identifier; longer names can be written in commands, but they will be truncated." (https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/syntax.sgml#L133-L135)',
 	compute: ([n]) => n.value - 1
 })
 

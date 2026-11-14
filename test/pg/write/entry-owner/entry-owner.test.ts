@@ -213,7 +213,7 @@ const versionOf = (name: string) => {
 type Built = ReturnType<typeof versionOf>
 
 layer(Substrate.layer, { excludeTestServices: true })(
-	"a family's owner written through a role's query entry on PostgreSQL 19rc1",
+	"a family's owner written through a role's query entry on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
 			"inserts, puts and deletes the north stores each entry sees as the model of the entry over the family states, leaving every count, stock and Item as the family holds them",

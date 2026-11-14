@@ -31,12 +31,12 @@ export type { DecimalParts, FiniteParts, NumericTypmod }
  * else.
  */
 const maxExponent: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "a decimal exponent",
 	scope: "the exponent of a numeric text a caller writes, `1e5` and `1E-5`",
 	from: [int4Max],
 	derivation:
-		'PG_INT32_MAX / 2 in C integer division, numeric.c set_var_from_str (https://github.com/postgres/postgres/blob/REL_19_RC1/src/backend/utils/adt/numeric.c#L6927, "if (exponent > PG_INT32_MAX / 2)")',
+		'PG_INT32_MAX / 2 in C integer division, numeric.c set_var_from_str (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L6927, "if (exponent > PG_INT32_MAX / 2)")',
 	compute: ([max]) => Math.trunc(max.value / 2)
 })
 

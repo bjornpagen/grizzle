@@ -1,6 +1,6 @@
 /**
  * The substrate proofs' one door to a transaction and its verdict (test/pg/substrate): each proof writes the RFC's
- * lowering templates by hand, sends a transaction of them to PostgreSQL 19rc1, and judges what PostgreSQL did against
+ * lowering templates by hand, sends a transaction of them to PostgreSQL 19rc2, and judges what PostgreSQL did against
  * an independent model. PostgreSQL is the system under test, and the RFC's theorem is the oracle.
  *
  * A verdict is what the contract of a transaction fixes: it commits, or it is refused at one moment (a statement, or

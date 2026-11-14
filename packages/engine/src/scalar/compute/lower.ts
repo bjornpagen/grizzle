@@ -4550,12 +4550,12 @@ const weightOf = (exponent: number, digits: number): number =>
  * "value overflows numeric format".
  */
 const powerExpLimit: Limit = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "a natural logarithm",
 	scope: "y · ln x of a power with an exponent that is no integer",
 	from: [numericMaxResultScale],
 	derivation:
-		'exp_var\'s overflow test, three times the result scale: "if (fabs(val) >= NUMERIC_MAX_RESULT_SCALE * 3)" (https://github.com/postgres/postgres/blob/REL_19_RC1/src/backend/utils/adt/numeric.c#L10503)',
+		'exp_var\'s overflow test, three times the result scale: "if (fabs(val) >= NUMERIC_MAX_RESULT_SCALE * 3)" (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L10503)',
 	compute: ([scale]) => scale.value * 3
 })
 
@@ -4572,7 +4572,7 @@ const powerExpLimit: Limit = derived({
  * integer, a point interval at an integer, is power_var_int's, which raises 22003 once its estimate of the result's
  * decimal weight passes (NUMERIC_WEIGHT_MAX + 1) · DEC_DIGITS, numericMaxIntegerDigits:
  * "if (f > (NUMERIC_WEIGHT_MAX + 1) * DEC_DIGITS)"
- * (https://github.com/postgres/postgres/blob/REL_19_RC1/src/backend/utils/adt/numeric.c#L11074), or once a product's
+ * (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L11074), or once a product's
  * NBASE weight passes NUMERIC_WEIGHT_MAX (numeric.c#L11205-L11206). Its weight (powerWeight), an integer there, is held
  * below numericMaxIntegerDigits, so the result is at most 10^(numericMaxIntegerDigits - 1): a whole digit inside both
  * tests, whatever the estimate's rounding. Any other exponent is power_var's, exp(y · ln x), its weight held below
