@@ -297,7 +297,7 @@ const isPrivilege = (statement: string): boolean => {
  * position decides nothing a catalog shows (a unit that needs an earlier one fails the apply instead). Both are read
  * as migrate sends them into `database` (filledSql), each variable filled, and split as migrate splits a file
  * (render/markers.ts splitStatements): a drafted statement may print two, as a grant on the database prints its lock
- * before it (sql/print.ts databasePrivilegeLocked), two on both sides.
+ * before it (sql/print.ts databaseWide), two on both sides.
  */
 export const runsInstallScript = (
 	folders: ReadonlyArray<FolderSource>,

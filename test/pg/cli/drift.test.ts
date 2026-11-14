@@ -24,7 +24,7 @@
  * - a role or the login not holding it is granted TEMPORARY on the database.
  *
  * A grant or revoke on the database runs under the lock every installation's does (test/support/substrate/substrate.ts
- * underDatabasePrivilegeLock), since the files of a run share the database's one pg_database row.
+ * underDatabaseLock), since the files of a run share the database's one pg_database row.
  *
  * The oracle is PostgreSQL's catalog as the drift check reads it: drift refuses exactly when a change was made, its
  * mismatches naming every changed object, and passes once every change is undone.
@@ -70,7 +70,7 @@ import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
-import { Substrate, underDatabasePrivilegeLock } from "#test/support/substrate/substrate.ts"
+import { Substrate, underDatabaseLock } from "#test/support/substrate/substrate.ts"
 
 type Planted =
 	| "a view's security barrier"
@@ -183,9 +183,9 @@ const picked = (
 /** Column `i` of a row a catalog read answers. */
 const column = (row: ReadonlyArray<string>, i: number): string => defined(row[i], "a column read")
 
-/** TEMPORARY on the database, granted to or revoked from `role` (`verb`), under the database privilege's lock. */
+/** TEMPORARY on the database, granted to or revoked from `role` (`verb`), under the database lock. */
 const temporary = (n: Names, verb: "GRANT" | "REVOKE", role: string): string =>
-	underDatabasePrivilegeLock(
+	underDatabaseLock(
 		`${verb} TEMPORARY ON DATABASE ${quoteIdent(n.database)} ${verb === "GRANT" ? "TO" : "FROM"} ${quoteIdent(role)}`
 	)
 

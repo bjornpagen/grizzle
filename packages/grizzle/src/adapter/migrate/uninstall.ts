@@ -16,12 +16,7 @@ import {
 } from "#adapter/migrate/session.ts"
 import { type BatchStatement, oneShotStatement, sentAnswer } from "#adapter/wire/batch.ts"
 import type { CatalogQuery } from "#adapter/wire/statement.ts"
-import {
-	C,
-	databasePrivilegeLock,
-	emptyNameMap,
-	type UninstallStatement
-} from "#compiler/plan/catalog.ts"
+import { C, databaseLock, emptyNameMap, type UninstallStatement } from "#compiler/plan/catalog.ts"
 import { defect, emit, emitCatalog } from "#compiler/plan/common.ts"
 import { namespaceStem } from "#compiler/plan/migration.ts"
 
@@ -53,7 +48,7 @@ import { namespaceStem } from "#compiler/plan/migration.ts"
  * transaction (sql/catalog.ts UninstallStatement): its publications and its slots, which PostgreSQL refuses to drop
  * while a leader streams from one, its schemas CASCADE, with every row they hold, then its roles, after the migration
  * identity takes on their privileges and DROP OWNED revokes what they hold in the database and on its shared objects,
- * under the database privilege's lock (sql/catalog.ts databasePrivilegeLock), as every writer of the database's ACL
+ * under the database lock (sql/catalog.ts databaseLock), as every writer of a row the database's installations share
  * takes it. PostgreSQL refuses DROP ROLE (2BP01) while anything of another database depends on a role, its DETAIL
  * naming that database: the transaction rolls back whole, nothing is dropped, and the refusal carries PostgreSQL's
  * message and detail (UninstallRefused). Each role is named by the name pg_roles read, so the role dropped is the role
@@ -214,11 +209,11 @@ const installationRolesOf = (
 const sent = (statement: UninstallStatement): BatchStatement =>
 	oneShotStatement(emitCatalog(statement), [])
 
-/** The database privilege's lock, as a statement of uninstall's transaction (sql/catalog.ts databasePrivilegeLock). */
+/** The database lock, as a statement of uninstall's transaction (sql/catalog.ts databaseLock). */
 const privilegeLock = (): BatchStatement => {
-	const lock = emit(databasePrivilegeLock, emptyNameMap)
+	const lock = emit(databaseLock, emptyNameMap)
 	if (!lock.ok) {
-		throw defect("the database privilege's lock prints")
+		throw defect("the database lock prints")
 	}
 	return oneShotStatement(lock.value.text, [])
 }

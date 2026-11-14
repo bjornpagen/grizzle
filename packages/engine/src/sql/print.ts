@@ -90,7 +90,7 @@ import {
 	type DoBlock,
 	type DoStatement,
 	databaseDefaultBlock,
-	databasePrivilegeLock
+	databaseLock
 } from "#compiler/sql/catalog.ts"
 import { statementParams } from "#compiler/sql/transform.ts"
 
@@ -1363,12 +1363,36 @@ export const printFunctionSignature = (fn: FunctionName): string =>
 const printGrantee = (grantee: Grantee): string =>
 	grantee.kind === "PUBLIC" ? "PUBLIC" : printRole(grantee.name)
 
-/** The database privilege's lock, terminated, ahead of a GRANT or REVOKE on the current database (sql/catalog.ts
- * databasePrivilegeLock), in the same transaction; nothing ahead of one on any other object. */
-const databasePrivilegeLocked = (out: Lines, on: GrantObjects): void => {
-	if (on.kind === "DATABASE") {
-		terminated(out, (lines) => writeStatement(lines, databasePrivilegeLock))
-	}
+/**
+ * How a statement's text is emitted, by who else writes the catalog rows it writes: `own`,
+ * a row of the installation's own objects alone, bare; `databaseWide`, a row another installation in the same database
+ * writes too, terminated after the database lock (sql/catalog.ts databaseLock), so two installations migrating into one
+ * database write it one at a time. The lock is held to the end of the transaction, and a statement takes it again
+ * at no cost; nothing prints such a statement but through databaseWide.
+ */
+type Emitter = (out: Lines, write: (out: Lines) => void) => void
+
+const own: Emitter = (out, write) => write(out)
+
+const databaseWide: Emitter = (out, write) => {
+	terminated(out, (lines) => writeStatement(lines, databaseLock))
+	write(out)
+}
+
+/**
+ * How a GRANT or REVOKE on each kind of object is emitted (Emitter): the current database's ACL is a row of
+ * pg_database every installation in the database writes; a schema's is a row of pg_namespace, and an installation
+ * grants on the vector extension's schema (physical/ddl/roles.ts), which every installation of the database shares, by
+ * the same arm it grants on its own schemas, so a grant on any schema is database-wide. A table's, a sequence's, a
+ * domain's and a function's are the installation's own.
+ */
+const grantEmitter: { readonly [K in GrantObjects["kind"]]: Emitter } = {
+	TABLE: own,
+	SEQUENCE: own,
+	DOMAIN: own,
+	FUNCTION: own,
+	SCHEMA: databaseWide,
+	DATABASE: databaseWide
 }
 
 /** What a GRANT or REVOKE names: its objects, or the current database (printDatabase). */
@@ -1710,12 +1734,12 @@ export const printCommentTarget = (on: CommentTarget): string => {
  * One clause per line, each after the first indented once.
  *
  * The database default's DO block reads the database's name (sql/ast.ts AlterDatabaseDefault, sql/catalog.ts
- * databaseDefaultBlock); `%I` quotes it as an identifier. Every
- * installation in the database sets the same default on the same pg_db_role_setting row, and two that update it at
- * once fail with XX000 (tuple concurrently updated), so the block first takes the database default's
- * transaction-scoped advisory lock: a second installation waits for the first to commit, then sets it again. A GRANT or
- * REVOKE on the current database names it by its variable (printDatabase), after the database privilege's lock
- * (databasePrivilegeLocked), two statements of one transaction.
+ * databaseDefaultBlock); `%I` quotes it as an identifier. A GRANT or REVOKE on the current database names it by its
+ * variable (printDatabase).
+ *
+ * A statement that writes a catalog row another installation in the same database writes too prints after the
+ * database lock (databaseWide), two statements of one transaction: the database default's block, every ALTER DEFAULT
+ * PRIVILEGES, every CREATE EXTENSION, and a GRANT or REVOKE on the database or a schema (grantEmitter).
  *
  * Every role of the installation prints as its variable (printRole); the owner a FOR ROLE names is no role of it and
  * prints as its name.
@@ -1883,7 +1907,7 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 			)
 		}
 		case "alterDatabaseDefault":
-			return writeDo(out, databaseDefaultBlock(statement))
+			return databaseWide(out, (o) => writeDo(o, databaseDefaultBlock(statement)))
 		case "createRole":
 			return out.line(
 				`CREATE ROLE ${printRole(statement.name)} ${statement.login ? "LOGIN NOINHERIT" : "NOLOGIN"}`
@@ -1899,26 +1923,32 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 				`ALTER ROLE ${printRole(statement.name)} ${printAlterRoleAction(statement.action)}`
 			)
 		case "grant":
-			databasePrivilegeLocked(out, statement.on)
-			return out.line(
-				`GRANT ${statement.privileges.join(", ")} ON ${printGrantOn(statement.on)} TO ${statement.to.map(printGrantee).join(", ")}`
+			return grantEmitter[statement.on.kind](out, (o) =>
+				o.line(
+					`GRANT ${statement.privileges.join(", ")} ON ${printGrantOn(statement.on)} TO ${statement.to.map(printGrantee).join(", ")}`
+				)
 			)
 		case "revoke":
-			databasePrivilegeLocked(out, statement.on)
-			return out.line(
-				`REVOKE ${statement.privileges.join(", ")} ON ${printGrantOn(statement.on)} FROM ${statement.from.map(printGrantee).join(", ")}`
+			return grantEmitter[statement.on.kind](out, (o) =>
+				o.line(
+					`REVOKE ${statement.privileges.join(", ")} ON ${printGrantOn(statement.on)} FROM ${statement.from.map(printGrantee).join(", ")}`
+				)
 			)
 		case "grantColumns":
 			return out.line(
 				`GRANT ${statement.privilege} (${printIdentList(statement.columns)}) ON TABLE ${printObjectName(statement.table)} TO ${printRole(statement.to)}`
 			)
 		case "alterDefaultPrivileges":
-			return out.line(
-				`ALTER DEFAULT PRIVILEGES${statement.forRole === undefined ? "" : ` FOR ROLE ${quoteIdent(statement.forRole)}`}${statement.inSchema === undefined ? "" : ` IN SCHEMA ${quoteIdent(statement.inSchema)}`} REVOKE ${statement.privileges.join(", ")} ON ${statement.on} FROM ${statement.from.map(printGrantee).join(", ")}`
+			return databaseWide(out, (o) =>
+				o.line(
+					`ALTER DEFAULT PRIVILEGES${statement.forRole === undefined ? "" : ` FOR ROLE ${quoteIdent(statement.forRole)}`}${statement.inSchema === undefined ? "" : ` IN SCHEMA ${quoteIdent(statement.inSchema)}`} REVOKE ${statement.privileges.join(", ")} ON ${statement.on} FROM ${statement.from.map(printGrantee).join(", ")}`
+				)
 			)
 		case "createExtension":
-			return out.line(
-				`CREATE EXTENSION IF NOT EXISTS ${quoteIdent(statement.name)} SCHEMA ${quoteIdent(statement.schema)}`
+			return databaseWide(out, (o) =>
+				o.line(
+					`CREATE EXTENSION IF NOT EXISTS ${quoteIdent(statement.name)} SCHEMA ${quoteIdent(statement.schema)}`
+				)
 			)
 		case "createStatistics": {
 			const kinds = statement.statistics.length === 0 ? "" : ` (${statement.statistics.join(", ")})`

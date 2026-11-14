@@ -10,14 +10,7 @@ import type {
 	Refresh,
 	Select
 } from "#compiler/sql/ast.ts"
-import {
-	provedSelect,
-	call as valueCall,
-	core as valueCore,
-	lit,
-	target,
-	types
-} from "#compiler/sql/build.ts"
+import { provedSelect, call as valueCall, lit, target, types } from "#compiler/sql/build.ts"
 
 /**
  * The catalog-read AST: the SQL grizzle's shell sends to read PostgreSQL's catalog (admission, drift, the ledger's
@@ -647,11 +640,10 @@ export const roleOid = (name: CatalogExpr): CatalogExpr => {
 export const setClosedSearchPath: SetClosedSearchPath = { kind: "setClosedSearchPath" }
 
 /**
- * An advisory lock grizzle takes, by what it serializes: the database default an installation sets, so concurrent
- * installations into one database set it one at a time (databaseDefaultBlock); the database's privileges an
- * installation grants or revokes, which every installation in the database writes on the database's one pg_database row,
- * one at a time alike (databasePrivilegeLock); the apply of one schema's
- * migrations, so two applies of the schema never interleave their files (adapter/migrate/apply.ts); or the leadership
+ * An advisory lock grizzle takes, by what it serializes: the writes of a catalog row every installation in the database
+ * may write, so concurrent installations into one database write each such row one at a time (databaseLock); the apply
+ * of one schema's migrations, so two applies of the schema never interleave their files (adapter/migrate/apply.ts); or
+ * the leadership
  * of an installation's live source, by its name (core/identity.ts identity.liveSource), session-level on the decoder's
  * connection, so one process at a time reads its slot (program/live.ts). Each lives in the
  * database's one bigint key space, which the application's own locks share, so its key is grizzle's by derivation from
@@ -664,21 +656,19 @@ export const setClosedSearchPath: SetClosedSearchPath = { kind: "setClosedSearch
  * qualified by its schema, differ in the drift check's scratch replay, which moves the function into another schema.
  */
 export type AdvisoryLock =
-	| { readonly kind: "databaseDefault" }
-	| { readonly kind: "databasePrivilege" }
+	| { readonly kind: "database" }
 	| { readonly kind: "apply"; readonly schema: string }
 	| { readonly kind: "live"; readonly source: string }
 
 /**
  * The name of an advisory lock in grizzle's own namespace, whose digest is its key: one name per lock, since an apply
- * lock's name ends in `apply ` and its schema's name, and the database default's and the database privilege's do not.
+ * lock's name ends in `apply ` and its schema's name, a live lock's in `live ` and its source's, and the database's in
+ * neither.
  */
 const advisoryLockName = (lock: AdvisoryLock): string => {
 	switch (lock.kind) {
-		case "databaseDefault":
-			return "grizzle advisory lock: database default"
-		case "databasePrivilege":
-			return "grizzle advisory lock: database privilege"
+		case "database":
+			return "grizzle advisory lock: database"
 		case "apply":
 			return `grizzle advisory lock: apply ${lock.schema}`
 		case "live":
@@ -705,30 +695,15 @@ export const advisoryKey = (lock: AdvisoryLock): bigint =>
 		BigInt(`0x${sha256Hex(advisoryLockName(lock)).slice(0, 2 * advisoryKeyBytes)}`)
 	)
 
-/** PERFORM pg_advisory_xact_lock(<key>): `lock`, held to the end of the transaction. */
-const advisoryXactLock = (lock: AdvisoryLock): DoStatement => ({
-	kind: "perform",
-	query: {
-		body: valueCore(
-			[target(valueCall("pg_advisory_xact_lock", [lit.int(advisoryKey(lock), types.bigint)]))],
-			[],
-			undefined
-		),
-		orderBy: [],
-		limit: undefined,
-		offset: undefined
-	}
-})
-
 /**
- * The DO block that sets the current database's default (sql/ast.ts AlterDatabaseDefault): the database default's
- * advisory lock, then ALTER DATABASE of the database's own name, which format quotes as an identifier (`%I`).
+ * The DO block that sets the current database's default (sql/ast.ts AlterDatabaseDefault): ALTER DATABASE of the
+ * database's own name, which format quotes as an identifier (`%I`). It writes a row every installation in the database
+ * writes, so the printer emits it behind the database lock (databaseLock).
  */
 export const databaseDefaultBlock = (statement: AlterDatabaseDefault): DoBlock => ({
 	kind: "do",
 	declare: [],
 	body: [
-		advisoryXactLock({ kind: "databaseDefault" }),
 		{
 			kind: "execute",
 			command: {
@@ -745,13 +720,6 @@ export const databaseDefaultBlock = (statement: AlterDatabaseDefault): DoBlock =
 	]
 })
 
-/**
- * The database privilege's advisory lock, `SELECT pg_advisory_xact_lock(<key>)`, held to the end of the transaction: the
- * statement a GRANT or REVOKE on the current database runs first (sql/print.ts), and what any other writer of the
- * database's ACL takes before it. Such a statement writes the database's pg_database row, which every installation in the
- * database shares, and two that write it at once fail with XX000 (tuple concurrently updated): a second installation
- * waits for the first to commit, then writes it again.
- */
 /**
  * How the migration identity gives the installation's decoder login its replication right: the REPLICATION attribute,
  * which a superuser or a role holding it may give; or, on Amazon RDS, where no customer role holds it, a membership in
@@ -788,13 +756,29 @@ export const replicationRightBlock = (role: string, grant: ReplicationGrant): Do
 	]
 })
 
-export const databasePrivilegeLock: Select = provedSelect(
+/**
+ * The database lock, `SELECT pg_advisory_xact_lock(<key>)`, held to the end of the transaction: the statement the
+ * printer emits ahead of every statement that writes a catalog row another installation in the same database writes
+ * too (sql/print.ts databaseWide), and what uninstall's DROP OWNED takes before it. Two transactions that write such a
+ * row at once fail: an update with XX000 (tuple concurrently updated), as two ALTER DEFAULT PRIVILEGES of one owner, two
+ * GRANTs on one schema or two on the database do; an insert with 23505, as two CREATE EXTENSION IF NOT EXISTS of one
+ * extension do on pg_extension_name_index. Behind the lock a second installation waits for the first to commit, then
+ * reads the row the first wrote, because each such statement refreshes its catalog caches after the wait before it
+ * reads the row (PostgreSQL 19rc2): ALTER DEFAULT PRIVILEGES opens pg_default_acl, a lock its own close released
+ * (src/backend/catalog/aclchk.c 1150, 1384; src/backend/access/common/relation.c 215-216), so the open takes it anew and
+ * accepts the pending invalidations (src/backend/storage/lmgr/lmgr.c 134-138) before its syscache read (aclchk.c 1223);
+ * a GRANT or REVOKE on a schema or the database reads its row by SearchSysCacheLocked1 (aclchk.c 2140), which accepts
+ * them after locking the row's tuple (src/backend/utils/cache/syscache.c 362); CREATE EXTENSION reads pg_extension
+ * through its syscache (src/backend/commands/extension.c 235, 2300), whose miss opens the catalog anew
+ * (src/backend/utils/cache/catcache.c 1577, 1621); ALTER DATABASE SET locks the database first
+ * (src/backend/commands/dbcommands.c 2664, src/backend/catalog/pg_shdepend.c 1215), which accepts them
+ * (src/backend/storage/lmgr/lmgr.c 1102).
+ */
+export const databaseLock: Select = provedSelect(
 	"oneRow",
 	[
 		target(
-			valueCall("pg_advisory_xact_lock", [
-				lit.int(advisoryKey({ kind: "databasePrivilege" }), types.bigint)
-			])
+			valueCall("pg_advisory_xact_lock", [lit.int(advisoryKey({ kind: "database" }), types.bigint)])
 		)
 	],
 	[],

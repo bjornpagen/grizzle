@@ -26,7 +26,7 @@ export { refreshStatement } from "#compiler/physical/derived/objects.ts"
 export { vectorExtension } from "#compiler/physical/vector/storage.ts"
 export { admitSchemaDesc } from "#compiler/schema/admit.ts"
 export * as C from "#compiler/sql/catalog.ts"
-export { databasePrivilegeLock, type UninstallStatement } from "#compiler/sql/catalog.ts"
+export { databaseLock, type UninstallStatement } from "#compiler/sql/catalog.ts"
 export { isDecimal } from "#compiler/core/text.ts"
 export { emptyNameMap } from "#compiler/sql/naming.ts"
 export {

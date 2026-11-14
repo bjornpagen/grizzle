@@ -1604,11 +1604,12 @@ export interface CreateLiveSecret {
 
 /**
  * The current database's default of a configuration parameter, whatever the database is named, printed as a DO block
- * (sql/catalog.ts DoBlock, built by sql/catalog.ts databaseDefaultBlock):
+ * (sql/catalog.ts DoBlock, built by sql/catalog.ts databaseDefaultBlock) after the database lock (sql/print.ts
+ * databaseWide), since every installation in the database writes the same pg_db_role_setting row:
  *
+ *   SELECT "pg_catalog"."pg_advisory_xact_lock"(<key>::bigint);
  *   DO $$
  *   BEGIN
- *     PERFORM "pg_catalog"."pg_advisory_xact_lock"(<key>::bigint);
  *     EXECUTE "pg_catalog"."format"('ALTER DATABASE %I SET <parameter> = %L'::"pg_catalog"."text",
  *       "pg_catalog"."current_database"(), '<value>'::"pg_catalog"."text");
  *   END
@@ -1718,7 +1719,9 @@ export type Privilege = (typeof privileges)[number]
 /**
  * What a GRANT or REVOKE names, at least one object: PostgreSQL has no grant on no object. `DATABASE` is the current
  * database, whatever it is named: an installation's statements name no database, so its GRANT and REVOKE name the
- * database's variable, which migrate fills with its connection's (sql/print.ts printDatabase).
+ * database's variable, which migrate fills with its connection's (sql/print.ts printDatabase). A grant on the database
+ * or on a schema writes a row another installation in the database may write too, the database's own or the vector
+ * extension's schema's, so it prints after the database lock (sql/print.ts grantEmitter).
  */
 export type GrantObjects =
 	| { readonly kind: "TABLE"; readonly names: NonEmptyReadonlyArray<ObjectName> }
@@ -1769,7 +1772,11 @@ export interface GrantColumns {
  * names the owner.
  * PostgreSQL adds per-schema default ACLs to the global ones and cannot revoke a global default per schema, so the
  * built-in PUBLIC EXECUTE on functions and PUBLIC USAGE on types are reset only by the global form, without
- * IN SCHEMA (future objects receive nothing implicitly).
+ * IN SCHEMA (future objects receive nothing implicitly): a global entry replaces the hard-wired default and a schema's
+ * is added on (PostgreSQL 19rc2 src/backend/catalog/aclchk.c 1152-1161, and get_user_default_acl's aclmerge of the two
+ * at 4304-4318). The global form writes the owner's one pg_default_acl row of the kind, which every installation of
+ * the same owner in the database writes, so every ALTER DEFAULT PRIVILEGES prints after the database lock (sql/print.ts
+ * databaseWide).
  */
 export interface AlterDefaultPrivileges {
 	readonly kind: "alterDefaultPrivileges"
@@ -1782,7 +1789,9 @@ export interface AlterDefaultPrivileges {
 	readonly from: NonEmptyReadonlyArray<Grantee>
 }
 
-/** Always IF NOT EXISTS: Setup creates an extension only when absent. */
+/** Always IF NOT EXISTS: Setup creates an extension only when absent. An extension is the database's, one of a name
+ * (pg_extension_name_index), which every installation that needs it creates, so it prints after the database lock
+ * (sql/print.ts databaseWide). */
 export interface CreateExtension {
 	readonly kind: "createExtension"
 	readonly name: string
