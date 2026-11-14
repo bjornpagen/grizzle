@@ -85,7 +85,7 @@ import {
 } from "#compiler/schema/own.ts"
 import type { Cte, OperandSelect, Select, SqlStatement } from "#compiler/sql/ast.ts"
 import { col, cteRef, provedCore, select, target } from "#compiler/sql/build.ts"
-import { printStatement } from "#compiler/sql/print.ts"
+import { printCommands } from "#compiler/sql/print.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
@@ -667,17 +667,20 @@ export const paramTexts = (
 	)
 
 /**
- * Statements as `grizzle generate` drafts them: each printed, each role of the installation named by its variable and
- * the database by DBNAME (deploy/render/variables.ts). A drafted script is no list of texts, so no harness path sends
- * it as it is: filledSql is the one way from it to PostgreSQL, and its statements are read only to compare texts.
+ * Statements as `grizzle generate` drafts them and `grizzle migrate` sends them: each printed as its commands
+ * (sql/print.ts printCommands), one PostgreSQL command each, as migrate splits a file where the scanner ends each
+ * (deploy/render/markers.ts splitStatements), so a statement behind the database lock is two; each role of the
+ * installation named by its variable and the database by DBNAME (deploy/render/variables.ts). A drafted script is no
+ * list of texts, so no harness path sends it as it is: filledSql is the one way from it to PostgreSQL, one command a
+ * message, and its statements are read only to compare texts.
  */
 export interface DraftedScript {
 	readonly statements: ReadonlyArray<string>
 }
 
-/** `statements` printed as `grizzle generate` drafts them (DraftedScript). */
+/** `statements` printed as `grizzle generate` drafts them, each as its commands (DraftedScript). */
 const drafted = (statements: ReadonlyArray<SqlStatement>): DraftedScript => ({
-	statements: Arr.map(statements, (statement) => printStatement(statement))
+	statements: Arr.flatMap(statements, (statement) => printCommands(statement))
 })
 
 /** An installation's script as `grizzle generate` drafts it, in install order (drafted). */

@@ -426,9 +426,9 @@ export const expectFreshCatalog = (
 	}).pipe(Effect.scoped)
 
 /** A refused apply is a defect of the test's setup, reported with its message, which names its stage. */
-const applied = (
-	effect: Effect.Effect<ReadonlyArray<SchemaApplyReport>, MigrateError>
-): Effect.Effect<ReadonlyArray<SchemaApplyReport>> =>
+const applied = <R>(
+	effect: Effect.Effect<ReadonlyArray<SchemaApplyReport>, MigrateError, R>
+): Effect.Effect<ReadonlyArray<SchemaApplyReport>, never, R> =>
 	Effect.catch(effect, (e) =>
 		Effect.die(new Error(`test install: ${e.message} (schema ${e.schema ?? "none"})`, { cause: e }))
 	)
@@ -442,13 +442,14 @@ const applied = (
  * in a loaded shared test process, not the command line's (openMigrationSession, which test/pg/migrate exercises):
  * installing a fixture is setup, and a suite's synchronous work in the same process must not fail it. The migration
  * session over it is the real one (migrationSession), so the apply sends exactly what `grizzle migrate apply` sends.
+ * The runner's refusal is its MigrateError, for a suite that judges it; applyFolders refuses as a defect of the setup.
  */
-const applyFolders = (
+export const migrateFolders = (
 	owner: AmbientOwner,
 	database: string,
 	snapshot: DeploySnapshot,
 	folders: ReadonlyArray<FolderSource>
-): Effect.Effect<void, never, Substrate> =>
+): Effect.Effect<ReadonlyArray<SchemaApplyReport>, MigrateError, Substrate> =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const connection = yield* Effect.catch(
@@ -467,12 +468,20 @@ const applyFolders = (
 					)
 				)
 		)
-		yield* applied(
-			applyOnSession(migrationSession(connection, { database, roles: { kind: "stems" } }), [
-				{ snapshot, folders }
-			])
+		return yield* applyOnSession(
+			migrationSession(connection, { database, roles: { kind: "stems" } }),
+			[{ snapshot, folders }]
 		)
 	}).pipe(Effect.scoped)
+
+/** Runs `folders` as migrateFolders does, a refusal a defect of the test's setup (applied). */
+const applyFolders = (
+	owner: AmbientOwner,
+	database: string,
+	snapshot: DeploySnapshot,
+	folders: ReadonlyArray<FolderSource>
+): Effect.Effect<void, never, Substrate> =>
+	Effect.asVoid(applied(migrateFolders(owner, database, snapshot, folders)))
 
 /**
  * The decoder login the served files `files` name, each login's by its declared name, as an operator names the role

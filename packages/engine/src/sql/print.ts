@@ -1363,21 +1363,22 @@ export const printFunctionSignature = (fn: FunctionName): string =>
 const printGrantee = (grantee: Grantee): string =>
 	grantee.kind === "PUBLIC" ? "PUBLIC" : printRole(grantee.name)
 
+/** One PostgreSQL command, as it writes its lines into a sink, unterminated: what one protocol message carries. */
+type Command = (out: Lines) => void
+
 /**
- * How a statement's text is emitted, by who else writes the catalog rows it writes: `own`,
- * a row of the installation's own objects alone, bare; `databaseWide`, a row another installation in the same database
- * writes too, terminated after the database lock (sql/catalog.ts databaseLock), so two installations migrating into one
- * database write it one at a time. The lock is held to the end of the transaction, and a statement takes it again
- * at no cost; nothing prints such a statement but through databaseWide.
+ * The commands a statement is, by who else writes the catalog rows it writes: `own`, a row of the installation's own
+ * objects alone, its own command; `databaseWide`, a row another installation in the same database writes too, the
+ * database lock's command (sql/catalog.ts databaseLock) and then its own, so two installations migrating into one
+ * database write it one at a time. The lock is held to the end of the transaction, and a statement takes it again at no
+ * cost. The two are two commands, never one text: a file holds them each terminated (writeStatement), and a driver
+ * sends them one message each (printCommands).
  */
-type Emitter = (out: Lines, write: (out: Lines) => void) => void
+type Emitter = (command: Command) => NonEmptyReadonlyArray<Command>
 
-const own: Emitter = (out, write) => write(out)
+const own: Emitter = (command) => [command]
 
-const databaseWide: Emitter = (out, write) => {
-	terminated(out, (lines) => writeStatement(lines, databaseLock))
-	write(out)
-}
+const databaseWide: Emitter = (command) => [(out) => writeCommand(out, databaseLock), command]
 
 /**
  * How a GRANT or REVOKE on each kind of object is emitted (Emitter): the current database's ACL is a row of
@@ -1725,7 +1726,7 @@ export const printCommentTarget = (on: CommentTarget): string => {
 }
 
 /**
- * A statement's lines, written into `out`: a drafted file writes statements into its own sink.
+ * A statement's own command, written into `out`, with no database lock before it (commandsOf decides that).
  *
  * An installed table lists one element per line.
  *
@@ -1737,16 +1738,12 @@ export const printCommentTarget = (on: CommentTarget): string => {
  * databaseDefaultBlock); `%I` quotes it as an identifier. A GRANT or REVOKE on the current database names it by its
  * variable (printDatabase).
  *
- * A statement that writes a catalog row another installation in the same database writes too prints after the
- * database lock (databaseWide), two statements of one transaction: the database default's block, every ALTER DEFAULT
- * PRIVILEGES, every CREATE EXTENSION, and a GRANT or REVOKE on the database or a schema (grantEmitter).
- *
  * Every role of the installation prints as its variable (printRole); the owner a FOR ROLE names is no role of it and
  * prints as its name.
  *
  * A carrier is printed under pg_temp, the session's own temporary schema: never a stored relation of the same name.
  */
-export const writeStatement = (out: Lines, statement: SqlStatement): void => {
+const writeCommand = (out: Lines, statement: SqlStatement): void => {
 	switch (statement.kind) {
 		case "select":
 			return selectBlock(out, statement)
@@ -1907,7 +1904,7 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 			)
 		}
 		case "alterDatabaseDefault":
-			return databaseWide(out, (o) => writeDo(o, databaseDefaultBlock(statement)))
+			return writeDo(out, databaseDefaultBlock(statement))
 		case "createRole":
 			return out.line(
 				`CREATE ROLE ${printRole(statement.name)} ${statement.login ? "LOGIN NOINHERIT" : "NOLOGIN"}`
@@ -1923,32 +1920,24 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 				`ALTER ROLE ${printRole(statement.name)} ${printAlterRoleAction(statement.action)}`
 			)
 		case "grant":
-			return grantEmitter[statement.on.kind](out, (o) =>
-				o.line(
-					`GRANT ${statement.privileges.join(", ")} ON ${printGrantOn(statement.on)} TO ${statement.to.map(printGrantee).join(", ")}`
-				)
+			return out.line(
+				`GRANT ${statement.privileges.join(", ")} ON ${printGrantOn(statement.on)} TO ${statement.to.map(printGrantee).join(", ")}`
 			)
 		case "revoke":
-			return grantEmitter[statement.on.kind](out, (o) =>
-				o.line(
-					`REVOKE ${statement.privileges.join(", ")} ON ${printGrantOn(statement.on)} FROM ${statement.from.map(printGrantee).join(", ")}`
-				)
+			return out.line(
+				`REVOKE ${statement.privileges.join(", ")} ON ${printGrantOn(statement.on)} FROM ${statement.from.map(printGrantee).join(", ")}`
 			)
 		case "grantColumns":
 			return out.line(
 				`GRANT ${statement.privilege} (${printIdentList(statement.columns)}) ON TABLE ${printObjectName(statement.table)} TO ${printRole(statement.to)}`
 			)
 		case "alterDefaultPrivileges":
-			return databaseWide(out, (o) =>
-				o.line(
-					`ALTER DEFAULT PRIVILEGES${statement.forRole === undefined ? "" : ` FOR ROLE ${quoteIdent(statement.forRole)}`}${statement.inSchema === undefined ? "" : ` IN SCHEMA ${quoteIdent(statement.inSchema)}`} REVOKE ${statement.privileges.join(", ")} ON ${statement.on} FROM ${statement.from.map(printGrantee).join(", ")}`
-				)
+			return out.line(
+				`ALTER DEFAULT PRIVILEGES${statement.forRole === undefined ? "" : ` FOR ROLE ${quoteIdent(statement.forRole)}`}${statement.inSchema === undefined ? "" : ` IN SCHEMA ${quoteIdent(statement.inSchema)}`} REVOKE ${statement.privileges.join(", ")} ON ${statement.on} FROM ${statement.from.map(printGrantee).join(", ")}`
 			)
 		case "createExtension":
-			return databaseWide(out, (o) =>
-				o.line(
-					`CREATE EXTENSION IF NOT EXISTS ${quoteIdent(statement.name)} SCHEMA ${quoteIdent(statement.schema)}`
-				)
+			return out.line(
+				`CREATE EXTENSION IF NOT EXISTS ${quoteIdent(statement.name)} SCHEMA ${quoteIdent(statement.schema)}`
 			)
 		case "createStatistics": {
 			const kinds = statement.statistics.length === 0 ? "" : ` (${statement.statistics.join(", ")})`
@@ -1983,6 +1972,87 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 		case "analyze":
 			return out.line(`ANALYZE ${statement.carriers.map(printTableName).join(", ")}`)
 	}
+}
+
+/**
+ * The commands `statement` is (Emitter): a statement that writes a catalog row another installation in the same
+ * database writes too is the database lock's command and its own (databaseWide): the database default's block, every
+ * ALTER DEFAULT PRIVILEGES, every CREATE EXTENSION, and a GRANT or REVOKE on the database or a schema (grantEmitter).
+ * Every other statement is its own command alone.
+ */
+const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Command> => {
+	const command: Command = (out) => writeCommand(out, statement)
+	switch (statement.kind) {
+		case "alterDatabaseDefault":
+		case "alterDefaultPrivileges":
+		case "createExtension":
+			return databaseWide(command)
+		case "grant":
+		case "revoke":
+			return grantEmitter[statement.on.kind](command)
+		case "select":
+		case "insert":
+		case "update":
+		case "delete":
+		case "merge":
+		case "createSchema":
+		case "createTable":
+		case "createCarrier":
+		case "alterTable":
+		case "rename":
+		case "renameColumn":
+		case "renameConstraint":
+		case "createDomain":
+		case "alterDomain":
+		case "createIndex":
+		case "dropIndex":
+		case "createMaterializedView":
+		case "createView":
+		case "createPolicy":
+		case "dropPolicy":
+		case "drop":
+		case "dropFunction":
+		case "dropTrigger":
+		case "createFunction":
+		case "packConstant":
+		case "createConstant":
+		case "createGuardTrigger":
+		case "createConstraintTrigger":
+		case "createPublication":
+		case "dropPublication":
+		case "createLiveSecret":
+		case "createRole":
+		case "grantRole":
+		case "revokeRole":
+		case "alterRole":
+		case "grantColumns":
+		case "createStatistics":
+		case "comment":
+		case "lockTable":
+		case "beginRead":
+		case "beginWrite":
+		case "commit":
+		case "rollback":
+		case "setConstraintsImmediate":
+		case "refresh":
+		case "analyze":
+			return own(command)
+	}
+}
+
+/**
+ * A statement's lines, written into `out` as a file holds them: its commands (commandsOf), each but the last terminated,
+ * so the file's reader splits them where PostgreSQL's scanner ends each (deploy/render/markers.ts splitStatements) and
+ * sends each alone. A drafted file writes statements into its own sink.
+ */
+export const writeStatement = (out: Lines, statement: SqlStatement): void => {
+	const [first, ...rest] = commandsOf(statement)
+	let pending = first
+	for (const next of rest) {
+		terminated(out, pending)
+		pending = next
+	}
+	pending(out)
 }
 
 /** A catalog read's type, an array's with `[]`. */
@@ -2324,11 +2394,8 @@ export const statementText = (at: SourceLoc, write: (out: Lines) => void): strin
 	return text
 }
 
-/**
- * One statement's text, without a terminator: what a driver sends (statementText), refused (ResourceBound,
- * statementParams) when it binds more parameters than a Bind message counts, statementMaxParams.
- */
-export const printStatement = (statement: SqlStatement): string => {
+/** Refuses (ResourceBound, statementParams) a statement that binds more parameters than a Bind message counts. */
+const boundParams = (statement: SqlStatement): void => {
 	const params = statementParams(statement)
 	if (params > statementMaxParams.value) {
 		throw new Refusal(
@@ -2339,5 +2406,24 @@ export const printStatement = (statement: SqlStatement): string => {
 			})
 		)
 	}
+}
+
+/**
+ * One statement's text, without a terminator, as a file holds it (writeStatement): its commands, each but the last
+ * terminated (statementText), refused when it binds more parameters than a Bind message counts (boundParams). A
+ * statement of one command is what a driver sends; a driver sends any statement as printCommands.
+ */
+export const printStatement = (statement: SqlStatement): string => {
+	boundParams(statement)
 	return statementText(statementTextLoc, (out) => writeStatement(out, statement))
+}
+
+/**
+ * A statement's commands (commandsOf), each one's text without a terminator: what a driver sends, one protocol message
+ * each, since an extended-protocol message carries one command (42601, cannot insert multiple commands into a prepared
+ * statement). Refused as printStatement is.
+ */
+export const printCommands = (statement: SqlStatement): NonEmptyReadonlyArray<string> => {
+	boundParams(statement)
+	return mapNonEmpty(commandsOf(statement), (command) => statementText(statementTextLoc, command))
 }
