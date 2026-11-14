@@ -245,6 +245,14 @@ read against main 5b049abf); a Q label points at its entry above.
     node.ts's bounded string-value fold and its hand lists of folded kinds.
 12. **Rules over recursive queries:** a rule side may read a recursive derived relation. Deletes mathml-share.ts's
     host-computed dominance ranks (MathRank, PlacedMathRank) and closes its foreign-element hole.
+13. **A text digest:** `Compute.sha256` over text, digesting its UTF-8 bytes; today it reads bytes only (engine
+    registry.ts `bytesDigest`). Lets pantry compare free text by a digest column where it now writes query rules
+    (qti-pie docs/grizzle-findings.md, found on qti-cutover-20261114b).
+14. **An unbounded text behind a digest-keyed index:** an index a rule probe needs over an unbounded text keys its
+    digest, and the probe compares the text itself after the digest; item 11 is the fold's case of it. Today making
+    ObjectTitle's title unbounded fails compile with UnrepresentableKey, because the "lom-title" probe wants
+    (package, titleValue, start). Lifts the bound on long titles, and with item 11 on an element's string value,
+    qti-value, LOM strings and whole IDREFS values (same source).
 
 ### qti-pie's test-survey asks, for the owner to schedule (2026-11-14)
 From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.md, section 4), logged only.
