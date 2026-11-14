@@ -96,24 +96,23 @@
 			"tier": "ci"
 		},
 		{
-			"bytes": 810473,
+			"bytes": 814988,
 			"format": "json",
 			"id": "qti-pie-author-app",
 			"license": "MIT",
-			"sha256": "eb591d72eb1a84a3ab835d84e83bd0e37dd0c3a68082f0661d62025b67d0edeb",
+			"sha256": "cfbddaa89eec490e4402cd18c8dfd33d808ef50e25ee5fe1f5eb0c94153aceb1",
 			"source": {
 				"kind": "committed",
 				"path": "corpus/specs/qti-pie-author-app.json",
 				"producedBy": {
 					"changes": [
-						"vendor/grizzle is checked out at the tool's commit, where the input's tree pins d0690eb0c00ed50e5bbf716519797f868766e70c",
-						"qti-pie's importer-b1-b2 commits 791fb366, 0e695b35 and 91ad7974 are applied uncommitted; they change packages/pantry/src/import/overlays only"
+						"vendor/grizzle is checked out at the tool's commit, where the input's tree pins d0690eb0c00ed50e5bbf716519797f868766e70c"
 					],
 					"command": "pnpm grizzle generate grizzle.config.ts",
 					"directory": "packages/pantry",
-					"input": "bjornpagen/qti-pie@4d18d6461563647c07f40e79f160861ae8e74816",
+					"input": "bjornpagen/qti-pie@8d79bb92c79deb00439585d0707367bdbc5dea9c",
 					"output": "packages/pantry/migrations/qti/openapi/author_app.json",
-					"tool": "bjornpagen/grizzle@6219b64f4764fcf0e61d68d625d13d1016e2a68b"
+					"tool": "bjornpagen/grizzle@1f6d6a860674cae6c6765b4e972ead380f5fddcd"
 				}
 			},
 			"tier": "ci"

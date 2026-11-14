@@ -9,7 +9,7 @@
   "counts": {
     "informational": 9,
     "nonStandard": 0,
-    "notices": 78,
+    "notices": 93,
     "operations": {
       "generated": 5,
       "refused": 0,
@@ -97,22 +97,22 @@
     },
     {
       "code": "SCH-37/not-asserted",
-      "pointer": "/components/schemas/shared.54pjzpwct3nmg6dltvzyq5jz6wlvlwvgqtutnriqjbdvi4bszaga/allOf/0/pattern",
-      "row": "SCH-37"
-    },
-    {
-      "code": "SCH-37/not-asserted",
-      "pointer": "/components/schemas/shared.54pjzpwct3nmg6dltvzyq5jz6wlvlwvgqtutnriqjbdvi4bszaga/pattern",
-      "row": "SCH-37"
-    },
-    {
-      "code": "SCH-37/not-asserted",
       "pointer": "/components/schemas/shared.5j4se7nzwjohsdcelk2yo2g2c6eis7ihz2f3dezvcexwsbvridka/allOf/0/pattern",
       "row": "SCH-37"
     },
     {
       "code": "SCH-37/not-asserted",
       "pointer": "/components/schemas/shared.5j4se7nzwjohsdcelk2yo2g2c6eis7ihz2f3dezvcexwsbvridka/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.6eskenhjk2msxvxgrdcjbf6mr4dljiyy72pmhxzv6b54vr47mocq/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.6eskenhjk2msxvxgrdcjbf6mr4dljiyy72pmhxzv6b54vr47mocq/pattern",
       "row": "SCH-37"
     },
     {
@@ -183,6 +183,16 @@
     {
       "code": "SCH-37/not-asserted",
       "pointer": "/components/schemas/shared.eva6fxxfidq5eksowouwdbtfx2hnz6hvzzx7hzofxniaz5ukyxva/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.fbnfl6wpusfjxq7kbzu2c5j7ltmobuqkq2422nmgb5um6igjftgq/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.fbnfl6wpusfjxq7kbzu2c5j7ltmobuqkq2422nmgb5um6igjftgq/pattern",
       "row": "SCH-37"
     },
     {
@@ -267,21 +277,6 @@
     },
     {
       "code": "SCH-37/not-asserted",
-      "pointer": "/components/schemas/shared.knyfp3akwvbd26hans2rknslzn7ktbmuhhhznvkj6pukqpo7rt7q/allOf/0/pattern",
-      "row": "SCH-37"
-    },
-    {
-      "code": "SCH-37/not-asserted",
-      "pointer": "/components/schemas/shared.knyfp3akwvbd26hans2rknslzn7ktbmuhhhznvkj6pukqpo7rt7q/pattern",
-      "row": "SCH-37"
-    },
-    {
-      "code": "SCH-57/not-asserted",
-      "pointer": "/components/schemas/shared.ko2xyxov5ywkpz57loudra66eipluj4c6uaaqr3abrwndcgvrcqq/properties/data/contentSchema",
-      "row": "SCH-57"
-    },
-    {
-      "code": "SCH-37/not-asserted",
       "pointer": "/components/schemas/shared.l5f3w2yohwgtizbwtnra24zjjxt7iudhwzkjr734u7abvfdfeoua/allOf/0/pattern",
       "row": "SCH-37"
     },
@@ -294,6 +289,61 @@
       "code": "SCH-57/not-asserted",
       "pointer": "/components/schemas/shared.lcdnarzeqg2poog2z3jbj4xj4gzvbf2izagqqiq6pothdfzz2asa/contentSchema",
       "row": "SCH-57"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.lna3fpknsloyfzieqrfxj74mq6uyf7ab7dxlld2452gzmkfj2h5q/properties/witness/oneOf/103/properties/values/properties/value/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.lna3fpknsloyfzieqrfxj74mq6uyf7ab7dxlld2452gzmkfj2h5q/properties/witness/oneOf/104/properties/values/properties/value/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.lna3fpknsloyfzieqrfxj74mq6uyf7ab7dxlld2452gzmkfj2h5q/properties/witness/oneOf/106/properties/values/properties/key/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.lna3fpknsloyfzieqrfxj74mq6uyf7ab7dxlld2452gzmkfj2h5q/properties/witness/oneOf/106/properties/values/properties/matched/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.lna3fpknsloyfzieqrfxj74mq6uyf7ab7dxlld2452gzmkfj2h5q/properties/witness/oneOf/107/properties/values/properties/key/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.lna3fpknsloyfzieqrfxj74mq6uyf7ab7dxlld2452gzmkfj2h5q/properties/witness/oneOf/171/properties/values/properties/lexical/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.lna3fpknsloyfzieqrfxj74mq6uyf7ab7dxlld2452gzmkfj2h5q/properties/witness/oneOf/171/properties/values/properties/target/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-54/not-asserted",
+      "pointer": "/components/schemas/shared.lna3fpknsloyfzieqrfxj74mq6uyf7ab7dxlld2452gzmkfj2h5q/properties/witness/oneOf/218/properties/values/properties/date/format",
+      "row": "SCH-54"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.lna3fpknsloyfzieqrfxj74mq6uyf7ab7dxlld2452gzmkfj2h5q/properties/witness/oneOf/218/properties/values/properties/date/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.ms6wi4nefc7dtd2nulhlboyanj6gcd7oou4rprxfm2yckt4j6iaq/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.ms6wi4nefc7dtd2nulhlboyanj6gcd7oou4rprxfm2yckt4j6iaq/pattern",
+      "row": "SCH-37"
     },
     {
       "code": "SCH-37/not-asserted",
@@ -346,16 +396,6 @@
       "row": "SCH-37"
     },
     {
-      "code": "SCH-54/not-asserted",
-      "pointer": "/components/schemas/shared.ryrrxhmssiqd5sddfzd3aqls5xwpguhirnhnnjkcx7f34lrxfxnq/properties/witness/oneOf/216/properties/values/properties/date/format",
-      "row": "SCH-54"
-    },
-    {
-      "code": "SCH-37/not-asserted",
-      "pointer": "/components/schemas/shared.ryrrxhmssiqd5sddfzd3aqls5xwpguhirnhnnjkcx7f34lrxfxnq/properties/witness/oneOf/216/properties/values/properties/date/pattern",
-      "row": "SCH-37"
-    },
-    {
       "code": "SCH-37/not-asserted",
       "pointer": "/components/schemas/shared.sxw3kyx2vehhjjc5cj2tihsphqczudn6tbpf2j5jqcmbxvwgl7fa/pattern",
       "row": "SCH-37"
@@ -391,6 +431,11 @@
       "row": "SCH-37"
     },
     {
+      "code": "SCH-57/not-asserted",
+      "pointer": "/components/schemas/shared.wuqje6qfvg3t2k5jyswsh7vfnsr6wuy7auzsymfvm3cbl4f5lbvq/properties/data/contentSchema",
+      "row": "SCH-57"
+    },
+    {
       "code": "SCH-37/not-asserted",
       "pointer": "/components/schemas/shared.ydj2fqfx7pej5crfcsupjtwnoi4mz6bgfcoaywrhhkdlug5kfy3a/allOf/0/pattern",
       "row": "SCH-37"
@@ -424,13 +469,43 @@
       "code": "PRM-01/constant",
       "pointer": "/paths/~1author_app~1author~1replaceWrite/post/parameters/0",
       "row": "PRM-01"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/paths/~1author_app~1author~1replaceWrite/post/requestBody/content/application~1json/schema/properties/facts/properties/insert/properties/LookupValue/items/properties/value/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/paths/~1author_app~1author~1replaceWrite/post/requestBody/content/application~1json/schema/properties/facts/properties/insert/properties/LookupValueType/items/properties/value/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/paths/~1author_app~1author~1replaceWrite/post/requestBody/content/application~1json/schema/properties/facts/properties/insert/properties/MapKey/items/properties/key/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/paths/~1author_app~1author~1replaceWrite/post/requestBody/content/application~1json/schema/properties/facts/properties/insert/properties/MapKeyType/items/properties/key/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/paths/~1author_app~1author~1replaceWrite/post/requestBody/content/application~1json/schema/properties/facts/properties/insert/properties/Reference/items/properties/lexical/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/paths/~1author_app~1author~1replaceWrite/post/requestBody/content/application~1json/schema/properties/facts/properties/insert/properties/Reference/items/properties/target/pattern",
+      "row": "SCH-37"
     }
   ],
   "refusals": [],
   "spec": {
     "id": "qti-pie-author-app",
     "openapi": "3.2.0",
-    "sha256": "eb591d72eb1a84a3ab835d84e83bd0e37dd0c3a68082f0661d62025b67d0edeb"
+    "sha256": "cfbddaa89eec490e4402cd18c8dfd33d808ef50e25ee5fe1f5eb0c94153aceb1"
   },
   "twinEquality": {
     "checked": false,
