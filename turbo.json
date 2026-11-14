@@ -10,8 +10,8 @@
 		"oxlint.config.ts",
 		"toolchain.config.ts"
 	],
-	"globalEnv": ["NODE_OPTIONS", "NODE_ENV"],
-	"globalPassThroughEnv": ["TMPDIR"],
+	"globalEnv": ["NODE_ENV"],
+	"globalPassThroughEnv": ["TMPDIR", "NODE_OPTIONS"],
 	"tasks": {
 		"source": {
 			"description": "Carries each package's source hash to its dependents, so a check reruns when a package it loads changes, without waiting for that package's checks.",
