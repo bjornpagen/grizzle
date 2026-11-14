@@ -94,7 +94,7 @@ export interface LoadedPage {
 
 /**
  * How one call of a loaded ChangeSet reads its write's host inputs (apply/run.ts HostCall), decided once at load by its
- * array members: a ChangeSet that holds some takes each call's facts beside its parameters (types/db FactsApply), a
+ * array members: a ChangeSet that holds some takes each call's facts beside its parameters (live/program.ts InputCheck), a
  * record holding under each member's op a record holding under its relation an array of its facts, read once at the
  * boundary
  * (runtime/write/members.ts memberFactsOf, the one checker of a call's facts), a value of any other shape the

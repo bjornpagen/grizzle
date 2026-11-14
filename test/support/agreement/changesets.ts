@@ -456,7 +456,7 @@ export const changeSetRefusals: Arr.NonEmptyReadonlyArray<RefusalNote> = [
 ]
 
 /**
- * The facts a served call of an admitted ChangeSet takes through its workload handle (FactsApply), under each array
+ * The facts a served call of an admitted ChangeSet takes through its workload handle (InputCheck), under each array
  * member's op and then its relation: its own array members' facts, which the engine admitted; with one op's left out,
  * with a key under an op naming no array member's relation of that op, or with a key naming no array member's op, which
  * the served runtime refuses as the facts' shape; or with one fact carrying a field its relation lacks, judged as the
@@ -3393,7 +3393,7 @@ const pantryShape = (): ReadonlyArray<string> => {
  * Served calls whose facts are mapped inline, kept beside the drawn cases: an owner's insert whose facts, each with its
  * sequence's members nested at its count field, are a map of rows whose members are a map in turn, and a put and a
  * delete of one relation, each its own op's array, mapped from one list. Each infers its facts from the argument alone
- * and is admitted (FactsApply).
+ * and is admitted (InputCheck).
  */
 const mappedShapes: ReadonlyArray<string> = [
 	'declare const orderRows: ReadonlyArray<{ readonly id: AdditionIn<typeof Work, typeof Order>["id"]; readonly quantities: ReadonlyArray<bigint> }>',

@@ -45,9 +45,9 @@ export { type Form, formOf, type KeyFields, keyOf, RowKey, sameValue } from "#co
 export { type Entry, Keyed, type KeyedList, type KeyedSet } from "#compiler/live/keyed.ts"
 export type {
 	Anchor,
-	Empty,
 	EventOf,
 	Input,
+	InputCheck,
 	InputOf,
 	OutcomeOf,
 	Refreshed,

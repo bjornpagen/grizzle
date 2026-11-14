@@ -24,7 +24,7 @@ import {
 	type SlotValues
 } from "#compiler/live/events.ts"
 import { type KeyFields, RowKey } from "#compiler/live/key.ts"
-import type { Anchor, Empty, Input, Window, WindowInput } from "#compiler/live/program.ts"
+import type { Anchor, Input, NoFacts, Window, WindowInput } from "#compiler/live/program.ts"
 import type {
 	MemberWire,
 	WireFacts,
@@ -250,7 +250,7 @@ export type ParsedInput =
 	| WindowInput<Readonly<Record<string, unknown>>>
 
 /** The facts of a page's input: none. */
-const noFacts: Empty = Object.freeze({})
+const noFacts: NoFacts = Object.freeze({})
 
 type Parsed<A> = Result.Result<A, WireFault>
 

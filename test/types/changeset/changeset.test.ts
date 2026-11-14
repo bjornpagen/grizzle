@@ -25,7 +25,10 @@ import { checked } from "#test/types/batch/batch.ts"
  * tape and checked to still draw what it was kept for.
  *
  * Plant (~/.cache/grizzle-release/BR14/plants): changeset-writable-world.patch lets a ChangeSet write a world relation
- * its role's write list does not name.
+ * its role's write list does not name. Plant (~/.cache/grizzle-release/ONCETYPES/plants): once-facts-unchecked.patch
+ * checks a served call's facts against their declared record alone (live/program.ts InputCheck), as the once/watch
+ * cutover did, so a call naming a relation or an op its member holds no array of, a fact with a field its relation
+ * lacks, or two literal facts at one key with different values, is admitted.
  */
 const required: Situations<ChangeSetNote> = [
 	"admitted",

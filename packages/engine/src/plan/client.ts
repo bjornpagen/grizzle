@@ -34,6 +34,7 @@ export { Keyed, type KeyedList, type KeyedSet } from "#compiler/live/keyed.ts"
 export type {
 	Anchor,
 	EventOf,
+	InputCheck,
 	InputOf,
 	Refreshed,
 	RelationCounts,

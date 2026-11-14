@@ -10,7 +10,7 @@ import {
 	type CallError,
 	defect,
 	type EventOf,
-	type InputOf,
+	type InputCheck,
 	type InstantShape,
 	type MemberWire,
 	type ShapeOf,
@@ -68,17 +68,20 @@ export type ProgramClient<X, E> = [ShapeOf<X>] extends [InstantShape]
 	? OnceClient<X, E>
 	: OnceClient<X, E> & WatchClient<X, E>
 
-/** A served program X's once over HTTP (ProgramClient). */
+/**
+ * A served program X's once over HTTP (ProgramClient): its input I inferred apart from X and checked after as X's input
+ * exactly (InputCheck), each member refused where the server refuses it, as a served handle's once checks its own.
+ */
 interface OnceClient<X, E> {
-	readonly once: (
-		input: InputOf<X>
+	readonly once: <const I>(
+		input: I & NoInfer<InputCheck<I, X>>
 	) => Effect.Effect<ValueOf<X>, CallError | E, HttpClient.HttpClient>
 }
 
-/** A served program X's watch over HTTP (ProgramClient). */
+/** A served program X's watch over HTTP (ProgramClient), its input checked as once checks it (OnceClient). */
 interface WatchClient<X, E> {
-	readonly watch: (
-		input: InputOf<X>
+	readonly watch: <const I>(
+		input: I & NoInfer<InputCheck<I, X>>
 	) => Stream.Stream<Watched<X>, CallError | E, HttpClient.HttpClient>
 }
 
