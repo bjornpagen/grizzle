@@ -1,3 +1,19 @@
+import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	bytes,
+	characterOf,
+	constant,
+	element,
+	type Gen,
+	map,
+	oneOf,
+	option,
+	string,
+	weighted
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 /**
  * A generated CLI writes each multipart part under the content type its Encoding Object names, the one the operator
  * chose when it names several, with the part's declared headers in its head, and refuses before any connection a part
@@ -12,13 +28,14 @@
  *   type the part does not list, a part without its required header, a header flag without its part, and a header
  *   value with a line break. Oracle: exit 2 and no connection.
  *
- * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
+ * A case draws a focus, a feature or none, and the run aimed at it; while the floor and the steered phase still miss a
+ * required feature, the case aims at one of those instead (Case.steering), so each is reached on every run seed.
+ *
+ * Plants, each applied to src/runtime-src/runtime and seen to fail this suite and reverted:
+ * - multipart.ts's part head leaving out a part's first declared header;
+ * - multipart.ts's part head writing `image/png` for a part sent as `image/jpeg`;
+ * - input.ts's partOptions never refusing an option given without its part.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { bytes, characterOf, element, type Gen, option, string } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { jsonTextOf } from "@superstarter/json"
@@ -158,42 +175,50 @@ type Run =
 /** Text every part head and body carries as written. */
 const text: Gen<string> = string(characterOf(["a", "Z", "0", "-", "_", "."]), { min: 1, max: 6 })
 
-const runOf: Gen<Run> = (source) => {
-	const kind = element<Run["kind"]>(["upload", "document", "fault"])(source)
-	switch (kind) {
-		case "upload":
-			return {
-				kind,
-				title: text(source),
-				file: option((inner): Readonly<{ bytes: Uint8Array; type: ImageType }> => ({
-					bytes: bytes({ min: 0, max: 24 })(inner),
-					type: element<ImageType>(["image/png", "image/jpeg"])(inner)
-				}))(source)
-			}
-		case "document":
-			return {
-				kind,
-				title: text(source),
-				file: option((inner) => ({
-					bytes: bytes({ min: 0, max: 24 })(inner),
-					checksum: string(characterOf(["0", "9", "a", "f"]), { min: 4, max: 8 })(inner),
-					trace: option(text)(inner)
-				}))(source)
-			}
-		case "fault":
-			return {
-				kind,
-				fault: element<Fault>([
-					"a part without its content type",
-					"a content type without its part",
-					"a content type the part does not list",
-					"a part without its required header",
-					"a header flag without its part",
-					"a header value with a line break"
-				])(source)
-			}
-	}
-}
+type UploadFile = Readonly<{ bytes: Uint8Array; type: ImageType }>
+
+type DocumentFile = Readonly<{ bytes: Uint8Array; checksum: string; trace: Option.Option<string> }>
+
+const uploadFile =
+	(type: Gen<ImageType>): Gen<UploadFile> =>
+	(source) => ({ bytes: source.draw(bytes({ min: 0, max: 24 })), type: source.draw(type) })
+
+const documentFile =
+	(trace: Gen<Option.Option<string>>): Gen<DocumentFile> =>
+	(source) => ({
+		bytes: source.draw(bytes({ min: 0, max: 24 })),
+		checksum: source.draw(string(characterOf(["0", "9", "a", "f"]), { min: 4, max: 8 })),
+		trace: source.draw(trace)
+	})
+
+const upload =
+	(file: Gen<Option.Option<UploadFile>>): Gen<Run> =>
+	(source) => ({ kind: "upload", title: source.draw(text), file: source.draw(file) })
+
+const documentRun =
+	(file: Gen<Option.Option<DocumentFile>>): Gen<Run> =>
+	(source) => ({ kind: "document", title: source.draw(text), file: source.draw(file) })
+
+const FAULTS: Arr.NonEmptyReadonlyArray<Fault> = [
+	"a part without its content type",
+	"a content type without its part",
+	"a content type the part does not list",
+	"a part without its required header",
+	"a header flag without its part",
+	"a header value with a line break"
+]
+
+const planted =
+	(fault: Gen<Fault>): Gen<Run> =>
+	(source) => ({ kind: "fault", fault: source.draw(fault) })
+
+const IMAGE_TYPES: Arr.NonEmptyReadonlyArray<ImageType> = ["image/png", "image/jpeg"]
+
+const runOf: Gen<Run> = oneOf([
+	upload(option(uploadFile(element(IMAGE_TYPES)))),
+	documentRun(option(documentFile(option(text)))),
+	planted(element(FAULTS))
+])
 
 /** The file every run that sends one writes, by its name. */
 const FILE_NAME = "part.bin"
@@ -451,6 +476,68 @@ const runFeatures = (r: Run): ReadonlyArray<PartFeature> => {
 	}
 }
 
+const FEATURES: Arr.NonEmptyReadonlyArray<PartFeature> = [
+	"a PNG upload",
+	"a JPEG upload",
+	"an upload without its file",
+	"a document with its trace",
+	"a document without its trace",
+	"a document without its file",
+	...FAULTS
+]
+
+/** The run a focus draws: one made to reach that feature, every other choice drawn at random. */
+const caseFor = (focus: PartFeature): Gen<Run> => {
+	switch (focus) {
+		case "a PNG upload":
+			return upload(map(uploadFile(constant<ImageType>("image/png")), Option.some))
+		case "a JPEG upload":
+			return upload(map(uploadFile(constant<ImageType>("image/jpeg")), Option.some))
+		case "an upload without its file":
+			return upload(constant(Option.none()))
+		case "a document with its trace":
+			return documentRun(map(documentFile(map(text, Option.some)), Option.some))
+		case "a document without its trace":
+			return documentRun(map(documentFile(constant(Option.none())), Option.some))
+		case "a document without its file":
+			return documentRun(constant(Option.none()))
+		case "a part without its content type":
+		case "a content type without its part":
+		case "a content type the part does not list":
+		case "a part without its required header":
+		case "a header flag without its part":
+		case "a header value with a line break":
+			return planted(constant(focus))
+	}
+}
+
+/** A focus, or none, each half the time: none draws any run. */
+const FOCUS: Gen<Option.Option<PartFeature>> = weighted([
+	[1, constant(Option.none())],
+	[1, map(element(FEATURES), Option.some)]
+])
+
+/** The run a case draws: while features are still pending, one aimed at one of those; otherwise its drawn focus's. */
+const aimed = (drawnFocus: Option.Option<PartFeature>, k: SearchCase<PartFeature>): Gen<Run> =>
+	Option.match(
+		Option.orElse(
+			Option.flatMap(k.steering, (pending) =>
+				Option.map(
+					Arr.match(
+						Arr.filter(FEATURES, (feature) => pending.names(feature)),
+						{
+							onEmpty: () => Option.none(),
+							onNonEmpty: Option.some
+						}
+					),
+					(pendingFeatures) => k.draw(element(pendingFeatures))
+				)
+			),
+			() => drawnFocus
+		),
+		{ onNone: () => runOf, onSome: caseFor }
+	)
+
 /** The suite's fixture: the capture server, the package built against it, and each operation's command. */
 class PartsFixture extends Context.Service<
 	PartsFixture,
@@ -504,34 +591,19 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's multipart parts
 								kind: "second-implementation",
 								name: "the reference multipart reader (multipart.ts), and exit 2 with no connection for a planted fault"
 							},
-							draw: drawn(runOf),
+							draw: drawn(FOCUS),
 							literal: Formatter.format,
-							coverage: required<PartFeature>(
-								[
-									"a PNG upload",
-									"a JPEG upload",
-									"an upload without its file",
-									"a document with its trace",
-									"a document without its trace",
-									"a document without its file",
-									"a part without its content type",
-									"a content type without its part",
-									"a content type the part does not list",
-									"a part without its required header",
-									"a header flag without its part",
-									"a header value with a line break"
-								],
-								{ cases: 30, sense: notesOnly }
-							),
+							coverage: required<PartFeature>(FEATURES, { cases: 30, sense: notesOnly }),
 							kept: [],
 							runs: 12,
 							shrink: { kind: "bounded", candidates: 30 },
 							concurrency: 1,
-							steerEvery: 3,
+							steerEvery: 1,
 							caseHang: Duration.seconds(60)
 						},
-						(r, k) =>
+						(drawnFocus, k) =>
 							Effect.gen(function* () {
+								const r = k.draw(aimed(drawnFocus, k))
 								k.noteAll(runFeatures(r))
 								const invoked = invocationOf(r, file)
 								yield* fs.writeFile(file, invoked.file)

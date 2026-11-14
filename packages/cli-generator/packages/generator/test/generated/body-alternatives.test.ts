@@ -1,3 +1,21 @@
+import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	array,
+	boolean,
+	bytes,
+	characterOf,
+	constant,
+	element,
+	type Gen,
+	map,
+	oneOf,
+	option,
+	string,
+	weighted
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
 /**
  * A generated CLI sends one of an operation's request body alternatives, the one `--content-type` names (JSON when
  * none does, even when another is listed first), encoded as that media type says, and refuses before any connection a
@@ -12,22 +30,15 @@
  * - Faults, planted one per run: a part flag under the JSON default, `--body` with multipart named, and a media type
  *   the operation does not declare. Oracle: exit 2 and no connection.
  *
- * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
+ * A case draws a focus, a feature or none, and the run aimed at it; while the floor and the steered phase still miss a
+ * required feature, the case aims at one of those instead (Case.steering), so each is reached on every run seed.
+ *
+ * Plants, each applied to src/runtime-src/runtime and seen to fail this suite and reverted:
+ * - negotiate.ts's selectRequestMedia taking the first declared media type by default instead of the JSON one;
+ * - negotiate.ts's selectRequestMedia taking a --content-type the operation does not declare as its first media type;
+ * - serialize.ts's form body joining a field that does not explode with ";" instead of ",";
+ * - input.ts's selectBody never refusing a flag of another alternative.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import {
-	array,
-	boolean,
-	bytes,
-	characterOf,
-	element,
-	type Gen,
-	option,
-	string
-} from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { jsonTextOf } from "@superstarter/json"
@@ -206,46 +217,63 @@ type Send =
 /** URL-safe text, which every one of the box's encodings carries as written. */
 const text: Gen<string> = string(characterOf(["a", "Z", "0", "-", "_", "."]), { min: 1, max: 6 })
 
-const fields: Gen<MessageFields> = (source) => ({
-	content: option(text)(source),
-	tags: array(text, { min: 0, max: 3 })(source),
-	ids: array(text, { min: 0, max: 3 })(source)
+/** A message's fields, each drawn from its own generator. */
+const fieldsOf =
+	(
+		content: Gen<Option.Option<string>>,
+		tags: Gen<ReadonlyArray<string>>,
+		ids: Gen<ReadonlyArray<string>>
+	): Gen<MessageFields> =>
+	(source) => ({ content: source.draw(content), tags: source.draw(tags), ids: source.draw(ids) })
+
+const someText: Gen<ReadonlyArray<string>> = array(text, { min: 0, max: 3 })
+
+const severalTexts: Gen<ReadonlyArray<string>> = array(text, { min: 2, max: 3 })
+
+const fields: Gen<MessageFields> = fieldsOf(option(text), someText, someText)
+
+const FAULTS: Arr.NonEmptyReadonlyArray<Fault> = [
+	"a part flag under the JSON default",
+	"--body with multipart named",
+	"an undeclared media type"
+]
+
+const asJson =
+	(named: Gen<boolean>, given: Gen<MessageFields>): Gen<Send> =>
+	(source) => ({ kind: "message as JSON", named: source.draw(named), fields: source.draw(given) })
+
+const asForm =
+	(given: Gen<MessageFields>): Gen<Send> =>
+	(source) => ({ kind: "message as a form", fields: source.draw(given) })
+
+const asMultipart: Gen<Send> = (source) => ({
+	kind: "message as multipart",
+	content: source.draw(option(text)),
+	file: source.draw(bytes({ min: 0, max: 24 }))
 })
 
-const send: Gen<Send> = (source) => {
-	const kind = element<Send["kind"]>([
-		"message as JSON",
-		"message as a form",
-		"message as multipart",
-		"upload by default",
-		"events as NDJSON",
-		"fault"
-	])(source)
-	switch (kind) {
-		case "message as JSON":
-			return { kind, named: boolean(source), fields: fields(source) }
-		case "message as a form":
-			return { kind, fields: fields(source) }
-		case "message as multipart":
-			return { kind, content: option(text)(source), file: bytes({ min: 0, max: 24 })(source) }
-		case "upload by default":
-			return { kind, purpose: text(source) }
-		case "events as NDJSON":
-			return {
-				kind,
-				lines: array((inner) => `{"name":"${text(inner)}"}`, { min: 1, max: 3 })(source)
-			}
-		case "fault":
-			return {
-				kind,
-				fault: element<Fault>([
-					"a part flag under the JSON default",
-					"--body with multipart named",
-					"an undeclared media type"
-				])(source)
-			}
-	}
-}
+const uploadByDefault: Gen<Send> = (source) => ({
+	kind: "upload by default",
+	purpose: source.draw(text)
+})
+
+const eventsAsNdjson: Gen<Send> = (source) => ({
+	kind: "events as NDJSON",
+	lines: source.draw(array((inner) => `{"name":"${inner.draw(text)}"}`, { min: 1, max: 3 }))
+})
+
+const planted =
+	(fault: Gen<Fault>): Gen<Send> =>
+	(source) => ({ kind: "fault", fault: source.draw(fault) })
+
+const send: Gen<Send> = oneOf([
+	asJson(boolean, fields),
+	asForm(fields),
+	asMultipart,
+	uploadByDefault,
+	eventsAsNdjson,
+	planted(element(FAULTS))
+])
 
 /** The arguments for a message's fields: its text, each tag and each id as its own flag. */
 const fieldArgs = (given: MessageFields): ReadonlyArray<string> =>
@@ -540,6 +568,79 @@ const sendFeatures = (s: Send): ReadonlyArray<AlternativeFeature> => {
 	}
 }
 
+const FEATURES: Arr.NonEmptyReadonlyArray<AlternativeFeature> = [
+	"message as JSON",
+	"message as a form",
+	"message as multipart",
+	"upload by default",
+	"events as NDJSON",
+	...FAULTS,
+	"JSON named",
+	"tags joined",
+	"ids repeated",
+	"a message without its text"
+]
+
+/** The case a focus draws: a run made to reach that feature, every other choice drawn at random. */
+const caseFor = (focus: AlternativeFeature): Gen<Send> => {
+	switch (focus) {
+		case "message as JSON":
+			return asJson(boolean, fields)
+		case "JSON named":
+			return asJson(constant(true), fields)
+		case "a message without its text":
+			return asJson(boolean, fieldsOf(constant(Option.none()), someText, someText))
+		case "message as a form":
+			return asForm(fields)
+		case "tags joined":
+			return asForm(fieldsOf(option(text), severalTexts, someText))
+		case "ids repeated":
+			return asForm(fieldsOf(option(text), someText, severalTexts))
+		case "message as multipart":
+			return asMultipart
+		case "upload by default":
+			return uploadByDefault
+		case "events as NDJSON":
+			return eventsAsNdjson
+		case "fault":
+			return planted(element(FAULTS))
+		case "a part flag under the JSON default":
+		case "--body with multipart named":
+		case "an undeclared media type":
+			return planted(constant(focus))
+	}
+}
+
+/** A focus, or none, each half the time: none draws any run. */
+const FOCUS: Gen<Option.Option<AlternativeFeature>> = weighted([
+	[1, constant(Option.none())],
+	[1, map(element(FEATURES), Option.some)]
+])
+
+/** The run a case draws: while features are still pending, one aimed at one of those; otherwise its drawn focus's. */
+const aimed = (
+	drawnFocus: Option.Option<AlternativeFeature>,
+	k: SearchCase<AlternativeFeature>
+): Gen<Send> =>
+	Option.match(
+		Option.orElse(
+			Option.flatMap(k.steering, (pending) =>
+				Option.map(
+					Arr.match(
+						Arr.filter(FEATURES, (feature) => pending.names(feature)),
+						{
+							onEmpty: () => Option.none(),
+							onNonEmpty: Option.some
+						}
+					),
+					(pendingFeatures) => k.draw(element(pendingFeatures))
+				)
+			),
+			() => drawnFocus
+		),
+		{ onNone: () => send, onSome: caseFor }
+	)
+
 /** The suite's fixture: the capture server, the package built against it, and each operation's command. */
 class AlternativesFixture extends Context.Service<
 	AlternativesFixture,
@@ -593,34 +694,19 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's request bodies"
 								kind: "specification",
 								name: "each media type's own reading of the body, and exit 2 with no connection for a planted fault"
 							},
-							draw: drawn(send),
+							draw: drawn(FOCUS),
 							literal: Formatter.format,
-							coverage: required<AlternativeFeature>(
-								[
-									"message as JSON",
-									"message as a form",
-									"message as multipart",
-									"upload by default",
-									"events as NDJSON",
-									"a part flag under the JSON default",
-									"--body with multipart named",
-									"an undeclared media type",
-									"JSON named",
-									"tags joined",
-									"ids repeated",
-									"a message without its text"
-								],
-								{ cases: 30, sense: notesOnly }
-							),
+							coverage: required<AlternativeFeature>(FEATURES, { cases: 30, sense: notesOnly }),
 							kept: [],
 							runs: 12,
 							shrink: { kind: "bounded", candidates: 30 },
 							concurrency: 1,
-							steerEvery: 3,
+							steerEvery: 1,
 							caseHang: Duration.seconds(60)
 						},
-						(s, k) =>
+						(drawnFocus, k) =>
 							Effect.gen(function* () {
+								const s = k.draw(aimed(drawnFocus, k))
 								k.noteAll(sendFeatures(s))
 								if (s.kind === "message as multipart") {
 									yield* fs.writeFile(file, s.file)
