@@ -32,6 +32,7 @@ import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
 import {
 	type BatchOutcome,
 	type BatchStatement,
+	excludesNothing,
 	type FlightFailure,
 	type Frame,
 	oneShotStatement,
@@ -86,7 +87,7 @@ const fixture = () =>
 		for (const sql of fenceSql(raw, s.owner.role)) {
 			yield* s.admin.query(sql, [])
 		}
-		const frame = writeFrame(prologueIn(raw), "serializable")
+		const frame = writeFrame(prologueIn(raw), "serializable", excludesNothing)
 		yield* s.admin.query(`CREATE TABLE ${schema}."t" ("k" int4 PRIMARY KEY, "v" text NOT NULL)`, [])
 		yield* s.admin.query(`CREATE SEQUENCE ${schema}."seq"`, [])
 		const { session, wire } = yield* tapIn(s, frame)

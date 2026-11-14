@@ -2,9 +2,10 @@
  * A family over stored rows across a migration that renames it or changes what fills it, on PostgreSQL 19rc1,
  * generated.
  *
- * A history: relations with rows stored at their first version, a roster's kinds among them; a family over them at the
- * second, counted, ordered or a tree, with a fold whose accumulators are hidden, named or absent, stepping over every
- * member or over those of one kind, and an axis copy or none, backfilled over the rows; then a third version that either
+ * A history: relations with rows stored at their first version, a roster's kinds among them, a tree's keyed by its
+ * root field and start and so a tree already; a family over them at the second, counted, ordered or that tree, with a
+ * fold whose accumulators are hidden, named or absent, stepping over every member or over those of one kind, and an
+ * axis copy or none, backfilled over the rows; then a third version that either
  *
  * - **renames** it: the relations mapped injectively onto their own names, each other's or fresh ones, so swaps, chains
  *   and cycles occur, the owner, the member and a spare relation among them; the owner's count and caller fields
@@ -19,29 +20,51 @@
  * - **A rename changes no stored byte and builds nothing.** Every table keeps its OID and its relfilenode, so nothing
  *   rewrote it; every column its attribute number and its values, so no law column or drawn field was dropped and added
  *   again; every row its xmin, so no backfill UPDATE touched it; and every constraint and index its OID, so none was
- *   built or validated again. The family's law columns (‹n›, a counted index, a tree's ‹ps›, a fold's hidden
- *   accumulators, the generated terms), its drawn fields, its keys and its CHECKs and foreign keys are renamed in place.
+ *   built or validated again. The family's law columns (‹n›, a counted index, a fold's hidden accumulators, the
+ *   generated terms), its drawn fields, its keys and its CHECKs and foreign keys are renamed in place.
  * - **A changed filler is drawn again.** The migration commits, so PostgreSQL validated every constraint it added over
  *   the values it drew; a field kept with its old filler's values fails the fold's CHECK or the axis's foreign key, and
  *   a fold over a tree is drawn in the tree's stored sibling order.
+ * - **A stored index is data.** An ordered family whose group changes from g to h keeps every member's stored index
+ *   (README "A stored index is data"); a data step between the second and third versions, a SERIALIZABLE writer's,
+ *   writes each member's h by a fate the case's swarm weighs. Mapping each owner's members onto one owner, a
+ *   permutation of the owners, keeps each new group's indices 0 … n − 1: the migration commits with every member's
+ *   index as the second version left it. Moving the first member of an owner's family of several to another owner breaks
+ *   them: PostgreSQL refuses the third folder, at whichever of the family's constraints it meets first (its key's
+ *   index build, a duplicate; its bound's or a foreign key's VALIDATE, a gap), naming the family's law or its fold's. A
+ *   history that declares the index dropped (`--drop Member.at`) leaves h as stored and gets each member's index anew,
+ *   its place in its new group's member-key order.
  * - Either way, migrate's drift check and the installed-catalog checker match the catalog against the snapshot after
  *   every step, and no constraint is left NOT VALID: every law holds.
  *
  * Features: each family kind and fold, a copy, the owner, member and count renamed, relations, fields and handles
  * swapped and chained, the roster renamed, a selected fold's handle renamed, and stored members; for a changed filler,
- * each change on each kind, trees among them.
+ * each change on each kind, trees among them, and an ordered family's group change kept, refused and redrawn as
+ * declared, each aimed at by a case constructed to reach it.
  *
  * Plants (~/.cache/grizzle-release/BR11/plants): family-renames-law-columns-rebuilt (a declared rename restates no law
  * column, so the family's law columns are dropped and drawn again) and family-changes-stale-filler (a field whose filler
- * changes keeps its stale values).
+ * changes keeps its stale values); (~/.cache/grizzle-release/ORDERKEEP/plants) orderkeep-member-key-redraw (a
+ * re-pointed family's index is drawn again in member-key order) and orderkeep-silent-renumber (a kept index is
+ * renumbered within each new group, so no regroup is refused).
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { boolean, element, type Gen, int, parents, shuffled } from "@grizzle/testing/gen"
+import { boolean, constant, element, type Gen, int, parents, shuffled } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
+import { type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	Record as Rec,
+	String as Str
+} from "effect"
+import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Declarations, Rename } from "#compiler/deploy/diff/plan.ts"
@@ -52,6 +75,8 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import {
+	type Aim,
+	aimedAt,
 	apply,
 	checkedAdmission,
 	kept,
@@ -59,6 +84,7 @@ import {
 	reviewedSource
 } from "#test/pg/migrate/support.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { numbered, treeOfParents } from "#test/support/families/tree.ts"
 import {
 	type AuthoredStatementDesc,
 	closed,
@@ -80,6 +106,8 @@ import {
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
+	asDrafted,
+	compile,
 	draftCodes,
 	draftedAt,
 	fromEmpty,
@@ -89,6 +117,7 @@ import {
 	type Previous
 } from "#test/support/migrate/kit.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
+import type { SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -265,17 +294,19 @@ const familySchema = (shape: Shape, naming: Naming, reading: Reading) => {
 	}
 }
 
-/** A tree's relation and statements at a version: its sum fold of a tag over each node's children, and its copy of
- * the parent's tag down the owner axis. */
-const treeSchema = (shape: Shape, naming: Naming, reading: Reading) => {
+/**
+ * A tree's relation and statements at a version, keyed by its root field doc and its start, `folded` with its sum fold
+ * of a tag over each node's children and its copy of the parent's tag down the owner axis, as `shape` states them, or
+ * bare, the tree alone, as its first version stores its rows.
+ */
+const treeSchema = (shape: Shape, naming: Naming, reading: Reading, folded: boolean) => {
 	const node = naming.relation("Node")
 	const count = naming.field("n")
 	const slots = fin(node, count)
-	const named = shape.fold === "named"
+	const named = folded && shape.fold === "named"
 	const fields: Record<string, FixtureField> = {
-		id: integer,
-		parent: integer,
 		doc: integer,
+		parent: f.drawn,
 		[naming.field("tag")]: integer,
 		[naming.field("tag2")]: integer,
 		at: f.drawn,
@@ -283,13 +314,16 @@ const treeSchema = (shape: Shape, naming: Naming, reading: Reading) => {
 		start: f.drawn,
 		end: f.drawn,
 		kind: f.closedId(naming.roster),
-		...(shape.fold === "none" ? {} : { total: f.accumulated(integer, 0) }),
+		...(!folded || shape.fold === "none" ? {} : { total: f.accumulated(integer, 0) }),
 		...(named ? { before: f.accumulated(integer, 0), after: f.accumulated(integer, 0) } : {}),
-		...(shape.copy ? { parentTag: f.accumulated(integer, 0) } : {})
+		...(folded && shape.copy ? { parentTag: f.accumulated(integer, 0) } : {})
 	}
 	const statements: Array<AuthoredStatementDesc> = [
-		{ kind: "tree", member: on(node, ["parent", "at"]), slots, root: "doc" }
+		{ kind: "tree", member: on(node, ["parent", "at"]), slots, root: ["doc"] }
 	]
+	if (!folded) {
+		return { relations: [relation(node, fields, ["doc", "start"])], statements }
+	}
 	if (shape.fold !== "none") {
 		const step = naming.field(reading.step === "first" ? "tag" : "tag2")
 		statements.push(
@@ -300,42 +334,42 @@ const treeSchema = (shape: Shape, naming: Naming, reading: Reading) => {
 					shape,
 					naming,
 					node,
-					named ? ["parent", step, "before", "after"] : ["parent", step]
+					named ? ["doc", "parent", step, "before", "after"] : ["doc", "parent", step]
 				),
-				on(node, ["id", "total"])
+				on(node, ["doc", "start", "total"])
 			)
 		)
 	}
 	if (shape.copy) {
 		statements.push(
 			contained(
-				onWhere(node, ["parent", "parentTag"], nonRoot),
-				on(node, ["id", naming.field(reading.copied)])
+				onWhere(node, ["doc", "parent", "parentTag"], nonRoot),
+				on(node, ["doc", "start", naming.field(reading.copied)])
 			)
 		)
 	}
-	return { relations: [relation(node, fields, ["id"])], statements }
+	return { relations: [relation(node, fields, ["doc", "start"])], statements }
 }
 
-/** A history's relations before its family: the caller's fields alone. */
+/**
+ * A history's relations before its family, and their statements: the caller's fields alone, or a tree's bare relation
+ * and its tree, which keys the rows it stores by their root field and start.
+ */
 const plainSchema = (shape: Shape) => {
 	const kind = f.closedId(roster)
 	return shape.kind === "tree"
-		? [
-				relation(
-					"Node",
-					{ id: integer, parent: integer, doc: integer, tag: integer, tag2: integer, kind },
-					["id"]
-				)
-			]
-		: [
-				relation("Owner", { id: integer, tag: integer, tag2: integer }, ["id"]),
-				relation(
-					"Member",
-					{ member: integer, g: integer, h: integer, x: integer, y: integer, kind },
-					["member"]
-				)
-			]
+		? treeSchema(shape, asFirst, firstReading, false)
+		: {
+				relations: [
+					relation("Owner", { id: integer, tag: integer, tag2: integer }, ["id"]),
+					relation(
+						"Member",
+						{ member: integer, g: integer, h: integer, x: integer, y: integer, kind },
+						["member"]
+					)
+				],
+				statements: []
+			}
 }
 
 /** A version's schema under the declared name `name`: the plain relations, or the family as `naming` and `reading`
@@ -357,16 +391,17 @@ const versionOf = (
 		Arr.map(handles, (h, code) => ({ kind: naming.handle(h), w: code }))
 	)
 	if (at.kind === "plain") {
+		const plain = plainSchema(shape)
 		return {
 			name,
-			relations: [kinds, weights, ...plainSchema(shape), spare],
-			statements: [],
+			relations: [kinds, weights, ...plain.relations, spare],
+			statements: plain.statements,
 			extends: undefined
 		}
 	}
 	const family =
 		shape.kind === "tree"
-			? treeSchema(shape, at.naming, at.reading)
+			? treeSchema(shape, at.naming, at.reading, true)
 			: familySchema(shape, at.naming, at.reading)
 	return {
 		name,
@@ -376,7 +411,10 @@ const versionOf = (
 	}
 }
 
-/** The rows a history stores at its first version: each relation's, each a value per caller field. */
+/**
+ * The rows a history stores at its first version: each relation's, each a value per field, or per `‹n›`, a tree's copy
+ * of its parent's count, which its direct writer writes beside the tree's drawn fields.
+ */
 interface Stored {
 	readonly relation: RelationName
 	readonly rows: ReadonlyArray<Readonly<Record<string, number>>>
@@ -390,59 +428,72 @@ const valueGen = int(-9, 9)
 /** A kind's code: its handle's position in the roster. */
 const codeGen = int(0, handles.length - 1)
 
-/** One to three owners, each with two tags, and up to six members, each keyed apart, falling among them under both
- * groups, each with two values; the keys drawn in any order. */
-const familyRows: Gen<ReadonlyArray<Stored>> = (source) => {
-	const owners = nonEmpty(
-		upTo(source.draw(int(1, 3)), (i) => i + 1),
-		"one to three owners"
-	)
-	const total = source.draw(int(0, 6))
-	const keys = source.draw(shuffled(keyRange, { min: total, max: total }))
-	const ownerOf = element(owners)
-	return [
-		{
-			relation: "Owner",
-			rows: Arr.map(owners, (id) => ({
-				id,
-				tag: source.draw(valueGen),
-				tag2: source.draw(valueGen)
-			}))
-		},
-		{
-			relation: "Member",
-			rows: Arr.map(keys, (member) => ({
-				member,
-				g: source.draw(ownerOf),
-				h: source.draw(ownerOf),
-				x: source.draw(valueGen),
-				y: source.draw(valueGen),
-				kind: source.draw(codeGen)
-			}))
-		}
-	]
+/** How a family's rows are drawn: how many owners, how many members, and whether the first two members share their
+ * owner under g, so some owner's family under g holds several. */
+interface RowsDraw {
+	readonly owners: Gen<number>
+	readonly total: Gen<number>
+	readonly sharing: boolean
 }
 
-/** One or two trees of one to five nodes, each tree's shape drawn by its parents, its root value apart from the
- * other's, every node keyed apart in any order, and each node's two tags. */
+/** One to three owners, each with two tags, and up to six members, each keyed apart, falling among them under both
+ * groups, each with two values; the keys drawn in any order; the first two members under g with one owner where
+ * `sharing`. */
+const familyRowsOf =
+	(d: RowsDraw): Gen<ReadonlyArray<Stored>> =>
+	(source) => {
+		const owners = nonEmpty(
+			upTo(source.draw(d.owners), (i) => i + 1),
+			"one to three owners"
+		)
+		const total = source.draw(d.total)
+		const keys = source.draw(shuffled(keyRange, { min: total, max: total }))
+		const ownerOf = element(owners)
+		const shared = source.draw(ownerOf)
+		return [
+			{
+				relation: "Owner",
+				rows: Arr.map(owners, (id) => ({
+					id,
+					tag: source.draw(valueGen),
+					tag2: source.draw(valueGen)
+				}))
+			},
+			{
+				relation: "Member",
+				rows: Arr.map(keys, (member, i) => ({
+					member,
+					g: d.sharing && i < 2 ? shared : source.draw(ownerOf),
+					h: source.draw(ownerOf),
+					x: source.draw(valueGen),
+					y: source.draw(valueGen),
+					kind: source.draw(codeGen)
+				}))
+			}
+		]
+	}
+
+/**
+ * One or two trees of one to five nodes, each tree's shape drawn by its parents, its root value apart from the other's,
+ * stored as NP numbers it, and each node's two tags and kind.
+ */
 const treeRows: Gen<ReadonlyArray<Stored>> = (source) => {
-	const shapes = upTo(source.draw(int(1, 2)), () => source.draw(parents({ min: 1, max: 5 })))
-	const total = Arr.reduce(shapes, 0, (sum, shape) => sum + shape.length + 1)
-	const keys = source.draw(shuffled(keyRange, { min: total, max: total }))
-	let offset = 0
-	const rows = Arr.flatMap(shapes, (shape, doc) => {
-		const idOf = (node: number) => defined(keys[offset + node], "a node's key")
-		const nodes = upTo(shape.length + 1, (node) => ({
-			id: idOf(node),
-			parent: idOf(node === 0 ? 0 : defined(shape[node - 1], "a node's parent")),
-			doc,
-			tag: source.draw(valueGen),
-			tag2: source.draw(valueGen),
-			kind: source.draw(codeGen)
-		}))
-		offset += shape.length + 1
-		return nodes
-	})
+	const forest = upTo(source.draw(int(1, 2)), (doc) => ({
+		root: [String(doc)],
+		tree: treeOfParents(source.draw(parents({ min: 1, max: 5 })), [])
+	}))
+	const rows = Arr.map(numbered(forest), (r) => ({
+		doc: Number(Arr.headNonEmpty(nonEmpty(r.root, "a tree's root value"))),
+		parent: r.parent,
+		at: r.at,
+		n: r.children,
+		start: r.start,
+		end: r.end,
+		"‹n›": r.copy,
+		tag: source.draw(valueGen),
+		tag2: source.draw(valueGen),
+		kind: source.draw(codeGen)
+	}))
 	return [{ relation: "Node", rows }]
 }
 
@@ -454,6 +505,10 @@ const spareRows: Gen<Stored> = (source) => ({
 		(id) => ({ id })
 	)
 })
+
+const anyRows: RowsDraw = { owners: int(1, 3), total: int(0, 6), sharing: false }
+
+const familyRows: Gen<ReadonlyArray<Stored>> = familyRowsOf(anyRows)
 
 const rowsOf =
 	(kind: Kind): Gen<ReadonlyArray<Stored>> =>
@@ -696,12 +751,25 @@ const notValid = (schemaName: string) =>
 		return texts(rows)
 	})
 
-/** Writes the stored rows into the first version's tables, in one transaction. */
-const store = (schemaName: string, stored: ReadonlyArray<Stored>) =>
+/**
+ * Writes the stored rows into the first version's tables, in one transaction: each field's column by its name, and
+ * `‹n›` the column of the copy of the family whose member the relation is, as `installation` names it.
+ */
+const store = (schemaName: string, installation: Installation, stored: ReadonlyArray<Stored>) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const schemaIdent = quoteIdent(identifierOf(identity.schema(parsedSchemaName(schemaName))))
-		const column = (name: string) => quoteIdent(identifierOf(identity.column(parsedName(name))))
+		const columnOf = (relation: string, name: string) =>
+			quoteIdent(
+				name === "‹n›"
+					? defined(
+							Option.getOrUndefined(
+								Arr.findFirst(installation.laws.families, (g) => g.member.name === relation)
+							),
+							`the family whose member is ${relation}`
+						).copy
+					: identifierOf(identity.column(parsedName(name)))
+			)
 		const inserts = Arr.flatMap(stored, (r) => {
 			const [first] = r.rows
 			if (first === undefined) {
@@ -710,7 +778,7 @@ const store = (schemaName: string, stored: ReadonlyArray<Stored>) =>
 			const fields = Rec.keys(first)
 			return [
 				`INSERT INTO ${schemaIdent}.${quoteIdent(identifierOf(identity.table(parsedName(r.relation))))} (${Arr.join(
-					Arr.map(fields, column),
+					Arr.map(fields, (field) => columnOf(r.relation, field)),
 					", "
 				)}) VALUES ${Arr.join(
 					Arr.map(
@@ -730,8 +798,9 @@ const store = (schemaName: string, stored: ReadonlyArray<Stored>) =>
 
 /**
  * A history migrated on PostgreSQL: each version drafted from the snapshot before it under its declarations, reviewed,
- * and applied with the drift check and the installed-catalog checker; the rows stored after the first; `observe` run
- * after each step with its index.
+ * and applied with the drift check and the installed-catalog checker; the rows stored after the first; each step's data
+ * step, `dataStep`'s SQL for it, run in one SERIALIZABLE transaction before it applies, as a custom migration's would;
+ * `observe` run after each step with its index. A refused apply fails the history with migrate's error.
  */
 const migrateHistory = <A>(
 	label: string,
@@ -740,8 +809,9 @@ const migrateHistory = <A>(
 		readonly declared: Declarations
 	}>,
 	stored: ReadonlyArray<Stored>,
+	dataStep: (step: number, schemaName: string) => ReadonlyArray<string>,
 	observe: (step: number, schemaName: string) => Effect.Effect<A, never, Substrate>
-) =>
+): Effect.Effect<ReadonlyArray<A>, MigrateError | SqlError, Substrate> =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
@@ -771,16 +841,18 @@ const migrateHistory = <A>(
 					`step ${i + 1} drafts`
 				)
 				folders.push(reviewedSource(g, kept))
-				yield* Effect.orDie(
-					apply(
-						m,
-						{ snapshot: g.snapshot, folders: [...folders] },
-						checkedAdmission(installation, substrate.admin)
-					)
+				const steps = dataStep(i, name)
+				if (Arr.isReadonlyArrayNonEmpty(steps)) {
+					yield* Effect.orDie(transaction(substrate.admin, steps))
+				}
+				yield* apply(
+					m,
+					{ snapshot: g.snapshot, folders: [...folders] },
+					checkedAdmission(installation, substrate.admin)
 				)
 				previous = fromSnapshot(g.snapshot)
 				if (i === 0) {
-					yield* store(name, stored)
+					yield* store(name, installation, stored)
 				}
 				const pending = yield* notValid(name)
 				assert.deepEqual(pending, [], `step ${i + 1} leaves no constraint NOT VALID`)
@@ -862,35 +934,38 @@ const renameCase = (c: RenameCase, k: Case<RenameFeature>) =>
 	Effect.gen(function* () {
 		k.noteAll(renameNotes(c))
 		const relations = relationsOf(c.shape.kind)
-		const reads = yield* migrateHistory(
-			"family_renames",
-			[
-				{ desc: (name) => versionOf(name, c.shape, { kind: "plain" }), declared: noDeclarations },
-				{
-					desc: (name) =>
-						versionOf(name, c.shape, { kind: "family", naming: asFirst, reading: firstReading }),
-					declared: noDeclarations
-				},
-				{
-					desc: (name) =>
-						versionOf(name, c.shape, {
-							kind: "family",
-							naming: namingOf(c.renaming),
-							reading: firstReading
-						}),
-					declared: declarationsOf(c)
-				}
-			],
-			c.stored,
-			(step, name) =>
-				step === 0
-					? Effect.succeedNone
-					: Effect.gen(function* () {
-							const naming = step === 1 ? asFirst : namingOf(c.renaming)
-							const oids = yield* oidsOf(name, Arr.map(relations, naming.relation))
-							const tables = yield* readTables(oids)
-							return Option.some({ oids, tables })
-						})
+		const reads = yield* Effect.orDie(
+			migrateHistory(
+				"family_renames",
+				[
+					{ desc: (name) => versionOf(name, c.shape, { kind: "plain" }), declared: noDeclarations },
+					{
+						desc: (name) =>
+							versionOf(name, c.shape, { kind: "family", naming: asFirst, reading: firstReading }),
+						declared: noDeclarations
+					},
+					{
+						desc: (name) =>
+							versionOf(name, c.shape, {
+								kind: "family",
+								naming: namingOf(c.renaming),
+								reading: firstReading
+							}),
+						declared: declarationsOf(c)
+					}
+				],
+				c.stored,
+				() => [],
+				(step, name) =>
+					step === 0
+						? Effect.succeedNone
+						: Effect.gen(function* () {
+								const naming = step === 1 ? asFirst : namingOf(c.renaming)
+								const oids = yield* oidsOf(name, Arr.map(relations, naming.relation))
+								const tables = yield* readTables(oids)
+								return Option.some({ oids, tables })
+							})
+			)
 		)
 		const before = defined(Option.getOrUndefined(defined(reads[1], "the family's read")), "a read")
 		const after = defined(Option.getOrUndefined(defined(reads[2], "the rename's read")), "a read")
@@ -921,28 +996,172 @@ type ChangeFeature =
 	| `${Change} on a ${Kind}`
 	| Change
 	| "stored members"
+	| "group kept on an ordered family"
+	| "group refused on an ordered family"
+	| "group redrawn as declared on an ordered family"
 
 /** What a reshaping history changes at its third version: the field its fold steps over, the field its copy reads,
  * its group, or a fold it adds. */
 type Change = "fold step" | "copy target" | "group" | "fold added"
 
+/**
+ * How a history whose ordered family's group changes from g to h moves its members, by the data step before the third
+ * version: `kept` writes each member's h as `onto` maps its owner under g, a permutation of the owners, so each new
+ * group's stored indices stay 0 … n − 1; `broken` writes h as g but for `moved`, the first member by key of an owner's
+ * family of several under g (its index 0), which goes to `to`, another owner, so the owner it leaves starts at 1;
+ * `redrawn` writes nothing and declares the index dropped (`--drop Member.at`).
+ */
+type Regroup =
+	| { readonly kind: "kept"; readonly onto: ReadonlyMap<number, number> }
+	| { readonly kind: "broken"; readonly moved: number; readonly to: number }
+	| { readonly kind: "redrawn" }
+
+const regroups = ["kept", "broken", "redrawn"] as const
+type RegroupKind = (typeof regroups)[number]
+
 interface ChangeCase {
 	readonly shape: Shape
 	readonly change: Change
 	readonly stored: ReadonlyArray<Stored>
+	/** How an ordered family's group change moves its members; none for any other change. */
+	readonly regroup: Option.Option<Regroup>
 }
 
-const changeCaseGen: Gen<ChangeCase> = (source) => {
-	const change = source.draw(element<Change>(["fold step", "copy target", "group", "fold added"]))
-	const base = source.draw(shapeGen(change === "group" ? ["counted", "ordered"] : kinds))
-	const shape: Shape =
-		(change === "fold step" || change === "fold added") && base.fold === "none"
-			? { ...base, fold: "hidden" }
-			: change === "copy target"
-				? { ...base, copy: true }
-				: base
-	return { shape, change, stored: source.draw(rowsOf(shape.kind)) }
+/** A stored relation's rows, none where the history stores none of it. */
+const storedRows = (stored: ReadonlyArray<Stored>, relation: RelationName) =>
+	Option.match(
+		Arr.findFirst(stored, (r) => r.relation === relation),
+		{ onNone: () => [], onSome: (r) => r.rows }
+	)
+
+/** A stored row's value of a field the history writes every row of. */
+const valueOf = (row: Readonly<Record<string, number>>, field: string): number =>
+	defined(row[field], `a stored row's ${field}`)
+
+/** The members of each owner's family under g with more than one member, each family's first by key, its index 0. */
+const firstsOfSeveral = (
+	stored: ReadonlyArray<Stored>
+): ReadonlyArray<Readonly<Record<string, number>>> => {
+	const members = storedRows(stored, "Member")
+	return Arr.flatMap(storedRows(stored, "Owner"), (o) => {
+		const family = Arr.sort(
+			Arr.filter(members, (m) => valueOf(m, "g") === valueOf(o, "id")),
+			Order.mapInput(Order.Number, (m: Readonly<Record<string, number>>) => valueOf(m, "member"))
+		)
+		return family.length > 1 ? Arr.take(family, 1) : []
+	})
 }
+
+/** A regroup of the stored rows: its kind the case's swarm chooses among those the rows admit (`broken` needs an
+ * owner's family of several and another owner), and its permutation or its move drawn. */
+const regroupOf =
+	(
+		stored: ReadonlyArray<Stored>,
+		kind: (admitted: Arr.NonEmptyReadonlyArray<RegroupKind>) => Gen<RegroupKind>
+	): Gen<Regroup> =>
+	(source) => {
+		const owners = Arr.map(storedRows(stored, "Owner"), (o) => valueOf(o, "id"))
+		const firsts = firstsOfSeveral(stored)
+		const admitted: Arr.NonEmptyReadonlyArray<RegroupKind> =
+			owners.length > 1 && Arr.isReadonlyArrayNonEmpty(firsts)
+				? ["kept", "broken", "redrawn"]
+				: ["kept", "redrawn"]
+		switch (source.draw(kind(admitted))) {
+			case "kept": {
+				const onto = source.draw(shuffled(owners, { min: owners.length, max: owners.length }))
+				return {
+					kind: "kept",
+					onto: new Map(
+						Arr.map(owners, (o, i) => [o, defined(onto[i], "an owner's image")] as const)
+					)
+				}
+			}
+			case "broken": {
+				const first = source.draw(element(nonEmpty(firsts, "a family of several")))
+				const from = valueOf(first, "g")
+				return {
+					kind: "broken",
+					moved: valueOf(first, "member"),
+					to: source.draw(
+						element(
+							nonEmpty(
+								Arr.filter(owners, (o) => o !== from),
+								"another owner"
+							)
+						)
+					)
+				}
+			}
+			case "redrawn":
+				return { kind: "redrawn" }
+		}
+	}
+
+/** A changed filler: its change, its shape and its rows, and, for an ordered family's group, its regroup, of the
+ * kinds `kind` weighs. */
+const changeCaseOf =
+	(
+		change: Gen<Change>,
+		among: (change: Change) => Arr.NonEmptyReadonlyArray<Kind>,
+		rows: (kind: Kind) => Gen<ReadonlyArray<Stored>>,
+		kind: (
+			swarmed: Swarm<RegroupKind>
+		) => (admitted: Arr.NonEmptyReadonlyArray<RegroupKind>) => Gen<RegroupKind>
+	): Gen<ChangeCase> =>
+	(source) => {
+		const drawnChange = source.draw(change)
+		const base = source.draw(shapeGen(among(drawnChange)))
+		const shape: Shape =
+			(drawnChange === "fold step" || drawnChange === "fold added") && base.fold === "none"
+				? { ...base, fold: "hidden" }
+				: drawnChange === "copy target"
+					? { ...base, copy: true }
+					: base
+		const stored = source.draw(rows(shape.kind))
+		const swarmed = source.draw(swarm(regroups))
+		return {
+			shape,
+			change: drawnChange,
+			stored,
+			regroup:
+				drawnChange === "group" && shape.kind === "ordered"
+					? Option.some(source.draw(regroupOf(stored, kind(swarmed))))
+					: Option.none()
+		}
+	}
+
+/** The case's swarm's choice among the regroups the rows admit. */
+const swarmedRegroup =
+	(swarmed: Swarm<RegroupKind>) =>
+	(admitted: Arr.NonEmptyReadonlyArray<RegroupKind>): Gen<RegroupKind> =>
+		swarmChoice(swarmed, admitted)
+
+const changeCaseGen: Gen<ChangeCase> = changeCaseOf(
+	element<Change>(["fold step", "copy target", "group", "fold added"]),
+	(change) => (change === "group" ? ["counted", "ordered"] : kinds),
+	rowsOf,
+	swarmedRegroup
+)
+
+/** An ordered family's group change regrouped as `kind` says, over rows that admit it: two or three owners, and the
+ * first two of two to six members sharing their owner under g. */
+const regroupedAs = (kind: RegroupKind): Gen<ChangeCase> =>
+	changeCaseOf(
+		constant<Change>("group"),
+		() => ["ordered"],
+		() => (source) => [
+			...source.draw(familyRowsOf({ owners: int(2, 3), total: int(2, 6), sharing: true })),
+			source.draw(spareRows)
+		],
+		() => () => constant(kind)
+	)
+
+/** The cases each required regroup is aimed at while it is pending (Case.steering). */
+const changeAims: ReadonlyArray<Aim<ChangeCase, ChangeFeature>> = [
+	["group kept on an ordered family", regroupedAs("kept")],
+	["group refused on an ordered family", regroupedAs("broken")],
+	["group redrawn as declared on an ordered family", regroupedAs("redrawn")]
+]
 
 /** What a reshaping history's second version is: its family without the fold it adds, or as it is. */
 const shapeBefore = (c: ChangeCase): Shape =>
@@ -962,8 +1181,121 @@ const changedReading = (change: Change): Reading => {
 	}
 }
 
-const changeCase = (c: ChangeCase, k: Case<ChangeFeature>) =>
+/** A member of an ordered family whose group changes, as the history reads it after a step: its key, its h and its
+ * index. */
+interface Indexed {
+	readonly member: number
+	readonly h: number
+	readonly at: number
+}
+
+const byKey = Order.mapInput(Order.Number, (m: Indexed) => m.member)
+
+/** The history's Member rows (Indexed), by key. */
+const indexedOf = (schemaName: string) =>
 	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const schemaIdent = quoteIdent(identifierOf(identity.schema(parsedSchemaName(schemaName))))
+		const column = (name: string) => quoteIdent(identifierOf(identity.column(parsedName(name))))
+		const rows = yield* Effect.orDie(
+			substrate.admin.queryValues(
+				`SELECT ${column("member")}::int8::text, ${column("h")}::int8::text, ${column("at")}::int8::text FROM ${schemaIdent}.${quoteIdent(identifierOf(identity.table(parsedName("Member"))))}`,
+				[]
+			)
+		)
+		return Arr.sort(
+			Arr.map(rows, (row): Indexed => ({
+				member: Number(row[0]),
+				h: Number(row[1]),
+				at: Number(row[2])
+			})),
+			byKey
+		)
+	})
+
+/** The data step of a regroup over the stored rows, as SQL in the installed schema `schemaName`: each member's h, as
+ * `kept` maps its owner under g or as `broken` moves one; none for `redrawn`, which declares its index dropped. */
+const regroupSteps = (
+	schemaName: string,
+	stored: ReadonlyArray<Stored>,
+	regroup: Regroup
+): ReadonlyArray<string> => {
+	const members = storedRows(stored, "Member")
+	const hOf = (m: Readonly<Record<string, number>>): Option.Option<number> => {
+		const g = valueOf(m, "g")
+		switch (regroup.kind) {
+			case "kept":
+				return Option.fromUndefinedOr(regroup.onto.get(g))
+			case "broken":
+				return Option.some(valueOf(m, "member") === regroup.moved ? regroup.to : g)
+			case "redrawn":
+				return Option.none()
+		}
+	}
+	const values = Arr.flatMap(members, (m) =>
+		Option.match(hOf(m), {
+			onNone: () => [],
+			onSome: (h) => [`(${valueOf(m, "member")}, ${h})`]
+		})
+	)
+	if (!Arr.isReadonlyArrayNonEmpty(values)) {
+		return []
+	}
+	const schemaIdent = quoteIdent(identifierOf(identity.schema(parsedSchemaName(schemaName))))
+	const column = (name: string) => quoteIdent(identifierOf(identity.column(parsedName(name))))
+	return [
+		"SET TRANSACTION ISOLATION LEVEL SERIALIZABLE",
+		`UPDATE ${schemaIdent}.${quoteIdent(identifierOf(identity.table(parsedName("Member"))))} AS "t" SET ${column("h")} = "v"."h" FROM (VALUES ${Arr.join(values, ", ")}) AS "v" ("member", "h") WHERE "t".${column("member")} = "v"."member"`
+	]
+}
+
+/** What a regroup reaches. */
+const regroupFeature = (regroup: Regroup): ChangeFeature => {
+	switch (regroup.kind) {
+		case "kept":
+			return "group kept on an ordered family"
+		case "broken":
+			return "group refused on an ordered family"
+		case "redrawn":
+			return "group redrawn as declared on an ordered family"
+	}
+}
+
+/** The declarations of a reshaping history's third version: the index dropped where its regroup redraws it. */
+const changeDeclarations = (c: ChangeCase): Declarations =>
+	Option.exists(c.regroup, (r) => r.kind === "redrawn")
+		? {
+				renames: [],
+				drops: [{ kind: "field", relation: parsedName("Member"), field: parsedName("at") }]
+			}
+		: noDeclarations
+
+/** The law a migration's refusal names, by migrate's reading of the refused constraint through its folder's laws. */
+const refusedLaw = (failure: MigrateError): Option.Option<string> => {
+	const reason = failure.reason
+	return reason._tag === "StatementFailed" || reason._tag === "FileCommitRefused"
+		? Option.fromUndefinedOr(reason.law)
+		: Option.none()
+}
+
+/** The folder a migration's refusal names, none for any other failure. */
+const refusedIn = (failure: MigrateError): Option.Option<string> => {
+	const reason = failure.reason
+	return reason._tag === "StatementFailed" || reason._tag === "FileCommitRefused"
+		? Option.some(reason.folder)
+		: Option.none()
+}
+
+/** Each member's index in its group under h by member key, from 0: what a redrawn index holds. */
+const keyOrderIndices = (members: ReadonlyArray<Indexed>): ReadonlyArray<Indexed> =>
+	Arr.map(members, (m) => ({
+		...m,
+		at: Arr.filter(members, (other) => other.h === m.h && other.member < m.member).length
+	}))
+
+const changeCase = (drawnCase: ChangeCase, k: Case<ChangeFeature>) =>
+	Effect.gen(function* () {
+		const c = aimedAt(changeAims)(drawnCase, k)
 		k.noteAll([
 			c.shape.kind,
 			`fold ${c.shape.fold}`,
@@ -971,34 +1303,102 @@ const changeCase = (c: ChangeCase, k: Case<ChangeFeature>) =>
 			`${c.change} on a ${c.shape.kind}`,
 			...(c.shape.copy ? (["copy"] as const) : []),
 			...(c.shape.selection === "every" ? [] : [`fold selecting by ${c.shape.selection}` as const]),
-			...(storesMembers(c.stored) ? (["stored members"] as const) : [])
+			...(storesMembers(c.stored) ? (["stored members"] as const) : []),
+			...Option.match(c.regroup, { onNone: () => [], onSome: (r) => [regroupFeature(r)] })
 		])
-		yield* migrateHistory(
-			"family_changes",
-			[
-				{ desc: (name) => versionOf(name, c.shape, { kind: "plain" }), declared: noDeclarations },
-				{
-					desc: (name) =>
-						versionOf(name, shapeBefore(c), {
-							kind: "family",
-							naming: asFirst,
-							reading: firstReading
-						}),
-					declared: noDeclarations
-				},
-				{
-					desc: (name) =>
-						versionOf(name, c.shape, {
-							kind: "family",
-							naming: asFirst,
-							reading: changedReading(c.change)
-						}),
-					declared: noDeclarations
+		const changed = (name: string) =>
+			versionOf(name, c.shape, {
+				kind: "family",
+				naming: asFirst,
+				reading: changedReading(c.change)
+			})
+		let schemaName = ""
+		const outcome = yield* Effect.result(
+			migrateHistory(
+				"family_changes",
+				[
+					{ desc: (name) => versionOf(name, c.shape, { kind: "plain" }), declared: noDeclarations },
+					{
+						desc: (name) =>
+							versionOf(name, shapeBefore(c), {
+								kind: "family",
+								naming: asFirst,
+								reading: firstReading
+							}),
+						declared: noDeclarations
+					},
+					{ desc: changed, declared: changeDeclarations(c) }
+				],
+				c.stored,
+				(step, name) =>
+					step === 2
+						? Option.match(c.regroup, {
+								onNone: () => [],
+								onSome: (r) => regroupSteps(name, c.stored, r)
+							})
+						: [],
+				(step, name) => {
+					schemaName = name
+					return step > 0 && Option.isSome(c.regroup)
+						? indexedOf(name)
+						: Effect.succeed<ReadonlyArray<Indexed>>([])
 				}
-			],
-			c.stored,
-			() => Effect.void
+			)
 		)
+		const broken = Option.exists(c.regroup, (r) => r.kind === "broken")
+		if (outcome._tag === "Failure") {
+			const failure = outcome.failure
+			if (failure._tag !== "MigrateError" || !broken) {
+				return assert.fail(
+					`the history was refused where its data step keeps every new group a sequence: ${failure.message}\n${Formatter.format(c)}`
+				)
+			}
+			const family = defined(
+				Option.getOrUndefined(
+					Arr.findFirst(
+						compile(changed(schemaName), asDrafted).laws.families,
+						(f) => f.member.name === "Member"
+					)
+				),
+				"the regrouped family's compiled form"
+			)
+			const laws = new Set<string>([family.law, ...Arr.map(family.folds, (f) => f.law)])
+			assert.ok(
+				Option.exists(refusedIn(failure), Str.endsWith("_step_3")),
+				`the refusal names the third folder: ${failure.message}`
+			)
+			assert.ok(
+				Option.exists(refusedLaw(failure), (law) => laws.has(law)),
+				`the refusal names the regrouped family's law or its fold's: ${failure.message}`
+			)
+			return
+		}
+		if (broken) {
+			return assert.fail(
+				`the history applied though its data step left an owner's indices other than 0 … n − 1\n${Formatter.format(c)}`
+			)
+		}
+		yield* Option.match(c.regroup, {
+			onNone: () => Effect.void,
+			onSome: (r) =>
+				Effect.sync(() => {
+					const before = defined(outcome.success[1], "the family's read")
+					const after = defined(outcome.success[2], "the regroup's read")
+					if (r.kind === "redrawn") {
+						assert.deepEqual(
+							after,
+							keyOrderIndices(after),
+							"an index declared dropped is drawn anew: each member's place in its group's member-key order"
+						)
+						return
+					}
+					assert.deepEqual(
+						Arr.map(after, (m) => [m.member, m.at]),
+						Arr.map(before, (m) => [m.member, m.at]),
+						"a group change whose data step keeps each new group a sequence keeps every member's stored index"
+					)
+				})
+		})
 	})
 
 layer(Substrate.layer)(
@@ -1055,7 +1455,7 @@ layer(Substrate.layer)(
 				)
 		)
 		it.effect(
-			"a fold's step, an axis copy's target or a family's group changed over stored rows, or a fold added, trees included, is drawn again: the migration commits with every law validated",
+			"a fold's step, an axis copy's target or a counted family's group changed over stored rows, or a fold added, trees included, is drawn again, and an ordered family's group change keeps every stored index or is refused naming its law, unless the index is declared dropped: the migration commits with every law validated",
 			(ctx) =>
 				searched(
 					ctx,
@@ -1066,7 +1466,7 @@ layer(Substrate.layer)(
 							literal: Formatter.format,
 							oracle: {
 								kind: "postgresql",
-								name: "PostgreSQL validates every constraint the migration adds over the values it draws again"
+								name: "PostgreSQL validates every constraint the migration adds over the values it draws again, and refuses a regroup that breaks an ordered family's sequences, naming its law"
 							},
 							coverage: required<ChangeFeature>(
 								[
@@ -1083,15 +1483,18 @@ layer(Substrate.layer)(
 									"copy target on a tree",
 									"fold selecting by kind",
 									"fold selecting by weight",
-									"stored members"
+									"stored members",
+									"group kept on an ordered family",
+									"group refused on an ordered family",
+									"group redrawn as declared on an ordered family"
 								],
-								{ cases: 48, sense: notesOnly }
+								{ cases: 60, sense: notesOnly }
 							),
 							kept: [],
 							runs: 4,
 							shrink: { kind: "bounded", candidates: 30 },
 							concurrency: 1,
-							steerEvery: 16,
+							steerEvery: 4,
 							caseHang
 						},
 						changeCase

@@ -85,10 +85,12 @@ import {
 
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { Binding } from "#compiler/runtime/write/binding.ts"
+import { noExclusion, type WriteExclusion } from "#compiler/runtime/write/flight.ts"
 import { sentLayout } from "#compiler/runtime/write/nesting.ts"
 import type { FamilyStep, FamilyWriteStep } from "#compiler/runtime/write/steps.ts"
 import type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
+import { type AddedRows, unitSql } from "#compiler/write/delete/unit.ts"
 import {
 	type AppendedMember,
 	additionsSql,
@@ -121,6 +123,7 @@ import type { FamilyWriteSql } from "#compiler/write/family/written.ts"
 import {
 	type ActionEntry,
 	compileClockedChangeSet,
+	type EnumeratedInput,
 	type MemberSlot,
 	type SlotGroup,
 	type StratumEdit,
@@ -221,6 +224,11 @@ export interface CompileWriteOptions {
 export interface CompiledWrite extends ProgramArtifacts<WriteParamSlot> {
 	/** The isolation its statements were built for (CompileWriteOptions `level`), the one it is served and run at. */
 	readonly level: Isolation
+	/**
+	 * What its transaction locks before its snapshot: nothing where it compiles; the relations its login fences that it
+	 * writes once certification fences them (program/isolation/certification.ts).
+	 */
+	readonly exclusion: WriteExclusion
 	readonly frontend: WriteFrontend
 	/** Each stratum's edits of a family's member relation, with their reads, built once. */
 	readonly edits: ReadonlyArray<EditProgram>
@@ -313,6 +321,19 @@ export interface ArtifactBuilder {
 }
 
 export const newBuilder = (codes: Codebook): ArtifactBuilder => ({ statements: [], codes })
+
+/** The member slots of an enumerated input whose facts a stratum inserts whole: a nested insert's own rows, a plain
+ * insertion's, and a classed insertion's complete class, whose facts carry every serial field. */
+const insertingSlots = (input: EnumeratedInput): ReadonlyArray<MemberSlot> => {
+	switch (input.kind) {
+		case "nested":
+			return [input.slot]
+		case "single":
+			return input.act.op === "insert" ? [input.slot] : []
+		case "classed":
+			return [input.complete]
+	}
+}
 
 /** One family statement of a stratum, built once over the installed names (`familyProgram`), which the plan's step of
  * its node places where the stratum's schedule runs it. */
@@ -480,6 +501,35 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 		)
 	const placements = strataAt(frontend.ir.strata).flatMap(([s, stratum]) =>
 		stratum.family.map(({ node }): FamilyPlacement => {
+			if (node.kind === "unit") {
+				/** The rows the stratum adds of a unit's relation, which a doomed row is kept as: the rows its nested writes
+				 * fill, where one lays it out, else the facts of each slot that inserts it. */
+				const addedOf = (relation: RelationInfo): ReadonlyArray<AddedRows> => {
+					const nested = frontend.nested.flatMap((n) => {
+						const at = n.stratum === s ? n.nesting.layouts.get(relation.name) : undefined
+						return at === undefined ? [] : [sentLayout(at)]
+					})
+					const [laid] = nested
+					if (laid !== undefined) {
+						return [{ kind: "nestedRows", stratum: s, layout: laid }]
+					}
+					return frontend.slots.flatMap((group) =>
+						group.stratum === s && group.relation.name === relation.name
+							? group.inputs.flatMap((input): ReadonlyArray<AddedRows> =>
+									insertingSlots(input).map((slot) => ({ kind: "slot", slot }))
+								)
+							: []
+					)
+				}
+				const sql = unitSql({ ...w, start: ownStatement }, node.units, node.below, addedOf)
+				const step: FamilyWriteStep = {
+					kind: "familyWrite",
+					stratum: s,
+					statement: "unit",
+					parts: sql.parts
+				}
+				return Object.freeze({ kind: "write", stratum: s, node, step: Object.freeze(step), sql })
+			}
 			if (node.kind === "additions" || node.kind === "removals") {
 				const stratumEdits = frontend.edits.filter((edit) => edit.stratum === s)
 				/** The families a family write draws its rows of `relation` by: every one it is a member of but its own tree,
@@ -546,13 +596,20 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 					)
 				const w0 = { ...w, start: ownStatement }
 				if (node.kind === "additions") {
-					/** The rows the stratum's nested writes fill, by relation, as each sends them (nesting.ts sentLayout). */
+					/** The rows the stratum's nested writes fill, by relation, as each sends them (nesting.ts sentLayout), with
+					 * the columns of them the walk fills, which they state. */
 					const nestedRows = new Map(
 						frontend.nested.flatMap((n) =>
 							n.stratum === s
-								? [...n.nesting.layouts].map(
-										([relation, at]) => [relation, sentLayout(at)] as const
-									)
+								? [...n.nesting.layouts].map(([relation, at]) => {
+										const source: Extract<RowSource, { readonly kind: "nestedRows" }> = {
+											kind: "nestedRows",
+											stratum: s,
+											layout: sentLayout(at),
+											walked: at.walked
+										}
+										return [relation, source] as const
+									})
 								: []
 						)
 					)
@@ -571,8 +628,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 							sourced.set(edit.relation.name, [{ kind: "slots", slots }])
 						}
 					}
-					for (const [name, layout] of nestedRows) {
-						const source: RowSource = { kind: "nestedRows", stratum: s, layout }
+					for (const [name, source] of nestedRows) {
 						const known = sourced.get(name)
 						if (known === undefined) {
 							sourced.set(name, [source])
@@ -625,13 +681,8 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 											)
 										: []
 								)
-								const layout = nestedRows.get(owner)
-								return [
-									owner,
-									layout === undefined
-										? fromSlots
-										: [...fromSlots, { kind: "nestedRows" as const, stratum: s, layout }]
-								] as const
+								const rows = nestedRows.get(owner)
+								return [owner, rows === undefined ? fromSlots : [...fromSlots, rows]] as const
 							}
 						)
 					)
@@ -1756,9 +1807,10 @@ const compile = (
 	)
 	const optimized = optimizedArtifact(restated, plan, lowering, options)
 	unwrap(insertOnly(schema, optimized.statements, options.names, options.laws))
-	const family = familyProgram(frontend, lowering.w)
+	const family = familyProgram(restated, lowering.w)
 	const program: CompiledWrite = {
 		level: options.level,
+		exclusion: noExclusion,
 		edits: family.edits,
 		refills: family.refills,
 		kind: "write",

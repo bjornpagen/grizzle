@@ -879,7 +879,7 @@ export type LawColumnStatement =
 			readonly selection: ReadonlyArray<string>
 	  }
 	| {
-			readonly kind: "copy" | "index" | "parentStart" | "predecessor"
+			readonly kind: "copy" | "index" | "predecessor"
 			readonly owner: string
 			readonly count: string
 			/** The family's own law. */
@@ -900,7 +900,6 @@ export type LawColumnStatement =
 const drawnWords = {
 	copy: "the owner's count",
 	index: "the index",
-	parentStart: "the parent's start",
 	predecessor: "the predecessor of the index"
 } as const
 
@@ -1035,15 +1034,11 @@ export const identity = Object.freeze({
 			}
 			case "copy":
 			case "index":
-			case "parentStart":
 			case "predecessor":
 				return mint(
 					"lawColumn",
 					[column.kind, column.family],
-					[
-						...(column.kind === "parentStart" ? ["parent", "start"] : [column.kind]),
-						...nameSegments(column.count)
-					],
+					[column.kind, ...nameSegments(column.count)],
 					`${drawnWords[column.kind]} of the family ${column.owner}.${column.count}`,
 					hashed
 				)

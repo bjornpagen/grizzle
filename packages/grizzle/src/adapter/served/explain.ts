@@ -11,6 +11,7 @@ import type { ExecutedStatement, StatementPlan } from "#adapter/types/db.ts"
 import {
 	type BatchOutcome,
 	type BatchStatement,
+	excludesNothing,
 	keptRows,
 	oneShotStatement,
 	type PreparedStatement,
@@ -106,7 +107,7 @@ const plansOf = Effect.fn("plansOf")(function* <P>(
 	const outcomes = yield* Effect.mapError(
 		runFramed(
 			session,
-			{ ...frame, prologue: ctx.prologue },
+			{ ...frame, prologue: ctx.prologue, exclusion: excludesNothing },
 			Arr.map(statements, (e) => e.statement)
 		),
 		(failure) => explainFailure(statements, frame, failure)

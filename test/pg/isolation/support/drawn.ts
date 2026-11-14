@@ -297,7 +297,7 @@ export const factCertificates = (d: DrawnInstallation): ReadonlyArray<RoleIsolat
 			lower: () => Result.ok({ facts: [], form: undefined })
 		}))
 	)
-	return certified.ok ? Arr.map(certified.value, isolationOf) : certified.error
+	return certified.ok ? Arr.map(certified.value.roles, isolationOf) : certified.error
 }
 
 /** A statement's read of a relation, with how it reads it. */

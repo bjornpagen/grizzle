@@ -2923,6 +2923,35 @@ class Model {
 					)
 					break
 				}
+				case "addColumnUnchecked": {
+					this.#typeExists(a.column.type)
+					const t = this.#table(s.table)
+					if (Arr.some(t.columns, (c) => c.name === a.column.name)) {
+						refuse(
+							"42701",
+							`the column ${a.column.name} of ${printObjectName(s.table)} already exists`
+						)
+					}
+					const column = columnOf(a.column, this.#schema)
+					t.columns.push(column)
+					if (column.generation.kind === "stored" || column.generation.kind === "partial") {
+						for (const row of t.rows) {
+							row.set(column.name, { kind: "generated" })
+						}
+					}
+					break
+				}
+				case "setNotNull": {
+					const t = this.#table(s.table)
+					this.#columnAt(t, s.table, a.column, "constrained")
+					if (Arr.some(t.rows, (row) => !row.has(a.column))) {
+						refuse(
+							"23502",
+							`the column ${a.column} of ${printObjectName(s.table)} holds NULL where its NOT NULL is set`
+						)
+					}
+					break
+				}
 				case "dropColumn":
 					this.#dropColumn(s.table, a.column)
 					break
@@ -3880,17 +3909,27 @@ class Model {
 							kind: "value",
 							value: placeholder({ ...sub, table: a.table })
 						}))
-					} else if (sub.kind === "placeholderRetype") {
-						this.#typeExists(sub.column.type)
-						this.#retype(a.table, sub.column.name, sub.column.type, {
-							kind: "given",
-							value: () => ({ kind: "value", value: placeholder({ ...sub, table: a.table }) })
-						})
 					} else {
 						this.statement({ kind: "alterTable", table: a.table, actions: [sub] })
 					}
 				}
 				return
+			case "fill": {
+				const t = this.#table(a.table)
+				for (const f of a.fields) {
+					this.#columnAt(t, a.table, f.aside, "set-aside")
+					const value = placeholder({
+						kind: "placeholderRetype",
+						table: a.table,
+						column: f.column,
+						reason: f.reason
+					})
+					for (const row of t.rows) {
+						row.set(f.aside, { kind: "value", value })
+					}
+				}
+				return
+			}
 			case "analyze":
 				this.#relation(a.table)
 				return

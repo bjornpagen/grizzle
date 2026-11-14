@@ -237,8 +237,8 @@ const isPrivilege = (statement: string): boolean => {
  * as in the script. Every other statement creates or alters an object of its own, so its position decides nothing a catalog
  * shows (a statement that needs an earlier one fails the apply instead). Both are read as migrate sends them into
  * `database` (filledSql), each variable filled, and split as migrate splits a file (render/markers.ts splitStatements):
- * a statement the printer writes as two, a grant on the database behind the database privilege's lock, is two on both
- * sides.
+ * a drafted statement may print two, as a grant on the database prints its lock before it (sql/print.ts
+ * databasePrivilegeLocked), two on both sides.
  */
 export const runsInstallScript = (
 	folders: ReadonlyArray<FolderSource>,

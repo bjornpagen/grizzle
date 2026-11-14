@@ -54,6 +54,7 @@ const actionCreated = (table: ObjectName, a: AlterTableAction): ReadonlyArray<Cr
 		case "addColumn":
 		case "addColumnPlaceholder":
 		case "addColumnDefault":
+		case "addColumnUnchecked":
 			return column(table, a.column)
 		case "addConstraint":
 			return [
@@ -68,6 +69,7 @@ const actionCreated = (table: ObjectName, a: AlterTableAction): ReadonlyArray<Cr
 			return [{ on: { kind: "SEQUENCE", name: a.sequence }, identifier: a.sequence.name }]
 		case "dropColumn":
 		case "dropDefault":
+		case "setNotNull":
 		case "setUuidv7Default":
 		case "setRetirementDefault":
 		case "alterColumnType":

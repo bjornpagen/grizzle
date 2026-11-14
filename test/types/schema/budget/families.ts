@@ -61,11 +61,11 @@ export const ${ns}partSum${u} = fold(${ns}parts${u}, Monoid.sum, on(${ns}G${u}, 
 const treeUnit = (
 	ns: string,
 	u: number
-): string => `export const ${ns}T${u} = relation("T${u}", { id: uuid, parent: uuid, at: drawn(natural), children: drawn(natural), start: drawn(natural), end: drawn(natural), doc: uuid, size: accumulated(natural, 0n) }, ["id"])
+): string => `export const ${ns}T${u} = relation("T${u}", { doc: uuid, parent: drawn(natural), at: drawn(natural), children: drawn(natural), start: drawn(natural), end: drawn(natural), size: accumulated(natural, 0n) }, ["doc", "start"])
 export const ${ns}P${u} = relation("P${u}", { id: uuid, k: drawn(natural), size: accumulated(natural, 0n) }, ["id"])
 export const ${ns}I${u} = relation("I${u}", { pool: uuid, w: pg.integer }, ["pool", "w"])
-export const ${ns}nodes${u} = tree(on(${ns}T${u}, "parent", "at"), fin(${ns}T${u}, "children"), { root: "doc" })
-export const ${ns}nodeCount${u} = fold(${ns}nodes${u}, Monoid.count, on(${ns}T${u}, "parent"), on(${ns}T${u}, "id", "size"))
+export const ${ns}nodes${u} = tree(on(${ns}T${u}, "parent", "at"), fin(${ns}T${u}, "children"), { root: ["doc"] })
+export const ${ns}nodeCount${u} = fold(${ns}nodes${u}, Monoid.count, on(${ns}T${u}, "doc", "parent"), on(${ns}T${u}, "doc", "start", "size"))
 export const ${ns}items${u} = counted(on(${ns}I${u}, "pool"), fin(${ns}P${u}, "k"))
 export const ${ns}itemCount${u} = fold(${ns}items${u}, Monoid.count, on(${ns}I${u}, "pool"), on(${ns}P${u}, "id", "size"))
 `

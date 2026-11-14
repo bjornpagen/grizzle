@@ -34,8 +34,10 @@ import type { Transport } from "#adapter/types/layer.ts"
 import {
 	type ApartFailure,
 	type BatchStatement,
+	excludesNothing,
 	type FlightFailure,
 	oneShotStatement,
+	type PreparedStatement,
 	preparedStatement,
 	runAlongside,
 	runApart,
@@ -402,7 +404,7 @@ const statementOfSpec = (spec: StatementSpec): BatchStatement =>
 	oneShotStatement(testSql(textOf(spec.pad)), spec.params)
 
 /** A statement of the case as a Db call's flight sends it, a served one: its text named, parsed once per flight. */
-const servedOfSpec = (spec: StatementSpec): BatchStatement =>
+const servedOfSpec = (spec: StatementSpec): PreparedStatement =>
 	preparedStatement(prepared(testSql(textOf(spec.pad))), spec.params)
 
 const write: Transaction = { access: "readWrite", isolation: "serializable", end: "COMMIT" }
@@ -434,7 +436,7 @@ const callOf = (
 			return Effect.asVoid(
 				runFramed(
 					session,
-					writeFrame(flightPrologue, "serializable"),
+					writeFrame(flightPrologue, "serializable", excludesNothing),
 					Arr.map(c.first, servedOfSpec)
 				)
 			)
@@ -442,8 +444,8 @@ const callOf = (
 			return Effect.asVoid(
 				runFramedTwice(
 					session,
-					writeFrame(flightPrologue, "serializable"),
-					Arr.map(c.first, statementOfSpec),
+					writeFrame(flightPrologue, "serializable", excludesNothing),
+					Arr.map(c.first, servedOfSpec),
 					() => Effect.succeed(Arr.map(c.second, servedOfSpec))
 				)
 			)

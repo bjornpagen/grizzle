@@ -567,15 +567,20 @@ const piecesOf = (
 		)
 	)
 
-/** A member relation of `fields`, keyed by its id, and the pieces its cells generate where any doubles a token. */
+/** A member relation of `fields`, keyed by `key`, and the pieces its cells generate where any doubles a token. */
 const memberRelation = (
 	name: string,
 	fields: ReadonlyArray<Named>,
+	key: ReadonlyArray<string>,
 	cells: ReadonlyArray<Cell>
 ): AnyRelation =>
 	Arr.some(cells, (c) => c.step.kind === "doubled")
-		? generatedRelation(name, Rec.fromEntries(fields), ["id"], (row) => piecesOf(cells, row), [])
-		: relation(name, Rec.fromEntries(fields), ["id"], [])
+		? generatedRelation(name, Rec.fromEntries(fields), key, (row) => piecesOf(cells, row), [])
+		: relation(name, Rec.fromEntries(fields), key, [])
+
+/** The key fields of a member relation of a family kind: a tree's root field and start, any other's id. */
+export const memberKeyOf = (kind: FamilyKind): ReadonlyArray<string> =>
+	kind === "tree" ? ["doc", "start"] : ["id"]
 
 /**
  * The schema of a family kind: for a counted or an ordered family, one mutable owner `Owner` (id, label, a count per
@@ -592,9 +597,8 @@ export const foldSchema = (kind: FamilyKind): FoldSchema => {
 		const fields: ReadonlyArray<Named> =
 			kind === "tree"
 				? [
-						["id", pg.integer],
 						["doc", pg.integer],
-						["parent", pg.integer],
+						["parent", drawnNatural],
 						["at", drawnNatural],
 						["children", drawnNatural],
 						["start", drawnNatural],
@@ -610,7 +614,12 @@ export const foldSchema = (kind: FamilyKind): FoldSchema => {
 					]
 		return {
 			monoid,
-			member: memberRelation(`${kind === "tree" ? "T" : "M"}_${monoid}`, fields, cells),
+			member: memberRelation(
+				`${kind === "tree" ? "T" : "M"}_${monoid}`,
+				fields,
+				memberKeyOf(kind),
+				cells
+			),
 			count: kind === "tree" ? "children" : `n_${monoid}`,
 			cells
 		}
@@ -631,7 +640,7 @@ export const foldSchema = (kind: FamilyKind): FoldSchema => {
 		const family =
 			kind === "tree"
 				? treeBuilder(onBuilder(g.member, ["parent", "at"]), finBuilder(g.member, "children"), {
-						root: "doc"
+						root: ["doc"]
 					})
 				: kind === "ordered"
 					? orderedBuilder(onBuilder(g.member, ["o", "at"]), finBuilder(owner, g.count))
@@ -643,8 +652,11 @@ export const foldSchema = (kind: FamilyKind): FoldSchema => {
 				foldBuilder(
 					family,
 					monoids[c.monoid],
-					onBuilder(g.member, [kind === "tree" ? "parent" : "o", ...stepTerms(c)]),
-					onBuilder(kind === "tree" ? g.member : owner, ["id", ...c.ends])
+					onBuilder(g.member, [...(kind === "tree" ? ["doc", "parent"] : ["o"]), ...stepTerms(c)]),
+					onBuilder(kind === "tree" ? g.member : owner, [
+						...(kind === "tree" ? ["doc", "start"] : ["id"]),
+						...c.ends
+					])
 				)
 			)
 		]
@@ -694,7 +706,8 @@ export interface State {
 	readonly members: ReadonlyMap<MonoidName, ReadonlyArray<MemberState>>
 }
 
-/** A tree's node as its insert nests it: its key, its step values, and its children in order. */
+/** A tree's node as its insert nests it: its id, its tree's root value where it is a root, its step values, and its
+ * children in order. */
 export interface Node {
 	readonly id: number
 	readonly steps: Steps
@@ -884,7 +897,7 @@ export const treeRows = (g: Group, trees: ReadonlyArray<Node>): ReadonlyArray<Mo
 		}))
 		let next = start + 1
 		for (const [i, child] of node.children.entries()) {
-			next = visit(child, doc, node.id, i, next, (c) =>
+			next = visit(child, doc, start, i, next, (c) =>
 				defined(
 					Option.getOrUndefined(Arr.findFirst(folds, (f) => f.c === c))?.folded.running[i],
 					"a child's running values"
@@ -893,9 +906,8 @@ export const treeRows = (g: Group, trees: ReadonlyArray<Node>): ReadonlyArray<Mo
 		}
 		out.push(
 			Rec.fromEntries([
-				["id", node.id],
 				["doc", doc],
-				["parent", parent],
+				["parent", BigInt(parent)],
 				["at", BigInt(at)],
 				["children", BigInt(node.children.length)],
 				["start", BigInt(start)],
@@ -910,7 +922,7 @@ export const treeRows = (g: Group, trees: ReadonlyArray<Node>): ReadonlyArray<Mo
 		return next
 	}
 	for (const root of trees) {
-		visit(root, root.id, root.id, 0, 0, (c) => ({
+		visit(root, root.id, 0, 0, 0, (c) => ({
 			before: identityOf(c),
 			after: combine(c.monoid, identityOf(c), stepOf(c, root.steps))
 		}))
@@ -927,7 +939,8 @@ export interface Broken {
 	readonly rule: CellRule
 	readonly law: Law
 	readonly relation: string
-	readonly id: unknown
+	/** The row's key, its relation's key fields' values in key order. */
+	readonly key: ReadonlyArray<unknown>
 }
 
 /**
@@ -955,7 +968,15 @@ export const brokenOf = (
 					Arr.flatMap(fields, (f) =>
 						holds(row[f])
 							? []
-							: [{ cell: c, rule, law: ruleLaw(rule, relation, f), relation, id: row["id"] }]
+							: [
+									{
+										cell: c,
+										rule,
+										law: ruleLaw(rule, relation, f),
+										relation,
+										key: Arr.map(memberKeyOf(s.kind), (k) => row[k])
+									}
+								]
 					)
 				)
 			const piece = c.step.kind === "doubled" ? [c.step.field] : []
@@ -971,10 +992,12 @@ export const brokenOf = (
 		})
 	)
 
-/** A tree's insert fact: its steps and its children nested at `children`, the root naming its tree by `doc`. */
+/**
+ * A tree's insert fact: its steps and its children nested at `children`, the root naming its tree by `doc`; no node
+ * states its key, which the tree draws.
+ */
 export const treeFact = (g: Group, node: Node, root: boolean): ModelRow =>
 	Rec.fromEntries([
-		["id", node.id],
 		...(root ? [["doc", node.id] as const] : []),
 		...stepEntries(g, node.steps),
 		["children", Arr.map(node.children, (child) => treeFact(g, child, false))]

@@ -51,6 +51,7 @@ import {
 	type Group,
 	setWidths,
 	type MemberState,
+	memberKeyOf,
 	membersOf,
 	type ModelRow,
 	type Node,
@@ -478,30 +479,38 @@ const rowsAfter = (
 const settled = (s: FoldSchema, state: State, w: Write): State =>
 	Arr.isReadonlyArrayNonEmpty(brokenOf(s, rowsAfter(s, state, w))) ? state : applied(s, state, w)
 
-/** A tree's node keys, the root's first. */
-const nodeIds = (node: Node): ReadonlyArray<number> => [
-	node.id,
-	...Arr.flatMap(node.children, nodeIds)
-]
+/** A tree's node keys in pre-order, the root's first: its root value, the root's id, and each node's start. */
+const nodeKeys = (root: Node): ReadonlyArray<ReadonlyArray<unknown>> => {
+	const keys: Array<ReadonlyArray<unknown>> = []
+	const visit = (node: Node, start: number): number => {
+		keys.push([root.id, BigInt(start)])
+		return Arr.reduce(node.children, start + 1, (next, child) => visit(child, next))
+	}
+	visit(root, 0)
+	return keys
+}
 
 /** The rows a write states, by relation and key: its owners and members, or every node of its trees. */
-const statedRows = (s: FoldSchema, w: Write): ReadonlyArray<readonly [string, number]> => {
+const statedRows = (
+	s: FoldSchema,
+	w: Write
+): ReadonlyArray<readonly [string, ReadonlyArray<unknown>]> => {
 	const members = (stated: ReadonlyArray<Stated>) =>
-		Arr.map(stated, (m) => [groupOf(s, m.monoid).member.name, m.member.id] as const)
+		Arr.map(stated, (m) => [groupOf(s, m.monoid).member.name, [m.member.id]] as const)
 	switch (w.kind) {
 		case "create":
-			return [...Arr.map(w.owners, (o) => [s.owner.name, o.id] as const), ...members(w.members)]
+			return [...Arr.map(w.owners, (o) => [s.owner.name, [o.id]] as const), ...members(w.members)]
 		case "append":
 		case "restep":
 		case "move":
 			return members(w.members)
 		case "relabel":
-			return [[s.owner.name, w.owner.id], ...members(w.members)]
+			return [[s.owner.name, [w.owner.id]], ...members(w.members)]
 		case "remove":
 			return []
 		case "trees":
 			return Arr.flatMap(w.trees, (t) =>
-				Arr.map(nodeIds(t.root), (id) => [groupOf(s, t.monoid).member.name, id] as const)
+				Arr.map(nodeKeys(t.root), (key) => [groupOf(s, t.monoid).member.name, key] as const)
 			)
 	}
 }
@@ -782,13 +791,16 @@ const judgeRefused = (
 	)
 	const stated = statedRows(s, w)
 	const statedBroken = Arr.filter(named, (b) =>
-		Arr.some(stated, ([relation, id]) => relation === b.relation && id === b.id)
+		Arr.some(stated, ([relation, key]) => relation === b.relation && deepEquals(key, b.key))
 	)
 	const witness = outcome.witness
 	if (witness.kind === "unreported") {
 		const unread =
 			s.kind === "ordered" && Arr.every(statedBroken, (b) => b.relation === s.owner.name)
-				? Arr.dedupe(Arr.map(statedBroken, (b) => b.id))
+				? Arr.dedupeWith(
+						Arr.map(statedBroken, (b) => b.key),
+						deepEquals
+					)
 				: []
 		assert.ok(
 			!Arr.isReadonlyArrayNonEmpty(statedBroken) || unread.length >= 2,
@@ -796,10 +808,14 @@ const judgeRefused = (
 		)
 		return named
 	}
+	const keyFields = memberKeyOf(s.kind)
 	const atWitness = (b: Broken): boolean =>
 		b.relation === witness.relation &&
-		Rec.keys(witness.values).length === 1 &&
-		witness.values["id"] === b.id
+		Rec.keys(witness.values).length === keyFields.length &&
+		deepEquals<ReadonlyArray<unknown>>(
+			Arr.map(keyFields, (f) => witness.values[f]),
+			b.key
+		)
 	assert.ok(
 		Arr.some(statedBroken, atWitness),
 		`the witness ${Formatter.format(witness)} is a stated row whose value breaks a rule the refusal names: ${Formatter.format(statedBroken)}`

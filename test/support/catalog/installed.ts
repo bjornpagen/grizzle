@@ -348,7 +348,14 @@ export const installedScope = (
 			logins: new Map(
 				Arr.map(
 					installation.worlds,
-					(l) => [l.role, new Set(Arr.map(l.roles, (r) => r.role))] as const
+					(l) =>
+						[
+							l.role,
+							{
+								roles: new Set(Arr.map(l.roles, (r) => r.role)),
+								fenced: new Set(Arr.map(l.fenced, (t) => t.name))
+							}
+						] as const
 				)
 			),
 			refreshes: new Map(Arr.map(scoped, (s) => s.refreshes)),
@@ -689,7 +696,7 @@ const vectorProblems = (catalog: Catalog, scope: InstalledScope): ReadonlyArray<
 			)
 		]
 	})
-	const loginProblems = Arr.flatMap([...scope.erasure.logins], ([login, roles]) => [
+	const loginProblems = Arr.flatMap([...scope.erasure.logins], ([login, { roles }]) => [
 		...Arr.flatMap(catalog.foreignGrants, (g) =>
 			unless(g.grantee !== login, {
 				kind: "loginForeignGrant",
@@ -726,8 +733,8 @@ const vectorProblems = (catalog: Catalog, scope: InstalledScope): ReadonlyArray<
  *   the law functions and law triggers, the serial fields' advance functions, the worlds' functions, and PostgreSQL's
  *   internal foreign-key triggers; the worlds' schemas of views, security_barrier exactly where a query entry's; row
  *   security and policies exactly where a world writes through a query entry; no UPDATE on an immutable relation, no
- *   TRUNCATE, no privilege on a sequence, MAINTAIN only to a refresher, no PUBLIC grant, nothing granted to a login
- *   beyond what admission and a Db transaction take as it, nothing inherited beyond a role's own privileges, no elevated
+ *   TRUNCATE, no privilege on a sequence, MAINTAIN only to a refresher or a login fencing the table, no PUBLIC grant,
+ *   nothing granted to a login beyond what admission and a Db transaction take as it, nothing inherited beyond a role's own privileges, no elevated
  *   or undeclared role; no index is invalid; and no table holds two unique indexes of one method over one column set
  *   and predicate, or two indexes of one definition (IndexProblem);
  * - least privilege on types, by a derivation of its own: a world's role may hold USAGE on an enum or a domain of the

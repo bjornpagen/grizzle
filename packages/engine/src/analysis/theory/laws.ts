@@ -53,6 +53,7 @@ import type { Identifier } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import {
+	extendNonEmpty,
 	headNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
@@ -372,8 +373,8 @@ export interface ContractUse {
  * - a family: a member with no owner, and, ordered, two members at one slot, a slot at or past its owner's
  *   count, a slot above zero with no member below it, or a count above zero with no member at its last slot; counted,
  *   an owner whose count is not its number of members; each arm naming the owner;
- * - a tree: its family's lemmas over every row but its root, and T0 to T6 with the root pin, each arm
- *   naming a row;
+ * - a tree: its family's lemmas over every row but its roots, and T2 to T6 with the root pin, each arm naming a
+ *   row;
  * - a fold: with its accumulators named, its copies, its combine and its identity pins; hidden, an owner
  *   whose end is not the monoid's aggregate of its members' step values; each arm naming the owner;
  * - a containment that rides a family axis and carries an accumulated column: besides, a base row of the axis whose
@@ -650,19 +651,16 @@ interface FamilySides {
 		| undefined
 }
 
-/** The sides a tree's own laws read beside its family's, T0 to T6 (treeArms). */
+/**
+ * The sides a tree's own laws read beside its family's, T2 to T6 (treeArms). T0, each member's root fields its
+ * parent's, and T1, (r…, start) a key, are its family's owner lemma and its relation's primary key.
+ */
 interface TreeSides {
-	/** T0: each member's root field in its parent's. */
-	readonly rootCopy: readonly [ResolvedSide, ResolvedSide]
-	/** T1: the root field and start, a key of every row. */
-	readonly order: ResolvedSide
-	/** T3: each first child's start less one is its parent's start. */
-	readonly first: readonly [ResolvedSide, ResolvedSide]
 	/** T4: each later child's start is its predecessor's end. */
 	readonly next: readonly [ResolvedSide, ResolvedSide]
 	/** T5: each parent's last child's end is the parent's end. */
 	readonly close: readonly [ResolvedSide, ResolvedSide]
-	/** T2, the root pin and T6, row checks of the tree relation. */
+	/** T2, the root pin, T3 and T6, row checks of the tree relation. */
 	readonly checks: ReadonlyArray<ExprDesc>
 }
 
@@ -853,7 +851,7 @@ export class LawSides {
 	}
 
 	/**
-	 * A tree's sides, which its violation query reads: its family's (`familySides`), and T0 to T6's with the root pin,
+	 * A tree's sides, which its violation query reads: its family's (`familySides`), and T2 to T6's with the root pin,
 	 * each a side of its member or its owner, each check a row predicate of its member.
 	 */
 	treeSides(
@@ -862,75 +860,78 @@ export class LawSides {
 	): { readonly sides: FamilySides; readonly tree: TreeSides } {
 		const sides = this.familySides(f, loc)
 		const t = f.members
-		const parent = headNonEmpty(f.group).member
-		const key = headNonEmpty(f.group).owner
-		const at =
-			f.index.kind === "field" ? f.index.field : defectField("a tree's index is its at field")
-		const members = membersSelection(f)
+		const at = f.index.field
+		const root = mapNonEmpty(t.root, termOf)
 		const every = (terms: NonEmptyReadonlyArray<TermDesc>): ResolvedSide =>
 			this.side(scopeOver(f.member.name, []), terms, loc)
-		const memberSide = (
-			terms: NonEmptyReadonlyArray<TermDesc>,
-			more: ReadonlyArray<ExprDesc>
-		): ResolvedSide => this.side(scopeOver(f.member.name, [...members, ...more]), terms, loc)
+		const memberSide = (terms: NonEmptyReadonlyArray<TermDesc>): ResolvedSide =>
+			this.side(scopeOver(f.member.name, membersSelection(f)), terms, loc)
 		const field = (g: LawField): ExprDesc => ({ kind: "field", field: g.name })
 		const zero: ExprDesc = { kind: "literal", value: 0n }
+		const one: ExprDesc = { kind: "literal", value: 1n }
 		const compare = (op: "eq" | "ne" | "gt", l: ExprDesc, r: ExprDesc): ExprDesc => ({
 			kind: "compare",
 			op,
 			left: l,
 			right: r
 		})
-		/** T2: the root is the one self-parented row, at start 0. */
+		const successor = (g: LawField): ExprDesc => ({
+			kind: "compute",
+			fn: "add",
+			args: [based(g), one]
+		})
+		/** T2: each root is the one self-parented row of its tree, at start 0. */
 		const rooted = connectiveExpr("or", [
 			connectiveExpr("and", [
-				compare("eq", field(parent), field(key)),
+				compare("eq", field(t.parent), field(t.start)),
 				compare("eq", field(t.start), zero)
 			]),
 			connectiveExpr("and", [
-				compare("ne", field(parent), field(key)),
+				compare("ne", field(t.parent), field(t.start)),
 				compare("ne", field(t.start), zero)
 			])
 		])
-		/** The root pin: the root, outside its family, is at slot 0. */
+		/** The root pin: each root, outside its family, is at slot 0. */
 		const pinned = connectiveExpr("or", [
 			compare("gt", field(t.start), zero),
 			compare("eq", field(at), zero)
+		])
+		/** T3: each first child's start is one past its parent's start, which its parent holds. */
+		const first = connectiveExpr("or", [
+			compare("eq", field(t.start), zero),
+			compare("gt", field(at), zero),
+			compare("eq", based(t.start), successor(t.parent))
 		])
 		/** T6: every interval is non-empty, and a leaf's holds exactly itself. */
 		const nonEmpty = connectiveExpr("and", [
 			compare("gt", field(t.end), field(t.start)),
 			connectiveExpr("or", [
 				compare("gt", field(f.count), zero),
-				compare("eq", based(t.end), {
-					kind: "compute",
-					fn: "add",
-					args: [based(t.start), { kind: "literal", value: 1n }]
-				})
+				compare("eq", based(t.end), successor(t.start))
 			])
 		])
 		const tree: TreeSides = {
-			rootCopy: [
-				memberSide([termOf(parent), termOf(t.root)], []),
-				every([termOf(key), termOf(t.root)])
-			],
-			order: every([termOf(t.root), termOf(t.start)]),
-			first: [
-				memberSide(
-					[termOf(parent), { kind: "pred", field: t.start.name }],
-					[compare("eq", field(at), zero)]
-				),
-				every([termOf(key), termOf(t.start)])
-			],
 			next: [
-				memberSide([termOf(parent), { kind: "pred", field: at.name }, termOf(t.start)], []),
-				memberSide([termOf(parent), termOf(at), termOf(t.end)], [])
+				memberSide(
+					extendNonEmpty(root, [
+						termOf(t.parent),
+						{ kind: "pred", field: at.name },
+						termOf(t.start)
+					])
+				),
+				memberSide(extendNonEmpty(root, [termOf(t.parent), termOf(at), termOf(t.end)]))
 			],
 			close: [
-				every([termOf(key), { kind: "pred", field: f.count.name }, termOf(t.end)]),
-				memberSide([termOf(parent), termOf(at), termOf(t.end)], [])
+				every(
+					extendNonEmpty(root, [
+						termOf(t.start),
+						{ kind: "pred", field: f.count.name },
+						termOf(t.end)
+					])
+				),
+				memberSide(extendNonEmpty(root, [termOf(t.parent), termOf(at), termOf(t.end)]))
 			],
-			checks: [rooted, pinned, nonEmpty]
+			checks: [rooted, pinned, first, nonEmpty]
 		}
 		return { sides, tree }
 	}
@@ -1663,9 +1664,10 @@ export class Normalizer {
 	}
 
 	/**
-	 * A tree's law: its family's lemmas over its members, every row but its root, and T0 to T6 with the root
-	 * pin. Its copies are its axes' pairs: ‹ps› → start and r → r on the owner axis (T3, T0), start → end on the
-	 * predecessor (T4), end → end on the last (T5).
+	 * A tree's law: its family's lemmas over its members, every row but its roots, and T2 to T6 with the root pin. Its
+	 * owner axis's key is its group, (r…, parent) into its primary key (r…, start), so a member's root fields are its
+	 * parent's and its parent is its parent's start by the family's own lemma, with no pair of their own; its copies
+	 * are its other axes' pairs: start → end on the predecessor (T4), end → end on the last (T5).
 	 */
 	#tree(s: TreeStatement, index: number): void {
 		const loc = s.loc
@@ -1686,10 +1688,13 @@ export class Normalizer {
 					kind: "built",
 					detail: () => {
 						const resolved = this.#resolvedFamily(f.id)
-						if (resolved.members.kind !== "tree") {
-							throw defect("a tree's resolved family keeps its tree members")
+						if (resolved.members.kind !== "tree" || resolved.index.kind !== "field") {
+							throw defect("a tree's resolved family keeps its tree members and its at")
 						}
-						return { kind: "tree", family: { ...resolved, members: resolved.members } }
+						return {
+							kind: "tree",
+							family: { ...resolved, members: resolved.members, index: resolved.index }
+						}
 					}
 				}
 			},
@@ -1697,20 +1702,6 @@ export class Normalizer {
 			(kept) => {
 				this.#laws.push(kept)
 				const law = identifierOf(kept.named)
-				entry.carry(
-					"owner",
-					{ kind: "law", column: t.parentStart },
-					{ kind: "field", field: t.start },
-					formerRank(0),
-					law
-				)
-				entry.carry(
-					"owner",
-					{ kind: "field", field: t.root },
-					{ kind: "field", field: t.root },
-					formerRank(1),
-					law
-				)
 				entry.carry(
 					"predecessor",
 					{ kind: "field", field: t.start },
@@ -3054,9 +3045,8 @@ const familyArms = (
 }
 
 /**
- * A tree's own laws beside its family's, T0 to T6, each arm naming a row of the tree: T0, each member's root
- * field its parent's; T1, (r, start) a key; T2, the root pin and T6, row checks; T3, each first child's start one past
- * its parent's; T4, each later child's start its predecessor's end; T5, each parent's end its last child's end.
+ * A tree's own laws beside its family's, T2 to T6, each arm naming a row of the tree: T2, the root pin, T3 and T6, row
+ * checks; T4, each later child's start its predecessor's end; T5, each parent's end its last child's end.
  */
 const treeArms = (
 	b: ViolationBuilder,
@@ -3071,45 +3061,10 @@ const treeArms = (
 		defined(t.primaryFields[j], "a tree's witness is its primary key")
 	)
 	return [
-		w(lemma(b, env, s.rootCopy, loc)),
-		clashViolation(b, env, s.order, key, witness, loc),
 		...s.checks.map((c) => rowViolation(b, env, t, c, key, witness, loc)),
-		w(lemma(b, env, s.first, loc)),
 		w(lemma(b, env, s.next, loc)),
 		w(lemma(b, env, s.close, loc))
 	]
-}
-
-/**
- * Two rows of a projected key's side that agree on its terms and differ elsewhere, named by the left row's `fields`
- * as `witness`: a tree's T1, whose violation names its rows by their key.
- */
-const clashViolation = (
-	b: ViolationBuilder,
-	env: NormalizeEnv,
-	side: ResolvedSide,
-	fields: NonEmptyReadonlyArray<LawField>,
-	witness: NonEmptyReadonlyArray<HeadingColumn>,
-	loc: SourceLoc
-): RelNode => {
-	const { filtered, join } = clashes(b, env, side, loc)
-	return b.project(
-		filtered,
-		mapNonEmpty(
-			witness,
-			(wc, j) =>
-				[
-					wc.name,
-					b.as(
-						b.col(
-							filtered,
-							join.pair(defined(fields[j], "a clash's fields pair with its witness")).left
-						),
-						wc.type
-					)
-				] as const
-		)
-	)
 }
 
 /**

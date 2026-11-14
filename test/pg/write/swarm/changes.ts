@@ -31,7 +31,6 @@ import {
 	callerFields,
 	countName,
 	familyOf,
-	groupName,
 	idOfUuid,
 	plainFact,
 	plainName,
@@ -42,17 +41,20 @@ import { defined } from "#test/support/assert.ts"
 import {
 	followUpMembers,
 	followUpRows,
+	groupEntries,
+	groupName,
 	insertedRelations,
 	type InstanceRow,
+	membershipIn,
 	relationName,
-	uuidOfRow
+	rootEntries,
+	uuidOfRow,
+	type WrittenRow,
+	writtenRows
 } from "#test/support/families/fill.ts"
 
 /** A fact as a ChangeSet states it. */
 type Fact = { readonly [field: string]: unknown }
-
-export const membershipIn = (row: InstanceRow, f: number) =>
-	Option.getOrUndefined(Arr.findFirst(row.memberOf, (m) => m.family === f))
 
 /**
  * The top facts of an instance's rows by relation: each row no sequence nests, with its caller's fields, its set `b`,
@@ -64,6 +66,7 @@ const topFacts = (
 	spec: SwarmSpec,
 	rows: ReadonlyArray<InstanceRow>
 ): ReadonlyMap<number, ReadonlyArray<Fact>> => {
+	const written = writtenRows(spec.fill, rows)
 	const factOf = (row: InstanceRow, nested: boolean): Fact => {
 		const fact: Record<string, unknown> = {
 			id: uuidOfRow(row.id),
@@ -72,12 +75,16 @@ const topFacts = (
 		}
 		for (const m of row.memberOf) {
 			if (familyOf(spec, m.family).kind === "counted") {
-				fact[groupName(m.family)] = uuidOfRow(m.owner)
+				for (const [field, value] of groupOf(spec, written, m)) {
+					fact[field] = value
+				}
 			}
 		}
 		for (const [f, family] of spec.fill.families.entries()) {
 			if (family.kind === "tree" && family.member === row.relation && !nested) {
-				fact[`d${f}`] = uuidOfRow(row.id)
+				for (const [name, value] of rootEntries(f, row.id)) {
+					fact[name] = value
+				}
 			}
 			if (family.owner !== row.relation || family.kind === "counted") {
 				continue
@@ -109,14 +116,28 @@ const topFacts = (
  * A stored row's caller fact among `rows`, as a delete or a put states it: its `v`, its set, the columns it names a
  * member's row by and its group of every family.
  */
-const callerFact = (spec: SwarmSpec, rows: ReadonlyArray<InstanceRow>, row: InstanceRow): Fact => ({
-	id: uuidOfRow(row.id),
-	v: row.v,
-	...swarmFacts(spec, rows, row.relation, row.id),
-	...Rec.fromEntries(
-		Arr.map(row.memberOf, (m) => [groupName(m.family), uuidOfRow(m.owner)] as const)
-	)
-})
+const callerFact = (spec: SwarmSpec, rows: ReadonlyArray<InstanceRow>, row: InstanceRow): Fact => {
+	const written = writtenRows(spec.fill, rows)
+	return {
+		id: uuidOfRow(row.id),
+		v: row.v,
+		...swarmFacts(spec, rows, row.relation, row.id),
+		...Rec.fromEntries(Arr.flatMap(row.memberOf, (m) => groupOf(spec, written, m)))
+	}
+}
+
+/**
+ * A membership's group fields as a fact states them: its owner's key as the reference writer fills it in `written`,
+ * or, where `written` holds no row of the owner (an orphan's absent owner, an id-keyed relation's), the owner's uuid.
+ */
+const groupOf = (
+	spec: SwarmSpec,
+	written: ReadonlyMap<number, WrittenRow>,
+	m: InstanceRow["memberOf"][number]
+): ReadonlyArray<readonly [string, string | bigint]> =>
+	written.has(m.owner)
+		? groupEntries(spec.fill, written, m.family, m.owner)
+		: [[groupName(m.family), uuidOfRow(m.owner)]]
 
 /** One member of a ChangeSet: its relation, its operation, and its rows, facts or a query. */
 interface Member {

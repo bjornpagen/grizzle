@@ -142,11 +142,10 @@ const schemaFor = (s: Shape): SchemaDesc => {
 const columnKey = (c: NativeColumn): string =>
 	c.kind === "field" ? `field ${c.field.name}` : `law ${c.column}`
 
-/** Every law column a family draws: ‹n›, a counted ‹i›, a tree's ‹ps›, and each fold plane's hidden before and after. */
+/** Every law column a family draws: ‹n›, a counted ‹i›, and each fold plane's hidden before and after. */
 const lawColumnsOf = (family: Family): ReadonlyArray<string> => [
 	`law ${family.copy}`,
 	...(family.index.kind === "law" ? [columnKey(family.index)] : []),
-	...(family.members.kind === "tree" ? [`law ${family.members.parentStart}`] : []),
 	...Arr.flatMap(family.folds, (fold) =>
 		Arr.flatMap(fold.planes, (p) =>
 			Arr.map(

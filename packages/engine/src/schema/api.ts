@@ -567,14 +567,14 @@ export const counted = <
 ): Counted<F, Fi> => countedBuilder<F, Fi>(family, slots)
 
 /**
- * tree(on(T, "parent", "at"), fin(T, "children"), { root: r }): the ordered family of T over itself, every row but its
- * self-parented root a member, with T's drawn `start` and `end` its pre-order interval and r the caller's field each
- * tree's rows share.
+ * tree(on(T, "parent", "at"), fin(T, "children"), { root: [r…] }): the ordered family of T over itself, T keyed by its
+ * root fields r… then its drawn `start`, every row but each root a member, its drawn `parent` its parent's start in its
+ * own tree, with T's drawn `start` and `end` its pre-order interval and r… the caller's fields each tree's rows share.
  */
 export const tree = <
 	F extends Side<AnyRelation | Selection<AnyRelation>>,
 	Fi extends AnyFin,
-	const Root extends string,
+	const Root extends readonly [string, ...ReadonlyArray<string>],
 	N extends string,
 	C,
 	K
@@ -583,9 +583,9 @@ export const tree = <
 		SideShowsKeyed<N, C, K> &
 		(
 			| Side<Fi["owner"]>
-			| Refusal<"a tree is a family of T over itself, on(T, parent, at), with drawn start and end">
+			| Refusal<"a tree is a family of T over itself, on(T, parent, at), keyed by its root fields then start, with drawn parent, start and end">
 		) &
-		SelfFamily<C, K, F["terms"], Fi["count"]>,
+		SelfFamily<C, K, F["terms"], Fi["count"], Root>,
 	slots: Fi,
 	root: { readonly root: Root & TreeRootOf<C, Root> }
 ): Tree<F, Fi, Root> => treeBuilder<F, Fi, Root>(family, slots, root)

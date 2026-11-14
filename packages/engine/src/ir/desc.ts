@@ -795,9 +795,10 @@ export interface ArmDesc {
  * - A family, ordered(on(F, g…, i), fin(O, n)) or counted(on(F, g…), fin(O, n)), indexes each owner's members by
  *   exactly 0 … n − 1: `member` reads every fact of F, its terms the group g… paired with O's primary key, then an
  *   ordered family's drawn index.
- * - A tree, tree(on(T, "parent", "at"), fin(T, n), { root }), is the ordered family of T over itself whose every row
- *   but its root, the one self-parented row, is a member, with T's drawn `start` and `end` its pre-order interval and
- *   `root` the caller's field each tree's rows share.
+ * - A tree, tree(on(T, "parent", "at"), fin(T, n), { root }), is the ordered family of T over itself, T keyed by its
+ *   root fields `root`, the caller's fields each tree's rows share, then its drawn `start`, whose every row but each
+ *   root, the one self-parented row of its tree, is a member, its drawn `parent` its parent's start, with T's drawn
+ *   `start` and `end` its pre-order interval.
  * - A fold, fold(family, Monoid.m, step, end), combines its family's members' step values by `monoid` in slot order
  *   into each owner's end fields: the family by its slots, `step` over the member and `end` over the owner. Its step is
  *   read per member row, each member once by its key in the family, where a key's or a containment's side is a set of
@@ -830,7 +831,7 @@ export type StatementDesc<L = Located> = L &
 				readonly kind: "tree"
 				readonly member: SideDesc
 				readonly slots: SlotsDesc
-				readonly root: string
+				readonly root: NonEmptyReadonlyArray<string>
 		  }
 		| {
 				readonly kind: "fold"
@@ -1949,7 +1950,16 @@ const statementDescShape: S.Shape<StatementDesc> = S.tagged("kind", {
 			loc
 		)
 	),
-	tree: S.located(S.structWith({ member: memberShape, slots: slotsDescShape, root: name }, loc)),
+	tree: S.located(
+		S.structWith(
+			{
+				member: memberShape,
+				slots: slotsDescShape,
+				root: S.nonEmptyUniqueArray(name, (n) => n, "a tree's root fields")
+			},
+			loc
+		)
+	),
 	fold: S.located(
 		S.structWith(
 			{

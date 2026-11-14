@@ -2422,6 +2422,7 @@ class StatementAuditor {
 									return
 								case "addColumn":
 								case "addColumnPlaceholder":
+								case "addColumnUnchecked":
 									this.at("column", () => {
 										this.columnDef(action.column, undefined)
 									})
@@ -2465,6 +2466,7 @@ class StatementAuditor {
 									return
 								case "dropColumn":
 								case "dropDefault":
+								case "setNotNull":
 								case "setUuidv7Default":
 								case "setRetirementDefault":
 								case "dropIdentity":

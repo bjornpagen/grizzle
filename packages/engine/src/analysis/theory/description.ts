@@ -62,13 +62,22 @@ export const lawDescription = (law: LawIdentity): OwnLaw => {
 				member: memberSide(d.family),
 				slots: Object.freeze({ owner: d.family.id.owner, count: d.family.id.count })
 			})
-		case "tree":
+		case "tree": {
+			const terms: SideDesc["terms"] = [
+				Object.freeze({ kind: "field", field: d.family.members.parent.name }),
+				Object.freeze({ kind: "field", field: d.family.index.field.name })
+			]
 			return Object.freeze({
 				kind: "tree",
-				member: memberSide(d.family),
+				member: Object.freeze({
+					relation: d.family.member.name,
+					terms: Object.freeze(terms),
+					selection: everyFact
+				}),
 				slots: Object.freeze({ owner: d.family.id.owner, count: d.family.id.count }),
-				root: d.family.members.root.name
+				root: Object.freeze(mapNonEmpty(d.family.members.root, (r) => r.name))
 			})
+		}
 		case "rule":
 			return ruleDescription(d.rule)
 		case "fold":

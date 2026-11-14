@@ -1392,7 +1392,9 @@ const runRace = <P>(
 				if (i.deadlocks.length > 0) {
 					c.note("deadlock")
 				}
-				if (Arr.some(i.deadlocks, (d) => d.runnable.length > 0)) {
+				if (
+					Arr.some(i.deadlocks, (d) => Option.exists(d.seen, (seen) => seen.runnable.length > 0))
+				) {
 					c.note("deadlock beside a runnable session")
 				}
 				if (insideReplacement(i, race.replacing)) {

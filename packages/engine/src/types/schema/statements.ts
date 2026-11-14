@@ -228,11 +228,11 @@ export interface Counted<F, Fi> {
 }
 
 /**
- * tree(on(T, "parent", "at"), fin(T, "children"), { root: r }): the ordered family of T over itself, every row but
- * the self-parented root a member, with T's drawn `start` and `end` its pre-order interval and r the caller's field
- * each tree's rows share.
+ * tree(on(T, "parent", "at"), fin(T, "children"), { root: [r…] }): the ordered family of T over itself, keyed by its
+ * root fields r… then its drawn `start`, every row but each root a member, its drawn `parent` its parent's start, with
+ * T's drawn `start` and `end` its pre-order interval and r… the caller's fields each tree's rows share.
  */
-export interface Tree<F, Fi, Root extends string> {
+export interface Tree<F, Fi, Root extends ReadonlyArray<string>> {
 	readonly kind: "tree"
 	readonly family: F
 	readonly slots: Fi
@@ -243,7 +243,7 @@ export interface Tree<F, Fi, Root extends string> {
 export type AnyFamily =
 	| Ordered<unknown, unknown>
 	| Counted<unknown, unknown>
-	| Tree<unknown, unknown, string>
+	| Tree<unknown, unknown, ReadonlyArray<string>>
 
 /** A closed monoid a fold combines by: twos keeps two planes (ones and twos), the others one. */
 export interface Monoid<M extends MonoidName> {
@@ -351,25 +351,37 @@ export type FamilySlots<Kind> = [Kind] extends ["relation"]
 export type OverSlots<Kind, Then> = [Kind] extends ["relation"] ? Then : unknown
 
 /**
- * A tree is a family of T over itself, on(T, parent, at) with fin(T, n): over T's heading C and primary key K, parent
- * of K's one field's type, and at, n, start and end drawn. That the slots are T's own a tree's builder checks.
+ * A tree is a family of T over itself, on(T, parent, at) with fin(T, n): over T's heading C and primary key K, K its
+ * root fields Root then `start`, and parent, at, n, start and end drawn. That the slots are T's own a tree's builder
+ * checks.
  */
-export type SelfFamily<C, K, T, N> = T extends readonly [
+export type SelfFamily<C, K, T, N, Root> = T extends readonly [
 	infer P extends AnyTerm,
 	infer I extends AnyTerm
 ]
-	? GroupOfOwner<C, readonly [P], C, K> extends true
-		? [I | N | "start" | "end"] extends [DrawnIn<C>]
+	? RootThenStart<K, Root> extends true
+		? [P | I | N | "start" | "end"] extends [DrawnIn<C>]
 			? unknown
-			: Refusal<"a tree is a family of T over itself, on(T, parent, at), with drawn start and end">
-		: Refusal<"a tree is a family of T over itself, on(T, parent, at), with drawn start and end">
-	: Refusal<"a tree is a family of T over itself, on(T, parent, at), with drawn start and end">
+			: Refusal<"a tree is a family of T over itself, on(T, parent, at), keyed by its root fields then start, with drawn parent, start and end">
+		: Refusal<"a tree is a family of T over itself, on(T, parent, at), keyed by its root fields then start, with drawn parent, start and end">
+	: Refusal<"a tree is a family of T over itself, on(T, parent, at), keyed by its root fields then start, with drawn parent, start and end">
 
-/** A tree's root field is a caller's field of its relation, whose heading is C. */
-export type TreeRootOf<C, Root> =
-	Root extends CallerIn<C>
+/** Whether the primary key K is the root fields Root, in order, then `start`. */
+type RootThenStart<K, Root> =
+	Root extends ReadonlyArray<string>
+		? [K] extends [readonly [...Root, "start"]]
+			? [readonly [...Root, "start"]] extends [K]
+				? true
+				: false
+			: false
+		: false
+
+/** A tree's root fields are caller's fields of its relation, whose heading is C. */
+export type TreeRootOf<C, Root> = Root extends readonly [string, ...ReadonlyArray<string>]
+	? Root[number] extends CallerIn<C>
 		? unknown
-		: Refusal<"a tree's root field is a caller's field of its relation">
+		: Refusal<"a tree's root fields are distinct caller fields of its relation">
+	: Refusal<"a tree's root fields are distinct caller fields of its relation">
 
 /** A family's group terms, and whether it hides its order: a counted family's members have no visible index. */
 type MemberOf<Fa> =
@@ -380,8 +392,12 @@ type MemberOf<Fa> =
 		? { readonly group: G; readonly hidden: false }
 		: Fa extends Counted<Side<unknown, infer G extends ReadonlyArray<AnyTerm>>, unknown>
 			? { readonly group: G; readonly hidden: true }
-			: Fa extends Tree<Side<unknown, readonly [infer P extends AnyTerm, AnyTerm]>, unknown, string>
-				? { readonly group: readonly [P]; readonly hidden: false }
+			: Fa extends Tree<
+						Side<unknown, readonly [infer P extends AnyTerm, AnyTerm]>,
+						unknown,
+						infer Root extends ReadonlyArray<string>
+				  >
+				? { readonly group: readonly [...Root, P]; readonly hidden: false }
 				: never
 
 /** The relation a family's members are rows of, which a fold's step reads. */

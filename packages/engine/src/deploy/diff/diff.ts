@@ -45,6 +45,8 @@ import {
 	type Draft,
 	isTableSlot,
 	type MigrationPlan,
+	type RetypeReason,
+	type SetAside,
 	type Slot,
 	type Step,
 	type Swap,
@@ -53,6 +55,7 @@ import {
 } from "#compiler/deploy/diff/plan.ts"
 import { ledgerPrivilegesIdent } from "#compiler/deploy/ledger/ledger.ts"
 import {
+	type BuiltOver,
 	builtOver,
 	constraintColumns,
 	generationColumns,
@@ -88,6 +91,7 @@ import type {
 	AlterTableAction,
 	Collation,
 	ColumnDef,
+	ColumnGeneration,
 	CreateConstant,
 	CreateDomain,
 	CreateIndex,
@@ -125,6 +129,7 @@ import {
 	types
 } from "#compiler/sql/build.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
+import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 
 interface DiffInput {
 	readonly previous: DeploySnapshot
@@ -249,11 +254,16 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	schema: 17
 }
 
-/** SET CONSTRAINTS ALL IMMEDIATE, before a backfill's UPDATEs: an UPDATE of rows the migration's own transaction wrote
- * (a table rewritten by a generated column's ADD COLUMN, or updated by an earlier UPDATE) queues the check of every
- * deferrable foreign key over them until the commit, and PostgreSQL refuses to alter a table with a check pending
- * (55006), as the backfill's DROP DEFAULT and every constraint added after it do. Under it each check runs at the end of
- * its UPDATE, over values the backfill leaves as they were. */
+/** SET CONSTRAINTS ALL IMMEDIATE, before Structure's first data step (holdsDataSteps): an UPDATE of rows the
+ * migration's own transaction wrote (a table rewritten by a generated column's ADD COLUMN or a conversion, or updated
+ * by an earlier UPDATE) queues the check of every deferrable foreign key over them until the commit, since
+ * PostgreSQL fires a referencing row's check whatever its keys when its own transaction wrote the row (PostgreSQL
+ * 19rc1, src/backend/utils/adt/ri_triggers.c RI_FKey_fk_upd_check_required at 1515, slot_is_current_xact_tuple at
+ * 1585-1586), and refuses to alter a table with a check pending (src/backend/commands/tablecmds.c CheckTableNotInUse at
+ * 4448, AfterTriggerPendingOnRel at 4462, 55006 at 4466), as a fill's DROP COLUMN, the backfill's DROP DEFAULT and
+ * every constraint added after them do. Under it each check runs at the end of its UPDATE. It holds for the rest of the
+ * Structure transaction, which every data step, the reviewer's, a fill's and the backfill's, runs after: Structure's
+ * statements before it, its drops and its tables' alterations, write no row. */
 const checkedAtOnce: SqlStatement = { kind: "setConstraintsImmediate" }
 
 /** A drop drafted with its kind's place in the drop order. */
@@ -351,11 +361,11 @@ interface ViewDrop {
 /** What takes an object of the previous installation away in Structure, before the target's objects are visited: the
  * drop of the roles' views, world functions and policies (dropWorlds); the drop of a materialized view, which takes the
  * indexes and statistics objects on it along (dropViews); or the replacement of a column it is built over
- * (takenByReplacement). */
+ * (takenByReplacement), before which its own `drop` takes it away (dropReplaced). */
 type Taken =
 	| { readonly kind: "world" }
 	| { readonly kind: "view" }
-	| { readonly kind: "replaced"; readonly how: Replacement }
+	| ({ readonly kind: "replaced" } & Replaced)
 
 /** What a migration does to an object of the previous installation, decided once when the Differ is built, so no rule
  * acts on an object an earlier step already took away: taken away in Structure (Taken); kept, the target holding it,
@@ -442,18 +452,200 @@ interface TableAlteration {
 type Drafting =
 	| { readonly kind: "step"; readonly step: Step }
 	| { readonly kind: "alteration"; readonly slot: TableSlot; readonly alteration: TableAlteration }
+	| { readonly kind: "fill"; readonly fill: TableFill }
 
+/** A table's fill of its set-aside fields (SetAside) in structure.fill, as the visits draft it: its first field, which
+ * places it, and the rest in the order the visits set them aside. */
+interface TableFill {
+	readonly table: ObjectName
+	readonly first: SetAside
+	readonly rest: Array<SetAside>
+}
+
+/** Each set-aside field of a table by its name, with its set-aside column's: none for a table that sets none aside. */
+type AsideColumns = ReadonlyMap<string, string>
+
+const noAside: AsideColumns = new Map()
+
+/** The fields a fill sets aside, by name, each with its set-aside column. */
+const asideColumnsOf = (fill: TableFill): AsideColumns =>
+	new Map([fill.first, ...fill.rest].map((f) => [f.column.name, f.aside] as const))
+
+/** An expression with each column it reads that `aside` sets aside read as its set-aside column. */
+const throughAside = (e: Expr, aside: AsideColumns): Expr =>
+	transformExpr(e, {
+		...identityHooks,
+		expr: (x) => {
+			if (x.kind !== "column" || x.table !== undefined) {
+				return x
+			}
+			const column = aside.get(x.column)
+			return column === undefined ? x : { ...x, column }
+		}
+	})
+
+/** The columns of its own row an expression reads, by name. */
+const rowColumns = (e: Expr): ReadonlyArray<string> => {
+	const out: Array<string> = []
+	transformExpr(e, {
+		...identityHooks,
+		expr: (x) => {
+			if (x.kind === "column" && x.table === undefined) {
+				out.push(x.column)
+			}
+			return x
+		}
+	})
+	return out
+}
+
+/** Whether a generation reads a field `aside` sets aside. */
+const readsAside = (g: ColumnGeneration, aside: AsideColumns): boolean => {
+	const reads = (e: Expr) => rowColumns(e).some((c) => aside.has(c))
+	switch (g.kind) {
+		case "stored":
+			return reads(g.expr)
+		case "partial":
+			return reads(g.when) || reads(g.expr)
+		case "identity":
+		case "uuidv7":
+		case "retirement":
+			return false
+	}
+}
+
+/**
+ * A subcommand of a table's Structure alteration, its generated column over a set-aside field generated over the
+ * set-aside column instead, which the fill renames into the field's name, so the expression reads the field once the
+ * migration ends, PostgreSQL holding its reads by attribute number: a partial projection, NULL wherever it selects
+ * nothing, as it is; any other added with no NOT NULL (addColumnUnchecked), since the set-aside column is NULL until the
+ * fill, which sets its NOT NULL once the fill has drawn it (`checked`).
+ */
+const asideSubcommand = (
+	a: Alteration,
+	aside: AsideColumns
+): { readonly alteration: Alteration; readonly checked: ReadonlyArray<string> } => {
+	if (
+		a.kind !== "addColumn" ||
+		a.column.generated === undefined ||
+		!readsAside(a.column.generated, aside)
+	) {
+		return { alteration: a, checked: [] }
+	}
+	const g = a.column.generated
+	switch (g.kind) {
+		case "partial":
+			return {
+				alteration: {
+					...a,
+					column: {
+						...a.column,
+						generated: {
+							...g,
+							when: throughAside(g.when, aside),
+							expr: throughAside(g.expr, aside)
+						}
+					}
+				},
+				checked: []
+			}
+		case "stored":
+			return {
+				alteration: {
+					kind: "addColumnUnchecked",
+					column: { ...a.column, generated: { ...g, expr: throughAside(g.expr, aside) } }
+				},
+				checked: [a.column.name]
+			}
+		case "identity":
+		case "uuidv7":
+		case "retirement":
+			return { alteration: a, checked: [] }
+	}
+}
 /** An alteration's subcommands in PostgreSQL's pass order, the order of drafting within a pass (alterationPass). */
 const byPass = mapInput(compareNumbers, (a: Alteration) =>
 	alterTablePasses.indexOf(alterationPass(a))
 )
 
 /** The draft of a table's alteration, its subcommands in pass order: the one ALTER TABLE PostgreSQL runs as written. */
-const alterationDraft = (a: TableAlteration): Action => ({
+const alterationDraft = (a: TableAlteration, aside: AsideColumns): Action => ({
 	kind: "alteration",
 	table: a.table,
-	actions: sortNonEmpty([a.first, ...a.rest], byPass)
+	actions: sortNonEmpty(
+		mapNonEmpty([a.first, ...a.rest], (x) => asideSubcommand(x, aside).alteration),
+		byPass
+	)
 })
+
+/** The draw a set-aside field takes once its fill renames it into its name: its identity, its uuidv7() or retirement
+ * default, or none for a field its caller writes. */
+const drawOf = (column: ColumnDef): ReadonlyArray<AlterTableAction> => {
+	switch (column.generated?.kind) {
+		case "identity":
+			return [{ kind: "addIdentity", column: column.name, sequence: column.generated.sequence }]
+		case "uuidv7":
+			return [{ kind: "setUuidv7Default", column: column.name }]
+		case "retirement":
+			return [{ kind: "setRetirementDefault", column: column.name }]
+		case "stored":
+		case "partial":
+		case undefined:
+			return []
+	}
+}
+
+/**
+ * The steps of a table's fill: the fill itself, its UPDATE at the reviewer's values (Action fill), in structure.fill;
+ * then its settling, in structure.settle, after every table's fill, so a fill that joins another table's old column,
+ * a field set aside or declared dropped, reads it still standing under its name: the fields' old columns dropped; each
+ * set-aside column renamed into its field's name; then one ALTER TABLE setting the NOT NULL of each field and of each
+ * generated column over one (asideSubcommand's `checked`, read off the table's Structure alteration `structure`), each
+ * field's identity, uuidv7() or retirement default, and each identity's advance after it, past the values the fill
+ * drew.
+ */
+const fillSteps = (
+	fill: TableFill,
+	structure: TableAlteration | undefined,
+	aside: AsideColumns
+): ReadonlyArray<Step> => {
+	const t = fill.table
+	const fields = mapNonEmpty([fill.first, ...fill.rest], (f) => f)
+	const checked =
+		structure === undefined
+			? []
+			: [structure.first, ...structure.rest].flatMap((a) => asideSubcommand(a, aside).checked)
+	const takes = fields.flatMap(({ column }) => drawOf(column))
+	const advances = fields.flatMap(({ column }): ReadonlyArray<SqlStatement> =>
+		column.generated?.kind === "identity"
+			? [advance(t, column.name, column.generated.sequence, column.type)]
+			: []
+	)
+	const settled = (s: SqlStatement): Step => ({ slot: "structure.settle", draft: statement(s) })
+	return [
+		{ slot: "structure.fill", draft: { kind: "fill", table: t, fields } },
+		settled(
+			alter(
+				t,
+				mapNonEmpty(fields, (f) => ({ kind: "dropColumn", column: f.column.name }))
+			)
+		),
+		...fields.map((f) =>
+			settled({ kind: "renameColumn", table: t, from: f.aside, to: f.column.name })
+		),
+		settled(
+			alter(t, [
+				...mapNonEmpty(fields, (f): AlterTableAction => ({
+					kind: "setNotNull",
+					column: f.column.name
+				})),
+				...checked.map((column): AlterTableAction => ({ kind: "setNotNull", column })),
+				...takes
+			])
+		),
+		...advances.map(settled)
+	]
+}
 
 /** A draft's alteration of one table, which a slot that alters each table once merges into the table's one: an ALTER
  * TABLE statement's actions, or an alteration's subcommands; any other draft is none. */
@@ -469,6 +661,7 @@ const alteredBy = (
 				: undefined
 		case "alteration":
 			return { table: d.table, actions: d.actions }
+		case "fill":
 		case "violation":
 		case "analyze":
 		case "dropStatistics":
@@ -494,6 +687,8 @@ class Differ {
 	/** The keys structure.constraints adds again after their conversion (ownConstraint): a foreign key onto one is its
 	 * own statement after the key's (foreignKey). */
 	readonly constrainedKeys = new Set<KeyAfter>()
+	/** Each table's fill of its set-aside fields, by table key (setAside). */
+	readonly fills = new Map<string, TableFill>()
 	readonly prev: ReadonlyMap<string, ManifestObject>
 	readonly next: ReadonlyMap<string, ManifestObject>
 	/** The parts of every relation of the previous and of the target installation, by name key (partsByTable). */
@@ -583,8 +778,8 @@ class Differ {
 		)
 		this.dropped = new Set(this.viewDrops.flatMap((d) => (d.fate === "dropped" ? [d.key] : [])))
 		/** What this migration takes away and builds again beneath the roles' objects without changing its DDL: each
-		 * materialized view it drops (recreated or not), each object a replaced column takes along, and each table a
-		 * column of which it converts in place. */
+		 * materialized view it drops (recreated or not), each object it drops before replacing a column it is built
+		 * over, and each table a column of which it converts in place. */
 		const tableKeys = new Map(
 			[...previousObjects, ...targetObjects].flatMap((o) => {
 				const v = installed(o)
@@ -611,8 +806,8 @@ class Differ {
 			if (on !== undefined && viewKeys.has(nameKey(on))) {
 				return { kind: "view" }
 			}
-			const how = replacedBy.get(o.ident)
-			return how === undefined ? undefined : { kind: "replaced", how }
+			const replaced = replacedBy.get(o.ident)
+			return replaced === undefined ? undefined : { kind: "replaced", ...replaced }
 		}
 		const taken = new Map(
 			previousObjects.flatMap((o): ReadonlyArray<readonly [string, Taken]> => {
@@ -856,9 +1051,55 @@ class Differ {
 
 	/** The steps drafted so far, each table's alteration at its place with every subcommand drafted until now. */
 	drafted(): ReadonlyArray<Step> {
-		return this.drafting.map((d): Step =>
-			d.kind === "step" ? d.step : { slot: d.slot, draft: alterationDraft(d.alteration) }
-		)
+		return this.drafting.flatMap((d) => this.stepsOf(d))
+	}
+
+	/** The steps one drafting stands for: a step itself, a table's alteration as drafted until now, or a table's fill's. */
+	stepsOf(d: Drafting): ReadonlyArray<Step> {
+		switch (d.kind) {
+			case "step":
+				return [d.step]
+			case "alteration":
+				return [{ slot: d.slot, draft: alterationDraft(d.alteration, this.asideOf(d)) }]
+			case "fill":
+				return fillSteps(
+					d.fill,
+					this.alterations.structure.get(nameKey(d.fill.table)),
+					asideColumnsOf(d.fill)
+				)
+		}
+	}
+
+	/** The set-aside fields an alteration's generated columns read through: its table's fill's, in Structure alone. */
+	asideOf(d: Extract<Drafting, { readonly kind: "alteration" }>): AsideColumns {
+		const fill = d.slot === "structure" ? this.fills.get(nameKey(d.alteration.table)) : undefined
+		return fill === undefined ? noAside : asideColumnsOf(fill)
+	}
+
+	/** A field of `t` set aside (SetAside): its set-aside column added in the table's one Structure alteration, with no
+	 * NOT NULL and no default, so it changes the catalog alone, and the field joined to the table's fill in
+	 * structure.fill, which stands at the place of the table's first. */
+	setAside(t: ObjectName, field: SetAside): void {
+		this.alter("structure", t, [
+			{
+				kind: "addColumnUnchecked",
+				column: {
+					name: field.aside,
+					type: field.column.type,
+					collation: field.column.collation,
+					generated: undefined
+				}
+			}
+		])
+		const key = nameKey(t)
+		const held = this.fills.get(key)
+		if (held !== undefined) {
+			held.rest.push(field)
+			return
+		}
+		const fill: TableFill = { table: t, first: field, rest: [] }
+		this.fills.set(key, fill)
+		this.drafting.push({ kind: "fill", fill })
 	}
 
 	sql(slot: Slot, statements: ReadonlyArray<SqlStatement>): void {
@@ -945,7 +1186,9 @@ class Differ {
 		for (const t of this.targets) {
 			this.visit(t)
 		}
-		this.backfill()
+		if (this.holdsDataSteps(this.backfill())) {
+			this.push("structure.immediate", statement(checkedAtOnce))
+		}
 		this.ruleChecks(checks.rules)
 		this.validations()
 		for (const p of this.previous.toReversed()) {
@@ -1079,12 +1322,11 @@ class Differ {
 	}
 
 	/** The previous objects built over a column this migration replaces (ColumnFate converted or redefined), by identity,
-	 * each with how: what is built over a column converted in place (objects.ts builtOver: a constraint, an index, a
-	 * statistics object or a law column computed from it), and each foreign key referencing a key over
-	 * one, which dropReplaced drops before the conversion; and what is built over a law column dropped and added again,
-	 * which goes with the drop, a foreign key referencing a key over it dropped first by dropReplaced. */
-	takenByReplacement(): ReadonlyMap<string, Replacement> {
-		const out = new Map<string, Replacement>()
+	 * each with how and its own drop (Replaced): what is built over the column (objects.ts builtOver: a constraint, an
+	 * index, a statistics object, a law column computed from it or a rule trigger fired by its update), and each foreign
+	 * key referencing a key over one, which dropReplaced drops before the column is converted or dropped. */
+	takenByReplacement(): ReadonlyMap<string, Replaced> {
+		const out = new Map<string, Replaced>()
 		/** How each of `columns` of `table` is replaced, of those this migration replaces: only a table both hold has
 		 * a column replaced. */
 		const hows = (
@@ -1101,10 +1343,13 @@ class Differ {
 			})
 		}
 		for (const o of this.prev.values()) {
-			const v = installed(o)
-			const over = builtOver(v, (c) => keyOrCheckDefinition(c, this.prev))
-			const taken = strongestReplacement([
-				...(over === undefined ? [] : hows(over.table, over.columns)),
+			const over = builtOver(installed(o), (c) => keyOrCheckDefinition(c, this.prev))
+			if (over === undefined) {
+				continue
+			}
+			const v = over.part
+			const how = strongestReplacement([
+				...hows(over.table, over.columns),
 				...(v.kind === "foreignKey"
 					? hows(
 							v.constraint.references,
@@ -1112,34 +1357,21 @@ class Differ {
 						)
 					: [])
 			])
-			if (taken !== undefined) {
-				out.set(o.ident, taken)
+			if (how !== undefined) {
+				out.set(o.ident, { how, drop: replacementDrop(v) })
 			}
 		}
 		return out
 	}
 
-	/** Drops what a conversion in place takes away (Taken replaced), before the conversion, in Structure: the foreign keys
-	 * first, then the keys and CHECKs, the indexes and the statistics objects. PostgreSQL would carry each across the
-	 * conversion under its old definition, or refuse the conversion under it (a foreign key compares only once both its
-	 * sides are converted), so the target's is built again as
-	 * on any relation that may hold rows. Of what a column dropped and added again takes, it drops the foreign keys and
-	 * the generated law columns: the column's DROP COLUMN drops every constraint and index of its own table over it, but
-	 * refuses one a foreign key of another table depends on (2BP01), an arm's into an alternatives parent's key over its
-	 * arm tag, and a generated column that reads it. */
+	/** Drafts the drop of everything a replacement of a column takes away (Taken replaced), each by its own statement, in
+	 * structure.drop, before the column is converted in place or dropped and added again: the foreign keys and the rule
+	 * triggers first, then the keys and CHECKs, the indexes, the statistics objects and the generated law columns
+	 * (dropOrder). Nothing a replacement takes is left to the replacement itself, which converts or drops only the column;
+	 * the target's are built again as on any relation that may hold rows. */
 	dropReplaced(): void {
 		const drops = this.previous
-			.flatMap(({ object: o, fate }) => {
-				const v = installed(o)
-				if (
-					fate.kind !== "replaced" ||
-					(fate.how === "redefined" && v.kind !== "foreignKey" && v.kind !== "lawColumn")
-				) {
-					return []
-				}
-				const drop = replacementDrop(v)
-				return drop === undefined ? [] : [drop]
-			})
+			.flatMap(({ fate }) => (fate.kind === "replaced" ? [fate.drop] : []))
 			.toSorted(byDropOrder)
 		for (const d of drops) {
 			this.push("structure.drop", d.draft)
@@ -1681,7 +1913,7 @@ class Differ {
 	 * field's type changed or a field it reads converted (fieldChange): its drop, in structure.drop, before anything is
 	 * converted, the values its caller wrote going as the schema now declares; then its addition in Structure, a
 	 * generated field by its expression and one its caller writes by the reviewer's placeholder. Every object built over
-	 * the column goes with its drop and is built again as the target declares it (ColumnFate redefined). */
+	 * the column is dropped before it (dropReplaced) and built again as the target declares it (ColumnFate redefined). */
 	rewriteField(t: ObjectName, b: ColumnDef, c: ColumnDef): void {
 		this.sql("structure.drop", [alter(t, [{ kind: "dropColumn", column: b.name }])])
 		this.alter("structure", t, [this.addedField(t, c)])
@@ -1716,7 +1948,7 @@ class Differ {
 
 	/** The backfill of the families new to stored rows (backfill.ts), once every column it draws is added: its UPDATEs,
 	 * then each drawn column's DROP DEFAULT, before any constraint that reads them (structure.constraints). */
-	backfill(): void {
+	backfill(): boolean {
 		const previousTables = new Map(
 			this.input.previous.manifest.objects.flatMap((o) => {
 				const v = installed(o)
@@ -1739,23 +1971,43 @@ class Differ {
 			mayHoldRows: (t) => this.mayHoldRows(t),
 			added: this.backfilled
 		})
-		this.sql("structure.backfill", [
-			...(updates.length === 0 ? [] : [checkedAtOnce, ...updates]),
-			...dropDefaults
-		])
+		this.sql("structure.backfill", [...updates, ...dropDefaults])
+		return updates.length > 0
+	}
+
+	/** Whether Structure holds a data step: a reviewer's UPDATE a placeholder column invites, a fill, or the backfill's
+	 * (`backfilled`). Each runs after SET CONSTRAINTS ALL IMMEDIATE (checkedAtOnce, structure.immediate), before which
+	 * Structure runs no UPDATE: its drops and its tables' alterations, which write no row. */
+	holdsDataSteps(backfilled: boolean): boolean {
+		return (
+			backfilled ||
+			this.fills.size > 0 ||
+			[...this.alterations.structure.values()].some((a) =>
+				[a.first, ...a.rest].some((x) => x.kind === "placeholderColumn")
+			)
+		)
 	}
 
 	/** The steps of a field's change in place from `b` to `c` (inPlace), its conversion by its cast or its placeholder
 	 * (conversion). */
 	changeInPlace(t: ObjectName, b: ColumnDef, c: ColumnDef, change: FieldChange): void {
-		for (const step of inPlace(
+		const planned = inPlace(
 			t,
 			b,
 			c,
 			change,
 			(column) => this.conversion(b, column),
 			(column) => this.addedField(t, column)
-		)) {
+		)
+		if (planned.kind === "setAside") {
+			this.setAside(t, {
+				column: c,
+				aside: this.temporary(identity.aside(`${t.name}.${c.name}`)),
+				reason: planned.reason
+			})
+			return
+		}
+		for (const step of planned.steps) {
 			this.push("structure", step)
 		}
 	}
@@ -1814,7 +2066,6 @@ class Differ {
 		if (!this.keepsValues(was, column)) {
 			return {
 				kind: "placeholderRetype",
-				column,
 				reason:
 					rosterOf(was.type, this.prevDomains) === undefined &&
 					rosterOf(column.type, this.nextDomains) === undefined
@@ -2120,13 +2371,15 @@ class Differ {
 	}
 
 	/** A materialized view, created WITH NO DATA when it follows no previous view (Arrival): new, or dropped at the start
-	 * of Structure (viewDropsOf). One that stands has the target's definition, since a changed one is dropped. */
+	 * of Structure (viewDropsOf). One that stands has the target's definition, since a changed one is dropped. It is
+	 * created in structure.views, after every table's fill, so it reads each set-aside field under its name, as the fill
+	 * leaves it, never the column the fill drops. */
 	view(
 		v: Installed & { readonly kind: "materializedView" },
 		before: ManifestObject | undefined
 	): void {
 		if (before === undefined) {
-			this.sql("structure", v.object.ddl)
+			this.sql("structure.views", v.object.ddl)
 		}
 	}
 
@@ -2140,7 +2393,14 @@ class Differ {
 			return
 		}
 		if (!this.mayHoldRows(t)) {
-			this.sql(o.phase === "structure" ? "structure" : "indexes", o.ddl)
+			this.sql(
+				o.phase === "structure"
+					? this.next.has(viewIdent(t))
+						? "structure.views"
+						: "structure"
+					: "indexes",
+				o.ddl
+			)
 			return
 		}
 		if (before === undefined) {
@@ -2178,9 +2438,10 @@ class Differ {
 		}
 	}
 
-	/** An object the target no longer has and no step takes away first (Fate removed), dropped in place: in
-	 * publish.removed (draftRemovals) at its kind's rank, once nothing of the target reads it; a constraint of a table
-	 * that stays in publish.drop, before; and what belongs to a dropped table with no statement of its own.
+	/** An object the target no longer has and no step takes away first (Fate removed), dropped in place by a statement
+	 * of its own, whatever else the migration drops: in publish.removed (draftRemovals) at its kind's rank, once nothing
+	 * of the target reads it, so it goes before what it depends on (dropOrder), a rule trigger before its function and
+	 * its table; a constraint in publish.drop, before.
 	 *
 	 * Extensions and the database's defaults outlive the schema, which another schema may share them with;
 	 * grants are replaced per role in grants().
@@ -2193,18 +2454,14 @@ class Differ {
 	 *
 	 * A stored relation's drop loses its rows, which the migration declares (`--drop`).
 	 *
-	 * A removed table's own constraints go with it; a reference out of it is dropped first, with every other
-	 * removed reference, so no drop of a key it references waits on it: in Validate, before the key, when the
-	 * key it references is a removed one the target's replaces (replacedKey), which the removal order, every
-	 * foreign key before the keys, drafts first.
+	 * A removed reference is dropped with every other removed reference, so no drop of a key it references waits on it:
+	 * in Validate, before the key, when the key it references is a removed one the target's replaces (replacedKey);
+	 * otherwise in publish.drop, which drafts every foreign key before the keys, in the reverse install order.
 	 *
-	 *
-	 * A table's isolation trigger goes with its table, or is dropped on its own where the target guards its table no
-	 * more: every role that writes it is certified READ COMMITTED (physical/ddl/isolation.ts readCommittedRelations). */
+	 * A table's isolation trigger is dropped with its table's other objects, or on its own where the target guards its
+	 * table no more: every role that writes it is certified READ COMMITTED (physical/ddl/isolation.ts
+	 * readCommittedRelations). */
 	remove(o: ManifestObject, order: number): void {
-		const t = objectTable(o)
-		const tableGone =
-			t !== undefined && !this.next.has(tableIdent(t)) && !this.next.has(viewIdent(t))
 		const v = installed(o)
 		const drop = (kind: Dropped, d: Action): void => {
 			this.removal(dropOrder[kind], order, d)
@@ -2240,9 +2497,7 @@ class Differ {
 				)
 				return
 			case "rowSecurity":
-				if (!tableGone) {
-					drop(v.kind, statement(alter(v.table, [{ kind: "disableRowSecurity" }])))
-				}
+				drop(v.kind, statement(alter(v.table, [{ kind: "disableRowSecurity" }])))
 				return
 			case "membership":
 				this.sql("publish.grants", [revokeRoleOf(v.grant)])
@@ -2274,30 +2529,23 @@ class Differ {
 				)
 				return
 			case "lawTrigger":
-				if (!tableGone) {
-					drop(
-						v.kind,
-						statement({
-							kind: "dropTrigger",
-							name: v.create.name,
-							table: v.create.table,
-							ifExists: false
-						})
-					)
-				}
+				drop(
+					v.kind,
+					statement({
+						kind: "dropTrigger",
+						name: v.create.name,
+						table: v.create.table,
+						ifExists: false
+					})
+				)
 				return
 			case "lawColumn":
-				if (!tableGone) {
-					drop(v.kind, statement(alter(v.table, [{ kind: "dropColumn", column: v.column }])))
-				}
+				drop(v.kind, statement(alter(v.table, [{ kind: "dropColumn", column: v.column }])))
 				return
 			case "primaryKey":
 			case "unique":
 			case "check":
 			case "foreignKey": {
-				if (tableGone && v.kind !== "foreignKey") {
-					return
-				}
 				if (v.kind === "foreignKey" && this.referencesReplaced(v.constraint)) {
 					this.sql("validate.attach", [alter(v.table, [{ kind: "dropConstraint", name: v.name }])])
 					return
@@ -2310,18 +2558,13 @@ class Differ {
 			}
 			case "uniqueIndex":
 			case "index": {
-				if (tableGone) {
-					return
-				}
 				const s = v.create
 				const name = objectName(s.table.schema, s.name)
 				drop(v.kind, statement({ kind: "dropIndex", name, concurrently: false, ifExists: false }))
 				return
 			}
 			case "statistics":
-				if (!tableGone) {
-					drop(v.kind, { kind: "dropStatistics", name: v.create.name })
-				}
+				drop(v.kind, { kind: "dropStatistics", name: v.create.name })
 				return
 			case "role":
 			case "decoder":
@@ -2337,12 +2580,7 @@ class Differ {
 				)
 				return
 			case "replicaIdentity":
-				if (!tableGone) {
-					drop(
-						v.kind,
-						statement(alter(v.table, [{ kind: "replicaIdentity", identity: "default" }]))
-					)
-				}
+				drop(v.kind, statement(alter(v.table, [{ kind: "replicaIdentity", identity: "default" }])))
 				return
 			case "publication":
 				this.sql("structure.drop", [
@@ -2351,17 +2589,15 @@ class Differ {
 				])
 				return
 			case "isolationTrigger":
-				if (!tableGone) {
-					drop(
-						v.kind,
-						statement({
-							kind: "dropTrigger",
-							name: v.create.name,
-							table: v.create.table,
-							ifExists: false
-						})
-					)
-				}
+				drop(
+					v.kind,
+					statement({
+						kind: "dropTrigger",
+						name: v.create.name,
+						table: v.create.table,
+						ifExists: false
+					})
+				)
 				return
 		}
 	}
@@ -2607,6 +2843,7 @@ const draftStatements = (d: Draft): ReadonlyArray<SqlStatement> => {
 			return d.keep
 		case "alteration":
 			return [alterationStatement(d.table, d.actions)]
+		case "fill":
 		case "violation":
 		case "analyze":
 		case "dropStatistics":
@@ -2818,9 +3055,16 @@ const setOf = (
 }
 
 /** How a migration replaces the physical column of a table both snapshots install (ColumnFate): a field whose type
- * changes is converted in place, which first drops what is built over it (dropReplaced); a law column whose
- * definition changes is redefined (lawColumn), which takes every constraint and index over it along. */
+ * changes is converted in place; a law column whose definition changes, or a field rewritten, is redefined, dropped and
+ * added again. Either first drops everything built over the column (dropReplaced). */
 type Replacement = "converted" | "redefined"
+
+/** What a replacement of a column does to an object built over it: `how` the column is replaced, and the object's own
+ * drop, which dropReplaced drafts before the replacement. */
+interface Replaced {
+	readonly how: Replacement
+	readonly drop: Drop
+}
 
 /** The strongest of `hows`: a conversion in place takes more than a law column dropped and added again. */
 const strongestReplacement = (hows: ReadonlyArray<Replacement>): Replacement | undefined =>
@@ -2973,8 +3217,9 @@ const isDrawn = (w: SnapshotWriting | undefined): boolean =>
  * The field changes of a table with each field the target draws or accumulates otherwise than the previous snapshot
  * records it rewritten: a field its caller wrote, or one drawn or accumulated by another
  * filler (SnapshotWriting), its family, fold, copy or start changed. Its column is added again under its placeholder
- * and backfilled, so its stale values give way to the drawn ones. A field whose filler a declaration only renames reads
- * as its previous record (deploy/diff/declared.ts) and is kept. A drawn or accumulated field the target leaves to its
+ * and backfilled, so its stale values give way to the drawn ones. A field whose filler a declaration only renames, and
+ * an ordered family's or a tree's index whose family only changes its group, reads as its previous record
+ * (deploy/diff/declared.ts) and is kept. A drawn or accumulated field the target leaves to its
  * caller keeps its column and its values, which are lawful, as the caller's data; its family's law columns and natives
  * go with the family.
  */
@@ -3039,9 +3284,10 @@ const changeOf = (changes: ReadonlyMap<string, FieldChange>, column: string): Fi
  * serial takes its draw, an identity advanced the same way, and one serial no longer gives it up; a generated field
  * re-expressed takes its new expression; a field rewritten is dropped and added again by `add`; a field kept as it is
  * takes none. The one reading for a field of a table both install but a rewritten one, which changeField drops before
- * the conversions. Each alteration joins its table's one ALTER TABLE in Structure (Differ.alter), which PostgreSQL runs
- * pass by pass, every give-up before every conversion and every conversion before every take; an identity's advance
- * reads the values that statement leaves, so it follows it. */
+ * the conversions. A conversion the reviewer's value makes is set aside instead (InPlace setAside), its old column's
+ * identity or default leaving with the column. Each alteration joins its table's one ALTER TABLE in Structure
+ * (Differ.alter), which PostgreSQL runs pass by pass, every give-up before every conversion and every conversion before
+ * every take; an identity's advance reads the values that statement leaves, so it follows it. */
 const inPlace = (
 	t: ObjectName,
 	b: ColumnDef,
@@ -3049,8 +3295,9 @@ const inPlace = (
 	change: FieldChange,
 	convert: (column: ColumnDef) => ColumnConversion,
 	add: (column: ColumnDef) => Alteration
-): ReadonlyArray<Action> => {
+): InPlace => {
 	const altering = (a: Alteration): Action => ({ kind: "alteration", table: t, actions: [a] })
+	const steps = (list: ReadonlyArray<Action>): InPlace => ({ kind: "steps", steps: list })
 	const take = (sequence: ObjectName): ReadonlyArray<Action> => [
 		altering({ kind: "addIdentity", column: c.name, sequence }),
 		statement(advance(t, c.name, sequence, c.type))
@@ -3061,44 +3308,53 @@ const inPlace = (
 	const giveUpDefault = altering({ kind: "dropDefault", column: b.name })
 	switch (change.kind) {
 		case "kept":
-			return []
+			return steps([])
 		case "converted": {
+			const conversion = convert({ ...c, generated: undefined })
+			if (conversion.kind === "placeholderRetype") {
+				return { kind: "setAside", reason: conversion.reason }
+			}
 			const before =
 				change.drawn.kind === "none"
 					? []
 					: change.drawn.kind === "uuidv7" || change.drawn.kind === "retirement"
 						? [giveUpDefault]
 						: [giveUp]
-			return c.generated?.kind === "identity"
-				? [
-						...before,
-						altering(convert({ ...c, generated: undefined })),
-						...take(c.generated.sequence)
-					]
-				: c.generated?.kind === "uuidv7"
-					? [...before, altering(convert({ ...c, generated: undefined })), takeUuidv7]
-					: c.generated?.kind === "retirement"
-						? [...before, altering(convert({ ...c, generated: undefined })), takeRetirement]
-						: [...before, altering(convert(c))]
+			return steps(
+				c.generated?.kind === "identity"
+					? [...before, altering(conversion), ...take(c.generated.sequence)]
+					: c.generated?.kind === "uuidv7"
+						? [...before, altering(conversion), takeUuidv7]
+						: c.generated?.kind === "retirement"
+							? [...before, altering(conversion), takeRetirement]
+							: [...before, altering(conversion)]
+			)
 		}
 		case "reexpressed":
-			return [altering({ kind: "setExpression", column: c.name, expr: change.expr })]
+			return steps([altering({ kind: "setExpression", column: c.name, expr: change.expr })])
 		case "rewritten":
-			return [altering({ kind: "dropColumn", column: b.name }), altering(add(c))]
+			return steps([altering({ kind: "dropColumn", column: b.name }), altering(add(c))])
 		case "serialDeclared":
-			return take(change.sequence)
+			return steps(take(change.sequence))
 		case "serialRemoved":
-			return [giveUp]
+			return steps([giveUp])
 		case "uuidv7Declared":
-			return [takeUuidv7]
+			return steps([takeUuidv7])
 		case "uuidv7Removed":
-			return [giveUpDefault]
+			return steps([giveUpDefault])
 		case "retirementDeclared":
-			return [takeRetirement]
+			return steps([takeRetirement])
 		case "retirementRemoved":
-			return [giveUpDefault]
+			return steps([giveUpDefault])
 	}
 }
+
+/** What a field's change in place drafts (inPlace): its steps, or, for a conversion the reviewer's value makes, its
+ * setting aside (SetAside), which draws its identity or its uuidv7() or retirement default once its fill renames
+ * it. */
+type InPlace =
+	| { readonly kind: "steps"; readonly steps: ReadonlyArray<Action> }
+	| { readonly kind: "setAside"; readonly reason: RetypeReason }
 
 /** The identity sequences of the tables both install that a migration drops, by name key, each with its fate, read off
  * each field's change before any object is visited: a serial field converted in place drops its sequence, created again
@@ -3222,10 +3478,10 @@ const installedReads = (
 	return out
 }
 
-/** The drop of what a conversion in place of a column takes away, in the drop order (dropOrder): the foreign keys
- * first, then the keys and CHECKs, the indexes, the statistics objects and the law columns whose
- * generation reads the column, which PostgreSQL refuses to convert it under (0A000); none for any other kind. */
-const replacementDrop = (v: Installed): Drop | undefined => {
+/** The drop of an object built over a column (objects.ts builtOver), which a replacement of the column takes away, in
+ * the drop order (dropOrder): the foreign keys and rule triggers first, then the keys and CHECKs, the indexes, the
+ * statistics objects and the law columns whose generation reads the column. */
+const replacementDrop = (v: BuiltOver["part"]): Drop => {
 	switch (v.kind) {
 		case "foreignKey":
 		case "check":
@@ -3263,35 +3519,6 @@ const replacementDrop = (v: Installed): Drop | undefined => {
 				rank: dropOrder.lawColumn,
 				draft: statement(alter(v.table, [{ kind: "dropColumn", column: v.column }]))
 			}
-		case "databaseDefault":
-		case "schema":
-		case "extension":
-		case "constant":
-		case "domain":
-		case "table":
-		case "refusalFunction":
-		case "advanceFunction":
-		case "unitFunction":
-		case "isolationFunction":
-		case "snapshotGuard":
-		case "lawFunction":
-		case "isolationTrigger":
-		case "materializedView":
-		case "validation":
-		case "role":
-		case "membership":
-		case "privileges":
-		case "roleSchema":
-		case "view":
-		case "worldFunction":
-		case "policy":
-		case "rowSecurity":
-		case "replicaIdentity":
-		case "liveSecret":
-		case "publication":
-		case "decoder":
-		case "ledger":
-			return undefined
 	}
 }
 
@@ -3356,11 +3583,11 @@ const sameInputs = (
  * Structure or in Publish, Differ.visit): each the target holds whose DDL changes, or that waits for an object the
  * migration changes (one whose DDL changes, one the previous manifest lacks, one the target lacks, one whose compile
  * inputs change, or one `beneath` names, which the migration takes away and builds again without changing its DDL: a
- * materialized view it drops, an object a replaced column takes along, a table it converts a column of), read off the
- * target's edges in install order, a world object waiting for every relation, type and function its statements read
- * (`readsOf`); and each the target no longer holds. PostgreSQL refuses to convert, drop or rename what a view, a policy
- * or a function body reads beneath it, so dropping them first leaves every structural change free, and they hold
- * nothing a drop could lose.
+ * materialized view it drops, an object it drops before replacing a column it is built over, a table it converts a
+ * column of), read off the target's edges in install order, a world object waiting for every relation, type and
+ * function its statements read (`readsOf`); and each the target no longer holds. PostgreSQL refuses to convert, drop or
+ * rename what a view, a policy or a function body reads beneath it, so dropping them first leaves every structural
+ * change free, and they hold nothing a drop could lose.
  *
  * A world object depends on every compile input of what it reads: the keys its compilation proves uniqueness by and
  * the containments it proves existence by. A table's keys are in its CREATE TABLE, so its DDL changes with them; a
@@ -3466,8 +3693,8 @@ const advance = (
  * - Removing a field: DROP COLUMN, at the end of Publish (publish.removed), after every statement that may still read
  *   it: the reviewer's data steps; a loss
  *   of its values, which the reviewer decides.
- * - Changing a field's type: the column is converted in place by ALTER COLUMN ... TYPE ... USING a marked placeholder
- *   the reviewer replaces by SQL computing the new value from the old (structure), or by its cast when the new type
+ * - Changing a field's type: the column is set aside (plan.ts SetAside), its new value the SQL the reviewer writes at a
+ *   marked placeholder in its table's fill (structure.fill), or converted in place by its cast when the new type
  *   holds the old one's values (keepsValues: a pattern's domain for another pattern's, a contract added, removed or
  *   swapped for another over one base type), since a law's domain is its base type with a law: the cast keeps every
  *   value, and the new type's CHECK judges each as it runs, refusing a stored value with 23514. A roster's domain holds

@@ -151,7 +151,9 @@ export const worldsExpectation = (
 		...declared,
 		/** The description names no closed constant: the installation's, each as the verifier judges its executors. */
 		functions: new Map([...declared.functions, ...closedConstantsOf(installation)]),
-		logins: new Map([[writer.login, new Set([writer.role, reader.role])]]),
+		logins: new Map([
+			[writer.login, { roles: new Set([writer.role, reader.role]), fenced: new Set<string>() }]
+		]),
 		refreshes: new Map([
 			[
 				writer.role,

@@ -1927,7 +1927,7 @@ key, so two runs on one stage never share a night.
 | Row check      | `check("SomeSeats", Show, (s) => s.seats.ge(1n))`                         | the condition holds on every row                                              |
 | Counted family | `counted(on(Ticket, "show"), fin(Show, "tickets"))`                       | each show's `tickets` is the number of tickets that name it                   |
 | Ordered family | `ordered(on(Line, "order", "at"), fin(Order, "n"))`                       | each order's lines hold `at` exactly 0 … n − 1                                |
-| Tree           | `tree(on(Node, "parent", "at"), fin(Node, "children"), { root: "doc" })`  | each `doc`'s rows are one tree, `[start, end)` each row's pre-order interval  |
+| Tree           | `tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["doc"] })` | Node keyed (doc, start): each `doc`'s rows one tree, `[start, end)` each row's pre-order interval |
 | Fold           | `fold(family, Monoid.sum, step, end)`                                     | each owner's end is its members' step values combined by the monoid           |
 | Selected side  | `on(select(Ticket, (t) => φ), "show")`, in any rule                       | the rule reads only the rows where φ holds                                    |
 | Predecessor    | `on(Place, "show", pred("at"))`, in any rule                              | the rule reads `at` − 1, and nothing of a row whose `at` is 0                 |
@@ -2119,12 +2119,16 @@ A family is a rule over rows the caller writes: each owner's members, counted by
 - **`counted(on(F, g…), fin(O, "n"))`**: each owner's `n` members, their group `g…` naming the owner by O's primary
   key: an unordered set, one row per member key. Its index is hidden from every field, fact and query: a coordinate,
   never a multiplicity.
-- **`tree(on(T, "parent", "at"), fin(T, "children"), { root: "doc" })`**: T over itself, with drawn `at`, `children`,
-  `start` and `end`. Each value of the root field `doc` is one tree: its root is the row whose `parent` is its own id,
-  every other row is a member of its parent's ordered family, and `[start, end)` is each row's pre-order interval.
-  PostgreSQL's own constraints keep each tree one tree, every row reachable and none on a cycle. The tree installs
-  `UNIQUE (doc, start)`: a document in order is one scan of it, and a row's descendants, its tree's rows whose `start`
-  lies in its interval, one range scan, with no recursion.
+- **`tree(on(T, "parent", "at"), fin(T, "children"), { root: ["doc"] })`**: T over itself, keyed by its root fields
+  then its drawn `start` (here `["doc", "start"]`; `{ root: ["package", "path"] }` keys T `["package", "path",
+  "start"]`), with drawn `parent`, `at`, `children`, `start` and `end`. Each value of the root fields is one tree: its
+  root is its row at start 0, its own parent, every other row is a member of its parent's ordered family, `parent` is
+  its parent's start in its own tree, and `[start, end)` is each row's pre-order interval. PostgreSQL's own constraints
+  keep each tree one tree, every row reachable and none on a cycle, each constraint led by the root fields. The primary
+  key `(doc, start)` is the document order: a document in order is one scan of it, and a row's descendants, its tree's
+  rows whose `start` lies in its interval, one range scan, with no recursion. A fold over the tree steps on
+  `on(T, "doc", "parent", …)` and ends on `on(T, "doc", "start", …)`; a copy down the tree is
+  `contained(on(select(T, (t) => t.gt(t.start, 0n)), "doc", "parent", "x"), on(T, "doc", "start", "y"))`.
 - **`fold(family, Monoid.m, step, end)`**: the members' step values, `step` a side of the member, combined by the
   monoid into the owner's `end` fields, each `accumulated`.
 
@@ -2165,11 +2169,33 @@ narrowed into its column's type unproved.
 #### Writing a family
 
 - **A sequence is written nested**: its members under their owner, in order, at its count field, without their group
-  and drawn fields: `insert(Order, [{ id, n: [{ qty }, { qty }] }])`. No tree row names its `parent`, and only the
-  root names the root field: `{ id, doc, children: [{ id, children: [] }] }`. A nested member, at any depth, states no
+  and drawn fields: `insert(Order, [{ id, n: [{ qty }, { qty }] }])`. No tree row names its key or its `parent`, and only
+  the root names the root fields: `{ doc, children: [{ children: [] }] }`. A nested member, at any depth, states no
   field its nesting supplies, grizzle draws or accumulates, or its relation lacks: a type error, and from JavaScript an
   `EncodingFailure` (`factShape`) before any SQL. An ordered member inserted alone is a type error. A tree is written
-  whole: a put or a delete of one of its rows is a type error, and from JavaScript refused when the ChangeSet compiles.
+  whole: a put of one of its rows is a type error, and from JavaScript refused when the ChangeSet compiles.
+- **A group is deleted whole, through its owner.** A delete of a tree names trees by their root value,
+  `delete(Node, [{ package, path }])`, and a delete of a relation that owns a family and is no family's member names its
+  rows as any delete does; each removes its rows and every row nested under them, through every family, to any depth:
+  the members of each family the removed rows own, the rows those own, and a tree's every node. So no count, index,
+  fold end or tree interval ever describes a partial group, and an immutable owner's family goes with its owner. Its
+  rows may come from a query, as `delete(Node, query(…).find({ package, path }))`. Its write list names every
+  relation it removes rows of. A delete of a tree whose nodes are another family's members is a type error, and so is a
+  put or a delete of a family's member that owns a sequence. Refused when the ChangeSet compiles: a delete whose nested
+  rows include a member of a family whose owner it does not remove; one whose families nest its relations in a cycle;
+  one in a stratum that also puts a relation nested under it, or puts the relation it deletes. A delete of a family's
+  member beside it in one stratum removes that member's named rows too, as an edit of its family after the whole
+  delete: a row inside the deleted groups is gone already, one outside them is removed as any member's is. A delete of
+  any other family's member is an edit of its family, as before.
+- **A replace is a delete and an insert in one stratum**: `ChangeSet.empty(S).delete(Node, roots).insertAll(rows)`.
+  The delete runs first, as one statement, so the inserts meet no stored row at a key it removed, and the outcome is
+  the difference of the two states: an identical replace answers `no-change`, and the counts are the rows each
+  relation lost and gained. A row the replace adds again unchanged is never written: the delete keeps it where every
+  column grizzle draws on it is the same, every owner of it is kept, a counted family's group is the same set of rows,
+  and every row before it in its sequence, and every node on its tree path and before one of those among its
+  siblings, is kept too. So a replace that changes one value rewrites that row's group from its first changed row on,
+  and leaves every other row in place. A delta of a relation the delete removes rows of is refused when the ChangeSet
+  compiles (read the relation itself after the change).
 - **A put and an insert of one sequence owner at one key in one stratum are two rows** at that key, since the insert
   states the owner's members and the put leaves them as they are. They are `refused` on the key before any
   SQL is sent; at different keys each is written.
@@ -2215,9 +2241,9 @@ narrowed into its column's type unproved.
   values; a refill of a value that reads what another refill changes; a refill of a value a family member's own write
   reaches beyond the two it refills. A role refills only relations it holds whole: the members it rewrites in its
   `write` list, and every relation the refill's read passes among its entries (`OutsideRole`).
-- **An immutable owner's family is fixed when the owner is inserted.** Declare `mutable(Owner)` for a family that
-  changes later, or an owner you put. A delete of a member of an immutable owner's family and a put of an immutable
-  owner are type errors, and from JavaScript refused when the ChangeSet compiles. An insert of such a member in a
+- **An immutable owner's family is fixed when the owner is inserted**, and deleted with its owner. Declare
+  `mutable(Owner)` for a family that changes later, or an owner you put. A delete of a member of an immutable owner's
+  family and a put of an immutable owner are type errors, and from JavaScript refused when the ChangeSet compiles. An insert of such a member in a
   stratum that inserts no such owner is a type error where a workload declares the ChangeSet, since a later insert or
   a union may still add the owner.
 - **A ChangeSet writes family members in one stratum**: writing them in a second is a type error at the call that
@@ -3003,15 +3029,16 @@ deploy.
   snapshot, the one file an app imports for `DbLayer.make`. Commit all of them.
 - **Plain SQL you may edit**, as long as the database ends where the snapshot says. What the schema drops is
   dropped in the same migration, as declared. A declared rename happens in place, as does a type change of a field its
-  caller writes: by a cast, or by the expression you write at a `-- grizzle: placeholder` marker, which also asks for
-  the values of a new field its caller writes, on a table that may hold rows. Roles' views, policies and functions hold no data: one that
+  caller writes by a cast; any other type change sets the field aside, filled by the value you write at a
+  `-- grizzle: placeholder` marker in its table's fill, which may join other tables, once every new column holds its
+  value. A placeholder also asks for the values of a new field its caller writes, on a table that may hold rows. Roles' views, policies and functions hold no data: one that
   changes, or reads anything the migration changes, is dropped and created again in one transaction.
 - **No guessing.** grizzle never guesses a rename and drops nothing you didn't declare. Declare each with
   `--rename <old>=<new>` or `--drop <old>`, once per name, each side a relation (`Task`), a field (`Task.title`), a
   roster's handle (`Status#done`) or a login (`@web`); swaps and chains work. A renamed relation keeps its rows, a
   field its values, a handle its code, and a login its PostgreSQL role (`ALTER ROLE ... RENAME TO`), with its password
-  and grants. A family's hidden columns (its copy of the count, a counted index, a tree's parent start, a fold's hidden
-  accumulators, each `pred` term) are named by the laws they hold the values of, so renaming the owner, the member, the
+  and grants. A family's hidden columns (its copy of the count, a counted index, a fold's hidden accumulators, each
+  `pred` term) are named by the laws they hold the values of, so renaming the owner, the member, the
   count, or a roster or handle a fold's selection reads renames them too, in place (`ALTER TABLE ... RENAME COLUMN`),
   and every key, index, CHECK and foreign key the renamed names reach is renamed to its new name by its definition,
   never built or validated again: a pure rename keeps every drawn value, with no backfill, no table rewrite and no
@@ -3045,7 +3072,24 @@ deploy.
   index in its member key's order, each count, each fold's running values in index order, and a tree's intervals. So
   is every value whose filler changes: a fold that steps over another field, a copy that reads another field, a family
   whose group or order changes. The snapshot records what fills each drawn or accumulated field, its family's, fold's
-  or copy's law, so a changed filler draws the field again, and one only renamed keeps it. The constraints are added
+  or copy's law, so a changed filler draws the field again, and one only renamed keeps it.
+- **A stored index is data.** An ordered family's or a tree's index holds the order its caller wrote, so a migration
+  that re-points the family's group (its owner re-keyed, the group's fields dropped and added, a tree's parent field
+  replaced) keeps every stored index, as it keeps one only renamed: the field stays the index of the same owner's
+  count, of the same kind. Its count, copies and folds are drawn again over the kept order, each fold's running values
+  in that order, after your data step fills the new group. Validate then proves the kept order a sequence of each new
+  group: a data step that moves members between owners so that an owner's indices are no longer 0 … n − 1 is refused
+  by the family's own key, bound or foreign keys, naming its law, and nothing is renumbered silently. To regroup and
+  give up the stored order, declare it: `--drop Line.at` while the schema still declares `Line.at` drops the stored
+  index, and the migration draws the target's anew in member-key order. Only an index new to the migration, or one
+  whose family changes owner, count or kind, is drawn anew undeclared. A tree's interval is kept as its index is, so a
+  tree re-keyed by its root (a root field added, renamed or replaced, or an id-keyed tree's root and parent replaced by
+  the keyed form) keeps every row's `at`, `start` and `end`, and its `parent`, drawn anew, is drawn from them: each
+  row's parent is the row of its own root value whose interval holds its own most tightly. Your data step fills the
+  new root fields before the backfill; Validate proves the kept intervals each new root's one tree, so a data step that
+  maps two stored trees onto one root value, or splits one across two, is refused by the tree's key or its laws. A
+  tree added to rows that held none, whose intervals no installed tree drew, is refused, naming it. The constraints are
+  added
   after the backfill, `NOT VALID`, and validated, so a value drawn wrongly refuses the migration. A fold added to a
   tree that holds rows, or changed on one, is drawn in the tree's stored sibling order, which is its caller's. A family
   the stored rows alone don't determine is refused, naming it: copies that read each other, or a fold over a copy. The
@@ -3214,7 +3258,7 @@ is `unreported` where only a refill writes the row, such as a stored owner whose
 | `contained`  | `from`, `to`: a containment, foreign keys included; an `alternatives` statement and a `mirrors` are containments |
 | `coverage`   | `from`, `to`: a containment whose sides pair a span field                                                       |
 | `family`     | `order` (`"ordered"` or `"counted"`), `member` (a side), `slots` (`{ owner, count }`)                           |
-| `tree`       | `member`, `slots`, `root` (the root field)                                                                      |
+| `tree`       | `member`, `slots`, `root` (the root fields, a list)                                                             |
 | `fold`       | `family` (its slots), `monoid`, `step` and `end` (sides)                                                        |
 | `contract`   | `contract`                                                                                                      |
 | `pattern`    | `relation`, `field`, `patterns`: each `{ source, flags }` as that field spells it, one rule per field           |
@@ -3462,22 +3506,25 @@ statement's. The role is certified READ COMMITTED when all of these hold, and st
   of other calls' rows are in one
   statement, beside no foreign key check that reads more of them, and each row it writes is joined with what it read,
   so a call that finds nothing writes nothing. Each foreign key check it makes finds an immutable row in the same way,
-  or refuses the call whole. A row the call inserted, read back in a later statement by the key it was inserted at,
-  is its own, when no statement up to the insert read other calls' rows.
+  or a row of a relation no role updates, which the check locks until the call commits, or refuses the call whole. A
+  row the call inserted, read back in a later statement by the key it was inserted at, is its own, when no statement
+  up to the insert read other calls' rows.
 - **No SERIALIZABLE role writes what it writes.** The table's guard would refuse every one of its writes.
 - **No SERIALIZABLE writer of what it reads can miss another call's write.** Every role that runs SERIALIZABLE and
   writes a relation the role reads (by a statement or a foreign key check) reads no row another call can write, makes
   no foreign key check but one that finds an immutable row (of a relation every role only inserts into, by a whole
-  declared key, or of a relation no role writes), and writes no relation a rule over a query reads.
+  declared key, or of a relation no role writes), and writes no relation a rule over a query reads, unless the role
+  reads the relation by foreign key checks alone and the writer's login fences it (below).
 
 **Reading generate's report.** generate prints one line per role, before the files it writes:
 
 ```
 login app, role learner: read committed
 login author_app, role author: serializable (privileges 496, laws 47, absence 1911, snapshot 2993, pivot 3735)
+login author_app fences PublishedVariant: its writes of it lock it in exclusive mode before their snapshot, for the read committed foreign key checks of login app, role learner
 ```
 
-A SERIALIZABLE role lists each condition it failed, with how many places fail it:
+A SERIALIZABLE role lists each condition it failed, with how many places fail it, and each fence follows the roles:
 
 | Condition    | What fails it                                                                                                                            |
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
@@ -3510,7 +3557,43 @@ the publication from the same workload.
 
 **Direct SQL.** A direct writer, psql included, writes at SERIALIZABLE, and the guard refuses anything below it with
 25000, except on a table whose every writer is certified READ COMMITTED. There it may write at any level, as the role it
-writes as: it can only insert and read, and every law of the table is a constraint PostgreSQL checks at every level.
+writes as: it can only insert and read, and every law of the table is a constraint PostgreSQL checks at every level. A
+direct transaction of a login that fences a relation (generate's report names it) that writes the relation begins with
+`LOCK TABLE ... IN EXCLUSIVE MODE` on it, before any other statement, as the fenced ChangeSets do.
+
+**Referencing a relation another role deletes: fences.** A READ COMMITTED role may reference a relation that some role
+deletes, as a learner's answer references the published keys a content replace deletes and inserts again, when no role
+updates it. Its foreign key check locks the row it finds until the call commits, and every deletion of that row waits
+for it. Two histories still break that check, and generate closes both by fencing the relation:
+
+- A replace that deletes a key and inserts the same key in one transaction. A READ COMMITTED check that took its
+  snapshot before the replace committed waits on the deleted row, finds it deleted, never sees the inserted one, and
+  raises 23503, although the key exists before and after: a refusal no order of the calls gives. This holds for an
+  identical row too: the inserted row is a new one.
+- A writer that may miss another call's write (it reads other calls' rows, or writes a relation a rule over a query
+  reads) inserting a key while a check looks for it. The check waits for nothing and refuses its call, which no order
+  in real time explains once the writer missed a write that committed before the call began.
+
+Every login whose roles delete such a relation fences it: each ChangeSet of the login that writes the relation begins
+its transaction, as the login and before any statement takes the snapshot, with `LOCK TABLE ... IN EXCLUSIVE MODE` on
+it, and `grizzle migrate` grants the login MAINTAIN on its table, the least privilege that permits the lock, and USAGE
+on its schema; the drift check judges both. A READ COMMITTED check takes ROW SHARE on the table before its own
+snapshot, which the lock excludes, so every check either committed before the fencing write locked, and the write's
+snapshot sees the call, or takes its snapshot after the write committed. Neither history can happen, the write's check
+of the rows that reference a row it deletes no longer counts against the referencing role, and generate prints each
+fence it relies on. Fences cost:
+
+- A READ COMMITTED call whose check reads the relation waits while a fencing write runs, and fencing writes of one
+  relation run one at a time. Plain reads, which take no row lock, never wait.
+- A deadlock, at most once per fencing write: the write locks its relations one at a time, in the order of their
+  qualified names, and a READ COMMITTED call holding ROW SHARE on one of them may wait for another it locked first.
+  PostgreSQL aborts one of the two with 40P01, a `TransientFailure` (`Deadlock`). No order of the lock list avoids it:
+  a call takes ROW SHARE in the order its foreign key checks fire, its relation's check triggers' names, and those are
+  `RI_ConstraintTrigger_c_` and the trigger's OID, compared as text, so two referencing relations can check two fenced
+  relations in opposite orders.
+
+A relation some role updates is never fenced: an update may move the key a check found, so the referencing role stays
+SERIALIZABLE.
 
 **Referencing content another role writes: publish it.** A ChangeSet that inserts rows referencing content another role
 maintains (an author edits questions, a learner's answer names a question) reads that content in its foreign key
@@ -3665,7 +3748,9 @@ checks (below). `grizzle migrate`, which runs the drift check after every apply,
   migrate` grants it to every role whose served workload creates one, and to no other role or login. The drift check
   judges each role's and login's own `TEMPORARY` grant exactly; `PUBLIC`'s, which PostgreSQL gives every database, is
   the database owner's, which grizzle neither relies on nor revokes. A grant revoked after the migration makes the
-  write `TemporaryRefused`. The login is LOGIN NOINHERIT and the role NOLOGIN, neither with
+  write `TemporaryRefused`. A login that fences a relation holds MAINTAIN on its table and USAGE on its schema, which
+  its fenced writes lock it by ([READ COMMITTED writes](#read-committed-writes)). The login is LOGIN NOINHERIT and the
+  role NOLOGIN, neither with
   SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS. A role's members are its login and the migration role; any
   other membership of the login that confers something is drift. Row-level security is enabled, not forced, on every
   table the role writes through a query entry that leaves rows out.
@@ -3905,7 +3990,8 @@ grizzle fits applications that own their data end to end, with rules worth decla
 
 ### Families and ChangeSets
 
-- **A relation is a member of at most one ordered family or tree**, which orders it, and of any number of counted families ([Families](#families)). A tree is written whole, its root inserted with the tree nested. A put or a delete of a member that owns an ordered family or a tree is refused, since it would not reach the rows nested under it.
+- **A relation is a member of at most one ordered family or tree**, which orders it, and of any number of counted families ([Families](#families)). A tree is written whole, its root inserted with the tree nested and deleted by its root value. A put or a delete of a member that owns an ordered family or a tree is refused, since it would not reach the rows nested under it; a delete of a member that owns only counted families leaves their groups, which their owner axes refuse at commit where they hold members.
+- **A whole delete runs first in its stratum**, after only the removals of rows that reference its rows by an immediate foreign key from outside them. A whole delete from a query that reads a relation such a removal writes, and one in a stratum whose family work grizzle plans from a read flight, are `UnsupportedOperation`: state its rows as an array, or write it in a stratum of its own with `ChangeSet.sequence`.
 - **An owner inserted or put from a query cannot share a ChangeSet with appends to its counted family** (`QueriedOwnerAppend` when the ChangeSet compiles): grizzle computes the owner's final count and folds' ends from the facts the ChangeSet states, and a query's facts exist only in its statement. State the owner's facts as an array or a `Stream`, or write the owner in a ChangeSet that `ChangeSet.sequence` runs first. A write whose every fact carries a stored owner's key inserts no owner, and compiles.
 - **A put or a delete names its rows by their primary key**, so no ChangeSet puts or deletes a relation whose primary key holds a field grizzle writes, such as a sequence member keyed by its owner and drawn index. A put also compares its facts at every declared key, so a declared key over such a field refuses puts but not deletes. Such a write is a type error, and from JavaScript `UnstatedKey` when the ChangeSet compiles, naming the key. Key such a member by a field its caller writes, such as an id, declare no key over a field grizzle writes, and insert a sequence nested under its owner.
 
@@ -3932,13 +4018,13 @@ grizzle fits applications that own their data end to end, with rules worth decla
 
 ## Status
 
-grizzle 1.0.0-beta.1 is the first public beta, published on npm under the `beta` tag. It is tested against PostgreSQL 19rc1, patched as above; PostgreSQL 19 GA is due 2026-11-19. The test suite runs on macOS against that pinned build.
+grizzle 1.0.0-beta.1 is the first public beta, published on npm under the `beta` tag. It is tested against PostgreSQL 19rc1, patched as above; PostgreSQL 19 GA is due 2026-11-19. The test suite runs on Linux against that pinned build.
 
 There are no stability guarantees. Every release is a hard cutover, with no deprecations and no compatibility path for the API, snapshots or migration files.
 
 ## Development
 
-Everything runs natively on macOS through Homebrew, with no Docker. Development has no build step: Node runs each package's `src/*.ts` directly, resolving the packages' names to their `src/` through the `grizzle-source` export condition. `pnpm build` emits each package's published `dist/`; packing or publishing a package runs it first.
+Everything runs natively on Linux, with no Docker. Development has no build step: Node runs each package's `src/*.ts` directly, resolving the packages' names to their `src/` through the `grizzle-source` export condition. `pnpm build` emits each package's published `dist/`; packing or publishing a package runs it first.
 
 ```sh
 pnpm install

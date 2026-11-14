@@ -443,13 +443,13 @@ export const generatedLaw = (relation: StoredRelationName, field: string): Gener
 
 /**
  * What a drawn law column holds, which the host draws from the nested arrays: ‹n›, the owner's count on each member; a
- * counted family's index ‹i›; a tree's ‹ps›, its parent's start; or a fold's accumulator, before or after the member's
- * step of plane `plane` of the family's fold `fold`, by its position among the family's folds. An after is drawn, never
+ * counted family's index ‹i›; or a fold's accumulator, before or after the member's step of plane `plane` of the
+ * family's fold `fold`, by its position among the family's folds. An after is drawn, never
  * generated, since a count's, a sum's and a max's combine is not total in its carrier: a CHECK proves it in exact
  * arithmetic.
  */
 export type Drawn =
-	| { readonly kind: "copy" | "index" | "parentStart"; readonly family: FamilyId }
+	| { readonly kind: "copy" | "index"; readonly family: FamilyId }
 	| {
 			readonly kind: "before" | "after"
 			readonly family: FamilyId

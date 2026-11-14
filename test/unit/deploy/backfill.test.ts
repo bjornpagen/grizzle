@@ -3,18 +3,16 @@
  * value the family holds over the stored rows, after every column's ADD COLUMN under its placeholder default and before
  * any constraint reads them, and VALIDATE then proves it.
  *
- * - **The cases:** a counted family, an ordered one keyed by its member key or by its owner and index, a tree, a concat
- *   fold over an ordered family, and a family whose members the migration creates; over one to three owners and the
- *   members drawn for them, keyed apart, stored in a drawn order, their steps across negatives, zero and positives, so
- *   the backfill meets empty families, families of one and longer predecessor chains; forests of one or more trees whose
- *   children are keyed apart from the order they were stored and drawn in; pieces of text beyond ASCII and empty ones.
+ * - **The cases:** a counted family, an ordered one keyed by its member key or by its owner and index, a concat fold
+ *   over an ordered family, and a family whose members the migration creates; over one to three owners and the members
+ *   drawn for them, keyed apart, stored in a drawn order, their steps across negatives, zero and positives, so the
+ *   backfill meets empty families, families of one and longer predecessor chains; pieces of text beyond ASCII and empty
+ *   ones. A tree is keyed by its drawn start, so its stored rows are a tree already: the folds and copies a migration
+ *   adds to one are test/pg/migrate/backfill.test.ts's, over rows PostgreSQL holds.
  * - **Counted and ordered:** each member's hidden index, ‹i› = row_number() OVER (PARTITION BY g ORDER BY its key) − 1,
  *   its copy of the count, and a sum fold's before and after as running sums in ‹i› order; the owner's count and end;
  *   each copy an axis carries its target's value: an owner's, a predecessor's (the base at the first slot), a last
  *   member's (the base for an empty family).
- * - **Tree:** each row's slot by its key among its siblings, its count, its parent's count and start, and its pre-order
- *   interval; a count fold over each row's siblings; a parent row's copy (the root its own), a copy of a copy after the
- *   copy it reads.
  * - **Concat:** each member's running text over its family in slot order, its before its predecessor's after, the empty
  *   text at slot 0, the owner's end its last member's after.
  * - **Reversals:** removing a family drops its law columns and natives, and its fields as declared, keeping every row; a
@@ -33,8 +31,7 @@
  *
  * - **The judge:** the catalog model of PostgreSQL (test/support/migrate/interpret.ts) runs the drafted migration
  *   statement by statement over the stored rows, and its catalog afterwards must be the target's installed from
- *   nothing; NP's reference fold (test/support/families/fold.ts) of each owner's members in key order, NP's pre-order
- *   numbering of each tree (test/support/families/tree.ts) with each node's children in key order, and a naive left
+ *   nothing; NP's reference fold (test/support/families/fold.ts) of each owner's members in key order and a naive left
  *   fold of each owner's pieces state every drawn value.
  *
  * Plant (~/.cache/grizzle-release/BR06/plants): backfill-counts-from-one (a family's counts and indices drawn from one,
@@ -43,15 +40,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn as generated, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import {
-	constant,
-	element,
-	type Gen,
-	int as between,
-	map,
-	shuffled,
-	weighted
-} from "@grizzle/testing/gen"
+import { element, type Gen, int as between, map, shuffled, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -80,15 +69,12 @@ import {
 	ordered,
 	pred,
 	relation,
-	schema,
-	select,
-	tree
+	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { type FoldMonoid, foldStoredOf } from "#test/support/families/fold.ts"
-import { type Node, numbered } from "#test/support/families/tree.ts"
 import * as Desc from "#test/support/fixtures/ir/desc.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -110,6 +96,7 @@ import {
 	generate,
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
+import { perRowReads } from "#test/support/migrate/probes.ts"
 import { plainPlan } from "#test/support/migrate/review.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -625,167 +612,6 @@ const orderedCase = (key: LineKey): FoldCase => {
 	}
 }
 
-/**
- * A tree of Node over its parent, one per doc, as NP's fold suite holds it (test/pg/fin/fold.test.ts FoldedTree):
- * folded by count over each node's children, its accumulators named; with each node's parent's kind copied along the
- * owner axis, and that copy copied again one level down, a copy of a copy; each node's previous sibling's kind along
- * the predecessor axis, and its last child's along the last, each -1 where its axis names no row.
- */
-const treeMigration: Migration = (() => {
-	const name = "Forest"
-	const Node_ = relation(
-		"Node",
-		{
-			id: pg.int4,
-			parent: pg.int4,
-			at: drawn(natural),
-			children: drawn(natural),
-			start: drawn(natural),
-			end: drawn(natural),
-			doc: pg.int4,
-			kind: pg.int4,
-			parentKind: accumulated(pg.int4, 0),
-			grandKind: accumulated(pg.int4, 0),
-			prevKind: accumulated(pg.int4, -1),
-			lastKind: accumulated(pg.int4, -1),
-			before: accumulated(natural, 0n),
-			after: accumulated(natural, 0n),
-			total: accumulated(natural, 0n)
-		},
-		["id"]
-	)
-	const members = select(Node_, (n) => n.gt(n.start, 0n))
-	const t = tree(on(Node_, "parent", "at"), fin(Node_, "children"), { root: "doc" })
-	return migrationOf(
-		schema(
-			name,
-			[relation("Node", { id: pg.int4, parent: pg.int4, doc: pg.int4, kind: pg.int4 }, ["id"])],
-			[]
-		),
-		schema(
-			name,
-			[Node_],
-			[
-				t,
-				fold(t, Monoid.count, on(Node_, "parent", "before", "after"), on(Node_, "id", "total")),
-				contained(on(members, "parent", "parentKind"), on(Node_, "id", "kind")),
-				contained(on(members, "parent", "grandKind"), on(Node_, "id", "parentKind")),
-				contained(
-					on(members, "parent", pred("at"), "prevKind"),
-					on(members, "parent", "at", "kind")
-				),
-				contained(
-					on(Node_, "id", pred("children"), "lastKind"),
-					on(members, "parent", "at", "kind")
-				)
-			]
-		)
-	)
-})()
-
-/** A stored forest: each node's key, its parent's (a root's its own), its tree's root key as its doc, and its kind. */
-type StoredNode = {
-	readonly id: number
-	readonly parent: number
-	readonly doc: number
-	readonly kind: number
-}
-
-/** The text a tree row reads as: its key, slot, count, interval, parent's count and start, its parent's kind and its
- * parent's parent kind, and its count fold's before, after and total. */
-const treeText = (row: ReadonlyArray<bigint | number>): string =>
-	Arr.join(Arr.map(row, String), " ")
-
-/**
- * What the references say a stored forest's backfill leaves: NP's numbering, each node's children in key order; each
- * copy its parent row's value, the root its own; and NP's lawful count fold, `before = at, after = at + 1, total =
- * children`, the root's the one state its pins admit.
- */
-const treeExpected = (stored: ReadonlyArray<StoredNode>): ReadonlyArray<string> => {
-	const nodeOf = (id: number): Node => ({
-		id,
-		children: Arr.map(
-			Arr.sort(
-				Arr.filter(stored, (n) => n.parent === id && n.id !== id),
-				Order.mapInput(Order.Number, (n: StoredNode) => n.id)
-			),
-			(n) => nodeOf(n.id)
-		)
-	})
-	const byId = (id: number): StoredNode =>
-		defined(Option.getOrUndefined(Arr.findFirst(stored, (n) => n.id === id)))
-	const parentKind = (id: number): number => byId(byId(id).parent).kind
-	/** A node's children in key order: its slot order. */
-	const childrenOf = (id: number): ReadonlyArray<StoredNode> =>
-		Arr.sort(
-			Arr.filter(stored, (n) => n.parent === id && n.id !== id),
-			Order.mapInput(Order.Number, (n: StoredNode) => n.id)
-		)
-	const prevKind = (id: number): number => {
-		const n = byId(id)
-		const siblings = n.parent === n.id ? [] : childrenOf(n.parent)
-		const at = Arr.findFirstIndex(siblings, (x) => x.id === id)
-		return Option.match(at, {
-			onNone: () => -1,
-			onSome: (i) => (i === 0 ? -1 : Arr.getUnsafe(siblings, i - 1).kind)
-		})
-	}
-	const lastKind = (id: number): number =>
-		Option.match(Arr.last(childrenOf(id)), { onNone: () => -1, onSome: (c) => c.kind })
-	const roots = Arr.sort(
-		Arr.filter(stored, (n) => n.parent === n.id),
-		Order.mapInput(Order.Number, (n: StoredNode) => n.doc)
-	)
-	return Arr.sort(
-		Arr.map(numbered(Arr.map(roots, (r) => ({ root: r.doc, tree: nodeOf(r.id) }))), (r) =>
-			treeText([
-				r.id,
-				r.at,
-				r.children,
-				r.start,
-				r.end,
-				r.copy,
-				r.parentStart,
-				parentKind(r.id),
-				parentKind(byId(r.id).parent),
-				prevKind(r.id),
-				lastKind(r.id),
-				r.at,
-				r.at + 1,
-				r.children
-			])
-		),
-		Order.String
-	)
-}
-
-/** What the migrated model holds of the tree. */
-const treeObserved = (state: State): ReadonlyArray<string> => {
-	const second = treeMigration.second
-	const family: Family = defined(second.laws.families[0])
-	assert.ok(family.members.kind === "tree", "the family is a tree")
-	const shape = family.members
-	const field = (name: string): string => fieldColumn(second, "Node", name)
-	return rowsOf(treeMigration, state, "Node", (cell) =>
-		treeText([
-			cell(field("id")),
-			cell(columnOf(family.index)),
-			cell(family.count.column),
-			cell(shape.start.column),
-			cell(shape.end.column),
-			cell(family.copy),
-			cell(shape.parentStart),
-			cell(field("parentKind")),
-			cell(field("grandKind")),
-			cell(field("prevKind")),
-			cell(field("lastKind")),
-			cell(field("before")),
-			cell(field("after")),
-			cell(field("total"))
-		])
-	)
-}
-
 /** The statements a step runs: a statement's own, and a table alteration's one ALTER TABLE. */
 const stepStatements = (s: PlanStep): ReadonlyArray<SqlStatement> =>
 	s.draft.kind === "statement"
@@ -898,6 +724,7 @@ const assertBackfillOrder = (m: Migration, columns: ReadonlyArray<string>): void
 		Arr.every(slotsOf(steps, addsConstraint), (slot) => slot !== "structure"),
 		"no constraint is added before the backfill"
 	)
+	assert.deepEqual(perRowReads(steps), [], "no backfill statement reads a row once per row")
 }
 
 /** The ordered families, by how their lines are keyed after the migration. */
@@ -1080,28 +907,6 @@ const judgeStoredKey = (
 	assert.deepEqual(foldObserved(k.after, state), foldExpectedBy(ids, stored, k.readBy))
 	assertFresh(k.after.migration, state)
 	assertBackfillOrder(k.after.migration, foldColumns(k.after))
-}
-
-/** The tree's drawn columns: its index, count, copy, interval, parent's start, and every accumulated or copied field. */
-const treeColumns = (): ReadonlyArray<string> => {
-	const second = treeMigration.second
-	const family: Family = defined(second.laws.families[0])
-	assert.ok(family.members.kind === "tree", "the family is a tree")
-	return Arr.sort(
-		[
-			columnOf(family.index),
-			family.count.column,
-			family.copy,
-			family.members.start.column,
-			family.members.end.column,
-			family.members.parentStart,
-			...Arr.map(
-				["parentKind", "grandKind", "prevKind", "lastKind", "before", "after", "total"],
-				(f) => fieldColumn(second, "Node", f)
-			)
-		],
-		Order.String
-	)
 }
 
 /** Bounded, so the family's axes, which carry each running text, key it within a B-tree entry. */
@@ -1603,7 +1408,6 @@ type Backfill =
 			readonly owners: number
 			readonly stored: ReadonlyArray<Stored>
 	  }
-	| { readonly kind: "tree"; readonly stored: ReadonlyArray<StoredNode> }
 	| {
 			readonly kind: "concat"
 			readonly owners: number
@@ -1664,34 +1468,6 @@ const membersGen =
 			)
 		}))
 
-/**
- * A forest: each node a root of its own tree, or a child of a node drawn before it, keyed apart from the order its
- * children were drawn in, and stored in a drawn order; a root's parent and doc are its own key, a child's doc its root's.
- */
-const forestGen: Gen<ReadonlyArray<StoredNode>> = (source) => {
-	const keys = source.draw(keysGen({ min: 1, max: 8 }))
-	const none: ReadonlyArray<StoredNode> = []
-	const nodes = Arr.reduce(keys, none, (built, id) => {
-		const root =
-			built.length === 0 ||
-			source.draw(
-				weighted([
-					[1, constant(true)],
-					[3, constant(false)]
-				])
-			)
-		if (root) {
-			return [...built, { id, parent: id, doc: id, kind: (id * 5) % 7 }]
-		}
-		const parent = defined(
-			built[source.draw(between(0, built.length - 1))],
-			"a parent drawn before"
-		)
-		return [...built, { id, parent: parent.id, doc: parent.doc, kind: (id * 5) % 7 }]
-	})
-	return source.draw(shuffled(nodes, { min: nodes.length, max: nodes.length }))
-}
-
 const pieces = ["", "a", " c", "\u{1F600}", "é"] as const
 
 const backfillGen: Gen<Backfill> = weighted<Backfill>([
@@ -1709,7 +1485,6 @@ const backfillGen: Gen<Backfill> = weighted<Backfill>([
 			}
 		}
 	],
-	[1, map(forestGen, (stored) => ({ kind: "tree", stored }))],
 	[
 		1,
 		(source) => {
@@ -1781,16 +1556,12 @@ type BackfillFeature =
 	| "counted"
 	| "ordered by line"
 	| "ordered by order and index"
-	| "tree"
 	| "concat"
 	| "new members"
 	| "an owner with no member"
 	| "an owner of three members"
 	| "members stored out of key order"
 	| "a negative step"
-	| "a forest of two trees"
-	| "a grandchild"
-	| "siblings stored out of key order"
 	| "a piece beyond ASCII"
 	| "an empty piece"
 	| `renamed: ${RenamedFamily}`
@@ -1829,28 +1600,6 @@ const notesOf = (b: Backfill): ReadonlyArray<BackfillFeature> => {
 	switch (b.kind) {
 		case "fold":
 			return [b.family, ...members(b.owners, b.stored)]
-		case "tree": {
-			const byId = (id: number) => Arr.findFirst(b.stored, (n) => n.id === id)
-			return [
-				"tree",
-				...(Arr.filter(b.stored, (n) => n.parent === n.id).length >= 2
-					? (["a forest of two trees"] as const)
-					: []),
-				...(Arr.some(b.stored, (n) => Option.exists(byId(n.parent), (p) => p.parent !== p.id))
-					? (["a grandchild"] as const)
-					: []),
-				...(Arr.some(b.stored, (n) =>
-					unsorted(
-						Arr.map(
-							Arr.filter(b.stored, (x) => x.parent === n.id && x.id !== n.id),
-							(x) => x.id
-						)
-					)
-				)
-					? (["siblings stored out of key order"] as const)
-					: [])
-			]
-		}
 		case "concat":
 			return [
 				"concat",
@@ -1917,13 +1666,6 @@ const judgeBackfill = (b: Backfill): void => {
 			assertBackfillOrder(c.migration, foldColumns(c))
 			return
 		}
-		case "tree": {
-			const state = migrated(treeMigration, [{ relation: "Node", rows: b.stored }])
-			assert.deepEqual(treeObserved(state), treeExpected(b.stored))
-			assertFresh(treeMigration, state)
-			assertBackfillOrder(treeMigration, treeColumns())
-			return
-		}
 		case "concat": {
 			const state = concatMigrated(ownersOf(b.owners), b.tokens)
 			assert.deepEqual(concatObserved(state), concatExpected(ownersOf(b.owners), b.tokens))
@@ -1980,29 +1722,12 @@ const judgeBackfill = (b: Backfill): void => {
 	}
 }
 
-/** The fields a removal drops, as declared: the counted family's drawn and copied ones, or every one the tree draws. */
+/** The fields a removal drops, as declared: the counted family's drawn and copied ones. */
 const countedDrops: ReadonlyArray<readonly [string, string]> = [
 	["Owner", "n"],
 	["Owner", "end"],
 	["Member", "ownerTag"]
 ]
-const treeDrops: ReadonlyArray<readonly [string, string]> = Arr.map(
-	[
-		"at",
-		"children",
-		"start",
-		"end",
-		"parentKind",
-		"grandKind",
-		"prevKind",
-		"lastKind",
-		"before",
-		"after",
-		"total"
-	],
-	(f) => ["Node", f] as const
-)
-
 /** The counted family's relations drawn over a caller's values: each drawn field written first, then drawn anew. */
 const toDrawn = migrationOf(countedWritten, countedAfter)
 
@@ -2013,7 +1738,6 @@ type Reversal =
 			readonly owners: number
 			readonly stored: ReadonlyArray<Stored>
 	  }
-	| { readonly kind: "a tree removed"; readonly stored: ReadonlyArray<StoredNode> }
 	| {
 			readonly kind: "left to its caller"
 			readonly owners: number
@@ -2035,7 +1759,6 @@ const reversalGen: Gen<Reversal> = weighted<Reversal>([
 			return { kind: "a counted family removed", owners, stored: source.draw(membersGen(owners)) }
 		}
 	],
-	[1, map(forestGen, (stored) => ({ kind: "a tree removed", stored }))],
 	[
 		1,
 		(source) => {
@@ -2105,8 +1828,6 @@ const judgeReversal = (r: Reversal): void => {
 				foldRows(countedCase, ownersOf(r.owners), r.stored),
 				countedDrops
 			)
-		case "a tree removed":
-			return assertRemoved(treeMigration, [{ relation: "Node", rows: r.stored }], treeDrops)
 		case "left to its caller": {
 			const owners = ownersOf(r.owners)
 			const before = migrated(countedCase.migration, foldRows(countedCase, owners, r.stored))
@@ -2179,23 +1900,19 @@ describe("backfilling a family added to stored rows, generated", () => {
 						literal: Formatter.format,
 						oracle: {
 							kind: "second-implementation",
-							name: "NP's reference fold and pre-order numbering and a naive left fold over the stored rows in key order, run against the catalog model of PostgreSQL executing the drafted migration"
+							name: "NP's reference fold and a naive left fold over the stored rows in key order, run against the catalog model of PostgreSQL executing the drafted migration"
 						},
 						coverage: required<BackfillFeature>(
 							[
 								"counted",
 								"ordered by line",
 								"ordered by order and index",
-								"tree",
 								"concat",
 								"new members",
 								"an owner with no member",
 								"an owner of three members",
 								"members stored out of key order",
 								"a negative step",
-								"a forest of two trees",
-								"a grandchild",
-								"siblings stored out of key order",
 								"a piece beyond ASCII",
 								"an empty piece",
 								...Arr.map(renamedFamilies, (f) => `renamed: ${f}` as const),
@@ -2239,7 +1956,6 @@ describe("backfilling a family added to stored rows, generated", () => {
 						coverage: required<Reversal["kind"]>(
 							[
 								"a counted family removed",
-								"a tree removed",
 								"left to its caller",
 								"drawn anew over the caller's values"
 							],

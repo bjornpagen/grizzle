@@ -499,12 +499,15 @@ const serializableOf = (
 			: undefined
 }
 
-/** The fence's reason for refusing its step with the report: the lock's 55P03, the guard's 55Z02 and 55Z01. */
+/** The fence's reason for refusing its step with the report: the lock's 55P03, the guard's 55Z02 and 55Z01; none for a
+ * fenced write's lock. */
 const staleOf = (step: FenceStep, error: Public.ServerError): Public.StaleReason | undefined => {
 	const code: string = error.sqlstate
 	switch (step) {
 		case "lock":
 			return code === lockNotAvailable ? new Public.Migrating() : undefined
+		case "exclude":
+			return undefined
 		case "guard":
 			return code === migrating
 				? new Public.Migrating()

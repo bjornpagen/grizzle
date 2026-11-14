@@ -36,6 +36,7 @@ import {
 	type InstallExtension,
 	noCarriers,
 	noContribution,
+	noFences,
 	type RoleHold
 } from "#compiler/physical/install/extension.ts"
 import { changesAt } from "#compiler/program/workload/change.ts"
@@ -203,6 +204,7 @@ const certifying = (
 	textDomainUses: noTextDomainUses,
 	certifies: roles,
 	carriers: noCarriers,
+	fences: noFences,
 	holds,
 	live: noLive
 })
@@ -334,6 +336,7 @@ export const installShape = (
 		const entries = yield* servedFiles(compiled, draft.snapshotFiles, {
 			kind: "logins",
 			certification: certified,
+			fences: [],
 			logins: new Map(stated)
 		})
 		const entry = defined(
@@ -491,8 +494,23 @@ const setLevel = (level: Isolation): RaceStatement => ({
 })
 
 /**
+ * The lock a change call's served write takes before its snapshot (runtime/write/flight.ts WriteExclusion), none where
+ * its login fences nothing it writes. The call's session is its role's, which holds DELETE on every relation it fences,
+ * a privilege that permits the lock as the login's MAINTAIN does.
+ */
+const exclusionOf = (s: InstalledShape, call: ChangeCall): ReadonlyArray<RaceStatement> => {
+	const exclusion = defined(
+		s.changes.get(call.role)?.get(call.member),
+		`member ${call.member} of role ${call.role}`
+	).entry.program.flight.exclusion
+	return exclusion.kind === "lock" ? [{ sql: exclusion.text.sql, footprint: everyRelation }] : []
+}
+
+/**
  * A change call's direct transaction: its first statement setting the level its role's served file records, then the
- * call's statements, the served file's, compiled for that level (program/workload/change.ts RoleChanges `level`).
+ * lock its served write takes before its snapshot, as a Db's prologue sends it before the statement that takes the
+ * snapshot, then the call's statements, the served file's, compiled for that level (program/workload/change.ts
+ * RoleChanges `level`).
  */
 const changeTxnOf = (
 	s: InstalledShape,
@@ -503,7 +521,7 @@ const changeTxnOf = (
 		return {
 			kind: "direct",
 			session: call.session,
-			statements: [setLevel(levelOf(s, call.role)), ...sent],
+			statements: [setLevel(levelOf(s, call.role)), ...exclusionOf(s, call), ...sent],
 			end: "commit"
 		}
 	})

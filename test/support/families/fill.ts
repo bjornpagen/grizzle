@@ -4,13 +4,16 @@
  * verdict a reference model of the fill order gives it, the schema value the builders make of it, an instance of it,
  * and the rows a reference writer fills of that instance.
  *
- * A specification is relations R0 … Rn−1, each keyed by its uuid `id` and holding a bigint `v` its caller writes, with a
- * generated `g` = `v` where it says so; families between them, a tree on one relation, an ordered family or a counted
- * one of an owner and a member, each with a fold over it or none, a sum stepping its member's `v` or a copy of it;
- * copies, each an accumulated field `c<j>` riding one axis of one family and reading one column of the axis's target
- * row; and mutable relations. Family `f`
- * names its count `n<f>`, its member's group field `o<f>` (a tree's parent), an ordered family's or a tree's index
- * `i<f>`, a tree's root field `d<f>` and a fold's end `s<f>`; a tree's interval is `start` and `end`.
+ * A specification is relations R0 … Rn−1, each holding a uuid `id` and a bigint `v` its caller writes, with a generated
+ * `g` = `v` where it says so, each keyed by its `id` but a tree's relation, keyed by its root fields and its drawn start
+ * (`keyOfRelation`); families between them, a tree on one relation, an ordered family or a counted one of an owner and a
+ * member, each with a fold over it or none, a sum stepping its member's `v` or a copy of it; copies, each an accumulated
+ * field `c<j>` riding one axis of one family and reading one column of the axis's target row; and mutable relations.
+ * Family `f` names its count `n<f>`, its member's group (`groupFieldsOf`: a tree's root `d<f>`, `d<f>p` and drawn
+ * parent `o<f>`, the parent's start; the owner's root `o<f>d`, `o<f>dp` and start `o<f>` where its owner is a tree's
+ * relation; else the owner's id `o<f>`), an ordered family's or a tree's index `i<f>` and a fold's end `s<f>`; a tree's
+ * interval is `start` and `end`, and each root's parent is its own start, 0. A tree's root is two texts, pantry's
+ * (package, path): a package shared by a third of the roots and a path of its own (`rootValuesOf`).
  *
  * The reference verdict (`verdictOf`) is a model of the fill order written apart from the engine's analysis
  * (analysis/theory/fill.ts), over the specification's own names: the stage at which a write fills each column of a row
@@ -36,6 +39,7 @@ import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from 
 import type { ChangedColumn, DerivedReader, FamilyName } from "#compiler/core/causes.ts"
 import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { type AnyFamily, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
 import { generatedField, generatedRelation, relation } from "#compiler/schema/relation.ts"
 import {
 	containedBuilder,
@@ -115,9 +119,26 @@ export interface FillSpec {
 /** The specification's names: relation `i`, family `f`'s fields, copy `j`'s field. */
 export const relationName = (i: number): string => `R${i}`
 const countName = (f: number): string => `n${f}`
-const groupName = (f: number): string => `o${f}`
-const indexName = (f: number): string => `i${f}`
-const rootName = (f: number): string => `d${f}`
+export const groupName = (f: number): string => `o${f}`
+/** Family `f`'s member's fields naming its owner's root, where its owner is a tree's relation keyed by its root and start. */
+const groupRootNames = (f: number): readonly [string, string] => [`o${f}d`, `o${f}dp`]
+export const indexName = (f: number): string => `i${f}`
+export const rootName = (f: number): string => `d${f}`
+/** Tree `f`'s second root field, beside `d<f>`: a tree is keyed by (d<f>, d<f>p, start), pantry's (package, path, start). */
+const rootPathName = (f: number): string => `d${f}p`
+
+/** Tree `f`'s root fields, in key order. */
+export const rootFieldsOf = (f: number): Arr.NonEmptyReadonlyArray<string> => [
+	rootName(f),
+	rootPathName(f)
+]
+
+/** The text a tree root's fields hold, from its row's id: a package shared by a third of the roots, and a path its own. */
+export const rootValuesOf = (id: number): readonly [string, string] => [`p${id % 3}`, `q${id}`]
+
+/** A tree root's root fields and their values, as its fact states them and every node of its tree holds them. */
+export const rootEntries = (f: number, id: number): ReadonlyArray<readonly [string, string]> =>
+	Arr.zip(rootFieldsOf(f), rootValuesOf(id))
 const foldName = (f: number): string => `s${f}`
 const copyName = (j: number): string => `c${j}`
 
@@ -131,12 +152,13 @@ const stepField = (spec: FillSpec, f: number): string => {
 	return copy === undefined ? "v" : copyName(copy)
 }
 
-const familyAt = (spec: FillSpec, f: number): FamilySpec => defined(spec.families[f], `family ${f}`)
+export const familyAt = (spec: FillSpec, f: number): FamilySpec =>
+	defined(spec.families[f], `family ${f}`)
 const copyAt = (spec: FillSpec, j: number): CopySpec => defined(spec.copies[j], `copy ${j}`)
 export const relationAt = (spec: FillSpec, r: number): RelationSpec =>
 	defined(spec.relations[r], `relation ${r}`)
 
-const isSequence = (family: FamilySpec): boolean => family.kind !== "counted"
+export const isSequence = (family: FamilySpec): boolean => family.kind !== "counted"
 
 /** The relation a copy's field is on: the member's for the owner and predecessor axes, the owner's for the last. */
 const holderOf = (spec: FillSpec, copy: CopySpec): number => {
@@ -151,10 +173,34 @@ const sourceRelationOf = (spec: FillSpec, copy: CopySpec): number => {
 }
 
 /** The tree on relation `r`, its family's index; none when `r` is no tree's relation. */
-const treeOn = (spec: FillSpec, r: number): number | undefined =>
+export const treeOn = (spec: FillSpec, r: number): number | undefined =>
 	Option.getOrUndefined(
 		Arr.findFirstIndex(spec.families, (x) => x.kind === "tree" && x.owner === r)
 	)
+
+/**
+ * Relation `r`'s primary key: a tree's relation is keyed by its root fields and its drawn start (the tree's T1), every
+ * other relation by its uuid `id`.
+ */
+export const keyOfRelation = (spec: FillSpec, r: number): Arr.NonEmptyReadonlyArray<string> => {
+	const tree = treeOn(spec, r)
+	return tree === undefined ? ["id"] : [...rootFieldsOf(tree), "start"]
+}
+
+/**
+ * Family `f`'s group on its member, the fields that pair with its owner's primary key: a tree's root fields and its
+ * drawn parent, the parent's start; a family whose owner is a tree's relation, the owner's root (`o<f>d`, `o<f>dp`) and
+ * its start (`o<f>`); any other, the owner's id (`o<f>`).
+ */
+export const groupFieldsOf = (spec: FillSpec, f: number): Arr.NonEmptyReadonlyArray<string> => {
+	const family = familyAt(spec, f)
+	if (family.kind === "tree") {
+		return [...rootFieldsOf(f), groupName(f)]
+	}
+	return treeOn(spec, family.owner) === undefined
+		? [groupName(f)]
+		: [...groupRootNames(f), groupName(f)]
+}
 
 /** The field a source names on its row. */
 const sourceField = (source: CopySource): string => {
@@ -239,7 +285,8 @@ export const sourcesFor = (
 		switch (axis) {
 			case "owner":
 				return (
-					(s.kind === "count" && s.family === f) || (family.kind === "tree" && s.kind === "start")
+					(s.kind === "count" && s.family === f) ||
+					(treeOn(spec, family.owner) !== undefined && s.kind === "start")
 				)
 			case "predecessor":
 			case "last":
@@ -728,6 +775,9 @@ type BuiltRelation = Relation<
 /** The row a selection's predicate reads, as a check over a relation built at run time reads it. */
 type Row = RowScalars<BuiltRelation>
 
+/** A tree root's text field, as pantry's package and path are: at most 16 bytes, so every key over it is bounded. */
+const rootText = str.bytes(16, str.regex("^.*$", "su"))
+
 /** The fields of relation `r` of a specification, in declared order. */
 const fieldsOf = (spec: FillSpec, r: number): Record<string, FieldBase> => {
 	const fields: Record<string, FieldBase> = { id: uuid, v: pg.bigint }
@@ -742,14 +792,23 @@ const fieldsOf = (spec: FillSpec, r: number): Record<string, FieldBase> => {
 			}
 		}
 		if (family.member === r) {
-			fields[groupName(f)] = uuid
-			if (family.kind !== "counted") {
-				fields[indexName(f)] = drawn(natural)
-			}
 			if (family.kind === "tree") {
-				fields[rootName(f)] = uuid
+				for (const name of rootFieldsOf(f)) {
+					fields[name] = rootText
+				}
+				fields[groupName(f)] = drawn(natural)
 				fields["start"] = drawn(natural)
 				fields["end"] = drawn(natural)
+			} else if (treeOn(spec, family.owner) === undefined) {
+				fields[groupName(f)] = uuid
+			} else {
+				for (const name of groupRootNames(f)) {
+					fields[name] = rootText
+				}
+				fields[groupName(f)] = natural
+			}
+			if (family.kind !== "counted") {
+				fields[indexName(f)] = drawn(natural)
 			}
 		}
 	}
@@ -771,17 +830,21 @@ const relationValue = (spec: FillSpec, r: number): AnyRelation => {
 		? generatedRelation(
 				name,
 				fields,
-				["id"],
+				keyOfRelation(spec, r),
 				(row) => ({ g: generatedField(pg.bigint, row["v"], []) }),
 				[]
 			)
-		: relation(name, fields, ["id"], [])
+		: relation(name, fields, keyOfRelation(spec, r), [])
 }
 
-/** The schema of a specification under any declared name, with its relation values by name. */
+/**
+ * The schema of a specification under any declared name, with its relation values by name, and each family's statement
+ * by its index, whose law a refusal at the family's own keys names.
+ */
 interface BuiltFill {
 	readonly relations: Readonly<Record<string, AnyRelation>>
 	readonly statements: ReadonlyArray<Statement>
+	readonly families: ReadonlyArray<AnyFamily>
 	readonly rename: (declared: string) => ReturnType<typeof schemaOf>
 }
 
@@ -797,20 +860,20 @@ const treeMembers = (t: AnyRelation) =>
 
 /** Family `f`'s statement of its kind over its member and its slots. */
 const familyStatement = (
-	kind: FamilyKind,
+	spec: FillSpec,
 	f: number,
 	member: AnyRelation,
 	slots: unknown
 ): AnyFamily => {
-	switch (kind) {
+	switch (familyAt(spec, f).kind) {
 		case "tree":
 			return treeBuilder(onBuilder(member, [groupName(f), indexName(f)]), slots, {
-				root: rootName(f)
+				root: rootFieldsOf(f)
 			})
 		case "ordered":
-			return orderedBuilder(onBuilder(member, [groupName(f), indexName(f)]), slots)
+			return orderedBuilder(onBuilder(member, [...groupFieldsOf(spec, f), indexName(f)]), slots)
 		case "counted":
-			return countedBuilder(onBuilder(member, [groupName(f)]), slots)
+			return countedBuilder(onBuilder(member, groupFieldsOf(spec, f)), slots)
 	}
 }
 
@@ -819,11 +882,13 @@ export const buildFill = (spec: FillSpec): BuiltFill => {
 	const values = Arr.map(spec.relations, (_, r) => relationValue(spec, r))
 	const valueAt = (r: number): AnyRelation => defined(values[r], `the relation value ${r}`)
 	const statements: Array<Statement> = []
+	const families: Array<AnyFamily> = []
 	for (const [f, family] of spec.families.entries()) {
 		const owner = valueAt(family.owner)
 		const member = valueAt(family.member)
 		const slots = finBuilder(owner, countName(f))
-		const stated = familyStatement(family.kind, f, member, slots)
+		const stated = familyStatement(spec, f, member, slots)
+		families.push(stated)
 		statements.push(stated)
 		if (family.fold !== "none") {
 			statements.push(
@@ -832,9 +897,11 @@ export const buildFill = (spec: FillSpec): BuiltFill => {
 					family.fold === "sum" ? monoids.sum : monoids.count,
 					onBuilder(
 						member,
-						family.fold === "sum" ? [groupName(f), stepField(spec, f)] : [groupName(f)]
+						family.fold === "sum"
+							? [...groupFieldsOf(spec, f), stepField(spec, f)]
+							: groupFieldsOf(spec, f)
 					),
-					onBuilder(owner, ["id", foldName(f)])
+					onBuilder(owner, [...keyOfRelation(spec, family.owner), foldName(f)])
 				)
 			)
 		}
@@ -845,32 +912,30 @@ export const buildFill = (spec: FillSpec): BuiltFill => {
 		const member = valueAt(family.member)
 		const side = family.kind === "tree" ? treeMembers(member) : member
 		const field = sourceField(copy.source)
+		const group = groupFieldsOf(spec, copy.family)
+		const key = keyOfRelation(spec, family.owner)
 		switch (copy.axis) {
 			case "owner":
 				statements.push(
 					containedBuilder(
-						onBuilder(side, [groupName(copy.family), copyName(j)]),
-						onBuilder(owner, ["id", field])
+						onBuilder(side, [...group, copyName(j)]),
+						onBuilder(owner, [...key, field])
 					)
 				)
 				break
 			case "predecessor":
 				statements.push(
 					containedBuilder(
-						onBuilder(side, [
-							groupName(copy.family),
-							predBuilder(indexName(copy.family)),
-							copyName(j)
-						]),
-						onBuilder(side, [groupName(copy.family), indexName(copy.family), field])
+						onBuilder(side, [...group, predBuilder(indexName(copy.family)), copyName(j)]),
+						onBuilder(side, [...group, indexName(copy.family), field])
 					)
 				)
 				break
 			case "last":
 				statements.push(
 					containedBuilder(
-						onBuilder(owner, ["id", predBuilder(countName(copy.family)), copyName(j)]),
-						onBuilder(side, [groupName(copy.family), indexName(copy.family), field])
+						onBuilder(owner, [...key, predBuilder(countName(copy.family)), copyName(j)]),
+						onBuilder(side, [...group, indexName(copy.family), field])
 					)
 				)
 				break
@@ -885,6 +950,7 @@ export const buildFill = (spec: FillSpec): BuiltFill => {
 	return {
 		relations,
 		statements,
+		families,
 		rename: (declared) => schemaOf(declared, relations, statements)
 	}
 }
@@ -1019,7 +1085,10 @@ export const fullInstance = (spec: FillSpec): ReadonlyArray<InstanceRow> =>
 	)
 
 /** A row's membership of family `f`: its owner and its slot; none when it is no member of `f`. */
-const membershipIn = (row: InstanceRow, f: number): InstanceRow["memberOf"][number] | undefined =>
+export const membershipIn = (
+	row: InstanceRow,
+	f: number
+): InstanceRow["memberOf"][number] | undefined =>
 	Option.getOrUndefined(Arr.findFirst(row.memberOf, (m) => m.family === f))
 
 /** The uuid an instance's row `id` is written as. */
@@ -1027,7 +1096,7 @@ export const uuidOfRow = (id: number): string =>
 	`00000000-0000-4000-8000-${pipe(id.toString(16), Str.padStart(12, "0"))}`
 
 /** A row's fields as the reference writer fills them, by name: a uuid's text, every number a bigint. */
-type WrittenRow = Readonly<Record<string, string | bigint>>
+export type WrittenRow = Readonly<Record<string, string | bigint>>
 
 /**
  * Every field of every row of an instance, as the reference writer fills it: see the module's header. A tree's root
@@ -1137,14 +1206,31 @@ export const writtenRows = (
 					continue
 				}
 				const up = membership(row, f)
-				fields[groupName(f)] = uuidOfRow(up === undefined ? row.id : up.owner)
-				if (family.kind !== "counted") {
-					fields[indexName(f)] = BigInt(up?.slot ?? 0)
-				}
 				if (family.kind === "tree") {
-					fields[rootName(f)] = uuidOfRow(rootOf(row, f).id)
+					for (const [name, value] of rootEntries(f, rootOf(row, f).id)) {
+						fields[name] = value
+					}
+					fields[groupName(f)] =
+						up === undefined ? 0n : sourceValue(rowOf(up.owner), { kind: "start" })
 					fields["start"] = sourceValue(row, { kind: "start" })
 					fields["end"] = sourceValue(row, { kind: "end" })
+				} else {
+					const ownerTree = treeOn(spec, family.owner)
+					if (ownerTree === undefined) {
+						fields[groupName(f)] = uuidOfRow(up === undefined ? row.id : up.owner)
+					} else {
+						const owner = up === undefined ? row : rowOf(up.owner)
+						for (const [name, value] of Arr.zip(
+							groupRootNames(f),
+							rootValuesOf(rootOf(owner, ownerTree).id)
+						)) {
+							fields[name] = value
+						}
+						fields[groupName(f)] = sourceValue(owner, { kind: "start" })
+					}
+				}
+				if (family.kind !== "counted") {
+					fields[indexName(f)] = BigInt(up?.slot ?? 0)
 				}
 			}
 			for (const [j, copy] of spec.copies.entries()) {
@@ -1169,24 +1255,58 @@ type Fact = { readonly [field: string]: unknown }
 export const instanceFacts = (
 	spec: FillSpec,
 	rows: ReadonlyArray<InstanceRow>
+): ReadonlyMap<number, ReadonlyArray<Fact>> => factsAmong(spec, rows, rows)
+
+/**
+ * The group fields of family `f` naming `owner`, as a fact states them: the values of the owner's primary key, its id
+ * or its root and start, as the reference writer fills them in `written`.
+ */
+export const groupEntries = (
+	spec: FillSpec,
+	written: ReadonlyMap<number, WrittenRow>,
+	f: number,
+	owner: number
+): ReadonlyArray<readonly [string, string | bigint]> => {
+	const row = defined(written.get(owner), `the owner ${owner}`)
+	return Arr.zip(
+		groupFieldsOf(spec, f),
+		Arr.map(keyOfRelation(spec, familyAt(spec, f).owner), (k) =>
+			defined(row[k], `the owner's ${k}`)
+		)
+	)
+}
+
+/**
+ * The facts a ChangeSet inserts of `stated`, rows of the instance `rows`, by relation (instanceFacts): each counted
+ * family's group the values of its owner's key in `rows`.
+ */
+const factsAmong = (
+	spec: FillSpec,
+	rows: ReadonlyArray<InstanceRow>,
+	stated: ReadonlyArray<InstanceRow>
 ): ReadonlyMap<number, ReadonlyArray<Fact>> => {
+	const written = writtenRows(spec, rows)
 	const factOf = (row: InstanceRow, nested: boolean): Fact => {
 		const fact: Record<string, unknown> = { id: uuidOfRow(row.id), v: row.v }
 		for (const m of row.memberOf) {
 			if (familyAt(spec, m.family).kind === "counted") {
-				fact[groupName(m.family)] = uuidOfRow(m.owner)
+				for (const [field, value] of groupEntries(spec, written, m.family, m.owner)) {
+					fact[field] = value
+				}
 			}
 		}
 		for (const [f, family] of spec.families.entries()) {
 			if (family.kind === "tree" && family.member === row.relation && !nested) {
-				fact[rootName(f)] = uuidOfRow(row.id)
+				for (const [name, value] of rootEntries(f, row.id)) {
+					fact[name] = value
+				}
 			}
 			if (family.owner !== row.relation || family.kind === "counted") {
 				continue
 			}
 			fact[countName(f)] = Arr.map(
 				Arr.sort(
-					Arr.filter(rows, (r) => membershipIn(r, f)?.owner === row.id),
+					Arr.filter(stated, (r) => membershipIn(r, f)?.owner === row.id),
 					Order.mapInput(Order.Number, (r: InstanceRow) => membershipIn(r, f)?.slot ?? 0)
 				),
 				(member) => factOf(member, true)
@@ -1195,7 +1315,7 @@ export const instanceFacts = (
 		return fact
 	}
 	const out = new Map<number, Array<Fact>>()
-	for (const row of rows) {
+	for (const row of stated) {
 		const nested = Arr.some(row.memberOf, (m) => familyAt(spec, m.family).kind !== "counted")
 		if (nested) {
 			continue
@@ -1982,12 +2102,20 @@ export interface FollowUpMember {
 	readonly facts: ReadonlyArray<Fact>
 }
 
-/** A row's caller fields as a fact states them: its `v`, and the group field of every family it is a member of. */
-const memberFact = (row: InstanceRow, v: bigint): Fact =>
+/**
+ * A row's caller fields as a fact states them: its `v`, and the group fields of every family it is a member of, its
+ * owner's key as the reference writer fills it in `written`.
+ */
+const memberFact = (
+	spec: FillSpec,
+	written: ReadonlyMap<number, WrittenRow>,
+	row: InstanceRow,
+	v: bigint
+): Fact =>
 	Rec.fromEntries([
 		["id", uuidOfRow(row.id)] as const,
 		["v", v] as const,
-		...Arr.map(row.memberOf, (m) => [groupName(m.family), uuidOfRow(m.owner)] as const)
+		...Arr.flatMap(row.memberOf, (m) => groupEntries(spec, written, m.family, m.owner))
 	])
 
 /**
@@ -2405,11 +2533,13 @@ export const followUpMembers = (
 	const rowOf = (id: number): InstanceRow =>
 		defined(Arr.findFirst(rows, (r) => r.id === id).pipe(Option.getOrUndefined), `the row ${id}`)
 	const row = rowOf(followUp.row)
+	const written = writtenRows(spec, rows)
+	const memberFactOf = (x: InstanceRow, v: bigint) => memberFact(spec, written, x, v)
 	return [
 		...Option.match(followUp.put, {
 			onNone: (): ReadonlyArray<FollowUpMember> => [],
 			onSome: (v): ReadonlyArray<FollowUpMember> => [
-				{ relation: followUp.owner, op: "put", facts: [memberFact(row, v)] }
+				{ relation: followUp.owner, op: "put", facts: [memberFactOf(row, v)] }
 			]
 		}),
 		...Arr.match(followUp.inserted, {
@@ -2418,7 +2548,7 @@ export const followUpMembers = (
 				{
 					relation: inserted[0].relation,
 					op: "insert",
-					facts: instanceFacts(spec, inserted).get(inserted[0].relation) ?? []
+					facts: factsAmong(spec, [...rows, ...inserted], inserted).get(inserted[0].relation) ?? []
 				}
 			]
 		}),
@@ -2426,13 +2556,13 @@ export const followUpMembers = (
 			onNone: (): ReadonlyArray<FollowUpMember> => [],
 			onSome: ({ id }): ReadonlyArray<FollowUpMember> => {
 				const x = rowOf(id)
-				return [{ relation: x.relation, op: "delete", facts: [memberFact(x, x.v)] }]
+				return [{ relation: x.relation, op: "delete", facts: [memberFactOf(x, x.v)] }]
 			}
 		}),
 		...Option.match(followUp.appended, {
 			onNone: (): ReadonlyArray<FollowUpMember> => [],
 			onSome: (a): ReadonlyArray<FollowUpMember> => [
-				{ relation: a.relation, op: "put", facts: [memberFact(a, a.v)] }
+				{ relation: a.relation, op: "put", facts: [memberFactOf(a, a.v)] }
 			]
 		}),
 		...Option.match(followUp.moved, {
@@ -2445,7 +2575,7 @@ export const followUpMembers = (
 						m.family === family ? { ...m, owner: followUp.row } : m
 					)
 				}
-				return [{ relation: x.relation, op: "put", facts: [memberFact(under, x.v)] }]
+				return [{ relation: x.relation, op: "put", facts: [memberFactOf(under, x.v)] }]
 			}
 		})
 	]

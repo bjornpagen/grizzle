@@ -49,9 +49,9 @@ import { monoidSpecs } from "#compiler/ir/monoid.ts"
  * laws, so a tree, a fold or a merged copy adds no foreign key of its own. It is exact because an axis's target key
  * terms are a key of its target side: a source row meets at most one target row.
  *
- * Every drawn field is named by one family or tree statement, as its index, count, start or end, and every accumulated
- * field by one statement that fills it: a fold, as an accumulator or an end, or one containment riding an axis, as a
- * carried source column. `Namings` holds both counts; the theory refuses a field named by none or two.
+ * Every drawn field is named by one family or tree statement, as its index, count, parent, start or end, and every
+ * accumulated field by one statement that fills it: a fold, as an accumulator or an end, or one containment riding an
+ * axis, as a carried source column. `Namings` holds both counts; the theory refuses a field named by none or two.
  */
 
 /**
@@ -63,14 +63,20 @@ export interface FamilyShape extends Omit<Family, "axes" | "folds" | "owner" | "
 	readonly member: RelationInfo
 }
 
-/** A tree's members: every row but its root, its own columns beside them. */
+/** A tree's members: every row but its roots, its own fields beside them. */
 export type TreeMembers = { readonly kind: "tree" } & TreeShape
 
-/** A tree's family shape, its members the tree's. */
-export type TreeFamilyShape = FamilyShape & { readonly members: TreeMembers }
+/** A tree's index, its `at`: a field, as every sequence's is. */
+type FieldIndex = Extract<NativeColumn, { readonly kind: "field" }>
+
+/** A tree's family shape, its members the tree's and its index its `at`. */
+export type TreeFamilyShape = FamilyShape & {
+	readonly members: TreeMembers
+	readonly index: FieldIndex
+}
 
 /** A tree's family, resolved (LawDetail's tree arm). */
-export type TreeFamily = Family & { readonly members: TreeMembers }
+export type TreeFamily = Family & { readonly members: TreeMembers; readonly index: FieldIndex }
 
 /** A family statement as ownership admitted it. */
 export type FamilyStatement = Extract<StatementDesc, { readonly kind: "family" }>
@@ -82,10 +88,9 @@ export type FoldStatement = Extract<StatementDesc, { readonly kind: "fold" }>
 /** fin(O, n), as a refusal and a display spell a family. */
 export const slotsText = (id: FamilyId): string => `fin(${id.owner}, ${id.count})`
 
-/** A drawn law column of a family at the naming door: ‹n›, a counted family's ‹i›, a tree's ‹ps›, by the family's law. */
+/** A drawn law column of a family at the naming door: ‹n›, or a counted family's ‹i›, by the family's law. */
 const drawnColumn = (
-	kind: Extract<LawColumnStatement, { readonly owner: string }>["kind"] &
-		("copy" | "index" | "parentStart"),
+	kind: Extract<LawColumnStatement, { readonly owner: string }>["kind"] & ("copy" | "index"),
 	id: FamilyId,
 	family: Identifier<"law">
 ): ColumnIdent =>
@@ -121,10 +126,7 @@ export const familyStated = (
 	id: f.id,
 	member: f.member.name,
 	terms: [...f.group.map((p) => p.member), ...(f.index.kind === "field" ? [f.index.field] : [])],
-	kind:
-		f.members.kind === "tree"
-			? { kind: "tree", root: f.members.root }
-			: { kind: "family", order: orderOf(f) }
+	kind: f.members.kind === "tree" ? { kind: "tree" } : { kind: "family", order: orderOf(f) }
 })
 
 /** A family's or tree's law's identifier, as the theory names the law (theory.ts lawIdentityOf). */
@@ -216,7 +218,7 @@ const everyMember = (side: SideDesc, loc: SourceLoc, rule: Refused): void => {
 export const familySides: { readonly [O in "ordered" | "counted" | "tree"]: Refused } = {
 	ordered: "an ordered family's side is its owner's key, then its drawn index",
 	counted: "a counted family's side is its owner's key",
-	tree: "a tree is a family of T over itself, on(T, parent, at), with drawn start and end"
+	tree: "a tree is a family of T over itself, on(T, parent, at), keyed by its root fields then start, with drawn parent, start and end"
 }
 
 /** The shape of `ordered(on(F, g…, i), fin(O, n))` or `counted(on(F, g…), fin(O, n))`. */
@@ -270,9 +272,9 @@ export const familyShape = (
 }
 
 /**
- * The shape of `tree(on(T, "parent", "at"), fin(T, n), { root: r })`: the ordered family of T over itself, keyed by
- * T's one primary-key field, whose members are every row but the root, with T's drawn `start` and `end`, its caller
- * root field r, and ‹ps›, each member's parent's start.
+ * The shape of `tree(on(T, "parent", "at"), fin(T, n), { root: [r…] })`: the ordered family of T over itself whose
+ * group is its root fields r…, then its drawn `parent`, paired with T's primary key, r… then its drawn `start`, so each
+ * member names its parent in its own tree; whose members are every row but each root, with T's drawn `start` and `end`.
  */
 export const treeShape = (
 	s: TreeStatement,
@@ -281,23 +283,16 @@ export const treeShape = (
 	const loc = s.loc
 	everyMember(s.member, loc, familySides.tree)
 	const t = ordinary(relations, s.member.relation, "member", loc)
-	const [key, ...more] = t.primaryFields
 	const [parentTerm, atTerm, ...extra] = s.member.terms
-	if (s.slots.owner !== t.name || more.length > 0 || atTerm === undefined || extra.length > 0) {
+	if (
+		s.slots.owner !== t.name ||
+		parentTerm === undefined ||
+		atTerm === undefined ||
+		extra.length > 0
+	) {
 		return refuseNamed(loc, familySides.tree)
 	}
-	const parent = fieldTerm(t, parentTerm, "a tree's side", loc)
-	if (parent === key) {
-		return refuse(
-			"MalformedDescription",
-			loc,
-			`a tree's parent field beside its key; ${t.name}.${parent.name} is its key`
-		)
-	}
-	const at = drawnField(t, fieldTerm(t, atTerm, "a tree's side", loc), "index", loc)
-	const id: FamilyId = { owner: t.name, count: s.slots.count }
-	const count = drawnField(t, fieldOf(t, s.slots.count, loc), "count", loc)
-	/** A tree's interval field, drawn by its one depth-first walk. */
+	/** A tree's interval field by its name, drawn by its one depth-first walk. */
 	const interval = (name: "start" | "end"): LawField => {
 		const f = t.fields.find((g) => g.name === name)
 		if (f?.writing.kind !== "drawn") {
@@ -305,13 +300,35 @@ export const treeShape = (
 		}
 		return f
 	}
-	const root = fieldOf(t, s.root, loc)
-	if (root.writing.kind !== "caller") {
-		return refuseNamed(loc, "a tree's root field is a caller's field of its relation")
+	const start = interval("start")
+	const root = mapNonEmpty(s.root, (name) => {
+		const f = fieldOf(t, name, loc)
+		return f.writing.kind === "caller"
+			? f
+			: refuseNamed(loc, "a tree's root fields are distinct caller fields of its relation")
+	})
+	const key = [...root, start]
+	if (
+		t.primaryFields.length !== key.length ||
+		!t.primaryFields.every((k, j) => k.name === key[j]?.name)
+	) {
+		return refuseNamed(loc, familySides.tree)
 	}
-	const group: TreeFamilyShape["group"] = [{ member: parent, owner: key }]
-	const index: NativeColumn = { kind: "field", field: at }
-	const law = familyLaw({ id, member: t.name, terms: [parent, at], kind: { kind: "tree", root } })
+	const parent = drawnField(t, fieldTerm(t, parentTerm, "a tree's side", loc), "parent", loc)
+	const at = drawnField(t, fieldTerm(t, atTerm, "a tree's side", loc), "index", loc)
+	const id: FamilyId = { owner: t.name, count: s.slots.count }
+	const count = drawnField(t, fieldOf(t, s.slots.count, loc), "count", loc)
+	const group: TreeFamilyShape["group"] = appendNonEmpty(
+		mapNonEmpty(root, (r) => ({ member: r, owner: r })),
+		{ member: parent, owner: start }
+	)
+	const index: FieldIndex = { kind: "field", field: at }
+	const law = familyLaw({
+		id,
+		member: t.name,
+		terms: [...group.map((p) => p.member), at],
+		kind: { kind: "tree" }
+	})
 	return Object.freeze({
 		id,
 		law,
@@ -324,15 +341,16 @@ export const treeShape = (
 		members: Object.freeze({
 			kind: "tree",
 			root,
-			start: interval("start"),
-			end: interval("end"),
-			parentStart: drawnColumn("parentStart", id, law)
+			parent,
+			start,
+			end: interval("end")
 		})
 	})
 }
 
 /** Whether a family's shape is a tree's. */
-export const isTree = (f: FamilyShape): f is TreeFamilyShape => f.members.kind === "tree"
+export const isTree = (f: FamilyShape): f is TreeFamilyShape =>
+	f.members.kind === "tree" && f.index.kind === "field"
 
 /**
  * The predicate that selects a family's members: none for every fact, `start > 0` for a tree's every row but its root
@@ -870,7 +888,7 @@ export class Namings {
 						"MalformedDescription",
 						at,
 						w === "drawn"
-							? `a drawn field named by one family or tree, as its index, count, start or end; ${r.name}.${f.name} is named by none`
+							? `a drawn field named by one family or tree, as its index, count, parent, start or end; ${r.name}.${f.name} is named by none`
 							: unridden === undefined
 								? `an accumulated field filled by one fold or one containment along a family axis; ${r.name}.${f.name} is filled by none`
 								: `an accumulated field carried along a family axis; ${unridden} carries ${r.name}.${f.name} but rides no axis: its sides begin with no family axis's key`
@@ -890,7 +908,10 @@ export class Namings {
 	}
 }
 
-/** The drawn fields a family or tree statement names: its count, an ordered family's index, a tree's start and end. */
+/**
+ * The drawn fields a family or tree statement names: its count, an ordered family's index, a tree's parent, start and
+ * end.
+ */
 export const drawnNamed = (
 	f: FamilyShape
 ): ReadonlyArray<{ readonly relation: RelationInfo; readonly field: LawField }> => [
@@ -898,6 +919,7 @@ export const drawnNamed = (
 	...(f.index.kind === "field" ? [{ relation: f.member, field: f.index.field }] : []),
 	...(f.members.kind === "tree"
 		? [
+				{ relation: f.member, field: f.members.parent },
 				{ relation: f.member, field: f.members.start },
 				{ relation: f.member, field: f.members.end }
 			]

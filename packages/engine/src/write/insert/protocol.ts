@@ -9,6 +9,7 @@ import {
 } from "#compiler/core/nonempty.ts"
 import { rowEq, rowNe, typedEq } from "#compiler/ir/compare.ts"
 import { fieldNames, type LawField, type RelationInfo, type SpanField } from "#compiler/ir/law.ts"
+import type { Heading } from "#compiler/ir/rel.ts"
 import type { SerialClass } from "#compiler/ir/write.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
 import type {
@@ -51,7 +52,7 @@ import {
 } from "#compiler/sql/build.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
 import { arbiterLaw, type WrittenRelation } from "#compiler/write/frontend/compile.ts"
-import { payloadOf, primaryKeyShape } from "#compiler/write/frontend/targets.ts"
+import { primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import {
 	inputGuarantees,
 	inputFamily,
@@ -160,7 +161,7 @@ type ProbeRaise =
 /** What the classification after an insert reads of the insert's spec. */
 type ClassifySpec = Pick<InsertSpec, "relation" | "serial" | "input" | "of">
 
-/** An insert's variant, by its serial class and the relation's shape, with what it reads of the
+/** An insert's variant, by its serial class, the relation's shape and what its facts state, with what it reads of the
  * shape: a spanKey insert's span key field, which its classification compares by overlap, and a protocol insert's
  * payload, which its verdict rows compare. */
 export type InsertShape =
@@ -169,18 +170,18 @@ export type InsertShape =
 	| { readonly variant: "spanKey"; readonly span: SpanField }
 	| { readonly variant: "protocol"; readonly payload: NonEmptyReadonlyArray<LawField> }
 
-export const insertShape = (relation: RelationInfo, serial: SerialClass): InsertShape => {
-	if (serial.kind === "generated") {
-		return { variant: "generated" }
-	}
+/** The shape of an insert of complete facts that state `stated` (input.ts inputStated): its payload is every field they
+ * state beside the key, in heading order, the caller's (frontend/targets.ts payloadOf) and a nested owner's sequences'
+ * counts and ends, which its facts state with the members they nest; a pure set where they state none. */
+const insertShape = (relation: RelationInfo, stated: Heading): InsertShape => {
 	const key = primaryKeyShape(relation)
 	if (key.kind === "span") {
 		return { variant: "spanKey", span: key.span }
 	}
-	const payload = payloadOf(relation)
-	return payload.kind === "pureSet"
-		? { variant: "pureSet" }
-		: { variant: "protocol", payload: payload.fields }
+	const payload = relation.heading.filter(
+		(f) => !relation.primaryFields.includes(f) && stated.some((c) => c.name === f.name)
+	)
+	return isNonEmpty(payload) ? { variant: "protocol", payload } : { variant: "pureSet" }
 }
 
 /**
@@ -227,32 +228,31 @@ const statedShape = (
 	return isNonEmpty(payload) ? { variant: "protocol", payload } : { variant: "pureSet" }
 }
 
-/** The shape of an insert of class `serial` into `relation`: a generated addition's at its stated arbiter
- * (`statedShape`), a plain INSERT where it has none, and complete facts' by the relation alone (`insertShape`). */
-const shapeOf = (relation: WrittenRelation, serial: SerialClass): InsertShape => {
+/** The shape of an insert of class `serial` into `relation` whose facts state `stated` (input.ts inputStated): a
+ * generated addition's at its stated arbiter (`statedShape`), a plain INSERT where it has none, and complete facts' by
+ * the relation and what they state (`insertShape`). */
+const shapeOf = (relation: WrittenRelation, serial: SerialClass, stated: Heading): InsertShape => {
 	if (serial.kind === "complete") {
-		return insertShape(relation, serial)
+		return insertShape(relation, stated)
 	}
-	const stated = generatedArbiter(relation.uniques, serial.drawn)
-	return stated === undefined ? { variant: "generated" } : statedShape(relation, serial, stated)
+	const arbiter = generatedArbiter(relation.uniques, serial.drawn)
+	return arbiter === undefined ? { variant: "generated" } : statedShape(relation, serial, arbiter)
 }
 
 /**
  * Whether an insert of class `serial` realizing `of` into `relation` writes a met side, the stored facts its insertion
- * met and did not refuse (`delta.met`): an insertion that arbitrates at a scalar key, the protocol or a pure set, a
- * generated addition at its stated arbiter among them. A put's insert half meets only its own no-change or a concurrent
- * change, a plain INSERT meets nothing, and a span primary key's exclusion constraint takes only ON CONFLICT DO NOTHING
- * ON CONSTRAINT, so no statement tells a fact it met from one it made. The insert statement's Returning is read from it,
- * and so is every plan that asks which statement writes a met side.
+ * met and did not refuse (`delta.met`): an insertion that arbitrates at a scalar key, the protocol or a pure set
+ * whatever its facts state, complete facts at a scalar primary key and a generated addition at its stated arbiter. A
+ * put's insert half meets only its own no-change or a concurrent change, a plain INSERT meets nothing, and a span
+ * primary key's exclusion constraint takes only ON CONFLICT DO NOTHING ON CONSTRAINT, so no statement tells a fact it
+ * met from one it made. The insert statement's Returning is read from it, and so is every plan that asks which
+ * statement writes a met side.
  */
-export const writesMet = (
-	relation: WrittenRelation,
-	serial: SerialClass,
-	of: InsertOf
-): boolean => {
-	const variant = shapeOf(relation, serial).variant
-	return of === "insert" && (variant === "protocol" || variant === "pureSet")
-}
+export const writesMet = (relation: WrittenRelation, serial: SerialClass, of: InsertOf): boolean =>
+	of === "insert" &&
+	(serial.kind === "complete"
+		? primaryKeyShape(relation).kind !== "span"
+		: generatedArbiter(relation.uniques, serial.drawn) !== undefined)
 
 /**
  * The verdict of a stored fact an insert meets at its arbiter key that differs from the requested fact at a field it
@@ -402,9 +402,12 @@ const arbitrationOf = (
  * membership holds (InsertEntry), and each request the INSERT neither inserted nor returned is refused by its key, a
  * row of a CTE of its own that the refusal guard reads beside the verdict rows, as an occupant that differs is and
  * never as met: a stored fact outside the entry holds its key, committed after the entry's precheck, which a retry's
- * precheck refuses on that key's law. The variant is chosen by relation and member shape alone:
+ * precheck refuses on that key's law. The variant is chosen by relation and member shape alone (`shapeOf`), the
+ * payload being every field the facts state beside the key (input.ts inputStated): the caller's, and a nested owner's
+ * sequences' counts and ends, which its facts state with the members they nest, so an owner inserted again with
+ * another sequence differs:
  *
- * - Relations with a payload: ON CONFLICT (the key) DO SELECT, as above.
+ * - Facts with a payload: ON CONFLICT (the key) DO SELECT, as above.
  * - A family owner (statement.ts Proposal, `proposalOf`): the INSERT reads only the requested facts no stored row holds
  *   the key of, `WHERE NOT EXISTS (SELECT 1 FROM <relation> s WHERE s.<key> = r1.<key>)`. A proposed row carries every
  *   count and end its input does not carry at its start, and PostgreSQL judges it by every CHECK before the arbiter
@@ -414,8 +417,8 @@ const arbitrationOf = (
  *   Those rows are read from the requested facts, `FROM r1 JOIN <relation> s ON s.<key> = r1.<key>`, so each request
  *   probes the owner's key and no insertion scans the owner. For a put, the row at a requested key is the one the put's
  *   UPDATE wrote. The arbiter stays for a concurrent commit at the key.
- * - Pure sets, whose primary key is the whole heading: ON CONFLICT (every key column) DO SELECT, every row it met an
- *   exact repeat.
+ * - Pure sets, whose facts state their key alone: ON CONFLICT (every key column) DO SELECT, every row it met an exact
+ *   repeat.
  * - Generated additions, which omit the serial fields their class draws, each taking its identity or its `uuidv7()`
  *   default: where a declared key holds none of those fields and no span, the protocol above at the first such key
  *   (unique.ts generatedArbiter), ON CONFLICT (that key) DO SELECT, its payload the fields it writes beside the key, so
@@ -512,7 +515,7 @@ export const buildInsert = (
 	const { relation, serial, input } = spec
 	const at = `insert ${relation.name}`
 	const { arbiter, stated } = arbiterOf(relation, serial)
-	const shape = shapeOf(relation, serial)
+	const shape = shapeOf(relation, serial, inputStated(input))
 	const variant: InsertVariant = shape.variant
 	/** A generated addition's verdict rows are the facts its INSERT made: a request it refuses never takes the values its
 	 * relation draws, so its own refusals, a same-key pair and the probe's, are raised at the INSERT's gate. */
@@ -1367,8 +1370,8 @@ export const buildSpanClassify = (
 	const at = `classify ${relation.name}`
 	const pk = relation.primaryFields
 	/** The fields it compares the requested facts at, the ones its input's facts state (input.ts inputStated), its key
-	 * among them: never an owner's count or end its slot carries beside them, a family's, which a stored owner holds as
-	 * its members leave it and no put of the owner sets. */
+	 * among them: never a count or end its slot carries beside them that its facts do not state, a counted family's or a
+	 * put's, which a stored owner holds as its members leave it and no put of the owner sets. */
 	const stated = inputStated(input)
 	const all = keyFirst(relation).filter((f) => stated.some((c) => c.name === f.name))
 	if (!isNonEmpty(all)) {

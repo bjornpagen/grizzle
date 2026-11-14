@@ -1189,3 +1189,110 @@ export const fallbackShape = (name: string, form: FallbackForm) => {
 		login: login(base, "app", [fallbackRole, inserter, observer], { workload: workloads })
 	}
 }
+
+const Gate = relation("Gate", { v: pg.integer }, ["v"])
+const FencedPub = relation("Pub", { v: pg.integer, s: pg.integer }, ["v"])
+const FencedPubA = relation("PubA", { v: pg.integer }, ["v"])
+const FencedPubZ = relation("PubZ", { v: pg.integer }, ["v"])
+const FencedSeen = relation("Seen", { k: pg.integer, v: pg.integer }, ["k"])
+const FencedSeenA = relation("SeenA", { k: pg.integer, v: pg.integer }, ["k"])
+const FencedSeenZ = relation("SeenZ", { k: pg.integer, v: pg.integer }, ["k"])
+
+/**
+ * G3's replace under the name `name`: a published relation a publisher deletes and inserts again, beside a learner
+ * whose rows reference it, certified READ COMMITTED by the fence its publisher's login takes (analysis/isolation
+ * certify.ts Fence). Pub(v, s) holds a field beyond its key, so the learner's key into it is DEFERRABLE INITIALLY
+ * DEFERRED, checked at the learner's COMMIT; PubA(v) and PubZ(v) hold their keys alone, so the keys into them are
+ * checked at each insert, in the learner's statement order. Every role but the publisher writes by an insert list:
+ * - `writer`: `gate(v)` inserts Gate(v);
+ * - `publisher`, writing Pub, PubA and PubZ: `replace(v, s)` deletes the stored Pub at v and inserts Pub(v, s) in one
+ *   ChangeSet, which deletes and inserts again the key v where s differs from the stored one and leaves an identical
+ *   fact as it is; `remove(v)` deletes Pub at v; `publish(v, s)` inserts Pub(v, s) where Gate(v) is absent, a read of
+ *   another call's rows, so the publisher may miss another call's write (NEGATION's case 3); `removeBoth(v)` deletes
+ *   PubA and PubZ at v, its lock taking PubA, then PubZ;
+ * - `learner`: `see(k, v)` inserts Seen(k, v); `za(k, v)` inserts SeenZ(k, v), then SeenA(k, v), each checking its
+ *   publication at its insert, the order opposite to removeBoth's lock; `az(k, v)` the other way round.
+ */
+export const fencedShape = (name: string) => {
+	const stored = {
+		Gate,
+		Pub: FencedPub,
+		PubA: FencedPubA,
+		PubZ: FencedPubZ,
+		Seen: FencedSeen,
+		SeenA: FencedSeenA,
+		SeenZ: FencedSeenZ
+	} as const
+	const base = schema(name, Rec.values(stored), [
+		contained(on(FencedSeen, "v"), on(FencedPub, "v")),
+		contained(on(FencedSeenA, "v"), on(FencedPubA, "v")),
+		contained(on(FencedSeenZ, "v"), on(FencedPubZ, "v"))
+	])
+	const writer = role(base, "writer", stored, { insert: ["Gate"] })
+	const publisher = role(base, "publisher", stored, { write: ["Pub", "PubA", "PubZ"] })
+	const learner = role(base, "learner", stored, { insert: ["Seen", "SeenA", "SeenZ"] })
+	const w = writer.relations
+	const gate = ChangeSet.empty(writer).insert(
+		w.Gate,
+		query(writer).rule((r) => r.find({ v: r.param("v", pg.integer) }))
+	)
+	const p = publisher.relations
+	const storedPub = query(publisher).rule((r) => {
+		const row = v(p.Pub, "p")
+		return r
+			.match(p.Pub, row)
+			.where(r.eq(row.v, r.param("v", pg.integer)))
+			.find(row)
+	})
+	const replace = ChangeSet.empty(publisher)
+		.delete(p.Pub, storedPub)
+		.insert(
+			p.Pub,
+			query(publisher).rule((r) =>
+				r.find({ v: r.param("v", pg.integer), s: r.param("s", pg.integer) })
+			)
+		)
+	const remove = ChangeSet.empty(publisher).delete(p.Pub, storedPub)
+	const publish = ChangeSet.empty(publisher).insert(
+		p.Pub,
+		query(publisher).rule((r) =>
+			r
+				.where(r.not(p.Gate, { v: r.param("v", pg.integer) }))
+				.find({ v: r.param("v", pg.integer), s: r.param("s", pg.integer) })
+		)
+	)
+	const keyed = (relation: typeof p.PubA | typeof p.PubZ) =>
+		query(publisher).rule((r) => {
+			const row = v(relation, "p")
+			return r
+				.match(relation, row)
+				.where(r.eq(row.v, r.param("v", pg.integer)))
+				.find(row)
+		})
+	const removeBoth = ChangeSet.empty(publisher)
+		.delete(p.PubA, keyed(p.PubA))
+		.delete(p.PubZ, keyed(p.PubZ))
+	const l = learner.relations
+	const row = query(learner).rule((r) =>
+		r.find({ k: r.param("k", pg.integer), v: r.param("v", pg.integer) })
+	)
+	const see = ChangeSet.empty(learner).insert(l.Seen, row)
+	const za = ChangeSet.sequence(
+		ChangeSet.empty(learner).insert(l.SeenZ, row),
+		ChangeSet.empty(learner).insert(l.SeenA, row)
+	)
+	const az = ChangeSet.sequence(
+		ChangeSet.empty(learner).insert(l.SeenA, row),
+		ChangeSet.empty(learner).insert(l.SeenZ, row)
+	)
+	const workloads = [
+		workload(writer, { gate }),
+		workload(publisher, { replace, remove, publish, removeBoth }),
+		workload(learner, { see, za, az })
+	] as const
+	return {
+		schema: base,
+		roles: { writer, publisher, learner },
+		login: login(base, "app", [writer, publisher, learner], { workload: workloads })
+	}
+}

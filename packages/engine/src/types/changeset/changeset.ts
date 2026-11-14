@@ -1,6 +1,7 @@
 import type { Stream } from "effect"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import type { ConstraintName, GeneratedLawId, LawId } from "#compiler/core/ids.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Built, Delivering, delta, Phantom } from "#compiler/core/phantom.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import type { MonoidName, SideDesc, SlotsDesc } from "#compiler/ir/desc.ts"
@@ -176,7 +177,7 @@ type FitsAnArm<Ha, F, Seen> = F extends unknown
  * The nested members of an arm that fit no arm of their nesting: at each key where F nests its members, an array of
  * facts (AdditionIn), each member of Ha's array is held to the nesting's arms as a member fact is (UnfitArms), so a
  * member nested at any depth supplies no field beyond its relation's own written ones, such as one its nesting supplies
- * (a tree member's root field or parent, an ordered member's group) or one grizzle draws. Assignability alone checks no
+ * (a tree member's root fields, an ordered member's group) or one grizzle draws. Assignability alone checks no
  * excess field of a nested object. An array of values, a vector's, nests no fact and is no nesting.
  *
  * A member type of any depth, `children: ReadonlyArray<Member>`, meets the pair of its member type and its nesting's
@@ -265,7 +266,7 @@ type OmitEach<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
 type SequenceOf<S> = Extract<StatementsOf<S>[number], Ordered<unknown, unknown> | AnyTree>
 
 /** Any tree: Tree is covariant in what it names. */
-type AnyTree = Tree<unknown, unknown, string>
+type AnyTree = Tree<unknown, unknown, ReadonlyArray<string>>
 
 /**
  * S's sequences by owner, each under the name of the relation its slots count over and none under any other name:
@@ -285,44 +286,28 @@ type SequencesOwnedBy<S, R> = SequenceIndexOf<S>[NameOf<R>]
 /** A family's member relation. */
 type MemberRelationOf<Fa> = Fa extends { readonly family: Side<infer F> } ? F : never
 
-/** What a member's nesting supplies: an ordered member's group, a tree member's parent and root field. */
+/** What a member's nesting supplies: an ordered member's group, a tree member's root fields. */
 type NestedOf<Fa> =
 	Fa extends Ordered<
 		Side<unknown, readonly [...infer G extends ReadonlyArray<string>, AnyTerm]>,
 		unknown
 	>
 		? G[number]
-		: Fa extends Tree<
-					Side<unknown, readonly [infer P extends string, AnyTerm]>,
-					unknown,
-					infer Root
-			  >
-			? P | Root
+		: Fa extends Tree<unknown, unknown, infer Root extends ReadonlyArray<string>>
+			? Root[number]
 			: never
-
-/**
- * The parent field of R where R is a tree's: grizzle sets it, the root's to itself and a member's by its nesting. A
- * tree is a family of its relation over itself, so R's tree is among the sequences R owns.
- */
-type TreeParentOf<S, R> = TreeParent<SequencesOwnedBy<S, R>>
-
-/** A tree's parent field; of no tree, none. Distributive, so a relation that is no tree's omits nothing. */
-type TreeParent<T> =
-	T extends Tree<Side<unknown, readonly [infer P extends string, AnyTerm]>, unknown, string>
-		? P
-		: never
 
 /**
  * R's addition in S: the row its caller writes (Addition<R>), and at each count field of a sequence R owns, an ordered
  * family's or a tree's, its members nested in slot order, each the member relation's addition in S less what the
  * nesting supplies. Order is the caller's data only in a sequence, so only a sequence nests: a counted family's owner
- * and its members are their rows, a member's group key naming its owner. A tree's parent is no caller's field. A
- * relation with no drawn field owns no family and is no tree, so its addition is Addition<R>, read off R alone: a
- * schema whose statements are generic still types it.
+ * and its members are their rows, a member's group key naming its owner. A tree's parent, start and end are drawn,
+ * so no addition states them. A relation with no drawn field owns no family and is no tree, so its addition is
+ * Addition<R>, read off R alone: a schema whose statements are generic still types it.
  */
 export type AdditionIn<S, R> = [DrawnFieldOf<R>] extends [never]
 	? Addition<R>
-	: OmitEach<Addition<R>, TreeParentOf<S, R>> & {
+	: Addition<R> & {
 			readonly [Fa in SequencesOwnedBy<S, R> as CountOf<Fa>]: ReadonlyArray<
 				OmitEach<AdditionIn<S, MemberRelationOf<Fa>>, NestedOf<Fa>>
 			>
@@ -467,7 +452,9 @@ type InsertedParams<Rows> = {
  * A put or a delete of R in S that the engine cannot plan, in the order its front end refuses one (write/frontend/
  * compile.ts): a tree's row, since a tree is rewritten whole; a row whose key a field grizzle writes holds, since no
  * fact states it; then a delete of a member of an immutable owner's family, fixed when its owner was inserted, or a put
- * of an immutable family owner, whose put updates its row in place. A relation with no drawn field is no tree and owns
+ * of an immutable family owner, whose put updates its row in place; then a put or a delete of a family's member that
+ * owns a sequence, whose members are nested under its rows (MemberOwningSequence). A relation with no drawn field is no
+ * tree and owns
  * no family, and one whose caller writes every field states every key, so each test is read only where it can hold:
  * a schema whose statements are generic refuses nothing, and neither does a relation of no one name or no ordinary
  * relation, which WritableCheck refuses.
@@ -481,16 +468,80 @@ type EditCheck<S, R, Op extends "put" | "delete"> = [R] extends [AnyRelation]
 /** EditCheck of an ordinary relation of one name. */
 type EditOf<S, R, Op extends "put" | "delete"> =
 	IsTreeRow<S, R> extends true
-		? Refusal<"a tree is rewritten whole: insert its root with the whole tree nested">
+		? Op extends "delete"
+			? IsFamilyMember<S, R> extends true
+				? Refusal<"a tree whose nodes are another family's members is deleted with that family's owner">
+				: unknown
+			: Refusal<"a tree is rewritten whole: insert its root with the whole tree nested">
 		: UnstatedKey<S, R, Op> extends true
 			? Refusal<"a put or a delete names its rows by their key, and no fact states a key field grizzle writes: key the relation by fields its caller writes">
 			: Op extends "delete"
 				? IsFixedMember<S, R> extends true
 					? Refusal<"an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it">
-					: unknown
+					: MemberOwningSequence<S, R>
 				: IsImmutableOwner<S, R> extends true
 					? Refusal<"an owner's put updates its row in place, which an immutable owner refuses: declare it mutable to put it">
-					: unknown
+					: MemberOwningSequence<S, R>
+
+/**
+ * A put or a delete of a member of an ordered or a counted family of S that owns a sequence: its sequence's members are
+ * nested under its rows, which a member's edit does not reach.
+ */
+type MemberOwningSequence<S, R> =
+	IsFamilyMember<S, R> extends true
+		? [Extract<NameOf<R>, OwnerNameOf<SequenceOf<S>>>] extends [never]
+			? unknown
+			: Refusal<"a family's member that owns a sequence is written by inserting its owner with its rows nested">
+		: unknown
+
+/**
+ * The facts a delete of R in S takes: a tree's root value, which names one tree, removed whole with every row nested
+ * under its nodes; any other relation's row as its caller writes it (Written), an owner's removed with every row nested
+ * under it (UnitWrites).
+ */
+export type DeletedRow<S, R> =
+	IsTreeRow<S, R> extends true ? Pick<Written<R>, TreeRootOf<S, R> & keyof Written<R>> : Written<R>
+
+/** The root fields of R's tree in S: a tree is a family of its relation over itself, so it is among R's sequences. */
+type TreeRootOf<S, R> =
+	SequencesOwnedBy<S, R> extends infer T
+		? T extends Tree<unknown, unknown, infer Root extends ReadonlyArray<string>>
+			? Root[number]
+			: never
+		: never
+
+/**
+ * The relations a delete of R in S removes rows of besides R: the members of every family R owns, through every family
+ * they own, a tree's relation its own family's member. Seen holds the relations walked, so the walk stops at a relation
+ * met again.
+ */
+export type UnitWrites<S, R, Seen = never> =
+	Visited<R, Seen> extends true
+		? never
+		: [DrawnFieldOf<R>] extends [never]
+			? never
+			: MemberRelationOf<FamiliesOwnedBy<S, R>> extends infer M
+				? M extends unknown
+					? NameOf<M> | UnitWrites<S, M, Seen | R>
+					: never
+				: never
+
+/** The families of S whose owner is R: its ordered and counted families and its tree. */
+type FamiliesOwnedBy<S, R> =
+	Extract<StatementsOf<S>[number], RowFamily | AnyTree> extends infer Fa
+		? Fa extends unknown
+			? OwnerNameOf<Fa> extends NameOf<R>
+				? Fa
+				: never
+			: never
+		: never
+
+/** The relations a delete of R in S removes rows of besides R: none for a family's member, whose delete is an edit of
+ * its family, and its units' relations below it for a tree or an owner (UnitWrites). */
+type DeletedWrites<S, R> = IsFamilyMember<S, R> extends true ? never : UnitWrites<S, R>
+
+/** Any ordered or counted family. */
+type RowFamily = Ordered<unknown, unknown> | Counted<unknown, unknown>
 
 /** Whether R is a tree's relation in S. */
 type IsTreeRow<S, R> = [DrawnFieldOf<R>] extends [never]
@@ -664,20 +715,21 @@ export interface ChangeSet<
 	>
 	/**
 	 * Removes each member fact, stated as its caller writes it (Written<R>): the fields PostgreSQL and grizzle write are
-	 * no part of a fact's identity a caller states, so an insert and a delete of one fact state one row. A tree's row, a
-	 * row whose primary key holds a field grizzle writes, and a member of an immutable owner's family are no delete's
-	 * (EditCheck).
+	 * no part of a fact's identity a caller states, so an insert and a delete of one fact state one row. A tree's delete
+	 * states its root value, each one tree (DeletedRow). A tree, and an owner of a family that is no family's member,
+	 * go with every row nested under them, through every family (UnitWrites), so a group goes whole. A row whose primary
+	 * key holds a field grizzle writes, and a member of an immutable owner's family, are no delete's (EditCheck).
 	 */
 	delete<R extends AnyRelation | AnyWorld, const M extends Member<S, unknown>>(
 		relation: R &
 			WritableCheck<S, R> &
 			EditCheck<S, R, "delete"> &
 			EditsOnce<Done, EditsWith<Last, S, R>>,
-		facts: M & MemberCheck<M, Written<R>, R>
+		facts: M & MemberCheck<M, DeletedRow<S, R>, R>
 	): ChangeSet<
 		S,
 		JointParams<Params, ParamsOf<M>>,
-		Writes | NameOf<R>,
+		Writes | NameOf<R> | DeletedWrites<S, R>,
 		Reads,
 		Cx | ContextsOf<M>,
 		Done,
@@ -840,7 +892,13 @@ type RecordOf<S, A> =
 	>
 		? LevelAt<S, Depth> extends infer L
 			? RelationIn<Spelled, RelationsOf<L>> extends infer R
-				? (Op extends "insert" ? AdditionIn<L, R> : Written<R>) extends infer Row
+				? (
+						Op extends "insert"
+							? AdditionIn<L, R>
+							: Op extends "delete"
+								? DeletedRow<L, R>
+								: Written<R>
+					) extends infer Row
 					? {
 							readonly [O in Op]: { readonly [N in NameOfSpelled<Spelled>]: ArrayFacts<R, Row, At> }
 						}
@@ -1345,7 +1403,8 @@ export type RefusingObject =
  * - `coverage`: a containment whose sides pair a span field, the source's span covered by the target's;
  * - `family`: an ordered or counted family, by its member side and its owner's slots: each owner's members indexed by
  *   exactly 0 … n − 1 (an alternatives law states plain containments, each a `contained` law);
- * - `tree`: a tree, by its member side, its slots and its root field: each root field's rows one tree in pre-order;
+ * - `tree`: a tree, by its member side, its slots and its root fields: the rows of each value of its root fields one
+ *   tree in pre-order;
  * - `fold`: a fold, by its family's slots, its monoid and its step and end sides: each owner's ends its members'
  *   combination;
  * - `contract`: a contract's predicate, by its name;
@@ -1380,7 +1439,7 @@ export type OwnLaw =
 			readonly kind: "tree"
 			readonly member: SideDesc
 			readonly slots: SlotsDesc
-			readonly root: string
+			readonly root: NonEmptyReadonlyArray<string>
 	  }
 	| {
 			readonly kind: "fold"

@@ -381,10 +381,10 @@ const observedOf = (draft: Draft): ReadonlyArray<string> => {
 				return Arr.map(a.actions, (sub) =>
 					sub.kind === "placeholderColumn"
 						? `placeholder column ${a.table.name}.${sub.column.name}`
-						: sub.kind === "placeholderRetype"
-							? `other ${sub.kind}`
-							: statementWord({ kind: "alterTable", table: a.table, actions: [sub] })
+						: statementWord({ kind: "alterTable", table: a.table, actions: [sub] })
 				)
+			case "fill":
+				return [`other ${a.kind}`]
 			case "violation":
 				return [`check law ${a.law}`]
 			case "analyze":
@@ -395,6 +395,7 @@ const observedOf = (draft: Draft): ReadonlyArray<string> => {
 	switch (draft.kind) {
 		case "statement":
 		case "alteration":
+		case "fill":
 		case "violation":
 		case "analyze":
 		case "dropStatistics":
@@ -561,7 +562,8 @@ const predicted = (
 				["setup", `create function ${now.live}`],
 				["setup", `revoke function ${now.live}`],
 				["setup", `create domain ${now.bits}`],
-				["structure", `placeholder column ${table}.${setColumn}`]
+				["structure", `placeholder column ${table}.${setColumn}`],
+				["structure.immediate", "other setConstraintsImmediate"]
 			)
 		} else if (namesChanged) {
 			out.push(

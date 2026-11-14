@@ -1,6 +1,7 @@
-import type { RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
+import type { Fence, RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { IndexRequest } from "#compiler/ir/products.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
@@ -71,6 +72,19 @@ export interface InstallExtension {
 	 * (program/workload/compile.ts servedWorkload); every other extension's, none (noLive).
 	 */
 	readonly live: LivePlan
+	/**
+	 * The relations each login fences (analysis/isolation/certify.ts Fence), on whose tables the installation grants
+	 * the login MAINTAIN, the least privilege that permits the LOCK TABLE ... IN EXCLUSIVE MODE its fenced writes send
+	 * as the login before their snapshot (physical/ddl/roles.ts addWorlds): the served workload's, from its
+	 * certification (program/workload/compile.ts servedWorkload); every other extension's, none (`noFences`).
+	 */
+	readonly fences: ReadonlyArray<LoginFence>
+}
+
+/** The relations a login fences, by their declared names, in code-unit order. */
+export interface LoginFence {
+	readonly login: string
+	readonly relations: NonEmptyReadonlyArray<string>
 }
 
 /** A role of a login, by their declared names. */
@@ -92,3 +106,19 @@ export interface RoleHold extends RoleOfLogin {
 
 /** No role that holds a unit: what an extension that compiles no served workload states. */
 export const noHolds: ReadonlyArray<RoleHold> = []
+
+/** No fence: what an extension that compiles no served workload states. */
+export const noFences: ReadonlyArray<LoginFence> = []
+
+/** The relations each login of `fences` fences, in the fences' order, by login then relation. */
+export const loginFences = (fences: ReadonlyArray<Fence>): ReadonlyArray<LoginFence> => {
+	const by = new Map<string, Array<string>>()
+	for (const f of fences) {
+		const relations = by.get(f.login) ?? []
+		relations.push(f.relation)
+		by.set(f.login, relations)
+	}
+	return [...by].flatMap(([login, relations]): ReadonlyArray<LoginFence> =>
+		isNonEmpty(relations) ? [{ login, relations }] : []
+	)
+}

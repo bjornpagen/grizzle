@@ -113,7 +113,14 @@ export const runEntry = <R>(
 		return yield* Effect.scoped(
 			Effect.flatMap(
 				Effect.mapError(ctx.pool.lease, (reason) => new TransportFailure({ reason })),
-				(session) => runWrite(session, dbChangeFrame(ctx), entry, inputs, reads.success)
+				(session) =>
+					runWrite(
+						session,
+						dbChangeFrame(ctx, entry.program.flight.exclusion),
+						entry,
+						inputs,
+						reads.success
+					)
 			)
 		)
 	})

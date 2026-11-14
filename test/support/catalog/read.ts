@@ -384,7 +384,7 @@ const queries = {
 		'name', ic.relname::text, 'table', tc.relname::text, 'unique', i.indisunique, 'method', am.amname::text,
 		'columns', (SELECT COALESCE(json_agg(COALESCE(a.attname::text, '') ORDER BY u.ord), '[]'::json) FROM unnest(i.indkey::int2[]) WITH ORDINALITY AS u(attnum, ord) LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = u.attnum),
 		'predicate', pg_catalog.pg_get_expr(i.indpred, i.indrelid), 'valid', i.indisvalid,
-		'constraint', (SELECT k.conname::text FROM pg_catalog.pg_constraint k WHERE k.conindid = i.indexrelid AND k.conrelid = i.indrelid LIMIT 1),
+		'constraint', (SELECT k.conname::text FROM pg_catalog.pg_constraint k WHERE k.conindid = i.indexrelid AND k.conrelid = i.indrelid AND k.contype IN ('p', 'u', 'x')),
 		'definition', pg_catalog.pg_get_indexdef(i.indexrelid)
 	) ORDER BY ic.relname), '[]'::json)::text
 	FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class ic ON ic.oid = i.indexrelid JOIN pg_catalog.pg_class tc ON tc.oid = i.indrelid

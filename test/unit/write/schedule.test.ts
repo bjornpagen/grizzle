@@ -28,7 +28,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** A family statement this model's strata hold: a member relation's rows or a family's counts, the planner's own. */
-type FamilyNode = Exclude<AnyFamilyNode, { readonly kind: "additions" | "removals" }>
+type FamilyNode = Exclude<AnyFamilyNode, { readonly kind: "additions" | "removals" | "unit" }>
 
 /**
  * A stratum's schedule holds an immediate foreign key at every statement, or names a cycle no order keeps. A stratum's

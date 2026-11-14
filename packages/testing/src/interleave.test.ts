@@ -6,6 +6,9 @@
  *   order, the multinomial of their lengths, without them (an exhaustion of three sessions on their own resources).
  * - Two sessions that lock in opposite orders reach the deadlock and its victim: a planted scenario, its verdict the
  *   lock manager's own.
+ * - A run records every deadlock the lock manager breaks, whose detector runs while the engine settles its waits, as
+ *   PostgreSQL's deadlock check does: the victims a run's deadlocks name are exactly the sessions the lock manager
+ *   aborted, over sessions that each write two resources, two of them in the same order or the opposite one.
  * - Sessions whose afters form a cycle are refused before any runs, naming one of the afters' loops, and every other
  *   after relation runs: an exhaustion of every after of three sessions, self-loops among them.
  * - A script is followed, and stops at the first decision it cannot make, by its decision and choice, never its prose.
@@ -243,6 +246,46 @@ const sessionSets: Gen<Sessions<Named, Move>> = (source) => {
 	}
 }
 
+/** Every ordered pair of distinct resources. */
+const PAIRS = [
+	["x", "y"],
+	["x", "z"],
+	["y", "x"],
+	["y", "z"],
+	["z", "x"],
+	["z", "y"]
+] as const
+
+/**
+ * Two sessions that each write the same two resources, the second in the first's order or the opposite one, beside a
+ * third that writes one resource or only commits.
+ */
+const lockingSessions: Gen<Sessions<Named, Move>> = (source) => {
+	const [p, q] = source.draw(element(PAIRS))
+	const write = (resource: Resource): Move => ({
+		kind: "write",
+		resource,
+		value: source.draw(int(1, 2))
+	})
+	const crossed = source.draw(int(0, 1)) === 1
+	const third = source.draw(int(0, 1)) === 1
+	return {
+		a: { moves: [write(p), write(q), { kind: "commit" }], after: Option.none() },
+		b: {
+			moves: crossed
+				? [write(q), write(p), { kind: "commit" }]
+				: [write(p), write(q), { kind: "commit" }],
+			after: Option.none()
+		},
+		c: {
+			moves: third
+				? [write(source.draw(element(RESOURCES))), { kind: "commit" }]
+				: [{ kind: "commit" }],
+			after: Option.none()
+		}
+	}
+}
+
 const crossing: Sessions<"a" | "b", Move> = {
 	a: {
 		moves: [
@@ -412,6 +455,57 @@ describe("interleaving", () => {
 					`some order ended a session as the deadlock's victim, among ${Arr.join(results, " | ")}`
 				)
 			})
+	)
+
+	it.effect(
+		"records every deadlock the lock manager breaks while the engine settles, its victim the session it aborted",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "deadlocks recorded",
+						oracle: {
+							kind: "specification",
+							name: "the lock manager's own verdict: the sessions a run ended as a deadlock's victim"
+						},
+						draw: drawn(lockingSessions),
+						literal: Formatter.format,
+						coverage: required<"a deadlock recorded">(["a deadlock recorded"], {
+							cases: 24,
+							sense: notesOnly
+						}),
+						kept: [],
+						runs: 24,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang: Duration.minutes(1)
+					},
+					(sessions, c) =>
+						Effect.asVoid(
+							interleave(
+								lockManager<Named>(),
+								{ name: "locks", sessions, exclusive: [], state: Option.some("state") },
+								{ kind: "every", limit: 20_000, reduction: "sleep-sets" },
+								(run) =>
+									Effect.sync(() => {
+										const aborted = Arr.flatMap([...run.sessions], ([session, end]) =>
+											end.kind === "ended" && end.key === "deadlock" ? [session] : []
+										)
+										const recorded = Arr.flatMap(run.deadlocks, (d) => Option.toArray(d.victim))
+										deepStrictEqual(
+											Arr.sort(recorded, Order.String),
+											Arr.sort(aborted, Order.String)
+										)
+										if (recorded.length > 0) {
+											c.note("a deadlock recorded")
+										}
+									})
+							)
+						)
+				)
+			)
 	)
 
 	it.effect(

@@ -1,10 +1,11 @@
 /**
  * A served statement's text and the name PostgreSQL prepares it under: every statement a served login's programs send,
- * its prologue's two among them, is a named prepared statement, parsed and planned once per session and bound on every
- * use after, while every other statement grizzle sends is the unnamed one, a text of its own each time
- * (adapter/wire/batch.ts BatchStatement). A text is named where generate serves it (write/program/served.ts,
- * served/read.ts, the prologue's and a refresh's), so the served file carries each name beside its text and a load reads
- * both as they are, hashing nothing.
+ * its prologue's two among them, and every statement of a write, a family's read among them, is a named prepared
+ * statement, parsed and planned once per session and bound on every use after, while every other statement grizzle
+ * sends is the unnamed one, a text of its own each time (adapter/wire/batch.ts BatchStatement). A text is named where
+ * generate serves it (write/program/served.ts, served/read.ts, the prologue's and a refresh's), so the served file
+ * carries each name beside its text and a load reads both as they are, hashing nothing; a family's read, which only a
+ * write no served file holds sends, is named where its write compiles (write/family/statements.ts ReadSql, ChainSql).
  *
  * The name is the text's: `grizzle_` and the whole of its SHA-256 in lowercase RFC 4648 base32, so a session holds one
  * name for one text and two texts share a name only where SHA-256 collides, the digest a Db's prologue already guards

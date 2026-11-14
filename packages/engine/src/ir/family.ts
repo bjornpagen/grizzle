@@ -31,19 +31,23 @@ export interface Family {
 	readonly index: NativeColumn
 	/** ‹n›, the owner's count on each member: a drawn law column. */
 	readonly copy: ColumnIdent
-	/** Which facts are members: every fact, or a tree's every row but its root, whose start is 0. */
+	/** Which facts are members: every fact, or a tree's every row but its roots, whose start is 0. */
 	readonly members: { readonly kind: "every" } | ({ readonly kind: "tree" } & TreeShape)
 	/** What each axis carries beyond its key: the formers' pairs and every containment merged into it. */
 	readonly axes: { readonly [A in AxisKind]: ReadonlyArray<AxisPair> }
 	readonly folds: ReadonlyArray<FamilyFold>
 }
 
-/** A tree's own columns: its root field, its drawn interval, and ‹ps›, the parent's start. */
+/**
+ * A tree's own fields: its root fields r…, which its relation's primary key (r…, start) leads with and each tree's rows
+ * share; its drawn `parent`, the parent's start in its own tree; and its drawn interval. Its family's group is r…, then
+ * parent, paired with the primary key r…, then start: each root field with itself, the parent with its parent's start.
+ */
 export interface TreeShape {
-	readonly root: LawField
+	readonly root: NonEmptyReadonlyArray<LawField>
+	readonly parent: LawField
 	readonly start: LawField
 	readonly end: LawField
-	readonly parentStart: ColumnIdent
 }
 
 /** A family's three foreign keys: member to owner, member to its predecessor, owner to its last member. */
@@ -113,8 +117,7 @@ const sameColumn = (a: NativeColumn, b: NativeColumn): boolean =>
 
 /**
  * The type of a column of a family's member or owner the family fills: a field's own; ‹n› and ‹i› the count's
- * natural, ‹ps› the tree's start's, a hidden accumulator its plane's end's; none for a law column the family does not
- * draw.
+ * natural, a hidden accumulator its plane's end's; none for a law column the family does not draw.
  */
 export const familyColumnType = (family: Family, column: NativeColumn): ScalarType | undefined => {
 	if (column.kind === "field") {
@@ -126,16 +129,13 @@ export const familyColumnType = (family: Family, column: NativeColumn): ScalarTy
 	if (family.index.kind === "law" && family.index.column === column.column) {
 		return family.count.type
 	}
-	if (family.members.kind === "tree" && family.members.parentStart === column.column) {
-		return family.members.start.type
-	}
 	return accumulatorOf(family, column)?.end.type
 }
 
 /**
  * Whether the host fills a column carried along an axis of `family` as a copy of its target: an accumulated field, or
- * a fold's hidden accumulator. The drawn columns an axis carries (‹n› → n, a tree's ‹ps› → start, its interval) are
- * drawn where the row stands, and a caller's column its row supplies.
+ * a fold's hidden accumulator. The drawn columns an axis carries (‹n› → n, a tree's interval) are drawn where the row
+ * stands, and a caller's column its row supplies.
  */
 export const isCopy = (family: Family, column: NativeColumn): boolean =>
 	column.kind === "field"

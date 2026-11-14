@@ -4,6 +4,7 @@ import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.
 import * as Order from "#compiler/core/order.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
 import type { ActionCore } from "#compiler/ir/write.ts"
+import { type UnitDelete, type UnitMember, unitRelations } from "#compiler/write/delete/unit.ts"
 
 /** An action in execution order, with the positions of the earlier actions it depends on. */
 interface ScheduledAction<A> {
@@ -41,6 +42,19 @@ export type FamilyNode =
 	  }
 	| FamilyAdditions
 	| FamilyRemovals
+	| UnitRemovals
+
+/**
+ * A stratum's deletes of whole units, one statement (write/delete/unit.ts): it removes rows of every relation of its
+ * units, each root and every relation below it, and runs before every other write of its stratum but the removals of
+ * rows that reference its rows immediately, so the stratum's inserts meet no stored row at a key it removed.
+ */
+export interface UnitRemovals {
+	readonly kind: "unit"
+	readonly units: NonEmptyReadonlyArray<UnitDelete>
+	/** Every relation below the units' roots, judged together (write/delete/unit.ts UnitMember). */
+	readonly below: ReadonlyArray<UnitMember>
+}
 
 /** An owner relation a family statement changes the rows of, at the columns `changes` names: their counts and ends,
  * each generated column that reads one of them among them. */
@@ -125,12 +139,14 @@ export interface FamilyRemovals {
 	readonly riders: ReadonlyArray<string>
 }
 
-/** The relations a family statement writes: a member relation's rows, an owner's counts, or an additions or removals
- * statement's member, where it writes its rows, and owners. */
+/** The relations a family statement writes: a member relation's rows, an owner's counts, an additions or removals
+ * statement's member, where it writes its rows, and owners, or every relation of a unit removal's units. */
 export const familyNodeRelations = (node: FamilyNode): ReadonlyArray<string> =>
-	node.kind === "additions" || node.kind === "removals"
-		? [...writtenMembers(node), ...node.owners.map((o) => o.relation)]
-		: [node.relation]
+	node.kind === "unit"
+		? unitRelations(node.units, node.below).map((r) => r.name)
+		: node.kind === "additions" || node.kind === "removals"
+			? [...writtenMembers(node), ...node.owners.map((o) => o.relation)]
+			: [node.relation]
 
 /** The member relation an additions or removals statement writes the rows of: its member, none where it appends none. */
 const writtenMembers = (node: FamilyAdditions | FamilyRemovals): ReadonlyArray<string> =>
@@ -384,6 +400,10 @@ export const canonicalActionOrder = <A extends Scheduled>(
  *   the deletion of the naming one first: an owner's insertion before its members' and their deletion before its
  *   own where the owner axis is immediate, and no order where it is deferred, as on a cycle of families; so is one
  *   member relation's additions before another's, and their removals the other way, each in its own statement.
+ * A stratum's unit removal (`UnitRemovals`) runs before every other write of it, so its source reads the state before
+ * the stratum and every insertion of the stratum meets no row it removed, but the removals of rows that reference its
+ * relations immediately from outside them, which run before it, as any removal of referencing rows does; a member's
+ * removals within its units run after it, finding only the rows it leaves.
  * Against an action, a family statement adds, removes and changes facts as the keys see them: an insertion adds, a
  * deletion removes, and an update in place or a count adds and changes facts only at the columns it changes
  * (FamilyNode `changes`), so a key over other columns orders nothing; and an action runs before the family statements
@@ -446,6 +466,29 @@ export const scheduleStratum = <A extends Scheduled>(
 		}
 	}
 	for (const { node, vertex } of statements) {
+		if (node.kind === "unit") {
+			const removed = familyNodeRelations(node)
+			/** Whether a write of `relation` that removes rows must run first: they reference the unit's rows immediately,
+			 * from outside the unit, so they go before the rows they name. */
+			const referencesUnit = (relation: string): boolean =>
+				!removed.includes(relation) &&
+				references.some((r) => r.from === relation && r.from !== r.to && removed.includes(r.to))
+			for (const { action: x, vertex: other } of plain) {
+				if (removes(x) && referencesUnit(x.action.relation)) {
+					before(other, vertex)
+				} else {
+					before(vertex, other)
+				}
+			}
+			for (const { node: n, vertex: other } of statements) {
+				if (n.kind === "removals" && referencesUnit(n.member)) {
+					before(other, vertex)
+				} else {
+					before(vertex, other)
+				}
+			}
+			continue
+		}
 		if (node.kind === "additions") {
 			for (const other of statements) {
 				if (other.node.kind === "removals") {
@@ -537,6 +580,9 @@ export const scheduleStratum = <A extends Scheduled>(
 	for (const { action, vertex: x } of plain) {
 		for (const { node, vertex: y } of statements) {
 			const a = action.action.relation
+			if (node.kind === "unit") {
+				continue
+			}
 			if (node.kind === "additions" || node.kind === "removals") {
 				orderFamilyWrite(action, x, node, y, references)
 				continue
@@ -600,6 +646,7 @@ export const scheduleStratum = <A extends Scheduled>(
 const changesAt = (node: FamilyNode, columns: ReadonlyArray<string>): boolean =>
 	node.kind !== "additions" &&
 	node.kind !== "removals" &&
+	node.kind !== "unit" &&
 	(node.kind === "owners" || node.statement === "refill" || node.statement === "update") &&
 	node.changes.some((c) => columns.includes(c))
 
@@ -812,5 +859,7 @@ export const sameNode = (a: FamilyNode, b: FamilyNode): boolean => {
 			return b.kind === "additions" && a.member === b.member
 		case "removals":
 			return b.kind === "removals" && a.member === b.member
+		case "unit":
+			return b.kind === "unit"
 	}
 }

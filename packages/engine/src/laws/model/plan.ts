@@ -2193,19 +2193,20 @@ export class Recognizer {
 	 *
 	 * - its columns: the index, a field when ordered and a drawn ‹i› when counted; the drawn ‹n› on each member; ‹p›,
 	 *   the generated pred of the index; ‹pn›, the generated pred of the count on the owner; and for a tree ‹parent₀›,
-	 *   its parent where its start is above 0, the one guarded group column, and the drawn ‹ps›. One guarded column per
-	 *   side is exact: MATCH SIMPLE and UNIQUE NULLS DISTINCT both pass over a row with any null column;
-	 * - its key, `UNIQUE (‹g₀›, g₂…, i)`, and its bound `CHECK (i < ‹n›)`, with `‹i› >= 0` beside it for a counted index,
-	 *   which as a law column has no natural domain to keep it there;
-	 * - its three axes (`#axis`), each carrying its pairs: the former's (a tree's ‹ps›, interval and root copies, a fold's
+	 *   its parent where its start is above 0, the one guarded group column, after its root fields. One guarded column
+	 *   per side is exact: MATCH SIMPLE and UNIQUE NULLS DISTINCT both pass over a row with any null column;
+	 * - its key, `UNIQUE (g…, i)` over its planned group, and its bound `CHECK (i < ‹n›)`, with `‹i› >= 0` beside it for
+	 *   a counted index, which as a law column has no natural domain to keep it there;
+	 * - its three axes (`#axis`), each carrying its pairs: the former's (a tree's interval copies, a fold's
 	 *   accumulators) and every containment's that rides it;
 	 * - every base pin of a carried copy, the copy's first law's: `i > 0 OR f = s` on a predecessor copy and `n > 0 OR
 	 *   f = s` on a last copy, `s` the copy's start: an accumulated field's, or a hidden accumulator's identity;
-	 * - a tree's owner axis from its plain parent, so the root, which references itself, holds its own count as ‹n›,
-	 *   its own start as ‹ps› and its own value of every copy by the axis's foreign key, with no action: PostgreSQL
-	 *   refuses a cascade over a generated column (42601), and a tree is written whole and rewritten by deletion;
-	 * - for a tree, T1's `UNIQUE (r, start)`, and the CHECK of the family bound, T2, the root pin (the root, outside the
-	 *   family, holds `at = 0`), T3 and T6;
+	 * - a tree's owner axis from its plain group, (r…, parent) into its primary key (r…, start), so each root, which
+	 *   references itself, holds its own count as ‹n› and its own value of every copy by the axis's foreign key, with no
+	 *   action: PostgreSQL refuses a cascade over a generated column (42601), and a tree is written whole and rewritten
+	 *   by deletion;
+	 * - for a tree, the CHECK of the family bound, T2, the root pin (each root, outside the family, holds `at = 0`), T3
+	 *   and T6; its primary key (r…, start) is T1;
 	 * - for each fold, its hidden accumulators and the CHECK of its combine, `after = combine(before, x)` where its step
 	 *   selection holds and `after = before` where it does not, compared in exact arithmetic: an after is drawn, never
 	 *   generated, since a count's, a sum's and a max's combine is not total in its carrier.
@@ -2358,31 +2359,19 @@ class FamilyPlanner {
 							this.#familyNamed("index")
 						)
 					)
-		const parentStart =
-			tree === undefined
-				? undefined
-				: lawColumn(
-						this.#draw(
-							tree.parentStart,
-							member,
-							tree.start,
-							{ kind: "parentStart", family: f.id },
-							this.#familyNamed("parentStart")
-						)
-					)
 		const folds = f.folds.map((fold, i) => this.#foldColumns(fold, i))
-		const [g0, ...grest] = f.group
-		const group: NonEmptyReadonlyArray<PlannedColumn> = [
+		const group: NonEmptyReadonlyArray<PlannedColumn> =
 			tree === undefined
-				? fieldColumn(g0.member)
-				: lawColumn({
-						kind: "term",
-						relation: member,
-						term: { kind: "field", field: g0.member.name, column: g0.member },
-						selection: this.#members(tree.start)
-					}),
-			...grest.map((g) => fieldColumn(g.member))
-		]
+				? mapNonEmpty(f.group, (g) => fieldColumn(g.member))
+				: appendNonEmpty(
+						tree.root.map(fieldColumn),
+						lawColumn({
+							kind: "term",
+							relation: member,
+							term: { kind: "field", field: tree.parent.name, column: tree.parent },
+							selection: this.#members(tree.start)
+						})
+					)
 		const ownerKey = mapNonEmpty(f.group, (g) => fieldColumn(g.owner))
 		const pred: PlannedColumn =
 			index.kind === "field"
@@ -2475,8 +2464,8 @@ class FamilyPlanner {
 					? cmp("lt", i, n)
 					: and([cmp("ge", i, naturalLiteral(0n)), cmp("lt", i, n)])
 			)
-		} else if (parentStart !== undefined) {
-			this.#treeConditions(own, tree, index, copy, parentStart)
+		} else {
+			this.#treeConditions(own, tree, index, copy)
 		}
 		for (const kind of ["owner", "predecessor", "last"] as const) {
 			for (const p of carried[kind]) {
@@ -2487,11 +2476,8 @@ class FamilyPlanner {
 			this.#combine(fold, i)
 		}
 
-		const treeKey =
-			tree === undefined ? undefined : mapNonEmpty([tree.root, tree.start] as const, fieldColumn)
 		const natives: ReadonlyArray<NativePlan> = [
 			...lawColumns([copy, index, pred, ...group, lastPred]),
-			...(parentStart === undefined ? [] : lawColumns([parentStart])),
 			{
 				kind: "Unique",
 				relation: member,
@@ -2502,20 +2488,6 @@ class FamilyPlanner {
 					this.#loc
 				)
 			},
-			...(treeKey === undefined
-				? []
-				: [
-						{
-							kind: "Unique" as const,
-							relation: member,
-							columns: treeKey,
-							entry: plannedEntry(
-								treeKey,
-								`the UNIQUE of ${member.name} over the root and start of ${familyText(this.#shape())}`,
-								this.#loc
-							)
-						}
-					]),
 			...(["owner", "predecessor", "last"] as const).flatMap((a) => [
 				...axes[a].natives,
 				axes[a].foreignKey
@@ -2548,7 +2520,7 @@ class FamilyPlanner {
 	}
 
 	/** A drawn column of the family that is no fold's, at the naming door. */
-	#familyNamed(kind: "copy" | "index" | "parentStart"): DrawnStatement {
+	#familyNamed(kind: "copy" | "index"): DrawnStatement {
 		const { id, law } = this.#family
 		return { kind, owner: id.owner, count: id.count, family: law }
 	}
@@ -2774,21 +2746,22 @@ class FamilyPlanner {
 		return made
 	}
 
-	/** A tree's own CHECK conjuncts on its relation: the family bound, T2, the root pin, T3 and T6. */
+	/**
+	 * A tree's own CHECK conjuncts on its relation: the family bound, T2, the root pin, T3 and T6, each over its row,
+	 * its parent the parent's start that the owner axis proves.
+	 */
 	#treeConditions(
 		own: RowConditions,
 		tree: Extract<Family["members"], { readonly kind: "tree" }>,
 		index: PlannedColumn,
-		copy: PlannedColumn,
-		parentStart: PlannedColumn
+		copy: PlannedColumn
 	): void {
-		const [g0] = this.#family.group
 		const field = (f: LawField): ExprDesc => own.column(fieldColumn(f))
 		const start = field(tree.start)
 		const end = field(tree.end)
+		const parent = field(tree.parent)
 		const at = own.column(index)
 		const n = own.column(copy)
-		const ps = own.column(parentStart)
 		const children = field(this.#family.count)
 		const zero = naturalLiteral(0n)
 		const one = naturalLiteral(1n)
@@ -2796,12 +2769,12 @@ class FamilyPlanner {
 		own.add(or([cmp("eq", start, zero), cmp("lt", at, n)]))
 		own.add(
 			or([
-				and([cmp("eq", field(g0.member), field(g0.owner)), cmp("eq", start, zero)]),
-				and([cmp("ne", field(g0.member), field(g0.owner)), cmp("gt", start, zero)])
+				and([cmp("eq", parent, start), cmp("eq", start, zero)]),
+				and([cmp("ne", parent, start), cmp("gt", start, zero)])
 			])
 		)
 		own.add(or([cmp("gt", start, zero), cmp("eq", at, zero)]))
-		own.add(or([cmp("eq", start, zero), cmp("gt", at, zero), cmp("eq", start, plus(ps))]))
+		own.add(or([cmp("eq", start, zero), cmp("gt", at, zero), cmp("eq", start, plus(parent))]))
 		own.add(
 			and([cmp("gt", end, start), or([cmp("gt", children, zero), cmp("eq", end, plus(start))])])
 		)

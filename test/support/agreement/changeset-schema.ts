@@ -34,7 +34,8 @@ import { str } from "#compiler/public/text.ts"
  * The schemas the ChangeSet type/engine agreement draws its cases over (test/support/agreement/changesets.ts): Work,
  * whose relations a ChangeSet writes (a closed roster's id, a set, texts of two patterns, a contract, serial fields, plain bigint and money
  * for exact arithmetic, and families: ordered families whose members sum into their owners, counted families whose counts fold
- * into their owners and whose members have a generated field, each over an immutable and a mutable owner, and a tree),
+ * into their owners and whose members have a generated field, each over an immutable and a mutable owner, a counted
+ * member that owns an ordered family, and a tree),
  * an extension of it, a level above it, and two schemas of which neither is a level of Work, one of its name; and
  * Work's worlds.
  */
@@ -121,20 +122,37 @@ export const Chip = relation.generated(
 const items = counted(on(Item, "owner"), fin(Pool, "k"))
 const chips = counted(on(Chip, "owner"), fin(Bin, "k"))
 
-/** A document's nodes, a tree: each row's drawn index, children, start and end, its root field doc its tree's. */
+/**
+ * A counted family's member that owns an ordered family: Book, counted under the mutable Shelf and mutable itself, its
+ * pages in order. A put or a delete of a Book is refused by the types and the engine alike: its pages are nested under
+ * its rows, which a member's edit does not reach.
+ */
+export const Shelf = relation("Shelf", { id: uuid, books: drawn(natural) }, ["id"])
+export const Book = relation("Book", { id: uuid, shelf: uuid, pages: drawn(natural) }, ["id"])
+export const Page = relation(
+	"Page",
+	{ id: uuid, book: uuid, at: drawn(natural), words: pg.bigint },
+	["id"]
+)
+const books = counted(on(Book, "shelf"), fin(Shelf, "books"))
+const pages = ordered(on(Page, "book", "at"), fin(Book, "pages"))
+
+/**
+ * A document's nodes, a tree keyed by its root field doc and its start: each row's drawn parent, index, children, start
+ * and end, its root field doc its tree's.
+ */
 export const Node = relation(
 	"Node",
 	{
-		id: uuid,
-		parent: uuid,
+		doc: uuid,
+		parent: drawn(natural),
 		at: drawn(natural),
 		children: drawn(natural),
 		start: drawn(natural),
 		end: drawn(natural),
-		doc: uuid,
 		label: pg.integer
 	},
-	["id"]
+	["doc", "start"]
 )
 
 export const Work = schema(
@@ -156,6 +174,9 @@ export const Work = schema(
 		Item,
 		Bin,
 		Chip,
+		Shelf,
+		Book,
+		Page,
 		Node
 	],
 	[
@@ -172,9 +193,13 @@ export const Work = schema(
 		fold(items, Monoid.count, on(Item, "owner"), on(Pool, "id", "size")),
 		chips,
 		fold(chips, Monoid.count, on(Chip, "owner"), on(Bin, "id", "size")),
-		tree(on(Node, "parent", "at"), fin(Node, "children"), { root: "doc" }),
+		books,
+		pages,
+		tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["doc"] }),
 		mutable(Cart),
-		mutable(Bin)
+		mutable(Bin),
+		mutable(Shelf),
+		mutable(Book)
 	]
 )
 

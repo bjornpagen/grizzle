@@ -105,6 +105,7 @@ export type WriteStep =
 	| FamilyWriteStep
 
 /**
+/**
  * A retirable unit's hold of the groups a write states (write/hold/statement.ts), by its header: before the first
  * statement of the write that touches the unit, wherever that stands among the strata and the read-backs after them,
  * so it belongs to no stratum. Its one row carries nothing to decode, and a group it finds absent or retired is a
@@ -116,7 +117,8 @@ export interface HoldStep {
 }
 
 /**
- * A stratum's family additions or removals as one statement (write/family/additions.ts): its rows are each part's
+ * A stratum's family additions or removals as one statement (write/family/additions.ts, removals.ts), or its deletes of
+ * whole units (write/delete/unit.ts): its rows are each part's
  * behind the part's tag, as a single statement's are, each part's facts of its relation as its result says, a recount's
  * an owner's key, counts and ends after and before. It is sent once, and its violations are the family laws' natives,
  * which the installation's classifier names; it aborts nothing.
@@ -124,7 +126,7 @@ export interface HoldStep {
 export interface FamilyWriteStep {
 	readonly kind: "familyWrite"
 	readonly stratum: StratumAt
-	readonly statement: "additions" | "removals"
+	readonly statement: "additions" | "removals" | "unit"
 	readonly parts: NonEmptyReadonlyArray<FamilyPart>
 }
 

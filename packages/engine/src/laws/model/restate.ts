@@ -552,7 +552,6 @@ const lawColumnStatement = (
 			switch (named.kind) {
 				case "copy":
 				case "index":
-				case "parentStart":
 				case "predecessor":
 					return { kind: named.kind, owner, count, family }
 				case "before":

@@ -980,7 +980,14 @@ const appliedChange = (
 		return yield* Effect.scoped(
 			Effect.flatMap(
 				Effect.mapError(ctx.pool.lease, (reason) => new TransportFailure({ reason })),
-				(session) => runWrite(session, dbChangeFrame(ctx), change.entry, inputs, change.reads)
+				(session) =>
+					runWrite(
+						session,
+						dbChangeFrame(ctx, change.entry.program.flight.exclusion),
+						change.entry,
+						inputs,
+						change.reads
+					)
 			)
 		)
 	})

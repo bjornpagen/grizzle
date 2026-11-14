@@ -9,11 +9,11 @@ import type { LawField } from "#compiler/ir/law.ts"
 
 /**
  * The part a field grizzle draws or accumulates plays in what fills it (analysis/theory/families.ts Namings): its
- * family's or tree's index or count, a tree's start or end, a fold's before, after or end of plane `plane`, or the copy
- * a containment riding a family's axis carries.
+ * family's or tree's index or count, a tree's parent, start or end, a fold's before, after or end of plane `plane`, or
+ * the copy a containment riding a family's axis carries.
  */
 export type FillRole =
-	| { readonly kind: "index" | "count" | "start" | "end" }
+	| { readonly kind: "index" | "count" | "parent" | "start" | "end" }
 	| { readonly kind: "before" | "after" | "foldEnd"; readonly plane: 0 | 1 }
 	| { readonly kind: "copy"; readonly axis: AxisKind }
 
@@ -40,7 +40,7 @@ export const ownFill: FillSpelling = { law: (law) => law.id, literal: (value) =>
 
 /**
  * The filler of every field the theory's families draw or accumulate, by relation and field name: each family's count,
- * a sequence's index and a tree's start and end; each fold's named accumulators and ends; and each accumulated field an
+ * a sequence's index and a tree's parent, start and end; each fold's named accumulators and ends; and each accumulated field an
  * axis carries beside those, its copy. The theory names each such field by exactly one statement (Namings), so each has
  * exactly one filler.
  */
@@ -70,6 +70,7 @@ export const fillersOf = (theory: Theory): ReadonlyMap<string, ReadonlyMap<strin
 			put(member, f.index.field.name, { role: { kind: "index" }, laws: [family] })
 		}
 		if (f.members.kind === "tree") {
+			put(member, f.members.parent.name, { role: { kind: "parent" }, laws: [family] })
 			put(member, f.members.start.name, { role: { kind: "start" }, laws: [family] })
 			put(member, f.members.end.name, { role: { kind: "end" }, laws: [family] })
 		}

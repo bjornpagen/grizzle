@@ -14,6 +14,7 @@ import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { Prepared } from "#compiler/core/prepared.ts"
 import { isIterable } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
@@ -159,11 +160,14 @@ export type Chunks = (
 	EncodingFailure | LiteralBound | FamilyRowBound | CompileError
 >
 
-/** One family's read as one execution sends it (write/family/statements.ts ReadSql): its text and its placeholders' texts. */
+/**
+ * One family's read as one execution sends it (write/family/statements.ts ReadSql): its text, named where its write
+ * compiles, so the read flight binds it by that name, and its placeholders' texts.
+ */
 export interface ReadStatement {
 	/** The family whose stored suffixes it reads, which a failure the read meets is attributed to. */
 	readonly family: FamilyId
-	readonly sql: EmittedText
+	readonly text: Prepared<EmittedText>
 	readonly params: ReadonlyArray<ParamText>
 }
 

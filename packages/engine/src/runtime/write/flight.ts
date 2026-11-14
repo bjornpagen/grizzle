@@ -8,6 +8,7 @@
  * data by the constructors the compile path runs it through too. Every application loads its write so, a write compiled
  * in process as much as a served one, so what the file holds is exactly what an application reads.
  */
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Prepared } from "#compiler/core/prepared.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { CallerParamDecl, WriteSlot } from "#compiler/ir/products.ts"
@@ -60,13 +61,36 @@ export interface ServedStatement {
 }
 
 /**
+ * What a write's transaction locks before any of its statements takes the transaction's snapshot: nothing, or the
+ * relations its login fences that its flight writes (analysis/isolation/certify.ts Fence), each IN EXCLUSIVE MODE by
+ * one LOCK TABLE, named as a served statement is, the relations in the order of their qualified table names, the one
+ * order every fenced write locks in. The login sends it itself, between its prologue's fence and the statement that
+ * takes the snapshot (adapter wire/batch.ts Frame), since a LOCK takes no snapshot (PostgreSQL 19 tcop/pquery.c
+ * PlannedStmtRequiresSnapshot), and SET ROLE could not precede it as a served text: a role's installed name is a
+ * variable of the installation, and set_config, which enters it, is a SELECT that takes the snapshot. The installation
+ * grants the login MAINTAIN on each fenced relation, which permits the lock.
+ */
+export type WriteExclusion =
+	| { readonly kind: "none" }
+	| {
+			readonly kind: "lock"
+			readonly relations: NonEmptyReadonlyArray<string>
+			readonly text: Prepared<EmittedText>
+	  }
+
+/** A write that locks nothing before its snapshot. */
+export const noExclusion: WriteExclusion = Object.freeze({ kind: "none" })
+
+/**
  * A write as its flight runs it, as data: its declared parameters, which an application admits and its read-backs
- * read; what binding an application reads besides its values (binding.ts Binding); its statements, in the order the
- * flight sends them; and the relations it writes, in code point order, whose facts its rows net by identity.
+ * read; what binding an application reads besides its values (binding.ts Binding); what its transaction locks before
+ * its snapshot; its statements, in the order the flight sends them; and the relations it writes, in code point order,
+ * whose facts its rows net by identity.
  */
 export interface ServedWrite {
 	readonly params: ReadonlyArray<CallerParamDecl>
 	readonly binding: Binding
+	readonly exclusion: WriteExclusion
 	readonly statements: ReadonlyArray<ServedStatement>
 	readonly written: ReadonlyArray<WrittenHeading>
 }
@@ -88,12 +112,13 @@ export interface FlightStatement {
 
 /**
  * A ServedWrite loaded under the installation's codes: its declared parameters, its binding and the binding's closures
- * (binding.ts prepareBinding), the codes its values are parsed and encoded under, its statements with their encoders,
- * and what reads its rows.
+ * (binding.ts prepareBinding), the codes its values are parsed and encoded under, what its transaction locks before its
+ * snapshot, its statements with their encoders, and what reads its rows.
  */
 export interface FlightWrite {
 	readonly params: ReadonlyArray<CallerParamDecl>
 	readonly binding: Binding
+	readonly exclusion: WriteExclusion
 	readonly prepared: PreparedBinding
 	readonly codes: Codebook
 	readonly statements: ReadonlyArray<FlightStatement>
@@ -115,6 +140,7 @@ export const loadWrite = (
 	return Object.freeze({
 		params: served.params,
 		binding: served.binding,
+		exclusion: served.exclusion,
 		prepared: prepareBinding(served.binding, codes, closed, patterns),
 		codes,
 		statements: Object.freeze(

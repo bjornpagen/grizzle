@@ -701,6 +701,7 @@ const reportable = (installation: Installation): ReadonlyArray<IdentifiedLaw> =>
 						case "addColumn":
 						case "addColumnPlaceholder":
 						case "addColumnDefault":
+						case "addColumnUnchecked":
 							return ofColumn(s.table, a.column)
 						case "addConstraint":
 							return ofTable(s.table, a.constraint.name)
@@ -708,6 +709,7 @@ const reportable = (installation: Installation): ReadonlyArray<IdentifiedLaw> =>
 							return ofTable(s.table, a.name)
 						case "dropColumn":
 						case "dropDefault":
+						case "setNotNull":
 						case "setUuidv7Default":
 						case "setRetirementDefault":
 						case "alterColumnType":

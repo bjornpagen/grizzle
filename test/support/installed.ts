@@ -31,6 +31,7 @@ import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { deployedWorkloadOver, inputArtifacts, testCompile } from "#test/support/compile.ts"
+import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { type Installed, installedOf, loginCredentials } from "#test/support/install-migrate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -48,13 +49,16 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 import { dropRole, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * One version of a migrated schema: its schema value, built under the allocated name, and the logins over it whose
- * worlds its migration installs.
+ * One version of a migrated schema: its schema value, or its descriptor where a test draws the schema's shape, built
+ * under the allocated name, and the logins over it whose worlds its migration installs.
  */
-export interface Version {
-	readonly schema: AnySchema
+export interface Version<S extends AnySchema | SchemaDesc = AnySchema> {
+	readonly schema: S
 	readonly logins: ReadonlyArray<AnyLogin>
 }
+
+/** A version of either form, as a history migrates it. */
+type AnyVersion = Version<AnySchema | SchemaDesc>
 
 /**
  * A schema migrated through a history of versions: the installation its last version reached (Installed, its folders
@@ -120,16 +124,23 @@ interface MigrateOptions {
 	 * The first version, built under the allocated name: a fixture rebuilt (`rebuild`), or a schema whose queries must
 	 * be over the installed schema value built there, with its logins, whose workloads its migration plans.
 	 */
-	readonly first: (name: string) => Version
+	readonly first: (name: string) => AnyVersion
 	/** Later versions of the schema, each a migration after the first, built over the same name. */
-	readonly later: ReadonlyArray<(name: string) => Version>
+	readonly later: ReadonlyArray<(name: string) => AnyVersion>
 	/**
 	 * The placeholder values of every generated folder's review. A folder with a placeholder under `noPlaceholders` is a
-	 * defect of the test.
+	 * defect of the test. A `reviewed` folder also takes the reviewer's data steps: each reviewed file of a version's
+	 * folder as `edit` writes it, given the version's index, as a person adds an UPDATE before a placeholder's DROP
+	 * DEFAULT.
 	 */
 	readonly apply:
 		| { readonly kind: "noPlaceholders" }
 		| { readonly kind: "values"; readonly value: Decisions["value"] }
+		| {
+				readonly kind: "reviewed"
+				readonly value: Decisions["value"]
+				readonly edit: (version: number, file: ReviewedText) => string
+		  }
 	/**
 	 * The renames and drops each version's migration declares (`--rename`, `--drop`), by the version's index, 0 the
 	 * first: every drop of stored data is declared, a roster's removed handle among them, and a renamed handle keeps its
@@ -141,6 +152,12 @@ interface MigrateOptions {
 	 * between versions, such as a role's OID that a later rename keeps; none for a test that reads nothing there.
 	 */
 	readonly observe: Option.Option<Observe>
+}
+
+/** A reviewed file of a drafted folder: its name and its text. */
+interface ReviewedText {
+	readonly name: string
+	readonly text: string
 }
 
 /** A reading between versions, given the version's index and the owner's session. */
@@ -164,7 +181,7 @@ const noValue =
  * installs (compile.ts deployedWorkloadOver), and the draft's workload. A version without a login plans nothing.
  */
 export const workloadOf = (
-	version: Version
+	version: AnyVersion
 ): { readonly extensions: ReadonlyArray<InstallExtension>; readonly draft: DraftWorkload } => {
 	if (version.logins.length === 0) {
 		return { extensions: [], draft: noWorkload }
@@ -198,7 +215,11 @@ export const workloadOf = (
  * previous snapshot records, the empty codebook before the first, with no rename declared. A draft that reorders a
  * roster is the test's defect: a history the test states appends new handles.
  */
-const draftedCodes = (previous: Previous, version: Version, declared: Declarations): Codebook => {
+const draftedCodes = (
+	previous: Previous,
+	version: AnyVersion,
+	declared: Declarations
+): Codebook => {
 	const drafted = draftCodes(version.schema, previous, declared)
 	if (!drafted.ok) {
 		throw new Error(`migrated: a version's codes are refused: ${drafted.error.message}`)
@@ -271,18 +292,21 @@ export const migrated = (options: MigrateOptions) =>
 		const owner = substrate.owner.role
 		const name = yield* schemaNameOf(options)
 		const installation = identity.schema(parsedSchemaName(name))
-		const versions: ReadonlyArray<Version> = [
+		const versions: ReadonlyArray<AnyVersion> = [
 			options.first(name),
 			...Arr.map(options.later, (f) => f(name))
 		]
 		const session = yield* substrate.session({ ...ownerSession(), label: `owner ${options.label}` })
 		const ownerLogin = yield* ambientOwner(ordinarySession, [identifierOf(installation)])
 		const migrator = yield* openMigrator(substrate, ownerLogin.credentials)
+		const reviewing = options.apply
 		const placeholderValue =
-			options.apply.kind === "values" ? options.apply.value : noValue(options.label)
+			reviewing.kind === "noPlaceholders" ? noValue(options.label) : reviewing.value
+		const edited = (version: number, file: ReviewedText): string =>
+			reviewing.kind === "reviewed" ? reviewing.edit(version, file) : file.text
 		const folders: Array<FolderSource> = []
 		const steps: Array<{
-			readonly version: Version
+			readonly version: AnyVersion
 			readonly plan: RealInstallPlan
 			readonly snapshot: DeploySnapshot
 		}> = []
@@ -318,7 +342,7 @@ export const migrated = (options: MigrateOptions) =>
 			folders.push({
 				name: g.folder.name,
 				metaText: g.folder.metaText,
-				files: reviewed.files
+				files: Arr.map(reviewed.files, (f) => ({ name: f.name, text: edited(i, f) }))
 			})
 			yield* apply(migrator, { snapshot: g.snapshot, folders: [...folders] }, noFurther)
 			yield* Option.match(options.observe, {

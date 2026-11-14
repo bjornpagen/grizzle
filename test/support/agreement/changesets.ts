@@ -34,6 +34,7 @@ import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import {
 	Bin,
+	Book,
 	Budget,
 	Cart,
 	Cents,
@@ -96,11 +97,11 @@ import { upTo } from "#test/support/up-to.ts"
  * nesting takes it (a root field below a tree's root, a field its relation lacks or a drawn one in a nested member, a
  * nested member missing a field, a counted member nested, an accumulated field or a count in a put, a generated field
  * in an insert), a family write the engine cannot plan (a sequence's member written
- * alone or by its row, a tree's row put or deleted, an immutable owner put, a member of an immutable owner's family
- * deleted), a fold over a delta reading no key, ChangeSets over schemas that are no levels of one another, a role that
- * does not write the relation (or a member its insert nests), a parameter left unbound, an argument naming no
- * parameter, ChangeSet.bind given a value that is no record. The floor's witnesses (changeSetWitnesses), the same in
- * every run, each aimed at a requirement, reach every fault and every construct.
+ * alone or by its row, a tree's row put, a counted member that owns a sequence put or deleted, an immutable owner put,
+ * a member of an immutable owner's family deleted), a fold over a delta reading no key, ChangeSets over schemas that are
+ * no levels of one another, a role that does not write the relation (or a member its insert nests), a parameter left
+ * unbound, an argument naming no parameter, ChangeSet.bind given a value that is no record. The floor's witnesses
+ * (changeSetWitnesses), the same in every run, each aimed at a requirement, reach every fault and every construct.
  *
  * A built ChangeSet may write its inserts as one insertAll (callsOf): each insert of a relation no insert before it in
  * the call writes, under its relation's name, an appended owner and its members two keys. The engine reads the same
@@ -332,6 +333,7 @@ const changeSetFaults = [
 	"a sequence member written alone",
 	"a sequence member edited by its row",
 	"a tree row edited",
+	"a member owning a sequence edited",
 	"an immutable owner put",
 	"a member of an immutable family deleted",
 	"an append to an owner its stratum does not insert",
@@ -361,6 +363,7 @@ const changeSetFeatures = [
 	"family member",
 	"nested members",
 	"a nested tree",
+	"a tree deleted by its root",
 	"a counted member",
 	"a mutable family",
 	"an immutable family",
@@ -409,6 +412,8 @@ const refusalNotes = {
 	"a put or a delete names its rows by their key, and no fact states a key field grizzle writes: key the relation by fields its caller writes":
 		"refused: an unstated key",
 	"a tree is rewritten whole: insert its root with the whole tree nested": "refused: a tree row",
+	"a family's member that owns a sequence is written by inserting its owner with its rows nested":
+		"refused: a member owning a sequence",
 	"an owner's put updates its row in place, which an immutable owner refuses: declare it mutable to put it":
 		"refused: an immutable owner",
 	"an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it":
@@ -441,6 +446,7 @@ export const changeSetRefusals: Arr.NonEmptyReadonlyArray<RefusalNote> = [
 	"refused: an undeclared parameter",
 	"refused: an unstated key",
 	"refused: a tree row",
+	"refused: a member owning a sequence",
 	"refused: an immutable owner",
 	"refused: a fixed family",
 	"refused: an append to a stored owner",
@@ -542,6 +548,7 @@ type FamilyRel =
 	| CountedOwner
 	| (typeof sequenceMembers)[OrderedOwner]
 	| (typeof countedMembers)[CountedOwner]
+	| "Book"
 	| "Node"
 
 /** A field of a family member's fact: a value its caller writes, or the rows nested at a count field. */
@@ -979,8 +986,8 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined, clean: boolean)
 
 /**
  * The faults a family's member fact carries, and the writes of a family's relation the engine cannot plan: a sequence's
- * member written alone or by its row, a tree's row put or deleted, an immutable owner put, a member of an immutable
- * owner's family deleted.
+ * member written alone or by its row, a tree's row put, a counted member that owns a sequence put or deleted,
+ * an immutable owner put, a member of an immutable owner's family deleted.
  */
 const familyFaults = [
 	"a nested root field",
@@ -995,6 +1002,7 @@ const familyFaults = [
 	"a sequence member written alone",
 	"a sequence member edited by its row",
 	"a tree row edited",
+	"a member owning a sequence edited",
 	"an immutable owner put",
 	"a member of an immutable family deleted",
 	"an append to an owner its stratum does not insert",
@@ -1051,20 +1059,16 @@ const orderOf = (d: Drawing, index: number, fault: ChangeSetFault | undefined): 
 }
 
 /**
- * A tree, its root with up to two children and a child with a child of its own, every node of a distinct id; a planted
- * fault gives the first child, or the first child's first child, the root field its nesting supplies.
+ * A tree, its root with up to two children and a child with a child of its own, the root stating its root field and no
+ * node its key, which its nesting draws; a planted fault gives the first child, or the first child's first child, the
+ * root field its nesting supplies.
  */
 const treeOf = (d: Drawing, fault: ChangeSetFault | undefined): FamilyFact => {
-	let next = 0
-	const nodeOf = (rooted: boolean, children: ReadonlyArray<FamilyFact>): FamilyFact => {
-		next += 1
-		return [
-			["id", familyValue(uuidLit(next))],
-			...(rooted ? [["doc", familyValue(uuidLit(1))] as const] : []),
-			["label", familyValue(d.from(labels))],
-			["children", nestedRows(children)]
-		]
-	}
+	const nodeOf = (rooted: boolean, children: ReadonlyArray<FamilyFact>): FamilyFact => [
+		...(rooted ? [["doc", familyValue(uuidLit(1))] as const] : []),
+		["label", familyValue(d.from(labels))],
+		["children", nestedRows(children)]
+	]
 	const nested = fault === "a nested root field"
 	const deep = fault === "a deep root field"
 	const children = Arr.map(
@@ -1105,7 +1109,8 @@ const familyOf = (
 	d.note(
 		relation === "Node"
 			? "a nested tree"
-			: Arr.some(mutableOwners, (o) => o === relation || familyMemberRelation(o) === relation)
+			: relation === "Book" ||
+				  Arr.some(mutableOwners, (o) => o === relation || familyMemberRelation(o) === relation)
 				? "a mutable family"
 				: "an immutable family"
 	)
@@ -1150,12 +1155,17 @@ const plantedFamilyMember = (d: Drawing, fault: FamilyFault): MemberSpec => {
 				keyedRow(d)
 			])
 		case "a tree row edited":
-			return familyOf(d, d.choose(["delete", "put"] as const), "Node", [
+			return familyOf(d, "put", "Node", [
 				[
-					["id", familyValue(d.from(uuids))],
-					["parent", familyValue(d.from(uuids))],
 					["doc", familyValue(d.from(uuids))],
 					["label", familyValue(d.from(labels))]
+				]
+			])
+		case "a member owning a sequence edited":
+			return familyOf(d, d.choose(["delete", "put"] as const), "Book", [
+				[
+					["id", familyValue(d.from(uuids))],
+					["shelf", familyValue(d.from(uuids))]
 				]
 			])
 		case "an immutable owner put":
@@ -1188,7 +1198,7 @@ const plantedFamilyMember = (d: Drawing, fault: FamilyFault): MemberSpec => {
  * A member of one of Work's families, each over an immutable owner and a mutable one: an ordered family's owner
  * inserted with its members nested, or deleted, and put where it is mutable; a counted family's owner inserted, deleted,
  * and put where it is mutable; a counted member put, inserted where its owner is mutable and beside an insert of its
- * owner where it is not, and deleted where its owner is mutable; or a tree inserted from its root. A counted member is
+ * owner where it is not, and deleted where its owner is mutable; or a tree inserted from its root, or deleted by it. A counted member is
  * an edit of its family, which a ChangeSet writes in one stratum: a sequence of two cases that write one is refused, so
  * only a case that plants no fault (`clean`) writes one, and no planted fault meets that refusal first.
  */
@@ -1196,7 +1206,7 @@ const familyMemberOf = (d: Drawing, clean: boolean): MemberSpec => {
 	d.note("family member")
 	const relation = d.aimed("nested members")
 		? d.from(["Order", "Cart"] as const)
-		: d.aimed("a nested tree")
+		: d.aimed("a nested tree") || d.aimed("a tree deleted by its root")
 			? "Node"
 			: d.aimed("an append beside its owner")
 				? "Item"
@@ -1210,6 +1220,9 @@ const familyMemberOf = (d: Drawing, clean: boolean): MemberSpec => {
 								? d.from(["Order", "Cart", "Pool", "Bin", "Item", "Chip", "Node"] as const)
 								: d.from(["Order", "Cart", "Pool", "Bin", "Node"] as const)
 	if (relation === "Node") {
+		if (d.choose(["a nested tree", "a tree deleted by its root"] as const) !== "a nested tree") {
+			return familyOf(d, "delete", relation, [[["doc", familyValue(d.from(uuids))]]])
+		}
 		return familyOf(d, "insert", relation, [treeOf(d, undefined)])
 	}
 	const op = d.choose(
@@ -1889,7 +1902,7 @@ class Rendering {
 
 const levels = { Work, Reports, Other, Twin } as const
 const closedRelations = { ...relations, Kind } as const
-const familyRelations = { Order, Line, Cart, Entry, Pool, Item, Bin, Chip, Node } as const
+const familyRelations = { Order, Line, Cart, Entry, Pool, Item, Bin, Chip, Book, Node } as const
 
 /** A family member's fact as the facade takes it: each value, and each nested row's fact in its place. */
 const familyFactValue = (f: FamilyFact): Readonly<Record<string, unknown>> =>
@@ -2073,14 +2086,16 @@ const unplannedOf = (capability: string): ChangeSetRefusal | undefined =>
 			? "a tree is rewritten whole: insert its root with the whole tree nested"
 			: Str.includes("the immutable owner of the family")(capability)
 				? "an owner's put updates its row in place, which an immutable owner refuses: declare it mutable to put it"
-				: Str.startsWith("a delete of")(capability) &&
-					  Str.includes("an immutable owner's family is fixed")(capability)
-					? "an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it"
-					: Str.includes("appending to an owner this stratum does not insert")(capability)
-						? "an immutable owner's family takes an append only beside an insert of its owner in the same stratum: insert the owner with it, or declare it mutable"
-						: Str.startsWith("family members written in more than one stratum")(capability)
-							? "a ChangeSet writes a family's members in one stratum: each stratum's edits are planned from one read before the ChangeSet's writes"
-							: undefined
+				: Str.includes("both a family's member and a sequence's owner")(capability)
+					? "a family's member that owns a sequence is written by inserting its owner with its rows nested"
+					: Str.startsWith("a delete of")(capability) &&
+						  Str.includes("an immutable owner's family is fixed")(capability)
+						? "an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it"
+						: Str.includes("appending to an owner this stratum does not insert")(capability)
+							? "an immutable owner's family takes an append only beside an insert of its owner in the same stratum: insert the owner with it, or declare it mutable"
+							: Str.startsWith("family members written in more than one stratum")(capability)
+								? "a ChangeSet writes a family's members in one stratum: each stratum's edits are planned from one read before the ChangeSet's writes"
+								: undefined
 
 /** The Refusal the types name for the engine's reason, the call a repeated read-back name meets telling which. */
 const claimOf = (reason: CompileReason, spec: CaseSpec): Claim => {
@@ -3118,6 +3133,7 @@ const prerequisites: { readonly [F in ChangeSetFeature]?: ReadonlyArray<ChangeSe
 	"a head literal": ["described member"],
 	"nested members": ["family member", "insert"],
 	"a nested tree": ["family member"],
+	"a tree deleted by its root": ["family member", "delete"],
 	"a counted member": ["family member"],
 	"a mutable family": ["family member"],
 	"an immutable family": ["family member"],

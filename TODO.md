@@ -254,6 +254,13 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   rebased and kept until a release includes it. Tell qti-pie first: its database lives in the cluster.
 - **`bench:full` on a quiet machine.**
 - **Test layout:** tests move into packages/*/test, with their mutate and fallow paths and the docs.
+- **The fill kernel's rows have one handle, their `id` (RESTATED, 2026-11-12):** test/support/families/fill.ts follows a
+  row across a stored instance and its restatement by its `id` field (writtenRows' byId map, every memberOf owner,
+  instanceFacts), and a tree's root fields are named by its root's id (rootValuesOf), so G4 (test/pg/write/reinsert,
+  again.ts renamedInPlace) never renames a tree's root: that states its whole tree again under another root, its nodes'
+  ids kept, a second tree PostgreSQL holds beside the stored one, which the model merges into one. A tree's primary key
+  holds its drawn start, which shifts with every node added before it, so the key cannot be the handle either. Split a
+  model handle from the `id` field through fill.ts and the swarm suites, and draw a root's rename again.
 - **The worlds' page:anchored feature (WCOVER, 2026-11-10):** WCOVER-01 compares anchored pages but requires no feature
   that reaches one. With page:anchored required, isolation reads at TEST_SEED=3971498375 held a led case past its hang
   limit: both reads leads take every required feature, and a pending one keeps directTransaction's afterBegin
@@ -361,6 +368,44 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   LOCK-based lease (a table per slot locked IN EXCLUSIVE MODE by an open transaction, NOWAIT first; holder and waiter
   show backend_xmin and backend_xid NULL; ACCESS EXCLUSIVE would assign an xid), done when no lane runs an old tree.
   Parked: ~/.cache/grizzle-release/SSIDIAG/SSIDIAG-04.parked.patch.
+- **The connection lease has one slot on cassowary (PGLINUX, 2026-11-12):** testPoolMax is availableParallelism(), 64
+  there (test/support/limits.ts:107), so connectionsPerLease is 67 (test/support/substrate/shared.ts:127), and
+  leaseSlotsQuery (shared.ts:131-133) gives (100 - 3 - 0 - 5) / 67 = 1 slot on PostgreSQL's default max_connections,
+  against 7 on the 10-core VM (read on the cluster). Every network test file on the machine, every lane's, takes that
+  one slot in turn: nothing fails, but runs go one file at a time, and workers.ts:8-10 ("seven", "a run alone never
+  waits") no longer holds. The fix is the owner's policy: max_connections in scripts/pg/init.sh, or the pool's bound.
+- **The type tier's stall guard reads whole seconds of CPU on Linux (PGLINUX, 2026-11-12):**
+  test/types/batch/compiler.ts:165 reads a tree's CPU time with `ps -A -o pid=,ppid=,time=`, which procps-ng 4.0.4
+  prints as hh:mm:ss with no fraction, where macOS printed hundredths. The guard's own property draws windows of 1000
+  to 3000 ms (test/types/batch/batch.test.ts:574), so a short clean check could read no progress for a whole window
+  and be judged stalled. Unverified (not run). /proc/<pid>/stat gives the time in 10 ms ticks.
+- **Limit evidence names the macOS VM (PGLINUX, 2026-11-12):** measured limits whose environment is the 10-core macOS VM
+  need revalidating on cassowary: packages/engine/src/core/limits.ts:141, 362, 461 and 626, test/support/limits.ts:27,
+  test/support/power-pairs.ts:250, test/support/oracle/evaluate/power.ts:474 and test/types/batch/compiler.ts:46.
+  flightMaxBytes (limits.ts:815-823) cites macOS refusing a write past INT_MAX with EINVAL; Linux caps one write at
+  0x7ffff000 bytes and writes part of it instead.
+- **The PostgreSQL build's optional features follow the host (PGLINUX, 2026-11-12):** scripts/pg/build.sh names only
+  the features it needs, and meson's auto-detection turned plpython, selinux, systemd and nls on on cassowary and left
+  libxml and uuid off; the VM's set was never recorded. No test reads them (test/support/kernel/catalog-alphabet.ts
+  reads only share/postgres.bki); pinning them would make the build the same on every host.
+
+- **Doomed foreign keys and rule triggers stand through the data steps (edullm, 2026-11-12):** a migration drops the
+  old laws it replaces only in its removals (05/06), after the reviewer's data steps in 02-structure. edullm's identity
+  migration retracts about half its imports in a data step while 224 old foreign keys and 41 rule triggers still stand,
+  so every deleted row queues an after-trigger event per key in memory. edullm drops the doomed keys and triggers in
+  its own data step and makes the drafted drops `IF EXISTS`, a downstream workaround. Draft the drops of every
+  foreign key and rule trigger that nothing after the data-step slot reads before that slot (never a primary key or
+  UNIQUE: the fills join through the old keys' indexes), with a property that no doomed RI or rule trigger stands at a
+  data step; then tell edullm to delete its workaround on its next migration.
+- **A steered failure's replay does not reproduce it (RESTATED, 2026-11-12):** when a search fails in its steered
+  phase, the case it reports after shrinking is the plain drawn case, not the aimed one that failed, so its
+  TEST_REPLAY token can pass alone. The replay must reproduce the failing case, aim included (packages/testing).
+- **Unreported witness on a native unique met by a family insert (WITNESS, known red on main):** a family INSERT that
+  meets a native UNIQUE (a member's primary key, an ordered family's (group, index), a tree's key) is refused with an
+  `unreported` witness (runtime/write/witness.ts uniqueJudgement; adapter/witness/classify.ts), against README's
+  witness contract. test/pg/fin/counted-set and test/pg/write/reinsert stay red on it. The fix is on the live branch
+  (283f0295, d7cc2586, 899b370d: every family insert probes each unique it does not arbitrate); main takes it only by
+  the owner's word, since nothing moves from live to main.
 
 ### Parked by the scope lock (the owner, 2026-11-10)
 - **UPSTREAM:** an audit of every upstream/ and scripts/pg/patches patch to maintainer quality (the owner's order,
@@ -442,8 +487,6 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
 - upstream/plpgsql-lineno-rescan: PL/pgSQL rescans the source on every location-to-line lookup.
 - upstream/gist-costestimate-column-position: a pgsql-hackers reply to BUG #15408, for PostgreSQL 20.
 - upstream/relcache-planned-check-and-generation: the relcache patch the pin carries.
-- upstream/tsgo-zero-cpu-stall: tsgo at 0% CPU on a type error, unreproduced so far. Reproduce it without the
-  effect-tsgo patch first, then file at microsoft/TypeScript.
 - upstream/fallow-unused-class-member-union-property: fallow credits no class member called through a property of a
   union-typed value, so .fallowrc.json keeps use and useRelation. File at fallow-rs/fallow, then drop the entries once
   repro.sh reports Cell.never alone.

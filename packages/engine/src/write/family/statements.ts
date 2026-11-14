@@ -28,6 +28,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
+import { type Prepared, prepared } from "#compiler/core/prepared.ts"
 import * as Result from "#compiler/core/result.ts"
 import { typedEq } from "#compiler/ir/compare.ts"
 import type { Family } from "#compiler/ir/family.ts"
@@ -54,6 +55,7 @@ import type {
 	Cte,
 	CteBody,
 	EmittedSql,
+	EmittedText,
 	Expr,
 	FromItem,
 	FromSource,
@@ -195,9 +197,6 @@ export const rowLayout = (relation: RelationInfo, families: ReadonlyArray<Family
 	const law = mine.flatMap((f): ReadonlyArray<RowColumn> => [
 		...(f.index.kind === "law" ? [of(f.index, f.count.type)] : []),
 		of({ kind: "law", column: f.copy }, f.count.type),
-		...(f.members.kind === "tree"
-			? [of({ kind: "law", column: f.members.parentStart }, f.members.start.type)]
-			: []),
 		...f.folds.flatMap((fold) =>
 			fold.planes.flatMap((plane) =>
 				[plane.before, plane.after].flatMap((c) =>
@@ -768,10 +767,13 @@ export const readShape = (family: Family, layout: RowLayout): ReadShape => ({
 	member: { key: layout.key.length, columns: layout.columns.length }
 })
 
-/** A family's read statement and the shape of its rows. */
+/**
+ * A family's read statement, its text named as a served statement's is (core/prepared.ts), so a write's read flight
+ * binds it by its name, and the shape of its rows.
+ */
 export interface ReadSql {
 	readonly ast: SqlStatement
-	readonly sql: EmittedSql
+	readonly text: Prepared<EmittedText>
 	readonly arrays: number
 	readonly shape: ReadShape
 }
@@ -993,7 +995,7 @@ export const suffixReadSql = (
 	}
 	return Result.ok({
 		ast,
-		sql: emitText(ast, supply.map()),
+		text: prepared(emitText(ast, supply.map()).text),
 		arrays: keyCarried.length + groupCarried.length,
 		shape
 	})
@@ -1032,10 +1034,13 @@ export interface ChainShape {
 		| { readonly kind: "rows" }
 }
 
-/** A chain's read statement: its AST and text, where its rows begin, and the shape of its rows. */
+/**
+ * A chain's read statement: its AST and its text, named as a served statement's is (core/prepared.ts), where its rows
+ * begin, and the shape of its rows.
+ */
 export interface ChainSql {
 	readonly ast: SqlStatement
-	readonly sql: EmittedSql
+	readonly text: Prepared<EmittedText>
 	readonly root: ChainRoot
 	readonly shape: ChainShape
 }
@@ -1103,10 +1108,10 @@ export const chainReadSql = (
 	/** The owner's key field a group field of `family` pairs with, as a position among the owner's key fields. */
 	const ownerPosition = (family: Family, owner: LawField): number =>
 		family.owner.primaryFields.findIndex((f) => f.name === owner.name)
-	/** The fields a set of `family`'s groups holds: its group fields, or a tree's root field. */
+	/** The fields a set of `family`'s groups holds: its group fields, or a tree's root fields. */
 	const groupFields = (family: Family): NonEmptyReadonlyArray<LawField> =>
 		family.members.kind === "tree"
-			? [family.members.root]
+			? family.members.root
 			: mapNonEmpty(family.group, (g) => g.member)
 	interface RowsCte {
 		readonly name: string
@@ -1404,7 +1409,7 @@ export const chainReadSql = (
 	}
 	return {
 		ast,
-		sql: emitText(ast, supply.map()),
+		text: prepared(emitText(ast, supply.map()).text),
 		root,
 		shape: { rows: sets, end }
 	}

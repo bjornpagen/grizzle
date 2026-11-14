@@ -136,10 +136,9 @@ const factOf = (name: KeyName, n: number): Readonly<Record<string, unknown>> => 
 			return { owner: uuidOf(n), v: BigInt(n) }
 		case "Node":
 			return {
-				id: uuidOf(n),
 				doc: uuidOf(n),
 				label: 0,
-				children: [{ id: uuidOf(n + 100), label: 1, children: [] }]
+				children: [{ label: 1, children: [] }]
 			}
 	}
 }

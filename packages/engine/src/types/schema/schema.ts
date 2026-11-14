@@ -174,7 +174,7 @@ type FamilySpelled<Fa, Rs, To extends Spelling> =
 			? [SideSpelled<F, Rs, To>, FinSpelled<Fi, Rs, To>] extends [infer A, infer B]
 				? Counted<A, B>
 				: never
-			: Fa extends Tree<infer F, infer Fi, infer Root extends string>
+			: Fa extends Tree<infer F, infer Fi, infer Root extends ReadonlyArray<string>>
 				? [SideSpelled<F, Rs, To>, FinSpelled<Fi, Rs, To>] extends [infer A, infer B]
 					? Tree<A, B, Root>
 					: never
@@ -283,7 +283,7 @@ export type NamedBy<St> =
 								? RelationOfKey<P> | C | RelationOfKey<Exclude<Arms[keyof Arms], undefined>>
 								: St extends Ordered<infer F, infer Fi> | Counted<infer F, infer Fi>
 									? SideNames<F> | OwnerOf<Fi>
-									: St extends Tree<infer F, infer Fi, string>
+									: St extends Tree<infer F, infer Fi, ReadonlyArray<string>>
 										? SideNames<F> | OwnerOf<Fi>
 										: St extends Fold<unknown, unknown, infer S, infer E>
 											? SideNames<S> | SideNames<E>
@@ -572,18 +572,16 @@ type SourceOf<X> = X extends Side<infer R> ? R : never
 type TermsOf<X> = X extends Side<unknown, infer T> ? T : never
 
 /**
- * The side of every candidate key a statement declares: a key statement's, an ordered family's (its group and index),
- * and a tree's document order, (root, start). A counted family's index is in no heading, and a tree's (parent, at) is
- * a key of its members alone, so neither is a key of the relation.
+ * The side of every candidate key a statement declares: a key statement's, and an ordered family's (its group and
+ * index). A counted family's index is in no heading; a tree's (root…, start) is its relation's primary key, and its
+ * (root…, parent, at) a key of its members alone, so neither adds a key of the relation.
  */
 type KeySideOf<St> =
 	St extends CandidateKey<AnyRelation>
 		? St["side"]
 		: St extends Ordered<infer F, AnyFin>
 			? F
-			: St extends Tree<Side<infer T>, AnyFin, infer Root>
-				? Side<T, readonly [Root, "start"]>
-				: never
+			: never
 
 /** The proved keys a query's evidence carries. */
 type DefinitionKeysOf<Q> =

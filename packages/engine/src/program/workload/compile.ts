@@ -1,4 +1,4 @@
-import type { RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
+import type { Fence, RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
 import { checkedRoleOver, type CheckedSchema } from "#compiler/analysis/schema.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
@@ -607,7 +607,9 @@ export interface ServedLogin extends ChangeLogin {
  * login's served file compiles over (change.ts loginChanges), in the form its certificate's level serves, by the
  * login's name, then the role's name in it: what each login's served file projects; and the certificate of each of
  * those roles (program/isolation/certification.ts), the level its writes begin at, which the installation's guards
- * follow (physical/install/compile.ts installationOver); and the roles whose served ChangeSets create a carrier.
+ * follow (physical/install/compile.ts installationOver); the roles whose served ChangeSets create a carrier; the roles
+ * whose served ChangeSets hold a retirable unit; and the fences the certification states
+ * (analysis/isolation/certify.ts Fence), each with the roles certified READ COMMITTED that rely on it.
  */
 export interface ServedWorkloadPlan extends WorkloadPlan {
 	readonly changes: ReadonlyMap<string, ReadonlyMap<string, RoleChanges>>
@@ -618,6 +620,7 @@ export interface ServedWorkloadPlan extends WorkloadPlan {
 	/** The roles whose served ChangeSets hold a retirable unit, each with the unit's header (servedHolds), which the
 	 * installation grants EXECUTE on the unit's hold function. */
 	readonly holds: ReadonlyArray<RoleHold>
+	readonly fences: ReadonlyArray<Fence>
 }
 
 /** Whether a ChangeSet's variants may create a carrier: any variant's flight (write/program/artifact.ts
@@ -705,7 +708,8 @@ export const servedWorkload = (
 			changes: certified.served,
 			certification: certified.certificates,
 			carriers: servedCarriers(certified.served),
-			holds: servedHolds(certified.served)
+			holds: servedHolds(certified.served),
+			fences: certified.fences
 		})
 	)
 }

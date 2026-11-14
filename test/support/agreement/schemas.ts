@@ -561,7 +561,7 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 	),
 	endPlanes: named("a fold's end names one accumulated field of the owner per plane"),
 	treeParentType: named(
-		"a tree is a family of T over itself, on(T, parent, at), with drawn start and end"
+		"a tree is a family of T over itself, on(T, parent, at), keyed by its root fields then start, with drawn parent, start and end"
 	),
 	drawnNotNatural: structural({ tag: "MalformedDescription" }, "a drawn field is a natural"),
 	accumulatedWriting: named(
@@ -792,7 +792,7 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 	selectedCounted: named(wholeMember),
 	selectedOrdered: named(wholeMember),
 	selectedTree: named(
-		"a tree is a family of T over itself, on(T, parent, at), with drawn start and end"
+		"a tree is a family of T over itself, on(T, parent, at), keyed by its root fields then start, with drawn parent, start and end"
 	)
 }
 
@@ -1079,7 +1079,7 @@ type FamilySpec =
 			readonly relation: string
 			readonly count: string
 			readonly member: SideSpec
-			readonly root: string
+			readonly root: Arr.NonEmptyReadonlyArray<string>
 	  }
 
 /** An alternatives law: its parent, its discriminator over a roster, and its arms by handle. */
@@ -1942,7 +1942,10 @@ const familyPackOf = (
 	}
 }
 
-/** A tree pack: a document's nodes, each row's drawn index, children, start and end, its root field doc its tree's. */
+/**
+ * A tree pack: a document's nodes keyed by their root field doc and their start, each row's drawn parent, index,
+ * children, start and end, its root field doc its tree's.
+ */
 const treePack = (): {
 	readonly relations: Arr.NonEmptyReadonlyArray<RelationSpec>
 	readonly family: FamilySpec
@@ -1957,16 +1960,15 @@ const treePack = (): {
 			{
 				name: "Node",
 				fields: [
-					{ name: "id", type: { kind: "uuid" }, writing: callerWriting },
-					{ name: "parent", type: { kind: "uuid" }, writing: callerWriting },
+					{ name: "doc", type: { kind: "uuid" }, writing: callerWriting },
+					drawn("parent"),
 					drawn("at"),
 					drawn("children"),
 					drawn("start"),
 					drawn("end"),
-					{ name: "doc", type: { kind: "uuid" }, writing: callerWriting },
 					{ name: "label", type: { kind: "pg", spelling: "integer" }, writing: callerWriting }
 				],
-				key: ["id"]
+				key: ["doc", "start"]
 			}
 		],
 		family: {
@@ -1974,7 +1976,7 @@ const treePack = (): {
 			relation: "Node",
 			count: "children",
 			member: { relation: "Node", terms: ["parent", "at"] },
-			root: "doc"
+			root: ["doc"]
 		}
 	}
 }
@@ -2724,8 +2726,9 @@ const additionType = (h: Heading, without: ReadonlyArray<string>): string => {
 
 /**
  * The candidate keys over a relation's heading the engine compiles the schema to: its owned keys, the primary key and
- * each key statement's, and each family's that keys its members by heading fields, an ordered family's group and index
- * and a tree's root and start; a counted family's index is a law column, in no heading.
+ * each key statement's, and each ordered family's that keys its members by heading fields, its group and index; a
+ * tree's root fields and start are its relation's primary key, and a counted family's index is a law column, in no
+ * heading.
  */
 const keysOf = (artifacts: SchemaArtifacts, name: string): ReadonlyArray<ReadonlyArray<string>> => {
 	const owned = artifacts.owned.relations[name]
@@ -2735,10 +2738,7 @@ const keysOf = (artifacts: SchemaArtifacts, name: string): ReadonlyArray<Readonl
 			if (f.member.name !== name) {
 				return []
 			}
-			if (f.members.kind === "tree") {
-				return [[f.members.root.name, f.members.start.name]]
-			}
-			return f.index.kind === "field"
+			return f.index.kind === "field" && f.members.kind === "every"
 				? [[...Arr.map(f.group, (g) => g.member.name), f.index.field.name]]
 				: []
 		})
@@ -4776,16 +4776,15 @@ const selectedMemberProbe = (fault: KeptFault): Probe => {
 	const node: RelationSpec = {
 		name: "T",
 		fields: [
-			{ name: "id", type: { kind: "uuid" }, writing: callerWriting },
-			{ name: "parent", type: { kind: "uuid" }, writing: callerWriting },
+			{ name: "doc", type: { kind: "uuid" }, writing: callerWriting },
+			drawnNatural("parent"),
 			drawnNatural("at"),
 			drawnNatural("children"),
 			drawnNatural("start"),
 			drawnNatural("end"),
-			{ name: "doc", type: { kind: "uuid" }, writing: callerWriting },
 			flag
 		],
-		key: ["id"]
+		key: ["doc", "start"]
 	}
 	const selected = (r: string): string => `Sc.select(${r}, (t) => t.eq(t.flag, true))`
 	return {
@@ -4805,7 +4804,7 @@ const selectedMemberProbe = (fault: KeptFault): Probe => {
 						? `export const ${own} = Sc.counted(Sc.on(${selected(`${own}_M`)}, "g"), Sc.fin(${own}_O, "n"))`
 						: fault === "selectedOrdered"
 							? `export const ${own} = Sc.ordered(Sc.on(${selected(`${own}_M`)}, "g", "i"), Sc.fin(${own}_O, "n"))`
-							: `export const ${own} = Sc.tree(Sc.on(${selected(`${own}_T`)}, "parent", "at"), Sc.fin(${own}_T, "children"), { root: "doc" })`,
+							: `export const ${own} = Sc.tree(Sc.on(${selected(`${own}_T`)}, "parent", "at"), Sc.fin(${own}_T, "children"), { root: ["doc"] })`,
 				tail: []
 			}
 		},
@@ -4827,14 +4826,17 @@ const selectedMemberProbe = (fault: KeptFault): Probe => {
 						return treeBuilder(
 							onBuilder(selection(t), ["parent", "at"]),
 							finBuilder(t, "children"),
-							{ root: "doc" }
+							{ root: ["doc"] }
 						)
 				}
 			})
 	}
 }
 
-/** A tree of its own: a node relation over itself, its parent of its key's type, or, a planted fault, of another. */
+/**
+ * A tree of its own: a node relation over itself keyed by its root field and its start, its parent drawn, or, a planted
+ * fault, its caller's integer.
+ */
 const treeProbe = (d: Drawing): Probe => {
 	const loose = d.upTo(1) === 1
 	const drawnField = (name: string): FieldSpec => ({
@@ -4845,19 +4847,16 @@ const treeProbe = (d: Drawing): Probe => {
 	const node: RelationSpec = {
 		name: "T",
 		fields: [
-			{ name: "id", type: { kind: "uuid" }, writing: callerWriting },
-			{
-				name: "parent",
-				type: loose ? { kind: "pg", spelling: "integer" } : { kind: "uuid" },
-				writing: callerWriting
-			},
+			{ name: "doc", type: { kind: "uuid" }, writing: callerWriting },
+			loose
+				? { name: "parent", type: { kind: "pg", spelling: "integer" }, writing: callerWriting }
+				: drawnField("parent"),
 			drawnField("at"),
 			drawnField("children"),
 			drawnField("start"),
-			drawnField("end"),
-			{ name: "doc", type: { kind: "uuid" }, writing: callerWriting }
+			drawnField("end")
 		],
-		key: ["id"]
+		key: ["doc", "start"]
 	}
 	return {
 		construct: "familyProbe",
@@ -4866,7 +4865,7 @@ const treeProbe = (d: Drawing): Probe => {
 			const mine = (name: string) => (name === "T" ? `${own}_T` : ids(name))
 			return {
 				head: [`export const ${own}_T = ${relationSource(node, mine, quoted(node.key))}`],
-				line: `export const ${own} = Sc.tree(Sc.on(${own}_T, "parent", "at"), Sc.fin(${own}_T, "children"), { root: "doc" })`,
+				line: `export const ${own} = Sc.tree(Sc.on(${own}_T, "parent", "at"), Sc.fin(${own}_T, "children"), { root: ["doc"] })`,
 				tail: []
 			}
 		},
@@ -4876,7 +4875,11 @@ const treeProbe = (d: Drawing): Probe => {
 				return schema(
 					"F",
 					[t],
-					[treeBuilder(onBuilder(t, ["parent", "at"]), finBuilder(t, "children"), { root: "doc" })],
+					[
+						treeBuilder(onBuilder(t, ["parent", "at"]), finBuilder(t, "children"), {
+							root: ["doc"]
+						})
+					],
 					[]
 				)
 			})
@@ -5427,7 +5430,7 @@ const statementType = (desc: StatementDesc, ids: Ids): string => {
 			return `St.${desc.order === "ordered" ? "Ordered" : "Counted"}<${sideType(desc.member, ids)}, ${fin}>`
 		}
 		case "tree":
-			return `St.Tree<${sideType(desc.member, ids)}, St.Fin<typeof ${ids(desc.slots.owner)}, ${jsonText(desc.slots.count)}>, ${jsonText(desc.root)}>`
+			return `St.Tree<${sideType(desc.member, ids)}, St.Fin<typeof ${ids(desc.slots.owner)}, ${jsonText(desc.slots.count)}>, readonly [${Arr.join(Arr.map(desc.root, jsonText), ", ")}]>`
 		case "fold":
 			return `St.Fold<typeof ${ids("family")}, typeof Sc.Monoid.${desc.monoid}, ${sideType(desc.step, ids)}, ${sideType(desc.end, ids)}>`
 		case "alternatives":
@@ -6102,12 +6105,12 @@ const nestedAssertions = (base: Base, env: Env, ids: Ids): ReadonlyArray<string>
 				expect(
 					"nested_child",
 					`keyof ${top}[${jsonText(family.count)}][number]`,
-					keysAt([parent, family.root])
+					keysAt([parent, ...family.root])
 				),
 				expect(
 					"nested_grandchild",
 					`keyof ${top}[${jsonText(family.count)}][number][${jsonText(family.count)}][number]`,
-					keysAt([parent, family.root])
+					keysAt([parent, ...family.root])
 				)
 			]
 		}
@@ -6617,7 +6620,7 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 				])
 				const built: unknown = Reflect.apply(schema, undefined, [
 					"P",
-					{ ...Rec.fromEntries([...env.rosters]), Generated: made },
+					[...Rec.values(Rec.fromEntries([...env.rosters])), made],
 					[],
 					[]
 				])

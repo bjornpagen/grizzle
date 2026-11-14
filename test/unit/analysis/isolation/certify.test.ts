@@ -13,7 +13,12 @@
  * to; an inserter beside a SERIALIZABLE role that may insert too, whose guard would refuse its every write; and
  * NEGATION's four histories no serial order in real time explains, each reproduced on PostgreSQL: a reader of one point
  * group lagging an in-flight SERIALIZABLE pivot, a reader of one group per own row, a copy whose foreign key check
- * misses that pivot's row, and a copy over many own rows whose deferred check reads at COMMIT. LEASE's race shapes: a
+ * misses that pivot's row, and a copy over many own rows whose deferred check reads at COMMIT; a referencer whose check
+ * reads a relation a role updates (updatedCheck, updatedDeleter), or one whose writer of the referenced relation may
+ * miss a write and fences nothing (unfencedPivot). Others are READ COMMITTED, the deleting login fencing the relation:
+ * a referencer of a relation deleted from another login than the one that inserts it, by a privilege (heldCheck) or a
+ * member (fencedDeleter), or deleted and inserted by one login (fencedCheck), edullm's publisher among them, which
+ * replaces it in one member after an outside read (fencedPublisher). LEASE's race shapes: a
  * read of a race's winner that binds the raced key as its arbitration did and another field besides, arbitrated and
  * READ COMMITTED; the same read at another value of the key or of a part of it, and a raced relation's read at another
  * key its insertion was probed at, each a pivot; and that read where the relation is not raced, whose probed key is fixed too.
@@ -23,10 +28,15 @@
  *
  * The oracle restates every condition over the drawn facts, apart from the certifier's code, in rounds from none
  * lowered: each judged role's own conditions over its READ COMMITTED members, its foreign key checks among its reads,
- * then, of the judged roles that meet them, the greatest set none of whose members a role outside it gives a reason,
+ * a referencing check sealed where it binds a whole declared key of a relation no role updates (an insert-only one's,
+ * a held one's and a fenced one's alike, fenced where one login's roles both delete and insert it), a fenced write's
+ * check of the rows that reference a row it deletes no site of conditions 2 and 3, and a writer whose login fences a
+ * relation no writer 5c weighs against a role that reads it from outside by fenced checks alone; then, of the judged roles that meet them, the greatest set none of whose members a role outside it gives a reason,
  * found by trying every subset, where whatever a lowered role's members read or write, conditions 2, 3 and 5c included,
  * is read from both its forms; each round lowers the judged roles it leaves SERIALIZABLE, with its conditions, until one
- * lowers none. Every role's level is the oracle's, and every SERIALIZABLE role names exactly the conditions of the round
+ * lowers none. Every role's level is the oracle's, the fences are exactly those of the relations the roles it leaves
+ * READ COMMITTED check by fenced checks, one per login that fences each, and every SERIALIZABLE role names exactly the
+ * conditions of the round
  * that lowered it, each of which it still fails at the fixpoint; a role with no change member is SERIALIZABLE by the
  * members condition. Every role's certificate is the same with its own SERIALIZABLE form dropped: that form is served
  * only once the role runs SERIALIZABLE, so it never judges the role. Adding a capability (a privilege, a read, a
@@ -53,12 +63,17 @@
  * absence); a lowered role judged again over both its forms, its own lowering's absence named in place of the reasons
  * that lowered it (the lowered absence, edullm's folded publisher); and a lowered role's certificate read from the last
  * round, over its READ COMMITTED form alone, where another role's lowering gives it an absence of its own (the lowered
- * cause).
+ * cause); a check of a relation a role updates sealed (the updatedCheck shape); a fenced check relied on with no fence
+ * stated (the fencedCheck shape); every check of referencing rows a fenced site (updatedDeleter); 5c sparing a writer
+ * whose login fences nothing (unfencedPivot); and 5c leaving out every sealed foreign key check, edullm's G3 (b), which
+ * NEGATION's case 3 refutes (the refusedCopy and publication shapes).
  *
  * Plants (~/.cache/grizzle-release/BR03/plants), two of those as patches: certify-memberless-role-certified (a role
  * with no change member certified) and certify-fixpoint-once (the fixpoint over the roles a SERIALIZABLE role gives a
  * reason run once). Plants (~/.cache/grizzle-release/CERTIFY/plants): certify-own-lowering-self-included and
- * certify-lowering-cause-dropped, the last two. Plants (~/.cache/grizzle-release/LEASE/plants), each failing the search:
+ * certify-lowering-cause-dropped, the last two. Plants (~/.cache/grizzle-release/CERTDEL/plants): the last five,
+ * certify-held-ignores-updates, certify-fence-dropped, certify-fenced-site-unfenced, certify-5c-spares-unfenced and
+ * certify-5c-skips-sealed-checks. Plants (~/.cache/grizzle-release/LEASE/plants), each failing the search:
  * certify-key-match-by-relation (a read of an arbitrated relation at any bindings arbitrated), certify-key-match-no-
  * clean-prefix (a key-matched read arbitrated after an outside read), certify-key-match-part-of-key (a read matching
  * the first field of an arbitrated key alone arbitrated), certify-race-other-key-fixed (a raced relation's arbitration
@@ -66,8 +81,9 @@
  * left a point read, the old exact-group rule).
  *
  * Features: each condition failed and met, each counterexample shape, each level, each capability added or fact
- * removed, a role lowered in a later round, and a role whose lowered form alone reads the absence of what it writes
- * (the required situations of the search).
+ * removed, a role lowered in a later round, a role whose lowered form alone reads the absence of what it writes, a held
+ * check beside a READ COMMITTED role, a check of a relation one login deletes and inserts, and a fence a READ COMMITTED
+ * role relies on (the required situations of the search).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -77,10 +93,11 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import {
 	type Candidate,
 	certify,
+	type Fence,
 	type IsolationCondition,
 	isolationOf,
 	type ReadSeal,
@@ -238,6 +255,13 @@ type Shape =
 	| "loweredCause"
 	| "triggered"
 	| "droppedReference"
+	| "heldCheck"
+	| "fencedCheck"
+	| "updatedCheck"
+	| "fencedPublisher"
+	| "unfencedPivot"
+	| "fencedDeleter"
+	| "updatedDeleter"
 
 /** A drawn installation, which may be one of the counterexamples or a fixed shape, and an extension of it. */
 interface Case {
@@ -1535,6 +1559,193 @@ const publication: Sketch = {
 	]
 }
 
+/**
+ * A deleted referenced relation: r0 inserts into R(b), whose foreign key references R(a) at its key, reading nothing
+ * else; r1 holds a privilege on R(a) and serves no member, deleting it from another login than r2's (`held`), deleting
+ * it from r2's login (`fenced`), or updating it (`updated`); r2 inserts into R(a). r0's check is held where no login
+ * both deletes and inserts R(a), and fenced where one does: that login's members that write R(a) lock it before their
+ * snapshot, so a same-key replace, which would refuse r0's READ COMMITTED check with 23503 while the key stands
+ * throughout (PostgreSQL 19 ri_triggers.c ri_FastPathProbeOne and ri_LockPKTuple), never meets the check. Either way
+ * r0 runs READ COMMITTED, with a fence of r1's login, which deletes R(a). An update may move the key: r0's check is
+ * unsealed and r0 runs SERIALIZABLE.
+ */
+const referencedWriterOf = (s: Source, kind: "held" | "fenced" | "updated"): Sketch => {
+	const [a, b] = threeOf(s)
+	const login = s.draw(int(0, 1))
+	return {
+		relations: Arr.makeBy(RELATIONS, (i) =>
+			i === b
+				? { ...clean([0]), references: [{ relation: a, key: 0, onUpdate: "noAction" }] }
+				: clean([0])
+		),
+		roles: [
+			{
+				login: s.draw(int(0, 1)),
+				serializable: [],
+				privileges: [{ relation: b, privilege: "INSERT" }],
+				members: [[{ writes: [insertOf(b, [])], reads: [], probes: [], cores: [] }]]
+			},
+			{
+				login: kind === "fenced" ? login : 1 - login,
+				serializable: [],
+				privileges: [{ relation: a, privilege: kind === "updated" ? "UPDATE" : "DELETE" }],
+				members: []
+			},
+			{
+				login,
+				serializable: [],
+				privileges: [{ relation: a, privilege: "INSERT" }],
+				members: [[{ writes: [insertOf(a, [])], reads: [], probes: [], cores: [] }]]
+			}
+		]
+	}
+}
+
+/**
+ * edullm's replace: r0, a learner, inserts into R(b), whose foreign key references R(a), reading nothing else; r1, the
+ * publisher, deletes R(a) and inserts it again in one member, after reading R(c) from outside at its key, which r2
+ * inserts, so r1 may miss another call's write (pivotCauseOf), and its deletion checks R(b)'s rows that reference R(a).
+ * r1's login fences R(a): its member locks R(a) before its snapshot, so r0's check is fenced, 5c weighs r1 against no
+ * fenced check of r0's, and the check of R(b)'s referencing rows is no site of r0's conditions 2 and 3. r0 runs READ
+ * COMMITTED with a fence of r1's login.
+ */
+const fencedPublisher = (s: Source): Sketch => {
+	const [a, b, c] = threeOf(s)
+	return {
+		relations: Arr.makeBy(RELATIONS, (i) =>
+			i === b
+				? { ...clean([0]), references: [{ relation: a, key: 0, onUpdate: "noAction" }] }
+				: clean([0])
+		),
+		roles: [
+			{
+				login: s.draw(int(0, 1)),
+				serializable: [],
+				privileges: [{ relation: b, privilege: "INSERT" }],
+				members: [[{ writes: [insertOf(b, [])], reads: [], probes: [], cores: [] }]]
+			},
+			{
+				login: s.draw(int(0, 1)),
+				serializable: [],
+				privileges: [
+					{ relation: a, privilege: "DELETE" },
+					{ relation: a, privilege: "INSERT" },
+					{ relation: c, privilege: "SELECT" }
+				],
+				members: [
+					[
+						{ writes: [{ relation: a, op: "delete", from: [] }], reads: [], probes: [], cores: [] },
+						{ writes: [insertOf(a, [0])], reads: [readOf(c, "positive", 0)], probes: [], cores: [] }
+					]
+				]
+			},
+			{
+				login: s.draw(int(0, 1)),
+				serializable: [],
+				privileges: [{ relation: c, privilege: "INSERT" }],
+				members: [[{ writes: [insertOf(c, [])], reads: [], probes: [], cores: [] }]]
+			}
+		]
+	}
+}
+
+/**
+ * NEGATION's case 3 beside a fence: r1's login fences R(a), deleting and inserting it by its privileges, but r3, of the
+ * other login, inserts R(a) where it reads R(c) absent, so it may miss another call's write and fences nothing. r0's
+ * fenced check of R(a) can miss r3's row in flight and refuse r0, which no serial order in real time explains once r3's
+ * read missed a write committed before r0 began: 5c weighs r3 against it, and r0 runs SERIALIZABLE.
+ */
+const unfencedPivot = (s: Source): Sketch => {
+	const [a, b, c] = threeOf(s)
+	const login = s.draw(int(0, 1))
+	return {
+		relations: Arr.makeBy(RELATIONS, (i) =>
+			i === b
+				? { ...clean([0]), references: [{ relation: a, key: 0, onUpdate: "noAction" }] }
+				: clean([0])
+		),
+		roles: [
+			{
+				login: s.draw(int(0, 1)),
+				serializable: [],
+				privileges: [{ relation: b, privilege: "INSERT" }],
+				members: [[{ writes: [insertOf(b, [])], reads: [], probes: [], cores: [] }]]
+			},
+			{
+				login,
+				serializable: [],
+				privileges: [
+					{ relation: a, privilege: "DELETE" },
+					{ relation: a, privilege: "INSERT" }
+				],
+				members: []
+			},
+			{
+				login: s.draw(int(0, 1)),
+				serializable: [],
+				privileges: [{ relation: c, privilege: "INSERT" }],
+				members: [[{ writes: [insertOf(c, [])], reads: [], probes: [], cores: [] }]]
+			},
+			{
+				login: 1 - login,
+				serializable: [],
+				privileges: [{ relation: a, privilege: "INSERT" }],
+				members: [
+					[{ writes: [insertOf(a, [])], reads: [readOf(c, "negated", 0)], probes: [], cores: [] }]
+				]
+			}
+		]
+	}
+}
+
+/**
+ * A deleter by a member: r1 deletes R(a) by a member, from another login than r2's, which inserts it, so r0's check of
+ * R(a) is held, and r1's deletion checks R(b)'s rows that reference the deleted one for their absence. Where no role
+ * updates R(a), r1's login fences it (`fenced`): r1's member locks R(a) before its snapshot, its check of the referencing
+ * rows is no site of r0's conditions 2 and 3, and 5c weighs it against no held check of r0's, so r0 runs READ
+ * COMMITTED with a fence of r1's login. Where r1 also updates R(a) (`updated`), nothing fences it: r0's check is
+ * unsealed, and r0 runs SERIALIZABLE, naming absence, laws and writers too.
+ */
+const deleterOf = (s: Source, kind: "fenced" | "updated"): Sketch => {
+	const [a, b] = threeOf(s)
+	const login = s.draw(int(0, 1))
+	return {
+		relations: Arr.makeBy(RELATIONS, (i) =>
+			i === b
+				? { ...clean([0]), references: [{ relation: a, key: 0, onUpdate: "noAction" }] }
+				: clean([0])
+		),
+		roles: [
+			{
+				login: s.draw(int(0, 1)),
+				serializable: [],
+				privileges: [{ relation: b, privilege: "INSERT" }],
+				members: [[{ writes: [insertOf(b, [])], reads: [], probes: [], cores: [] }]]
+			},
+			{
+				login: 1 - login,
+				serializable: [],
+				privileges:
+					kind === "updated"
+						? [
+								{ relation: a, privilege: "DELETE" },
+								{ relation: a, privilege: "UPDATE" }
+							]
+						: [{ relation: a, privilege: "DELETE" }],
+				members: [
+					[{ writes: [{ relation: a, op: "delete", from: [] }], reads: [], probes: [], cores: [] }]
+				]
+			},
+			{
+				login,
+				serializable: [],
+				privileges: [{ relation: a, privilege: "INSERT" }],
+				members: [[{ writes: [insertOf(a, [])], reads: [], probes: [], cores: [] }]]
+			}
+		]
+	}
+}
+
 const extensionGen =
 	(sketch: Sketch): Gen<Extension> =>
 	(s) => {
@@ -1678,6 +1889,20 @@ const shapeSketch = (
 			return loweredOf(false)
 		case "loweredCause":
 			return loweredOf(true)
+		case "heldCheck":
+			return referencedWriterOf(s, "held")
+		case "fencedCheck":
+			return referencedWriterOf(s, "fenced")
+		case "updatedCheck":
+			return referencedWriterOf(s, "updated")
+		case "fencedPublisher":
+			return fencedPublisher(s)
+		case "unfencedPivot":
+			return unfencedPivot(s)
+		case "fencedDeleter":
+			return deleterOf(s, "fenced")
+		case "updatedDeleter":
+			return deleterOf(s, "updated")
 		case "drawn":
 			return s.draw(sketchGen)
 	}
@@ -1727,7 +1952,14 @@ const caseGen: Gen<Case> = (s) => {
 			[1, () => "loweredAbsence"],
 			[1, () => "loweredCause"],
 			[1, () => "triggered"],
-			[1, () => "droppedReference"]
+			[1, () => "droppedReference"],
+			[1, () => "heldCheck"],
+			[1, () => "fencedCheck"],
+			[1, () => "updatedCheck"],
+			[1, () => "fencedPublisher"],
+			[1, () => "unfencedPivot"],
+			[1, () => "fencedDeleter"],
+			[1, () => "updatedDeleter"]
 		])
 	)
 	if (shape === "droppedReference") {
@@ -1741,6 +1973,19 @@ const caseGen: Gen<Case> = (s) => {
 }
 
 const relationName = (i: number): string => `R${i}`
+
+/** Whether some role of the sketch deletes the relation, by a privilege or by a member of either of its forms. */
+const deletedIn = (sketch: Sketch, relation: number): boolean =>
+	Arr.some(
+		sketch.roles,
+		(r) =>
+			Arr.some(r.privileges, (p) => p.relation === relation && p.privilege === "DELETE") ||
+			Arr.some([...r.members, ...r.serializable], (statements) =>
+				Arr.some(statements, (st) =>
+					Arr.some(st.writes, (w) => w.relation === relation && w.op === "delete")
+				)
+			)
+	)
 
 /** A read's mode were every probe above it neutral: an arbitration's, positive beneath a probe, else its own. */
 const baseOf = (r: ReadSketch): ReadSketch["mode"] => {
@@ -1840,13 +2085,10 @@ const inputOf = (sketch: Sketch): IsolationInput => ({
 
 /**
  * Each role of a sketch as certification takes it, its relations' facts `relations`: its READ COMMITTED facts, and its
- * lowering to the sketch's SERIALIZABLE form; and every role's certificate.
+ * lowering to the sketch's SERIALIZABLE form; and what certification gives them.
  */
-const verdictsOf = (
-	sketch: Sketch,
-	relations: IsolationInput["relations"]
-): ReadonlyArray<RoleIsolation> => {
-	const certified = certify(
+const certifiedOf = (sketch: Sketch, relations: IsolationInput["relations"]) =>
+	certify(
 		relations,
 		Arr.map(inputOf(sketch).roles, (role, i): Candidate<undefined, undefined, never> => ({
 			role,
@@ -1858,7 +2100,64 @@ const verdictsOf = (
 				})
 		}))
 	)
-	return certified.ok ? Arr.map(certified.value, isolationOf) : certified.error
+
+/** Every role's certificate (certifiedOf). */
+const verdictsOf = (
+	sketch: Sketch,
+	relations: IsolationInput["relations"]
+): ReadonlyArray<RoleIsolation> => {
+	const certified = certifiedOf(sketch, relations)
+	return certified.ok ? Arr.map(certified.value.roles, isolationOf) : certified.error
+}
+
+/** The fences certification states (certifiedOf). */
+const fencesOf = (sketch: Sketch, relations: IsolationInput["relations"]): ReadonlyArray<Fence> => {
+	const certified = certifiedOf(sketch, relations)
+	return certified.ok ? certified.value.fences : certified.error
+}
+
+/** Fences by login, then relation, each in code-unit order. */
+const fenceOrder: Order.Order<Fence> = Order.combine(
+	Order.mapInput(Order.String, (f: Fence) => f.login),
+	Order.mapInput(Order.String, (f: Fence) => f.relation)
+)
+
+/**
+ * The fences the oracle expects at its fixpoint: for each relation a role it leaves READ COMMITTED checks by a held or
+ * fenced check, one fence of each login that deletes it, naming those roles in their order, by login then relation.
+ */
+const expectedFences = (
+	sketch: Sketch,
+	expected: {
+		readonly lowered: ReadonlySet<number>
+		readonly verdicts: ReadonlyArray<OracleVerdict>
+	}
+): ReadonlyArray<Fence> => {
+	const at = oracleRound(sketch, expected.lowered)
+	const relying = new Map<number, Array<number>>()
+	for (const [i, v] of expected.verdicts.entries()) {
+		if (v.readCommitted) {
+			for (const relation of at.lockedChecks(i)) {
+				relying.set(relation, [...(relying.get(relation) ?? []), i])
+			}
+		}
+	}
+	return Arr.sort(
+		Arr.flatMap([...relying], ([relation, readers]): ReadonlyArray<Fence> => {
+			const roles = Arr.map(readers, (i) => ({
+				login: `L${Arr.getUnsafe(sketch.roles, i).login}`,
+				role: `r${i}`
+			}))
+			return Arr.isReadonlyArrayNonEmpty(roles)
+				? Arr.map(at.fencers(relation), (login) => ({
+						login: `L${login}`,
+						relation: relationName(relation),
+						for: roles
+					}))
+				: []
+		}),
+		fenceOrder
+	)
 }
 
 const withRole = (sketch: Sketch, at: number, edit: (role: RoleSketch) => RoleSketch): Sketch => ({
@@ -1972,7 +2271,7 @@ const afterOf = (c: Case): ReadonlyArray<RoleIsolation> => {
 	)
 }
 
-type OracleSeal = "arbiter" | "own" | "unwritten" | "arbitrated" | "sealed" | "unsealed"
+type OracleSeal = "arbiter" | "own" | "unwritten" | "arbitrated" | "sealed" | "fenced" | "unsealed"
 
 /** A foreign key check a statement's write makes, restated: the relation it reads, which side, and its seal. */
 interface OracleCheck {
@@ -1980,6 +2279,8 @@ interface OracleCheck {
 	readonly relation: number
 	readonly side: "referencing" | "referenced"
 	readonly seal: OracleSeal
+	/** The relation whose write makes the check. */
+	readonly write: number
 }
 
 /**
@@ -2050,6 +2351,29 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 				) ||
 				updatedOf(i).has(relation)
 		)
+	const updates = (relation: number) => Arr.some(roles, (_, i) => updatedOf(i).has(relation))
+	/** Whether some role of `login` holds a privilege on the relation, or serves a member, that writes it by `op`. */
+	const loginWrites = (login: number, relation: number, op: "insert" | "delete") =>
+		Arr.some(
+			roles,
+			(r, i) =>
+				r.login === login &&
+				(Arr.some(
+					r.privileges,
+					(p) => p.relation === relation && p.privilege === (op === "insert" ? "INSERT" : "DELETE")
+				) ||
+					Arr.some(writesOf(i), (w) => w.relation === relation && w.op === op))
+		)
+	/** Whether `login`'s roles delete the relation, by a privilege or a member, and no role updates it: the login fences
+	 * it. */
+	const fences = (login: number, relation: number) =>
+		!updates(relation) && loginWrites(login, relation, "delete")
+	/** Whether one login's roles both delete and insert the relation, by a privilege or a member. */
+	const replaced = (relation: number) =>
+		Arr.some(
+			roles,
+			(r) => loginWrites(r.login, relation, "delete") && loginWrites(r.login, relation, "insert")
+		)
 	const covers = (relation: number, fields: ReadonlyArray<string>) =>
 		Arr.some(Arr.getUnsafe(relations, relation).keys, (k) =>
 			Arr.every(keyOf(k), (f) => fields.includes(f))
@@ -2087,10 +2411,12 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 					(ref): OracleCheck => {
 						const seal: OracleSeal = !anyWrites(ref.relation)
 							? "unwritten"
-							: !changes(ref.relation) && covers(ref.relation, keyOf(ref.key))
-								? "sealed"
-								: "unsealed"
-						return { at, relation: ref.relation, side: "referencing", seal }
+							: !covers(ref.relation, keyOf(ref.key)) || updates(ref.relation)
+								? "unsealed"
+								: replaced(ref.relation)
+									? "fenced"
+									: "sealed"
+						return { at, relation: ref.relation, side: "referencing", seal, write: w.relation }
 					}
 				),
 				...(w.op === "insert" || w.op === "retire"
@@ -2102,14 +2428,20 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 											at,
 											relation: i,
 											side: "referenced",
-											seal: anyWrites(i) ? "unsealed" : "unwritten"
+											seal: anyWrites(i) ? "unsealed" : "unwritten",
+											write: w.relation
 										}
 									]
 								: []
 						))
 			])
 		)
-	const isOutside = (seal: OracleSeal) => seal === "sealed" || seal === "unsealed"
+	const isOutside = (seal: OracleSeal) =>
+		seal === "sealed" || seal === "fenced" || seal === "unsealed"
+	/** Whether a check of a member of a role of `login` is a fenced write's check of the rows that reference a row it
+	 * deletes, which reads nothing conditions 2 and 3 weigh. */
+	const fencedSite = (login: number, c: OracleCheck) =>
+		c.side === "referenced" && fences(login, c.write)
 	/**
 	 * Whether every row of a core with row sources `sources` comes through reads `fits` admits: through some source, a
 	 * read `fits` admits, a core whose own rows do, or a UNION each of whose arms does.
@@ -2239,8 +2571,9 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 			}))
 		})
 	}
-	/** The relations a member reads the absence or a count of, by a statement or the check of a changed row. */
-	const absent = (statements: ReadonlyArray<StatementSketch>): ReadonlySet<number> =>
+	/** The relations a member of a role of `login` reads the absence or a count of, by a statement or the check of a
+	 * changed row, but a fenced write's. */
+	const absent = (statements: ReadonlyArray<StatementSketch>, login: number): ReadonlySet<number> =>
 		new Set([
 			...Arr.flatMap(placedOf(statements), (placed) =>
 				Arr.flatMap(placed, (p) =>
@@ -2251,8 +2584,40 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 						: []
 				)
 			),
-			...Arr.flatMap(checksOf(statements), (c) => (c.side === "referenced" ? [c.relation] : []))
+			...Arr.flatMap(checksOf(statements), (c) =>
+				c.side === "referenced" && !fencedSite(login, c) ? [c.relation] : []
+			)
 		])
+	/** Whether a check's seal is a held or a fenced one's, of a relation no role updates (a point's never meets a fence). */
+	const locked = (c: OracleCheck) =>
+		c.seal === "fenced" || (c.seal === "sealed" && changes(c.relation))
+	/** The relations a role reads from outside by held or fenced checks alone, none by a statement or another check. */
+	const lockedOnly = (role: RoleSketch): ReadonlySet<number> => {
+		const checks = Arr.flatMap(role.members, (statements) =>
+			Arr.filter(checksOf(statements), (c) => isOutside(c.seal))
+		)
+		const others = new Set([
+			...Arr.flatMap(role.members, (statements) =>
+				Arr.flatMap(placedOf(statements), (placed) =>
+					Arr.flatMap(placed, (p) => (isOutside(p.seal) ? [p.read.relation] : []))
+				)
+			),
+			...Arr.flatMap(checks, (c) => (locked(c) ? [] : [c.relation]))
+		])
+		return new Set(
+			Arr.flatMap(checks, (c) => (locked(c) && !others.has(c.relation) ? [c.relation] : []))
+		)
+	}
+	/** The relations role i's READ COMMITTED members check by a held or fenced check. */
+	const lockedChecks = (i: number): ReadonlySet<number> =>
+		new Set(
+			Arr.flatMap(Arr.getUnsafe(roles, i).members, (statements) =>
+				Arr.flatMap(checksOf(statements), (c) => (locked(c) ? [c.relation] : []))
+			)
+		)
+	/** The logins that fence the relation, each once. */
+	const fencers = (relation: number): ReadonlyArray<number> =>
+		Arr.filter([...new Set(Arr.map(roles, (r) => r.login))], (login) => fences(login, relation))
 	const outsideReads = (role: RoleSketch): ReadonlySet<number> =>
 		new Set(
 			Arr.flatMap(role.members, (statements) => [
@@ -2281,8 +2646,8 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 		}
 		for (const relation of guardedSet(i)) {
 			if (
-				Arr.some(roles, (_, r) =>
-					Arr.some(formsOf(r), (statements) => absent(statements).has(relation))
+				Arr.some(roles, (other, r) =>
+					Arr.some(formsOf(r), (statements) => absent(statements, other.login).has(relation))
 				)
 			) {
 				failed.add("absence")
@@ -2348,19 +2713,24 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 	const given = (judges: ReadonlySet<number>, i: number): ReadonlySet<IsolationCondition> => {
 		const written = writtenSet(i)
 		const reads = outsideReads(Arr.getUnsafe(roles, i))
+		const lockedReads = lockedOnly(Arr.getUnsafe(roles, i))
 		const out = new Set<IsolationCondition>()
 		for (const o of Arr.filter([...judges], (x) => x !== i)) {
+			const login = Arr.getUnsafe(roles, o).login
 			if (
 				Arr.some(
 					formsOf(o),
 					(statements) =>
 						Arr.some(statements, (st) => Arr.some(st.reads, (r) => written.has(r.relation))) ||
-						Arr.some(checksOf(statements), (c) => written.has(c.relation))
+						Arr.some(checksOf(statements), (c) => written.has(c.relation) && !fencedSite(login, c))
 				)
 			) {
 				out.add("laws")
 			}
-			const shared = Arr.some([...guardedSet(o)], (x) => reads.has(x))
+			const shared = Arr.some(
+				[...guardedSet(o)],
+				(x) => reads.has(x) && !(lockedReads.has(x) && fences(login, x))
+			)
 			const pivot =
 				Arr.some(formsOf(o), (statements) =>
 					Arr.some(placedOf(statements), (placed) => Arr.some(placed, (p) => isOutside(p.seal)))
@@ -2378,7 +2748,7 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 		}
 		return out
 	}
-	return { own, given, absent, written: writtenSet }
+	return { own, given, absent, written: writtenSet, replaced, lockedChecks, fencers }
 }
 
 /** One role's level and conditions as the oracle finds them. */
@@ -2465,10 +2835,12 @@ const absenceOfItsOwnLowering = (
 	return Arr.some(
 		[...at.written(i)],
 		(x) =>
-			Arr.some(Arr.getUnsafe(sketch.roles, i).serializable, (sts) => at.absent(sts).has(x)) &&
+			Arr.some(Arr.getUnsafe(sketch.roles, i).serializable, (sts) =>
+				at.absent(sts, Arr.getUnsafe(sketch.roles, i).login).has(x)
+			) &&
 			!Arr.some(sketch.roles, (r, j) =>
 				Arr.some(j !== i && lowered.has(j) ? [...r.members, ...r.serializable] : r.members, (sts) =>
-					at.absent(sts).has(x)
+					at.absent(sts, r.login).has(x)
 				)
 			)
 	)
@@ -2486,6 +2858,9 @@ type IsolationFeature =
 	| "a first change member given to a role with none"
 	| "a read of one group per own row"
 	| "a foreign key check beside a READ COMMITTED role"
+	| "a held foreign key check beside a READ COMMITTED role"
+	| "a check of a relation one login deletes and inserts"
+	| "a fence a READ COMMITTED role relies on"
 	| "a check of the rows that reference a changed one"
 	| "a retirement"
 	| "an update carried by a cascading foreign key"
@@ -2552,7 +2927,14 @@ const shapes: ReadonlyArray<Exclude<Shape, "drawn">> = [
 	"loweredAbsence",
 	"loweredCause",
 	"triggered",
-	"droppedReference"
+	"droppedReference",
+	"heldCheck",
+	"fencedCheck",
+	"updatedCheck",
+	"fencedPublisher",
+	"unfencedPivot",
+	"fencedDeleter",
+	"updatedDeleter"
 ]
 
 const levelsOf = (verdicts: ReadonlyArray<RoleIsolation>) =>
@@ -2570,6 +2952,8 @@ const sealFeature = (seal: ReadSeal): IsolationFeature | undefined => {
 			return "an arbitration a unique check decides"
 		case "own":
 		case "arbitrated":
+		case "held":
+		case "fenced":
 		case "unsealed":
 			return undefined
 	}
@@ -2619,6 +3003,10 @@ const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 			return [0, 1]
 		case "cascadedWriter":
 			return [1]
+		case "updatedCheck":
+		case "unfencedPivot":
+		case "updatedDeleter":
+			return [0]
 		case "drawn":
 		case "seals":
 		case "protocolSealed":
@@ -2629,6 +3017,10 @@ const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "repeatableOtherKey":
 		case "triggered":
 		case "droppedReference":
+		case "heldCheck":
+		case "fencedCheck":
+		case "fencedPublisher":
+		case "fencedDeleter":
 			return []
 	}
 }
@@ -2666,6 +3058,9 @@ describe("the isolation certifier", () => {
 								"a first change member given to a role with none",
 								"a read of one group per own row",
 								"a foreign key check beside a READ COMMITTED role",
+								"a held foreign key check beside a READ COMMITTED role",
+								"a check of a relation one login deletes and inserts",
+								"a fence a READ COMMITTED role relies on",
 								"a check of the rows that reference a changed one",
 								"a retirement",
 								"an update carried by a cascading foreign key",
@@ -2675,7 +3070,7 @@ describe("the isolation certifier", () => {
 								"a role whose lowered form alone reads the absence of what it writes",
 								"a role lowered in a later round"
 							],
-							{ cases: 400, sense: notesOnly }
+							{ cases: 500, sense: notesOnly }
 						),
 						kept: [],
 						runs: 500,
@@ -2689,6 +3084,15 @@ describe("the isolation certifier", () => {
 							const input = inputOf(c.sketch)
 							const verdicts = verdictsOf(c.sketch, input.relations)
 							const expected = oracle(c.sketch)
+							const fences = fencesOf(c.sketch, input.relations)
+							assert.deepEqual(
+								fences,
+								expectedFences(c.sketch, expected),
+								"the fences the READ COMMITTED roles' fenced checks rely on"
+							)
+							if (fences.length > 0) {
+								k.note("a fence a READ COMMITTED role relies on")
+							}
 							for (const [i, v] of verdicts.entries()) {
 								const o = Arr.getUnsafe(expected.verdicts, i)
 								assert.equal(
@@ -2754,6 +3158,19 @@ describe("the isolation certifier", () => {
 											) {
 												k.note("a foreign key check beside a READ COMMITTED role")
 											}
+											if (
+												Arr.some(
+													st.writes,
+													(w) =>
+														(w.op === "insert" || w.op === "update") &&
+														Arr.some(
+															Arr.getUnsafe(c.sketch.relations, w.relation).references,
+															(ref) => deletedIn(c.sketch, ref.relation)
+														)
+												)
+											) {
+												k.note("a held foreign key check beside a READ COMMITTED role")
+											}
 										}
 									}
 								}
@@ -2775,6 +3192,7 @@ describe("the isolation certifier", () => {
 									`the ${c.shape}'s role r${i} runs READ COMMITTED`
 								)
 							}
+							const settled = oracleRound(c.sketch, expected.lowered)
 							for (const role of c.sketch.roles) {
 								for (const statements of role.members) {
 									for (const st of statements) {
@@ -2790,6 +3208,14 @@ describe("the isolation certifier", () => {
 											}
 										}
 										for (const w of st.writes) {
+											if (
+												(w.op === "insert" || w.op === "update") &&
+												Arr.some(Arr.getUnsafe(c.sketch.relations, w.relation).references, (ref) =>
+													settled.replaced(ref.relation)
+												)
+											) {
+												k.note("a check of a relation one login deletes and inserts")
+											}
 											const referencing = Arr.filter(c.sketch.relations, (r) =>
 												Arr.some(r.references, (ref) => ref.relation === w.relation)
 											)

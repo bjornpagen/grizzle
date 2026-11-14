@@ -73,7 +73,7 @@ import {
 	type LoweredDefinition,
 	lowerDefinition
 } from "#compiler/physical/derived/definition.ts"
-import type { RoleHold, RoleOfLogin } from "#compiler/physical/install/extension.ts"
+import type { LoginFence, RoleHold, RoleOfLogin } from "#compiler/physical/install/extension.ts"
 import {
 	enforcement,
 	type Node,
@@ -185,11 +185,15 @@ export interface InstalledRole {
 	readonly schema: string
 }
 
-/** One installed login, by its declared name: its PostgreSQL role and its roles, in name order. */
+/**
+ * One installed login, by its declared name: its PostgreSQL role, its roles, in name order, and the tables of the
+ * relations it fences (analysis/isolation/certify.ts Fence), on each of which it holds MAINTAIN (addLogin).
+ */
 export interface InstalledLogin {
 	readonly name: string
 	readonly role: string
 	readonly roles: ReadonlyArray<InstalledRole>
+	readonly fenced: ReadonlyArray<ObjectName>
 }
 
 export interface WorldsPlan {
@@ -1438,6 +1442,7 @@ const addLogin = (
 	{ login, roles }: CheckedLogin,
 	advance: AdvanceFunctions,
 	carriers: ReadonlyArray<RoleOfLogin>,
+	fenced: ReadonlyArray<string>,
 	held: (role: string) => ReadonlyArray<UnitFunction>
 ): {
 	readonly installed: InstalledLogin
@@ -1458,6 +1463,14 @@ const addLogin = (
 		},
 		[]
 	)
+	const to: Grant["to"] = [{ kind: "role", name: role }]
+	const fencedTables = fenced.map((relation) => b.names.relation(relation))
+	const fencedSchemas = [...new Set(fencedTables.map((t) => t.schema))].filter(
+		(s) => s !== b.schema
+	)
+	const maintain: ReadonlyArray<SqlStatement> = isNonEmpty(fencedTables)
+		? [{ kind: "grant", privileges: ["MAINTAIN"], on: { kind: "TABLE", names: fencedTables }, to }]
+		: []
 	b.add(
 		{
 			kind: "privileges",
@@ -1466,20 +1479,21 @@ const addLogin = (
 				{
 					kind: "grant",
 					privileges: ["USAGE"],
-					on: { kind: "SCHEMA", names: [b.schema] },
-					to: [{ kind: "role", name: role }]
+					on: { kind: "SCHEMA", names: appendNonEmpty<string>(fencedSchemas, b.schema) },
+					to
 				},
 				{
 					kind: "grant",
 					privileges: ["EXECUTE"],
 					on: { kind: "FUNCTION", names: [snapshotGuardFunction(b.schema)] },
-					to: [{ kind: "role", name: role }]
-				}
+					to
+				},
+				...maintain
 			],
 			reasons: why,
 			phase: "publish"
 		},
-		[roleObject, b.schemaNode, b.snapshotGuard]
+		[roleObject, b.schemaNode, b.snapshotGuard, ...fenced.map((relation) => b.table(relation))]
 	)
 	const outcomes = [...roles]
 		.toSorted((x, y) => compareText(x.checked.world.role.name, y.checked.world.role.name))
@@ -1495,7 +1509,12 @@ const addLogin = (
 			)
 		)
 	return {
-		installed: { name: login.name, role, roles: outcomes.map((o) => o.installed) },
+		installed: {
+			name: login.name,
+			role,
+			roles: outcomes.map((o) => o.installed),
+			fenced: fencedTables
+		},
 		vector: outcomes.some((o) => o.vector),
 		writers: outcomes.flatMap((o) => o.writers),
 		views: outcomes.flatMap((o) => o.views)
@@ -1581,7 +1600,11 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  * - `CREATE ROLE <login> LOGIN NOINHERIT`: the one credential of a pool, holding no privilege of its own but
  *   USAGE on the base schema, SELECT on the ledger and EXECUTE on the snapshot guard: the fence Db.open's admission and
  *   every transaction of its Dbs take as the login, the ledger's lock (deploy/ledger/ledger.ts) and the guard
- *   (physical/ddl/ledger.ts);
+ *   (physical/ddl/ledger.ts); and, for each relation the login fences (`fences`, analysis/isolation/certify.ts Fence),
+ *   MAINTAIN on its table and USAGE on its schema: the least privilege that permits the LOCK TABLE ... IN EXCLUSIVE MODE
+ *   a fenced write sends as the login before its snapshot (PostgreSQL 19 lockcmds.c LockTableAclCheck), which reads and
+ *   changes no row, and whose VACUUM, ANALYZE, CLUSTER and REINDEX block no more than the DELETE its roles hold,
+ *   which permits every lock mode;
  * - the login's defaults (`roleDefaultSettings`), as ALTER ROLE ... SET, which PostgreSQL applies at login and never on
  *   SET ROLE, over any default of the database's or the cluster's, and which every session of a login's pool sets
  *   again in its startup options (`loginStartupOptions`): `search_path = pg_catalog, pg_temp` (closedSearchPath), so
@@ -1683,7 +1706,8 @@ export const addWorlds = (
 	revocable: Revocable,
 	checkedLogins: ReadonlyArray<CheckedLogin>,
 	carriers: ReadonlyArray<RoleOfLogin>,
-	holds: ReadonlyArray<RoleHold>
+	holds: ReadonlyArray<RoleHold>,
+	fences: ReadonlyArray<LoginFence>
 ): WorldsPlan => {
 	const logins = [...checkedLogins].toSorted((x, y) => compareText(x.login.name, y.login.name))
 	const cx = worldsContext(b)
@@ -1699,7 +1723,15 @@ export const addWorlds = (
 					? [defined(units.get(h.header), `the hold function of retirable ${h.header}`).hold]
 					: []
 			)
-		const added = addLogin(b, cx, login, advance, carriers, held)
+		const added = addLogin(
+			b,
+			cx,
+			login,
+			advance,
+			carriers,
+			fences.find((f) => f.login === login.login.name)?.relations ?? [],
+			held
+		)
 		worlds.push(added.installed)
 		appendAll(views, added.views)
 		appendAll(writers, added.writers)

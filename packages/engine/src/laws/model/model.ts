@@ -365,7 +365,7 @@ export interface LawModel {
 	/**
 	 * Every family of the schema, a tree's included, with its axes and folds resolved (analysis/theory Theory.families):
 	 * what the write planner draws and fills, the column order places, and the shell's apply reads. Each drawn law column
-	 * it names (its ‹n›, a counted index, a tree's ‹ps›, a hidden accumulator) is a LawColumn native of `natives` under
+	 * it names (its ‹n›, a counted index, a hidden accumulator) is a LawColumn native of `natives` under
 	 * the same identifier.
 	 */
 	readonly families: ReadonlyArray<Family>
@@ -2002,13 +2002,13 @@ const specialize = (
  * law (`Recognizer`), and settles what depends on the whole schema at once:
  *
  * - Law columns: each term of a selected side and each pred term is a STORED generated column of its relation, a
- *   constant selection of a target a STORED constant column of its source, and a family's ‹n›, counted index, tree's
- *   ‹ps› and hidden fold accumulators plain columns the host draws, each named once by what it is
+ *   constant selection of a target a STORED constant column of its source, and a family's ‹n›, counted index and
+ *   hidden fold accumulators plain columns the host draws, each named once by what it is
  *   (identity.lawColumn) and lowered once over its table's row. The generated UNIQUE a reference needs is over exactly
  *   the target's columns, a constant selection's the target's fields then its selector fields. A generated unique
  *   whose column set is a declared key of the target is that key.
  * - Foreign key deferral: a family axis's is its own (the owner axis deferred where its ON UPDATE CASCADE feeds its
- *   target, a tree's from its plain parent with no action and immediate, an ordered predecessor immediate, a counted
+ *   target, a tree's from its plain group with no action and immediate, an ordered predecessor immediate, a counted
  *   predecessor and every last axis deferred), but an owner axis otherwise immediate that lies on a cycle of the
  *   foreign keys that order a write's statements is deferred, since a law's key closes that cycle with it. Any other
  *   foreign key, a PERIOD one included, is deferred exactly when a lawful final-state ChangeSet could break it in

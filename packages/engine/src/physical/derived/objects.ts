@@ -38,7 +38,8 @@ import {
 	noCarriers,
 	noHolds,
 	noCertificates,
-	noContribution
+	noContribution,
+	noFences
 } from "#compiler/physical/install/extension.ts"
 
 import { noLive } from "#compiler/live/notify.ts"
@@ -282,7 +283,8 @@ const derivedRelationExtension = (): InstallExtension => {
 		certifies: noCertificates,
 		carriers: noCarriers,
 		holds: noHolds,
-		live: noLive
+		live: noLive,
+		fences: noFences
 	}
 }
 

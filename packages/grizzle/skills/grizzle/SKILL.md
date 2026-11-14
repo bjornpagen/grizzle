@@ -103,6 +103,12 @@ export default defineConfig({
   relation's name one array, typed and checked as that member's own facts, as in
   `once({ params: {}, facts: { put: { Blob: stated }, delete: { Blob: removed } } })`; every other member's facts are
   `{}`. Two array members of one op and one relation in two strata are refused: merge them into one.
+- A delete of a tree names trees by their root value (`delete(Node, [{ package, path }])`), and a delete of a relation
+  that owns a family and is no family's member names its rows; each removes every row nested under them through every
+  family, so a group goes whole. A replace is `delete(...)` and `insertAll(...)` in one stratum: the delete runs first,
+  an identical replace answers `unchanged`, and the counts are the difference. The role's write list names every
+  relation the delete reaches. Delete a family's other members through their owner, never one by one when the owner is
+  immutable.
 - `connection` is the migration role's: `driver` (the pg module), `transport` (`kind: "sslRequest"`, `host`, `port`,
   `open`, which returns a new socket, `ca` and `servername`; TLS is always verify-full, the server certificate chaining
   to `ca` and naming `servername`), `database`, `role`, `password` (a Redacted, or an Effect yielding one, evaluated for
@@ -138,8 +144,9 @@ export default defineConfig({
    `<name> is dropped but not declared: declare it with --drop <name>, or --rename it`.
 3. Read every drafted SQL file, and resolve each marker:
    - **Placeholder** (`-- grizzle: placeholder` above a `__GRIZZLE_PLACEHOLDER__`): a value for a new NOT NULL column
-     on a table with rows, or the conversion for a changed type. Write the value or the UPDATE, then delete the marker
-     line.
+     on a table with rows, or a changed type's new value in its fill's UPDATE (the row is `"t"`, its old column still
+     there, and the last value may be followed by the `FROM` and `WHERE` it joins). Write the value, or an UPDATE right
+     after the file's `SET CONSTRAINTS ALL IMMEDIATE`, where every data step goes, then delete the marker line.
    - **Confirm** (`-- grizzle: confirm:` and the instruction line below it): a holder set aside, a relation or roster
      whose name a declared rename takes or that moves to another kind, renamed aside with every index, identity
      sequence and statistics object it owns, so a declared rename takes it from there or the end of the migration
@@ -206,14 +213,26 @@ breaking change may briefly break older application instances that are still run
   and interval (window functions, and one recursive step for a tree), each default is dropped, and only then are the
   constraints that read them added, `NOT VALID`, for Validate to prove the values. A field whose filler changed (its
   fold steps over another field, its copy reads another field, its family's group or order changed) is dropped and
-  backfilled the same way: `snapshot.json` records what fills each drawn or accumulated field. A fold added to or
-  changed on a tree that holds rows is drawn in the tree's stored sibling order. A family whose values the stored rows
+  backfilled the same way: `snapshot.json` records what fills each drawn or accumulated field. An ordered family's
+  or a tree's index is the exception: a stored index is the caller's order, so when only the family's group changes
+  (its owner re-keyed, a group field dropped and added) the index column is kept, the count, copies and folds are
+  drawn again over the kept order after the data step, and Validate refuses a data step that leaves an owner's
+  indices other than 0 … n − 1. `--drop M.at` while the schema still declares `M.at` gives the stored order up and
+  draws the index anew in member-key order. A tree's `start` and `end` are kept as its index is, so a tree re-keyed by
+  its root (root fields added or replaced, an id-keyed tree moved to the keyed form `{ root: [r…] }` keyed `[...r,
+  "start"]`) keeps `at`, `start` and `end`, and its drawn `parent` is drawn from them, each row's parent the row of its
+  root value whose interval holds its own most tightly: fill the new root fields in the data step before the backfill,
+  and Validate refuses roots that merge or split stored trees. A tree added to rows no installed tree drew is refused.
+  A fold added to or changed on a tree that holds rows is drawn in the tree's stored sibling order. A family whose values the stored rows
   alone don't give is refused, naming it: copies that read each other, or a fold over a copy. A roster whose names changed has its domain's CHECK dropped and added `NOT VALID` against the new names constant,
   validated in Validate; a set over a roster that grew is converted to the new size's domain by its cast, the new
   handles absent. A table CHECK or generated field over a changed closed relation is replaced the same way, or takes its
-  new expression (`SET EXPRESSION`). A field whose type changes is converted in place, `ALTER COLUMN ... TYPE ... USING`
-  with a placeholder for the conversion, or by its cast, with no placeholder, when the new type holds the old one's
-  values (a pattern changed, a contract added, removed or swapped for another over the same base), after the
+  new expression (`SET EXPRESSION`). A field whose type changes is converted by its cast, in place, with no
+  placeholder, when the new type holds the old one's values (a pattern changed, a contract added, removed or swapped
+  for another over the same base); otherwise it is set aside: its table's one ALTER TABLE adds a set-aside column of the
+  new type, and once every placeholder column holds its value the table's fill sets it to the value you write at its
+  placeholder (a `USING` reads its own row alone, so it could not join a re-pointed reference's target), drops the old
+  column and renames the set-aside one into the field's name. Either way it runs after the
   constraints, indexes and statistics over it are dropped; they are built again as on any table with rows, but a key
   over it, which is added again right after the conversion in the same transaction, so it holds throughout. A domain is
   named by its whole definition, so a contract's changed predicate, like a changed pattern, is another domain: each
@@ -276,8 +295,8 @@ What a declaration drafts:
   over it, and each key, index, statistics object, CHECK and foreign key over it, or on a renamed relation, or
   referencing one, that the schema declares by the same definition is renamed to the name the schema gives it
   (`RENAME CONSTRAINT`, `ALTER INDEX ... RENAME TO`), never built or validated again; what the schema declares otherwise
-  is built again. A new field of a table with rows takes a placeholder, and a field whose type changed is converted in
-  place, as any field is.
+  is built again. A new field of a table with rows takes a placeholder, and a field whose type changed is converted or
+  set aside, as any field is.
 - **A family's hidden columns** (`__copy_…`, `__index_…`, `__parent_start_…`, `__before_…`, `__after_…`,
   `__predecessor_…`, `__pred_…`) are named by the laws whose values they hold, so a rename of the owner, the member, the
   count, or a roster or handle a fold's or a side's selection reads, a swap or a chain among them included, renames
@@ -683,8 +702,14 @@ The command line's own refusals, by stage:
   that inserts rows referencing content another role maintains publishes the keys it references: every writer of
   that content states `insert` on it, an insert-only published relation holds the keys with a foreign key into the
   content, a `publisher` role that inserts nothing else writes it, and the referencing role's foreign keys point at
-  the published relation. `compileServed` of other programs than the committed workload serves every role
-  SERIALIZABLE.
+  the published relation. A published relation may also be deleted and inserted again (a content replace that
+  republishes its keys) by roles that never update it: every login that deletes it fences it, so each of its
+  ChangeSets that writes it sends `LOCK TABLE ... IN EXCLUSIVE MODE` on it as the login before its snapshot, migrate
+  grants the login MAINTAIN on it, and generate prints `login L fences R` with the read committed roles that rely on
+  it. A direct transaction of that login writing the relation begins with the same LOCK. A read committed call whose
+  foreign key check reads it waits while a fenced write runs, and may meet a 40P01, a `transient` `CallError`
+  whose `reason` is `Deadlock`.
+  `compileServed` of other programs than the committed workload serves every role SERIALIZABLE.
 - A claim of work races a key: `race(R)` among the rules makes R's primary key first come, first held, so an insertion
   at a held key meets the holder's row in `delta.met(R)` and is never refused for differing from it (README's Races).
   The claimer names the key and a fresh holder; a member for the winner alone reads R back at that key with its own

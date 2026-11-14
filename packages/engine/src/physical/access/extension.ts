@@ -1,4 +1,4 @@
-import type { RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
+import type { Fence, RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -16,11 +16,13 @@ import type { InstallOptions } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallContribution,
 	type InstallExtension,
+	loginFences,
 	type RoleHold,
 	type RoleOfLogin,
 	noCarriers,
 	noCertificates,
 	noContribution,
+	noFences,
 	noHolds
 } from "#compiler/physical/install/extension.ts"
 import type { StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
@@ -95,15 +97,16 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
 	certifies: noCertificates,
 	carriers: noCarriers,
 	holds: noHolds,
-	live: noLive
+	live: noLive,
+	fences: noFences
 })
 
 /**
  * The served workload's extension: the workload's (workloadExtension), its parameters' pattern domains among it; the
  * certificate of every role of every login its plan certified (program/workload/compile.ts servedWorkload), which the
  * installation's guards follow; the roles whose served ChangeSets create a carrier, which it grants TEMPORARY on
- * the database; and the roles whose served ChangeSets hold a retirable unit, which it grants EXECUTE on the unit's hold
- * function.
+ * the database; the roles whose served ChangeSets hold a retirable unit, which it grants EXECUTE on the unit's hold
+ * function; its live plan; and the relations each login fences, on which it grants the login MAINTAIN.
  */
 export const servedWorkloadExtension = (
 	workload: WorkloadPhysical & {
@@ -111,13 +114,15 @@ export const servedWorkloadExtension = (
 		readonly carriers: ReadonlyArray<RoleOfLogin>
 		readonly holds: ReadonlyArray<RoleHold>
 		readonly live: LivePlan
+		readonly fences: ReadonlyArray<Fence>
 	}
 ): InstallExtension => ({
 	...workloadExtension(workload),
 	certifies: workload.certification,
 	carriers: workload.carriers,
 	holds: workload.holds,
-	live: workload.live
+	live: workload.live,
+	fences: loginFences(workload.fences)
 })
 
 /** Installer options with the workload extension after the caller's extensions. */

@@ -171,6 +171,8 @@ export type SchemaGenerateReport = SchemaWritten & {
 	readonly unserved: ReadonlyArray<string>
 	/** The certificate of every role of the schema's logins, its reasons with it (ServedBasis); none for a custom folder. */
 	readonly certification: ServedWorkloadPlan["certification"]
+	/** The relations each login fences, with the roles that rely on each (ServedBasis); none for a custom folder. */
+	readonly fences: ServedWorkloadPlan["fences"]
 }
 
 /** What writing a draft's folder and snapshot wrote (Written), with the folder's files, markers and losses. */
@@ -258,6 +260,8 @@ type SchemaDraft = (
 	readonly served: ServedWrites
 	/** The certificate of every role of the schema's logins, which the served files record the levels of. */
 	readonly certification: ServedWorkloadPlan["certification"]
+	/** The relations each login fences, which the served writes lock and the installation grants MAINTAIN on. */
+	readonly fences: ServedWorkloadPlan["fences"]
 }
 
 /**
@@ -283,6 +287,7 @@ export type ServedBasis =
 			readonly kind: "logins"
 			readonly logins: ReadonlyMap<string, PlannedLogin>
 			readonly certification: ServedWorkloadPlan["certification"]
+			readonly fences: ServedWorkloadPlan["fences"]
 	  }
 
 /**
@@ -352,6 +357,7 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 	const basisOf: ServedBasis = {
 		kind: "logins",
 		certification: plan.certification,
+		fences: plan.fences,
 		logins: new Map(
 			Arr.map(served, ({ login: l, artifacts }) => {
 				const roles = plan.changes.get(l.owned.name)
@@ -565,6 +571,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 			snapshot: previous,
 			served: noServedWrites,
 			certification: [],
+			fences: [],
 			kind: "custom"
 		} satisfies SchemaDraft
 	}
@@ -580,6 +587,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 	const files = yield* servedFiles(compiled, generated.snapshotFiles, generated.served)
 	const served = servedWrites(files, tree.logins)
 	const certification = generated.served.kind === "logins" ? generated.served.certification : []
+	const fences = generated.served.kind === "logins" ? generated.served.fences : []
 	if (generated.change === "none") {
 		return committed.kind === "files" && !derivedHolds(committed.derived, generated.derived)
 			? ({
@@ -588,6 +596,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 					snapshotFiles: generated.snapshotFiles,
 					served,
 					certification,
+					fences,
 					kind: "rederived"
 				} satisfies SchemaDraft)
 			: ({
@@ -595,6 +604,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 					snapshot: previous,
 					served,
 					certification,
+					fences,
 					kind: "unchanged"
 				} satisfies SchemaDraft)
 	}
@@ -605,6 +615,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 		snapshotFiles: generated.snapshotFiles,
 		served,
 		certification,
+		fences,
 		kind: "drafted"
 	} satisfies SchemaDraft
 })
@@ -670,7 +681,8 @@ const writeDraft = Effect.fn("writeDraft")(function* (
 		fingerprint: draft.snapshot.fingerprint,
 		served: written,
 		unserved: removed,
-		certification: draft.certification
+		certification: draft.certification,
+		fences: draft.fences
 	}
 })
 

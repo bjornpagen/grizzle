@@ -435,12 +435,10 @@ const actionStatements = (a: Action): ReadonlyArray<SqlStatement> => {
 		case "statement":
 			return [a.statement]
 		case "alteration": {
-			const plain = Arr.filter(
-				a.actions,
-				(sub) => sub.kind !== "placeholderColumn" && sub.kind !== "placeholderRetype"
-			)
+			const plain = Arr.filter(a.actions, (sub) => sub.kind !== "placeholderColumn")
 			return Arr.isReadonlyArrayNonEmpty(plain) ? [alterationStatement(a.table, plain)] : []
 		}
+		case "fill":
 		case "violation":
 		case "analyze":
 		case "dropStatistics":
@@ -460,6 +458,7 @@ const draftStatements = (d: Draft): ReadonlyArray<SqlStatement> => {
 			return [d.statement]
 		case "statement":
 		case "alteration":
+		case "fill":
 		case "violation":
 		case "analyze":
 		case "dropStatistics":

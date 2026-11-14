@@ -128,8 +128,12 @@ export type MoveRecord<S extends string, M, O, W> = Readonly<{
 	result: Option.Option<MoveResult<O>>
 }>
 
-/** A deadlock the engine broke before its next decision: the cycle, in the order its sessions began to wait, who could
- * move, and whom the system aborted, if it aborted anyone rather than granting a lock. */
+/**
+ * A deadlock broken in a run: a cycle of waits the engine saw standing among the moves in flight, which the system broke
+ * while the engine settled their waits (driver `quiesce`, where PostgreSQL's deadlock check runs), or, standing after
+ * that, the first of its moves to end broke. The cycle is in the order its sessions began to wait, with the sessions
+ * that could move meanwhile, and whom the system aborted, if it aborted anyone rather than granting a lock.
+ */
 export type Deadlock<S extends string> = Readonly<{
 	cycle: Arr.NonEmptyReadonlyArray<S>
 	runnable: ReadonlyArray<S>
@@ -521,6 +525,13 @@ export const interleave = <S extends string, M, O, Q, A, W, E, R, F, RJ>(
 							}
 						}
 						if (pending.size > 0) {
+							const standing = Option.map(cycleOf(waitsNow()), (cycle) => ({
+								cycle: Arr.sort(cycle, Order.mapInput(Order.Number, waitStart)),
+								waiting: Arr.flatMap(cycle, (session) =>
+									Option.toArray(Option.fromNullishOr(pending.get(session)))
+								),
+								runnable: runnableNow()
+							}))
 							yield* driver.quiesce(Arr.filter(names, (name) => pending.has(name)))
 							for (const name of names) {
 								const pendingMove = pending.get(name)
@@ -528,6 +539,22 @@ export const interleave = <S extends string, M, O, Q, A, W, E, R, F, RJ>(
 								if (pendingMove !== undefined && exit !== undefined) {
 									yield* ended(pendingMove, exit)
 									progressed = true
+								}
+							}
+							if (Option.isSome(standing)) {
+								const { cycle, waiting, runnable } = standing.value
+								const broken = Arr.filter(waiting, (move) => pending.get(move.session) !== move)
+								if (Arr.isReadonlyArrayNonEmpty(broken)) {
+									deadlocks.push({
+										cycle,
+										runnable,
+										victim: Arr.findFirst(
+											cycle,
+											(session) =>
+												Arr.some(broken, (move) => move.session === session) &&
+												ends.get(session)?.kind === "ended"
+										)
+									})
 								}
 							}
 						}
@@ -555,6 +582,24 @@ export const interleave = <S extends string, M, O, Q, A, W, E, R, F, RJ>(
 
 				const waitingOf = (session: S) =>
 					Option.flatMap(Option.fromNullishOr(pending.get(session)), (move) => move.waiting)
+
+				/** The wait-for graph of the moves in flight seen waiting: each session and the sessions it waits on. */
+				const waitsNow = () =>
+					new Map(
+						Arr.flatMap(names, (name) =>
+							Option.toArray(Option.map(waitingOf(name), (wait) => [name, wait.on] as const))
+						)
+					)
+
+				/** When a session's move in flight was first seen waiting, on the run's event clock. */
+				const waitStart = (session: S) =>
+					Option.match(
+						Option.flatMap(
+							Option.fromNullishOr(pending.get(session)),
+							(move) => move.record.waited
+						),
+						{ onNone: () => Number.POSITIVE_INFINITY, onSome: (waited) => waited.at }
+					)
 
 				const seenNow = (runnable: ReadonlyArray<S>) =>
 					Arr.join(
@@ -623,14 +668,6 @@ export const interleave = <S extends string, M, O, Q, A, W, E, R, F, RJ>(
 
 				const breakDeadlock = (cycle: Arr.NonEmptyReadonlyArray<S>, runnable: ReadonlyArray<S>) =>
 					Effect.gen(function* () {
-						const waitStart = (session: S) =>
-							Option.match(
-								Option.flatMap(
-									Option.fromNullishOr(pending.get(session)),
-									(move) => move.record.waited
-								),
-								{ onNone: () => Number.POSITIVE_INFINITY, onSome: (waited) => waited.at }
-							)
 						const ordered = Arr.sort(cycle, Order.mapInput(Order.Number, waitStart))
 						const waiting = Arr.flatMap(cycle, (session) =>
 							Option.toArray(Option.fromNullishOr(pending.get(session)))
@@ -778,13 +815,8 @@ export const interleave = <S extends string, M, O, Q, A, W, E, R, F, RJ>(
 
 				for (;;) {
 					yield* settleAll
-					const waits = new Map(
-						Arr.flatMap(names, (name) =>
-							Option.toArray(Option.map(waitingOf(name), (wait) => [name, wait.on] as const))
-						)
-					)
 					const runnable = runnableNow()
-					const cycle = cycleOf(waits)
+					const cycle = cycleOf(waitsNow())
 					if (Option.isSome(cycle)) {
 						yield* breakDeadlock(cycle.value, runnable)
 						continue

@@ -51,13 +51,13 @@ export const layoutKey = (relation: string, position: FillAt): string =>
 /**
  * How a column of a row is filled:
  * - given: the caller's, or its sequence's, the row's own value;
- * - owner: a member's group field, or a tree node's root field below its root: its owner's column `to`;
- * - self: a tree root's group field, its parent: its own key field `to`, since the root is its own parent;
+ * - owner: a member's group field, a tree node's root fields and parent below its root among them: its owner's column
+ *   `to`;
+ * - self: a tree root's parent: its own start `to`, since the root is its own parent; its root fields are the caller's;
  * - own: every copy a tree's owner axis carries, on its root: its own column `to`, since the root references itself
  *   along the owner axis, stated by `law`;
- * - index, copy, count, start, end, parentStart: a drawn natural, from where the row stands: its slot, its family's
- *   count, the count of a family it owns, a tree node's pre-order start, its start plus its subtree's size, its
- *   parent's start;
+ * - index, copy, count, start, end: a drawn natural, from where the row stands: its slot, its family's count, the count
+ *   of a family it owns, a tree node's pre-order start, its start plus its subtree's size;
  * - ownerCopy, predecessor, last: an accumulated or hidden column carried along an axis of `family`, the target row's
  *   column `to`, stated by `law`, and `base` at the predecessor and last axes' base, the first slot and the empty
  *   family (an owner axis has none, since every member has an owner);
@@ -75,7 +75,6 @@ export type FillRule =
 	| { readonly kind: "count"; readonly family: Family }
 	| { readonly kind: "start" }
 	| { readonly kind: "end" }
-	| { readonly kind: "parentStart" }
 	| {
 			readonly kind: "ownerCopy"
 			readonly family: Family

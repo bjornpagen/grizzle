@@ -98,14 +98,25 @@ const levelLine = (role: SchemaGenerateReport["certification"][number]): string 
 }
 
 /**
- * The level of every role of every schema's logins, one line each (levelLine), then what generate wrote
- * (renderWrites).
+ * A fence as generate prints it: the login, the relation its writes of it lock IN EXCLUSIVE MODE before their snapshot,
+ * and why, each role certified read committed whose foreign key checks of it rely on the lock.
+ */
+const fenceLine = (fence: SchemaGenerateReport["fences"][number]): string =>
+	`login ${fence.login} fences ${fence.relation}: its writes of it lock it in exclusive mode before their snapshot, for the read committed foreign key checks of ${Arr.join(
+		Arr.map(fence.for, (r) => `login ${r.login}, role ${r.role}`),
+		"; "
+	)}`
+
+/**
+ * The level of every role of every schema's logins, one line each (levelLine), each fence its login takes for them
+ * (fenceLine), then what generate wrote (renderWrites).
  */
 const renderGenerate = (
 	reports: ReadonlyArray<SchemaGenerateReport>,
 	relative: (path: string) => string
 ): ReadonlyArray<string> => [
 	...Arr.flatMap(reports, (r) => Arr.map(r.certification, levelLine)),
+	...Arr.flatMap(reports, (r) => Arr.map(r.fences, fenceLine)),
 	...renderWrites(reports, relative)
 ]
 
