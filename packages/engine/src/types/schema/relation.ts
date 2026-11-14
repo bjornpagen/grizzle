@@ -78,9 +78,18 @@ export type ConflictsAtKey<M, K extends ReadonlyArray<string>> = K extends reado
  */
 type FieldClaims<M extends ReadonlyArray<unknown>, K extends ReadonlyArray<string>> = {
 	readonly [I in keyof M]: KeyText<M[I], K> extends infer Key extends string
-		? FactClaims<M[I], Key, Exclude<keyof M[I] & string, K[number]>>
+		? [Key] extends [never]
+			? NoClaims
+			: FactClaims<M[I], Key, Exclude<keyof M[I] & string, K[number]>>
 		: unknown
 }
+
+/**
+ * The claims of a fact whose key no single literal types: none, a record of no claim in particular, which merges with
+ * every other fact's claims and meets none of them at never. Its fields are never read, where claims under a key text
+ * of never would read each field's value and then claim nothing under it.
+ */
+type NoClaims = Readonly<Record<string, string>>
 
 /**
  * One fact's claims at the fields F beside its key: each field whose value is one literal, its value's text under the
