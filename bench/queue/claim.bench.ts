@@ -109,7 +109,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  *
  * Holders. A holder is one claimer: a serverless instance that runs a claim loop. Each is its own client
  * with its own DbLayer and so its own session pool, on direct connections; a holder runs one operation at a time, so
- * its pool holds one backend, and the server-side width, the "width" the reference p95 is quoted at, is the holder count,
+ * its pool holds one backend but while it replaces one it retired (holderConnections), and the server-side width, the "width" the reference p95 is quoted at, is the holder count,
  * which the record reports as observed (the worker role's backends sampled from pg_stat_activity during each load).
  * The holders share the cluster's max_connections with everything else on it, so their number is what the budget the
  * process's connection lease grants (packages/pg/src/lease.ts leaseGrant, budget.ts) leaves after the bench's
@@ -161,10 +161,19 @@ interface Options extends Readonly<Record<string, unknown>> {
 const benchConnections = 5
 
 /**
- * The holders: one backend each, as many as the budget the process's connection lease grants leaves beside the bench's
- * own. The SKIP LOCKED baseline runs as many owner sessions, after every holder's Db is closed.
+ * The connections one holder holds at its peak, each drawn from its lease's budget: its pool's session, and the session
+ * that replaces one it retired while the retired one ends. A retired session goes back to pg's Pool with an error, which
+ * ends it with a Terminate and opens the next ask's client at once (packages/grizzle/src/adapter/wire/session.ts), so for
+ * one round trip the holder holds both backends. The bench retries serialization failures, which retire sessions, so
+ * every holder may be there at once.
  */
-const holderCount = leaseGrant - benchConnections
+const holderConnections = ["its session", "the session replacing one it retired"].length
+
+/**
+ * The holders, as many as the budget the process's connection lease grants leaves beside the bench's own, each at its
+ * peak (holderConnections). The SKIP LOCKED baseline runs as many owner sessions, after every holder's Db is closed.
+ */
+const holderCount = Math.floor((leaseGrant - benchConnections) / holderConnections)
 
 const lane = { kind: "render", slot: 0, resource: "gpu" } as const
 const now = 1_000_000n
