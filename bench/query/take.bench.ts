@@ -238,7 +238,7 @@ export default defineGate({
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
 		Effect.gen(function* () {
-			const fx = yield* installFixture(Lab, labPrograms, "benchtake", [])
+			const fx = yield* installFixture(Lab, labPrograms, {}, "benchtake", [])
 			const size = { students: options.students, perStudent: options.perStudent }
 			yield* loadLab(fx, size)
 			const runtime = yield* runtimeSession(fx, fx.world.app)
@@ -479,7 +479,7 @@ export default defineGate({
 			 * the compiled one the installation created the view from, read from its manifest, and its plan, as the refresh
 			 * evaluates it, is captured by EXPLAIN on the same data.
 			 */
-			const reports = yield* installFixture(LabReports, {}, "benchtakerefresh", [labRefreshers])
+			const reports = yield* installFixture(LabReports, {}, {}, "benchtakerefresh", [labRefreshers])
 			const reportsLedgerResult = ledgerStatements(reports.installed.schema)
 			if (!reportsLedgerResult.ok) {
 				return yield* Effect.die(
@@ -619,7 +619,7 @@ export default defineGate({
 			 * R20's threshold, both forms over one input: a second Lab install whose students come in bands of one group size
 			 * each (bandsOf), every count of a band's students read as the LATERAL probe and as the whole-relation pass.
 			 */
-			const forms = yield* installFixture(Lab, labPrograms, "benchtakeforms", [])
+			const forms = yield* installFixture(Lab, labPrograms, {}, "benchtakeforms", [])
 			const bands = bandsOf(options)
 			const bandStudents = bands.length * options.studentsPerBand
 			const bandSittings = Arr.reduce(bands, 0, (n, b) => n + options.studentsPerBand * b.groupSize)

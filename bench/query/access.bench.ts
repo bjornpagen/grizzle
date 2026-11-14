@@ -396,7 +396,7 @@ export default defineGate({
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
 		Effect.gen(function* () {
-			const fx = yield* installFixture(Access, accessPrograms, "benchaccess", [])
+			const fx = yield* installFixture(Access, accessPrograms, {}, "benchaccess", [])
 			const size = { entries: options.entries, accounts: options.accounts }
 			yield* loadEntries(fx, size)
 			const runtime = yield* runtimeSession(fx, fx.world.app)

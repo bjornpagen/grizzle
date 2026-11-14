@@ -249,7 +249,7 @@ export default defineGate({
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
 		Effect.gen(function* () {
-			const fx = yield* installFixture(Fusion, programs, "benchfusion", [])
+			const fx = yield* installFixture(Fusion, programs, {}, "benchfusion", [])
 			const tasks = options.accounts * options.tasksPerAccount
 			const notes = 2 * Math.floor(tasks / 3)
 			yield* fill(fx, "Account", options.accounts, { id: "g::int8", region: "(g % 100)::int4" })

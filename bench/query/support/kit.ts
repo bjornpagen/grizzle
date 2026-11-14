@@ -69,6 +69,7 @@ import {
 	schemaInputOf,
 	testCompile,
 	type TestNaming,
+	paramsOver,
 	workloadOver
 } from "#test/support/compile.ts"
 import {
@@ -161,13 +162,16 @@ export interface Fixture<S> {
  * Installs `schema` complete, with the access paths its workload programs request, compiled against the schema the
  * installation installs (test/support/compile.ts workloadOver), under a fresh schema name of the gate's database (R13:
  * every index beyond a key's own has a recorded justification), with its full world and the further `logins` a gate's
- * own roles are in.
+ * own roles are in. `outside` are the programs a gate compiles outside the workload: the installation installs the
+ * types they cast their parameters to and nothing else of theirs (paramsOver), no access path among them, so such a
+ * program runs over the installation without a cast to a type it lacks.
  */
 export const installFixture = Effect.fn("installFixture")(function* <
 	S extends Parameters<typeof fullWorld>[0]
 >(
 	schema: S,
 	programs: Readonly<Record<string, unknown>>,
+	outside: Readonly<Record<string, unknown>>,
 	label: string,
 	logins: ReadonlyArray<AnyLogin>
 ): Effect.fn.Return<
@@ -182,7 +186,10 @@ export const installFixture = Effect.fn("installFixture")(function* <
 	const installed = yield* install(schema, {
 		ambient: ordinarySession,
 		label,
-		extensions: [workloadOver([{ login: "server", workloads: [workload(schema, programs)] }])],
+		extensions: [
+			workloadOver([{ login: "server", workloads: [workload(schema, programs)] }]),
+			paramsOver([{ login: "server", workloads: [workload(schema, outside)] }])
+		],
 		logins: [world.server, ...logins]
 	})
 	const names = installed.names

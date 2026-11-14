@@ -141,7 +141,7 @@ export const installWrites = <S extends Parameters<typeof fullWorld>[0]>(
 	Fixture<S>,
 	CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
-> => installFixture(schema, options.programs, label, options.logins)
+> => installFixture(schema, options.programs, {}, label, options.logins)
 
 /**
  * A served Db of a role over the gate's schema rebuilt under the installed name (test/support/served-db.ts

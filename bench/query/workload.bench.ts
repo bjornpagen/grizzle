@@ -55,7 +55,9 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  *   the workload's access stands on that the removed program alone asks for, and no other program alone does (a later
  *   migration drops them);
  * - a program outside the workload compiles and runs against the installed indexes, and its answer equals the
- *   conservative and handwritten ones;
+ *   conservative and handwritten ones: no access path is installed for it, only the pattern domain its `title`
+ *   parameter is cast to (kit.ts installFixture `outside`), since a program casts a parameter only to a type its
+ *   installation installs;
  * - "A justified index is still work": each index's size, and the cost of inserting a batch of tasks into
  *   the installation with its workload indexes against one with its key and law indexes only, are recorded.
  */
@@ -132,8 +134,8 @@ export default defineGate({
 	run: ({ options }) =>
 		Effect.gen(function* () {
 			const s = yield* Substrate
-			const fx = yield* installFixture(Workload, programs, "benchworkload", [])
-			const bare = yield* installFixture(Workload, {}, "benchworkloadbare", [])
+			const fx = yield* installFixture(Workload, programs, { tasksTitled }, "benchworkload", [])
+			const bare = yield* installFixture(Workload, {}, {}, "benchworkloadbare", [])
 			for (const f of [fx, bare]) {
 				yield* fill(f, "Account", options.accounts, { id: "g::int8", region: "(g % 100)::int4" })
 				yield* fill(f, "Task", options.tasks, {
