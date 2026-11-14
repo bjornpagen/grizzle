@@ -93,8 +93,9 @@ commit gate. The typecheck and lint, `pnpm check`, run by hand before a release.
     - the role `grizzle_dev` (the migration identity and owner, not a superuser, with CREATEROLE to create the logins
       and world roles a migration declares, and REPLICATION), with SET on `deadlock_timeout`;
     - `grizzle_template`, from which every test database is cloned and which accepts no connections. A test database
-      runs `deadlock_timeout = 10ms`, `default_transaction_isolation = serializable` and `synchronous_commit = off` as its
-      own defaults (`test/support/pg.ts` `testDatabaseSettings`).
+      runs `deadlock_timeout = 10ms` and `default_transaction_isolation = serializable` as its own defaults, and commits
+      synchronously, PostgreSQL's default, so a VACUUM after a load settles the visibility map
+      (`test/support/pg.ts` `testDatabaseSettings`).
 - **`pnpm pg:doctor`** is the go/no-go check: version and build, the machine's sizing, `jit` off,
   `max_pred_locks_per_relation`, `wal_level`,
   extensions, locale, money formatting, `ON CONFLICT DO SELECT`, verify-full TLS with a wrong CA, a wrong host name

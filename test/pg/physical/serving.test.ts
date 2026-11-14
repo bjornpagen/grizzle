@@ -26,13 +26,14 @@
  *   B-tree holds both after that field, which the load makes unique on its own, so that without the predicate's GiST
  *   index PostgreSQL finds its one row through the B-tree, whose filter on the span removes none: the GiST index is
  *   needed still, since the B-tree does not search the span by overlap (serving.ts); a span predicate on a text
- *   field of a key, which the load fills with two ideographs, and a span, whose GiST index, led by that text, PostgreSQL
- *   19's btree_gist prices by its leading bytes, so its probe reads past its bound, a residue PostgreSQL 20 removes
- *   (serving.ts); a join key planned on the B-tree a range creates, led by a column the join key fixes and holding a
- *   boolean it leaves unbound before its other column, which PostgreSQL reads by a skip scan over the boolean in two
- *   descents (serving.ts); and a range on a closed handle by equality and a numeric of many values by a range, beside
- *   span predicates whose GiST index holds both, which places its entries by the numeric, so that its scan would read
- *   the range across every handle, three times the range's share: a B-tree serves it (physical/indexes/engine.ts).
+ *   field of a key, which the load fills with two ideographs, and a span, whose GiST index, led by that text, reads the
+ *   predicate's one row within its bound, since the pinned PostgreSQL's btree_gist prices text by its bytes past the
+ *   common prefix (README, PostgreSQL known issues); a join key planned on the B-tree a range creates, led by a column
+ *   the join key fixes and holding a boolean it leaves unbound before its other column, which PostgreSQL reads by a
+ *   skip scan over the boolean in two descents (serving.ts); and a range on a closed handle by equality and a numeric
+ *   of many values by a range, beside span predicates whose GiST index holds both, which places its entries by the
+ *   numeric, so that its scan would read the range across every handle, three times the range's share: a B-tree
+ *   serves it (physical/indexes/engine.ts).
  * - Drawn requests. A fixed schema holds a plain table, a span key's GiST index (Booking, on room and during), two span
  *   keys' GiST indexes led by a column of few values, a boolean (Shift, on standby, worker and during, standby true on
  *   one row in ten) and a closed id of a drawn roster of four to eight handles (Rota, on shade, worker and during, shade
@@ -2139,7 +2140,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 		]
 	},
 	{
-		note: "a span predicate on Rel1x0's (Bool, span40), Bool a text field of its key the load fills with two ideographs, whose GiST index, led by that text, btree_gist prices by its leading bytes through PostgreSQL 19: the predicate's one row takes 26 buffers of the index's 207 pages",
+		note: "a span predicate on Rel1x0's (Bool, span40), Bool a text field of its key the load fills with two ideographs, whose GiST index is led by that text: the pinned PostgreSQL's btree_gist (scripts/pg/patches/19rc2-btree-gist-multibyte-penalty.patch) prices the ideographs by their bytes past the common prefix, so the index places them precisely and reads the predicate's one row within its bound",
 		sketch: {
 			population: "swarm",
 			swarm: {
@@ -2219,7 +2220,6 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 			"a workload installed",
 			"overlap probe served",
 			"served by a created index",
-			"swept through a GiST index led by multibyte text, which btree_gist prices by its leading bytes",
 			"a created index needed"
 		]
 	},

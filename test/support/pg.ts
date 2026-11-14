@@ -736,15 +736,19 @@ const codeOf = (error: SqlError): string | undefined =>
  * - a low deadlock_timeout, so the concurrency driver's wait for each blocked step's deadlock check is short
  *   (test/support/schedules/interleave.ts). It is superuser-only; the owner holds SET on it (scripts/pg/init.sh);
  * - SERIALIZABLE as every transaction's default, the only level at which grizzle admits a write, so a plain client's
- *   seeding and resets are admitted;
- * - no wait at commit for the WAL to reach the disk: a test database outlives no crash of its cluster, which a commit's
- *   flush would guard against, and a commit is visible to every other session before its flush either way.
+ *   seeding and resets are admitted.
+ * A commit waits for its WAL to reach the disk, PostgreSQL's default, since a test can tell an asynchronous commit
+ * apart: until it is flushed, PostgreSQL sets no hint bit on a row whose inserting transaction id shares its group of
+ * 32 in the commit log (clog.c CLOG_XACTS_PER_LSN_GROUP, heapam_visibility.c SetHintBitsExt), whichever database that
+ * commit was in, and VACUUM marks no page holding such a row all-visible (pruneheap.c). A table VACUUMed right after its
+ * load then keeps an unset visibility map, and the planner costs an index-only scan of it as a plain index scan, the
+ * heap fetched for every row (costsize.c cost_index), so the plans the serving judges read (test/pg/physical/serving.ts
+ * loadRows) would turn on the WAL writer's timing.
  * substrate/shared.ts `leftovers` treats exactly these, and nothing else, as a test database's own settings.
  */
 export const testDatabaseSettings: ReadonlyArray<readonly [name: string, value: string]> = [
 	["deadlock_timeout", "10ms"],
-	["default_transaction_isolation", "serializable"],
-	["synchronous_commit", "off"]
+	["default_transaction_isolation", "serializable"]
 ]
 
 /** Gives database `name` the test database settings, on `admin`. */

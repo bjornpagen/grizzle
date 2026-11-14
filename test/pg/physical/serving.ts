@@ -152,16 +152,8 @@ interface SearchedKey {
 type KeyValues = { readonly kind: "closed"; readonly count: number } | { readonly kind: "open" }
 
 /**
- * How an index tells the values of its leading key apart as it places them (see judgeServing): exactly, or, a GiST index
- * led by text that holds a multibyte character, by the byte after the common prefix of a subtree's bounds, as btree_gist
- * prices text through PostgreSQL 19, so characters that share leading bytes price alike (README, PostgreSQL known
- * issues).
- */
-type LeadPricing = "exact" | "shared leading bytes"
-
-/**
  * What the judgment reads of a planned index: its access method, its keys and what it searches each by, whether it is
- * unique, its pages, its entries, a row each, and how it prices its leading key (LeadPricing).
+ * unique, its pages, and its entries, a row each.
  */
 export interface IndexFacts {
 	readonly method: PlannedIndex["method"]
@@ -169,7 +161,6 @@ export interface IndexFacts {
 	readonly unique: boolean
 	readonly pages: number
 	readonly entries: number
-	readonly lead: LeadPricing
 }
 
 /** What the judgment reads of an installation: the PostgreSQL schema it lives in and what it planned and named. */
@@ -359,23 +350,15 @@ interface Table {
 	readonly closed: ReadonlyMap<string, number>
 	/** The columns of a vector type, which only the extension's qualified operators compare. */
 	readonly vectors: ReadonlySet<string>
-	/** The columns of a text type, under its domains, that hold a multibyte character on some row. */
-	readonly multibyte: ReadonlySet<string>
 	readonly rows: number
 }
 
 /**
  * What a column of a table holds, by its type under its domains: a span, a boolean, or anything else; whether its type
- * is the vector extension's; whether it is a text type; and whether it admits null.
+ * is the vector extension's; and whether it admits null.
  */
 type ColumnHolds = ReadonlyArray<
-	readonly [
-		string,
-		"span" | "boolean" | "other",
-		"true" | "false",
-		"true" | "false",
-		"true" | "false"
-	]
+	readonly [string, "span" | "boolean" | "other", "true" | "false", "true" | "false"]
 >
 
 const columnHoldsOf = (rows: unknown): ColumnHolds => trusted<ColumnHolds>(rows)
@@ -422,7 +405,6 @@ const tableOf = (installed: Judged, relation: string) =>
 					"SELECT name::text, CASE WHEN typtype = 'r'::\"char\" THEN 'span' " +
 					"WHEN oid = 'pg_catalog.bool'::pg_catalog.regtype THEN 'boolean' ELSE 'other' END, " +
 					"(typnamespace = $2::text::pg_catalog.regnamespace)::text, " +
-					"(typcategory = 'S'::\"char\")::text, " +
 					"(NOT required)::text " +
 					"FROM base WHERE typtype <> 'd'::\"char\"",
 				[quoted, quoteIdent(installed.installation.names.vectorSchema)]
@@ -438,7 +420,7 @@ const tableOf = (installed: Judged, relation: string) =>
 			)
 		const nullable = new Set(
 			Arr.map(
-				Arr.filter(columns, ([, , , , admitsNull]) => admitsNull === "true"),
+				Arr.filter(columns, ([, , , admitsNull]) => admitsNull === "true"),
 				([name]) => name
 			)
 		)
@@ -452,22 +434,6 @@ const tableOf = (installed: Judged, relation: string) =>
 			)
 		)
 		const rows = yield* countOf(admin, `SELECT count(*)::text FROM ${quoted}`)
-		const multibyte = new Set<string>()
-		for (const [name, , , text] of columns) {
-			if (text === "false") {
-				continue
-			}
-			const [row] = yield* Effect.map(
-				admin.queryValues(
-					`SELECT EXISTS (SELECT FROM ${quoted} WHERE octet_length(${quoteIdent(name)}) > char_length(${quoteIdent(name)}))::text`,
-					[]
-				),
-				textsOf
-			)
-			if (row?.[0] === "true") {
-				multibyte.add(name)
-			}
-		}
 		return {
 			quoted,
 			schema: q.schema,
@@ -480,7 +446,6 @@ const tableOf = (installed: Judged, relation: string) =>
 					([name]) => name
 				)
 			),
-			multibyte,
 			rows
 		} satisfies Table
 	})
@@ -547,14 +512,7 @@ const indexFacts = (
 				}),
 				unique: i.unique,
 				pages: Number(pages),
-				entries: table.rows,
-				lead:
-					i.method === "gist" &&
-					Arr.some(i.keys.slice(0, 1), (k) =>
-						table.multibyte.has(keyColumn(installed, i.relation, k))
-					)
-						? "shared leading bytes"
-						: "exact"
+				entries: table.rows
 			})
 		}
 		return facts
@@ -601,7 +559,9 @@ export const loadAtVolume = (
 /**
  * Loads every relation in order over the series 0 to `rows` - 1, in one SERIALIZABLE transaction as the owner, each row
  * a key already holds skipped, then VACUUM ANALYZEs each table, so its statistics and visibility map are a settled
- * table's. A load of no field inserts rows of defaults only, a serial numbering each.
+ * table's: every page all-visible, since the load's commit, like every commit in a test database, is flushed before it
+ * returns (test/support/pg.ts testDatabaseSettings). A load of no field inserts rows of defaults only, a serial
+ * numbering each.
  */
 export const loadRows = (
 	installed: Judged,
@@ -839,16 +799,13 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest) =>
 		return { label, shape, table, sql, conditions } satisfies Probe
 	})
 
-/** What a swept scan read past: more descents of its index than it looped, or more buffers than its bound. */
-type Past = "descents" | "buffers"
-
 /** How a served scan descended into its index: once a loop, or by a skip scan within its descents (skipDescents). */
 type Descended = "once a loop" | "by a skip scan"
 
 /**
  * What PostgreSQL made of a probe: served through a planned index; swept through one, the scan meeting every rule but
- * reading past what its result requires (Past); or not served, and why. A scan of an index carries the buffers it
- * touched (scanReads).
+ * reading past what its result requires, more descents of its index than it looped or more buffers than its bound; or
+ * not served, and why. A scan of an index carries the buffers it touched (scanReads).
  */
 type Verdict =
 	| {
@@ -861,7 +818,6 @@ type Verdict =
 			readonly kind: "swept"
 			readonly through: PlannedIndex
 			readonly touched: number
-			readonly past: Past
 			readonly why: string
 	  }
 	| { readonly kind: "unserved"; readonly why: string }
@@ -1095,18 +1051,12 @@ export const judgeScan = (
 	if (Option.isSome(problem)) {
 		return { kind: "unserved", why: problem.value }
 	}
-	const sweep =
-		(past: Past) =>
-		(why: string): { readonly past: Past; readonly why: string } => ({ past, why })
-	const descents = extraDescents(scan, index, descentsOf(scanned))
-	const swept = Option.orElse(Option.map(descents, sweep("descents")), () =>
-		bounded === "scan"
-			? Option.map(overBound(scan, index, scanned), sweep("buffers"))
-			: Option.none()
+	const swept = Option.orElse(extraDescents(scan, index, descentsOf(scanned)), () =>
+		bounded === "scan" ? overBound(scan, index, scanned) : Option.none()
 	)
 	const touched = scanReads(scan, scanned).touched
 	return Option.isSome(swept)
-		? { kind: "swept", through, touched, ...swept.value }
+		? { kind: "swept", through, touched, why: swept.value }
 		: {
 				kind: "served",
 				through,
@@ -1243,13 +1193,11 @@ type UpstreamNote = (typeof upstreamNotes)[number]
  * Why PostgreSQL swept a planned index where no plan the engine makes avoids the sweep (see judgeServing): another
  * index than the request's own, where no order of its keys serves the probe beside the requests it serves
  * (keyOrdersConflict), through PostgreSQL's cost model, awaiting the upstream note that changes it, or PostgreSQL right,
- * reading the probe in no more buffers than the request's own index alone does; or any GiST index whose leading text
- * btree_gist prices by shared leading bytes (LeadPricing), past its buffers on a probe that fixes that text.
+ * reading the probe in no more buffers than the request's own index alone does.
  */
 type Residue =
 	| { readonly kind: "cost model"; readonly awaiting: UpstreamNote }
 	| { readonly kind: "right" }
-	| { readonly kind: "shared leading bytes" }
 
 /** What the judgment noted of one request or one created index. */
 export type ServingFeature =
@@ -1260,7 +1208,6 @@ export type ServingFeature =
 	| "read through another planned index that does not search every condition of its probe"
 	| `swept through another index, awaiting upstream/${UpstreamNote}`
 	| "swept through another B-tree in no more buffers than its own index alone"
-	| "swept through a GiST index led by multibyte text, which btree_gist prices by its leading bytes"
 	| "read by a skip scan over closed keys after a fixed lead"
 	| "a GiST index serving a B-tree request"
 	| "a created index needed"
@@ -1273,25 +1220,8 @@ const residueFeature = (residue: Residue): ServingFeature => {
 			return `swept through another index, awaiting upstream/${residue.awaiting}`
 		case "right":
 			return "swept through another B-tree in no more buffers than its own index alone"
-		case "shared leading bytes":
-			return "swept through a GiST index led by multibyte text, which btree_gist prices by its leading bytes"
 	}
 }
-
-/**
- * The residue of a probe's sweep of an index of `scanned`'s facts past its buffers where btree_gist prices the index's
- * leading text by shared leading bytes (LeadPricing) and the probe fixes that text by equality, so its one descent
- * follows every subtree whose bounds the imprecise placement left holding the value (see judgeServing); none for any
- * other sweep.
- */
-const pricingResidue = (scanned: IndexFacts, probe: Probe, past: Past): Option.Option<Residue> =>
-	past === "buffers" &&
-	scanned.lead === "shared leading bytes" &&
-	Arr.some(scanned.keys.slice(0, 1), (k) =>
-		Arr.some(probe.conditions, (c) => c.operator === "=" && searchedBy(k, c))
-	)
-		? Option.some({ kind: "shared leading bytes" })
-		: Option.none()
 
 /**
  * PostgreSQL's judgment of the index engine (physical/indexes/engine.ts) over an installation at volume: whether each
@@ -1380,17 +1310,11 @@ const pricingResidue = (scanned: IndexFacts, probe: Probe, past: Past): Option.O
  *   costing gives up skipping and costs a sweep of the whole index. A B-tree swept in more buffers than the request's
  *   own index alone reads is a misjudgment no upstream note covers, and a problem.
  *
- * One residue excuses a sweep of the request's own index too, and of any other: a GiST index led by text that holds a
- * multibyte character, past its buffers on a probe that fixes that text by equality (pricingResidue). As README's
- * PostgreSQL known issues states, through PostgreSQL 19 btree_gist prices a text key by the byte after the common
- * prefix of its subtree's bounds, cut at a character boundary, so characters that share leading bytes, as the
- * two-ideograph keys of the generated workloads' text fields do (serving.test.ts), price alike, the index places them
- * imprecisely, and the probe's one descent follows every subtree whose bounds hold its value. The engine builds such an
- * index for a span predicate whose text field comes first, as README states, and PostgreSQL may read an equality lookup
- * on that text through it by its cost. Measured on PostgreSQL 19 at this volume, a GiST index on (two-ideograph text,
- * span) of 247 pages touches 51 buffers for the one row of either probe, against a bound of 9. PostgreSQL's master
- * branch fixes the pricing in commit b82d69abf6, for PostgreSQL 20; the residue goes, by hard cutover, once a PostgreSQL
- * grizzle pins prices text there.
+ * No residue excuses a sweep of the request's own index. A GiST index led by text whose characters share leading bytes,
+ * as the two-ideograph keys of the generated workloads' text fields do (serving.test.ts), is held to the same bound:
+ * grizzle's PostgreSQL carries master's b82d69abf6 (scripts/pg/patches/19rc2-btree-gist-multibyte-penalty.patch), so
+ * btree_gist prices a text key by the bytes past the common prefix of its subtree's bounds and places it precisely
+ * (README, PostgreSQL known issues).
  *
  * Each index the engine created must be needed: with it dropped, in a transaction rolled back, some request it serves
  * is no longer served. An index PostgreSQL can do without is one the engine built beside another that already serves
@@ -1518,15 +1442,6 @@ export const judgeServing = (
 			Effect.gen(function* () {
 				const problem = (why: string) =>
 					Result.fail(`${probe.label}, planned on ${host.index.name}: ${why}`)
-				const pricing = (swept: Extract<Verdict, { readonly kind: "swept" }>) =>
-					pricingResidue(
-						defined(
-							facts.get(swept.through.index.name),
-							`the facts of ${swept.through.index.name}`
-						),
-						probe,
-						swept.past
-					)
 				const descended = (v: Extract<Verdict, { readonly kind: "served" }>) => {
 					if (v.descended === "by a skip scan") {
 						note("read by a skip scan over closed keys after a fixed lead")
@@ -1537,8 +1452,7 @@ export const judgeServing = (
 						descended(verdict)
 						return Result.succeed(Option.none<Residue>())
 					}
-					const residue = pricing(verdict)
-					return Option.isSome(residue) ? Result.succeed(residue) : problem(verdict.why)
+					return problem(verdict.why)
 				}
 				const isolated = yield* withoutOthers(installed, host)
 				const [alone] = yield* planned([probe], isolated)
@@ -1559,9 +1473,7 @@ export const judgeServing = (
 				if (verdict.kind === "served") {
 					return Result.succeed(Option.none<Residue>())
 				}
-				const residue = Option.orElse(pricing(verdict), () =>
-					residueOf(verdict.through, probe, verdict.touched, claim.touched)
-				)
+				const residue = residueOf(verdict.through, probe, verdict.touched, claim.touched)
 				return Option.isSome(residue) ? Result.succeed(residue) : problem(verdict.why)
 			})
 		const problems: Array<string> = []
