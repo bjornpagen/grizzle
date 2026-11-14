@@ -1304,6 +1304,10 @@ const familyMemberOf = (d: Drawing, clean: boolean): MemberSpec => {
 	return familyOf(d, op, relation, written)
 }
 
+/** Whether a relation of Work's families owns one: an ordered or a counted family's owner. */
+const isFamilyOwner = (relation: FamilyRel): relation is OrderedOwner | CountedOwner =>
+	relation === "Order" || relation === "Cart" || relation === "Pool" || relation === "Bin"
+
 /** The member relation of a family's owner. */
 const familyMemberRelation = (owner: OrderedOwner | CountedOwner): FamilyRel =>
 	owner === "Order" || owner === "Cart" ? sequenceMembers[owner] : countedMembers[owner]
@@ -1742,7 +1746,11 @@ const applicationFaults: ReadonlyArray<ChangeSetFault> = [
 	"a parameter map of a wider type"
 ]
 
-/** The relations a member writes as the types read them (WritesOf): its own, and the lines an order's insert nests. */
+/**
+ * The relations a member writes as the types read them (WritesOf): its own, the lines an order's insert nests, and the
+ * members of a family's owner its delete removes whole (DeletedWrites), which a role writes only where its write list
+ * names them, as the engine's compile reaches each of them (write/frontend/compile.ts unitBelow).
+ */
 const memberWrites = (m: MemberSpec): ReadonlyArray<string> => {
 	switch (m.kind) {
 		case "derived":
@@ -1750,7 +1758,9 @@ const memberWrites = (m: MemberSpec): ReadonlyArray<string> => {
 		case "family":
 			return (m.relation === "Order" || m.relation === "Cart") && m.op === "insert"
 				? [m.relation, sequenceMembers[m.relation]]
-				: [m.relation]
+				: m.op === "delete" && isFamilyOwner(m.relation)
+					? [m.relation, familyMemberRelation(m.relation)]
+					: [m.relation]
 		case "appended":
 			return [m.owner, countedMembers[m.owner]]
 		case "array":
@@ -3332,6 +3342,16 @@ const keptCases: ReadonlyArray<KeptCase> = [
 		note: "a Ledger fact whose money field holds a bare bigint, beside two Budget facts at one key with different cents: normalization judged Budget's key before it admitted Ledger's facts, so the engine answered invariant-rejected where the types refuse the fact (TEST_SEED=34)",
 		tape: "c.0.0.0.0.0.g.0.0.0.g.g.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.6.2.3.4.1.0.4.0.1.0.0.1.1.0.0",
 		reaches: ["a fact value outside its field", "insertAll", "insert"]
+	},
+	{
+		note: "a delete of Order, a family's owner, applied by the clerk, whose write list names Order and not Line: the delete removes Order's lines whole, which the engine refuses as outside the role, as the types do, where the generator read the clerk's write list as one that holds the delete, so a delete of Bin and one of Cart applied by the clerk were expected admitted (TEST_SEED=133331041)",
+		tape: "0.2.0.d.d.8.8.d.0.8.3.3.8.8.3.d.8.8.3.0.8.3.8.0.3.3.8.d.d.8.8.d.3.0.8.8.8.8.8.3.3.3.0.0.0.0.0.3.0.0.0.0.0.0.0.d.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.1.1u.0.0.0.0.0.0.1",
+		reaches: [
+			"a role that does not write the relation",
+			"a partial write list",
+			"family member",
+			"delete"
+		]
 	}
 ]
 
