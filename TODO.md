@@ -323,6 +323,23 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   the patch next changes, restate its header's "Its output matches stock 19rc1's except for that last line" from a run
   on the stock release it is rebased onto: the RC2 rebase left that RC1 observation as it was, since any edit changes
   the patch's SHA-256 in pin.env and so rebuilds every build.
+- **Named clusters each size themselves as if alone (PRIVATECLUSTER, c30406e6; main's decision 2026-11-14: no change):**
+  every cluster GRIZZLE_PG_CLUSTER names takes clusterSize, the one machine-derived formula. On cassowary a cluster
+  is max_connections 4359, shared_buffers 304,064 blocks, max_pred_locks_per_transaction 30, 66 replication slots and
+  walsenders, shared_memory_size 2882 MB; init took 13 s and destroy 4 s (throwaway cluster 5460, 2026-11-14), with
+  247 GB of RAM, about 75 GB available and 49 GB of swap in use at the time. Revisit with numbers only under memory
+  pressure, by sizing a cluster from what it serves (networkWorkers for a test tier, one lease for a migrate or an
+  import), and mind the two catches: a down-sized cluster fails the doctor's sized checks, which test:network's global
+  setup runs, so clusters would split into two kinds, one that serves migrates only; and the measured per-worker buffer
+  bound (workerDatabaseBytes, 38.9 MB) is below PostgreSQL's 128 MB default shared_buffers and below a pantry
+  database, so a one-run cluster may want PostgreSQL's own defaults instead (a peer's hand-made 5442 had
+  max_connections 100 and ran pantry's migrate in 1 min 35 s, against over 30 min on shared 5433).
+- **build.sh swaps the prefix under every running cluster (PRIVATECLUSTER, 2026-11-14):** it stops and restarts only
+  the cluster GRIZZLE_PG_CLUSTER selects around the exchange, so any other cluster running from
+  $GRIZZLE_PG_PREFIX has its binaries replaced under it. lane-rules forbids a rebuild while private clusters run (the
+  19 GA repin included). build.sh should refuse the exchange while a cluster other than the selected one runs from the
+  prefix: every cluster's state directory sits beside $GRIZZLE_PG_DEFAULT_STATE (test/support/env.ts selectCluster), so
+  pg_ctl status over each one's data, as the doctor runs it, lists them.
 - **`bench:full` on a quiet machine.**
 - **Test layout:** tests move into packages/*/test, with their mutate and fallow paths and the docs.
 - **The fill kernel's rows have one handle, their `id` (RESTATED, 2026-11-12):** test/support/families/fill.ts follows a
