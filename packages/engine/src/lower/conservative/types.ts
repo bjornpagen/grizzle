@@ -97,13 +97,17 @@ export interface MembershipLowering {
 
 /**
  * What a conservative lowering lowers: a query, which reads no delta (a Delta node in one is UnsupportedOperation), as a
- * derived relation's definition does; a write program's read-back; a write filter's membership, which reads its row;
- * or a law's full violation query, the migration's probe (deploy/diff) of a law over closed relations alone, a query
- * over declared values only, which types a text refinement no `__text_` domain names (a contract's base pattern no
- * stored column carries) as text, where any other query refuses it.
+ * derived relation's definition does; a rule trigger's probe (physical/ddl/rules.ts), a query whose every declared
+ * parameter stands for a field of the trigger's NEW or OLD row, a stored value, cast to its column's installed type
+ * (LowerContext.paramTypeRef) and never to a served parameter's own pattern domain; a write program's read-back; a
+ * write filter's membership, which reads its row; or a law's full violation query, the migration's probe
+ * (deploy/diff) of a law over closed relations alone, a query over declared values only, which types a text refinement
+ * no `__text_` domain names (a contract's base pattern no stored column carries) as text, where any other query refuses
+ * it.
  */
 type ConservativeSubject =
 	| { readonly kind: "query" }
+	| { readonly kind: "ruleProbe" }
 	| { readonly kind: "violationProbe" }
 	| ReadBackLowering
 	| MembershipLowering

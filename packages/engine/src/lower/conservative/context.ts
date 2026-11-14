@@ -622,6 +622,7 @@ export class LowerContext {
 			case "membership":
 				return subject.row
 			case "query":
+			case "ruleProbe":
 			case "violationProbe":
 			case "readBack":
 				return refuse(
@@ -779,10 +780,12 @@ export class LowerContext {
 	 * The type a declared parameter's value of `t` at `place` is cast to as its placeholder is bound: a contract's domain,
 	 * a pattern's the parameter's own pattern domain (ir/physical.ts paramDomain), and otherwise its base. PostgreSQL
 	 * checks the value against the refinement as it binds it, before any row is read, and nothing on the host does, so
-	 * its refinement travels with it and a refusal names its law or its parameter.
+	 * its refinement travels with it and a refusal names its law or its parameter. A rule trigger's probe's parameter
+	 * (ConservativeSubject `ruleProbe`) is no served parameter but a stored field of the trigger's row, already of its
+	 * column's installed type, its contract's domain, its pattern's structural domain or its base, the type it is cast to.
 	 */
 	paramTypeRef(t: ScalarType, place: ParamPlace): TypeRef {
-		const regex = paramPattern(t)
+		const regex = this.options.subject.kind === "ruleProbe" ? undefined : paramPattern(t)
 		if (regex === undefined) {
 			const p = this.physicalType(t)
 			return p.kind === "type" ? p.ref : this.baseTypeRef(t)

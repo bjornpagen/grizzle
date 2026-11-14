@@ -39,11 +39,13 @@ interface OptimizedOptions extends Omit<ConservativeOptions, "params" | "subject
 }
 
 /**
- * What is compiled: a query; a derived relation's definition, which always wants every group; a write program's
- * read-back; or a write filter's membership at the row its caller names.
+ * What is compiled: a query; a rule trigger's probe, whose parameters are its row's stored fields (ConservativeSubject
+ * `ruleProbe`); a derived relation's definition, which always wants every group; a write program's read-back; or a
+ * write filter's membership at the row its caller names.
  */
 type OptimizedSubject =
 	| { readonly kind: "query" }
+	| { readonly kind: "ruleProbe" }
 	| { readonly kind: "derivedDefinition" }
 	| ReadBackLowering
 	| MembershipLowering

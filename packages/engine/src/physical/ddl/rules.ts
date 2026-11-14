@@ -236,8 +236,9 @@ const eventsOf = (
 }
 
 /**
- * A probe checked and lowered by the optimized pipeline under the transaction's evidence, each parameter read from
- * NEW's or OLD's column in place, with the index requests of its access paths.
+ * A probe checked and lowered by the optimized pipeline under the transaction's evidence as a rule probe, each
+ * parameter read from NEW's or OLD's column in place, cast to the column's installed type (ConservativeSubject
+ * `ruleProbe`), never to a served parameter's own pattern domain, with the index requests of its access paths.
  */
 const compileProbe = (
 	b: InstallBuilder,
@@ -254,7 +255,7 @@ const compileProbe = (
 				Result.flatMap(optimizedInput(checked, queryEvidence), (annotated) =>
 					lowerOptimized(annotated, {
 						names: b.names,
-						subject: { kind: "query" },
+						subject: { kind: "ruleProbe" },
 						context: "transaction",
 						catalog
 					})

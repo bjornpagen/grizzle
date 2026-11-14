@@ -625,7 +625,6 @@ const programOf = (c: SliceCase, u: Use): ClockedProgramDesc => {
 	const [first, ...more] = u.reads
 	const changeSet = succeeded(
 		decodeDesc("changeSet", {
-			schema: Arr.isReadonlyArrayNonEmpty(c.chained) ? "SliceChain" : "SliceTop",
 			strata: [
 				{
 					members: Arr.map(u.writes, (i, k) => ({
