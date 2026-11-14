@@ -484,6 +484,63 @@ const mergeObjects = (
 	return Result.succeed({ _tag: "Object", properties: merged, required })
 }
 
+/**
+ * The keywords whose shape `classify` reads: a type, members, items, a reference or an applicator,
+ * and the encodings that make a string a file. A schema holding none of them (a `pattern`, a
+ * `maxLength`, a `required`, an annotation) asserts only on values of whatever shape the rest of
+ * its `allOf` gives, so it shapes no flag.
+ */
+const shapeKeywords: ReadonlySet<string> = new Set([
+	"$ref",
+	"additionalProperties",
+	"allOf",
+	"anyOf",
+	"contentEncoding",
+	"contentMediaType",
+	"format",
+	"items",
+	"oneOf",
+	"prefixItems",
+	"properties",
+	"type"
+])
+
+const shapes = (json: Schema.Json): boolean =>
+	!isObject(json) ||
+	Arr.some(Record.keys<string, Schema.Json>(json), (key) => shapeKeywords.has(key))
+
+/**
+ * The shape of an `allOf` and the schema beside it: the one scalar kind every shaped member has,
+ * or their objects merged (`mergeObjects`) with the names the unshaped members require. Anything
+ * else, a member mix or no shaped member at all, is opaque.
+ */
+const intersect = (
+	ctx: Ctx,
+	members: readonly Classified[],
+	required: ReadonlySet<string>
+): Result.Result<Classified, BodyBudgetExceeded> => {
+	const [first, ...rest] = members
+	if (first === undefined) {
+		return Result.succeed(opaque)
+	}
+
+	if (first._tag === "Scalar") {
+		const agree = Arr.every(
+			rest,
+			(member) =>
+				member._tag === "Scalar" && member.kind === first.kind && member.repeated === first.repeated
+		)
+
+		return Result.succeed(agree ? first : opaque)
+	}
+
+	return Result.map(mergeObjects(ctx, members), (merged) =>
+		merged._tag === "Object"
+			? { ...merged, required: new Set([...merged.required, ...required]) }
+			: merged
+	)
+}
+
 type RefLookup =
 	| { readonly _tag: "Cached"; readonly result: Result.Result<Classified, FlattenError> }
 	| { readonly _tag: "Fresh"; readonly name: string; readonly target: Schema.Json }
@@ -571,22 +628,29 @@ const classify = (
 	}
 
 	if (schema.allOf !== undefined) {
-		const own: readonly Classified[] =
-			schema.properties === undefined
-				? []
-				: [
-						{
-							_tag: "Object",
-							properties: propertiesAt(schema.properties, site),
-							required: requiredOf(schema)
-						}
-					]
+		const { allOf, ...own } = schema
+		const members = [
+			{ schema: own, site },
+			...Arr.map(allOf, (member, index) => ({
+				schema: member,
+				site: below(site, "allOf", String(index))
+			}))
+		]
+		const shaped = Arr.filter(members, (member) => shapes(member.schema))
+		const required = new Set(
+			Arr.flatMap(members, (member) =>
+				shapes(member.schema)
+					? []
+					: Option.match(decodeNode(member.schema), {
+							onNone: () => [],
+							onSome: (constraint) => [...requiredOf(constraint)]
+						})
+			)
+		)
 
 		return Result.all(
-			Arr.map(schema.allOf, (member, index) =>
-				classify(ctx, member, below(site, "allOf", String(index)), hops + 1)
-			)
-		).pipe(Result.flatMap((members) => mergeObjects(ctx, [...own, ...members])))
+			Arr.map(shaped, (member) => classify(ctx, member.schema, member.site, hops + 1))
+		).pipe(Result.flatMap((classified) => intersect(ctx, classified, required)))
 	}
 
 	const type = schema.type ?? (schema.properties === undefined ? undefined : "object")
