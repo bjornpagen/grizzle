@@ -5,15 +5,22 @@ import {
 	type SearchFailure,
 	sketched
 } from "@bjornpagen/testing/explore"
-import { constant, type Gen } from "@bjornpagen/testing/gen"
+import { array, constant, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { ShrinkBudget } from "@bjornpagen/testing/shrink"
-import { Array as Arr, Effect, Record, type Scope } from "effect"
+import { Array as Arr, Effect, Option, Record, type Scope } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import type { OpId } from "#compiler/ir/expr.ts"
+import type { OpId, TypedLiteral } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
-import { inputsOf, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
+import {
+	conservativeMeta,
+	inputsOf,
+	type NodeOf,
+	type RelDag,
+	type RelNode
+} from "#compiler/ir/rel.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import {
@@ -28,7 +35,21 @@ import {
 import { parameterNames } from "#test/support/kernel/dict.ts"
 import { correlatedChildUnderNestedAttachment, keySetSites } from "#test/support/key-sets.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
-import { queryExprs } from "#test/support/oracle/gen/query.ts"
+import {
+	baseTypeSpecs,
+	canonicallySpelled,
+	int4,
+	literalEqualityKey,
+	type SpelledValue,
+	scalarOfSpec,
+	spelledAt,
+	valueClasses
+} from "#test/support/oracle/gen/domain.ts"
+import { aggregateOpId, aggregateResult } from "#test/support/oracle/gen/ops.ts"
+import { normalQuery, queryExprs } from "#test/support/oracle/gen/query.ts"
+import { type GenRelation, schemaName } from "#test/support/oracle/gen/schema.ts"
+import { elementAt, nonEmptyList } from "#test/support/oracle/pick.ts"
+import { literalOfValue } from "#test/support/oracle/reference/values.ts"
 import {
 	type CheckOptions,
 	oracleCheck,
@@ -37,6 +58,7 @@ import {
 } from "#test/support/oracle/runner.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { type AggregateSpec, Q } from "#test/unit/lower/conservative/fixtures.ts"
 
 /** The kinds of optimized form a case runs (support.ts OptimizedForm). */
 type OptimizedFormKind = OptimizedForm["kind"]
@@ -44,8 +66,9 @@ type OptimizedFormKind = OptimizedForm["kind"]
 /**
  * What an optimized differential's case reaches: the certificate rules its optimized artifact rests on, the optimized
  * forms that ran, fused and pipelined attachments, heading groups, computed terms, a conservative run that delivered a
- * row, a parent key set read without DISTINCT, the per-evaluation shapes, a relation parameter named from the
- * parameter-name dictionary, and the shapes of the plans its statements were given.
+ * row, a parent key set read without DISTINCT, the per-evaluation shapes, a fold attached by a key the attachment pairs
+ * with two parent columns, a relation parameter named from the parameter-name dictionary, and the shapes of the plans
+ * its statements were given.
  */
 export type OptimizedFeature =
 	| CertificateRule
@@ -63,6 +86,7 @@ export type OptimizedFeature =
 	| "correlated take"
 	| "correlated region"
 	| "take over a union"
+	| "a fold key correlated with two parent columns"
 	| "relation parameter named from the dictionary"
 	| `plan node ${string}`
 	| `plan ${string} under ${string}`
@@ -153,8 +177,27 @@ const evaluationShapes = (
 }
 
 /**
+ * Whether an Attach's child is a fold by every column it correlates, two of whose pairs name one child column: a Group
+ * whose keys hold each correlated child column (lower/shapes/attach foldedByCorrelation, the fold the optimized
+ * lowering restricts by its parent's values inside the grouping), with a key equal to two parent columns, so a parent
+ * whose two columns differ has no group.
+ */
+const foldsKeyTwice = (attach: NodeOf<"Attach">): boolean => {
+	const child = attach.child
+	if (child.kind !== "Group" || child.keys.length === 0) {
+		return false
+	}
+	const correlated = Arr.map(attach.correlation, (c) => c.child)
+	return (
+		Arr.every(correlated, (c) => child.keys.includes(c)) &&
+		new Set(correlated).size < correlated.length
+	)
+}
+
+/**
  * The features of one outcome: the certificate rules it rests on, the optimized forms that ran,
- * fused and pipelined attachments, heading groups, computed terms, whether the baseline delivered any row, a relation
+ * fused and pipelined attachments, heading groups, computed terms, whether the baseline delivered any row, a fold the
+ * DAG the optimized statements lower attaches by a key it pairs with two parent columns (foldsKeyTwice), a relation
  * parameter named from the dictionary, and the plans PostgreSQL chose for the statements the optimized forms sent:
  * each plan node by its type, and each node under its parent, labelled with its join type or aggregate strategy
  * (bench/harness/explain.ts planNodeTypes, planEdges). A plan feature names node types only, never a relation, an index, a cost
@@ -210,6 +253,14 @@ const outcomeFeatures = (o: DifferentialOutcome): ReadonlyArray<OptimizedFeature
 	}
 	if (
 		Arr.some(
+			topoOrder(o.optimizedProgram.query.dag),
+			(n) => n.kind === "Attach" && foldsKeyTwice(n)
+		)
+	) {
+		features.add("a fold key correlated with two parent columns")
+	}
+	if (
+		Arr.some(
 			Record.toEntries(o.case.query.params),
 			([id, p]) => p.kind === "relation" && dictionaryNames.has(id)
 		)
@@ -232,6 +283,126 @@ const outcomeFeatures = (o: DifferentialOutcome): ReadonlyArray<OptimizedFeature
  * cases of its rotating stream; its floor stream runs a quarter as many.
  */
 export const casesPerPopulation = 1250
+
+/** The two orders an Attach of foldKeyTwiceCase states its pairs in: each a parent column paired with the fold's a. */
+type ParentOrder = readonly ["a", "b"] | readonly ["b", "a"]
+
+/** Both orders, which an aimed case draws between. */
+const parentOrders: readonly [ParentOrder, ParentOrder] = [
+	["a", "b"],
+	["b", "a"]
+]
+
+/** The fold an aimed case attaches: its count. */
+const counted: AggregateSpec = {
+	name: "n",
+	fn: "count",
+	op: aggregateOpId("count", undefined),
+	args: [],
+	type: aggregateResult("count", undefined)
+}
+
+/**
+ * The case "a fold key correlated with two parent columns" names: one relation R0(k integer, a T, b T) keyed by k,
+ * holding `facts`, each an (a, b) pair stored at k its position, and every fact of R0 with the fold of R0 by a,
+ * counted, attached on its a and its b, each equal to the fold's a, the pairs in the order `parents` states them. A
+ * parent whose a and b differ natively has no group, since one key cannot equal both; one whose a and b agree has the
+ * group of that value where a fact holds it as its a.
+ */
+export const foldKeyTwiceCase = (
+	key: ScalarType,
+	parents: ParentOrder,
+	facts: ReadonlyArray<readonly [SpelledValue, SpelledValue]>
+): QueryCase => {
+	const r0: GenRelation = {
+		name: "R0",
+		columns: [
+			{ name: "k", type: int4 },
+			{ name: "a", type: key },
+			{ name: "b", type: key }
+		],
+		primaryKey: ["k"],
+		keys: [],
+		mutable: false
+	}
+	const q = new Q()
+	const base = (): RelNode =>
+		q.base({ name: r0.name, heading: r0.columns, primaryKey: r0.primaryKey }, conservativeMeta)
+	const parent = q.region([{ source: base(), bind: { k: "k", a: "a", b: "b" }, constants: {} }])
+	const fold = q.group(
+		q.region([{ source: base(), bind: { k: "k", a: "a" }, constants: {} }]),
+		["k", "a"],
+		["a"],
+		[counted],
+		conservativeMeta
+	)
+	const pairs = Arr.map(parents, (p) => [p, "a"] as const)
+	const root = q.attach(parent, fold, "folded", pairs, "array", undefined)
+	return {
+		schema: { name: schemaName, relations: [r0], closed: [], containments: [] },
+		facts: {
+			R0: Arr.map(facts, ([a, b], k) => [canonicallySpelled(literalOfValue(BigInt(k), int4)), a, b])
+		},
+		query: { dag: normalQuery(q.b.build(Arr.of(root))), params: {} },
+		spelling: { mode: "drawn", edge: false }
+	}
+}
+
+/**
+ * The key types an aimed fold draws: every base type of the generators' palette (gen/domain.ts baseTypeSpecs), each
+ * with its value classes, one per value under native equality, where it has two.
+ */
+const foldKeys = nonEmptyList(
+	Arr.flatMap(baseTypeSpecs, (spec) => {
+		const type = scalarOfSpec(spec)
+		const values = Arr.dedupeWith(
+			valueClasses(type, false),
+			(x: TypedLiteral, y: TypedLiteral) => literalEqualityKey(x) === literalEqualityKey(y)
+		)
+		return values.length >= 2 ? [{ type, values }] : []
+	}),
+	"the aimed fold's key types"
+)
+
+/**
+ * A case foldKeyTwiceCase builds, drawn: a key type of the palette, the pairs' order, and R0's facts, each value in a
+ * spelling of its own drawn: (x, y) and (y, y) for two values x and y native equality tells apart, then up to three
+ * drawn (a, b) pairs. The first parent's a and b differ while the fold has a group at each of them, so a lowering that
+ * restricts the fold by one of the two pairs alone delivers that parent the group the other pair excludes.
+ */
+const foldKeyTwiceGen: Gen<QueryCase> = (source) => {
+	const key = source.draw(element(foldKeys))
+	const count = key.values.length
+	const pick = (i: number): TypedLiteral => elementAt(key.values, i, "the aimed fold's key values")
+	const spelled = (literal: TypedLiteral): SpelledValue =>
+		spelledAt(key.type, literal, source.draw(int(0, 3)))
+	const xi = source.draw(int(0, count - 1))
+	const x = pick(xi)
+	const y = pick((xi + 1 + source.draw(int(0, count - 2))) % count)
+	const parents = source.draw(element(parentOrders))
+	const drawn = source.draw(
+		array(
+			(s): readonly [TypedLiteral, TypedLiteral] => [
+				pick(s.draw(int(0, count - 1))),
+				pick(s.draw(int(0, count - 1)))
+			],
+			{ min: 0, max: 3 }
+		)
+	)
+	const facts = Arr.map(
+		[[x, y] as const, [y, y] as const, ...drawn],
+		([a, b]) => [spelled(a), spelled(b)] as const
+	)
+	return foldKeyTwiceCase(key.type, parents, facts)
+}
+
+/**
+ * The required situations the drawn populations seldom reach, each with the case built to reach it: a case whose turn
+ * aims at one (Case.steering) runs that case in place of its drawn one. A suite that does not require a situation never
+ * aims at it.
+ */
+const aims: ReadonlyArray<{ readonly situation: OptimizedFeature; readonly gen: Gen<QueryCase> }> =
+	[{ situation: "a fold key correlated with two parent columns", gen: foldKeyTwiceGen }]
 
 /**
  * A population of whole cases, each resolved as it is generated: the property's resolve draws nothing more, so a kept
@@ -261,9 +432,10 @@ export const optimizedShrink: ShrinkBudget = { kind: "bounded", candidates: 240 
  * optimized certificates.
  *
  * Explores the draw's cases through the differential property, each sketch resolved to its case in the property, each
- * outcome's features noted through its case. Every case also plans each statement its optimized forms sent as
- * a member's explain plans it, which fails the case where PostgreSQL refuses it, and the plan's shape joins the features, so
- * the residual risk counts the plans the population likely never met.
+ * outcome's features noted through its case. A case whose turn aims at a required situation the drawn populations
+ * seldom reach runs the case built to reach it instead (`aims`). Every case also plans each statement its optimized
+ * forms sent as a member's explain plans it, which fails the case where PostgreSQL refuses it, and the plan's shape
+ * joins the features, so the residual risk counts the plans the population likely never met.
  */
 export const differential = <S>(
 	draw: Draw<S, Gen<QueryCase>>,
@@ -274,7 +446,11 @@ export const differential = <S>(
 		const placement = yield* placing
 		return yield* oracleCheck(draw, check, (resolved, k) =>
 			Effect.gen(function* () {
-				const o = yield* differentialCase(k.draw(resolved), { ...plainDifferential, placement })
+				const aimed = Arr.findFirst(aims, (a) =>
+					Option.exists(k.steering, (pending) => pending.aimed(a.situation))
+				)
+				const c = k.draw(Option.match(aimed, { onNone: () => resolved, onSome: (a) => a.gen }))
+				const o = yield* differentialCase(c, { ...plainDifferential, placement })
 				k.noteAll(outcomeFeatures(o))
 				if (!baselineIsSet(o)) {
 					return yield* new PropertyFailed({

@@ -17,9 +17,12 @@
  * Oracle: the conservative lowering's raw text sets, no repeated row on the optimized side.
  *
  * Plants: oracle-optimized-obligations-dropped (the dedup placement discharges no obligation, so a DISTINCT owed is
- * never placed and the optimized artifact repeats rows).
+ * never placed and the optimized artifact repeats rows); oracle-optimized-fold-key-collapsed (the fold an attachment
+ * restricts by its parent's values keeps one equality per key, so a key paired with two parent columns is restricted
+ * by one of them and a parent whose two columns differ receives a group).
  *
- * Features: the population's required features (suite.ts and the file's own).
+ * Features: the population's required features (suite.ts and the file's own), "a fold key correlated with two parent
+ * columns" among them, which a case whose turn aims at it reaches by the case built to (suite.ts foldKeyTwiceGen).
  */
 import { required } from "@bjornpagen/testing/features"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -42,7 +45,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /**
  * The features the optimizer's population must reach, beyond the rules: pipelined attachments and heading groups run
  * (no attachment over exact parents fuses; the one that fuses, over approximate parents, is variants.test.ts's),
- * relation parameters also travel by VALUES, computed terms are evaluated, and cases deliver rows.
+ * relation parameters also travel by VALUES, computed terms are evaluated, a fold is attached by a key the attachment
+ * pairs with two parent columns, and cases deliver rows.
  */
 const situations = [
 	...generatedRules,
@@ -52,6 +56,7 @@ const situations = [
 	"computed term",
 	"nested attachment",
 	"per-parent take over an attachment",
+	"a fold key correlated with two parent columns",
 	"nonempty"
 ] as const satisfies ReadonlyArray<OptimizedFeature>
 

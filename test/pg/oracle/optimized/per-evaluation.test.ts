@@ -13,9 +13,12 @@
  * Oracle: the conservative lowering's raw text sets, no repeated row on the optimized side.
  *
  * Plants: oracle-optimized-obligations-dropped (the dedup placement discharges no obligation, so a DISTINCT owed is
- * never placed and the optimized artifact repeats rows).
+ * never placed and the optimized artifact repeats rows); oracle-optimized-fold-key-collapsed (the fold an attachment
+ * restricts by its parent's values keeps one equality per key, so a key paired with two parent columns is restricted
+ * by one of them and a parent whose two columns differ receives a group).
  *
- * Features: the population's required features (suite.ts and the file's own).
+ * Features: the population's required features (suite.ts and the file's own), "a fold key correlated with two parent
+ * columns" among them, which a case whose turn aims at it reaches by the case built to (suite.ts foldKeyTwiceGen).
  */
 import type { Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -28,6 +31,7 @@ import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import {
 	casesPerPopulation,
 	differential,
+	foldKeyTwiceCase,
 	type OptimizedFeature,
 	optimizedShrink,
 	resolved
@@ -37,7 +41,7 @@ import {
 	type QueryCase,
 	queryCaseGen
 } from "#test/support/oracle/gen/case.ts"
-import { int4 } from "#test/support/oracle/gen/domain.ts"
+import { canonicallySpelled, int4, type SpelledValue } from "#test/support/oracle/gen/domain.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { aggregateOpId, aggregateResult } from "#test/support/oracle/gen/ops.ts"
 import { normalQuery } from "#test/support/oracle/gen/query.ts"
@@ -56,7 +60,8 @@ import { acrossParentsCase, withinOneParentCase } from "#test/unit/lower/dedup/c
 /**
  * What the per-evaluation population must reach: a take correlated per outer row, a region reading an outer column, an
  * attachment nested below another's child, a per-parent take over an attachment, a correlated child under a nested
- * attachment, and a parent key set read without DISTINCT, whose parent rows the differential holds to its claim.
+ * attachment, a parent key set read without DISTINCT, whose parent rows the differential holds to its claim, and a fold
+ * attached by a key the attachment pairs with two parent columns, which each evaluation of the fold restricts to both.
  */
 const perEvaluationRequired = [
 	"correlated take",
@@ -65,6 +70,7 @@ const perEvaluationRequired = [
 	"per-parent take over an attachment",
 	"a correlated child under a nested attachment",
 	"a key set read without DISTINCT",
+	"a fold key correlated with two parent columns",
 	"nonempty"
 ] as const satisfies ReadonlyArray<OptimizedFeature>
 
@@ -87,6 +93,11 @@ const perEvaluationRequired = [
  * (test/unit/lower/dedup/cases.ts): a take of one row per parent with an attachment nested below it, whose key set over
  * a holds a key within one parent only and repeats a = 0 across the two parents unless it deduplicates, and the same
  * attachment paired on the column that fixes the parent too, whose key set is proved across parents and read as it is.
+ *
+ * And this population's counterexample at TEST_SEED=1951254937 (its rotating stream's case 107), shrunk by hand: a
+ * fold attached on two pairs that name one key of it, on[b=b, d=b] there. The optimized lowering restricted the fold by
+ * the last pair alone, so a parent whose b and d differ received the group at its d. Shrunk, it is suite.ts
+ * foldKeyTwiceCase over integers: R0 holds (0, 1, 2) and (1, 2, 2), and the parent (0, 1, 2) has no group.
  */
 const keyed = (name: string, columns: ReadonlyArray<string>): GenRelation => ({
 	name,
@@ -186,6 +197,10 @@ const selfSemiJoinCase = (): QueryCase => {
 	)
 }
 
+/** An integer stored in its canonical spelling. */
+const storedInt = (value: number): SpelledValue =>
+	canonicallySpelled(literalOfValue(BigInt(value), int4))
+
 const perEvaluationKept: ReadonlyArray<Kept<QueryCase, OptimizedFeature>> = [
 	{
 		note: "an occurrence binding a variable another binds too, whose source the other's constant reads",
@@ -216,6 +231,19 @@ const perEvaluationKept: ReadonlyArray<Kept<QueryCase, OptimizedFeature>> = [
 		reaches: ["a correlated child under a nested attachment", "a key set read without DISTINCT"],
 		draws: "",
 		sketch: acrossParentsCase()
+	},
+	{
+		note: "TEST_SEED=1951254937, case 107, shrunk by hand: a fold attached on two pairs that name one key of it",
+		reaches: ["a fold key correlated with two parent columns", "nonempty"],
+		draws: "",
+		sketch: foldKeyTwiceCase(
+			int4,
+			["a", "b"],
+			[
+				[storedInt(1), storedInt(2)],
+				[storedInt(2), storedInt(2)]
+			]
+		)
 	}
 ]
 
