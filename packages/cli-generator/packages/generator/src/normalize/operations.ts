@@ -2,7 +2,7 @@ import {
 	Array as Arr,
 	Effect,
 	Equal,
-	Equivalence,
+	HashSet,
 	Option,
 	Order,
 	Record,
@@ -931,7 +931,8 @@ const assembleOne = Effect.fnUntraced(function* assembleOne(
 })
 
 /**
- * A diagnostic's identity for `distinctDiagnostics`: a fresh array, compared element by element.
+ * A diagnostic's identity for `distinctDiagnostics`: a fresh array, hashed and compared element by
+ * element.
  */
 const identityKey = (diagnostic: Diagnostic) => [
 	diagnostic.code,
@@ -945,10 +946,23 @@ const identityKey = (diagnostic: Diagnostic) => [
 /**
  * Drops repeated diagnostics (same code, document, pointer, operation and related sites), keeping
  * the first of each in order. Root servers, root security and path item parameters are read once
- * per operation that inherits them, and report once.
+ * per operation that inherits them, and report once. Each identity is looked up in a hash set of
+ * those already kept, so a document with thousands of diagnostics costs one pass, not a comparison
+ * of every pair.
  */
-export const distinctDiagnostics = (diagnostics: readonly Diagnostic[]): readonly Diagnostic[] =>
-	Arr.dedupeWith(diagnostics, Equivalence.mapInput(Equal.asEquivalence(), identityKey))
+export const distinctDiagnostics = (diagnostics: readonly Diagnostic[]): readonly Diagnostic[] => {
+	const kept: Diagnostic[] = []
+	let seen = HashSet.empty<ReturnType<typeof identityKey>>()
+	for (const diagnostic of diagnostics) {
+		const identity = identityKey(diagnostic)
+		if (!HashSet.has(seen, identity)) {
+			seen = HashSet.add(seen, identity)
+			kept.push(diagnostic)
+		}
+	}
+
+	return kept
+}
 
 /**
  * Assembles the operations of the entry document in canonical order (design 2.2, 2.4, 3.7, 6.3).
