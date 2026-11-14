@@ -10,7 +10,7 @@ import { readParams } from "#adapter/reader/params.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { CompileError, type CompileReason } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { isSequence, isTreeOf } from "#compiler/ir/family.ts"
+import { isSequence } from "#compiler/ir/family.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { contractOf } from "#compiler/ir/scalar.ts"
 import { Bits, Money, pg } from "#compiler/public/fields.ts"
@@ -2179,8 +2179,9 @@ interface RowShape {
 
 /**
  * The row shape of `name`, read off the engine's law model: its fields a caller states (isCarried), and of those, an
- * addition's: less its serial fields, which one arm of an addition leaves out, less a tree's parent, which its nesting
- * supplies, and with the count field of each sequence it owns, at which its members nest.
+ * addition's: less its serial fields, which one arm of an addition leaves out, and with the count field of each
+ * sequence it owns, at which its members nest. A tree's root states its root fields; its nesting supplies them, and
+ * the drawn parent, to the nodes below it only.
  */
 const rowShapeOf = (laws: ReturnType<typeof realityWrite>["laws"], name: string): RowShape => {
 	const relation = laws.relations.get(name)
@@ -2189,12 +2190,9 @@ const rowShapeOf = (laws: ReturnType<typeof realityWrite>["laws"], name: string)
 	}
 	const heading = relation.relation.heading
 	const written = Arr.map(Arr.filter(heading, isCarried), (f) => f.name)
-	const omitted = new Set([
-		...Arr.flatMap(heading, (f) => (f.writing.kind === "serial" ? [f.name] : [])),
-		...Arr.flatMap(laws.families, (f) =>
-			isTreeOf(f, name) ? Arr.map(f.group, (g) => g.member.name) : []
-		)
-	])
+	const omitted = new Set(
+		Arr.flatMap(heading, (f) => (f.writing.kind === "serial" ? [f.name] : []))
+	)
 	return {
 		relation: name,
 		written,
@@ -2319,6 +2317,20 @@ const realities: { readonly [L in Level]: ReturnType<typeof realityOf> } = {
 	Reports: realityOf("Reports"),
 	Other: realityOf("Other"),
 	Twin: realityOf("Twin")
+}
+
+/**
+ * The row a delete of `relation` takes, as the program spells it: a tree's root value, its root fields, which name one
+ * tree whole (the engine's unit delete matches them, write/delete/unit.ts); any other relation's row as its caller
+ * writes it.
+ */
+const deletedRowText = (relation: string): string => {
+	const [root] = Arr.flatMap(realities.Work.options.laws.families, (f) =>
+		f.members.kind === "tree" && f.member.name === relation ? [f.members.root] : []
+	)
+	return root === undefined
+		? `Written<typeof ${relation}>`
+		: `Pick<Written<typeof ${relation}>, ${unionOf(Arr.map(root, (r) => r.name))}>`
 }
 
 /** The world a role's Db compiles a ChangeSet in: its checked world and its compile options. */
@@ -2541,6 +2553,9 @@ const verdictOf = (spec: CaseSpec): Verdict => {
 				...Arr.flatMap(desc.strata, (st) => Arr.map(st.members, (m) => m.relation)),
 				...Arr.flatMap(program.value.frontend.nested, (n) =>
 					Arr.map(n.nesting.reached, (r) => r.family.member.name)
+				),
+				...Arr.flatMap(program.value.placements, (p) =>
+					p.node.kind === "unit" ? Arr.map(p.node.below, (b) => b.relation.name) : []
 				)
 			]),
 			rows: Arr.map(
@@ -3301,7 +3316,9 @@ const blockOf = (c: ChangeSetCase, i: number): string => {
 									Arr.map(parts, (p) =>
 										g.op === "insert"
 											? `AdditionIn<typeof ${p.level}, typeof ${relation}>`
-											: `Written<typeof ${relation}>`
+											: g.op === "delete"
+												? deletedRowText(relation)
+												: `Written<typeof ${relation}>`
 									)
 								)
 								const { position } = Arr.headNonEmpty(parts)

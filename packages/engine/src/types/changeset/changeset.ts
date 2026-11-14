@@ -103,9 +103,20 @@ export type Member<S, F> = ReadonlyArray<F> | Stream.Stream<F> | QueryAt<LevelsO
  * of R at the field's own type (MistypedFields), as the checker requires (check/member.ts checkMemberHeading): an exact
  * integer or exact money binds at a plain integer or money column (Meets), but is stored into one only through
  * Compute.cast. This is the one place a member's membership is decided, for insert, delete and put, an addition that
- * omits its serial fields and a world relation's entry alike.
+ * omits its serial fields and a world relation's entry alike (MemberFit). An insert's or a put's literal facts are then
+ * judged at R's primary key: two of them at one key that differ elsewhere are refused (MemberCheck).
  */
-type MemberCheck<M, F, R> =
+type MemberCheck<M, F, R> = MemberFit<M, F, R, true>
+
+/**
+ * A delete's facts, fit as every member's are (MemberFit) and judged at no key: a deletion is exact fact identity, so
+ * two facts at one key that differ elsewhere delete at most the one stored (runtime/write/normalize.ts judges only
+ * additions and puts at a key).
+ */
+type DeletedCheck<M, F, R> = MemberFit<M, F, R, false>
+
+/** A member's facts M as arms of F, the row type of R its op takes, then, where Keyed, its literal facts at R's key. */
+type MemberFit<M, F, R, Keyed extends boolean> =
 	M extends Phantom<{ readonly heading: infer H }>
 		? [UnfitArms<H, F, never>] extends [never]
 			? [MistypedFields<M, R>] extends [never]
@@ -114,8 +125,10 @@ type MemberCheck<M, F, R> =
 			: Refusal<"the query's head is not a fact of the relation">
 		: M extends ReadonlyArray<infer E> | Stream.Stream<infer E, unknown, unknown>
 			? [UnfitArms<E, F, never>] extends [never]
-				? ConflictsAtKey<M, PrimaryKeyOf<R>> extends true
-					? KeyLawRefusal<NameOf<R>, PrimaryKeyOf<R>>
+				? Keyed extends true
+					? ConflictsAtKey<M, PrimaryKeyOf<R>> extends true
+						? KeyLawRefusal<NameOf<R>, PrimaryKeyOf<R>>
+						: unknown
 					: unknown
 				: Refusal<"a member fact is not a fact of the relation">
 			: unknown
@@ -718,14 +731,15 @@ export interface ChangeSet<
 	 * no part of a fact's identity a caller states, so an insert and a delete of one fact state one row. A tree's delete
 	 * states its root value, each one tree (DeletedRow). A tree, and an owner of a family that is no family's member,
 	 * go with every row nested under them, through every family (UnitWrites), so a group goes whole. A row whose primary
-	 * key holds a field grizzle writes, and a member of an immutable owner's family, are no delete's (EditCheck).
+	 * key holds a field grizzle writes, and a member of an immutable owner's family, are no delete's (EditCheck). Its
+	 * facts are judged at no key (DeletedCheck): two at one key name at most the one stored.
 	 */
 	delete<R extends AnyRelation | AnyWorld, const M extends Member<S, unknown>>(
 		relation: R &
 			WritableCheck<S, R> &
 			EditCheck<S, R, "delete"> &
 			EditsOnce<Done, EditsWith<Last, S, R>>,
-		facts: M & MemberCheck<M, DeletedRow<S, R>, R>
+		facts: M & DeletedCheck<M, DeletedRow<S, R>, R>
 	): ChangeSet<
 		S,
 		JointParams<Params, ParamsOf<M>>,
