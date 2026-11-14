@@ -463,7 +463,10 @@ const messageOf = (cause: unknown): string =>
 		: "The importer failed without a message."
 
 /**
- * Rewrites every schema `$ref` to `#/$defs/<key>` from the resolution, before conversion.
+ * Rewrites every schema `$ref` to `#/$defs/<key>` from the resolution, before conversion, and
+ * drops every `$id`. The resolver has already resolved each reference against the base URI its
+ * `$id`s set, so once every `$ref` names a stored key no reference reads a base URI, and an
+ * embedded resource is flattened into the store's `$defs` as Effect's importer requires.
  */
 const rewriteReferences = (
 	budget: Budget,
@@ -479,21 +482,22 @@ const rewriteReferences = (
 
 	return transformSchema(budget, node, tokens, where, (current, path) => {
 		const site = { document: at.document, pointer: formatPointer(path) }
+		const flattened = Record.filter(current, (_, key) => key !== "$id")
 		const reference =
 			stringMember(current, "$ref") === undefined
 				? undefined
 				: resolution.references.get(keyOf(site))
 		if (reference === undefined) {
-			return current
+			return flattened
 		}
 
 		if (reference.defsKey === undefined) {
-			return Record.filter(current, (_, key) => key !== "$ref")
+			return Record.filter(flattened, (_, key) => key !== "$ref")
 		}
 
 		const ref = refFor(reference.defsKey)
 
-		return Record.map(current, (value, key): Json => (key === "$ref" ? ref : value))
+		return Record.map(flattened, (value, key): Json => (key === "$ref" ? ref : value))
 	})
 }
 
@@ -1263,7 +1267,6 @@ const importClasses: readonly (readonly [prefix: string, code: (line: SpecLine) 
 		(line) => `${rowOf(line, "additionalProperties")}/not-asserted`
 	],
 	["Missing definition", (line) => `${line === "3.0" ? "REF-02" : "SCH-03"}/non-schema-target`],
-	['Cannot resolve $ref under a nested "$id"', () => "SCH-02/nested-resource"],
 	["Definition ", () => "DOC-23/alias-cycle"]
 ]
 
@@ -1521,15 +1524,6 @@ const rules: ReadonlyMap<string, Rule> = new Map<string, Rule>([
 			element: "Schema integer range",
 			message: "int64 range is not asserted client-side.",
 			severity: "notice"
-		}
-	],
-	[
-		"nested-resource",
-		{
-			anchor: keywordsSection,
-			element: "Schema $id resource",
-			message: "A $ref inside a nested $id resource cannot be flattened into $defs.",
-			severity: "refusal"
 		}
 	],
 	[
