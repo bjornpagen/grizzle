@@ -282,6 +282,14 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   ask: resolve the interrupt only once the backend can no longer commit, or give the caller a settled outcome.
 
 ### Next
+- **A SERIALIZABLE writer that only withdraws a rule's violations still holds a READ COMMITTED prober (MONOTONE,
+  2026-11-14):** pivotCauseOf (analysis/isolation/certify.ts) counts any SERIALIZABLE role that writes a relation a
+  rule over a query reads as one that may miss another call's write, and 5c then holds every READ COMMITTED role whose
+  probes read that relation (RoleView.probed). A write that breaks no witness of the rule fires no probe (its Touches
+  leave the event out), so it reads nothing through the rule: counting only the laws a writer's writes break
+  (breaksAt) as its pivot cause would let an inserter of a rule's breaking row run READ COMMITTED beside a
+  SERIALIZABLE inserter of the negated relation. Too strict today, never too lax; no downstream needs it (den runs
+  every role READ COMMITTED). Not built.
 - **A folder's WAL, not its data, sizes a small instance (push-database-migration-through, 2026-11-14):** edullm's
   identity 02 ran 5 h in one transaction on a db.t4g.medium (4 GB, 3,000 IOPS gp3); every set-based backfill over node
   was disk-bound (83% DataFileRead), RDS warned its 200 GiB volume was near full from the WAL, and the instance
