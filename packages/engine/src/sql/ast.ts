@@ -736,8 +736,13 @@ export type FromSource =
 	| ContextSource
 
 /** One join of a join chain: its source joined to everything before it, on a condition or crosswise. */
+/**
+ * One step of a join chain: an inner join on a condition, a LEFT JOIN on one, which keeps each row before it that meets
+ * no row of its source, that source's columns NULL, or a cross join.
+ */
 export type JoinStep =
 	| { readonly kind: "on"; readonly source: FromSource; readonly on: Expr }
+	| { readonly kind: "left"; readonly source: FromSource; readonly on: Expr }
 	| { readonly kind: "cross"; readonly source: FromSource }
 
 /**

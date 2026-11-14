@@ -1797,11 +1797,11 @@ class Visit {
 								],
 								[
 									"on",
-									step.kind === "on"
-										? () => {
+									step.kind === "cross"
+										? undefined
+										: () => {
 												this.expr(step.on)
 											}
-										: undefined
 								]
 							])
 						})

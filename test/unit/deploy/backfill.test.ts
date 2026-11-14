@@ -96,7 +96,7 @@ import {
 	generate,
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
-import { perRowReads } from "#test/support/migrate/probes.ts"
+import { missingKeyChecks, perRowReads, rewrittenTables } from "#test/support/migrate/probes.ts"
 import { plainPlan } from "#test/support/migrate/review.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -725,6 +725,16 @@ const assertBackfillOrder = (m: Migration, columns: ReadonlyArray<string>): void
 		"no constraint is added before the backfill"
 	)
 	assert.deepEqual(perRowReads(steps), [], "no backfill statement reads a row once per row")
+	assert.deepEqual(
+		missingKeyChecks(m.second, m.firstDraft.snapshot.theory, steps),
+		[],
+		"the backfill checks every key its derivations rely on before any of them runs"
+	)
+	assert.deepEqual(
+		rewrittenTables(steps),
+		[],
+		"the backfill writes each table's rows by one UPDATE"
+	)
 }
 
 /** The ordered families, by how their lines are keyed after the migration. */

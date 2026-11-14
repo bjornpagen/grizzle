@@ -1594,7 +1594,7 @@ class StatementAuditor {
 					for (const [i, step] of item.steps.entries()) {
 						this.at(i, () => {
 							add(this.at("source", () => this.fromItem(step.source, scope, outer, ctes, plVars)))
-							if (step.kind === "on") {
+							if (step.kind !== "cross") {
 								const on = scopeOver(outer, joined)
 								this.at("on", () => {
 									this.expr(step.on, context("query", on, ctes, plVars))

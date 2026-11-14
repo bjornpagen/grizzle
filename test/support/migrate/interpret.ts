@@ -2444,16 +2444,65 @@ class Model {
 		let rows = this.#sourceRows(item.first, ctes)
 		for (const step of item.steps) {
 			const right = this.#sourceRows(step.source, ctes)
-			rows = Arr.flatMap(rows, (left) =>
+			const met = (left: ReadonlyMap<string, SqlValue>): ReadonlyArray<Map<string, SqlValue>> =>
 				Arr.flatMap(right, (r) => {
 					const both = joined(left, r)
 					return step.kind === "cross" || truthOf(evaluate(step.on, this.#scope(both))) === true
 						? [both]
 						: []
 				})
-			)
+			rows =
+				step.kind === "left"
+					? Arr.flatMap(rows, (left) => {
+							const both = met(left)
+							return Arr.isReadonlyArrayNonEmpty(both)
+								? both
+								: [joined(left, this.#nulls(step.source, ctes))]
+						})
+					: Arr.flatMap(rows, met)
 		}
 		return rows
+	}
+
+	/** A row of a FROM source's columns, each NULL, bound under its alias: what a LEFT JOIN binds where its source
+	 * meets no row. */
+	#nulls(source: FromSource, ctes: Ctes): Map<string, SqlValue> {
+		const nulls = (alias: string, names: ReadonlyArray<string>): Map<string, SqlValue> =>
+			bound(
+				alias,
+				new Map(Arr.map(names, (name): readonly [string, SqlValue] => [name, undefined]))
+			)
+		switch (source.kind) {
+			case "table":
+				return typeof source.table === "string" || !this.#ours(source.table)
+					? unevaluable("a table outside the schema")
+					: nulls(
+							source.alias,
+							Arr.map(this.#table(source.table).columns, (c) => c.name)
+						)
+			case "derived":
+				return nulls(
+					source.alias,
+					Arr.isReadonlyArrayNonEmpty(source.columns)
+						? source.columns
+						: this.#select(source.query, ctes).names
+				)
+			case "cte": {
+				const r = ctes.get(source.name)
+				return r === undefined
+					? refuse("42P01", `relation "${source.name}" does not exist`)
+					: nulls(source.alias ?? source.name, r.names)
+			}
+			case "enclosing":
+			case "function":
+			case "arrays":
+			case "values":
+			case "context":
+			case "probe":
+			case "met":
+			case "metRows":
+				return unevaluable(`a FROM source of kind ${source.kind}`)
+		}
 	}
 
 	/** The rows a FROM list binds: every item's rows crossed, one row of no column for an empty list. */

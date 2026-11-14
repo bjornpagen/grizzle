@@ -80,10 +80,12 @@
  * keyed tree's laws fix over the same facts, which a fresh install holds (families/tree.ts numbered, the direct
  * pre-order numbering, and turnsOf over it), at a fresh install's catalog, every table rewritten at most once, nothing
  * left to generate; two documents mapped onto one root, a named case of its own weight, are
- * refused at migrate by a law of the keyed tree, its primary key's, its family's or its fold's, read from the compiled
- * installation. The parent drawn anew is read off each root's intervals sorted (backfill.ts parentUpdate), so every
- * statement of the draft's backfill is judged on its SQL AST to read no row once per row of another, neither a
- * subquery reading a row outside it nor a LATERAL source (test/support/migrate/probes.ts). Its features: the old tree
+ * refused at migrate before any of the backfill's derivations runs, by its check of the keyed tree's primary key, which
+ * raises under that law's identity (backfill.ts keyChecks): the derivations meet rows at that key, and over its
+ * duplicates every join of them would multiply the rows. The parent drawn anew is read off each root's intervals sorted
+ * (backfill.ts parentDerivation), so every statement of the draft's backfill is judged on its SQL AST to read no row once
+ * per row of another, neither a subquery reading a row outside it nor a LATERAL source, and each table is written by one
+ * UPDATE (test/support/migrate/probes.ts). Its features: the old tree
  * keyed, a tree of three levels or more, several old trees each its own root, the refused merge, a fold over the copies
  * selecting a member, a node whose parent's kind is not its grandparent's, a tree's count carried along the anchor
  * family's owner axis from another node, a copy from the sibling before along the predecessor axis, and the shapes
@@ -197,7 +199,7 @@ import {
 	type Previous
 } from "#test/support/migrate/kit.ts"
 import { type OldFormTree, oldFormTree } from "#test/support/migrate/old-form-tree.ts"
-import { perRowReads } from "#test/support/migrate/probes.ts"
+import { missingKeyChecks, perRowReads, rewrittenTables } from "#test/support/migrate/probes.ts"
 import { type Placeholder, readsBack, review } from "#test/support/migrate/review.ts"
 import { type RewriteObserver, rewriteObserver } from "#test/support/migrate/rewrites.ts"
 import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
@@ -2233,24 +2235,20 @@ const treeFeatures: Arr.NonEmptyReadonlyArray<TreeFeature> = [
 	...treeShapes
 ]
 
-/** The laws a refused merge may name: the keyed tree's primary key, its family's and its fold's. */
-const treeLaws = (installation: Installation): ReadonlySet<string> =>
-	new Set([
-		...Arr.flatMap(installation.laws.theory.primaryKeys, (pk) =>
-			pk.relation.name === "Node" ? [pk.law.id] : []
-		),
-		...Arr.flatMap(installation.laws.families, (family) => [
-			family.law,
-			...Arr.map(family.folds, (fold) => fold.law)
-		])
-	])
+/** The law a refused merge names: the keyed tree's primary key's, which the backfill checks before it draws. */
+const treeKeyLaw = (installation: Installation): string =>
+	Option.getOrThrowWith(
+		Arr.findFirst(installation.laws.theory.primaryKeys, (pk) => pk.relation.name === "Node"),
+		() => new Error("the keyed tree states its primary key")
+	).law.id
 
 /**
  * A tree case on PostgreSQL: the old-form tree installed from its frozen first migration, its rows written directly,
  * then the keyed tree drafted from its snapshot, every old field it no longer holds declared dropped, reviewed with the
  * data step, checked, and applied under the rewrite observer. A merge of two trees onto one root is refused at migrate
- * by a law of the keyed tree; any other case migrates to a fresh install's catalog, rewriting each table at most once,
- * every row the model's and nothing left to generate.
+ * by the backfill's check of the keyed tree's primary key, a violation check raising SQLSTATE 23000 under that law's
+ * identity, before any derivation runs; any other case migrates to a fresh install's catalog, rewriting each table at
+ * most once, every row the model's and nothing left to generate.
  */
 const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
 	Effect.scoped(
@@ -2295,6 +2293,16 @@ const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
 				[],
 				"the keyed tree's backfill reads no row once per row"
 			)
+			assert.deepEqual(
+				missingKeyChecks(installation, tree.snapshot.theory, g.plan.steps),
+				[],
+				"the keyed tree's backfill checks every key its derivations rely on before any of them runs"
+			)
+			assert.deepEqual(
+				rewrittenTables(g.plan.steps),
+				[],
+				"the keyed tree's backfill writes each table's rows by one UPDATE"
+			)
 			const reviewed = review(withDataStep(g, treeDataStep(tree, c)), {
 				losses: "written",
 				value: treePlaceholder
@@ -2313,13 +2321,14 @@ const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
 				)
 			)
 			if (mergesTrees(c)) {
-				const laws = treeLaws(installation)
+				const key = treeKeyLaw(installation)
 				const { reason } = yield* refusal(run)
 				assert.ok(
-					(reason._tag === "StatementFailed" || reason._tag === "FileCommitRefused") &&
-						reason.law !== undefined &&
-						laws.has(reason.law),
-					`two old trees mapped onto one root are refused otherwise than by a law of the keyed tree: ${Formatter.format(reason)}`
+					reason._tag === "StatementFailed" &&
+						reason.failure._tag === "ServerError" &&
+						reason.failure.sqlstate === "23000" &&
+						reason.failure.constraint === key,
+					`two old trees mapped onto one root are refused otherwise than by the backfill's check of the keyed tree's primary key, ${key}: ${Formatter.format(reason)}`
 				)
 				note("two old trees mapped onto one root, refused")
 				return
@@ -2431,7 +2440,7 @@ layer(Substrate.isolatedLayer)("the migrator under the identity cutover's deltas
 			)
 	)
 	it.effect(
-		"an old-form tree becomes the keyed tree: every parent the old parent's start, every slot, interval and fold value kept, at a fresh install's catalog with each table rewritten at most once, and two trees mapped onto one root refused by a law of the keyed tree",
+		"an old-form tree becomes the keyed tree: every parent the old parent's start, every slot, interval and fold value kept, at a fresh install's catalog with each table rewritten at most once, and two trees mapped onto one root refused by the backfill's check of the keyed tree's primary key",
 		(ctx) =>
 			searched(
 				ctx,

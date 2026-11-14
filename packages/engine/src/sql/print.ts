@@ -43,6 +43,7 @@ import {
 	type GrantObjects,
 	type IndexKey,
 	type Insert,
+	type JoinStep,
 	type KeyColumn,
 	type LiteralValue,
 	type Merge,
@@ -858,14 +859,19 @@ const printFromItem = (item: FromItem): string => {
 		case "context":
 			return printContextSource(item)
 		case "joins":
-			return [
-				printFromItem(item.first),
-				...item.steps.map((step) =>
-					step.kind === "on"
-						? `JOIN ${printFromItem(step.source)} ON ${printExpr(step.on)}`
-						: `CROSS JOIN ${printFromItem(step.source)}`
-				)
-			].join(" ")
+			return [printFromItem(item.first), ...item.steps.map(printJoinStep)].join(" ")
+	}
+}
+
+/** One step of a join chain: its join and source, and its condition where it has one. */
+const printJoinStep = (step: JoinStep): string => {
+	switch (step.kind) {
+		case "on":
+			return `JOIN ${printFromItem(step.source)} ON ${printExpr(step.on)}`
+		case "left":
+			return `LEFT JOIN ${printFromItem(step.source)} ON ${printExpr(step.on)}`
+		case "cross":
+			return `CROSS JOIN ${printFromItem(step.source)}`
 	}
 }
 

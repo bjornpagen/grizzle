@@ -20,6 +20,7 @@ import type {
 	FromSource,
 	FunctionCall,
 	Insert,
+	JoinStep,
 	Merge,
 	MergeWhen,
 	ObjectName,
@@ -290,19 +291,30 @@ const operandsOf = (e: Expr): ReadonlyArray<Expr> => {
 /** Whether an expression computes over many rows in its own operands (overRowsOf), a subquery's calls its own. */
 const holdsRows = (e: Expr): boolean => overRowsOf(e) !== undefined || operandsOf(e).some(holdsRows)
 
+/** A join step's source with its ON condition, none for a cross join's. A LEFT JOIN reads every row before it whatever
+ * its condition, so its condition keys no read: only a migration's backfill writes one, never a program. */
+const stepSource = (
+	step: JoinStep
+): { readonly source: FromSource; readonly on: Expr | undefined } => {
+	switch (step.kind) {
+		case "on":
+			return { source: step.source, on: step.on }
+		case "cross":
+			return { source: step.source, on: undefined }
+		case "left":
+			throw defect(
+				"a program's statement holds no LEFT JOIN: only a migration's backfill writes one"
+			)
+	}
+}
+
 /** A FROM's sources, each with its join's ON condition, none for the first and a cross join's. */
 const sourcesOf = (
 	from: ReadonlyArray<FromItem>
 ): ReadonlyArray<{ readonly source: FromSource; readonly on: Expr | undefined }> =>
 	from.flatMap((item) =>
 		item.kind === "joins"
-			? [
-					{ source: item.first, on: undefined },
-					...item.steps.map((step) => ({
-						source: step.source,
-						on: step.kind === "on" ? step.on : undefined
-					}))
-				]
+			? [{ source: item.first, on: undefined }, ...item.steps.map(stepSource)]
 			: [{ source: item, on: undefined }]
 	)
 

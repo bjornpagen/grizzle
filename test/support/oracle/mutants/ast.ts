@@ -381,7 +381,7 @@ const fromReads = (f: FromItem, alias: string): boolean => {
 				Arr.some(
 					f.steps,
 					(step) =>
-						fromReads(step.source, alias) || (step.kind === "on" && readsAlias(step.on, alias))
+						fromReads(step.source, alias) || (step.kind !== "cross" && readsAlias(step.on, alias))
 				)
 			)
 		case "probe":

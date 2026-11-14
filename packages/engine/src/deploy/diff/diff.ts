@@ -1955,7 +1955,7 @@ class Differ {
 				return v.kind === "table" ? [[nameKey(v.create.table), v.create] as const] : []
 			})
 		)
-		const { updates, dropDefaults } = backfillOf({
+		const { checks, updates, dropDefaults } = backfillOf({
 			installation: this.input.installation,
 			previous: this.input.previous.theory,
 			previousOperators: (table, column) => {
@@ -1971,6 +1971,9 @@ class Differ {
 			mayHoldRows: (t) => this.mayHoldRows(t),
 			added: this.backfilled
 		})
+		for (const c of checks) {
+			this.push("structure.backfill", { kind: "violation", law: c.law, query: c.query })
+		}
 		this.sql("structure.backfill", [...updates, ...dropDefaults])
 		return updates.length > 0
 	}
