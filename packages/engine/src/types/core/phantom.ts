@@ -915,9 +915,15 @@ export interface Refusal<Message extends Refused> {
  * another would stand in every generic caller that forwards a checked argument, where TypeScript reads a type parameter
  * as `any` and cannot prove it none.
  */
-export type MembersTyped<C> = 0 extends 1 & MemberOf<C>
-	? Refusal<"a member typed any, which every check admits: type each member of the list or record">
+export type MembersTyped<C> = symbol extends keyof MemberOf<C>
+	? 0 extends 1 & MemberOf<C>
+		? Refusal<"a member typed any, which every check admits: type each member of the list or record">
+		: unknown
 	: unknown
 
-/** The members of a list or record: an array's elements, a record's values. */
+/**
+ * The members of a list or record: an array's elements, a record's values. MembersTyped reads a member's keys before it
+ * tests the member: `any`'s keys are every symbol, and a member whose keys are not, a query among them, is no `any`,
+ * so a query is never an operand of the test, which would instantiate it whole, its schema with it.
+ */
 type MemberOf<C> = C extends ReadonlyArray<infer E> ? E : C[keyof C]

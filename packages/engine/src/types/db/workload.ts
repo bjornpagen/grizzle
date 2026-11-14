@@ -1,6 +1,6 @@
 import type { ClockUnit } from "#compiler/core/clock.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { Phantom } from "#compiler/core/phantom.ts"
+import type { phantom, Phantom } from "#compiler/core/phantom.ts"
 import type {
 	AnyChangeSet,
 	ChangeSetAt,
@@ -10,6 +10,7 @@ import type {
 import type { MembersTyped, Refusal } from "#compiler/types/core/phantom.ts"
 import type { AnyMaterialized } from "#compiler/types/derived/derived.ts"
 import type {
+	ContextsOf,
 	ContextsReadOf,
 	OrderedAt,
 	OrderedBase,
@@ -183,6 +184,73 @@ type ArraysOnce<X> = X extends AnyChangeSet
 type ClockedProgram<X> = X extends Clocked<infer P, unknown> ? P : X
 
 /**
+ * What a workload checks of its program X (WorkloadConstructor): a ChangeSet's appends beside its immutable owner's
+ * insert (PlannedStrata), its array members of one op and relation in one stratum (ArraysOnce), its writes within its
+ * role's write list (WritesWithin), and every program's contexts within its role's (WithinRoleContexts). A program
+ * whose keys name no ChangeSet's reads and no clock, every program of a union of them included (Kinds), writes nothing
+ * and holds no strata, so of the four checks only its contexts' can refuse it: that is all it is checked by, its
+ * contexts read by key (ReadContexts). A read is told by its keys, never by a test of it: a query holds its schema,
+ * and a conditional the checker resolves instantiates its operands whole, every relation of the schema with them.
+ */
+type ProgramChecks<S, X> = ChecksOf<S, X, Kinds<X>>
+/**
+ * ProgramChecks over the kinds K of X's programs, a parameter of its own: a tuple of an alias over X is a reference the
+ * checker resolves later, holding X, and deciding the test instantiates it, X whole with it.
+ */
+type ChecksOf<S, X, K> = [K] extends ["read"]
+	? ["read"] extends [K]
+		? WithinRoleContexts<S, ReadContexts<X>>
+		: AllChecks<S, X>
+	: AllChecks<S, X>
+type AllChecks<S, X> = PlannedStrata<ClockedProgram<X>> &
+	ArraysOnce<ClockedProgram<X>> &
+	WritesWithin<S, ClockedProgram<X>> &
+	WithinRoleContexts<S, ProgramContexts<X>>
+
+/**
+ * Each program of X by its keys: "write" for a ChangeSet's (its reads) or a clocked member's (its clock), and for a
+ * value typed `any`, whose keys are every name; "read" for any other.
+ */
+type Kinds<X> = X extends unknown
+	? "reads" extends keyof X
+		? "write"
+		: "clocked" extends keyof X
+			? "write"
+			: "read"
+	: never
+
+/**
+ * ProgramContexts of a program that is no ChangeSet, each member of a union its own, told by its keys: a deferrable
+ * member's read's, a paged member's ordered query's, a clocked read's program's, and a query's own, read off its phantom
+ * by key (ContextsByKey). A value typed `any` or holding a ChangeSet's reads is read by ProgramContexts itself.
+ */
+type ReadContexts<X> = X extends unknown
+	? symbol extends keyof X
+		? ProgramContexts<X>
+		: "deferrable" extends keyof X
+			? ReadContexts<X["deferrable" & keyof X]>
+			: "paged" extends keyof X
+				? ContextsByKey<X["paged" & keyof X]>
+				: "clocked" extends keyof X
+					? ReadContexts<X["clocked" & keyof X]>
+					: "reads" extends keyof X
+						? ProgramContexts<X>
+						: ContextsByKey<X>
+	: never
+
+/**
+ * ContextsOf, the phantom read by key: none for a value with no phantom, each shape of a union of shapes its own, and a
+ * value typed `any` read by ContextsOf itself.
+ */
+type ContextsByKey<X> = symbol extends keyof X
+	? ContextsOf<X>
+	: typeof phantom extends keyof X
+		? BundleContexts<NonNullable<X[typeof phantom & keyof X]>>
+		: never
+type BundleContexts<B> = B extends unknown ? ContextsRead<B["readsContexts" & keyof B]> : never
+type ContextsRead<F> = F extends (read: infer C) => void ? C : never
+
+/**
  * workload(schema, programs): each program over a level of the schema (ProgramAt), a ChangeSet's appends each beside
  * its immutable owner's insert (PlannedStrata) and its array members of one op and relation in one stratum
  * (ArraysOnce), and, over a role, a ChangeSet writing only what the role's write list names (WritesWithin) and every
@@ -196,10 +264,7 @@ export type WorkloadConstructor = <
 >(
 	schema: S,
 	programs: Programs & {
-		readonly [K in keyof Programs]: PlannedStrata<ClockedProgram<Programs[K]>> &
-			ArraysOnce<ClockedProgram<Programs[K]>> &
-			WritesWithin<S, ClockedProgram<Programs[K]>> &
-			WithinRoleContexts<S, ProgramContexts<Programs[K]>>
+		readonly [K in keyof Programs]: ProgramChecks<S, Programs[K]>
 	} & MembersTyped<Programs>
 ) => Workload<S, Programs>
 
