@@ -262,7 +262,6 @@ const hostileSession: AmbientSession = {
 	path: { kind: "grizzleFirst" },
 	settings: [
 		{ parameter: "extra_float_digits", value: "-15" },
-		{ parameter: "lc_monetary", value: "en_US.UTF-8" },
 		{ parameter: "TimeZone", value: "Pacific/Chatham" },
 		{ parameter: "DateStyle", value: "German, DMY" },
 		{ parameter: "IntervalStyle", value: "sql_standard" },

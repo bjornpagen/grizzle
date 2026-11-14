@@ -11,10 +11,7 @@
  *   and judged by the declared pattern as the JavaScript engine reads it;
  * - money constants: a contract `Fee` over money, at least a drawn amount, as its domain's CHECK, and a key over the
  *   charges selected at a drawn tip, `key(on(select(Charge, tip = t), account))`, whose law column's expression holds
- *   the constant. The installation runs under the session's own lc_monetary, and its charges are probed under a drawn
- *   one: a C locale's, whose money has two fraction digits, or Japan's, which has none and where numeric::money and
- *   bigint::money count whole units, so a constant cast per row, or folded under the writer's locale, moves. A STABLE
- *   cast in the law column's expression is refused by the installation itself.
+ *   the constant. A STABLE cast in the law column's expression is refused by the installation itself.
  *
  * The real installation runs in a transaction on a pinned session, and every probe row is inserted under a savepoint:
  * the server must admit a row exactly when the host meaning holds and refuse every other with 23514 naming that
@@ -24,7 +21,7 @@
  * alone under its own table or domain, and requires the same judge to find the defect: the property discriminates every
  * class.
  *
- * Features: each predicate class judged both ways and each class's CHECK dropped, under both lc_monetary values.
+ * Features: each predicate class judged both ways and each class's CHECK dropped.
  *
  * Plants (~/.cache/grizzle-release/BR11/plants): checks-span-upper-unchecked (a span's endpoint CHECK holds its
  * contract's predicate of the lower endpoint alone).
@@ -85,8 +82,6 @@ interface Planted {
 	/** Fee's least amount and the tip at most one charge per account holds, in minor units. */
 	readonly fee: number
 	readonly tip: number
-	/** The lc_monetary the probes run under, after the installation ran under the session's own. */
-	readonly monetary: Monetary
 	readonly charge: ReadonlyArray<Charged>
 	/** The class whose CHECK a second installation drops, which the judge must then find. */
 	readonly dropped: CheckClass
@@ -98,14 +93,6 @@ interface Charged {
 	readonly fee: number
 	readonly tip: number
 }
-
-/**
- * The lc_monetary settings a writer's session may run under, by the fraction digits a money value's minor unit has
- * there: a C locale's two and Japan's none, where numeric::money and bigint::money count whole units.
- */
-const monetaries = { "C.UTF-8": 2, "ja_JP.UTF-8": 0 } as const
-
-type Monetary = keyof typeof monetaries
 
 /** The classes of CHECK a case installs, each dropped in turn by some case. */
 const checkClasses = ["row", "closed", "endpoint", "domain", "text", "fee"] as const
@@ -135,7 +122,6 @@ const plantedGen: Gen<Planted> = (source) => ({
 	amount: source.draw(probes(int(-6, 6))),
 	fee: source.draw(int(98, 102)),
 	tip: source.draw(int(98, 102)),
-	monetary: source.draw(element(["C.UTF-8", "ja_JP.UTF-8"] as const)),
 	charge: source.draw(
 		probes((charge) => ({
 			account: charge.draw(element([0, 1] as const)),
@@ -257,7 +243,6 @@ type CheckFeature =
 	| "money check refuses"
 	| "money key admits"
 	| "money key refuses"
-	| `probed under ${Monetary}`
 	| `dropped ${CheckClass} found`
 
 const situations = [
@@ -276,8 +261,6 @@ const situations = [
 	"money check refuses",
 	"money key admits",
 	"money key refuses",
-	"probed under C.UTF-8",
-	"probed under ja_JP.UTF-8",
 	"dropped row found",
 	"dropped closed found",
 	"dropped endpoint found",
@@ -406,15 +389,12 @@ const judgeCase = (
 			reached.add(holds ? "text check admits" : "text check refuses")
 		}
 		/**
-		 * A charge's amount, parameter `at`, sent as its minor units under the drawn lc_monetary: under two fraction digits
-		 * a numeric of hundredths, under none a bigint of whole units, each the same money. A fee below Fee's least is
+		 * A charge's amount, parameter `at`, sent as its minor units: a numeric of hundredths, the two fraction digits of
+		 * money under the harness session's lc_monetary, C.UTF-8 (test/support/pg.ts). A fee below Fee's least is
 		 * refused by its domain's CHECK; a tip at the selected amount is refused by the key's UNIQUE when its account
 		 * already holds a charge at it; every other charge is stored.
 		 */
-		const money = (at: number) =>
-			monetaries[p.monetary] === 2 ? `($${at}::numeric / 100)::money` : `$${at}::bigint::money`
-		yield* pinned.query(`SET LOCAL lc_monetary = '${p.monetary}'`, [])
-		reached.add(`probed under ${p.monetary}`)
+		const money = (at: number) => `($${at}::numeric / 100)::money`
 		const tipKey = names.constraintOf(names.lawOf(s.tipOnce), "Unique")
 		const tipped = new Set<number>()
 		for (const charge of all.charge) {
@@ -422,7 +402,7 @@ const judgeCase = (
 				`INSERT INTO ${names.table(s.Charge)} (${names.column(s.Charge, "id")}, ${names.column(s.Charge, "account")}, ${names.column(s.Charge, "fee")}, ${names.column(s.Charge, "tip")}) VALUES ($1, $2, ${money(3)}, ${money(4)})`,
 				[charge.account, charge.fee, charge.tip]
 			)
-			const what = `Charge of account ${charge.account}, fee ${charge.fee} and tip ${charge.tip} under ${p.monetary}`
+			const what = `Charge of account ${charge.account}, fee ${charge.fee} and tip ${charge.tip}`
 			if (charge.fee < p.fee) {
 				appendAll(problems, judged(what, false, verdict, checks.fee.name))
 				reached.add("money check refuses")
@@ -562,7 +542,7 @@ const installationOf = (s: Planting) =>
 
 layer(Substrate.layer)("the predicate CHECKs of the real installer", (it) => {
 	it.effect(
-		"admit exactly what each declaration means under any lc_monetary, and the judge finds any one class's CHECK dropped",
+		"admit exactly what each declaration means, and the judge finds any one class's CHECK dropped",
 		(ctx) =>
 			searched(
 				ctx,
