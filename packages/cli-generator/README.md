@@ -18,7 +18,7 @@ Read [the project direction](docs/project.md) for the pipeline, the generated pa
 
 ## Development
 
-Node 26 runs the TypeScript source directly; pnpm 12.16.1 (the `packageManager` pin) installs.
+Node 26.13.1 (the `devEngines` pin, which pnpm downloads) runs the TypeScript source directly; pnpm 12.16.1 (the `packageManager` pin) installs.
 
 ```sh
 pnpm install
