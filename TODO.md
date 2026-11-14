@@ -397,6 +397,18 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   the owner's word, since nothing moves from live to main.
 
 ### Parked by the scope lock (the owner, 2026-11-10)
+- **A whole delete that reaches another family's member is refused when it compiles, though the family's axes refuse
+  every partial group at commit (WHOLEDEL, 2026-11-14), the owner's call:** a delete of a relation that owns a family
+  and is no family's member is refused where a relation nested under it is a member of a family whose owner no delete
+  of the stratum removes (write/frontend/compile.ts unitBelow; README "Families"). That rule does not stop partial
+  groups; the family's owner, predecessor and last axes do, at commit, which 73c7406e already relies on for crossings
+  ("which rows the deletes name is the call's"), and a stratum that adds a delete naming zero rows of the other owner
+  passes the rule today. Under it no program of the platform fixture can delete any WorkspaceLimit: its charges nest
+  CreditDebit, a member of CreditGrant.debits too, so setCaps lost its removal of the months not given and
+  test/schedules/platform/cap.test.ts its arms that remove a month. With the rule at commit, setCaps would compile,
+  removing a month without debits whole, its charges with it, and refusing one with debits at commit on grantDebits.
+  That is a contract change (README, and test/pg/write/whole's required feature "the delete without the other
+  relation's refused"), and neither qti-pie nor edullm needs it.
 - **UPSTREAM:** an audit of every upstream/ and scripts/pg/patches patch to maintainer quality (the owner's order,
   2026-11-10).
 - **The test-diet queue's files no cull lane took:** test/pg/adapter/flight and the smoke and check scripts.

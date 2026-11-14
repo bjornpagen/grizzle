@@ -1507,33 +1507,22 @@ const capsGiven = {
 } as const
 
 /**
- * A workspace's caps replaced by the months given: each given month's cap set, and every other month of the workspace's
- * caps removed. The removal is the workspace's caps whose key the given caps do not hold, read from the same relation
- * parameter as the put, so the two members are one MERGE whose NOT MATCHED BY SOURCE action removes the rest of the
- * workspace's months. A month the workspace has spent in keeps its cap: its charges are its family's members, which
- * the family's owner axis and the containment riding it hold to it.
+ * A workspace's caps for the months given, read from a relation parameter: each given month's cap set, or the month
+ * added, and every other month left as it is. The platform removes no month's cap: WorkspaceLimit owns its month's
+ * charges and is no family's member, so a delete of it removes each month whole with every row nested under it
+ * (README "Families", a group is deleted whole, through its owner), the charges' debits among them, and a debit is a
+ * member of its grant's family too, which no such delete removes. grizzle refuses that delete when the ChangeSet
+ * compiles, since it would leave the grant's group partial.
  */
-export const setCaps = ChangeSet.empty(Platform)
-	.put(
-		WorkspaceLimit,
-		query(Platform).rule((r) => {
-			const { workspace, month, cap } = v(WorkspaceLimit, "workspaceLimit")
-			return r
-				.match(r.relation("caps", capsGiven), { workspace, month, cap })
-				.find({ workspace, month, cap })
-		})
-	)
-	.delete(
-		WorkspaceLimit,
-		query(Platform).rule((r) => {
-			const { workspace, month, cap } = v(WorkspaceLimit, "workspaceLimit")
-			return r
-				.match(WorkspaceLimit, { workspace, month, cap })
-				.where(r.eq(workspace, r.param("workspace", WorkspaceLimit.fields.workspace)))
-				.where(r.not(r.relation("caps", capsGiven), { workspace, month }))
-				.find({ workspace, month, cap })
-		})
-	)
+export const setCaps = ChangeSet.empty(Platform).put(
+	WorkspaceLimit,
+	query(Platform).rule((r) => {
+		const { workspace, month, cap } = v(WorkspaceLimit, "workspaceLimit")
+		return r
+			.match(r.relation("caps", capsGiven), { workspace, month, cap })
+			.find({ workspace, month, cap })
+	})
+)
 
 /**
  * A rate change at an instant: the card in force is split there, its first part keeping its tiers and the new card

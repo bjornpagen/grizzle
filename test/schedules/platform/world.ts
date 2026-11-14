@@ -52,7 +52,7 @@ import { pricedAt, type SpanV, platformSpan } from "#test/support/platform/model
  * threatens (grants, an invoice, earlier usage, a second month's cap) and draws the requests, priced and settled by the
  * host billing model (settleRequests) as the application prices and settles them from what it read.
  *
- * A program that reads the state (a settlement, the revocation, the caps' MERGE) states what it applies at each state:
+ * A program that reads the state (a settlement, the revocation) states what it applies at each state:
  * a settlement applies only to an invoice in the state its members read, and is unchanged on any other.
  */
 export const ids = {
@@ -336,52 +336,23 @@ export const capWrite = (from: bigint, to: bigint): Write => ({
 	direct: statementsOf([putOp("WorkspaceLimit", [limitOf(to)])])
 })
 
-const sameKey = (row: PlatformRow, cap: Addition<typeof P.WorkspaceLimit>): boolean =>
-	sameHostValue(row["workspace"], cap.workspace) && sameHostValue(row["month"], cap.month)
-
 /**
- * The workspace's caps replaced by `caps`: the fixture's setCaps, one MERGE putting each given month's cap and
- * removing every other month of the workspace's caps it reads. A direct writer removes the months it read before the
- * race, `read`, that `caps` does not give, and puts the given ones: a month's limit owns its charges, so it is changed
- * in place, never removed and inserted again.
+ * The workspace's caps for the months `caps` gives: the fixture's setCaps, a put of each given month's cap from a
+ * relation parameter, every other month left as it is; a direct writer puts the given limits too, their months'
+ * charges kept.
  */
-export const capsMergeWrite = (
-	kind: string,
-	read: ReadonlyArray<Addition<typeof P.WorkspaceLimit>>,
-	caps: ReadonlyArray<Addition<typeof P.WorkspaceLimit>>
-): Write => ({
-	kind,
+export const capsGivenWrite = (caps: ReadonlyArray<Addition<typeof P.WorkspaceLimit>>): Write => ({
+	kind: "caps given",
 	label: `caps to [${Arr.join(
 		Arr.map(caps, (c) => `${c.month}: ${c.cap}`),
 		", "
 	)}]`,
-	grizzle: program(
+	grizzle: stated(
 		(db) =>
-			Effect.map(
-				answered(
-					db.workload.setCaps.once({ params: { caps, workspace: ids.workspace }, facts: {} })
-				),
-				answerOf
-			),
-		(s: State) => [
-			putOp("WorkspaceLimit", caps),
-			{
-				kind: "delete",
-				relation: "WorkspaceLimit",
-				facts: Arr.filter(
-					rowsIn(s, "WorkspaceLimit"),
-					(row) => row["workspace"] === ids.workspace && !Arr.some(caps, (cap) => sameKey(row, cap))
-				)
-			}
-		]
+			Effect.map(answered(db.workload.setCaps.once({ params: { caps }, facts: {} })), answerOf),
+		[putOp("WorkspaceLimit", caps)]
 	),
-	direct: statementsOf([
-		deleteOp(
-			"WorkspaceLimit",
-			Arr.filter(read, (r) => !Arr.some(caps, (cap) => sameKey(r, cap)))
-		),
-		putOp("WorkspaceLimit", caps)
-	])
+	direct: statementsOf([putOp("WorkspaceLimit", caps)])
 })
 
 /**

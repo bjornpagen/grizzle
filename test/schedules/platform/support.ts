@@ -111,7 +111,7 @@ import { openServed } from "#adapter/db/served.ts"
  * A race is an initial platform state and two to six transactions, each one write of the application on its own writer:
  *
  * - a grizzle writer applies the write's program through its Db: one of the fixture's ChangeSets with its parameters
- *   (recordUsage, refund, setCap, setCaps' MERGE, changeRate, revokeKey, and the settlements payInvoice, disputeInvoice
+ *   (recordUsage, refund, setCap, setCaps, changeRate, revokeKey, and the settlements payInvoice, disputeInvoice
  *   and voidInvoice, whose members share the sub-query reading the invoice's state), or, for a write the application
  *   computes from a read, the read and then the ChangeSet, two transactions. grizzle makes one attempt per call; the
  *   writer runs the call again after a transient refusal, and only after one, as the application does;

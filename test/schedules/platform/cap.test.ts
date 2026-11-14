@@ -3,25 +3,22 @@
  * charges together cross the workspace's cap, with the workspace's caps changed while they race.
  *
  * Each request is priced from the platform as the application read it before the race, and the cap law
- * (spendWithinCap) and the containment of every charge in its month's cap decide which are recorded; the harness's
- * oracle explains every outcome by them in some serial order. The caps are the platform's one mutable relation, changed
- * two ways: the fixture's setCap, a put that changes the month's cap in place, and setCaps, one MERGE that puts the
- * months given and removes the workspace's other months, a deletion under the scope it proves (the workspace's caps
- * whose key the given caps do not hold). The workspace holds a cap for a second month too, so a MERGE that keeps one
- * month removes the other: the second month, which nothing spends in, or the race's month, which the requests' charges
- * are contained in, so the MERGE and every request then refuse each other, whichever is second.
+ * (spendWithinCap) decides which are recorded; the harness's oracle explains every outcome by it in some serial order.
+ * The caps are the platform's one mutable relation, changed two ways: the fixture's setCap, a put that changes the
+ * month's cap in place, and setCaps, a put of the months given from a relation parameter, here the race's month's cap
+ * changed beside the second month's, which nothing spends in, given again. No write removes a month's cap: a delete of
+ * WorkspaceLimit removes the month whole with its charges and their debits, which grizzle refuses when it compiles,
+ * since a debit is a member of its grant's family too (test/support/fixtures/api/platform.ts setCaps).
  *
- * The swarm adds spend recorded before the race, a cap put, a caps MERGE (keeping both months, removing the second, or
- * removing the spent one), and a request submitted twice by two writers (its keys make the second no-change or refused,
- * never a second charge).
+ * The swarm adds spend recorded before the race, a cap put, the caps given, and a request submitted twice by two
+ * writers (its keys make the second no-change or refused, never a second charge).
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): laws-le-strict.patch.
  */
 
-import { array, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
+import { array, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { fullSwarm, keep, type Swarm, swarm } from "@grizzle/testing/swarm"
 import { Array as Arr, Option } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import {
 	beforeOf,
 	committedOf,
@@ -41,14 +38,8 @@ import { defined } from "#test/support/assert.ts"
 import { JAN } from "#test/support/platform/generate.ts"
 import { platformSpan } from "#test/support/platform/model.ts"
 
-const opFeatures = ["prior spend", "cap put", "caps merge", "duplicate"] as const
+const opFeatures = ["prior spend", "cap put", "caps given", "duplicate"] as const
 type OpFeature = (typeof opFeatures)[number]
-
-/**
- * Which months a caps MERGE keeps: both (the race's month's cap changed), the race's month only, or the second only.
- */
-const merges = ["both months", "the race's month", "the second month"] as const
-type Merge = (typeof merges)[number]
 
 interface CapSketch {
 	/** Each request's charge, 1 to maxCharge micro-dollars. */
@@ -59,7 +50,6 @@ interface CapSketch {
 	readonly prior: number
 	/** The cap a cap change sets: what was spent before plus this, up to the requests' total. */
 	readonly capTo: number
-	readonly merge: Merge
 	readonly ops: Swarm<OpFeature>
 	readonly writers: ReadonlyArray<WriterChoice>
 }
@@ -77,27 +67,18 @@ const anyCapSketchGen: Gen<CapSketch> = (source) => {
 		cap: source.draw(int(0, total - 1)),
 		prior: source.draw(int(1, maxPrior)),
 		capTo: source.draw(int(0, total)),
-		merge: source.draw(element(merges)),
 		ops: source.draw(swarm(opFeatures)),
 		writers: source.draw(writersGen)
 	}
 }
 
-/** A race whose caps merge keeps `merge`, with every op on. */
-const mergeArm = (merge: Merge): Gen<CapSketch> =>
-	map(anyCapSketchGen, (k): CapSketch => ({ ...k, merge, ops: fullSwarm(opFeatures) }))
-
 /**
- * A race's sketch: any, or one in six each a caps merge with every op on, one arm per merge (`merges`): both months,
- * the race's month's cap changed under the requests; only the race's month, which removes the second month, nothing
- * spent in it, under the requests; and only the second month, so a request can meet the month a merge removed. Each
- * merge is an arm of its own, a sixth of the cases, so the label-fixed floor and steered streams reach every one: left
- * to the any arm, which must also keep the merge op in its swarm, the race's month came to about one case in nine, and
- * the floor's 10 cases and the steered phase's 40 missed it.
+ * A race's sketch: any, or one in four with every op on, so the label-fixed floor and steered streams reach the caps
+ * given beside a cap put, prior spend and a duplicate request.
  */
 const capSketchGen: Gen<CapSketch> = weighted([
 	[3, anyCapSketchGen],
-	...Arr.map(merges, (merge) => [1, mergeArm(merge)] as const)
+	[1, map(anyCapSketchGen, (k): CapSketch => ({ ...k, ops: fullSwarm(opFeatures) }))]
 ])
 
 /** Request n's window: a minute apart, each half a minute long, inside the month. */
@@ -124,15 +105,11 @@ const resolveCap =
 		/** The last request submits the first one's record again, when the swarm keeps a duplicate. */
 		const requests = Arr.map(priced, (q, i) => (duplicate && i === priced.length - 1 ? first : q))
 		const capTo = prior + BigInt(k.capTo)
-		const read = [W.limitOf(cap), W.limitIn(W.nextMonth, secondCap)]
-		const kept = {
-			"both months": [W.limitOf(capTo), W.limitIn(W.nextMonth, secondCap)],
-			"the race's month": [W.limitOf(capTo)],
-			"the second month": [W.limitIn(W.nextMonth, secondCap)]
-		}[k.merge]
 		const changes = [
 			...(on("cap put") ? [W.capWrite(cap, capTo)] : []),
-			...(on("caps merge") ? [W.capsMergeWrite(`caps merge keeping ${k.merge}`, read, kept)] : [])
+			...(on("caps given")
+				? [W.capsGivenWrite([W.limitOf(capTo), W.limitIn(W.nextMonth, secondCap)])]
+				: [])
 		]
 		const writes = [
 			...changes,
@@ -149,15 +126,14 @@ const resolveCap =
 		return {
 			initial,
 			txns: raceTxns(k.writers, writes),
-			judge: (e) => judgeCap(e, requestAt, changes.length)
+			judge: (e) => judgeCap(e, requestAt)
 		}
 	}
 
 /** What the explained order reached; every outcome the laws decide, the oracle has explained. */
 const judgeCap = (
 	e: ExplainedRun,
-	requestAt: (id: number) => { readonly charge: bigint } | undefined,
-	changes: number
+	requestAt: (id: number) => { readonly charge: bigint } | undefined
 ): { readonly departure: string | undefined; readonly reached: ReadonlyArray<RaceFeature> } => {
 	const reached: Array<RaceFeature> = []
 	const committed = committedOf(e)
@@ -170,30 +146,13 @@ const judgeCap = (
 			continue
 		}
 		const before = beforeOf(e, id)
-		const cap = W.capIn(before)
 		const q = requestAt(id)
 		if (
-			q === undefined &&
-			id < changes &&
-			Arr.some(observed.laws, (law) => law.family === "containment")
+			q !== undefined &&
+			Option.exists(W.capIn(before), (limit) => W.spentIn(before) + q.charge === limit + 1n)
 		) {
-			reached.push("planted: a caps merge refused by the month's charges")
+			reached.push("planted: a request one micro over the cap refused")
 		}
-		if (q === undefined) {
-			continue
-		}
-		appendAll(
-			reached,
-			Option.match(cap, {
-				onNone: (): ReadonlyArray<RaceFeature> => [
-					"planted: a request refused for the month a merge removed"
-				],
-				onSome: (limit): ReadonlyArray<RaceFeature> =>
-					W.spentIn(before) + q.charge === limit + 1n
-						? ["planted: a request one micro over the cap refused"]
-						: []
-			})
-		)
 	}
 	return { departure: undefined, reached }
 }
@@ -206,15 +165,10 @@ raceSuite<CapSketch>({
 	required: [
 		...commonRequired,
 		"law family hit: check",
-		"law family hit: containment",
 		"planted: the cap is hit exactly",
 		"planted: a request one micro over the cap refused",
-		"planted: a caps merge refused by the month's charges",
-		"planted: a request refused for the month a merge removed",
 		"write: cap put",
-		"write: caps merge keeping both months",
-		"write: caps merge keeping the race's month",
-		"write: caps merge keeping the second month",
+		"write: caps given",
 		"write: usage again",
 		"direct refused"
 	]
