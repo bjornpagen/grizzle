@@ -27,7 +27,9 @@
  *   the triggers, and the transaction commits exactly when the oracle finds no violation, refused otherwise at that
  *   moment by SQLSTATE 23503 for a containment and 23505 for a key, naming a trigger the installation's constraint map
  *   maps to the rule.
- * - **Locality:** each case draws a shape, a count of keys from 250 to 400 and one of them, and 600 to 900 keys more.
+ * - **Locality:** one search per shape, as for equivalence, each with the rotating budget the one search over every
+ *   shape had and no steered phase, since every case of a shape's search measures that shape; each case draws a count
+ *   of keys from 250 to 400 and one of them, and 600 to 900 keys more.
  *   The shape holds the first keys' rows, each key a chain of value 1 and two marks, then every key's. Each of the
  *   drawn key's rows on a table the rule reads, and a block of each of its links, is touched: in a transaction of its
  *   own the row is written (each column set to itself, a block inserted and deleted again), SET CONSTRAINTS ALL
@@ -44,7 +46,11 @@
  * Two refusals are required of the equivalence search because a probe's delete semantics live in them: a transaction
  * of single-row deletes alone refused, so only a delete's probe can have found the break, its touched row gone at
  * COMMIT and read as OLD's values in its place; and one that deletes a link and its children at once, so one tuple
- * loses rows from several matches and the relaxation order decides which probe withdraws it.
+ * loses rows from several matches and the relaxation order decides which probe withdraws it. A drawn history reaches
+ * either rarely, so each has a case constructed to reach it, which a witness runs where its turn aims at the refusal
+ * (aimedCase): a lawful build drawn on the case's tape, then the withdrawal, which leaves a source fact its every
+ * target row withdrawn (withdrawalsOf). A key is refused by single-row deletes of a block alone, which adds the facts
+ * it held out, and never by an unwind, so its search requires that refusal only.
  *
  * Planted, ~/.cache/grizzle-release/LAWQUERY/plants/: violation-stale-view.patch, the whole check reading a
  * materialized derived relation a definition reads through its view, fails the equivalence search on viewed; and
@@ -59,9 +65,9 @@
  * reads its first arm alone, which the equivalence search fails.
  */
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { drawn, explore, type Case as Search } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, int, map, subset, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "effect"
@@ -358,6 +364,148 @@ const caseGen =
 		shape,
 		history: s.draw(array(array(opGen, { min: 1, max: 3 }), { min: 3, max: 10 }))
 	})
+
+/** How a constructed case's last transaction withdraws rows: single-row deletes alone, or one unwind alone. */
+type Withdrawal = "deletes" | "unwind"
+
+/** The refusal a constructed case reaches by its withdrawal. */
+const refusedAfter = {
+	deletes: "refused once rows were deleted one at a time, and nothing else",
+	unwind: "refused once a link and its children were deleted at once, and nothing else"
+} as const satisfies Record<Withdrawal, EquivalenceFeature>
+
+/** An id of 1 to 3 other than `id`: `id` moved on by one or two, wrapping. */
+const otherThan = (id: number): Gen<number> => map(int(1, 2), (step) => ((id - 1 + step) % 3) + 1)
+
+/**
+ * titles' and viewed's case refused by `withdrawal`, its values drawn. The build, one transaction: a mark on the L2 a2 of
+ * a path (k, a2), which a block of a2 and an L3 of value 0 hold out of the target, and a second path (k, b2), b2 another
+ * L2, that holds k in the target, so the state is lawful. The withdrawal takes the second path's L2, or its L1 where
+ * that is another L1 than a1: deleted alone, or with the link below it, or unwound. The marked path stays and no path
+ * of k stays in the target, so the whole check finds the rule broken.
+ */
+const pathsWithdrawn =
+	(shape: Shape, withdrawal: Withdrawal): Gen<Case> =>
+	(s) => {
+		const k = s.draw(int(1, 2))
+		const [a1, a2, a3] = [s.draw(idGen), s.draw(idGen), s.draw(idGen)]
+		const upper = s.draw(element(UPPERS))
+		const b1 = upper === "L1" ? s.draw(otherThan(a1)) : s.draw(idGen)
+		const b2 = s.draw(otherThan(a2))
+		const b3 = s.draw(idGen)
+		const build: ReadonlyArray<Op> = [
+			{ kind: "chain", k, ids: [a1, a2, a3], values: [s.draw(valueGen), s.draw(valueGen), 0] },
+			{ kind: "mark", id: s.draw(int(1, 2)), up: a2 },
+			{ kind: "block", id: a2 },
+			{
+				kind: "chain",
+				k,
+				ids: [b1, b2, b3],
+				values: [s.draw(valueGen), s.draw(valueGen), s.draw(valueGen)]
+			}
+		]
+		const id = upper === "L1" ? b1 : b2
+		const withdrawn = (): ReadonlyArray<Op> => {
+			const below: ReadonlyArray<Op> = s.draw(boolean)
+				? [{ kind: "delete", table: lowerOf(upper), id: upper === "L1" ? b2 : b3 }]
+				: []
+			return [{ kind: "delete", table: upper, id }, ...below]
+		}
+		return {
+			shape,
+			history: [build, withdrawal === "unwind" ? [{ kind: "unwind", upper, id }] : withdrawn()]
+		}
+	}
+
+/**
+ * deep's case refused by `withdrawal`, its values drawn. The build, one transaction: a chain of key k whose L1 a1 is of
+ * value 0, out of the target's second arm, and a mark on a1, so k is a source fact through the first arm; the chain's
+ * L3 a3 holds k in the target by the first arm where it is of value 1 (a block of a3 holding it out of the third, if
+ * drawn) and by the third where it is of value 0, so the state is lawful. The withdrawal takes the chain's L2 a2, its
+ * L3 or both, deleted one at a time, or unwinds a2 with its L3: the mark's L1 stays and no arm of the target holds k.
+ */
+const deepWithdrawn =
+	(withdrawal: Withdrawal): Gen<Case> =>
+	(s) => {
+		const k = s.draw(int(1, 2))
+		const [a1, a2, a3] = [s.draw(idGen), s.draw(idGen), s.draw(idGen)]
+		const last = s.draw(valueGen)
+		const chain: Op = { kind: "chain", k, ids: [a1, a2, a3], values: [0, s.draw(valueGen), last] }
+		const mark: Op = { kind: "mark", id: s.draw(int(1, 2)), up: a1 }
+		const blocked: ReadonlyArray<Op> =
+			last === 1 && s.draw(boolean) ? [{ kind: "block", id: a3 }] : []
+		const deletes: ReadonlyArray<Op> = [
+			{ kind: "delete", table: "L2", id: a2 },
+			{ kind: "delete", table: "L3", id: a3 }
+		]
+		return {
+			shape: "deep",
+			history: [
+				[chain, mark, ...blocked],
+				withdrawal === "unwind"
+					? [{ kind: "unwind", upper: "L2", id: a2 }]
+					: s.draw(subset(deletes, { min: 1, max: 2 }))
+			]
+		}
+	}
+
+/**
+ * key's case refused by deleting a block, its values drawn. The build, one transaction: a chain of key k whose L1 and
+ * L3 are of value w and whose L2 of 1 - w is under a block of its L1 a1, so k has the one value w. Deleting the block
+ * gives k the value 1 - w through the side's second arm, and the key is broken.
+ */
+const blockWithdrawn: Gen<Case> = (s) => {
+	const k = s.draw(int(1, 2))
+	const [a1, a2, a3] = [s.draw(idGen), s.draw(idGen), s.draw(idGen)]
+	const w = s.draw(valueGen)
+	return {
+		shape: "key",
+		history: [
+			[
+				{ kind: "chain", k, ids: [a1, a2, a3], values: [w, 1 - w, w] },
+				{ kind: "block", id: a1 }
+			],
+			[{ kind: "delete", table: "N", id: a1 }]
+		]
+	}
+}
+
+/**
+ * The withdrawals that refuse a shape's rule, each with the case constructed to reach its refusal. A containment is
+ * refused by either, every row its target holds a key by withdrawn while its source keeps the key. A key's rule is
+ * broken only by facts added: deleting a block adds the facts it held out, and an unwind, which deletes links alone,
+ * only withdraws facts, so it never refuses a key.
+ */
+const withdrawalsOf = (shape: Shape): NonEmptyReadonlyArray<readonly [Withdrawal, Gen<Case>]> => {
+	switch (shape) {
+		case "titles":
+		case "viewed":
+			return [
+				["deletes", pathsWithdrawn(shape, "deletes")],
+				["unwind", pathsWithdrawn(shape, "unwind")]
+			]
+		case "deep":
+			return [
+				["deletes", deepWithdrawn("deletes")],
+				["unwind", deepWithdrawn("unwind")]
+			]
+		case "key":
+			return [["deletes", blockWithdrawn]]
+	}
+}
+
+/**
+ * The case a witness runs: its drawn one, or, where its turn aims at a refusal a withdrawal reaches (Case.steering), the
+ * case constructed to reach it, drawn on the case's own tape.
+ */
+const aimedCase = (drawnCase: Case, search: Search<EquivalenceFeature>): Case => {
+	const pending = Option.getOrUndefined(search.steering)
+	const aim = Arr.findFirst(
+		withdrawalsOf(drawnCase.shape),
+		([withdrawal]) => pending?.aimed(refusedAfter[withdrawal]) === true
+	)
+	return Option.isNone(aim) ? drawnCase : search.draw(aim.value[1])
+}
 
 /** The statements of one write on `seat`. */
 const statementsOf = (seat: Seat, op: Op): ReadonlyArray<string> => {
@@ -755,15 +903,18 @@ interface Locality {
 	readonly key: number
 }
 
-const localityGen: Gen<Locality> = (s) => {
-	const before = s.draw(int(250, 400))
-	return {
-		shape: s.draw(element(shapes)),
-		before,
-		after: s.draw(int(before + 600, before + 900)),
-		key: s.draw(int(1, before))
+/** A locality case of one shape. */
+const localityGen =
+	(shape: Shape): Gen<Locality> =>
+	(s) => {
+		const before = s.draw(int(250, 400))
+		return {
+			shape,
+			before,
+			after: s.draw(int(before + 600, before + 900)),
+			key: s.draw(int(1, before))
+		}
 	}
-}
 
 /** Every footprint of key `k` on `seat` once keys `from` to `to` are loaded beside those it holds. */
 const footprints = (seat: Seat, k: number, from: number, to: number) =>
@@ -780,27 +931,23 @@ const footprints = (seat: Seat, k: number, from: number, to: number) =>
 	})
 
 /**
- * The refusals and commits a shape's search must reach: every shape commits and is refused by its rule, and a delete of
- * single rows alone is refused; the three shapes whose rule is a containment are also refused once a link and its
- * children are deleted at once and once a block is inserted, and commit a key only a later arm of the target holds.
- * A key's rule is broken only by facts added, so a delete of links or an inserted block, which withdraw facts, never
- * refuses it, and its target is no side of arms.
+ * The refusals and commits a shape's search must reach: every shape commits, is refused by its rule, and is refused by
+ * each withdrawal that can refuse it (withdrawalsOf), a constructed case reaching each; the three shapes whose rule is
+ * a containment are also refused once a block is inserted, and commit a key only a later arm of the target holds. An
+ * inserted block only withdraws facts, so it never refuses a key, whose side is no target of arms.
  */
-const requiredOf = (shape: Shape): NonEmptyReadonlyArray<EquivalenceFeature> =>
-	shape === "key"
-		? [
-				"committed",
-				"refused by key",
-				"refused once rows were deleted one at a time, and nothing else"
-			]
-		: [
-				"committed",
-				`refused by ${shape}`,
-				"refused once a link and its children were deleted at once, and nothing else",
-				"refused once a block was inserted",
-				"refused once rows were deleted one at a time, and nothing else",
-				"committed a needed key no first target arm holds"
-			]
+const requiredOf = (shape: Shape): NonEmptyReadonlyArray<EquivalenceFeature> => {
+	const containment: ReadonlyArray<EquivalenceFeature> =
+		shape === "key"
+			? []
+			: ["refused once a block was inserted", "committed a needed key no first target arm holds"]
+	return [
+		"committed",
+		`refused by ${shape}`,
+		...Arr.map(withdrawalsOf(shape), ([withdrawal]) => refusedAfter[withdrawal]),
+		...containment
+	]
+}
 
 layer(Substrate.layer, { excludeTestServices: true })(
 	"a rule over a query's triggers, seeded at the touched row's key",
@@ -833,73 +980,69 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									steerEvery: 16,
 									caseHang
 								},
-								(c, search) => judgeHistory(installed, c, search.note)
+								(c, search) => judgeHistory(installed, aimedCase(c, search), search.note)
 							)
 						})
 					)
 			)
 		}
 
-		it.effect(
-			"read the same rows and take the same SIRead locks beside hundreds more keys, none on a whole relation",
-			(ctx) =>
-				searched(
-					ctx,
-					Effect.gen(function* () {
-						const installed = yield* Effect.forEach(shapes, installShape)
-						return yield* explore(
-							{
-								suite: "laws/rule-seeding-locality",
-								draw: drawn(localityGen),
-								literal: Formatter.format,
-								oracle: {
-									kind: "universal",
-									name: "invariance: a probe of a key reads the same rows and its triggers take the same SIRead locks whatever other keys hold"
+		for (const shape of shapes) {
+			it.effect(
+				`read the same rows and take the same SIRead locks beside hundreds more keys, none on a whole relation: ${shape}`,
+				(ctx) =>
+					searched(
+						ctx,
+						Effect.gen(function* () {
+							const { seat } = yield* installShape(shape)
+							return yield* explore(
+								{
+									suite: `laws/rule-seeding-locality/${shape}`,
+									draw: drawn(localityGen(shape)),
+									literal: Formatter.format,
+									oracle: {
+										kind: "universal",
+										name: "invariance: a probe of a key reads the same rows and its triggers take the same SIRead locks whatever other keys hold"
+									},
+									coverage: required<LocalityFeature>([`${shape} measured`], {
+										cases: 0,
+										sense: notesOnly
+									}),
+									kept: [],
+									runs: 6,
+									shrink: { kind: "bounded", candidates: 12 },
+									concurrency: 1,
+									steerEvery: 4,
+									caseHang
 								},
-								coverage: required<LocalityFeature>(
-									["titles measured", "viewed measured", "deep measured", "key measured"],
-									{ cases: 12, sense: notesOnly }
-								),
-								kept: [],
-								runs: 6,
-								shrink: { kind: "bounded", candidates: 12 },
-								concurrency: 1,
-								steerEvery: 4,
-								caseHang
-							},
-							(l, search) =>
-								Effect.gen(function* () {
-									const { seat } = defined(
-										Arr.findFirst(installed, (i) => i.shape === l.shape).pipe(
-											Option.getOrUndefined
-										),
-										`${l.shape} is installed`
-									)
-									yield* cleared(seat, RELATIONS)
-									const few = yield* footprints(seat, l.key, 1, l.before)
-									const many = yield* footprints(seat, l.key, l.before + 1, l.after)
-									for (const [i, touched] of touchedOf(seat, l.key).entries()) {
-										const where = `${Formatter.format(l)}, ${touched.table} ${touched.id}`
-										const before = defined(few[i], "a footprint beside the first keys")
-										const after = defined(many[i], "a footprint beside every key")
-										assert.ok(before.rows.length > 0, `${where}: a probe reads the touched table`)
-										assert.deepEqual(
-											after.rows,
-											before.rows,
-											`${where}: each probe reads the same rows`
-										)
-										assert.deepEqual(after.locks, before.locks, `${where}: the same SIRead locks`)
-										assert.deepEqual(
-											Arr.filter(after.locks, Str.startsWith("relation ")),
-											[],
-											`${where}: no SIRead lock on a whole relation`
-										)
-									}
-									search.note(`${l.shape} measured`)
-								})
-						)
-					})
-				)
-		)
+								(l, search) =>
+									Effect.gen(function* () {
+										yield* cleared(seat, RELATIONS)
+										const few = yield* footprints(seat, l.key, 1, l.before)
+										const many = yield* footprints(seat, l.key, l.before + 1, l.after)
+										for (const [i, touched] of touchedOf(seat, l.key).entries()) {
+											const where = `${Formatter.format(l)}, ${touched.table} ${touched.id}`
+											const before = defined(few[i], "a footprint beside the first keys")
+											const after = defined(many[i], "a footprint beside every key")
+											assert.ok(before.rows.length > 0, `${where}: a probe reads the touched table`)
+											assert.deepEqual(
+												after.rows,
+												before.rows,
+												`${where}: each probe reads the same rows`
+											)
+											assert.deepEqual(after.locks, before.locks, `${where}: the same SIRead locks`)
+											assert.deepEqual(
+												Arr.filter(after.locks, Str.startsWith("relation ")),
+												[],
+												`${where}: no SIRead lock on a whole relation`
+											)
+										}
+										search.note(`${l.shape} measured`)
+									})
+							)
+						})
+					)
+			)
+		}
 	}
 )
