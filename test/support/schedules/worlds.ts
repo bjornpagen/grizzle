@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Record, type Scope, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Record, Scope, String as Str } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
@@ -1242,9 +1242,13 @@ const noteRun = (
 /**
  * The model state a race's runs start from: the installation's reality with the setup's Dbs opened. Each run resets the
  * real system to the reality (which closes every session and numbers sessions from 0 again) and performs the setup,
- * each observation one the model's branch allows and each Db numbered as the model numbers it.
+ * each observation one the model's branch allows and each Db numbered as the model numbers it. The reset's scope is the
+ * race's: a run's direct writers end at the next run's reset, and the last run's with the race.
  */
-const setUp = (race: WorldRace, world: RacingWorld): Effect.Effect<ModelState, CaseFailed> =>
+const setUp = (
+	race: WorldRace,
+	world: RacingWorld
+): Effect.Effect<ModelState, CaseFailed, Scope.Scope> =>
 	Effect.gen(function* () {
 		const failed = (report: string) => new CaseFailed({ report: `${race.name}: setup: ${report}` })
 		yield* Effect.mapError(world.reset(race.reality), (e) =>
@@ -1292,6 +1296,7 @@ export const runWorldRace = ({
 			(e) => failed(`did not realize: ${messageOf(e)}`)
 		)
 		const host = hostSchemaOf(race.install.base, world.names)
+		const raceScope = yield* Effect.scope
 		const initial = yield* setUp(race, world)
 		note(`pool of ${race.poolSize}`)
 		const recording: Recording = {
@@ -1320,7 +1325,7 @@ export const runWorldRace = ({
 						recording.lives.clear()
 						recording.lifeOf.clear()
 					}),
-					setUp(race, world)
+					Scope.provide(setUp(race, world), raceScope)
 				),
 				state: { _tag: "Unread" },
 				model: (i) =>

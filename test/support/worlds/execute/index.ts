@@ -139,11 +139,14 @@ export interface RealWorld {
 	/** The names of the current installation, read from its compilation: a migrate replaces them. */
 	readonly names: InstalledNames
 	/**
-	 * Closes every session (rolling back open direct transactions), sets each identity where its range starts
-	 * (model/draws.ts identityFloor), replaces every base fact with `reality` as the owner, refreshes every derived
-	 * relation, and restarts session ids at 0.
+	 * Begins a case in the caller's scope: closes every session left (rolling back open direct transactions), sets each
+	 * identity where its range starts (model/draws.ts identityFloor), replaces every base fact with `reality` as the
+	 * owner, refreshes every derived relation, and restarts session ids at 0. Every direct writer the case begins after
+	 * it lives in that scope, so its transaction ends when the case does, however the case ends: never left open for a
+	 * later case's reset, which a shared world may not reach for minutes while each SERIALIZABLE snapshot it holds keeps
+	 * the cluster's SSI cleanup from advancing.
 	 */
-	readonly reset: (reality: HostState) => Effect.Effect<void, SqlError>
+	readonly reset: (reality: HostState) => Effect.Effect<void, SqlError, Scope.Scope>
 	/**
 	 * Every base table's and derived relation's stored facts, in one snapshot, read past row security (substrate.ts
 	 * superuserRead): a catalog change that forces a table's row security on its owner hides none of them.
@@ -521,6 +524,8 @@ const realizeWith = (
 			)
 		)
 		const sessions = yield* Ref.make<ReadonlyArray<Session>>([])
+		/** The scope of the case that last reset the world (reset), which each direct writer it begins lives in. */
+		const caseScope = yield* Ref.make(Option.none<Scope.Scope>())
 		const inFlight = yield* Ref.make<ReadonlyMap<number, Fiber.Fiber<Seen>>>(new Map())
 
 		const foreignInstallation = installationOf(declared.base, {
@@ -947,11 +952,22 @@ const realizeWith = (
 			}
 		}
 
-		/** A psql child of `login` that has begun a transaction at `isolation`, its scope forked from the world's. */
+		/**
+		 * A psql child of `login` that has begun a transaction at `isolation`, its scope forked from the case's (reset): the
+		 * case's end ends it. A direct writer begun before any case is a defect of its caller.
+		 */
 		const begun = (login: string, isolation: Isolation): Effect.Effect<DirectSession> =>
 			Effect.gen(function* () {
 				const credentials = yield* get(state.current.credentials, login, "credentials of")
-				const sessionScope = yield* Scope.fork(scope)
+				const owner = yield* Ref.get(caseScope)
+				if (Option.isNone(owner)) {
+					return yield* Effect.die(
+						new Error(
+							`a direct writer of ${login} begun before the world's first reset began a case`
+						)
+					)
+				}
+				const sessionScope = yield* Scope.fork(owner.value)
 				const writer = yield* Effect.orDie(
 					Scope.provide(
 						substrate.psql({ ...rolePsql(credentials), label: `direct ${login}` }),
@@ -1470,8 +1486,10 @@ const realizeWith = (
 			})
 		)
 
-		const reset = (reality: HostState): Effect.Effect<void, SqlError> =>
+		const reset = (reality: HostState): Effect.Effect<void, SqlError, Scope.Scope> =>
 			Effect.gen(function* () {
+				const owner = yield* Effect.scope
+				yield* Ref.set(caseScope, Option.some(owner))
 				const all = yield* Ref.get(sessions)
 				yield* Effect.forEach(
 					all,

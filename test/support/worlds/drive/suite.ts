@@ -1174,13 +1174,14 @@ export interface Staged {
  * Brings a realized world to a drawn reality: the reality is drawn from the case's tape, among the suite's realities
  * over the host schema the installation's names give, the world reset to it (every session closed, the facts replaced,
  * the derived relations refreshed), and the model's initial state over those names checked against the real system.
+ * The caller's scope is the case's: every direct writer the case begins ends with it (RealWorld.reset).
  */
 export const stage = (
 	world: RealWorld,
 	install: InstallSpec,
 	draw: CaseDraw,
 	realities: Realities
-): Effect.Effect<Staged, SqlError | ModelMismatch> =>
+): Effect.Effect<Staged, SqlError | ModelMismatch, Scope.Scope> =>
 	Effect.gen(function* () {
 		const base = install.base
 		const host = hostSchemaOf(base, world.names)
