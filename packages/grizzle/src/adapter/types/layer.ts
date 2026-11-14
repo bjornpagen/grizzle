@@ -167,11 +167,16 @@ export interface DecoderLogin extends Built {
 	readonly stem: string
 }
 
+/** The decoder of a login that serves no read: its LiveSource.layer holds no source and reads no credential. */
+export interface NoDecoder {
+	readonly kind: "none"
+}
+
 /**
- * The decoder login a served login's file names (ServedLogin decoder): `none` for a login that serves no read, whose
- * LiveSource.layer holds no source and reads no credential, or its installation's DecoderLogin.
+ * The decoder login a served login's file names: NoDecoder for a login that serves no read, or its installation's
+ * DecoderLogin. A served login's type narrows it by its login's (DecoderOf).
  */
-export type ServedDecoder = { readonly kind: "none" } | DecoderLogin
+export type ServedDecoder = NoDecoder | DecoderLogin
 
 /** The roles of a served login of L by name, each reached through it with the programs its Dbs run (LoginRole). */
 export type ServedRoles<L> = L extends { readonly roles: infer Rs }
@@ -195,8 +200,11 @@ export interface ServedLogin<L> extends Phantom<{ readonly login: Invariant<L> }
 	/** The declared name of the level the login is over, as its file names it: its layer's key, with the name. */
 	readonly base: string
 	readonly roles: ServedRoles<L>
-	/** The installation's decoder login as the file names it, none where the login serves no read (ServedDecoder). */
-	readonly decoder: ServedDecoder
+	/**
+	 * The installation's decoder login as the file names it, none where the login serves no read, typed by what L's type
+	 * proves (DecoderOf): `roleNameOf(WebServed.decoder, connection)` for a login that reads, no narrowing.
+	 */
+	readonly decoder: DecoderOf<L>
 	/** The file, read once by served(...) (served/json.ts servedFile); DbLayer.make loads it. */
 	readonly file: ServedFile
 }
@@ -231,45 +239,81 @@ export interface LiveSourceService<in out B> {
 export type LoginBase<L> = L extends { readonly base: infer B } ? B : never
 
 /**
- * Whether a workload may serve a live read, `false` only where its type proves none of its members does: each member's
- * answer a write's (engine live/program.ts ShapeOf), a ChangeSet's or a refresh's, or a read's at its call's instant (a
- * clocked member's), which registers no watch. Every other read needs the live source, a read of closed relations alone
- * too, for the version notice a migration ends its watch with. A workload whose type states no programs may.
+ * What a login's type proves of its live reads, the one decision LiveOf and a served login's decoder (DecoderOf) read:
+ * `none`, no member serves one; `some`, a member does; or `may`, the type cannot tell. A member serves a live read
+ * unless its answer is a write's (engine live/program.ts ShapeOf), a ChangeSet's or a refresh's, or a read's at its
+ * call's instant (a clocked member's), which registers no watch; every other read needs the live source, a read of
+ * closed relations alone too, for the version notice a migration ends its watch with. Exactly a workload that serves
+ * one plans a query program (engine program/workload/compile.ts servesRead), so `grizzle generate` gives a `none`
+ * login's served file no live source and a `some` login's the installation's.
  */
-type WorkloadRead<W> =
-	W extends Workload<unknown, infer P>
-		? [Extract<ShapeOf<P[keyof P]>, ReadShape>] extends [never]
-			? false
-			: true
-		: true
+type Reads = "none" | "some" | "may"
+
+/** One decision of a union of them: `none` or `some` where every member is, `may` otherwise. */
+type Settled<R> = [R] extends ["none"] ? "none" : [R] extends ["some"] ? "some" : "may"
+
+/** The decision of two parts together: `some` where either is, `none` where both are, `may` otherwise. */
+type Joined<A, B> = A extends "some"
+	? "some"
+	: B extends "some"
+		? "some"
+		: A extends "none"
+			? B
+			: "may"
 
 /**
- * Whether a login's workloads may serve a read, `false` only where their type proves none does: a tuple, each of its
- * workloads read-free, or an array whose every element is; anything else may.
+ * What a workload's type proves of its live reads (Reads): `none` where no member serves one, `some` where its programs
+ * are a record of known keys of which one does, and `may` where they are a record of any keys (AnyWorkload's) or its
+ * type is no workload's.
  */
-type WorkloadsRead<Ws> = Ws extends readonly []
-	? false
-	: Ws extends readonly [infer W, ...infer Rest]
-		? [WorkloadRead<W>] extends [false]
-			? WorkloadsRead<Rest>
-			: true
-		: Ws extends ReadonlyArray<infer W>
-			? [WorkloadRead<W>] extends [false]
-				? false
-				: true
-			: true
+type WorkloadReads<W> =
+	W extends Workload<unknown, infer P>
+		? [Extract<ShapeOf<P[keyof P]>, ReadShape>] extends [never]
+			? "none"
+			: string extends keyof P
+				? "may"
+				: "some"
+		: "may"
 
-/** Whether login L may serve a read: a login whose type states no workloads may. */
-type ServesRead<L> = L extends { readonly workload: infer Ws } ? WorkloadsRead<Ws> : true
+/**
+ * What a login's workloads' type proves of their live reads (Reads): a tuple's, each workload's joined; an array's,
+ * `none` where every element is read-free, else `may`, since it may hold none; anything else's, `may`.
+ */
+type WorkloadsReads<Ws> = Ws extends readonly []
+	? "none"
+	: Ws extends readonly [infer W, ...infer Rest]
+		? Joined<Settled<WorkloadReads<W>>, WorkloadsReads<Rest>>
+		: Ws extends ReadonlyArray<infer W>
+			? Settled<WorkloadReads<W>> extends "none"
+				? "none"
+				: "may"
+			: "may"
+
+/** What login L's type proves of its live reads (Reads): a login whose type states no workloads may serve one. */
+type ReadsOf<L> = Settled<L extends { readonly workload: infer Ws } ? WorkloadsReads<Ws> : "may">
 
 /**
  * What DbLayer.make of login L requires: its installation's live source unless L's type proves its workloads
- * read-free, whose watches register on it. A login whose type erases its workloads, AnyLogin among them, and a generic
- * L require it: providing a source no layer uses is legal, and leaving out one a layer uses is a type error where the
- * program is run, so the runtime's refusal of a reading login without one (LiveSourceMissing) is unreachable from
- * typed code.
+ * read-free (ReadsOf), whose watches register on it. A login whose type erases its workloads, AnyLogin among them, and
+ * a generic L require it: providing a source no layer uses is legal, and leaving out one a layer uses is a type error
+ * where the program is run, so the runtime's refusal of a reading login without one (LiveSourceMissing) is unreachable
+ * from typed code.
  */
-export type LiveOf<L> = [ServesRead<L>] extends [false] ? never : LiveSourceService<LoginBase<L>>
+export type LiveOf<L> = [ReadsOf<L>] extends ["none"] ? never : LiveSourceService<LoginBase<L>>
+
+/**
+ * The decoder login a served login of L names (ServedLogin decoder), by what L's type proves of its live reads
+ * (ReadsOf), the decision LiveOf reads: NoDecoder where L serves none, DecoderLogin where it serves one, so neither
+ * names an arm its file cannot hold; ServedDecoder, either, where its type cannot tell (AnyLogin, a generic L).
+ */
+export type DecoderOf<L> = DecoderByReads[ReadsOf<L>]
+
+/** The decoder a served login names under each decision of its login's type (DecoderOf), one for every Reads. */
+interface DecoderByReads extends Readonly<Record<Reads, ServedDecoder>> {
+	readonly none: NoDecoder
+	readonly some: DecoderLogin
+	readonly may: ServedDecoder
+}
 
 /**
  * LiveSource.layer's config: the connection of the installation's decoder login, whose `password` is that login's

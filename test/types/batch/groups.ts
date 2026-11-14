@@ -10,6 +10,7 @@ import { recursionEntriesFrom, recursionModule } from "#test/support/agreement/r
 import { schemaEntriesFrom, schemaModules } from "#test/support/agreement/schemas.ts"
 import { workloadEntriesFrom, workloadModule } from "#test/support/agreement/workloads.ts"
 import { bytesProgram } from "#test/support/text/bytes.ts"
+import { decoderEntriesFrom, decoderModule } from "#test/types/api/decoder.ts"
 import { handleEntriesFrom, handleSource } from "#test/types/api/handle.ts"
 import { surfaceEntriesFrom, surfaceModule } from "#test/types/api/surface.ts"
 import { untypedEntriesFrom, untypedSource } from "#test/types/api/untyped.ts"
@@ -70,6 +71,19 @@ const typeGroups: ReadonlyArray<Group> = [
 				disarm: true,
 				heavy: false,
 				source: (entry) => [{ file: "index.ts", source: configModule(configEntriesFrom(entry)) }]
+			}
+		}
+	},
+	{
+		owner: "test/types/api/decoder.test.ts",
+		units: {
+			"api/decoder": {
+				kind: "program",
+				dir: "test/types/api",
+				prefix: ".decoder-",
+				disarm: false,
+				heavy: false,
+				source: (entry) => [{ file: "index.ts", source: decoderModule(decoderEntriesFrom(entry)) }]
 			}
 		}
 	},

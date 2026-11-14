@@ -113,7 +113,7 @@ import { assert, defined, lacksText, succeeded } from "#test/support/assert.ts"
 import { oneOf } from "#test/support/calls.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { type DecoderOf, decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
+import { type DecoderCredential, decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
@@ -743,7 +743,7 @@ const runOpen = (r: Workspace, model: Model) =>
 		const servedV1 = yield* servedAt(schemaDir(r), v1.server)
 		/** Opened as the reader of that schema value, through its login's served file generate wrote, and read. */
 		/** The read, its layer given the installation's live source, whose decoder is issued in the read's own scope. */
-		const readIn = (decoderOf: DecoderOf): Effect.Effect<unknown, OpenError | CallError> =>
+		const readIn = (decoderOf: DecoderCredential): Effect.Effect<unknown, OpenError | CallError> =>
 			generated.version === 2
 				? withLayer(
 						Effect.scoped(

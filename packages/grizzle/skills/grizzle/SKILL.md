@@ -528,9 +528,10 @@ The command line's own refusals, by stage:
   login than the name `served` was given. `grizzle check` refuses a served file that is not its login's compile under
   the committed snapshot: a program added, renamed, dropped or edited since the file was generated; run `grizzle
   generate`. `roleNameOf(WebServed, connection)` is the login's PostgreSQL role, the file's stem under the connection's
-  `rolePrefix`. `WebServed.decoder` is the installation's decoder login the file names, `none` for a login that serves
-  no read; once its kind is `decoderLogin`, `roleNameOf(WebServed.decoder, connection)` is the role `LiveSource.layer`
-  logs in as, whose password is the layer's. `WebServed.roles.member.isolation` is the level generate certified the
+  `rolePrefix`. `WebServed.decoder` is the installation's decoder login the file names, typed by the login: a
+  `DecoderLogin` where its type proves it serves a read, so `roleNameOf(WebServed.decoder, connection)` is the role
+  `LiveSource.layer` logs in as, whose password is the layer's, with no narrowing; `{ kind: "none" }` where it proves it
+  serves none; either, narrowed by `kind`, where its type cannot tell (`AnyLogin`). `WebServed.roles.member.isolation` is the level generate certified the
   role's writes at, `readCommitted` or `serializable`: read a login's certificate there, never from the file's JSON,
   whose encoding is grizzle's own. `Db.open` contacts nothing and
   checks nothing of the database: grizzle assumes it is the one the snapshot was migrated to, and the request's first

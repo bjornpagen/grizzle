@@ -2,6 +2,7 @@ import * as Arr from "effect/Array"
 import * as Formatter from "effect/Formatter"
 import type {
 	DecoderLogin,
+	DecoderOf,
 	ServedConstructor,
 	ServedDecoder,
 	ServedLogin,
@@ -19,7 +20,8 @@ import {
 	rolePrefixFaultText,
 	roleSpaceOf,
 	SourceLoc,
-	servedFile
+	servedFile,
+	trusted
 } from "#compiler/plan/runtime.ts"
 import type { ServedLive } from "#compiler/plan/serve.ts"
 
@@ -52,8 +54,17 @@ const servedRole = <R, P>(
 /** The decoder of a served login that serves no read. */
 const noDecoder: ServedDecoder = Object.freeze({ kind: "none" })
 
-/** The decoder login the file of the served login `login` names: its live source's stem, none where it holds none. */
-const decoderOf = (login: string, live: ServedLive): ServedDecoder => {
+/**
+ * The decoder login the file of the served login `login` names: its live source's stem, none where it holds none. It is
+ * the decoder L's type proves (DecoderOf) through the one door, trusted: the file is L's, `grizzle check` holds it to
+ * L's compile, and that compile gives the file a live source exactly where a member of L serves a read, which is what
+ * L's type decides.
+ */
+const decoderOf = <L>(login: string, live: ServedLive): DecoderOf<L> =>
+	trusted<DecoderOf<L>>(servedDecoder(login, live))
+
+/** The decoder login a served file's live source names: none where it holds none. */
+const servedDecoder = (login: string, live: ServedLive): ServedDecoder => {
 	switch (live.kind) {
 		case "none":
 			return noDecoder
@@ -94,7 +105,7 @@ export const served: ServedConstructor = <L extends AnyLogin>(
 		name,
 		base: read.base,
 		roles,
-		decoder: decoderOf(name, read.live),
+		decoder: decoderOf<L>(name, read.live),
 		file: read
 	})
 }
@@ -135,8 +146,8 @@ const stemmed = <L>(named: AnyLogin | AnyRole | ServedLogin<L> | DecoderLogin): 
  * role's, computed as login(...) or role(...) built it; a served login's, its file's; a decoder login's, its file's live
  * source's), under the installation's role prefix (core/identity.ts roleInSpace), as migrate creates it and a layer's
  * pool logs in. A login's is the one that logs in: the role a password is set on, `rds_iam` is granted to and an IAM
- * signer names. A decoder login's, `roleNameOf(WebServed.decoder, connection)` once its kind is `decoderLogin`, is the
- * one LiveSource.layer logs in as, whose password is the layer's. A role's is the one a direct SQL writer's `SET ROLE`
+ * signer names. A decoder login's, `roleNameOf(WebServed.decoder, connection)`, the decoder a login whose type proves
+ * it reads names (DecoderOf), is the one LiveSource.layer logs in as, whose password is the layer's. A role's is the one a direct SQL writer's `SET ROLE`
  * names. The installation is the connection, or any part of it (`{}` for one without a role prefix). It reads the stem
  * and evaluates no schema, so the runtime entry loads none of the compiler. It throws CompileError for a login's or a
  * role's name the naming door refused (MalformedDescription, RoleNameTooLong), for a role prefix it refuses

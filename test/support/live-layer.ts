@@ -10,6 +10,7 @@ import type {
 	LiveOf,
 	LiveSourceService,
 	LoginBase,
+	ServedDecoder,
 	ServedLogin
 } from "#adapter/types/layer.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
@@ -32,7 +33,7 @@ export type SourcedLayer<L> = Layer.Layer<
 >
 
 /** An installation's decoder login's credential by its role, issued once for the installation. */
-export type DecoderOf = (role: string) => Effect.Effect<Redacted.Redacted, CredentialError>
+export type DecoderCredential = (role: string) => Effect.Effect<Redacted.Redacted, CredentialError>
 
 /** The decoder credential of a file that holds no live source: never asked for, and the defect of asking. */
 const noDecoder = (name: string): Effect.Effect<Redacted.Redacted> =>
@@ -69,13 +70,15 @@ const sourced = <const L extends AnyLogin>(
 export const sourcedDbLayer = <const L extends AnyLogin>(
 	installed: Installed,
 	config: DbConfigShape<NoInfer<L>> & { readonly login: ServedLogin<L> }
-): SourcedLayer<L> =>
-	sourced(
+): SourcedLayer<L> => {
+	const decoder: ServedDecoder = config.login.decoder
+	return sourced(
 		config,
-		config.login.decoder.kind === "none"
+		decoder.kind === "none"
 			? noDecoder(config.login.name)
 			: Effect.sync(() => installed.decoder().password)
 	)
+}
 
 /**
  * The decoders of a site that holds the substrate but no Installed: each decoder login's credential issued by the
@@ -85,7 +88,7 @@ export const sourcedDbLayer = <const L extends AnyLogin>(
 export const decodersIn = (
 	substrate: SubstrateShape,
 	scope: Scope.Scope
-): Effect.Effect<DecoderOf> =>
+): Effect.Effect<DecoderCredential> =>
 	Effect.map(
 		Ref.make<ReadonlyMap<string, Redacted.Redacted>>(new Map()),
 		(issued) => (role) =>
@@ -110,10 +113,10 @@ export const decodersIn = (
  * decoder, and its source never asks.
  */
 export const servedSourcedLayer = <const L extends AnyLogin>(
-	decoderOf: DecoderOf,
+	decoderOf: DecoderCredential,
 	config: DbConfigShape<NoInfer<L>> & { readonly login: ServedLogin<L> }
 ): SourcedLayer<L> => {
-	const decoder = config.login.decoder
+	const decoder: ServedDecoder = config.login.decoder
 	return sourced(
 		config,
 		decoder.kind === "none"
@@ -129,7 +132,7 @@ export const servedSourcedLayer = <const L extends AnyLogin>(
  * The decoders of a layer built offline, by a unit test that never connects: its live source never asks a decoder's
  * credential, and asking is the defect.
  */
-export const offlineDecoders: DecoderOf = () =>
+export const offlineDecoders: DecoderCredential = () =>
 	Effect.die(
 		new Error("a layer built offline connects nothing, so its live source asks no decoder")
 	)
