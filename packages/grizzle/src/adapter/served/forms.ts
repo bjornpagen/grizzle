@@ -269,7 +269,8 @@ export interface CompiledEntry extends CompiledChange {
 /**
  * The runtime's entry of a ChangeSet compiled for a role (program/workload/change.ts ChangeEntry), built once over it
  * under the installation's codes `codes`: its program as an application runs it, its read-backs and its parameters'
- * codecs, beside the witness decoding of the artifacts it compiled against and the role's bind context.
+ * codecs, beside the witness decoding of the artifacts it compiled against, which reads a refusal by its parameters'
+ * pattern domains as theirs (InstallationWitness.declaring), and the role's bind context.
  */
 export const runtimeEntry = (
 	entry: ChangeEntry<InstalledSource>,
@@ -282,7 +283,7 @@ export const runtimeEntry = (
 		compiled,
 		schema,
 		names,
-		witness,
+		witness: witness.declaring(compiled.params),
 		readBacks: readBacks(servedReadBacks(compiled.artifact.readBacks), codes),
 		codecs: paramCodecs(compiled.params, codes),
 		bind,

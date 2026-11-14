@@ -6,10 +6,16 @@ import {
 	violationClassifier
 } from "#adapter/witness/classify.ts"
 import { type KeyLaws, keyLawsOf, type LawsAbove } from "#adapter/witness/keylaw.ts"
+import { paramDomainsOf } from "#compiler/plan/catalog.ts"
 import type { KeyHost, KeyWitness } from "#compiler/plan/change.ts"
-import type { Codebook, EntryName, StoredRelationName } from "#compiler/plan/common.ts"
+import type {
+	CallerParamDecl,
+	Codebook,
+	EntryName,
+	StoredRelationName
+} from "#compiler/plan/common.ts"
 import { keyWitness, witnessDecoder } from "#compiler/plan/runtime.ts"
-import type { ServedEntryKey, ServedRefusals } from "#compiler/plan/serve.ts"
+import type { ServedEntryKey, ServedParamDomain, ServedRefusals } from "#compiler/plan/serve.ts"
 
 /**
  * Witness decoding in the adapter.
@@ -37,6 +43,13 @@ export interface InstallationWitness {
 	readonly classify: ViolationClassifier
 	/** A read's refusal by a domain (classify.ts domainRefusal): a parameter's pattern's, or a contract's laws. */
 	readonly domain: (failure: ServerError) => DomainRefusal | undefined
+	/**
+	 * This witness, reading also a refusal by the pattern domain of each parameter in `params` (physical/ddl/domains.ts
+	 * paramDomainsOf) as that parameter's, as a served role's witness reads its members' (served/project.ts
+	 * refusalsOf): the witness of a program compiled through a role, whose parameters no served file lists
+	 * (served/forms.ts runtimeEntry).
+	 */
+	readonly declaring: (params: ReadonlyArray<CallerParamDecl>) => InstallationWitness
 }
 
 /** A query entry's key, from the key values of its target `values`: each head field's, the target field's it writes. */
@@ -91,18 +104,16 @@ export const servedWitness = (
 		),
 		codes
 	})
-	return {
+	const stored = new Set(refusals.relations.keys())
+	const entries = new Map(
+		Array.from(refusals.entries.values(), (e): readonly [string, EntryName] => [e.entry, e.entry])
+	)
+	/** The witness reading a refusal by each pattern domain of `params` as its parameter's. */
+	const reading = (params: ReadonlyMap<string, ServedParamDomain>): InstallationWitness => ({
 		laws,
-		classify: violationClassifier(laws, decoder, {
-			stored: new Set(refusals.relations.keys()),
-			entries: new Map(
-				Array.from(refusals.entries.values(), (e): readonly [string, EntryName] => [
-					e.entry,
-					e.entry
-				])
-			),
-			params: refusals.params
-		}),
-		domain: domainRefusal(laws, refusals.params)
-	}
+		classify: violationClassifier(laws, decoder, { stored, entries, params }),
+		domain: domainRefusal(laws, params),
+		declaring: (declared) => reading(new Map([...params, ...paramDomainsOf(declared)]))
+	})
+	return reading(refusals.params)
 }
