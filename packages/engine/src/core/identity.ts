@@ -1103,8 +1103,9 @@ export const identity = Object.freeze({
 		mint("textDomain", [definition], ["text"], `text domain of definition ${definition}`, hashed),
 	/**
 	 * The pattern domain of a declared parameter, by the parameter's place, its name and, for a relation parameter's
-	 * field, the field's, and the digest of its pattern's physical definition: a placeholder of the parameter is cast to
-	 * it, so a refusal by it names exactly the parameter and its pattern, whatever stored field shares the pattern.
+	 * field, the field's, and the digest of the domain's whole definition, its base, the pattern's structural text
+	 * domain, included (physical/ddl/domains.ts paramDomainIdentity): a placeholder of the parameter is cast to it, so a
+	 * refusal by it names exactly the parameter and its pattern, whatever stored field shares the pattern.
 	 */
 	paramDomain: (place: ParamPlace, definition: DomainDigest): Identity<"paramDomain"> =>
 		mint(

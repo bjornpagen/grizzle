@@ -76,9 +76,9 @@ export interface PhysicalNames {
 	) => { readonly schema: TypeSchema; readonly name: DomainName } | undefined
 	/**
 	 * The pattern domain of a declared parameter's place over `regex`: the naming door's (core/identity.ts
-	 * identity.paramDomain), by the place and the digest of the pattern's definition, which every placeholder of the
-	 * parameter is cast to, so PostgreSQL checks its value against the pattern as it binds it and a refusal names the
-	 * parameter. The installation creates it for every pattern its served workload's parameters name.
+	 * identity.paramDomain), by the place and the digest of its definition over the pattern's structural text domain,
+	 * which every placeholder of the parameter is cast to, so PostgreSQL checks its value against the pattern as it
+	 * binds it and a refusal names the parameter. The installation creates it for every pattern its served workload's parameters name.
 	 */
 	readonly paramDomain: (
 		place: ParamPlace,

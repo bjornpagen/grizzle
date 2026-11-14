@@ -47,7 +47,8 @@ import {
  * The workload in the installation (physical/access withWorkload): access requests merge with law maintenance against the
  * key and law indexes, every installed index and statistics object stands on a law id or the workload's access, and
  * the installation of any sub-workload of the worked example holds exactly the objects of the whole workload's that the
- * laws alone install or one of its own programs asks for, as installing each of those programs alone asks for it, and
+ * laws alone install or one of its own programs asks for, as installing each of those programs alone asks for it (its
+ * access's objects and its parameters' types), and
  * the laws' own index where the whole workload's serving one is wider for programs the sub-workload drops: a law's
  * request lands on a wider index a program asks for, and on an index of its own without one (physical/indexes/engine.ts
  * planIndexes). It stands on every law the laws alone stand on.
@@ -124,14 +125,33 @@ const wholeIdents: ReadonlySet<ManifestIdent> = new Set(
 	Arr.map(all.manifest.objects, (o) => o.ident)
 )
 
-/** The objects each program alone asks for, by its name. */
-const alone: ReadonlyMap<string, ReadonlySet<string>> = new Map(
-	Arr.map(named, ([name, program]) => [
-		name,
-		accessIdents(
-			succeeded(installWith(W.Work, planOf(W.Work, { [name]: program })), `${name} installs alone`)
+/**
+ * The objects each program alone asks for, by its name: those its access stands on, and every object its installation
+ * alone holds beyond the laws alone's, its parameters' pattern domains and their text domains among them.
+ */
+const alone: ReadonlyMap<
+	string,
+	{ readonly access: ReadonlySet<string>; readonly asked: ReadonlySet<string> }
+> = new Map(
+	Arr.map(named, ([name, program]) => {
+		const installed = succeeded(
+			installWith(W.Work, planOf(W.Work, { [name]: program })),
+			`${name} installs alone`
 		)
-	])
+		const access = accessIdents(installed)
+		return [
+			name,
+			{
+				access,
+				asked: new Set([
+					...access,
+					...Arr.flatMap(installed.manifest.objects, (o) =>
+						lawsAloneIdents.has(o.ident) ? [] : [o.ident]
+					)
+				])
+			}
+		] as const
+	})
 )
 
 type SubFeature =
@@ -195,7 +215,10 @@ describe("the worked example's workload in the installation", () => {
 								assert.ok(hasLaw(o.reasons) || hasAccess(o.reasons), `${o.ident} stands on nothing`)
 							}
 							const asked = new Set(
-								Arr.flatMap(kept, ([name]) => [...defined(alone.get(name), name)])
+								Arr.flatMap(kept, ([name]) => [...defined(alone.get(name), name).asked])
+							)
+							const askedAccess = new Set(
+								Arr.flatMap(kept, ([name]) => [...defined(alone.get(name), name).access])
 							)
 							/**
 							 * The whole workload's objects the laws alone install or a kept program asks for, each standing on the
@@ -203,7 +226,7 @@ describe("the worked example's workload in the installation", () => {
 							 * asked for it.
 							 */
 							const keptWhole = Arr.filter(all.manifest.objects, (o) => {
-								const access = asked.has(o.ident)
+								const access = askedAccess.has(o.ident)
 								const standsElsewhere = Arr.some(o.reasons, (r) => r.kind !== "access")
 								if (standsElsewhere && access) {
 									c.note("a key or law object a kept program asks for too")
@@ -214,7 +237,7 @@ describe("the worked example's workload in the installation", () => {
 								if (!standsElsewhere && !access) {
 									c.note("an index only removed programs asked for")
 								}
-								return access || lawsAloneIdents.has(o.ident)
+								return asked.has(o.ident) || lawsAloneIdents.has(o.ident)
 							})
 							/** The laws a kept program's object serves beside it, an object the laws alone do not install. */
 							const widened = new Set(
@@ -250,7 +273,7 @@ describe("the worked example's workload in the installation", () => {
 								Arr.sort(
 									Arr.map([...keptWhole, ...lawsOwn], (o) => ({
 										ident: o.ident,
-										access: asked.has(o.ident)
+										access: askedAccess.has(o.ident)
 									})),
 									byIdent
 								)

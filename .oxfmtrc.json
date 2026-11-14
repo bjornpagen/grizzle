@@ -19,6 +19,7 @@
 	},
 	"ignorePatterns": [
 		"test/support/openapi/oas-3.2-schema-2025-09-17.json",
+		"test/support/migrate/param-domains/**",
 		"pnpm-lock.yaml",
 		"*.md",
 		"test/types/**/.*-??????/**",

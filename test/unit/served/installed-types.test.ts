@@ -21,8 +21,9 @@
  *   it there is refused as UninstalledDomain.
  *
  * - No two domains of the login's installation share a CHECK body: a parameter's pattern domain is a domain over its
- *   pattern's structural text domain, with no CHECK of its own, where the installation holds one
- *   (physical/ddl/domains.ts addParamDomains), and PostgreSQL still reports the parameter's own domain when it refuses.
+ *   pattern's structural text domain, with no CHECK of its own, the installation's own or one created for the
+ *   parameters (physical/ddl/domains.ts addParamDomains), and PostgreSQL still reports the parameter's own domain when
+ *   it refuses.
  *
  * Plants (~/.cache/grizzle-release/CONTRACTDOMAIN/plants): param-domain-total.patch names a parameter's pattern domain
  * under a recorded installation whatever it installs, so a missing pattern domain compiles; snapshot-params-dropped.patch

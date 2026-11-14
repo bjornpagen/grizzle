@@ -40,10 +40,14 @@ import {
 import { domainCheck, type LawModel } from "#compiler/laws/model/model.ts"
 import { domainKey, type InstallBuilder, isVectorRef } from "#compiler/physical/ddl/context.ts"
 import { lowerPersistent, noPersistentClosed } from "#compiler/physical/ddl/expr.ts"
-import type { ContractSource, InstallNames } from "#compiler/physical/ddl/names.ts"
+import {
+	type ContractSource,
+	digestedTypes,
+	type InstallNames
+} from "#compiler/physical/ddl/names.ts"
 import { enforcement, lawReasons, type Node } from "#compiler/physical/obligations/graph.ts"
 import type { Owned, OwnedRelation } from "#compiler/schema/own.ts"
-import type { CreateDomain, Expr, ObjectName } from "#compiler/sql/ast.ts"
+import type { CreateDomain, Expr, ObjectName, TypeSchema } from "#compiler/sql/ast.ts"
 import { and } from "#compiler/sql/build.ts"
 import { domainValue, membershipTerms, textDomainDdl } from "#compiler/text/refinement.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
@@ -246,14 +250,32 @@ export const textDomainIdentity = (regex: RegexRef): Identity<"textDomain"> =>
 	)
 
 /**
- * The pattern domain of a declared parameter's place over `regex`: named by the place and the digest of the
- * definition the pattern's structural text domain is named by, so its CHECK is that domain's, and a refusal by it names
- * the parameter alone, whatever stored field shares the pattern.
+ * A parameter's pattern domain's CREATE DOMAIN under `target`'s names: a domain over its pattern's structural text
+ * domain `structural` in the same schema, with no CHECK of its own, so its check is that domain's. Read with a
+ * placeholder schema and name, it is the domain's whole definition, base included, which its name digests
+ * (paramDomainIdentity).
+ */
+const paramDomainDdl = (
+	structural: Identity<"textDomain">,
+	target: { readonly schema: TypeSchema; readonly name: string }
+): CreateDomain => ({
+	kind: "createDomain",
+	name: { schema: target.schema, name: target.name },
+	base: qualifiedType({ schema: target.schema, name: identifierOf(structural) }),
+	collation: undefined,
+	constraints: []
+})
+
+/**
+ * The pattern domain of a declared parameter's place over `regex`: named by the place and the digest of its whole
+ * definition (paramDomainDdl), a domain over the pattern's structural text domain, which is itself named by the digest
+ * of its own. A refusal by it names the parameter alone, whatever stored field shares the pattern; a domain of one name
+ * has one definition, so a migration never changes one in place: a changed definition is another domain.
  */
 export const paramDomainIdentity = (place: ParamPlace, regex: RegexRef): Identity<"paramDomain"> =>
 	identity.paramDomain(
 		place,
-		definitionDigest(textDomainDdl(regex.check, { schema: "", name: "", constraint: "" }))
+		definitionDigest(paramDomainDdl(textDomainIdentity(regex), { schema: digestedTypes, name: "" }))
 	)
 
 /** A pattern a served workload's parameter names, at its place: what the installation creates its domain for. */
@@ -377,53 +399,64 @@ export const paramDomainsOf = (
  * The pattern domains of `uses` as objects in Setup, each identity once. Every placeholder of the parameter is cast to
  * its own (ir/physical.ts paramDomain), so PostgreSQL checks the value as it binds it, and a refusal by it is the
  * parameter's (adapter ParamRejected): PostgreSQL reports the domain the value is cast to, never an ancestor of it.
- * Where the installation holds the pattern's structural text domain (InstallNames.textDomain), a parameter's domain is
- * `CREATE DOMAIN <schema>.<domain> AS <schema>.<text domain>` with no CHECK of its own, after that domain: its check is
- * the structural domain's, which PostgreSQL runs on a cast to every domain over it, so no two domains of the
- * installation hold one CHECK body. Where it holds none, `CREATE DOMAIN <schema>.<domain> AS text COLLATE
- * pg_catalog.pg_c_utf8 CONSTRAINT <check> CHECK (...)`, the CHECK such a structural domain would hold, after the schema.
- * Their names, in order.
+ * Each is `CREATE DOMAIN <schema>.<domain> AS <schema>.<text domain>` with no CHECK of its own (paramDomainDdl), after
+ * its pattern's structural text domain: the installation's own where a column it types holds the pattern, otherwise
+ * one created here for the parameters, after the schema, as addTextDomains creates one. So no two domains of the
+ * installation hold one CHECK body, and a parameter's domain has one definition wherever the pattern is stored, so its
+ * name, which digests that definition, is the same in every compile over the installation. Their names, in order, a
+ * text domain created here before the first parameter's domain over it.
  */
 export const addParamDomains = (
 	b: InstallBuilder,
 	uses: ReadonlyArray<ParamDomainUse>
 ): ReadonlyArray<ObjectName> => {
 	const seen = new Set<string>()
-	return uses.flatMap(({ place, regex }) => {
+	return uses.flatMap(({ place, regex }): ReadonlyArray<ObjectName> => {
 		const named = paramDomainIdentity(place, regex)
 		if (seen.has(named.canonical)) {
 			return []
 		}
 		seen.add(named.canonical)
-		const structural = b.names.textDomain(regex)
-		const reasons = [
-			enforcement(`pattern ${patternsText(regex.patterns)} of parameter ${paramPlaceText(place)}`)
-		]
-		if (structural === undefined) {
-			const ddl = textDomainDdl(regex.check, {
-				schema: b.schema,
-				name: b.name(named),
-				constraint: b.name(identity.domainCheck(named))
-			})
-			b.addType("domain", b.names.installation, named, { ddl: [ddl], reasons }, [b.schemaNode])
-			return [ddl.name]
-		}
-		const base = qualifiedType(structural)
-		const ddl: CreateDomain = {
-			kind: "createDomain",
-			name: { schema: b.schema, name: b.name(named) },
-			base,
-			collation: undefined,
-			constraints: []
-		}
-		b.addType("domain", b.names.installation, named, { ddl: [ddl], reasons }, [
-			b.schemaNode,
-			defined(
-				b.typeNode(base),
-				`the structural text domain ${structural.name}, added before the parameters'`
+		const structural = textDomainIdentity(regex)
+		const known = b.typeNamed({ schema: b.names.types, name: identifierOf(structural) })
+		const created =
+			known === undefined
+				? [
+						textDomainDdl(regex.check, {
+							schema: b.names.types,
+							name: b.name(structural),
+							constraint: b.name(identity.domainCheck(structural))
+						})
+					]
+				: []
+		const textNode =
+			known ??
+			b.addType(
+				"domain",
+				b.names.installation,
+				structural,
+				{
+					ddl: created,
+					reasons: [enforcement(`text refinement ${patternsText(regex.patterns)}`)]
+				},
+				[b.schemaNode]
 			)
-		])
-		return [ddl.name]
+		const ddl = paramDomainDdl(structural, { schema: b.names.types, name: b.name(named) })
+		b.addType(
+			"domain",
+			b.names.installation,
+			named,
+			{
+				ddl: [ddl],
+				reasons: [
+					enforcement(
+						`pattern ${patternsText(regex.patterns)} of parameter ${paramPlaceText(place)}`
+					)
+				]
+			},
+			[b.schemaNode, textNode]
+		)
+		return [...created.map((c) => c.name), ddl.name]
 	})
 }
 

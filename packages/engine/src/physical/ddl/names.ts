@@ -35,6 +35,10 @@ export const installationTypes = (installation: Identity<"schema">): TypeSchema 
 /** The schema of the vector extension's types, the one the installation was given for the extension. */
 export const vectorTypes = (schema: string): TypeSchema => typeSchema(schema)
 
+/** No schema: the one a definition is read under to be digested, so its digest names it in every installation
+ * (physical/ddl/domains.ts paramDomainIdentity). */
+export const digestedTypes: TypeSchema = typeSchema("")
+
 export interface InstallNames extends PhysicalNames {
 	/**
 	 * The identity of the root's PostgreSQL schema, which holds what is the installation's own, every level's alike:
