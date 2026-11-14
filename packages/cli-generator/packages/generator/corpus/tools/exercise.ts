@@ -86,7 +86,11 @@ const numberOf = (node: JsonObject): number =>
 			)
 	)
 
-/** Where the walk is: the resource fragment references resolve in, the references it is inside, and its arrays. */
+/**
+ * Where the walk is: the resource fragment references resolve in, the references it is inside since the last array it
+ * entered (an array may be empty, so a reference met again below one ends at `filledArrayDepth`, and only one met
+ * again with no array between is a cycle), and how many arrays hold it.
+ */
 interface Walk {
 	readonly arrays: number
 	readonly following: readonly string[]
@@ -202,7 +206,7 @@ const valueOf = (schema: Json, walk: Walk): Effect.Effect<Json, Unbuildable> =>
 				wanted,
 				Option.getOrElse(numberAt(schema, "maxItems"), () => wanted)
 			)
-			const below: Walk = { ...inner, arrays: inner.arrays + 1 }
+			const below: Walk = { ...inner, arrays: inner.arrays + 1, following: [] }
 
 			return yield* Effect.forEach(
 				Array.from({ length: count }, (_, at) => at),
@@ -255,17 +259,49 @@ const textKinds: ReadonlySet<string> = new Set(["integer", "number", "string"])
  * anything, so a metavar is only held to what the specification itself says.
  */
 const metavarOf = (value: Json, flag: Flag): string => {
-	const node = Option.filter(
-		flag.location === "body" ? nodeOf(value, flag.pointer) : Option.none(),
-		isObject
+	const chain = Option.match(
+		Option.filter(flag.location === "body" ? nodeOf(value, flag.pointer) : Option.none(), isObject),
+		{ onNone: () => [], onSome: (schema) => chainOf(value, schema) }
 	)
-	const stated = Option.flatMap(node, (schema) =>
+	const encoded = Arr.some(chain, (schema) =>
 		Arr.some(["contentEncoding", "contentMediaType", "format"], (key) => Record.has(schema, key))
-			? Option.none()
-			: Option.filter(textAt(schema, "type"), (type) => textKinds.has(type))
 	)
+	const stated = Arr.findFirst(chain, (schema) => Option.isSome(textAt(schema, "type")))
 
-	return Option.match(stated, { onNone: () => "", onSome: (type) => `${type} ` })
+	return Option.match(
+		Option.filter(
+			Option.flatMap(stated, (schema) => textAt(schema, "type")),
+			(type) => textKinds.has(type) && !encoded
+		),
+		{ onNone: () => "", onSome: (type) => `${type} ` }
+	)
+}
+
+/**
+ * A schema and each schema its `$ref` chain reaches in the document, a fragment reference at a time, which together
+ * state its type: a field written once under `components` and referred to is the field its target is. The chain
+ * stops at a reference it cannot follow or one it already followed.
+ */
+const chainOf = (value: Json, schema: JsonObject): readonly JsonObject[] => {
+	const chain: JsonObject[] = [schema]
+	const followed = new Set<string>()
+	for (let ref = textAt(schema, "$ref"); Option.isSome(ref) && !followed.has(ref.value);) {
+		followed.add(ref.value)
+		const target = Option.filter(
+			Str.startsWith("#")(ref.value)
+				? nodeAtTokens(value, JsonPointer.parseUriFragment(ref.value) ?? [])
+				: Option.none(),
+			isObject
+		)
+		if (Option.isNone(target)) {
+			break
+		}
+
+		chain.push(target.value)
+		ref = textAt(target.value, "$ref")
+	}
+
+	return chain
 }
 
 /** Runs the built bin with `args` and no environment, answering its standard output. */

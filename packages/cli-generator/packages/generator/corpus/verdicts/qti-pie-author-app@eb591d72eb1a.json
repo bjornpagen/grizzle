@@ -1,0 +1,440 @@
+{
+  "commandSources": {
+    "config": 0,
+    "fern": 0,
+    "fold": 5,
+    "forge": 0
+  },
+  "corpusVersion": 1,
+  "counts": {
+    "informational": 9,
+    "nonStandard": 0,
+    "notices": 78,
+    "operations": {
+      "generated": 5,
+      "refused": 0,
+      "total": 5
+    },
+    "refusals": {
+      "document": 0,
+      "element": 0,
+      "field": 0,
+      "operation": 0
+    }
+  },
+  "coverage": {
+    "byNotice": [],
+    "checked": true,
+    "invented": [],
+    "missing": []
+  },
+  "generator": {
+    "config": "corpus/config/qti-pie-author-app.json",
+    "configSha256": "1db0484f772616fd4871a6a3429b6ddcb3d618b82f8646138aed1ac64f361b97",
+    "version": "0.0.0"
+  },
+  "nonStandard": [],
+  "notices": [
+    {
+      "code": "SCH-57/not-asserted",
+      "pointer": "/components/schemas/author.documentScan.remove/properties/data/contentSchema",
+      "row": "SCH-57"
+    },
+    {
+      "code": "SCH-57/not-asserted",
+      "pointer": "/components/schemas/author.documentScan.reset/properties/data/contentSchema",
+      "row": "SCH-57"
+    },
+    {
+      "code": "SCH-57/not-asserted",
+      "pointer": "/components/schemas/author.documentScan.upsert/properties/data/contentSchema",
+      "row": "SCH-57"
+    },
+    {
+      "code": "SCH-57/not-asserted",
+      "pointer": "/components/schemas/author.entriesOf.upsert/properties/data/contentSchema",
+      "row": "SCH-57"
+    },
+    {
+      "code": "SCH-57/not-asserted",
+      "pointer": "/components/schemas/author.entryDigestsOf.upsert/properties/data/contentSchema",
+      "row": "SCH-57"
+    },
+    {
+      "code": "SCH-57/not-asserted",
+      "pointer": "/components/schemas/author.packageOf.remove/properties/data/contentSchema",
+      "row": "SCH-57"
+    },
+    {
+      "code": "SCH-57/not-asserted",
+      "pointer": "/components/schemas/author.packageOf.reset/properties/data/contentSchema",
+      "row": "SCH-57"
+    },
+    {
+      "code": "SCH-57/not-asserted",
+      "pointer": "/components/schemas/author.packageOf.upsert/properties/data/contentSchema",
+      "row": "SCH-57"
+    },
+    {
+      "code": "SCH-57/not-asserted",
+      "pointer": "/components/schemas/author.replaceWrite.error/properties/data/contentSchema",
+      "row": "SCH-57"
+    },
+    {
+      "code": "SCH-57/not-asserted",
+      "pointer": "/components/schemas/author.replaceWrite.outcome/properties/data/contentSchema",
+      "row": "SCH-57"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.2dz6zajhwcltg5chtnr4d6lsxnytztg34r45slbusknvyyss7pjq/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-57/not-asserted",
+      "pointer": "/components/schemas/shared.453dpgo5kgqsc3f6phqgvh6bdh3r7l7n6ge6kdtwtqqbo2zwwebq/properties/data/contentSchema",
+      "row": "SCH-57"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.54pjzpwct3nmg6dltvzyq5jz6wlvlwvgqtutnriqjbdvi4bszaga/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.54pjzpwct3nmg6dltvzyq5jz6wlvlwvgqtutnriqjbdvi4bszaga/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.5j4se7nzwjohsdcelk2yo2g2c6eis7ihz2f3dezvcexwsbvridka/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.5j4se7nzwjohsdcelk2yo2g2c6eis7ihz2f3dezvcexwsbvridka/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.6xziw7pe4mfang5s3phmmyz7tcquyiebcvhbok2bhl6sjcbpiznq/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.6xziw7pe4mfang5s3phmmyz7tcquyiebcvhbok2bhl6sjcbpiznq/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.72emtjhfeiiovto2r3kzlclmeaez2yoqssf7idvi25xf4x77l34a/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.72emtjhfeiiovto2r3kzlclmeaez2yoqssf7idvi25xf4x77l34a/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.73vley2gj6d6ptpbzqmqao6g7ktnijxpr4svvrl3mjoqdhjvdsfq/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.73vley2gj6d6ptpbzqmqao6g7ktnijxpr4svvrl3mjoqdhjvdsfq/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.7bt3fgi6rgntbwhjoaprtjsr2hnhwpae6vbrws75bwkixsoy4kaq/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.7bt3fgi6rgntbwhjoaprtjsr2hnhwpae6vbrws75bwkixsoy4kaq/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-57/not-asserted",
+      "pointer": "/components/schemas/shared.a647xdspftlhhbfd22simohmnvw5lsfcf7flrqvvkkaus5z66jva/properties/data/contentSchema",
+      "row": "SCH-57"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.aqal7oczmfsribvzou7gohdnqw3hoyidcy2l4hp5id6yupyqtzdq/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.eumpmcdqljnlnqcypxnnz6eq3pepu74ieboduugv5hpydiih4yfa/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.eumpmcdqljnlnqcypxnnz6eq3pepu74ieboduugv5hpydiih4yfa/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.eva6fxxfidq5eksowouwdbtfx2hnz6hvzzx7hzofxniaz5ukyxva/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.eva6fxxfidq5eksowouwdbtfx2hnz6hvzzx7hzofxniaz5ukyxva/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.fobfxgsi4t2hsdvhiqawitxw5v6wl25hjaqodk3a37uxd3da4ylq/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.fobfxgsi4t2hsdvhiqawitxw5v6wl25hjaqodk3a37uxd3da4ylq/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.h6ote762wehem3ow7dbtsmemjqymrhgzezriwmbw5u4uj25iyr2a/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.ie4tlk2gkgg5ionjqlsz7h2bmgl7ba25hsebnv5pcfomc7uuqobq/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.ieekpcucmeexqplz7smlmu6c4hjy3jguoztml5xvkynddduteqmq/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.ieekpcucmeexqplz7smlmu6c4hjy3jguoztml5xvkynddduteqmq/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.j2r4n5jrxg2l4loyu5mxu5vrilic4buofrynjoihw3icezzygbyq/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.j2r4n5jrxg2l4loyu5mxu5vrilic4buofrynjoihw3icezzygbyq/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.ju2wfjhrofgxxcwdzwjgpwndco5s7m2vp6xeix3jtsrtavzedhcq/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.ju2wfjhrofgxxcwdzwjgpwndco5s7m2vp6xeix3jtsrtavzedhcq/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.jvnprcwqeksrpxfdttiw7vqet6xzpjzu6lvfj3dg2h4rgd7bu5ua/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.jvnprcwqeksrpxfdttiw7vqet6xzpjzu6lvfj3dg2h4rgd7bu5ua/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.jxwbv5hln5rblshdvesxwmqct64ys425o23gd7loxcnbr5e5ldma/properties/reason/oneOf/1/properties/sqlstate/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.k4ubnpcy43w7kfk4ud5gfroxjgoovaui3ucu5nsh656ri434pjkq/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.k6365xc5muwyrs6jwj5my6yphf66hjx6ldwow7bufmbvb6lg7tpq/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.k6365xc5muwyrs6jwj5my6yphf66hjx6ldwow7bufmbvb6lg7tpq/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.knyfp3akwvbd26hans2rknslzn7ktbmuhhhznvkj6pukqpo7rt7q/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.knyfp3akwvbd26hans2rknslzn7ktbmuhhhznvkj6pukqpo7rt7q/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-57/not-asserted",
+      "pointer": "/components/schemas/shared.ko2xyxov5ywkpz57loudra66eipluj4c6uaaqr3abrwndcgvrcqq/properties/data/contentSchema",
+      "row": "SCH-57"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.l5f3w2yohwgtizbwtnra24zjjxt7iudhwzkjr734u7abvfdfeoua/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.l5f3w2yohwgtizbwtnra24zjjxt7iudhwzkjr734u7abvfdfeoua/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-57/not-asserted",
+      "pointer": "/components/schemas/shared.lcdnarzeqg2poog2z3jbj4xj4gzvbf2izagqqiq6pothdfzz2asa/contentSchema",
+      "row": "SCH-57"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.ogrshi4oj4y7naiiuz7jtfyzqgdeixzd4uk424hobrfoby5y5npa/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.ogrshi4oj4y7naiiuz7jtfyzqgdeixzd4uk424hobrfoby5y5npa/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.oqscwcghhx47twz5tsy7ubjvxgxgzknlk7j5ou2zmtt2beavtk3a/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.oqscwcghhx47twz5tsy7ubjvxgxgzknlk7j5ou2zmtt2beavtk3a/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.pinlgttmycvqh7vmlrhm3wzgue5sk46pobo7wztkjonhigbbhs6a/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.pinlgttmycvqh7vmlrhm3wzgue5sk46pobo7wztkjonhigbbhs6a/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.qzo3otcgyvpr3of6fel4ej2me2oq5qdblhcs5454ganvtelrvw6a/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.qzo3otcgyvpr3of6fel4ej2me2oq5qdblhcs5454ganvtelrvw6a/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.rssegrppfndbww5zsu2xzbnh46fupmv5rbypnluvqpicmx44woyq/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.rssegrppfndbww5zsu2xzbnh46fupmv5rbypnluvqpicmx44woyq/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-54/not-asserted",
+      "pointer": "/components/schemas/shared.ryrrxhmssiqd5sddfzd3aqls5xwpguhirnhnnjkcx7f34lrxfxnq/properties/witness/oneOf/216/properties/values/properties/date/format",
+      "row": "SCH-54"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.ryrrxhmssiqd5sddfzd3aqls5xwpguhirnhnnjkcx7f34lrxfxnq/properties/witness/oneOf/216/properties/values/properties/date/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.sxw3kyx2vehhjjc5cj2tihsphqczudn6tbpf2j5jqcmbxvwgl7fa/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.sz6xl2wbkamaoj2ue2lj2w2nt73wqzrg5udxg5awts7mxmhu6vda/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.sz6xl2wbkamaoj2ue2lj2w2nt73wqzrg5udxg5awts7mxmhu6vda/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.ubktxlx4ckehfr3mfxkefyc2rdu2gquhiofgsncobt5rsc7o2qyq/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.v5ciwg54iwa7pfuczymojoqsfak2bq3emcijyu2terftnyxsacpq/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.v5ciwg54iwa7pfuczymojoqsfak2bq3emcijyu2terftnyxsacpq/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.vj7ve3scw3w52uutu4gcayngaavrnnrj7j3t7ww6nvsnvwkii5cq/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.ydj2fqfx7pej5crfcsupjtwnoi4mz6bgfcoaywrhhkdlug5kfy3a/allOf/0/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "SCH-37/not-asserted",
+      "pointer": "/components/schemas/shared.ydj2fqfx7pej5crfcsupjtwnoi4mz6bgfcoaywrhhkdlug5kfy3a/pattern",
+      "row": "SCH-37"
+    },
+    {
+      "code": "PRM-01/constant",
+      "pointer": "/paths/~1author_app~1author~1documentScan/post/parameters/0",
+      "row": "PRM-01"
+    },
+    {
+      "code": "PRM-01/constant",
+      "pointer": "/paths/~1author_app~1author~1entriesOf/post/parameters/0",
+      "row": "PRM-01"
+    },
+    {
+      "code": "PRM-01/constant",
+      "pointer": "/paths/~1author_app~1author~1entryDigestsOf/post/parameters/0",
+      "row": "PRM-01"
+    },
+    {
+      "code": "PRM-01/constant",
+      "pointer": "/paths/~1author_app~1author~1packageOf/post/parameters/0",
+      "row": "PRM-01"
+    },
+    {
+      "code": "PRM-01/constant",
+      "pointer": "/paths/~1author_app~1author~1replaceWrite/post/parameters/0",
+      "row": "PRM-01"
+    }
+  ],
+  "refusals": [],
+  "spec": {
+    "id": "qti-pie-author-app",
+    "openapi": "3.2.0",
+    "sha256": "eb591d72eb1a84a3ab835d84e83bd0e37dd0c3a68082f0661d62025b67d0edeb"
+  },
+  "twinEquality": {
+    "checked": false,
+    "equal": false
+  },
+  "verdict": "accepted"
+}
