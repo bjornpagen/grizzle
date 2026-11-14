@@ -615,6 +615,7 @@
 						"test/types/regex/scaling.test.ts",
 						"test/types/schema/budget/families.test.ts",
 						"test/types/schema/budget/invariance.test.ts",
+						"test/types/schema/budget/logins.test.ts",
 						"test/types/schema/budget/scaling.test.ts",
 						"test/types/skeleton/budget/invariance.test.ts"
 					],
