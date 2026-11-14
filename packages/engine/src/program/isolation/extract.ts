@@ -302,32 +302,39 @@ const operandsOf = (e: Expr): ReadonlyArray<Expr> => {
 /** Whether an expression computes over many rows in its own operands (overRowsOf), a subquery's calls its own. */
 const holdsRows = (e: Expr): boolean => overRowsOf(e) !== undefined || operandsOf(e).some(holdsRows)
 
-/** A join step's source with its ON condition, none for a cross join's. A LEFT JOIN reads every row before it whatever
- * its condition, so its condition keys no read: only a migration's backfill writes one, never a program. */
-const stepSource = (
-	step: JoinStep
-): { readonly source: FromSource; readonly on: Expr | undefined } => {
+/**
+ * A FROM source with its join: `inner`, the first source, an inner join's with its ON condition or a cross join's with
+ * none, every row of the core coming through it and its condition keying every source's read; or `left`, a LEFT JOIN's,
+ * read where its condition holds, which keys its own read alone: the sources before it are read whatever its condition,
+ * and a row of the core comes through it only where it met one, so no row is said to come through it.
+ */
+type JoinedSource =
+	| { readonly join: "inner"; readonly source: FromSource; readonly on: Expr | undefined }
+	| { readonly join: "left"; readonly source: FromSource; readonly on: Expr }
+
+/** A join step's source with its join (JoinedSource). */
+const stepSource = (step: JoinStep): JoinedSource => {
 	switch (step.kind) {
 		case "on":
-			return { source: step.source, on: step.on }
+			return { join: "inner", source: step.source, on: step.on }
 		case "cross":
-			return { source: step.source, on: undefined }
+			return { join: "inner", source: step.source, on: undefined }
 		case "left":
-			throw defect(
-				"a program's statement holds no LEFT JOIN: only a migration's backfill writes one"
-			)
+			return { join: "left", source: step.source, on: step.on }
 	}
 }
 
-/** A FROM's sources, each with its join's ON condition, none for the first and a cross join's. */
-const sourcesOf = (
-	from: ReadonlyArray<FromItem>
-): ReadonlyArray<{ readonly source: FromSource; readonly on: Expr | undefined }> =>
-	from.flatMap((item) =>
+/** A FROM's sources, each with its join (JoinedSource), the first's inner with no condition. */
+const sourcesOf = (from: ReadonlyArray<FromItem>): ReadonlyArray<JoinedSource> =>
+	from.flatMap((item): ReadonlyArray<JoinedSource> =>
 		item.kind === "joins"
-			? [{ source: item.first, on: undefined }, ...item.steps.map(stepSource)]
-			: [{ source: item, on: undefined }]
+			? [{ join: "inner", source: item.first, on: undefined }, ...item.steps.map(stepSource)]
+			: [{ join: "inner", source: item, on: undefined }]
 	)
+
+/** The conditions of a FROM's inner joins, which key every source's read. */
+const innerConditions = (sources: ReadonlyArray<JoinedSource>): ReadonlyArray<Expr> =>
+	sources.flatMap((s) => (s.join === "inner" ? conjunctsOf(s.on) : []))
 
 /** A relation's table read whole by a derived table that only renames its columns: the table, and for each of the
  * derived table's columns the table's column it is. */
@@ -871,7 +878,7 @@ class Walk<Top extends Arrival> {
 			...using.map(({ source }) => nameOf(source))
 		])
 		const here: Context<Top> = { ...inner, scope }
-		const on = [...conjunctsOf(s.on), ...using.flatMap((u) => conjunctsOf(u.on))]
+		const on = [...conjunctsOf(s.on), ...innerConditions(using)]
 		const bySource = s.whens.some((w) => w.match === "NOT MATCHED BY SOURCE")
 		this.#feedingWrites(at, () => {
 			for (const { source } of using) {
@@ -1001,16 +1008,20 @@ class Walk<Top extends Arrival> {
 	/**
 	 * One core in its place, by the number it is given: a core that groups, has a HAVING, or computes over many rows in
 	 * its own expressions counts, and every read beneath it is counted. Its sources see the scope it is in, a LATERAL one
-	 * its own sources' names too; its expressions see both. Every row of it comes through each of its FROM sources,
+	 * its own sources' names too; its expressions see both. Every row of it comes through each of its FROM sources
 	 * joined inner or crosswise, unless it aggregates with no GROUP BY, which yields a row over no input: then through
-	 * none.
+	 * none. A LEFT JOIN's source is read where its own condition holds, and no row is said to come through it
+	 * (JoinedSource).
 	 */
 	#core(parts: CoreParts, c: Context<Top>, pushed: ReadonlyArray<Scoped>): number {
 		const sources = sourcesOf(parts.from)
-		const conditions = [...conjunctsOf(parts.where), ...sources.flatMap((s) => conjunctsOf(s.on))]
+		const conditions = [...conjunctsOf(parts.where), ...innerConditions(sources)]
+		const outerConditions = sources.flatMap((s) => (s.join === "left" ? conjunctsOf(s.on) : []))
 		const aggregates =
 			parts.grouped ||
-			[...conditions, ...conjunctsOf(parts.having), ...parts.values].some(holdsRows)
+			[...conditions, ...outerConditions, ...conjunctsOf(parts.having), ...parts.values].some(
+				holdsRows
+			)
 		const core = this.cores.length
 		this.cores.push([])
 		const here = this.#opening(
@@ -1024,9 +1035,19 @@ class Walk<Top extends Arrival> {
 			parts.groups ? core : undefined
 		)
 		const keying = [...conditions.map((expr) => ({ expr, scope: here.scope })), ...pushed]
-		const rows = sources.flatMap(({ source }) => this.#source(source, here, keying, c.scope))
+		const rows = sources.flatMap((s) => {
+			const read = this.#source(
+				s.source,
+				here,
+				s.join === "inner"
+					? keying
+					: conjunctsOf(s.on).map((expr) => ({ expr, scope: here.scope })),
+				c.scope
+			)
+			return s.join === "inner" ? read : []
+		})
 		this.cores[core] = parts.groups || !aggregates ? rows : []
-		for (const e of [...conditions, ...conjunctsOf(parts.having)]) {
+		for (const e of [...conditions, ...outerConditions, ...conjunctsOf(parts.having)]) {
 			this.expr(e, { ...here, probe: false, condition: true })
 		}
 		for (const e of parts.values) {
