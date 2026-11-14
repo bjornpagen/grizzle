@@ -3505,6 +3505,10 @@ of a call's input it refuses: `envelope`, no record of exactly `params` and `fac
   and changes nothing. Any SERIALIZABLE transaction can meet a serialization failure, even with no other transaction in
   sight, because under load PostgreSQL's SSI summarizes old committed transactions and judges conservatively: treat it
   as retryable everywhere, but for a deferrable read, which never meets one and waits instead.
+- **Imports at once: one database per worker, for now.** Two large imports into one database, such as two packages
+  that share no row, can still fail each other with 40001: PostgreSQL's SSI can lock more of a stored table than the
+  rows a staged write reads. Until grizzle's fix for this lands, run imports that happen at the same time each in a
+  database of its own, one database per worker.
 - **No server-side timeouts.** grizzle sets no `statement_timeout` or `lock_timeout`. Interrupting the Effect is the only
   cancellation: a call interrupted while its statements run sends one CancelRequest, within the connection's
   `connectTimeoutMs`, so the server stops the statement, then destroys the session's connection, which is never used

@@ -172,12 +172,10 @@ post-beta swarm's fixes for the next release.
 In qti-pie's priority order, each with its lane and a stable label (a closed item is deleted, the others keep theirs);
 each deletes code pantry or edullm keeps today. It lands after the owner's post-pin order (the staged-imports SSI fix,
 the compute test fix, the held fill-order, multi-hop and GiST fixes, LOADER's served matchers and admitted literals),
-Q1 to Q6 first. A new feature still needs its correctness need named in its commit.
-- **Q1.** A Db that holds only `workload`: db.get, execute, page, compile, apply, refresh and explain deleted (CULL,
-  with LOADER's share of the deletion split).
+Q2 to Q6 first. A new feature still needs its correctness need named in its commit.
 - **Q2.** The rowless ChangeSet builder (CULL, its builder series).
-- **Q3.** A law's id exported from the schema, and lawKeyOf, so pantry drops its committed LawId dictionary; RefusedLaw
-  names no QTI law-table today (ARTIFACTS2).
+- **Q3.** lawKeyOf, so pantry drops its committed LawId dictionary (a law's ids ship as lawIdsOf, public/schema.ts);
+  RefusedLaw names no QTI law-table today (ARTIFACTS2).
 - **Q5.** The cost of compiling the law model and building the Qti value (WORKLOAD2).
 - **Q7.** A Compute text split (SHA256). No substring, split_part or pattern group exists, so pantry splits on the host
   and writes the pieces as rows (IDREF, header and tolerance tokens, identifier leads and trails, href pieces, reading
@@ -229,8 +227,8 @@ read against main 5b049abf); a Q label points at its entry above.
    or a replace by key prefix, with a relation's caller fields as a value. Deletes qti/logins.ts:284-2255, 175
    copy-pasted delete blocks of about 1,950 lines, with their 176-name destructure, the deletingEvery guard and 55 omit
    lists.
-6. **A name on every law, plus Q3:** `key`, `contained` and `mirrors` take a name as `check` does, and law ids are
-   exported. Deletes 26 hand-kept law-name tables (the `*LawsByName` records) and test/law-namer.ts.
+6. **A name on every law, plus Q3:** `key`, `contained` and `mirrors` take a name as `check` does, and lawKeyOf.
+   Deletes 26 hand-kept law-name tables (the `*LawsByName` records) and test/law-namer.ts.
 7. **A boolean term as a condition:** a boolean term usable where a predicate is. Deletes 15+ `eq(term, true)` sites.
 8. **Q13 over copied fields:** a generated term may read an accumulated field. Makes node.ts `ancestry` and
    Attribute.slot generated and deletes TableScope, MathAlignScope and SsmlScope.
@@ -241,6 +239,20 @@ read against main 5b049abf); a Q label points at its entry above.
     node.ts's bounded string-value fold and its hand lists of folded kinds.
 12. **Rules over recursive queries:** a rule side may read a recursive derived relation. Deletes mathml-share.ts's
     host-computed dominance ranks (MathRank, PlacedMathRank) and closes its foreign-element hole.
+
+### qti-pie's test-survey asks, for the owner to schedule (2026-11-14)
+From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.md, section 4), logged only.
+- **grizzle-mutate on TypeScript 7.0.2:** packages/testing's mutants.ts and scripts/mutate.ts import typescript/ast,
+  typescript/fs and typescript/sync, which 7.0.2 (qti-pie's override) exports only under ./unstable/, so no one can
+  mutation-test qti-pie. Stable import paths fix it, or qti-pie moves to grizzle's 7.1.
+- **A repetition cap for @grizzle/testing/pattern's `matching`:** it refuses unbounded `*`, `+` and `{n,}`, so pantry
+  rewrites them by hand (lexical-harness.ts:829, :1013).
+- **An orphan family member refused under its family's law:** a member appended under an owner the stratum does not
+  insert is a CompileError that names no law (write/family/edit.ts:507); it should be the family law's refusal, with
+  a witness.
+- **One exhaustion split across Vitest files, checked:** an exhaustion's fibers share one thread, so a CPU-bound
+  exhaustion uses one core whatever its concurrency.
+- **Text keys past PostgreSQL's B-tree item size:** so pantry drops its "Key text bound" law.
 
 ### Next
 - **A family member's put that moves a key is witnessed by PostgreSQL alone (WITNESS, 2026-11-11):** every insert now
