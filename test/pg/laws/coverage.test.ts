@@ -31,11 +31,20 @@ import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { pg, span } from "#compiler/public/fields.ts"
-import { contained, key, on, relation, schema, select } from "#compiler/public/schema.ts"
+import {
+	contained,
+	key,
+	on,
+	relation,
+	schema,
+	select,
+	type Statement
+} from "#compiler/public/schema.ts"
 import { type Catalogued, cleared, type Seat, seatOf } from "#test/pg/fin/installed.ts"
 import { covered, isEmpty, keyRefusal, type Row, SPANS } from "#test/pg/substrate/temporal.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
+import { type Names, namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
 	type Attempted,
@@ -55,21 +64,20 @@ const Source = relation("Source", { id: pg.int4, k: pg.int4, during: span(pg.int
 ])
 const selectedTarget = select(Target, (t) => t.eq(t.on, true))
 
-const Coverage = schema(
-	"fin_coverage",
-	[Target, Source],
-	[
-		key(on(selectedTarget, "k", "during")),
-		contained(
-			on(
-				select(Source, (s) => s.eq(s.on, true)),
-				"k",
-				"during"
-			),
-			on(selectedTarget, "k", "during")
-		)
-	]
+/** The target key, over a selected side, which the installation reports as its own law (a projected key). */
+const targetKey = key(on(selectedTarget, "k", "during"))
+
+/** The coverage: a selected source's span within its key's selected target spans. */
+const coverage = contained(
+	on(
+		select(Source, (s) => s.eq(s.on, true)),
+		"k",
+		"during"
+	),
+	on(selectedTarget, "k", "during")
 )
+
+const Coverage = schema("fin_coverage", [Target, Source], [targetKey, coverage])
 
 const RELATIONS = ["Target", "Source"] as const
 
@@ -143,20 +151,21 @@ const insertSql = (seat: Seat, relation: string, rows: ReadonlyArray<Row>, from:
 
 /**
  * What a refusal's constraint is, as the installation reports it: a CHECK over a span field, its shape; a unique or a
- * foreign key reporting the target key's law or the coverage's law, each by the law the installation maps it to.
+ * foreign key reporting the target key's law or the coverage's law, each the law its statement declares
+ * (kernel/naming.ts lawOf), whatever kind of law the theory makes of it.
  */
 const refusalOf =
-	(seat: Seat) =>
+	(laws: Names) =>
 	(c: Catalogued): Option.Option<Refusal> => {
-		const reports = (kind: string) => Option.exists(c.law, (l) => seat.lawsOf(kind).includes(l))
+		const reports = (law: Statement) => Option.contains(c.law, laws.lawOf(law))
 		switch (c.kind) {
 			case "check":
 				return c.columns.includes("during") ? Option.some("empty span") : Option.none()
 			case "unique":
 			case "primary":
-				return reports("key") ? Option.some("key") : Option.none()
+				return reports(targetKey) ? Option.some("key") : Option.none()
 			case "foreign":
-				return reports("containment") ? Option.some("coverage") : Option.none()
+				return reports(coverage) ? Option.some("coverage") : Option.none()
 		}
 	}
 
@@ -180,6 +189,7 @@ layer(Substrate.layer)("coverage through grizzle's lowering on PostgreSQL 19rc2"
 				ctx,
 				Effect.gen(function* () {
 					const seat = yield* seatOf(Coverage, RELATIONS, "coverage")
+					const laws = namesOf(seat.installed)
 					return yield* exhaust(
 						{
 							suite: "fin/coverage",
@@ -230,7 +240,7 @@ layer(Substrate.layer)("coverage through grizzle's lowering on PostgreSQL 19rc2"
 								if (model.kind !== "refused") {
 									return yield* disagree("PostgreSQL refused")
 								}
-								const named = Option.flatMap(seat.refusedBy(real.fields), refusalOf(seat))
+								const named = Option.flatMap(seat.refusedBy(real.fields), refusalOf(laws))
 								if (
 									!sameMoment(real.moment, model.moment) ||
 									!Option.contains(named, model.by) ||
