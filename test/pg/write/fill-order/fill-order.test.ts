@@ -75,7 +75,10 @@ import { fullWorld } from "#test/support/worlds.ts"
  * so an accepted insert with the reference writer's rows is the property.
  *
  * Plant: ~/.cache/grizzle-release/BR08/plants/fill-order-index-off-by-one.patch, the fill drawing each member's index
- * one past its slot, must turn the property red.
+ * one past its slot, must turn the property red. Plant: ~/.cache/grizzle-release/FAMILYMOVE/plants/
+ * fill-order-moved-owner-riders-left-out.patch, the additions refilling no rider, so a moved owner's counted members
+ * keep their copy of its old index, fails the case aimed at "a follow-up that moves an owner whose counted members copy
+ * its index".
  */
 
 type ClusterSituation =
@@ -100,6 +103,7 @@ type ClusterSituation =
 	| "a follow-up that re-places an owner of counted members"
 	| "a follow-up that re-places an immutable owner of counted members"
 	| "a follow-up that moves an owner of counted members to another owner's group"
+	| "a follow-up that moves an owner whose counted members copy its index"
 
 const situations: Arr.NonEmptyReadonlyArray<ClusterSituation> = [
 	"a tree owning an ordered family",
@@ -122,7 +126,8 @@ const situations: Arr.NonEmptyReadonlyArray<ClusterSituation> = [
 	"a follow-up that refills a fold stepping a copy",
 	"a follow-up that re-places an owner of counted members",
 	"a follow-up that re-places an immutable owner of counted members",
-	"a follow-up that moves an owner of counted members to another owner's group"
+	"a follow-up that moves an owner of counted members to another owner's group",
+	"a follow-up that moves an owner whose counted members copy its index"
 ]
 
 /** A call's facts: under each op of a change member's array members, the rows of each, under its relation's name. */
@@ -263,8 +268,9 @@ const plantedCase = (planted: Planted): Gen<ClusterCase> =>
  * it is pending: a planted shape beside a drawn one (fill.ts `plantedGen`, admitted by the reference as planted); or,
  * where a follow-up must change what the planted relations hold, the shape alone with a follow-up aimed at it: a put of
  * the owner whose copy a fold steps (fill.ts `ownerPutGen`), a deletion or a move re-placing an ordered member that
- * owns a counted member (`replacingGen`), or a move of such a member to another owner's group (`movingGen`), over the
- * instance of every count at its most (`fullInstance`), whose last member of each group owns every counted member.
+ * owns a counted member (`replacingGen`), or a move of such a member to another owner's group (`movingGen`), its counted
+ * members copying its index or not, over the instance of every count at its most (`fullInstance`), whose last member of
+ * each group owns every counted member.
  */
 const aims: ReadonlyArray<readonly [ClusterSituation, Gen<ClusterCase>]> = [
 	["a tree owning an ordered family", plantedCase("tree with an ordered family")],
@@ -309,6 +315,17 @@ const aims: ReadonlyArray<readonly [ClusterSituation, Gen<ClusterCase>]> = [
 		"a follow-up that moves an owner of counted members to another owner's group",
 		caseOver(
 			plantedGen("re-placed owner"),
+			(spec) => constant(fullInstance(spec)),
+			(spec, rows) => movingGen(spec, rows, 0)
+		)
+	],
+	[
+		"a follow-up that moves an owner whose counted members copy its index",
+		caseOver(
+			(source) => ({
+				...source.draw(plantedGen("re-placed owner")),
+				copies: [{ family: 1, axis: "owner", source: { kind: "index", family: 0 } }]
+			}),
 			(spec) => constant(fullInstance(spec)),
 			(spec, rows) => movingGen(spec, rows, 0)
 		)
@@ -974,6 +991,25 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 									c.note(
 										"a follow-up that moves an owner of counted members to another owner's group"
 									)
+								}
+								if (
+									Option.exists(f.moved, (moved) =>
+										Arr.some(
+											spec.copies,
+											(copy) =>
+												copy.axis === "owner" &&
+												copy.source.kind === "index" &&
+												copy.source.family === moved.family &&
+												Arr.some(rows, (y) =>
+													Arr.some(
+														y.memberOf,
+														(m) => m.family === copy.family && m.owner === moved.id
+													)
+												)
+										)
+									)
+								) {
+									c.note("a follow-up that moves an owner whose counted members copy its index")
 								}
 								if (
 									Option.isSome(f.put) &&

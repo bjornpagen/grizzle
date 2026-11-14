@@ -9,7 +9,7 @@
  * - removed: a delete's, and a put's that names another group in some family of the relation, which the additions
  *   insert again in its new groups: it leaves every family it is a member of, and keeps every counted family it owns,
  *   whose members still name it and whose counts and ends the additions read from them (write/family/additions.ts
- *   appendedOf);
+ *   appendedOf), and whose members' copies of the columns its new groups draw the additions' riders refill;
  * - updated in place: any other put's, its caller fields the put's; its families' values are drawn again from its slot
  *   where the put changes a field one of their values reads.
  *
@@ -322,6 +322,139 @@ const shapedArm = (supply: NameSupply, relation: RelationInfo, shaped: Shaped): 
 }
 
 /**
+ * Where a family statement draws its member relations' rows: its statement's context and CTEs, its slots' facts, and
+ * the slots of the stratum that leave a group's recount to its additions (`Deferring`), with their facts.
+ */
+export interface DrawIn {
+	readonly w: WriteContext
+	readonly supply: NameSupply
+	readonly ctes: Array<Cte>
+	readonly slots: SlotReader
+	readonly deferred: ReadonlyArray<Deferring & { readonly facts: Shaped }>
+}
+
+/** Member relations a family statement draws: each one's read (`Read`), and its families' redraws (`Redrawn`). */
+interface DrawnMembers {
+	readonly reads: ReadonlyArray<Read>
+	readonly redrawn: ReadonlyArray<Redrawn>
+}
+
+/** The ways a member relation's refilled families are reached (`RefillWay`). */
+const waysOf = (member: EditedMember): ReadonlyArray<RefillWay> =>
+	member.families.flatMap((f) => f.refills)
+
+/** Each member's read and its families' redraws, its refills' rows cascaded from `rootFacts`. */
+const drawnMembers = (
+	at: DrawIn,
+	of: ReadonlyArray<EditedMember>,
+	rootFacts: ReadonlyMap<string, Shaped>
+): DrawnMembers => {
+	const { w, supply, ctes } = at
+	const read = of.map((member): Read => {
+		const edit = readEdit(w, supply, ctes, member, at.slots)
+		const ways = waysOf(member)
+		if (!isNonEmpty(ways)) {
+			return edit
+		}
+		const reached = cascaded(w, supply, ctes, member, ways, rootFacts)
+		return {
+			...edit,
+			updated:
+				member.puts === undefined && member.deletes === undefined
+					? reached
+					: merged(w, supply, ctes, member, edit, reached)
+		}
+	})
+	return {
+		reads: read,
+		redrawn: read.flatMap((r) =>
+			r.member.families.map((f) =>
+				redraw(w, supply, ctes, r, f.family, f.drawn, f.inputs, at.deferred, rootFacts)
+			)
+		)
+	}
+}
+
+/**
+ * A family statement's riders (FamilyRemovals and FamilyAdditions `riders`), the member relations an edit's refills
+ * rewrite, drawn again from the rows the statement writes again of the edit's relation by the edit's family
+ * (`rewritten`), each a refill's root, beside the put roots' facts (`facts`): a re-placed row's dependants follow it. The
+ * removals' rows are the members they redraw, the additions' the members they append, a stored one a put moves to
+ * another group among them, which the removals deleted and no cascade follows.
+ */
+const ridersDrawn = (
+	at: DrawIn,
+	riders: ReadonlyArray<EditedMember>,
+	facts: ReadonlyMap<string, Shaped>,
+	rewritten: (relation: StoredRelationName, family: Family) => Shaped
+): DrawnMembers => {
+	const editFacts = new Map(facts)
+	for (const member of riders) {
+		for (const way of waysOf(member)) {
+			const root = way.root
+			if (root.kind === "edit") {
+				editFacts.set(root.relation, rewritten(root.relation, root.family))
+			}
+		}
+	}
+	return drawnMembers(at, riders, editFacts)
+}
+
+/**
+ * The writes of a family statement's drawn members: each member's deletion first, every insert and update after every
+ * deletion (`barrierOf`), and the recount of each touched group's mutable owner no later statement recounts.
+ */
+const memberWrites = (
+	at: DrawIn,
+	drawn: DrawnMembers,
+	relations: ReadonlyMap<string, RelationInfo>
+): ReadonlyArray<FamilyReturning> => {
+	const { w, supply, ctes } = at
+	const returnings: Array<FamilyReturning> = []
+	/** The deletions every insert and update of the statement waits on. */
+	const deletions: Array<string> = []
+	for (const read of drawn.reads) {
+		const del = deleteOf(w, supply, ctes, read, drawn.redrawn)
+		deletions.push(del.cte)
+		returnings.push(del)
+	}
+	const barrier = barrierOf(supply, ctes, deletions)
+	for (const read of drawn.reads) {
+		appendAll(returnings, writesOf(w, supply, ctes, read, drawn.redrawn, barrier))
+	}
+	const owners = new Map<string, Array<Redrawn>>()
+	for (const r of drawn.redrawn) {
+		if (!r.family.owner.mutable || isTree(r.family)) {
+			continue
+		}
+		const list = owners.get(r.family.owner.name) ?? []
+		list.push(r)
+		owners.set(r.family.owner.name, list)
+	}
+	for (const [ownerName, list] of owners) {
+		const [first, ...rest] = list
+		if (first !== undefined) {
+			const owner = defined(relations.get(ownerName), `the owner relation ${ownerName}`)
+			returnings.push(recountOf(w, supply, ctes, owner, [first, ...rest], barrier))
+		}
+	}
+	return returnings
+}
+
+/**
+ * The writes of a family statement's riders alone (`ridersDrawn`), drawn again from the rows it writes again by each
+ * edit's family (`rewritten`), none of them a put root's: the additions' riders, whose roots are the rows the additions
+ * append.
+ */
+export const riderWrites = (
+	at: DrawIn,
+	riders: ReadonlyArray<EditedMember>,
+	rewritten: (relation: StoredRelationName, family: Family) => Shaped,
+	relations: ReadonlyMap<string, RelationInfo>
+): ReadonlyArray<FamilyReturning> =>
+	memberWrites(at, ridersDrawn(at, riders, new Map(), rewritten), relations)
+
+/**
  * The family removals of a stratum (see the header): its edited members' deletions, re-placements and updates in place,
  * and the recounts of its touched groups' mutable owners no later statement recounts, as one statement of the write's
  * flight.
@@ -338,99 +471,45 @@ export const removalsSql = (
 	w.cx.beginWriteStatement(supply, params)
 	const ctes: Array<Cte> = []
 	const slots = slotReader(w, supply, ctes)
-	const deferred = deferring.map((d) => ({ ...d, facts: slots(d.relation, d.slot) }))
+	const at: DrawIn = {
+		w,
+		supply,
+		ctes,
+		slots,
+		deferred: deferring.map((d) => ({ ...d, facts: slots(d.relation, d.slot) }))
+	}
 	/** Each put root's facts, the root's rows as the stratum leaves them, by relation. */
 	const putFacts = new Map(
 		roots.map((r) => [r.relation.name, slots(r.relation.name, r.slot)] as const)
 	)
-	const waysOf = (member: EditedMember) => member.families.flatMap((f) => f.refills)
-	/** Each member's read and its families' redraws, its refills' rows cascaded from `rootFacts`. */
-	const drawn = (
-		of: ReadonlyArray<EditedMember>,
-		rootFacts: ReadonlyMap<string, Shaped>
-	): { readonly reads: ReadonlyArray<Read>; readonly redrawn: ReadonlyArray<Redrawn> } => {
-		const read = of.map((member): Read => {
-			const edit = readEdit(w, supply, ctes, member, slots)
-			const ways = waysOf(member)
-			if (!isNonEmpty(ways)) {
-				return edit
-			}
-			const reached = cascaded(w, supply, ctes, member, ways, rootFacts)
-			return {
-				...edit,
-				updated:
-					member.puts === undefined && member.deletes === undefined
-						? reached
-						: merged(w, supply, ctes, member, edit, reached)
-			}
-		})
-		return {
-			reads: read,
-			redrawn: read.flatMap((r) =>
-				r.member.families.map((f) =>
-					redraw(w, supply, ctes, r, f.family, f.drawn, f.inputs, deferred, rootFacts)
-				)
-			)
-		}
-	}
 	/** The edited members first, and then the riders an edit's refills rewrite, whose rows start at the edited rows
 	 * their families redraw. */
-	const edited = drawn(
+	const edited = drawnMembers(
+		at,
 		members.filter((m) => !waysOf(m).some((way) => way.root.kind === "edit")),
 		putFacts
 	)
-	const editFacts = new Map(putFacts)
-	for (const member of members) {
-		for (const way of waysOf(member)) {
-			const root = way.root
-			if (root.kind === "edit") {
-				const at = defined(
-					edited.redrawn.find(
-						(x) =>
-							x.member.relation.name === root.relation &&
-							familyKey(x.family.id) === familyKey(root.family.id)
-					),
-					`the redraw of ${root.relation} a refill starts from`
-				)
-				editFacts.set(root.relation, at.scan)
-			}
-		}
-	}
-	const riding = drawn(
+	const riding = ridersDrawn(
+		at,
 		members.filter((m) => waysOf(m).some((way) => way.root.kind === "edit")),
-		editFacts
+		putFacts,
+		(relation, family) =>
+			defined(
+				edited.redrawn.find(
+					(x) =>
+						x.member.relation.name === relation && familyKey(x.family.id) === familyKey(family.id)
+				),
+				`the redraw of ${relation} a refill starts from`
+			).scan
 	)
-	const reads = [...edited.reads, ...riding.reads]
-	const redrawn = [...edited.redrawn, ...riding.redrawn]
-	const returnings: Array<FamilyReturning> = []
-	/** The deletions every insert and update of the statement waits on. */
-	const deletions: Array<string> = []
-	for (const read of reads) {
-		const del = deleteOf(w, supply, ctes, read, redrawn)
-		deletions.push(del.cte)
-		returnings.push(del)
-	}
-	const barrier = barrierOf(supply, ctes, deletions)
-	for (const read of reads) {
-		appendAll(returnings, writesOf(w, supply, ctes, read, redrawn, barrier))
-	}
-	const owners = new Map<string, Array<Redrawn>>()
-	for (const r of redrawn) {
-		if (!r.family.owner.mutable || isTree(r.family)) {
-			continue
-		}
-		const list = owners.get(r.family.owner.name) ?? []
-		list.push(r)
-		owners.set(r.family.owner.name, list)
-	}
-	for (const [ownerName, list] of owners) {
-		const [first, ...rest] = list
-		if (first !== undefined) {
-			const owner = defined(relations.get(ownerName), `the owner relation ${ownerName}`)
-			returnings.push(recountOf(w, supply, ctes, owner, [first, ...rest], barrier))
-		}
-	}
-	const [firstReturning, ...restReturnings] = returnings
+	const [firstReturning, ...restReturnings] = memberWrites(
+		at,
+		{
+			reads: [...edited.reads, ...riding.reads],
+			redrawn: [...edited.redrawn, ...riding.redrawn]
+		},
+		relations
+	)
 	if (firstReturning === undefined) {
 		throw defect("a family write that removes returns its deletions")
 	}

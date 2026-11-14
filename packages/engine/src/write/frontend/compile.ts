@@ -2367,7 +2367,9 @@ const compile = (
 					: []
 			)
 		)
-		/** The members an edit's refills rewrite in the edit's own removals statement (FamilyRemovals `riders`). */
+		/** The members an edit's refills rewrite in the edit's own removals statement, from the rows it redraws, and in its
+		 * additions, from the rows they append, a stored one a put moves among them (FamilyRemovals and FamilyAdditions
+		 * `riders`). */
 		const ridersOf = (member: StoredRelationName): ReadonlyArray<StoredRelationName> =>
 			[...starts].flatMap(([rider, x]) => (x?.edit === member ? [rider] : []))
 		/** The plain relations whose puts a removals statement's refills read the facts of, which it runs before: its own
@@ -2553,7 +2555,8 @@ const compile = (
 					owners: [
 						...drawn,
 						...putOf(member).filter((o) => !drawn.some((d) => d.relation === o.relation))
-					]
+					],
+					riders: ridersOf(member)
 				}
 			}),
 			...recountedOnly.flatMap((member) => {

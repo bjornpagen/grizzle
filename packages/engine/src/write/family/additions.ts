@@ -97,6 +97,12 @@ import {
 } from "#compiler/sql/build.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
 import {
+	type Deferring,
+	type DrawIn,
+	type EditedMember,
+	riderWrites
+} from "#compiler/write/family/removals.ts"
+import {
 	type GroupState,
 	type PerGroup,
 	readAt,
@@ -214,6 +220,12 @@ export interface AppendedMember {
 	}>
 	/** The counted families it owns, in the law model's order, whose counts and ends its rows hold (`ownedColumns`). */
 	readonly owns: ReadonlyArray<Family>
+	/**
+	 * The member relations whose rows an edit of it refills (FamilyAdditions `riders`), each drawn again from the rows
+	 * this statement appends of it (write/family/removals.ts riderWrites): a stored row a put moves to another group is
+	 * inserted again at its new slot, which no cascade follows, so its own members' copies of its columns follow it here.
+	 */
+	readonly riders: ReadonlyArray<EditedMember>
 }
 
 /**
@@ -278,6 +290,7 @@ export const additionsSql = (
 	putOwners: ReadonlyArray<PutOwner>,
 	ownerCopies: ReadonlyArray<OwnerCopy>,
 	ownerRows: ReadonlyMap<string, ReadonlyArray<OwnerRows>>,
+	deferring: ReadonlyArray<Deferring>,
 	relations: ReadonlyMap<string, RelationInfo>
 ): FamilyWriteSql => {
 	const supply = new NameSupply(w.start)
@@ -424,7 +437,33 @@ export const additionsSql = (
 			recounts.push(recountOf(w, supply, ctes, owner, [first, ...rest]))
 		}
 	}
-	const [firstReturning, ...restReturnings] = [...recounts, ...inserts]
+	/** Each member's riders, drawn again from the rows its families' scans append, a moved row among them. */
+	const riding = members.flatMap((member): ReadonlyArray<FamilyReturning> => {
+		if (!isNonEmpty(member.riders)) {
+			return []
+		}
+		const at: DrawIn = {
+			w,
+			supply,
+			ctes,
+			slots,
+			deferred: deferring.map((d) => ({ ...d, facts: slots(d.relation, d.slot) }))
+		}
+		return riderWrites(
+			at,
+			member.riders,
+			(relation, family) =>
+				defined(
+					scanned.find(
+						(x) =>
+							x.family.member.name === relation && familyKey(x.family.id) === familyKey(family.id)
+					),
+					`the appends of ${relation} a refill starts from`
+				).scan,
+			relations
+		)
+	})
+	const [firstReturning, ...restReturnings] = [...recounts, ...inserts, ...riding]
 	if (firstReturning === undefined) {
 		throw defect("a family additions statement appends or recounts a put owner")
 	}

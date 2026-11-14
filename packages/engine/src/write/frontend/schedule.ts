@@ -103,6 +103,10 @@ export type FamilyAdditions =
 			/** Where each owner copy its appended members' families draw reads its owner's column. */
 			readonly ownerCopies: ReadonlyArray<OwnerCopy>
 			readonly owners: ReadonlyArray<OwnerChanges>
+			/** The member relations whose rows an edit of `member` refills from the rows this statement appends of it, a
+			 * stored one a put moves among them, as its removals refill them from the rows they redraw (FamilyRemovals
+			 * `riders`): a re-placed row's dependants follow it. */
+			readonly riders: ReadonlyArray<string>
 	  }
 	| {
 			readonly kind: "additions"
@@ -148,13 +152,10 @@ export const familyNodeRelations = (node: FamilyNode): ReadonlyArray<string> =>
 			? [...writtenMembers(node), ...node.owners.map((o) => o.relation)]
 			: [node.relation]
 
-/** The member relation an additions or removals statement writes the rows of: its member, none where it appends none. */
+/** The member relations an additions or removals statement writes the rows of: its member and its riders, none where it
+ * appends none. */
 const writtenMembers = (node: FamilyAdditions | FamilyRemovals): ReadonlyArray<string> =>
-	node.kind === "removals"
-		? [node.member, ...node.riders]
-		: node.appends === "nothing"
-			? []
-			: [node.member]
+	node.kind === "removals" || node.appends === "rows" ? [node.member, ...node.riders] : []
 
 /** A column PostgreSQL generates from its row, by key (runtime/write/fill.ts ColumnKey), with the keys of the columns it
  * reads. */
@@ -713,7 +714,7 @@ const changesAt = (node: FamilyNode, columns: ReadonlyArray<string>): boolean =>
  * in its own row (write/program/bind.ts freshOwners), which no recount changes; and the immediate references between
  * them order them as any two writes' do, the additions adding the rows they insert, the removals removing the rows they
  * delete and re-place and changing the rows whose indexes they redraw, adding too where they update a put or refilled
- * member in place, adding and changing the rows of each member relation its edit's refills rewrite (`riders`), and
+ * member in place, either adding and changing the rows of each member relation its edit's refills rewrite (`riders`), and
  * either adding and changing an owner's facts at the columns its recount changes; and a removals that refills a member
  * ahead of a put of a plain relation it draws from runs before that put.
  */
@@ -739,11 +740,11 @@ const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
 	}
 	const effectAt = (relation: string, columns: ReadonlyArray<string>): Effect | undefined => {
 		if (members.includes(relation)) {
-			return node.kind === "additions"
-				? { adds: true, removes: false, updates: false }
-				: relation === node.member
-					? { adds: node.edits.some((e) => e !== "delete"), removes: true, updates: true }
-					: { adds: true, removes: false, updates: true }
+			return relation !== node.member
+				? { adds: true, removes: false, updates: true }
+				: node.kind === "additions"
+					? { adds: true, removes: false, updates: false }
+					: { adds: node.edits.some((e) => e !== "delete"), removes: true, updates: true }
 		}
 		const owner = node.owners.find((o) => o.relation === relation)
 		if (owner === undefined) {

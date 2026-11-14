@@ -590,6 +590,45 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 							: []
 					)
 				const w0 = { ...w, start: ownStatement }
+				/** The slots of the stratum that leave a group's recount to its additions (removals.ts Deferring). */
+				const deferring: ReadonlyArray<Deferring> = [
+					...stratumEdits.flatMap((edit) => [
+						...(edit.inserts === undefined
+							? []
+							: [
+									{
+										relation: edit.relation.name,
+										slot: memberSlotOf(frontend, edit.inserts),
+										as: "inserts" as const
+									}
+								]),
+						...(edit.puts === undefined
+							? []
+							: [
+									{
+										relation: edit.relation.name,
+										slot: memberSlotOf(frontend, edit.puts),
+										as: "puts" as const
+									}
+								])
+					]),
+					...[...ownerSlots("put"), ...ownerSlots("delete")].map((o) => ({
+						...o,
+						as: "owners" as const
+					}))
+				]
+				/** The members an edit's refills rewrite in the statement (FamilyRemovals and FamilyAdditions `riders`). */
+				const ridersOf = (names: ReadonlyArray<string>) =>
+					names.map((name): EditedMember => {
+						const rider = info(name)
+						return {
+							relation: rider,
+							layout: layoutOf(name),
+							puts: undefined,
+							deletes: undefined,
+							families: removedFamilies(rider)
+						}
+					})
 				if (node.kind === "additions") {
 					/** The rows the stratum's nested writes fill, by relation, as each sends them (nesting.ts sentLayout), with
 					 * the columns of them the walk fills, which they state. */
@@ -647,7 +686,8 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 									layout: layoutOf(name),
 									sources,
 									families: familiesOf(relation),
-									owns: all.filter((f) => f.owner.name === name && !isSequence(f))
+									owns: all.filter((f) => f.owner.name === name && !isSequence(f)),
+									riders: ridersOf(node.appends === "rows" ? node.riders : [])
 								}
 							]
 						}
@@ -682,7 +722,15 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 							}
 						)
 					)
-					const sql = additionsSql(w0, appended, putOwners, ownerCopies, ownerRows, stored)
+					const sql = additionsSql(
+						w0,
+						appended,
+						putOwners,
+						ownerCopies,
+						ownerRows,
+						deferring,
+						stored
+					)
 					const step: FamilyWriteStep = {
 						kind: "familyWrite",
 						stratum: s,
@@ -707,44 +755,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 						`the put of ${root} a refill reads`
 					).slot
 				}))
-				const deferring: ReadonlyArray<Deferring> = [
-					...stratumEdits.flatMap((edit) => [
-						...(edit.inserts === undefined
-							? []
-							: [
-									{
-										relation: edit.relation.name,
-										slot: memberSlotOf(frontend, edit.inserts),
-										as: "inserts" as const
-									}
-								]),
-						...(edit.puts === undefined
-							? []
-							: [
-									{
-										relation: edit.relation.name,
-										slot: memberSlotOf(frontend, edit.puts),
-										as: "puts" as const
-									}
-								])
-					]),
-					...[...ownerSlots("put"), ...ownerSlots("delete")].map((o) => ({
-						...o,
-						as: "owners" as const
-					}))
-				]
-				/** The members the edit's refills rewrite in this statement (FamilyRemovals `riders`). */
-				const riders = node.riders.map((name): EditedMember => {
-					const rider = info(name)
-					return {
-						relation: rider,
-						layout: layoutOf(name),
-						puts: undefined,
-						deletes: undefined,
-						families: removedFamilies(rider)
-					}
-				})
-				const sql = removalsSql(w0, [removing, ...riders], roots, deferring, stored)
+				const sql = removalsSql(w0, [removing, ...ridersOf(node.riders)], roots, deferring, stored)
 				const step: FamilyWriteStep = {
 					kind: "familyWrite",
 					stratum: s,
