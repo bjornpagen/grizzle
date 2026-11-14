@@ -839,12 +839,14 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 								const loaded = yield* db.load(
 									Arr.isReadonlyArrayNonEmpty(units) ? { insert, replace } : { insert }
 								)
-								const insertion = applicationOf(flight.context, member(loaded, "insert"))
-								const replacement = applicationOf(flight.context, member(loaded, "replace"))
-								const applied = (callFacts: CallFacts) =>
-									insertion({ params: {}, facts: callFacts })
-								const replaced = (callFacts: CallFacts) =>
-									replacement({ params: {}, facts: callFacts })
+								/** A call of the member `name`, which the load holds: a replace only where the schema has units. */
+								const calledWith = (name: "insert" | "replace") => (callFacts: CallFacts) =>
+									applicationOf(
+										flight.context,
+										member(loaded, name)
+									)({ params: {}, facts: callFacts })
+								const applied = calledWith("insert")
+								const replaced = calledWith("replace")
 								const first = yield* flight.judged(
 									"the first insert",
 									applied(factsOf(rows, false))
