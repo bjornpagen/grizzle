@@ -35,7 +35,7 @@ const testConfig: Gen<TestConfig> = (source) => ({
 	guided: files(source),
 	setup: files(source),
 	conditions: source.draw(
-		array(element(["grizzle-source", "development"] as const), { min: 0, max: 2 })
+		array(element(["development", "production"] as const), { min: 0, max: 2 })
 	),
 	timeouts: { test: source.draw(timeout), hook: source.draw(timeout) },
 	maxWorkers: source.draw(option(int(1, 16))),

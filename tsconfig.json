@@ -1,8 +1,7 @@
 {
 	"$schema": "./node_modules/@effect/tsgo/schema.json",
-	"extends": ["@grizzle/devtools/tsconfig.base.json", "./tsconfig.base.json"],
+	"extends": "./tsconfig.base.json",
 	"compilerOptions": {
-		"customConditions": ["grizzle-source"],
 		"plugins": [
 			{
 				"name": "@effect/language-service",
@@ -185,7 +184,6 @@
 							"bench/main.ts",
 							"bench/cold/main.ts",
 							"bench/cold/probe.ts",
-							"scripts/build.ts",
 							"scripts/dev/mutate/main.ts",
 							"scripts/dev/profile/compile.ts",
 							"scripts/dev/profile/read.ts",
@@ -249,7 +247,6 @@
 		"scripts/gen",
 		"scripts/dev",
 		"scripts/pg",
-		"scripts/build.ts",
 		"oxlint.config.ts",
 		"vitest.config.ts",
 		"vitest.network.config.ts"

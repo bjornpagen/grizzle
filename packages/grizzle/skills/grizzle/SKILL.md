@@ -749,5 +749,5 @@ The command line's own refusals, by stage:
   against those names. A direct writer of a family's member fills its hidden columns as grizzle does (its index, its
   copy of the owner's count, each fold's running values) and the owner's count and ends; PostgreSQL refuses every
   value that breaks the family.
-- This file ships in the package as `skills/grizzle/SKILL.md`: copy it to where your agent reads skills, and again
-  after upgrading grizzle.
+- This file is `packages/grizzle/skills/grizzle/SKILL.md` in grizzle's repository, which you take as a git submodule:
+  copy it to where your agent reads skills, and again after upgrading grizzle.

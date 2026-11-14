@@ -32,7 +32,6 @@ import { repoRoot } from "#test/support/files.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
 import { decodersIn, type SourcedLayer, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
-import { sourceCondition } from "#test/support/process.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { scopedTempDir } from "#test/support/temp.ts"
 import { testVerify } from "#test/support/worlds.ts"
@@ -435,7 +434,7 @@ export const bin = (
 		Effect.gen(function* () {
 			const handle = yield* ChildProcess.make(
 				process.execPath,
-				[sourceCondition, `${repo}packages/grizzle/src/cli/main.ts`, ...argv],
+				[`${repo}packages/grizzle/src/cli/main.ts`, ...argv],
 				{ cwd: dir, env: { ...env }, extendEnv: true, stdin: "ignore" }
 			)
 			const [stdout, stderr, status] = yield* Effect.all(

@@ -10,7 +10,7 @@ your scripts and psql alike. Every query's result type follows from the query, e
 transaction, and every failure is a typed value: a broken rule comes back naming the rule.
 
 [Install](#install) · [Example](#example) · [Agent guide](packages/grizzle/skills/grizzle/SKILL.md) ·
-[Contributing](CONTRIBUTING.md) · [npm](https://www.npmjs.com/package/@bjornpagen/grizzle)
+[Contributing](CONTRIBUTING.md)
 
 ## Why grizzle exists
 
@@ -1256,15 +1256,44 @@ None of it is a trigger or a policy you keep in step by hand. Migrations are pla
 
 You need PostgreSQL 19, Node 26 or later, and Effect 4.1. grizzle is tested on PostgreSQL 19rc2 with the patch under [PostgreSQL known issues](#postgresql-known-issues). PostgreSQL 19 GA is due on 2026-11-19; until hosted providers offer it, run the server yourself.
 
+grizzle is not a package: you take this repository as a git submodule, pinned by commit, and add its two packages to your pnpm workspace. Node runs grizzle's TypeScript source directly, so there is no build step, and `@bjornpagen/grizzle` and its subpaths resolve to the source with no export condition, in Node, TypeScript, Vite and Vitest alike.
+
 ```sh
-pnpm add @bjornpagen/grizzle@beta effect pg
+git submodule add https://github.com/bjornpagen/grizzle.git vendor/grizzle
 ```
 
-The agent guide ships in the package as `skills/grizzle/SKILL.md`: copy it to where your agent reads skills, and again after upgrading grizzle.
+In `pnpm-workspace.yaml`, list the two packages, and give the catalog the versions their `catalog:` dependencies name (grizzle's own `pnpm-workspace.yaml` has the versions it is tested with):
+
+```yaml
+packages:
+  - vendor/grizzle/packages/engine
+  - vendor/grizzle/packages/grizzle
+catalog:
+  "@effect/platform-node": 4.1.2
+  "@types/pg": 8.23.1
+  arkregex: 0.0.14
+  effect: 4.1.2
+  pg: 8.23.1
+```
+
+Then depend on it from your package, beside its peers:
+
+```json
+"dependencies": {
+	"@bjornpagen/grizzle": "workspace:*",
+	"effect": "4.1.2",
+	"pg": "8.23.1"
+}
+```
+
+Import it as `@bjornpagen/grizzle`, `@bjornpagen/grizzle/runtime`, `@bjornpagen/grizzle/compile`, `@bjornpagen/grizzle/client` and `@bjornpagen/grizzle/http`. `pnpm exec grizzle` runs the command line from `src/cli/main.ts`. To upgrade, move the submodule to a newer commit and run `pnpm install`.
+
+The agent guide is `vendor/grizzle/packages/grizzle/skills/grizzle/SKILL.md`: copy it to where your agent reads skills, and again after upgrading grizzle.
 
 In full:
 
 - **Peer dependencies.** `effect` 4.1.2 or a later 4.x, and `pg` (node-postgres) 8.23.1 or a later 8.x: install one copy of each beside grizzle. grizzle imports no driver: you pass the `pg` you import as each connection's `driver`, and a `pg` without pipeline mode, which every call's one round trip needs, is a type error there. `@types/pg`, where TypeScript reads `pg`'s types, is an optional peer.
+- **TypeScript.** Your tsconfig typechecks grizzle's source as part of your program, so it needs `allowImportingTsExtensions` (grizzle's modules import each other by their `.ts` paths) and `moduleResolution` `nodenext` or `bundler`, which read the packages' `exports` and `imports`. grizzle's own tsconfigs extend only files inside its repository, so a tool that reads the nearest tsconfig of each module, as Vite does, needs nothing else of yours.
 - **Hardened Node.** grizzle runs under `--disable-proto=delete` and `--disable-sigusr1`: it never touches `Object.prototype.__proto__`, the `grizzle` command starts with both flags, and every test runs under both.
 - **The database.** UTF8 with the builtin `C.UTF-8` locale, on a server host that has the `C.UTF-8` operating-system locale. `btree_gist` must be available; a migration creates it when a no-overlap key or a coverage rule needs it. pgvector 0.8.7 is needed only for vector fields; it is not a trusted extension, so a superuser creates `vector` first where the migration role cannot.
 - **A migration role that owns the database.** It owns the schema and the database, and has CREATEROLE to create the PostgreSQL roles of your logins and roles. It needs no superuser. Any other role fails the first migration with 42501, because only the database's owner may set its default isolation level.
@@ -4018,13 +4047,13 @@ grizzle fits applications that own their data end to end, with rules worth decla
 
 ## Status
 
-grizzle 1.0.0-beta.1 is the first public beta, published on npm under the `beta` tag. grizzle is tested against PostgreSQL 19rc2, patched as above; PostgreSQL 19 GA is due 2026-11-19. The test suite runs on Linux against that pinned build.
+grizzle is not published: you take a commit of this repository ([Install](#install)). 1.0.0-beta.1, the first public beta, stays on npm under the `beta` tag, and no later release goes there. grizzle is tested against PostgreSQL 19rc2, patched as above; PostgreSQL 19 GA is due 2026-11-19. The test suite runs on Linux against that pinned build.
 
 There are no stability guarantees. Every release is a hard cutover, with no deprecations and no compatibility path for the API, snapshots or migration files.
 
 ## Development
 
-Everything runs natively on Linux, with no Docker. Development has no build step: Node runs each package's `src/*.ts` directly, resolving the packages' names to their `src/` through the `grizzle-source` export condition. `pnpm build` emits each package's published `dist/`; packing or publishing a package runs it first.
+Everything runs natively on Linux, with no Docker. There is no build step: Node runs each package's `src/*.ts` directly, and each package's `exports` and `bin` name its `src/` modules, so the repository and every consumer resolve the packages' names to the source.
 
 ```sh
 pnpm install
@@ -4045,7 +4074,7 @@ Every generated suite draws from one seed, `TEST_SEED`, which a run prints first
 - `packages/grizzle/`: `@bjornpagen/grizzle`, which re-exports the engine's API and adds:
     - `src/adapter/`: the runtime over node-postgres in pipeline mode: `Db.open`, a member's `once` and `watch`, reads, writes, windows, `migrate` and `drift`.
     - `src/cli/`: the `grizzle` command line.
-    - `skills/grizzle/`: the agent guide the package ships.
+    - `skills/grizzle/`: the agent guide.
 - `test/`: the unit, pg, schedules and types tiers, and their support in `test/support/`.
 - `bench/`: performance gates.
 - `scripts/pg/`: the pinned PostgreSQL build, cluster, doctor and patches.

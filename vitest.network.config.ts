@@ -18,7 +18,7 @@ export default defineTestConfig({
 	include: ["test/pg/**/*.test.ts", "test/schedules/**/*.test.ts"],
 	guided: ["test/pg/world-model/random.test.ts"],
 	setup: ["test/support/pg-global-setup.ts"],
-	conditions: ["grizzle-source"],
+	conditions: [],
 	timeouts: {
 		test: { kind: "bounded", millis: testTimeout.value },
 		hook: { kind: "bounded", millis: testTimeout.value }

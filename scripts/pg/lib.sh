@@ -18,7 +18,7 @@ require_build() {
 # The settings that size the cluster to this machine, one "<setting> <value>" line each, the value in the setting's own
 # unit: test/support/substrate/shared.ts clusterSize, the one formula, which init.sh writes and doctor.sh requires.
 cluster_size() {
-	(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && node --conditions=grizzle-source scripts/pg/cluster-size.ts)
+	(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && node scripts/pg/cluster-size.ts)
 }
 
 admin_psql() {
@@ -43,5 +43,5 @@ pg_running() {
 live_slot_bound() {
 	local settings
 	settings="$(admin_psql -d postgres -At -F ' ' -c "SELECT current_setting('max_connections'), current_setting('superuser_reserved_connections'), current_setting('reserved_connections')")"
-	(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && node --conditions=grizzle-source scripts/pg/live-slot-bound.ts $settings)
+	(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && node scripts/pg/live-slot-bound.ts $settings)
 }

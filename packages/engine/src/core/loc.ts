@@ -256,8 +256,6 @@ export const parseStack = (stack: string): ReadonlyArray<CallSite> => {
 export const isLibraryFrame = (file: string): boolean =>
 	file.startsWith("node:") ||
 	file.includes("/packages/engine/src/") ||
-	file.includes("/@bjornpagen/grizzle-engine/") ||
-	file.includes("/@bjornpagen/grizzle/") ||
 	file.includes("\\packages\\engine\\src\\")
 
 /** The first call site of `stack` outside the library, or undefined when every frame is the library's. */

@@ -1,8 +1,7 @@
 {
 	"$schema": "../../node_modules/@effect/tsgo/schema.json",
-	"extends": ["@grizzle/devtools/tsconfig.base.json", "../../tsconfig.base.json"],
+	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
-		"customConditions": ["grizzle-source"],
 		"composite": true,
 		"incremental": true,
 		"noEmit": false,

@@ -7,8 +7,8 @@
  * runtime module, a line and a column), written in each engine's form, so the oracle is the parts themselves.
  *
  * - Frames: every engine's frame line reads as its file, line and column, every other line reads as no site, a stack
- *   reads as its frames' sites in order, a frame is the library's exactly when its file is the library's, the published
- *   engine's or the runtime's, and a stack's site is its first user frame's. Oracle: the frame's own parts.
+ *   reads as its frames' sites in order, a frame is the library's exactly when its file is the library's or the
+ *   runtime's, and a stack's site is its first user frame's. Oracle: the frame's own parts.
  * - Capture: a declaration made through a chain of compiled frames is located at its innermost caller outside the
  *   library. Oracle: the drawn chain, whose call lines are placed by construction.
  * - Structure: a SourceLoc is recognized by its exact structure, and nothing else is. Oracle: the constructors
@@ -68,7 +68,6 @@ type FileKind =
 	| "a Windows path"
 	| "an HTTP URL"
 	| "the library"
-	| "the published engine"
 	| "the runtime"
 
 /** Each kind's spelling of a file named `name`. */
@@ -78,8 +77,6 @@ const spelled: { readonly [K in FileKind]: (name: string) => string } = {
 	"a Windows path": (name) => `C:\\work\\${name}.ts`,
 	"an HTTP URL": (name) => `http://localhost:3000/${name}.js`,
 	"the library": (name) => `file:///repo/packages/engine/src/core/${name}.ts`,
-	"the published engine": (name) =>
-		`file:///app/node_modules/@bjornpagen/grizzle-engine/dist/core/${name}.js`,
 	"the runtime": (name) => `node:internal/${name}`
 }
 
@@ -101,11 +98,10 @@ const fileOf =
 		return { kind, file: spelled[kind](source.draw(matching(regex("^[a-z][a-z0-9_]{0,7}$")))) }
 	}
 
-const fileGen = fileOf([...userKinds, "the library", "the published engine", "the runtime"])
+const fileGen = fileOf([...userKinds, "the library", "the runtime"])
 
 /** Whether a frame in a file of this kind is the user's, which a user-facing location names. */
-const userKind = (kind: FileKind): boolean =>
-	kind !== "the library" && kind !== "the published engine" && kind !== "the runtime"
+const userKind = (kind: FileKind): boolean => kind !== "the library" && kind !== "the runtime"
 
 type Form =
 	| "V8 in a function"
@@ -190,7 +186,6 @@ describe("stack frame parsing", () => {
 								"a Windows path",
 								"an HTTP URL",
 								"the library",
-								"the published engine",
 								"the runtime",
 								"a line of no site"
 							],

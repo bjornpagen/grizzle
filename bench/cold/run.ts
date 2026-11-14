@@ -36,7 +36,6 @@ import { pgPin } from "#test/support/env.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { installMigrated as install, loadMigrated as load } from "#test/support/install-migrate.ts"
-import { sourceCondition } from "#test/support/process.ts"
 import { snapshotValue } from "#test/support/snapshot-json.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -151,7 +150,7 @@ const sample = Effect.fn("sample")(
 		const [stdout, stderr, status] = yield* Effect.scoped(
 			Effect.gen(function* () {
 				const child = yield* spawner.spawn(
-					ChildProcess.make(process.execPath, [sourceCondition, probePath], {
+					ChildProcess.make(process.execPath, [probePath], {
 						cwd: repoRoot,
 						stdin: { stream: Stream.make(new TextEncoder().encode(text)), endOnDone: true },
 						stdout: "pipe",

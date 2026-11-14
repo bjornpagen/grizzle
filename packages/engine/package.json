@@ -1,32 +1,7 @@
 {
 	"name": "@bjornpagen/grizzle-engine",
-	"version": "1.0.0-beta.1",
+	"private": true,
 	"description": "The compiler behind @bjornpagen/grizzle: turns TypeScript tables, rules, permissions and queries into PostgreSQL 19 SQL",
-	"keywords": [
-		"postgresql",
-		"postgres",
-		"typescript",
-		"effect",
-		"database",
-		"sql",
-		"compiler",
-		"schema",
-		"migrations",
-		"query",
-		"type-safe",
-		"constraints",
-		"row-level-security",
-		"serializable"
-	],
-	"homepage": "https://github.com/bjornpagen/grizzle#readme",
-	"bugs": {
-		"url": "https://github.com/bjornpagen/grizzle/issues"
-	},
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/bjornpagen/grizzle.git",
-		"directory": "packages/engine"
-	},
 	"license": "0BSD",
 	"author": "Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>",
 	"type": "module",
@@ -37,70 +12,21 @@
 		"#compiler/*": "./src/*"
 	},
 	"exports": {
-		".": {
-			"grizzle-source": "./src/index.ts",
-			"types": "./dist/index.d.ts",
-			"default": "./dist/index.js"
-		},
-		"./internal/live/index.ts": {
-			"grizzle-source": "./src/live/index.ts",
-			"types": "./dist/live/index.d.ts",
-			"default": "./dist/live/index.js"
-		},
-		"./internal/plan/catalog.ts": {
-			"grizzle-source": "./src/plan/catalog.ts",
-			"types": "./dist/plan/catalog.d.ts",
-			"default": "./dist/plan/catalog.js"
-		},
-		"./internal/plan/change.ts": {
-			"grizzle-source": "./src/plan/change.ts",
-			"types": "./dist/plan/change.d.ts",
-			"default": "./dist/plan/change.js"
-		},
-		"./internal/plan/client.ts": {
-			"grizzle-source": "./src/plan/client.ts",
-			"types": "./dist/plan/client.d.ts",
-			"default": "./dist/plan/client.js"
-		},
-		"./internal/plan/common.ts": {
-			"grizzle-source": "./src/plan/common.ts",
-			"types": "./dist/plan/common.d.ts",
-			"default": "./dist/plan/common.js"
-		},
-		"./internal/plan/decode.ts": {
-			"grizzle-source": "./src/plan/decode.ts",
-			"types": "./dist/plan/decode.d.ts",
-			"default": "./dist/plan/decode.js"
-		},
-		"./internal/plan/migration.ts": {
-			"grizzle-source": "./src/plan/migration.ts",
-			"types": "./dist/plan/migration.d.ts",
-			"default": "./dist/plan/migration.js"
-		},
-		"./internal/plan/read.ts": {
-			"grizzle-source": "./src/plan/read.ts",
-			"types": "./dist/plan/read.d.ts",
-			"default": "./dist/plan/read.js"
-		},
-		"./internal/plan/runtime.ts": {
-			"grizzle-source": "./src/plan/runtime.ts",
-			"types": "./dist/plan/runtime.d.ts",
-			"default": "./dist/plan/runtime.js"
-		},
-		"./internal/plan/serve.ts": {
-			"grizzle-source": "./src/plan/serve.ts",
-			"types": "./dist/plan/serve.d.ts",
-			"default": "./dist/plan/serve.js"
-		},
+		".": "./src/index.ts",
+		"./internal/live/index.ts": "./src/live/index.ts",
+		"./internal/plan/catalog.ts": "./src/plan/catalog.ts",
+		"./internal/plan/change.ts": "./src/plan/change.ts",
+		"./internal/plan/client.ts": "./src/plan/client.ts",
+		"./internal/plan/common.ts": "./src/plan/common.ts",
+		"./internal/plan/decode.ts": "./src/plan/decode.ts",
+		"./internal/plan/migration.ts": "./src/plan/migration.ts",
+		"./internal/plan/read.ts": "./src/plan/read.ts",
+		"./internal/plan/runtime.ts": "./src/plan/runtime.ts",
+		"./internal/plan/serve.ts": "./src/plan/serve.ts",
 		"./package.json": "./package.json"
 	},
-	"files": [
-		"dist",
-		"src"
-	],
 	"sideEffects": false,
 	"scripts": {
-		"prepack": "node --conditions=grizzle-source ../../scripts/build.ts",
 		"typecheck": "effect-tsgo tsrs -b",
 		"superlint": "superlint",
 		"oxlint": "oxlint"
@@ -113,9 +39,5 @@
 	},
 	"peerDependencies": {
 		"effect": "^4.1.2"
-	},
-	"publishConfig": {
-		"access": "public",
-		"tag": "beta"
 	}
 }

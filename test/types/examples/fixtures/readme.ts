@@ -77,10 +77,10 @@ type Expect<T extends true> = T
 
 /**
  * The README's program, checked. Each ```ts block of README.md is below, in order and with its comments, after a
- * comment naming its README section, with two mechanical substitutions: the package's own name, "@bjornpagen/grizzle",
- * resolves here to the sources through the package's grizzle-source export condition, and the committed snapshot.json
- * the README imports is a declared value, because this directory has no migrations; the config block's own imports are
- * this file's bindings.
+ * comment naming its README section, with one mechanical substitution: the committed snapshot.json the README imports
+ * is a declared value, because this directory has no migrations; the config block's own imports are this file's
+ * bindings. The package's own name, "@bjornpagen/grizzle", resolves to the sources the package exports, as it does for
+ * every consumer.
  * test/types/examples/blocks.test.ts holds every README ```ts block here, line for line and in order. The types the
  * README's comments and prose state are pinned at the end, with the refusals it promises. Typechecked, never executed.
  *

@@ -39,7 +39,7 @@ export default mergeConfig(
 		],
 		guided: ["test/pg/world-model/random.test.ts"],
 		setup: [],
-		conditions: ["grizzle-source"],
+		conditions: [],
 		timeouts: {
 			test: { kind: "bounded", millis: mutationTestTimeout.value },
 			hook: { kind: "bounded", millis: mutationTestTimeout.value }

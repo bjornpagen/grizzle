@@ -28,9 +28,6 @@
 		"upstream/**"
 	],
 	"ignoreDependencies": ["grizzle:config"],
-	"resolve": {
-		"conditions": ["grizzle-source"]
-	},
 	"boundaries": {
 		"zones": [
 			{

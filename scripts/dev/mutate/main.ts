@@ -53,7 +53,7 @@ import {
 	setSemantics,
 	sqlWorld
 } from "#scripts/dev/mutate/world.ts"
-import { hardenedNode, sourceCondition } from "#test/support/process.ts"
+import { hardenedNode } from "#test/support/process.ts"
 
 /** This tool's directory, which every worker tree takes from the working tree rather than from the commit. */
 const self = "scripts/dev/mutate"
@@ -635,7 +635,6 @@ const runFiles = Effect.fn("runFiles")(function* (settings: Settings, run: FileR
 				ChildProcess.make(
 					process.execPath,
 					[
-						sourceCondition,
 						path.join(run.tree, "node_modules/vitest/vitest.mjs"),
 						"run",
 						"--config",
