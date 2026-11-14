@@ -2699,9 +2699,10 @@ const isLiteral = (lit: Lit): boolean => !Str.includes("(")(lit.text)
 
 /**
  * Whether one op's array parts of `relation`, one array in a served call's facts, hold two facts of one key that differ
- * at a field both write as one literal: the key law FactsCheck reads of a written-out array (MemberCheck, types/schema
- * relation.ts ConflictsAtKey), where each member's own array, or a widened one, showed it none. A family's facts are
- * none of it.
+ * at a field both write as one literal: the key law FactsCheck reads of an insert's or a put's written-out array
+ * (MemberCheck, types/schema relation.ts ConflictsAtKey), where each member's own array, or a widened one, showed it
+ * none. A delete's facts are judged at no key (DeletedCheck), as the engine judges them, and a family's facts are none
+ * of it.
  */
 const literalConflict = (relation: string, parts: ReadonlyArray<ArrayPart>): boolean => {
 	if (!isRelName(relation)) {
@@ -2828,8 +2829,11 @@ const servedOf = (
 		params,
 		verdict: { kind: "admitted", admitted }
 	}
-	const conflict = Arr.findFirst(groups, (g) =>
-		Arr.some(g.relations, ([relation, parts]) => literalConflict(relation, parts))
+	const conflict = Arr.findFirst(
+		groups,
+		(g) =>
+			g.op !== "delete" &&
+			Arr.some(g.relations, ([relation, parts]) => literalConflict(relation, parts))
 	)
 	if (Option.isSome(conflict)) {
 		return [

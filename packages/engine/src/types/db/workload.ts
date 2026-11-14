@@ -39,10 +39,17 @@ type KeyedAt<L> = L extends unknown ? Extract<RelationOf<L>, AnyRelation | AnyCl
 type KeyAt<L> = KeyedAt<L> | CandidateKey<Extract<KeyedAt<L>, AnyRelation>>
 
 /**
- * What a ChangeSet of a workload over S writes: over a role, only relations its write list names, as a Db of the role
- * applies it; over a schema, any of its relations.
+ * What a ChangeSet X of a workload over S writes: over a role, only relations its write list names, as the role's compile
+ * refuses any other by name; over a schema, any of its relations. A read writes nothing, and a ChangeSet whose type
+ * states no writes, a JavaScript caller's, is the compile's alone to judge.
  */
-type WritableBy<S> = S extends AnyRole ? Phantom<{ readonly writes: WriteListOf<S> }> : unknown
+type WritesWithin<S, X> = S extends AnyRole
+	? X extends AnyChangeSet
+		? X extends Phantom<{ readonly writes: WriteListOf<S> }>
+			? unknown
+			: Refusal<"a ChangeSet writes only relations its role's write list names">
+		: unknown
+	: unknown
 
 /**
  * A workload member that pages its ordered query O: paged(O), whose handle reads a window of it, its input's `window`
@@ -132,15 +139,16 @@ type RefreshableBy<S> = S extends AnyRole ? RefreshListOf<S> : MaterializedAt<Le
 type ReadAt<L> = QueryAt<L> | OrderedAt<L> | Paged<OrderedAt<L>> | KeyAt<L>
 
 /**
- * A program of a workload over S, over S or a level below it, L: a read, run at once or deferrable, a ChangeSet S
- * writes, one of a query, an ordered query or such a ChangeSet with parameters bound to the database's clock (Clocked),
- * a clocked read run deferrable, or a refresh of materialized derived relations S may refresh.
+ * A program of a workload over S, over S or a level below it, L: a read, run at once or deferrable, a ChangeSet, one of
+ * a query, an ordered query or a ChangeSet with parameters bound to the database's clock (Clocked), a clocked read run
+ * deferrable, or a refresh of materialized derived relations S may refresh. What a ChangeSet writes is each member's
+ * check (WritesWithin), so its refusal names the rule.
  */
 type ProgramAt<S, L> =
 	| ReadAt<L>
 	| Deferrable<ReadAt<L>>
-	| (ChangeSetAt<L> & WritableBy<S>)
-	| Clocked<QueryAt<L> | OrderedAt<L> | (ChangeSetAt<L> & WritableBy<S>), unknown>
+	| ChangeSetAt<L>
+	| Clocked<QueryAt<L> | OrderedAt<L> | ChangeSetAt<L>, unknown>
 	| Deferrable<Clocked<QueryAt<L> | OrderedAt<L>, unknown>>
 	| Refresh<NonEmptyReadonlyArray<RefreshableBy<S>>>
 
@@ -177,9 +185,10 @@ type ClockedProgram<X> = X extends Clocked<infer P, unknown> ? P : X
 /**
  * workload(schema, programs): each program over a level of the schema (ProgramAt), a ChangeSet's appends each beside
  * its immutable owner's insert (PlannedStrata) and its array members of one op and relation in one stratum
- * (ArraysOnce), and, over a role, matching only the contexts the role's relations read (WithinRoleContexts), as the
- * role's compile refuses any other. A workload over a schema runs on each role of its login, so the compile alone
- * judges its contexts. A program typed `any` is refused (MembersTyped).
+ * (ArraysOnce), and, over a role, a ChangeSet writing only what the role's write list names (WritesWithin) and every
+ * program matching only the contexts the role's relations read (WithinRoleContexts), as the role's compile refuses any
+ * other. A workload over a schema runs on each role of its login, so the compile alone judges its contexts. A program
+ * typed `any` is refused (MembersTyped).
  */
 export type WorkloadConstructor = <
 	S extends AnySchema | AnyRole,
@@ -189,6 +198,7 @@ export type WorkloadConstructor = <
 	programs: Programs & {
 		readonly [K in keyof Programs]: PlannedStrata<ClockedProgram<Programs[K]>> &
 			ArraysOnce<ClockedProgram<Programs[K]>> &
+			WritesWithin<S, ClockedProgram<Programs[K]>> &
 			WithinRoleContexts<S, ProgramContexts<Programs[K]>>
 	} & MembersTyped<Programs>
 ) => Workload<S, Programs>

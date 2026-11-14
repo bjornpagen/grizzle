@@ -197,11 +197,12 @@ export type WorkloadNote =
 	| "over a partial role"
 	| "several programs"
 	| "opened through a served login"
+	| "a ChangeSet outside its role's write list"
 	| Planted
 
 type Verdict =
 	| { readonly kind: "admitted" }
-	| { readonly kind: "refused"; readonly tag: CompileError["reason"]["_tag"] }
+	| { readonly kind: "refused"; readonly reason: CompileError["reason"] }
 
 interface WorkloadCase {
 	readonly spec: WorkloadSpec
@@ -209,35 +210,6 @@ interface WorkloadCase {
 	/** The role a Db opened through the served workload of a login owning the workload runs it on, where one does. */
 	readonly served: string | undefined
 	readonly notes: ReadonlySet<WorkloadNote>
-}
-
-/** A drawn case's schema and programs, and the fault it would plant were its workload admitted. */
-const specGen: Gen<WorkloadSpec> = (source) => {
-	const schema = source.draw(element(schemaNames))
-	const first = source.draw(element(programNames))
-	const extra = source.draw(int(0, 2))
-	const rest =
-		extra === 0
-			? []
-			: Arr.map(
-					upTo(extra, (i) => i + 1),
-					() => source.draw(element(programNames))
-				)
-	const planted = source.draw(
-		weighted<Planted | undefined>([
-			[4, constant(undefined)],
-			[1, constant("a list of programs")],
-			[1, constant("a program under the empty name")]
-		])
-	)
-	return {
-		schema,
-		programs: [
-			["p0", first],
-			...Arr.map(rest, (program, at): readonly [string, ProgramName] => [`p${at + 1}`, program])
-		],
-		planted
-	}
 }
 
 /** The programs argument as the engine is given it: a record of the drawn names, or a list of the programs. */
@@ -299,7 +271,87 @@ const verdictOf = (spec: WorkloadSpec): Verdict => {
 				() => (roleSchemas[spec.schema] ? roleReads(built, value) : Result.ok(undefined))
 			)
 	)
-	return judged.ok ? { kind: "admitted" } : { kind: "refused", tag: judged.error.reason._tag }
+	return judged.ok ? { kind: "admitted" } : { kind: "refused", reason: judged.error.reason }
+}
+
+/** Whether the engine refuses a program for writing a relation outside its role's write list. */
+const writesOutside = (verdict: Verdict): boolean =>
+	verdict.kind === "refused" &&
+	verdict.reason._tag === "OutsideRole" &&
+	verdict.reason.access.kind === "write"
+
+/**
+ * Whether a refused case's every refusal is a ChangeSet writing outside its role's write list: each program alone is
+ * admitted or refused so, and one is. The types then name that rule (types/db/workload.ts WritesWithin), every program
+ * being over a level of the role; a case refused for anything else besides, they refuse by the workload's constraint.
+ */
+const writeListOnly = (spec: WorkloadSpec): boolean => {
+	const alone = Arr.map(spec.programs, (program) =>
+		verdictOf({ schema: spec.schema, programs: [program], planted: undefined })
+	)
+	return (
+		Arr.some(alone, writesOutside) &&
+		Arr.every(alone, (verdict) => verdict.kind === "admitted" || writesOutside(verdict))
+	)
+}
+
+/**
+ * A schema's programs the engine admits alone over it, or refuses only for writing outside its role's write list: the
+ * programs a case drawn to fit its schema takes, so a drawing reaches the checks past a program's level, the workload's
+ * write list among them, as often as its level.
+ */
+const fittingOver = (schema: SchemaName): ReadonlyArray<ProgramName> =>
+	Arr.filter(programNames, (program) => {
+		const alone = verdictOf({ schema, programs: [["p0", program]], planted: undefined })
+		return alone.kind === "admitted" || writesOutside(alone)
+	})
+
+/** Each schema's fitting programs (fittingOver), computed once. */
+const fittingBy: { readonly [S in SchemaName]: ReadonlyArray<ProgramName> } = {
+	Work: fittingOver("Work"),
+	Reports: fittingOver("Reports"),
+	Writer: fittingOver("Writer"),
+	Reader: fittingOver("Reader"),
+	Clerk: fittingOver("Clerk"),
+	Other: fittingOver("Other")
+}
+
+/**
+ * A drawn case's schema and programs, and the fault it would plant were its workload admitted. A case draws whether
+ * its programs fit its schema (fittingBy) or are any programs at all, so both the level's refusals and those past it
+ * are drawn.
+ */
+const specGen: Gen<WorkloadSpec> = (source) => {
+	const schema = source.draw(element(schemaNames))
+	const fitting = fittingBy[schema]
+	const pool =
+		source.draw(element([false, true])) && Arr.isReadonlyArrayNonEmpty(fitting)
+			? fitting
+			: programNames
+	const first = source.draw(element(pool))
+	const extra = source.draw(int(0, 2))
+	const rest =
+		extra === 0
+			? []
+			: Arr.map(
+					upTo(extra, (i) => i + 1),
+					() => source.draw(element(pool))
+				)
+	const planted = source.draw(
+		weighted<Planted | undefined>([
+			[4, constant(undefined)],
+			[1, constant("a list of programs")],
+			[1, constant("a program under the empty name")]
+		])
+	)
+	return {
+		schema,
+		programs: [
+			["p0", first],
+			...Arr.map(rest, (program, at): readonly [string, ProgramName] => [`p${at + 1}`, program])
+		],
+		planted
+	}
 }
 
 /**
@@ -314,9 +366,9 @@ const caseGen: Gen<WorkloadCase> = (source) => {
 	const verdict = spec.planted === undefined ? cleanVerdict : verdictOf(spec)
 	if (spec.planted !== undefined) {
 		const expected = plantedRefusal[spec.planted]
-		if (verdict.kind !== "refused" || verdict.tag !== expected) {
+		if (verdict.kind !== "refused" || verdict.reason._tag !== expected) {
 			throw new Error(
-				`the engine refuses ${spec.planted} by ${expected}, not ${verdict.kind === "refused" ? verdict.tag : "admitting it"}: ${sourceOf(spec, 0)}`
+				`the engine refuses ${spec.planted} by ${expected}, not ${verdict.kind === "refused" ? verdict.reason._tag : "admitting it"}: ${sourceOf(spec, 0)}`
 			)
 		}
 	}
@@ -338,6 +390,9 @@ const caseGen: Gen<WorkloadCase> = (source) => {
 	}
 	if (spec.programs.length > 1) {
 		notes.add("several programs")
+	}
+	if (verdict.kind === "refused" && spec.planted === undefined && writeListOnly(spec)) {
+		notes.add("a ChangeSet outside its role's write list")
 	}
 	const served = verdict.kind === "admitted" ? servedRoles.get(spec.schema) : undefined
 	if (served !== undefined) {
@@ -395,7 +450,7 @@ const blockOf = (c: WorkloadCase, i: number): ReadonlyArray<string> => {
 	switch (c.spec.planted) {
 		case "a program under the empty name":
 			return [
-				`/** Declared: the types admit the empty name, the engine refuses it, ${c.verdict.tag}. */`,
+				`/** Declared: the types admit the empty name, the engine refuses it, ${c.verdict.reason._tag}. */`,
 				statement
 			]
 		case "a list of programs":
@@ -405,7 +460,9 @@ const blockOf = (c: WorkloadCase, i: number): ReadonlyArray<string> => {
 			]
 		case undefined:
 			return [
-				"// @ts-expect-error -- refused: a program over a level of the workload's schema, or a key of a relation of one",
+				writeListOnly(c.spec)
+					? "// @ts-expect-error -- refusal: a ChangeSet writes only relations its role's write list names"
+					: "// @ts-expect-error -- refused: a program over a level of the workload's schema, or a key of a relation of one",
 				statement
 			]
 	}
@@ -427,6 +484,7 @@ export const workloadRequired: Situations<WorkloadNote> = [
 	"over a partial role",
 	"several programs",
 	"opened through a served login",
+	"a ChangeSet outside its role's write list",
 	"a list of programs",
 	"a program under the empty name"
 ]

@@ -954,20 +954,23 @@ export type ArraysOf<X> =
 		: unknown
 
 /**
- * One op's facts in F checked against the array members A of that op: each relation's checked as the member A holds
- * for it checks its own (MemberCheck), exactly an arm of its row type each, no field beyond it, and no two literal facts
- * at one primary key; a member's relation F leaves out required at its row type; and a key naming no array member's
- * relation of the op refused.
+ * One op's facts in F checked against the array members A of that op: each relation's checked as the op checks its own
+ * (MemberFit), exactly an arm of its row type each, no field beyond it, and, Keyed, an insert's and a put's, no two
+ * literal facts at one primary key (MemberCheck), a delete's at no key (DeletedCheck); a member's relation F leaves out
+ * required at its row type; and a key naming no array member's relation of the op refused.
  */
-type OpFactsCheck<F, A> = {
+type OpFactsCheck<F, A, Keyed extends boolean> = {
 	readonly [N in keyof A | keyof F]: N extends keyof A
 		? A[N] extends { readonly relation: infer R; readonly row: infer Row }
 			? N extends keyof F
-				? MemberCheck<F[N], Row, R>
+				? MemberFit<F[N], Row, R, Keyed>
 				: ReadonlyArray<Row>
 			: never
 		: Refusal<"a served ChangeSet's facts name, under each op, only the relations of its array members of that op">
 }
+
+/** Whether an op's facts are judged at their relation's key: an insert's and a put's, never a delete's (DeletedCheck). */
+type KeyedOp<Op> = Op extends "delete" ? false : true
 
 /**
  * What a served member's facts F must be for the array members A: under each op of A, an array under each relation of
@@ -979,8 +982,8 @@ type OpFactsCheck<F, A> = {
 export type FactsCheck<F, A> = {
 	readonly [Op in keyof A | keyof F]: Op extends keyof A
 		? Op extends keyof F
-			? OpFactsCheck<F[Op], A[Op]>
-			: OpFactsCheck<unknown, A[Op]>
+			? OpFactsCheck<F[Op], A[Op], KeyedOp<Op>>
+			: OpFactsCheck<unknown, A[Op], KeyedOp<Op>>
 		: Refusal<"a served ChangeSet's facts name only the ops of its array members: insert, put and delete">
 }
 
