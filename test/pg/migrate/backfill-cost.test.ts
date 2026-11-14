@@ -1,3 +1,7 @@
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
 /**
  * The cost of a tree's backfill grows linearly with the stored forest, on PostgreSQL 19: the keyed tree edullm's
  * identity migration drafts from the old-form tree (test/support/migrate/keyed-tree.ts), its backfill run over old
@@ -33,7 +37,7 @@
  * The file builds Substrate.isolatedLayer: the old-form tree installs under its own fixed schema name, old_tree.
  */
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import {
 	explainStatementWith,
 	type PlanNode,
@@ -45,8 +49,9 @@ import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { splitStatements } from "#compiler/plan/migration.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	column,
 	keyedFields,
@@ -66,10 +71,31 @@ import { review } from "#test/support/migrate/review.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** A shape of the box: a chain of n nodes, each the parent of the next, or a star, one root over n − 1 children. */
-type Shape = "a chain" | "a star"
+/** The shapes of the box: a chain of n nodes, each the parent of the next, or a star, one root over n − 1 children. */
+const shapes = ["a chain", "a star"] as const
 
-const shapes: ReadonlyArray<Shape> = ["a chain", "a star"]
+type Shape = (typeof shapes)[number]
+
+/** The sizes of the box, each a multiple of the smallest, n: n, 2n and 4n nodes. */
+const scales = [1, 2, 4] as const
+
+type Scale = (typeof scales)[number]
+
+/** A case of the box: a forest of one shape at one size. */
+interface LawCase {
+	readonly shape: Shape
+	readonly scale: Scale
+}
+
+/** What a case reaches: its shape at its size. */
+type Situation = `${Shape} at ${Scale}n`
+
+const situationOf = (c: LawCase): Situation => `${c.shape} at ${c.scale}n`
+
+const lawGen: Gen<LawCase> = (source) => ({
+	shape: source.draw(element(shapes)),
+	scale: source.draw(element(scales))
+})
 
 /** The nodes of the smallest size, n: 2n and 4n follow. */
 const smallest = 200
@@ -234,22 +260,62 @@ const costAt = (shape: Shape, size: number) =>
 		})
 	)
 
+/** The law over one shape's costs, by the size the search ran each at: its increment over the second doubling at most
+ * twice its first. */
+const linear = (shape: Shape, costs: ReadonlyMap<Scale, Cost>): void => {
+	const at = (scale: Scale): Cost =>
+		defined(costs.get(scale), `the search ran ${shape} at ${scale}n`)
+	const [n, twice, four] = [at(1), at(2), at(4)]
+	const sizes = Arr.join(Arr.map([n, twice, four], costText), "; ")
+	assert.ok(
+		four.rows - twice.rows <= 2 * (twice.rows - n.rows),
+		`the keyed tree's backfill over ${shape} touches rows faster than linearly: ${sizes}`
+	)
+}
+
 layer(Substrate.isolatedLayer)("the cost of a tree's backfill", (it) => {
-	for (const shape of shapes) {
-		it.effect(
-			`over ${shape} of n, 2n and 4n nodes, every row moved before it, the keyed tree's backfill draws the reference's rows, and the rows it touches grow by no more from 2n to 4n than twice what they grow by from n to 2n`,
-			() =>
+	it.effect(
+		"over a chain and a star of n, 2n and 4n nodes, every row moved before it, the keyed tree's backfill draws the reference's rows, and the rows it touches grow by no more from 2n to 4n than twice what they grow by from n to 2n",
+		(ctx) =>
+			searched(
+				ctx,
 				Effect.gen(function* () {
-					const [n, twice, four] = yield* Effect.all(
-						[costAt(shape, smallest), costAt(shape, 2 * smallest), costAt(shape, 4 * smallest)],
-						{ concurrency: 1 }
+					const costs = new Map<Shape, Map<Scale, Cost>>()
+					const exhausted = yield* exhaust(
+						{
+							suite: "pg/migrate/backfill-cost",
+							generator: lawGen,
+							literal: Formatter.format,
+							box: `each shape, a chain and a star, at n, 2n and 4n nodes (n = ${smallest}), one document mapped onto its own root`,
+							oracle: {
+								kind: "specification",
+								name: "linear growth, judged over the cases the search ran: each shape's rows touched growing by no more from 2n to 4n than twice what they grow by from n to 2n; and each case's rows the keyed tree's reference (keyedRows) over rows the data step moved"
+							},
+							coverage: requiredInSpace<Situation>(
+								nonEmpty(
+									Arr.flatMap(shapes, (shape) =>
+										Arr.map(scales, (scale) => situationOf({ shape, scale }))
+									),
+									"the box's situations"
+								)
+							),
+							caseHang,
+							concurrency: 1
+						},
+						(c, k) =>
+							Effect.gen(function* () {
+								k.note(situationOf(c))
+								const cost = yield* costAt(c.shape, c.scale * smallest)
+								const ran = costs.get(c.shape) ?? new Map<Scale, Cost>()
+								ran.set(c.scale, cost)
+								costs.set(c.shape, ran)
+							})
 					)
-					const sizes = Arr.join(Arr.map([n, twice, four], costText), "; ")
-					assert.ok(
-						four.rows - twice.rows <= 2 * (twice.rows - n.rows),
-						`the keyed tree's backfill over ${shape} touches rows faster than linearly: ${sizes}`
-					)
+					for (const [shape, ran] of costs) {
+						linear(shape, ran)
+					}
+					return exhausted
 				})
-		)
-	}
+			)
+	)
 })

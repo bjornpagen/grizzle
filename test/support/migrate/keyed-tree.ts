@@ -371,7 +371,7 @@ export const turnsOf = (rows: ReadonlyArray<KeyedRow>) => {
 
 /** A row's copy of the kind of the sibling before it along the tree's predecessor axis: a member past slot 0 holds
  * its predecessor's kind, and a member at slot 0 and the root, which is no member, hold the base, 0. */
-export const wasOf = (rows: ReadonlyArray<KeyedRow>, row: KeyedRow): number =>
+const wasOf = (rows: ReadonlyArray<KeyedRow>, row: KeyedRow): number =>
 	row.start > 0 && row.at > 0
 		? defined(
 				Option.getOrUndefined(
