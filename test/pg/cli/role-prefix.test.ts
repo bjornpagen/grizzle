@@ -171,7 +171,7 @@ const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 					logins: [shop.server],
 					migrations: "migrations",
 					connection: () => ({
-						...connectionOf(substrate.cluster, ownerOn(i.database)),
+						...connectionOf(substrate.cluster, ownerOn(substrate.cluster, i.database)),
 						...named(i)
 					})
 				})
@@ -273,7 +273,7 @@ const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 			const bystander = `${firstPrefix}__${uniqueSchemaName("rx", 0)}__x`
 			yield* substrate.admin.query(`CREATE ROLE "${bystander}" NOLOGIN`, [])
 			yield* Effect.addFinalizer(() =>
-				Effect.orDie(dropRole(substrate.cluster.budget, substrate.admin, bystander))
+				Effect.orDie(dropRole(substrate.cluster, substrate.admin, bystander))
 			)
 			const readerRole = roleNameOf(shop.reader, named(first))
 			if (s.heldElsewhere) {

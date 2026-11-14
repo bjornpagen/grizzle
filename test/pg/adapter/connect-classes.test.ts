@@ -261,7 +261,7 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 							const writer = yield* substrateLogin(schema, "server", [])
 							const own = Redacted.value(writer.password)
 							const direct: Attempt = {
-								port: pgPin.port,
+								port: s.cluster.port,
 								database: s.database,
 								role: writer.role,
 								password: writer.password,

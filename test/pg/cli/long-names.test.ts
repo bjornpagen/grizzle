@@ -221,7 +221,8 @@ const limitCase = (n: Names, c: Case<LimitFeature>) =>
 				schemas: [world.schema],
 				logins: [world.login],
 				migrations: "migrations",
-				connection: () => connectionOf(substrate.cluster, ownerOn(substrate.database))
+				connection: () =>
+					connectionOf(substrate.cluster, ownerOn(substrate.cluster, substrate.database))
 			})
 			const run = (command: string) => cliOver(dir, config, [command, configName], at)
 			if (n.past) {

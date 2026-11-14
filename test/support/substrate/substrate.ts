@@ -26,7 +26,6 @@ import { awaitBlockedBy, awaitLockWait, type LockWait } from "#test/support/subs
 import {
 	type BudgetedCluster,
 	budgeted,
-	type LeaseBudget,
 	LeaseBudgetExhausted
 } from "#test/support/substrate/budget.ts"
 import type { PsqlProcessError } from "#test/support/substrate/errors.ts"
@@ -257,7 +256,7 @@ export const underDatabasePrivilegeLock = (statement: string): string =>
  * the role is gone; a backend that outlives its termination is a defect.
  */
 export const dropRole = (
-	budget: LeaseBudget,
+	cluster: BudgetedCluster,
 	admin: PgConnection,
 	role: string
 ): Effect.Effect<void, SqlError> =>
@@ -271,7 +270,7 @@ export const dropRole = (
 		}
 		const [ownerMember, database] = found
 		if (ownerMember === true) {
-			return yield* dropOwnerLogin(budget, String(database), role)
+			return yield* dropOwnerLogin(cluster, String(database), role)
 		}
 		yield* admin.query(`GRANT ${quoteIdent(role)} TO CURRENT_USER WITH INHERIT TRUE`, [])
 		/**
@@ -317,11 +316,11 @@ export const dropRole = (
  * hung. The sweep of crashed runs drops roles with dropRole itself, where leftover backends are expected.
  */
 const releaseRole = (
-	budget: LeaseBudget,
+	cluster: BudgetedCluster,
 	admin: PgConnection,
 	role: string
 ): Effect.Effect<void, SqlError> =>
-	Effect.andThen(awaitRoleQuiet(admin, role), dropRole(budget, admin, role))
+	Effect.andThen(awaitRoleQuiet(admin, role), dropRole(cluster, admin, role))
 
 /**
  * Rows as text, positional: every column its text, or null for NULL; what a superuser read and both kinds of direct
@@ -338,15 +337,15 @@ const textTypes = { getTypeParser: (): ((text: string) => string) => asText } as
 /**
  * A connection to `database` as the bootstrap superuser `postgres`, over the cluster's local socket, where peer
  * authentication maps this OS user to it (scripts/pg/init.sh); the TLS sessions of test/support/pg.ts reach no
- * superuser. It lives for the scope, drawing one of `budget`'s permits; a connection refused is a failure its caller
+ * superuser. It lives for the scope, drawing one of its budget's permits; a connection refused is a failure its caller
  * makes a defect of the run.
  */
-const superuserClient = (budget: LeaseBudget, database: string, applicationName: string) =>
-	budget.opened(
+const superuserClient = (cluster: BudgetedCluster, database: string, applicationName: string) =>
+	cluster.budget.opened(
 		Effect.acquireRelease(
 			Effect.suspend(() => {
 				const c = new Client({
-					connectionString: adminUrl(database),
+					connectionString: adminUrl(cluster, database),
 					application_name: applicationName,
 					types: textTypes
 				})
@@ -358,14 +357,14 @@ const superuserClient = (budget: LeaseBudget, database: string, applicationName:
 
 /** Statements in `database` as the bootstrap superuser, in order, on one connection of their own (superuserClient). */
 const asSuperuser = (
-	budget: LeaseBudget,
+	cluster: BudgetedCluster,
 	database: string,
 	statements: ReadonlyArray<string>
 ): Effect.Effect<void> =>
 	Effect.orDie(
 		Effect.scoped(
 			Effect.gen(function* () {
-				const client = yield* superuserClient(budget, database, "grizzle-substrate superuser")
+				const client = yield* superuserClient(cluster, database, "grizzle-substrate superuser")
 				for (const sql of statements) {
 					yield* Effect.tryPromise({ try: () => client.query(sql), catch: sqlErrorOf })
 				}
@@ -378,8 +377,12 @@ const asSuperuser = (
  * terminated first, the server waiting up to testExitWait for each to exit, then the role, with its defaults and its membership
  * in the owner. It owns nothing, as every statement of its sessions acted as the owner. A no-op once it is gone.
  */
-const dropOwnerLogin = (budget: LeaseBudget, database: string, role: string): Effect.Effect<void> =>
-	asSuperuser(budget, database, [
+const dropOwnerLogin = (
+	cluster: BudgetedCluster,
+	database: string,
+	role: string
+): Effect.Effect<void> =>
+	asSuperuser(cluster, database, [
 		`SELECT pg_catalog.pg_terminate_backend(a.pid, ${testExitWait.value}) FROM pg_catalog.pg_stat_activity AS a WHERE a.usename = ${quoteString(role)}::name`,
 		`DROP ROLE IF EXISTS ${quoteIdent(role)}`
 	])
@@ -390,14 +393,14 @@ const dropOwnerLogin = (budget: LeaseBudget, database: string, role: string): Ef
  * otherwise; each statement answers its rows as text.
  */
 const asSuperuserRead = <A, E>(
-	budget: LeaseBudget,
+	cluster: BudgetedCluster,
 	database: string,
 	read: (rows: (sql: string) => Effect.Effect<TextRows>) => Effect.Effect<A, E>
 ): Effect.Effect<A, E> =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const client = yield* Effect.orDie(
-				superuserClient(budget, database, "grizzle-substrate stored read")
+				superuserClient(cluster, database, "grizzle-substrate stored read")
 			)
 			const rows = (sql: string): Effect.Effect<TextRows> =>
 				Effect.orDie(
@@ -445,6 +448,7 @@ export const psqlWriter = (
 				})
 			)
 			const writer = yield* openPsql({
+				port: cluster.port,
 				database,
 				credentials: options.as,
 				label: options.label,
@@ -499,7 +503,7 @@ const build = Effect.fnUntraced(function* (
 
 	/** A role finalizer that fails is a leaked cluster-wide role: surface it as a defect rather than hide it. */
 	const registerRoleCleanup = (role: string) =>
-		Effect.addFinalizer(() => Effect.orDie(releaseRole(cluster.budget, admin, role)))
+		Effect.addFinalizer(() => Effect.orDie(releaseRole(cluster, admin, role)))
 
 	const enableLogin = (role: string): Effect.Effect<Credentials, SqlError> =>
 		Effect.gen(function* () {
@@ -549,14 +553,14 @@ const build = Effect.fnUntraced(function* (
 							[source]
 						)
 						for (const [decoder] of decoders) {
-							yield* releaseRole(cluster.budget, admin, String(decoder))
+							yield* releaseRole(cluster, admin, String(decoder))
 						}
 						const roles = yield* admin.queryValues(
 							"SELECT rolname::text FROM pg_catalog.pg_roles WHERE starts_with(rolname::text, $1::text) ORDER BY rolname",
 							[rolePrefix(name)]
 						)
 						for (const [role] of roles) {
-							yield* releaseRole(cluster.budget, admin, String(role))
+							yield* releaseRole(cluster, admin, String(role))
 						}
 						yield* admin.query(`DROP SCHEMA IF EXISTS ${quoteIdent(name)} CASCADE`, [])
 					})
@@ -599,10 +603,10 @@ const build = Effect.fnUntraced(function* (
 			yield* Effect.addFinalizer(() =>
 				Effect.andThen(
 					Effect.orDie(awaitRoleQuiet(admin, name)),
-					dropOwnerLogin(cluster.budget, database, name)
+					dropOwnerLogin(cluster, database, name)
 				)
 			)
-			yield* asSuperuser(cluster.budget, database, [
+			yield* asSuperuser(cluster, database, [
 				`CREATE ROLE ${quoted} LOGIN PASSWORD ${quoteString(password)}`,
 				`GRANT ${quoteIdent(owner.role)} TO ${quoted} WITH INHERIT FALSE, SET TRUE`,
 				`ALTER ROLE ${quoted} SET role = ${quoteString(owner.role)}`,
@@ -666,8 +670,8 @@ const build = Effect.fnUntraced(function* (
 		awaitLockWait: (pid, blockedBy) => awaitLockWait(observer, pid, blockedBy),
 		awaitBlockedBy: (holder, role) => awaitBlockedBy(observer, holder, role),
 		roleExists,
-		superuser: (sql) => asSuperuser(cluster.budget, database, [sql]),
-		superuserRead: (read) => asSuperuserRead(cluster.budget, database, read)
+		superuser: (sql) => asSuperuser(cluster, database, [sql]),
+		superuserRead: (read) => asSuperuserRead(cluster, database, read)
 	}
 })
 

@@ -4,11 +4,14 @@ import { array, type Gen, int } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
+import { NodeFileSystem } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Exit, Fiber, Formatter, Option, Ref, Scope } from "effect"
+import { Array as Arr, Effect, Exit, Fiber, Formatter, Layer, Option, Ref, Scope } from "effect"
 import { trusted } from "#compiler/core/trusted.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
+import { currentWorker, memberOf, readFamily } from "#pg/family.ts"
 import { leaseTables, type LeaseTables } from "#pg/lease.ts"
+import { localCluster } from "#pg/local-cluster.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { devSession, type PgConnection, type SqlError } from "#test/support/pg.ts"
@@ -30,7 +33,9 @@ import { upTo } from "#test/support/up-to.ts"
  * of the file that queued first. Nothing is judged by time: the slot's holder is read from pg_locks once the release
  * has returned. That file's lease then completes on that slot and it holds it, so a later step may free it again. At
  * every settled point no holder's or waiting file's backend holds a transaction id, no idle one holds a snapshot, and
- * neither does the file's own substrate's lease or claim (Substrate's `held`). A backend waiting in a lease's LOCK TABLE
+ * neither does the file's own substrate's lease or claim (Substrate's `held`). The file's lease, claim and database are
+ * on the member of the cluster family its worker reaches (packages/pg/src/family.ts memberOf), the server its admin
+ * connection reaches listing both backends, so none of them crosses to another member. A backend waiting in a lease's LOCK TABLE
  * may hold one, and only that one, as takeLease states. LOCK takes no snapshot (REL_19_RC2 pquery.c
  * PlannedStmtRequiresSnapshot), but its name lookup runs before its wait. When the backend's catalog caches were reset
  * since its NOWAIT try, the lookup reads the catalogs under a catalog snapshot, and nothing releases that snapshot while
@@ -265,40 +270,62 @@ const runCase = (cluster: BudgetedCluster, x: LeaseCase, note: (f: LeaseFeature)
 		}
 	})
 
-layer(Substrate.layer)("the substrate's connection lease", (it) => {
-	it.effect(
-		"admits the first file queued the moment any slot frees, and holds no transaction id while it leases or waits, nor a snapshot but its wait's name lookup's",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const substrate = yield* Substrate
-					const held = yield* substrate.admin.queryValues(heldQuery, [substrate.held])
-					assert.deepEqual(
-						held,
-						[],
-						"the file's own lease or claim holds a transaction id or a snapshot"
-					)
-					return yield* explore(
-						{
-							suite: "substrate/lease",
-							draw: drawn(caseGen),
-							literal: Formatter.format,
-							oracle: {
-								kind: "specification",
-								name: "each release admits the first file still queued, on the slot it freed"
+layer(Layer.merge(Substrate.layer, NodeFileSystem.layer))(
+	"the substrate's connection lease",
+	(it) => {
+		it.effect(
+			"admits the first file queued the moment any slot frees, and holds no transaction id while it leases or waits, nor a snapshot but its wait's name lookup's",
+			(ctx) =>
+				searched(
+					ctx,
+					Effect.gen(function* () {
+						const substrate = yield* Substrate
+						const held = yield* substrate.admin.queryValues(heldQuery, [substrate.held])
+						assert.deepEqual(
+							held,
+							[],
+							"the file's own lease or claim holds a transaction id or a snapshot"
+						)
+						const family = yield* readFamily(localCluster)
+						const worker = yield* currentWorker
+						const member = memberOf(family, worker)
+						const [[serverPort] = []] = yield* substrate.admin.queryValues(
+							"SELECT pg_catalog.inet_server_port()",
+							[]
+						)
+						const [[listed] = []] = yield* substrate.admin.queryValues(
+							"SELECT count(*)::int4 FROM pg_catalog.pg_stat_activity WHERE pid = ANY ($1::int4[])",
+							[substrate.held]
+						)
+						assert.deepEqual(
+							[substrate.cluster.port, Number(serverPort), Number(listed)],
+							[member.port, member.port, substrate.held.length],
+							`the file's lease, claim and database ${substrate.database} are on the member its worker reaches, port ${member.port} of ${Arr.join(
+								Arr.map(family.members, (m) => `${m.port}`),
+								", "
+							)}`
+						)
+						return yield* explore(
+							{
+								suite: "substrate/lease",
+								draw: drawn(caseGen),
+								literal: Formatter.format,
+								oracle: {
+									kind: "specification",
+									name: "each release admits the first file still queued, on the slot it freed"
+								},
+								coverage: required<LeaseFeature>(leaseFeatures, { cases: 24, sense: notesOnly }),
+								kept: [],
+								runs: 12,
+								shrink: completeShrink,
+								concurrency: 1,
+								steerEvery: 6,
+								caseHang
 							},
-							coverage: required<LeaseFeature>(leaseFeatures, { cases: 24, sense: notesOnly }),
-							kept: [],
-							runs: 12,
-							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 6,
-							caseHang
-						},
-						(x, c) => Effect.scoped(runCase(substrate.cluster, x, (f) => c.note(f)))
-					)
-				})
-			)
-	)
-})
+							(x, c) => Effect.scoped(runCase(substrate.cluster, x, (f) => c.note(f)))
+						)
+					})
+				)
+		)
+	}
+)

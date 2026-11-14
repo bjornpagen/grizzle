@@ -274,7 +274,7 @@ const benchRun = Effect.fn("benchRun")(function* (options: ColdOptions) {
 	const credentials = work.as(installed)
 	const target: ProbeDatabase = {
 		host: pgPin.host,
-		port: pgPin.port,
+		port: s.cluster.port,
 		database: s.database,
 		password: Redacted.value(credentials.password),
 		caFile: s.cluster.caFile,
@@ -289,7 +289,7 @@ const benchRun = Effect.fn("benchRun")(function* (options: ColdOptions) {
 	return {
 		server,
 		load: series(loadConditions, loadRaw),
-		database: series(databaseConditions(pgPin.port), databaseRaw)
+		database: series(databaseConditions(s.cluster.port), databaseRaw)
 	}
 }, Effect.scoped)
 

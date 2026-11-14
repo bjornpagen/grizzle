@@ -259,7 +259,7 @@ const earlierCase = (e: Earlier, c: Case<EarlierFeature>) =>
 						logins: [shop.server],
 						migrations: "migrations",
 						connection: () => ({
-							...connectionOf(substrate.cluster, ownerOn(database)),
+							...connectionOf(substrate.cluster, ownerOn(substrate.cluster, database)),
 							rolePrefix
 						})
 					})

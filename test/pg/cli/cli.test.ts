@@ -295,14 +295,14 @@ const configurations = (ctx: TestContext) =>
 							: Option.none()
 						const connection: ConfigSpec["connection"] = Option.match(intruder, {
 							onNone: (): ConfigSpec["connection"] => ({
-								...ownerOn(substrate.database),
+								...ownerOn(substrate.cluster, substrate.database),
 								as: {
 									kind: "migration identity",
 									password: sketch.connection === "an Effect password" ? "effect" : "owner"
 								}
 							}),
 							onSome: (role): ConfigSpec["connection"] => ({
-								...ownerOn(substrate.database),
+								...ownerOn(substrate.cluster, substrate.database),
 								as: { kind: "role", role: role.role, password: Redacted.value(role.password) }
 							})
 						})

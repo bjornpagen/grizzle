@@ -33,6 +33,7 @@ import type { ConstraintName } from "#compiler/core/ids.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { testPoolMax } from "#pg/lease.ts"
 import { succeeded } from "#test/support/assert.ts"
+import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { testConnectTimeout, testIdleTimeout } from "#test/support/limits.ts"
 import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
@@ -466,11 +467,16 @@ const harnessSessionOptions = Arr.join(
 )
 
 const connectOnce = (
-	ca: string,
+	cluster: InitializedClusterShape,
 	options: SessionOptions
 ): Effect.Effect<PgConnection, SqlError, Scope.Scope> =>
 	Effect.gen(function* () {
-		const target: Target = { host: pgPin.host, port: pgPin.port, ca, servername: pgPin.host }
+		const target: Target = {
+			host: pgPin.host,
+			port: cluster.port,
+			ca: cluster.caPem,
+			servername: pgPin.host
+		}
 		const client = new Client({
 			host: target.host,
 			port: target.port,
@@ -632,7 +638,7 @@ export const session = (
 	cluster: BudgetedCluster,
 	options: SessionOptions
 ): Effect.Effect<PgConnection, SqlError, Scope.Scope> =>
-	cluster.budget.opened(connectOnce(cluster.caPem, options))
+	cluster.budget.opened(connectOnce(cluster, options))
 
 /**
  * The session pool of a test's DbLayer: one session per core (testPoolMax), no session closed for idleness while its
@@ -654,7 +660,7 @@ export const clusterTransport = (cluster: BudgetedCluster): Transport =>
 	cluster.budget.transport({
 		kind: "sslRequest",
 		host: pgPin.host,
-		port: pgPin.port,
+		port: cluster.port,
 		open: () => new net.Socket(),
 		ca: cluster.caPem,
 		servername: pgPin.host

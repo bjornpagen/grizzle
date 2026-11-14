@@ -108,9 +108,10 @@ export interface LocalCluster {
 /**
  * The cluster named `port`. The default cluster (pin.env's GRIZZLE_PG_DEFAULT_CLUSTER) keeps the state directory
  * pin.env names; every other's sits beside it, that directory's name suffixed with `-<port>`, so no two clusters share
- * a directory and none's lies inside another's, which init.sh --force and destroy remove whole.
+ * a directory and none's lies inside another's, which init.sh --force and destroy remove whole. A family's members
+ * other than its first are clusters of this kind too, each named by its own port (family.ts).
  */
-const clusterNamed = (port: number): LocalCluster => {
+export const clusterAt = (port: number): LocalCluster => {
 	const state =
 		port === pin.GRIZZLE_PG_DEFAULT_CLUSTER
 			? pin.GRIZZLE_PG_DEFAULT_STATE
@@ -140,10 +141,10 @@ export const selectCluster = (
 			(error) => new ClusterUnnamed({ reason: error.message })
 		),
 		Option.match({
-			onNone: () => Effect.succeed(clusterNamed(pin.GRIZZLE_PG_DEFAULT_CLUSTER)),
+			onNone: () => Effect.succeed(clusterAt(pin.GRIZZLE_PG_DEFAULT_CLUSTER)),
 			onSome: ({ port, text }) =>
 				`${port}` === text
-					? Effect.succeed(clusterNamed(port))
+					? Effect.succeed(clusterAt(port))
 					: Effect.fail(
 							new ClusterUnnamed({ reason: `"${text}" spells port ${port} otherwise than ${port}` })
 						)

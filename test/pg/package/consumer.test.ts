@@ -191,7 +191,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 						config,
 						jsonText({
 							host: pgPin.host,
-							port: pgPin.port,
+							port: installed.cluster.port,
 							ca: installed.cluster.caPem,
 							database: installed.database,
 							password: Redacted.value(installed.as(own.server).password),

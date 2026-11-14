@@ -10,12 +10,7 @@ import {
 	type SqlError,
 	testDatabaseSettings
 } from "#test/support/pg.ts"
-import {
-	type BudgetedCluster,
-	budgeted,
-	type LeaseBudget,
-	leaseBudget
-} from "#test/support/substrate/budget.ts"
+import { type BudgetedCluster, budgeted, leaseBudget } from "#test/support/substrate/budget.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { allocatingPid } from "#test/support/substrate/names.ts"
 import { connect, ownerCredentials } from "#test/support/substrate/session.ts"
@@ -473,7 +468,7 @@ const sweepKey = 1735289962
  */
 export const sweep = (
 	dropRole: (
-		budget: LeaseBudget,
+		cluster: BudgetedCluster,
 		admin: PgConnection,
 		role: string
 	) => Effect.Effect<void, SqlError>
@@ -532,7 +527,7 @@ export const sweep = (
 			const deadDecoders = new Set(Arr.map(dead, decoderOfAllocation))
 			for (const role of roles) {
 				if (deadDecoders.has(role) || Option.exists(allocatingPid(role), ended)) {
-					yield* Effect.ignore(dropRole(cluster.budget, admin, role))
+					yield* Effect.ignore(dropRole(cluster, admin, role))
 				}
 			}
 		})

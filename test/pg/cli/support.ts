@@ -25,8 +25,9 @@ import { type CliReport, type ConfigLoader, runCli } from "#cli/run.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { servedPath } from "#compiler/served/forms.ts"
+import { localCluster } from "#pg/local-cluster.ts"
 import { ledger, shop } from "#test/pg/cli/fixture.ts"
-import { type InitializedClusterShape, readCluster } from "#test/support/cluster.ts"
+import { type InitializedClusterShape, selectedCluster } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
@@ -112,18 +113,23 @@ export type ConfigSpec = {
 	readonly connection: ConnectionSpec
 }
 
-/** The migration identity on `database`, with its password. */
-export const ownerOn = (database: string): ConnectionSpec => ({
+/** The migration identity on `database` of `cluster`, the member this process reaches, with its password. */
+export const ownerOn = (cluster: InitializedClusterShape, database: string): ConnectionSpec => ({
 	database,
-	port: pgPin.port,
+	port: cluster.port,
 	as: { kind: "migration identity", password: "owner" }
 })
 
 /**
  * The connection of a configuration no command of the test connects with: generate, check and names never read it,
- * and a migrate on it finds no such database.
+ * and a migrate on it finds no such database. Its port is the cluster family's name (local-cluster.ts localCluster),
+ * which no module-level value reaches through a member.
  */
-export const unconnected: ConnectionSpec = ownerOn("unconnected")
+export const unconnected: ConnectionSpec = {
+	database: "unconnected",
+	port: localCluster.port,
+	as: { kind: "migration identity", password: "owner" }
+}
 
 /** The file every workspace's configuration lies in, as its command lines name it, relative to the workspace. */
 export const configName = "grizzle.config.ts"
@@ -142,7 +148,7 @@ export const offlineConnection: DbConnection = {
 	transport: {
 		kind: "sslRequest",
 		host: pgPin.host,
-		port: pgPin.port,
+		port: localCluster.port,
 		open: () => new net.Socket(),
 		ca: "-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n",
 		servername: pgPin.host
@@ -237,14 +243,14 @@ export const specConfig = (
 	dir: string
 ): Effect.Effect<
 	GrizzleConfig,
-	PlatformError.PlatformError | Effect.Error<typeof readCluster>,
+	PlatformError.PlatformError | Effect.Error<typeof selectedCluster>,
 	FileSystem.FileSystem
 > =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const text = yield* fs.readFileString(`${dir}/${specFileName}`)
 		const spec = trustedJson<ConfigSpec>(text)
-		const cluster = yield* readCluster
+		const cluster = yield* selectedCluster
 		return configOf(budgeted(cluster, leaseBudget(commandConnections)), spec)
 	})
 

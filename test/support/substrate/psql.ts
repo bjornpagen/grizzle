@@ -80,6 +80,8 @@ export interface PsqlWriter {
 }
 
 export interface PsqlOptions {
+	/** The port of the cluster member the writer reaches. */
+	readonly port: number
 	readonly database: string
 	readonly credentials: Credentials
 	readonly label: string
@@ -266,7 +268,7 @@ const psqlArguments = (options: PsqlOptions): ReadonlyArray<string> => {
 				onNone: () => [],
 				onSome: (address) => [`hostaddr=${address}`]
 			}),
-			`port=${pgPin.port}`,
+			`port=${options.port}`,
 			`dbname=${options.database}`,
 			`user=${options.credentials.role}`,
 			"sslmode=verify-full",

@@ -12,14 +12,41 @@ pg_node() {
 	(cd "$repo_root" && node "packages/pg/src/$module" "$@")
 }
 
-# The local cluster GRIZZLE_PG_CLUSTER names, or the default when it is unset: its port, PG_PORT, its state directory,
-# GRIZZLE_PG_STATE, and the paths in it, declared from packages/pg/src/local-cluster.ts selectCluster, the one formula,
-# which packages/pg/src/cluster.ts prints. A name that is no cluster stops every script here.
-cluster="$(pg_node cluster.ts)" || exit 1
-while IFS= read -r assignment; do
-	declare -- "$assignment"
-done <<<"$cluster"
-unset cluster assignment
+# member_env <port>: declares the port, PG_PORT, the state directory, GRIZZLE_PG_STATE, and the paths in it of the
+# cluster <port> names, a member of a family, from packages/pg/src/local-cluster.ts, which packages/pg/src/cluster.ts
+# prints; with no argument, of the cluster GRIZZLE_PG_CLUSTER names, or the default when it is unset. A name that is no
+# cluster stops the script.
+member_env() {
+	local vars assignment
+	vars="$(pg_node cluster.ts "$@")" || exit 1
+	while IFS= read -r assignment; do
+		declare -g -- "$assignment"
+	done <<<"$vars"
+}
+
+# The family GRIZZLE_PG_CLUSTER names (packages/pg/src/family.ts), whose first member is that cluster: FAMILY_PORT, its
+# name, and that member's environment, which every script starts in. A family's members are what its family file
+# records (family_ports), never a formula over its name.
+member_env
+FAMILY_PORT=$PG_PORT
+
+# family_cli <subcommand>: packages/pg/src/family-cli.ts over the family GRIZZLE_PG_CLUSTER names: its size, its
+# recorded members, its file, a free port, or the recording of its members.
+family_cli() {
+	pg_node family-cli.ts "$@"
+}
+
+# The ports of the family's members, one a line in member order, as its family file records them; with none recorded,
+# or one recorded otherwise, a failing exit and the refusal's first line on stderr (the runtime reports it on stdout),
+# so no script acts on a member it guessed.
+family_ports() {
+	local recorded
+	if ! recorded="$(family_cli members)"; then
+		head -n 1 <<<"$recorded" >&2
+		return 1
+	fi
+	echo "$recorded"
+}
 
 pg_bin() { echo "$GRIZZLE_PG_PREFIX/bin/$1"; }
 
@@ -58,10 +85,10 @@ pg_running() {
 	"$(pg_bin pg_ctl)" -D "$GRIZZLE_PG_DATA" status >/dev/null 2>&1
 }
 
-# Refuses, with a failing exit, unless the cluster's port is free on every address localhost names
-# (packages/pg/src/port-free.ts).
+# Refuses, with a failing exit, unless the port of the member whose environment is declared is free on every address
+# localhost names (packages/pg/src/port-free.ts).
 require_port_free() {
-	if ! pg_node port-free.ts; then
+	if ! pg_node port-free.ts "$PG_PORT"; then
 		echo "Port $PG_PORT is taken: name another cluster with GRIZZLE_PG_CLUSTER=<port>" >&2
 		exit 1
 	fi

@@ -520,11 +520,12 @@ interface Upstream {
 }
 
 /**
- * The plaintext of one verified TLS connection to the cluster: SSLRequest, then verify-full against the cluster's CA
- * naming the pin's host. Writes made before TLS is up wait for it; `onData` sees every chunk the server sends, `onEnd`
+ * The plaintext of one verified TLS connection to the cluster member on `port`: SSLRequest, then verify-full against
+ * the cluster's CA naming the pin's host. Writes made before TLS is up wait for it; `onData` sees every chunk the server sends, `onEnd`
  * its end, and `onClose` the connection's close or failure, after which nothing more arrives.
  */
 const upstream = (
+	port: number,
 	ca: string,
 	onData: (chunk: Buffer) => void,
 	onEnd: () => void,
@@ -532,7 +533,7 @@ const upstream = (
 ): Upstream => {
 	let secure: TLSSocket | undefined
 	const queued: Array<Uint8Array> = []
-	const raw = netConnect({ host: pgPin.host, port: pgPin.port, noDelay: true })
+	const raw = netConnect({ host: pgPin.host, port, noDelay: true })
 	raw.on("error", onClose)
 	raw.once("close", onClose)
 	raw.once("connect", () => raw.write(sslRequest))
@@ -683,6 +684,7 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 				}
 			})
 			const server = upstream(
+				cluster.port,
 				cluster.caPem,
 				(chunk) => {
 					backend(chunk)

@@ -529,7 +529,7 @@ const configureAs = (r: Workspace, config: Configured, password: "owner" | "wron
 		schemas: [
 			{ name: r.schema, fixture: "shop", version: config.version, workload: config.workload }
 		],
-		connection: { ...ownerOn(r.database), as: { kind: "migration identity", password } }
+		connection: { ...ownerOn(r.cluster, r.database), as: { kind: "migration identity", password } }
 	})
 
 /** A new grizzle.config.ts; `grizzle check` then refuses exactly when the configuration differs from the snapshot's. */
