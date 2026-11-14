@@ -603,7 +603,9 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 					const orderedSpecs = Arr.appendAll(ordered.optimized, ordered.conservative)
 					/**
 					 * approximateNearest's conservative form is the exact top-k of its source: here every
-					 * stored embedding scored against the probe, its five nearest by distance, then document and revision.
+					 * stored embedding scored against the probe, its five nearest by distance, then document and revision,
+					 * lowered with the probe declared as the checker declares it, since a placeholder is cast by its
+					 * parameter's declared type (lower/conservative/context.ts scalarParam).
 					 */
 					const q = new Q()
 					const embedding = q.base(
@@ -648,9 +650,10 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 						loc: undefined,
 						meta: conservativeMeta
 					})
-					const program = lowerConservative(conservativeInput(q.build(nearest)), {
+					const nearestQuery = q.build(nearest)
+					const program = lowerConservative(conservativeInput(nearestQuery), {
 						names: installed.names,
-						params: [],
+						params: nearestQuery.params,
 						subject: { kind: "query" }
 					})
 					if (!program.ok) {

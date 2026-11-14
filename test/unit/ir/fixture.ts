@@ -9,6 +9,7 @@ import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import type { ExprSpec, ScalarExpr } from "#compiler/ir/expr.ts"
 import { type TypedLiteral, OpId, type ParamRole } from "#compiler/ir/expr.ts"
+import type { ParamDecl } from "#compiler/ir/products.ts"
 import {
 	conservativeMeta,
 	type Heading,
@@ -69,11 +70,25 @@ const column = (name: string, type: ScalarType): HeadingColumn => ({ name, type 
 export const heading = (...columns: ReadonlyArray<readonly [string, ScalarType]>): Heading =>
 	Arr.map(columns, ([name, type]) => column(name, type))
 
-/** Expression helpers over a builder. */
+/**
+ * Expression helpers over a builder, which declare every parameter they read as the checker declares it: a scalar at
+ * its type, a relation at its heading.
+ */
 export class Exprs {
 	readonly b: DagBuilder
+	readonly #params = new Map<string, ParamDecl>()
 	constructor(b: DagBuilder) {
 		this.b = b
+	}
+	/** The parameters read through these helpers, declared once each, by name. */
+	get params(): ReadonlyArray<ParamDecl> {
+		return [...this.#params.values()]
+	}
+	/** Declares the parameter `decl`, the first declaration of its name kept. */
+	declare(decl: ParamDecl): void {
+		if (!this.#params.has(decl.name)) {
+			this.#params.set(decl.name, decl)
+		}
 	}
 	col(node: RelNode, name: string, type: ScalarType) {
 		return this.b.expr({
@@ -94,6 +109,7 @@ export class Exprs {
 		})
 	}
 	param(name: string, type: ScalarType, role: ParamRole) {
+		this.declare({ id: ParamId(name), name, kind: "scalar", type })
 		return this.b.expr({
 			kind: "param",
 			param: ParamId(name),
@@ -161,6 +177,8 @@ export interface EveryKind {
 	readonly dag: ValidDag
 	/** The fixture's nodes by name. */
 	readonly nodes: { readonly [K in EveryKindKey]: RelNode }
+	/** The parameters its nodes read, declared as the checker declares them: the relation ids and the vector q. */
+	readonly params: ReadonlyArray<ParamDecl>
 }
 
 /**
@@ -204,10 +222,12 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 		loc: undefined,
 		meta: conservativeMeta
 	})
+	const idsHeading = heading(["id", scalarTypes.uuid])
+	x.declare({ id: ParamId("ids"), name: "ids", kind: "relation", heading: idsHeading })
 	const inputIds = b.node({
 		kind: "InputSet",
 		input: { kind: "declared", param: ParamId("ids") },
-		heading: heading(["id", scalarTypes.uuid]),
+		heading: idsHeading,
 		loc: undefined,
 		meta: conservativeMeta
 	})
@@ -827,5 +847,5 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 		"Union(hetero)": hetero,
 		"ProjectSet(exprs)": exprs
 	}
-	return { dag: b.build(Rec.values(nodes)), nodes }
+	return { dag: b.build(Rec.values(nodes)), nodes, params: x.params }
 }

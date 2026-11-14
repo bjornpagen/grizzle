@@ -27,7 +27,9 @@
  * Plants, each failing its search: a delta read in a query lowered as the empty relation (lowering-delta-query); a
  * take delivered in another order merged by its take alone (lowering-merge-reorder); an attachment on an arm of several
  * delivered (lowering-arm-attachments); a reference to a shared source resolved (lowering-shared-source); a bound
- * parameter bound as int4 whatever its declaration (lowering-bound-int4).
+ * parameter bound as int4 whatever its declaration (lowering-bound-int4); a declared vector parameter refused as
+ * undeclared (~/.cache/grizzle-release/LOWERFIX/plants/lowering-vector-param-undeclared.patch), the kind table's
+ * scored projection, whose fixture declares every parameter its nodes read.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
@@ -199,7 +201,7 @@ describe("the kind table", () => {
 	it.effect(
 		"lowers every node of the every-kind fixture, audited, unless it reads what the lowering refuses",
 		(ctx) => {
-			const { dag, nodes } = everyKind(makeIdSupply())
+			const { dag, nodes, params } = everyKind(makeIdSupply())
 			return searched(
 				ctx,
 				exhaust(
@@ -231,7 +233,7 @@ describe("the kind table", () => {
 					([[key, root], subject], c) =>
 						Effect.sync(() => {
 							const expected = kindOutcome(readsOf(root), subject)
-							const r = lowerConservative({ dag, root }, optionsFor([], subject))
+							const r = lowerConservative({ dag, root }, optionsFor(params, subject))
 							c.note(`${expected} ${subject}`)
 							if (expected !== "lowered") {
 								refused(r, expected, key)
