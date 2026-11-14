@@ -60,6 +60,7 @@ import {
 	type ConfigSpec,
 	cli,
 	cliClock,
+	commandConnections,
 	configName,
 	configOf,
 	ownerOn,
@@ -306,6 +307,7 @@ const configurations = (ctx: TestContext) =>
 							})
 						})
 						const ws = yield* workspace("conf")
+						yield* substrate.cluster.budget.within(commandConnections)
 						yield* writeConfig(ws, { schemas: specs, connection })
 						const run = runner(sketch.executor, ws)
 

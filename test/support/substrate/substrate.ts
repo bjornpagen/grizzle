@@ -6,12 +6,13 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { advisoryKey } from "#compiler/sql/catalog.ts"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
-import { InitializedCluster, type InitializedClusterShape } from "#test/support/cluster.ts"
+import { InitializedCluster } from "#test/support/cluster.ts"
 import { adminUrl, pgPin } from "#test/support/env.ts"
 import { awaitRoleQuiet, type ClientBackend, endBackend } from "#test/support/kernel/sanitize.ts"
 import { testExitWait } from "#test/support/limits.ts"
 import { freshDatabase, type PgConnection, type SqlError, sqlErrorOf } from "#test/support/pg.ts"
 import { awaitBlockedBy, awaitLockWait, type LockWait } from "#test/support/substrate/barrier.ts"
+import type { BudgetedCluster, LeaseBudget } from "#test/support/substrate/budget.ts"
 import type { PsqlProcessError } from "#test/support/substrate/errors.ts"
 import {
 	defaultSchemaLabel,
@@ -22,12 +23,7 @@ import {
 	uniqueSchemaName,
 	uniqueSchemaNameOfLength
 } from "#test/support/substrate/names.ts"
-import {
-	type BackendCancel,
-	openPsql,
-	type PsqlOptions,
-	type PsqlWriter
-} from "#test/support/substrate/psql.ts"
+import { type BackendCancel, openPsql, type PsqlWriter } from "#test/support/substrate/psql.ts"
 import {
 	type Credentials,
 	connect,
@@ -143,15 +139,19 @@ export const worldPsql = (world: SubstrateWorld): PsqlConnectOptions => ({
 
 export interface SubstrateShape {
 	/**
-	 * The initialised cluster the substrate was built from: a substrate exists only once the cluster parsed, so code
-	 * that holds one reads the cluster's CA certificates here and needs no InitializedCluster of its own.
+	 * The initialised cluster the substrate was built from, with the budget its lease grants the file (shared.ts
+	 * leaseConnections): a substrate exists only once the cluster parsed, so code that holds one reads the cluster's CA
+	 * certificates here and needs no InitializedCluster of its own, and every connection it opens on the cluster through
+	 * test support draws one of the budget's permits for its life, the substrate's own sessions, psql writers and
+	 * superuser clients included. The file holds at most the budget's width of connections at once.
 	 */
-	readonly cluster: InitializedClusterShape
+	readonly cluster: BudgetedCluster
 	/** The database this file runs in, cloned from grizzle_template: a shared database, or a fresh one. */
 	readonly database: string
 	/**
 	 * The backends that hold the substrate's place on the cluster for its life: its lease's (shared.ts leaseConnections)
-	 * and, in a shared database, its claim's (claimSharedDatabase). Neither holds a transaction id or a snapshot.
+	 * and, in a shared database, its claim's (claimSharedDatabase), which draws from the lease's budget. Neither holds a
+	 * transaction id or a snapshot.
 	 */
 	readonly held: ReadonlyArray<number>
 	/** The migration identity and database owner, with the cluster's password for it. */
@@ -240,7 +240,11 @@ export const underDatabasePrivilegeLock = (statement: string): string =>
  * of test role that is a member of the owner, which owns nothing, as the bootstrap superuser who made it. A no-op once
  * the role is gone; a backend that outlives its termination is a defect.
  */
-export const dropRole = (admin: PgConnection, role: string): Effect.Effect<void, SqlError> =>
+export const dropRole = (
+	budget: LeaseBudget,
+	admin: PgConnection,
+	role: string
+): Effect.Effect<void, SqlError> =>
 	Effect.gen(function* () {
 		const [found] = yield* admin.queryValues(
 			"SELECT EXISTS (SELECT FROM pg_catalog.pg_auth_members AS m WHERE m.member = r.oid AND m.roleid = CURRENT_USER::regrole), pg_catalog.current_database()::text FROM pg_catalog.pg_roles AS r WHERE r.rolname = $1::text",
@@ -251,7 +255,7 @@ export const dropRole = (admin: PgConnection, role: string): Effect.Effect<void,
 		}
 		const [ownerMember, database] = found
 		if (ownerMember === true) {
-			return yield* dropOwnerLogin(String(database), role)
+			return yield* dropOwnerLogin(budget, String(database), role)
 		}
 		yield* admin.query(`GRANT ${quoteIdent(role)} TO CURRENT_USER WITH INHERIT TRUE`, [])
 		/**
@@ -296,8 +300,12 @@ export const dropRole = (admin: PgConnection, role: string): Effect.Effect<void,
  * pg_stat_activity, and a session the test never closed holds the release until Vitest's test timeout reports the test
  * hung. The sweep of crashed runs drops roles with dropRole itself, where leftover backends are expected.
  */
-const releaseRole = (admin: PgConnection, role: string): Effect.Effect<void, SqlError> =>
-	Effect.andThen(awaitRoleQuiet(admin, role), dropRole(admin, role))
+const releaseRole = (
+	budget: LeaseBudget,
+	admin: PgConnection,
+	role: string
+): Effect.Effect<void, SqlError> =>
+	Effect.andThen(awaitRoleQuiet(admin, role), dropRole(budget, admin, role))
 
 /**
  * Rows as text, positional: every column its text, or null for NULL; what a superuser read and both kinds of direct
@@ -314,27 +322,34 @@ const textTypes = { getTypeParser: (): ((text: string) => string) => asText } as
 /**
  * A connection to `database` as the bootstrap superuser `postgres`, over the cluster's local socket, where peer
  * authentication maps this OS user to it (scripts/pg/init.sh); the TLS sessions of test/support/pg.ts reach no
- * superuser. It lives for the scope; a connection refused is a failure its caller makes a defect of the run.
+ * superuser. It lives for the scope, drawing one of `budget`'s permits; a connection refused is a failure its caller
+ * makes a defect of the run.
  */
-const superuserClient = (database: string, applicationName: string) =>
-	Effect.acquireRelease(
-		Effect.suspend(() => {
-			const c = new Client({
-				connectionString: adminUrl(database),
-				application_name: applicationName,
-				types: textTypes
-			})
-			return Effect.as(Effect.tryPromise({ try: () => c.connect(), catch: sqlErrorOf }), c)
-		}),
-		(c) => Effect.promise(() => c.end())
+const superuserClient = (budget: LeaseBudget, database: string, applicationName: string) =>
+	budget.opened(
+		Effect.acquireRelease(
+			Effect.suspend(() => {
+				const c = new Client({
+					connectionString: adminUrl(database),
+					application_name: applicationName,
+					types: textTypes
+				})
+				return Effect.as(Effect.tryPromise({ try: () => c.connect(), catch: sqlErrorOf }), c)
+			}),
+			(c) => Effect.promise(() => c.end())
+		)
 	)
 
 /** Statements in `database` as the bootstrap superuser, in order, on one connection of their own (superuserClient). */
-const asSuperuser = (database: string, statements: ReadonlyArray<string>): Effect.Effect<void> =>
+const asSuperuser = (
+	budget: LeaseBudget,
+	database: string,
+	statements: ReadonlyArray<string>
+): Effect.Effect<void> =>
 	Effect.orDie(
 		Effect.scoped(
 			Effect.gen(function* () {
-				const client = yield* superuserClient(database, "grizzle-substrate superuser")
+				const client = yield* superuserClient(budget, database, "grizzle-substrate superuser")
 				for (const sql of statements) {
 					yield* Effect.tryPromise({ try: () => client.query(sql), catch: sqlErrorOf })
 				}
@@ -347,8 +362,8 @@ const asSuperuser = (database: string, statements: ReadonlyArray<string>): Effec
  * terminated first, the server waiting up to testExitWait for each to exit, then the role, with its defaults and its membership
  * in the owner. It owns nothing, as every statement of its sessions acted as the owner. A no-op once it is gone.
  */
-const dropOwnerLogin = (database: string, role: string): Effect.Effect<void> =>
-	asSuperuser(database, [
+const dropOwnerLogin = (budget: LeaseBudget, database: string, role: string): Effect.Effect<void> =>
+	asSuperuser(budget, database, [
 		`SELECT pg_catalog.pg_terminate_backend(a.pid, ${testExitWait.value}) FROM pg_catalog.pg_stat_activity AS a WHERE a.usename = ${quoteString(role)}::name`,
 		`DROP ROLE IF EXISTS ${quoteIdent(role)}`
 	])
@@ -359,12 +374,15 @@ const dropOwnerLogin = (database: string, role: string): Effect.Effect<void> =>
  * otherwise; each statement answers its rows as text.
  */
 const asSuperuserRead = <A, E>(
+	budget: LeaseBudget,
 	database: string,
 	read: (rows: (sql: string) => Effect.Effect<TextRows>) => Effect.Effect<A, E>
 ): Effect.Effect<A, E> =>
 	Effect.scoped(
 		Effect.gen(function* () {
-			const client = yield* Effect.orDie(superuserClient(database, "grizzle-substrate stored read"))
+			const client = yield* Effect.orDie(
+				superuserClient(budget, database, "grizzle-substrate stored read")
+			)
 			const rows = (sql: string): Effect.Effect<TextRows> =>
 				Effect.orDie(
 					Effect.map(
@@ -383,11 +401,71 @@ const asSuperuserRead = <A, E>(
 	)
 
 /**
+ * A psql writer in `database` of `cluster` (SubstrateShape.psql), whose release ends once its backend has: psql's exit
+ * closes its connection without waiting for the server, and the release then ends the backend on `admin` (endBackend),
+ * which a statement psql left running, waiting on a lock another session's open transaction holds, would keep alive
+ * until that session's own release, perhaps later in the same scope. So no writer's release waits on another session.
+ * Registered before the writer, that finalizer runs after the writer's own. The writer draws one of the cluster's
+ * budget's permits before psql is spawned, given back once its backend has ended or psql has failed to start
+ * (budget.ts LeaseBudget opened), and dies with LeaseBudgetExhausted when none is free.
+ */
+export const psqlWriter = (
+	cluster: BudgetedCluster,
+	database: string,
+	admin: PgConnection,
+	options: PsqlConnectOptions
+): Effect.Effect<
+	PsqlWriter,
+	PsqlProcessError,
+	Scope.Scope | ChildProcessSpawner.ChildProcessSpawner
+> =>
+	cluster.budget.opened(
+		Effect.gen(function* () {
+			const started: { backend: Option.Option<ClientBackend> } = { backend: Option.none() }
+			yield* Effect.addFinalizer(() =>
+				Option.match(started.backend, {
+					onNone: () => Effect.void,
+					onSome: (backend) => Effect.orDie(endBackend(admin, backend))
+				})
+			)
+			const writer = yield* openPsql({
+				database,
+				credentials: options.as,
+				label: options.label,
+				caFile: cluster.caFile,
+				host: options.host,
+				hostaddr: options.hostaddr,
+				/**
+				 * The call stays in the select list, so it runs only for a backend the WHERE clause found running a query; it
+				 * answers false for one that exited meanwhile, which runs nothing.
+				 */
+				cancelBackend: (pid) =>
+					Effect.match(
+						admin.queryValues(
+							"SELECT pg_catalog.pg_cancel_backend(pid)::text FROM pg_catalog.pg_stat_activity WHERE pid = $1::int4 AND state = 'active'::text",
+							[pid]
+						),
+						{
+							onFailure: (): BackendCancel => "unreachable",
+							onSuccess: (rows): BackendCancel =>
+								Arr.some(rows, ([signalled]) => signalled === "true") ? "signalled" : "not running"
+						}
+					)
+			})
+			started.backend = Option.some(writer.backend)
+			if (Option.isSome(options.role)) {
+				yield* Effect.orDie(writer.run(`SET ROLE ${quoteIdent(options.role.value)}`))
+			}
+			return writer
+		})
+	)
+
+/**
  * Builds the substrate over `database` of `cluster` in the current scope, with `admin` as its admin connection; its psql
  * writers are spawned by the scope's child-process spawner.
  */
 const build = Effect.fnUntraced(function* (
-	cluster: InitializedClusterShape,
+	cluster: BudgetedCluster,
 	database: string,
 	admin: PgConnection,
 	held: ReadonlyArray<number>
@@ -405,7 +483,7 @@ const build = Effect.fnUntraced(function* (
 
 	/** A role finalizer that fails is a leaked cluster-wide role: surface it as a defect rather than hide it. */
 	const registerRoleCleanup = (role: string) =>
-		Effect.addFinalizer(() => Effect.orDie(releaseRole(admin, role)))
+		Effect.addFinalizer(() => Effect.orDie(releaseRole(cluster.budget, admin, role)))
 
 	const enableLogin = (role: string): Effect.Effect<Credentials, SqlError> =>
 		Effect.gen(function* () {
@@ -455,14 +533,14 @@ const build = Effect.fnUntraced(function* (
 							[source]
 						)
 						for (const [decoder] of decoders) {
-							yield* releaseRole(admin, String(decoder))
+							yield* releaseRole(cluster.budget, admin, String(decoder))
 						}
 						const roles = yield* admin.queryValues(
 							"SELECT rolname::text FROM pg_catalog.pg_roles WHERE starts_with(rolname::text, $1::text) ORDER BY rolname",
 							[rolePrefix(name)]
 						)
 						for (const [role] of roles) {
-							yield* releaseRole(admin, String(role))
+							yield* releaseRole(cluster.budget, admin, String(role))
 						}
 						yield* admin.query(`DROP SCHEMA IF EXISTS ${quoteIdent(name)} CASCADE`, [])
 					})
@@ -503,9 +581,12 @@ const build = Effect.fnUntraced(function* (
 			const password = randomPassword()
 			const quoted = quoteIdent(name)
 			yield* Effect.addFinalizer(() =>
-				Effect.andThen(Effect.orDie(awaitRoleQuiet(admin, name)), dropOwnerLogin(database, name))
+				Effect.andThen(
+					Effect.orDie(awaitRoleQuiet(admin, name)),
+					dropOwnerLogin(cluster.budget, database, name)
+				)
 			)
-			yield* asSuperuser(database, [
+			yield* asSuperuser(cluster.budget, database, [
 				`CREATE ROLE ${quoted} LOGIN PASSWORD ${quoteString(password)}`,
 				`GRANT ${quoteIdent(owner.role)} TO ${quoted} WITH INHERIT FALSE, SET TRUE`,
 				`ALTER ROLE ${quoted} SET role = ${quoteString(owner.role)}`,
@@ -542,55 +623,10 @@ const build = Effect.fnUntraced(function* (
 			return raw
 		})
 
-	/**
-	 * A psql writer whose release ends once its backend has: psql's exit closes its connection without waiting for the
-	 * server, and the release then ends the backend (endBackend), which a statement psql left running, waiting on a lock
-	 * another session's open transaction holds, would keep alive until that session's own release, perhaps later in the
-	 * same scope. So no writer's release waits on another session. Registered before the writer, this finalizer runs
-	 * after the writer's own.
-	 */
 	const psql = (options: PsqlConnectOptions) =>
-		Effect.gen(function* () {
-			const started: { backend: Option.Option<ClientBackend> } = { backend: Option.none() }
-			yield* Effect.addFinalizer(() =>
-				Option.match(started.backend, {
-					onNone: () => Effect.void,
-					onSome: (backend) => Effect.orDie(endBackend(admin, backend))
-				})
-			)
-			const writer = yield* openPsql(psqlOptions(options)).pipe(
-				Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner)
-			)
-			started.backend = Option.some(writer.backend)
-			if (Option.isSome(options.role)) {
-				yield* Effect.orDie(writer.run(`SET ROLE ${quoteIdent(options.role.value)}`))
-			}
-			return writer
-		})
-	const psqlOptions = (options: PsqlConnectOptions): PsqlOptions => ({
-		database,
-		credentials: options.as,
-		label: options.label,
-		caFile: cluster.caFile,
-		host: options.host,
-		hostaddr: options.hostaddr,
-		/**
-		 * The call stays in the select list, so it runs only for a backend the WHERE clause found running a query; it
-		 * answers false for one that exited meanwhile, which runs nothing.
-		 */
-		cancelBackend: (pid) =>
-			Effect.match(
-				admin.queryValues(
-					"SELECT pg_catalog.pg_cancel_backend(pid)::text FROM pg_catalog.pg_stat_activity WHERE pid = $1::int4 AND state = 'active'::text",
-					[pid]
-				),
-				{
-					onFailure: (): BackendCancel => "unreachable",
-					onSuccess: (rows): BackendCancel =>
-						Arr.some(rows, ([signalled]) => signalled === "true") ? "signalled" : "not running"
-				}
-			)
-	})
+		psqlWriter(cluster, database, admin, options).pipe(
+			Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner)
+		)
 
 	const roleExists = (name: string) =>
 		Effect.map(
@@ -614,8 +650,8 @@ const build = Effect.fnUntraced(function* (
 		awaitLockWait: (pid, blockedBy) => awaitLockWait(observer, pid, blockedBy),
 		awaitBlockedBy: (holder, role) => awaitBlockedBy(observer, holder, role),
 		roleExists,
-		superuser: (sql) => asSuperuser(database, [sql]),
-		superuserRead: (read) => asSuperuserRead(database, read)
+		superuser: (sql) => asSuperuser(cluster.budget, database, [sql]),
+		superuserRead: (read) => asSuperuserRead(cluster.budget, database, read)
 	}
 })
 
@@ -629,9 +665,8 @@ const makeSubstrate: Effect.Effect<
 	SqlError,
 	Scope.Scope | InitializedCluster | ChildProcessSpawner.ChildProcessSpawner
 > = Effect.gen(function* () {
-	const cluster = yield* InitializedCluster
 	const lease = yield* leaseConnections
-	const claim = yield* claimSharedDatabase
+	const claim = yield* claimSharedDatabase(lease.cluster)
 	yield* Effect.addFinalizer(() =>
 		Effect.orDie(
 			Effect.gen(function* () {
@@ -648,7 +683,10 @@ const makeSubstrate: Effect.Effect<
 			})
 		)
 	)
-	return yield* build(cluster, claim.database, claim.admin, [lease.processId, claim.claimant])
+	return yield* build(lease.cluster, claim.database, claim.admin, [
+		lease.connection.processId,
+		claim.claimant
+	])
 })
 
 /**
@@ -660,15 +698,14 @@ const makeIsolatedSubstrate: Effect.Effect<
 	SqlError,
 	Scope.Scope | InitializedCluster | ChildProcessSpawner.ChildProcessSpawner
 > = Effect.gen(function* () {
-	const cluster = yield* InitializedCluster
 	const lease = yield* leaseConnections
-	const database = yield* freshDatabase(cluster)
-	const admin = yield* connect(cluster, {
+	const database = yield* freshDatabase(lease.cluster)
+	const admin = yield* connect(lease.cluster, {
 		database,
-		credentials: ownerCredentials(cluster),
+		credentials: ownerCredentials(lease.cluster),
 		label: "admin"
 	})
-	return yield* build(cluster, database, admin, [lease.processId])
+	return yield* build(lease.cluster, database, admin, [lease.connection.processId])
 })
 
 /**

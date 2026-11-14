@@ -32,6 +32,7 @@ import { repoRoot } from "#test/support/files.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
 import { decodersIn, type SourcedLayer, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
+import { type BudgetedCluster, budgeted, leaseBudget } from "#test/support/substrate/budget.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { scopedTempDir } from "#test/support/temp.ts"
 import { testVerify } from "#test/support/worlds.ts"
@@ -183,7 +184,7 @@ const credentialsOf = (
  * @internal
  */
 export const connectionOf = (
-	cluster: InitializedClusterShape,
+	cluster: BudgetedCluster,
 	spec: ConnectionSpec
 ): MigrationConnectionConfig => {
 	const { role, password } = credentialsOf(cluster, spec.as)
@@ -197,7 +198,7 @@ export const connectionOf = (
  *
  * @internal
  */
-export const configOf = (cluster: InitializedClusterShape, spec: ConfigSpec): GrizzleConfig => {
+export const configOf = (cluster: BudgetedCluster, spec: ConfigSpec): GrizzleConfig => {
 	const built = Arr.map(spec.schemas, (s) =>
 		s.fixture === "ledger" ? ledger(s.name) : shop(s.name, s.version, s.workload)
 	)
@@ -217,8 +218,18 @@ export const configOf = (cluster: InitializedClusterShape, spec: ConfigSpec): Gr
 const specFileName = "grizzle.spec.json"
 
 /**
+ * The connections one command line opens on the cluster at once: the migration identity's session, one a command
+ * (packages/grizzle/src/adapter/migrate/session.ts openMigrationSession), and the CancelRequest's connection an
+ * interrupted statement of it opens beside it. The configuration of a spec grants a command line exactly these
+ * (specConfig), in a process of its own or in the test's, and a test that runs command lines over it draws as many
+ * from its file's budget while it does.
+ */
+export const commandConnections = ["migration session", "cancel request"].length
+
+/**
  * The configuration of the spec in `dir`, as its grizzle.config.ts and an in-process run build it: its password and
- * CA are the initialised cluster's, read once for it.
+ * CA are the initialised cluster's, read once for it, and its connection's sockets draw from a budget of
+ * commandConnections of its own.
  *
  * @internal
  */
@@ -234,7 +245,7 @@ export const specConfig = (
 		const text = yield* fs.readFileString(`${dir}/${specFileName}`)
 		const spec = trustedJson<ConfigSpec>(text)
 		const cluster = yield* readCluster
-		return configOf(cluster, spec)
+		return configOf(budgeted(cluster, leaseBudget(commandConnections)), spec)
 	})
 
 /**

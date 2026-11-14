@@ -9,9 +9,9 @@ import { Array as Arr, Effect, Exit, Fiber, Formatter, Option, Ref, Scope } from
 import { trusted } from "#compiler/core/trusted.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert, defined } from "#test/support/assert.ts"
-import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { devSession, type PgConnection, type SqlError } from "#test/support/pg.ts"
+import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import { randomHex } from "#test/support/substrate/names.ts"
 import { leaseTables, type LeaseTables, takeLease } from "#test/support/substrate/shared.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -91,7 +91,7 @@ interface Waiting {
  * Opens a connection to the owner's own database in the scope it runs in, as the lease's `open`, and keeps its
  * backend's pid among `file`'s while it is open; `opening` counts the connections being opened.
  */
-const openFor = (cluster: InitializedClusterShape, file: File) =>
+const openFor = (cluster: BudgetedCluster, file: File) =>
 	Effect.acquireRelease(
 		Effect.ensuring(
 			Effect.andThen(
@@ -156,7 +156,7 @@ WHERE a.pid = ANY ($1::int4[]) AND (a.backend_xid IS NOT NULL OR a.backend_xmin 
 const holderQuery = `SELECT l.pid FROM pg_catalog.pg_locks AS l
 WHERE l.relation = pg_catalog.to_regclass(pg_catalog.format('public.%I', $1::text)) AND l.granted`
 
-const runCase = (cluster: InitializedClusterShape, x: LeaseCase, note: (f: LeaseFeature) => void) =>
+const runCase = (cluster: BudgetedCluster, x: LeaseCase, note: (f: LeaseFeature) => void) =>
 	Effect.gen(function* () {
 		const scope = yield* Effect.scope
 		const tables = leaseTables(`lease_probe_${process.pid}_${randomHex(4)}`)

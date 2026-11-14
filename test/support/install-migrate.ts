@@ -45,7 +45,6 @@ import { installationAbstraction, sameCatalog } from "#test/pg/migrate/support.t
 import { type AmbientOwner, type AmbientSession, ambientOwner } from "#test/support/ambient.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { checkInstallation } from "#test/support/catalog/installed.ts"
-import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { draftedSql, type FixtureSchema, filledSql, migratedSql } from "#test/support/compile.ts"
 import { paths, repoRoot } from "#test/support/files.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -70,6 +69,7 @@ import {
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { type SqlError, wireSession } from "#test/support/pg.ts"
 import { schemaDescIn } from "#test/support/policy.ts"
+import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import type { Credentials, SubstrateWorld } from "#test/support/substrate/session.ts"
@@ -120,8 +120,11 @@ import { regex } from "arkregex"
  *    another database (installMigratedIn) is the first one's copy, judged with it.
  */
 export interface Installed {
-	/** The initialised cluster of the substrate it was migrated in: the CA its logins' connections verify. */
-	readonly cluster: InitializedClusterShape
+	/**
+	 * The initialised cluster of the substrate it was migrated in, with its file's budget: the CA its logins'
+	 * connections verify, and the permits each of them draws.
+	 */
+	readonly cluster: BudgetedCluster
 	/** The substrate database the installation was migrated in. */
 	readonly database: string
 	/** The PostgreSQL schema the installation lives in: the identifier the naming door mints from `declared`. */

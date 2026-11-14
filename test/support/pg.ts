@@ -32,9 +32,9 @@ import { admittedIdentifier } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { succeeded } from "#test/support/assert.ts"
-import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { testConnectTimeout, testIdleTimeout, testPoolMax } from "#test/support/limits.ts"
+import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import { randomHex } from "#test/support/substrate/names.ts"
 
 import { regex } from "arkregex"
@@ -152,10 +152,10 @@ interface SessionOptions {
 
 /**
  * A session as the migration identity grizzle_dev in its own database, with the application name the server records,
- * if any.
+ * if any, drawing one of the cluster's budget's permits for its life (session).
  */
 export const devSession = (
-	cluster: InitializedClusterShape,
+	cluster: BudgetedCluster,
 	applicationName: Option.Option<string>
 ): Effect.Effect<PgConnection, SqlError, Scope.Scope> =>
 	session(cluster, {
@@ -620,14 +620,18 @@ const connectOnce = (
 
 /**
  * The one verify-full connection every test helper opens, the raw sessions of the substrate included: the server
- * certificate must chain to the cluster's CA and name the host.
+ * certificate must chain to the cluster's CA and name the host. It draws one of the cluster's budget's permits before it
+ * connects, given back once the connection has ended or failed (substrate/budget.ts LeaseBudget opened), and dies with
+ * LeaseBudgetExhausted when none is free.
  * It has no connect deadline of its own: a connect is judged by what the server answers, and the cluster-wide
- * connection lease (substrate/shared.ts) keeps the cluster from being loaded past its connections.
+ * connection lease (substrate/shared.ts), whose budget this draws from, keeps the cluster from being loaded past its
+ * connections.
  */
 export const session = (
-	cluster: InitializedClusterShape,
+	cluster: BudgetedCluster,
 	options: SessionOptions
-): Effect.Effect<PgConnection, SqlError, Scope.Scope> => connectOnce(cluster.caPem, options)
+): Effect.Effect<PgConnection, SqlError, Scope.Scope> =>
+	cluster.budget.opened(connectOnce(cluster.caPem, options))
 
 /**
  * The session pool of a test's DbLayer: one session per core (testPoolMax), no session closed for idleness while its
@@ -641,23 +645,26 @@ export const clusterPool: PoolBounds = {
 
 /**
  * The local cluster's transport as a plain Node caller writes it: a new net.Socket for every connection, to the pin's
- * host and port, verify-full TLS against the cluster's CA naming the pin's host.
+ * host and port, verify-full TLS against the cluster's CA naming the pin's host. Each socket draws one of the cluster's
+ * budget's permits while it lives (substrate/budget.ts LeaseBudget transport): a DbLayer's pool stays lazy, and each
+ * session it opens draws as it opens.
  */
-export const clusterTransport = (cluster: InitializedClusterShape): Transport => ({
-	kind: "sslRequest",
-	host: pgPin.host,
-	port: pgPin.port,
-	open: () => new net.Socket(),
-	ca: cluster.caPem,
-	servername: pgPin.host
-})
+export const clusterTransport = (cluster: BudgetedCluster): Transport =>
+	cluster.budget.transport({
+		kind: "sslRequest",
+		host: pgPin.host,
+		port: pgPin.port,
+		open: () => new net.Socket(),
+		ca: cluster.caPem,
+		servername: pgPin.host
+	})
 
 /**
  * A connection to the local cluster's `database` as a plain Node caller writes one, on grizzle's public path: the real
  * pg module as the driver, the cluster's transport, `password`, and a test's connect timeout (testConnectTimeout).
  */
 export const clusterConnection = (
-	cluster: InitializedClusterShape,
+	cluster: BudgetedCluster,
 	database: string,
 	password: Redacted.Redacted | Effect.Effect<Redacted.Redacted, CredentialError>
 ): DbConnection => ({
@@ -686,7 +693,7 @@ export const parsedConnection = (
  * closed with the scope: its statements unnamed, as the command line's are, over the cluster's connection, made once.
  */
 export const wireSession = (
-	cluster: InitializedClusterShape,
+	cluster: BudgetedCluster,
 	options: Omit<SessionOptions, "applicationName">
 ): Effect.Effect<Session, SqlError, Scope.Scope> =>
 	Effect.mapError(
@@ -751,7 +758,7 @@ const configureDatabase = (admin: PgConnection, name: string): Effect.Effect<voi
  * Creates `name` from the template unless it exists, and gives it the test database settings either way. Two workers
  * may race to create it: the loser's 42P04 (duplicate_database) means the database is there.
  */
-export const ensureDatabase = (cluster: InitializedClusterShape, name: string) =>
+export const ensureDatabase = (cluster: BudgetedCluster, name: string) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const admin = yield* devSession(cluster, Option.none())
@@ -783,7 +790,7 @@ export const ensureDatabase = (cluster: InitializedClusterShape, name: string) =
  * bits, which keep a process's databases apart and a reused process id's, and its pid in decimal, so the sweep can tell
  * whose it is.
  */
-export const freshDatabase = (cluster: InitializedClusterShape): Effect.Effect<string, SqlError> =>
+export const freshDatabase = (cluster: BudgetedCluster): Effect.Effect<string, SqlError> =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const admin = yield* devSession(cluster, Option.none())

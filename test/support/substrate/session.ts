@@ -3,6 +3,7 @@ import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { ownPidOf, ownPidQuery } from "#test/support/kernel/sanitize.ts"
 import { type PgConnection, type RawQueryResult, type SqlError, session } from "#test/support/pg.ts"
+import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 
 /** A login role and its password. */
@@ -72,10 +73,10 @@ interface SessionOptions {
 
 /**
  * A verify-full TLS connection to the cluster as `credentials.role`, the server's certificate chained to the cluster's
- * CA for the local host, closed when the scope closes.
+ * CA for the local host, closed when the scope closes, drawing one of the cluster's budget's permits for its life.
  */
 export const connect = (
-	cluster: InitializedClusterShape,
+	cluster: BudgetedCluster,
 	options: SessionOptions
 ): Effect.Effect<PgConnection, SqlError, Scope.Scope> =>
 	session(cluster, {
@@ -96,7 +97,7 @@ export const connect = (
  * Opens a session as `credentials.role` and pins its backend until the scope closes.
  */
 export const openSession = Effect.fnUntraced(function* (
-	cluster: InitializedClusterShape,
+	cluster: BudgetedCluster,
 	options: SessionOptions
 ): Effect.fn.Return<RawSession, SqlError, Scope.Scope> {
 	const label = options.label

@@ -254,7 +254,9 @@ const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 			assert.ok(Exit.isFailure(crossed), "the first's login is refused over the second's database")
 			const bystander = `${firstPrefix}__${uniqueSchemaName("rx", 0)}__x`
 			yield* substrate.admin.query(`CREATE ROLE "${bystander}" NOLOGIN`, [])
-			yield* Effect.addFinalizer(() => Effect.orDie(dropRole(substrate.admin, bystander)))
+			yield* Effect.addFinalizer(() =>
+				Effect.orDie(dropRole(substrate.cluster.budget, substrate.admin, bystander))
+			)
 			const readerRole = roleNameOf(shop.reader, named(first))
 			if (s.heldElsewhere) {
 				const held = yield* substrate.schema({ create: true, label: "held" })

@@ -98,6 +98,7 @@ import {
 	type CliRun,
 	cli,
 	cliClock,
+	commandConnections,
 	configName,
 	driftMismatches,
 	ownerOn,
@@ -109,12 +110,12 @@ import {
 import { openMigrator } from "#test/pg/migrate/support.ts"
 import { assert, defined, lacksText, succeeded } from "#test/support/assert.ts"
 import { oneOf } from "#test/support/calls.ts"
-import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { type DecoderCredential, decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { migrationFolders } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
+import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -165,8 +166,11 @@ interface Workspace {
 	readonly dir: string
 	readonly schema: string
 	readonly database: string
-	/** The initialised cluster the substrate was built from: the migration identity's password and the CA. */
-	readonly cluster: InitializedClusterShape
+	/**
+	 * The initialised cluster the substrate was built from, with its file's budget: the migration identity's password and
+	 * the CA.
+	 */
+	readonly cluster: BudgetedCluster
 	/** The case the exploration hands the property: every step a command reaches is noted through it. */
 	readonly c: Case<CommandKind>
 	/** The folders the ledger records complete. */
@@ -1178,6 +1182,7 @@ const runCommands = (c: Case<CommandKind>, steps: Program<WorkflowParameters>) =
 			const substrate = yield* Substrate
 			const schema = yield* substrate.schema({ create: false, label: "workflow" })
 			const ws = yield* workspace("workflow")
+			yield* substrate.cluster.budget.within(commandConnections)
 			const m = yield* openMigrator(substrate, substrate.owner)
 			const scope = yield* Effect.scope
 			const logins = new Map<string, Credentials>()

@@ -59,6 +59,12 @@ const notesOf = (base: ReturnType<typeof declared>) =>
 	})
 
 /**
+ * The connections the consumer opens on the cluster at once, which its run draws from the file's budget: its pool's
+ * one session (`pool: { max: 1 }` below), and the CancelRequest's connection an interrupted statement of it opens.
+ */
+const consumerConnections = ["the pool's session", "a cancel request"].length
+
+/**
  * The consumer, as an application writes it against the package: the login's served file, served under the
  * login's name, its layer given its installation's live source (LiveSource.layer), the full role's Db of it
  * (test/support/worlds.ts fullWorld), and one read of every note through the workload's member. It loads the runtime
@@ -220,10 +226,11 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 									for (const note of notes) {
 										written.push(note)
 									}
-									const read = yield* runChild(
-										process.execPath,
-										[program, config],
-										consumer.project
+									const read = yield* Effect.scoped(
+										Effect.andThen(
+											installed.cluster.budget.within(consumerConnections),
+											runChild(process.execPath, [program, config], consumer.project)
+										)
 									)
 									assert.equal(read.exitCode, exitedCleanly, `the consumer: ${read.stderr}`)
 									unorderedEqual(

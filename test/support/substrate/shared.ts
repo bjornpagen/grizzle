@@ -10,7 +10,7 @@ import {
 } from "#compiler/core/limits.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { InitializedCluster, type InitializedClusterShape } from "#test/support/cluster.ts"
+import { InitializedCluster } from "#test/support/cluster.ts"
 import {
 	devSession,
 	ensureDatabase,
@@ -18,6 +18,12 @@ import {
 	type SqlError,
 	testDatabaseSettings
 } from "#test/support/pg.ts"
+import {
+	type BudgetedCluster,
+	budgeted,
+	type LeaseBudget,
+	leaseBudget
+} from "#test/support/substrate/budget.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { allocatingPid } from "#test/support/substrate/names.ts"
 import { connect, ownerCredentials } from "#test/support/substrate/session.ts"
@@ -122,16 +128,21 @@ export const undoInstallEffects = (admin: PgConnection): Effect.Effect<void> =>
 	}).pipe(Effect.ignore)
 
 /**
- * The sessions a substrate holds for its life: its lease's, its shared database's claim's, that database's owner's, and
- * the observer's that reads other backends' lock waits (substrate.ts build). The claim has a session of its own: the
- * lease's runs only LOCK, inside the transaction that holds its slot, and a query there would keep its snapshot in the
- * open portal (the extended protocol drops a transaction's unnamed portal only at its next Bind or the transaction's
- * end), holding the backend's xmin for the file's life.
+ * The sessions a substrate holds for its life besides its lease's: its shared database's claim's, that database's
+ * owner's, and the observer's that reads other backends' lock waits (substrate.ts build). The claim has a session of
+ * its own: the lease's runs only LOCK, inside the transaction that holds its slot, and a query there would keep its
+ * snapshot in the open portal (the extended protocol drops a transaction's unnamed portal only at its next Bind or the
+ * transaction's end), holding the backend's xmin for the file's life.
  */
-const substrateSessions = ["lease", "claim", "owner", "observer"] as const
-/** The connections one test file may hold at once, which one lease covers: a test's full pool (testPoolMax, one
- * session per core) and the sessions its substrate holds. */
-export const connectionsPerLease = testPoolMax + substrateSessions.length
+const substrateSessions = ["claim", "owner", "observer"] as const
+/**
+ * The connections a lease grants its file, the width of the budget every connection the file opens after its lease
+ * draws from (budget.ts): a test's full pool (testPoolMax, one session per core) and the sessions its substrate holds
+ * besides the lease's.
+ */
+export const leaseGrant = testPoolMax + substrateSessions.length
+/** The connections one test file may hold at once, which one lease covers: what it grants, and its own session. */
+const connectionsPerLease = leaseGrant + 1
 /** Connections no lease covers: the global setup, the doctor, the sweep, and an operator's psql. */
 const unleasedConnections = 5
 
@@ -142,11 +153,7 @@ const unleasedConnections = 5
  * lease's own: s × connectionsPerLease + (s − 1) fits the connections no lease covers set aside. takeLease reads the
  * three settings from the server it leases on, so a cluster with more connections admits more processes.
  */
-export const leaseSlots = (
-	maxConnections: number,
-	superuserReserved: number,
-	reserved: number
-): number =>
+const leaseSlots = (maxConnections: number, superuserReserved: number, reserved: number): number =>
 	Math.max(
 		1,
 		Math.floor(
@@ -299,32 +306,49 @@ export const takeLease = (
 	})
 
 /**
- * A substrate's lease, held for the current scope: a slot of the cluster's (takeLease over substrateLease, the slots
- * leaseSlots gives the server's settings), whose connection it returns. The scope's close ends that connection, and so
- * frees the slot. A lease covers one substrate's connections (connectionsPerLease), so each substrate a process builds
- * holds one while it lives, and a process holds none once its substrates are released: nothing of the lease outlives
- * them, so a process whose work is done exits. A substrate waiting for a free slot behind other processes waits as long
- * as they hold the slots, inside its layer build, whose hook the network config leaves unbounded for that reason; a run
- * alone never waits on a cluster init.sh sized, which holds a slot for each of its workers (clusterConnections).
+ * A lease a substrate holds: the connection that holds its slot, and the cluster with the budget the lease grants its
+ * file, of leaseGrant permits, which every connection the file opens after it draws from.
  */
-export const leaseConnections: Effect.Effect<
-	PgConnection,
-	SqlError,
-	InitializedCluster | Scope.Scope
-> = Effect.gen(function* () {
-	const cluster = yield* InitializedCluster
-	const open = devSession(cluster, Option.some("grizzle-substrate lease"))
-	const slots = yield* Effect.scoped(
-		Effect.gen(function* () {
-			const settings = yield* open
-			const [row] = yield* settings.queryValues(slotSettingsQuery, [])
-			const [maxConnections, superuserReserved, reserved] =
-				trusted<readonly [maxConnections: number, superuserReserved: number, reserved: number]>(row)
-			return leaseSlots(maxConnections, superuserReserved, reserved)
-		})
-	)
-	return yield* takeLease(open, substrateLease, slots)
-})
+interface Lease {
+	readonly connection: PgConnection
+	readonly cluster: BudgetedCluster
+}
+
+/**
+ * A substrate's lease, held for the current scope: a slot of the cluster's (takeLease over substrateLease, the slots
+ * leaseSlots gives the server's settings), whose connection it returns with the budget it grants. The scope's close
+ * ends that connection, and so frees the slot. A lease covers one substrate's connections (connectionsPerLease), so
+ * each substrate a process builds holds one while it lives, and a process holds none once its substrates are released:
+ * nothing of the lease outlives them, so a process whose work is done exits. A substrate waiting for a free slot behind
+ * other processes waits as long as they hold the slots, inside its layer build, whose hook the network config leaves
+ * unbounded for that reason; a run alone never waits on a cluster init.sh sized, which holds a slot for each of its
+ * workers (clusterConnections).
+ *
+ * The lease's own connections draw from budgets of their own: the read of the settings, one connection; then the
+ * lease's, its queued connection and one racer for each slot at most (takeLease), the one it wins held for the scope.
+ */
+export const leaseConnections: Effect.Effect<Lease, SqlError, InitializedCluster | Scope.Scope> =
+	Effect.gen(function* () {
+		const cluster = yield* InitializedCluster
+		const name = Option.some("grizzle-substrate lease")
+		const slots = yield* Effect.scoped(
+			Effect.gen(function* () {
+				const settings = yield* devSession(budgeted(cluster, leaseBudget(1)), name)
+				const [row] = yield* settings.queryValues(slotSettingsQuery, [])
+				const [maxConnections, superuserReserved, reserved] =
+					trusted<readonly [maxConnections: number, superuserReserved: number, reserved: number]>(
+						row
+					)
+				return leaseSlots(maxConnections, superuserReserved, reserved)
+			})
+		)
+		const connection = yield* takeLease(
+			devSession(budgeted(cluster, leaseBudget(slots + 1)), name),
+			substrateLease,
+			slots
+		)
+		return { connection, cluster: budgeted(cluster, leaseBudget(leaseGrant)) }
+	})
 
 /** PostgreSQL's source of its settings' defaults. */
 const settingDefaults = `${postgresSource}/src/backend/utils/misc/guc_parameters.dat`
@@ -490,7 +514,7 @@ interface SharedConnection {
 }
 
 const connectShared = (
-	cluster: InitializedClusterShape,
+	cluster: BudgetedCluster,
 	scope: Scope.Scope,
 	database: string
 ): Effect.Effect<SharedConnection, SqlError> =>
@@ -519,6 +543,15 @@ const connectShared = (
 	})
 
 /**
+ * The initialised cluster with a budget of the connections no lease covers (unleasedConnections), for work no test file
+ * runs: the global setup's, and the sweep's.
+ */
+const unleased: Effect.Effect<BudgetedCluster, never, InitializedCluster> = Effect.map(
+	InitializedCluster,
+	(cluster) => budgeted(cluster, leaseBudget(unleasedConnections))
+)
+
+/**
  * Clones shared database `index` from the template when it is missing and gives it the test database settings, under
  * its claim, which the global setup takes for each worker's database. The sweep drops a shared database only under its
  * claim too, so another run's sweep never drops one this setup is configuring; one another file or run holds exists
@@ -529,7 +562,7 @@ export const ensureSharedDatabase = (
 ): Effect.Effect<void, SqlError, InitializedCluster> =>
 	Effect.scoped(
 		Effect.gen(function* () {
-			const cluster = yield* InitializedCluster
+			const cluster = yield* unleased
 			const lock = yield* devSession(cluster, Option.some("grizzle-substrate claim"))
 			const [[claimed] = []] = yield* lock.queryValues(claimStatement, [claimKey, index])
 			if (claimed === true) {
@@ -563,50 +596,51 @@ export const ensureSharedDatabase = (
  * file that crashed or failed its release left something in, is never handed out and never dropped here: the claim
  * lets it go and tries the next index, and the sweep drops it once no file runs. A fresh clone that is not clean means
  * the template differs from what `leftovers` expects, a defect of this file, not of a test.
+ *
+ * Every connection the claim opens draws from `cluster`'s budget, its lease's: the claim's session, and each candidate
+ * database's owner connection.
  */
-export const claimSharedDatabase: Effect.Effect<
-	SharedClaim,
-	SqlError,
-	Scope.Scope | InitializedCluster
-> = Effect.gen(function* () {
-	const scope = yield* Effect.scope
-	const cluster = yield* InitializedCluster
-	const lock = yield* devSession(cluster, Option.some("grizzle-substrate claim"))
-	const worker = positiveEnv("VITEST_POOL_ID")
-	const above = networkWorkers + 1
-	/** The n-th index a claim tries: the worker's, then every index above W. */
-	const tried = (n: number): number =>
-		Option.match(worker, {
-			onNone: () => above + n,
-			onSome: (w) => (n === 0 ? w : above + n - 1)
-		})
-	for (let n = 0; ; n++) {
-		const index = tried(n)
-		if (n > 0 && Option.contains(worker, index)) {
-			continue
+export const claimSharedDatabase = (
+	cluster: BudgetedCluster
+): Effect.Effect<SharedClaim, SqlError, Scope.Scope> =>
+	Effect.gen(function* () {
+		const scope = yield* Effect.scope
+		const lock = yield* devSession(cluster, Option.some("grizzle-substrate claim"))
+		const worker = positiveEnv("VITEST_POOL_ID")
+		const above = networkWorkers + 1
+		/** The n-th index a claim tries: the worker's, then every index above W. */
+		const tried = (n: number): number =>
+			Option.match(worker, {
+				onNone: () => above + n,
+				onSome: (w) => (n === 0 ? w : above + n - 1)
+			})
+		for (let n = 0; ; n++) {
+			const index = tried(n)
+			if (n > 0 && Option.contains(worker, index)) {
+				continue
+			}
+			const [[claimed] = []] = yield* lock.queryValues(claimStatement, [claimKey, index])
+			if (claimed !== true) {
+				continue
+			}
+			const database = sharedDatabase(index)
+			const connection = yield* connectShared(cluster, scope, database)
+			const dirty = yield* leftovers(connection.admin)
+			if (dirty.length === 0) {
+				return { database, admin: connection.admin, claimant: lock.processId }
+			}
+			if (connection.origin === "cloned") {
+				return yield* Effect.die(
+					new Error(`a fresh clone of the template is not clean: ${Arr.join(dirty, "; ")}`)
+				)
+			}
+			yield* connection.disconnect
+			yield* lock.queryValues("SELECT pg_catalog.pg_advisory_unlock($1::int4, $2::int4)", [
+				claimKey,
+				index
+			])
 		}
-		const [[claimed] = []] = yield* lock.queryValues(claimStatement, [claimKey, index])
-		if (claimed !== true) {
-			continue
-		}
-		const database = sharedDatabase(index)
-		const connection = yield* connectShared(cluster, scope, database)
-		const dirty = yield* leftovers(connection.admin)
-		if (dirty.length === 0) {
-			return { database, admin: connection.admin, claimant: lock.processId }
-		}
-		if (connection.origin === "cloned") {
-			return yield* Effect.die(
-				new Error(`a fresh clone of the template is not clean: ${Arr.join(dirty, "; ")}`)
-			)
-		}
-		yield* connection.disconnect
-		yield* lock.queryValues("SELECT pg_catalog.pg_advisory_unlock($1::int4, $2::int4)", [
-			claimKey,
-			index
-		])
-	}
-})
+	})
 
 /** Whether process `pid` is running on this machine; a process of another user counts as running. */
 const running = (pid: number): boolean => {
@@ -672,11 +706,15 @@ const sweepKey = 1735289962
  * reads it gone. `dropRole` is the substrate's.
  */
 export const sweep = (
-	dropRole: (admin: PgConnection, role: string) => Effect.Effect<void, SqlError>
+	dropRole: (
+		budget: LeaseBudget,
+		admin: PgConnection,
+		role: string
+	) => Effect.Effect<void, SqlError>
 ) =>
 	Effect.scoped(
 		Effect.gen(function* () {
-			const cluster = yield* InitializedCluster
+			const cluster = yield* unleased
 			const admin = yield* devSession(cluster, Option.none())
 			yield* admin.queryValues("SELECT pg_catalog.pg_advisory_lock($1::int8)", [sweepKey])
 			const databases = yield* admin.queryValues(
@@ -728,7 +766,7 @@ export const sweep = (
 			const deadDecoders = new Set(Arr.map(dead, decoderOfAllocation))
 			for (const role of roles) {
 				if (deadDecoders.has(role) || Option.exists(allocatingPid(role), ended)) {
-					yield* Effect.ignore(dropRole(admin, role))
+					yield* Effect.ignore(dropRole(cluster.budget, admin, role))
 				}
 			}
 		})

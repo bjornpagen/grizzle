@@ -250,7 +250,7 @@ const reservedSchema = (word: string) =>
 				[`${word}__`]
 			)
 			for (const [role] of roles) {
-				yield* dropRole(substrate.admin, String(role))
+				yield* dropRole(substrate.cluster.budget, substrate.admin, String(role))
 			}
 			yield* substrate.admin.query(`DROP SCHEMA IF EXISTS ${quoteIdent(word)} CASCADE`, [])
 		})

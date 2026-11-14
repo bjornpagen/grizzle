@@ -17,11 +17,11 @@ import type { Transport } from "#adapter/types/layer.ts"
 import { connectSession, type Session } from "#adapter/wire/session.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { servedSession } from "#compiler/program/served.ts"
-import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
 import { memoryEndpoint, memoryTransport, tlsMaterial } from "#test/support/memory-tls.ts"
 import { parsedConnection } from "#test/support/pg.ts"
+import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
@@ -579,7 +579,8 @@ const tapServername = "grizzle-tap.test"
 export interface Tap {
 	/**
 	 * The transport through the tap: its sockets in memory, its CA the tap's own, verified as any server's. The first
-	 * session through it is recorded and gated; every CancelRequest through it is counted.
+	 * session through it is recorded and gated; every CancelRequest through it is counted. Each socket draws one of the
+	 * cluster's budget's permits while it lives, as the tap's connection to the cluster lives as long.
 	 */
 	readonly transport: Transport
 	/** A mark at the end of the traffic so far. */
@@ -604,7 +605,7 @@ export interface Tap {
 	readonly gate: Gate
 }
 
-export const makeTap = (cluster: InitializedClusterShape): Tap => {
+export const makeTap = (cluster: BudgetedCluster): Tap => {
 	const material = tlsMaterial(tapServername)
 	const events: Array<WireEvent> = []
 	/** Every session's traffic, in the order the sessions connected, the gated one's `events` first. */
@@ -709,7 +710,7 @@ export const makeTap = (cluster: InitializedClusterShape): Tap => {
 		})
 	}
 	return {
-		transport: memoryTransport(material, memoryEndpoint(material, serve)),
+		transport: cluster.budget.transport(memoryTransport(material, memoryEndpoint(material, serve))),
 		mark: () => events.length,
 		since: (mark) => windowOf(events.slice(mark)),
 		sessions: () => Arr.map(logs, (log) => windowOf(log)),
@@ -722,8 +723,8 @@ export const makeTap = (cluster: InitializedClusterShape): Tap => {
 }
 
 export interface TapOptions {
-	/** The cluster the session reaches, whose CA the tap's own TLS to it verifies. */
-	readonly cluster: InitializedClusterShape
+	/** The cluster the session reaches, whose CA the tap's own TLS to it verifies, and whose budget it draws from. */
+	readonly cluster: BudgetedCluster
 	readonly database: string
 	readonly role: string
 	readonly password: Redacted.Redacted

@@ -97,8 +97,9 @@ export const testConnectTimeout: Limit = derived({
 
 /**
  * The idle timeout of a test's session pool (PoolBounds.idleTimeoutMs): no session closes for idleness while its test
- * runs. A test process's connections to the local cluster are its lease's (substrate/shared.ts connectionsPerLease), so
- * an idle session holds nothing another test file could take, and closing the pool's scope closes every session.
+ * runs. A test process's connections to the local cluster draw from the budget its lease grants (substrate/shared.ts
+ * leaseGrant, substrate/budget.ts), so an idle session holds nothing another test file could take, and closing the
+ * pool's scope closes every session.
  */
 export const testIdleTimeout: Limit = derived({
 	owner: "grizzle's test tiers",
