@@ -22,10 +22,19 @@
  * The oracle is the reference evaluator (oracle/public/meaning.ts expectedQuery), a second implementation over the
  * case's own facts; the two surfaces are held to each other exactly.
  *
- * Plant: none of its own; a codec that respells a value on the wire (LIVE-OPENAPI's) turns it red.
+ * The generator draws prose, text with no byte bound (oracle/public/build.ts prose), compared and joined as any other
+ * field, so a read may need an access index over a prose field, which the compile refuses: an index entry over text
+ * that proves no byte bound is unrepresentable (schema/representability.ts keyDatums). Such a case expects that
+ * refusal, read by its typed fields: UnrepresentableKey, its fault unboundedText of a prose field, every field of its
+ * key one relation's. Any other refusal of a generated program is red, so the oracle holds over every program the
+ * compile admits and holds the compile to admitting every other.
+ *
+ * Plants: none of its own for the surfaces; a codec that respells a value on the wire (LIVE-OPENAPI's) turns it red.
+ * In ~/.cache/grizzle-release/DENAPI/plants: key-text-unbounded.patch (every text field proves no byte bound, bounded
+ * text included), under which a read keyed by bounded text is refused, which the case does not expect.
  *
  * Features: a set read, an ordered read, an attachment, a relation parameter, a read of no row, a read of several rows,
- * a column the reference declines.
+ * a column the reference declines, a read refused for a key over prose.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -36,6 +45,7 @@ import { layer } from "@effect/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { served } from "#adapter/public/layer.ts"
 import type { ServedLogin } from "#adapter/types/layer.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import {
 	type AnyLogin,
@@ -67,7 +77,8 @@ import { printCase } from "#test/support/oracle/public/print.ts"
 import {
 	deliveredOrder,
 	type ProgramCase,
-	type ProgramRead
+	type ProgramRead,
+	type ProgramSchema
 } from "#test/support/oracle/public/program.ts"
 import { unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { storedInput } from "#test/support/oracle/runner.ts"
@@ -86,8 +97,28 @@ type Feature =
 	| "a read of no row"
 	| "a read of several rows"
 	| "a column the reference declines"
+	| "a read refused for a key over prose"
 
 const cases = 40
+
+/**
+ * Whether `error` is the compile's refusal of an index over a prose field of `schema`, the generated schema's text with
+ * no byte bound: UnrepresentableKey, its fault unboundedText of a prose field of a relation whose fields are every
+ * field of the refused key.
+ */
+const refusesProseKey = (schema: ProgramSchema, error: CompileError): boolean => {
+	const reason = error.reason
+	if (reason._tag !== "UnrepresentableKey" || reason.fault.kind !== "unboundedText") {
+		return false
+	}
+	const field = reason.fault.field
+	return Arr.some(
+		schema.relations,
+		(r) =>
+			Arr.some(r.fields, (f) => f.kind === "prose" && f.name === field) &&
+			Arr.every(reason.key, (k) => Arr.some(r.fields, (f) => f.name === k))
+	)
+}
 
 type QueryRead = Extract<ProgramRead, { readonly kind: "query" }>
 
@@ -191,13 +222,24 @@ layer(Substrate.layer)("a generated program", (it) => {
 									server: login(value, "server", [app], { workload: [workload(app, programs)] })
 								}
 							}
-							const generated = yield* installGenerated(
-								(name) => {
-									const world = servedWorld(name)
-									return { schema: world.value, logins: [world.server] }
-								},
-								{ label: "live_differential", ambient: ordinarySession }
+							const installedCase = yield* Effect.result(
+								installGenerated(
+									(name) => {
+										const world = servedWorld(name)
+										return { schema: world.value, logins: [world.server] }
+									},
+									{ label: "live_differential", ambient: ordinarySession }
+								)
 							)
+							if (Result.isFailure(installedCase)) {
+								const failure = installedCase.failure
+								if (failure._tag === "CompileError" && refusesProseKey(c.schema, failure)) {
+									notes.note("a read refused for a key over prose")
+									return
+								}
+								return yield* Effect.fail(failure)
+							}
+							const generated = installedCase.success
 							const done = generated.installed
 							const world = servedWorld(done.declared)
 							const statements = factStatements(done.plan, directFacts(c))
