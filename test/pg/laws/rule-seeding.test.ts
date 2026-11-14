@@ -40,8 +40,15 @@
  *   or merge join, the plans a table of a few rows makes cheapest and an index-only scan's locks follow the visibility
  *   map; a probe that can read a key's rows by index then does, and one that cannot reads every row all the same.
  *
- * Planted, ~/.cache/grizzle-release/LAWQUERY/plants/violation-stale-view.patch, the whole check reading a materialized
- * derived relation a definition reads through its view, fails the equivalence search on viewed.
+ * Two refusals are required of the equivalence search because a probe's delete semantics live in them: a transaction
+ * of single-row deletes alone refused, so only a delete's probe can have found the break, its touched row gone at
+ * COMMIT and read as OLD's values in its place; and one that deletes a link and its children at once, so one tuple
+ * loses rows from several matches and the relaxation order decides which probe withdraws it.
+ *
+ * Planted, ~/.cache/grizzle-release/LAWQUERY/plants/: violation-stale-view.patch, the whole check reading a
+ * materialized derived relation a definition reads through its view, fails the equivalence search on viewed; and
+ * old-probe-filters-old.patch, a delete's probe reading its touched relation filtered to OLD's key rather than OLD's
+ * values in its place, which finds nothing once the row is gone, fails it by a break the triggers accept.
  *
  * Planted in a scratch copy, each fails its search (patches under ~/.cache/grizzle-release/RULESEED/plants/):
  * rule-seed-only-outer, every probe meeting the side its facts meet whole, a union PostgreSQL builds before any term
@@ -444,6 +451,7 @@ type EquivalenceFeature =
 	| "committed"
 	| `refused by ${Shape}`
 	| "refused once a link and its children were deleted at once, and nothing else"
+	| "refused once rows were deleted one at a time, and nothing else"
 	| "refused once a block was inserted"
 	| "committed a needed key no first target arm holds"
 
@@ -518,6 +526,9 @@ const judgeHistory = (installed: Installed, c: Case, note: (f: EquivalenceFeatur
 			note(`refused by ${shape}`)
 			if (Arr.every(ops, (op) => op.kind === "unwind")) {
 				note("refused once a link and its children were deleted at once, and nothing else")
+			}
+			if (Arr.every(ops, (op) => op.kind === "delete")) {
+				note("refused once rows were deleted one at a time, and nothing else")
 			}
 			if (Arr.some(ops, (op) => op.kind === "block")) {
 				note("refused once a block was inserted")
@@ -792,6 +803,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										"committed",
 										...Arr.map(shapes, (s) => `refused by ${s}` as const),
 										"refused once a link and its children were deleted at once, and nothing else",
+										"refused once rows were deleted one at a time, and nothing else",
 										"refused once a block was inserted",
 										"committed a needed key no first target arm holds"
 									],
