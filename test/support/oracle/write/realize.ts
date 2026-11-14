@@ -40,11 +40,7 @@ import {
 	unproved,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
-import {
-	buildInsert,
-	buildSpanClassify,
-	type InsertEntry
-} from "#compiler/write/insert/protocol.ts"
+import { buildInsert, buildSpanClassify } from "#compiler/write/insert/protocol.ts"
 import {
 	type CarrierResult,
 	compareHeading,
@@ -246,28 +242,19 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 				steps.push(
 					Object.freeze({ kind: "action", statement: built, relation, stratum: s, action: i })
 				)
-			/** Whose stored facts the action's inserts meet (insert/protocol.ts InsertEntry): any, or its query entry's. */
-			const entry: InsertEntry =
-				action.info.entry.kind === "entry"
-					? {
-							kind: "entry",
-							membership: {
-								entry: action.info.entry.entry,
-								base: frontend.schema.definitions(),
-								catalog: evidenceCatalog(frontend),
-								world: action.info.entry.names
-							}
-						}
-					: { kind: "whole" }
 			/** An addition's precheck through a query entry: its facts inside the entry, and none at a unique object of a
 			 * fact outside it (entry/precheck.ts). */
 			const precheck = (serial: SerialClass) => {
+				const entry = action.info.entry
 				if (entry.kind === "entry") {
 					check(input, {
 						kind: "membership",
-						...entry.membership,
+						entry: entry.entry,
 						relation,
-						probes: outsideProbes(relation, serial)
+						probes: outsideProbes(relation, serial),
+						base: frontend.schema.definitions(),
+						catalog: evidenceCatalog(frontend),
+						world: entry.names
 					})
 				}
 			}
@@ -275,7 +262,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 			 * classification of each requested fact it did not insert, and the sequence advance after explicit serial
 			 * values. */
 			const insert = (serial: SerialClass, of: InsertOf) => {
-				const spec = { relation, serial, input, of, entry } as const
+				const spec = { relation, serial, input, of } as const
 				statement(buildInsert(w, spec))
 				const key = primaryKeyShape(relation)
 				if (serial.kind === "complete" && key.kind === "span") {

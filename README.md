@@ -2803,9 +2803,10 @@ Exactly one rule finds each post the call states. At READ COMMITTED the later of
 for the earlier, then reads the row it committed, even though that commit came after its own statement began, and
 never fails with 40001. The row is fixed from its commit on, since a READ COMMITTED role writes only relations no role
 updates or deletes. At SERIALIZABLE the met row is read again under the transaction's snapshot, so SSI sees it as a
-read, and a met row the snapshot cannot see fails the call with 40001, a TransientFailure, as before. Through a query
-entry, an insertion meets only rows inside the entry: a row outside it at the key, committed after the entry's
-precheck, refuses the call on the key's law, as the precheck refuses one committed before it.
+read, and a met row the snapshot cannot see fails the call with 40001, a TransientFailure, as before. A role that
+inserts through a query entry runs at SERIALIZABLE, since its precheck reads every row at each key the call states:
+the precheck refuses a row outside the entry at such a key on the key's law, and a row committed after the
+transaction's snapshot fails the call with 40001, whose retry's precheck refuses an outside row on the key's law.
 
 `delta.met` of a relation whose primary key holds a span is refused when the ChangeSet compiles: its exclusion
 constraint arbitrates only by `ON CONFLICT DO NOTHING`, so no statement can tell a row it met from one it made. A

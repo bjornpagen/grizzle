@@ -46,6 +46,14 @@ post-beta swarm's fixes for the next release.
   stays a possible pivot of a dangerous structure (NEGATION, 2026-11-10). The only routes to a proof are nested overlays
   with a sibling seal (a qti-pie change) or closed groups. Until one lands, learners reach content only through a
   publication layer, never the importer's live rows.
+- **A READ COMMITTED insert through a query entry would meet 42501 (RC2BEHAVE, 2026-11-14):** no role that inserts
+  through a query entry is certified READ COMMITTED today, because the certifier reads its precheck's key probe as a
+  read it states no fact of (program/isolation/extract.ts). If the certifier learns key probes and admits it, an
+  occupant outside the entry committed between the precheck and the INSERT meets PostgreSQL 19rc2's SELECT-policy
+  check on the conflicting row, which runs before any WHERE (nodeModifyTable.c ExecOnConflictSelect), so the insert
+  raises 42501. The answer then: read a 42501 at such an insert statement, by statement and SQLSTATE as UniqueAbort
+  reads 23505, as a TransientFailure `HiddenOccupant { relation }` whose retry's precheck refuses on the key's law,
+  added to every closed transient vocabulary. test/schedules/write/entry-occupants.test.ts holds the level today.
 
 ### After the qti-pie and edullm repin (the owner, 2026-11-08: ship the repin first)
 - **The beta.2 gate (owner, hard):** one full suite run (check, unit, types, PostgreSQL, deep) and `bench:full`, with

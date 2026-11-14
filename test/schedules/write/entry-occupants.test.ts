@@ -1,37 +1,43 @@
 /**
- * A query entry's insertion races a commit at its key: the row it meets outside the entry is its key's law, never a
- * 42501 and never a met row; one inside the entry is met or refused as any occupant is.
+ * A query entry's insertion races a commit at its key: an occupant its snapshot cannot see fails the call with 40001,
+ * outside the entry or inside it, never a 42501, and the call's retry answers as the serial order W, then A, does.
  *
- * README, "Rows an insertion met" and "Writing through a role": an insertion through a query entry meets only rows
- * inside the entry. A row outside it at the key, committed after the entry's precheck, refuses the call on the key's
- * law, as the precheck refuses one committed before it. The insert's ON CONFLICT DO SELECT selects only an occupant the
- * entry's membership holds (write/insert/protocol.ts InsertEntry), so PostgreSQL's SELECT policy never meets one outside
- * it (nodeModifyTable.c ExecOnConflictSelect evaluates the WHERE first), and the request it neither inserted nor
- * returned is refused at its key.
+ * README, "Rows an insertion met": a role that inserts through a query entry runs at SERIALIZABLE, since the certifier
+ * reads its precheck's key probe as a read it states no fact of (write/insert/protocol.ts buildInsert). Its precheck
+ * refuses a row outside the entry that the snapshot holds at a key the call states, on the key's law; a row committed
+ * after the snapshot fails the call with 40001 before PostgreSQL judges it by any policy (nodeModifyTable.c
+ * ExecOnConflictSelect and ExecCheckTIDVisible, PostgreSQL 19rc2, which judge the row's visibility first), a
+ * SerializationFailure, and the retry's precheck refuses an outside row on the key's law. At READ COMMITTED,
+ * PostgreSQL 19rc2 would judge an outside row by the role's SELECT policy before any WHERE and raise 42501, which is why
+ * the certificate's level is part of the contract.
  *
  * Seat(id, team, holder) is keyed by id. The role `holder` inserts MySeat, the seats of the session's subject, and Gate,
- * and nothing else, so generate certifies it READ COMMITTED (the case requires it): its insert is the `returned` form.
- * Its workload is `take`, an insertion of a seat through MySeat that reads back the seats it added and met, and
- * `held`, an insertion of a seat and then, in a later stratum, of a Gate row. Two served writers run as two subjects:
- * W runs `held` as carl or as ann, and the owner holds Gate in SHARE mode, so W's seat is written and uncommitted when
- * its Gate insert waits; A runs `take` as ann then, past its precheck, which cannot see W's seat, to the arbiter, where
- * it waits for W; the owner's COMMIT lets W commit, and A's statement meets W's seat.
+ * and nothing else. Its workload is `take`, an insertion of a seat through MySeat that reads back the seats it added
+ * and met, and `held`, an insertion of a seat and then, in a later stratum, of a Gate row. Two served writers run as two
+ * subjects: W runs `held` as carl or as ann, and the owner holds Gate in SHARE mode, so W's seat is written and
+ * uncommitted when its Gate insert waits; A runs `take` as ann then, past its precheck, which cannot see W's seat, to
+ * the arbiter, where it waits for W; the owner's COMMIT lets W commit, and A's statement meets W's seat. A is called as
+ * an application calls it, again after each TransientFailure (schedules/grizzle.ts untilAnswered).
  *
  * Box: W's subject, carl (outside ann's entry) or ann (inside it); A's seat at W's id or at another, and at W's team or
  * at another. Exhausted.
  *
  * Properties, per case:
+ * - generate certifies holder SERIALIZABLE.
  * - A waits for W exactly where it requests W's id, and never where it requests another.
+ * - At W's id A's first calls fail with SerializationFailure alone, and at another id none fails.
  * - A answers the serial order W, then A: at W's id, carl's seat refuses the call on Seat's key law, the witness A's
- *   submitted id, never 42501 or any other failure; ann's own seat met as an exact repeat is unchanged, read back whole
- *   as met; ann's own seat at another team refuses the call on the key law; at another id A inserts its seat, reading it
- *   back as added.
+ *   submitted id; ann's own seat met as an exact repeat is unchanged, read back whole as met; ann's own seat at another
+ *   team refuses the call on the key law; at another id A inserts its seat, reading it back as added.
  * - The table ends as that serial order leaves it.
  *
- * Oracle: specification, the serial order W, then A, over the stated seats.
+ * Oracle: specification, the serial order W, then A, over the stated seats, with the SerializationFailure of a call
+ * whose snapshot misses W's commit at its key.
  *
- * Plant: ~/.cache/grizzle-release/DELTAMET/plants/met-entry-unwhered.patch, the entry's DO SELECT with no WHERE, must
- * turn the property red: carl's seat meets SELECT's policy, 42501.
+ * Plants (~/.cache/grizzle-release/RC2BEHAVE/plants): entry-insert-read-committed.patch (the certifier reads a key
+ * probe's call as reading no table, so holder runs READ COMMITTED and carl's seat meets SELECT's policy, 42501) and
+ * entry-occupants-first-try.patch (the oracle expects the key's law on A's first call, the contract PostgreSQL 19rc1's
+ * order gave), each of which must turn the property red.
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
@@ -51,6 +57,7 @@ import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
+import { untilAnswered } from "#test/support/schedules/grizzle.ts"
 import { openRig } from "#test/support/schedules/rig.ts"
 import { lockWaitOf } from "#test/support/substrate/barrier.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -120,9 +127,9 @@ const raceGen: Gen<Race> = (source) => ({
 })
 
 type RaceFeature =
-	| "an outside seat committed after the precheck, refused on the key's law"
-	| "an own seat in flight met as an exact repeat"
-	| "an own seat in flight at another team, refused on the key's law"
+	| "an outside seat committed past the snapshot: 40001, then refused on the key's law"
+	| "an own seat committed past the snapshot: 40001, then met as an exact repeat"
+	| "an own seat at another team committed past the snapshot: 40001, then refused on the key's law"
 	| "a free id, inserted without waiting"
 
 /** A seat a call reads back, as a plain record. */
@@ -135,7 +142,7 @@ const otherId = 2
 const otherTeam = 2
 
 layer(Substrate.layer)("a query entry's insertion racing a commit at its key", (it) => {
-	it.effect("refuses an outside occupant on the key's law and meets an inside one", (ctx) =>
+	it.effect("fails at an occupant past its snapshot, and its retry answers serially", (ctx) =>
 		searched(
 			ctx,
 			Effect.gen(function* () {
@@ -159,7 +166,7 @@ layer(Substrate.layer)("a query entry's insertion racing a commit at its key", (
 				const ann = yield* rig.servedWriter("ann", openAs("u_ann"), (db) =>
 					answered(db.workload.take.once({ params: {}, facts: { insert: { MySeat: [] } } }))
 				)
-				assert.equal(a.ctx.isolation, "readCommitted", "generate certifies holder READ COMMITTED")
+				assert.equal(a.ctx.isolation, "serializable", "generate certifies holder SERIALIZABLE")
 				const { owner } = yield* openActors(s, {
 					owner: { kind: "raw", as: rig.installed.ambientOwner.credentials }
 				})
@@ -190,16 +197,16 @@ layer(Substrate.layer)("a query entry's insertion racing a commit at its key", (
 						generator: raceGen,
 						literal: Formatter.format,
 						coverage: requiredInSpace<RaceFeature>([
-							"an outside seat committed after the precheck, refused on the key's law",
-							"an own seat in flight met as an exact repeat",
-							"an own seat in flight at another team, refused on the key's law",
+							"an outside seat committed past the snapshot: 40001, then refused on the key's law",
+							"an own seat committed past the snapshot: 40001, then met as an exact repeat",
+							"an own seat at another team committed past the snapshot: 40001, then refused on the key's law",
 							"a free id, inserted without waiting"
 						]),
 						caseHang,
 						box: "W as carl or as ann; A's seat at W's id or another, at W's team or another",
 						oracle: {
 							kind: "specification",
-							name: "the serial order W, then A, over the stated seats"
+							name: "the serial order W, then A, over the stated seats, with the SerializationFailure of a call whose snapshot misses W's commit at its key"
 						},
 						concurrency: 1
 					},
@@ -208,7 +215,10 @@ layer(Substrate.layer)("a query entry's insertion racing a commit at its key", (
 							yield* rig.replace([])
 							const w = c.outside ? carl : ann
 							const wSub = c.outside ? "u_carl" : "u_ann"
-							const request = { id: c.sameId ? wId : otherId, team: c.sameTeam ? wTeam : otherTeam }
+							const request = {
+								id: c.sameId ? wId : otherId,
+								team: c.sameTeam ? wTeam : otherTeam
+							}
 							yield* owner.perform({ _tag: "Begin" })
 							yield* owner.perform({ _tag: "Sql", sql: `LOCK TABLE ${gate} IN SHARE MODE` })
 							const fiberW = yield* Effect.forkChild(
@@ -225,14 +235,9 @@ layer(Substrate.layer)("a query entry's insertion racing a commit at its key", (
 							const atGate = yield* waitedOrEnded(fiberW, w.actor.pid, owner.pid)
 							assert.equal(atGate, "waited", "W writes its seat and waits at Gate")
 							const fiberA = yield* Effect.forkChild(
-								Effect.result(
-									answered(
-										a.db.workload.take.once({
-											params: {},
-											facts: { insert: { MySeat: [request] } }
-										})
-									)
-								),
+								a.db.workload.take
+									.once({ params: {}, facts: { insert: { MySeat: [request] } } })
+									.pipe(answered, untilAnswered, Effect.result),
 								{ startImmediately: true }
 							)
 							const waited = yield* waitedOrEnded(fiberA, a.actor.pid, w.actor.pid)
@@ -249,7 +254,14 @@ layer(Substrate.layer)("a query entry's insertion racing a commit at its key", (
 							const wRow = `${wId},${wTeam},${wSub}`
 							const aRow = `${request.id},${request.team},u_ann`
 							assert.ok(Result.isSuccess(ranA), `A answers, never fails: ${Formatter.format(ranA)}`)
-							const answer = ranA.success
+							const { refused, answered: answer } = ranA.success
+							assert.ok(
+								c.sameId
+									? Arr.isReadonlyArrayNonEmpty(refused) &&
+											Arr.every(refused, (reason) => reason === "SerializationFailure")
+									: refused.length === 0,
+								`A's calls fail with SerializationFailure alone exactly where it requests W's id: ${Formatter.format(refused)}`
+							)
 							if (!c.sameId) {
 								assert.ok(
 									answer.kind === "accepted" &&
@@ -275,7 +287,9 @@ layer(Substrate.layer)("a query entry's insertion racing a commit at its key", (
 									`A's exact repeat of ann's own seat is unchanged, met: ${Formatter.format(answer)}`
 								)
 								assert.deepEqual(final, [wRow], "the table holds W's seat")
-								k.note("an own seat in flight met as an exact repeat")
+								k.note(
+									"an own seat committed past the snapshot: 40001, then met as an exact repeat"
+								)
 								return
 							}
 							assert.ok(
@@ -288,8 +302,8 @@ layer(Substrate.layer)("a query entry's insertion racing a commit at its key", (
 							assert.deepEqual(final, [wRow], "the table holds W's seat alone")
 							k.note(
 								c.outside
-									? "an outside seat committed after the precheck, refused on the key's law"
-									: "an own seat in flight at another team, refused on the key's law"
+									? "an outside seat committed past the snapshot: 40001, then refused on the key's law"
+									: "an own seat at another team committed past the snapshot: 40001, then refused on the key's law"
 							)
 						})
 				)

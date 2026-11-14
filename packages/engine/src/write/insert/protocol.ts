@@ -40,7 +40,6 @@ import {
 	lit,
 	ne,
 	not,
-	notExists,
 	provedCore,
 	provedSelect,
 	select,
@@ -89,7 +88,6 @@ import {
 	type WriteStatement
 } from "#compiler/write/insert/statement.ts"
 
-import { type EntryMembership, membershipOf } from "#compiler/write/entry/precheck.ts"
 import {
 	buildProbe,
 	type EveryObject,
@@ -128,15 +126,6 @@ import {
 } from "#compiler/write/refusal.ts"
 import { explicitSerials } from "#compiler/write/serial/advance.ts"
 
-/** Whose stored facts an insert's arbiter may return: every one where the role holds its relation whole; or, into a
- * role's query entry, under row security, only those the entry's membership holds (precheck.ts membershipOf), which
- * its ON CONFLICT DO SELECT selects before PostgreSQL checks the SELECT policy against a conflicting row
- * (nodeModifyTable.c ExecOnConflictSelect: the WHERE, then WCO_RLS_CONFLICT_CHECK), so a stored fact outside the
- * entry is never returned and never raises 42501. */
-export type InsertEntry =
-	| { readonly kind: "whole" }
-	| { readonly kind: "entry"; readonly membership: EntryMembership }
-
 /** An insert's spec. The statement meets its relation's unique objects (`relationUniques`): an insert of complete facts
  * probes those besides the arbiter, a generated addition every one that reads no field it draws (`generatedChecks`). A
  * conflict witness and a same-key pair raise the law of the relation's primary key, the arbiter's. */
@@ -148,7 +137,6 @@ interface InsertSpec {
 	 * the put's first statement, its deletion or a family owner's UPDATE, which raises PutTargetConflict; a same-key pair
 	 * still raises the key law. */
 	readonly of: InsertOf
-	readonly entry: InsertEntry
 }
 
 /** Where an insert raises its probe's refusal (see `buildInsert`): nowhere, when it probes nothing; at the INSERT's gate,
@@ -307,8 +295,8 @@ const verdictClass = {
  * How an insert's INSERT meets the stored rows its requested facts conflict with, by the level its role runs at
  * (statement.ts WriteContext `level`), the relation's objects and the insert's shape, so every insert of a role takes
  * one form:
- * - `returned`: ON CONFLICT at its arbiter's scalar key DO SELECT, with no WHERE (an entry's membership for an insert
- *   into a query entry, `InsertEntry`), so RETURNING yields each stored row the arbiter met, an exact repeat, a
+ * - `returned`: ON CONFLICT at its arbiter's scalar key DO SELECT, with no WHERE, so RETURNING yields each stored row
+ *   the arbiter met, an exact repeat, a
  *   conflict or a race's occupant, beside each row the INSERT inserted, told apart by `old`: PostgreSQL 19 returns the
  *   existing row as OLD for a DO SELECT row and an all-NULL OLD for an inserted one (nodeModifyTable.c
  *   ExecOnConflictSelect and ExecInsert's ExecProcessReturning). The unique pre-check waits for an occupant's writer,
@@ -398,11 +386,15 @@ const arbitrationOf = (
  * (`writesMet`), so no reader of its rows takes a fact it met for one it made: the verdict CTE is the one reader of
  * RETURNING. The outermost SELECT casts its columns to text. At SERIALIZABLE the class of a met row first asks that the
  * transaction snapshot see the stored row at its key, a read SSI tracks (`returned`), and a met row it cannot see is
- * the statement's defect, as `every`'s. Into a role's query entry the DO SELECT selects only an occupant the entry's
- * membership holds (InsertEntry), and each request the INSERT neither inserted nor returned is refused by its key, a
- * row of a CTE of its own that the refusal guard reads beside the verdict rows, as an occupant that differs is and
- * never as met: a stored fact outside the entry holds its key, committed after the entry's precheck, which a retry's
- * precheck refuses on that key's law. The variant is chosen by relation and member shape alone (`shapeOf`), the
+ * the statement's defect, as `every`'s. Into a role's query entry an insert runs only at SERIALIZABLE: every arbiter
+ * key it meets has a key probe in the entry's precheck (entry/precheck.ts outsideProbes), and the isolation certifier
+ * reads a call of such a probe as a read it states no fact of (program/isolation/extract.ts, a schema function no names
+ * clear), so no role that inserts through a query entry is certified READ COMMITTED. The precheck refuses, on its key's
+ * law, a fact outside the entry at a requested key that the transaction's snapshot holds; one committed after the
+ * snapshot fails the call with 40001 before PostgreSQL judges the stored row by any policy (nodeModifyTable.c
+ * ExecOnConflictSelect, PostgreSQL 19rc2: the row's visibility, then the SELECT policy, then the WHERE), a
+ * SerializationFailure whose retry's precheck refuses the fact on the key's law. The variant is chosen by relation and
+ * member shape alone (`shapeOf`), the
  * payload being every field the facts state beside the key (input.ts inputStated): the caller's, and a nested owner's
  * sequences' counts and ends, which its facts state with the members they nest, so an owner inserted again with
  * another sequence differs:
@@ -575,17 +567,7 @@ export const buildInsert = (
 	/** The outer SELECT returns complete facts: a read-back and the netting across strata read them, and a unique
 	 * refusal's witness is the requested fact at the object's fields. */
 	const outFields = all
-	const sharing = inputSharing(
-		w.share.inserts,
-		[input],
-		[
-			relation,
-			serial,
-			input,
-			spec.of,
-			spec.entry.kind === "entry" ? spec.entry.membership.entry : spec.entry.kind
-		]
-	)
+	const sharing = inputSharing(w.share.inserts, [input], [relation, serial, input, spec.of])
 	return buildStatement(w, sharing, (supply) => {
 		const scan = supply.relation(internal("input scan"))
 		const r1 = supply.relation(internal("input"))
@@ -752,8 +734,7 @@ export const buildInsert = (
 						),
 						orderBy: pk.map((f) => asc(col(proposed.name, proposed.columns.of(f))))
 					}
-		/** How the INSERT meets its occupants (Arbitration): at `returned` its DO SELECT selects every one, or into a query
-		 * entry those the entry's membership holds. */
+		/** How the INSERT meets its occupants (Arbitration): at `returned` its DO SELECT selects every one. */
 		const conflictOf = (): OnConflict | undefined => {
 			switch (arbitration.kind) {
 				case "every":
@@ -770,13 +751,7 @@ export const buildInsert = (
 					return {
 						kind: "columns",
 						columns: mapNonEmpty(pk, column),
-						action: {
-							kind: "doSelect",
-							where:
-								spec.entry.kind === "entry"
-									? membershipOf(w, spec.entry.membership, (f) => col(r3, column(f)))
-									: undefined
-						}
+						action: { kind: "doSelect", where: undefined }
 					}
 			}
 		}
@@ -1171,42 +1146,6 @@ export const buildInsert = (
 			materialized: "MATERIALIZED",
 			query: select(body)
 		})
-		/**
-		 * Into a query entry, the requests the INSERT neither inserted nor returned, each by its key: a stored fact the
-		 * entry's membership does not hold occupies it (InsertEntry), committed after the entry's precheck, and the
-		 * request is refused as an occupant that differs is, never met. A CTE of its own, since a generated addition's
-		 * request holds no value of a field it draws.
-		 */
-		const unmet =
-			spec.entry.kind === "entry" && arbitration.kind === "returned"
-				? {
-						name: supply.relation(internal("unreturned requests")),
-						columns: fieldColumns(pk, () => supply.column(internal("unreturned key column")))
-					}
-				: undefined
-		if (unmet !== undefined) {
-			ctes.push(
-				cte(
-					unmet.name,
-					unmet.columns.columns,
-					provedSelect(
-						"keyed",
-						pk.map((f) => targetAs(inCol(f), unmet.columns.of(f))),
-						[cteRef(r1)],
-						conjunction([
-							...gates,
-							notExists(
-								simpleSelect(
-									[target(integer(1))],
-									[cteRef(r2)],
-									and(mapNonEmpty(pk, (f) => same(f, inCol(f), col(r2, retCol(f)))))
-								)
-							)
-						])
-					)
-				)
-			)
-		}
 		const verdict = (c: string): Expr => col(rv, c)
 		const keyOf = (keyFields: ReadonlyArray<LawField>, valueOf: (f: LawField) => Expr) =>
 			keyFields.map((f): RefusedValue => ({
@@ -1297,16 +1236,6 @@ export const buildInsert = (
 					}
 				})
 			}
-		}
-		if (unmet !== undefined) {
-			const unmetAt = (f: LawField): Expr => col(unmet.name, unmet.columns.of(f))
-			arms.push({
-				from: cteRef(unmet.name),
-				rank: spec.of === "put" ? refusalRank.change : refusalRank.conflict,
-				when: lit.bool(true),
-				refusal:
-					spec.of === "put" ? change("PutTargetConflict", unmetAt) : keyLaw(pk, pkLaw, unmetAt)
-			})
 		}
 		/** A statement with no arm here refuses nothing after its INSERT: a generated addition, whose probe raises at its
 		 * gate, or a pure set or a span key insert with no unique object besides its arbiter. */

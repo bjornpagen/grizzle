@@ -24,11 +24,7 @@ import {
 } from "#compiler/write/carriers/carriers.ts"
 import { type DeleteAnchor, deleteAnchor } from "#compiler/write/delete/anchor.ts"
 import type { CheckNames } from "#compiler/write/entry/precheck.ts"
-import type {
-	ActionEntry,
-	WriteFrontend,
-	WrittenRelation
-} from "#compiler/write/frontend/compile.ts"
+import type { WriteFrontend, WrittenRelation } from "#compiler/write/frontend/compile.ts"
 import {
 	type FamilyAt,
 	type FamilyNode,
@@ -94,11 +90,11 @@ export type PlannedCheck =
  * relation input, a MERGE carries the scope it was proved over); the deletion a MERGE absorbs has no statement of its
  * own. */
 type WriteOpStep =
-	| { readonly op: "insert"; readonly serial: SerialClass; readonly entry: ActionEntry }
+	| { readonly op: "insert"; readonly serial: SerialClass }
 	| { readonly op: "exactDelete"; readonly except: ReadonlyArray<WriteInput> }
 	| { readonly op: "anchoredDelete"; readonly anchor: DeleteAnchor }
 	| { readonly op: "displace"; readonly payload: NonEmptyReadonlyArray<LawField> }
-	| { readonly op: "putInsert"; readonly entry: ActionEntry }
+	| { readonly op: "putInsert" }
 	| {
 			readonly op: "upsert"
 			readonly input: RelationInput
@@ -400,7 +396,7 @@ const opsOf = (action: ChosenAction, level: Isolation): ReadonlyArray<DraftStep>
 		case "insert":
 			return [
 				...precheckOf(action, action.serial),
-				{ op: "insert", serial: action.serial, entry: action.info.entry },
+				{ op: "insert", serial: action.serial },
 				...classify(action.info.relation, action.serial, "insert", level),
 				...advanceOf(action.info.relation, action.serial)
 			]
@@ -452,7 +448,7 @@ const putOps = (
 					? []
 					: [{ op: "displace", payload: payload.fields } as const]),
 				...precheckOf(put, completeClass),
-				{ op: "putInsert", entry: put.info.entry },
+				{ op: "putInsert" },
 				...classify(relation, completeClass, "put", level)
 			]
 		}
@@ -473,7 +469,7 @@ const putOps = (
 				...(choice.inPlace === undefined
 					? []
 					: [{ op: "updateFrom", inPlace: choice.inPlace } as const]),
-				{ op: "putInsert", entry: put.info.entry },
+				{ op: "putInsert" },
 				...classify(relation, completeClass, "put", level)
 			]
 		case "merge":

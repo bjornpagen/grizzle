@@ -116,19 +116,11 @@ export const outsideProbes = (
 		? relation.uniques.probes.filter((probe) => !readsDrawn(probe.object, serial.drawn))
 		: relation.uniques.probes
 
-/** What the membership of a row in a query entry reads: the entry, the checked base its filter reads with the catalog
- * its membership is lowered against, and the role's names, whose filter function it calls when the filter reads another
- * relation. */
-export type EntryMembership = Pick<
-	Extract<EntryCheck, { readonly kind: "membership" }>,
-	"entry" | "base" | "catalog" | "world"
->
-
 /** The membership of the row whose fields `value` gives, in the entry (see `buildEntryCheck`): the row policy's own
  * predicate, or the role's filter function where the filter reads another relation. */
-export const membershipOf = (
+const membershipOf = (
 	w: WriteContext,
-	check: EntryMembership,
+	check: Extract<EntryCheck, { readonly kind: "membership" }>,
 	value: (field: LawField) => Expr
 ): Expr => {
 	const { entry } = check

@@ -158,7 +158,8 @@ const describedNode = (action: Action<ActionInfo>): RelNode | undefined =>
  *
  * - it writes a role's query entry: its relation is under row security for the role, the
  *   displacing deletion removes only the occupants inside the entry, and an occupant outside it, which the role cannot
- *   see, meets the insert half's arbiter, which PostgreSQL refuses with 42501, the key law at the submitted keys. An
+ *   see, is refused on the key's law at the submitted keys by the entry's precheck before the insert half, or, committed
+ *   after the transaction's snapshot, fails the insert half with 40001 (insert/protocol.ts buildInsert). An
  *   UPDATE ... FROM would skip such a key, an ON CONFLICT DO UPDATE would raise 42501 where no insert half's witness
  *   explains it, and a MERGE insert at it would raise a unique violation no abort rule reads as that law. The pair is
  *   lawful in passing: a plain foreign key into a relation with a field outside the referenced columns is DEFERRABLE

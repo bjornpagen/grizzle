@@ -121,7 +121,6 @@ import {
 } from "#compiler/write/family/statements.ts"
 import type { FamilyWriteSql } from "#compiler/write/family/written.ts"
 import {
-	type ActionEntry,
 	compileClockedChangeSet,
 	type EnumeratedInput,
 	type MemberSlot,
@@ -137,11 +136,7 @@ import { type FamilyNode, sameNode } from "#compiler/write/frontend/schedule.ts"
 import { heldUnits } from "#compiler/write/hold/stated.ts"
 import { buildHold } from "#compiler/write/hold/statement.ts"
 import { distinctByEvidence, type WriteInput } from "#compiler/write/insert/input.ts"
-import {
-	buildInsert,
-	buildSpanClassify,
-	type InsertEntry
-} from "#compiler/write/insert/protocol.ts"
+import { buildInsert, buildSpanClassify } from "#compiler/write/insert/protocol.ts"
 import {
 	type DeleteResult,
 	type InsertResult,
@@ -1165,7 +1160,7 @@ const optimizedPlacement = (
 			}
 			case "write": {
 				const position = placed(
-					() => buildWriteOp(w, frontend, step),
+					() => buildWriteOp(w, step),
 					tracker.addAfter(...writeAccess(step)),
 					(filled) => writeStep(step, filled)
 				)
@@ -1207,7 +1202,7 @@ const optimizedPlacement = (
 						})
 					}
 					const writes = mapNonEmpty(step.writes, (planned) => {
-						const statement = buildWriteOp({ ...w, start }, frontend, planned)
+						const statement = buildWriteOp({ ...w, start }, planned)
 						start = namesPast(statement.sql.nameMap, ownStatement)
 						return { step: writeStep(planned, statement), statement }
 					})
@@ -1592,25 +1587,9 @@ const ridingSingle = (
 /** Every side of a delta, in the order a statement names their CTEs. */
 const deltaSides: ReadonlyArray<DeltaSide> = ["added", "removed", "met"]
 
-/** Whose stored facts an insert of an action writing `entry` may meet (insert/protocol.ts InsertEntry): any, or a
- * query entry's, by its membership as its precheck judges it. */
-const insertEntryOf = (frontend: WriteFrontend, entry: ActionEntry): InsertEntry =>
-	entry.kind === "whole"
-		? { kind: "whole" }
-		: {
-				kind: "entry",
-				membership: {
-					entry: entry.entry,
-					base: frontend.schema.definitions(),
-					catalog: evidenceCatalog(frontend),
-					world: entry.names
-				}
-			}
-
 /** The statement of one planned write op. */
 const buildWriteOp = (
 	w: WriteContext,
-	frontend: WriteFrontend,
 	step: PlannedWrite
 ): ModifyingStatement<InsertResult> | ModifyingStatement<DeleteResult> | PutStatement => {
 	const { relation, input } = step
@@ -1620,8 +1599,7 @@ const buildWriteOp = (
 				relation,
 				serial: step.serial,
 				input,
-				of: "insert",
-				entry: insertEntryOf(frontend, step.entry)
+				of: "insert"
 			})
 		case "exactDelete":
 			return buildExactDelete(w, { relation, input, except: step.except })
@@ -1634,8 +1612,7 @@ const buildWriteOp = (
 				relation,
 				serial: completeClass,
 				input,
-				of: "put",
-				entry: insertEntryOf(frontend, step.entry)
+				of: "put"
 			})
 		case "upsert":
 			return buildUpsert(w, {
