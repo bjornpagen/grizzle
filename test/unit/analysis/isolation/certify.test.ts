@@ -2533,7 +2533,6 @@ const givesFirstMember = (sketch: Sketch, e: Extension): boolean => {
 	}
 }
 
-/** The certificates after a case's extension: a dropped fact leaves its relation out of the facts. */
 /**
  * The roles certification leaves READ COMMITTED once `c`'s extension is applied that rely on a fence of a relation by a
  * login that did not fence it before (Fence; `lowered`, the roles the case's certification lowered): an extension that
@@ -2559,6 +2558,7 @@ const newlyFenced = (c: Case, lowered: ReadonlySet<number>): ReadonlySet<string>
 	)
 }
 
+/** The certificates after a case's extension: a dropped fact leaves its relation out of the facts. */
 const afterOf = (c: Case): ReadonlyArray<RoleIsolation> => {
 	const sketch = extended(c.sketch, c.extension)
 	const relations = inputOf(sketch).relations
