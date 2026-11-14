@@ -193,11 +193,20 @@ const parsedPayload = Option.liftThrowable((text: string): unknown => trustedJso
 const notAnObject = 42
 
 /**
- * What Db.open makes of a token for a role (README "Permissions", "Security model"): none, or a login whose layer
- * has no verify (no role of the login reads a context), is no context fact; otherwise verify runs once on it, for a
- * role that reads no context too. The test verify decodes the token's JSON text, so a wild text that holds no JSON, or
- * a verify that throws, refuses the token; a verify that returns no object returns a number whatever the text holds; a
- * payload verify returns is decoded through the role's contexts.
+ * Whether the token Db.open is handed is no token68, which its parse refuses as TokenMalformed before it finds the
+ * role's layer or runs verify (packages/grizzle/src/adapter/db/token.ts parseToken): a wild token is handed as its
+ * text's base64url (execute/token.ts handedOf), whose every character token68 admits, so it is no token68 exactly
+ * when its text is empty; a live or stale payload's JSON text never is.
+ */
+export const handedMalformed = (token: Token): boolean => token.kind === "wild" && token.text === ""
+
+/**
+ * What Db.open makes of a token for a role (README "Permissions", "Security model"): a token that is no token68
+ * (handedMalformed) is refused by its parse, whether or not the login verifies; none, or a login whose layer has no
+ * verify (no role of the login reads a context), is no context fact; otherwise verify runs once on it, for a role that
+ * reads no context too. The test verify decodes the token's JSON text, so a wild text that holds no JSON, or a verify
+ * that throws, refuses the token; a verify that returns no object returns a number whatever the text holds; a payload
+ * verify returns is decoded through the role's contexts.
  */
 export const tokenVerdict = (
 	base: BaseSpec,
@@ -205,6 +214,9 @@ export const tokenVerdict = (
 	token: Token,
 	verifies: boolean
 ): TokenVerdict => {
+	if (handedMalformed(token)) {
+		return { kind: "refused", by: "malformed" }
+	}
 	if (token.kind === "none" || !verifies) {
 		return { kind: "decoded", facts: {}, refinedRefused: false }
 	}

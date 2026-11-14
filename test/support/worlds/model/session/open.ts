@@ -4,6 +4,7 @@ import { Array as Arr, Option } from "effect"
 import {
 	payloadFacts,
 	type TokenVerdict,
+	handedMalformed,
 	tokenVerdict
 } from "#test/support/worlds/model/session/claims.ts"
 
@@ -125,10 +126,11 @@ export const openBranches = (
 	if (opened === undefined) {
 		return ref.kind === "nonexistent" && !declaredName(ref.name)
 			? [{ observation: { kind: "compile-refused" }, next: state }]
-			: [refusedAt(state, "role", 0)]
+			: [refusedAt(state, handedMalformed(token) ? "token:malformed" : "role", 0)]
 	}
 	const verifies = loginVerifies(state.install, opened.login)
-	const verifyCalls: VerifyCalls = verifies && token.kind !== "none" ? 1 : 0
+	const verifyCalls: VerifyCalls =
+		verifies && token.kind !== "none" && !handedMalformed(token) ? 1 : 0
 	const opening = openedOrRefused(
 		state,
 		opened,
@@ -141,9 +143,11 @@ export const openBranches = (
 
 /**
  * Db.open handed a JavaScript value its types refuse. As the role: no role(...) built it, refused at `schema`. As the
- * token, with the current snapshot: `undefined` is no token; a string reaches verify, whose JSON decode refuses a text
- * holding a NUL, and one holding a lone surrogate unless it is a JSON string, a payload that is no object; any other value
- * is no string, refused at `schema`; and an arbitrary value may be any of these.
+ * token, with the current snapshot: `undefined` is no token; a string is parsed as a token68 first
+ * (packages/grizzle/src/adapter/db/token.ts parseToken), so one holding a NUL or a lone surrogate, which token68 never
+ * holds, is refused at `token:malformed` before verify runs; any other value is no string, refused at `schema`; and an
+ * arbitrary value may be any of these, or a token68 string that reaches verify, whose JSON decode refuses it or reads a
+ * payload that is no object.
  */
 export const wildOpenBranches = (
 	state: ModelState,
@@ -174,11 +178,15 @@ export const wildOpenBranches = (
 		case "undefined":
 			return noToken
 		case "nul-character":
-			return asText([])
 		case "lone-surrogate":
-			return asText([notAnObject])
+			return [refusedAt(state, "token:malformed", 0)]
 		case "anything":
-			return [refusedAt(state, "schema", 0), ...noToken, ...asText([notAnObject])]
+			return [
+				refusedAt(state, "schema", 0),
+				refusedAt(state, "token:malformed", 0),
+				...noToken,
+				...asText([notAnObject])
+			]
 		case "null":
 		case "negative-zero":
 		case "nan":
