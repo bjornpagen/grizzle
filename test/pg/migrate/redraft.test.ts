@@ -12,9 +12,10 @@
  * folder's own draft again. Which files agree is read off the drafts, never assumed.
  *
  * Oracle: the documented contract, restated over the drafts' texts. A completed file the regeneration does not hold
- * byte for byte at its ordinal refuses the apply at `edited`, naming exactly those files; then another source, or
- * another file count, refuses it at `order`; each refusal runs nothing, the ledger and the catalog read back unchanged.
- * Otherwise the folder resumes at its first file without a row. A next file refused stops it there, and the ledger and
+ * byte for byte at its ordinal refuses the apply at `edited`, naming exactly those files; then another source, another
+ * file count, or a regeneration whose meta.json is another that would resume at a no-transaction file, which may have
+ * partly run under the started draft, refuses it at `order`, the last naming that file; each refusal runs nothing, the
+ * ledger and the catalog read back unchanged. Otherwise the folder resumes at its first file without a row. A next file refused stops it there, and the ledger and
  * the catalog read back unchanged: the re-record of a regeneration rolls back with its file. The rerun completes: every
  * row of the folder records the regeneration's source, target and file count, its folder row the SHA-256 of the
  * regeneration's meta.json and each file row its file's; the ledger's latest target is the regeneration's; the
@@ -28,7 +29,8 @@
  *
  * Plants (~/.cache/grizzle-release/LEDGERRESUME/plants): redraft-outside-transaction.patch (the re-record runs in a
  * transaction of its own before the next file), partial-digest-unchecked.patch (the partial folder's completed files are
- * not compared with the texts that ran).
+ * not compared with the texts that ran), redraft-no-transaction-admitted.patch (a regeneration resumes at a
+ * no-transaction file).
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -215,6 +217,7 @@ type Feature =
 	| "a completed file the regeneration changes refused"
 	| "a regeneration of another source refused"
 	| "a regeneration of another file count refused"
+	| "a regeneration resuming at a no-transaction file refused"
 
 /**
  * The case a turn aiming at a feature runs (Case.steering): a folder, a regeneration and a point the drafts reach it at,
@@ -254,6 +257,10 @@ const aims: ReadonlyArray<readonly [Feature, RedraftCase]> = [
 	[
 		"a regeneration of another file count refused",
 		{ folder: 0, regeneration: 0, completed: 0, added: true, failNext: false }
+	],
+	[
+		"a regeneration resuming at a no-transaction file refused",
+		{ folder: 1, regeneration: 4, completed: 1, added: false, failNext: false }
 	]
 ]
 
@@ -352,6 +359,7 @@ type Verdict =
 	| { readonly kind: "edited"; readonly edits: ReadonlyArray<AppliedEdit> }
 	| { readonly kind: "source" }
 	| { readonly kind: "count" }
+	| { readonly kind: "unverifiable"; readonly file: string }
 	| { readonly kind: "resumes" }
 
 /** The verdict, restated over the folder as it ran and the regeneration as the directory holds it (see the header). */
@@ -374,8 +382,26 @@ const verdictOf = (
 	if (!sourceAlike) {
 		return { kind: "source" }
 	}
-	return regeneration.files.length === ran.files.length ? { kind: "resumes" } : { kind: "count" }
+	if (regeneration.files.length !== ran.files.length) {
+		return { kind: "count" }
+	}
+	const next = regeneration.files[completed]
+	return regeneration.metaText !== ran.metaText && next !== undefined && isNoTransaction(next.text)
+		? { kind: "unverifiable", file: next.name }
+		: { kind: "resumes" }
 }
+
+/** Each refusal at `order` the contract names, by its verdict: the folder's refusal and the feature it reaches. */
+const orderRefusals = {
+	source: { refusal: "moved", feature: "a regeneration of another source refused" },
+	count: { refusal: "resized", feature: "a regeneration of another file count refused" },
+	unverifiable: {
+		refusal: "redraftUnverifiable",
+		feature: "a regeneration resuming at a no-transaction file refused"
+	}
+} as const satisfies Readonly<
+	Record<string, { readonly refusal: string; readonly feature: Feature }>
+>
 
 /** The ledger and the schema's catalog, read back. */
 const observe = (m: MigrationSession, schema: string) =>
@@ -487,20 +513,21 @@ const runCase = (drawnCase: RedraftCase, k: Case<Feature>) =>
 				return
 			}
 			case "source":
-			case "count": {
+			case "count":
+			case "unverifiable": {
 				const e = yield* refusal(apply(m, directory(held), noFurther))
 				yield* unchanged(e, "order")
 				assert.ok(e.reason._tag === "FolderRefused", e.message)
-				assert.equal(
-					e.reason.refusal.kind,
-					verdict.kind === "source" ? "moved" : "resized",
-					e.message
-				)
-				k.note(
-					verdict.kind === "source"
-						? "a regeneration of another source refused"
-						: "a regeneration of another file count refused"
-				)
+				const expected = orderRefusals[verdict.kind]
+				assert.equal(e.reason.refusal.kind, expected.refusal, e.message)
+				if (verdict.kind === "unverifiable") {
+					assert.ok(
+						e.reason.refusal.kind === "redraftUnverifiable" &&
+							e.reason.refusal.file === verdict.file,
+						"the refusal names the no-transaction file the regeneration would resume at"
+					)
+				}
+				k.note(expected.feature)
 				return
 			}
 			case "resumes":
@@ -616,7 +643,8 @@ layer(Substrate.layer)("a partial folder resumed under a regeneration", (it) => 
 								"a regeneration's next file refused, its re-record rolled back",
 								"a completed file the regeneration changes refused",
 								"a regeneration of another source refused",
-								"a regeneration of another file count refused"
+								"a regeneration of another file count refused",
+								"a regeneration resuming at a no-transaction file refused"
 							],
 							{ cases: steeredCases, sense: notesOnly }
 						),

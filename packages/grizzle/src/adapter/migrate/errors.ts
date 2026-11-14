@@ -554,6 +554,7 @@ type FolderRefusal =
 	| { readonly kind: "moved"; readonly source: string; readonly target: string }
 	| { readonly kind: "resized"; readonly started: number; readonly holds: number }
 	| { readonly kind: "redrafted"; readonly file: string }
+	| { readonly kind: "redraftUnverifiable"; readonly file: string }
 	| { readonly kind: "partialFirst"; readonly partial: string }
 	| { readonly kind: "sortsBefore"; readonly applied: string }
 	| { readonly kind: "source"; readonly source: string; readonly latest: string }
@@ -571,6 +572,8 @@ export class FolderRefused extends Data.TaggedError("FolderRefused")<{
 				return `folder ${this.folder} was recorded with source ${refusal.source} and target ${refusal.target}, not the fingerprints its meta.json names`
 			case "resized":
 				return `folder ${this.folder} was started with ${refusal.started} files and now holds ${refusal.holds}`
+			case "redraftUnverifiable":
+				return `folder ${this.folder} was redrafted after it started, and it would resume at ${refusal.file}, which runs outside a transaction: the ledger cannot tell whether the draft that started the folder ran part of it, so finish the folder under that draft, or settle the catalog by hand`
 			case "redrafted":
 				return `folder ${this.folder} was redrafted after it started, and its meta.json does not record ${refusal.file} as it ran: a redraft resumes only when it records every completed file as that file's text holds it`
 			case "partialFirst":

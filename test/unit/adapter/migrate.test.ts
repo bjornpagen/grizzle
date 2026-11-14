@@ -10,8 +10,8 @@
  * - **The plan:** against a ledger of applied folders, the plan resumes the partial folder at its first file without a
  *   row, applies the rest, and refuses an applied file edited, renamed or deleted, or a file added to a completed
  *   folder, naming every such file. A partial folder redrafted since it started resumes under the redraft, its ledger
- *   rows to take the redraft's meta.json digest and target, when it keeps its source and file count and its meta.json
- *   records every completed file as it ran; otherwise it is refused.
+ *   rows to take the redraft's meta.json digest and target, when it keeps its source and file count, its meta.json
+ *   records every completed file as it ran, and the file it resumes at runs in a transaction; otherwise it is refused.
  *
  * A folder's files as the reviewer leaves them: unedited, or each file's text through `edit`.
  *
@@ -22,7 +22,8 @@
  * transaction's rollback), migrate-applied-edit-unseen.patch (an applied file edited afterwards goes unnoticed).
  * Plants (~/.cache/grizzle-release/LEDGERRESUME/plants): redraft-source-unchecked.patch (a redraft of another source
  * resumes), redraft-record-unchecked.patch (a redraft that does not record a completed file as it ran resumes),
- * partial-digest-unchecked.patch (the partial folder's completed files are not compared with the texts that ran).
+ * partial-digest-unchecked.patch (the partial folder's completed files are not compared with the texts that ran),
+ * redraft-no-transaction-admitted.patch (a redraft resumes at a no-transaction file).
  *
  * Features: each statement form and comment placement; each input fault; each plan's resume and refusal.
  */
@@ -800,8 +801,8 @@ describe("the input check before any connection", () => {
  * another file count is refused; one the ledger records under its own draft resumes; one redrafted since resumes under
  * the redraft, the ledger to take the redraft's meta.json digest and target, exactly when the redraft keeps its source
  * and records every completed file as it ran (none run with a statement no draft records, none holding a loss left
- * commented), and is refused otherwise. The latest target must then be the known snapshot's; then no file that runs
- * may hold a marker, and no folder that runs a loss left undecided.
+ * commented) and the file it resumes at runs in a transaction, and is refused otherwise. The latest target must then
+ * be the known snapshot's; then no file that runs may hold a marker, and no folder that runs a loss left undecided.
  */
 type ChainName = "the shop" | "a first migration beside an abandoned schema"
 
@@ -1051,6 +1052,7 @@ type PlanFeature =
 	| "a redraft of another source refused"
 	| "a redraft not recording a completed file refused"
 	| "a partial folder of another file count refused"
+	| "a redraft resuming at a no-transaction file refused"
 	| "a folder started after a resumed one"
 	| "nothing to run"
 	| `refused ${Extract<PlanVerdict, { readonly kind: "refused" }>["reason"]}`
@@ -1080,6 +1082,7 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 								"a redraft of another source refused",
 								"a redraft not recording a completed file refused",
 								"a partial folder of another file count refused",
+								"a redraft resuming at a no-transaction file refused",
 								"a folder started after a resumed one",
 								"nothing to run",
 								"refused AppliedEdited",
@@ -1268,6 +1271,9 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 											})
 										} else if (unrecorded(partial)) {
 											notes.push("a redraft not recording a completed file refused")
+											return { kind: "refused", reason: "FolderRefused" }
+										} else if (folder.files[partial.recorded]?.noTransaction === true) {
+											notes.push("a redraft resuming at a no-transaction file refused")
 											return { kind: "refused", reason: "FolderRefused" }
 										} else {
 											runs.push({
