@@ -55,7 +55,9 @@
  *   INTERSECT, an EXCEPT or another source, and none at all for a core counting with no GROUP BY.
  * Reads are compared as multisets, the arbitrations after every other read, writes by the reads their `from` names, and
  * probes by the writes they gate and their core's row sources, each read marked where it stands beneath other probes
- * than the probe's chain.
+ * than the probe's chain. Each statement's facts are compared through their expansion (test/support/expanded.ts): the
+ * extractor walks each query CTE once per arrival, an instance its sources use, and the expansion reads each instance
+ * again at each use, which is what the contract above restates.
  *
  * Planted in a scratch copy of the extractor, each of these fails the search: NOT EXISTS read as positive, an
  * aggregate's scan read as positive, a probe of the written relation read as negated, a table no relation names dropped
@@ -90,7 +92,7 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
-import type { ReadFact, RowSource } from "#compiler/analysis/isolation/facts.ts"
+import type { ReadFact } from "#compiler/analysis/isolation/facts.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { type ExtractNames, memberFacts } from "#compiler/program/isolation/extract.ts"
 import type {
@@ -146,6 +148,7 @@ import {
 	windowOf
 } from "#compiler/sql/build.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
+import { expanded, type FlatRowSource } from "#test/support/expanded.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { unitCarrierName } from "#test/support/sql.ts"
 
@@ -2544,7 +2547,7 @@ const writeKey = (relation: string, op: string, from: ReadonlyArray<Expected>): 
 /** The extractor's row sources as the oracle states them, each read by its key and the probes above it. */
 const gotRows = (
 	reads: ReadonlyArray<ReadFact>,
-	sources: ReadonlyArray<RowSource>
+	sources: ReadonlyArray<FlatRowSource>
 ): ReadonlyArray<Rows> =>
 	Arr.map(sources, (r): Rows => {
 		switch (r.kind) {
@@ -2687,7 +2690,7 @@ describe("a change member's facts", () => {
 								"one statement's facts per statement"
 							)
 							Arr.forEach(c.statements, (spec, i) => {
-								const got = Arr.getUnsafe(facts.statements, i)
+								const got = expanded(Arr.getUnsafe(facts.statements, i))
 								const x = expected(spec, c.level)
 								for (const shape of x.shapes) {
 									k.note(shape)

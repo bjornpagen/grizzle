@@ -48,8 +48,17 @@ export interface Reference {
 }
 
 /**
- * One relation a statement writes and how. `from` lists the statement's reads, by their places in its `reads`, every
- * row it writes is positively joined with, so a read that finds nothing makes it write nothing. A `retire` is a
+ * A read of a statement by the body it stands in and its place in that body's `reads`: the statement's own body (`cte`
+ * none), or the CTE instance `cte` of its `ctes` (StatementFacts).
+ */
+export interface ReadAt {
+	readonly cte: number | undefined
+	readonly read: number
+}
+
+/**
+ * One relation a statement writes and how. `from` lists the statement's reads, by their bodies and places (ReadAt),
+ * every row it writes is positively joined with, so a read that finds nothing makes it write nothing. A `retire` is a
  * retirable unit's retirement (physical/ddl/retire.ts), one of each relation of the unit: its header's retirement field
  * set and its bodies' rows of the retired groups deleted, by the unit's retire function, which locks every header it
  * retires before it reads a body and so waits for every call that holds one of its groups; it reads no row no other
@@ -58,7 +67,7 @@ export interface Reference {
 export interface WriteFact {
 	readonly relation: string
 	readonly op: "insert" | "update" | "delete" | "retire"
-	readonly from: ReadonlyArray<number>
+	readonly from: ReadonlyArray<ReadAt>
 }
 
 /**
@@ -95,14 +104,22 @@ export interface ReadFact {
  * a scalar or ARRAY subquery). `gates` lists the statement's writes, by their places in its `writes`, whose source the
  * probe stands in, none for one the statement's result alone reads, as a refusal arm. `core` is the core whose rows the
  * probe filters or counts, the one it stands in, or a grouped core of its own, which yields no row from no input; none
- * where it stands in no core. `chain` is the probes a read on that core's rows stands beneath: the core's own, and a
- * grouped core's probe with them.
+ * where it stands in no core (SiteCore). `chain` is the probes a read on that core's rows stands beneath: the core's
+ * own, and a grouped core's probe with them. Every place it names is its body's (BodyFacts).
  */
-export interface ProbeFact {
+export interface ProbeFact<Core extends SiteCore = number | undefined> {
 	readonly gates: ReadonlyArray<number>
-	readonly core: number | undefined
+	readonly core: Core
 	readonly chain: ReadonlyArray<number>
 }
+
+/**
+ * Where a probe stands: in a core of its body, by its number; in the core of the site that reads the CTE instance it
+ * stands in (`site`), where the instance's query opens it outside every core of its own (a count of a core aggregating
+ * with no GROUP BY, an EXCEPT's later arm, a subquery in its LIMIT, OFFSET or ORDER BY), judged at each use by that
+ * use's core (CteUse); or in none, which only a statement's own body holds.
+ */
+export type SiteCore = number | "site" | undefined
 
 /**
  * One field a read binds to a value that comes from the call, and `by`, what it is bound to, as canonical text: a
@@ -134,9 +151,10 @@ export const groupFields = (group: Group): NonEmptyReadonlyArray<string> =>
 	mapNonEmpty(group.bound, (b) => b.field)
 
 /**
- * One source every row of a statement's core comes through, the core's FROM sources joined inner or crosswise: a table
- * read, by its place in the statement's `reads`; a derived table's or a CTE's one core, by its number in `cores`; or a
- * UNION's, UNION ALL's among them, by its arms, each its own row sources, every row of the UNION one arm's.
+ * One source every row of a body's core comes through, the core's FROM sources joined inner or crosswise: a table read,
+ * by its place in the body's `reads`; a derived table's one core, by its number in `cores`; a UNION's, UNION ALL's
+ * among them, by its arms, each its own row sources, every row of the UNION one arm's; or a query CTE's rows, by the
+ * place of the body's use of it in `uses`, which come through the rows of the instance it reads (CteFacts.rows).
  */
 export type RowSource =
 	| { readonly kind: "read"; readonly read: number }
@@ -145,19 +163,57 @@ export type RowSource =
 			readonly kind: "union"
 			readonly arms: NonEmptyReadonlyArray<ReadonlyArray<RowSource>>
 	  }
+	| { readonly kind: "use"; readonly use: number }
 
 /**
- * One statement of a change member's flight: what it writes, what it reads, the probes among its reads, and each of its
- * cores' row sources by its number, a core's before those of the derived tables, CTEs and subqueries it holds. A source
- * no allowed step reaches is no row source: a LATERAL one, a function's rows, VALUES, a relation input's arrays, a
- * context's fact, the call's own rows of a data-modifying or a recursive CTE, an INTERSECT, an EXCEPT, and every source
- * of a core aggregating with no GROUP BY, which yields a row over no input.
+ * Where a body reads a query CTE: the instance it reads (`cte`, by its place in the statement's `ctes`), the probes of
+ * the body the site stands beneath (`probes`), the core of the body it stands in (`core`), none for a MERGE's source,
+ * and how many of the body's reads it found before it (`at`), so the instance's reads stand, for that site, between the
+ * body's reads before it and after it.
  */
-export interface StatementFacts {
-	readonly writes: ReadonlyArray<WriteFact>
+export interface CteUse {
+	readonly cte: number
+	readonly probes: ReadonlyArray<number>
+	readonly core: number | undefined
+	readonly at: number
+}
+
+/**
+ * What one body of a statement reads: its reads, the probes among them and each of its cores' row sources by its
+ * number, a core's before those of the derived tables and subqueries it holds, each by its place in the body; and the
+ * query CTEs it reads (`uses`). A source no allowed step reaches is no row source: a LATERAL one, a function's rows,
+ * VALUES, a relation input's arrays, a context's fact, the call's own rows of a data-modifying or a recursive CTE, an
+ * INTERSECT, an EXCEPT, and every source of a core aggregating with no GROUP BY, which yields a row over no input.
+ */
+export interface BodyFacts<Core extends SiteCore> {
 	readonly reads: ReadonlyArray<ReadFact>
-	readonly probes: ReadonlyArray<ProbeFact>
+	readonly probes: ReadonlyArray<ProbeFact<Core>>
 	readonly cores: ReadonlyArray<ReadonlyArray<RowSource>>
+	readonly uses: ReadonlyArray<CteUse>
+}
+
+/**
+ * One instance of a query CTE: its query walked once for every site that reads it where it arrives alike, at one
+ * polarity, counted or not, feeding the same writes (program/isolation/extract.ts), its reads, probes and cores its own
+ * (BodyFacts), none of them beneath a probe of a site that reads it, and `rows`, the row sources every row of its query
+ * comes through, by its own cores, reads and uses. A probe its query opens outside every core of its own stands in the
+ * core of the site that reads it (SiteCore `site`).
+ *
+ * At each site that reads it (CteUse), it stands for the reads, probes and cores its walk at that site would find: each
+ * of its reads beneath the site's probes and its own, each of its probes chained beneath the site's, and its `site`
+ * probes in the site's core. A statement's facts so name each query CTE's reads once, however many sites read it.
+ */
+export interface CteFacts extends BodyFacts<number | "site"> {
+	readonly rows: ReadonlyArray<RowSource>
+}
+
+/**
+ * One statement of a change member's flight: what it writes, and what its own body reads (BodyFacts), with the
+ * instances of the query CTEs its bodies read (`ctes`), each by its place.
+ */
+export interface StatementFacts extends BodyFacts<number | undefined> {
+	readonly writes: ReadonlyArray<WriteFact>
+	readonly ctes: ReadonlyArray<CteFacts>
 }
 
 /** One change member of a role, by its name, with its statements in flight order: a change sends one at least. */

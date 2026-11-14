@@ -80,6 +80,19 @@
  * at another key fixing its row) and certify-key-match-exact-group (a key-matched read with a binding besides the key
  * left a point read, the old exact-group rule).
  *
+ * A second search draws statements whose query CTEs are instances (analysis/isolation/facts.ts CteFacts), each read at
+ * up to three uses, beneath a probe of its site or none, its probes in its own cores or in its site's (SiteCore `site`),
+ * one instance reading another, swarmed per case between the broad vocabulary above and a dense one of two insert-only
+ * relations read at k0's one parameter, where a probe's judgement turns on its row path. It holds the certifier to the
+ * expansion of each statement (test/support/expanded.ts), each instance read again at each use, as a second
+ * implementation: every read takes the modes its reads take there (readModes), every role the same level with the same
+ * reasons, each once, but a write's count of its other unjoined outside reads, which counts each read once, and the same
+ * fences. Plants (~/.cache/grizzle-release/CERTPERF/plants), each failing it: certify-reach-first-only (an instance
+ * reached from the first reach of the body that uses it alone), certify-site-probe-first-use (a site probe judged in the
+ * core of its body's first use), certify-below-ignores-use-probes (a row path through a use beneath other probes than
+ * its chain) and certify-reads-own-body-only (no instance's read placed); extract-instance-key-no-polarity and
+ * extract-instance-key-no-feeds fail the extractor's search (test/unit/program/isolation/extract.test.ts).
+ *
  * Features: each condition failed and met, each counterexample shape, each level, each capability added or fact
  * removed, a role lowered in a later round, a role whose lowered form alone reads the absence of what it writes, a held
  * check beside a READ COMMITTED role, a check of a relation one login deletes and inserts, and a fence a READ COMMITTED
@@ -87,34 +100,44 @@
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
-import { array, type Gen, int, shuffled, subset, weighted } from "@bjornpagen/testing/gen"
+import { array, element, type Gen, int, shuffled, subset, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import type { Source } from "@bjornpagen/testing/source"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { regex } from "arkregex"
+import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import {
 	type Candidate,
 	certify,
 	type Fence,
 	type IsolationCondition,
+	type IsolationReason,
 	isolationOf,
 	type ReadSeal,
 	type RoleIsolation,
+	readModes,
 	readSeal
 } from "#compiler/analysis/isolation/certify.ts"
 import type {
+	BodyFacts,
+	CteFacts,
+	CteUse,
 	InsertsFact,
 	IsolationInput,
 	MemberFacts,
+	ReadAt,
 	ReadFact,
 	RoleFacts,
-	RowSource
+	RowSource,
+	SiteCore,
+	StatementFacts
 } from "#compiler/analysis/isolation/facts.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import * as Result from "#compiler/core/result.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { expanded, type FlatRowSource } from "#test/support/expanded.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -154,7 +177,7 @@ interface StatementSketch {
 	readonly writes: ReadonlyArray<WriteSketch>
 	readonly reads: ReadonlyArray<ReadSketch>
 	readonly probes: ReadonlyArray<ProbeSketch>
-	readonly cores: ReadonlyArray<ReadonlyArray<RowSource>>
+	readonly cores: ReadonlyArray<ReadonlyArray<FlatRowSource>>
 }
 
 /** A role: its login, its privileges, and its change members as served at READ COMMITTED and at SERIALIZABLE. */
@@ -366,7 +389,7 @@ const CORES = 3
  * a UNION of two arms drawn alike, so every core refers to later ones alone.
  */
 const sourcesGen =
-	(reads: number, core: number, depth: number): Gen<ReadonlyArray<RowSource>> =>
+	(reads: number, core: number, depth: number): Gen<ReadonlyArray<FlatRowSource>> =>
 	(s) => [
 		...Arr.map(
 			s.draw(
@@ -375,11 +398,11 @@ const sourcesGen =
 					{ min: 0, max: reads }
 				)
 			),
-			(read): RowSource => ({ kind: "read", read })
+			(read): FlatRowSource => ({ kind: "read", read })
 		),
 		...(core + 1 < CORES
 			? s.draw(
-					weighted<ReadonlyArray<RowSource>>([
+					weighted<ReadonlyArray<FlatRowSource>>([
 						[2, () => []],
 						[1, (t) => [{ kind: "core", core: t.draw(int(core + 1, CORES - 1)) }]]
 					])
@@ -387,7 +410,7 @@ const sourcesGen =
 			: []),
 		...(depth > 0
 			? s.draw(
-					weighted<ReadonlyArray<RowSource>>([
+					weighted<ReadonlyArray<FlatRowSource>>([
 						[3, () => []],
 						[
 							1,
@@ -1141,7 +1164,7 @@ const unionOf = (arm: "same" | "key" | "relation" | "recursion"): Sketch => {
 									}
 								],
 								[{ kind: "read", read: 0 }],
-								Arr.map(other, (_, i): RowSource => ({ kind: "read", read: 1 + i })),
+								Arr.map(other, (_, i): FlatRowSource => ({ kind: "read", read: 1 + i })),
 								[{ kind: "read", read: probed }]
 							]
 						}
@@ -2038,21 +2061,23 @@ const membersOf = (
 							writes: Arr.map(st.writes, (w) => ({
 								relation: relationName(w.relation),
 								op: w.op,
-								from: w.from
+								from: Arr.map(w.from, (read) => ({ cte: undefined, read }))
 							})),
 							reads: Arr.map(st.reads, readFact),
 							probes: st.probes,
-							cores: st.cores
+							cores: st.cores,
+							uses: [],
+							ctes: []
 						}))
 					}
 				]
 			: []
 	)
 
-/** The facts a sketch states, as the certifier reads them. */
-const inputOf = (sketch: Sketch): IsolationInput => ({
-	relations: new Map(
-		Arr.map(sketch.relations, (r, i) => [
+/** The facts of sketched relations, as the certifier reads them. */
+const relationsOf = (relations: ReadonlyArray<RelationSketch>): IsolationInput["relations"] =>
+	new Map(
+		Arr.map(relations, (r, i) => [
 			relationName(i),
 			{
 				triggerLaws: r.triggerLaws ? [lawId(i)] : [],
@@ -2066,21 +2091,30 @@ const inputOf = (sketch: Sketch): IsolationInput => ({
 				inserts: insertsOf(r)
 			}
 		])
-	),
-	roles: Arr.map(sketch.roles, (role, i): RoleFacts => {
-		const privileges = new Map<string, Set<TablePrivilege>>()
-		for (const p of role.privileges) {
-			const held = privileges.get(relationName(p.relation)) ?? new Set<TablePrivilege>()
-			held.add(p.privilege)
-			privileges.set(relationName(p.relation), held)
-		}
-		return {
-			login: `L${role.login}`,
-			role: `r${i}`,
-			privileges,
-			members: membersOf(role.members)
-		}
-	})
+	)
+
+/** A sketched role's privileges, by relation. */
+const privilegesOf = (
+	privileges: RoleSketch["privileges"]
+): ReadonlyMap<string, ReadonlySet<TablePrivilege>> => {
+	const by = new Map<string, Set<TablePrivilege>>()
+	for (const p of privileges) {
+		const held = by.get(relationName(p.relation)) ?? new Set<TablePrivilege>()
+		held.add(p.privilege)
+		by.set(relationName(p.relation), held)
+	}
+	return by
+}
+
+/** The facts a sketch states, as the certifier reads them. */
+const inputOf = (sketch: Sketch): IsolationInput => ({
+	relations: relationsOf(sketch.relations),
+	roles: Arr.map(sketch.roles, (role, i): RoleFacts => ({
+		login: `L${role.login}`,
+		role: `r${i}`,
+		privileges: privilegesOf(role.privileges),
+		members: membersOf(role.members)
+	}))
 })
 
 /**
@@ -2448,7 +2482,7 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 	 */
 	const passes = (
 		st: StatementSketch,
-		sources: ReadonlyArray<RowSource>,
+		sources: ReadonlyArray<FlatRowSource>,
 		fits: (r: ReadSketch) => boolean
 	): boolean =>
 		Arr.some(sources, (source) => {
@@ -3030,6 +3064,538 @@ const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 const certifiedRoles = (shape: Shape): ReadonlyArray<number> =>
 	shape === "keyMatched" || shape === "repeatableOtherKey" ? [0, 1] : []
 
+/** The query CTE instances a drawn statement holds, at most. */
+const INSTANCES = 3
+
+/**
+ * How a case of statements read through instances is drawn, chosen per case: `broad`, every relation, read and write
+ * the main search draws; or `dense`, two insert-only relations keyed by k0, each read at k0's one parameter, written by
+ * inserts alone, so outside reads are sealed points of one group and a probe's judgement turns on its row path.
+ */
+type Profile = "broad" | "dense"
+
+/** A read of a dense case, of a body of `probes` probes: of R0 or R1 at k0, the call's own or not. */
+const denseReadGen =
+	(probes: number): Gen<ReadSketch> =>
+	(s) => {
+		const mode = s.draw(
+			weighted<ReadSketch["mode"]>([
+				[3, () => "positive"],
+				[2, () => "negated"],
+				[1, () => "counted"]
+			])
+		)
+		return {
+			relation: s.draw(int(0, 1)),
+			own: false,
+			group: 0,
+			binding: 0,
+			split: false,
+			rows: "one",
+			mode,
+			probes:
+				mode === "positive"
+					? []
+					: s.draw(
+							subset(
+								upTo(probes, (i) => i),
+								{ min: 0, max: probes }
+							)
+						)
+		}
+	}
+
+/**
+ * A body's use of a query CTE instance among `targets`: beneath none or one of the body's `probes` probes, in one of
+ * its first two cores or, where `outside`, a statement's own body's, in none, after some of its `reads` reads.
+ */
+const useGen =
+	(
+		targets: Arr.NonEmptyReadonlyArray<number>,
+		probes: number,
+		reads: number,
+		outside: boolean
+	): Gen<CteUse> =>
+	(s) => ({
+		cte: s.draw(element(targets)),
+		probes:
+			probes === 0
+				? []
+				: s.draw(
+						weighted<ReadonlyArray<number>>([
+							[1, () => []],
+							[2, (t) => [t.draw(int(0, probes - 1))]]
+						])
+					),
+		core: s.draw(
+			weighted<number | undefined>([
+				[3, () => 0],
+				[2, () => 1],
+				...(outside ? [[1, (): number | undefined => undefined] as const] : [])
+			])
+		),
+		at: s.draw(int(0, reads))
+	})
+
+/**
+ * One body of a drawn statement of `writes` writes: its reads, of up to two probes, each probe's gates, core (`core`)
+ * and chain, its cores' row sources, a use among them, and its uses of `targets`, by the reads before each.
+ */
+const bodyGen =
+	<Core extends SiteCore>(
+		profile: Profile,
+		targets: ReadonlyArray<number>,
+		writes: number,
+		core: Gen<Core>,
+		outside: boolean
+	): Gen<BodyFacts<Core>> =>
+	(s) => {
+		const probeCount = s.draw(int(0, 2))
+		const reads = Arr.map(
+			s.draw(
+				array(profile === "dense" ? denseReadGen(probeCount) : readGenOf(probeCount), {
+					min: 0,
+					max: 3
+				})
+			),
+			readFact
+		)
+		const uses = Arr.isReadonlyArrayNonEmpty(targets)
+			? Arr.sort(
+					s.draw(array(useGen(targets, probeCount, reads.length, outside), { min: 0, max: 3 })),
+					Order.mapInput(Order.Number, (u: CteUse) => u.at)
+				)
+			: []
+		return {
+			reads,
+			probes: upTo(probeCount, (id) => ({
+				gates: s.draw(
+					subset(
+						upTo(writes, (i) => i),
+						{ min: 0, max: writes }
+					)
+				),
+				core: s.draw(core),
+				chain: s.draw(
+					weighted<ReadonlyArray<number>>([
+						[3, () => []],
+						[1, () => [id]]
+					])
+				)
+			})),
+			cores: upTo(CORES, (at) => [
+				...s.draw(sourcesGen(reads.length, at, 1)),
+				...(uses.length === 0
+					? []
+					: s.draw(
+							weighted<ReadonlyArray<RowSource>>([
+								[1, () => []],
+								[2, (t) => [{ kind: "use", use: t.draw(int(0, uses.length - 1)) }]]
+							])
+						))
+			]),
+			uses
+		}
+	}
+
+/** The row sources of an instance of `uses` uses: its first core, none, one of its uses, or a UNION of both. */
+const rowsGen =
+	(uses: number): Gen<ReadonlyArray<RowSource>> =>
+	(s) =>
+		s.draw(
+			weighted<ReadonlyArray<RowSource>>([
+				[3, () => [{ kind: "core", core: 0 }]],
+				[1, () => []],
+				...(uses === 0
+					? []
+					: [
+							[
+								2,
+								(t: Source): ReadonlyArray<RowSource> => [
+									{ kind: "use", use: t.draw(int(0, uses - 1)) }
+								]
+							] as const,
+							[
+								1,
+								(t: Source): ReadonlyArray<RowSource> => [
+									{
+										kind: "union",
+										arms: [
+											[{ kind: "core", core: 0 }],
+											[{ kind: "use", use: t.draw(int(0, uses - 1)) }]
+										]
+									}
+								]
+							] as const
+						])
+			])
+		)
+
+/**
+ * A statement whose query CTEs are instances (StatementFacts): one to three instances, each using only later ones, so
+ * no use reaches its own body again, each probe of one in one of its cores or in the core of the site that reads it;
+ * its own body, using any of them; and up to two writes, each fed by some reads of any body.
+ */
+const sharedStatementGen =
+	(profile: Profile): Gen<StatementFacts> =>
+	(s) => {
+		const count = s.draw(int(1, INSTANCES))
+		const writes = s.draw(int(0, 2))
+		const ctes = upTo(count, (i): CteFacts => {
+			const body = s.draw(
+				bodyGen(
+					profile,
+					upTo(count - i - 1, (j) => i + 1 + j),
+					writes,
+					weighted<number | "site">([
+						[2, () => 0],
+						[1, () => 1],
+						[2, () => "site"]
+					]),
+					false
+				)
+			)
+			return { ...body, rows: s.draw(rowsGen(body.uses.length)) }
+		})
+		const own = s.draw(
+			bodyGen(
+				profile,
+				upTo(count, (j) => j),
+				writes,
+				weighted<number | undefined>([
+					[3, () => 0],
+					[1, () => 1],
+					[1, () => undefined]
+				]),
+				true
+			)
+		)
+		const places: ReadonlyArray<ReadAt> = [
+			...Arr.map(own.reads, (_, read) => ({ cte: undefined, read })),
+			...Arr.flatMap(ctes, (c, cte) => Arr.map(c.reads, (_, read) => ({ cte, read })))
+		]
+		return {
+			...own,
+			writes: upTo(writes, () => {
+				const w = s.draw(writeGen(0))
+				return {
+					relation: relationName(profile === "dense" ? w.relation % 2 : w.relation),
+					op: profile === "dense" ? "insert" : w.op,
+					from: s.draw(subset(places, { min: 0, max: places.length }))
+				}
+			}),
+			ctes
+		}
+	}
+
+/** The group a read reads, as the row path features compare them: its relation and its bindings. */
+const groupKey = (r: ReadFact): string =>
+	`${r.relation}(${Arr.join(
+		Arr.map(r.group?.bound ?? [], (b) => `${b.field}=${b.by}`),
+		","
+	)})`
+
+/**
+ * The row path situations a statement reaches, in its expansion (test/support/expanded.ts), its reads sealed among
+ * `input`'s roles: a probe with an outside read beneath it, every one sealed, each group read positively beneath no
+ * probe and joined into every write the probe gates, so the probe's row path alone decides it; over a read of an
+ * instance, or a `site` probe of an instance read at two sites.
+ */
+const rowPathFeatures = (
+	input: IsolationInput,
+	st: StatementFacts
+): ReadonlyArray<SharedFeature> => {
+	const flat = expanded(st)
+	const sites = (cte: number): number =>
+		Arr.filter(
+			Arr.flatMap([st, ...st.ctes], (b: BodyFacts<SiteCore>) => b.uses),
+			(u) => u.cte === cte
+		).length
+	return Arr.flatMap(flat.probes, (probe, id): ReadonlyArray<SharedFeature> => {
+		const beneath = Arr.filter(
+			Arr.map(flat.reads, (read, at) => ({ read, at, seal: readSeal(input, read) })),
+			({ read, seal }) =>
+				read.probes.includes(id) &&
+				seal.kind !== "arbiter" &&
+				seal.kind !== "own" &&
+				seal.kind !== "unwritten"
+		)
+		const decided =
+			beneath.length > 0 &&
+			Arr.every(beneath, ({ read, seal }) => {
+				const g = groupKey(read)
+				return (
+					seal.kind !== "unsealed" &&
+					Arr.some(
+						flat.reads,
+						(r) => r.probes.length === 0 && r.mode === "positive" && groupKey(r) === g
+					) &&
+					Arr.every(probe.gates, (k) =>
+						Arr.some(
+							flat.writes[k]?.from ?? [],
+							(at) => flat.reads[at] !== undefined && groupKey(Arr.getUnsafe(flat.reads, at)) === g
+						)
+					)
+				)
+			})
+		if (!decided) {
+			return []
+		}
+		const origin = flat.probeOrigins[id]
+		const instance = origin?.cte === undefined ? undefined : st.ctes[origin.cte]
+		return [
+			...(Arr.some(beneath, ({ at }) => flat.origins[at]?.cte !== undefined)
+				? ["a probe decided by its row path over an instance's reads" as const]
+				: []),
+			...(origin?.cte !== undefined &&
+			instance?.probes[origin.probe]?.core === "site" &&
+			sites(origin.cte) >= 2
+				? ["a site probe of an instance read at two sites, decided by its row path" as const]
+				: [])
+		]
+	})
+}
+
+/** A role whose change members' statements read query CTE instances, as served at READ COMMITTED and SERIALIZABLE. */
+interface SharedRole {
+	readonly login: number
+	readonly privileges: RoleSketch["privileges"]
+	readonly members: ReadonlyArray<ReadonlyArray<StatementFacts>>
+	readonly serializable: ReadonlyArray<ReadonlyArray<StatementFacts>>
+}
+
+/** An installation whose roles' statements read query CTE instances, drawn by `profile`. */
+interface SharedCase {
+	readonly profile: Profile
+	readonly relations: ReadonlyArray<RelationSketch>
+	readonly roles: ReadonlyArray<SharedRole>
+}
+
+const sharedCaseGen: Gen<SharedCase> = (s) => {
+	const profile = s.draw(
+		weighted<Profile>([
+			[1, () => "broad"],
+			[1, () => "dense"]
+		])
+	)
+	const statements = array(array(sharedStatementGen(profile), { min: 1, max: 2 }), {
+		min: 0,
+		max: 2
+	})
+	return {
+		profile,
+		relations: Arr.makeBy(RELATIONS, () =>
+			profile === "dense" ? clean([0]) : s.draw(relationSketchGen)
+		),
+		roles: s.draw(
+			array(
+				(t): SharedRole => ({
+					login: t.draw(int(0, 1)),
+					privileges: t.draw(
+						array(
+							(u) => ({
+								relation: u.draw(relationGen),
+								privilege:
+									profile === "dense"
+										? u.draw(
+												weighted<TablePrivilege>([
+													[1, () => "SELECT"],
+													[1, () => "INSERT"]
+												])
+											)
+										: u.draw(privilegeGen)
+							}),
+							{ min: 0, max: 3 }
+						)
+					),
+					members: t.draw(statements),
+					serializable: t.draw(
+						array(array(sharedStatementGen(profile), { min: 1, max: 2 }), { min: 0, max: 1 })
+					)
+				}),
+				{ min: 1, max: 3 }
+			)
+		)
+	}
+}
+
+/** A statement read again at each site of each instance it holds (test/support/expanded.ts), as the certifier reads it. */
+const flatFacts = (st: StatementFacts): StatementFacts => {
+	const flat = expanded(st)
+	return {
+		writes: Arr.map(flat.writes, (w) => ({
+			...w,
+			from: Arr.map(w.from, (read) => ({ cte: undefined, read }))
+		})),
+		reads: flat.reads,
+		probes: flat.probes,
+		cores: flat.cores,
+		uses: [],
+		ctes: []
+	}
+}
+
+/** Members of statements as the certifier reads them, each named by its place, each statement `as` gives it. */
+const sharedMembers = (
+	members: ReadonlyArray<ReadonlyArray<StatementFacts>>,
+	as: (st: StatementFacts) => StatementFacts
+): ReadonlyArray<MemberFacts> =>
+	Arr.flatMap(members, (statements, m) =>
+		Arr.isReadonlyArrayNonEmpty(statements)
+			? [{ name: `m${m}`, statements: Arr.map(statements, as) }]
+			: []
+	)
+
+/** A case's facts as the certifier reads them, each statement `as` gives it (sharedMembers). */
+const sharedInput = (
+	c: SharedCase,
+	as: (st: StatementFacts) => StatementFacts
+): IsolationInput => ({
+	relations: relationsOf(c.relations),
+	roles: Arr.map(c.roles, (role, i): RoleFacts => ({
+		login: `L${role.login}`,
+		role: `r${i}`,
+		privileges: privilegesOf(role.privileges),
+		members: sharedMembers(role.members, as)
+	}))
+})
+
+/** What certification gives a case's roles, each statement `as` gives it (sharedMembers). */
+const sharedCertified = (c: SharedCase, as: (st: StatementFacts) => StatementFacts) =>
+	certify(
+		relationsOf(c.relations),
+		Arr.map(sharedInput(c, as).roles, (role, i): Candidate<undefined, undefined, never> => ({
+			role,
+			readCommitted: undefined,
+			lower: () =>
+				Result.ok({
+					facts: sharedMembers(Arr.getUnsafe(c.roles, i).serializable, as),
+					form: undefined
+				})
+		}))
+	)
+
+/** One mode one read of a member takes: the member, the statement, the read of the drawn statement it is, the mode. */
+interface ModeTaken {
+	readonly member: number
+	readonly statement: number
+	readonly origin: ReadAt
+	readonly mode: ReadFact["mode"]
+}
+
+/** A read's mode as the comparison keys it. */
+const modeKey = (t: ModeTaken): string =>
+	`${t.member}|${t.statement}|${t.origin.cte ?? "-"}|${t.origin.read}|${t.mode}`
+
+/**
+ * Each mode each read of each of `members`' statements takes (readModes), among the case's roles, each statement `as`
+ * gives it, each read named by the read of the drawn statement it is (`origin`), each once.
+ */
+const modesTaken = (
+	c: SharedCase,
+	members: ReadonlyArray<ReadonlyArray<StatementFacts>>,
+	as: (st: StatementFacts) => StatementFacts,
+	origin: (statement: StatementFacts, at: ReadAt) => ReadAt | undefined
+): ReadonlyArray<ModeTaken> => {
+	const input = sharedInput(c, as)
+	return Arr.dedupeWith(
+		Arr.flatMap(members, (statements, m) =>
+			Arr.flatMap(sharedMembers([statements], as), (member) =>
+				Arr.flatMap(readModes(input, member), (r): ReadonlyArray<ModeTaken> => {
+					const from = origin(Arr.getUnsafe(statements, r.statement), r.at)
+					return from === undefined
+						? []
+						: [{ member: m, statement: r.statement, origin: from, mode: r.mode }]
+				})
+			)
+		),
+		(a, b) => modeKey(a) === modeKey(b)
+	)
+}
+
+/** The features of the modes the reads of `members`' instances take (modesTaken). */
+const modeFeatures = (
+	members: ReadonlyArray<ReadonlyArray<StatementFacts>>,
+	taken: ReadonlyArray<ModeTaken>
+): ReadonlyArray<SharedFeature> => {
+	const nested = new Set(
+		Arr.flatMap(Arr.flatten(members), (st) =>
+			Arr.flatMap(st.ctes, (i) => Arr.map(i.uses, (u) => u.cte))
+		)
+	)
+	return Arr.flatMap(taken, (t): ReadonlyArray<SharedFeature> => {
+		const cte = t.origin.cte
+		const twice = Arr.some(
+			taken,
+			(o) =>
+				o.mode !== t.mode &&
+				o.member === t.member &&
+				o.statement === t.statement &&
+				o.origin.cte === cte &&
+				o.origin.read === t.origin.read
+		)
+		return !twice || cte === undefined
+			? []
+			: [
+					"an instance read taking two modes",
+					...(nested.has(cte)
+						? ["a read of an instance another reads, taking two modes" as const]
+						: [])
+				]
+	})
+}
+
+/** The count a write's reason gives of the other outside reads of its statement it is joined with none of. */
+const unjoinedCount = regex("nor with \\d+ more outside read\\(s\\) there$")
+
+/**
+ * A reason as the comparison of a statement with its expansion keys it: whole, but the count of the other outside reads
+ * a write is joined with none of, which counts each read once, where the expansion counts each read again at each site.
+ */
+const reasonKey = (r: IsolationReason): string =>
+	`${r.condition}|${r.member ?? "-"}|${r.statement ?? "-"}|${r.relation ?? "-"}|${Str.replace(
+		unjoinedCount,
+		"nor with more outside reads there"
+	)(r.detail)}`
+
+/** The situations the comparison of statements with their expansions must reach. */
+type SharedFeature =
+	| "an instance read at two sites"
+	| "an instance read beneath a probe of its site"
+	| "an instance reading another"
+	| "a site probe of an instance read at two sites"
+	| "a role certified READ COMMITTED over an instance"
+	| "a role SERIALIZABLE"
+	| "a reason the expansion gives again"
+	| "an instance read taking two modes"
+	| "a read of an instance another reads, taking two modes"
+	| "a probe decided by its row path over an instance's reads"
+	| "a site probe of an instance read at two sites, decided by its row path"
+
+/** The structural situations a statement reaches: what its instances' uses read and where. */
+const sharedFeatures = (st: StatementFacts): ReadonlyArray<SharedFeature> => {
+	const bodies: ReadonlyArray<BodyFacts<SiteCore>> = [st, ...st.ctes]
+	const uses = Arr.flatMap(bodies, (b) => b.uses)
+	const sites = (cte: number): number => Arr.filter(uses, (u) => u.cte === cte).length
+	return [
+		...(Arr.some(st.ctes, (_, cte) => sites(cte) >= 2)
+			? ["an instance read at two sites" as const]
+			: []),
+		...(Arr.some(uses, (u) => u.probes.length > 0)
+			? ["an instance read beneath a probe of its site" as const]
+			: []),
+		...(Arr.some(st.ctes, (c) => c.uses.length > 0)
+			? ["an instance reading another" as const]
+			: []),
+		...(Arr.some(
+			st.ctes,
+			(c, cte) => sites(cte) >= 2 && Arr.some(c.probes, (p) => p.core === "site")
+		)
+			? ["a site probe of an instance read at two sites" as const]
+			: [])
+	]
+}
+
 describe("the isolation certifier", () => {
 	it.effect(
 		"runs a role READ COMMITTED exactly when every condition proves it, names every condition a SERIALIZABLE role fails, and never relaxes a role for an added capability or a missing fact",
@@ -3270,6 +3836,115 @@ describe("the isolation certifier", () => {
 									)
 								) {
 									k.note("a dropped fact a SERIALIZABLE role's level rests on alone")
+								}
+							}
+						})
+				)
+			)
+	)
+	it.effect(
+		"reads a statement's query CTE instances as their expansion, each read again at each of its sites: every role at the same level with the same reasons, each once, and the same fences",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/analysis/isolation/instances",
+						draw: drawn(sharedCaseGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "second-implementation",
+							name: "the certifier over the statements' expansions, each query CTE instance read again at each of its sites (test/support/expanded.ts)"
+						},
+						coverage: required<SharedFeature>(
+							[
+								"an instance read at two sites",
+								"an instance read beneath a probe of its site",
+								"an instance reading another",
+								"a site probe of an instance read at two sites",
+								"a role certified READ COMMITTED over an instance",
+								"a role SERIALIZABLE",
+								"a reason the expansion gives again",
+								"an instance read taking two modes",
+								"a read of an instance another reads, taking two modes",
+								"a probe decided by its row path over an instance's reads",
+								"a site probe of an instance read at two sites, decided by its row path"
+							],
+							{ cases: 500, sense: notesOnly }
+						),
+						kept: [],
+						runs: 500,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(c, k) =>
+						Effect.sync(() => {
+							for (const role of c.roles) {
+								for (const st of Arr.flatten([...role.members, ...role.serializable])) {
+									for (const feature of sharedFeatures(st)) {
+										k.note(feature)
+									}
+								}
+							}
+							for (const role of c.roles) {
+								for (const members of [role.members, role.serializable]) {
+									const own = modesTaken(
+										c,
+										members,
+										(st) => st,
+										(_, at) => at
+									)
+									const sorted = (taken: ReadonlyArray<ModeTaken>): ReadonlyArray<string> =>
+										Arr.sort(Arr.map(taken, modeKey), Order.String)
+									assert.deepEqual(
+										sorted(own),
+										sorted(
+											modesTaken(c, members, flatFacts, (st, at) => expanded(st).origins[at.read])
+										),
+										"each read takes the modes its reads again at each site take"
+									)
+									for (const feature of modeFeatures(members, own)) {
+										k.note(feature)
+									}
+									for (const st of Arr.flatten(members)) {
+										for (const feature of rowPathFeatures(sharedInput(c, flatFacts), st)) {
+											k.note(feature)
+										}
+									}
+								}
+							}
+							const shared = sharedCertified(c, (st) => st)
+							const flat = sharedCertified(c, flatFacts)
+							if (!shared.ok || !flat.ok) {
+								assert.fail("certification lowers every role")
+							}
+							assert.deepEqual(shared.value.fences, flat.value.fences, "the fences")
+							const keys = (reasons: ReadonlyArray<IsolationReason>): ReadonlyArray<string> =>
+								Arr.dedupe(Arr.sort(Arr.map(reasons, reasonKey), Order.String))
+							for (const [i, role] of shared.value.roles.entries()) {
+								const other = Arr.getUnsafe(flat.value.roles, i)
+								assert.equal(role.level, other.level, `r${i}'s level`)
+								if (role.level === "serializable" && other.level === "serializable") {
+									assert.deepEqual(
+										keys(role.reasons),
+										keys(other.reasons),
+										`r${i}'s reasons, each once`
+									)
+									k.note("a role SERIALIZABLE")
+									if (other.reasons.length > keys(other.reasons).length) {
+										k.note("a reason the expansion gives again")
+									}
+								}
+								if (
+									role.level === "readCommitted" &&
+									Arr.some(
+										Arr.flatten(Arr.getUnsafe(c.roles, i).members),
+										(st) => st.uses.length > 0
+									)
+								) {
+									k.note("a role certified READ COMMITTED over an instance")
 								}
 							}
 						})

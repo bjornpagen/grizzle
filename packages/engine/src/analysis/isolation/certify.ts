@@ -1,13 +1,16 @@
 import {
+	type BodyFacts,
+	type CteUse,
 	type FieldBinding,
 	groupFields,
 	type IsolationInput,
 	type MemberFacts,
-	type ProbeFact,
+	type ReadAt,
 	type ReadFact,
 	type RelationFacts,
 	type RoleFacts,
 	type RowSource,
+	type SiteCore,
 	type StatementFacts,
 	type WriteFact
 } from "#compiler/analysis/isolation/facts.ts"
@@ -16,6 +19,7 @@ import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import * as Result from "#compiler/core/result.ts"
+import { TupleSet } from "#compiler/core/tuple-map.ts"
 
 /**
  * The conditions a role's change members must all meet to run READ COMMITTED, after `facts`, that the installation
@@ -397,7 +401,7 @@ const installationOf = (
 			...served.members.flatMap((m) =>
 				m.statements.flatMap((s) => [
 					...s.writes.map((w) => w.relation),
-					...s.reads.flatMap((r) => (r.own ? [] : [r.relation]))
+					...statementReads(s).flatMap(({ read }) => (read.own ? [] : [read.relation]))
 				])
 			)
 		])
@@ -498,34 +502,118 @@ const outside = (seal: ReadSeal): boolean =>
 	seal.kind !== "unwritten" &&
 	seal.kind !== "arbitrated"
 
-/** One read of a member, at its statement's place in the member's flight and its own in the statement's reads. */
+/**
+ * One read of a member as the conditions read it: its statement's place in the member's flight, its body and its place
+ * there (ReadAt), its seal, and one mode it takes where a site reaches it (readsOf): a read takes one PlacedRead per
+ * mode it takes.
+ */
 interface PlacedRead {
 	readonly statement: number
-	readonly index: number
+	readonly at: ReadAt
 	readonly read: ReadFact
 	readonly seal: ReadSeal
 	readonly mode: ReadFact["mode"]
 }
 
+/** One body of a statement, its own or a query CTE instance's, as the certifier reads both. */
+type Body = BodyFacts<SiteCore>
+
+/** The body of `s` at `cte`: its own, none, or its instance `cte`; none where it holds no such instance. */
+const bodyAt = (s: StatementFacts, cte: number | undefined): Body | undefined =>
+	cte === undefined ? s : s.ctes[cte]
+
+/** One read of a statement by its body and place, with its fact. */
+interface StatedRead {
+	readonly at: ReadAt
+	readonly read: ReadFact
+}
+
+/**
+ * Every read of a statement some site reaches, each once, in the order a walk that read each query CTE again at each of
+ * its sites would first find it: its own body's reads, and each instance's at its first use, between the reads of the
+ * using body before it and after it. An instance no use reaches reads nothing.
+ */
+const statementReads = (s: StatementFacts): ReadonlyArray<StatedRead> => {
+	const out: Array<StatedRead> = []
+	const reached = new Set<number>()
+	const visit = (cte: number | undefined, body: Body): void => {
+		let next = 0
+		const upTo = (end: number): void => {
+			for (; next < end; next++) {
+				const read = body.reads[next]
+				if (read !== undefined) {
+					out.push({ at: { cte, read: next }, read })
+				}
+			}
+		}
+		for (const use of body.uses) {
+			upTo(use.at)
+			const instance = s.ctes[use.cte]
+			if (instance !== undefined && !reached.has(use.cte)) {
+				reached.add(use.cte)
+				visit(use.cte, instance)
+			}
+		}
+		upTo(body.reads.length)
+	}
+	visit(undefined, s)
+	return out
+}
+
 /**
  * The proof every row of a probe's core comes through a positive read of a group beneath the probes the probe chains,
- * along the core's row sources (StatementFacts.cores): the read itself, by its place in its statement's reads; a
- * derived table's or a CTE's core, by its number, with its own proof; or a UNION's, one proof per arm in arm order,
- * each row of it one arm's.
+ * along the core's row sources (BodyFacts.cores): the read itself, by its place in its body's reads; a derived table's
+ * core, by its number, with its own proof; a UNION's, one proof per arm in arm order, each row of it one arm's; or a
+ * query CTE's, by the place of its use, with the proof along its instance's rows.
  */
 type RowPath =
 	| { readonly kind: "read"; readonly read: number }
 	| { readonly kind: "core"; readonly core: number; readonly path: RowPath }
 	| { readonly kind: "union"; readonly arms: NonEmptyReadonlyArray<RowPath> }
+	| { readonly kind: "use"; readonly use: number; readonly path: RowPath }
 
-/** The proof of the first of `sources` whose every row comes through reads `fits` admits; none where no source has one. */
+/**
+ * The probes a read must stand beneath, below one body, to lie on a probe's row path: `local`, the body's; and, for a
+ * probe of an instance the body reads, judged in the core of one of its sites (SiteCore `site`), `via`, the place of the
+ * use of that site in the body and the instance's probes the probe chains. A read of an instance stands, at a use of
+ * it, beneath the use's probes and then its own.
+ */
+interface Chain {
+	readonly local: ReadonlyArray<number>
+	readonly via: { readonly use: number; readonly chain: ReadonlyArray<number> } | undefined
+}
+
+const sameProbes = (a: ReadonlyArray<number>, b: ReadonlyArray<number>): boolean =>
+	a.length === b.length && a.every((p, i) => b[i] === p)
+
+/**
+ * The chain below the instance a body's use reaches, at `place` among the body's uses, where `chain` is the chain below
+ * the body: the instance's own probes the probe chains, for the use it is judged at, else none; nothing where the use
+ * stands beneath other probes than the chain names, so no read beneath it stands on it.
+ */
+const below = (chain: Chain, place: number, use: CteUse): Chain | undefined => {
+	if (!sameProbes(use.probes, chain.local)) {
+		return undefined
+	}
+	if (chain.via === undefined) {
+		return { local: [], via: undefined }
+	}
+	return chain.via.use === place ? { local: chain.via.chain, via: undefined } : undefined
+}
+
+/**
+ * The proof of the first of `sources`, row sources of `body`, whose every row comes through reads standing on `chain`
+ * that `fits` admits; none where no source has one.
+ */
 const pathOf = (
 	s: StatementFacts,
+	body: Body,
 	sources: ReadonlyArray<RowSource>,
+	chain: Chain,
 	fits: (r: ReadFact) => boolean
 ): RowPath | undefined => {
 	for (const source of sources) {
-		const path = sourcePath(s, source, fits)
+		const path = sourcePath(s, body, source, chain, fits)
 		if (path !== undefined) {
 			return path
 		}
@@ -533,146 +621,424 @@ const pathOf = (
 	return undefined
 }
 
-/** One row source's proof: its read where `fits` admits it, its core's proof, or one proof for each of its arms. */
+/**
+ * One row source's proof: its read where it stands on `chain` and `fits` admits it, its core's proof, one proof for each
+ * of its arms, or the proof along the rows of the instance its use reads.
+ */
 const sourcePath = (
 	s: StatementFacts,
+	body: Body,
 	source: RowSource,
+	chain: Chain,
 	fits: (r: ReadFact) => boolean
 ): RowPath | undefined => {
 	switch (source.kind) {
 		case "read": {
-			const r = s.reads[source.read]
-			return r !== undefined && fits(r) ? source : undefined
+			const r = body.reads[source.read]
+			return r !== undefined &&
+				chain.via === undefined &&
+				sameProbes(r.probes, chain.local) &&
+				fits(r)
+				? source
+				: undefined
 		}
 		case "core": {
-			const sources = s.cores[source.core]
-			const path = sources === undefined ? undefined : pathOf(s, sources, fits)
+			const sources = body.cores[source.core]
+			const path = sources === undefined ? undefined : pathOf(s, body, sources, chain, fits)
 			return path === undefined ? undefined : { kind: "core", core: source.core, path }
 		}
 		case "union": {
 			const arms = source.arms.flatMap((arm) => {
-				const path = pathOf(s, arm, fits)
+				const path = pathOf(s, body, arm, chain, fits)
 				return path === undefined ? [] : [path]
 			})
 			return arms.length === source.arms.length && isNonEmpty(arms)
 				? { kind: "union", arms }
 				: undefined
 		}
+		case "use": {
+			const use = body.uses[source.use]
+			const instance = use === undefined ? undefined : s.ctes[use.cte]
+			const next = use === undefined ? undefined : below(chain, source.use, use)
+			const path =
+				instance === undefined || next === undefined
+					? undefined
+					: pathOf(s, instance, instance.rows, next, fits)
+			return path === undefined ? undefined : { kind: "use", use: source.use, path }
+		}
 	}
 }
 
 /**
- * The row path from a probe's core to positive reads of group `g` beneath the probes it chains, none where the probe
- * stands in no core or no such path is.
+ * Where a probe is judged: the body whose core the probe's rows are, that core, none where it stands in no core, and
+ * the chain below that body the reads on its row path stand beneath (Chain).
  */
-const rowPathOf = (s: StatementFacts, probe: ProbeFact, g: string): RowPath | undefined => {
-	const sources = probe.core === undefined ? undefined : s.cores[probe.core]
+interface Judged {
+	readonly body: Body
+	readonly core: number | undefined
+	readonly chain: Chain
+}
+
+/** The row path from a judged probe's core to positive reads of group `g` on its chain, none where it stands in no core
+ * or no such path is. */
+const rowPathOf = (s: StatementFacts, judged: Judged, g: string): RowPath | undefined => {
+	const sources = judged.core === undefined ? undefined : judged.body.cores[judged.core]
 	return sources === undefined
 		? undefined
 		: pathOf(
 				s,
+				judged.body,
 				sources,
-				(r) =>
-					r.probes.length === probe.chain.length &&
-					r.probes.every((step, i) => probe.chain[i] === step) &&
-					r.base === "positive" &&
-					groupOf(r) === g
+				judged.chain,
+				(r) => r.base === "positive" && groupOf(r) === g
 			)
 }
 
 /**
  * Why one outside read beneath a probe leaves the probe a function of positive reads: the statement's positive read of
- * its sealed group beneath no probe (`positive`), the read of that group in the `from` of each write the probe gates
- * (`joins`), and the row path from the probe's core to positive reads of it beneath the probe's own probes alone
+ * its sealed group beneath no probe at all (`positive`), the read of that group in the `from` of each write the probe
+ * gates (`joins`), and the row path from the probe's core to positive reads of it beneath the probe's own probes alone
  * (`path`).
  */
 interface Neutral {
-	readonly positive: number
-	readonly joins: ReadonlyArray<number>
+	readonly positive: ReadAt
+	readonly joins: ReadonlyArray<ReadAt>
 	readonly path: RowPath
 }
 
-/** The proof an outside read of sealed group `g` beneath `probe` leaves it neutral, none where a part of it is missing. */
-const neutralBy = (s: StatementFacts, probe: ProbeFact, g: string): Neutral | undefined => {
-	const positive = s.reads.findIndex(
-		(r) => r.probes.length === 0 && r.mode === "positive" && groupOf(r) === g
-	)
-	const joins = probe.gates.flatMap((k) => {
-		const at = s.writes[k]?.from.find((i) => {
-			const r = s.reads[i]
-			return r !== undefined && groupOf(r) === g
-		})
+/**
+ * What a statement's probes are judged against, read once: the first read of each group it reads positively beneath no
+ * probe, at a site no probe stands above either (`positive`), and for each of its writes, by place, the first read of
+ * each group among its `from` (`joined`), each a read some site reaches.
+ */
+interface Grounds {
+	readonly positive: ReadonlyMap<string, ReadAt>
+	readonly joined: ReadonlyArray<ReadonlyMap<string, ReadAt>>
+}
+
+/** The first of `reads` of each group, by place. */
+const firstOfEach = (reads: ReadonlyArray<StatedRead>): ReadonlyMap<string, ReadAt> => {
+	const first = new Map<string, ReadAt>()
+	for (const { at, read } of reads) {
+		const g = groupOf(read)
+		if (!first.has(g)) {
+			first.set(g, at)
+		}
+	}
+	return first
+}
+
+/**
+ * A statement's grounds (Grounds), over `reads`, its reads some site reaches (statementReads): the bodies a site
+ * beneath no probe reaches are its own and each instance a use beneath no probe of such a body reads.
+ */
+const groundsOf = (s: StatementFacts, reads: ReadonlyArray<StatedRead>): Grounds => {
+	const bare = new Set<number>()
+	const reach = (body: Body): void => {
+		for (const use of body.uses) {
+			const instance = s.ctes[use.cte]
+			if (use.probes.length === 0 && instance !== undefined && !bare.has(use.cte)) {
+				bare.add(use.cte)
+				reach(instance)
+			}
+		}
+	}
+	reach(s)
+	const reached = new TupleSet<readonly [number | undefined, number]>()
+	for (const { at } of reads) {
+		reached.add([at.cte, at.read])
+	}
+	return {
+		positive: firstOfEach(
+			reads.filter(
+				({ at, read }) =>
+					(at.cte === undefined || bare.has(at.cte)) &&
+					read.probes.length === 0 &&
+					read.mode === "positive"
+			)
+		),
+		joined: s.writes.map((w) =>
+			firstOfEach(
+				w.from.flatMap((at) => {
+					const read = bodyAt(s, at.cte)?.reads[at.read]
+					return read !== undefined && reached.has([at.cte, at.read]) ? [{ at, read }] : []
+				})
+			)
+		)
+	}
+}
+
+/** The proof an outside read of sealed group `g` beneath a probe gating `gates`, judged at `judged`, leaves it neutral,
+ * none where a part of it is missing. */
+const neutralBy = (
+	s: StatementFacts,
+	grounds: Grounds,
+	gates: ReadonlyArray<number>,
+	judged: Judged,
+	g: string
+): Neutral | undefined => {
+	const positive = grounds.positive.get(g)
+	const joins = gates.flatMap((k) => {
+		const at = grounds.joined[k]?.get(g)
 		return at === undefined ? [] : [at]
 	})
-	const path = rowPathOf(s, probe, g)
-	return positive < 0 || joins.length < probe.gates.length || path === undefined
+	const path = rowPathOf(s, judged, g)
+	return positive === undefined || joins.length < gates.length || path === undefined
 		? undefined
 		: { positive, joins, path }
 }
 
-/** One read of a statement with its seal. */
-interface SealedRead {
-	readonly read: ReadFact
-	readonly seal: ReadSeal
+/** The outside reads beneath a probe as its judgement reads them: whether one is unsealed, and the groups of the others. */
+interface Beneath {
+	readonly unsealed: boolean
+	readonly groups: ReadonlySet<string>
+}
+
+/** A Beneath being gathered. */
+interface Gathering {
+	unsealed: boolean
+	readonly groups: Set<string>
+}
+
+const gathering = (): Gathering => ({ unsealed: false, groups: new Set() })
+
+/** `into` with every outside read `from` holds. */
+const gather = (into: Gathering, from: Beneath): void => {
+	into.unsealed ||= from.unsealed
+	for (const g of from.groups) {
+		into.groups.add(g)
+	}
+}
+
+/** `into` with the outside read `read`, sealed by `seal`. */
+const gatherRead = (into: Gathering, read: ReadFact, seal: ReadSeal): void => {
+	if (seal.kind === "unsealed") {
+		into.unsealed = true
+	} else {
+		into.groups.add(groupOf(read))
+	}
 }
 
 /**
- * A statement's outside reads beneath each of its probes, by the probe's place: each outside read once under every
- * probe it stands beneath, in the reads' order. A probe no outside read stands beneath has none.
+ * A statement's reads as its probes' judgements read them, by body: the seal of every read of every body
+ * (`seals`, its own body's first, then each instance's), and, for each body, the outside reads beneath each of its
+ * probes, each read once under every probe it stands beneath, and every read of each instance a use beneath it reads.
  */
-const outsideBeneath = (
-	placed: ReadonlyArray<SealedRead>
-): ReadonlyMap<number, ReadonlyArray<SealedRead>> => {
-	const by = new Map<number, Array<SealedRead>>()
-	for (const p of placed) {
-		if (outside(p.seal)) {
-			for (const id of new Set(p.read.probes)) {
-				const held = by.get(id)
-				if (held === undefined) {
-					by.set(id, [p])
-				} else {
-					held.push(p)
+interface Sealed {
+	readonly seals: (at: ReadAt) => ReadSeal | undefined
+	readonly beneath: (cte: number | undefined, probe: number) => Beneath | undefined
+}
+
+const sealedOf = (s: StatementFacts, sealOfRead: (read: ReadFact) => ReadSeal): Sealed => {
+	const own = s.reads.map(sealOfRead)
+	const ctes = s.ctes.map((instance) => instance.reads.map(sealOfRead))
+	const sealsOf = (cte: number | undefined): ReadonlyArray<ReadSeal> | undefined =>
+		cte === undefined ? own : ctes[cte]
+	const whole: Array<Beneath | undefined> = []
+	const wholeOf = (cte: number): Beneath => {
+		const known = whole[cte]
+		if (known !== undefined) {
+			return known
+		}
+		const into = gathering()
+		const instance = s.ctes[cte]
+		const seals = ctes[cte]
+		if (instance !== undefined && seals !== undefined) {
+			for (const [i, read] of instance.reads.entries()) {
+				const seal = seals[i]
+				if (seal !== undefined && outside(seal)) {
+					gatherRead(into, read, seal)
+				}
+			}
+			for (const use of instance.uses) {
+				gather(into, wholeOf(use.cte))
+			}
+		}
+		whole[cte] = into
+		return into
+	}
+	const probed = new Map<number | undefined, ReadonlyMap<number, Beneath>>()
+	const probedOf = (cte: number | undefined): ReadonlyMap<number, Beneath> => {
+		const known = probed.get(cte)
+		if (known !== undefined) {
+			return known
+		}
+		const by = new Map<number, Gathering>()
+		const at = (id: number): Gathering => {
+			const held = by.get(id)
+			if (held !== undefined) {
+				return held
+			}
+			const made = gathering()
+			by.set(id, made)
+			return made
+		}
+		const body = bodyAt(s, cte)
+		const seals = sealsOf(cte)
+		if (body !== undefined && seals !== undefined) {
+			for (const [i, read] of body.reads.entries()) {
+				const seal = seals[i]
+				if (seal !== undefined && outside(seal)) {
+					for (const id of new Set(read.probes)) {
+						gatherRead(at(id), read, seal)
+					}
+				}
+			}
+			for (const use of body.uses) {
+				for (const id of new Set(use.probes)) {
+					gather(at(id), wholeOf(use.cte))
 				}
 			}
 		}
+		probed.set(cte, by)
+		return by
 	}
-	return by
+	return {
+		seals: (place) => sealsOf(place.cte)?.[place.read],
+		beneath: (cte, probe) => probedOf(cte).get(probe)
+	}
 }
 
 /**
- * The probes of a statement that are a function of positive reads, by their places, each with its proof, one Neutral
- * per non-own outside read beneath it: each such read is of a sealed group the statement also reads positively, beneath
- * no probe, every write the probe gates is joined with that group, and every row of the core whose rows the probe
- * filters or counts comes through a positive read of it beneath no further probe (rowPathOf), a UNION's through one in
- * each arm, so every row the probe touches passes through the group. NEGATION's fallback: a rule's NOT EXISTS in another
- * arm of the same write's UNION, or beside a UNION one of whose arms, a recursive CTE's base or its recursion's own rows
- * among them, never reads the group, gates rows the group never reaches; and an ungrouped count, which yields a row
- * over no input, is judged by the core its value lands in. A sealed
- * group is read whole or not at all at the statement's one snapshot, and a miss empties every write the probe gates, so
- * the probe's result reaches no write the positive read does not; a refusal it raises needs the group present. Any
- * other probe keeps the mode it composes, so a negation of a sealed point no positive read gates is still an absence
- * read.
+ * A probe's judgement: neutral, with one proof per group of the outside reads beneath it, where none of them is
+ * unsealed and each group has its proof (neutralBy); none where it is not neutral.
  */
-const neutralOf = (
+const probeJudgement = (
 	s: StatementFacts,
-	placed: ReadonlyArray<SealedRead>
-): ReadonlyMap<number, ReadonlyArray<Neutral>> => {
-	const beneath = outsideBeneath(placed)
-	const neutral = new Map<number, ReadonlyArray<Neutral>>()
-	for (const [id, probe] of s.probes.entries()) {
-		const proofs: Array<Neutral> = []
-		const holds = (beneath.get(id) ?? []).every(({ read, seal }) => {
-			const proof = seal.kind === "unsealed" ? undefined : neutralBy(s, probe, groupOf(read))
-			if (proof !== undefined) {
-				proofs.push(proof)
+	grounds: Grounds,
+	gates: ReadonlyArray<number>,
+	judged: Judged,
+	beneath: Beneath | undefined
+): ReadonlyArray<Neutral> | undefined => {
+	if (beneath === undefined) {
+		return []
+	}
+	if (beneath.unsealed) {
+		return undefined
+	}
+	const proofs: Array<Neutral> = []
+	for (const g of beneath.groups) {
+		const proof = neutralBy(s, grounds, gates, judged, g)
+		if (proof === undefined) {
+			return undefined
+		}
+		proofs.push(proof)
+	}
+	return proofs
+}
+
+/**
+ * How a site reaches a body: through the use at `place` among `body`'s uses, none for a statement's own body; whether
+ * every probe above the body on the way there is neutral (`neutral`); and the judgement of each of the body's own probes
+ * there (`probes`, probeJudgement), its `site` probes judged in the core of that use.
+ */
+interface Reach {
+	readonly from: { readonly body: Body; readonly place: number; readonly use: CteUse } | undefined
+	readonly neutral: boolean
+	readonly probes: ReadonlyArray<ReadonlyArray<Neutral> | undefined>
+}
+
+/**
+ * Every way some site reaches each body of a statement (Reach), by the body's instance, none for its own: its own body
+ * once, beneath no probe, then each instance from each reach of each body that uses it, in an order that reaches every
+ * body using an instance before the instance. A probe is a function of positive reads (neutral) where each outside read
+ * beneath it is of a sealed group the statement also reads positively beneath no probe, every write it gates is joined
+ * with that group, and every row of the core whose rows it filters or counts comes through a positive read of it
+ * beneath no further probe (rowPathOf), a UNION's through one in each arm, so every row the probe touches passes through
+ * the group. NEGATION's fallback: a rule's NOT EXISTS in another arm of the same write's UNION, or beside a UNION one of
+ * whose arms, a recursive CTE's base or its recursion's own rows among them, never reads the group, gates rows the group
+ * never reaches; and an ungrouped count, which yields a row over no input, is judged by the core its value lands in. A
+ * sealed group is read whole or not at all at the statement's one snapshot, and a miss empties every write the probe
+ * gates, so the probe's result reaches no write the positive read does not; a refusal it raises needs the group present.
+ * Any other probe keeps the mode it composes, so a negation of a sealed point no positive read gates is still an absence
+ * read. A probe of an instance is judged as each site's walk would find it: in its own core, alike at every site, or in
+ * the core of the site that reads it (SiteCore `site`), once for each use.
+ */
+const reachesOf = (
+	s: StatementFacts,
+	grounds: Grounds,
+	sealed: Sealed
+): ReadonlyMap<number | undefined, ReadonlyArray<Reach>> => {
+	const own = (
+		cte: number | undefined,
+		body: Body
+	): ReadonlyArray<ReadonlyArray<Neutral> | undefined> =>
+		body.probes.map((probe, id) =>
+			probe.core === "site"
+				? undefined
+				: probeJudgement(
+						s,
+						grounds,
+						probe.gates,
+						{ body, core: probe.core, chain: { local: probe.chain, via: undefined } },
+						sealed.beneath(cte, id)
+					)
+		)
+	const order: Array<number> = []
+	const visited = new Set<number>()
+	const visit = (body: Body): void => {
+		for (const use of body.uses) {
+			const instance = s.ctes[use.cte]
+			if (instance === undefined || visited.has(use.cte)) {
+				continue
 			}
-			return proof !== undefined
-		})
-		if (holds) {
-			neutral.set(id, proofs)
+			visited.add(use.cte)
+			visit(instance)
+			order.push(use.cte)
 		}
 	}
-	return neutral
+	visit(s)
+	const reaches = new Map<number | undefined, Array<Reach>>([
+		[undefined, [{ from: undefined, neutral: true, probes: own(undefined, s) }]]
+	])
+	const seen = new TupleSet<readonly [number, Body, number, boolean]>()
+	const owned = new Map<number, ReadonlyArray<ReadonlyArray<Neutral> | undefined>>()
+	const enter = (from: Body, fromReaches: ReadonlyArray<Reach>): void => {
+		for (const [place, use] of from.uses.entries()) {
+			const instance = s.ctes[use.cte]
+			if (instance === undefined) {
+				continue
+			}
+			for (const r of fromReaches) {
+				const neutral = r.neutral && use.probes.every((id) => r.probes[id] !== undefined)
+				if (seen.has([use.cte, from, place, neutral])) {
+					continue
+				}
+				seen.add([use.cte, from, place, neutral])
+				const ownProbes = owned.get(use.cte) ?? own(use.cte, instance)
+				owned.set(use.cte, ownProbes)
+				const probes = instance.probes.map((probe, id) =>
+					probe.core === "site"
+						? probeJudgement(
+								s,
+								grounds,
+								probe.gates,
+								{
+									body: from,
+									core: use.core,
+									chain: {
+										local: use.probes,
+										via: probe.chain.length === 0 ? undefined : { use: place, chain: probe.chain }
+									}
+								},
+								sealed.beneath(use.cte, id)
+							)
+						: ownProbes[id]
+				)
+				const held = reaches.get(use.cte) ?? []
+				held.push({ from: { body: from, place, use }, neutral, probes })
+				reaches.set(use.cte, held)
+			}
+		}
+	}
+	enter(s, reaches.get(undefined) ?? [])
+	for (const cte of order.toReversed()) {
+		const instance = s.ctes[cte]
+		if (instance !== undefined) {
+			enter(instance, reaches.get(cte) ?? [])
+		}
+	}
+	return reaches
 }
 
 /**
@@ -718,19 +1084,21 @@ const fixedFor = (
 }
 
 /**
- * Every read of a member, each placed, sealed, and with its mode: its base mode where every probe above it is neutral
- * (neutralOf), else the mode it composes. A point read of a row an earlier statement of the member fixed by its
- * arbitration, each field of the arbitrated key bound to what the arbitration bound it to, is arbitrated, whatever its
- * mode and whatever else it binds, since the row there is fixed and its other bindings only filter that row, where that
- * statement and every one before it read only the call's own rows and arbitrations, so the row it proposes at the key
- * is the call's whatever the installation holds: an insert an outside read gates may propose nothing, and the later
- * read then meets another call's row (NEGATION's claimStart, the publication case). A raced relation's arbitration
- * fixes only the row at its race key (fixesAt).
+ * Every read of a member some site reaches, each placed, sealed, and with each mode it takes: at each way a site reaches
+ * it (reachesOf), its base mode where every probe above it there is neutral, else the mode it composes. A point read of
+ * a row an earlier statement of the member fixed by its arbitration, each field of the arbitrated key bound to what the
+ * arbitration bound it to, is arbitrated, whatever its mode and whatever else it binds, since the row there is fixed and
+ * its other bindings only filter that row, where that statement and every one before it read only the call's own rows
+ * and arbitrations, so the row it proposes at the key is the call's whatever the installation holds: an insert an
+ * outside read gates may propose nothing, and the later read then meets another call's row (NEGATION's claimStart, the
+ * publication case). A raced relation's arbitration fixes only the row at its race key (fixesAt). Reads come in the order
+ * statementReads finds them, each read's modes in the order its reaches take them.
  */
-const readsOf = (at: Installation, member: MemberFacts): ReadonlyArray<PlacedRead> => {
+const readsOf = (installation: Installation, member: MemberFacts): ReadonlyArray<PlacedRead> => {
+	const stated = member.statements.map((s) => ({ s, reads: statementReads(s) }))
 	const fixed: Array<Fixed> = []
-	for (const [statement, s] of member.statements.entries()) {
-		const seals = s.reads.map((read) => ({ read, seal: sealOf(at, read) }))
+	for (const [statement, { reads }] of stated.entries()) {
+		const seals = reads.map(({ read }) => ({ read, seal: sealOf(installation, read) }))
 		if (seals.some(({ seal }) => seal.kind !== "own" && seal.kind !== "arbiter")) {
 			break
 		}
@@ -740,7 +1108,7 @@ const readsOf = (at: Installation, member: MemberFacts): ReadonlyArray<PlacedRea
 				read.mode === "arbiter" &&
 				seal.kind === "arbiter" &&
 				group?.rows === "one" &&
-				fixesAt(at.relations.get(read.relation), seal.key)
+				fixesAt(installation.relations.get(read.relation), seal.key)
 			) {
 				fixed.push({
 					relation: read.relation,
@@ -751,24 +1119,47 @@ const readsOf = (at: Installation, member: MemberFacts): ReadonlyArray<PlacedRea
 			}
 		}
 	}
-	return member.statements.flatMap((s, statement) => {
-		const placed = s.reads.map((read, index) => {
-			const seal = sealOf(at, read)
+	return stated.flatMap(({ s, reads }, statement) => {
+		const sealed = sealedOf(s, (read): ReadSeal => {
+			const seal = sealOf(installation, read)
 			const by = seal.kind === "point" ? fixedFor(fixed, read, statement) : undefined
-			return {
-				index,
-				read,
-				seal: by === undefined ? seal : { kind: "arbitrated" as const, key: by.key }
-			}
+			return by === undefined ? seal : { kind: "arbitrated", key: by.key }
 		})
-		const neutral = neutralOf(s, placed)
-		return placed.map((p): PlacedRead => ({
-			...p,
-			statement,
-			mode: p.read.probes.every((id) => neutral.has(id)) ? p.read.base : p.read.mode
-		}))
+		const reaches = reachesOf(s, groundsOf(s, reads), sealed)
+		return reads.flatMap(({ at, read }): ReadonlyArray<PlacedRead> => {
+			const seal = sealed.seals(at)
+			if (seal === undefined) {
+				return []
+			}
+			const modes = new Set(
+				(reaches.get(at.cte) ?? []).map((r) =>
+					r.neutral && read.probes.every((id) => r.probes[id] !== undefined) ? read.base : read.mode
+				)
+			)
+			return [...modes].map((mode) => ({ statement, at, read, seal, mode }))
+		})
 	})
 }
+
+/**
+ * Each mode each read of `member` takes, by its statement and its body and place there, among the installation's roles
+ * each served its READ COMMITTED form (readsOf).
+ */
+export const readModes = (
+	input: IsolationInput,
+	member: MemberFacts
+): ReadonlyArray<{
+	readonly statement: number
+	readonly at: ReadAt
+	readonly mode: ReadFact["mode"]
+}> =>
+	readsOf(
+		installationOf(
+			input.relations,
+			input.roles.map((role) => ({ role, members: role.members }))
+		),
+		member
+	).map((p) => ({ statement: p.statement, at: p.at, mode: p.mode }))
 
 /** The text that names one group a read reads: its relation, its fields and what they are bound to. */
 const groupOf = (r: ReadFact): string =>
@@ -1246,11 +1637,38 @@ const snapshotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
 		]
 	})
 
+/** Placed reads by the place of their statement, each statement's in their order. */
+const byStatement = (
+	placed: ReadonlyArray<PlacedRead>
+): ReadonlyMap<number, ReadonlyArray<PlacedRead>> => {
+	const by = new Map<number, Array<PlacedRead>>()
+	for (const p of placed) {
+		const held = by.get(p.statement)
+		if (held === undefined) {
+			by.set(p.statement, [p])
+		} else {
+			held.push(p)
+		}
+	}
+	return by
+}
+
+/** The first placed read of each read among `placed`, by its body and place, in their order. */
+const distinctReads = (placed: ReadonlyArray<PlacedRead>): ReadonlyArray<PlacedRead> => {
+	const seen = new TupleSet<readonly [number | undefined, number]>()
+	return placed.filter((p) => {
+		const known = seen.has([p.at.cte, p.at.read])
+		seen.add([p.at.cte, p.at.read])
+		return !known
+	})
+}
+
 /**
  * Condition 5b: a member with an outside read and a write reads every outside group sealed and positively, and every
  * row it writes reaches every outside group it reads: joined with each outside read of its statement, and, after a
  * statement that read from outside, with a row its own call wrote; no write comes before a group read only later. Each
- * of its foreign key checks is sealed. One reason per read, check or write that fails.
+ * of its foreign key checks is sealed. One reason per read, mode, check or write that fails; a write joined with none of
+ * several outside reads names the first and counts the others, each read once whatever modes it takes.
  */
 const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
 	view.members.flatMap((v) => {
@@ -1292,24 +1710,20 @@ const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
 			(least, p) => Math.min(least, p.statement),
 			Number.POSITIVE_INFINITY
 		)
+		const readsAt = byStatement(v.reads)
+		const outsidesAt = byStatement(v.outsides)
 		const unjoined = writes.flatMap(({ statement, w }) => {
 			const where = { member: name, statement, relation: w.relation }
-			const from = new Set(w.from)
-			const joined = new Set(
-				v.reads.flatMap((p) =>
-					p.statement === statement && from.has(p.index) ? [groupOf(p.read)] : []
-				)
+			const from = new TupleSet<readonly [number | undefined, number]>()
+			for (const at of w.from) {
+				from.add([at.cte, at.read])
+			}
+			const fed = (readsAt.get(statement) ?? []).filter((p) => from.has([p.at.cte, p.at.read]))
+			const joined = new Set(fed.map((p) => groupOf(p.read)))
+			const [missed, ...more] = distinctReads(
+				(outsidesAt.get(statement) ?? []).filter((p) => !joined.has(groupOf(p.read)))
 			)
-			const [missed, ...more] = v.outsides.filter(
-				(p) => p.statement === statement && !joined.has(groupOf(p.read))
-			)
-			const own = v.reads.some(
-				(p) =>
-					p.statement === statement &&
-					p.seal.kind === "own" &&
-					p.mode === "positive" &&
-					from.has(p.index)
-			)
+			const own = fed.some((p) => p.seal.kind === "own" && p.mode === "positive")
 			return [
 				...(missed === undefined
 					? []

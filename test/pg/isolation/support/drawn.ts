@@ -220,13 +220,21 @@ const statementFacts = (statement: DrawnStatement): StatementFacts => {
 				writes: [{ relation: into, op: "insert", from: [] }],
 				reads: [arbiter],
 				probes: [],
-				cores: []
+				cores: [],
+				uses: [],
+				ctes: []
 			}
 		case "point":
 		case "all":
 		case "absent":
 			return {
-				writes: [{ relation: into, op: "insert", from: read.kind === "absent" ? [] : [1] }],
+				writes: [
+					{
+						relation: into,
+						op: "insert",
+						from: read.kind === "absent" ? [] : [{ cte: undefined, read: 1 }]
+					}
+				],
 				reads: [
 					arbiter,
 					{
@@ -240,7 +248,9 @@ const statementFacts = (statement: DrawnStatement): StatementFacts => {
 					}
 				],
 				probes: [],
-				cores: []
+				cores: [],
+				uses: [],
+				ctes: []
 			}
 	}
 }

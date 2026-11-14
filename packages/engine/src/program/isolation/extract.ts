@@ -1,7 +1,10 @@
 import type {
+	CteFacts,
+	CteUse,
 	Group,
 	MemberFacts,
 	ProbeFact,
+	ReadAt,
 	ReadFact,
 	RowSource,
 	StatementFacts,
@@ -10,6 +13,7 @@ import type {
 import { defect } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { overRowsOf } from "#compiler/lower/conservative/expr/lateral.ts"
 import type {
 	Assignment,
@@ -112,12 +116,19 @@ type Ctes = ReadonlyMap<string, CteRef>
 const ownRows: CteRef = { kind: "own" }
 
 /**
+ * What a body's walk stands in outside every core of its own: nothing, for a statement's own body, or the core of the
+ * site that reads a query CTE's instance (`site`, analysis/isolation/facts.ts SiteCore).
+ */
+type Arrival = "site" | undefined
+
+/**
  * Where an expression or a source stands: the polarity its reads reach the statement with, whether a count or an
  * aggregate stands over them, whether it is a source of the core an EXISTS probes, whether an expression is a
  * condition of its core (WHERE, ON or HAVING, through AND, OR, NOT and IS TRUE), the names and CTEs it sees, the probes
- * it stands beneath, and the innermost core it stands in, none outside every core.
+ * of its body it stands beneath, and the innermost core of its body it stands in, its body's arrival (`Top`) outside
+ * every core.
  */
-interface Context {
+interface Context<Top extends Arrival = Arrival> {
 	readonly polarity: Polarity
 	readonly counted: boolean
 	readonly probe: boolean
@@ -125,10 +136,10 @@ interface Context {
 	readonly scope: Scope
 	readonly ctes: Ctes
 	readonly probes: ReadonlyArray<number>
-	readonly core: number | undefined
+	readonly core: number | Top
 }
 
-const top: Context = {
+const top: Context<undefined> = {
 	polarity: "positive",
 	counted: false,
 	probe: false,
@@ -151,7 +162,7 @@ const flipped = (p: Polarity): Polarity => {
 }
 
 /** An expression's place as a value: a read under it reaches the statement either way. */
-const valued = (c: Context): Context => ({ ...c, condition: false, probe: false })
+const valued = <C extends Context>(c: C): C => ({ ...c, condition: false, probe: false })
 
 /** The polarity of a subquery's rows under a predicate, NOT EXISTS or NOT IN flipping it; either way in a value. */
 const predicate = (c: Context, not: boolean): Polarity => {
@@ -619,28 +630,30 @@ const targetConditions = (w: MergeWhen, on: ReadonlyArray<Expr>): ReadonlyArray<
 }
 
 /**
- * The walk of one statement: every read it makes, with where it stands, every table it writes, with the reads that
- * feed each, and its ON CONFLICT arbitrations. A query CTE is read where a source names it, in that source's place, so
- * its reads compose with the place it is read in; a data-modifying one runs once, where it is defined.
+ * The walk of one body of a statement: every read it makes, with where it stands, every probe it opens and every core
+ * it holds, each by its place in the body, and every query CTE it reads (`uses`). The statement's writes, its ON
+ * CONFLICT arbitrations and the instances of its query CTEs are the statement's (Statement). A query CTE is read where
+ * a source names it, through the instance of it its arrival there keys (Statement.instance), walked once, so its reads
+ * compose with each place it is read in; a data-modifying one runs once, where it is defined. A statement's own body
+ * stands in no core outside its cores (`Top` none), an instance in the core of the site that reads it (`Top` `site`).
  */
-class Walk {
+class Walk<Top extends Arrival> {
 	readonly found: Array<Found> = []
-	readonly probes: Array<ProbeFact> = []
+	readonly probes: Array<ProbeFact<number | Top>> = []
 	readonly cores: Array<ReadonlyArray<RowSource>> = []
-	readonly writes: Array<{ readonly table: ObjectName; readonly op: WriteFact["op"] }> = []
-	readonly arbitrations: Array<Arbitration> = []
-	readonly #names: ExtractNames
-	readonly #paramOf: (n: number) => string | undefined
-	readonly #level: Isolation
+	readonly uses: Array<CteUse> = []
+	readonly #statement: Statement
+	readonly #arrival: ReadonlyArray<number>
 	readonly #feeding: Array<ReadonlyArray<number>> = []
 
-	constructor(names: ExtractNames, paramOf: (n: number) => string | undefined, level: Isolation) {
-		this.#names = names
-		this.#paramOf = paramOf
-		this.#level = level
+	/** A walk of a body of `statement` whose reads feed the writes `arrival` outside every write of its own. */
+	constructor(statement: Statement, arrival: ReadonlyArray<number>) {
+		this.#statement = statement
+		this.#arrival = arrival
 	}
 
-	statement(s: SqlStatement): void {
+	/** The walk of a statement's own body, from its top. */
+	statement(this: Walk<undefined>, s: SqlStatement): void {
 		if (s.kind === "select") {
 			this.query(s, top)
 			return
@@ -666,7 +679,7 @@ class Walk {
 		)
 	}
 
-	#opaque(relation: string, c: Context): void {
+	#opaque(relation: string, c: Context<Top>): void {
 		this.found.push({ kind: "opaque", relation, probes: c.probes })
 	}
 
@@ -674,7 +687,7 @@ class Walk {
 	 * The context `next`, entered from `c`: where it flips the polarity or starts a count, it opens a probe of its own,
 	 * gating the writes its place feeds, beneath every probe `c` stands beneath.
 	 */
-	#entering(c: Context, next: Context): Context {
+	#entering(c: Context<Top>, next: Context<Top>): Context<Top> {
 		return this.#opening(c, next, undefined)
 	}
 
@@ -683,7 +696,7 @@ class Walk {
 	 * it. Any other probe is judged by the rows of the core it stands in, where its value lands, as an ungrouped count
 	 * yields a row over no input; one that stands in no core is never neutral.
 	 */
-	#opening(c: Context, next: Context, own: number | undefined): Context {
+	#opening(c: Context<Top>, next: Context<Top>, own: number | undefined): Context<Top> {
 		if (next.polarity === c.polarity && (c.counted || !next.counted)) {
 			return next
 		}
@@ -696,7 +709,7 @@ class Walk {
 		return { ...next, probes: [...c.probes, id] }
 	}
 
-	#modifying(body: CteBody, c: Context): void {
+	#modifying(body: CteBody, c: Context<Top>): void {
 		switch (body.kind) {
 			case "select":
 				return
@@ -716,7 +729,7 @@ class Walk {
 	}
 
 	/** The context a WITH's CTEs are seen in, and its data-modifying CTEs walked, each once. */
-	#with(w: With | undefined, c: Context): Context {
+	#with(w: With | undefined, c: Context<Top>): Context<Top> {
 		if (w === undefined) {
 			return c
 		}
@@ -729,7 +742,7 @@ class Walk {
 					: { kind: "write", body: cte.query }
 			)
 		}
-		const inner: Context = { ...c, ctes }
+		const inner: Context<Top> = { ...c, ctes }
 		for (const cte of w.ctes) {
 			this.#modifying(cte.query, inner)
 		}
@@ -740,8 +753,8 @@ class Walk {
 		if (typeof table === "string") {
 			return []
 		}
-		this.writes.push({ table, op })
-		return [this.writes.length - 1]
+		this.#statement.writes.push({ table, op })
+		return [this.#statement.writes.length - 1]
 	}
 
 	#feedingWrites(at: ReadonlyArray<number>, f: () => void): void {
@@ -750,7 +763,7 @@ class Walk {
 		this.#feeding.pop()
 	}
 
-	#insert(s: Insert, c: Context): void {
+	#insert(s: Insert, c: Context<Top>): void {
 		const inner = this.#with(s.with, c)
 		const conflict = s.onConflict
 		const at = [
@@ -759,7 +772,7 @@ class Walk {
 		]
 		const scope: Scope =
 			s.alias === undefined ? inner.scope : new Map([...inner.scope, [s.alias, "table"]])
-		const after: Context = { ...inner, scope }
+		const after: Context<Top> = { ...inner, scope }
 		this.#feedingWrites(at, () => {
 			if (s.source.kind === "query") {
 				this.query(s.source.query, inner)
@@ -783,19 +796,19 @@ class Walk {
 		})
 		if (conflict !== undefined && typeof s.table !== "string") {
 			const table = s.table
-			if (conflict.kind === "every" && this.#level === "readCommitted") {
+			if (conflict.kind === "every" && this.#statement.level === "readCommitted") {
 				this.#opaque(`?every:${table.schema}.${table.name}`, c)
 			} else {
-				const values = insertValues(s, inner.ctes, this.#paramOf)
-				const relation = this.#names.relationOf(table)
+				const values = insertValues(s, inner.ctes, this.#statement.paramOf)
+				const relation = this.#statement.names.relationOf(table)
 				const arbitrated: ReadonlyArray<ReadonlyArray<string> | undefined> =
 					conflict.kind === "columns"
 						? [conflict.columns]
 						: conflict.kind === "every" && relation !== undefined
-							? this.#names.arbitersOf(relation)
+							? this.#statement.names.arbitersOf(relation)
 							: [undefined]
 				for (const columns of arbitrated) {
-					this.arbitrations.push({ table, columns, values })
+					this.#statement.arbitrations.push({ table, columns, values })
 				}
 			}
 		}
@@ -804,7 +817,7 @@ class Walk {
 		}
 	}
 
-	#update(s: Update, c: Context): void {
+	#update(s: Update, c: Context<Top>): void {
 		const inner = this.#with(s.with, c)
 		this.#feedingWrites(this.#writeOf(s.table, "update"), () =>
 			this.#core(
@@ -822,7 +835,7 @@ class Walk {
 		)
 	}
 
-	#delete(s: Delete, c: Context): void {
+	#delete(s: Delete, c: Context<Top>): void {
 		const inner = this.#with(s.with, c)
 		this.#feedingWrites(this.#writeOf(s.table, "delete"), () =>
 			this.#core(
@@ -845,7 +858,7 @@ class Walk {
 	 * target read once per WHEN clause: matched positively under ON and the clause's condition, not matched as a probe
 	 * of the absence ON binds, and not matched by source positively under the clause's condition alone.
 	 */
-	#merge(s: Merge, c: Context): void {
+	#merge(s: Merge, c: Context<Top>): void {
 		const inner = this.#with(s.with, c)
 		const at = s.whens.flatMap((w) => {
 			const op = mergeOp(w)
@@ -857,7 +870,7 @@ class Walk {
 			[s.alias, "table"],
 			...using.map(({ source }) => nameOf(source))
 		])
-		const here: Context = { ...inner, scope }
+		const here: Context<Top> = { ...inner, scope }
 		const on = [...conjunctsOf(s.on), ...using.flatMap((u) => conjunctsOf(u.on))]
 		const bySource = s.whens.some((w) => w.match === "NOT MATCHED BY SOURCE")
 		this.#feedingWrites(at, () => {
@@ -902,18 +915,27 @@ class Walk {
 	}
 
 	#feeds(): ReadonlyArray<number> {
-		return this.#feeding.at(-1) ?? []
+		return this.#feeding.at(-1) ?? this.#arrival
 	}
 
-	query(q: OperandSelect, c: Context): void {
+	query(q: OperandSelect, c: Context<Top>): void {
 		this.#query(q, c, [])
+	}
+
+	/** An instance's query, walked from its arrival: the row sources every row of it comes through. */
+	cte(this: Walk<"site">, q: OperandSelect, c: Context<"site">): ReadonlyArray<RowSource> {
+		return this.#query(q, c, [])
 	}
 
 	/**
 	 * A query, its one core keying its reads by `pushed` too, conditions of the core it is a derived table of: the
 	 * sources every row of it comes through (StatementFacts.cores).
 	 */
-	#query(q: OperandSelect, c: Context, pushed: ReadonlyArray<Scoped>): ReadonlyArray<RowSource> {
+	#query(
+		q: OperandSelect,
+		c: Context<Top>,
+		pushed: ReadonlyArray<Scoped>
+	): ReadonlyArray<RowSource> {
 		const inner = this.#with(q.with, c)
 		const rows = this.#body(q.body, inner, orderExprs(q.orderBy), pushed)
 		for (const e of [q.limit, q.offset]) {
@@ -930,7 +952,7 @@ class Walk {
 	 */
 	#body(
 		body: OperandBody,
-		c: Context,
+		c: Context<Top>,
 		order: ReadonlyArray<Expr>,
 		pushed: ReadonlyArray<Scoped>
 	): ReadonlyArray<RowSource> {
@@ -965,9 +987,9 @@ class Walk {
 	 * A set operation's arms: an EXCEPT's later arms remove rows, so their reads reach it by their absence. A UNION's
 	 * rows come through its arms, each row one arm's; an INTERSECT's and an EXCEPT's through none of them.
 	 */
-	#setOp(op: SetOperation, c: Context): ReadonlyArray<RowSource> {
+	#setOp(op: SetOperation, c: Context<Top>): ReadonlyArray<RowSource> {
 		const arms = mapNonEmpty(op.arms, (arm, i) => {
-			const armContext: Context =
+			const armContext: Context<Top> =
 				op.op === "EXCEPT" && i > 0 ? this.#entering(c, { ...c, polarity: flipped(c.polarity) }) : c
 			return arm.kind === "core"
 				? this.#body(arm, armContext, [], [])
@@ -983,7 +1005,7 @@ class Walk {
 	 * joined inner or crosswise, unless it aggregates with no GROUP BY, which yields a row over no input: then through
 	 * none.
 	 */
-	#core(parts: CoreParts, c: Context, pushed: ReadonlyArray<Scoped>): number {
+	#core(parts: CoreParts, c: Context<Top>, pushed: ReadonlyArray<Scoped>): number {
 		const sources = sourcesOf(parts.from)
 		const conditions = [...conjunctsOf(parts.where), ...sources.flatMap((s) => conjunctsOf(s.on))]
 		const aggregates =
@@ -1023,11 +1045,11 @@ class Walk {
 	 */
 	#source(
 		source: FromSource,
-		here: Context,
+		here: Context<Top>,
 		conditions: ReadonlyArray<Scoped>,
 		enclosing: Scope
 	): ReadonlyArray<RowSource> {
-		const beneath: Context = { ...here, probe: false }
+		const beneath: Context<Top> = { ...here, probe: false }
 		switch (source.kind) {
 			case "table":
 				return [
@@ -1054,7 +1076,7 @@ class Walk {
 					)
 				]
 			case "met":
-				if (this.#level === "readCommitted") {
+				if (this.#statement.level === "readCommitted") {
 					this.#opaque(`?met:${source.table.schema}.${source.table.name}`, here)
 				} else {
 					this.#probed(
@@ -1124,7 +1146,7 @@ class Walk {
 		inner: string,
 		columns: ReadonlyArray<ProbeColumn>,
 		filter: ReadonlyArray<Expr>,
-		here: Context,
+		here: Context<Top>,
 		met: ReadonlyArray<string> | undefined
 	): RowSource {
 		const scope: Scope = new Map([...here.scope, [inner, "table"]])
@@ -1154,26 +1176,28 @@ class Walk {
 		return { kind: "read", read: this.found.length - 1 }
 	}
 
-	/** A CTE read where a source names it: its query's row sources, none for the call's own rows. */
-	#cteRead(name: string, c: Context): ReadonlyArray<RowSource> {
+	/**
+	 * A CTE read where a source names it: a query CTE's rows, through this body's use of the instance its arrival here
+	 * keys (Statement.instance); none for the call's own rows.
+	 */
+	#cteRead(name: string, c: Context<Top>): ReadonlyArray<RowSource> {
 		const ref = c.ctes.get(name)
 		if (ref === undefined) {
 			throw defect(`a source names the CTE ${name}, which no WITH around it defines`)
 		}
-		return ref.kind === "query"
-			? this.#query(
-					ref.query,
-					{
-						...c,
-						scope: ref.scope,
-						ctes: new Map([...ref.ctes, [name, ownRows]])
-					},
-					[]
-				)
-			: []
+		if (ref.kind !== "query") {
+			return []
+		}
+		this.uses.push({
+			cte: this.#statement.instance(name, ref, c.polarity, c.counted, this.#feeds()),
+			probes: c.probes,
+			core: siteCore(c.core),
+			at: this.found.length
+		})
+		return [{ kind: "use", use: this.uses.length - 1 }]
 	}
 
-	expr(e: Expr, c: Context): void {
+	expr(e: Expr, c: Context<Top>): void {
 		if (e.kind === "exists") {
 			this.query(e.query, this.#entering(c, { ...c, probe: true, polarity: predicate(c, e.not) }))
 		}
@@ -1183,7 +1207,11 @@ class Walk {
 		if (e.kind === "subquery" || e.kind === "array") {
 			this.query(e.query, this.#entering(c, { ...c, probe: false, counted: true }))
 		}
-		if (e.kind === "call" && e.fn.kind === "qualified" && !this.#names.readsNoTable(e.fn)) {
+		if (
+			e.kind === "call" &&
+			e.fn.kind === "qualified" &&
+			!this.#statement.names.readsNoTable(e.fn)
+		) {
 			this.#opaque(`?function:${e.fn.schema}.${e.fn.name}`, c)
 		}
 		const next = this.#operandContext(e, c)
@@ -1192,12 +1220,98 @@ class Walk {
 		}
 	}
 
-	#operandContext(e: Expr, c: Context): Context {
+	#operandContext(e: Expr, c: Context<Top>): Context<Top> {
 		if (e.kind === "not") {
 			return this.#entering(c, { ...c, polarity: flipped(c.polarity) })
 		}
 		return e.kind === "and" || e.kind === "or" || e.kind === "isTrue" ? c : valued(c)
 	}
+}
+
+/** A query CTE as a WITH defines it (CteRef `query`). */
+type QueryCte = Extract<CteRef, { readonly kind: "query" }>
+
+/**
+ * What a walk of a query CTE's query depends on, beyond the probes and the core of the site that reads it, which its
+ * uses state (analysis/isolation/facts.ts CteUse): the CTE, by the definition its WITH made, the polarity and the count
+ * of the site, which decide its reads' modes and which of its places open a probe (Walk #opening), and the writes the
+ * site feeds, which its reads feed and its probes gate.
+ */
+type InstanceKey = readonly [QueryCte, Polarity, boolean, ...ReadonlyArray<number>]
+
+/** An instance of a query CTE: the walk of its query, and the row sources every row of it comes through. */
+interface Instance {
+	readonly walk: Walk<"site">
+	readonly rows: ReadonlyArray<RowSource>
+}
+
+/**
+ * What one statement's walk shares across its bodies: how it reads names back, its parameters' names and its level; the
+ * writes and ON CONFLICT arbitrations its DML makes, wherever it stands; and the instances of its query CTEs, in the
+ * order their walks finish, each found by its key (InstanceKey), so each is walked once.
+ */
+class Statement {
+	readonly writes: Array<{ readonly table: ObjectName; readonly op: WriteFact["op"] }> = []
+	readonly arbitrations: Array<Arbitration> = []
+	readonly instances: Array<Instance> = []
+	readonly names: ExtractNames
+	readonly paramOf: (n: number) => string | undefined
+	readonly level: Isolation
+	readonly #keyed = new TupleMap<InstanceKey, number>()
+
+	constructor(names: ExtractNames, paramOf: (n: number) => string | undefined, level: Isolation) {
+		this.names = names
+		this.paramOf = paramOf
+		this.level = level
+	}
+
+	/**
+	 * The place of the instance of the query CTE `cte`, which a source names `name`, read at `polarity`, counted or not,
+	 * where the site feeds `feeds`: its query walked once for its key (InstanceKey), from no probe and outside every core
+	 * of its own, seeing the CTEs its WITH defines and `name` as the call's own rows of its recursion.
+	 */
+	instance(
+		name: string,
+		cte: QueryCte,
+		polarity: Polarity,
+		counted: boolean,
+		feeds: ReadonlyArray<number>
+	): number {
+		const key: InstanceKey = [cte, polarity, counted, ...feeds]
+		const known = this.#keyed.get(key)
+		if (known !== undefined) {
+			return known
+		}
+		const walk = new Walk<"site">(this, feeds)
+		const rows = walk.cte(cte.query, {
+			polarity,
+			counted,
+			probe: false,
+			condition: false,
+			scope: cte.scope,
+			ctes: new Map([...cte.ctes, [name, ownRows]]),
+			probes: [],
+			core: "site"
+		})
+		const place = this.instances.length
+		this.instances.push({ walk, rows })
+		this.#keyed.set(key, place)
+		return place
+	}
+}
+
+/**
+ * The core a site that reads a query CTE stands in, as its use states it: a core of its body, or none, a MERGE's source
+ * at the top of a statement. A site outside every core of a CTE's query would read it from a data-modifying CTE inside
+ * that query, which PostgreSQL refuses: a data-modifying statement stands in a top-level WITH alone.
+ */
+const siteCore = (core: number | Arrival): number | undefined => {
+	if (core === "site") {
+		throw defect(
+			"a query CTE read outside every core of a CTE's query, where no data-modifying CTE stands"
+		)
+	}
+	return core
 }
 
 const byColumn = (a: Bound, b: Bound): number => {
@@ -1353,7 +1467,8 @@ const statementFacts = (
 	paramOf: (n: number) => string | undefined,
 	level: Isolation
 ): StatementFacts => {
-	const walk = new Walk(names, paramOf, level)
+	const statement = new Statement(names, paramOf, level)
+	const walk = new Walk<undefined>(statement, [])
 	walk.statement(s)
 	const relation = (t: ObjectName): string => names.relationOf(t) ?? `?${t.schema}.${t.name}`
 	const fields = (rel: string, bound: ReadonlyArray<Bound>): ReadonlyArray<Bound> =>
@@ -1361,51 +1476,51 @@ const statementFacts = (
 			const field = names.fieldOf(rel, b.column)
 			return field === undefined ? [] : [{ ...b, column: field }]
 		})
-	const written = new Set(walk.writes.map((w) => relation(w.table)))
-	const reads = walk.found.map(
-		(f): { readonly read: ReadFact; readonly feeds: ReadonlyArray<number> } => {
-			if (f.kind === "opaque") {
-				return {
-					read: {
-						relation: f.relation,
-						mode: "negated",
-						base: "negated",
-						probes: f.probes,
-						own: false,
-						group: undefined
-					},
-					feeds: []
-				}
-			}
-			if (typeof f.table === "string") {
-				return {
-					read: {
-						relation: `carrier:${f.table}`,
-						mode: modeOf(f.context, false),
-						base: baseOf(false),
-						probes: f.context.probes,
-						own: true,
-						group: undefined
-					},
-					feeds: f.feeds
-				}
-			}
-			const rel = relation(f.table)
-			const arbiter = f.met !== undefined || (f.context.probe && written.has(rel))
+	const written = new Set(statement.writes.map((w) => relation(w.table)))
+	const readOf = (f: Found): { readonly read: ReadFact; readonly feeds: ReadonlyArray<number> } => {
+		if (f.kind === "opaque") {
 			return {
 				read: {
-					relation: rel,
-					mode: modeOf(f.context, arbiter),
-					base: baseOf(arbiter),
-					probes: f.context.probes,
+					relation: f.relation,
+					mode: "negated",
+					base: "negated",
+					probes: f.probes,
 					own: false,
-					group: boundGroup(fields(rel, bindingsOf(f.alias, f.conditions, f.columns, paramOf)))
+					group: undefined
+				},
+				feeds: []
+			}
+		}
+		if (typeof f.table === "string") {
+			return {
+				read: {
+					relation: `carrier:${f.table}`,
+					mode: modeOf(f.context, false),
+					base: baseOf(false),
+					probes: f.context.probes,
+					own: true,
+					group: undefined
 				},
 				feeds: f.feeds
 			}
 		}
-	)
-	const arbitrations = walk.arbitrations.map((a): ReadFact => {
+		const rel = relation(f.table)
+		const arbiter = f.met !== undefined || (f.context.probe && written.has(rel))
+		return {
+			read: {
+				relation: rel,
+				mode: modeOf(f.context, arbiter),
+				base: baseOf(arbiter),
+				probes: f.context.probes,
+				own: false,
+				group: boundGroup(fields(rel, bindingsOf(f.alias, f.conditions, f.columns, paramOf)))
+			},
+			feeds: f.feeds
+		}
+	}
+	const reads = walk.found.map(readOf)
+	const instances = statement.instances.map((i) => ({ ...i, reads: i.walk.found.map(readOf) }))
+	const arbitrations = statement.arbitrations.map((a): ReadFact => {
 		const rel = relation(a.table)
 		return {
 			relation: rel,
@@ -1426,17 +1541,34 @@ const statementFacts = (
 			)
 		}
 	})
+	const feeding = (
+		cte: number | undefined,
+		found: ReadonlyArray<{ readonly read: ReadFact; readonly feeds: ReadonlyArray<number> }>,
+		write: number
+	): ReadonlyArray<ReadAt> =>
+		found.flatMap((r, read) =>
+			r.read.mode === "positive" && r.feeds.includes(write) ? [{ cte, read }] : []
+		)
 	return {
-		writes: walk.writes.map((w, i): WriteFact => ({
+		writes: statement.writes.map((w, i): WriteFact => ({
 			relation: relation(w.table),
 			op: w.op,
-			from: reads.flatMap((r, index) =>
-				r.read.mode === "positive" && r.feeds.includes(i) ? [index] : []
-			)
+			from: [
+				...feeding(undefined, reads, i),
+				...instances.flatMap((instance, cte) => feeding(cte, instance.reads, i))
+			]
 		})),
 		reads: [...reads.map((r) => r.read), ...arbitrations],
 		probes: walk.probes,
-		cores: walk.cores
+		cores: walk.cores,
+		uses: walk.uses,
+		ctes: instances.map((instance): CteFacts => ({
+			reads: instance.reads.map((r) => r.read),
+			probes: instance.walk.probes,
+			cores: instance.walk.cores,
+			uses: instance.walk.uses,
+			rows: instance.rows
+		}))
 	}
 }
 
@@ -1474,10 +1606,16 @@ const statementFacts = (
  * - A parameter binds by the declared parameter it carries, `:name`, where the caller's `params` names it, else by its
  *   number; an ON CONFLICT's conflict columns bind by the parameters their proposed values carry, where they carry one.
  * - Every flip of polarity and every count opens a probe, gating the writes its place feeds; each read lists the probes
- *   it stands beneath and its base mode, the certifier's to judge (analysis/isolation/certify.ts neutralOf).
+ *   of its body it stands beneath and its base mode, the certifier's to judge (analysis/isolation/certify.ts
+ *   reachesOf).
+ * - A query CTE is read where a source names it, with that source's polarity, count and writes, through one instance
+ *   of it for each such arrival (Statement.instance): its query walked once, its reads, probes and cores the
+ *   instance's, and each source naming it a use of the instance with the probes and the core it stands in
+ *   (analysis/isolation/facts.ts CteFacts, CteUse). A probe its query opens outside every core of its own stands in
+ *   the core of each site that reads it (SiteCore `site`). A data-modifying CTE runs once, where it is defined.
  * - Each core's row sources are the sources every row of it comes through: each FROM source, joined inner or
- *   crosswise, a table's read, a probe's, a derived table's, a CTE's or met rows' proposed CTE's query by its one core
- *   or by a UNION's arms; none
+ *   crosswise, a table's read, a probe's, a derived table's query by its one core or by a UNION's arms, and a CTE's or
+ *   met rows' proposed CTE's rows through its use; none
  *   past a LATERAL source, the row an arbitration met, an INTERSECT, an EXCEPT, the call's own rows of a data-modifying
  *   or a recursive CTE, or a core aggregating with no GROUP BY. A row source is reached by these steps alone, so no
  *   other row path can be stated.
