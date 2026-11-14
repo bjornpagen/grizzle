@@ -210,10 +210,10 @@ const domainSituations: ReadonlyArray<WriteExpectFeature> = [
 
 /**
  * The planted arm a witness judges in place of its drawn case, aimed at what no witness reached yet (Case.steering),
- * in half its cases by a draw of its own, on the schema's planted group: while a domain refusal's situation is pending,
- * the "wider member" arm, which reads a stored wide text past the narrow domain into it (changeset.ts
- * plantedChangeSet); while the typmod cast's is, the "typmod cast" arm, which reads a precise numeric into a rounded
- * one. A drawn ChangeSet reaches either too rarely. None for a schema without the planted group, and for a rotating
+ * in half its cases by a draw of its own, on the schema's planted group: where its turn aims at a domain refusal's
+ * situation, the "wider member" arm, which reads a stored wide text past the narrow domain into it (changeset.ts
+ * plantedChangeSet); where it aims at the typmod cast's, the "typmod cast" arm, which reads a precise numeric into a
+ * rounded one, so the cases of one window aim at distinct pending situations. A drawn ChangeSet reaches either too rarely. None for a schema without the planted group, and for a rotating
  * or kept case, which runs as drawn.
  */
 const plantedAimed = (
@@ -224,9 +224,9 @@ const plantedAimed = (
 		Arr.findFirst(schema.groups, (g) => g.role === "planted"),
 		(group) =>
 			Option.flatMap(n.steering, (pending) => {
-				const arm = Arr.some(domainSituations, (s) => pending.has(s))
+				const arm = Arr.some(domainSituations, (s) => pending.aimed(s))
 					? Option.some("wider member" as const)
-					: pending.has("applied: a typmod cast")
+					: pending.aimed("applied: a typmod cast")
 						? Option.some("typmod cast" as const)
 						: Option.none()
 				return Option.filter(
