@@ -608,8 +608,28 @@ interface Derivation {
 	readonly reads: ReadonlyArray<Cell>
 }
 
-/** The column every derivation's rows name the row of its table they meet by: that row's tid, PostgreSQL's system
- * column, which a staged view of the table carries as a column of its own. */
+/**
+ * The column every derivation's rows name the row of its table they meet by: that row's tid, PostgreSQL's system
+ * column, which a staged view of the table carries as a column of its own.
+ *
+ * A tid is the address of one version of a row, and every UPDATE of the row, HOT or not, writes a new version at a new
+ * tid. It is sound to meet at one because every tid the backfill meets at is read in the statement that meets at it:
+ *
+ * - Each table's UPDATE (passes) holds in its own WITH every derivation it reads, transitively, each a CTE of that one
+ *   statement, and its staged view `b` and its target `t` are read in that statement too. No tid is stored, returned or
+ *   handed from one statement to another: the next table's UPDATE derives every row it reads again, from the table as
+ *   it then stands.
+ * - A statement's CTEs and its main query all read under the statement's one snapshot, and its UPDATE's own changes
+ *   are invisible to them: the only write of the statement is that UPDATE, and its derivations are SELECTs. So the tid
+ *   a derivation reads from the table (or from a staged view of it, which reads the table) is the tid of the version
+ *   the UPDATE's scan of `t` meets, for every row, in the same statement.
+ * - Every earlier statement of the migration's transaction (Structure's ALTER TABLEs, the reviewer's data step after
+ *   structure.immediate, the key checks, an earlier table's UPDATE, which writes no row of this table) may have moved
+ *   rows: each runs to its end before this statement begins, and this statement reads the tids its writes left.
+ *
+ * test/pg/migrate/backfill-cost.test.ts runs the keyed tree's backfill over rows its data step has just moved, every
+ * tid new, and judges every drawn value against the reference.
+ */
 const rowColumn = "ctid"
 
 /** The names a stream gives what it computes, none a field's. */

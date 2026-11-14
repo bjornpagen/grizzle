@@ -15,18 +15,31 @@
  * a root over n − 1 children, each its own document mapped onto its own root, every node's kind its start's residue
  * modulo four, so the turns fold selects members at every size. Each size's backfill runs in one transaction on a fresh
  * old-form install: its folder's statements in order up to the backfill's, each backfill UPDATE under EXPLAIN (ANALYZE,
- * BUFFERS, SETTINGS, FORMAT JSON), then rolled back. The oracle is the law itself, the definition of linear growth; the
- * cutover's tree property (test/pg/migrate/cutover.test.ts) judges the rows the same backfill draws.
+ * BUFFERS, SETTINGS, FORMAT JSON), then rolled back. The oracle of the cost is the law itself, the definition of linear
+ * growth.
  *
- * Plants (~/.cache/grizzle-release/TREECOST/plants): tree-closure-restored (the tree drawn over the closure of its
- * parents, under a WITH RECURSIVE, as before 2026-11-14) and tree-children-paired (each row's children counted over
- * every pair of its tree's rows).
+ * And each size's backfill draws the reference's rows (keyed-tree.ts keyedRows, the direct pre-order numbering of the
+ * old forest), read in its transaction right after it, over rows every one of which the data step moved before it: the
+ * data step updates every row of the table in the same transaction, which gives each a new version at a new tid, and
+ * the suite reads each row's tid before the data step and again before the backfill and requires them to differ. The
+ * backfill meets its rows at their tids (deploy/diff/backfill.ts rowColumn), so a tid carried from before a row moved
+ * would meet no row, and the row would keep its placeholder.
+ *
+ * Plants (~/.cache/grizzle-release/TREECOST/plants): tree-closure-restored (each row's children counted over the
+ * closure of its tree's parents, under a WITH RECURSIVE, as before 2026-11-14) and tree-children-paired (each row's
+ * children counted over every pair of its tree's rows) turn the law red; tids-materialized-earlier (a table's drawn rows
+ * materialized, with their tids, in a statement before two UPDATEs that each meet them) turns the reference red.
  *
  * The file builds Substrate.isolatedLayer: the old-form tree installs under its own fixed schema name, old_tree.
  */
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Option, String as Str } from "effect"
-import { explainStatementWith, parsePlan, rowsTouched } from "#bench/harness/explain.ts"
+import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
+import {
+	explainStatementWith,
+	type PlanNode,
+	parsePlan,
+	rowsTouched
+} from "#bench/harness/explain.ts"
 import { indices } from "#compiler/core/array.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { splitStatements } from "#compiler/plan/migration.ts"
@@ -35,6 +48,9 @@ import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import {
+	column,
+	keyedFields,
+	keyedRows,
 	keyedTreeOf,
 	type OldDocument,
 	oldInsert,
@@ -97,6 +113,12 @@ const normalized = (statement: string): string => {
 	return Str.endsWith(";")(text) ? Str.trim(Str.slice(0, -1)(text)) : text
 }
 
+/** The column every row's tid is read by. */
+const rowColumn = "ctid"
+
+/** Rows of texts in one order, each compared whole. */
+const byRow = Order.mapInput(Order.String, (row: ReadonlyArray<string>) => Arr.join(row, "\u0000"))
+
 /** The keyed tree drafted from the old-form tree, its old id and document dropped. */
 const keyedDraft = () =>
 	succeeded(
@@ -147,20 +169,61 @@ const costAt = (shape: Shape, size: number) =>
 				last,
 				() => new Error("the keyed tree's folder holds its backfill's UPDATE")
 			)
+			const dataStep = new Set(Arr.map(treeDataStep(tree, c), normalized))
+			const firstStep = Option.getOrThrowWith(
+				Arr.findFirstIndex(statements, (s) => dataStep.has(normalized(s))),
+				() => new Error("the reviewed folder holds the data step")
+			)
+			const table = `${q(tree.snapshot.schema)}.${q(tree.columns.table)}`
 			const pinned = yield* substrate.admin.pin
+			/** Each row's tid by its old id, as the transaction sees it. */
+			const tids = Effect.map(
+				pinned.queryValues(`SELECT ${column("id")}::text, ${rowColumn}::text FROM ${table}`, []),
+				(rows) => new Map(Arr.map(rows, ([id, tid]) => [String(id), String(tid)] as const))
+			)
 			yield* pinned.query("BEGIN", [])
-			const explained = yield* Effect.forEach(statements.slice(0, through + 1), (s) =>
-				backfill.has(normalized(s))
-					? Effect.map(
-							pinned.queryValues(
-								explainStatementWith(normalized(s), { serialize: { kind: "off" }, wal: false }),
-								[]
-							),
-							(rows) => [succeeded(parsePlan(rows[0]?.[0]), "one EXPLAIN plan").plan]
+			const run = Effect.gen(function* () {
+				const plans: Array<PlanNode> = []
+				const loaded = new Map<string, string>()
+				for (const [i, s] of statements.slice(0, through + 1).entries()) {
+					if (i === firstStep) {
+						for (const [id, tid] of yield* tids) {
+							loaded.set(id, tid)
+						}
+					}
+					if (backfill.has(normalized(s))) {
+						const moved = yield* tids
+						assert.ok(
+							loaded.size > 0 && Arr.every([...loaded], ([id, tid]) => moved.get(id) !== tid),
+							"the data step moves every row before the backfill, so no tid is where the rows were loaded"
 						)
-					: Effect.as(pinned.query(s, []), [])
-			).pipe(Effect.ensuring(Effect.ignore(pinned.query("ROLLBACK", []))))
-			const plans = Arr.flatten(explained)
+						const rows = yield* pinned.queryValues(
+							explainStatementWith(normalized(s), { serialize: { kind: "off" }, wal: false }),
+							[]
+						)
+						plans.push(succeeded(parsePlan(rows[0]?.[0]), "one EXPLAIN plan").plan)
+					} else {
+						yield* pinned.query(s, [])
+					}
+				}
+				const drawn = yield* pinned.queryValues(
+					`SELECT ${Arr.join(
+						Arr.map(keyedFields, (f) => `${column(f)}::text`),
+						", "
+					)} FROM ${table}`,
+					[]
+				)
+				const read: ReadonlyArray<ReadonlyArray<string>> = Arr.map(drawn, (row) =>
+					Arr.map(row, String)
+				)
+				assert.deepEqual(
+					Arr.sort(read, byRow),
+					Arr.sort(keyedRows(c), byRow),
+					`the backfill over ${shape} of ${size} nodes draws the reference's rows (${Arr.join(keyedFields, ", ")})`
+				)
+				return plans
+			})
+			const plans = yield* run.pipe(Effect.ensuring(Effect.ignore(pinned.query("ROLLBACK", []))))
 			assert.equal(plans.length, backfill.size, "every backfill UPDATE is explained once")
 			return {
 				size,
@@ -174,7 +237,7 @@ const costAt = (shape: Shape, size: number) =>
 layer(Substrate.isolatedLayer)("the cost of a tree's backfill", (it) => {
 	for (const shape of shapes) {
 		it.effect(
-			`over ${shape} of n, 2n and 4n nodes, the rows the keyed tree's backfill touches grow by no more from 2n to 4n than twice what they grow by from n to 2n`,
+			`over ${shape} of n, 2n and 4n nodes, every row moved before it, the keyed tree's backfill draws the reference's rows, and the rows it touches grow by no more from 2n to 4n than twice what they grow by from n to 2n`,
 			() =>
 				Effect.gen(function* () {
 					const [n, twice, four] = yield* Effect.all(

@@ -87,8 +87,8 @@ const documentId = (d: number): string => forestUuid(0, d)
 const nodeId = (d: number, start: number): string => forestUuid(d + 1, start)
 
 /** A new root's package and path, each its texts. */
-export const packageOf = (root: number): string => `package-${root}`
-export const pathOf = (root: number): string => `path/${root}.xml`
+const packageOf = (root: number): string => `package-${root}`
+const pathOf = (root: number): string => `path/${root}.xml`
 
 /**
  * The old tree's rows as a direct writer inserts them at SERIALIZABLE, every drawn value stated as the old form's laws
@@ -338,3 +338,83 @@ export const withDataStep = (g: GenerateResult, step: ReadonlyArray<string>): Ge
 	)
 	return { ...g, folder: { ...g.folder, files } }
 }
+
+/**
+ * The copies and the turns fold of one document's rows, read off the direct pre-order numbering alone: each row's
+ * grandparent's kind its parent's own parentKind (a root's own), whether the turns fold selects it (a member whose
+ * parent's kind is not its grandparent's), and its planes, the selected siblings before it and through it in slot
+ * order, the root alone at slot 0, its end its selected children.
+ */
+export const turnsOf = (rows: ReadonlyArray<KeyedRow>) => {
+	const parentOf = (row: KeyedRow): KeyedRow =>
+		defined(
+			Option.getOrUndefined(Arr.findFirst(rows, (r) => r.start === row.parent)),
+			`the parent of the node at ${row.start}`
+		)
+	const parentParentKind = (row: KeyedRow): number => parentOf(row).parentKind
+	const selected = (row: KeyedRow): boolean =>
+		row.start > 0 && row.parentKind !== parentParentKind(row)
+	const siblings = (row: KeyedRow): ReadonlyArray<KeyedRow> =>
+		row.start === 0 ? [row] : Arr.filter(rows, (r) => r.start > 0 && r.parent === row.parent)
+	const selectedThrough = (row: KeyedRow, through: boolean): number =>
+		Arr.filter(siblings(row), (r) => selected(r) && (through ? r.at <= row.at : r.at < row.at))
+			.length
+	return {
+		parentParentKind,
+		selected,
+		before: (row: KeyedRow): number => selectedThrough(row, false),
+		after: (row: KeyedRow): number => selectedThrough(row, true),
+		end: (row: KeyedRow): number =>
+			Arr.filter(rows, (r) => r.start > 0 && r.parent === row.start && selected(r)).length
+	}
+}
+
+/** A row's copy of the kind of the sibling before it along the tree's predecessor axis: a member past slot 0 holds
+ * its predecessor's kind, and a member at slot 0 and the root, which is no member, hold the base, 0. */
+export const wasOf = (rows: ReadonlyArray<KeyedRow>, row: KeyedRow): number =>
+	row.start > 0 && row.at > 0
+		? defined(
+				Option.getOrUndefined(
+					Arr.findFirst(rows, (r) => r.start > 0 && r.parent === row.parent && r.at === row.at - 1)
+				),
+				`the sibling before the node at ${row.start}`
+			).kind
+		: 0
+
+/** The model's rows of the keyed tree: each old row under its document's new root, its parent the old parent's start,
+ * every slot, count, interval, kind and count fold value as the old tree held it, its copies and turns fold as the
+ * direct numbering states them (turnsOf), and its anchor, its sites (its own count) and its uses (anchorsOf). */
+export const keyedRows = (c: TreeCase): ReadonlyArray<ReadonlyArray<string>> =>
+	Arr.flatMap(c.documents, (doc, d) => {
+		const root = defined(c.roots[d], "a document's new root")
+		const rows = oldRows(d, doc)
+		const turns = turnsOf(rows)
+		const anchors = anchorsOf(rows)
+		return Arr.map(rows, (row) =>
+			Arr.map(
+				[
+					packageOf(root),
+					pathOf(root),
+					row.start,
+					row.parent,
+					row.at,
+					row.children,
+					row.end,
+					row.kind,
+					row.parentKind,
+					turns.parentParentKind(row),
+					row.at,
+					row.at + 1,
+					row.children,
+					turns.before(row),
+					turns.after(row),
+					turns.end(row),
+					anchors.anchor(row),
+					row.children,
+					anchors.uses(row),
+					wasOf(rows, row)
+				],
+				String
+			)
+		)
+	})
