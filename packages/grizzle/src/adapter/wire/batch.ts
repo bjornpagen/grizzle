@@ -217,7 +217,6 @@ export const prologueOf = (
 	])
 })
 
-/** A Db's transaction: framed as a transaction is, and begun by the Db's prologue (see the header). */
 /**
  * What a Db transaction locks between its prologue's fence and the statement that takes its snapshot, as the login:
  * nothing, or a fenced write's LOCK TABLE ... IN EXCLUSIVE MODE of the relations its login fences that it writes, its
@@ -231,6 +230,7 @@ export type Exclusion =
 /** A transaction that locks nothing before its snapshot: every read's and refresh's, and an unfenced write's. */
 export const excludesNothing: Exclusion = { kind: "none" }
 
+/** A Db's transaction: framed as a transaction is, and begun by the Db's prologue (see the header). */
 export type Frame = Transaction & { readonly prologue: Prologue; readonly exclusion: Exclusion }
 
 /** The prologue was refused at the pipeline positions right after BEGIN, for no reason of the fence's: nothing ran. */
