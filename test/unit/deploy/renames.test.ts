@@ -16,7 +16,9 @@
  * and a new login's created; and a renamed handle keeps its code, the codes read back from the snapshot.
  *
  * Plant (~/.cache/grizzle-release/BR06/plants): rosters-handle-renames-ignored (a roster's declared handle renames
- * ignored when its codes are drafted).
+ * ignored when its codes are drafted). Plant (~/.cache/grizzle-release/DRAFTPERF/plants): alike-names-by-spelling (the
+ * previous snapshot's names looked up by spelling, not by conversion, so a respelled name's law column is set aside and
+ * dropped).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
@@ -62,7 +64,17 @@ import { loginDescOf } from "#compiler/schema/world.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
-import { closed, f, field, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import {
+	closed,
+	eq,
+	f,
+	field,
+	key,
+	literal,
+	onWhere,
+	relation,
+	type SchemaDesc
+} from "#test/support/fixtures/ir/desc.ts"
 import { aliasGroups } from "#test/support/kernel/dict.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -714,18 +726,19 @@ const respellingGen: Gen<Respelling> = (source) => {
 	}
 }
 
-/** The relation with its field, a closed id of the roster, each named as `respelling` spells it `at` one side. */
+/** The relation with its field, a closed id of the roster, and its key over the facts whose field is the roster's Low,
+ * a law column that reads all three, each named as `respelling` spells it `at` one side. */
 const respelledDesc = (respelling: Respelling, at: keyof Spelling): SchemaDesc => {
 	const kind = respelling.roster[at]
+	const name = respelling.relation[at]
+	const fixed = respelling.field[at]
 	return {
 		name: "Renames",
 		relations: [
 			closed(kind, ["Low", "High"]),
-			relation(respelling.relation[at], { id: f.uuid, [respelling.field[at]]: f.closedId(kind) }, [
-				"id"
-			])
+			relation(name, { id: f.uuid, [fixed]: f.closedId(kind) }, ["id"])
 		],
-		statements: [],
+		statements: [key(onWhere(name, ["id"], eq(field(fixed), literal("Low"))))],
 		extends: undefined
 	}
 }
@@ -836,7 +849,7 @@ describe("declared renames and drops", () => {
 	)
 
 	it.effect(
-		"a relation, a field or a roster respelled to an alike name is one installed object: drafted with no declaration, and nothing dropped",
+		"a relation, a field or a roster respelled to an alike name is one installed object, and so is a law column that reads it: drafted with no declaration, and nothing dropped",
 		(ctx) =>
 			searched(
 				ctx,

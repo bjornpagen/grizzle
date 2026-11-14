@@ -119,6 +119,38 @@ const heldIn = (
  * object, which a respelling keeps as it stands. */
 const alike = (a: string, b: string): boolean => declaredAlike(declared(a), declared(b))
 
+/** Names a snapshot records, grouped by their conversion (core/identity.ts declaredAlike), each group in the order the
+ * names were given: every name is parsed and converted once, as the groups are built, so the names alike a name are
+ * one lookup by its conversion. */
+class AlikeNames {
+	readonly #names: ReadonlySet<string>
+	readonly #groups = new Map<string, Array<string>>()
+
+	constructor(names: ReadonlyArray<string>) {
+		this.#names = new Set(names)
+		for (const name of names) {
+			const conversion = conversionOf(declared(name))
+			const group = this.#groups.get(conversion)
+			if (group === undefined) {
+				this.#groups.set(conversion, [name])
+			} else {
+				group.push(name)
+			}
+		}
+	}
+
+	/** Whether `name` is one of these. */
+	has(name: string): boolean {
+		return this.#names.has(name)
+	}
+
+	/** The first of `own` and the names alike it among these, in their order, that `holds`. */
+	first(own: string, holds: (name: string) => boolean): string | undefined {
+		const alikeOwn = this.#groups.get(conversionOf(own)) ?? []
+		return [own, ...alikeOwn.filter((n) => n !== own)].find(holds)
+	}
+}
+
 /** The stored relation's or roster's record of `relations` under a name alike `name`, its own first: one relation,
  * whatever spelling of its conversion a version declares it under. */
 const heldAlike = (
@@ -537,25 +569,24 @@ const previousNames = (
 	handlesAway: ReadonlyMap<string, ReadonlySet<string>>
 ): PreviousNames => {
 	const renamedFrom = new Map([...renamed].map(([from, to]) => [to, from] as const))
-	const held = Object.keys(before)
-	/** The first of `own` and the names alike it among `among` that `holds`. */
-	const spelling = (
-		own: string,
-		among: ReadonlyArray<string>,
-		holds: (name: string) => boolean
-	): string | undefined => [own, ...among.filter((n) => n !== own && alike(n, own))].find(holds)
+	const held = new AlikeNames(Object.keys(before))
+	/** The fields of each stored relation the previous snapshot holds, by the relation's name. */
+	const heldFields = new Map(
+		Object.entries(before).flatMap(([p, r]) =>
+			r.kind === "relation" ? [[p, new AlikeNames(r.fields.map((x) => x.name))] as const] : []
+		)
+	)
 	const relation = (t: string): string | undefined =>
 		renamedFrom.get(t) ??
-		(after[t] === undefined
-			? t
-			: spelling(t, held, (p) => before[p] !== undefined && !renamed.has(p)))
+		(after[t] === undefined ? t : held.first(t, (p) => before[p] !== undefined && !renamed.has(p)))
 	const field = (t: string, f: string): string | undefined => {
 		const p = relation(t)
 		const was = p === undefined ? undefined : before[p]
 		if (p === undefined || was === undefined) {
 			return after[t] === undefined ? f : undefined
 		}
-		if (was.kind !== "relation") {
+		const names = heldFields.get(p)
+		if (names === undefined) {
 			return f
 		}
 		const renames = fields.get(p)
@@ -563,11 +594,9 @@ const previousNames = (
 		if (from !== undefined) {
 			return from[0]
 		}
-		const names = was.fields.map((x) => x.name)
-		return spelling(
+		return names.first(
 			f,
-			names,
-			(x) => names.includes(x) && renames?.has(x) !== true && anew.get(p)?.has(x) !== true
+			(x) => names.has(x) && renames?.has(x) !== true && anew.get(p)?.has(x) !== true
 		)
 	}
 	const handle = (roster: string, h: string): string | undefined => {
