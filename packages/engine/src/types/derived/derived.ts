@@ -72,8 +72,11 @@ type ArmsRefusals<Q> =
 			: never
 		: never
 
-/** Whether a rule may read a derived relation over the definition Q: `true`, or its arms' refusals (RuleRead). */
-export type RuleReadOf<Q> = [ArmsRefusals<Q>] extends [never] ? true : ArmsRefusals<Q>
+/**
+ * Whether a rule may read a derived relation over the definition Q: `true`, or its arms' refusals (RuleRead). Its check
+ * is unboxed, as DefinitionShape's are.
+ */
+export type RuleReadOf<Q> = ArmsRefusals<Q> extends never ? true : ArmsRefusals<Q>
 
 /** A derived relation a rule may read: one whose definition joins, selects and projects (RuleRead). */
 export type RuleReadDerived = AnyDerived & RuleRead<true>
@@ -131,23 +134,27 @@ type AnyKeyOf<H> = H extends unknown ? keyof H : never
  * view stores one heading, since arms of different headings would be several heading groups; arms that differ only in
  * a literal discriminant's value share their fields and are one heading. A role's query entry is checked by it too
  * (types/schema/world.ts).
+ *
+ * No check's subject is a naked type parameter, so none distributes and none is boxed in a tuple: a boxed check of a
+ * definition costs the checker instantiations that grow with the schema the definition reads.
  */
 export type DefinitionShape<Q> =
 	NoParams<Q> extends never
 		? never
-		: [keyof HeadOf<Q>] extends [never]
+		: keyof HeadOf<Q> extends never
 			? Refusal<"a derived definition has at least one field">
-			: [AnyKeyOf<HeadOf<Q>>] extends [keyof HeadOf<Q>]
+			: AnyKeyOf<HeadOf<Q>> extends keyof HeadOf<Q>
 				? unknown
 				: Refusal<"a derived definition has one heading: a materialized view stores one heading group">
 
 /**
  * The refusal a derived definition carries: a view's (DefinitionShape), and any context it reads, since a materialized
- * view holds no session.
+ * view holds no session. Its check is unboxed, as DefinitionShape's are.
  */
-export type DefinitionCheck<Q> = [ContextsOf<Q>] extends [never]
-	? DefinitionShape<Q>
-	: Refusal<"a derived definition reads no context: a materialized view holds no session">
+export type DefinitionCheck<Q> =
+	ContextsOf<Q> extends never
+		? DefinitionShape<Q>
+		: Refusal<"a derived definition reads no context: a materialized view holds no session">
 
 /**
  * A derived relation is a named query: fields from the query's head, keys from its evidence. It is declared in an
