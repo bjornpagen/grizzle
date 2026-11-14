@@ -28,7 +28,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import { nativeEqualityKey } from "#compiler/ir/expr.ts"
 import { baseOf, numericTypmodOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Anchor, CallError, CallErrorKind, Entry } from "#compiler/live/index.ts"
-import { pagedMember } from "#compiler/program/workload/value.ts"
+import { pagedMember, workload } from "#compiler/program/workload/value.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import {
@@ -42,7 +42,7 @@ import {
 } from "#test/pg/oracle/public/cells.ts"
 import type { PublicFeature } from "#test/pg/oracle/public/suite.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
-import { compileTemplate, installedCodes, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, installedCodes, paramsOver, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -1610,7 +1610,8 @@ interface Members {
  *
  * 1. The schema, built by the public constructors (build.ts), is installed through its first migration
  *    (test/support/install-migrate.ts): `grizzle migrate generate` drafts it and `grizzle migrate apply` runs it as the
- *    migration identity, so the catalog is a deployment's.
+ *    migration identity, so the catalog is a deployment's, with the parameter types of the case's programs
+ *    (test/support/compile.ts paramsOver), the only types a served compile under its snapshot may cast a parameter to.
  * 2. Every program of the case is a member of its full role's workload (casePrograms): every read, every query read's
  *    read-back, and the store of its facts, compiled into the login's served file under the snapshot the migration
  *    reached by the one compile `grizzle generate` runs, and the Db opens through that login's served layer
@@ -1665,7 +1666,14 @@ export const runCase = (
 				ambient: c.ambient,
 				label: "real",
 				logins: [built.world.server],
-				extensions: []
+				extensions: [
+					paramsOver([
+						{
+							login: "server",
+							workloads: [workload(built.world.app, casePrograms(c, built, built.schema))]
+						}
+					])
+				]
 			}),
 			unready("the schema did not install")
 		)
