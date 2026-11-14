@@ -227,7 +227,7 @@ const edgeLimits = [
 ] as const satisfies Arr.NonEmptyReadonlyArray<RegexSpaceMeasure["kind"]>
 type EdgeLimit = (typeof edgeLimits)[number]
 
-/** Each limit's shape, the one a pending limit steers to. */
+/** Each limit's shape, the one a case whose turn aims at that pending limit steers to (Case.steering). */
 const shapeOf: { readonly [K in EdgeLimit]: Gen<Growth> } = {
 	depth: nestingGen,
 	arcs: colorfulGen,
@@ -592,7 +592,7 @@ layer(Substrate.layer)(
 									const growth = Option.getOrElse(
 										Option.flatMap(k.steering, (pending) =>
 											Option.map(
-												Arr.findFirst(edgeLimits, (kind) => pending.has(kind)),
+												Arr.findFirst(edgeLimits, (kind) => pending.aimed(kind)),
 												(kind) => k.draw(shapeOf[kind])
 											)
 										),

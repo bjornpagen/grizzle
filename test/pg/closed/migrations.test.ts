@@ -436,7 +436,8 @@ const runGen: Gen<Run> = (source) => {
 
 /**
  * The situations the steered phase aims a case at, each by a program that reaches it (aimedProgram): every required one,
- * since most need several commands in order, which a drawn program meets only by chance.
+ * since most need several commands in order, which a drawn program meets only by chance. A case is aimed at the one
+ * its turn falls on (Case.steering), so no situation waits behind another its program does not reach.
  */
 const aimedFeatures = [
 	"a handle grown",
@@ -1171,7 +1172,7 @@ layer(Substrate.layer)("roster migrations on PostgreSQL 19rc2", (it) => {
 								}
 								yield* sameAsModel(sys, initial)
 								const aimed = Option.flatMap(kase.steering, (pending) =>
-									Arr.findFirst(aimedFeatures, (f) => pending.has(f))
+									Arr.findFirst(aimedFeatures, (f) => pending.aimed(f))
 								)
 								yield* runProgram(
 									machine(initial),

@@ -45,7 +45,7 @@
  * reading of the rows the carry model loads; and the path's own commutation, A to C directly as A to B to C.
  *
  * Features: the renamed stream requires a catalog-type name under the installation-first path; the intents stream
- * requires every legal intent, each steered case aiming its first B intent at the first one still pending as the
+ * requires every legal intent, each steered case aiming its first B intent at the pending one its turn falls on as the
  * steering reads it after every case (steerEvery 1), so the steered phase's one case per intent reaches them all.
  *
  * Plants (~/.cache/grizzle-release/BR11/plants): paths-relation-rename-ignored (a draft ignores every declared relation
@@ -375,15 +375,16 @@ const kept: ReadonlyArray<Kept<RenamedDraw, Feature>> = [
 
 /**
  * The intents a case runs: the drawn ones, or, while the case's steering leaves an intent pending, the drawn ones with
- * B's first intent the first pending one, so each steered case reaches an intent no witness has, and the steered phase
- * needs at most one case per intent. Any intent may be B's: only C's are kept from naming a field B drops.
+ * B's first intent the pending one its turn aims at (Case.steering), so each steered case reaches an intent no witness
+ * has, none waits behind another, and the steered phase needs at most one case per intent. Any intent may be B's: only
+ * C's are kept from naming a field B drops.
  */
 const aimedIntents = (
 	sketch: IntentSketch & { readonly kind: "legal" },
 	notes: Case<Feature>
 ): IntentSketch & { readonly kind: "legal" } => {
 	const pending = Option.flatMap(notes.steering, (steering) =>
-		Arr.findFirst(legalIntents, (kind) => steering.has(`the intent ${kind}`))
+		Arr.findFirst(legalIntents, (kind) => steering.aimed(`the intent ${kind}`))
 	)
 	return Option.match(pending, {
 		onNone: () => sketch,

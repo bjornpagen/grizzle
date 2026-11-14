@@ -20,12 +20,19 @@
  *
  * The oracle is the served file itself, its roles' members and contexts, and the order of the call's checks.
  *
+ * A drawn probe calls with no bearer token a route whose role reads a context only as one in nine calls of such a
+ * route, and the streams the suite's label fixes held none, so a case whose turn aims at it (Case.steering) is
+ * constructed to: its login's first role holds the query entry wherever a field may carry a claim (served-login.ts
+ * liveLoginGen), and after its drawn probes it calls a route of a role reading a context, naming the route's wire, with
+ * no Authorization header.
+ *
  * Plants (~/.cache/grizzle-release/LIVE-HTTP/plants): http-route-non-member.patch (the table serves a route no member
  * names: the routes are not the members); http-status-error.patch (a request line no route serves answered 404: the
- * answer is not the stream).
+ * answer is not the stream). Plant (~/.cache/grizzle-release/STEERSWEEP/plants): http-token-after-body.patch (a call's
+ * missing token checked after its body's JSON: a call with no bearer token and no JSON body is an `input`).
  */
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import {
 	characterOf,
@@ -40,7 +47,15 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Result as Answered, Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
+import {
+	Result as Answered,
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	String as Str
+} from "effect"
 import { served } from "#adapter/public/layer.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
@@ -57,7 +72,13 @@ import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate
 import { lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import { clusterPool } from "#test/support/pg.ts"
-import { compiledLogin, drawnLogin, drawnSchema, loginGen } from "#test/support/served-login.ts"
+import {
+	compiledLogin,
+	drawnLogin,
+	drawnSchema,
+	liveLoginGen,
+	loginGen
+} from "#test/support/served-login.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify } from "#test/support/worlds.ts"
@@ -198,6 +219,39 @@ const probesGen =
 	(routes: number): Gen<ReadonlyArray<Probe>> =>
 	(source) =>
 		upTo(source.draw(int(1, 8)), () => source.draw(probeGen(routes)))
+
+/** The requirement a drawn probe seldom meets, which a case whose turn aims at it is built to meet (see the header). */
+const noBearer: Feature = "a route called with no bearer token"
+
+/** Whether the case's turn aims at a call with no bearer token (Case.steering); a rotating or kept case never does. */
+const aimsNoBearer = (c: Case<Feature>): boolean =>
+	Option.exists(c.steering, (pending) => pending.aimed(noBearer))
+
+/**
+ * The probes of a case aimed at a call with no bearer token (see the header): its drawn ones, then a call naming its
+ * wire, with no Authorization header, of a route whose role reads a context, drawn among them, where the login serves
+ * one.
+ */
+const noBearerProbesGen =
+	(routes: ReadonlyArray<FileRoute>): Gen<ReadonlyArray<Probe>> =>
+	(source) => {
+		const drawnProbes = source.draw(probesGen(routes.length))
+		return Arr.match(
+			Arr.flatMap(routes, (r, place) => (r.readsContext ? [place] : [])),
+			{
+				onEmpty: () => drawnProbes,
+				onNonEmpty: (places): ReadonlyArray<Probe> => [
+					...drawnProbes,
+					{
+						kind: "route",
+						route: source.draw(element(places)),
+						wire: "named",
+						authorization: "none"
+					}
+				]
+			}
+		)
+	}
 
 /** What every route's request line starts with: its method and the space after it. */
 const routeMethod = "POST "
@@ -408,7 +462,8 @@ describe("an HTTP handler's routes", () => {
 					([sketch, level], notes) =>
 						Effect.gen(function* () {
 							const schema = drawnSchema(notes.draw(resolveCase(sketch)), level)
-							const shapes = notes.draw(loginGen(schema))
+							const aimed = aimsNoBearer(notes)
+							const shapes = notes.draw((aimed ? liveLoginGen : loginGen)(schema))
 							const compiled = yield* Effect.result(
 								compiledLogin(drawnLogin(schema, shapes), schema.laws.codes)
 							)
@@ -431,7 +486,9 @@ describe("an HTTP handler's routes", () => {
 							if (!Arr.isReadonlyArrayNonEmpty(routes)) {
 								return
 							}
-							const probes = notes.draw(probesGen(routes.length))
+							const probes = notes.draw(
+								aimed ? noBearerProbesGen(routes) : probesGen(routes.length)
+							)
 							yield* Effect.gen(function* () {
 								const handler = yield* httpHandler({
 									logins: [login],

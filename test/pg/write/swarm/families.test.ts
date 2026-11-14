@@ -369,10 +369,13 @@ const storesExactly = (
 		}
 	})
 
-/** The case a witness runs: its drawn one, or, while a situation `aims` reaches is pending, an aimed one. */
+/**
+ * The case a witness runs: its drawn one, or, where its turn aims at a situation `aims` reaches (Case.steering), an
+ * aimed one.
+ */
 const aimedCase = (drawnCase: SwarmCase, c: Case<Situation>): SwarmCase => {
 	const pending = Option.getOrUndefined(c.steering)
-	const aim = Arr.findFirst(aims, ([situation]) => pending?.has(situation) === true)
+	const aim = Arr.findFirst(aims, ([situation]) => pending?.aimed(situation) === true)
 	return Option.isNone(aim) ? drawnCase : c.draw(aim.value[1])
 }
 

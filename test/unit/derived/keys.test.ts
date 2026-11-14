@@ -39,7 +39,7 @@
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore, sketched } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
+import { type Reached, required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -1008,22 +1008,33 @@ const aboveOf = (
 }
 
 /**
- * The product a witness checks: its drawn one, or, while a requirement naming several rules is pending, a planted one of
- * two rules of four factors of two keys keyed alike, and while one naming four factors is, a planted one of one rule.
+ * The planted product each requirement a drawn product seldom meets is aimed at: a key no rule's keys hold alone, the
+ * crosswise one; one naming several rules, two rules of four factors of two keys keyed alike; one naming four factors,
+ * one rule of them.
+ */
+const productAims: ReadonlyArray<readonly [Reached<ProductFeature>, Gen<ProductSketch>]> = [
+	["a key no rule's keys hold alone", crosswiseSketchGen],
+	["several rules of four factors of two minimal keys each", fourFactorSketchGen(constant(1))],
+	["several rules", fourFactorSketchGen(constant(1))],
+	[["several rules", "a level reading the view whole"], fourFactorSketchGen(constant(1))],
+	["four factors of two minimal keys each", fourFactorSketchGen(constant(0))],
+	[
+		["four factors of two minimal keys each", "a level reading the view whole"],
+		fourFactorSketchGen(constant(0))
+	]
+]
+
+/**
+ * The product a witness checks: its drawn one, or, where its turn aims at a requirement `productAims` plants
+ * (Case.steering), that planted one, so the cases of one window aim at distinct pending requirements.
  */
 const aimedProduct = (drawnProduct: Product, c: Case<ProductFeature>): Product =>
-	Option.match(c.steering, {
-		onNone: () => drawnProduct,
-		onSome: (pending) =>
-			pending.names("a key no rule's keys hold alone")
-				? productOf(c.draw(crosswiseSketchGen))
-				: pending.names("several rules of four factors of two minimal keys each") ||
-					  pending.names("several rules")
-					? productOf(c.draw(fourFactorSketchGen(constant(1))))
-					: pending.names("four factors of two minimal keys each")
-						? productOf(c.draw(fourFactorSketchGen(constant(0))))
-						: drawnProduct
-	})
+	Option.match(
+		Option.flatMap(c.steering, (pending) =>
+			Arr.findFirst(productAims, ([situation]) => pending.aimed(situation))
+		),
+		{ onNone: () => drawnProduct, onSome: ([, planted]) => productOf(c.draw(planted)) }
+	)
 
 /**
  * A field of the stored relation beside its uuid key `id`: a text of up to 255 characters, PostgreSQL's repetition

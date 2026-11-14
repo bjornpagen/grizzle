@@ -324,10 +324,13 @@ const aims: ReadonlyArray<readonly [Feature, Gen<Drawn>]> = [
 	["a declared key over the set of another key of T refused", clashGen]
 ]
 
-/** A case's draw, and, while a situation `aims` reaches is pending, what is aimed at it beside it. */
+/**
+ * A case's draw, and, where its turn aims at a situation `aims` reaches (Case.steering), what is aimed at it beside
+ * it.
+ */
 const aimed = (d: Drawn, c: Case<Feature>): Drawn => {
 	const pending = Option.getOrUndefined(c.steering)
-	const aim = Arr.findFirst(aims, ([feature]) => pending?.has(feature) === true)
+	const aim = Arr.findFirst(aims, ([feature]) => pending?.aimed(feature) === true)
 	if (Option.isNone(aim)) {
 		return d
 	}

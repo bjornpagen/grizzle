@@ -306,9 +306,10 @@ const aimsOf = <P>(
 	)
 
 /**
- * The case a case runs: the drawn one, or, where the case's steering leaves a requirement pending, the planted case
- * that reaches it, so the steered phase reaches every requirement by construction, since a kept case never counts. A
- * steered case reads the steering it was drawn under, so it replays alike.
+ * The case a case runs: the drawn one, or, where the requirement its turn aims at (Case.steering) is one a planted case
+ * reaches, that planted case, so the steered phase reaches every requirement by construction, since a kept case never
+ * counts. The cases of one window aim at distinct pending requirements, so none waits behind another. A steered case
+ * reads the steering it was drawn under, so it replays alike.
  */
 const aimedCase = (
 	drawnCase: FamilyCase,
@@ -320,7 +321,7 @@ const aimedCase = (
 		onSome: (pending) =>
 			Option.getOrElse(
 				Option.map(
-					Arr.findFirst(aims, ([situation]) => pending.has(situation)),
+					Arr.findFirst(aims, ([situation]) => pending.aimed(situation)),
 					([, planted]) => planted
 				),
 				() => drawnCase

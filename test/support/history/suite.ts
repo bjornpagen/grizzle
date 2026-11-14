@@ -280,9 +280,10 @@ const plantedOn = <P>(
 }
 
 /**
- * The case a history runs: the drawn one, or, where the case's steering leaves a trait's direct acceptance pending,
- * the planted serial history (plantedHistories) on the first schema bearing such a trait that has one, its direct
- * writer's step accepted there. A steered case reads the steering it was drawn under, so it replays alike.
+ * The case a history runs: the drawn one, or, where the case's turn aims at a trait's direct acceptance
+ * (Case.steering), the planted serial history (plantedHistories) on the first schema bearing that trait that has one,
+ * its direct writer's step accepted there. The cases of one window aim at distinct pending traits, so none waits
+ * behind another. A steered case reads the steering it was drawn under, so it replays alike.
  */
 const aimedCase = <P>(
 	h: HistoryFamily<P>,
@@ -295,7 +296,7 @@ const aimedCase = <P>(
 	}
 	const pending = steering.value
 	for (const [i, p] of variants.entries()) {
-		if (!Arr.some(h.family.traits(p), (t) => pending.has([`trait ${t}`, "direct accepted"]))) {
+		if (!Arr.some(h.family.traits(p), (t) => pending.aimed([`trait ${t}`, "direct accepted"]))) {
 			continue
 		}
 		const planted = plantedHistories(h.family.host(p), h.family.domains)

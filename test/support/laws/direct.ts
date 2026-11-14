@@ -243,13 +243,13 @@ const aims: ReadonlyArray<readonly [Reached<DirectFeature>, UpdateMode]> = [
 ]
 
 /**
- * The case a witness runs: its drawn one, or, while the ending of a move `aims` names is pending, the drawn one with
- * one more transaction, an UPDATE of the mode aimed at it alone, drawn from the case's tape.
+ * The case a witness runs: its drawn one, or, where its turn aims at the ending of a move `aims` names (Case.steering),
+ * the drawn one with one more transaction, an UPDATE of the mode aimed at it alone, drawn from the case's tape.
  */
 export const aimedCase = (k: DirectCase, c: Case<DirectFeature>): DirectCase => {
 	const pending = Option.getOrUndefined(c.steering)
 	return Option.match(
-		Arr.findFirst(aims, ([situation]) => pending?.has(situation) === true),
+		Arr.findFirst(aims, ([situation]) => pending?.aimed(situation) === true),
 		{
 			onNone: () => k,
 			onSome: ([, mode]) => ({

@@ -731,7 +731,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 								const sketch = Option.getOrElse(
 									Option.flatMap(k.steering, (pending) =>
 										Option.map(
-											Arr.findFirst(probeKinds, (kind) => pending.has(probeFeatureOf[kind])),
+											Arr.findFirst(probeKinds, (kind) => pending.aimed(probeFeatureOf[kind])),
 											(kind) => k.draw(probeOfKind[kind])
 										)
 									),
@@ -830,7 +830,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 								const { dims, pairs } = Option.getOrElse(
 									Option.flatMap(k.steering, (pending) =>
 										Option.map(
-											Arr.findFirst(widthFeatures, (feature) => pending.has(feature)),
+											Arr.findFirst(widthFeatures, (feature) => pending.aimed(feature)),
 											(feature) => k.draw(pairsAt(dimsOf[feature]))
 										)
 									),
@@ -921,7 +921,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 									Option.flatMap(k.steering, (pending) =>
 										Option.map(
 											Arr.findFirstIndex(widthRelations, (r) =>
-												pending.has(widthFeatureOf(r.fields.value.dimensions))
+												pending.aimed(widthFeatureOf(r.fields.value.dimensions))
 											),
 											(place) => k.draw(checkCaseOf(constant(place)))
 										)

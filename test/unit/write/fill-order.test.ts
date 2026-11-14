@@ -1016,10 +1016,13 @@ const aims: ReadonlyArray<readonly [FillSituation, Planted]> = [
 	["admitted: a nesting three deep", "nesting three deep"]
 ]
 
-/** The case a witness runs: its drawn one, or, while a situation `aims` plants is pending, a planted one. */
+/**
+ * The case a witness runs: its drawn one, or, where its turn aims at a situation `aims` plants (Case.steering), a
+ * planted one, so the cases of one window aim at distinct pending situations.
+ */
 const aimedCase = (drawnCase: FillCase, c: Case<FillSituation>): FillCase => {
 	const pending = Option.getOrUndefined(c.steering)
-	const aim = Arr.findFirst(aims, ([situation]) => pending?.has(situation) === true)
+	const aim = Arr.findFirst(aims, ([situation]) => pending?.aimed(situation) === true)
 	return Option.isNone(aim) ? drawnCase : c.draw(plantedCaseGen(aim.value[1]))
 }
 

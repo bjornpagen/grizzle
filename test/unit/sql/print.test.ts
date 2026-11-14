@@ -377,8 +377,8 @@ const statementLines = (body: Arr.NonEmptyReadonlyArray<PlStatement>): ReadonlyA
 type WriteFeature = `wide ${WidePosition}` | "narrow" | "split"
 
 /**
- * A wide sketch aimed, where the case steers, at the first wide position still pending, so a few wide cases reach every
- * position rather than leave one to its share of chance; any other sketch as drawn.
+ * A wide sketch aimed, where the case steers, at the wide position its turn falls on (Case.steering), so a few wide
+ * cases reach every position rather than leave one to its share of chance; any other sketch as drawn.
  */
 const aimed = (sketch: BlockSketch, steering: Case<WriteFeature>["steering"]): BlockSketch => {
 	const width = sketch.width
@@ -387,7 +387,7 @@ const aimed = (sketch: BlockSketch, steering: Case<WriteFeature>["steering"]): B
 	}
 	return Option.match(
 		Option.flatMap(steering, (pending) =>
-			Arr.findFirst(widePositions, (at) => pending.has(`wide ${at}`))
+			Arr.findFirst(widePositions, (at) => pending.aimed(`wide ${at}`))
 		),
 		{ onNone: () => sketch, onSome: (at) => ({ ...sketch, width: { ...width, at } }) }
 	)

@@ -71,7 +71,8 @@ import { fullWorld } from "#test/support/worlds.ts"
  * Features: each kind of write at each state that matters to the fill: an append to an owner with members and to one
  * with none, the only member deleted and one of several, a move between owners sharing their first two key fields and
  * between others, an owner inserted again with a subset and with a new member, a step put, a label put, and each
- * refusal.
+ * refusal. A steered case is constructed to reach the situation its turn aims at (aimedWritesGen): a drawn case seldom
+ * deletes an owner's only member or names an owner no write stored.
  *
  * Plant: ~/.cache/grizzle-release/KEYSTRESS/plants/counted-set-fold-ignores-third-field.patch, a counted family's
  * groups read by their key's first fields alone, must turn the property red.
@@ -177,16 +178,23 @@ const sameKey = (o: OwnerKey, p: OwnerKey): boolean => o.a === p.a && o.b === p.
 
 const sameAttrKey = (x: AttrRow, y: AttrRow): boolean => sameKey(x, y) && x.name === y.name
 
-const attrGen =
-	(owner: OwnerKey): Gen<AttrRow> =>
+/** A member of `owner` named `name`, its steps drawn. */
+const namedGen =
+	(owner: OwnerKey, name: (typeof names)[number]): Gen<AttrRow> =>
 	(source) => ({
 		a: owner.a,
 		b: owner.b,
 		k: owner.k,
-		name: source.draw(element(names)),
+		name,
 		x: source.draw(int(-1, 2)),
 		flags: source.draw(int(0, 31))
 	})
+
+/** A member of `owner`, its name and steps drawn. */
+const attrGen =
+	(owner: OwnerKey): Gen<AttrRow> =>
+	(source) =>
+		source.draw(namedGen(owner, source.draw(element(names))))
 
 /** The kinds of write, the first the one every state admits. */
 const writeKinds = ["insert", "append", "delete", "move", "restep", "relabel", "again"] as const
@@ -547,29 +555,81 @@ const situationsOf = (state: State, w: Write, v: Verdict): ReadonlyArray<Situati
 	}
 }
 
-/** The steered case: while a situation is pending, writes aimed at it from a state of two owners sharing (a, b). */
-const aimedCase = (drawnCase: ReadonlyArray<Write>, c: Case<Situation>): ReadonlyArray<Write> => {
-	const pending = Option.getOrUndefined(c.steering)
-	if (pending === undefined || !Arr.some(situations, (s) => pending.has(s))) {
-		return drawnCase
+/** A steered case's owners: `sharing` and `third`, apart in `k` alone, `other`, and `unstored`, never stored. */
+const sharing: OwnerKey = { a: "p", b: "q", k: 0 }
+const third: OwnerKey = { a: "p", b: "q", k: 1 }
+const other: OwnerKey = { a: "q", b: "p", k: 0 }
+const unstored: OwnerKey = { a: "q", b: "q", k: 0 }
+
+/**
+ * The writes a steered case runs to reach `situation`: `sharing`, `third` and `other` inserted, `sharing` with members
+ * `x` and `y` and `other` with its only member `x`, which reaches owners inserted with their members; then the one
+ * write that reaches `situation` from there. Labels and steps are drawn; the situations noted are still computed from
+ * the writes (situationsOf), so a note never claims what the case does not hold.
+ */
+const aimedWritesGen =
+	(situation: Situation): Gen<ReadonlyArray<Write>> =>
+	(source) => {
+		const label = () => source.draw(int(0, 2))
+		const stored: OwnerRow = { ...sharing, label: label() }
+		const x = source.draw(namedGen(sharing, "x"))
+		const y = source.draw(namedGen(sharing, "y"))
+		const only = source.draw(namedGen(other, "x"))
+		const seeded: Write = {
+			kind: "insert",
+			owners: [stored, { ...third, label: label() }, { ...other, label: label() }],
+			attrs: [x, y, only]
+		}
+		const appended = (attrs: ReadonlyArray<AttrRow>): Write => ({
+			kind: "insert",
+			owners: [],
+			attrs
+		})
+		const next = ((): ReadonlyArray<Write> => {
+			switch (situation) {
+				case "owners inserted with their members":
+					return []
+				case "a member appended to an owner with members":
+					return [appended([source.draw(namedGen(sharing, "z"))])]
+				case "a member appended to an owner with none":
+					return [appended([source.draw(namedGen(third, "x"))])]
+				case "an owner inserted again with a subset of its members":
+					return [{ kind: "insert", owners: [stored], attrs: [x] }]
+				case "an owner inserted again with a new member":
+					return [
+						{ kind: "insert", owners: [stored], attrs: [x, source.draw(namedGen(sharing, "z"))] }
+					]
+				case "the only member deleted":
+					return [{ kind: "delete", attrs: [only] }]
+				case "a member of several deleted":
+					return [{ kind: "delete", attrs: [x] }]
+				case "a member moved to an owner differing in the third key field alone":
+					return [{ kind: "move", from: x, to: { ...x, ...third } }]
+				case "a member moved to another owner":
+					return [{ kind: "move", from: y, to: { ...y, ...other } }]
+				case "a member's steps put":
+					return [{ kind: "restep", attrs: [source.draw(namedGen(sharing, "x"))] }]
+				case "an owner's label put":
+					return [{ kind: "relabel", owners: [{ ...sharing, label: label() }] }]
+				case "a member naming no owner refused":
+					return [appended([source.draw(namedGen(unstored, "x"))])]
+				case "a member at a stored key with other steps refused":
+					return [appended([{ ...x, x: x.x + 1 }])]
+			}
+		})()
+		return [seeded, ...next]
 	}
-	const first: Write = {
-		kind: "insert",
-		owners: [
-			{ a: "p", b: "q", k: 0, label: 0 },
-			{ a: "p", b: "q", k: 1, label: 0 },
-			{ a: "q", b: "p", k: 0, label: 0 }
-		],
-		attrs: [
-			{ a: "p", b: "q", k: 0, name: "x", x: 1, flags: 1 },
-			{ a: "p", b: "q", k: 0, name: "y", x: 2, flags: 6 }
-		]
-	}
-	const start = verdictOf({ owners: [], attrs: [] }, first)
-	const state = start.kind === "written" ? start.next : { owners: [], attrs: [] }
-	const kind = c.draw(element(writeKinds))
-	return [first, ...Option.toArray(c.draw(writeGen(state, kind)))]
-}
+
+/**
+ * The steered case: the drawn one, or, where its turn aims at a situation (Case.steering), the writes that reach it
+ * (aimedWritesGen), so the steered phase reaches every situation by construction and the cases of one window reach
+ * distinct ones.
+ */
+const aimedCase = (drawnCase: ReadonlyArray<Write>, c: Case<Situation>): ReadonlyArray<Write> =>
+	Option.match(
+		Option.flatMap(c.steering, (pending) => Arr.findFirst(situations, (s) => pending.aimed(s))),
+		{ onNone: () => drawnCase, onSome: (situation) => c.draw(aimedWritesGen(situation)) }
+	)
 
 layer(Substrate.layer, { excludeTestServices: true })(
 	"a counted set keyed by three fields and a name",
