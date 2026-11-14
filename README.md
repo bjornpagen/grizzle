@@ -3408,9 +3408,12 @@ fails with its `CallError`, by kind:
     or stopping);
   - `tooManyConnections`: 53300, the server's or the role's connection limit;
   - `layerReleased`: the `DbLayer` the Db was opened under, or a live read registered on, was released;
-  - `sessionLost`, `slotAbsent`, `slotInvalidated`, `leaderFailed`: a live read's source lost a session, its
-    replication slot does not stand yet or was invalidated (its live leader makes it), or its leader's candidacy
-    failed otherwise;
+  - `sessionLost`: a session of a live read's source, its listener's or its leader's, was lost with no report of the
+    server's (one the server ended with a report reads by its SQLSTATE, 57P01 as `serverDown`);
+  - `slotAbsent`, `slotInvalidated`: the installation's replication slot does not stand yet, or was invalidated: its
+    live leader makes it;
+  - `leaderFailed`: the live leader's candidacy failed otherwise: an answer, a message or a secret it cannot read, a
+    statement past a bound, or a replication stream the server ended;
   - `{ kind: "otherSqlstate", sqlstate }`: the server refused with any other SQLSTATE, such as 3D000 for a database
     that does not exist;
   - `{ kind: "otherSocketCode", code }`: the socket failed with any other code, its errno's name for a system error.

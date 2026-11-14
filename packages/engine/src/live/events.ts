@@ -57,11 +57,15 @@ export type CredentialReason = (typeof credentialReasons)[number]
  *   crash_shutdown), or accepts no connection now, starting, recovering or stopping (57P03 cannot_connect_now);
  * - `tooManyConnections`: every connection slot the server or the role allows is taken, 53300 too_many_connections;
  * - `layerReleased`: the DbLayer the Db was opened under, or the live read registered on, was released;
- * - `sessionLost`: a session the installation's live source holds ended;
+ * - `sessionLost`: a session the installation's live source holds was lost with no report of the server's: its
+ *   listening session ended, the transport lost its connection or its driver failed, a fan-out's COMMIT went
+ *   unanswered, or its leader's replication stream sent nothing past its deadline (a session the server ended with
+ *   its report reads by that report's SQLSTATE instead, 57P01 as `serverDown`);
  * - `slotAbsent`: the installation's replication slot does not stand yet: its live leader makes it;
  * - `slotInvalidated`: the installation's replication slot was invalidated: its live leader makes it again;
- * - `leaderFailed`: the process's candidacy for the installation's live leader failed with no connection's or
- *   server's refusal as its cause.
+ * - `leaderFailed`: the process's candidacy for the installation's live leader failed with no connection's refusal,
+ *   no server's report and no lost session as its cause: an answer, a message or a secret it cannot read, a statement
+ *   past a bound, or a replication stream the server ended.
  */
 export const unavailableCauses = [
 	"connectionRefused",

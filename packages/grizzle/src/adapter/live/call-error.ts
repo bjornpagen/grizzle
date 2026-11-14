@@ -19,7 +19,7 @@ import type {
 	ReadReason,
 	TransportReason
 } from "#adapter/errors/execution.ts"
-import type { AcquireRefusal, TlsFault } from "#adapter/errors/failures.ts"
+import type { AcquireRefusal, ConnectionLost, TlsFault } from "#adapter/errors/failures.ts"
 import type { LeaderReason } from "#adapter/live/leader.ts"
 import type { SourceLoss, SourceRefusal } from "#adapter/live/source.ts"
 import type {
@@ -173,13 +173,12 @@ const watchReading = {
 } as const satisfies Reading<string, "watch">
 
 /**
- * What ends a live read's subscription and leaves it `unavailable`, which a client calls again, by its reason: a
- * session of its source that ended or whose driver failed, `sessionLost`; the installation's slot not standing yet,
- * `slotAbsent`, or invalidated, `slotInvalidated`, each of which its leader makes; its layer's release,
- * `layerReleased`.
+ * What ends a live read's subscription and leaves it `unavailable`, which a client calls again, by its reason: its
+ * listening session's end, or a session of its source whose driver failed, `sessionLost`; the installation's slot not
+ * standing yet, `slotAbsent`, or invalidated, `slotInvalidated`, each of which its leader makes; its layer's release,
+ * `layerReleased`. A connection its source lost reads by who ended it (lostCallError).
  */
 const watchUnavailable = {
-	ConnectionLost: "sessionLost",
 	DriverFailure: "sessionLost",
 	ListenerLost: "sessionLost",
 	SlotAbsent: "slotAbsent",
@@ -366,16 +365,51 @@ const connectCallError = (refusal: AcquireRefusal, message: string): CallErrorIn
 }
 
 /**
- * The failure of the process's candidacy for the installation's live leader, by its cause: a refused connection as
- * connectCallError reads it, the server's refusal by its SQLSTATE (serverCallError), and any other cause `unavailable`,
- * `leaderFailed`, since the next candidacy runs afresh.
+ * A connection a live source's session lost: one the server ended with its report reads by its SQLSTATE
+ * (serverCallError), 57P01 `serverDown` among them; one the transport lost, `unavailable`, `sessionLost`.
  */
-const leaderCallError = (reason: LeaderReason, message: string): CallErrorIn<ConnectKind> =>
-	isAcquireRefusal(reason)
-		? connectCallError(reason, message)
-		: reason._tag === "ServerError"
-			? serverCallError(reason.sqlstate, message)
-			: unavailable("leaderFailed", message)
+const lostCallError = (
+	lost: ConnectionLost,
+	message: string
+): CallErrorIn<"credentialRefused" | "unavailable"> =>
+	lost.ended.by === "server"
+		? serverCallError(lost.ended.error.sqlstate, message)
+		: unavailable("sessionLost", message)
+
+/**
+ * The failure of the process's candidacy for the installation's live leader, by its cause: a refused connection as
+ * connectCallError reads it; the server's refusal of a statement, of a fan-out's statement or of its COMMIT by its
+ * SQLSTATE (serverCallError); a connection lost as lostCallError reads it; a fan-out's COMMIT whose answer was lost, a
+ * driver's failure, or a replication stream silent past its deadline, `sessionLost`, a session of the leader lost; and
+ * any other cause, an answer, a message or a secret it cannot read, a statement past a bound, or a stream the server
+ * ended, `leaderFailed`, since the next candidacy runs afresh.
+ */
+const leaderCallError = (reason: LeaderReason, message: string): CallErrorIn<ConnectKind> => {
+	if (isAcquireRefusal(reason)) {
+		return connectCallError(reason, message)
+	}
+	switch (reason._tag) {
+		case "ServerError":
+			return serverCallError(reason.sqlstate, message)
+		case "BatchRefused":
+		case "CommitRefused":
+			return serverCallError(reason.failure.sqlstate, message)
+		case "ConnectionLost":
+			return lostCallError(reason, message)
+		case "CommitLost":
+		case "DriverFailure":
+		case "ReplicationSilent":
+			return unavailable("sessionLost", message)
+		case "UnreadableAnswer":
+		case "InputTooLarge":
+		case "ReplicationEnded":
+		case "MessageUnreadable":
+		case "ChangesUnroutable":
+		case "SecretUnreadable":
+		case "SenderTimeoutUnreadable":
+			return unavailable("leaderFailed", message)
+	}
+}
 
 /** The HTTP door's refusal `refusal` (doorReading), carrying its own message. */
 export const doorRefusal = <T extends keyof typeof doorReading>(
@@ -385,9 +419,9 @@ export const doorRefusal = <T extends keyof typeof doorReading>(
 
 /**
  * What ends a live read's subscription by its change source's refusal or loss, carrying `message`: a refused
- * connection (connectCallError), the server's refusal by its SQLSTATE (serverCallError), the leader's failure by its
- * cause (leaderCallError), a cause that leaves it unavailable (watchUnavailable), or one of a kind of its own
- * (watchReading).
+ * connection (connectCallError), the server's refusal by its SQLSTATE (serverCallError), a lost connection by who
+ * ended it (lostCallError), the leader's failure by its cause (leaderCallError), a cause that leaves it unavailable
+ * (watchUnavailable), or one of a kind of its own (watchReading).
  */
 export const sourceCallError = (
 	reason: SourceRefusal | SourceLoss,
@@ -402,6 +436,7 @@ export const sourceCallError = (
 		case "LeaderFailed":
 			return leaderCallError(reason.reason, message)
 		case "ConnectionLost":
+			return lostCallError(reason, message)
 		case "DriverFailure":
 		case "ListenerLost":
 		case "SlotAbsent":
