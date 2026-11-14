@@ -14,5 +14,6 @@ export default defineTestConfig({
 	setup: [],
 	conditions: [],
 	timeouts: { test: { kind: "unbounded" }, hook: { kind: "unbounded" } },
-	smallStack: []
+	smallStack: [],
+	examples: { kind: "allowed" }
 })

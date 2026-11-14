@@ -25,22 +25,19 @@ minimumReleaseAge: 1440
 # Every external dependency's one version: packages name it with catalog:, and strict mode refuses a version stated anywhere else.
 catalogMode: strict
 catalog:
-  "@babel/core": 7.29.7
   "@effect/platform-node": 4.1.4
-  "@effect/tsgo": 0.67.7
+  "@effect/tsgo": 0.69.0
   "@effect/vitest": 4.1.4
   "@hyperjump/json-schema": 1.18.0
-  "@tailwindcss/node": 4.3.4
-  "@types/babel__core": 7.20.5
   "@types/node": 26.6.6
   arkregex: 0.0.14
-  babel-plugin-react-compiler: 1.0.0
   effect: 4.1.4
+  eslint-plugin-better-tailwindcss: 4.11.0
   fallow: 3.43.0
   lefthook: 2.2.2
   oxfmt: 0.78.0
-  oxlint: 1.91.0
-  oxlint-tsgolint: 7.0.2005
+  oxlint: 1.93.0
+  oxlint-tsgolint: 7.0.2007
   turbo: 2.11.11
   typescript: 7.1.0-beta
   vite: 8.3.8

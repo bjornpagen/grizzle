@@ -29,7 +29,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process"
  */
 
 /** The tools the ratchet holds, each by the gate task that runs it. */
-const TOOLS = ["typecheck", "superlint", "oxlint", "dead-code"] as const
+const TOOLS = ["typecheck", "oxlint", "dead-code"] as const
 
 type Tool = (typeof TOOLS)[number]
 
@@ -155,8 +155,8 @@ const fallowFindings =
 const RUNS: Readonly<Record<Tool, Run>> = {
 	typecheck: {
 		directory: `${ROOT}/${PACKAGE}`,
-		command: "effect-tsgo",
-		arguments: ["tsrs"],
+		command: "toolchain-typecheck",
+		arguments: [],
 		foundExit: 2,
 		findings: (stdout, stderr) =>
 			Effect.succeed(
@@ -167,27 +167,9 @@ const RUNS: Readonly<Record<Tool, Run>> = {
 				)
 			)
 	},
-	superlint: {
-		directory: `${ROOT}/${PACKAGE}`,
-		command: "superlint",
-		arguments: [],
-		foundExit: 1,
-		findings: (output) =>
-			Option.match(statedCount(output, "superlint: ", " finding(s)"), {
-				onNone: () => RatchetFailure.make({ detail: "superlint printed no count of its findings" }),
-				onSome: (stated) =>
-					agreeing(
-						"superlint",
-						stated,
-						linesNaming(output, (line) =>
-							Str.startsWith(`${PACKAGE}/`)(line) ? before(line, ":") : Option.none()
-						)
-					)
-			})
-	},
 	oxlint: {
 		directory: `${ROOT}/${PACKAGE}`,
-		command: "oxlint",
+		command: "toolchain-oxlint",
 		arguments: ["--format=unix"],
 		foundExit: 1,
 		findings: (output) => {

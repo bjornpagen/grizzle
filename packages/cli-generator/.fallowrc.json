@@ -1,6 +1,7 @@
 {
 	"$schema": "./node_modules/fallow/schema.json",
 	"entry": [
+		"oxlint.ast.config.ts",
 		"packages/generator/src/runtime-src/**/*.ts",
 		"packages/generator/scripts/*.ts",
 		"packages/generator/corpus/tools/*.ts"
@@ -91,7 +92,7 @@
 			},
 			{
 				"name": "configs",
-				"patterns": ["oxlint.config.ts", "toolchain.config.ts"]
+				"patterns": ["oxlint.config.ts", "oxlint.ast.config.ts", "toolchain.config.ts"]
 			}
 		],
 		"rules": [

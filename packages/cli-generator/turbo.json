@@ -48,17 +48,6 @@
 				"$TURBO_ROOT$/vendor/toolchain/packages/devtools/tsconfig.effect-free.json"
 			]
 		},
-		"superlint": {
-			"description": "The dev tools' rules and the repository's toolchain config are inputs too.",
-			"dependsOn": ["^source"],
-			"inputs": [
-				"$TURBO_DEFAULT$",
-				"$TURBO_ROOT$/toolchain.config.ts",
-				"$TURBO_ROOT$/vendor/toolchain/packages/devtools/src/**",
-				"$TURBO_ROOT$/vendor/toolchain/packages/devtools/tsconfig.base.json",
-				"$TURBO_ROOT$/vendor/toolchain/packages/devtools/tsconfig.effect-free.json"
-			]
-		},
 		"oxlint": {
 			"description": "The dev tools' preset and plugin, the testing library's plugin and the repository's toolchain config are inputs too.",
 			"dependsOn": ["^source"],
@@ -79,7 +68,6 @@
 		},
 		"//#typecheck": {},
 		"//#typecheck:full": {},
-		"//#superlint": {},
 		"//#oxlint": {},
 		"//#format": {},
 		"//#dead-code": {},
@@ -88,6 +76,10 @@
 		},
 		"//#dedupe": {
 			"description": "The lockfile is already deduplicated: pnpm dedupe would change nothing."
+		},
+		"//#workspace-gate": {
+			"description": "The repository-wide tsconfig, manifest and file-name checks. Uncached: it reads the whole tree in about a second, which a cache would have to hash.",
+			"cache": false
 		},
 		"test": {
 			"description": "Every test. Each run draws fresh rotating seeds, so a test never replays from cache; the run's seed, a replay and a fuzz run come through the environment.",

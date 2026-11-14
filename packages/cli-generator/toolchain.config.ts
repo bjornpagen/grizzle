@@ -1,7 +1,7 @@
 import { toolchain } from "@bjornpagen/devtools/config"
 
-/** The fork's toolchain: the rules and diagnostics it rejects and the core's names. It runs no pack beside the core,
- * since it has no Drizzle and no web app. */
+/** The fork's toolchain: the rules and diagnostics it rejects. It runs no pack beside the core, since it has no Drizzle
+ * and no web app. */
 export default toolchain({
 	rejected: {
 		rules: {
@@ -42,7 +42,7 @@ export default toolchain({
 			"eslint/prefer-regex-literals":
 				"it pushes toward regex literals, and arkregex's regex() is the only regex form",
 			"eslint/prefer-spread":
-				"it turns f.apply(this, list) into f(...list), a variable-length list on the call stack, which superlint's no-spread-argument refuses",
+				"it turns f.apply(this, list) into f(...list), a variable-length list on the call stack, which the dev tools' no-spread-argument refuses",
 			"eslint/preserve-caught-error": "try/catch is Effect's tryCatchInEffectGen's",
 			"eslint/require-await": "async is banned, and Effect's asyncFunction owns it",
 			"import/no-absolute-path": "it came only with the suspicious category, which is off",
@@ -119,14 +119,5 @@ export default toolchain({
 	},
 	exceptions: [],
 	effectFree: [],
-	core: {
-		uncheckedVocabularyLiteral: {
-			support: [],
-			vocabularies: [],
-			titled: ["describe", "it", "effect", "live", "each"],
-			explanations: ["message"]
-		}
-	},
-	packs: [],
-	own: []
+	packs: []
 })

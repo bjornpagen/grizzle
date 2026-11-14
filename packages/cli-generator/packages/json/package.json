@@ -8,10 +8,9 @@
 		".": "./src/json.ts"
 	},
 	"scripts": {
-		"typecheck": "effect-tsgo tsrs",
-		"typecheck:full": "effect-tsgo tsrs --incremental false",
-		"superlint": "superlint",
-		"oxlint": "oxlint"
+		"typecheck": "toolchain-typecheck",
+		"typecheck:full": "toolchain-typecheck --incremental false",
+		"oxlint": "toolchain-oxlint"
 	},
 	"dependencies": {
 		"effect": "catalog:"

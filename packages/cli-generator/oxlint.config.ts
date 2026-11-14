@@ -13,6 +13,7 @@ export default defineConfig(
 		restrictedGlobals: [],
 		restrictedProperties: [],
 		unassignedImports: [],
+		environment: { library: [], readers: [] },
 		ceremony: ["**/*.test.ts", "**/scripts/**"],
 		plugin: {
 			"bearer-owners": {
@@ -20,7 +21,9 @@ export default defineConfig(
 			},
 			"brands-sole-mint": { mints: [] },
 			"import-doors": { doors: [] },
-			"no-dynamic-imports": { allowed: [] }
+			"no-dynamic-imports": { allowed: [] },
+			"no-raw-sql": { sources: [], writers: [] },
+			"no-spread-argument": { tuples: [] }
 		},
 		ownPlugins: [],
 		tests: {

@@ -2,8 +2,6 @@
 	"$schema": "./node_modules/@effect/tsgo/schema.json",
 	"extends": "@bjornpagen/devtools/tsconfig.base.json",
 	"compilerOptions": {
-		"incremental": true,
-		"tsBuildInfoFile": "${configDir}/node_modules/.cache/tsbuildinfo/tsconfig.tsbuildinfo",
 		"plugins": [
 			{
 				"name": "@effect/language-service",
@@ -88,6 +86,7 @@
 					"matchEffectToMatch": "error",
 					"matchToResultOrOption": "error",
 					"missedPipeableOpportunity": "error",
+					"missingConcurrencyOption": "off",
 					"missingEffectContext": "error",
 					"missingEffectError": "error",
 					"missingEffectServiceDependency": "error",
@@ -104,6 +103,7 @@
 					"nonObjectEffectServiceType": "error",
 					"obsoleteMatchImport": "error",
 					"obsoleteSchemaImport": "error",
+					"onExitFailureToOnError": "error",
 					"optionMatchToFromOption": "error",
 					"outdatedApi": "error",
 					"overriddenSchemaConstructor": "error",
@@ -184,5 +184,5 @@
 			}
 		]
 	},
-	"include": ["oxlint.config.ts", "toolchain.config.ts"]
+	"include": ["oxlint.config.ts", "oxlint.ast.config.ts", "toolchain.config.ts"]
 }
