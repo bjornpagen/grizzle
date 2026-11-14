@@ -190,9 +190,9 @@ describe("MED-24 an invalid media type key is reported once", () => {
 
 	test("generate reports the refusal exactly once", async () => {
 		const root = nodePath.resolve(import.meta.dirname, "../..")
-		const work = nodeFs.mkdtempSync(
-			nodePath.join(nodeFs.realpathSync(root), "work", "media-fixes-")
-		)
+		const scratch = nodePath.join(nodeFs.realpathSync(root), "work")
+		nodeFs.mkdirSync(scratch, { recursive: true })
+		const work = nodeFs.mkdtempSync(nodePath.join(scratch, "media-fixes-"))
 		const spec = nodePath.join(work, "openapi.json")
 		const config = nodePath.join(work, "author-config.json")
 		nodeFs.writeFileSync(
