@@ -24,10 +24,12 @@ import type { SchemaBudgetExceeded, SchemaLimits } from "#normalize/schemas.ts"
 
 /**
  * The code-generation copy cannot become `domain/schemas.ts`. `identifier-mismatch`: a copy key
- * has no name in the identifier map, two keys share one, or Effect exported a name the map does not
- * give (the module would not export what cli modules import). `import-failed`: the copy, which
- * normalize already imported through the same `importSchemas`, does not import again, or names a
- * definition outside itself (a defect, never a property of the document).
+ * has no name in the identifier map, two keys share one, or Effect named a definition otherwise
+ * than the map does (the module would not export what cli modules import). `import-failed`: the
+ * copy, which normalize already imported through the same `importSchemas`, does not import again,
+ * or names a definition outside itself (a defect, never a property of the document).
+ * `reference-cycle`: a cycle of the import that no definition closes, met while writing out
+ * Effect's own reference names, or definitions that read each other outside `Schema.suspend`.
  */
 export class DomainEmitError extends Schema.TaggedError<
 	DomainEmitError,
@@ -1581,21 +1583,200 @@ const multiDocumentOf = (
 		}
 	})
 
-const importCode = (
-	multi: JsonSchema.MultiDocument<"draft-2020-12">
-): Effect.Effect<SchemaRepresentation.CodeDocument, DomainEmitError> =>
-	Effect.try({
-		catch: () => DomainEmitError.make({ reason: "import-failed" }),
-		try: () => {
-			const [first, ...rest] = importSchemas(multi)
+type CheckAnnotation =
+	SchemaRepresentation.CheckRepresentationAnnotation<SchemaRepresentation.Representation>
 
-			return SchemaRepresentation.toCodeDocument(
-				SchemaRepresentation.toRepresentations([
+type Write = (
+	node: SchemaRepresentation.Representation
+) => Option.Option<SchemaRepresentation.Representation>
+
+const writtenAll = (
+	nodes: ReadonlyArray<SchemaRepresentation.Representation>,
+	write: Write
+): Option.Option<ReadonlyArray<SchemaRepresentation.Representation>> =>
+	Option.all(Arr.map(nodes, write))
+
+const writtenAnnotation = (
+	annotation: CheckAnnotation | undefined,
+	write: Write
+): Option.Option<CheckAnnotation | undefined> =>
+	annotation?.schemas === undefined
+		? Option.some(annotation)
+		: Option.map(writtenAll(annotation.schemas, write), (schemas) => ({ ...annotation, schemas }))
+
+const writtenCheck =
+	(write: Write) =>
+	(check: SchemaRepresentation.Check): Option.Option<SchemaRepresentation.Check> =>
+		Option.flatMap(
+			writtenAnnotation(check.representation, write),
+			(representation): Option.Option<SchemaRepresentation.Check> =>
+				check._tag === "Filter"
+					? Option.some({ ...check, representation })
+					: Option.map(Option.all(Arr.map(check.checks, writtenCheck(write))), (checks) => ({
+							...check,
+							checks,
+							representation
+						}))
+		)
+
+type Content = SchemaRepresentation.String["content"]
+
+const writtenContent = (content: Content, write: Write): Option.Option<Content> =>
+	content?.schema === undefined
+		? Option.some(content)
+		: Option.map(write(content.schema), (schema) => ({ ...content, schema }))
+
+const writtenChecks = <A extends { readonly checks: ReadonlyArray<SchemaRepresentation.Check> }>(
+	node: A,
+	write: Write
+): Option.Option<A> =>
+	Option.map(Option.all(Arr.map(node.checks, writtenCheck(write))), (checks) => ({
+		...node,
+		checks
+	}))
+
+/**
+ * Every node of a representation with each reference outside `names` replaced by what it names,
+ * written out again; none when a reference is met again while it is being written out (a cycle
+ * no name closes). `expanding` holds the references being written out on the current path.
+ */
+const writtenOut = (
+	references: SchemaRepresentation.References,
+	names: ReadonlySet<string>,
+	expanding: ReadonlySet<string>
+): Write => {
+	const write: Write = (node) =>
+		Match.valueTags(node, {
+			Any: (keyword) => writtenChecks(keyword, write),
+			Arrays: (arrays) =>
+				Option.flatMap(
+					Option.all({
+						elements: Option.all(
+							Arr.map(arrays.elements, (element) =>
+								Option.map(write(element.type), (type) => ({ ...element, type }))
+							)
+						),
+						rest: writtenAll(arrays.rest, write)
+					}),
+					({ elements, rest }) => writtenChecks({ ...arrays, elements, rest }, write)
+				),
+			BigInt: (keyword) => writtenChecks(keyword, write),
+			Boolean: (keyword) => writtenChecks(keyword, write),
+			Declaration: (declaration) =>
+				Option.flatMap(writtenAll(declaration.typeParameters, write), (typeParameters) =>
+					writtenChecks({ ...declaration, typeParameters }, write)
+				),
+			Enum: (keyword) => writtenChecks(keyword, write),
+			Literal: (keyword) => writtenChecks(keyword, write),
+			Never: (keyword) => writtenChecks(keyword, write),
+			Null: (keyword) => writtenChecks(keyword, write),
+			Number: (keyword) => writtenChecks(keyword, write),
+			ObjectKeyword: (keyword) => writtenChecks(keyword, write),
+			Objects: (objects) =>
+				Option.flatMap(
+					Option.all({
+						indexSignatures: Option.all(
+							Arr.map(objects.indexSignatures, (index) =>
+								Option.all({ parameter: write(index.parameter), type: write(index.type) })
+							)
+						),
+						propertySignatures: Option.all(
+							Arr.map(objects.propertySignatures, (property) =>
+								Option.map(write(property.type), (type) => ({ ...property, type }))
+							)
+						)
+					}),
+					({ indexSignatures, propertySignatures }) =>
+						writtenChecks({ ...objects, indexSignatures, propertySignatures }, write)
+				),
+			Reference: (reference) =>
+				names.has(reference.$ref)
+					? Option.some(reference)
+					: Option.flatMap(
+							Option.filter(
+								Record.get<string, SchemaRepresentation.Representation>(references, reference.$ref),
+								() => !expanding.has(reference.$ref)
+							),
+							writtenOut(references, names, new Set([...expanding, reference.$ref]))
+						),
+			String: (keyword) =>
+				Option.flatMap(writtenContent(keyword.content, write), (content) =>
+					writtenChecks({ ...keyword, content }, write)
+				),
+			Suspend: (suspend) => Option.map(write(suspend.thunk), (thunk) => ({ ...suspend, thunk })),
+			Symbol: (keyword) => writtenChecks(keyword, write),
+			TemplateLiteral: (template) =>
+				Option.flatMap(writtenAll(template.parts, write), (parts) =>
+					writtenChecks({ ...template, parts }, write)
+				),
+			Undefined: (keyword) => writtenChecks(keyword, write),
+			Union: (union) =>
+				Option.flatMap(writtenAll(union.types, write), (types) =>
+					writtenChecks({ ...union, types }, write)
+				),
+			UniqueSymbol: (keyword) => writtenChecks(keyword, write),
+			Unknown: (keyword) => writtenChecks(keyword, write),
+			Void: (keyword) => writtenChecks(keyword, write)
+		})
+
+	return write
+}
+
+/**
+ * The document with only the copy's definitions as references. `toRepresentations` names every
+ * definition by its `identifier`, and also names a recursive node that has none when its walk
+ * closes the node's cycle there, before it meets a definition on that cycle (`Suspend_`). That is
+ * a definition the importer reduces to a bare reference, an alias: the importer gives it its
+ * target's schema under the alias's identifier, sharing the target's nodes, so a walk that reaches
+ * the alias first enters the target's recursion at the anonymous `Schema.suspend` that closes it.
+ * Which node closes a cycle is the walk's order, not the schema's: each such reference is written
+ * out where it is read, which is the document a walk reaching the target first gives. Every cycle
+ * of the import passes through a definition's own node, so writing out ends.
+ */
+const definitionsOnly = (
+	document: SchemaRepresentation.MultiDocument,
+	names: ReadonlySet<string>
+): Effect.Effect<SchemaRepresentation.MultiDocument, DomainEmitError> => {
+	const write = writtenOut(document.references, names, new Set())
+
+	return Effect.mapError(
+		Effect.fromOption(
+			Option.all({
+				references: Option.all(
+					Record.map(
+						Record.filter(document.references, (_, name) => names.has(name)),
+						write
+					)
+				),
+				representations: Option.all(Arr.map(document.representations, write))
+			})
+		),
+		() => DomainEmitError.make({ reason: "reference-cycle" })
+	)
+}
+
+const importCode = (
+	multi: JsonSchema.MultiDocument<"draft-2020-12">,
+	names: ReadonlySet<string>
+): Effect.Effect<SchemaRepresentation.CodeDocument, DomainEmitError> =>
+	Effect.gen(function* code() {
+		const imported = yield* Effect.try({
+			catch: () => DomainEmitError.make({ reason: "import-failed" }),
+			try: () => {
+				const [first, ...rest] = importSchemas(multi)
+
+				return SchemaRepresentation.toRepresentations([
 					first.ast,
 					...Arr.map(rest, (schema) => schema.ast)
 				])
-			)
-		}
+			}
+		})
+		const document = yield* definitionsOnly(imported, names)
+
+		return yield* Effect.try({
+			catch: () => DomainEmitError.make({ reason: "import-failed" }),
+			try: () => SchemaRepresentation.toCodeDocument(document)
+		})
 	})
 
 /**
@@ -1810,7 +1991,7 @@ export const emitDomainSchemas = (
 		)
 		const rekeyed = yield* rekeyedCopy(closed, identifiers)
 		const multi = yield* multiDocumentOf(rekeyed)
-		const code = yield* importCode(multi)
+		const code = yield* importCode(multi, new Set(rekeyed.keys()))
 		if (code.artifacts.length > 0) {
 			return yield* DomainEmitError.make({ reason: "unsupported-artifact" })
 		}

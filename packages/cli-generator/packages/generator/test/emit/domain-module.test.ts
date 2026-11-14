@@ -2,17 +2,23 @@
  * The domain module as a property. A generated set of JSON Schema definitions, some reachable from the request roots
  * and some not, prints to `domain/schemas.ts`, which TypeScript parses with no syntax diagnostic and oxfmt, under the
  * options docs/printer.md names, leaves unchanged. It exports exactly the reachable definitions, each under the name
- * the identifier map gives it and each after every definition it reads outside a `Schema.suspend`; the same set in
- * another order prints the same bytes; no `default`, `example` or `examples` value reaches it; and no reachable
- * definition prints the empty module. A planted fault is refused with its reason: a reachable definition that is no
- * schema object, one the importer rejects, a reachable key the identifier map leaves out, two reachable keys given one
- * name, and a name Effect would export differently.
+ * the identifier map gives it and each after every definition it reads outside a `Schema.suspend`, an alias of a
+ * recursive definition among them in either name order; the same set in another order prints the same bytes; no
+ * `default`, `example` or `examples` value reaches it; and no reachable definition prints the empty module. A set is
+ * drawn as the validation copy can be: no cycle of references returns to a schema without descending into the
+ * instance. A planted fault is refused with its reason: a reachable definition that is no schema object, one the
+ * importer rejects, a reachable key the identifier map leaves out, two reachable keys given one name, and a name Effect
+ * would export differently.
  *
- * Plants, each applied to src/emit/domain.ts, seen to fail this suite and reverted: none yet.
+ * Plants, each applied to src/emit/domain.ts, seen to fail this suite and reverted:
+ * - importCode handing toCodeDocument the representations as toRepresentations gave them, without definitionsOnly;
+ * - definitionsOnly keeping every reference, its names check always true;
+ * - definitionsOnly leaving a property's type as it found it, so a reference it names stays unwritten.
  */
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { drawn, explore } from "@superstarter/testing/explore"
+import type { Kept } from "@superstarter/testing/explore"
 import { required } from "@superstarter/testing/features"
 import {
 	boolean,
@@ -24,7 +30,8 @@ import {
 	shuffled,
 	subarray,
 	uniqueArray,
-	weighted
+	weighted,
+	type Weighted
 } from "@superstarter/testing/gen"
 import { notesOnly } from "@superstarter/testing/sense"
 import { searched } from "@superstarter/testing/vitest"
@@ -98,7 +105,22 @@ const annotations: Gen<Readonly<Record<string, Json>>> = (s) =>
 		)
 	)
 
-const leafGen = (keys: Arr.NonEmptyReadonlyArray<string>): Gen<Json> =>
+/**
+ * The keys a reference may name: any key once the schema descends into the instance (a property, an item, an
+ * additional property), and in place (the definition itself, or a branch of its `anyOf`) only a key drawn after the
+ * definition's own. The domain emitter reads the validation copy, which never holds a cycle of references that returns to
+ * a schema without descending into the instance (normalize/schemas.ts breakAliasCycles makes each such site `{}`), so
+ * the draw never builds one.
+ */
+type Reach = Readonly<{ all: Arr.NonEmptyReadonlyArray<string>; inPlace: ReadonlyArray<string> }>
+
+const descended = (reach: Reach): Reach => ({ all: reach.all, inPlace: reach.all })
+
+/** A reference to one of `keys`, none when there is no key to name. */
+const refTo = (keys: ReadonlyArray<string>): ReadonlyArray<Gen<Json>> =>
+	Arr.isReadonlyArrayNonEmpty(keys) ? [map(element(keys), ref)] : []
+
+const leafGen = (reach: Reach): Gen<Json> =>
 	weighted<Json>([
 		[2, () => ({ type: "string" })],
 		[1, (s) => ({ type: "string", minLength: s.draw(int(0, 3)), maxLength: s.draw(int(4, 9)) })],
@@ -113,27 +135,36 @@ const leafGen = (keys: Arr.NonEmptyReadonlyArray<string>): Gen<Json> =>
 				)
 			})
 		],
-		[3, map(element(keys), ref)]
+		...Arr.map(refTo(reach.inPlace), (target): Weighted<Json> => [3, target])
 	])
 
-const nodeGen = (keys: Arr.NonEmptyReadonlyArray<string>, depth: number): Gen<Json> =>
+const nodeGen = (reach: Reach, depth: number): Gen<Json> =>
 	depth === 0
-		? leafGen(keys)
+		? leafGen(reach)
 		: weighted<Json>([
-				[3, leafGen(keys)],
-				[1, (s) => ({ type: "array", items: s.draw(nodeGen(keys, depth - 1)) })],
+				[3, leafGen(reach)],
+				[1, (s) => ({ type: "array", items: s.draw(nodeGen(descended(reach), depth - 1)) })],
 				[
 					1,
 					(s) => ({
 						anyOf: s.draw(
-							shuffled([s.draw(nodeGen(keys, depth - 1)), { type: "null" }], { min: 2, max: 2 })
+							shuffled([s.draw(nodeGen(reach, depth - 1)), { type: "null" }], { min: 2, max: 2 })
 						)
 					})
 				],
-				[1, (s) => ({ type: ["array", "null"], items: s.draw(map(element(keys), ref)) })],
-				[1, (s) => ({ type: "object", additionalProperties: s.draw(nodeGen(keys, depth - 1)) })],
-				[1, (s) => ({ anyOf: [s.draw(map(element(keys), ref)), s.draw(map(element(keys), ref))] })],
-				[2, objectGen(keys, depth - 1)]
+				[1, (s) => ({ type: ["array", "null"], items: s.draw(map(element(reach.all), ref)) })],
+				[
+					1,
+					(s) => ({
+						type: "object",
+						additionalProperties: s.draw(nodeGen(descended(reach), depth - 1))
+					})
+				],
+				...Arr.map(refTo(reach.inPlace), (target): Weighted<Json> => [
+					1,
+					(s) => ({ anyOf: [s.draw(target), s.draw(target)] })
+				]),
+				[2, objectGen(reach.all, depth - 1)]
 			])
 
 const objectGen =
@@ -142,7 +173,7 @@ const objectGen =
 		const properties = s.draw(
 			uniqueArray(
 				element(PROPERTY_KEYS),
-				(key) => map(nodeGen(keys, depth), (node) => [key, node] as const),
+				(key) => map(nodeGen({ all: keys, inPlace: keys }, depth), (node) => [key, node] as const),
 				{ min: 0, max: 4 }
 			)
 		)
@@ -175,13 +206,13 @@ const caseGen: Gen<DomainCase> = (s) => {
 	]
 	const definitions = Arr.map(
 		keys,
-		(key) =>
+		(key, index) =>
 			[
 				key,
 				s.draw(
 					weighted<Json>([
 						[3, objectGen(keys, 1)],
-						[1, nodeGen(keys, 2)]
+						[1, nodeGen({ all: keys, inPlace: Arr.drop(keys, index + 1) }, 2)]
 					])
 				)
 			] as const
@@ -290,6 +321,8 @@ const emitted = (
 type Feature =
 	| "the empty module"
 	| "a recursive definition"
+	| "an alias named before its recursive target"
+	| "an alias named after its recursive target"
 	| "mutually recursive definitions"
 	| "an unreachable definition"
 	| "an annotation left out"
@@ -313,6 +346,7 @@ const parsedExports = (api: API, text: string) =>
 
 const featuresOf = (
 	drawnCase: DomainCase,
+	identifiers: ReturnType<typeof domainIdentifiers>,
 	reachable: ReadonlyArray<string>,
 	text: string,
 	types: ReadonlyArray<string>
@@ -334,9 +368,30 @@ const featuresOf = (
 				? [...Record.keys(schema), ...Arr.flatMap(Record.values(schema), keysOf)]
 				: []
 	const keys = Arr.flatMap(drawnCase.definitions, ([, schema]) => keysOf(schema))
+	const aliased = (key: string): ReadonlyArray<string> =>
+		Arr.flatMap(drawnCase.definitions, ([name, schema]) =>
+			name === key && isObject(schema) && Record.keys(schema).length === 1
+				? referencesOf(schema)
+				: []
+		)
 	return [
 		...(text === "export {};\n" ? (["the empty module"] as const) : []),
 		...(Arr.some(reachable, readsItself) ? (["a recursive definition"] as const) : []),
+		...Arr.flatMap(reachable, (key) =>
+			Arr.flatMap(
+				Arr.filter(aliased(key), (target) => readsItself(target)),
+				(target: string) =>
+					Option.toArray(
+						Option.flatMap(Option.fromUndefinedOr(identifiers.get(key)), (alias) =>
+							Option.map(Option.fromUndefinedOr(identifiers.get(target)), (recursive): Feature =>
+								Order.String(alias, recursive) < 0
+									? "an alias named before its recursive target"
+									: "an alias named after its recursive target"
+							)
+						)
+					)
+			)
+		),
 		...(types.length > 1 ? (["mutually recursive definitions"] as const) : []),
 		...(reachable.length < drawnCase.definitions.length
 			? (["an unreachable definition"] as const)
@@ -356,6 +411,44 @@ const featuresOf = (
 			? (["a nullable member"] as const)
 			: [])
 	]
+}
+
+/**
+ * An alias named before its recursive target: Effect's importer gave the alias its target's schema, sharing the target's
+ * nodes, so the walk that names references met the target's recursion first at the anonymous `Schema.suspend` closing
+ * it and named that `Suspend_`, which no definition carries, and the module was refused as identifier-mismatch. Shrunk
+ * from a failure at TEST_SEED=2064097670; replay it alone with
+ * TEST_REPLAY='domain module:-:0.2.0.0.3.0.6.1.0.3.0.0.0.0.0.0.0.0.6.1.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0'
+ */
+const ALIAS_OF_RECURSIVE: Kept<DomainCase, Feature> = {
+	note: "an alias named before its recursive target",
+	sketch: {
+		definitions: [
+			["User", { $ref: "#/$defs/user_update" }],
+			[
+				"user_update",
+				{
+					type: "object",
+					properties: { id: { $ref: "#/$defs/user_update" } },
+					required: []
+				}
+			]
+		],
+		roots: ["User"],
+		reordered: [
+			[
+				"user_update",
+				{
+					type: "object",
+					properties: { id: { $ref: "#/$defs/user_update" } },
+					required: []
+				}
+			],
+			["User", { $ref: "#/$defs/user_update" }]
+		]
+	},
+	draws: "",
+	reaches: ["a recursive definition", "an alias named before its recursive target", "a folded name"]
 }
 
 type Fault =
@@ -448,6 +541,8 @@ describe("emit: the domain module", () => {
 									[
 										"the empty module",
 										"a recursive definition",
+										"an alias named before its recursive target",
+										"an alias named after its recursive target",
 										"mutually recursive definitions",
 										"an unreachable definition",
 										"an annotation left out",
@@ -459,7 +554,7 @@ describe("emit: the domain module", () => {
 									],
 									{ cases: 800, sense: notesOnly }
 								),
-								kept: [],
+								kept: [ALIAS_OF_RECURSIVE],
 								runs: 200,
 								shrink: { kind: "bounded", candidates: 200 },
 								concurrency: 1,
@@ -481,7 +576,9 @@ describe("emit: the domain module", () => {
 										}).diagnostics ?? []
 									const exported = yield* parsedExports(api, file.content)
 									const reachable = reachableFrom(drawnCase.definitions, drawnCase.roots)
-									k.noteAll(featuresOf(drawnCase, reachable, file.content, exported.types))
+									k.noteAll(
+										featuresOf(drawnCase, identifiers, reachable, file.content, exported.types)
+									)
 									deepStrictEqual(
 										{
 											path: file.path,
