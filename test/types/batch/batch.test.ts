@@ -8,8 +8,10 @@
  *   directive claims, a twin's label on one line alone, and the lines of one label raising different diagnostics; and
  *   a diagnostic in a file no unit owns fails the batch, naming that file. Oracle: a second implementation, the model
  *   of each planted line's diagnostics armed and disarmed, compared as sets.
- * - The stall guard: a compiler that makes no CPU progress for its window fails with CompilerStalled and its
- *   goroutines, and one that checks to its end never does. Oracle: tsgo's watch mode, which idles after its first check.
+ * - The stall guard: a compiler whose process tree is idle for its window, no thread running, waiting for a CPU or on
+ *   the disk and no CPU time spent, fails with CompilerStalled and its goroutines, and one that checks to its end never
+ *   does, nor a command whose work runs past its window in a child while its own process waits. Oracle: tsgo's watch
+ *   mode, which idles after its first check.
  * - The builder: a run without type tests starts no batch; with them, its builder runs in a process of its own on the
  *   run's request, each unit's file it wrote is delivered, one it withheld is refused, and a builder that fails fails
  *   every check, naming its status and stderr. Oracle: a model of the request and of what each planted builder writes.
@@ -17,7 +19,8 @@
  * Plants (~/.cache/grizzle-release/BR14/plants): batch-twin-blind.patch compares no twin's diagnostics, so a twin
  * label whose lines differ passes; batch-code-blind.patch accepts any code under a code claim; batch-unowned.patch
  * attributes a diagnostic in a file no unit owns to some unit instead of failing the batch; batch-stall-blind.patch never
- * judges a compiler stalled; batch-withheld-read.patch reads a unit's missing file as a unit with no diagnostic;
+ * judges a compiler stalled; (~/.cache/grizzle-release/GREENTRUNK/plants) stall-guard-root-only.patch reads the root
+ * process alone, so a parent waiting on its busy child is judged stalled; batch-withheld-read.patch reads a unit's missing file as a unit with no diagnostic;
  * batch-builder-silent.patch writes an empty batch for a builder that failed, naming no failure.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
@@ -558,22 +561,53 @@ const attributed = (planted: Planted, c: Case<Feature>) =>
 	)
 
 /**
- * A planted check: a tiny program, clean or raising, checked once or held in watch mode, under a drawn window and a
- * drawn interval between readings.
+ * What a planted check runs: tsgo over a tiny program, clean or raising, checked once or held in watch mode; or a
+ * command whose work runs in a child, busy until its window and one reading more have passed, while its own process
+ * waits for it, as tsc's Node wrapper waits for tsgo.
  */
+type PlantedWork =
+	| Readonly<{ kind: "check"; raises: boolean; watch: boolean }>
+	| Readonly<{ kind: "busy child" }>
+
+/** A planted check: its work, under a drawn window and a drawn interval between readings. */
 type PlantedCheck = Readonly<{
-	raises: boolean
-	watch: boolean
+	work: PlantedWork
 	windowMillis: number
 	everyMillis: number
 }>
 
+const plantedWork: Gen<PlantedWork> = oneOf<PlantedWork>([
+	(source) => ({ kind: "check", raises: source.draw(boolean), watch: source.draw(boolean) }),
+	constant<PlantedWork>({ kind: "busy child" })
+])
+
 const plantedCheck: Gen<PlantedCheck> = (source) => ({
-	raises: source.draw(boolean),
-	watch: source.draw(boolean),
+	work: source.draw(plantedWork),
 	windowMillis: source.draw(int(1000, 3000)),
 	everyMillis: source.draw(int(50, 300))
 })
+
+/** What a planted check reaches: a stall, a check to its end, or a busy child's work past its window. */
+type StallFeature = "stalled" | "checked clean" | "checked with an error" | "worked past its window"
+
+const stallFeatureOf = (work: PlantedWork): StallFeature => {
+	switch (work.kind) {
+		case "check":
+			return work.watch ? "stalled" : work.raises ? "checked with an error" : "checked clean"
+		case "busy child":
+			return "worked past its window"
+	}
+}
+
+/**
+ * A busy child's two scripts: the parent starts the child (its first argument) with the milliseconds (its second) and
+ * waits for it, then exits as the child did; the child spins until those milliseconds have passed on the clock.
+ */
+const busyScripts = {
+	parent:
+		'import { spawnSync } from "node:child_process"\nconst { status } = spawnSync(process.execPath, [process.argv[2], process.argv[3]], { stdio: "inherit" })\nprocess.exit(status ?? 1)\n',
+	child: "const end = Date.now() + Number(process.argv[2])\nwhile (Date.now() < end) {}\n"
+} as const
 
 /**
  * What a planted builder does once it has read its request to the end: writes a batch of `units` into the request's
@@ -907,8 +941,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("the type-test batch", 
 						},
 						draw: drawn(plantedCheck),
 						literal: Formatter.format,
-						coverage: required<"stalled" | "checked clean" | "checked with an error">(
-							["stalled", "checked clean", "checked with an error"],
+						coverage: required<StallFeature>(
+							["stalled", "checked clean", "checked with an error", "worked past its window"],
 							{ cases: 12, sense: notesOnly }
 						),
 						kept: [],
@@ -918,36 +952,44 @@ layer(NodeServices.layer, { excludeTestServices: true })("the type-test batch", 
 						steerEvery: 4,
 						caseHang
 					},
-					({ raises, watch, windowMillis, everyMillis }, c) =>
+					({ work, windowMillis, everyMillis }, c) =>
 						Effect.scoped(
 							Effect.gen(function* () {
-								c.note(watch ? "stalled" : raises ? "checked with an error" : "checked clean")
+								c.note(stallFeatureOf(work))
 								const fs = yield* FileSystem.FileSystem
 								const path = yield* Path.Path
 								const repository = yield* fs.realPath(path.resolve(import.meta.dirname, "../../.."))
 								const dir = yield* scopedTempDir(path.join(repository, plantedIn), ".stall-")
+								yield* fs.writeFileString(path.join(dir, "parent.mjs"), busyScripts.parent)
+								yield* fs.writeFileString(path.join(dir, "child.mjs"), busyScripts.child)
+								const args =
+									work.kind === "busy child"
+										? [
+												path.join(dir, "parent.mjs"),
+												path.join(dir, "child.mjs"),
+												String(windowMillis + everyMillis)
+											]
+										: [
+												path.join(repository, "node_modules/typescript/bin/tsc"),
+												...(work.watch ? ["--watch"] : []),
+												"--pretty",
+												"false",
+												"-p",
+												path.join(dir, "tsconfig.json")
+											]
 								yield* fs.writeFileString(
 									path.join(dir, "index.ts"),
-									`export const checked: number = ${raises ? '"s"' : "1"}\n`
+									`export const checked: number = ${work.kind === "check" && work.raises ? '"s"' : "1"}\n`
 								)
 								yield* fs.writeFileString(
 									path.join(dir, "tsconfig.json"),
 									'{ "compilerOptions": { "noEmit": true, "strict": true, "types": [] }, "files": ["index.ts"] }\n'
 								)
 								const ran = yield* Effect.exit(
-									guardedRun(
-										process.execPath,
-										[
-											path.join(repository, "node_modules/typescript/bin/tsc"),
-											...(watch ? ["--watch"] : []),
-											"--pretty",
-											"false",
-											"-p",
-											path.join(dir, "tsconfig.json")
-										],
-										repository,
-										{ window: Duration.millis(windowMillis), every: Duration.millis(everyMillis) }
-									)
+									guardedRun(process.execPath, args, repository, {
+										window: Duration.millis(windowMillis),
+										every: Duration.millis(everyMillis)
+									})
 								)
 								const failure = Exit.findErrorOption(ran)
 								assert.deepEqual(
@@ -962,10 +1004,12 @@ layer(NodeServices.layer, { excludeTestServices: true })("the type-test batch", 
 										),
 										status: Exit.isSuccess(ran) ? Option.some(ran.value.status) : Option.none()
 									},
-									{
-										stalled: watch ? Option.some({ idled: true, dumped: true }) : Option.none(),
-										status: watch ? Option.none() : Option.some(raises ? 2 : 0)
-									}
+									work.kind === "check" && work.watch
+										? { stalled: Option.some({ idled: true, dumped: true }), status: Option.none() }
+										: {
+												stalled: Option.none(),
+												status: Option.some(work.kind === "check" && work.raises ? 2 : 0)
+											}
 								)
 							})
 						)
