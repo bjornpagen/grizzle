@@ -316,8 +316,9 @@ const entryFieldDomain = (
 }
 
 /**
- * A page size grizzle's page admission takes: a safe integer of at least 1, with no upper bound (README "A page size
- * has no upper bound"); it refuses any other before any SQL.
+ * A window's size a paged member's call takes: a safe integer of at least 1, with no upper bound (README "A window's
+ * size is any safe integer of at least 1"); the call's input refuses any other before any SQL (adapter/errors/failures.ts
+ * CallInputRefused, `size`).
  */
 export const isPageSize = (size: number): boolean => Number.isSafeInteger(size) && size >= 1
 
@@ -327,8 +328,9 @@ export const isPageSize = (size: number): boolean => Number.isSafeInteger(size) 
  * attached relation's rows whose field equals its own (model/reads.ts attachedRows); a recursive read every pair its
  * rows chain (reachedPairs). Refused on the host when it compiles: a relation the role does not hold, a get by a field
  * set within which none of its keys lies (session/keys.ts) or by a key holding a value of another type than its
- * field's, which the builder refuses as a literal of that field, a page whose size is no page size (isPageSize), and an
- * attachment or a recursive read naming a field its relation's heading lacks.
+ * field's, which the builder refuses as a literal of that field, a page ordered by a field its relation's heading
+ * lacks, and an attachment or a recursive read naming a field its relation's heading lacks. A page of a compiled member
+ * whose size is no window's size (isPageSize) is refused at its call's input, before the encoder sends anything.
  */
 const readCall = (
 	state: ModelState,
@@ -360,9 +362,11 @@ const readCall = (
 		case "compile":
 			return delivers((rows) => rows)
 		case "page":
-			return isPageSize(via.size) && Arr.every(via.order, (k) => heading.includes(k.field))
-				? delivers((rows) => rows)
-				: refused
+			return !Arr.every(via.order, (k) => heading.includes(k.field))
+				? refused
+				: isPageSize(via.size)
+					? delivers((rows) => rows)
+					: { kind: "host", refusals: [{ kind: "encoding-refused" }] }
 		case "attach":
 			return heading.includes(via.parent) &&
 				headingNames(state.install.base, role, via.relation).includes(via.child)
