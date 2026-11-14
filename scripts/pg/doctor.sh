@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# The go/no-go check for the local cluster.
+# The go/no-go check for the local cluster GRIZZLE_PG_CLUSTER names by its port, or the default when it is unset
+# (lib.sh).
 #   doctor.sh [--quick]
 # Every check must pass. --quick runs only the checks that need no scratch database.
 set -uo pipefail
@@ -18,7 +19,7 @@ check() {
 }
 dev() { tls_psql "$PG_DEV_ROLE" "$@" 2>&1; }
 
-echo "grizzle doctor: PostgreSQL $PG_PIN_VERSION at $GRIZZLE_PG_PREFIX, cluster on port $PG_PORT"
+echo "grizzle doctor: PostgreSQL $PG_PIN_VERSION at $GRIZZLE_PG_PREFIX, cluster on port $PG_PORT at $GRIZZLE_PG_STATE"
 
 if ! pg_running; then
 	fail "cluster running" "start it with scripts/pg/ctl.sh start"

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Creates the local cluster for the pinned build: TLS material, configuration, the grizzle_dev owner role, and the
-# template and scratch databases.
+# Creates a local cluster of the pinned build: TLS material, configuration, the grizzle_dev owner role, and the
+# template and scratch databases. The cluster is the one GRIZZLE_PG_CLUSTER names by its port, or the default when it
+# is unset (lib.sh), and its state directory holds all of it.
 #   init.sh [--force]
-# An existing cluster is refused unless --force, which deletes it.
+# An existing cluster is refused unless --force, which deletes it; so is a port taken on localhost.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 require_build
@@ -18,6 +19,7 @@ if [[ -d "$GRIZZLE_PG_DATA" ]]; then
 	pg_running && "$(pg_bin pg_ctl)" -D "$GRIZZLE_PG_DATA" -m fast stop
 	rm -rf "$GRIZZLE_PG_STATE"
 fi
+require_port_free
 
 mkdir -p "$GRIZZLE_PG_TLS" "$GRIZZLE_PG_LOG" "$GRIZZLE_PG_SOCKET"
 chmod 700 "$GRIZZLE_PG_STATE"
@@ -131,3 +133,4 @@ fi
 
 echo "Cluster ready: PostgreSQL $PG_PIN_VERSION on localhost:$PG_PORT (verify-full TLS, CA $GRIZZLE_PG_TLS/ca.crt)"
 echo "Owner role $PG_DEV_ROLE; password in $GRIZZLE_PG_DEV_PASSWORD_FILE; template database $PG_TEMPLATE_DB"
+echo "State directory $GRIZZLE_PG_STATE; GRIZZLE_PG_CLUSTER=$PG_PORT names it"

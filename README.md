@@ -4089,6 +4089,16 @@ pnpm test <file>                  # some files
 pnpm check                        # before a release (turbo, cached): typecheck, superlint, oxlint, format, fallow, dedupe
 ```
 
+Every script and test reaches one local cluster, which `GRIZZLE_PG_CLUSTER` names by its port: unset, it is the default cluster on 5433. Any other port names a cluster of its own, built from the same installed PostgreSQL, with its own state directory beside the default's (`pg19rc2-<port>`), TLS material, socket, roles and databases, sized to the machine as the default is. PostgreSQL's SERIALIZABLE bookkeeping is per cluster, so a heavy run in a cluster of its own neither waits on the shared cluster's nor makes it wait. `pnpm pg:init` refuses a port already taken on localhost, and `pnpm pg destroy` refuses the default:
+
+```sh
+GRIZZLE_PG_CLUSTER=<port> pnpm pg:init              # create and start a cluster of your own
+GRIZZLE_PG_CLUSTER=<port> pnpm pg:doctor
+GRIZZLE_PG_CLUSTER=<port> pnpm pg env               # its port and paths: state directory, CA, owner's password file
+GRIZZLE_PG_CLUSTER=<port> pnpm test:network <file>  # every test, and every child a test starts, reaches it
+GRIZZLE_PG_CLUSTER=<port> pnpm pg destroy           # stop it and delete its state directory
+```
+
 Every generated suite draws from one seed, `TEST_SEED`, which a run prints first. Setting it reproduces a run, and whether a suite reaches what it requires never depends on it. [CONTRIBUTING.md](CONTRIBUTING.md) has the code rules and how the tests are built on the testing library.
 
 ## Repository
