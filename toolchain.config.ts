@@ -122,17 +122,7 @@ export default toolchain({
 			rule: "limit-evidence",
 			files: ["test/types/examples/fixtures/readme.ts", "test/types/examples/fixtures/skill.ts"]
 		},
-		{ rule: "ts-only-extensions", files: ["upstream/v8-unicode-end-anchor-astral-class/repro.js"] },
-		{
-			rule: "effect-free-packages",
-			/**
-			 * The engine is Effect-free at run time and names Effect's types (`import type`), so its manifest states effect
-			 * as the peer its declarations need. A consumer takes the engine's source from grizzle's submodule without the
-			 * toolchain, whose files its Vite would fail to load, so its tsconfig extends grizzle's own base, which sets no
-			 * plugin, never the dev tools' Effect-free base.
-			 */
-			files: ["packages/engine/package.json", "packages/engine/tsconfig.json"]
-		}
+		{ rule: "ts-only-extensions", files: ["upstream/v8-unicode-end-anchor-astral-class/repro.js"] }
 	],
 	effectFree: ["packages/engine"],
 	core: {
