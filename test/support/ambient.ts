@@ -32,6 +32,7 @@ export type AmbientPath = { readonly kind: "default" } | { readonly kind: "grizz
 /** A setting that changes how PostgreSQL parses or prints text, at one of the values a draw gives it. */
 export type AmbientSetting =
 	| { readonly parameter: "extra_float_digits"; readonly value: "-15" | "0" | "1" | "3" }
+	| { readonly parameter: "lc_monetary"; readonly value: "C.UTF-8" | "en_US.UTF-8" }
 	| { readonly parameter: "TimeZone"; readonly value: "UTC" | "Pacific/Chatham" }
 	| {
 			readonly parameter: "DateStyle"
@@ -74,6 +75,10 @@ export const ambientSettingValues: Arr.NonEmptyReadonlyArray<SettingValues> = [
 		{ parameter: "extra_float_digits", value: "0" },
 		{ parameter: "extra_float_digits", value: "1" },
 		{ parameter: "extra_float_digits", value: "3" }
+	],
+	[
+		{ parameter: "lc_monetary", value: "C.UTF-8" },
+		{ parameter: "lc_monetary", value: "en_US.UTF-8" }
 	],
 	[
 		{ parameter: "TimeZone", value: "UTC" },
