@@ -1949,25 +1949,9 @@ class Differ {
 	/** The backfill of the families new to stored rows (backfill.ts), once every column it draws is added: its UPDATEs,
 	 * then each drawn column's DROP DEFAULT, before any constraint that reads them (structure.constraints). */
 	backfill(): boolean {
-		const previousTables = new Map(
-			this.input.previous.manifest.objects.flatMap((o) => {
-				const v = installed(o)
-				return v.kind === "table" ? [[nameKey(v.create.table), v.create] as const] : []
-			})
-		)
 		const { checks, updates, dropDefaults } = backfillOf({
 			installation: this.input.installation,
 			previous: this.input.previous.theory,
-			previousOperators: (table, column) => {
-				const at = previousTables.get(nameKey(objectName(this.input.previous.schema, table)))
-				const c = at?.columns.find((x) => x.name === column)
-				if (c === undefined) {
-					throw defect(
-						`the previous snapshot installs the column ${column} its relation ${table} records`
-					)
-				}
-				return columnOperators(c.type, this.prevDomains)
-			},
 			mayHoldRows: (t) => this.mayHoldRows(t),
 			added: this.backfilled
 		})

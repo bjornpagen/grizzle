@@ -66,7 +66,7 @@ import {
 } from "#compiler/core/nonempty.ts"
 import { nameKey } from "#compiler/deploy/snapshot/objects.ts"
 import type { SnapshotTheory } from "#compiler/deploy/snapshot/types.ts"
-import { compareAt, type OperatorNames, operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
+import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AxisKind, Family, FamilyFold, FoldPlane, TreeShape } from "#compiler/ir/family.ts"
 import type { NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
@@ -89,7 +89,6 @@ import type {
 	SqlStatement,
 	Target,
 	TypeRef,
-	TypeSchema,
 	Update,
 	WindowSpec,
 	With
@@ -101,12 +100,13 @@ import {
 	call,
 	cast,
 	col,
+	conjunction,
 	countStar,
 	cte,
 	cteRefAs,
 	derived,
+	desc,
 	eq,
-	join,
 	lit,
 	not,
 	objectName,
@@ -134,14 +134,11 @@ export interface BackfilledTable {
 export type Backfilled = ReadonlyMap<string, BackfilledTable>
 
 /** What the backfill of a migration reads besides its target: the previous snapshot's theory, which names the key the
- * stored rows of a relation are distinct by; the schema of the operators comparing two values of a column of a previous
- * table as the previous snapshot types it, which a column the migration drops at its end holds while the backfill runs;
- * whether a table of the target holds rows before the migration; and the columns the migration adds under their
- * placeholder defaults (DrawnColumns). */
+ * stored rows of a relation are distinct by; whether a table of the target holds rows before the migration; and the
+ * columns the migration adds under their placeholder defaults (DrawnColumns). */
 export interface BackfillInput {
 	readonly installation: Installation
 	readonly previous: SnapshotTheory
-	readonly previousOperators: (table: string, column: string) => TypeSchema | undefined
 	readonly mayHoldRows: (table: ObjectName) => boolean
 	readonly added: Backfilled
 }
@@ -267,7 +264,7 @@ const window = (
 
 /** A window function's call over `over`. */
 const over = (
-	fn: "row_number" | "sum" | "max" | "min" | "bit_or" | "string_agg" | "lag",
+	fn: "row_number" | "sum" | "max" | "min" | "bit_or" | "string_agg" | "lag" | "first_value",
 	args: ReadonlyArray<Expr>,
 	spec: WindowSpec
 ): Expr => ({
@@ -389,61 +386,40 @@ const maskedStep = (
 /** Whether `columns` holds the column of a native column. */
 const holds = (columns: ReadonlySet<string>, c: NativeColumn): boolean => columns.has(columnOf(c))
 
-/** A column of a member key, with the schema of the operators that compare its values (ir/compare.ts operatorSchemaOf). */
-interface KeyColumn {
-	readonly column: string
-	readonly operators: TypeSchema | undefined
-}
-
 /**
- * The columns the backfill orders a family's stored members by and joins its rows back on: the member's primary key,
- * a key of its stored rows; or, when the migration adds a field of that key (an ordered family's index is often one),
- * the key the previous snapshot records, which the stored rows are distinct by. Each column compares at the type it
- * holds while the backfill runs: a field the member keeps at its type in the target, which the migration's Structure
- * converted it to before the backfill, and a field the migration drops at the type the previous snapshot records, the
- * column standing until the migration's removals at its end.
+ * The columns the backfill orders a family's stored members by: the member's primary key, a key of its stored rows;
+ * or, when the migration adds a field of that key (an ordered family's index is often one), the key the previous
+ * snapshot records, which the stored rows are distinct by. Each column orders at the type it holds while the backfill
+ * runs: a field the member keeps at its type in the target, which the migration's Structure converted it to before the
+ * backfill, and a field the migration drops at the type the previous snapshot records, the column standing until the
+ * migration's removals at its end.
  */
 const memberKey = (
 	input: BackfillInput,
 	family: Family,
 	member: RelationInfo,
 	added: ReadonlySet<string>
-): NonEmptyReadonlyArray<KeyColumn> => {
-	const names = input.installation.names
-	const own = mapNonEmpty(member.primaryFields, (f) => ({
-		column: f.column,
-		operators: operatorSchemaOf(names, f.type)
-	}))
-	if (!own.some((c) => added.has(c.column))) {
+): NonEmptyReadonlyArray<string> => {
+	const own = mapNonEmpty(member.primaryFields, (f) => f.column)
+	if (!own.some((c) => added.has(c))) {
 		return own
 	}
 	const was = input.previous.relations[member.name]
 	if (was?.kind !== "relation") {
 		return refuseBackfill(family, `${member.name}'s stored rows have no key the snapshot records`)
 	}
-	const columns = was.primaryKey.map((name): KeyColumn => {
+	const columns = was.primaryKey.map((name): string => {
 		const field = was.fields.find((f) => f.name === name)
 		if (field === undefined) {
 			throw defect(`the snapshot's relation ${member.name} records its key field ${name}`)
 		}
-		const kept = member.fields.find((f) => f.column === field.column)
-		return {
-			column: field.column,
-			operators:
-				kept === undefined
-					? input.previousOperators(was.ident, field.column)
-					: operatorSchemaOf(names, kept.type)
-		}
+		return field.column
 	})
-	if (!isNonEmpty(columns) || columns.some((c) => added.has(c.column))) {
+	if (!isNonEmpty(columns) || columns.some((c) => added.has(c))) {
 		return refuseBackfill(family, `the key ${member.name}'s stored rows were distinct by is gone`)
 	}
 	return columns
 }
-
-/** A member key's columns met by the same columns of a drawing's rows (Match). */
-const keyMatch = (key: NonEmptyReadonlyArray<KeyColumn>): NonEmptyReadonlyArray<Match> =>
-	mapNonEmpty(key, (k) => ({ target: k.column, source: k.column, operators: k.operators }))
 
 /** A fold of a family by its place among the family's folds, which names its columns in the backfill's layers. */
 interface FoldAt {
@@ -574,13 +550,9 @@ const memberDerivation = (
 	if (!isNonEmpty(assignments)) {
 		return undefined
 	}
-	const keyed = memberKey(input, family, member, added)
-	const key = mapNonEmpty(keyed, (k) => k.column)
+	const key = memberKey(input, family, member, added)
 	const group = mapNonEmpty(family.group, (g) => g.member.column)
-	const carried = [...new Set([...key, ...group])]
-	if (!isNonEmpty(carried)) {
-		throw defect("a member carries its key")
-	}
+	const carried = dedupeNonEmpty([rowColumn, ...key, ...group])
 	const partition = group.map(tableCol)
 	const inOrder = [tableCol(indexName)]
 	const numbered = binary(
@@ -602,10 +574,10 @@ const memberDerivation = (
 			steps,
 			...planeLayers(installation, folds, partition, inOrder)
 		]),
-		match: keyMatch(keyed),
 		set: assignments,
 		reads: cellsOf(table, [
-			...carried,
+			...key,
+			...group,
 			...(drawIndex ? [] : [index]),
 			...foldReads(installation, member, folds)
 		])
@@ -619,64 +591,141 @@ interface Drawn {
 }
 
 /**
- * A column a derivation meets each row of its table by: the table's `target` holds the value the derivation's row holds
- * in `source`, compared at `operators` (ir/compare.ts operatorSchemaOf).
- */
-interface Match {
-	readonly target: string
-	readonly source: string
-	readonly operators: TypeSchema | undefined
-}
-
-/**
  * One body of the backfill, a family's member part, owner, tree parent, tree, tree end or copy: rows computed apart from
- * the table whose columns it draws, `core` under its own WITH, each with the columns `match` meets a row of `table` at
- * and every value it draws (`set`); and every column it reads, on any table (`reads`). The columns `match` meets are a
- * key of `table` that no derivation draws, its member key or its owner's key, so a row of the table meets at most one of
- * its rows, at the values the table stores. Nothing it holds reads a row of the table but through its own FROM, so it is
- * one join of sets of rows, never a probe run once per row (passes).
+ * the table whose columns it draws, `core` under its own WITH, each holding the tid of the row of `table` it meets, its
+ * `ctid` (rowColumn), and every value it draws (`set`); and every column it reads, on any table (`reads`). A row of the
+ * table is met by at most one of its rows, at the row's own tid, so every meeting of a derivation and its table is a
+ * join on one column, which PostgreSQL hashes or merges whole, and a row a derivation draws from rows of another (an
+ * owner's from its last member, a copy from its axis's target) is read off one sorted stream of both (streamed), never a
+ * join of them. Nothing it holds reads a row of the table but through its own FROM, so it is sorts and joins of sets of
+ * rows, never a probe run once per row (passes).
  */
 interface Derivation {
 	readonly table: ObjectName
 	readonly with: With | undefined
 	readonly core: Core
-	readonly match: NonEmptyReadonlyArray<Match>
 	readonly set: NonEmptyReadonlyArray<Drawn>
 	readonly reads: ReadonlyArray<Cell>
 }
 
-/** The rows of a derivation read off `table` under `alias`: each of `columns` once, by its own name, and each of
- * `computed` by its name, of the rows `where` keeps. */
-const readOff = (
-	table: ObjectName,
-	alias: string,
-	columns: NonEmptyReadonlyArray<string>,
-	computed: ReadonlyArray<{ readonly name: string; readonly expr: Expr }>,
-	where: Expr | undefined
-): Core =>
-	provedCore(
+/** The column every derivation's rows name the row of its table they meet by: that row's tid, PostgreSQL's system
+ * column, which a staged view of the table carries as a column of its own. */
+const rowColumn = "ctid"
+
+/** The names a stream gives what it computes, none a field's. */
+const sourceName = "__source"
+const metName = "__met"
+const streamKeyName = (k: number): string => `__key_${k}`
+
+/** A value a stream carries from its source rows to its table's: the source's expression, the column of the table it
+ * sets, which holds its place on the table's rows at the same type, and its name among the stream's columns. */
+interface Carried {
+	readonly name: string
+	readonly value: Expr
+	readonly column: string
+}
+
+/**
+ * The rows of `table` each met by a row of `source` at an equal key, read off one sorted stream of both, never a join:
+ * the table's rows (alias `t`, those `targetWhere` keeps) at `targetKey`, the source's (alias `s`, those `sourceWhere`
+ * keeps) at `sourceKey`, each key one partition, its source rows first and then by tid. A row of the table takes each
+ * value of its partition's first row, which is a source row's where the partition holds one, and is kept only then
+ * (`__met`). The stream is a sort of the two sets of rows, whatever keys they meet at and however many rows share one.
+ */
+const streamed = (spec: {
+	readonly table: ObjectName
+	readonly targetKey: NonEmptyReadonlyArray<Expr>
+	readonly targetWhere: Expr | undefined
+	readonly source: ObjectName
+	readonly sourceKey: NonEmptyReadonlyArray<Expr>
+	readonly sourceWhere: Expr | undefined
+	readonly values: NonEmptyReadonlyArray<Carried>
+}): Core => {
+	const arm = (
+		alias: string,
+		table: ObjectName,
+		key: NonEmptyReadonlyArray<Expr>,
+		source: boolean,
+		value: (c: Carried) => Expr,
+		where: Expr | undefined
+	): SetCore =>
+		provedCore(
+			"keyed",
+			[
+				targetAs(col(alias, rowColumn), rowColumn),
+				targetAs(lit.bool(source), sourceName),
+				...key.map((k, i) => targetAs(k, streamKeyName(i))),
+				...spec.values.map((c) => targetAs(value(c), c.name))
+			],
+			[{ kind: "table", table, alias }],
+			where
+		)
+	const stream = derived(
+		select(
+			unionAll("disjoint", [
+				arm("t", spec.table, spec.targetKey, false, (c) => col("t", c.column), spec.targetWhere),
+				arm("s", spec.source, spec.sourceKey, true, (c) => c.value, spec.sourceWhere)
+			])
+		),
+		"u",
+		[],
+		false
+	)
+	const sourcesFirst: WindowSpec = {
+		partitionBy: spec.targetKey.map((_, i) => col("u", streamKeyName(i))),
+		orderBy: [desc(col("u", sourceName)), asc(col("u", rowColumn))],
+		frame: undefined
+	}
+	const firstOf = (column: string): Expr => over("first_value", [col("u", column)], sourcesFirst)
+	const partitioned = derived(
+		select(
+			provedCore(
+				"keyed",
+				[
+					targetAs(col("u", rowColumn), rowColumn),
+					targetAs(col("u", sourceName), sourceName),
+					targetAs(firstOf(sourceName), metName),
+					...spec.values.map((c) => targetAs(firstOf(c.name), c.name))
+				],
+				[stream],
+				undefined
+			)
+		),
+		"w",
+		[],
+		false
+	)
+	return provedCore(
 		"keyed",
 		[
-			...dedupeNonEmpty(columns).map((c) => targetAs(col(alias, c), c)),
-			...computed.map((c) => targetAs(c.expr, c.name))
+			targetAs(col("w", rowColumn), rowColumn),
+			...spec.values.map((c) => targetAs(col("w", c.name), c.name))
 		],
-		[{ kind: "table", table, alias }],
-		where
+		[partitioned],
+		and([col("w", metName), not(col("w", sourceName))])
 	)
+}
 
-/** Each group field of a family met at the operators of its type, the table's side `target` and the rows' `source`:
- * each its owner's key field or its member's group field. */
-const groupMatch = (
-	names: OperatorNames,
+/** The name a stream's derivation gives the value it carries for the `n`th column it sets. */
+const carriedName = (n: number): string => `__carried_${n}`
+
+/** The values a stream carries for `set`, each named by its place (carriedName), read off its source at `value`. */
+const carriedOf = (
+	set: NonEmptyReadonlyArray<{ readonly column: string; readonly value: Expr }>
+): {
+	readonly values: NonEmptyReadonlyArray<Carried>
+	readonly drawn: NonEmptyReadonlyArray<Drawn>
+} => ({
+	values: mapNonEmpty(set, (d, n) => ({ name: carriedName(n), value: d.value, column: d.column })),
+	drawn: mapNonEmpty(set, (d, n) => ({ column: d.column, value: carriedName(n) }))
+})
+
+/** Each group field of a family at `alias`, its owner's side or its member's. */
+const groupAt = (
 	family: Family,
-	target: "owner" | "member",
-	source: "owner" | "member"
-): NonEmptyReadonlyArray<Match> =>
-	mapNonEmpty(family.group, (g) => ({
-		target: g[target].column,
-		source: g[source].column,
-		operators: operatorSchemaOf(names, g.owner.type)
-	}))
+	side: "owner" | "member",
+	alias: string
+): NonEmptyReadonlyArray<Expr> => mapNonEmpty(family.group, (g) => col(alias, g[side].column))
 
 /** Whether a family's member at `alias` is its last: its index one less than its copy of the count. */
 const lastOf = (family: Family, alias: string): Expr =>
@@ -711,24 +760,24 @@ const ownerDerivation = (
 	if (!isNonEmpty(set) || !input.mayHoldRows(memberTable)) {
 		return undefined
 	}
-	const group = mapNonEmpty(family.group, (g) => g.member.column)
+	const carried = carriedOf(
+		mapNonEmpty(set, (d) => ({ column: d.column, value: col("s", d.value) }))
+	)
 	return {
 		table,
 		with: undefined,
-		core: readOff(
-			memberTable,
-			"m",
-			[...group, ...set.map((d) => d.value)],
-			[],
-			lastOf(family, "m")
-		),
-		match: groupMatch(input.installation.names, family, "owner", "member"),
-		set,
+		core: streamed({
+			table,
+			targetKey: groupAt(family, "owner", "t"),
+			targetWhere: undefined,
+			source: memberTable,
+			sourceKey: groupAt(family, "member", "s"),
+			sourceWhere: lastOf(family, "s"),
+			values: carried.values
+		}),
+		set: carried.drawn,
 		reads: [
-			...cellsOf(
-				table,
-				family.group.map((g) => g.owner.column)
-			),
+			...cellsOf(table, [...family.group.map((g) => g.owner.column), ...set.map((d) => d.column)]),
 			...cellsOf(memberTable, [
 				...family.group.map((g) => g.member.column),
 				columnOf(family.index),
@@ -768,8 +817,7 @@ const treeDerivation = (
 	const member = relationOf(installation, family.member.name)
 	const owner = mapNonEmpty(family.group, (g) => g.owner.column)
 	const parent = mapNonEmpty(family.group, (g) => g.member.column)
-	const keyed = memberKey(input, family, member, added)
-	const key = mapNonEmpty(keyed, (k) => k.column)
+	const key = memberKey(input, family, member, added)
 	const folds: ReadonlyArray<FoldAt> = family.folds.flatMap((fold, f) =>
 		planesAdded(fold, added) ? [{ fold, f }] : []
 	)
@@ -782,9 +830,15 @@ const treeDerivation = (
 	)
 	const int = (value: bigint): Expr => lit.int(value, types.integer)
 	const steps = stepColumns(installation, member, folds)
-	const carried = dedupeNonEmpty([...key, ...owner, ...parent, ...(drawIndex ? [] : [index])])
+	const carried = dedupeNonEmpty([
+		rowColumn,
+		...key,
+		...owner,
+		...parent,
+		...(drawIndex ? [] : [index])
+	])
 	const at = (k: number): string => `__k_${k}`
-	/** One arm of `w`'s rows: each row of the table, met at `meets`, `__child` its role. */
+	/** One arm of `w`'s rows: each row of the table, met at `meets`, as itself (`__self`) or as a child (`__child`). */
 	const arm = (
 		meets: NonEmptyReadonlyArray<string>,
 		child: bigint,
@@ -797,6 +851,7 @@ const treeDerivation = (
 				targetAs(isRoot, "__root"),
 				...meets.map((c, k) => targetAs(col("t", c), at(k))),
 				targetAs(int(child), "__child"),
+				targetAs(lit.bool(child === 0n), "__self"),
 				...steps.map((c) => targetAs(c.expr, c.name))
 			],
 			[{ kind: "table", table, alias: "t" }],
@@ -808,7 +863,7 @@ const treeDerivation = (
 		[],
 		false
 	)
-	const passed = [...carried, "__root", "__child", ...steps.map((c) => c.name)]
+	const passed = [...carried, "__root", "__child", "__self", ...steps.map((c) => c.name)]
 	const met = derived(
 		select(
 			provedCore(
@@ -878,7 +933,7 @@ const treeDerivation = (
 			...steps.map((c) => targetAs(col("w", c.name), c.name))
 		],
 		[met],
-		eq(col("w", "__child"), int(0n))
+		col("w", "__self")
 	)
 	const planes = folds.flatMap(({ fold, f }) =>
 		fold.planes.flatMap((plane, p) => [
@@ -918,9 +973,14 @@ const treeDerivation = (
 					)
 				)
 			: ranked,
-		match: keyMatch(keyed),
 		set,
-		reads: cellsOf(table, [...carried, ...foldReads(installation, member, folds)])
+		reads: cellsOf(table, [
+			...key,
+			...owner,
+			...parent,
+			...(drawIndex ? [] : [index]),
+			...foldReads(installation, member, folds)
+		])
 	}
 }
 
@@ -960,12 +1020,11 @@ const parentDerivation = (
 	table: ObjectName,
 	added: ReadonlySet<string>
 ): Derivation => {
-	const keyed = memberKey(input, family, relationOf(input.installation, family.member.name), added)
-	const key = mapNonEmpty(keyed, (k) => k.column)
+	const key = memberKey(input, family, relationOf(input.installation, family.member.name), added)
 	const start = shape.start.column
 	const end = shape.end.column
 	const root = mapNonEmpty(shape.root, (r) => r.column)
-	const carried = dedupeNonEmpty([...key, ...root, start])
+	const carried = dedupeNonEmpty([rowColumn, ...key, ...root, start])
 	const carry = (alias: string): ReadonlyArray<Target> =>
 		carried.map((c) => targetAs(col(alias, c), c))
 	const rootOf = (alias: string): ReadonlyArray<Expr> => root.map((r) => col(alias, r))
@@ -973,7 +1032,12 @@ const parentDerivation = (
 	const bound = (at: string, step: bigint): SetCore =>
 		provedCore(
 			"keyed",
-			[...carry("t"), targetAs(col("t", at), "__at"), targetAs(int(step), "__step")],
+			[
+				...carry("t"),
+				targetAs(col("t", at), "__at"),
+				targetAs(int(step), "__step"),
+				targetAs(lit.bool(step > 0n), "__opens")
+			],
 			[{ kind: "table", table, alias: "t" }],
 			undefined
 		)
@@ -986,6 +1050,7 @@ const parentDerivation = (
 				[
 					...carry("e"),
 					targetAs(col("e", "__step"), "__step"),
+					targetAs(col("e", "__opens"), "__opens"),
 					targetAs(
 						over(
 							"sum",
@@ -1005,9 +1070,14 @@ const parentDerivation = (
 	const role = (level: Expr, candidate: bigint): SetCore =>
 		provedCore(
 			"keyed",
-			[...carry("l"), targetAs(level, "__level"), targetAs(int(candidate), "__candidate")],
+			[
+				...carry("l"),
+				targetAs(level, "__level"),
+				targetAs(int(candidate), "__candidate"),
+				targetAs(lit.bool(candidate === 0n), "__child")
+			],
 			[cteRefAs(levelsName, "l")],
-			eq(col("l", "__step"), int(1n))
+			col("l", "__opens")
 		)
 	const roles = cte(
 		rolesName,
@@ -1019,6 +1089,7 @@ const parentDerivation = (
 					...carry("d"),
 					targetAs(col("d", "__level"), "__level"),
 					targetAs(col("d", "__candidate"), "__candidate"),
+					targetAs(col("d", "__child"), "__child"),
 					targetAs(
 						over(
 							"sum",
@@ -1052,8 +1123,8 @@ const parentDerivation = (
 			provedCore(
 				"keyed",
 				[
-					...key.map((k) => targetAs(col("r", k), k)),
-					targetAs(col("r", "__candidate"), "__candidate"),
+					targetAs(col("r", rowColumn), rowColumn),
+					targetAs(col("r", "__child"), "__child"),
 					targetAs(
 						cast(
 							{
@@ -1081,13 +1152,12 @@ const parentDerivation = (
 		with: { recursive: false, ctes: [levels, roles, heads] },
 		core: provedCore(
 			"keyed",
-			[...key.map((k) => targetAs(col("h", k), k)), targetAs(col("h", "__parent"), "__parent")],
+			[targetAs(col("h", rowColumn), rowColumn), targetAs(col("h", "__parent"), "__parent")],
 			[cteRefAs(headsName, "h")],
-			eq(col("h", "__candidate"), int(0n))
+			col("h", "__child")
 		),
-		match: keyMatch(keyed),
 		set: [{ column: shape.parent.column, value: "__parent" }],
-		reads: cellsOf(table, [...carried, end])
+		reads: cellsOf(table, [...key, ...root, start, end])
 	}
 }
 
@@ -1102,24 +1172,30 @@ const treeEndDerivation = (
 	const planes = family.folds.flatMap((fold) =>
 		fold.planes.filter((plane) => added.has(plane.end.column))
 	)
-	const set = planes.map((plane) => ({ column: plane.end.column, value: columnOf(plane.after) }))
+	const set = planes.map((plane) => ({
+		column: plane.end.column,
+		value: col("s", columnOf(plane.after))
+	}))
 	if (!isNonEmpty(set)) {
 		return undefined
 	}
+	const carried = carriedOf(set)
 	return {
 		table,
 		with: undefined,
-		core: readOff(
+		core: streamed({
 			table,
-			"c",
-			[...mapNonEmpty(family.group, (g) => g.member.column), ...set.map((d) => d.value)],
-			[],
-			and(appendNonEmpty(nonRoot(names, family, "c"), lastOf(family, "c")))
-		),
-		match: groupMatch(names, family, "owner", "member"),
-		set,
+			targetKey: groupAt(family, "owner", "t"),
+			targetWhere: undefined,
+			source: table,
+			sourceKey: groupAt(family, "member", "s"),
+			sourceWhere: and(appendNonEmpty(nonRoot(names, family, "s"), lastOf(family, "s"))),
+			values: carried.values
+		}),
+		set: carried.drawn,
 		reads: cellsOf(table, [
 			...family.group.flatMap((g) => [g.member.column, g.owner.column]),
+			...set.map((d) => d.column),
 			columnOf(family.index),
 			family.copy,
 			...planes.map((plane) => columnOf(plane.after))
@@ -1229,9 +1305,6 @@ const nonRoot = (names: OperatorNames, family: Family, alias: string): ReadonlyA
 			]
 		: []
 
-/** The name a copy's rows give the value they copy (copyDerivation), none a field's. */
-const copiedName = "__copied"
-
 /** The columns a migration adds to `table` under their placeholders, where it may hold rows. */
 const addedOn = (input: BackfillInput, table: ObjectName): ReadonlySet<string> =>
 	new Set(input.mayHoldRows(table) ? (input.added.get(nameKey(table))?.columns ?? []) : [])
@@ -1249,82 +1322,67 @@ const copyDerivation = (input: BackfillInput, copy: Copy): Derivation => {
 	const { family, from, to } = copy
 	const index = columnOf(family.index)
 	const value = columnOf(to)
+	const copied = columnOf(from)
 	const members = mapNonEmpty(family.group, (g) => g.member.column)
 	const owners = family.group.map((g) => g.owner.column)
 	const rooted = family.members.kind === "tree" ? [...members, ...owners] : []
-	const set: NonEmptyReadonlyArray<Drawn> = [{ column: columnOf(from), value: copiedName }]
-	if (copy.axis === "last") {
-		return {
-			table: copy.source,
-			with: undefined,
-			core: readOff(
-				copy.target,
-				"a",
-				members,
-				[{ name: copiedName, expr: col("a", value) }],
-				and(appendNonEmpty(nonRoot(names, family, "a"), lastOf(family, "a")))
-			),
-			match: groupMatch(names, family, "owner", "member"),
-			set,
-			reads: [
-				...cellsOf(copy.source, owners),
-				...cellsOf(copy.target, [...members, index, family.copy, ...rooted, value])
-			]
-		}
-	}
-	const keyed = memberKey(
-		input,
-		family,
-		relationOf(input.installation, family.member.name),
-		addedOn(input, copy.source)
-	)
-	const key = mapNonEmpty(keyed, (k) => k.column)
-	const meets: NonEmptyReadonlyArray<Expr> =
-		copy.axis === "owner"
-			? mapNonEmpty(family.group, (g) =>
-					compareAt(
-						"=",
-						operatorSchemaOf(names, g.owner.type),
-						col("s", g.member.column),
-						col("a", g.owner.column)
-					)
-				)
-			: [
-					...mapNonEmpty(family.group, (g) =>
-						compareAt(
-							"=",
-							operatorSchemaOf(names, g.owner.type),
-							col("s", g.member.column),
-							col("a", g.member.column)
-						)
+	const carried = carriedOf([{ column: copied, value: col("s", value) }])
+	const along = ((): {
+		readonly targetKey: NonEmptyReadonlyArray<Expr>
+		readonly sourceKey: NonEmptyReadonlyArray<Expr>
+		readonly sourceWhere: Expr | undefined
+		readonly reads: ReadonlyArray<Cell>
+	} => {
+		switch (copy.axis) {
+			case "last":
+				return {
+					targetKey: groupAt(family, "owner", "t"),
+					sourceKey: groupAt(family, "member", "s"),
+					sourceWhere: and(appendNonEmpty(nonRoot(names, family, "s"), lastOf(family, "s"))),
+					reads: [
+						...cellsOf(copy.source, [...owners, copied]),
+						...cellsOf(copy.target, [...members, index, family.copy, ...rooted, value])
+					]
+				}
+			case "owner":
+				return {
+					targetKey: groupAt(family, "member", "t"),
+					sourceKey: groupAt(family, "owner", "s"),
+					sourceWhere: undefined,
+					reads: [
+						...cellsOf(copy.source, [...members, copied]),
+						...cellsOf(copy.target, [...owners, value])
+					]
+				}
+			case "predecessor":
+				return {
+					targetKey: appendNonEmpty(groupAt(family, "member", "t"), col("t", index)),
+					sourceKey: appendNonEmpty(
+						groupAt(family, "member", "s"),
+						binary("+", col("s", index), lit.int(1n, types.bigint))
 					),
-					eq(col("s", index), binary("+", col("a", index), lit.int(1n, types.bigint))),
-					...nonRoot(names, family, "a")
-				]
+					sourceWhere: conjunction(nonRoot(names, family, "s")),
+					reads: [
+						...cellsOf(copy.source, [...members, index, copied]),
+						...cellsOf(copy.target, [...members, index, ...rooted, value])
+					]
+				}
+		}
+	})()
 	return {
 		table: copy.source,
 		with: undefined,
-		core: provedCore(
-			"keyed",
-			[...key.map((k) => targetAs(col("s", k), k)), targetAs(col("a", value), copiedName)],
-			[
-				join(
-					{ kind: "table", table: copy.source, alias: "s" },
-					{ kind: "table", table: copy.target, alias: "a" },
-					and(meets)
-				)
-			],
-			undefined
-		),
-		match: keyMatch(keyed),
-		set,
-		reads: [
-			...cellsOf(copy.source, [...key, ...members, ...(copy.axis === "owner" ? [] : [index])]),
-			...cellsOf(copy.target, [
-				...(copy.axis === "owner" ? owners : [...members, index, ...rooted]),
-				value
-			])
-		]
+		core: streamed({
+			table: copy.source,
+			targetKey: along.targetKey,
+			targetWhere: undefined,
+			source: copy.target,
+			sourceKey: along.sourceKey,
+			sourceWhere: along.sourceWhere,
+			values: carried.values
+		}),
+		set: carried.drawn,
+		reads: along.reads
 	}
 }
 
@@ -1472,10 +1530,11 @@ interface Named {
 }
 
 /**
- * The rows of `table`, one per row it stores, each of `columns` under its own name: the value it stores, but a column a
- * derivation draws (`drawer`), which is that derivation's value on the row it meets the table's at (Derivation `match`,
- * a key the table stores), and the value it stores, its placeholder, where it meets none. Each derivation it reads is a
- * LEFT JOIN at its key, so it is one join of sets of rows. With `onlyMet`, the rows some derivation it reads meets.
+ * The rows of `table`, one per row it stores, its tid (rowColumn) and each of `columns` under its own name: the value it
+ * stores, but a column a derivation draws (`drawer`), which is that derivation's value on the row it meets, and the value
+ * it stores, its placeholder, where it meets none. Each derivation it reads is a LEFT JOIN at the row's tid, one column,
+ * so it is one join of sets of rows, hashed or merged on its whole key. With `onlyMet`, the rows some derivation it reads
+ * meets.
  */
 const staged = (
 	table: ObjectName,
@@ -1489,11 +1548,7 @@ const staged = (
 	const steps = drawers.map((n): JoinStep => ({
 		kind: "left",
 		source: cteRefAs(n.name, aliasOf(n)),
-		on: and(
-			mapNonEmpty(n.derivation.match, (m) =>
-				compareAt("=", m.operators, col("k", m.target), col(aliasOf(n), m.source))
-			)
-		)
+		on: eq(col("k", rowColumn), col(aliasOf(n), rowColumn))
 	}))
 	const valueOf = (column: string): Expr => {
 		const by = drawer(column)
@@ -1514,7 +1569,10 @@ const staged = (
 	return select(
 		provedCore(
 			"keyed",
-			dedupeNonEmpty(columns).map((c) => targetAs(valueOf(c), c)),
+			[
+				targetAs(col("k", rowColumn), rowColumn),
+				...dedupeNonEmpty(columns).map((c) => targetAs(valueOf(c), c))
+			],
 			[isNonEmpty(steps) ? { kind: "joins", first, steps } : first],
 			onlyMet && isNonEmpty(drawers)
 				? or(mapNonEmpty(drawers, (n) => ({ kind: "isTrue", expr: col(aliasOf(n), hitName) })))
@@ -1598,7 +1656,7 @@ const derivationCte = (
  * The backfill's UPDATEs: one of each table a derivation draws on, in the order its first derivation is placed, writing
  * every column the backfill draws on it in one write of each row some derivation meets:
  * `WITH <derivations> UPDATE <table> AS "t" SET <column> = "b"."<column>", … FROM <the table staged> AS "b" WHERE
- * "t"."<key>" = "b"."<key>"`. Its WITH holds the CTE of every derivation it reads, its own and every derivation one of
+ * "t"."ctid" = "b"."ctid"`, each row met at its own tid, which PostgreSQL reads by a TID scan, a hash or a merge. Its WITH holds the CTE of every derivation it reads, its own and every derivation one of
  * them reads, transitively, each after those it reads (`ordered`), and no UPDATE reads a column another writes: what one
  * reads of another table's drawn columns it draws itself, by the same derivations. Each table's rows are written once,
  * so a migration writes one new version of each row it backfills, however many of its families' columns it draws.
@@ -1633,8 +1691,7 @@ const passes = (derivations: ReadonlyArray<Derivation>): ReadonlyArray<Update> =
 		}
 		own.forEach(need)
 		const [{ derivation: first }] = own
-		const { table, match: key } = first
-		const [keyFirst, ...keyRest] = key
+		const { table } = first
 		const columns = flatMapNonEmpty(own, (n) => mapNonEmpty(n.derivation.set, (d) => d.column))
 		const ownerOf = (column: string): Named | undefined =>
 			own.find((n) => n.derivation.set.some((d) => d.column === column))
@@ -1648,22 +1705,8 @@ const passes = (derivations: ReadonlyArray<Derivation>): ReadonlyArray<Update> =
 			table,
 			alias: "t",
 			set: mapNonEmpty(columns, (column) => ({ column, value: col("b", column) })),
-			from: [
-				derived(
-					staged(
-						table,
-						[keyFirst.target, ...keyRest.map((m) => m.target), ...columns],
-						ownerOf,
-						true
-					),
-					"b",
-					[],
-					false
-				)
-			],
-			where: and(
-				mapNonEmpty(key, (m) => compareAt("=", m.operators, col("t", m.target), col("b", m.target)))
-			),
+			from: [derived(staged(table, columns, ownerOf, true), "b", [], false)],
+			where: eq(col("t", rowColumn), col("b", rowColumn)),
 			returning: []
 		}
 	})

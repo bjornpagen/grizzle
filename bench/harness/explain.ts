@@ -679,6 +679,26 @@ const scanned = (nodes: Iterable<PlanNode>): number =>
 /** Rows the plan read from stored relations. */
 export const rowsRead = (plan: PlanNode): number => scanned(planNodes(plan).filter(storedScan))
 
+/**
+ * Every row a plan's nodes handled, over all of their loops: each node's output, and the rows its filter, its index
+ * recheck and its join filter removed, so a join counts every pair it examined. A row is counted at each node it passes,
+ * a worktable's rows at every step that rereads them and a subquery's at every run of it, so the figure prices the
+ * plan's work by rows, where rowsRead counts what it read from stored relations once.
+ */
+export const rowsTouched = (plan: PlanNode): number =>
+	Math.round(
+		Iterator.from(planNodes(plan)).reduce(
+			(sum, n) =>
+				sum +
+				(n.actualRows +
+					n.rowsRemovedByFilter +
+					n.rowsRemovedByIndexRecheck +
+					n.rowsRemovedByJoinFilter) *
+					n.actualLoops,
+			0
+		)
+	)
+
 /** Rows the plan generated from functions and VALUES lists, a figure kept apart from the rows it read. */
 export const rowsGenerated = (plan: PlanNode): number =>
 	scanned(planNodes(plan).filter(generatingScan))

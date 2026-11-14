@@ -1319,6 +1319,17 @@ const windowColumn = (
 				out.set(row, { kind: "int", value: BigInt(p + 1) })
 				continue
 			}
+			if (name === "first_value") {
+				ordered("first_value()")
+				const [value] = args
+				if (value === undefined) {
+					return unevaluable("first_value() of no value")
+				}
+				const [start] = frameOf(spec, length, p, lastPeer(p))
+				const from = sorted[start]
+				out.set(row, from === undefined ? undefined : at(value, from))
+				continue
+			}
 			if (name === "lag" || name === "lead") {
 				ordered(`${name}()`)
 				const [value, offsetArg, fallback] = args
@@ -2403,6 +2414,14 @@ class Model {
 		return out
 	}
 
+	/**
+	 * A stored row as a statement reads it: its columns (#tuple) and its tid, `ctid`, which the model numbers by the row's
+	 * place in its table, stable for the statement that reads it, as a heap tuple's is.
+	 */
+	#read(columns: ReadonlyArray<Column>, row: ReadonlyMap<string, Cell>, at: number): Tuple {
+		return new Map([...this.#tuple(columns, row), ["ctid", { kind: "int", value: BigInt(at) }]])
+	}
+
 	/** The rows a FROM source binds, each under its alias: a table of the schema's, a derived table's query, or a CTE's. */
 	#sourceRows(source: FromSource, ctes: Ctes): ReadonlyArray<Map<string, SqlValue>> {
 		switch (source.kind) {
@@ -2411,7 +2430,7 @@ class Model {
 					return unevaluable("a table outside the schema")
 				}
 				const t = this.#table(source.table)
-				return Arr.map(t.rows, (row) => bound(source.alias, this.#tuple(t.columns, row)))
+				return Arr.map(t.rows, (row, at) => bound(source.alias, this.#read(t.columns, row, at)))
 			}
 			case "derived": {
 				const r = this.#select(source.query, ctes)
@@ -2785,8 +2804,8 @@ class Model {
 		const from = this.#fromRows(s.from, ctes)
 		const where = s.where
 		const updated: Array<readonly [Map<string, Cell>, ReadonlyArray<readonly [string, Cell]>]> = []
-		for (const row of t.rows) {
-			const target = bound(s.alias, this.#tuple(t.columns, row))
+		for (const [at, row] of t.rows.entries()) {
+			const target = bound(s.alias, this.#read(t.columns, row, at))
 			const matches = Arr.filter(from, (r) => {
 				const both = joined(target, r)
 				return where === undefined || truthOf(evaluate(where, this.#scope(both))) === true

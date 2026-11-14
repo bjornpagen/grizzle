@@ -31,6 +31,7 @@ const reach: { readonly [N in BuiltinFunctionName]: "row" | "rows" } = {
 	dense_rank: "rows",
 	lead: "rows",
 	lag: "rows",
+	first_value: "rows",
 	percentile_disc: "rows",
 	percentile_cont: "rows",
 	mode: "rows",

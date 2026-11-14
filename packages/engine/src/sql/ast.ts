@@ -260,6 +260,7 @@ export const builtinFunctionNames = [
 	"dense_rank",
 	"lead",
 	"lag",
+	"first_value",
 	"percentile_disc",
 	"percentile_cont",
 	"mode",
