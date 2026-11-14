@@ -573,7 +573,7 @@ export const catalogRegclass = (relation: CatalogRelation): CatalogExpr =>
  * SELECT <targets> [FROM <from>] [WHERE <where>]: no GROUP BY, HAVING, ORDER BY or LIMIT. A caller that needs one
  * spreads the core and states it.
  */
-export const core = (
+export const catalogCore = (
 	targets: NonEmptyReadonlyArray<CatalogExpr>,
 	items: ReadonlyArray<CatalogFrom>,
 	where: CatalogExpr | undefined
@@ -602,7 +602,7 @@ export const query = (
 	targets: NonEmptyReadonlyArray<CatalogExpr>,
 	items: ReadonlyArray<CatalogFrom>,
 	where: CatalogExpr | undefined
-): CatalogSelect => select(core(targets, items, where))
+): CatalogSelect => select(catalogCore(targets, items, where))
 
 /** A CTE of its name, its columns and its query. */
 export const cte = (

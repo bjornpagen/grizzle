@@ -1,7 +1,7 @@
 import type {
 	CteFacts,
 	CteUse,
-	Group,
+	ReadGroup,
 	MemberFacts,
 	ProbeFact,
 	ReadAt,
@@ -73,7 +73,7 @@ type Polarity = "positive" | "negated" | "both"
  * VALUES list, a function's or a derived table's rows, any number of rows (`many`), or an INSERT's met rows, any number
  * of them, named by their source, which a `met` source reads through.
  */
-type Scope = ReadonlyMap<string, "table" | Group["rows"] | MetRows>
+type Scope = ReadonlyMap<string, "table" | ReadGroup["rows"] | MetRows>
 
 /** A source of the rows an INSERT proposed and did not insert (sql/ast.ts FromSource `metRows`). */
 type MetRows = Extract<FromSource, { readonly kind: "metRows" }>
@@ -91,7 +91,7 @@ interface Scoped {
 interface Bound {
 	readonly column: string
 	readonly by: string
-	readonly rows: Group["rows"]
+	readonly rows: ReadGroup["rows"]
 }
 
 /**
@@ -454,7 +454,7 @@ const pushedInto = (
  * What a source's alias names: a stored table's values, a derived table's that only renames one's columns among them,
  * or the call's own, of one row or many.
  */
-const nameOf = (source: FromSource): readonly [string, "table" | Group["rows"] | MetRows] => {
+const nameOf = (source: FromSource): readonly [string, "table" | ReadGroup["rows"] | MetRows] => {
 	switch (source.kind) {
 		case "table":
 			return [source.alias, typeof source.table === "string" ? "many" : "table"]
@@ -1333,7 +1333,7 @@ const byColumn = (a: Bound, b: Bound): number => {
  * A read's group, from the fields it binds (each Bound's column a field), each with what it is bound to, sorted by
  * field: one value for the call where every field takes one, else one group per own row; none where it binds none.
  */
-const boundGroup = (bound: ReadonlyArray<Bound>): Group | undefined => {
+const boundGroup = (bound: ReadonlyArray<Bound>): ReadGroup | undefined => {
 	const sorted = bound.toSorted(byColumn)
 	return isNonEmpty(sorted)
 		? {
@@ -1344,7 +1344,7 @@ const boundGroup = (bound: ReadonlyArray<Bound>): Group | undefined => {
 }
 
 /** What a column of the call's own sources takes: one value or many, none for a stored table's or an unknown name. */
-const ownRowsOf = (scope: Scope, table: string): Group["rows"] | undefined => {
+const ownRowsOf = (scope: Scope, table: string): ReadGroup["rows"] | undefined => {
 	const named = scope.get(table)
 	if (named === undefined || named === "table") {
 		return undefined

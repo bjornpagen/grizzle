@@ -297,7 +297,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 		const oa = C.from("pg_attribute", "a")
 		return C.scalar(
 			C.select({
-				...C.core(
+				...C.catalogCore(
 					[
 						C.concat([
 							C.text("owned by "),
@@ -404,7 +404,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 	}
 	const relations = inNamespace(c.item, n, c.col("relnamespace"))
 	return C.union([
-		C.core(
+		C.catalogCore(
 			[
 				C.concat([C.text("schema "), C.call("quote_ident", [C.param(2, "text")])]),
 				parts([owner(n.col("nspowner"))])
@@ -412,7 +412,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 			[n.item],
 			inSchema(n)
 		),
-		C.core(
+		C.catalogCore(
 			[
 				keyOf("relation", [c.col("relname")]),
 				parts([
@@ -455,7 +455,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 				notExtensionMember("pg_class", c.col("oid"))
 			])
 		),
-		C.core(
+		C.catalogCore(
 			[
 				keyOf("column", [c.col("relname"), a.col("attname")]),
 				parts([
@@ -488,7 +488,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 				notExtensionMember("pg_class", c.col("oid"))
 			])
 		),
-		C.core(
+		C.catalogCore(
 			[
 				keyOf("constraint", [c.col("relname"), k.col("conname")]),
 				C.call("pg_get_constraintdef", [k.col("oid")])
@@ -506,7 +506,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 				notExtensionMember("pg_class", c.col("oid"))
 			])
 		),
-		C.core(
+		C.catalogCore(
 			[
 				keyOf("domain constraint", [t.col("typname"), k.col("conname")]),
 				C.call("pg_get_constraintdef", [k.col("oid")])
@@ -520,7 +520,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 			],
 			C.and([inSchema(n), notExtensionMember("pg_type", t.col("oid"))])
 		),
-		C.core(
+		C.catalogCore(
 			[
 				keyOf("type", [t.col("typname")]),
 				parts([
@@ -541,7 +541,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 			[inNamespace(t.item, n, t.col("typnamespace"))],
 			C.and([inSchema(n), notComposite(), notArray(), notExtensionMember("pg_type", t.col("oid"))])
 		),
-		C.core(
+		C.catalogCore(
 			[
 				C.concat([
 					...keyParts("function", [p.col("proname")]),
@@ -572,7 +572,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 			[inNamespace(p.item, n, p.col("pronamespace"))],
 			C.and([inSchema(n), notExtensionMember("pg_proc", p.col("oid"))])
 		),
-		C.core(
+		C.catalogCore(
 			[
 				keyOf("trigger", [c.col("relname"), g.col("tgname")]),
 				parts([
@@ -592,7 +592,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 			],
 			C.and([inSchema(n), C.not(g.col("tgisinternal"))])
 		),
-		C.core(
+		C.catalogCore(
 			[
 				keyOf("statistics", [x.col("stxname")]),
 				parts([
@@ -609,7 +609,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 			[inNamespace(x.item, n, x.col("stxnamespace"))],
 			inSchema(n)
 		),
-		C.core(
+		C.catalogCore(
 			[
 				keyOf("policy", [c.col("relname"), policy.col("polname")]),
 				parts([
@@ -638,7 +638,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 			],
 			inSchema(n)
 		),
-		C.core(
+		C.catalogCore(
 			[
 				keyOf("rule", [c.col("relname"), rule.col("rulename")]),
 				C.call("pg_get_ruledef", [rule.col("oid"), C.bool(false)])
@@ -705,7 +705,7 @@ const publishedColumns = C.from("pg_attribute", "a")
 const publicationQuery: CatalogQuery<readonly [string, string]> = {
 	sql: emitCatalog(
 		C.union([
-			C.core(
+			C.catalogCore(
 				[
 					C.concat([C.text("publication "), C.asText(publications.col("pubname"))]),
 					C.call("concat_ws", [
@@ -737,7 +737,7 @@ const publicationQuery: CatalogQuery<readonly [string, string]> = {
 				[publications.item],
 				C.eq(publications.col("pubname"), C.param(1, "name"))
 			),
-			C.core(
+			C.catalogCore(
 				[
 					C.concat([
 						C.text("publication "),

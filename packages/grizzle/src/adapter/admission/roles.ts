@@ -264,7 +264,7 @@ const heldArms = (): readonly [C.CatalogCore, ...Array<C.CatalogCore>] => {
 	const type = typesOf("type")
 	const fn = typesOf("function")
 	return [
-		C.core(
+		C.catalogCore(
 			[C.text("schema"), n.col("oid"), none, schema.col("t")],
 			[C.crossJoin(n.item, schema.item)],
 			C.and([
@@ -275,7 +275,7 @@ const heldArms = (): readonly [C.CatalogCore, ...Array<C.CatalogCore>] => {
 				C.call("has_schema_privilege", [granteeOid(), n.col("oid"), schema.col("t")])
 			])
 		),
-		C.core(
+		C.catalogCore(
 			[C.text("table"), c.col("oid"), none, table.col("t")],
 			[C.crossJoin(c.item, table.item)],
 			C.and([
@@ -284,7 +284,7 @@ const heldArms = (): readonly [C.CatalogCore, ...Array<C.CatalogCore>] => {
 				C.call("has_table_privilege", [granteeOid(), c.col("oid"), table.col("t")])
 			])
 		),
-		C.core(
+		C.catalogCore(
 			[C.text("column"), c.col("oid"), C.asText(a.col("attname")), column.col("t")],
 			[
 				C.crossJoin(
@@ -312,7 +312,7 @@ const heldArms = (): readonly [C.CatalogCore, ...Array<C.CatalogCore>] => {
 				C.not(C.call("has_table_privilege", [granteeOid(), c.col("oid"), column.col("t")]))
 			])
 		),
-		C.core(
+		C.catalogCore(
 			[C.text("sequence"), c.col("oid"), none, sequence.col("t")],
 			[C.crossJoin(c.item, sequence.item)],
 			C.and([
@@ -321,7 +321,7 @@ const heldArms = (): readonly [C.CatalogCore, ...Array<C.CatalogCore>] => {
 				C.call("has_sequence_privilege", [granteeOid(), c.col("oid"), sequence.col("t")])
 			])
 		),
-		C.core(
+		C.catalogCore(
 			[C.text("type"), t.col("oid"), none, type.col("t")],
 			[C.crossJoin(t.item, type.item)],
 			C.and([
@@ -336,7 +336,7 @@ const heldArms = (): readonly [C.CatalogCore, ...Array<C.CatalogCore>] => {
 				C.call("has_type_privilege", [granteeOid(), t.col("oid"), type.col("t")])
 			])
 		),
-		C.core(
+		C.catalogCore(
 			[C.text("function"), f.col("oid"), none, fn.col("t")],
 			[C.crossJoin(f.item, fn.item)],
 			C.and([
@@ -344,7 +344,7 @@ const heldArms = (): readonly [C.CatalogCore, ...Array<C.CatalogCore>] => {
 				C.call("has_function_privilege", [granteeOid(), f.col("oid"), fn.col("t")])
 			])
 		),
-		C.core(
+		C.catalogCore(
 			[C.text("database"), d.col("oid"), none, C.asText(x.col("privilege_type"))],
 			[C.crossJoin(d.item, x.item)],
 			C.and([
@@ -484,7 +484,7 @@ const privilegesSelect = (): C.CatalogSelect => {
 			)
 		],
 		C.union([
-			C.core(
+			C.catalogCore(
 				[
 					C.text("missing"),
 					x.col("family"),
@@ -508,7 +508,7 @@ const privilegesSelect = (): C.CatalogSelect => {
 				[x.item],
 				C.notExists(C.anyRow([h.item], samePrivilege(h, x)))
 			),
-			C.core(
+			C.catalogCore(
 				[C.text("unexpected"), h.col("family"), heldName(h), h.col("privilege")],
 				[h.item],
 				C.notExists(C.anyRow([x.item], samePrivilege(x, h)))
@@ -589,7 +589,7 @@ const granted = C.from("pg_roles", "g")
 export const membershipsQuery: CatalogQuery<HeldGrant> = {
 	sql: emitCatalog(
 		C.select({
-			...C.core(
+			...C.catalogCore(
 				grantTargets(granted),
 				[C.join(members.item, granted.item, C.eq(granted.col("oid"), members.col("roleid")))],
 				C.eq(members.col("member"), C.roleOid(C.param(1, "text")))
@@ -618,7 +618,7 @@ const schemaOwnerOid = (name: C.CatalogExpr): C.CatalogExpr => {
 export const membersQuery: CatalogQuery<HeldGrant> = {
 	sql: emitCatalog(
 		C.select({
-			...C.core(
+			...C.catalogCore(
 				grantTargets(member),
 				[C.join(members.item, member.item, C.eq(member.col("oid"), members.col("member")))],
 				C.and([
@@ -917,7 +917,7 @@ export const defaultPrivilegesQuery = (
 						"acls",
 						["scope", "objects", "acl"],
 						C.union([
-							C.core(
+							C.catalogCore(
 								[
 									C.text(""),
 									t.col("k"),
@@ -935,12 +935,12 @@ export const defaultPrivilegesQuery = (
 								[C.crossJoin(o.item, t.item)],
 								undefined
 							),
-							C.core(
+							C.catalogCore(
 								[C.text(""), d.col("defaclobjtype"), d.col("defaclacl")],
 								[C.join(d.item, o.item, owned)],
 								C.and([global, C.notInList(d.col("defaclobjtype"), C.letters(["f", "T"]))])
 							),
-							C.core(
+							C.catalogCore(
 								[C.asText(n.col("nspname")), d.col("defaclobjtype"), d.col("defaclacl")],
 								[
 									C.join(

@@ -357,7 +357,7 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							Effect.gen(function* () {
 								const read = C.union(
 									nonEmpty(
-										Arr.map(texts, (text) => C.core([C.text(text)], [], undefined)),
+										Arr.map(texts, (text) => C.catalogCore([C.text(text)], [], undefined)),
 										"a read's arms"
 									)
 								)

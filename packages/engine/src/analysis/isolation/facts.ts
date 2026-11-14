@@ -99,7 +99,7 @@ export interface WriteFact {
  *   proposed and did not insert, which is committed and visible to its statement, since DO NOTHING raises 40001 on a
  *   conflicting row its snapshot cannot see;
  * - `own`: whether the read can see only rows the call's own earlier statements wrote;
- * - `group`: the group it binds (Group), or none where it reads the relation otherwise;
+ * - `group`: the group it binds (ReadGroup), or none where it reads the relation otherwise;
  * - `probes`: the probes it stands beneath, outermost first, by their places in its statement's `probes`;
  * - `base`: its mode were every one of those probes a function of positive reads, which `mode` composes them over.
  *
@@ -112,7 +112,7 @@ export interface ReadFact {
 	readonly base: "positive" | "negated" | "counted" | "arbiter"
 	readonly probes: ReadonlyArray<number>
 	readonly own: boolean
-	readonly group: Group | undefined
+	readonly group: ReadGroup | undefined
 }
 
 /**
@@ -158,13 +158,13 @@ export interface FieldBinding {
  * `many` where one is bound to a column of the call's own rows, one group per row, which another call's rows may split,
  * some seen and some missed.
  */
-export interface Group {
+export interface ReadGroup {
 	readonly bound: NonEmptyReadonlyArray<FieldBinding>
 	readonly rows: "one" | "many"
 }
 
 /** The fields a group binds, sorted. */
-export const groupFields = (group: Group): NonEmptyReadonlyArray<string> =>
+export const groupFields = (group: ReadGroup): NonEmptyReadonlyArray<string> =>
 	mapNonEmpty(group.bound, (b) => b.field)
 
 /**

@@ -167,7 +167,7 @@ export const refreshBlock = (targets: NonEmptyReadonlyArray<ObjectName>): Emitte
 	const slots = mapNonEmpty(targets, (view, i) => ({ view, i, p: `p${i}`, c: `c${i}` }))
 	const reads = Arr.map(slots, ({ view, p }): C.DoStatement => ({
 		kind: "selectInto",
-		query: C.core(
+		query: C.catalogCore(
 			[views.col("relispopulated")],
 			[viewsIn],
 			C.and([
