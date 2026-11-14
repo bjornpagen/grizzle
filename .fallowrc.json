@@ -22,7 +22,9 @@
 	"ignorePatterns": [
 		"!packages/engine/src/query/build/**",
 		"!test/unit/query/build/**",
-		"packages/devtools/src/*/fixtures/**"
+		"packages/devtools/src/*/fixtures/**",
+		// Reports for other projects: each reproduction runs alone under plain node, psql or sh and is no part of grizzle.
+		"upstream/**"
 	],
 	"ignoreDependencies": ["grizzle:config"],
 	"resolve": {

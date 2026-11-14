@@ -602,7 +602,7 @@ export interface DraftedScript {
 }
 
 /** `statements` printed as `grizzle generate` drafts them (DraftedScript). */
-export const drafted = (statements: ReadonlyArray<SqlStatement>): DraftedScript => ({
+const drafted = (statements: ReadonlyArray<SqlStatement>): DraftedScript => ({
 	statements: Arr.map(statements, (statement) => printStatement(statement))
 })
 

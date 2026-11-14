@@ -799,9 +799,3 @@ export const finBoxGen: Gen<Stored> = (source) => {
 		rows
 	}
 }
-
-/** The size of the fin box: every owner, and every slot's three holdings. */
-export const FIN_BOX_CASES = FIN_OWNERS.length * FIN_HELD.length ** FIN_SLOTS
-
-/** The span box's size, counted by the library's own enumeration. */
-export const SPAN_BOX_CASES = 19_181

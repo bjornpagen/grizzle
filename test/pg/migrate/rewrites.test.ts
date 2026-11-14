@@ -208,7 +208,10 @@ const second = (name: string, d: Delta): SchemaDesc => ({
 	],
 	statements: [
 		...Array.from({ length: d.selections }, (_, j) =>
-			contained(onWhere("R", ["a"], eq(field("b"), literal(d.retyped ? BigInt(j) : j))), on("S", ["id"]))
+			contained(
+				onWhere("R", ["a"], eq(field("b"), literal(d.retyped ? BigInt(j) : j))),
+				on("S", ["id"])
+			)
 		),
 		...(d.added && d.checked ? [check("CNonNegative", "R", ge(field("c"), literal(0)))] : []),
 		...(d.referenced ? [key(on("S", ["x"])), contained(on("R", ["e"]), on("S", ["x"]))] : [])

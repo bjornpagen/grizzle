@@ -435,7 +435,7 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 							const breaks = !keeps(carried, c.second)
 							let schemaIdent = ""
 							const triggers: Array<STriggers> = []
-							const factTriggers: Array<string> = []
+							let factTriggers: ReadonlyArray<string> = []
 							const declared = (version: number): Declarations =>
 								version === 1 && c.change === "renamed"
 									? {
@@ -496,8 +496,7 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 										Effect.gen(function* () {
 											if (version === 0) {
 												yield* store(owner)
-												const fact = yield* triggerNamesOf(owner, tableOf(schemaIdent, "Fact"))
-												factTriggers.push(...fact)
+												factTriggers = yield* triggerNamesOf(owner, tableOf(schemaIdent, "Fact"))
 											}
 											const read = yield* sTriggersOf(owner, tableOf(schemaIdent, "S"))
 											triggers.push(read)

@@ -139,7 +139,7 @@ type ClassifySpec = Pick<InsertSpec, "relation" | "serial" | "input" | "of">
 /** An insert's variant, by its serial class, the relation's shape and what its facts state, with what it reads of the
  * shape: a spanKey insert's span key field, which its classification compares by overlap, and a protocol insert's
  * payload, which its DO SELECT and inserted marker compare. */
-export type InsertShape =
+type InsertShape =
 	| { readonly variant: "generated" }
 	| { readonly variant: "pureSet" }
 	| { readonly variant: "spanKey"; readonly span: SpanField }

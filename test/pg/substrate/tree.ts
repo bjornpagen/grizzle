@@ -807,14 +807,6 @@ export const fullGen =
 		)
 	}
 
-/** How many states fullGen draws of its shapes: (N + 1)³ (N + 2) a row. */
-export const fullCases = (shapes: ReadonlyArray<ForestShape>): number =>
-	Arr.reduce(
-		shapes,
-		0,
-		(sum, s) => sum + ((s.parents.length + 1) ** 3 * (s.parents.length + 2)) ** s.parents.length
-	)
-
 /** Every shape with each row's start in [0, N) and end in [1, N], the family and copies the host's. */
 export const shapeGen =
 	(shapes: Arr.NonEmptyReadonlyArray<ForestShape>): Gen<Arr.NonEmptyReadonlyArray<TreeRow>> =>
@@ -831,10 +823,6 @@ export const shapeGen =
 			Arr.map(drawn, (d) => d.end)
 		)
 	}
-
-/** How many states shapeGen draws of its shapes: N² a row. */
-export const shapeCases = (shapes: ReadonlyArray<ForestShape>): number =>
-	Arr.reduce(shapes, 0, (sum, s) => sum + (s.parents.length * s.parents.length) ** s.parents.length)
 
 /** A shape with starts its rows' T1, T2 and T3 pass, whose ends checkedGen draws. */
 export interface PlacedShape {
@@ -911,14 +899,6 @@ export const checkedGen =
 		)
 		return shapeRows(shape, starts, ends)
 	}
-
-/** How many states checkedGen draws of a placement: N − start choices for each row with children. */
-export const checkedCases = (p: PlacedShape): number => {
-	const { children } = familyOf(p.shape.parents)
-	return Arr.reduce(p.starts, 1, (product, start, i) =>
-		Arr.getUnsafe(children, i) > 0 ? product * (p.shape.parents.length - start) : product
-	)
-}
 
 /**
  * The rows of the plane tree a pre-order depth sequence draws, built by construction rather than by the checker's

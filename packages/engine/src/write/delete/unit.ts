@@ -71,7 +71,7 @@ import {
 } from "#compiler/sql/build.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
 import { fieldColumns, type FieldColumns } from "#compiler/write/defined.ts"
-import { nestedRowsOf } from "#compiler/write/family/additions.ts"
+import { nestedRowsCte } from "#compiler/write/family/additions.ts"
 import type { Shaped } from "#compiler/write/family/scan.ts"
 import type { RowLayout } from "#compiler/write/family/statements.ts"
 import {
@@ -135,7 +135,7 @@ export type AddedRows =
 	| { readonly kind: "nestedRows"; readonly stratum: StratumAt; readonly layout: RowLayout }
 
 /** The fields a unit delete's rows state: a tree's root fields, or an owner's compared fields. */
-export const matchFields = (match: UnitMatch): NonEmptyReadonlyArray<LawField> =>
+const matchFields = (match: UnitMatch): NonEmptyReadonlyArray<LawField> =>
 	match.kind === "tree" ? match.root : match.fields
 
 /** A relation's doomed keys, and the doomed keys the stratum keeps: each a CTE of its primary key's values, by field. */
@@ -241,7 +241,7 @@ export const unitSql = (
 				}))
 				return isNonEmpty(columns) ? [{ shape, columns }] : []
 			}
-			const shape = nestedRowsOf(w, supply, ctes, relation, rows)
+			const shape = nestedRowsCte(w, supply, ctes, relation, rows)
 			const columns = [...rows.layout.key, ...rows.layout.columns].map((c) => ({
 				key: c.key,
 				column: installed(w, relation.name, c.column),

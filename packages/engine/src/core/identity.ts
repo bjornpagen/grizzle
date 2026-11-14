@@ -419,8 +419,7 @@ export const roleInSpace = (
 }
 
 /** Whether `text` is a declared name's conversion, as the naming door spells one: what a stem's two parts each are. */
-export const isConversion = (text: string): boolean =>
-	parsedName(text).ok && conversionOf(text) === text
+const isConversion = (text: string): boolean => parsedName(text).ok && conversionOf(text) === text
 
 /**
  * The forms a drafted statement names a role of the installation in, each the identifier the naming door mints: a

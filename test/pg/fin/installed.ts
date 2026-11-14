@@ -303,61 +303,6 @@ export const constraintText = (c: Catalogued): string =>
 		onSome: (t) => ` → ${t.relation}(${Arr.join(t.columns, ", ")})`
 	})}${c.deferrable ? " deferrable" : ""}${c.cascades ? " on update cascade" : ""}`
 
-/**
- * A seat's one constraint matching `match`, or the defect of the suite naming every constraint it read, so a lowering
- * that installs another shape than the suite expects fails with what it installed.
- */
-export const theConstraint = (
-	seat: Seat,
-	what: string,
-	match: (c: Catalogued) => boolean
-): Catalogued => {
-	const found = Arr.filter(seat.constraints, match)
-	const [one, ...more] = found
-	if (one === undefined || more.length > 0) {
-		throw new Error(
-			`${seat.label}: ${found.length} constraints are ${what}, among ${Arr.join(Arr.map(seat.constraints, constraintText), "; ")}`
-		)
-	}
-	return one
-}
-
-/**
- * Re-creates a foreign key without some of its pairs, in the same deferral and update action, as the owner: a mutant of
- * the installed lowering, with a UNIQUE over the target's remaining columns where no key of the target is exactly
- * those, since a foreign key's target must be, named by PostgreSQL, which picks a name no constraint holds. Each
- * statement runs in order; the suite never writes to the shared tree.
- */
-export const droppedPairsSql = (
-	seat: Seat,
-	fk: Catalogued,
-	dropped: (sourceRole: string, targetRole: string) => boolean
-): ReadonlyArray<string> => {
-	const target = Option.getOrThrow(fk.target)
-	const pairs = Arr.filter(Arr.zip(fk.columns, target.columns), ([s, t]) => !dropped(s, t))
-	const sources = Arr.map(pairs, ([s]) => seat.column(fk.relation, s))
-	const targets = Arr.map(pairs, ([, t]) => seat.column(target.relation, t))
-	const keyed = Arr.some(
-		seat.constraints,
-		(c) =>
-			c.relation === target.relation &&
-			(c.kind === "unique" || c.kind === "primary") &&
-			sameRoles(
-				c.columns,
-				Arr.map(pairs, ([, t]) => t)
-			)
-	)
-	return [
-		`ALTER TABLE ${seat.table(fk.relation)} DROP CONSTRAINT ${quoteIdent(fk.name)}`,
-		...(keyed
-			? []
-			: [
-					`ALTER TABLE ${seat.table(target.relation)} ADD UNIQUE NULLS DISTINCT (${Arr.join(targets, ", ")})`
-				]),
-		`ALTER TABLE ${seat.table(fk.relation)} ADD CONSTRAINT ${quoteIdent(fk.name)} FOREIGN KEY (${Arr.join(sources, ", ")}) REFERENCES ${seat.table(target.relation)} (${Arr.join(targets, ", ")}) MATCH SIMPLE${fk.cascades ? " ON UPDATE CASCADE" : ""}${fk.deferrable ? " DEFERRABLE INITIALLY DEFERRED" : " NOT DEFERRABLE"}`
-	]
-}
-
 /** Drops one installed constraint, as the owner: a mutant of the installed lowering without it. */
 export const droppedSql = (seat: Seat, c: Catalogued): string =>
 	`ALTER TABLE ${seat.table(c.relation)} DROP CONSTRAINT ${quoteIdent(c.name)}`
@@ -444,9 +389,6 @@ export type EndFeature =
  * proportion; the checked end is first, so a failing case shrinks toward it.
  */
 const endWeights = { checked: 1, commit: 1 } as const satisfies Readonly<Record<End, Weight>>
-
-/** Every end a case takes: an exhaustion's box holds each of its cases under each. */
-export const ends: Arr.NonEmptyReadonlyArray<End> = ["checked", "commit"]
 
 /**
  * The end of a case's transaction, drawn on its tape (End), so a replay ends it as it ended: each end meets every

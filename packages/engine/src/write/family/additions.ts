@@ -234,7 +234,7 @@ export const additionsSql = (
 		if (known !== undefined) {
 			return known
 		}
-		const rows = nestedRowsOf(w, supply, ctes, relation, source)
+		const rows = nestedRowsCte(w, supply, ctes, relation, source)
 		nestedRead.set(relation.name, rows)
 		return rows
 	}
@@ -524,7 +524,7 @@ const appendedOf = (
 	}
 }
 
-/** A reader of a stratum's nested rows of a relation, each relation's CTE pushed once (`nestedRowsOf`). */
+/** A reader of a stratum's nested rows of a relation, each relation's CTE pushed once (`nestedRowsCte`). */
 type NestedReader = (relation: RelationInfo, source: NestedSent) => Shaped
 
 /** A stratum's nested rows of a relation as its statements send them: its stratum and their sent layout. */
@@ -535,7 +535,7 @@ interface NestedSent {
 
 /** A stratum's nested rows of `relation` as a CTE: each column of their sent layout, read from their arrays and cast into
  * its column's type as a write stores it, by key. */
-export const nestedRowsOf = (
+export const nestedRowsCte = (
 	w: WriteContext,
 	supply: NameSupply,
 	ctes: Array<Cte>,
