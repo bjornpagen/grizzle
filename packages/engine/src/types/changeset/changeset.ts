@@ -376,7 +376,7 @@ type CountOf<Fa> = Fa extends { readonly slots: Fin<unknown, infer N extends str
  * Seen holds the relations walked, so the walk stops at a tree, a family of its relation over itself, as NestedUnfit's
  * stops at a member type met again.
  */
-export type NestedWrites<S, R, Seen = never> =
+type NestedWrites<S, R, Seen = never> =
 	Visited<R, Seen> extends true
 		? never
 		: [DrawnFieldOf<R>] extends [never]
@@ -554,7 +554,7 @@ type MemberOwningSequence<S, R> =
  * under its nodes; any other relation's row as its caller writes it (Written), an owner's removed with every row nested
  * under it (UnitWrites).
  */
-export type DeletedRow<S, R> =
+type DeletedRow<S, R> =
 	IsTreeRow<S, R> extends true ? Pick<Written<R>, TreeRootOf<S, R> & keyof Written<R>> : Written<R>
 
 /** The root fields of R's tree in S: a tree is a family of its relation over itself, so it is among R's sequences. */

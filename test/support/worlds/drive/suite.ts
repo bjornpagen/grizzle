@@ -1811,7 +1811,7 @@ const programSteered = 4
  * The connections of a login's pool a program holds at once: it runs one action at a time, and its open of a Db leases
  * one connection at once (execute/index.ts openedDb), so every login's pool, the stranger's among them, holds one.
  */
-export const serialPool = 1
+const serialPool = 1
 
 /**
  * What a world's case may come to hold: the Db opens it may perform, each of which may lease a pool of its own (a Db
