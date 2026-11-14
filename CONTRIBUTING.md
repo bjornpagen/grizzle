@@ -38,7 +38,7 @@ Everything runs natively on one Linux machine, Ubuntu. There is no Docker, no co
 commit gate. The typecheck and lint, `pnpm check`, run by hand before a release.
 
 - **Toolchain:** `apt install build-essential meson ninja-build pkg-config bison flex libssl-dev liblz4-dev libzstd-dev
-  libreadline-dev zlib1g-dev python3 curl git`. You need Node 26 or later, and pnpm at the version `packageManager`
+  libreadline-dev zlib1g-dev python3 git`. You need Node 26 or later, and pnpm at the version `packageManager`
   pins; `pnpm install` patches TypeScript 7.1 beta for `@effect/tsgo` (the `prepare` script). There is no build step
   and no package: Node runs each package's `src/*.ts` directly through type stripping, and every package's `exports`
   and `bin` name its `src/` modules, so the repository, its tests and scripts, and every consumer resolve
@@ -52,15 +52,24 @@ commit gate. The typecheck and lint, `pnpm check`, run by hand before a release.
 - **Dependencies** are plain: no patch, no vendored fork. The runtime's one driver is node-postgres (`pg`) in pipeline
   mode, a peer dependency of the shell that the application passes in as each connection's `driver`, and
   `pnpm install --frozen-lockfile` installs everything.
-- **`pnpm pg:build`** builds the pinned PostgreSQL, 19rc2, from source. The pin is in `scripts/pg/pin.env`, which
-  every script reads. The build verifies the tarball's SHA256, applies the pin's three source patches
-  (`scripts/pg/patches/`, checksummed in pin.env and applied without fuzz, in order): the relcache-planned CHECK and
-  generation expressions, master's btree_gist multibyte-penalty fix (b82d69abf6) backported, and PL/pgSQL's
-  binary-search line lookup. It runs PostgreSQL's own regression suites, and builds
-  pgvector at its pinned tag. The installation goes under `~/.local/opt/postgresql/<version>/`, the source under
-  `~/.cache/grizzle/src/`. The build is made and tested in a staging tree beside the installation, which one rename puts
-  in its place only once it is complete, so a failed build leaves the previous installation as it was. The cluster runs
-  from the installation, so a cluster running at the rename is stopped just before it and started again just after.
+- **`pnpm pg:build`** builds the pinned PostgreSQL, 19rc2, from source. The pin is in `scripts/pg/pin.env`, which every
+  script reads: the release's tag and commit, and the pin's three source patches (`scripts/pg/patches/`, each
+  checksummed in pin.env, applied without fuzz and in order): the relcache-planned CHECK and generation expressions,
+  master's btree_gist multibyte-penalty fix (b82d69abf6) backported, and PL/pgSQL's binary-search line lookup. The build
+  takes its source from `pnpm pg:source`, runs PostgreSQL's own regression suites, and builds pgvector at its pinned
+  tag. The installation goes under `~/.local/opt/postgresql/<version>/`, and every build product beside it: the build
+  directory `<version>.build/`, and a staging tree in which the build is installed and which one rename puts in the
+  installation's place only once it is complete, so a failed build leaves the previous installation as it was. The
+  cluster runs from the installation, so a cluster running at the rename is stopped just before it and started again
+  just after. An installation that already holds the pin is kept unless `--force` is given.
+- **`pnpm pg:source`** puts the pin's source in `~/Documents/postgres`, the one PostgreSQL source tree, and the build
+  directory beside the installation, made anew and configured to install there. `pnpm pg:build` runs it first. The
+  source is a git repository on the branch `grizzle`: the release, fetched alone from PostgreSQL's repository and
+  verified by its commit, tagged `upstream`, then one commit for each of the pin's patches, in pin.env's order and
+  applied without fuzz, the last tagged `pinned`. Nothing is ever built in it. Commits that already hold the pin's
+  patches are kept as they are. It refuses, and leaves the tree as it is, when making it again would lose work: a change
+  not committed, a stash, a branch or tag of its own, or a commit on `grizzle` that is not one of the pin's patches.
+  After a repin the repository holds the new release alone.
 - **`pnpm pg:init`** creates the one cluster under `~/.local/var/grizzle/pg<version>/`:
     - a builtin C.UTF-8 cluster on port 5433, localhost only, with TLS 1.3, SCRAM, and only `hostssl` lines for TCP,
       `max_pred_locks_per_relation = 1023`, where production's `max_pred_locks_per_transaction = 2048` promotes a
@@ -92,6 +101,34 @@ Every TCP connection to the cluster, the tests' included, is verify-full TLS. Th
 over the local socket, by peer authentication: `pnpm pg admin` and the tests' superuser sessions
 (`test/support/substrate/substrate.ts`). Nothing keeps a PID file: child processes are owned by an `AbortSignal`,
 `await using` or a `DisposableStack`.
+
+### PostgreSQL patches
+
+A patch to PostgreSQL is written in `~/Documents/postgres` and carried into grizzle as a file under
+`scripts/pg/patches/`, named for the version and its topic (`19rc2-<topic>.patch`). Each patch is one commit, and its
+message, a title sentence and then what the patch changes and why, is the patch's description:
+
+```sh
+pnpm pg:source                         # in grizzle: the pin's source and a configured build directory
+cd ~/Documents/postgres                # edit on the branch grizzle, above the tag pinned
+build=~/.local/opt/postgresql/19rc2.build
+meson compile -C $build
+meson test -C $build -q --print-errorlogs --suite setup --suite regress
+git commit -a                          # as yourself: one commit, the patch
+patch=~/Documents/grizzle/scripts/pg/patches/19rc2-<topic>.patch
+git format-patch --zero-commit --no-signature --stdout -1 > $patch
+sha256sum $patch
+```
+
+Then append `19rc2-<topic>.patch=<its SHA-256>` to `PG_PIN_PATCHES` in pin.env, run `pnpm pg:build`, which finds the
+commit already holding the new patch and keeps it, and commit pin.env and the patch file. The build directory is for
+compiling and testing only: `meson install` from it would write into the running installation, which only
+`pnpm pg:build` replaces. To change the last patch, amend its commit and write it out again; to change an earlier one,
+commit a fixup (`git commit --fixup=<commit>`, then `GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash upstream`) and
+write out it and every patch after it again, each with `git format-patch ... -1 <commit>`, and update their SHA-256s. A
+repin moves the patches with it: `git fetch --depth 1 origin tag <new tag>` and `git rebase --onto <new tag> upstream`,
+where a patch the release already includes comes out empty and is dropped; then each patch is written out again under
+the new version's name, and pin.env takes the new tag, commit, version and patches.
 
 ## How changes land
 

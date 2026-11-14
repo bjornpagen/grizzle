@@ -1039,7 +1039,7 @@ export const blockSize = published({
 	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope:
-		"one page of a table or of a B-tree or GiST index of the pinned build, which scripts/pg/build.sh configures by default",
+		"one page of a table or of a B-tree or GiST index of the pinned build, which scripts/pg/source.sh configures by default",
 	constraint: "configurable default",
 	source: `${postgresSource}/meson_options.txt#L5-L8`,
 	quote:

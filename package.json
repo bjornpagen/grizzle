@@ -40,6 +40,7 @@
 		"bench": "node bench/main.ts",
 		"bench:full": "node bench/main.ts full",
 		"pg:build": "scripts/pg/build.sh",
+		"pg:source": "scripts/pg/source.sh",
 		"pg:init": "scripts/pg/init.sh",
 		"pg:doctor": "scripts/pg/doctor.sh",
 		"pg": "scripts/pg/ctl.sh"

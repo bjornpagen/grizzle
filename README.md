@@ -4100,7 +4100,7 @@ Every generated suite draws from one seed, `TEST_SEED`, which a run prints first
     - `skills/grizzle/`: the agent guide.
 - `test/`: the unit, pg, schedules and types tiers, and their support in `test/support/`.
 - `bench/`: performance gates.
-- `scripts/pg/`: the pinned PostgreSQL build, cluster, doctor and patches.
+- `scripts/pg/`: the pinned PostgreSQL's source, build, cluster, doctor and patches.
 - `scripts/dev/`: the mutation tester and the profiler.
 - `packages/devtools/`: the lint tooling: the oxlint preset and plugin, superlint and the tsconfig base.
 - `packages/testing/`: `@grizzle/testing`, the testing library every test runs on, and `pnpm fuzz`'s script.

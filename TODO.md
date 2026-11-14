@@ -443,7 +443,7 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   test/support/power-pairs.ts:250, test/support/oracle/evaluate/power.ts:474 and test/types/batch/compiler.ts:46.
   flightMaxBytes (limits.ts:815-823) cites macOS refusing a write past INT_MAX with EINVAL; Linux caps one write at
   0x7ffff000 bytes and writes part of it instead.
-- **The PostgreSQL build's optional features follow the host (PGLINUX, 2026-11-12):** scripts/pg/build.sh names only
+- **The PostgreSQL build's optional features follow the host (PGLINUX, 2026-11-12):** scripts/pg/source.sh names only
   the features it needs, and meson's auto-detection turned plpython, selinux, systemd and nls on on cassowary and left
   libxml and uuid off; the VM's set was never recorded. No test reads them (test/support/kernel/catalog-alphabet.ts
   reads only share/postgres.bki); pinning them would make the build the same on every host.
