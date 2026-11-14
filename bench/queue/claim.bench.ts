@@ -87,12 +87,12 @@ import { trusted } from "#compiler/core/trusted.ts"
 import type { CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
+import { leaseGrant } from "#pg/lease.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { member } from "#test/support/served-db.ts"
 import { beginSerializable, type RawSession } from "#test/support/substrate/session.ts"
-import { leaseGrant } from "#test/support/substrate/shared.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -112,7 +112,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * its pool holds one backend, and the server-side width, the "width" the reference p95 is quoted at, is the holder count,
  * which the record reports as observed (the worker role's backends sampled from pg_stat_activity during each load).
  * The holders share the cluster's max_connections with everything else on it, so their number is what the budget the
- * process's connection lease grants (test/support/substrate/shared.ts leaseGrant, budget.ts) leaves after the bench's
+ * process's connection lease grants (packages/pg/src/lease.ts leaseGrant, budget.ts) leaves after the bench's
  * own connections (holderCount below), at both scales. The reference's 256 holders at a width of 16 are what a record is read
  * against, not a load this machine reproduces.
  *

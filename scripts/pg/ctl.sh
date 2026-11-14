@@ -47,7 +47,7 @@ case "${1:-}" in
 		echo "Test databases and non-bootstrap roles dropped"
 		;;
 	env)
-		repo_node scripts/pg/cluster.ts
+		pg_node cluster.ts
 		;;
 	destroy)
 		if [[ "$PG_PORT" == "$GRIZZLE_PG_DEFAULT_CLUSTER" ]]; then

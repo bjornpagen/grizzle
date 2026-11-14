@@ -1,0 +1,35 @@
+{
+	"name": "@bjornpagen/grizzle-pg",
+	"private": true,
+	"description": "grizzle's local PostgreSQL: the commands that build, make, check and run a cluster of the pinned build (scripts/pg), and the formulas they and grizzle's tests share, run from the installing workspace's own packages",
+	"license": "0BSD",
+	"author": "Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>",
+	"type": "module",
+	"engines": {
+		"node": ">=26"
+	},
+	"imports": {
+		"#pg/*": "./src/*",
+		"#compiler/*": "@bjornpagen/grizzle-engine/internal/*"
+	},
+	"bin": {
+		"grizzle-pg": "./bin/grizzle-pg.sh"
+	},
+	"scripts": {
+		"typecheck": "effect-tsgo tsrs --noEmit -p tsconfig.json",
+		"superlint": "superlint",
+		"oxlint": "oxlint"
+	},
+	"dependencies": {
+		"@bjornpagen/grizzle-engine": "workspace:*",
+		"@bjornpagen/testing": "workspace:*",
+		"@effect/platform-node": "catalog:",
+		"arkregex": "catalog:"
+	},
+	"devDependencies": {
+		"effect": "catalog:"
+	},
+	"peerDependencies": {
+		"effect": "^4.1.2"
+	}
+}

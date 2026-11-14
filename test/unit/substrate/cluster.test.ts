@@ -1,6 +1,6 @@
 /**
- * The local cluster a name selects (test/support/env.ts selectCluster), which every script reads through
- * scripts/pg/cluster.ts and every test through env.ts, over every name GRIZZLE_PG_CLUSTER can hold in a box:
+ * The local cluster a name selects (packages/pg/src/local-cluster.ts selectCluster), which every script reads through
+ * packages/pg/src/cluster.ts and every test through env.ts, over every name GRIZZLE_PG_CLUSTER can hold in a box:
  *
  * - unset, it selects today's cluster exactly, as pin.env spelled it before clusters were named: port 5433 and the
  *   state directory `$HOME/.local/var/grizzle/pg$PG_PIN_VERSION` with its data, tls, log and socket directories and
@@ -26,8 +26,9 @@ import { constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testin
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
+import { clusterVariable, type LocalCluster, selectCluster } from "#pg/local-cluster.ts"
 import { assert } from "#test/support/assert.ts"
-import { clusterVariable, type LocalCluster, pgPin, selectCluster } from "#test/support/env.ts"
+import { pgPin } from "#test/support/env.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 import { regex } from "arkregex"

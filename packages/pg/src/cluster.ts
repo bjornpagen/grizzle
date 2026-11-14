@@ -1,9 +1,9 @@
 import { NodeRuntime } from "@effect/platform-node"
 import { Console, Effect } from "effect"
-import { localCluster } from "#test/support/env.ts"
+import { localCluster } from "#pg/local-cluster.ts"
 
 /**
- * Prints the local cluster GRIZZLE_PG_CLUSTER selects (test/support/env.ts selectCluster), one `<variable>=<value>` line
+ * Prints the local cluster GRIZZLE_PG_CLUSTER selects (local-cluster.ts selectCluster), one `<variable>=<value>` line
  * each: its port and the paths of its state directory, which scripts/pg/lib.sh declares for every script, so the shell
  * holds no second spelling of either. A name that is no cluster fails the load, with a failing exit.
  */

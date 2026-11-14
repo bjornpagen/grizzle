@@ -1,6 +1,6 @@
 import { NodeRuntime } from "@effect/platform-node"
 import { Console, Effect, Option } from "effect"
-import { liveSlotBound } from "#test/support/substrate/shared.ts"
+import { liveSlotBound } from "#pg/lease.ts"
 
 import { regex } from "arkregex"
 
@@ -9,7 +9,7 @@ const count = (arg: string | undefined): Option.Option<number> =>
 	arg !== undefined && regex("^[0-9]+$").test(arg) ? Option.some(Number(arg)) : Option.none()
 
 /**
- * Prints the live source bound (test/support/substrate/shared.ts liveSlotBound) of a cluster whose max_connections,
+ * Prints the live source bound (lease.ts liveSlotBound) of a cluster whose max_connections,
  * superuser_reserved_connections and reserved_connections are its three arguments: what scripts/pg/lib.sh
  * live_slot_bound reads for init.sh and doctor.sh, so the shell holds no second spelling of the formula. Any other
  * arguments are refused, with a failing exit.

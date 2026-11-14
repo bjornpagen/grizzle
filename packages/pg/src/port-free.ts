@@ -2,7 +2,7 @@ import { lookup } from "node:dns/promises"
 import { createServer } from "node:net"
 import { NodeRuntime } from "@effect/platform-node"
 import { Data, Effect } from "effect"
-import { localCluster } from "#test/support/env.ts"
+import { localCluster } from "#pg/local-cluster.ts"
 
 /** The cluster's port cannot be listened on at an address localhost names: it is taken there, or not this user's. */
 class PortTaken extends Data.TaggedError("PortTaken")<{
@@ -35,7 +35,7 @@ const bind = (address: string, port: number): Effect.Effect<void, PortTaken> =>
 	})
 
 /**
- * Succeeds when the port of the local cluster GRIZZLE_PG_CLUSTER selects (test/support/env.ts localCluster) is free on
+ * Succeeds when the port of the local cluster GRIZZLE_PG_CLUSTER selects (local-cluster.ts localCluster) is free on
  * every address localhost names, each of which the cluster's listen_addresses = 'localhost' binds (scripts/pg/init.sh),
  * and otherwise fails with the first address it is taken at, with a failing exit: init.sh creates no cluster on a taken port.
  */

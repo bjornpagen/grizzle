@@ -4,9 +4,9 @@
  * measured on their own runs; every other bound a test reads derives from it, is a published constant, or is read from
  * the machine the tests run on.
  */
-import { availableParallelism } from "node:os"
 import { Duration } from "effect"
 import { derived, type Limit, measured, published } from "#compiler/core/limits.ts"
+import { testPoolMax } from "#pg/lease.ts"
 
 /**
  * How long one test of `pnpm test` and `pnpm test:network` may run: the testTimeout of both tiers' Vitest configs, and
@@ -125,13 +125,6 @@ export const testExitWait: Limit = derived({
 		"a termination begins inside its test, so a wait as long as the test's own never ends before the test's deadline, and the value fits the C int pg_terminate_backend reads its timeout into (REL_19_RC2 src/backend/storage/ipc/signalfuncs.c: \"int timeout; /* milliseconds */\")",
 	compute: ([test]) => test.value
 })
-
-/**
- * The most sessions a test's pool holds at once (PoolBounds.max): one per core of the machine, the owner's all-cores
- * default, read from the machine itself. The local cluster runs on the same cores, so more statements at once than the
- * machine has cores only queue for them, and a call past the pool's sessions waits for one.
- */
-export const testPoolMax: number = availableParallelism()
 
 /**
  * How many cases of a search run at once, each on state of its own that holds `sessions` sessions of the test's pool:

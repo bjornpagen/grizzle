@@ -1,10 +1,10 @@
 import { NodeFileSystem, NodeRuntime } from "@effect/platform-node"
 import { Console, Effect } from "effect"
-import { postmastersOf } from "#scripts/pg/installation.ts"
+import { postmastersOf } from "#pg/installation.ts"
 
 /**
  * Prints every postmaster other than the selected cluster's that runs the bin/postgres of a tree its arguments name
- * (scripts/pg/installation.ts postmastersOf), one line each: its port, its data directory, its process and its
+ * (installation.ts postmastersOf), one line each: its port, its data directory, its process and its
  * executable as the kernel names it. build.sh refuses the exchange while one runs, unless --force is given. Its
  * arguments are the selected cluster's data directory, then each tree; fewer are refused.
  */

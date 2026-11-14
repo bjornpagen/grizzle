@@ -1,5 +1,5 @@
 /**
- * build.sh's verdict on a checkout's pin over the build the PostgreSQL installation holds (scripts/pg/installation.ts
+ * build.sh's verdict on a checkout's pin over the build the PostgreSQL installation holds (packages/pg/src/installation.ts
  * verdict), over drawn pairs of an installed stamp and a checkout's pin:
  *
  * - nothing installed, or a build of another release, a repin, builds the pin, however many patches either holds, so a
@@ -32,7 +32,7 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Equivalence, Formatter, Option } from "effect"
-import { type Build, type Verdict, verdict } from "#scripts/pg/installation.ts"
+import { type Build, type Verdict, verdict } from "#pg/installation.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 

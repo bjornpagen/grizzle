@@ -64,7 +64,7 @@ track_io_timing = on
 wal_level = logical
 # A transaction's page locks promote to its relation's where production's do: past 1023, what PostgreSQL's default of -2
 # gives README's recommended max_pred_locks_per_transaction = 2048 (predicate.c MaxPredicateChildLocks, 2048 / 2 - 1).
-# The table's own size is the machine's (test/support/substrate/shared.ts clusterPredicateLocks), so this is pinned
+# The table's own size is the machine's (packages/pg/src/size.ts clusterPredicateLocks), so this is pinned
 # apart from it.
 max_pred_locks_per_relation = 1023
 logging_collector = on
@@ -75,7 +75,7 @@ log_filename = 'postgresql-%Y-%m-%d.log'
 timezone = 'UTC'
 log_timezone = 'UTC'
 # A connection lease for each of the network tier's workers, one per core, and each worker's database in shared buffers
-# (test/support/substrate/shared.ts clusterSize).
+# (packages/pg/src/size.ts clusterSize).
 $sized
 EOF
 

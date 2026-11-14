@@ -293,7 +293,7 @@ export default toolchain({
 						inputs: [{ module: "vendor/toolchain/packages/testing/src/gen.ts", alias: "Gen" }]
 					},
 					{
-						files: ["bench/", "scripts/"],
+						files: ["bench/", "scripts/", "packages/pg/"],
 						generated: [],
 						positions: ["time", "concurrency", "retry"],
 						words: "library properties",

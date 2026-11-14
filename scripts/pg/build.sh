@@ -24,10 +24,10 @@ here="$(cd "$(dirname "$0")" && pwd)"
 force=0
 [[ "${1:-}" == "--force" ]] && force=1
 
-# The pin's verdict over the build the prefix holds (scripts/pg/installation.ts verdict), keyed on the release's commit
+# The pin's verdict over the build the prefix holds (packages/pg/src/installation.ts verdict), keyed on the release's commit
 # and never on how many patches either holds, since a repin drops the patches its release includes: build, built, or a
 # failing exit for a pin older than the prefix's build, which names the patches it lacks.
-verdict="$(repo_node scripts/pg/pin-verdict.ts "$GRIZZLE_PG_PREFIX" "$stamp_stem" "$PG_PIN_COMMIT" "$PG_PIN_PATCHES")"
+verdict="$(pg_node pin-verdict.ts "$GRIZZLE_PG_PREFIX" "$stamp_stem" "$PG_PIN_COMMIT" "$PG_PIN_PATCHES")"
 if [[ $force -eq 0 && "$verdict" == built ]]; then
 	echo "PostgreSQL $PG_PIN_VERSION and pgvector $PGVECTOR_PIN_VERSION already built at $GRIZZLE_PG_PREFIX"
 	exit 0
@@ -48,11 +48,11 @@ pgxs=(PG_CONFIG="$staged/bin/pg_config" COPT="-ffile-prefix-map=$staged=$GRIZZLE
 
 # Refuses, unless --force is given, while a postmaster other than the selected cluster's runs the prefix's build or the
 # staging tree's, the two trees the exchange swaps, and names each by its port and data directory: every postmaster the
-# kernel lists whose executable is or was one of theirs (scripts/pg/foreign-postmasters.ts), so a cluster grizzle did
+# kernel lists whose executable is or was one of theirs (packages/pg/src/foreign-postmasters.ts), so a cluster grizzle did
 # not make is named too. With --force it names them as the clusters to restart after the exchange.
 refuse_foreign_postmasters() {
 	local foreign
-	foreign="$(repo_node scripts/pg/foreign-postmasters.ts "$GRIZZLE_PG_DATA" "$GRIZZLE_PG_PREFIX" "$staged")"
+	foreign="$(pg_node foreign-postmasters.ts "$GRIZZLE_PG_DATA" "$GRIZZLE_PG_PREFIX" "$staged")"
 	if [[ -z "$foreign" ]]; then
 		return 0
 	fi

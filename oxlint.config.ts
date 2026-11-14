@@ -136,7 +136,7 @@ export default defineConfig(
 		restrictedGlobals: [],
 		restrictedProperties: [],
 		unassignedImports: [],
-		ceremony: ["test/**", "bench/**", "scripts/**"],
+		ceremony: ["test/**", "bench/**", "scripts/**", "packages/pg/**"],
 		plugin: {
 			"bearer-owners": {
 				owners: ["packages/grizzle/src/client/call.ts", "test/pg/live/errors.test.ts"]
@@ -341,7 +341,7 @@ export default defineConfig(
 				})
 			},
 			{
-				files: ["test/**", "bench/**", "scripts/**"],
+				files: ["test/**", "bench/**", "scripts/**", "packages/pg/**"],
 				rules: active({
 					"eslint/no-restricted-imports": restrictedImports({
 						paths: [SCHEMA_IMPORTS.path],

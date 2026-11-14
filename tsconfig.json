@@ -188,8 +188,6 @@
 							"scripts/dev/profile/compile.ts",
 							"scripts/dev/profile/read.ts",
 							"scripts/gen/allen/main.ts",
-							"scripts/pg/foreign-postmasters.ts",
-							"scripts/pg/pin-verdict.ts",
 							"test/pg/cli/config.child.ts",
 							"test/support/pg-global-setup.ts",
 							"test/types/batch/global-setup.ts"
@@ -321,7 +319,6 @@
 		"bench",
 		"scripts/gen",
 		"scripts/dev",
-		"scripts/pg",
 		"oxlint.config.ts",
 		"toolchain.config.ts",
 		"vitest.config.ts",

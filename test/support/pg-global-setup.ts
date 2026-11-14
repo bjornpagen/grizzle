@@ -1,5 +1,6 @@
 import { NodeServices } from "@effect/platform-node"
 import { Duration, Effect } from "effect"
+import { networkWorkers } from "#pg/workers.ts"
 import { InitializedCluster } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
@@ -7,7 +8,6 @@ import { testTimeout } from "#test/support/limits.ts"
 import { run, runOptions } from "#test/support/process.ts"
 import { ensureSharedDatabase, sweep } from "#test/support/substrate/shared.ts"
 import { dropRole } from "#test/support/substrate/substrate.ts"
-import { networkWorkers } from "#test/support/substrate/workers.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**

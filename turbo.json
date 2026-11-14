@@ -22,6 +22,11 @@
 			"dependsOn": ["^typecheck"],
 			"outputs": ["types/**"]
 		},
+		"@bjornpagen/grizzle-pg#typecheck": {
+			"description": "The local cluster's package checks with --noEmit: no declarations to cache.",
+			"dependsOn": ["^typecheck"],
+			"outputs": []
+		},
 		"superlint": {
 			"description": "The toolchain's rules (vendor/toolchain) are inputs too; toolchain.config.ts, its options, is a global dependency. It reads the declarations its dependencies' typechecks emit through their project references, so it runs after those typechecks, never while they rewrite them.",
 			"dependsOn": ["^source", "^typecheck"],
