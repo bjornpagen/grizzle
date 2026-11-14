@@ -255,6 +255,11 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
 - **Text keys past PostgreSQL's B-tree item size:** so pantry drops its "Key text bound" law.
 
 ### Next
+- **Turbo hashes grizzle's own sources into every task (fold into the toolchain switch, lane TOOLCHAIN, F3):** the root
+  package.json devDepends on @bjornpagen/grizzle, @grizzle/devtools and @grizzle/testing (workspace:*), so turbo counts
+  their sources in the global hash (globalCacheInputs.hashOfInternalDependencies), and a one-line edit in
+  packages/grizzle runs all 21 check tasks again. Move test, bench and scripts into a workspace package of their own, so
+  the root depends only on the tooling. The toolchain switch restructures the root anyway.
 - **A family member's put that moves a key is witnessed by PostgreSQL alone (WITNESS, 2026-11-11):** every insert now
   probes each unique object it does not arbitrate in its own statement, a family's additions and a planner's row insert
   included (write/family/statements.ts candidateGate), so a stated row meeting one is refused with its key. A family's
@@ -285,7 +290,10 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   served change member that touches a unit's body calls its hold before its first statement that does, refused
   `UnheldGroup` where it touches a group the call does not state; `ChangeSet.retire`, the role option `retire`, the
   outcome's retired counts, EXECUTE grants, the README's served half and SKILL.md. The design, decisions and plants owed
-  are in ~/.cache/grizzle-release/RETIRE/handoff.txt.
+  were in ~/.cache/grizzle-release/RETIRE/handoff.txt, lost with the VM (2026-11-12). The plants
+  test/unit/write/hold.test.ts's header names were lost with it: RETIRE2's hold-omitted and hold-after
+  (~/.cache/grizzle-release/RETIRE2/plants) are rewritten with ChangeSet.retire's work, and TREEORACLE's
+  hold-header-unordered is no longer in ~/.cache/grizzle-release/TREEORACLE/plants either.
 - **Reads forward PostgreSQL's bytes (WIREPASS, the owner, 2026-11-11):** the live wire decodes PostgreSQL's JSON
   (attachments are aggregated as JSON in the served statement, lower/shapes/attach) into host values, then re-encodes
   them in carrierWire's spellings (live/wire.ts): int8, numeric and money as strings, bytes as base64. That is a
