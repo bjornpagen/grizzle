@@ -59,9 +59,7 @@ import {
 	tableCol,
 	types
 } from "#compiler/sql/build.ts"
-import { emit } from "#compiler/sql/emit.ts"
-import { emptyNameMap } from "#compiler/sql/naming.ts"
-import { printType } from "#compiler/sql/print.ts"
+import { printCommands, printType } from "#compiler/sql/print.ts"
 import { analyzeText, domainValue, membership } from "#compiler/text/refinement.ts"
 import type {
 	AuthoredRelationDesc as RelationDesc,
@@ -1210,7 +1208,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		ddl.push(revokeFromPublic({ kind: "DOMAIN", names: domainNames }))
 	}
 
-	const sql = Arr.map(ddl, (statement) => unwrap(emit(statement, emptyNameMap)).text)
+	const sql = Arr.flatMap(ddl, (statement) => printCommands(statement))
 	return {
 		declared: desc.name,
 		schema,
