@@ -73,12 +73,24 @@ const anyCapSketchGen: Gen<CapSketch> = (source) => {
 }
 
 /**
- * A race's sketch: any, or one in four with every op on, so the label-fixed floor and steered streams reach the caps
- * given beside a cap put, prior spend and a duplicate request.
+ * A race whose cap is one micro under what its requests charge together, beside the spend before the race, with no
+ * cap change and no duplicate: whatever order serializes the requests, the last is refused one micro over the cap.
+ */
+const overByOneArm: Gen<CapSketch> = map(anyCapSketchGen, (k): CapSketch => ({
+	...k,
+	cap: Arr.reduce(k.charges, 0, (a, b) => a + b) - 1,
+	ops: { "prior spend": 3 }
+}))
+
+/**
+ * A race's sketch: any; one in five with every op on, so the label-fixed floor and steered streams reach the caps given
+ * beside a cap put, prior spend and a duplicate request; and one in five a cap one micro under the requests' total
+ * (overByOneArm), a request refused one micro over the cap, which a drawn cap meets by chance alone.
  */
 const capSketchGen: Gen<CapSketch> = weighted([
 	[3, anyCapSketchGen],
-	[1, map(anyCapSketchGen, (k): CapSketch => ({ ...k, ops: fullSwarm(opFeatures) }))]
+	[1, map(anyCapSketchGen, (k): CapSketch => ({ ...k, ops: fullSwarm(opFeatures) }))],
+	[1, overByOneArm]
 ])
 
 /** Request n's window: a minute apart, each half a minute long, inside the month. */
