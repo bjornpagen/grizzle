@@ -3,11 +3,18 @@ import type { DeferrableReadError, OpenError, ReadError } from "#adapter/errors/
 import type { DbLayerService, ServedRole } from "#adapter/types/layer.ts"
 import type {
 	CallError,
-	EventOf,
+	EventOfShape,
 	InputCheck,
+	InputCheckOf,
 	InstantShape,
-	ShapeOf,
-	ValueOf
+	KeyRead,
+	ServedArrays,
+	ServedInput,
+	ServedOutcome,
+	ServedParams,
+	ServedRow,
+	ServedShape,
+	ServedValue
 } from "#compiler/live/index.ts"
 import type { AnyChangeSet, Refused, Witness } from "#compiler/plan/change.ts"
 import type {
@@ -97,26 +104,55 @@ export type MemberHandle<X> = MemberCalls<X> &
  * (live/program.ts InputCheck): its params, its facts and a paged member's window, each refused where the runtime
  * refuses it.
  */
-export type MemberCalls<X> = [ShapeOf<X>] extends [InstantShape]
-	? OnceCall<X>
-	: OnceCall<X> & WatchCall<X>
+export type MemberCalls<X> = CallsOf<
+	ServedShape<X>,
+	ServedInput<X>,
+	ServedArrays<X>,
+	ServedParams<X>,
+	KeyRead<X>,
+	ServedValue<X>,
+	EventOfShape<ServedShape<X>, ServedRow<X>, ServedOutcome<X>>
+>
 
-/** A served member's once: its events taken to ready, folded, the value or the CallError that ended them. */
-interface OnceCall<X> {
-	once<const I>(input: I & NoInfer<InputCheck<I, X>>): Effect.Effect<ValueOf<X>, CallError>
+/**
+ * MemberCalls over the parts of X its calls read, each read once X is known (live/program.ts ServedShape, ServedInput,
+ * ServedArrays, ServedParams, KeyRead, ServedValue, and its events): its shape Sh, its input In, its array members A,
+ * its parameters Ps, whether it reads by a key, its value V and its events Ev. A call of a member of an interface over X
+ * maps X to the program through the call's own mapper, which instantiates the program whole, its schema with it, so
+ * the calls are over X's parts alone; and the shape is a parameter of its own, since a tuple of an alias over X,
+ * `[ShapeOf<X>] extends [...]`, is a reference the checker resolves later, holding X.
+ */
+type CallsOf<Sh, In, A, Ps, Key extends boolean, V, Ev> = [Sh] extends [InstantShape]
+	? OnceCall<In, A, Ps, Key, V>
+	: OnceCall<In, A, Ps, Key, V> & WatchCall<In, A, Ps, Key, Ev>
+
+/** A served member's once: its events taken to ready, folded, the value V or the CallError that ended them. */
+interface OnceCall<In, A, Ps, Key extends boolean, V> {
+	once<const I>(input: I & NoInfer<InputCheckOf<I, In, A, Ps, Key>>): Effect.Effect<V, CallError>
 }
 
-/** A served member's watch: its events, a read's live after its ready. */
-interface WatchCall<X> {
-	watch<const I>(input: I & NoInfer<InputCheck<I, X>>): Stream.Stream<EventOf<X>>
+/** A served member's watch: its events Ev, a read's live after its ready. */
+interface WatchCall<In, A, Ps, Key extends boolean, Ev> {
+	watch<const I>(input: I & NoInfer<InputCheckOf<I, In, A, Ps, Key>>): Stream.Stream<Ev>
 }
 
 /**
  * A served member's explains by its program's kind: a deferrable read's, whose transaction meets no serialization
  * failure, a read's, a change's, a clocked member's by its program's, each taking the member's own input, and a
- * refresh's none.
+ * refresh's none. The kind is told by the program's keys (live/program.ts ServedShape), never by a test of the program,
+ * which holds its schema: a value typed `any` or `never`, whose keys are every symbol, is read structurally.
  */
-type ExplainOf<X> =
+type ExplainOf<X> = symbol extends keyof X ? ExplainOfProgram<X> : ExplainByKey<X>
+type ExplainByKey<X> = X extends unknown
+	? "deferrable" extends keyof X
+		? ReadExplain<X, DeferrableReadError>
+		: "refresh" extends keyof X
+			? unknown
+			: "write" extends ServedShape<X>
+				? ChangeExplain<X>
+				: ReadExplain<X, ReadError>
+	: never
+type ExplainOfProgram<X> =
 	X extends Deferrable<unknown>
 		? ReadExplain<X, DeferrableReadError>
 		: X extends Refresh<unknown>
