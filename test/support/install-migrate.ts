@@ -19,6 +19,7 @@ import { served as servedLogin } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
 import { formatTimestamp } from "#cli/clock.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
+import type { CliError } from "#cli/errors.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
@@ -801,13 +802,55 @@ interface GeneratedDraft {
 const generatedConfig = `${repoRoot}app/grizzle.config.ts`
 
 /**
+ * The compiler's refusal a `grizzle generate` refusal carries, where the compiler refused the version's schema, a
+ * login, a step of its draft or a login's workload; none for a refusal of the setup's own configuration, files or
+ * snapshot, or of a workload no served file can hold.
+ */
+const compilerRefusal = (refusal: CliError): Option.Option<CompileError> => {
+	const reason = refusal.reason
+	switch (reason._tag) {
+		case "SchemaEntryRefused":
+		case "LoginEntryRefused":
+			return reason.fault.kind === "uncompiled" ? Option.some(reason.fault.error) : Option.none()
+		case "DraftRefused":
+			return Option.some(reason.error)
+		case "ServedRefused":
+			return reason.error._tag === "CompileError" ? Option.some(reason.error) : Option.none()
+		case "ArgumentsRefused":
+		case "MigrationNameRefused":
+		case "DeclarationRefused":
+		case "SchemaChoiceRefused":
+		case "ConfigMissing":
+		case "ConfigUnloaded":
+		case "ExportRefused":
+		case "SettingRefused":
+		case "ConnectionRefused":
+		case "ConnectionThrew":
+		case "ConnectionEnvironmentRefused":
+		case "TreeRefused":
+		case "TreeUnread":
+		case "FolderExists":
+		case "FolderUnwritten":
+		case "SnapshotUnwritten":
+		case "ServedUnwritten":
+		case "MigrationsUnread":
+		case "SnapshotUnreadable":
+		case "SnapshotForeign":
+		case "ChainRefused":
+		case "RosterReordered":
+			return Option.none()
+	}
+}
+
+/**
  * `version` as `grizzle generate` drafts and serves it `at` its step of a history: its configuration resolved and
  * compiled as the command line compiles it (cli/config.ts), drafted from the snapshot before it with its logins' served
  * workload certified once (cli/generate.ts draftSchema), its folder named at its step's instant and reviewed as
  * installMigrated's is, its plan (oracle/install/real.ts) the drafted installation under the identity and owner `at`
  * gives, with the codes its draft continues, the snapshot it reaches, and each login's served file projected from the
- * same plan (servedFiles). A version that drafts no migration, or one the command line refuses, is a defect of the
- * setup.
+ * same plan (servedFiles). A version the compiler refuses fails with the compiler's refusal (compilerRefusal), as a
+ * schema installMigrated compiles does, so a test can expect it; a version that drafts no migration, or one the
+ * command line refuses for anything else, is a defect of the setup.
  */
 const generatedDraft = (
 	version: GeneratedVersion,
@@ -816,7 +859,7 @@ const generatedDraft = (
 	Effect.gen(function* () {
 		const desc = yield* fromEngine(schemaDescIn(version.schema))
 		const codes = yield* fromEngine(draftCodes(desc, at.previous, version.declarations))
-		const { draft, entries } = yield* Effect.orDie(
+		const { draft, entries } = yield* pipe(
 			Effect.provideService(
 				Effect.gen(function* () {
 					const config = yield* resolveConfig(
@@ -843,6 +886,12 @@ const generatedDraft = (
 				}),
 				Path.Path,
 				paths
+			),
+			Effect.catchTag("CliError", (refusal) =>
+				Option.match(compilerRefusal(refusal), {
+					onNone: () => Effect.die(refusal),
+					onSome: Effect.fail
+				})
 			)
 		)
 		assert.equal(draft.change, "schema", "each version of a generated history drafts a migration")
