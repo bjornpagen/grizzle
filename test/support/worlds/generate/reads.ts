@@ -3,15 +3,11 @@ import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { directions } from "#compiler/core/order.ts"
 import { projection } from "#test/support/laws/model.ts"
-import {
-	inDomain,
-	knownNonEmpty,
-	pooled,
-	sameDomain
-} from "#test/support/worlds/generate/domain.ts"
+import { knownNonEmpty, pooled, sameDomain } from "#test/support/worlds/generate/domain.ts"
 import { headingOf } from "#test/support/worlds/generate/entries.ts"
 import { type BoundaryArms, type Variant } from "#test/support/worlds/invalid/kinds.ts"
 import { classifyEntry, entryRows } from "#test/support/worlds/model/host.ts"
+import { getCompiles } from "#test/support/worlds/model/reads.ts"
 import { entryKeyed } from "#test/support/worlds/model/session/keys.ts"
 import { isPageSize } from "#test/support/worlds/model/step.ts"
 import type {
@@ -282,9 +278,9 @@ export const viaArms = (
 }
 
 /**
- * The invalid kinds of a read's path: a page size no page has, a get naming a field outside the relation's heading or
- * holding a value outside its field's domain, a get by a whole key no row holds; an attachment, a recursive read and a
- * get by part of a key carry none, since such a get is a read of every row agreeing at the fields it names.
+ * The invalid kinds of a read's path: a page size no page has, a get the compile refuses (model/reads.ts getCompiles,
+ * the model's own judgment of it), a get by a whole key no row holds; an attachment, a recursive read and a get by part
+ * of a key carry none, since such a get is a read of every row agreeing at the fields it names.
  */
 export const viaKinds = (
 	state: ModelState,
@@ -306,11 +302,7 @@ export const viaKinds = (
 			if (spec === undefined) {
 				return []
 			}
-			const heading = headingOf(state.install.base, spec)
-			const typed = Arr.every(Rec.toEntries(via.key), ([field, v]) =>
-				Arr.some(heading, (f) => f.name === field && inDomain(f.domain, v))
-			)
-			if (!typed) {
+			if (!getCompiles(state.install.base, role, relation, via.key)) {
 				return ["handle:wild-js-value"]
 			}
 			const key = entryKey(state.install.base, spec)

@@ -16,14 +16,13 @@ import {
 import {
 	entryRows,
 	evaluateRules,
-	fieldDomain,
-	headFieldDomain,
 	hostSchemaOf,
 	isMember
 } from "#test/support/worlds/model/host.ts"
 import {
 	attachedField,
 	attachedRows,
+	getCompiles,
 	headingNames,
 	reachedPairs
 } from "#test/support/worlds/model/reads.ts"
@@ -38,7 +37,6 @@ import {
 	startedBranches,
 	startStatements
 } from "#test/support/worlds/model/session/direct.ts"
-import { ofDomainType } from "#test/support/worlds/model/session/domains.ts"
 import { driftBranches, migrateBranches } from "#test/support/worlds/model/session/migrate.ts"
 import { openBranches, wildOpenBranches } from "#test/support/worlds/model/session/open.ts"
 import {
@@ -58,14 +56,11 @@ import {
 import { installedRoles, writtenOf } from "#test/support/worlds/model/session/writes.ts"
 import type {
 	Action,
-	BaseSpec,
 	Branch,
 	ContextFacts,
 	DbSessionState,
 	DirectSessionState,
 	DirectStatement,
-	EntrySpec,
-	FieldDomain,
 	HostFact,
 	HostState,
 	InstalledNames,
@@ -75,7 +70,6 @@ import type {
 	Probe,
 	ReadBack,
 	ReadVia,
-	Source,
 	Allowed,
 	HostValue,
 	RefusedBy,
@@ -294,26 +288,6 @@ const serializationFailed = (next: ModelState): Branch => ({
 const atKey = (row: HostFact, key: HostFact): boolean =>
 	Arr.every(Rec.toEntries(key), ([f, v]) => Rec.has(row, f) && sameValue(row[f], v))
 
-/** The domain of a role relation's field: its base field's for a whole entry, its head field's for a query entry. */
-const entryFieldDomain = (
-	base: BaseSpec,
-	entry: EntrySpec,
-	field: string
-): FieldDomain | undefined => {
-	switch (entry.kind) {
-		case "whole": {
-			const source: Source = Arr.some(base.closed, (c) => c.name === entry.relation)
-				? { kind: "closed", name: entry.relation }
-				: Arr.some(base.derived, (d) => d.name === entry.relation)
-					? { kind: "derived", name: entry.relation }
-					: { kind: "ordinary", name: entry.relation }
-			return fieldDomain(base, source, field)
-		}
-		case "query":
-			return headFieldDomain(base, entry.rules, field)
-	}
-}
-
 /**
  * A window's size a paged member's call takes: a safe integer of at least 1, with no upper bound (README "A window's
  * size is any safe integer of at least 1"); the call's input refuses any other before any SQL (adapter/errors/failures.ts
@@ -379,17 +353,10 @@ const readCall = (
 			return heading.includes(via.from) && heading.includes(via.to)
 				? delivers((rows) => reachedPairs(rows, via.from, via.to))
 				: refused
-		case "get": {
-			const entry = role.entries[relation]
-			if (entry === undefined) {
-				return refused
-			}
-			const typed = Arr.every(Rec.toEntries(via.key), ([field, value]) => {
-				const domain = entryFieldDomain(state.install.base, entry, field)
-				return heading.includes(field) && (domain === undefined || ofDomainType(domain, value))
-			})
-			return typed ? delivers((rows) => Arr.filter(rows, (r) => atKey(r, via.key))) : refused
-		}
+		case "get":
+			return getCompiles(state.install.base, role, relation, via.key)
+				? delivers((rows) => Arr.filter(rows, (r) => atKey(r, via.key)))
+				: refused
 	}
 }
 

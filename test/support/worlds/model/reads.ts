@@ -2,14 +2,68 @@ import { Array as Arr, Record as Rec } from "effect"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import { sameValue, sameValues } from "#test/support/laws/model.ts"
-import { factKey } from "#test/support/worlds/model/host.ts"
+import { factKey, fieldDomain, headFieldDomain } from "#test/support/worlds/model/host.ts"
+import { inFieldDomain } from "#test/support/worlds/model/session/domains.ts"
 import { relationSpecOf, roleEntryOf } from "#test/support/worlds/model/session/state.ts"
-import type { BaseSpec, DerivedSpec, HostFact, RoleSpec } from "#test/support/worlds/model/types.ts"
+import type {
+	BaseSpec,
+	DerivedSpec,
+	EntrySpec,
+	FieldDomain,
+	HostFact,
+	RoleSpec,
+	Source
+} from "#test/support/worlds/model/types.ts"
 
 /**
  * The shapes of the reads that deliver more than a relation's own rows (README "Queries": nest, recursion), as the model
  * predicts them and the executor reads them back: an attachment's rows flattened, and a recursive read's pairs.
  */
+
+/** The domain of a role relation's field: its base field's for a whole entry, its head field's for a query entry. */
+export const entryFieldDomain = (
+	base: BaseSpec,
+	entry: EntrySpec,
+	field: string
+): FieldDomain | undefined => {
+	switch (entry.kind) {
+		case "whole": {
+			const source: Source = Arr.some(base.closed, (c) => c.name === entry.relation)
+				? { kind: "closed", name: entry.relation }
+				: Arr.some(base.derived, (d) => d.name === entry.relation)
+					? { kind: "derived", name: entry.relation }
+					: { kind: "ordinary", name: entry.relation }
+			return fieldDomain(base, source, field)
+		}
+		case "query":
+			return headFieldDomain(base, entry.rules, field)
+	}
+}
+
+/**
+ * Whether a get of a role relation by `key` compiles. A get is a read of the relation with each field it names fixed to
+ * its value (execute/session.ts readVia, relationRead), which names no key, since grizzle serves no lookup by a field
+ * set a caller picks (6c7c7604): a key member reads by a stored relation's primary key or a declared Key alone
+ * (program/workload/value.ts keyLookup, query/build/key.ts keyTarget). So it compiles exactly where each field it names
+ * is one the relation's heading types (entryFieldDomain) and each value lies in that field's domain
+ * (session/domains.ts inFieldDomain), as grizzle admits a literal of the field; it is refused at compile otherwise. The
+ * model's read (step.ts readCall) and the generator's invalid kinds (generate/reads.ts viaKinds) both judge a get by it.
+ */
+export const getCompiles = (
+	base: BaseSpec,
+	role: RoleSpec,
+	relation: string,
+	key: HostFact
+): boolean => {
+	const entry = roleEntryOf(role, relation)
+	return (
+		entry !== undefined &&
+		Arr.every(Rec.toEntries(key), ([field, value]) => {
+			const domain = entryFieldDomain(base, entry, field)
+			return domain !== undefined && inFieldDomain(domain, value)
+		})
+	)
+}
 
 /**
  * The fields of a role relation's heading: a whole entry's relation's, a roster's handle, a derived relation's head,

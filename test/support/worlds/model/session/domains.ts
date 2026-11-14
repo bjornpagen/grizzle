@@ -98,25 +98,13 @@ const domainFault = (domain: FieldDomain, value: HostValue): DomainFault | undef
 }
 
 /**
- * Whether a value is of its domain's JavaScript type, as a query builder takes a literal of the field's type: a string
- * for a uuid, a text or a handle; a number for an integer, a serial or a contract; a boolean; a span.
+ * Whether a value is one of its field's domain, domainFault admitting it: what grizzle admits as a literal of the field
+ * in a query, its builder refusing a fault of the base type (MalformedDescription: a uuid of another form, an integer
+ * past its type, a handle outside its roster, a text holding U+0000) and its compile a value the field's law domain
+ * refuses (ContractLiteral: a text past its pattern, an integer past its contract).
  */
-export const ofDomainType = (domain: FieldDomain, value: HostValue): boolean => {
-	switch (domain.kind) {
-		case "uuid":
-		case "text":
-		case "handle":
-			return typeof value === "string"
-		case "integer":
-		case "serial":
-		case "contract":
-			return typeof value === "number"
-		case "boolean":
-			return typeof value === "boolean"
-		case "span":
-			return isSpan(value)
-	}
-}
+export const inFieldDomain = (domain: FieldDomain, value: HostValue): boolean =>
+	domainFault(domain, value) === undefined
 
 /**
  * One value a statement writes, at a field of the relation it writes, of the field's domain; none where the statement
