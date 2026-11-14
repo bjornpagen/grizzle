@@ -364,7 +364,7 @@ const hostState = (spec: SwarmSpec, state: State): HostState => {
 }
 
 /** A state's rows with every membership whose owner it holds no row of left out: the rows the reference can write. */
-const ownedRows = (rows: ReadonlyArray<InstanceRow>): ReadonlyArray<InstanceRow> => {
+export const ownedRows = (rows: ReadonlyArray<InstanceRow>): ReadonlyArray<InstanceRow> => {
 	const ids = new Set(Arr.map(rows, (r) => r.id))
 	return Arr.map(rows, (row) => ({
 		...row,

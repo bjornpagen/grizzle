@@ -629,6 +629,48 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 							families: removedFamilies(rider)
 						}
 					})
+				/**
+				 * The members an additions statement of `appended` refills (FamilyAdditions `riders`), each from the rows it
+				 * appends of it alone: the ways its edit's refills take into the rider, and a way along each counted family it
+				 * owns whose member the rider is, which carries a moved row's counts and ends into its members' copies of them
+				 * as the row is inserted again. Every such way starts at the append scan of a family `appended` is a member of,
+				 * which holds every appended row whole.
+				 */
+				const appendRidersOf = (appended: RelationInfo, names: ReadonlyArray<string>) => {
+					const root = memberFamilies(appended.name, all).find((f) => !isTreeOf(f, appended.name))
+					return names.map((name): EditedMember => {
+						const rider = info(name)
+						return {
+							relation: rider,
+							layout: layoutOf(name),
+							puts: undefined,
+							deletes: undefined,
+							families: mapNonEmpty(removedFamilies(rider), (f) => {
+								const editWays = f.refills.filter(
+									(way) => way.root.kind === "edit" && way.root.relation === appended.name
+								)
+								const owned =
+									root !== undefined &&
+									f.family.owner.name === appended.name &&
+									!isSequence(f.family)
+								return {
+									...f,
+									refills: owned
+										? [
+												...editWays.filter((way) =>
+													way.hops.some((hop) => familyKey(hop.id) !== familyKey(f.family.id))
+												),
+												{
+													root: { kind: "edit" as const, relation: appended.name, family: root },
+													hops: [f.family] as const
+												}
+											]
+										: editWays
+								}
+							})
+						}
+					})
+				}
 				if (node.kind === "additions") {
 					/** The rows the stratum's nested writes fill, by relation, as each sends them (nesting.ts sentLayout), with
 					 * the columns of them the walk fills, which they state. */
@@ -687,7 +729,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 									sources,
 									families: familiesOf(relation),
 									owns: all.filter((f) => f.owner.name === name && !isSequence(f)),
-									riders: ridersOf(node.appends === "rows" ? node.riders : [])
+									riders: appendRidersOf(relation, node.appends === "rows" ? node.riders : [])
 								}
 							]
 						}

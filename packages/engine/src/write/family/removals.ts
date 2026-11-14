@@ -9,7 +9,8 @@
  * - removed: a delete's, and a put's that names another group in some family of the relation, which the additions
  *   insert again in its new groups: it leaves every family it is a member of, and keeps every counted family it owns,
  *   whose members still name it and whose counts and ends the additions read from them (write/family/additions.ts
- *   appendedOf), and whose members' copies of the columns its new groups draw the additions' riders refill;
+ *   appendedOf), and whose members' copies of its columns, the ones its new groups draw and its counts, the additions'
+ *   riders refill as they insert it again, whichever statement of the stratum recounted it while it was absent;
  * - updated in place: any other put's, its caller fields the put's; its families' values are drawn again from its slot
  *   where the put changes a field one of their values reads.
  *
@@ -570,8 +571,27 @@ const cascaded = (
 		defined(way.hops[level], `hop ${level} of a refill's way`)
 	/** Whether the rows at `level` of a way, its hop's members, hold `key` changed: a copy the hop's owner axis carries of
 	 * a column the root's rows state, at the first level, or of a column the level before it changes. */
+	/**
+	 * The columns the owner axis of the way's hop at `level` carries from each owner row into its members: its pairs, and,
+	 * where an edit's rows are the way's root, a counted hop's copy ‹n› of the owner's count. An edit's rows hold the
+	 * count as the stratum leaves the row, its own family's, which a row the edit inserts again carries and a recount
+	 * reaches only where the row is already there; a put's rows hold an owner's counts at their starts, which no put
+	 * changes, so the axis's own cascade carries them.
+	 */
+	const carried = (
+		way: RefillWay,
+		level: number
+	): ReadonlyArray<{ readonly from: NativeColumn; readonly to: NativeColumn }> => {
+		const hop = hopAt(way, level)
+		return way.root.kind === "edit" && !isSequence(hop)
+			? [
+					...hop.axes.owner,
+					{ from: { kind: "law", column: hop.copy }, to: { kind: "field", field: hop.count } }
+				]
+			: hop.axes.owner
+	}
 	const changes = (way: RefillWay, level: number, key: ColumnKey): boolean =>
-		hopAt(way, level).axes.owner.some(
+		carried(way, level).some(
 			(pair) =>
 				columnKey(pair.from) === key &&
 				(level === 0
@@ -622,7 +642,7 @@ const cascaded = (
 	/** The value at `key` of a row of `level`'s members at alias `at` as the way leaves it: the value its owner holds at
 	 * the column a hop's pair copies into `key`, where `key` changes, else none. */
 	const leftAt = (way: RefillWay, level: number, at: string, key: ColumnKey): ReadonlyArray<Expr> =>
-		hopAt(way, level).axes.owner.flatMap((pair): ReadonlyArray<Expr> => {
+		carried(way, level).flatMap((pair): ReadonlyArray<Expr> => {
 			const to = columnKey(pair.to)
 			if (columnKey(pair.from) !== key) {
 				return []

@@ -2372,6 +2372,20 @@ const compile = (
 		 * `riders`). */
 		const ridersOf = (member: StoredRelationName): ReadonlyArray<StoredRelationName> =>
 			[...starts].flatMap(([rider, x]) => (x?.edit === member ? [rider] : []))
+		/** The members an additions statement's refills rewrite (FamilyAdditions `riders`): its edit's riders, and, where the
+		 * stratum puts `member`, every member relation of a counted family it owns, whose copies of a moved row's counts and
+		 * ends follow the row as the additions insert it again, which no cascade does: a recount of the row by another
+		 * statement of the stratum, which may run while the row is absent, reaches them only there. */
+		const appendRidersOf = (member: StoredRelationName): ReadonlyArray<StoredRelationName> => [
+			...new Set([
+				...ridersOf(member),
+				...(by(["put"]).includes(member)
+					? families.flatMap((f) =>
+							f.owner.name === member && !isSequence(f) ? [f.member.name] : []
+						)
+					: [])
+			])
+		]
 		/** The plain relations whose puts a removals statement's refills read the facts of, which it runs before: its own
 		 * member's, and every rider's it rewrites. */
 		const refilledFromOf = (member: StoredRelationName): ReadonlyArray<StoredRelationName> => [
@@ -2556,7 +2570,7 @@ const compile = (
 						...drawn,
 						...putOf(member).filter((o) => !drawn.some((d) => d.relation === o.relation))
 					],
-					riders: ridersOf(member)
+					riders: appendRidersOf(member)
 				}
 			}),
 			...recountedOnly.flatMap((member) => {

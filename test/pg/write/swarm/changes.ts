@@ -20,6 +20,7 @@ import {
 import {
 	familyWrites,
 	orphaned,
+	ownedRows,
 	type PlainOp,
 	type Placed,
 	type State,
@@ -60,13 +61,14 @@ type Fact = { readonly [field: string]: unknown }
  * The top facts of an instance's rows by relation: each row no sequence nests, with its caller's fields, its set `b`,
  * the columns it names a member's row by, its counted families' group fields, a tree root's own id as its root field,
  * and each sequence's members nested at its count field in slot order, each nested member its own caller's fields, set,
- * named row's columns and counted group fields.
+ * named row's columns and counted group fields. An orphan's group names its absent owner by that owner's uuid
+ * (`groupOf`), the reference's rows read with that membership left out (oracle.ts ownedRows), as the oracle stores them.
  */
 const topFacts = (
 	spec: SwarmSpec,
 	rows: ReadonlyArray<InstanceRow>
 ): ReadonlyMap<number, ReadonlyArray<Fact>> => {
-	const written = writtenRows(spec.fill, rows)
+	const written = writtenRows(spec.fill, ownedRows(rows))
 	const factOf = (row: InstanceRow, nested: boolean): Fact => {
 		const fact: Record<string, unknown> = {
 			id: uuidOfRow(row.id),
