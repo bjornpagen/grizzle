@@ -376,7 +376,7 @@ const workerPredicateLocks: Limit = measured({
  * of pg_locks 0.9, 22.9 and 2.1 ms. A transaction's locks promote to its page's and relation's as production's do,
  * whatever this is: init.sh pins max_pred_locks_per_relation.
  */
-export const clusterPredicateLocks: number = Math.ceil(
+const clusterPredicateLocks: number = Math.ceil(
 	(networkWorkers * workerPredicateLocks.value) / clusterConnections
 )
 

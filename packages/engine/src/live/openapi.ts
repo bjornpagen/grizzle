@@ -6,6 +6,7 @@
  * here by what each scalar type states beyond its carrier. `grizzle generate` writes it beside the served file as
  * canonical JSON, and `grizzle check` compares its bytes.
  */
+import { appendAll } from "#compiler/core/array.ts"
 import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
@@ -410,7 +411,7 @@ const openApiDocument = (file: ServedFile): Result.Result<Json, CompileError> =>
 			}
 			own.push(operation.value)
 		}
-		operations.push(...own)
+		appendAll(operations, own)
 		tags.push({
 			name: role.name,
 			description: roleDescription(
