@@ -8,10 +8,45 @@ const Sha256 = Schema.String.pipe(Schema.check(Schema.isPattern(regex("^[0-9a-f]
 
 const Twin = Schema.Struct({ sha256: Sha256, sourceUrl: Schema.NonEmptyString })
 
+/** A repository at one commit: `owner/repo@<40 hex digits>`. */
+const Commit = Schema.String.pipe(
+	Schema.check(Schema.isPattern(regex("^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+@[0-9a-f]{40}$", "u")))
+)
+
 /**
- * One pinned specification (design 8.2). `pinnedRef` is `owner/repo@<commit>`, or `unpinned` for a
- * source that cannot be pinned (such sources stay in the `extended` tier).
+ * A specification a public source publishes, fetched by its pin (design 8.2): `pinnedRef` is
+ * `owner/repo@<commit>`, or `unpinned` for a source that cannot be pinned (such sources stay in the
+ * `extended` tier), and `twin` is the same document in the other format.
  */
+const Fetched = Schema.Struct({
+	kind: Schema.Literal("fetched"),
+	pinnedRef: Schema.NonEmptyString,
+	sourceUrl: Schema.NonEmptyString,
+	twin: Schema.optionalKey(Twin)
+})
+
+/**
+ * A specification no public source publishes, because a tool writes it from another repository's
+ * code: its bytes are committed at `path`, under the corpus root, and `producedBy` says how they
+ * were written. `tool` and `input` are the tool's and the input's commits, `command` runs in
+ * `directory` of the input and writes `output` there (both relative to the input's root), and
+ * `changes` are the edits made to either beyond those commits, in plain words, none when the
+ * commits alone wrote it.
+ */
+const Committed = Schema.Struct({
+	kind: Schema.Literal("committed"),
+	path: Schema.NonEmptyString,
+	producedBy: Schema.Struct({
+		changes: Schema.Array(Schema.NonEmptyString),
+		command: Schema.NonEmptyString,
+		directory: Schema.String,
+		input: Commit,
+		output: Schema.NonEmptyString,
+		tool: Commit
+	})
+})
+
+/** One specification of the corpus (design 8.2): its bytes' size, format, sha256 and source. */
 export const CorpusEntry = Schema.Struct({
 	bytes: Schema.Int,
 	format: Schema.Literals(["json", "yaml"]),
@@ -19,11 +54,9 @@ export const CorpusEntry = Schema.Struct({
 	infoLicense: Schema.optionalKey(Schema.NonEmptyString),
 	license: Schema.NonEmptyString,
 	licenseSha256: Schema.optionalKey(Sha256),
-	pinnedRef: Schema.NonEmptyString,
 	sha256: Sha256,
-	sourceUrl: Schema.NonEmptyString,
-	tier: Schema.Literals(["ci", "extended"]),
-	twin: Schema.optionalKey(Twin)
+	source: Schema.Union([Fetched, Committed]),
+	tier: Schema.Literals(["ci", "extended"])
 })
 
 /**
@@ -34,14 +67,14 @@ export const Corpus = Schema.Struct({
 	version: Schema.Literal(1)
 })
 
-/** The fetched bytes hash to another sha256 than the pin. */
+/** A spec's bytes, fetched or committed, hash to another sha256 than its entry's. */
 export class CorpusHashMismatch extends Schema.TaggedError<
 	CorpusHashMismatch,
 	{ readonly brand: unique symbol }
 >()("CorpusHashMismatch", {
 	actual: Schema.String,
 	expected: Schema.String,
-	sourceUrl: Schema.String
+	source: Schema.String
 }) {}
 
 /** A source URL off the one allowed scheme, host, port and credential, refused before any request. */
@@ -143,7 +176,7 @@ export const fetchPinned = <R>(
 			return yield* CorpusHashMismatch.make({
 				actual,
 				expected: pin.sha256,
-				sourceUrl: pin.sourceUrl
+				source: pin.sourceUrl
 			})
 		}
 
@@ -161,3 +194,55 @@ export const fetchPinned = <R>(
 
 		return target
 	})
+
+/** Where an entry's bytes are on disk, and the URI its diagnostics name the document by. */
+export interface Located {
+	readonly document: string
+	readonly path: string
+}
+
+/**
+ * A committed entry's file under the corpus root, named `file:///<path>` as an author config is,
+ * used only when its bytes hash to the entry's sha256.
+ */
+const committedAt = (sha256: string, path: string, root: string) =>
+	Effect.gen(function* committed() {
+		const fs = yield* FileSystem.FileSystem
+		const paths = yield* Path.Path
+		const target = paths.join(root, path)
+		const bytes = yield* fs
+			.readFile(target)
+			.pipe(Effect.mapError((cause) => CorpusCacheFailed.make({ cause, path: target })))
+		const actual = yield* sha256Hex(bytes)
+		if (actual !== sha256) {
+			return yield* CorpusHashMismatch.make({ actual, expected: sha256, source: path })
+		}
+
+		const found: Located = { document: `file:///${path}`, path: target }
+
+		return found
+	})
+
+/**
+ * An entry's bytes, by its source: a fetched entry's through the pinned cache (`fetchPinned`),
+ * named by its source URL, or a committed entry's under the corpus root `root`.
+ */
+export const locate = <R>(
+	entry: typeof CorpusEntry.Type,
+	root: string,
+	cacheDir: string,
+	source: Source<R>
+): Effect.Effect<
+	Located,
+	CorpusCacheFailed | CorpusHashMismatch | SourceError,
+	FileSystem.FileSystem | Path.Path | Digest.Digest | R
+> => {
+	const from = entry.source
+
+	return from.kind === "fetched"
+		? Effect.map(
+				fetchPinned({ sha256: entry.sha256, sourceUrl: from.sourceUrl }, cacheDir, source),
+				(path): Located => ({ document: from.sourceUrl, path })
+			)
+		: committedAt(entry.sha256, from.path, root)
+}

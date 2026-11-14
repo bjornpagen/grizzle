@@ -193,9 +193,10 @@ Labels: decided; YAML and the validator are measured.
 
 Label: decided.
 
-- Corpus specifications are pinned by commit SHA and sha256 and fetched in CI by pin, not vendored.
-- The `ci` tier is Stripe, GitHub (3.0 and 3.1), Cloudflare, OpenAI, Kubernetes `core/v1`, Discord and Resend. Sources without a license or a stable pin are in the `extended` tier only.
+- Corpus specifications are pinned by sha256. A specification a public source publishes is pinned by commit SHA and fetched by pin, not committed. One that no source publishes, because a tool writes it from another repository's code, is committed under `corpus/specs/` with what wrote it: the tool's and the input's commits, the command, and any edit made beyond those commits.
+- The `ci` tier is Stripe, GitHub (3.0 and 3.1), Cloudflare, OpenAI, Kubernetes `core/v1`, Discord and Resend, and qti-pie's `author_app` login, the OpenAPI 3.2 document grizzle writes for it. Sources without a license or a stable pin are in the `extended` tier only.
 - One verdict file per pinned specification is committed and checked for drift.
+- The benchmark, a task of `pnpm check`, needs no network: every committed `ci` specification is generated, built against the installed dependencies, held to its verdict, and every command's `--help` and `--dry-run` is held to what its document describes.
 - An independent coverage checker joins its own walk of the specification with the built CLI's `--describe` output (introspection for operators, with a versioned schema) and with the refusal and informational records of the generation report. The join key is the JSON Pointer of the place where each element is used.
 
 ## Open decisions

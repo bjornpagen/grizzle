@@ -55,6 +55,10 @@
 			"description": "Generates the runtime-gate fixture into a scratch directory and typechecks the generated package against the installed dependencies, until the property that every emitted package typechecks covers it.",
 			"dependsOn": ["^source"]
 		},
+		"benchmark": {
+			"description": "Generates every corpus specification whose bytes are committed (qti-pie's grizzle documents), builds each package against the installed dependencies, compares its verdict byte for byte and runs every command's --help and --dry-run against what its document describes.",
+			"dependsOn": ["^source"]
+		},
 		"fixtures:superlint": {},
 		"fixtures:style": {},
 		"fixtures:oxlint": {},

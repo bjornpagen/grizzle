@@ -1,0 +1,8 @@
+{
+	"binName": "qti-pie-author",
+	"envPrefix": "QTI_PIE_AUTHOR",
+	"package": {
+		"name": "qti-pie-author-cli",
+		"version": "0.1.0"
+	}
+}

@@ -22,14 +22,15 @@ import { FetchHttpClient } from "effect/http"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { coverageOf } from "#corpus/tools/coverage.ts"
 import type { Coverage, Invented, Missing } from "#corpus/tools/coverage.ts"
-import { Corpus, fetchPinned, githubSource } from "#corpus/tools/fetch.ts"
-import type { CorpusEntry, Pin } from "#corpus/tools/fetch.ts"
+import { Corpus, fetchPinned, githubSource, locate } from "#corpus/tools/fetch.ts"
+import type { CorpusEntry } from "#corpus/tools/fetch.ts"
 import { Generation, GenerationRequest, reportFile } from "#corpus/tools/generate.ts"
 import { walk } from "#corpus/tools/walk.ts"
 import { GenerateRefused } from "#generate.ts"
 import { loadBytes } from "#load/index.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { sha256Hex } from "#model/digest.ts"
+import type { Json } from "#model/pointer.ts"
 import { VerdictCoverage } from "#model/verdict.ts"
 import { collectInformational } from "#normalize/informational.ts"
 import generatorPackage from "#package.json" with { type: "json" }
@@ -39,11 +40,11 @@ import { resolve } from "#resolve/index.ts"
 import { Description } from "#runtime-src/runtime/describe.ts"
 import { lineOf } from "#validate/dispatch.ts"
 
-type Entry = typeof CorpusEntry.Type
+export type Entry = typeof CorpusEntry.Type
 
 const decodeDocument = Schema.decodeUnknownEffect(DocumentUri)
 
-const decodeCorpus = Schema.decodeUnknownEffect(Schema.fromJsonString(Corpus))
+export const decodeCorpus = Schema.decodeUnknownEffect(Schema.fromJsonString(Corpus))
 
 const decodeDescription = Schema.decodeUnknownEffect(Schema.fromJsonString(Description))
 
@@ -108,8 +109,34 @@ export class CorpusCoverageGaps extends Schema.TaggedError<
 	}
 }
 
-interface Context {
+/**
+ * A generated package built and described, as `Context.exercise` reads it: its directory, its built
+ * bin's absolute path, its `--describe` commands, and the specification's parsed value.
+ */
+export interface Built {
+	readonly bin: string
+	readonly commands: (typeof Description.Type)["commands"]
+	readonly dir: string
+	readonly id: string
+	readonly value: Json
+}
+
+export interface Context {
+	/**
+	 * How a generated package is built: `installed` as a user installs it (`pnpm install` from the
+	 * store, then its build script), or `linked` to the workspace's installed dependencies, which are
+	 * the very versions it pins, then its build script, with no install and no network.
+	 */
+	readonly build: "installed" | "linked"
 	readonly cacheDir: string
+	/** What the run checks in a built package beyond its verdict; each string is a finding. */
+	readonly exercise: (
+		built: Built
+	) => Effect.Effect<
+		readonly string[],
+		CorpusRunFailed,
+		ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+	>
 	/** Where verdicts are written; `corpus/verdicts/` under `root` unless `--out` names a directory. */
 	readonly out: string | undefined
 	readonly root: string
@@ -134,7 +161,7 @@ interface Run {
  * One step at a time, so heavy steps never overlap: each runs to its end before the next starts.
  * `env` is the whole environment: proxy variables never reach the generated CLI (design C6).
  */
-const spawn = (
+export const spawn = (
 	id: string,
 	step: string,
 	command: readonly [string, ...string[]],
@@ -351,11 +378,37 @@ const generateApart = (id: string, request: typeof GenerationRequest.Type) =>
 			: generation
 	})
 
+/** The workspace root, whose installed dependencies a `linked` build resolves. */
+const workspaceRoot = new URL("../../../..", import.meta.url).pathname
+
+/** Makes a generated package runnable the way `context.build` names. */
+const buildPackage = (id: string, dir: string, build: Context["build"]) =>
+	build === "installed"
+		? spawn(
+				id,
+				"install",
+				["pnpm", "install", "--prefer-offline", "--ignore-scripts", "--ignore-workspace"],
+				{ cwd: dir }
+			).pipe(Effect.andThen(spawn(id, "build", ["pnpm", "run", "build"], { cwd: dir })))
+		: Effect.gen(function* linked() {
+				const fs = yield* FileSystem.FileSystem
+				const path = yield* Path.Path
+				yield* fs
+					.symlink(path.join(workspaceRoot, "node_modules"), path.join(dir, "node_modules"))
+					.pipe(
+						Effect.mapError((cause) =>
+							CorpusRunFailed.make({ id, output: String(cause), step: "link" })
+						)
+					)
+				yield* spawn(id, "build", [process.execPath, "--run", "build"], { cwd: dir })
+			})
+
 /**
- * One spec through generation, twin, build, `--describe` and the coverage join. The spec is read
- * in this process only after the build, so the build runs beside nothing generation held. The spec
- * is named by its pinned source URL and the config by its repository path, never by a host path
- * (C8); the twin is named as the JSON is, so only the format differs.
+ * One spec through generation, twin, build, `--describe`, the coverage join and the context's
+ * exercise. The spec is read in this process only after the build, so the build runs beside
+ * nothing generation held. The spec is named by its source URL, or a committed one by its
+ * repository path as the config is, never by a host path (C8); the twin is named as the JSON is,
+ * so only the format differs.
  */
 const runEntry = (entry: Entry, corpusVersion: number, context: Context) =>
 	Effect.gen(function* runOne() {
@@ -363,9 +416,9 @@ const runEntry = (entry: Entry, corpusVersion: number, context: Context) =>
 		const path = yield* Path.Path
 		const configName = `corpus/config/${entry.id}.json`
 		const configPath = path.join(context.root, configName)
-		const fetch = (pin: Pin) => fetchPinned(pin, context.cacheDir, githubSource)
-		const specPath = yield* fetch(entry)
-		const document = yield* decodeDocument(entry.sourceUrl)
+		const located = yield* locate(entry, context.root, context.cacheDir, githubSource)
+		const specPath = located.path
+		const document = yield* decodeDocument(located.document)
 		const configDocument = yield* decodeDocument(`file:///${configName}`)
 
 		yield* fs.makeDirectory(context.work, { recursive: true })
@@ -381,25 +434,22 @@ const runEntry = (entry: Entry, corpusVersion: number, context: Context) =>
 			json: { outDir: jsonDir, specPath },
 			result: path.join(scratch, "generation.json")
 		}
-		const twinPin = entry.twin
+		const twinPin = entry.source.kind === "fetched" ? entry.source.twin : undefined
 		const generated = yield* generateApart(
 			entry.id,
 			twinPin === undefined
 				? request
 				: {
 						...request,
-						twin: { outDir: path.join(scratch, "yaml"), specPath: yield* fetch(twinPin) }
+						twin: {
+							outDir: path.join(scratch, "yaml"),
+							specPath: yield* fetchPinned(twinPin, context.cacheDir, githubSource)
+						}
 					}
 		)
 		const { twin } = generated
 
-		yield* spawn(
-			entry.id,
-			"install",
-			["pnpm", "install", "--prefer-offline", "--ignore-scripts", "--ignore-workspace"],
-			{ cwd: jsonDir }
-		)
-		yield* spawn(entry.id, "build", ["pnpm", "run", "build"], { cwd: jsonDir })
+		yield* buildPackage(entry.id, jsonDir, context.build)
 
 		const manifest = yield* fs.readFileString(path.join(jsonDir, "package.json"))
 		const { bin } = yield* Schema.decodeEffect(
@@ -460,11 +510,19 @@ const runEntry = (entry: Entry, corpusVersion: number, context: Context) =>
 			twinEquality: { checked: twin.checked, equal: twin.checked && twin.differing.length === 0 }
 		})
 
+		const exercised = yield* context.exercise({
+			bin: path.join(jsonDir, binPath),
+			commands,
+			dir: jsonDir,
+			id: entry.id,
+			value: loaded.value
+		})
 		const findings: Findings = {
 			coverage: coverageFindings(entry.id, coverage),
 			other: [
 				...(verdict.verdict === "refused" ? [`${entry.id}: verdict is refused`] : []),
-				...Arr.map(twin.differing, (file) => `${entry.id}: YAML twin differs at ${file}`)
+				...Arr.map(twin.differing, (file) => `${entry.id}: YAML twin differs at ${file}`),
+				...exercised
 			]
 		}
 		const summary = Arr.join(
@@ -529,7 +587,7 @@ const refusedFinding = (id: string, refused: GenerateRefused): Findings => ({
  * `ci` entry has a config and a verdict (design 8.2). A failed step is a finding, so the other
  * selected specs still run and are reported. Returns the run's findings.
  */
-const verdictFor = (entry: Entry, corpusVersion: number, context: Context, check: boolean) =>
+export const verdictFor = (entry: Entry, corpusVersion: number, context: Context, check: boolean) =>
 	Effect.gen(function* verdictOne() {
 		const fs = yield* FileSystem.FileSystem
 		const path = yield* Path.Path
@@ -675,9 +733,11 @@ const run = (options: Options) =>
 				: path.resolve(options.root)
 		const cache = yield* Config.option(Config.String("CORPUS_CACHE"))
 		const context: Context = {
+			build: "installed",
 			cacheDir: Option.getOrElse(cache, () =>
 				path.join(homedir(), ".cache/effect-openapi-cli-generator")
 			),
+			exercise: () => Effect.succeed([]),
 			out: options.out === undefined ? undefined : path.resolve(options.out),
 			root,
 			work: path.join(root, "work")

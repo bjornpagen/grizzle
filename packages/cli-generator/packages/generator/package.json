@@ -29,6 +29,7 @@
 		"superlint": "node scripts/ratchet.ts superlint",
 		"oxlint": "node scripts/ratchet.ts oxlint",
 		"runtime-gate": "node scripts/runtime-gate.ts",
+		"benchmark": "node corpus/tools/benchmark.ts",
 		"test": "vitest run",
 		"corpus": "scripts/memguard.sh 6144 -- node corpus/tools/run.ts --check",
 		"ratchet:lower": "node scripts/ratchet.ts typecheck --lower && node scripts/ratchet.ts superlint --lower && node scripts/ratchet.ts oxlint --lower"

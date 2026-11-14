@@ -22,6 +22,7 @@
 		"packages/generator/src/validate/schemas/*.json",
 		"packages/generator/test/fixtures/**",
 		"packages/generator/corpus/fixtures/**",
+		"packages/generator/corpus/specs/**",
 		"packages/generator/corpus/verdicts/**"
 	]
 }
