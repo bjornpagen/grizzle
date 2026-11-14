@@ -18,7 +18,8 @@
  * - **key**: a key over a side of three arms, each a key's value read off an L1, an L2 under an unblocked L1, or an L3
  *   at the end of the path.
  *
- * - **Equivalence:** each case draws a shape and a history of direct SQL transactions at SERIALIZABLE over keys 1 and 2
+ * - **Equivalence:** one search per shape, each with the budget of its own, so a shape added takes none of another's;
+ *   each case draws a history of direct SQL transactions at SERIALIZABLE over keys 1 and 2
  *   and ids 1 to 3: chains of three links, marks, blocks, deletes of one row or of a link and its children at once,
  *   and updates of a link's parent or value. Each transaction, before its triggers run, runs the rule's whole violation
  *   query, the one the migration that adds the rule runs over every row (deploy/snapshot/violation.ts lawChecks), read
@@ -67,6 +68,7 @@ import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "ef
 import { parsePlan, rowsRead } from "#bench/harness/explain.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -349,10 +351,13 @@ const opGen: Gen<Op> = weighted<Op>([
 	]
 ])
 
-const caseGen: Gen<Case> = (s) => ({
-	shape: s.draw(element(shapes)),
-	history: s.draw(array(array(opGen, { min: 1, max: 3 }), { min: 3, max: 10 }))
-})
+/** A case of one shape: a history drawn for it. */
+const caseGen =
+	(shape: Shape): Gen<Case> =>
+	(s) => ({
+		shape,
+		history: s.draw(array(array(opGen, { min: 1, max: 3 }), { min: 3, max: 10 }))
+	})
 
 /** The statements of one write on `seat`. */
 const statementsOf = (seat: Seat, op: Op): ReadonlyArray<string> => {
@@ -774,53 +779,66 @@ const footprints = (seat: Seat, k: number, from: number, to: number) =>
 		return yield* Effect.forEach(touchedOf(seat, k), (touched) => footprintOf(seat, touched))
 	})
 
+/**
+ * The refusals and commits a shape's search must reach: every shape commits and is refused by its rule, and a delete of
+ * single rows alone is refused; the three shapes whose rule is a containment are also refused once a link and its
+ * children are deleted at once and once a block is inserted, and commit a key only a later arm of the target holds.
+ * A key's rule is broken only by facts added, so a delete of links or an inserted block, which withdraw facts, never
+ * refuses it, and its target is no side of arms.
+ */
+const requiredOf = (shape: Shape): NonEmptyReadonlyArray<EquivalenceFeature> =>
+	shape === "key"
+		? [
+				"committed",
+				"refused by key",
+				"refused once rows were deleted one at a time, and nothing else"
+			]
+		: [
+				"committed",
+				`refused by ${shape}`,
+				"refused once a link and its children were deleted at once, and nothing else",
+				"refused once a block was inserted",
+				"refused once rows were deleted one at a time, and nothing else",
+				"committed a needed key no first target arm holds"
+			]
+
 layer(Substrate.layer, { excludeTestServices: true })(
 	"a rule over a query's triggers, seeded at the touched row's key",
 	(it) => {
-		it.effect(
-			"commit exactly the transactions whose state the rule's whole check finds lawful, refusing the rest by the rule",
-			(ctx) =>
-				searched(
-					ctx,
-					Effect.gen(function* () {
-						const installed = yield* Effect.forEach(shapes, installShape)
-						const seatOf = (shape: Shape): Installed =>
-							defined(
-								Arr.findFirst(installed, (i) => i.shape === shape).pipe(Option.getOrUndefined),
-								`${shape} is installed`
-							)
-						return yield* explore(
-							{
-								suite: "laws/rule-seeding",
-								draw: drawn(caseGen),
-								literal: Formatter.format,
-								oracle: {
-									kind: "postgresql",
-									name: "the rule's whole violation query, the migration's check over every row, unseeded: a transaction commits exactly when it finds nothing in the state the transaction leaves"
+		for (const shape of shapes) {
+			it.effect(
+				`commit exactly the transactions whose state the rule's whole check finds lawful, refusing the rest by the rule: ${shape}`,
+				(ctx) =>
+					searched(
+						ctx,
+						Effect.gen(function* () {
+							const installed = yield* installShape(shape)
+							return yield* explore(
+								{
+									suite: `laws/rule-seeding/${shape}`,
+									draw: drawn(caseGen(shape)),
+									literal: Formatter.format,
+									oracle: {
+										kind: "postgresql",
+										name: "the rule's whole violation query, the migration's check over every row, unseeded: a transaction commits exactly when it finds nothing in the state the transaction leaves"
+									},
+									coverage: required<EquivalenceFeature>(requiredOf(shape), {
+										cases: 200,
+										sense: notesOnly
+									}),
+									kept: [],
+									runs: 80,
+									shrink: { kind: "bounded", candidates: 200 },
+									concurrency: 1,
+									steerEvery: 16,
+									caseHang
 								},
-								coverage: required<EquivalenceFeature>(
-									[
-										"committed",
-										...Arr.map(shapes, (s) => `refused by ${s}` as const),
-										"refused once a link and its children were deleted at once, and nothing else",
-										"refused once rows were deleted one at a time, and nothing else",
-										"refused once a block was inserted",
-										"committed a needed key no first target arm holds"
-									],
-									{ cases: 200, sense: notesOnly }
-								),
-								kept: [],
-								runs: 80,
-								shrink: { kind: "bounded", candidates: 200 },
-								concurrency: 1,
-								steerEvery: 16,
-								caseHang
-							},
-							(c, search) => judgeHistory(seatOf(c.shape), c, search.note)
-						)
-					})
-				)
-		)
+								(c, search) => judgeHistory(installed, c, search.note)
+							)
+						})
+					)
+			)
+		}
 
 		it.effect(
 			"read the same rows and take the same SIRead locks beside hundreds more keys, none on a whole relation",
