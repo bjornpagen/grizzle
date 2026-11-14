@@ -53,7 +53,11 @@ import { printType, spellingOf } from "#compiler/sql/print.ts"
 import { identityHooks, transformExpr, transformStatement } from "#compiler/sql/transform.ts"
 import type { Holes, WildOperator } from "#test/support/kernel/sqlgen.ts"
 import { noHoles } from "#test/support/kernel/sqlgen.ts"
-import { type auditStatementViolations, isUnitRead } from "#test/support/oracle/verify/sql.ts"
+import {
+	type auditStatementViolations,
+	isUnitRead,
+	meetsStoredRow
+} from "#test/support/oracle/verify/sql.ts"
 import { transformOperand } from "#test/support/sql.ts"
 
 /**
@@ -1124,6 +1128,41 @@ const requiredBreakTable = breakTable([
 									returning.with(k, {
 										...t,
 										expr: { kind: "returning", side: "old", column: t.expr.column }
+									})
+								)
+							]
+						: []
+				)
+			})
+		}
+	},
+	{
+		name: "old. under IS TRUE in an INSERT that returns no stored row, where every old is NULL",
+		rule: "context",
+		holes: {
+			...noHoles,
+			statement: writes((w) => {
+				if (w.kind !== "insert" || meetsStoredRow(w)) {
+					return []
+				}
+				const returning = w.returning
+				return Arr.flatMap(returning, (t, k) =>
+					t.expr.kind === "column"
+						? [
+								withReturning(
+									w,
+									returning.with(k, {
+										...t,
+										expr: {
+											kind: "isTrue",
+											expr: {
+												kind: "binary",
+												op: "=",
+												left: { kind: "returning", side: "old", column: t.expr.column },
+												right: { kind: "returning", side: "new", column: t.expr.column },
+												schema: undefined
+											}
+										}
 									})
 								)
 							]

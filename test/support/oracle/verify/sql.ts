@@ -251,10 +251,17 @@ interface ExprContext {
 	readonly excluded: boolean
 	/**
 	 * The row images RETURNING may name: only those every returned row has, since PostgreSQL returns NULL for an
-	 * absent one. UPDATE has both; DELETE only old; MERGE old unless it inserts and new unless it
+	 * absent one. UPDATE has both; DELETE only old; INSERT only new; MERGE old unless it inserts and new unless it
 	 * deletes. Undefined outside RETURNING.
 	 */
 	readonly returningSides: ReadonlySet<"old" | "new"> | undefined
+	/**
+	 * The row images RETURNING may name under IS TRUE, which reads the NULL of a row lacking one as false: an INSERT's
+	 * old besides its new where its ON CONFLICT DO SELECT or DO UPDATE returns the stored row it meets
+	 * (`meetsStoredRow`), whose old is that row and is NULL on a row it inserted (PostgreSQL 19 INSERT's RETURNING;
+	 * write/insert/protocol.ts's met marker). Undefined where they are `returningSides`.
+	 */
+	readonly underIsTrue: ReadonlySet<"old" | "new"> | undefined
 	/** Whether merge_action() is in reach: inside MERGE ... RETURNING. */
 	readonly mergeAction: boolean
 	/** The PL/pgSQL variables in scope, or undefined outside PL/pgSQL. */
@@ -277,6 +284,7 @@ const context = (
 	tableColumns: undefined,
 	excluded: false,
 	returningSides: undefined,
+	underIsTrue: undefined,
 	mergeAction: false,
 	plVars
 })
@@ -740,6 +748,13 @@ class StatementAuditor {
 			case "negate":
 			case "not":
 			case "isTrue":
+				this.at("expr", () => {
+					this.expr(
+						e.expr,
+						ctx.underIsTrue === undefined ? ctx : { ...ctx, returningSides: ctx.underIsTrue }
+					)
+				})
+				return
 			case "complement":
 				this.at("expr", () => {
 					this.expr(e.expr, ctx)
@@ -1752,7 +1767,15 @@ class StatementAuditor {
 				}
 			})
 		}
-		this.returning(insert.returning, context("query", scope, ctes, plVars), topLevel)
+		this.returning(
+			insert.returning,
+			{
+				...context("query", scope, ctes, plVars),
+				returningSides: newSide,
+				underIsTrue: meetsStoredRow(insert) ? bothSides : undefined
+			},
+			topLevel
+		)
 	}
 
 	assignments(
@@ -2822,6 +2845,14 @@ class StatementAuditor {
 
 const bothSides: ReadonlySet<"old" | "new"> = new Set(["old", "new"])
 const oldSide: ReadonlySet<"old" | "new"> = new Set(["old"])
+const newSide: ReadonlySet<"old" | "new"> = new Set(["new"])
+
+/**
+ * Whether an INSERT returns the stored row its arbiter meets: its ON CONFLICT is DO SELECT or DO UPDATE, so its
+ * RETURNING's old is that row, and NULL on a row it inserted.
+ */
+export const meetsStoredRow = (insert: Insert): boolean =>
+	insert.onConflict?.kind === "columns" && insert.onConflict.action.kind !== "doNothing"
 
 /** A builtin text column or domain is collatable and names the fixed collation; no other builtin type is collatable. */
 const isBuiltinText = (type: TypeRef): boolean => type.kind === "builtin" && type.name === "text"
@@ -3018,7 +3049,8 @@ export interface StatementAudit {
  *   every relation alias defined once per statement, explicit column lists on CTEs and derived tables, every column
  *   reference qualified by a visible relation, generated names everywhere but the outermost output; contiguous,
  *   consistently typed parameters and none in DDL; identifier and literal validity; the fixed collation on every
- *   column and domain of type text; RETURNING old./new. only where every returned row has that version; and no query
+ *   column and domain of type text; RETURNING old./new. only where every returned row has that version, or under IS
+ *   TRUE an INSERT's old where its ON CONFLICT DO SELECT or DO UPDATE returns the stored row it meets; and no query
  *   body that PostgreSQL would merge with its enclosing query's clauses, through any chain of parentheses; a
  *   data-modifying CTE only in the statement's own WITH; MERGE WHEN clauses and RETURNING naming only the rows their
  *   match has; UNION arms named by position with the union's names; no builtin function outside the catalogue of

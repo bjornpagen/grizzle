@@ -858,7 +858,7 @@ export const buildInsert = (
 				provedCore(
 					"keyed",
 					[
-						...outFields.map((f) => target(requested(f))),
+						...outFields.map((f) => targetAs(requested(f), retCol(f))),
 						targetAs(integer(verdictClass.raised), cv),
 						targetAs(lit.bool(true), c9),
 						...zero

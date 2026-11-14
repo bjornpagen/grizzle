@@ -46,12 +46,17 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { decode, encode, everyProperty, noRevivers } from "#compiler/core/canonical.ts"
 import { writeJsonText } from "#compiler/deploy/snapshot/build.ts"
-import type { CteBody, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
+import type { CteBody, Expr, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
 import { builtinType } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { type CarrierDeclaration, carrierName, emptyNameMap } from "#compiler/sql/naming.ts"
 import { printStatement, printType } from "#compiler/sql/print.ts"
-import { identityHooks, statementParams, transformStatement } from "#compiler/sql/transform.ts"
+import {
+	identityHooks,
+	statementParams,
+	transformExpr,
+	transformStatement
+} from "#compiler/sql/transform.ts"
 import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { type ShapeFeature, shapeFeatures, shapeOf } from "#test/support/kernel/shape.ts"
 import { breaks, oneHole } from "#test/support/kernel/sqlgen.ts"
@@ -61,6 +66,7 @@ import {
 	auditStatementDetailed,
 	auditStatementViolations,
 	auditTextViolations,
+	meetsStoredRow,
 	violationError
 } from "#test/support/oracle/verify/sql.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
@@ -282,6 +288,7 @@ type AuditLiveFeature =
 	| "float literal special"
 	| "float literal negative zero"
 	| "overriding system value"
+	| "old under IS TRUE in an INSERT's RETURNING"
 
 /** What the audit-live suite notes of a draw: its own features, and each statement's kind, shape and float literals. */
 const auditLiveFeatures = (live: Live): ReadonlyArray<AuditLiveFeature> => [
@@ -303,14 +310,36 @@ const auditLiveFeatures = (live: Live): ReadonlyArray<AuditLiveFeature> => [
 	})
 ]
 
+/** Whether a write writes an explicit serial: an INSERT with OVERRIDING SYSTEM VALUE. */
 const explicit = (w: SqlStatement | CteBody): boolean =>
 	w.kind === "insert" && w.overriding !== undefined
 
+/** Whether an expression names a row's old image. */
+const namesOld = (e: Expr): boolean => {
+	const sides: Array<"old" | "new"> = []
+	transformExpr(e, {
+		...identityHooks,
+		expr: (x) => {
+			if (x.kind === "returning") {
+				sides.push(x.side)
+			}
+			return x
+		}
+	})
+	return sides.includes("old")
+}
+
 /**
- * Whether a statement or a data-modifying CTE of its WITH, the only place PostgreSQL admits one, writes an explicit
- * serial: an INSERT with OVERRIDING SYSTEM VALUE.
+ * Whether a write is an INSERT whose RETURNING names old under IS TRUE where its ON CONFLICT returns the stored row it
+ * meets (`meetsStoredRow`), as write/insert/protocol.ts's met marker does.
  */
-const overridesSerial = (s: SqlStatement): boolean => {
+const marksMet = (w: SqlStatement | CteBody): boolean =>
+	w.kind === "insert" &&
+	meetsStoredRow(w) &&
+	Arr.some(w.returning, (t) => t.expr.kind === "isTrue" && namesOld(t.expr.expr))
+
+/** Whether a statement or a data-modifying CTE of its WITH, the only place PostgreSQL admits one, is a write `holds` holds of. */
+const writesWhere = (s: SqlStatement, holds: (w: SqlStatement | CteBody) => boolean): boolean => {
 	const ctes =
 		s.kind === "select" ||
 		s.kind === "insert" ||
@@ -319,7 +348,7 @@ const overridesSerial = (s: SqlStatement): boolean => {
 		s.kind === "merge"
 			? (s.with?.ctes ?? [])
 			: []
-	return explicit(s) || Arr.some(ctes, (c) => explicit(c.query))
+	return holds(s) || Arr.some(ctes, (c) => holds(c.query))
 }
 
 /** What a break case reached: each break, each rule, and each rule beside the kind of statement it broke. */
@@ -449,7 +478,8 @@ describe("every statement a generated write program places", () => {
 				"cte insert",
 				"cte delete",
 				"from arrays",
-				"overriding system value"
+				"overriding system value",
+				"old under IS TRUE in an INSERT's RETURNING"
 			]
 			return searched(
 				ctx,
@@ -479,8 +509,11 @@ describe("every statement a generated write program places", () => {
 								universal(twinned)
 								c.note(`statement ${twinned.statement.kind}`)
 								c.noteAll(shapeFeatures(shapeOf(twinned.statement)))
-								if (overridesSerial(twinned.statement)) {
+								if (writesWhere(twinned.statement, explicit)) {
 									c.note("overriding system value")
+								}
+								if (writesWhere(twinned.statement, marksMet)) {
+									c.note("old under IS TRUE in an INSERT's RETURNING")
 								}
 							}
 							for (const { ast, text } of live.emitted) {
